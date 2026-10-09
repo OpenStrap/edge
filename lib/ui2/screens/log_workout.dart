@@ -205,8 +205,12 @@ class _LogWorkoutState extends State<LogWorkout> {
         existing: _spans,
         // A retime must not collide with itself; a new entry's id is derived
         // from its start second, so re-logging the same window updates that
-        // row rather than colliding with it.
-        editingId: widget.sessionId ?? manualSessionId(_startSec),
+        // row rather than colliding with it. Not when scoring an import: a
+        // session already at that start would be overwritten by the scored
+        // copy (and deleted with it if that saves unscored), so every saved
+        // session counts as a collision.
+        editingId: widget.sessionId ??
+            (widget.importedUuid == null ? manualSessionId(_startSec) : null),
       );
 
   Future<void> _pickDate() async {
@@ -288,6 +292,17 @@ class _LogWorkoutState extends State<LogWorkout> {
         app?.insightsRevision.value++;
         if (mounted) nav.pop(true);
         return;
+      }
+      if (widget.importedUuid != null) {
+        // The spans this form opened with may still have been loading: check
+        // the window against what is saved now, before writing over it.
+        final spans = await repo.savedSessionSpans();
+        if (!mounted) return;
+        setState(() => _spans = spans);
+        if (_invalid != null) {
+          setState(() => _saving = false);
+          return;
+        }
       }
       final r = widget.sessionId == null
           ? await repo.logManualWorkout(
@@ -559,10 +574,13 @@ Future<bool> replaceImportWithScored(
     await repo.deleteWorkout(id);
     return false;
   }
+  // Superseded first: a tombstone left by a failed supersede would have the
+  // next import pass delete an import that is still the only copy. The other
+  // order's failure only re-imports it beside the scored session.
+  await LocalDb.supersedeImportedWorkout(uuid, id);
   // The original already sits in the health store; exporting ours too would
   // put the same workout there twice.
   await rememberDeletedUuid(uuid);
-  await LocalDb.supersedeImportedWorkout(uuid, id);
   return true;
 }
 
