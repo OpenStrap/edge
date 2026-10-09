@@ -16,6 +16,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -490,21 +491,30 @@ Future<String?> exportHeartRateCsv(String from, String to,
     for (final d in await LocalDb.availableDayIds())
       if (d.compareTo(from) >= 0 && d.compareTo(to) <= 0) d,
   ]..sort();
+  // Provenance is keyed by the version that wrote it: a day's stamp counts
+  // only against the day_result of that same version, so a re-derive landing
+  // between these reads leaves the source empty (unknown), never another
+  // version's.
   final source = {
     for (final r in await db.rawQuery(
-        'SELECT date, source FROM metric_series_version '
+        'SELECT date, algo_version, source FROM metric_series_version '
         'WHERE date >= ? AND date <= ?',
         [from, to]))
-      r['date'] as String: r['source'] as String?,
+      (r['date'] as String, (r['algo_version'] as num?)?.toInt()):
+          r['source'] as String?,
   };
   final rows = <Map<String, Object?>>[];
   for (final day in days) {
-    final b = SeriesCodec.decodePayloadJson(
-        (await LocalDb.dayResult(day))?['payload_json']);
+    final res = await LocalDb.dayResult(day);
+    final b = SeriesCodec.decodePayloadJson(res?['payload_json']);
     final curve = (b?['series'] as Map?)?['hr_curve'];
-    if (curve is List) rows.addAll(heartRateMinuteRows(curve, source[day]));
+    final v = (res?['algo_version'] as num?)?.toInt();
+    if (curve is List) rows.addAll(heartRateMinuteRows(curve, source[(day, v)]));
   }
   if (rows.isEmpty) return null;
+  // A long range is hundreds of thousands of rows: render off the UI isolate.
+  final csv =
+      await Isolate.run(() => renderCsv(kHeartRateCsvColumns, rows));
   final (dir, stamp) = await _newRunDir(now);
   final file =
       File(p.join(dir.path, 'openstrap_heart_rate_${from}_${to}_$stamp.csv'));
@@ -512,7 +522,7 @@ Future<String?> exportHeartRateCsv(String from, String to,
     0xEF,
     0xBB,
     0xBF,
-    ...utf8.encode(renderCsv(kHeartRateCsvColumns, rows)),
+    ...utf8.encode(csv),
   ]);
   return file.path;
 }

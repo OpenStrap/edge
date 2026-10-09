@@ -9,7 +9,7 @@ void main() {
     final g = DayGraph(
       dayStart: 1000,
       hr: [for (var i = 0; i < 10; i++) i.toDouble()],
-      movement: [for (var i = 0; i < 10; i++) null],
+      movement: [for (var i = 0; i < 10; i++) i.isEven ? i / 10 : null],
       rest: const [(0, 4, C.blue)],
       work: const [(6, 9, C.orange), (9, 10, C.orange)],
     );
@@ -17,6 +17,7 @@ void main() {
     test('slices every lane and re-bases the clock', () {
       final w = g.window(3, 8);
       expect(w.hr, [3, 4, 5, 6, 7]);
+      expect(w.movement, [null, 0.4, null, 0.6, null]);
       expect(w.slots, 5);
       expect(w.dayStart, 1000 + 3 * 60);
     });
@@ -38,6 +39,22 @@ void main() {
         {'rec_ts': 104, 'hr': 70}, // at the exclusive end
       ], 100, 104);
       expect(s, [60, null, null, 62]);
+    });
+
+    test('a contended second takes its owner, as the stored curve did', () {
+      final rows = [
+        {'rec_ts': 100, 'hr': 60, 'device_id': ''},
+        {'rec_ts': 100, 'hr': 90, 'device_id': 'ring'},
+        {'rec_ts': 101, 'hr': 61, 'device_id': ''},
+        {'rec_ts': 101, 'hr': 91, 'device_id': 'ring'},
+        {'rec_ts': 102, 'hr': 92, 'device_id': 'ring'}, // gap span: kept
+      ];
+      final owners = [
+        (start: 100, end: 101, deviceId: 'ring'),
+        (start: 101, end: 102, deviceId: ''),
+        (start: 102, end: 103, deviceId: null),
+      ];
+      expect(perSecondHr(rows, 100, 103, owners: owners), [90, 61, 92]);
     });
   });
 

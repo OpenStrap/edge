@@ -24,6 +24,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../data/auto_backup.dart';
 import '../../data/csv_export.dart';
+import '../../data/day_label.dart' show dayLabelOf;
 import '../../data/db.dart';
 import '../../import/backup_crypto.dart';
 import '../../l10n/app_localizations.dart';
@@ -150,8 +151,8 @@ class _DataScreenState extends State<DataScreen> {
     );
     if (range == null || !mounted) return ('', false);
     final origin = shareOrigin(context);
-    String label(DateTime d) => d.toIso8601String().substring(0, 10);
-    final path = await exportHeartRateCsv(label(range.start), label(range.end));
+    final path = await exportHeartRateCsv(
+        dayLabelOf(range.start), dayLabelOf(range.end));
     if (path == null) {
       return (l?.dataNothingToExportYet ?? 'Nothing to export yet.', false);
     }

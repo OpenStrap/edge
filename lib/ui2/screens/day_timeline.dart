@@ -30,6 +30,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/signals.dart' show InputSignal;
+import '../../data/coverage_resolver.dart' show OwnedSpan, coverageFromJson, spanAt;
 import '../../data/day_label.dart' show localDayEndSec;
 import '../../data/db.dart';
 import '../../data/journal_fields.dart';
@@ -995,15 +996,24 @@ Widget? dayGraphCard(BuildContext c, DayGraph g,
 /// at the same density as the stored per-minute one.
 const int kFineWindowMinutes = 120;
 
-/// [rows] (`rec_ts`, `hr`) as one slot per second of [fromSec, toSec), `null`
-/// where nothing was recorded. hr 0 is "no lock", never a reading.
+/// [rows] (`rec_ts`, `hr`, `device_id`) as one slot per second of
+/// [fromSec, toSec), `null` where nothing was recorded. hr 0 is "no lock",
+/// never a reading. [owners] is the day's stored HR ownership: a second some
+/// device owns takes only that device's row, the same pick the stored curve
+/// made, so two devices on one second never race for the slot.
 List<double?> perSecondHr(
-    List<Map<String, Object?>> rows, int fromSec, int toSec) {
+    List<Map<String, Object?>> rows, int fromSec, int toSec,
+    {List<OwnedSpan> owners = const []}) {
   final out = List<double?>.filled(toSec > fromSec ? toSec - fromSec : 0, null);
   for (final r in rows) {
     final t = (r['rec_ts'] as num?)?.toInt();
     final v = (r['hr'] as num?)?.toDouble();
     if (t == null || v == null || v <= 0) continue;
+    final owner = owners.isEmpty ? null : spanAt(owners, t)?.deviceId;
+    if (owner != null &&
+        owner != ((r['device_id'] as String?) ?? LocalDb.kPrimaryDeviceId)) {
+      continue;
+    }
     final i = t - fromSec;
     if (i >= 0 && i < out.length) out[i] = v;
   }
@@ -1016,10 +1026,14 @@ List<double?> perSecondHr(
 /// days behind the newest sync, so on an older day it says it is still
 /// showing minutes rather than pretending to more detail.
 class _DayGraphZoom extends StatefulWidget {
-  const _DayGraphZoom(this.graph, {super.key, this.fineDetail = true});
+  const _DayGraphZoom(this.graph,
+      {super.key, this.fineDetail = true, this.owners = const []});
 
   final DayGraph graph;
   final bool fineDetail;
+
+  /// The day's HR ownership spans, empty on a one-device day.
+  final List<OwnedSpan> owners;
 
   @override
   State<_DayGraphZoom> createState() => _ZoomState();
@@ -1067,12 +1081,12 @@ class _ZoomState extends State<_DayGraphZoom> {
     try {
       final db = await LocalDb.instance;
       final rows = await db.rawQuery(
-        'SELECT rec_ts, hr FROM decoded_onehz '
+        'SELECT rec_ts, hr, device_id FROM decoded_onehz '
         'WHERE rec_ts >= ? AND rec_ts < ? AND hr > 0 AND ${derivableSourceSql()} '
         'ORDER BY rec_ts ASC',
         [from, to],
       );
-      final s = perSecondHr(rows, from, to);
+      final s = perSecondHr(rows, from, to, owners: widget.owners);
       if (s.any((v) => v != null)) fine = s;
     } catch (_) {
       // No per-second rows is the same answer as pruned ones: minutes it is.
@@ -1156,7 +1170,10 @@ List<Widget> timelineBody(BuildContext c, TimelineData d,
   final p = P.of(c);
   final l = AppLocalizations.of(c);
   final graph = d.graph.hasCurve
-      ? _DayGraphZoom(d.graph, fineDetail: fineDetail, key: ValueKey(d.day))
+      ? _DayGraphZoom(d.graph,
+          fineDetail: fineDetail,
+          owners: coverageFromJson(d.raw?['hr_owner']),
+          key: ValueKey(d.day))
       : null;
   return [
     ?graph,
