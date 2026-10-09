@@ -384,12 +384,12 @@ class PairSensorView extends StatelessWidget {
                       : (l?.pairSensorPairAnother ?? 'Pair another'),
                   Surface(
                     child: Text(
-                      l?.pairSensorExplainer ??
+                      withIosUninstallWarning(c, l?.pairSensorExplainer ??
                           'A sensor is used only while a workout is running, and '
                               'only for heart rate and beat timing. It does not '
                               'replace your band, it is never used overnight, and '
                               'nothing it records feeds a score yet — its readings are '
-                              'stored and shown, and that is all.',
+                              'stored and shown, and that is all.'),
                       style: F.cap.copyWith(color: p.ink3, height: 1.5),
                     ),
                   ),

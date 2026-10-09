@@ -281,6 +281,7 @@
   "pairSensorUsedDuringWorkouts": "Wird beim Training verwendet",
   "pairSensorForgetThisSensor": "Diesen Sensor entfernen",
   "pairSensorForgetThisSensorSub": "Entfernt die Quelle. Bereits erfasste Messwerte bleiben erhalten.",
+  "iosUninstallUnpairsWarning": "Unter iOS hebt das Löschen von OpenStrap auch die Kopplung aller hier gekoppelten Bänder und Sensoren mit dem Telefon auf, sodass auch andere Apps, einschließlich der App des Herstellers, sie verlieren.",
   "pairSensorPairing": "Kopplung läuft…",
   "pairSensorScanDidNotRun": "Die Suche konnte nicht gestartet werden: {error}",
   "pairSensorCouldNotPair": "Gerät konnte nicht gekoppelt werden: {error}",

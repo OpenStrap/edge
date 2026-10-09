@@ -1180,6 +1180,10 @@
   "@pairSensorForgetThisSensorSub": {
     "description": "Row sub: forget sensor."
   },
+  "iosUninstallUnpairsWarning": "On iOS, deleting OpenStrap also unpairs every band and sensor paired here from the phone, so other apps, including the maker's own, lose them too.",
+  "@iosUninstallUnpairsWarning": {
+    "description": "iOS only: AccessorySetupKit pairings are removed by iOS for all apps when OpenStrap is deleted."
+  },
   "pairSensorPairing": "Pairing…",
   "@pairSensorPairing": {
     "description": "Row sub: pairing in progress."
