@@ -939,12 +939,10 @@ class CoachEngine {
 
   static String _daysSummary(Object? weekdays) {
     const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    if (weekdays is! List || weekdays.isEmpty || weekdays.length == 7) {
-      return 'every day';
-    }
-    return weekdays
-        .map((d) => d is num && d >= 1 && d <= 7 ? names[d.toInt() - 1] : '?')
-        .join(', ');
+    final days =
+        CoachActions.medicationWeekdays(weekdays is List ? weekdays : null);
+    if (days.length == 7) return 'every day';
+    return days.map((d) => names[d - 1]).join(', ');
   }
 
   String _statusFor(String name, Map<String, dynamic> args) {

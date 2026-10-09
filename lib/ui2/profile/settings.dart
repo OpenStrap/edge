@@ -1,3 +1,4 @@
+import '../../l10n/display_text.dart';
 // Settings, and editing the profile.
 //
 // Two deliberate departures from the reference design:
@@ -842,10 +843,11 @@ class MoreSettingsView extends StatelessWidget {
                       l?.settingsResetAllDataRowTitle ?? 'Reset all data',
                       danger: true, chevron: false, onTap: onReset),
                 ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -1222,14 +1224,19 @@ class NotificationSettingsView extends StatelessWidget {
                         chevron: false,
                         onTap: () => set(
                             prefs.copyWith(quietEnabled: !prefs.quietEnabled))),
-                    SetRow(LucideIcons.sunset, C.blue,
-                        l?.settingsQuietHoursStartsRowTitle ?? 'Starts',
-                        value: _hhmm(prefs.quietStartMin),
-                        chevron: false,
-                        onTap: () async {
-                          final v = await _pickMinute(c, prefs.quietStartMin);
-                          if (v != null) set(prefs.copyWith(quietStartMin: v));
-                        }),
+                        SetRow(
+                          LucideIcons.sunset,
+                          C.blue,
+                          l?.settingsQuietHoursStartsRowTitle ?? 'Starts',
+                          value: _hhmm(prefs.quietStartMin),
+                          chevron: false,
+                          onTap: () async {
+                            final v = await _pickMinute(c, prefs.quietStartMin);
+                            if (v != null) {
+                              set(prefs.copyWith(quietStartMin: v));
+                            }
+                          },
+                        ),
                     SetRow(LucideIcons.sunrise, C.yellow,
                         l?.settingsQuietHoursEndsRowTitle ?? 'Ends',
                         value: _hhmm(prefs.quietEndMin),
@@ -1256,10 +1263,11 @@ class NotificationSettingsView extends StatelessWidget {
                       'Cancel it on the Alarm screen instead.',
                   icon: LucideIcons.alarmClock,
                 ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -1526,8 +1534,8 @@ class _EditProfileViewState extends State<EditProfileView> {
     final weight = Typed.of(_weight.text);
     final bad = [
       if (age.bad) (l?.settingsAgeFieldLabel ?? 'Age'),
-      if (height.bad) _u.heightLabel,
-      if (weight.bad) _u.weightLabel,
+      if (height.bad) uiText(context, _u.heightLabel),
+      if (weight.bad) uiText(context, _u.weightLabel),
     ];
     if (bad.isNotEmpty) {
       sayUnreadable(context, bad);
@@ -1600,14 +1608,26 @@ class _EditProfileViewState extends State<EditProfileView> {
                 const SizedBox(height: S.x4),
                 _text(c, _age, l?.settingsAgeYearsFieldLabel ?? 'AGE (YEARS)',
                     TextInputType.number),
-                const SizedBox(height: S.x4),
-                _text(c, _height, _u.heightLabel.toUpperCase(),
-                    TextInputType.number),
-                const SizedBox(height: S.x4),
-                _text(c, _weight, _u.weightLabel.toUpperCase(),
-                    TextInputType.number),
-                ..._importBlock(p, c),
-                const SizedBox(height: S.x6),
+                  const SizedBox(height: S.x4),
+                  _text(
+                    c,
+                    _height,
+                    l?.localeName.startsWith('ru') == true
+                        ? uiText(c, _u.heightLabel)
+                        : uiText(c, _u.heightLabel).toUpperCase(),
+                    TextInputType.number,
+                  ),
+                  const SizedBox(height: S.x4),
+                  _text(
+                    c,
+                    _weight,
+                    l?.localeName.startsWith('ru') == true
+                        ? uiText(c, _u.weightLabel)
+                        : uiText(c, _u.weightLabel).toUpperCase(),
+                    TextInputType.number,
+                  ),
+                  ..._importBlock(p, c),
+                  const SizedBox(height: S.x6),
                 StatusCard(
                   l?.settingsFourFieldsTitle ?? 'These four change your numbers',
                   l?.settingsFourFieldsBody ??
@@ -1616,10 +1636,11 @@ class _EditProfileViewState extends State<EditProfileView> {
                           'unavailable.',
                   icon: LucideIcons.info,
                 ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }

@@ -1,3 +1,4 @@
+import '../../l10n/display_text.dart';
 // OBSERVATIONS — the log of every health watch that has ever fired.
 //
 // Named for the card it is a history of: the Observation widget has printed
@@ -102,11 +103,11 @@ class FindingsLog extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(height: S.x5),
-          // THE ONE THING A LOG OWES ITS READER: what it is a log OF. These
-          // entries are worked out from the data on every open rather than
-          // written down when they fired, so a day whose data was later
-          // re-derived changes here with it — including out of existence.
+        const SizedBox(height: S.x5),
+        // THE ONE THING A LOG OWES ITS READER: what it is a log OF. These
+        // entries are worked out from the data on every open rather than
+        // written down when they fired, so a day whose data was later
+        // re-derived changes here with it — including out of existence.
           Text(
             l?.findingsLogDerivedNote ??
                 'Worked out from your own days each time this opens, not '
@@ -114,9 +115,8 @@ class FindingsLog extends StatelessWidget {
                     're-analysed, what it says here changes with it.',
             style: F.cap.copyWith(color: p.ink3, height: 1.5),
           ),
-        ],
       ],
-    );
+    ]);
   }
 }
 
@@ -133,7 +133,7 @@ class FindingRow extends StatelessWidget {
     final p = P.of(c);
     final ink = _ink(p, f);
     return Semantics(
-      label: '${f.title}. ${f.detail}',
+      label: '${uiText(c, f.title)}. ${uiText(c, f.detail)}',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -146,14 +146,19 @@ class FindingRow extends StatelessWidget {
               ),
               const SizedBox(width: S.x2),
               Expanded(
-                child: Text(f.title,
+                child: Text(
+                  uiText(c, f.title),
                     style: F.body.copyWith(
-                        color: p.ink, fontWeight: FontWeight.w600)),
+                        color: p.ink, fontWeight: FontWeight.w600),
+                ),
               ),
             ],
           ),
           const SizedBox(height: S.x2),
-          Text(f.detail, style: F.cap.copyWith(color: p.ink2, height: 1.5)),
+          Text(
+            uiText(c, f.detail),
+            style: F.cap.copyWith(color: p.ink2, height: 1.5),
+          ),
         ],
       ),
     );

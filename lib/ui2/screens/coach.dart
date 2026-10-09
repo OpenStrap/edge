@@ -1,3 +1,4 @@
+import 'coach_text.dart';
 // COACH — the door onto the agentic AI that was already built.
 //
 // `lib/coach` has had a working tool-calling loop for months: read-only SQL over
@@ -17,6 +18,7 @@
 //      painters); everything else is grammar.dart. The one thing that is not is
 //      the markdown body, because there is no house widget for prose.
 
+import '../../l10n/display_text.dart';
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -246,13 +248,16 @@ class _CoachScreenState extends State<CoachScreen> {
       context: context,
       builder: (d) => AlertDialog(
         backgroundColor: p.card,
-        title: Text(req.title, style: F.head.copyWith(color: p.ink)),
+        title: Text(
+          uiText(context, req.title),
+          style: F.head.copyWith(color: p.ink),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              req.summary,
+              coachActionSummary(context, req),
               style: F.body.copyWith(color: p.ink2, height: 1.4),
             ),
             const SizedBox(height: S.x3),
@@ -446,7 +451,10 @@ class _CoachScreenState extends State<CoachScreen> {
                     const SizedBox(width: S.x3),
                     Expanded(
                       child: Text(
-                        _status ?? '',
+                        coachPresentationText(
+                          AppLocalizations.of(context),
+                          _status ?? '',
+                        ),
                         style: F.cap.copyWith(color: p.ink3),
                       ),
                     ),
@@ -722,7 +730,7 @@ class _Bubble extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: S.x4),
           child: StatusCard(
             AppLocalizations.of(c)?.coachErrorTitle ?? 'That did not go through',
-            item.text ?? '',
+            coachPresentationText(AppLocalizations.of(c), item.text ?? ''),
             icon: LucideIcons.triangleAlert,
           ),
         );
@@ -1148,7 +1156,7 @@ class _CoachSetupState extends State<CoachSetup> {
                   ),
                   if (_msg != null) ...[
                     const SizedBox(height: S.x3),
-                    Text(_msg!, style: F.cap.copyWith(color: p.ink3)),
+                    Text(coachPresentationText(l, _msg!), style: F.cap.copyWith(color: p.ink3)),
                   ],
                   const SizedBox(height: S.x4),
                   OsTextField(
@@ -1201,15 +1209,16 @@ class _CoachSetupState extends State<CoachSetup> {
                     const SizedBox(height: S.x4),
                     OsTextField(
                       controller: _timeout,
-                      label: 'Request timeout (seconds)',
+                      label: uiText(c, 'Request timeout (seconds)'),
                       hint: '300',
                       keyboard: TextInputType.number,
                     ),
                     const SizedBox(height: S.x3),
                     Text(
-                      'A local model can take a while to load before its first '
-                      'reply. Default is 5 minutes (300s). Cloud providers use '
-                      'a fixed 2-minute timeout and are not affected by this.',
+                      uiText(
+                        c,
+                        'A local model can take a while to load before its first reply. Default is 5 minutes (300s). Cloud providers use a fixed 2-minute timeout and are not affected by this.',
+                      ),
                       style: F.cap.copyWith(color: p.ink3, height: 1.5),
                     ),
                   ],

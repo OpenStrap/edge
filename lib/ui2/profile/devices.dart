@@ -36,6 +36,7 @@
 // derives from it yet, because no one on this project has held one
 // (ASSUMPTIONS R6).
 
+import '../../l10n/display_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart'
     show BluetoothDevice;
@@ -292,11 +293,12 @@ class DeviceFilter extends StatelessWidget {
             for (final o in options)
               if (!o.selectable)
                 o.reason == null ? o.label : '${o.label} · ${o.reason}',
-          ].join('   '),
-          style: F.over.copyWith(color: p.ink3),
-        ),
+            ].join('   '),
+            style: F.over.copyWith(color: p.ink3),
+          ),
+        ],
       ],
-    ]);
+    );
   }
 }
 
@@ -434,7 +436,11 @@ class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
                               }
                               await _load();
                             },
-                            semanticLabel: 'Reset ${signalDisplayName(c, sig)} '
+                                semanticLabel:
+                                    l?.devicesResetSourceSemantics(
+                                      signalDisplayName(c, sig),
+                                    ) ??
+                                    'Reset ${signalDisplayName(c, sig)} '
                                 'to the default order',
                             child: Padding(
                               padding: const EdgeInsets.symmetric(vertical: S.x2),
@@ -455,10 +461,11 @@ class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
                             'calculated with.',
                     style: F.over.copyWith(color: p.ink3),
                   ),
-                ],
+                  ],
+                ),
               ),
-            ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -790,6 +797,12 @@ const List<NotYet> kNotYet = [
 class HealthSource {
   final String name, kind;
 
+  /// Only application-owned fallback names may be translated.
+  final bool nameIsFallback;
+  String displayName(BuildContext c) => nameIsFallback ? uiText(c, name) : name;
+  String displayKind(BuildContext c) =>
+      kind.split(' · ').map((part) => uiText(c, part)).join(' · ');
+
   /// Where this source sits on the quality ladder, or NULL when it has no
   /// place on it.
   ///
@@ -846,6 +859,7 @@ class HealthSource {
 
   const HealthSource({
     required this.name,
+    this.nameIsFallback = false,
     required this.kind,
     required this.tier,
     required this.icon,
@@ -948,14 +962,14 @@ SourceTier? tierNamed(Object? name) {
 /// listener in the app at 1 Hz for the duration of a workout, which is the
 /// rebuild storm this screen has already been fixed for once.
 List<HealthSource> liveSources(AppState app,
-        {Set<String> liveAdapterIds = const {}}) =>
-    [
-      if (app.isPaired)
-        HealthSource(
-          name: app.strapName ?? 'Your band',
-          // The registry's own word for this band, or just what it is when the
-          // link has not said. Never an assertion that an unnamed band is a
-          // WHOOP 4.
+        {Set<String> liveAdapterIds = const {}}) => [
+  if (app.isPaired)
+    HealthSource(
+      name: app.strapName ?? 'Your band',
+      nameIsFallback: app.strapName == null,
+      // The registry's own word for this band, or just what it is when the
+      // link has not said. Never an assertion that an unnamed band is a
+      // WHOOP 4.
           kind: [
             ?bandLabelFor(app.device.generation),
             'wrist optical',
@@ -984,31 +998,33 @@ List<HealthSource> liveSources(AppState app,
           name: (r['label'] as String?) ??
               bandLabelFor(r['adapter_id'] as String?) ??
               'Paired sensor',
-          kind: bandLabelFor(r['adapter_id'] as String?) ?? 'Unknown sensor',
-          // Null when the column is blank (a source with nothing to rank) or
-          // names a rung this build does not have. Either way it is a refusal,
-          // never the nearest rung we happen to know.
-          tier: tierNamed(r['tier']),
-          icon: sensorIcon(r['adapter_id'] as String?),
-          // `liveAdapterIds` is keyed by adapter so a live PPI stream never
-          // marks an unrelated paired Oura row as connected just because
-          // some sensor happens to be live right now.
-          connected: liveAdapterIds.contains(r['adapter_id']),
-          isBand: false,
-          deviceId: r['id'] as String?,
-          family: r['adapter_id'] as String?,
-        ),
-      if (app.phoneStepsEnabled)
-        HealthSource(
-          name: 'This phone',
-          kind: 'Motion coprocessor',
-          tier: SourceTier.phone,
-          icon: LucideIcons.smartphone,
-          // NOT the toggle. On iOS `requestAuthorization` reports success even
-          // when the user denied READ, so the toggle sits on while every read
-          // comes back empty — this row used to hardcode `true` and claim a
-          // source that was measuring nothing. Steps actually banked is the
-          // only evidence the phone is a source.
+      kind: bandLabelFor(r['adapter_id'] as String?) ?? 'Unknown sensor',
+      nameIsFallback: r['label'] == null,
+      // Null when the column is blank (a source with nothing to rank) or
+      // names a rung this build does not have. Either way it is a refusal,
+      // never the nearest rung we happen to know.
+      tier: tierNamed(r['tier']),
+      icon: sensorIcon(r['adapter_id'] as String?),
+      // `liveAdapterIds` is keyed by adapter so a live PPI stream never
+      // marks an unrelated paired Oura row as connected just because
+      // some sensor happens to be live right now.
+      connected: liveAdapterIds.contains(r['adapter_id']),
+      isBand: false,
+      deviceId: r['id'] as String?,
+      family: r['adapter_id'] as String?,
+    ),
+  if (app.phoneStepsEnabled)
+    HealthSource(
+      name: 'This phone',
+      nameIsFallback: true,
+      kind: 'Motion coprocessor',
+      tier: SourceTier.phone,
+      icon: LucideIcons.smartphone,
+      // NOT the toggle. On iOS `requestAuthorization` reports success even
+      // when the user denied READ, so the toggle sits on while every read
+      // comes back empty — this row used to hardcode `true` and claim a
+      // source that was measuring nothing. Steps actually banked is the
+      // only evidence the phone is a source.
           connected: app.phoneStepsLastSyncedDays != null &&
               (app.phoneStepsLastTotal ?? 0) > 0,
         ),
@@ -1446,9 +1462,10 @@ Future<void> showRestartRequiredSheet(BuildContext c) async {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x4),
         child: Text(
-          'iOS can only show the system pairing sheet before the app has used '
-          'Bluetooth. Close OpenStrap completely, then reopen it — the sheet '
-          'appears on its own.',
+          uiText(
+            c,
+            'iOS can only show the system pairing sheet before the app has used Bluetooth. Close OpenStrap completely, then reopen it — the sheet appears on its own.',
+          ),
           style: F.body.copyWith(color: p.ink),
         ),
       ),
@@ -1654,10 +1671,11 @@ class MyDevicesView extends StatelessWidget {
                     TierRow(t, filled: sources.any((s) => s.tier == t)),
                     const SizedBox(height: S.x3),
                   ],
-              ],
+                ],
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -1720,6 +1738,15 @@ class SourceRow extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final battery = s.batteryPct;
+    final stacked = bigText(c);
+    final tierBadge = s.tier == null
+        ? null
+        : Pill(
+            AppLocalizations.of(c)?.devicesTierRank(s.tier!.rank) ??
+                'Tier ${s.tier!.rank}',
+            s.tier!.accent,
+            wrap: stacked,
+          );
     return Surface(
       onTap: onTap,
       child: Row(children: [
@@ -1730,19 +1757,27 @@ class SourceRow extends StatelessWidget {
           decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
           child: Icon(s.icon, size: 24, color: p.ink2),
         ),
-        const SizedBox(width: S.x3),
-        Expanded(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(s.name,
+          const SizedBox(width: S.x3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  s.displayName(c),
                 style: F.body
-                    .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-            Text(s.kind, style: F.over.copyWith(color: p.ink3)),
-            const SizedBox(height: 5),
-            // Wrap, not Row: at 2x text "Not connected · 78%" is wider than
-            // the card and a Flex would simply clip the battery away.
-            Wrap(spacing: S.x3, runSpacing: S.x1, children: [
-              Row(mainAxisSize: MainAxisSize.min, children: [
+                    .copyWith(color: p.ink, fontWeight: FontWeight.w600),
+                ),
+                Text(s.displayKind(c), style: F.over.copyWith(color: p.ink3)),
+                const SizedBox(height: 5),
+                // Wrap, not Row: at 2x text "Not connected · 78%" is wider than
+                // the card and a Flex would simply clip the battery away.
+                Wrap(
+                  spacing: S.x3,
+                  runSpacing: S.x1,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                 Container(
                   width: 6,
                   height: 6,
@@ -1778,15 +1813,21 @@ class SourceRow extends StatelessWidget {
               if (s.experimental)
                 Text(AppLocalizations.of(c)?.devicesExperimental ?? 'Experimental',
                     style: F.over.copyWith(color: p.on(C.orange))),
-            ]),
-          ]),
-        ),
-        const SizedBox(width: S.x2),
-        // No pill for an unranked source. A blank one reads as tier zero.
-        if (s.tier case final t?)
-          Pill(AppLocalizations.of(c)?.devicesTierRank(t.rank) ?? 'Tier ${t.rank}',
-              t.accent),
-      ]),
+                  ],
+                ),
+                if (stacked && tierBadge != null) ...[
+                  const SizedBox(height: S.x1),
+                  tierBadge,
+                ],
+              ],
+            ),
+          ),
+          if (!stacked && tierBadge != null) ...[
+            const SizedBox(width: S.x2),
+            tierBadge,
+          ],
+        ],
+      ),
     );
   }
 }
@@ -2050,7 +2091,7 @@ Future<void> _syncRing(BuildContext c, String? family) async {
 Future<void> _syncCorosWatch(BuildContext c) async {
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  messenger?.showSnackBar(SnackBar(content: Text(uiText(c, 'Syncing…'))));
   final ok = await CorosLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
@@ -2071,7 +2112,7 @@ Future<void> _syncCorosWatch(BuildContext c) async {
 Future<void> _syncGarminWatch(BuildContext c) async {
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  messenger?.showSnackBar(SnackBar(content: Text(uiText(c, 'Syncing…'))));
   final ok = await GarminLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
@@ -2128,7 +2169,9 @@ Future<void> _syncMiband(BuildContext c) async {
 Future<void> _syncPebble(BuildContext c) async {
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Syncing the watch…')));
+  messenger?.showSnackBar(
+    SnackBar(content: Text(uiText(c, 'Syncing the watch…'))),
+  );
   final ok = await PebbleLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
@@ -2143,7 +2186,7 @@ Future<void> _syncPebble(BuildContext c) async {
 /// because the user asked. Same shape as [_syncRing] one function up.
 Future<void> _syncMakibesHr3(BuildContext c) async {
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  messenger?.showSnackBar(SnackBar(content: Text(uiText(c, 'Syncing…'))));
   final ok = await MakibesHr3Link.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
@@ -2158,7 +2201,7 @@ Future<void> _syncMakibesHr3(BuildContext c) async {
 /// because the user asked. Same shape as [_syncRing] one function up.
 Future<void> _syncId115(BuildContext c) async {
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  messenger?.showSnackBar(SnackBar(content: Text(uiText(c, 'Syncing…'))));
   final ok = await Id115Link.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
@@ -2173,7 +2216,7 @@ Future<void> _syncId115(BuildContext c) async {
 /// because the user asked. Same shape as [_syncRing] one function up.
 Future<void> _syncSmaq2oss(BuildContext c) async {
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  messenger?.showSnackBar(SnackBar(content: Text(uiText(c, 'Syncing…'))));
   final ok = await Smaq2ossLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
@@ -2188,7 +2231,7 @@ Future<void> _syncSmaq2oss(BuildContext c) async {
 /// because the user asked. Same shape as [_syncRing] one function up.
 Future<void> _syncXWatch(BuildContext c) async {
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  messenger?.showSnackBar(SnackBar(content: Text(uiText(c, 'Syncing…'))));
   final ok = await XWatchLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
@@ -2203,7 +2246,7 @@ Future<void> _syncXWatch(BuildContext c) async {
 /// because the user asked. Same shape as [_syncRing] one function up.
 Future<void> _syncWatch9(BuildContext c) async {
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  messenger?.showSnackBar(SnackBar(content: Text(uiText(c, 'Syncing…'))));
   final ok = await Watch9Link.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
@@ -2218,7 +2261,7 @@ Future<void> _syncWatch9(BuildContext c) async {
 /// now, because the user asked. Same shape as [_syncRing] one function up.
 Future<void> _syncNo1Band(BuildContext c) async {
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  messenger?.showSnackBar(SnackBar(content: Text(uiText(c, 'Syncing…'))));
   final ok = await Tlw64Link.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
@@ -2239,7 +2282,7 @@ Future<void> _syncDafitWatch(BuildContext c) async {
   // blurb, and for the same reason. Deliberately NOT `devicesCouldNotReachRing`
   // below either: that key is ring-specific text in every translated locale,
   // and this device is a watch, not a ring.
-  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  messenger?.showSnackBar(SnackBar(content: Text(uiText(c, 'Syncing…'))));
   final ok = await DafitLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
@@ -2320,7 +2363,9 @@ Future<void> _syncDt78(BuildContext c) async {
   // syncing" and "could not reach the watch" alike — a real distinction the
   // snack bar should not blur into one failure sentence.
   if (Dt78Link.instance.busy) {
-    messenger?.showSnackBar(const SnackBar(content: Text('Already syncing.')));
+    messenger?.showSnackBar(
+      SnackBar(content: Text(uiText(c, 'Already syncing.'))),
+    );
     return;
   }
   // `devicesSyncing`/`devicesSynced` are genuinely generic ("Syncing"/
@@ -2362,7 +2407,7 @@ Future<void> _syncHPlus(BuildContext c) async {
 /// because the user asked. Same shape as [_syncRing] one function up.
 Future<void> _syncJyou(BuildContext c) async {
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  messenger?.showSnackBar(SnackBar(content: Text(uiText(c, 'Syncing…'))));
   final ok = await JyouLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
@@ -2469,7 +2514,9 @@ Future<void> _confirmForgetSensor(BuildContext c, HealthSource s) async {
   final ok = await showDialog<bool>(
     context: c,
     builder: (d) => AlertDialog(
-      title: Text(l?.devicesForgetSensor(s.name) ?? 'Forget ${s.name}?'),
+      title: Text(
+        l?.devicesForgetSensor(s.displayName(c)) ?? 'Forget ${s.name}?',
+      ),
       content: Text(
         l?.devicesForgetSensorBody ??
             'It stops being used during workouts and has to be paired again. '
@@ -2681,11 +2728,16 @@ class DeviceDetailView extends StatelessWidget {
                     child: Icon(s.icon, size: 54, color: p.ink2),
                   ),
                 ),
-                const SizedBox(height: S.x5),
-                Center(child: Text(s.name, style: F.t2.copyWith(color: p.ink))),
-                const SizedBox(height: S.x2),
-                // A fault names itself in the card below; repeating its title
-                // here would say the same thing twice in two type sizes.
+                  const SizedBox(height: S.x5),
+                  Center(
+                    child: Text(
+                      s.displayName(c),
+                      style: F.t2.copyWith(color: p.ink),
+                    ),
+                  ),
+                  const SizedBox(height: S.x2),
+                  // A fault names itself in the card below; repeating its title
+                  // here would say the same thing twice in two type sizes.
                 if (fault == null)
                   Center(
                       child: Text(
@@ -2764,27 +2816,33 @@ class DeviceDetailView extends StatelessWidget {
                                     'Fetch whatever it has been holding')
                                 : (l?.devicesSyncNowSubListen ??
                                     'Listen for whatever it sends right now'),
-                            onTap: onSync),
-                      ],
-                    ]),
-                  ),
-                  const SizedBox(height: S.x5),
-                ],
-                // Band rows only. The phone has no radio link and no battery
-                // this app can read, so "Not reported since the last
-                // connection" named a connection it does not have — on the
-                // exact screen someone lands on when phone steps are silently
-                // failing, where the answer is the permission, not a battery.
-                if (s.isBand)
-                  Surface(
-                    pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                    child: Column(children: [
-                      // The name is the band's own advertising name, written
-                      // to the strap — not a phone-side label. So it is only
-                      // editable on a live link, and the row says so rather
-                      // than opening an editor whose save cannot land.
-                      SetRow(LucideIcons.tag, C.blue, l?.devicesName ?? 'Name',
-                          value: s.name,
+                              onTap: onSync,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: S.x5),
+                  ],
+                  // Band rows only. The phone has no radio link and no battery
+                  // this app can read, so "Not reported since the last
+                  // connection" named a connection it does not have — on the
+                  // exact screen someone lands on when phone steps are silently
+                  // failing, where the answer is the permission, not a battery.
+                  if (s.isBand)
+                    Surface(
+                      pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                      child: Column(
+                        children: [
+                          // The name is the band's own advertising name, written
+                          // to the strap — not a phone-side label. So it is only
+                          // editable on a live link, and the row says so rather
+                          // than opening an editor whose save cannot land.
+                          SetRow(
+                            LucideIcons.tag,
+                            C.blue,
+                            l?.devicesName ?? 'Name',
+                            value: s.displayName(c),
                           sub: onRename == null
                               ? (l?.devicesConnectToRename ??
                                   'Connect to the band to change it')
@@ -2897,10 +2955,11 @@ class DeviceDetailView extends StatelessWidget {
                         l?.devicesForgetThisBand ?? 'Forget this band',
                         danger: true, chevron: false, onTap: onForget),
                   ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }

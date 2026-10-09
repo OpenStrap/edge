@@ -30,6 +30,7 @@ import 'package:provider/provider.dart';
 
 import '../../data/day_label.dart' show calendarDaysBetween;
 import '../../l10n/app_localizations.dart';
+import '../../l10n/display_text.dart';
 import '../../state/alarm_schedule.dart';
 import '../../state/app_state.dart';
 import '../../state/clock_format.dart' show formatClock;
@@ -387,23 +388,35 @@ class AlarmScreenView extends StatelessWidget {
     final picked = await showDialog<int>(
       context: c,
       builder: (ctx) => SimpleDialog(
-        title: const Text('Smart wake window'),
+        title: Text(uiText(ctx, 'Smart wake window')),
         children: [0, 15, 30, 45]
-            .map((m) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(ctx, m),
-                  child: Text(m == 0 ? 'Off' : '$m min before wake time'),
-                ))
+            .map(
+              (m) => SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, m),
+                child: Text(
+                  m == 0
+                      ? uiText(ctx, 'Off')
+                      : AppLocalizations.of(
+                              ctx,
+                            )?.supplementSmartWindowMinutes(m) ??
+                            '$m min before wake time',
+                ),
+              ),
+            )
             .toList(),
       ),
     );
     if (picked == null || !c.mounted) return;
     await _run(
-        c,
-        () => onSetSmartWindow!(day.weekday, picked),
-        picked == 0
-            ? 'Smart wake off'
-            : 'Smart wake on — the band still buzzes at the wake time '
-                'either way');
+      c,
+      () => onSetSmartWindow!(day.weekday, picked),
+      picked == 0
+          ? uiText(c, 'Smart wake off')
+          : uiText(
+              c,
+              'Smart wake on — the band still buzzes at the wake time either way',
+            ),
+    );
   }
 
   /// Run a band/schedule write and report what happened. Every one of these

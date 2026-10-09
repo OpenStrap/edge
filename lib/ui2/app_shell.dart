@@ -179,9 +179,9 @@ class _TabBar extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
-        child: SizedBox(
-          height: 60,
+        child: IntrinsicHeight(
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               for (final d in ShellDomain.values)
                 Expanded(
@@ -216,9 +216,11 @@ class _Tab extends StatelessWidget {
       child: Pressable(
         onTap: onTap,
         semanticLabel: label,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
             AnimatedContainer(
               duration: motion(c, Motion.base),
               padding: EdgeInsets.symmetric(
@@ -231,17 +233,17 @@ class _Tab extends StatelessWidget {
               ),
               child: Icon(domain.icon, size: 20, color: ink),
             ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              const SizedBox(height: 3),
+              Text(
+                label,
+                textAlign: TextAlign.center,
               style: F.over.copyWith(
                 color: ink,
                 fontWeight: on ? FontWeight.w600 : FontWeight.w500,
               ),
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );

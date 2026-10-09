@@ -1,3 +1,4 @@
+import '../../l10n/display_text.dart';
 // WORKOUT — the interaction domain. Not "here are your numbers", but "what do
 // you want to do, and what did you do".
 //
@@ -143,19 +144,21 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         onTap: () => _openPicker(c, d),
       ),
       const SizedBox(height: S.x3),
-      Row(children: [
-        for (var i = 0; i < 3; i++) ...[
-          if (i > 0) const SizedBox(width: S.x3),
-          Expanded(
-            child: _QuickTile(
+      Row(
+        children: [
+          for (var i = 0; i < 3; i++) ...[
+            if (i > 0) const SizedBox(width: S.x3),
+            Expanded(
+              child: WorkoutQuickTile(
               quickStart[i],
               () => Navigator.of(c).push(MaterialPageRoute(
                   builder: (_) => ActivitySetup(quickStart[i],
                       weightKg: d.weightKg, host: _host(d)))),
             ),
-          ),
+            ),
+          ],
         ],
-      ]),
+      ),
       Section(
         loc?.workoutThisWeek ?? 'This week',
         Surface(
@@ -362,16 +365,18 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                   painter: Bars(d.trimp7, p.on(C.purple),
                       highlight: d.trimp7.last == null ? -1 : 6,
                       axis: axis,
-                      t: animate(context, 1))),
-            );
-          }),
-        ],
-        const SizedBox(height: S.x4),
-        // Absent is absent. `?? 0` used to render "Fatigue 0" — a rest week —
-        // for a pipeline that had simply not produced the number.
-        //
-        // No 'Fitness' entry: it is `ld.ctl`, which the headline two rows up is
-        // already printing at 34 pt under the word "fitness". One number, once.
+                      t: animate(context, 1)),
+                  ),
+                );
+              },
+            ),
+          ],
+          const SizedBox(height: S.x4),
+          // Absent is absent. `?? 0` used to render "Fatigue 0" — a rest week —
+          // for a pipeline that had simply not produced the number.
+          //
+          // No 'Fitness' entry: it is `ld.ctl`, which the headline two rows up is
+          // already printing at 34 pt under the word "fitness". One number, once.
         InlineMetrics([
           (loc?.workoutFatigueLabel ?? 'Fatigue',
               ld.atl?.round().toString() ?? notYet, C.orange),
@@ -383,7 +388,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             C.purple
           ),
         ]),
-      ]),
+        ],
+      ),
     );
   }
 
@@ -427,23 +433,25 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       const SizedBox(height: S.x3),
       for (var row = 0; row < 2; row++) ...[
         if (row > 0) const SizedBox(height: S.x3),
-        Row(children: [
-          for (var i = row * 3; i < row * 3 + 3; i++) ...[
-            if (i % 3 > 0) const SizedBox(width: S.x3),
-            Expanded(
-              child: _QuickTile(
+        Row(
+          children: [
+            for (var i = row * 3; i < row * 3 + 3; i++) ...[
+              if (i % 3 > 0) const SizedBox(width: S.x3),
+              Expanded(
+                child: WorkoutQuickTile(
                 quickStart[i],
                 () => Navigator.of(c).push(MaterialPageRoute(
                     builder: (_) => ActivitySetup(quickStart[i],
                         weightKg: d.weightKg, host: _host(d)))),
               ),
-            ),
+              ),
+            ],
           ],
-        ]),
+        ),
       ],
       for (final g in activityLibrary)
         Section(
-          g.name,
+          g.displayName(c),
           Surface(
             pad: const EdgeInsets.symmetric(horizontal: S.x4),
             child: Column(children: [
@@ -474,7 +482,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         const SizedBox(height: S.x5),
         StatusCard(
           loc?.workoutCalorieEstimatesTitle ?? 'Calorie figures are estimates',
-          kCalorieWhy,
+          uiText(c, kCalorieWhy),
           icon: LucideIcons.flame,
         ),
       ],
@@ -631,8 +639,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     final loc = AppLocalizations.of(c);
     final ok = await confirmRemove(
       c,
-      title: loc?.workoutConfirmDeleteTitle(w.activity.name.toLowerCase()) ??
-          'Delete this ${w.activity.name.toLowerCase()}?',
+      title:
+          loc?.workoutConfirmDeleteTitle(
+            w.activity.displayName(context).toLowerCase(),
+          ) ??
+          'Delete this ${w.activity.displayName(context).toLowerCase()}?',
       body: w.importedFrom == null
           ? (loc?.workoutDeleteBodyOwn(storeName) ??
               'It disappears from OpenStrap. A copy in $storeName, if there is '
@@ -874,7 +885,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     return MetricRow(
       a?.icon ?? LucideIcons.activity,
       a?.color ?? C.purple,
-      loc?.workoutAfterActivity(a?.name ?? e.type) ??
+      loc?.workoutAfterActivity(a?.displayName(c) ?? e.type) ??
           'After ${a?.name ?? e.type}',
       e.exceedsMdc
           ? '$sign${e.delta.abs().toStringAsFixed(1)}'
@@ -907,10 +918,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       );
 }
 
-class _QuickTile extends StatelessWidget {
+class WorkoutQuickTile extends StatelessWidget {
   final Activity a;
   final VoidCallback onTap;
-  const _QuickTile(this.a, this.onTap);
+  const WorkoutQuickTile(this.a, this.onTap, {super.key});
 
   @override
   Widget build(BuildContext c) {
@@ -918,8 +929,9 @@ class _QuickTile extends StatelessWidget {
     return Surface(
       pad: const EdgeInsets.symmetric(vertical: S.x4, horizontal: S.x2),
       onTap: onTap,
-      semanticLabel: a.name,
-      child: Column(children: [
+      semanticLabel: a.displayName(c),
+      child: Column(
+        children: [
         Container(
           width: 40,
           height: 40,
@@ -927,12 +939,14 @@ class _QuickTile extends StatelessWidget {
               BoxDecoration(color: p.wash(a.color), borderRadius: R.rMd),
           child: Icon(a.icon, size: 19, color: p.on(a.color)),
         ),
-        const SizedBox(height: S.x2),
-        Text(a.name,
+          const SizedBox(height: S.x2),
+          Text(
+            a.displayName(c),
             style: F.over.copyWith(color: p.ink2),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis),
-      ]),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -984,19 +998,21 @@ class _HistoryRow extends StatelessWidget {
                 BoxDecoration(color: p.wash(a.color), borderRadius: R.rMd),
             child: Icon(a.icon, size: 19, color: p.on(a.color)),
           ),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Flexible(
-                      // The store's own word for it when it is not ours: the
-                      // catalogue knows the ~40 types this app can start, and
-                      // "Workout" over a surf loses the one thing we were told.
-                      child: Text(w.importedTitle ?? a.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+              const SizedBox(width: S.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          // The store's own word for it when it is not ours: the
+                          // catalogue knows the ~40 types this app can start, and
+                          // "Workout" over a surf loses the one thing we were told.
+                          child: Text(
+                            w.importedTitle ?? a.displayName(c),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           style: F.body.copyWith(
                               color: p.ink, fontWeight: FontWeight.w600)),
                     ),
@@ -1043,7 +1059,8 @@ class _HistoryRow extends StatelessWidget {
               ),
             ),
           ],
-        ]),
+            ],
+          ),
         if (w.zoneMinutes.length == 5) ...[
           const SizedBox(height: S.x4),
           ChartFrame(
@@ -1058,7 +1075,7 @@ class _HistoryRow extends StatelessWidget {
                 size: Size.infinite, painter: ZoneBar(w.zoneFractions, p)),
           ),
         ],
-        const SizedBox(height: S.x4),
+          const SizedBox(height: S.x4),
         for (var i = 0; i < stats.length; i++) ...[
           if (i > 0) Divider(color: p.line, height: S.x5),
           PosterStatRow(

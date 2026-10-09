@@ -9,6 +9,7 @@
 // Every metric goes through THIS screen. Forty bespoke detail screens is how
 // the old UI ended up with forty different opinions about what a chart is.
 
+import '../../l10n/display_text.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -44,8 +45,16 @@ import 'sleep_detail.dart';
 /// [name] as it reads in a caption. German keeps it as written: its labels
 /// can open with an adjective, so the DE strings put [name] first in the
 /// sentence instead. Everywhere else the title case comes off.
-String nounInSentence(AppLocalizations? l, String name) =>
-    l?.localeName.startsWith('de') == true ? name : name.toLowerCase();
+String nounInSentence(AppLocalizations? l, String name) {
+  if (name.isEmpty ||
+      l?.localeName.startsWith('de') == true ||
+      RegExp(r'^[A-ZА-ЯЁ]{2}').hasMatch(name) ||
+      name.startsWith('SpO₂')) {
+    return name;
+  }
+  // Lowercase the sentence opening, preserving acronyms within the label.
+  return '${name[0].toLowerCase()}${name.substring(1)}';
+}
 
 /// What a metric key means on screen, and whether we are willing to draw it.
 class MetricSpec {
@@ -864,7 +873,7 @@ class _MetricDetailState extends State<MetricDetail> {
     final series = denseDays(all, win);
     final vals = [for (final v in series) ?v];
 
-    return detailScaffold(c, spec.title, [
+    return detailScaffold(c, uiText(context, spec.title), [
       // Resting heart rate is the NIGHT's number; this is what the chest is
       // doing this second. Two different quantities, so the live one gets its
       // own card above the trend rather than a second figure on the same card,
@@ -881,8 +890,8 @@ class _MetricDetailState extends State<MetricDetail> {
         const SizedBox(height: S.x2),
         StatusCard(
           l?.metricDetailNotShownTitle ?? 'Not shown as a trend',
-          spec.suppress!,
-          fix: spec.suppressFix ?? '',
+          uiText(context, spec.suppress!),
+          fix: uiText(context, spec.suppressFix ?? ''),
           icon: spec.icon,
         ),
         const SizedBox(height: S.x5),
@@ -897,8 +906,10 @@ class _MetricDetailState extends State<MetricDetail> {
             win == 1
                 ? (l?.metricDetailNothingRecordedToday ??
                     'Nothing recorded today')
-                : (l?.metricDetailNoHistoryYet(spec.title.toLowerCase()) ??
-                    'No history for ${spec.title.toLowerCase()} yet'),
+                : (l?.metricDetailNoHistoryYet(
+                        nounInSentence(l, uiText(context, spec.title)),
+                      ) ??
+                      'No history for ${nounInSentence(l, uiText(context, spec.title))} yet'),
             win == 1
                 ? (all.isEmpty
                     ? (l?.metricDetailNoValueYet ??
@@ -1041,7 +1052,12 @@ class _MetricDetailState extends State<MetricDetail> {
         l?.metricDetailUsingForX(device, subject) ??
         'Using $device for $subject.';
     if (!_split) {
-      return [line(_labelOf(d, _preferredId), nounInSentence(l, spec.title))];
+      return [
+        line(
+          _labelOf(d, _preferredId),
+          nounInSentence(l, uiText(context, spec.title)),
+        ),
+      ];
     }
     return [
       for (final e in _winners.entries)
@@ -1181,10 +1197,13 @@ class _MetricDetailState extends State<MetricDetail> {
               // NOT `spec.unit`. `metricValue('min', 443)` is already "7h 23m",
               // so every min-unit metric — Time asleep, Deep, REM, Wear time —
               // rendered its headline as "7h 23m min".
-              Text(unitBeside(spec.unit),
-                  style: F.body.copyWith(color: p.ink3)),
-            ]),
-        const SizedBox(height: S.x1),
+              Text(
+                uiText(context, unitBeside(spec.unit)),
+                style: F.body.copyWith(color: p.ink3),
+              ),
+            ],
+          ),
+          const SizedBox(height: S.x1),
         Align(
           alignment: Alignment.centerLeft,
           child: Text(
@@ -1283,16 +1302,16 @@ class _MetricDetailState extends State<MetricDetail> {
                     when b >= 0 && b < series.length && series.length - 1 - b > 0)
                   (series.length - 1 - b - .5) / (series.length - 1),
           ];
-          final dim = _dimMask(d, series.length);
-          return ChartFrame(
-            title: spec.title,
-            unit: spec.unit.isEmpty ? 'score' : spec.unit,
-            height: 150,
-            yAxis: axis,
-            xMarks: marks,
-            // The mark's only screen-reader form, and the only thing that can
-            // say what it is. Deliberately flat: a version change is
-            // provenance, not an event that happened to the user.
+                final dim = _dimMask(d, series.length);
+                return ChartFrame(
+                  title: uiText(context, spec.title),
+                  unit: spec.unit.isEmpty ? 'score' : spec.unit,
+                  height: 150,
+                  yAxis: axis,
+                  xMarks: marks,
+                  // The mark's only screen-reader form, and the only thing that can
+                  // say what it is. Deliberately flat: a version change is
+                  // provenance, not an event that happened to the user.
             footnote: marks.isEmpty
                 ? null
                 : (l?.metricDetailAlgoBreakFootnote(marks.length) ??
@@ -1331,8 +1350,8 @@ class _MetricDetailState extends State<MetricDetail> {
               // so the readout names the day under the finger rather than the
               // bucket the finger is in.
               value: _pick == null ? null : _slotAt01(_pick!, series.length),
-              step: 1 / (series.length - 1),
-              label: spec.title,
+                    step: 1 / (series.length - 1),
+                    label: uiText(context, spec.title),
               describe: (v) =>
                   _slotSays(c, spec, series, _slotAt(v, series.length), d),
               onChanged: (v) =>
@@ -1385,11 +1404,12 @@ class _MetricDetailState extends State<MetricDetail> {
                                 : _slotAt01(_pick!, series.length)),
                       ),
                     ]),
+                  ),
+                );
+              },
             ),
-          );
-        }),
-        // Which device is selected, one line, only when it dims the chart —
-        // see `_dimMask` for why a bright chart may not carry this sentence.
+          // Which device is selected, one line, only when it dims the chart —
+          // see `_dimMask` for why a bright chart may not carry this sentence.
         if (win > 1 && _device != null && _dimMask(d, series.length) != null)
           Padding(
             padding: const EdgeInsets.only(top: S.x2),
@@ -1555,10 +1575,14 @@ class _MetricDetailState extends State<MetricDetail> {
                   'Open ${prettyDay(day, l)}'),
           if (attributed) who,
         ].join(' · '),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Expanded(
-              child: Text(dayNavLabel(day),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    dayNavLabel(day, l),
                   style: F.body
                       .copyWith(color: p.ink, fontWeight: FontWeight.w600),
                   maxLines: 1,
@@ -1673,6 +1697,8 @@ class _MetricDetailState extends State<MetricDetail> {
         return '$n.';
       case 'es':
         return '$nº';
+      case 'ru':
+        return '$n-му';
       case 'hi':
       case 'zh':
         // Neither language marks the ordinal with a suffix here — the
@@ -1806,10 +1832,16 @@ class _StepGoalGaugeState extends State<_StepGoalGauge> {
       return;
     }
     if (typed < 500 || typed > 100000) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content:
-            Text('A step goal of 500–100,000 is a real one. Nothing was saved.'),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            uiText(
+              context,
+              'A step goal of 500–100,000 is a real one. Nothing was saved.',
+            ),
+          ),
+        ),
+      );
       return;
     }
     setState(() => _editing = false);
@@ -1842,43 +1874,61 @@ class _StepGoalGaugeState extends State<_StepGoalGauge> {
             if (frac != null)
               Text('${(frac * 100).clamp(0, 999).round()}%',
                   style: F.over.copyWith(color: p.ink)),
-          ]),
-        ),
-        const SizedBox(width: S.x3),
-        Expanded(
-          child: _editing
-              ? Row(children: [
-                  Expanded(
-                    child: OsTextField(
-                        controller: _ctrl,
-                        label: 'Goal',
-                        keyboard: TextInputType.number),
-                  ),
-                  const SizedBox(width: S.x2),
-                  Pressable(
-                    semanticLabel: 'Save step goal',
-                    onTap: _save,
-                    child: Icon(LucideIcons.check, size: 20, color: p.ink),
-                  ),
-                ])
-              : Pressable(
-                  semanticLabel: 'Edit daily step goal',
-                  onTap: () => setState(() => _editing = true),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+              ],
+            ),
+          ),
+          const SizedBox(width: S.x3),
+          Expanded(
+            child: _editing
+                ? Row(
                     children: [
-                      Row(children: [
-                        Text('Goal', style: F.over.copyWith(color: p.ink3)),
-                        const SizedBox(width: S.x1),
-                        Icon(LucideIcons.pencil, size: 12, color: p.ink3),
-                      ]),
-                      Text('${thousands(widget.goal)} steps',
-                          style: F.body.copyWith(color: p.ink)),
+                      Expanded(
+                        child: OsTextField(
+                          controller: _ctrl,
+                          label: uiText(context, 'Goal'),
+                          keyboard: TextInputType.number,
+                        ),
+                      ),
+                      const SizedBox(width: S.x2),
+                      Pressable(
+                        semanticLabel: uiText(context, 'Save step goal'),
+                        onTap: _save,
+                        child: Icon(LucideIcons.check, size: 20, color: p.ink),
+                      ),
                     ],
+                  )
+                : Pressable(
+                    semanticLabel: uiText(context, 'Edit daily step goal'),
+                    onTap: () => setState(() => _editing = true),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              uiText(context, 'Goal'),
+                              style: F.over.copyWith(color: p.ink3),
+                            ),
+                            const SizedBox(width: S.x1),
+                            Icon(LucideIcons.pencil, size: 12, color: p.ink3),
+                          ],
+                        ),
+                        Text(
+                          AppLocalizations.of(
+                                context,
+                              )?.metricDetailStepsGoalValue(
+                                widget.goal,
+                                thousands(widget.goal),
+                              ) ??
+                              '${thousands(widget.goal)} steps',
+                          style: F.body.copyWith(color: p.ink),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-        ),
-      ]),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1937,8 +1987,8 @@ String? pickDay(List<String> days, String? want, [String? prefer]) {
 
 /// 'Today' when it is, otherwise the day itself. Never "N days ago" — a
 /// control you steer with needs the name of the place, not the distance to it.
-String dayNavLabel(String? day) =>
-    (_dayBehind(day) ?? 1) <= 0 ? 'Today' : prettyDay(day);
+String dayNavLabel(String? day, [AppLocalizations? l]) =>
+    (_dayBehind(day) ?? 1) <= 0 ? l?.healthToday ?? 'Today' : prettyDay(day, l);
 
 int? _dayBehind(String? dayId) {
   final d = dayId == null ? null : DateTime.tryParse(dayId);
@@ -2014,17 +2064,18 @@ class DayNav extends StatelessWidget {
               final picked = await chooseDay(c, days, day);
               if (picked != null && picked != day) onDay(picked);
             },
-            semanticLabel: l?.metricDetailChooseDayShowing(dayNavLabel(day)) ??
-                'Choose a day. Showing ${dayNavLabel(day)}',
-            child: Text(
-              dayNavLabel(day),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              semanticLabel:
+                  l?.metricDetailChooseDayShowing(dayNavLabel(day, l)) ??
+                  'Choose a day. Showing ${dayNavLabel(day, l)}',
+              child: Text(
+                dayNavLabel(day, l),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+              ),
             ),
           ),
-        ),
         arrow(LucideIcons.chevronRight, l?.metricDetailNextDay ?? 'Next day', newer),
       ]),
     );

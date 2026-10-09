@@ -1,3 +1,4 @@
+import '../../l10n/display_text.dart';
 // THE MONTH AS THREE STRIPS — sleep, recovery, strain, one cell per day.
 //
 // A shade is not a score. Every cell is the day's place in THIS PERSON'S OWN
@@ -147,29 +148,49 @@ class MonthGrid extends StatelessWidget {
                 for (final r in shaded) ...[
                   Padding(
                     padding: const EdgeInsets.only(bottom: S.x1),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            r.spec.title,
-                            style: F.over.copyWith(color: p.ink2),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                    child: bigText(c)
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                uiText(c, r.spec.title),
+                                style: F.over.copyWith(color: p.ink2),
+                              ),
+                              Text(
+                                l?.monthGridCoverage(r.have, kGridDays) ??
+                                    '${r.have} of $kGridDays days',
+                                style: F.over.copyWith(color: p.ink3),
+                              ),
+                            ],
+                          )
+                        : Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  uiText(c, r.spec.title),
+                                  style: F.over.copyWith(color: p.ink2),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: S.x2),
+                              // Coverage, never a run. "23 of 30" costs a missed day
+                              // one day; a streak costs it everything.
+                              Text(
+                                l?.monthGridCoverage(r.have, kGridDays) ??
+                                    '${r.have} of $kGridDays days',
+                                style: F.over.copyWith(color: p.ink3),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(width: S.x2),
-                        // Coverage, never a run. "23 of 30" costs a missed day
-                        // one day; a streak costs it everything.
-                        Text(
-                            l?.monthGridCoverage(r.have, kGridDays) ??
-                                '${r.have} of $kGridDays days',
-                            style: F.over.copyWith(color: p.ink3)),
-                      ],
-                    ),
                   ),
                   Semantics(
-                    label: l?.monthGridSemanticsLabel(
-                            r.spec.title, r.have, kGridDays) ??
+                    label:
+                        l?.monthGridSemanticsLabel(
+                          uiText(c, r.spec.title),
+                          r.have,
+                          kGridDays,
+                        ) ??
                         '${r.spec.title}: ${r.have} of $kGridDays days have '
                             'a value. Shaded against your own range.',
                     child: SizedBox(
@@ -187,14 +208,23 @@ class MonthGrid extends StatelessWidget {
                   const SizedBox(height: S.x4),
                 ],
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
+                    Flexible(
+                      flex: 2,
+                      child: Text(
                         l?.monthGridDaysAgo(kGridDays - 1) ??
                             '${kGridDays - 1} days ago',
                         style: F.over.copyWith(color: p.ink3)),
-                    const Spacer(),
-                    Text(l?.monthGridToday ?? 'Today',
-                        style: F.over.copyWith(color: p.ink3)),
+                    ),
+                    const SizedBox(width: S.x2),
+                    Flexible(
+                      child: Text(
+                        l?.monthGridToday ?? 'Today',
+                        textAlign: TextAlign.end,
+                        style: F.over.copyWith(color: p.ink3),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: S.x3),
@@ -214,7 +244,7 @@ class MonthGrid extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: S.x3),
             child: StatusCard(
-              l?.monthGridNotShadedYetTitle(r.spec.title) ??
+              l?.monthGridNotShadedYetTitle(uiText(c, r.spec.title)) ??
                   '${r.spec.title} is not shaded yet',
               l?.monthGridNotShadedYetBody(r.historyDays, kGridMinHistory) ??
                   'A shade is where a day sits in your own range, and '

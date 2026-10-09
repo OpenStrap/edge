@@ -1515,6 +1515,11 @@ Map<String, Widget> _listCases() => {
         SizedBox(height: S.x3),
         TierRow(SourceTier.beatToBeat),
       ]),
+      'workout_quick_tile': WorkoutQuickTile(
+        const Activity('Weight training', LucideIcons.dumbbell,
+            C.purple, Track.sets, 6.0),
+        () {},
+      ),
       'activity_row': Surface(
         pad: const EdgeInsets.symmetric(horizontal: S.x4),
         child: Column(children: [

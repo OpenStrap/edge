@@ -94,6 +94,11 @@ class Activity {
 
   /// The stored `sessions.type` for this activity.
   String get typeKey => name.toLowerCase().replaceAll(' ', '_');
+
+  /// Localized display only; stored names and keys remain unchanged.
+  String displayName(BuildContext c) => localizedName(AppLocalizations.of(c));
+
+  String localizedName(AppLocalizations? l) => catalogueName(l, name);
 }
 
 class ActGroup {
@@ -101,7 +106,18 @@ class ActGroup {
   final IconData icon;
   final List<Activity> items;
   const ActGroup(this.name, this.icon, this.items);
+
+  String displayName(BuildContext c) => localizedName(AppLocalizations.of(c));
+
+  String localizedName(AppLocalizations? l) => catalogueName(l, name);
 }
+
+String catalogueName(AppLocalizations? l, String name) =>
+    l?.activityCatalogueName(
+      'k${name.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '')}',
+      name,
+    ) ??
+    name;
 
 const activityLibrary = <ActGroup>[
   ActGroup('Cardio', LucideIcons.heartPulse, [
@@ -404,8 +420,12 @@ class ExerciseDef {
       ? null
       : 'https://wger.de/api/v2/exerciseinfo/?uuid=$sourceId';
 
-  String labelFor(String languageCode) =>
-      localizedLabels[languageCode] ?? label;
+  String labelFor(String languageCode) => languageCode == 'ru'
+      ? _russianExerciseLocalizations.exerciseCatalogueName(
+          'k${key.replaceAll(RegExp('[^A-Za-z0-9_]'), '')}',
+          label,
+        )
+      : localizedLabels[languageCode] ?? label;
 
   bool matches(String query, String languageCode) {
     final q = query.trim().toLowerCase();
@@ -422,6 +442,10 @@ class ExerciseDef {
     }.any((v) => v.toLowerCase().contains(q));
   }
 }
+
+final _russianExerciseLocalizations = lookupAppLocalizations(
+  const Locale('ru'),
+);
 
 const _edgeExerciseLibrary = <ExerciseDef>[
   ExerciseDef(

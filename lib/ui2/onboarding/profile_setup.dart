@@ -1,3 +1,4 @@
+import '../../l10n/display_text.dart';
 // Profile setup.
 //
 // The audit found this screen promising one thing and enforcing another: the
@@ -15,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../l10n/date_text.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../screens/home_screen.dart' show monthShortName, weekdayShortName;
@@ -114,8 +116,8 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
   Future<void> _continue() async {
     final bad = [
       if (Typed.of(_age.text).bad) 'Age',
-      if (Typed.of(_height.text).bad) _u.heightLabel,
-      if (Typed.of(_weight.text).bad) _u.weightLabel,
+      if (Typed.of(_height.text).bad) uiText(context, _u.heightLabel),
+      if (Typed.of(_weight.text).bad) uiText(context, _u.weightLabel),
     ];
     if (bad.isNotEmpty) {
       sayUnreadable(context, bad);
@@ -178,14 +180,20 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
                 l?.profileSetupAgeUnit ?? 'years',
                 l?.profileSetupAgeConsequence ??
                     'Without it: heart-rate zones, calories, fitness age.'),
-            _Field(_height, l?.profileSetupHeightLabel ?? 'HEIGHT',
-                _u.isImperial ? 'in' : 'cm',
-                l?.profileSetupHeightConsequence ??
-                    'Without it: stride length, and distance from steps.'),
-            _Field(_weight, l?.profileSetupWeightLabel ?? 'WEIGHT',
-                _u.isImperial ? 'lb' : 'kg',
-                l?.profileSetupWeightConsequence ??
-                    'Without it: calories and training load.'),
+            _Field(
+              _height,
+              l?.profileSetupHeightLabel ?? 'HEIGHT',
+              uiText(c, _u.isImperial ? 'in' : 'cm'),
+              l?.profileSetupHeightConsequence ??
+                    'Without it: stride length, and distance from steps.',
+            ),
+            _Field(
+              _weight,
+              l?.profileSetupWeightLabel ?? 'WEIGHT',
+              uiText(c, _u.isImperial ? 'lb' : 'kg'),
+              l?.profileSetupWeightConsequence ??
+                    'Without it: calories and training load.',
+            ),
             const SizedBox(height: S.x5),
             BigButton(l?.actionContinue ?? 'Continue',
                 color: C.green, onTap: _sex == null ? null : _continue),
@@ -280,4 +288,6 @@ class _Field extends StatelessWidget {
 /// "Thu 4 Sep" — a date a person can hold, not an ISO string. Local by
 /// construction; the app's day labels are local everywhere.
 String formatDay(DateTime d, [AppLocalizations? l]) =>
-    '${weekdayShortName(d.weekday, l)} ${d.day} ${monthShortName(d.month, l)}';
+    l?.localeName.startsWith('ru') == true
+    ? localizedDate(d, l!.localeName, pattern: 'EEE d MMM')
+    : '${weekdayShortName(d.weekday, l)} ${d.day} ${monthShortName(d.month, l)}';
