@@ -93,6 +93,13 @@ class WearableDisplay extends ChangeNotifier {
         await SessionLink.onSessionDone?.call();
       }
       await loadDevices();
+    } catch (e) {
+      // The tap does not await this, so a throw would go unreported and the
+      // row would keep the state it had before the tap.
+      debugPrint('[devices] toggle $adapter failed: $e');
+      try {
+        await loadDevices();
+      } catch (_) {/* the row keeps its last state */}
     } finally {
       busy = false;
       notifyListeners();

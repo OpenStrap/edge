@@ -2524,7 +2524,7 @@
   "devicePickerBlurbPebble": "Solo Pebble 2 o Pebble 2 SE. Sincroniza pasos y sueño, y la frecuencia cardiaca en un Pebble 2 (el SE no tiene sensor de frecuencia cardiaca).",
   "pairSensorKeyReplacesTitle": "Vincular sustituye la clave de la app de Oura",
   "pairSensorKeyReplacesBody": "El anillo guarda una sola clave. Si lo vinculas sin una clave de la app de Oura, el anillo recibe una clave nueva propia y la app de Oura deja de funcionar con él hasta que se restablezca y se configure allí de nuevo.",
-  "wearableFlagRowSub": "Experimental. Activado usa los datos de este dispositivo para tus cifras",
+  "wearableFlagRowSub": "Experimental. Si está activado, se usan los datos de este dispositivo para tus cifras",
   "wearableFlagActive": "Activo",
   "wearableSettingsGroup": "Cifras del wearable",
   "wearablePresentationRowTitle": "Mostrar",
@@ -2663,5 +2663,8 @@
   "logFoodRemoveEntry": "Eliminar esta entrada",
   "nutritionProteinToday": "Proteína de hoy",
   "nutritionProteinToGo": "Faltan {grams} g",
-  "nutritionTargetReached": "Objetivo alcanzado"
+  "nutritionTargetReached": "Objetivo alcanzado",
+  "pairSensorUnreachableIos": "Este iPhone solo deja que la app acceda a sensores aprobados en la hoja de vinculación del sistema, y un {label} aún no puede ofrecerse ahí: su anuncio no incluye el servicio con el que se identifica. Por ahora vincúlalo en Android.",
+  "sleepDetailStagedBy": "Fases según {label}",
+  "sleepDetailDeviceMissingStages": "{label} no informa {stages}; ese tiempo se cuenta en sus otras fases."
 }

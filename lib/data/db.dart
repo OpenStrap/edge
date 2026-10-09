@@ -5101,13 +5101,30 @@ class LocalDb {
       'INTEGER NOT NULL DEFAULT 0',
     );
     await _ensureSessionTraceColumns(db);
-    // Which workout sensor scored a session ([stampSessionSensor]). A side
-    // table, not a `sessions` column: the stamp outlives the sensor's raw
-    // rows, which are pruned at `rawRetentionDays`.
+    // Which workout sensors scored a session ([stampSessionSensor]), one row
+    // each: a strap serving both heart-rate services can hand the live
+    // source from one to the other mid-workout. A side table, not a
+    // `sessions` column: the stamp outlives the sensor's raw rows, which are
+    // pruned at `rawRetentionDays`.
     await db.execute(
       'CREATE TABLE IF NOT EXISTS session_sensor '
-      '(session_id TEXT PRIMARY KEY, source TEXT NOT NULL)',
+      '(session_id TEXT NOT NULL, source TEXT NOT NULL, '
+      'PRIMARY KEY (session_id, source))',
     );
+    // A pre-release build keyed it by session alone; rebuild that shape so a
+    // second sensor stops replacing the first. Every open, so a no-op after.
+    final pk = await db.rawQuery('PRAGMA table_info(session_sensor)');
+    if (!pk.any((c) => c['name'] == 'source' && (c['pk'] as int? ?? 0) > 0)) {
+      // Plain statements, no transaction: this also runs inside onUpgrade's.
+      await db.execute('ALTER TABLE session_sensor RENAME TO session_sensor_v1');
+      await db.execute(
+        'CREATE TABLE session_sensor (session_id TEXT NOT NULL, '
+        'source TEXT NOT NULL, PRIMARY KEY (session_id, source))',
+      );
+      await db.execute('INSERT INTO session_sensor SELECT session_id, source '
+          'FROM session_sensor_v1');
+      await db.execute('DROP TABLE session_sensor_v1');
+    }
     // `sessions` is keyed by a TEXT id, so every read that matters — the
     // workouts list, the activity tab, both `decoded_onehz` HR joins,
     // [sessionsInRange], [liveSessions] — was a full table scan plus a full
@@ -12072,8 +12089,10 @@ class LocalDb {
     // wearable's) and once its raw is pruned.
     // ponytail: a stamped window the band also measured serves empty too,
     // not band-only; rescore it from the band's rows if that matters.
-    final stamp = await sessionSensorOf(r['id']);
-    if (stamp != null && !sessionSensorSources.contains(stamp)) return true;
+    if ((await sessionSensorsOf(r['id']))
+        .any((s) => !sessionSensorSources.contains(s))) {
+      return true;
+    }
     final on = {...sessionSensorSources, ?sessionWearableSource};
     final sources = [
       for (final x in await (await instance).rawQuery(
@@ -12111,16 +12130,17 @@ class LocalDb {
     });
   }
 
+  /// Every workout sensor stamped on session [id] ([stampSessionSensor]).
+  static Future<Set<String>> sessionSensorsOf(Object? id) async => {
+        for (final r in await (await instance).query('session_sensor',
+            columns: ['source'], where: 'session_id = ?', whereArgs: [id]))
+          r['source'] as String,
+      };
+
   /// Records that workout sensor [source] (an adapter id) scored session
   /// [id], so [withoutFlagOffScores] serves the score empty while that
-  /// sensor's flag is off, after its raw rows are gone too.
-  /// The workout sensor stamped on session [id] ([stampSessionSensor]), or
-  /// null.
-  static Future<String?> sessionSensorOf(Object? id) async =>
-      (await (await instance).query('session_sensor',
-              columns: ['source'], where: 'session_id = ?', whereArgs: [id]))
-          .firstOrNull?['source'] as String?;
-
+  /// sensor's flag is off, after its raw rows are gone too. One row per
+  /// sensor: a later one adds to the stamp, it does not replace it.
   static Future<void> stampSessionSensor(String id, String source) async {
     final db = await instance;
     await db.insert('session_sensor', {'session_id': id, 'source': source},

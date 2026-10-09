@@ -187,10 +187,13 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
   Future<void> _scan() async {
     if (_viaPicker) return _pairViaPicker();
     if (_unreachable) {
-      setState(() => _problem = 'This iPhone only lets the app reach sensors '
-          'approved in the system pairing sheet, and a ${widget.entry.label} '
-          'cannot be offered there yet: its advertisement does not carry the '
-          'service it is identified by. Pair it on Android for now.');
+      final label = widget.entry.label;
+      setState(() => _problem =
+          AppLocalizations.of(context)?.pairSensorUnreachableIos(label) ??
+              'This iPhone only lets the app reach sensors approved in the '
+                  'system pairing sheet, and a $label cannot be offered there '
+                  'yet: its advertisement does not carry the service it is '
+                  'identified by. Pair it on Android for now.');
       return;
     }
     setState(() {

@@ -1781,6 +1781,8 @@ class AppState extends ChangeNotifier {
     // each of their callbacks ends in notifyListeners() on a disposed
     // ChangeNotifier (which throws in release).
     _tapSub?.cancel();
+    _deviceRowSub?.cancel();
+    _deviceRowSub = null;
     _sync.dispose();
     _alarmGraceTimer?.cancel();
     _alarmGraceTimer = null;

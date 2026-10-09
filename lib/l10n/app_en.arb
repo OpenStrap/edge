@@ -15084,5 +15084,35 @@
         "type": "String"
       }
     }
+  },
+  "pairSensorUnreachableIos": "This iPhone only lets the app reach sensors approved in the system pairing sheet, and a {label} cannot be offered there yet: its advertisement does not carry the service it is identified by. Pair it on Android for now.",
+  "@pairSensorUnreachableIos": {
+    "description": "Pairing a sensor iOS cannot reach through the system pairing sheet.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "sleepDetailStagedBy": "Staged by {label}",
+  "@sleepDetailStagedBy": {
+    "description": "Pill naming the device whose own sleep staging is shown.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "sleepDetailDeviceMissingStages": "{label} does not report {stages}; that time is counted in its other stages.",
+  "@sleepDetailDeviceMissingStages": {
+    "description": "Note that a device cannot report some sleep stages; stages is a list of stage names.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "stages": {
+        "type": "String"
+      }
+    }
   }
 }

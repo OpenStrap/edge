@@ -529,9 +529,14 @@ class WorkoutController {
     // the same rule GPS follows. No-op when nothing is paired. A sensor still
     // recording the last workout's recovery tail stays armed into this one.
     _cancelStrapTail();
+    _sensorArms++;
     unawaited(HrsLink.instance.arm());
     unawaited(PolarPmdLink.instance.arm());
   }
+
+  /// Bumped each time a workout arms the sensors, so a tail whose timer had
+  /// already fired cannot disarm the next workout's links between its awaits.
+  int _sensorArms = 0;
 
   /// Runs while the workout sensors stay armed past a workout's stop.
   Timer? _strapTail;
@@ -564,8 +569,13 @@ class WorkoutController {
     await PolarPmdLink.instance.flush();
     _cancelStrapTail();
     _strapTailWorkoutId = workoutId;
+    final arms = _sensorArms;
     _strapTail = Timer(strapTailFor, () async {
-      await _disarmSensors();
+      _strapTail = null;
+      if (arms != _sensorArms) return;
+      await HrsLink.instance.disarm();
+      if (arms != _sensorArms) return;
+      await PolarPmdLink.instance.disarm();
       if (!_hostDisposed()) onStrapTailBanked();
     });
   }
@@ -775,6 +785,7 @@ class WorkoutController {
           // rows (`id` is unchanged), so the pre-restart part of the route is
           // kept and the gap shows honestly as a segment break.
           unawaited(_maybeStartRouteTracking(id, activeWorkout!.type));
+          _sensorArms++;
           unawaited(HrsLink.instance.arm());
           unawaited(PolarPmdLink.instance.arm());
           _setWorkoutActive(true);
@@ -868,7 +879,8 @@ class WorkoutController {
     final w = activeWorkout!;
     // Off the clock, not the last tick: a session finished while still paused
     // after a relaunch has never ticked, and its elapsed is still zero.
-    w.elapsed = _sessionClock(w, DateTime.now());
+    w.elapsed =
+        _sessionClock(w, DateTime.fromMillisecondsSinceEpoch(stopMs));
     // Nullable for the same reason `steps` below is: an unanchored profile
     // means this session was never costed, and a 0 in the column reads as
     // "burned nothing" rather than "not measured".
@@ -884,7 +896,9 @@ class WorkoutController {
     // the per-zone seconds the 1 Hz tick accumulated (Z1..Z5, minutes).
     final id = w.workoutId ?? 'w${w.startTime.millisecondsSinceEpoch}';
     final zoneMin = w.zoneMinutes();
-    final endTs = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    // The user's stop, not after the awaited flushes above: the minutes
+    // after it are the recovery tail, not the workout.
+    final endTs = stopMs ~/ 1000;
     // Which strap measured this workout. `putSession` is INSERT OR REPLACE, so
     // an omitted key would blank the stamp startWorkout banked — keep that one
     // when the link has since dropped rather than downgrading a real answer to

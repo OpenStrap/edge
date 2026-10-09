@@ -1357,7 +1357,8 @@ Map _decode(Object? raw) => raw is String ? jsonDecode(raw) as Map : const {};
 Future<Map> crossDayAsOf(String date) async {
   final stored = _decode((await LocalDb.baseline('crossday'))?['payload_json']);
   final recent = stored['recent'];
-  if (recent is List && recent.isNotEmpty && recent.last is Map &&
+  if ((stored['algo_version'] as num?)?.toInt() == kAlgoVersion &&
+      recent is List && recent.isNotEmpty && recent.last is Map &&
       (recent.last as Map)['date'] == date) {
     return stored;
   }

@@ -2620,7 +2620,7 @@
   "missingSignalSteps": "keine Schrittzählung",
   "pairSensorKeyReplacesTitle": "Das Koppeln ersetzt den Schlüssel der Oura-App",
   "pairSensorKeyReplacesBody": "Der Ring speichert einen einzigen Schlüssel. Wenn du ohne Schlüssel aus der Oura-App koppelst, bekommt der Ring einen eigenen neuen Schlüssel, und die Oura-App funktioniert mit diesem Ring erst wieder, wenn er zurückgesetzt und dort neu eingerichtet wurde.",
-  "wearableFlagRowSub": "Experimentell. Ein nutzt die Daten dieses Geräts für deine Werte",
+  "wearableFlagRowSub": "Experimentell. Wenn eingeschaltet, werden die Daten dieses Geräts für deine Werte genutzt",
   "wearableFlagActive": "Aktiv",
   "wearableSettingsGroup": "Wearable-Werte",
   "wearablePresentationRowTitle": "Anzeigen",
@@ -2759,5 +2759,8 @@
   "logFoodRemoveEntry": "Eintrag entfernen",
   "nutritionProteinToday": "Protein heute",
   "nutritionProteinToGo": "Noch {grams} g",
-  "nutritionTargetReached": "Ziel erreicht"
+  "nutritionTargetReached": "Ziel erreicht",
+  "pairSensorUnreachableIos": "Dieses iPhone lässt die App nur Sensoren erreichen, die im Kopplungsfenster des Systems bestätigt wurden, und ein {label} kann dort noch nicht angeboten werden: Seine Werbung enthält den Dienst nicht, an dem er erkannt wird. Kopple ihn vorerst unter Android.",
+  "sleepDetailStagedBy": "Phasen von {label}",
+  "sleepDetailDeviceMissingStages": "{label} meldet {stages} nicht; diese Zeit zählt zu seinen anderen Phasen."
 }

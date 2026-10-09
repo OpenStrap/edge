@@ -241,6 +241,51 @@ Future<Map<String, dynamic>> _snapshot(Profile profile) async {
   };
 }
 
+/// The goldens are generated on macOS, where they hold byte for byte. CI
+/// runs on Linux, whose libm (sin/cos/exp/log/pow) differs from Apple's in
+/// the last bits, and those bits ride through every stored double. So off
+/// macOS doubles compare at 10 significant digits (far above that noise, far
+/// below any real change) and the stored-bytes hash, which no rounding can
+/// save, is not compared.
+final bool _exact = Platform.isMacOS;
+
+Object? _comparable(Object? v) => switch (v) {
+      double d when !_exact && d.isFinite =>
+        double.parse(d.toStringAsPrecision(10)),
+      Map m => {
+          for (final e in m.entries)
+            if (_exact || e.key != 'payload_sha256')
+              e.key: _comparable(e.value)
+        },
+      List l => [for (final x in l) _comparable(x)],
+      _ => v,
+    };
+
+/// The first path where [a] and [b] differ, with both values, or null. A
+/// whole-snapshot string diff is megabytes, and CI truncates it.
+String? _firstDiff(Object? a, Object? b, String path) {
+  if (a is Map && b is Map) {
+    for (final k in {...a.keys, ...b.keys}) {
+      if (!a.containsKey(k) || !b.containsKey(k)) {
+        return '$path.$k: on one side only';
+      }
+      final d = _firstDiff(a[k], b[k], '$path.$k');
+      if (d != null) return d;
+    }
+    return null;
+  }
+  if (a is List && b is List) {
+    for (var i = 0; i < math.max(a.length, b.length); i++) {
+      final d = _firstDiff(i < a.length ? a[i] : null,
+          i < b.length ? b[i] : null, '$path[$i]');
+      if (d != null) return d;
+    }
+    return null;
+  }
+  final ja = jsonEncode(a), jb = jsonEncode(b);
+  return ja == jb ? null : '$path: got $ja, golden $jb';
+}
+
 void main() {
   final zone = _zoneKey();
   final truth = [for (final d in _days) SyntheticDay(d)];
@@ -319,8 +364,9 @@ void main() {
         expect(file.existsSync(), isTrue,
             reason: '${file.path} is missing; see the header.');
         final golden = jsonDecode(file.readAsStringSync());
-        expect(jsonEncode(snap), jsonEncode(golden),
-            reason: 'WHOOP output must stay byte-identical. Do NOT '
+        expect(_firstDiff(_comparable(snap), _comparable(golden), r'$'),
+            isNull,
+            reason: 'WHOOP output must stay identical. Do NOT '
                 'regenerate this golden to make a change pass.');
       });
     });

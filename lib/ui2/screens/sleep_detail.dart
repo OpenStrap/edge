@@ -971,14 +971,19 @@ class _SleepDetailState extends State<SleepDetail> {
   /// What a device's own staging says, in its words: whose it is, its stage
   /// minutes, and which stages it cannot report at all.
   List<Widget> _deviceStaging(BuildContext c, P p, Map<String, dynamic> dn) {
+    final l = AppLocalizations.of(c);
     final label = (dn['label'] as String?) ?? 'Device';
-    final minutes = (dn['stage_min'] as Map?)?.cast<String, int>() ?? const {};
+    final minutes = <String, int>{
+      for (final e in ((dn['stage_min'] as Map?) ?? const {}).entries)
+        if (e.key is String && e.value is num)
+          e.key as String: (e.value as num).round(),
+    };
     final reported = vendorStagesReported(dn['family'] as String?);
     String name(String s) => switch (s) {
-          'wake' => 'Awake',
-          'light' => 'Light',
-          'deep' => 'Deep',
-          'rem' => 'REM',
+          'wake' => l?.sleepDetailStageAwake ?? 'Awake',
+          'light' => l?.sleepDetailLight ?? 'Light',
+          'deep' => l?.sleepDetailDeep ?? 'Deep',
+          'rem' => l?.sleepDetailStageRem ?? 'REM',
           _ => s,
         };
     final parts = [
@@ -992,7 +997,7 @@ class _SleepDetailState extends State<SleepDetail> {
     ];
     return [
       const SizedBox(height: S.x2),
-      Pill('Staged by $label', C.n500),
+      Pill(l?.sleepDetailStagedBy(label) ?? 'Staged by $label', C.n500),
       if (parts.isNotEmpty) ...[
         const SizedBox(height: S.x2),
         Text(parts.join(' · '),
@@ -1001,8 +1006,9 @@ class _SleepDetailState extends State<SleepDetail> {
       if (missing.isNotEmpty) ...[
         const SizedBox(height: S.x1),
         Text(
-          '$label does not report ${missing.join(' or ')}; that time is '
-          'counted in its other stages.',
+          l?.sleepDetailDeviceMissingStages(label, missing.join(' / ')) ??
+              '$label does not report ${missing.join(' or ')}; that time is '
+                  'counted in its other stages.',
           style: F.over.copyWith(color: p.ink3, height: 1.5),
         ),
       ],

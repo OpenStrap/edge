@@ -2495,7 +2495,7 @@
   "devicePickerBlurbPebble": "Pebble 2 ou Pebble 2 SE uniquement. Synchronise les pas et le sommeil, et la fréquence cardiaque sur une Pebble 2 (la SE n'a pas de capteur de fréquence cardiaque).",
   "pairSensorKeyReplacesTitle": "L'appairage remplace la clé de l'app Oura",
   "pairSensorKeyReplacesBody": "La bague ne garde qu'une clé. Appairer sans clé issue de l'app Oura donne à la bague une nouvelle clé à elle, et l'app Oura ne fonctionne plus avec cette bague tant qu'elle n'a pas été réinitialisée puis reconfigurée dans l'app.",
-  "wearableFlagRowSub": "Expérimental. Activé utilise les données de cet appareil pour vos chiffres",
+  "wearableFlagRowSub": "Expérimental. Une fois activé, les données de cet appareil servent à vos chiffres",
   "wearableFlagActive": "Actif",
   "wearableSettingsGroup": "Chiffres du wearable",
   "wearablePresentationRowTitle": "Afficher",
@@ -2634,5 +2634,8 @@
   "logFoodRemoveEntry": "Supprimer cette entrée",
   "nutritionProteinToday": "Protéines aujourd’hui",
   "nutritionProteinToGo": "Encore {grams} g",
-  "nutritionTargetReached": "Objectif atteint"
+  "nutritionTargetReached": "Objectif atteint",
+  "pairSensorUnreachableIos": "Cet iPhone ne laisse l’app joindre que les capteurs approuvés dans la fenêtre d’appairage du système, et un {label} ne peut pas encore y être proposé : son annonce ne contient pas le service qui l’identifie. Appairez-le sur Android pour l’instant.",
+  "sleepDetailStagedBy": "Phases selon {label}",
+  "sleepDetailDeviceMissingStages": "{label} ne signale pas {stages} ; ce temps est compté dans ses autres phases."
 }

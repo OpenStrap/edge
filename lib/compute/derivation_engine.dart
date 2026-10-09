@@ -2395,6 +2395,11 @@ class _BaselineHistoryCache {
   final Map<String, Map<String, String>> _families;
   final Map<String, List<_DatedValue>> _byFamily = {};
 
+  /// The wearable's and the band's newest rows, read once per pass (this
+  /// cache lives exactly one pass) for [_agingEdgeFor]: the wearable read
+  /// scans its whole HR history, too much to repeat for every day.
+  Future<int?>? _wearableEdge, _bandEdge;
+
   /// [key]'s series restricted to [family] (see [_families]); the whole
   /// series when nothing in it is of another family.
   List<_DatedValue> _seriesFor(String key, String? family) {
@@ -2801,11 +2806,17 @@ Future<int?> _withWearableEdge(int? bandEdge) async {
 /// ponytail: a day that only had wearable rows when derived still ages on the
 /// wearable's edge even if a band backlog for it drains later; telling a
 /// stale band from a lagging one needs the band's last-sync time.
-Future<int> _agingEdgeFor(String? family, int dataNowSec) async {
-  final w = await wearableLastTs();
+Future<int> _agingEdgeFor(String? family, int dataNowSec,
+    [_BaselineHistoryCache? pass]) async {
+  final w = await (pass == null
+      ? wearableLastTs()
+      : pass._wearableEdge ??= wearableLastTs());
   if (w == null) return dataNowSec;
   if (isWearableFamily(family)) return w;
-  return await LocalDb.lastDecodedRecTs() ?? dataNowSec;
+  final band = await (pass == null
+      ? LocalDb.lastDecodedRecTs()
+      : pass._bandEdge ??= LocalDb.lastDecodedRecTs());
+  return band ?? dataNowSec;
 }
 
 /// Test seam for [_agingEdgeFor].
@@ -5017,7 +5028,8 @@ class DerivationEngine {
     // An import supplies its own substrate and edge (sub.lastTs): the live
     // band's DB edge never holds the imported rows.
     if (!suppliedSubstrate) {
-      dataNowSec = await _agingEdgeFor(daySub.deviceFamily, dataNowSec);
+      dataNowSec =
+          await _agingEdgeFor(daySub.deviceFamily, dataNowSec, history);
     }
     // Per-second 4-class stage labels (the single source): 'wake'|'light'|
     // 'deep'|'rem'. analytics' segmentSleep exposes the 4-class stream directly

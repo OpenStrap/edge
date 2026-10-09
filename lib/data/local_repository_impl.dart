@@ -2197,8 +2197,9 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<List<Map<String, Object?>>> getDeviceNights(String date) async {
     final dayStart = _localMidnightSec(date);
     final dayEnd = _localDayEndSec(date);
+    final devices = await LocalDb.deviceRows();
     final labels = {
-      for (final r in await LocalDb.deviceRows())
+      for (final r in devices)
         r['id']: (r['label'] as String?) ??
             kBandRegistry
                 .where((e) => e.id == r['adapter_id'])
@@ -2206,8 +2207,7 @@ class LocalRepositoryImpl extends LocalRepository {
                 ?.label,
     };
     final families = {
-      for (final r in await LocalDb.deviceRows())
-        r['id']: r['adapter_id'] as String?,
+      for (final r in devices) r['id']: r['adapter_id'] as String?,
     };
     final out = <Map<String, Object?>>[];
     for (final n in await LocalDb.vendorSleepNights(dayStart - 86400, dayEnd)) {
@@ -3120,8 +3120,8 @@ class LocalRepositoryImpl extends LocalRepository {
       // Scored by a workout sensor whose flag is now off: what the window
       // holds without it (the band's partial minutes) must not overwrite its
       // stored score, which flag on serves again (rule R6).
-      final stamp = await LocalDb.sessionSensorOf(id);
-      if (stamp != null && !LocalDb.sessionSensorSources.contains(stamp)) {
+      if ((await LocalDb.sessionSensorsOf(id))
+          .any((s) => !LocalDb.sessionSensorSources.contains(s))) {
         return (row: row, hrRows: null, zoneMinutesRebinned: true);
       }
       // Returned to the caller: `getWorkout` enriches from the SAME 1 Hz window

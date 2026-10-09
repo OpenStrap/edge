@@ -80,10 +80,16 @@ class PolarPmdAdapter extends BandAdapter {
     // `_Inbox` exists for; smaller because this stream needs no "next with
     // timeout", just a buffered pass-through.
     final dataEvents = StreamController<(int, List<int>)>();
+    // The stop signal below closes [dataEvents] while this subscription is
+    // still live, so a notification already in flight must not add to it.
     final dataSub = link.notify(kPolarPmdDataChar).listen(
-          dataEvents.add,
+          (r) {
+            if (!dataEvents.isClosed) dataEvents.add(r);
+          },
           onDone: dataEvents.close,
-          onError: dataEvents.addError,
+          onError: (Object e) {
+            if (!dataEvents.isClosed) dataEvents.addError(e);
+          },
         );
     unawaited(stopped.future.then((_) {
       link.log('polar_pmd: the sensor stopped the PPI stream; ending the '

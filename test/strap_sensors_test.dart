@@ -317,6 +317,28 @@ void main() {
     expect((await served())['strain'], isNotNull);
   });
 
+  test('a session two straps scored is served empty when either flag is off',
+      () async {
+    await LocalDb.putSession({
+      'id': 'both',
+      'start_ts': _t0,
+      'end_ts': _t0 + 600,
+      'type': 'run',
+      'status': 'done',
+      'strain': 9.5,
+      'created_at': _t0 + 600,
+    });
+    await LocalDb.stampSessionSensor('both', kBleHrs.id);
+    await LocalDb.stampSessionSensor('both', kPolarPmd.id);
+    expect(await LocalDb.sessionSensorsOf('both'), {kBleHrs.id, kPolarPmd.id});
+    Future<Object?> strain() async =>
+        (await LocalDb.sessionsInRange(_t0 - 1, _t0 + 1)).single['strain'];
+    LocalDb.sessionSensorSources = {kBleHrs.id, kPolarPmd.id};
+    expect(await strain(), isNotNull);
+    LocalDb.sessionSensorSources = {kPolarPmd.id};
+    expect(await strain(), isNull, reason: 'the first strap still scored it');
+  });
+
   test("a sweep with the strap's flag off keeps its stamped score for flag on",
       () async {
     // Recent, so the drain sweep's window holds it.
