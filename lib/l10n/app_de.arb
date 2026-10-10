@@ -692,6 +692,8 @@
   "logWorkoutWindowInvalidTitle": "Dieser Zeitraum lässt sich nicht speichern",
   "logWorkoutTimesUpdatedTitle": "Zeiten aktualisiert",
   "logWorkoutLoggedTitle": "Training gespeichert",
+  "logWorkoutScoreWithBand": "Mit Puls vom Band bewerten",
+  "logWorkoutImportedHrGone": "Die Herzfrequenz für dieses Training ist nicht mehr gespeichert, daher kann das Band es nicht bewerten.",
   "logWorkoutUnscoredSaved": "Gespeichert. In diesem Zeitraum wurde keine Herzfrequenz aufgezeichnet, daher gibt es weder Strain noch Kalorien – nur die Zeiten sind hinterlegt.",
   "logWorkoutCouldNotSave": "Konnte nicht gespeichert werden – versuch es noch einmal.",
   "logWorkoutScoredTitle": "Ausgewertet anhand der Aufzeichnung des Bands",

@@ -655,6 +655,8 @@
   "logWorkoutWindowInvalidTitle": "Cette plage ne pourra pas être enregistrée",
   "logWorkoutTimesUpdatedTitle": "Horaires mis à jour",
   "logWorkoutLoggedTitle": "Séance enregistrée",
+  "logWorkoutScoreWithBand": "Évaluer avec le pouls du bracelet",
+  "logWorkoutImportedHrGone": "Le pouls de cette séance n’est plus enregistré, le bracelet ne peut donc pas l’évaluer.",
   "logWorkoutUnscoredSaved": "Enregistré. Aucune fréquence cardiaque n’a été relevée sur cette plage, donc elle n’a ni effort ni calories — seuls les horaires sont conservés.",
   "logWorkoutCouldNotSave": "Impossible d’enregistrer — réessayez.",
   "logWorkoutScoredTitle": "Calculé à partir de ce que le bracelet a enregistré",

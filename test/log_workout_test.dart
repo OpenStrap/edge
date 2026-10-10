@@ -153,6 +153,22 @@ void main() {
       );
     });
 
+    testWidgets('scoring an import never writes over a session at its start '
+        '(#325)', (t) async {
+      final s = _start.millisecondsSinceEpoch ~/ 1000;
+      final e = _end.millisecondsSinceEpoch ~/ 1000;
+      final same = [SessionSpan(manualSessionId(s), s, e)];
+      await _pump(t, LogWorkout(now: _now, start: _start, end: _end, spans: same));
+      expect(find.text('That window will not save'), findsNothing,
+          reason: 're-logging the same window updates that row');
+      await _pump(
+        t,
+        LogWorkout(
+            now: _now, start: _start, end: _end, spans: same, importedUuid: 'x'),
+      );
+      expect(find.text('That window will not save'), findsOneWidget);
+    });
+
     testWidgets('a retime keeps the type and does not offer to change it', (
       t,
     ) async {

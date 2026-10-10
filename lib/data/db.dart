@@ -2886,6 +2886,28 @@ class LocalDb {
     );
   }
 
+  /// Replace an imported workout with the band session scored over its window
+  /// (#325). Its route, if the store had one, moves to [sessionId] instead of
+  /// being dropped; the row itself goes, so the workout is listed once.
+  static Future<void> supersedeImportedWorkout(
+    String uuid,
+    String sessionId,
+  ) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      // A session that already has its own route keeps it whole: moving only
+      // the non-colliding points would splice two routes into one.
+      await txn.rawUpdate(
+          'UPDATE workout_route SET session_id = ? WHERE session_id = ? '
+          'AND NOT EXISTS (SELECT 1 FROM workout_route WHERE session_id = ?)',
+          [sessionId, uuid, sessionId]);
+      await txn.delete('workout_route',
+          where: 'session_id = ?', whereArgs: [uuid]);
+      await txn.delete('imported_workout',
+          where: 'uuid = ?', whereArgs: [uuid]);
+    });
+  }
+
   /// Drop every imported workout whose source is one of [sources], AND its
   /// route, like [deleteImportedWorkout].
   static Future<void> deleteImportedWorkoutsFrom(Set<String> sources) async {
