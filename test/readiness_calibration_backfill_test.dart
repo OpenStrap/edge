@@ -122,11 +122,41 @@ void main() {
     expect(early['clinical']['readiness_composite']['value']['calibration']
         ['status'], 'calibrating');
 
-    // One-shot.
-    final again =
-        await backfillReadinessCalibration(
-            rawDays: const {},
-            zHistoryLoader: () async => (_, _) => const <double>[]);
+    // Not done while substrate days are still below v112: their raw was
+    // pruned before any derive reached them, so the next pass re-scores them.
+    final later = await backfillReadinessCalibration(
+        rawDays: const {}, zHistoryLoader: () async => (_, _) => const <double>[]);
+    expect(later.rescored, 2);
+    expect((await LocalDb.dayResult(day(20)))!['algo_version'], kAlgoVersion);
+
+    // Now everything is at v112: done, and one-shot from here.
+    final again = await backfillReadinessCalibration(
+        rawDays: const {}, zHistoryLoader: () async => (_, _) => const <double>[]);
     expect(again.seeded + again.rescored, 0);
+  });
+
+  test('an interrupted re-score is completed: bundle and trend agree', () async {
+    // The state a crash between the two writes leaves: the trend already
+    // holds a value, the bundle is still below v112.
+    final b = bundle(-1, -1, 0);
+    await LocalDb.putDayResult(
+      dayId: day(45),
+      algoVersion: 111,
+      payloadJson: jsonEncode(b),
+      windowJson: '{}',
+      finalized: true,
+      readiness: 10,
+    );
+    await LocalDb.putMetricSeriesValue(day(45), 'readiness', 99);
+    final r = await backfillReadinessCalibration(
+        rawDays: const {},
+        force: true,
+        zHistoryLoader: () async => (_, _) => const <double>[]);
+    expect(r.rescored, 1);
+    final row = (await LocalDb.dayResult(day(45)))!;
+    expect(row['algo_version'], kAlgoVersion);
+    final trend = (await LocalDb.metricSeries('readiness'))
+        .firstWhere((m) => m['date'] == day(45))['value'];
+    expect(trend, row['readiness']);
   });
 }

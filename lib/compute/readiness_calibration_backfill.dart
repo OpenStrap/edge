@@ -166,6 +166,7 @@ Future<int> seedRecentReadinessZ() async {
 /// day for that day's device family — the same window a derive would use.
 /// One-shot.
 Future<({int seeded, int rescored})> backfillReadinessCalibration({
+  /// Days with substrate: decoded band rows AND the active wearable's rows.
   required Set<String> rawDays,
   required Future<List<double> Function(String day, String? deviceFamily)>
       Function()
@@ -179,9 +180,19 @@ Future<({int seeded, int rescored})> backfillReadinessCalibration({
   final days = await _storedDays();
   final seeded = await _seedZ(days);
   final lookup = await zHistoryLoader();
+  final versions = await LocalDb.dayResultVersions();
   var rescored = 0;
+  // Days below v112 left to the derive because they still have substrate. A
+  // light pass need not reach them all, and their raw can be pruned before it
+  // does — so while any remain, the backfill is NOT marked done and the next
+  // pass looks again (by then each is either re-derived or substrate-less).
+  var pendingRaw = 0;
   for (final day in days) {
-    if (rawDays.contains(day)) continue;
+    if ((versions[day] ?? 0) >= kAlgoVersion) continue;
+    if (rawDays.contains(day)) {
+      pendingRaw++;
+      continue;
+    }
     final row = await LocalDb.dayResult(day);
     if (row == null ||
         ((row['algo_version'] as num?)?.toInt() ?? 0) >= kAlgoVersion) {
@@ -192,6 +203,11 @@ Future<({int seeded, int rescored})> backfillReadinessCalibration({
     if (payload == null || stored == null) continue;
     final score = rescoreStoredReadiness(payload, stored,
         lookup(day, payload['device_family'] as String?));
+    // The metric FIRST, the bundle second: the bundle's version is what marks
+    // the day done, so a crash between the two leaves the day below v112 and
+    // the next pass redoes both (same inputs, same values). The other order
+    // left a v112 bundle beside the old trend value, never revisited.
+    await LocalDb.putMetricSeriesValue(day, 'readiness', score);
     // `series: {}` + no `source`: the stored payload is rewritten as-is apart
     // from readiness, and the day's metric_series_version / metric_method rows
     // (its family stamp) are left untouched.
@@ -205,10 +221,9 @@ Future<({int seeded, int rescored})> backfillReadinessCalibration({
       rmssd: (row['rmssd'] as num?)?.toDouble(),
       readiness: score,
     );
-    await LocalDb.putMetricSeriesValue(day, 'readiness', score);
     rescored++;
   }
-  await _markDone();
+  if (pendingRaw == 0) await _markDone();
   return (seeded: seeded, rescored: rescored);
 }
 

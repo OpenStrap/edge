@@ -3288,7 +3288,9 @@ class DerivationEngine {
       _diag['stage'] = 'readiness_calibration';
       try {
         final r = await backfillReadinessCalibration(
-          rawDays: (await LocalDb.decodedRecTsMaxByDay()).keys.toSet(),
+          // Both substrate sources, as `_deriveScope` reads them: a wearable
+          // day with rows is the derive's, not the re-score's.
+          rawDays: await substrateDays(),
           zHistoryLoader: () async {
             final h = await _BaselineHistoryCache.load();
             return (day, fam) => h.valuesBefore('readiness_z', day,

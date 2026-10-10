@@ -172,6 +172,13 @@ Future<Set<String>> _wearableDays() async {
   return w == null ? const {} : (await wearableRecTsMaxByDay(w)).keys.toSet();
 }
 
+/// Every day with substrate a derive can read: decoded band rows plus the
+/// active wearable's rows (only when its flag is on).
+Future<Set<String>> substrateDays() async => {
+      ...(await LocalDb.decodedRecTsMaxByDay()).keys,
+      ...await _wearableDays(),
+    };
+
 /// Runs [change], then hands every day it moved (each day the old wearable
 /// or the new one has rows for) to [onWearableDaysChanged], and returns them.
 /// A day the band shares is re-derived too: a night the band never saw may
