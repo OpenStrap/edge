@@ -291,14 +291,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     return InsightCard(
       loc?.workoutOverreachHeadline(
               ratio, o.nightsElevated, o.nightsConsidered) ??
-          'Your last 7 days of load are '
-              '$ratio× your usual six weeks, and your resting '
-              'heart rate was above your usual on ${o.nightsElevated} of '
-              '${o.nightsConsidered} nights.',
+          'Your last 7 days of load are $ratio× your usual six weeks, and resting heart rate ran high on ${o.nightsElevated} of ${o.nightsConsidered} nights.',
       loc?.workoutOverreachBody ??
-          'Two measurements that happen to point the same way. Illness, travel, '
-              'altitude, alcohol and a run of poor sleep all produce this same '
-              'pair, and nothing here can tell them apart.',
+          'Two measurements pointing the same way. Illness, travel, altitude, alcohol or poor sleep can all cause this, and nothing here tells them apart.',
       icon: LucideIcons.activity,
       color: C.orange,
     );
@@ -344,8 +339,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             final axis = AxisSpec.of([for (final v in d.trimp7) ?v], floor: 0);
             final days = d.trimp7.where((v) => v != null).length;
             return ChartFrame(
-              title: loc?.workoutDailyLoadTitle ?? 'DAILY LOAD',
-              unit: loc?.workoutTrimpUnit ?? 'TRIMP',
+              title: loc?.workoutDailyLoadTitle ?? 'HEART EFFORT BY DAY',
+              unit: loc?.workoutTrimpUnit ?? 'points',
               height: 88,
               yAxis: axis,
               // Seven slots, seven real dates. A day with nothing keeps its
@@ -355,8 +350,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                   _weekdayLetter(c, DateTime(end.year, end.month, end.day - i)),
               ],
               footnote: (loc?.workoutDailyLoadFootnoteIntro ??
-                      'Banister training impulse — minutes weighted by '
-                          'heart-rate reserve. ') +
+                      'How hard your heart worked: minutes in each heart-rate zone, with harder zones counting more. ') +
                   (days == 7
                       ? (loc?.workoutDailyLoadAllDays ?? 'Last seven days.')
                       : (loc?.workoutDailyLoadPartialDays(days) ??
@@ -592,9 +586,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         Text(
           loc?.workoutImportedThisWeekNote(importedThisWeek, storeName) ??
               '$importedThisWeek of this week’s sessions came from $storeName. '
-                  'They count here, and they are left out of weekly load — an '
-                  'imported workout arrives with no heart-rate trace, and a load '
-                  'number without one would be invented.',
+                  'They count here, but not in weekly load: they arrived '
+                  'without heart rate.',
           style: F.cap.copyWith(color: p.ink3, height: 1.5),
         ),
       ],

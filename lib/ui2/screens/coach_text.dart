@@ -123,7 +123,7 @@ String coachPresentationText(AppLocalizations? l, String text) {
     return l.supplementCoachModelsError(models[1]!, models[2]!);
   }
   final size = RegExp(
-    r'^That request grew to (\d+) KB, over the (\d+) KB safety limit for data leaving this device\. Start a new chat or ask a narrower question \(aggregate with AVG/MIN/MAX/COUNT instead of selecting every row\)\.$',
+    r'^That question pulled in too much data \((\d+) KB; the limit is (\d+) KB\), so nothing was sent\. Try a shorter time range, or start a new chat\.$',
   ).firstMatch(text);
   if (size != null) return l.supplementCoachOversize(size[1]!, size[2]!);
   final rendering = RegExp(r'^Rendering (.*?)…$').firstMatch(text);

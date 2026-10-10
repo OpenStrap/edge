@@ -565,10 +565,9 @@ String deviceCategoryBlurb(AppLocalizations? l, BandEntry e) {
       'ultrahuman' => l?.devicePickerBlurbUltrahuman ??
           'Reads the ring directly — no account, no key exchange.',
       'miband234' => l?.devicePickerBlurbMiband234 ??
-          'A Mi Band 2 or 3. Unpair it from Mi Fit or Zepp first (or '
-              'factory-reset it): it only takes a new key while it holds '
-              'none. Syncs its stored heart rate, steps and sleep. '
-              'If the band buzzes while pairing, tap it to confirm.',
+          'Mi Band 2 or 3: heart rate, steps and sleep. Unpair it from Mi '
+              'Fit or Zepp first, or reset it. Tap the band if it buzzes. Mi '
+              'Band 4 isn’t supported.',
       'pebble' => l?.devicePickerBlurbPebble ??
           'Pebble 2 or Pebble 2 SE only. Syncs steps and sleep, and heart '
               'rate on a Pebble 2 (the SE has no heart-rate sensor).',

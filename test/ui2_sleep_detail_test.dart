@@ -73,7 +73,7 @@ void main() {
         effHistory: _flat(20, 91),
       ),
     );
-    expect(find.text('Time asleep'), findsOneWidget);
+    expect(find.text('Did you sleep enough?'), findsOneWidget);
     expect(find.textContaining('Typical for you'), findsWidgets);
   });
 

@@ -880,9 +880,7 @@ class _SleepDetailState extends State<SleepDetail> {
       final l = AppLocalizations.of(context);
       setState(() => _overrideFailed = failed ??
           l?.sleepDetailReanalyseFailed ??
-          'The night was not re-analysed — another re-analysis was already '
-              'running, or it failed. The times you set are saved; '
-              'Re-analyze everything on Your data applies them.');
+          'The night wasn’t re-analysed; another run was busy or it failed. Your times are saved: open Your data and tap Re-analyze everything.');
     }
   }
 
@@ -1306,9 +1304,7 @@ class _SleepDetailState extends State<SleepDetail> {
         // rather than one published figure applied to every night.
         Text(
             l?.sleepDetailStageRangeExplain ??
-                'Each stage is a range, not a count — the better we saw the night, '
-                    'the narrower it is. Deep is the widest. Awake stays one figure. '
-                    'Nerd stats has the exact counts.',
+                'Each stage is a range, narrower the better we saw the night. Deep is the widest; awake is one figure. Nerd stats has exact counts.',
             style: F.over.copyWith(color: p.ink3, height: 1.5)),
       ],
     ]);
@@ -1333,7 +1329,7 @@ class _SleepDetailState extends State<SleepDetail> {
     final tst = (n['duration_min'] as num?)?.toDouble();
     if (tst != null) {
       rows.add(_Compare(
-        label: l?.sleepDetailTimeAsleep ?? 'Time asleep',
+        label: l?.sleepDetailAskEnough ?? 'Did you sleep enough?',
         value: hm(tst),
         tonight: tst,
         history: d.tstHistory,
@@ -1357,7 +1353,7 @@ class _SleepDetailState extends State<SleepDetail> {
       // The device's own count: no estimator interval to blur it by.
       final deep = (n['deep_min'] as num).toDouble();
       rows.add(_Compare(
-        label: l?.sleepDetailStageDeep ?? 'Deep sleep',
+        label: l?.sleepDetailAskDeep ?? 'Did you get your usual deep sleep?',
         value: hm(deep),
         tonight: deep,
         history: d.deepHistory,
@@ -1370,7 +1366,7 @@ class _SleepDetailState extends State<SleepDetail> {
     } else if (deepRange != null) {
       final deep = deepRange.pointSec / 60;
       rows.add(_Compare(
-        label: l?.sleepDetailStageDeep ?? 'Deep sleep',
+        label: l?.sleepDetailAskDeep ?? 'Did you get your usual deep sleep?',
         value: _rangeText(deepRange),
         tonight: deep,
         blur: (deepRange.hiSec - deepRange.loSec) / 120,
@@ -1386,7 +1382,8 @@ class _SleepDetailState extends State<SleepDetail> {
     final eff = (n['efficiency'] as num?)?.toDouble();
     if (eff != null) {
       rows.add(_Compare(
-        label: l?.sleepDetailAsleepWhileInBed ?? 'Asleep while in bed',
+        label: l?.sleepDetailAskSleptThrough ??
+            'Did you sleep through your time in bed?',
         value: _pct(eff * 100),
         tonight: eff * 100,
         history: d.effHistory,
@@ -1407,7 +1404,8 @@ class _SleepDetailState extends State<SleepDetail> {
     if (onset != null && d.onsetHistory.isNotEmpty) {
       final rel = [for (final o in d.onsetHistory) _relMinutes(o, onset)];
       rows.add(_Compare(
-        label: l?.sleepDetailFellAsleep ?? 'Fell asleep',
+        label: l?.sleepDetailAskOnTime ??
+            'Did you fall asleep at your usual time?',
         value: clockOfTs(onset),
         tonight: 0,
         history: rel,
@@ -1553,9 +1551,7 @@ class _SleepDetailState extends State<SleepDetail> {
       items.add(InsightCard(
         l?.sleepDetailSleepingHrHighTitle ?? 'Sleeping heart rate ran high',
         l?.sleepDetailSleepingHrHighBody(vsBase.toStringAsFixed(1)) ??
-            '${vsBase.toStringAsFixed(1)} bpm above your own baseline. Common '
-                'after alcohol, a late meal, a hard session or an infection '
-                'starting — this is a measurement, not a diagnosis.',
+            '${vsBase.toStringAsFixed(1)} bpm above your usual. Common after alcohol, a late meal, a hard session or an infection starting. A measurement, not a diagnosis.',
         icon: LucideIcons.heartPulse,
         color: C.red,
       ));

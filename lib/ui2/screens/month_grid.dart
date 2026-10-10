@@ -230,11 +230,7 @@ class MonthGrid extends StatelessWidget {
                 const SizedBox(height: S.x3),
                 Text(
                   l?.monthGridFootnote ??
-                      'One cell per day. Darker is further up YOUR own range — the '
-                      '10th to 90th percentile of every day you have stored — and '
-                      'an outlined cell is a day with no value, not a low one. '
-                      'More strain is not better strain and longer sleep is not '
-                      'healthier sleep; this says where a day sat, not how it went.',
+                      'One cell per day. Darker means higher within your own range; an outlined cell has no value. It shows where a day sat, not whether it was good.',
                   style: F.over.copyWith(color: p.ink3, height: 1.5),
                 ),
               ],

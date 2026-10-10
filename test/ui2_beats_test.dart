@@ -348,7 +348,7 @@ void main() {
     // handed to the frame keeps the hole in place rather than compacting it.
     final frame = t
         .widgetList<ChartFrame>(find.byType(ChartFrame))
-        .firstWhere((f) => f.title == 'RMSSD in half-hour bins');
+        .firstWhere((f) => f.title == 'HRV in half-hour blocks');
     expect(frame.series, hasLength(17));
     expect(frame.series[11], isNull);
   });

@@ -677,10 +677,9 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
                   s.daysByWeek.join(', '),
                   s.cycles,
                 ) ??
-                'Four numbers, one per week of the cycle, counted back to your own '
-                    'logged starts. You logged something on ${s.daysByWeek.join(', ')} '
-                    'days of each week across ${s.cycles} cycles — those are the only '
-                    'days in any of this.',
+                'One number per week of the cycle, counted from the starts you '
+                    'logged. Only the ${s.daysByWeek.join(', ')} logged days per '
+                    'week across ${s.cycles} cycles count.',
             style: F.over.copyWith(color: p.ink3, height: 1.5),
           ),
         ],
@@ -1019,7 +1018,7 @@ class _CycleHistoryState extends State<_CycleHistory> {
       ),
       _cycleDayChart(
         c,
-        l?.cycleHrvRmssdTitle ?? 'HRV (RMSSD)',
+        l?.cycleHrvRmssdTitle ?? 'HRV',
         l?.cycleUnitMs ?? 'ms',
         C.purple,
         rmssd,
@@ -1043,9 +1042,7 @@ class _CycleHistoryState extends State<_CycleHistory> {
           if (w != null) ...[w, const SizedBox(height: S.x3)],
         Text(
           l?.cycleOwnPastCyclesDescribed ??
-              'Your own past cycles, described. Days that only one cycle reached '
-                  'are left empty rather than drawn — one night is not a middle. It '
-                  'describes what happened, not what will.',
+              'Your past cycles, described. Days only one cycle reached are left empty. It shows what happened, not what will.',
           style: F.over.copyWith(color: p.ink3, height: 1.5),
         ),
         const SizedBox(height: S.x4),
@@ -1178,9 +1175,7 @@ class _CycleHistoryState extends State<_CycleHistory> {
           ],
           Text(
             l?.cycleComparisonNotCorrection ??
-                'A comparison, not a correction. Nothing on your readiness has '
-                    'been rescaled by this, and nothing here is a training '
-                    'instruction.',
+                'A comparison, not a correction. Your recovery score is not adjusted by this, and nothing here is a training instruction.',
             style: F.over.copyWith(color: p.ink3, height: 1.5),
           ),
         ],
@@ -1252,9 +1247,7 @@ class _CycleHistoryState extends State<_CycleHistory> {
       return StatusCard(
         l?.cycleLengthsTitle ?? 'Your cycle lengths against a published range',
         l?.cycleLengthsBody ??
-            'Off unless you ask for it. It draws the days between your own logged '
-                'starts next to the range published for an adult cycle, and says '
-                'nothing else about them.',
+            'Off unless you turn it on. It shows the days between your logged starts next to the published adult range, and nothing more.',
         fix: l?.cycleShowIt ?? 'Show it',
         icon: LucideIcons.ruler,
         onFix: _app == null
@@ -1280,10 +1273,7 @@ class _CycleHistoryState extends State<_CycleHistory> {
       return StatusCard(
         l?.cycleGapTitle ?? 'There is a gap in your logged starts',
         l?.cycleGapBody(kCycleLengthUnloggableGapDays) ??
-            'One of them is more than $kCycleLengthUnloggableGapDays days after '
-                'the one before it. A start you never logged and a cycle that '
-                'genuinely ran that long look the same from here, so nothing is '
-                'drawn.',
+            'One start is more than $kCycleLengthUnloggableGapDays days after the one before. A missed log and a long cycle look the same, so nothing is drawn.',
         icon: LucideIcons.ruler,
       );
     }
@@ -1351,10 +1341,7 @@ class _CycleHistoryState extends State<_CycleHistory> {
         // Non-dismissible, and deliberately not a card that can be closed.
         Text(
           l?.cycleLengthChangesReasons ??
-              'Cycle length changes for many reasons — thyroid, stress, weight '
-                  'change, contraception, PCOS and others. This is your own logged '
-                  'data next to a published range. It is a reason to ask a clinician, '
-                  'not an answer from one.',
+              'Cycle length changes for many reasons, such as thyroid, stress, weight, contraception or PCOS. A reason to ask a clinician, not an answer.',
           style: F.over.copyWith(color: p.ink3, height: 1.5),
         ),
         const SizedBox(height: S.x3),
@@ -1420,7 +1407,7 @@ Widget _currentCycleChart(BuildContext c, CycleData d) {
           ? NoData(
               message:
                   l?.cycleNotEnoughDerivedNights ??
-                  'Not enough derived nights this cycle yet',
+                  'Not enough scored nights this cycle yet',
             )
           : null,
       series: vals,
@@ -1462,9 +1449,7 @@ String _mdcNote(
   final n = '${noise.toStringAsFixed(1)} $unit';
   return swing < noise
       ? (l?.cycleMdcNoteInsideSpread(s, n) ??
-            ' Every day drawn here is inside your own night-to-night spread: the '
-                'biggest gap between two of them is $s, and $n is the smallest '
-                'change this can tell from noise. A shape, not a shift.')
+            ' Every day here is within your normal night-to-night swing: the biggest gap is $s, and $n is the smallest real change. A shape, not a shift.')
       : (l?.cycleMdcNoteVaries(n, s) ??
             ' Your nights vary by $n on their own, so days closer together than '
                 'that are not separated. The biggest gap here is $s.');

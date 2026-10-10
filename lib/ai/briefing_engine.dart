@@ -181,7 +181,7 @@ Future<Map<String, dynamic>> collectBriefingInputs(
 /// about it can be checked.
 const Map<String, ({String key, String label, String unit, int dp})>
     kSweepMetrics = {
-  'recovery': (key: 'readiness', label: 'readiness', unit: '', dp: 0),
+  'recovery': (key: 'readiness', label: 'recovery', unit: '', dp: 0),
   'resting_hr': (key: 'rhr', label: 'resting heart rate', unit: 'bpm', dp: 0),
   'hrv': (key: 'rmssd', label: 'HRV', unit: 'ms', dp: 0),
   'strain': (key: 'strain', label: 'strain', unit: '', dp: 1),
@@ -365,6 +365,9 @@ String briefingSystemPrompt(BriefingPeriod period) {
       '(low / moderate / good) is AUTHORITATIVE for tone: a low or moderate '
       'band must never be described as strong, solid or good recovery, even '
       'if individual sub-metrics (HRV, RHR) look fine in isolation.\n'
+      '- The app calls the readiness score "recovery". Write "recovery", '
+      'never "readiness"; say "HRV", never RMSSD; "your usual", never '
+      '"baseline".\n'
       '- Warm, direct, second person. No emojis. No headers.\n'
       'OUTPUT FORMAT (exactly):\n'
       'Line 1: one plain-text sentence, max 140 characters — the whole story '

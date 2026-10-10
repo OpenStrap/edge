@@ -55,7 +55,7 @@ void main() {
     );
     expect(find.textContaining('Part of that file could not be used'),
         findsOneWidget);
-    expect(find.textContaining('2 days of stored raw sensor history'),
+    expect(find.textContaining('2 days of saved sensor history'),
         findsOneWidget);
     expect(find.text('Update the app'), findsOneWidget);
   });
@@ -68,7 +68,7 @@ void main() {
       const ImportOutcome(source: 'OpenStrap backup', archiveBucketsSkipped: 1),
     );
     expect(find.textContaining('Nothing was imported'), findsOneWidget);
-    expect(find.textContaining('1 day of stored raw sensor history'),
+    expect(find.textContaining('1 day of saved sensor history'),
         findsOneWidget);
     expect(find.text('Update the app'), findsOneWidget);
     // Nothing else landed, so nothing may claim it did.

@@ -23,7 +23,7 @@ void main() {
   test('the illness sentence claims no signal the detector does not read', () {
     const f = Finding(FindingKind.illness, '2026-10-01');
     expect(f.detail.toLowerCase(), isNot(contains('hrv')));
-    expect(f.detail, contains('one signal only'));
+    expect(f.detail, contains('One signal'));
     expect(f.title.toLowerCase(), isNot(contains('illness')));
   });
 
@@ -58,8 +58,8 @@ void main() {
     ]) {
       expect(copy, isNot(contains(claim)), reason: claim);
     }
-    expect(f.detail, contains('This watches one signal only.'));
-    expect(f.detail, contains('It names a pattern, not a cause.'));
+    expect(f.detail, contains('One signal'));
+    expect(f.detail, contains('a pattern, not a cause.'));
   });
 
   // The in-app illness cards (and the rough-night note naming the same
@@ -185,7 +185,7 @@ void main() {
 
   test('an unscored low-readiness finding names no number', () {
     const f = Finding(FindingKind.lowReadiness, '2026-10-01');
-    expect(f.detail, startsWith('Readiness was in its lowest band.'));
+    expect(f.detail, startsWith('Recovery was in its lowest band.'));
   });
 
   test("the push threshold is the ring's lowest band", () {

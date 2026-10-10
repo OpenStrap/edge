@@ -707,10 +707,10 @@ class CoachEngine {
       final payloadBytes = utf8.encode(payload).length;
       if (payloadBytes > kMaxRequestBytes) {
         throw CoachException(
-          'That request grew to ${payloadBytes ~/ 1024} KB, over the '
-          '${kMaxRequestBytes ~/ 1024} KB safety limit for data leaving this '
-          'device. Start a new chat or ask a narrower question (aggregate with '
-          'AVG/MIN/MAX/COUNT instead of selecting every row).',
+          'That question pulled in too much data '
+          '(${payloadBytes ~/ 1024} KB; the limit is '
+          '${kMaxRequestBytes ~/ 1024} KB), so nothing was sent. Try a shorter '
+          'time range, or start a new chat.',
         );
       }
       final resp = await c

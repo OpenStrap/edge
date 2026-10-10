@@ -158,10 +158,7 @@ class BandNotificationsView extends StatelessWidget {
                         // enumerates every app you have installed. "Nothing is
                         // stored" was the wrong claim to make about it.
                         sub: l?.bandNotifBuzzSub ??
-                            'The strap buzzes when one of the apps below '
-                                'notifies you. What a notification says is never '
-                                'read or sent — only which app posted, kept on '
-                                'this phone to build the list',
+                            'The strap buzzes when an app below notifies you. Only the app’s name is kept, on this phone; what a notification says is never read',
                         value: enabled
                             ? (l?.stateOn ?? 'On')
                             : (l?.stateOff ?? 'Off'),
@@ -197,10 +194,7 @@ class BandNotificationsView extends StatelessWidget {
                           // enumerates every installed app, and it resolves
                           // itself within minutes of ordinary use.
                           l?.bandNotifEmptyBody ??
-                              'Apps appear here the first time each one notifies '
-                                  'you while the relay is on. Nothing is missed in '
-                                  'the meantime — the first ping is what puts an '
-                                  'app on this list, and the second can buzz.',
+                              'Apps appear here the first time each one notifies you while the relay is on. From its second notification, an app can buzz.',
                           icon: LucideIcons.hourglass,
                         ),
                       )
@@ -215,10 +209,7 @@ class BandNotificationsView extends StatelessWidget {
                   StatusCard(
                     l?.bandNotifOneBuzzTitle ?? 'One buzz, not a stream',
                     l?.bandNotifOneBuzzBody ??
-                        'Repeat posts from the same app are ignored for four '
-                            'seconds, ongoing notifications (media players, '
-                            'downloads) never buzz, and nothing buzzes at all '
-                            'while the band is disconnected.',
+                        'Repeats from one app within four seconds are ignored. Ongoing notifications (music, downloads) never buzz, and nothing buzzes while disconnected.',
                     icon: LucideIcons.waves,
                   ),
                 ],

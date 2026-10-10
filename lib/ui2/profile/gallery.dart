@@ -431,7 +431,7 @@ Map<String, Widget> _chartCases() {
       final p = P.of(c);
       return Surface(
         child: ChartFrame(
-          title: 'Readiness',
+          title: 'Recovery',
           unit: 'score',
           yAxis: AxisSpec.of(rhr, floor: 40),
           xLabels: const ['30 Jul', '14 Aug', 'Today'],
@@ -883,7 +883,7 @@ Map<String, Widget> extraCases() => {
         final p = P.of(c);
         return Surface(
           child: ChartFrame(
-            title: 'Readiness',
+            title: 'Recovery',
             unit: 'out of 100',
             height: 120,
             footnote: 'Against your own 14-day baseline, not a population.',

@@ -238,7 +238,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
         c.select<AppState, bool>((a) => a.cycleTrackingEnabled);
     final labels = [
       l?.wellnessTabMind ?? 'Mind',
-      l?.wellnessTabRecovery ?? 'Recovery',
+      l?.wellnessTabRecovery ?? 'Sleep plan',
       l?.wellnessTabHabits ?? 'Habits',
       l?.wellnessTabMedication ?? 'Medication',
       l?.wellnessTabCycle ?? 'Cycle',
@@ -376,7 +376,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
               : SignalCard(
                   LucideIcons.activity,
                   C.purple,
-                  l?.wellnessAutonomicTension ?? 'Autonomic tension',
+                  l?.wellnessAutonomicTension ?? 'Stress level',
                   score.round().toString(),
                   unit: '/100',
                   sub: (level ?? '').toUpperCase(),
@@ -478,7 +478,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
           // being written on every derive and read by nothing.
           _drivers.isEmpty
               ? StatusCard(
-                  l?.wellnessNoDriversTitle ?? 'No readiness drivers yet',
+                  l?.wellnessNoDriversTitle ?? 'No recovery breakdown yet',
                   whyFromNote(metricOf(_stress['readiness']).note) ??
                       (l?.wellnessNoDriversBody ??
                           'Needs enough nights to know what normal looks like '
@@ -1733,10 +1733,7 @@ class _JournalFindingsState extends State<JournalFindings> {
     // occurrence, so timing cannot tell two coffees from five, and a late
     // stressful day produces both the late coffee and the bad night.
     if (r['field'] == 'caffeine_last_min') {
-      return '$base$when ${l?.wellnessCaffeineCaveat ?? 'This is your last '
-          'caffeine of the day only — two cups and five look identical '
-          'here, so "later" can quietly mean "more". A long, stressful day '
-          'produces both the late coffee and the poor night.'}';
+      return '$base$when ${l?.wellnessCaffeineCaveat ?? 'This counts only your last caffeine of the day, so two cups and five look the same. A long, stressful day can bring both late coffee and a poor night.'}';
     }
     return '$base$when'.trim();
   }
@@ -1803,8 +1800,8 @@ class _JournalFindingsState extends State<JournalFindings> {
               '${delta.abs().round()}',
               direction,
             ) ??
-            '${_weekdayName(day)}s: readiness runs '
-                '${delta.abs().round()} $direction than your overall median',
+            '${_weekdayName(day)}s: recovery runs '
+                '${delta.abs().round()} $direction than your usual',
         detail: l?.wellnessWeekdayDetail('$n') ??
             'From $n of them. A weekday is not a cause — it is a container '
                 'for what you do on it. Nothing here is advice.',

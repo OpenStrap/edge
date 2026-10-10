@@ -266,8 +266,7 @@ class _BeatsState extends State<Beats> {
           StatusCard(
             l?.beatsNoNightTitle ?? 'No night to draw yet',
             l?.beatsNoNightBody ??
-                'Nothing on this phone has produced a derived night, so '
-                    'there are no beat intervals to plot.',
+                'No night has been scored on this phone yet, so there are no heartbeats to plot.',
             fix: l?.beatsNoNightFix ?? 'Wear the band overnight, then sync',
             icon: LucideIcons.heartPulse,
           )
@@ -408,8 +407,7 @@ class _BeatsState extends State<Beats> {
                 d.shape,
                 unit: l?.beatsUnitNights ?? 'nights',
                 why: l?.beatsVariabilityWhy ??
-                    'No half-hour bin of this night held enough clean beats '
-                        'to publish an RMSSD.') ??
+                    'No half-hour block of this night had enough clean beats to show HRV.') ??
             StatusCard(
                 l?.beatsVariabilitySection ?? 'Variability across the night',
                 l?.beatsNoBinsStored ?? 'No bins were stored for this night.'),
@@ -427,7 +425,7 @@ class _BeatsState extends State<Beats> {
       Surface(
         child: Column(children: [
           ChartFrame(
-            title: l?.beatsRmssdTitle ?? 'RMSSD in half-hour bins',
+            title: l?.beatsRmssdTitle ?? 'HRV in half-hour blocks',
             unit: 'ms',
             height: 150,
             yAxis: axis,

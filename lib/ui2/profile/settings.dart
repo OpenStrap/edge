@@ -1020,8 +1020,7 @@ class NotificationSettingsView extends StatelessWidget {
                         l?.settingsHealthExceptionsRowTitle ??
                             'Health exceptions',
                         sub: l?.settingsHealthExceptionsRowSub ??
-                            'One a day at most, and only when something in '
-                                'your own baseline moved',
+                            'One a day at most, and only when something moved away from your usual',
                         value: prefs.healthEnabled ? on : off,
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
@@ -1123,10 +1122,7 @@ class NotificationSettingsView extends StatelessWidget {
                     SetRow(LucideIcons.footprints, C.orange,
                         l?.settingsMovementNudgeRowTitle ?? 'Movement nudge',
                         sub: l?.settingsMovementNudgeRowSub ??
-                            'Nudges you after a still stretch — two hours '
-                                'with no movement at all, or 90 minutes in a '
-                                'desk posture. Phone notification plus a buzz '
-                                'on the band while it is connected',
+                            'After two hours without moving, or 90 minutes at a desk. A phone notification plus a buzz on the band when it’s connected',
                         value: prefs.movementEnabled ? on : off,
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
@@ -1165,10 +1161,7 @@ class NotificationSettingsView extends StatelessWidget {
                         l?.settingsMedicationRemindersRowTitle ??
                             'Medication reminders',
                         sub: l?.settingsMedicationRemindersRowSub ??
-                            'One notification per scheduled dose, at the '
-                                'times you entered — with a buzz on the band if '
-                                'it is connected. Nothing is sent for a dose '
-                                'already marked taken or skipped',
+                            'One notification per scheduled dose, plus a buzz on the band when it’s connected. Skipped for doses already marked',
                         value: prefs.medsEnabled ? on : off,
                         chevron: false,
                         onTap: () =>
@@ -1667,10 +1660,7 @@ class _EditProfileViewState extends State<EditProfileView> {
           Text(
             isAppleHealth
                 ? (l?.settingsImportBlockAppleHealth(storeName) ??
-                    'Height, weight, birthday and sex, straight out of '
-                        '$storeName. Height and weight are taken every time; your '
-                        'age and sex only fill a gap, because neither drifts and a '
-                        'value already here was your choice.')
+                    'Height, weight, birthday and sex from $storeName. Height and weight update every time; age and sex only fill an empty field.')
                 : (l?.settingsImportBlockOther(storeName) ??
                     'Height and weight, straight out of $storeName. It has no '
                         'birthday and no sex to read — no app can — so set those '
@@ -1795,17 +1785,9 @@ class _AutomationSettingsState extends State<AutomationSettings> {
                           Text(
                             android
                                 ? (l?.settingsSyncFinishesAndroidBody ??
-                                    'The app broadcasts an intent your automation '
-                                        'app can start a profile on. Filter on the '
-                                        'action below; it carries how many records '
-                                        'landed and when, at most one a minute.')
+                                    'The app broadcasts an intent your automation app can react to. Filter on the action below; it says how many records arrived and when.')
                                 : (l?.settingsSyncFinishesIosBody ??
-                                    'iOS cannot do this. A Shortcuts personal '
-                                        'automation can only trigger on Apple’s '
-                                        'own fixed list of events, and no app can '
-                                        'add one — so nothing here can start a '
-                                        'shortcut for you. Android gets it; this '
-                                        'is a platform limit, not a setting.'),
+                                    'iOS can’t do this: Shortcuts automations only start on Apple’s own fixed events, and apps can’t add one. This is an iOS limit, not a setting.'),
                             style: F.body.copyWith(color: p.ink2, height: 1.4),
                           ),
                           if (android) ...[
@@ -1829,11 +1811,7 @@ class _AutomationSettingsState extends State<AutomationSettings> {
                   Surface(
                     child: Text(
                       l?.settingsNeverSendBody ??
-                          'No readiness, no strain, no sleep score — on either '
-                              'platform. A number this app would have shown as absent, '
-                              'with a reason attached, becomes a bare zero the moment '
-                              'it leaves. Facts about the sync go out; measurements do '
-                              'not.',
+                          'No recovery, strain or sleep score is sent, on either platform. A missing number would arrive as a bare zero. Sync facts go out, not measurements.',
                       style: F.body,
                     ),
                   ),

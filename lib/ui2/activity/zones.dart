@@ -494,24 +494,14 @@ class _ZonesDetailState extends State<ZonesDetail> {
       case 'karvonen':
         return l?.activityZonesAnchorKarvonen(
                 d.restingHr ?? 0, d.restingDays, max ?? 0) ??
-            'Built from two numbers the band measured on you: your resting '
-                'rate (${d.restingHr}, the middle of your last ${d.restingDays} '
-                'nights) and the highest we have seen ($max). A low resting rate '
-                'makes zone 1 wide. These are the usual bands, not your own '
-                'measured thresholds.';
+            'From your resting rate (${d.restingHr}, middle of your last ${d.restingDays} nights) and the highest we’ve seen ($max). Standard zones, not tested ones.';
       case 'observed':
         return l?.activityZonesAnchorObserved(
                 max ?? 0, d.restingMinDays, d.restingDays) ??
-            'Built from the highest heart rate we have seen ($max). After '
-                '${d.restingMinDays} nights of resting rate (you have '
-                '${d.restingDays}) your resting rate joins it, which fits you '
-                'better. These are the usual bands, not your own measured '
-                'thresholds.';
+            'From the highest heart rate we’ve seen ($max). After ${d.restingMinDays} nights of resting rate (you have ${d.restingDays}), that joins in too.';
       case 'tanaka':
         return l?.activityZonesAnchorTanaka(max ?? 0) ??
-            'Built from $max bpm, estimated from your age rather than '
-                'measured on you — it can be 20 bpm out either way. The edges move '
-                'to a measured ceiling once the band sees a hard enough session.';
+            'From $max bpm, estimated from your age, so it can be 20 bpm out. The zones move once the band sees a hard enough session.';
       case 'manual':
         return l?.activityZonesAnchorManual ??
             'Set by you, not computed — these five thresholds override '

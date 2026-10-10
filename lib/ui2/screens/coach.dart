@@ -501,9 +501,7 @@ class _CoachScreenState extends State<CoachScreen> {
           StatusCard(
             l?.coachNotSetUpTitle ?? 'The coach is not set up',
             l?.coachNotSetUpBody ??
-                'It runs on a model you choose — one on your own machine, or any '
-                    'OpenAI-compatible provider with your own key. Nothing goes '
-                    'through OpenStrap either way.',
+                'Pick a model on your own computer, or any OpenAI-compatible provider with your own key. Nothing goes through OpenStrap either way.',
             fix: l?.coachChooseModelFix ?? 'Choose a model',
             icon: LucideIcons.sparkles,
             onFix: () => go(c, const CoachSetup()),
@@ -519,8 +517,7 @@ class _CoachScreenState extends State<CoachScreen> {
           StatusCard(
             l?.coachNoDataTitle ?? 'No data to read yet',
             l?.coachNoDataBody ??
-                'The coach answers from your own derived days, and there are none '
-                    'on this device yet.',
+                'The coach answers from your scored days, and there are none on this phone yet. Wear the band overnight and sync in the morning.',
             icon: LucideIcons.database,
           ),
         ],
@@ -1217,7 +1214,7 @@ class _CoachSetupState extends State<CoachSetup> {
                     Text(
                       uiText(
                         c,
-                        'A local model can take a while to load before its first reply. Default is 5 minutes (300s). Cloud providers use a fixed 2-minute timeout and are not affected by this.',
+                        'A local model can take a while to load before its first reply. Default is 5 minutes (300s). Cloud providers always use 2 minutes.',
                       ),
                       style: F.cap.copyWith(color: p.ink3, height: 1.5),
                     ),

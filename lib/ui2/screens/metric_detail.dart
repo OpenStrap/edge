@@ -139,16 +139,16 @@ const _specs = <String, MetricSpec>{
   ),
   'readiness': MetricSpec(
     chartKey: 'recovery',
-    title: 'Readiness',
+    title: 'Recovery',
     color: C.green,
     icon: LucideIcons.batteryCharging,
     // The weights are DATA — `readiness_glassbox` emits one per input and the
     // Readiness screen renders them. Repeating them as prose here meant two
     // surfaces could disagree about the same composite, silently, forever.
-    method: 'A weighted composite of a handful of inputs, each scored against '
-        'your own history. Every input\'s weight, and whether last night had '
-        'enough history to use it, is listed on the Readiness screen. Missing '
-        'inputs are re-weighted, never zero-filled.',
+    method: 'A weighted mix of a few inputs, each compared with your own '
+        'history. Each input\'s weight, and whether it had enough history last '
+        'night, is listed on the Recovery screen. A missing input is left out '
+        'and the rest re-weighted, never counted as zero.',
     citation: 'Plews 2013 (lnRMSSD) · Hopkins smallest-worthwhile-change gate',
     requires: {
       InputSignal.rrIntervals,
@@ -261,7 +261,7 @@ const _specs = <String, MetricSpec>{
   ),
   'trimp': MetricSpec(
     chartKey: 'trimp',
-    title: 'Training load',
+    title: 'Heart effort',
     color: C.purple,
     icon: LucideIcons.dumbbell,
     method: 'Training impulse: time in each heart-rate zone, weighted by the '
@@ -283,7 +283,7 @@ const _specs = <String, MetricSpec>{
   ),
   'dip': MetricSpec(
     chartKey: 'dip',
-    title: 'Nocturnal HR dip',
+    title: 'Overnight HR dip',
     unit: '%',
     color: C.indigo,
     icon: LucideIcons.trendingDown,
@@ -1642,7 +1642,7 @@ class _MetricDetailState extends State<MetricDetail> {
     final band = pct?['label']?.toString();
     final rank = (pct?['percentile_of_you'] as num?);
     final isToday = (daysBehind(latestTs) ?? 0) <= 0;
-    final ordinal = rank == null ? '' : _ordinal(rank.round(), l);
+    final share = rank?.round();
 
     return Surface(
       child: Column(children: [
@@ -1663,53 +1663,23 @@ class _MetricDetailState extends State<MetricDetail> {
                   'From ${win.length} of your own days.')
               : (isToday
                   ? (band == null
-                      ? (l?.metricDetailPercentileTodayNoBand(ordinal) ??
-                          'Today sits at the $ordinal percentile of your own '
-                              'history.')
-                      : (l?.metricDetailPercentileTodayBand(ordinal, band) ??
-                          'Today sits at the $ordinal percentile of your own '
-                              'history — $band.'))
+                      ? (l?.metricDetailRankToday(share!) ??
+                          'Today is higher than $share% of your own days.')
+                      : (l?.metricDetailRankTodayBand(share!, band) ??
+                          'Today is higher than $share% of your own days — '
+                              '$band.'))
                   : (band == null
-                      ? (l?.metricDetailPercentileFromNoBand(
-                              axisDay(latestTs), ordinal) ??
-                          'Your reading from ${axisDay(latestTs)} sits at the '
-                              '$ordinal percentile of your own history.')
-                      : (l?.metricDetailPercentileFromBand(
-                              axisDay(latestTs), ordinal, band) ??
-                          'Your reading from ${axisDay(latestTs)} sits at the '
-                              '$ordinal percentile of your own history — '
-                              '$band.'))),
+                      ? (l?.metricDetailRankFrom(axisDay(latestTs), share!) ??
+                          'Your reading from ${axisDay(latestTs)} is higher '
+                              'than $share% of your own days.')
+                      : (l?.metricDetailRankFromBand(
+                              axisDay(latestTs), share!, band) ??
+                          'Your reading from ${axisDay(latestTs)} is higher '
+                              'than $share% of your own days — $band.'))),
           style: F.cap.copyWith(color: p.ink3, height: 1.5),
         ),
       ]),
     );
-  }
-
-  /// [n]th, localized. `{ordinal}` gets substituted whole into an ARB
-  /// sentence, so this is the one place the suffix has to match the reader's
-  /// language — an English "12th" inside a French sentence reads as broken,
-  /// not translated.
-  String _ordinal(int n, AppLocalizations? l) {
-    switch (l?.localeName.split('_').first) {
-      case 'fr':
-        return n == 1 ? '1er' : '${n}e';
-      case 'de':
-        return '$n.';
-      case 'es':
-        return '$nº';
-      case 'ru':
-        return '$n-му';
-      case 'hi':
-      case 'zh':
-        // Neither language marks the ordinal with a suffix here — the
-        // surrounding ARB sentence already carries the "the Nth" framing
-        // (Hindi's postposition, Chinese's 第 prefix), so a bare number is
-        // the correct rendering, not a fallback.
-        return '$n';
-      default:
-        if (n % 100 >= 11 && n % 100 <= 13) return '${n}th';
-        return '$n${const ['th', 'st', 'nd', 'rd'][n % 10 < 4 ? n % 10 : 0]}';
-    }
   }
 
   Widget _stat(P p, String v, String l) => Column(children: [

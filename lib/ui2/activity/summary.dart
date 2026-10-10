@@ -1197,25 +1197,20 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   'heart rate needs your maximum and resting heart rates, and '
                   'one of them is not set.'
           : l?.activitySummaryNoCalorieWithStrain ??
-              'No calorie figure for this session — an energy estimate from '
-                  'heart rate needs your maximum and resting heart rates, and '
-                  'one of them is not set. Strain above is the effort that '
-                  'was measured, on its own 0–21 scale.';
+              'No calories for this session: set your maximum and resting heart rates to get them. Strain above is the measured effort, on 0–21.';
     }
     // No MET (the catch-all, or a named sport the compendium does not price)
     // means the figure is entirely the heart-rate estimate — saying "from MET"
     // over it would name a basis this session does not have.
     if (met == null) {
       return l?.activitySummaryCalorieNoMet ??
-          'Estimated from your heart rate and your weight. No MET is in '
-              'this figure: none is published for this activity.';
+          'Estimated from your heart rate and weight. This activity has no published effort level, so none is used.';
     }
     return r.avgHr == null
         ? l?.activitySummaryCalorieNoHr(met) ??
-            'Estimated from $met MET and your weight. No heart rate reached '
-                'this session, so none of it is in the figure.'
+            'Estimated from the activity\'s effort level ($met MET) and your weight. No heart rate reached this session.'
         : l?.activitySummaryCalorieWithHr(met) ??
-            'Estimated from $met MET, your weight and heart rate.';
+            'Estimated from the activity\'s effort level ($met MET), your weight and heart rate.';
   }
 
   /// (value, unit, caption). The hero is the archetype's own headline — and

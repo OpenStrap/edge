@@ -1976,7 +1976,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('MET,'), findsNothing);
       expect(find.textContaining('MET and your weight'), findsNothing);
-      expect(find.textContaining('No MET is in this figure'), findsOneWidget);
+      expect(find.textContaining('no published effort level'), findsOneWidget);
 
       // WITHOUT calories: the missing-anchors explanation is the one that
       // applies, and it is about heart rate, not about a MET either.
@@ -2026,7 +2026,7 @@ void main() {
           Brightness.light,
           1.0));
       await tester.pumpAndSettle();
-      expect(find.textContaining('No MET is in this figure'), findsOneWidget);
+      expect(find.textContaining('no published effort level'), findsOneWidget);
       expect(find.textContaining('named no activity'), findsNothing);
       expect(tester.takeException(), isNull);
     });

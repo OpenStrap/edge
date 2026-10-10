@@ -44,17 +44,17 @@ String localizedJournalTag(AppLocalizations? l, String tag) {
 String localizedText(AppLocalizations? l, String text) {
   if (l == null || l.localeName == 'en') return text;
   final lowScore = RegExp(
-    r"^Readiness scored (\d+), its lowest band\. Taken together, that night's signals sat well on the unfavourable side of your own baseline\.$",
+    r"^Recovery scored (\d+), its lowest band\. Taken together, that night's signals sat well below your usual\.$",
   ).firstMatch(text);
   if (lowScore != null) {
     return l.findingLowReadinessScoredDetail(int.parse(lowScore[1]!));
   }
   return switch (text) {
     "Resting heart rate has been raised" => l.findingIllnessTitle,
-    "Your recent overnight resting heart rates add up to a rise above your own baseline: one very high night can do it, or a few slightly raised ones. This watches one signal only. It names a pattern, not a cause." =>
+    "Recent nights put your resting heart rate above your usual, from one very high night or a few slightly raised ones. One signal: a pattern, not a cause." =>
       l.findingIllnessDetail,
-    "Low readiness" => l.findingLowReadinessTitle,
-    "Readiness was in its lowest band. Taken together, that night's signals sat well on the unfavourable side of your own baseline." =>
+    "Low recovery" => l.findingLowReadinessTitle,
+    "Recovery was in its lowest band. Taken together, that night's signals sat well below your usual." =>
       l.findingLowReadinessDetail,
     "Warm-up" => l.activityZonesNameWarmUp,
     "Easy" => l.activityZonesNameEasy,
@@ -138,7 +138,7 @@ String localizedText(AppLocalizations? l, String text) {
     "A deviation, not a temperature. Imported nights carry different units, so they are not charted together." =>
       l.supplementADeviationNotATemperaturefc109f,
     "A dose is due." => l.supplementADoseIsDue1543e3,
-    "A local model can take a while to load before its first reply. Default is 5 minutes (300s). Cloud providers use a fixed 2-minute timeout and are not affected by this." =>
+    "A local model can take a while to load before its first reply. Default is 5 minutes (300s). Cloud providers always use 2 minutes." =>
       l.supplementALocalModelCanTake62d4a8,
     "A low-confidence overlay: a wrist sensor cannot see slow-wave activity, so deep sleep here is heart-rate flatness inside NREM." =>
       l.supplementALowConfidenceOverlayA9fbabe,
@@ -150,7 +150,7 @@ String localizedText(AppLocalizations? l, String text) {
       l.supplementAPossibleWorkoutIsReady2861bb,
     "A step goal of 500–100,000 is a real one. Nothing was saved." =>
       l.supplementAStepGoalOf500f44746,
-    "A weighted composite of a handful of inputs, each scored against your own history. Every input's weight, and whether last night had enough history to use it, is listed on the Readiness screen. Missing inputs are re-weighted, never zero-filled." =>
+    "A weighted mix of a few inputs, each compared with your own history. Each input's weight, and whether it had enough history last night, is listed on the Recovery screen. A missing input is left out and the rest re-weighted, never counted as zero." =>
       l.supplementAWeightedCompositeOfA8941a5,
     "AASM sleep-accounting definitions" =>
       l.supplementAASMSleepAccountingDefinitions79c9d9,
@@ -189,7 +189,7 @@ String localizedText(AppLocalizations? l, String text) {
     "Counted, never modelled. A step count comes from a gait-capable counter: the band's 100 Hz pedometer while it streams, or your phone's. Each stretch of the day is counted by whichever of the two was actually recording it, and a stretch both covered is counted once, so a session never takes the day from the sensor that carried the rest of it. There is no 1 Hz estimate — walking cadence sits above what one sample a second can resolve, so a day with no counter behind it reports no steps rather than a guess." =>
       l.supplementCountedNeverModelledAStepc66896,
     "Creatinine" => l.supplementCreatinined3029a,
-    "Daily recovery readiness from your own data" =>
+    "Your daily recovery score" =>
       l.supplementDailyRecoveryReadinessFromYourf995c0,
     "Daytime sleep" => l.healthDaytimeSleep,
     "Deep min" => l.supplementDeepMin28f1fc,
@@ -283,7 +283,7 @@ String localizedText(AppLocalizations? l, String text) {
     "No target yet" => l.supplementNoTargetYeta4b21a,
     "No waking heart rate was recorded for this day." =>
       l.supplementNoWakingHeartRateWase66108,
-    "Nocturnal HR dip" => l.supplementNocturnalHRDipf94b8c,
+    "Overnight HR dip" => l.supplementNocturnalHRDipf94b8c,
     "Nocturnal dipping literature; personal baseline" =>
       l.supplementNocturnalDippingLiteraturePersonalBaseline63f775,
     "Nocturnal heart-rate minimum; personal baseline, not population" =>
@@ -307,7 +307,7 @@ String localizedText(AppLocalizations? l, String text) {
     "Possible illness onset" => l.supplementPossibleIllnessOnset9dccbc,
     "Provider returned a non-JSON response. Check the API base URL — it must point at an OpenAI-compatible /chat/completions endpoint." =>
       l.supplementProviderReturnedANonJSON31ec8d,
-    "Provider returned an unsupported response shape (no message/delta). Streaming-only endpoints are not supported — use a standard OpenAI-compatible /chat/completions endpoint." =>
+    "The provider sent a reply this app can’t read. Use a standard OpenAI-compatible /chat/completions endpoint; streaming-only ones don’t work." =>
       l.supplementProviderReturnedAnUnsupportedResponse711ef9,
     "Querying your data…" => l.supplementQueryingYourData547061,
     "REM sleep" => l.supplementREMSleepd0c12b,
@@ -319,7 +319,7 @@ String localizedText(AppLocalizations? l, String text) {
     "Recommended bedtime" => l.supplementRecommendedBedtime4cba4c,
     "Record-presence, not heart-rate validity" =>
       l.supplementRecordPresenceNotHeartRate83be2e,
-    "Recovery" => l.wellnessTabRecovery,
+    "Recovery" => l.homeRingRecovery,
     "Relative only — uncalibrated ADC" =>
       l.supplementRelativeOnlyUncalibratedADC306a93,
     "Rem min" => l.supplementRemMin0d0cd5,
@@ -351,7 +351,7 @@ String localizedText(AppLocalizations? l, String text) {
     "Still working out?" => l.supplementStillWorkingOut5f72c7,
     "Strain" => l.homeRingStrain,
     "Stress" => l.healthRowStress,
-    "Sustained rise vs your baseline — a possible illness signal." =>
+    "Sustained rise above your usual — a possible illness signal." =>
       l.supplementSustainedRiseVsYourBaseline67c853,
     "Syncing…" => l.supplementSyncing221ca6,
     "Talk it through" => l.supplementTalkItThrough88a9d2,
@@ -373,7 +373,7 @@ String localizedText(AppLocalizations? l, String text) {
       l.supplementTheBandHasNotYet9773f2,
     "The drop in heart rate over the 60 seconds after a bout ends, averaged across the day's bouts." =>
       l.supplementTheDropInHeartRate80433d,
-    "The highest heart rate held so far sits well below what your age predicts, so it reads as an effort that was never maximal rather than as your ceiling — the zones stay on the age estimate until the band sees a harder one." =>
+    "Your highest heart rate so far is well below what your age predicts, so the zones stay on the age estimate until the band sees a harder effort." =>
       l.supplementTheHighestHeartRateHeldc1c878,
     "The lowest sustained sleeping heart rate of the night, taken over a rolling window of the overnight series. Not a spot reading, and not a daytime minimum." =>
       l.supplementTheLowestSustainedSleepingHeart72e5dd,
@@ -387,7 +387,7 @@ String localizedText(AppLocalizations? l, String text) {
       l.supplementThereIsNoScoredNight5d353d,
     "These recordings are not stamped with which strap made them, and this number has to be calibrated per strap, so it is withheld rather than guessed." =>
       l.supplementTheseRecordingsAreNotStamped66b52f,
-    "This day came from an imported export, which carries the night only — nothing was recorded for the waking day, and there is no raw behind it to work one out from." =>
+    "This day came from an import that only covers the night, so there is nothing recorded for the waking day." =>
       l.supplementThisDayCameFromAn2dc4b2,
     "This phone" => l.settingsGroupThisPhone,
     "Time" => l.workoutTimeStatLabel,
@@ -413,6 +413,7 @@ String localizedText(AppLocalizations? l, String text) {
     "Training impulse: time in each heart-rate zone, weighted by the physiological cost of that zone." =>
       l.supplementTrainingImpulseTimeInEachcd2945,
     "Training load" => l.workoutTrainingLoad,
+    "Heart effort" => l.metricHeartEffortTitle,
     "Transferrin saturation" => l.supplementTransferrinSaturation31bc19,
     "Triglycerides" => l.supplementTriglycerides95ae7f,
     "Unexpected response from provider." =>
@@ -457,15 +458,15 @@ String localizedText(AppLocalizations? l, String text) {
       l.supplementYourHeightIsNotOn733908,
     "Your morning briefing is ready" =>
       l.supplementYourMorningBriefingIsReadydd0ae8,
-    "Your nightly signals deviate from your personal baseline." =>
+    "Your overnight signals are off your usual." =>
       l.supplementYourNightlySignalsDeviateFromc8d20a,
     "Your rating" => l.supplementYourRating83cd62,
     "Your recovery is ready" => l.supplementYourRecoveryIsReadya1734c,
     "Your recovery markers are below your usual range — ease off." =>
       l.supplementYourRecoveryMarkersAreBelow2fc2f7,
-    "Your resting HR has fallen noticeably versus your recent baseline." =>
+    "Your resting heart rate has fallen noticeably below its recent usual." =>
       l.supplementYourRestingHRHasFallenca6165,
-    "Your resting HR has risen noticeably versus your recent baseline." =>
+    "Your resting heart rate has risen noticeably above its recent usual." =>
       l.supplementYourRestingHRHasRisen59f637,
     "Your resting heart-rate trend shifted" =>
       l.supplementYourRestingHeartRateTrend8eccb6,
@@ -492,7 +493,7 @@ String localizedText(AppLocalizations? l, String text) {
     "every day" => l.supplementEveryDaya3fd74,
     "figure" => l.supplementFiguref85bdc,
     "g" => l.supplementG54fd17,
-    "iOS can only show the system pairing sheet before the app has used Bluetooth. Close OpenStrap completely, then reopen it — the sheet appears on its own." =>
+    "iOS shows the pairing sheet only before the app has used Bluetooth. Close OpenStrap completely, then reopen it to see the sheet." =>
       l.supplementIOSCanOnlyShowThe2139b2,
     "kcal" => l.supplementKcal72037b,
     "kg" => l.supplementKg138984,
@@ -508,7 +509,7 @@ String localizedText(AppLocalizations? l, String text) {
       l.supplementNoTrendYetNotEnoughc23fe5,
     "not_taken" => l.supplementNotTaken3d2bc8,
     "nothing" => l.supplementNothing0feca7,
-    "readiness" => l.supplementReadinesseb830b,
+    "recovery" => l.supplementReadinesseb830b,
     "resting heart rate" => l.supplementRestingHeartRatec5adc7,
     "score" => l.supplementScore75ebcb,
     "screens min" => l.supplementScreensMinab5656,

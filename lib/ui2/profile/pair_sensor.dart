@@ -190,10 +190,7 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
       final label = widget.entry.label;
       setState(() => _problem =
           AppLocalizations.of(context)?.pairSensorUnreachableIos(label) ??
-              'This iPhone only lets the app reach sensors approved in the '
-                  'system pairing sheet, and a $label cannot be offered there '
-                  'yet: its advertisement does not carry the service it is '
-                  'identified by. Pair it on Android for now.');
+              'iPhone only lets apps reach sensors offered in the system pairing sheet, and a $label can’t be offered there yet. Pair it on Android for now.');
       return;
     }
     setState(() {
@@ -419,34 +416,18 @@ class PairSensorView extends StatelessWidget {
                       switch (categoryOf(adapterId)) {
                         _ when adapterId == kCoros.id =>
                           l?.pairSensorExplainerCoros ??
-                              'A sports watch. When it syncs, it reads battery '
-                                  'and a few seconds of live heart rate. No '
-                                  'workout uses it, and recorded activities '
-                                  'stay on the watch. Its readings are stored '
-                                  'and shown; no number of ours is worked out '
-                                  'from them.',
+                              'A sports watch. Each sync reads battery and a few seconds of heart rate. No workout uses it, and its readings never feed a score.',
                         DeviceCategory.wearable =>
                           l?.pairSensorExplainerWearable ??
-                              "A wearable's own records are stored and "
-                                  'attributed to it, and its own values are '
-                                  'always labelled as its. Working out our '
-                                  'numbers from it (sleep, resting heart rate, '
-                                  'strain) is experimental, and off until it '
-                                  'has been checked against the hardware.',
+                              'Its own records are saved and labelled as its own. Working out our numbers from it (sleep, resting heart rate, strain) is experimental and off for now.',
                         DeviceCategory.healthMeasurement =>
                           l?.pairSensorExplainerMeasurement ??
-                              "A measurement device's readings are stored and "
-                                  'attributed to it. Using them in your profile '
-                                  'is experimental, and off until it has been '
-                                  'checked against the hardware.',
+                              'Its readings are saved under its name. Using them in your profile is experimental and off until it’s been checked against the hardware.',
                         _ => l?.pairSensorExplainerWorkout ??
-                            'A sensor gives heart rate and beat timing for '
-                                'workouts. It does not replace your band. It '
-                                'records while a workout runs, and a few '
-                                'minutes after it ends. Its readings are '
-                                'stored and shown. Scoring a workout from them '
-                                'is experimental, and off until checked against '
-                                'the hardware.',
+                            'Heart rate for workouts; it doesn’t replace your '
+                                'band. It records while a workout runs, once '
+                                'checked against the hardware; until then it '
+                                'records nothing.',
                       }),
                       style: F.cap.copyWith(color: p.ink3, height: 1.5),
                     ),
@@ -461,11 +442,7 @@ class PairSensorView extends StatelessWidget {
                     l?.pairSensorKeyReplacesTitle ??
                         "Pairing replaces the Oura app's key",
                     l?.pairSensorKeyReplacesBody ??
-                        'The ring holds one key. Pairing without a key from '
-                            'the Oura app gives the ring a new key of its own, '
-                            'and the Oura app then stops working with this '
-                            'ring until the ring is reset and set up there '
-                            'again.',
+                        'The ring holds one key. Pairing without the Oura app’s key gives it a new one, and the Oura app stops working with it until the ring is reset.',
                     icon: LucideIcons.triangleAlert,
                   ),
                   const SizedBox(height: S.x4),
@@ -554,12 +531,7 @@ class PairSensorView extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(
             l?.pairSensorKeyBody ??
-                'If you have the key this device already uses, paste it here '
-                    'and it pairs without a factory reset — nothing is written '
-                    'to the device. Several keys, one per line, are tried in '
-                    'turn until one is accepted, which is handy when you have '
-                    'a few and do not know which belongs to this device. Leave '
-                    'it empty to pair the usual way.',
+                'Have this device’s key? Paste it to pair without a factory reset. Several keys, one per line, are tried in turn. Leave it empty to pair normally.',
             style: F.cap.copyWith(color: p.ink3, height: 1.5),
           ),
           TextField(

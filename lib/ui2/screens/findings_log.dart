@@ -74,9 +74,7 @@ class FindingsLog extends StatelessWidget {
           StatusCard(
             l?.findingsLogEmptyTitle ?? 'Nothing has stood out',
             l?.findingsLogEmptyBody ??
-                'The watches for illness, unusual overnight physiology, skin '
-                    'temperature and a shift in your resting heart rate have '
-                    'all been quiet. That is an outcome, not an empty screen.',
+                'Nothing to report. The checks for illness, unusual nights, skin temperature and a resting heart rate shift have all been quiet.',
             icon: LucideIcons.check,
           )
         else ...[

@@ -438,10 +438,9 @@ class _CircadianDetailState extends State<CircadianDetail> {
         d.hourlyNote?.isNotEmpty == true
             ? d.hourlyNote!
             : (l?.circadianDetailNoStillBody(d.hourlyDays) ??
-                'This reads beat timing only from the seconds you were not '
-                    'moving, and the last '
+                'This needs seconds when you were still, and the last '
                     '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'} had '
-                    'too few of them to build an hour from.'),
+                    'too few to fill an hour.'),
         icon: LucideIcons.activity,
       );
     }
@@ -468,12 +467,10 @@ class _CircadianDetailState extends State<CircadianDetail> {
         xLabels: [clock(0), clock(12 * 60), clock(23 * 60)],
         series: d.hourly,
         footnote: l?.circadianDetailStillnessFootnote(lo, hi, d.hourlyDays, drawn) ??
-            'Each hour is the middle value of $lo–$hi five-minute '
-                'stretches you were actually still, over the last '
-                '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'} — never '
-                'today\'s alone. $drawn of 24 hours had at least three '
-                'stretches; the rest are blank. Not a stress score — sitting '
-                'up, a warm room or a coffee move it just as much.',
+            'Each hour is the middle of $lo–$hi still five-minute '
+                'stretches over the last '
+                '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'}. $drawn of '
+                '24 hours had enough. Not a stress score.',
         child: CustomPaint(
           size: Size.infinite,
           // Uncoloured. A hue here would be a verdict about an hour of your
@@ -542,9 +539,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
         ),
         const SizedBox(height: S.x3),
         Text(
-          '${l?.circadianDetailPredictionDisclaimer ?? 'This is a prediction, not a reading. Nothing on the band measures '
-              'how alert you are, and it knows last night and nothing else — a '
-              'nap, coffee, or anything that happens today never reaches it.'}'
+          '${l?.circadianDetailPredictionDisclaimer ?? 'A prediction, not a reading. It only knows last night; a nap, coffee or anything else today won’t change it.'}'
           '${assumedPhase ? ' ${l?.circadianDetailAssumedPhaseNote ?? 'Your own clock peak is not worked out yet, so this uses an average one.'}' : ''}',
           style: F.cap.copyWith(color: p.ink2, height: 1.6),
         ),
@@ -565,7 +560,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
     final showNights = _showNights && worst != null;
     final rows = <(String, String)>[
       if (d.chronotypeLabel.isNotEmpty)
-        (l?.circadianDetailChronotype ?? 'Chronotype', d.chronotypeLabel),
+        (l?.circadianDetailChronotype ?? 'Natural bedtime', d.chronotypeLabel),
       if (d.midFreeH != null)
         (l?.circadianDetailMidSleepFree ?? 'Mid-sleep, free days',
             _hourClock(d.midFreeH)),
@@ -577,7 +572,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
       // "later" read it off the magnitude.
       if (d.jetlag.value != null)
         (
-          l?.circadianDetailSocialJetlag ?? 'Social jetlag',
+          l?.circadianDetailSocialJetlag ?? 'Weekend shift',
           '${_hm(d.jetlag.value!)}'
               '${d.midFreeH == null || d.midWorkH == null ? '' : (d.midFreeH! >= d.midWorkH! ? ' ${l?.circadianDetailLater ?? 'later'}' : ' ${l?.circadianDetailEarlier ?? 'earlier'}')}',
         ),
@@ -619,10 +614,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
       const SizedBox(height: S.x3),
       Text(
         l?.circadianDetailPairFootnote(d.sriPairs.length) ??
-            'The pair that matched least, out of ${d.sriPairs.length}. A '
-                'weekend that runs late is a different schedule, not a worse '
-                'night. Pairs where too little of either day was recorded '
-                'are left out.',
+            'The least alike pair, out of ${d.sriPairs.length}. A late weekend is a different schedule, not a worse night. Days with too little recording are left out.',
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),
     ]);
@@ -687,9 +679,8 @@ class _CircadianDetailState extends State<CircadianDetail> {
                     'your highest and lowest heart-rate hours, not your '
                     'busiest.')
             : (l?.circadianDetailStrengthFootnoteKnown(used) ??
-                'From $used fully-recorded day${used == 1 ? '' : 's'} of '
-                    'heart rate. These are your highest and lowest '
-                    'heart-rate hours, not your busiest.'),
+                'From $used fully recorded day${used == 1 ? '' : 's'}. Your '
+                    'highest and lowest heart-rate hours, not your busiest.'),
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),
     ]);

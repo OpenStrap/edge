@@ -356,7 +356,7 @@ Future<void> _openRecovery(
   // that a `ListView` hands unbounded height), and this test is about the tab
   // that comes next. Only what the switch to Recovery reports is in scope.
   errors.clear();
-  await t.tap(find.text('Recovery'), warnIfMissed: false);
+  await t.tap(find.text('Sleep plan'), warnIfMissed: false);
   await _frames(t);
 
   // RESTORED BEFORE THE FIRST expect. A failing expectation while the test

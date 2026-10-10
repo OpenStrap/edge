@@ -151,7 +151,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     // No date in the nav bar. It named the held-over night, and the headline
     // can no longer BE that night — a date up here now would be labelling
     // today's number with somebody else's day.
-    return detailScaffold(c, l?.readinessDetailTitle ?? 'Readiness', [
+    return detailScaffold(c, l?.readinessDetailTitle ?? 'Recovery', [
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
@@ -189,7 +189,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
             return Column(children: [
               StatusCard.forMetric(
                       l?.readinessDetailNotScoredTitle ??
-                          'Readiness is not scored',
+                          'Recovery is not scored',
                       d.readiness,
                       why: diagReason ?? '',
                       // Where the data stops, appended to whatever the
@@ -251,9 +251,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
             const SizedBox(height: S.x2),
             Text(
               l?.readinessDetailBreakdownNoScoreNote ??
-                  'These are a separate, looser-gated view of the same four '
-                      'inputs — they do not add up to today\'s score, which '
-                      'is absent above for the reason already given.',
+                  'A looser view of the same four inputs. They don’t add up to today’s score, which is missing for the reason above.',
               style: F.cap.copyWith(color: p.ink3, height: 1.5),
             ),
           ],
@@ -292,7 +290,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
           _historyTitle(c, d),
           !d.series.any((v) => v != null)
               ? StatusCard(
-                  l?.readinessDetailNoHistoryTitle ?? 'No readiness history',
+                  l?.readinessDetailNoHistoryTitle ?? 'No recovery history',
                   l?.readinessDetailNoHistoryBody ?? '0 days scored.',
                   fix: l?.readinessDetailWearOvernight ?? 'Wear the band overnight',
                   icon: LucideIcons.chartLine,
@@ -330,7 +328,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     return ChartFrame(
-      title: l?.readinessDetailTitle ?? 'Readiness',
+      title: l?.readinessDetailTitle ?? 'Recovery',
       unit: l?.readinessDetailUnit ?? '/100',
       height: 120,
       yAxis: axis,
@@ -476,7 +474,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       child: Row(children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(driverLabel(key, l), style: F.body.copyWith(color: p.ink)),
+            Text(_ask(key, l), style: F.body.copyWith(color: p.ink)),
             Text(parts.join(' · '),
                 style: F.over.copyWith(color: p.ink3)),
           ]),
@@ -497,3 +495,16 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     );
   }
 }
+
+/// A breakdown row as the plain question it answers. An input the map does
+/// not cover keeps its name.
+String _ask(String key, AppLocalizations? l) => switch (key) {
+      'hrv' => l?.readinessDetailAskHrv ?? 'Is your HRV in its usual range?',
+      'rhr' => l?.readinessDetailAskRhr ??
+          'Is your resting heart rate in its usual range?',
+      'resp' => l?.readinessDetailAskResp ??
+          'Is your breathing rate in its usual range?',
+      'temp' => l?.readinessDetailAskTemp ??
+          'Is your skin temperature in its usual range?',
+      _ => driverLabel(key, l),
+    };

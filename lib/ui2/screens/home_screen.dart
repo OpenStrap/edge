@@ -535,9 +535,7 @@ StatusCard? dbRebuiltCard(DbRebuild? r, [AppLocalizations? l]) {
 StatusCard workoutHoldCard([AppLocalizations? l]) => StatusCard(
       l?.homeWorkoutHoldTitle ?? 'A workout is still running',
       l?.homeWorkoutHoldBody ??
-          'Today is on hold while a workout is live: the band keeps recording, '
-          'but the numbers are computed once the session ends. Finish the workout '
-          'from the bar below and today fills in — syncing will not.',
+          'Today is paused while a workout runs. The band keeps recording; finish the workout from the bar below and today fills in.',
       icon: LucideIcons.timer,
     );
 
@@ -553,10 +551,10 @@ StatusCard? staleInsightsCard(
           'How these are computed changed with the last update.',
       'stale' => built == null || built.isEmpty
           ? (l?.homeInsightsStaleOverWeek ??
-              'The last rollup was built over a week ago, which is too old to stand behind.')
+              'Your trends were last updated over a week ago. Sync the band to bring them up to date.')
           : (l?.homeInsightsStaleOnDay(prettyDay(built, l)) ??
-              'The last rollup was built on ${prettyDay(built, l)}, which is too old to stand behind.'),
-      _ => l?.homeInsightsNoVersionStamp ?? 'The stored rollup carries no version stamp.',
+              'Your trends were last updated on ${prettyDay(built, l)}. Sync the band to bring them up to date.'),
+      _ => l?.homeInsightsNoVersionStamp ?? 'Your trends are being updated. This takes a minute after a sync.',
     },
     fix: onSync == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
     icon: LucideIcons.refreshCw,
@@ -1013,7 +1011,7 @@ _RingState _gap(HomeRingKind k, String label, IconData icon, Color color,
   final counts = baselineCountsFromNote(m.note);
   if (counts != null) {
     return _RingState(k, label, icon, color,
-        value: l?.homeCalibrating ?? 'Calibrating',
+        value: l?.homeCalibrating ?? 'Learning your usual',
         sub: unit == 'days'
             ? (l?.homeCalibratingDays(counts.have, counts.need) ??
                 '${counts.have} of ${counts.need} days')
@@ -1622,10 +1620,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     final sync = syncOf(c);
     return StatusCard(
       d.heldOverNight == null
-          ? (l?.homeNothingDerivedTitle ?? 'Nothing derived yet')
+          ? (l?.homeNothingDerivedTitle ?? 'No nights scored yet')
           : (l?.homeNothingTodayTitle ?? 'Nothing recorded for today'),
       d.heldOverNight == null
-          ? (l?.homeNothingDerivedBody ?? 'No band recordings processed yet.')
+          ? (l?.homeNothingDerivedBody ?? 'Wear the band tonight and open the app in the morning.')
           : (l?.homeNothingTodayBody(prettyDay(d.heldOverNight, l)) ??
               'The last night this app scored was '
                   '${prettyDay(d.heldOverNight, l)}. Nothing has reached it since.'),
@@ -1694,8 +1692,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             if (phase != null) return phase;
             final sync = syncOf(c);
             return StatusCard(
-              l?.homeNothingDerivedTitle ?? 'Nothing derived yet',
-              l?.homeNothingDerivedBody ?? 'No band recordings processed yet.',
+              l?.homeNothingDerivedTitle ?? 'No nights scored yet',
+              l?.homeNothingDerivedBody ?? 'Wear the band tonight and open the app in the morning.',
               fix: sync == null ? '' : (l?.homeSyncBand ?? 'Sync the band'),
               icon: LucideIcons.watch,
               onFix: sync == null ? null : () => _tapSync(sync),
@@ -1883,7 +1881,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                         d.absentDiag?['note']?.toString())
                 : null;
             return StatusCard(
-              l?.homeReadinessNotScoredTitle ?? 'Readiness is not scored today',
+              l?.homeReadinessNotScoredTitle ?? 'Recovery is not scored today',
               need != null
                   ? (l?.homeReadinessNeedBody(need) ??
                       '$need to know what normal looks like for you.')
@@ -1982,20 +1980,12 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                     '${prettyDay(d.illnessDay, l)} sat outside your normal range'),
         z == null
             ? (l?.homeIllnessBodyNoZ ??
-                'Your recent nocturnal resting heart rates add up to a rise above '
-                'your own baseline. This reads one signal. It names a pattern, and '
-                'it does not name a cause.')
+                'Your resting heart rate has run above your usual over recent nights. This tracks one signal, so it shows a pattern, not a cause.')
             : (z >= 0
                 ? (l?.homeIllnessBodyAbove(zAbs) ??
-                    'Your recent nocturnal resting heart rates add up to a rise above '
-                    'your own baseline; that night sat $zAbs standardised deviations above it. '
-                    'This reads one signal. It names a pattern, and it does not name '
-                    'a cause.')
+                    'Recent nights put your resting heart rate above your usual. That night was $zAbs× your normal night-to-night swing above it. A pattern, not a cause.')
                 : (l?.homeIllnessBodyBelow(zAbs) ??
-                    'Your recent nocturnal resting heart rates add up to a rise above '
-                    'your own baseline; that night sat $zAbs standardised deviations below it. '
-                    'This reads one signal. It names a pattern, and it does not name '
-                    'a cause.')),
+                    'Recent nights put your resting heart rate above your usual. That night was $zAbs× your normal night-to-night swing below it. A pattern, not a cause.')),
         advice: l?.homeIllnessAdvice ?? 'Worth noting if it continues past a couple of days.',
         onTap: () => go(c, const MetricDetail('resting_hr')),
       ),
@@ -2210,7 +2200,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                 // is a wrong answer when the baselines exist and are being
                 // withheld.
                 why: d.insightsStale != null
-                    ? (l?.homeNoPlanWhyStale ?? 'The cross-day rollup they come from is being rebuilt.')
+                    ? (l?.homeNoPlanWhyStale ?? 'Your trends are being updated. This takes a minute after a sync.')
                     : (l?.homeNoPlanWhyNone ?? 'None are established yet.')) ??
             const SizedBox.shrink()
         : Surface(

@@ -281,10 +281,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
             xLabels: const ['00:00', '12:00', '24:00'],
             series: d.curve,
             footnote: l?.dayStrainChartFootnote(drawn) ??
-                'Effort banked above your usual waking pace — it can ease '
-                    'later in the day if intensity drops back toward that '
-                    'pace, even though the STEEP parts already happened. '
-                    'Built from $drawn recorded waking minutes.',
+                'Effort above your usual waking pace. It can ease later if you slow back toward that pace. From $drawn recorded waking minutes.',
             child: CustomPaint(
               size: Size.infinite,
               painter: LineChart(d.curve, p.on(C.purple),
@@ -371,7 +368,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       child: Text(
         [
           l?.dayStrainInputsBase ??
-              'Banister TRIMP over your waking heart rate, scaled to 0–21.',
+              'How hard your heart worked while awake, by minutes in each heart-rate zone, on a 0–21 scale.',
           if (max != null)
             l?.dayStrainInputsMaxHr(max.round()) ??
                 'It was integrated against an assumed maximum of '
@@ -383,9 +380,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
           // exactly the defect TS-03a removed.
           if (max != null && d.zoneSource != null && d.zoneSource != 'tanaka')
             l?.dayStrainInputsMeasuredCeilingNote ??
-                'The zone bar above uses the measured ceiling instead; strain has '
-                    'not been moved onto it, because that would rewrite every '
-                    'strain score you have ever seen.',
+                'The zone bar uses your measured maximum. Strain does not, so the strain scores you have already seen stay the same.',
           l?.dayStrainInputsRhrAnchor ??
               'The other anchor is your resting heart rate from the night before, '
                   'so a night the band missed moves the whole day.',

@@ -1210,10 +1210,7 @@ class _SweepResult extends StatelessWidget {
         const SizedBox(height: S.x3),
         Text(
           l?.calmBreathingRankingExplainer ??
-              'A ranking of three paces from one sitting. The blocks run back '
-              'to back, so each pace is measured while you are still settling '
-              'out of the one before. It says which pace your heart rate '
-              'followed most strongly, and nothing else.',
+              'A ranking of three paces from one sitting. Each pace starts while you settle from the last, so it only says which one your heart followed most.',
           style: F.over.copyWith(color: p.ink3, height: 1.5),
         ),
       ],

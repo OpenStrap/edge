@@ -360,10 +360,7 @@ class _DriverBreakdownState extends State<DriverBreakdown> {
         color: p.card2,
         child: Text(
           l?.driverBreakdownFooter ??
-              'Each input is ranked against your own history — a parallel view of '
-                  'the same inputs, not slices of the score itself. "Measurement '
-                  'noise" is how far a reading can move on its own without '
-                  'anything having changed. Patterns in your own logs, not causes.',
+              'Each input is compared with your own history, beside the score rather than part of it. "Measurement noise" is how far a reading moves on its own.',
           style: F.cap.copyWith(color: p.ink3, height: 1.5),
         ),
       ),
@@ -564,12 +561,11 @@ StatusCard driverAbsenceCard(
       l?.driverBreakdownAbsenceTitle ?? 'No breakdown to show',
       switch (stale['kind']) {
         'algo_version' => l?.driverBreakdownAbsenceAlgoVersion ??
-            'How readiness is worked out changed with the last '
-                'update, and it is being rebuilt.',
+            'The way recovery is worked out changed in the last update. Your days are being recalculated.',
         'stale' => l?.driverBreakdownAbsenceStale ??
-            'The last rollup is too old to stand behind.',
+            'Your trends are out of date. Sync the band to update them.',
         _ => l?.driverBreakdownAbsenceNoVersion ??
-            'The stored rollup carries no version stamp.',
+            'Your trends are being updated. This takes a minute after a sync.',
       },
       fix: onSync == null ? '' : (l?.driverBreakdownSyncTheBand ?? 'Sync the band'),
       onFix: onSync,

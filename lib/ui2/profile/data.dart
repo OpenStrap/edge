@@ -330,34 +330,22 @@ class _DataScreenState extends State<DataScreen> {
                       // byte-identical. An empty source cell is unknown
                       // provenance — never back-filled to 'band'.
                       sub: l?.dataExportSpreadsheetsSub(kCsvExportSets.length) ??
-                          '${kCsvExportSets.length} CSV files — daily metrics, '
-                              'workouts, sleep, journal, labs, and everything you '
-                              'typed in. Each day carries where it came from and '
-                              'which algorithm version scored it',
+                          '${kCsvExportSets.length} CSV files: daily metrics, workouts, sleep, journal, labs and all you entered. Each day notes its source and scoring version',
                       onTap: _busy ? null : () => _run(_exportCsv)),
                   SetRow(LucideIcons.heartPulse, C.red,
                       l?.dataExportHeartRate ?? 'Export heart rate, minute by minute',
                       sub: l?.dataExportHeartRateSub ??
-                          'One CSV for the days you pick: a 1-minute average '
-                              'for every minute the band recorded. Second-by-'
-                              'second readings are kept for recent days only '
-                              'and are in the database export',
+                          'One CSV for the days you pick, with a 1-minute average for every recorded minute. Second-by-second data is in the database export',
                       onTap: _busy ? null : () => _run(_exportHeartRate)),
                   SetRow(LucideIcons.database, C.blue,
                       l?.dataExportDatabase ?? 'Export the database',
                       sub: l?.dataExportDatabaseSub ??
-                          'One .db file. Lossless, and the only format that '
-                              'restores onto another phone. Readable by anything '
-                              'that opens SQLite — including anyone who gets the '
-                              'file',
+                          'One .db file, lossless, and the only format that restores onto another phone. Any SQLite reader can open it, so keep it safe',
                       onTap: _busy ? null : () => _run(_exportDb)),
                   SetRow(LucideIcons.lock, C.purple,
                       l?.dataExportEncrypted ?? 'Export an encrypted backup',
                       sub: l?.dataExportEncryptedSub ??
-                          'The same complete copy, sealed with a passphrase, '
-                              'for somewhere like iCloud. Forget the passphrase '
-                              'and that file is gone — there is no recovery, '
-                              'because there is no account holding a key',
+                          'The same full copy, locked with a passphrase, for somewhere like iCloud. Forget the passphrase and no one can open the file',
                       onTap: _busy ? null : () => _run(_exportEncrypted)),
                 ]),
                 const SizedBox(height: S.x5),
@@ -410,10 +398,7 @@ class _DataScreenState extends State<DataScreen> {
                   SetRow(LucideIcons.upload, C.orange,
                       l?.dataImportFile ?? 'Import a file',
                       sub: l?.dataImportFileSub ??
-                          'An OpenStrap backup (encrypted or not), a journal '
-                              'CSV you edited, a raw sensor export, or a vendor '
-                              'CSV. Days this band already measured are never '
-                              'overwritten',
+                          'An OpenStrap backup, a journal CSV, a raw sensor export or a vendor CSV. Days the band already measured are never overwritten',
                       onTap: _busy ? null : () => _run(() => _import(app))),
                   // Progressive disclosure: two health-store reads, each with
                   // its own consent and its own ceiling, behind one row rather
@@ -464,10 +449,7 @@ class _DataScreenState extends State<DataScreen> {
                         'The days landed, the summaries did not',
                     l?.dataSummariesDidNotBodyShort(
                             '${app.importRollupError}') ??
-                        'Every imported row is in the database, but rebuilding the '
-                            'cross-day summaries over them threw '
-                            '(${app.importRollupError}), so trends and insights '
-                            'still describe the data you had before.',
+                        'Every imported row is saved, but updating your trends failed (${app.importRollupError}). Trends and insights still show the data you had before.',
                     fix: l?.dataReanalyzeEverything ?? 'Re-analyze everything',
                     icon: LucideIcons.triangleAlert,
                     onFix: _busy ? null : () => _run(() => _reanalyze(app)),

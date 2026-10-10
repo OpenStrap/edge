@@ -308,7 +308,7 @@ void main() {
     await tester.tap(find.text('30 days'));
     await tester.pumpAndSettle();
     expect(
-      find.textContaining('Your reading from 4 days ago sits at the 22nd'),
+      find.textContaining('Your reading from 4 days ago is higher than 22%'),
       findsOneWidget,
     );
   });
@@ -491,7 +491,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.textContaining('last caffeine of the day only'),
+        find.textContaining('only your last caffeine of the day'),
         findsOneWidget,
       );
       // Nothing here may read as a cause or a recommendation.
@@ -514,14 +514,14 @@ void main() {
       await tester.pumpAndSettle();
       // Folded: the chips are the thing, the history is behind a tap.
       expect(find.text('What you usually notice'), findsOneWidget);
-      expect(find.textContaining('one per week of the cycle'), findsNothing);
+      expect(find.textContaining('per week of the cycle'), findsNothing);
 
       await tester.tap(find.text('What you usually notice'));
       await tester.pumpAndSettle();
       // cramps on 5 of the 7 logged days; the denominator sentence names the
       // days she logged, never the calendar.
       expect(find.text('cramps'), findsWidgets);
-      expect(find.textContaining('You logged something on'), findsOneWidget);
+      expect(find.textContaining('logged days per week'), findsOneWidget);
 
       // One logged start is not two cycles — nothing to count over, so the
       // control is not offered at all.

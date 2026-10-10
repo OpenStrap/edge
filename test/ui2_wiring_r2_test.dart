@@ -388,7 +388,7 @@ void main() {
     // a first run and gets the first-run words.
     testWidgets('a genuine first run keeps its own card', (t) async {
       await t.pumpWidget(frame(const HomeData(dayId: '2026-05-20')));
-      expect(find.text('Nothing derived yet'), findsOneWidget);
+      expect(find.text('No nights scored yet'), findsOneWidget);
     });
 
     // A bare day during a live workout is missing COMPUTE, not data: the
@@ -458,7 +458,7 @@ void main() {
       // nights back under. Printing "1.3 deviations" without a direction read
       // as "above your baseline, 1.3 below it".
       await t.pumpWidget(frame(base.copyOrIllness('red', '2026-05-20', -1.3)));
-      expect(find.textContaining('1.3 standardised deviations below it'),
+      expect(find.textContaining('1.3× your normal night-to-night swing below it'),
           findsOneWidget);
     });
 
@@ -622,7 +622,7 @@ void main() {
                       unit: 'steps',
                       confidence: .9,
                       tier: MetricTier.high))));
-      expect(find.text('Readiness is not scored today'), findsOneWidget);
+      expect(find.text('Recovery is not scored today'), findsOneWidget);
       expect(find.text('See what was missing'), findsOneWidget);
     });
 
@@ -1032,7 +1032,7 @@ void main() {
       await t.pumpAndSettle();
       expect(find.textContaining('Not a stress score'), findsOneWidget);
       // How deep each drawn hour is, not just a grand total.
-      expect(find.textContaining('middle value of 5–5 five-minute stretches'),
+      expect(find.textContaining('middle of 5–5 still five-minute stretches'),
           findsOneWidget);
       expect(find.textContaining('12 of 24 hours'), findsOneWidget);
       // The InsightCard this section was paid for with is gone, and its one
@@ -1115,7 +1115,7 @@ void main() {
       expect(find.textContaining('not a fitness-to-drive check'), findsOneWidget);
       expect(find.textContaining('does not say you are impaired'),
           findsOneWidget);
-      expect(find.textContaining('a prediction, not a reading'), findsOneWidget);
+      expect(find.textContaining('A prediction, not a reading'), findsOneWidget);
     });
 
     testWidgets('the card survives 3.1x text', (t) async {
@@ -1304,7 +1304,7 @@ void main() {
       // not a ranking of the user's weeks.
       expect(find.textContaining('14 Aug'), findsNothing);
       // The guard the item is mostly made of.
-      expect(find.textContaining('The pair that matched least'), findsOneWidget);
+      expect(find.textContaining('The least alike pair'), findsOneWidget);
       expect(find.textContaining('not a worse night'), findsOneWidget);
     });
 

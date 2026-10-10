@@ -722,7 +722,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
 
     final hrvMetric = d.hrv;
     row(hrvMetric, LucideIcons.activity, C.green, l?.healthRowHrv ?? 'HRV',
-        ofNight(l?.healthSubRmssdAsleep ?? 'RMSSD, asleep'),
+        ofNight(l?.healthSubRmssdAsleep ?? 'HRV, asleep'),
         hrvMetric.value == null ? '' : '${hrvMetric.value!.round()}', 'ms',
         d.spark('hrv', 24), 'hrv',
         rising: Rising.good,
@@ -839,19 +839,17 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
             // below it".
             illnessZ == null
                 ? (l?.healthIllnessBodyNoZ ??
-                    'Your recent nocturnal resting heart rates add up to a rise '
-                        'above your own baseline. This watches one signal only. '
-                        'It names a pattern, not a cause.')
+                    'Your resting heart rate has run above your usual over recent nights. This tracks one signal, so it shows a pattern, not a cause.')
                 : (l?.healthIllnessBodyWithZ(
                         illnessZ.abs().toStringAsFixed(1),
                         illnessZ >= 0
                             ? (l.healthDirectionAbove)
                             : (l.healthDirectionBelow)) ??
-                    'Your recent nocturnal resting heart rates add up to a rise '
-                        'above your own baseline; that night sat '
-                        '${illnessZ.abs().toStringAsFixed(1)} standard deviations '
-                        '${illnessZ >= 0 ? 'above' : 'below'} it. This watches '
-                        'one signal only. It names a pattern, not a cause.'),
+                    'Recent nights put your resting heart rate above your '
+                        'usual. That night was '
+                        '${illnessZ.abs().toStringAsFixed(1)}× your normal '
+                        'night-to-night swing ${illnessZ >= 0 ? 'above' : 'below'} '
+                        'it. A pattern, not a cause.'),
             advice: l?.healthIllnessAdvice ??
                 'Worth noting if it continues past a couple of days.',
           );
@@ -1049,7 +1047,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         key == 'sleep' ? hm(s.last) : metricValue(unit, s.last),
         key == 'sleep' ? '' : unit,
         base == null
-            ? (l?.healthNoBaseline ?? 'no baseline')
+            ? (l?.healthNoBaseline ?? 'no usual range yet')
             : (key == 'sleep' ? hm(delta.abs()) : metricValue(unit, delta.abs())),
         '${base == null ? (l?.healthFirstReadings ?? 'first readings') : window}$asOf',
         win,
@@ -1093,7 +1091,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                 Expanded(
                   child: Text(
                       l?.healthChronotypeJetlagRegularity ??
-                          'Chronotype, jetlag and regularity',
+                          'Natural bedtime, weekend shift and schedule consistency',
                       style: F.cap.copyWith(color: p.ink2)),
                 ),
                 Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
@@ -1127,7 +1125,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
             d.daysWithData.clamp(0, 30),
             30,
             l?.healthDaysWithRecord ??
-                'Days with a derived record in the last 30 days',
+                'Days with a score in the last 30 days',
               C.domHealth,
             ),
           ),
@@ -1295,7 +1293,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final l = AppLocalizations.of(c);
     return ChartFrame(
       title: l?.healthRmssdOfLastNights(have.length, days) ??
-          'RMSSD, ${have.length} of the last $days nights',
+          'HRV, ${have.length} of the last $days nights',
       unit: 'ms',
       height: 48,
       yAxis: axis,

@@ -73,7 +73,7 @@ void main() {
     expect(find.textContaining('9:00 AM – 10:00 AM'), findsOneWidget);
     expect(find.text('Your phone'), findsWidgets);
     // ONE accuracy line, and it names both failure directions.
-    expect(find.textContaining('the two miscount differently'), findsOneWidget);
+    expect(find.textContaining('A wrist can read a walk low'), findsOneWidget);
   });
 
   testWidgets('a phone-only day is never told about wrists', (t) async {
