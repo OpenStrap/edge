@@ -21,10 +21,11 @@ import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/models/payloads.dart';
 import 'package:openstrap_edge/ui2/screens/health_screen.dart' show HealthData;
 
-/// The frozen headline as the planner takes it: day and value.
-Future<({String day, int value})?> _pin() async {
-  final p = await LocalDb.frozenHeadline();
-  return p == null ? null : (day: p.day, value: p.value);
+/// The frozen headline as the engine hands it to the planner: only a pin taken
+/// on [day]'s own night (`LocalDb.headlinePinFor`).
+Future<({String day, int value})?> _pin(String day) async {
+  final v = await LocalDb.headlinePinFor(day);
+  return v == null ? null : (day: day, value: v);
 }
 
 void main() {
@@ -51,6 +52,8 @@ void main() {
   // Today's night, scored (so the ring shows today's overnight), with NO
   // readiness of its own; the crossday rollup says today is settled.
   Future<void> seed({required bool nullRow}) async {
+    final wakeSec =
+        DateTime.now().millisecondsSinceEpoch ~/ 1000 - 13 * 3600;
     final db = await LocalDb.instance;
     await db.delete('day_result');
     await db.delete('metric_series');
@@ -67,7 +70,9 @@ void main() {
           },
         },
       }),
-      windowJson: '{}',
+      // The night's wake, which the pin must match to be trusted. Far enough
+      // back that the night has settled on the give-up clock.
+      windowJson: jsonEncode({'offset_ms': wakeSec * 1000}),
       // `putDayResult` writes the series map as given; with no readiness key
       // the day has no readiness row at all.
       series: nullRow ? {'readiness': null} : const {},
@@ -82,7 +87,7 @@ void main() {
         ],
       }),
     );
-    await LocalDb.setFrozenHeadline(today, 22);
+    await LocalDb.setFrozenHeadline(today, 22, wakeSec: wakeSec);
     await LocalDb.refreshComputeFreshness();
   }
 
@@ -96,7 +101,7 @@ void main() {
     final notices = planExceptionNotices(
       cd,
       today: today,
-      pin: await _pin(),
+      pin: await _pin(today),
       storedReadiness: await LocalDb.metricValueOn(today, 'readiness'),
     );
     final pushed = [
@@ -143,7 +148,7 @@ void main() {
     final notices = planExceptionNotices(
       cd,
       today: today,
-      pin: await _pin(),
+      pin: await _pin(day),
       storedReadiness: await LocalDb.metricValueOn(day, 'readiness'),
     );
     expect(

@@ -6823,6 +6823,23 @@
   "investigateRmssdNightly": "RMSSD, ночной (среднее по 5-минутным окнам)",
   "investigateRmssdStored": "RMSSD, ночной (прежняя оценка)",
   "devicesOuraWriteRefused": "Не удалось отправить команду кольцу. Попробуйте синхронизировать ещё раз.",
+  "homeRecoverySleeping": "Сон…",
+  "homeRecoveryAfterWake": "Восстановление оценивается после пробуждения.",
+  "homeRecoveryFinishingUp": "Почти готово",
+  "homeRecoveryUpdated": "Обновлено {time} · {from} → {to}",
+  "@homeRecoveryUpdated": {
+    "placeholders": {
+      "time": {"type": "String"},
+      "from": {"type": "int"},
+      "to": {"type": "int"}
+    }
+  },
+  "dataRecoveryChanged": "Восстановление изменилось: {list}",
+  "@dataRecoveryChanged": {
+    "placeholders": {
+      "list": {"type": "String"}
+    }
+  },
   "devicePickerBlurbPebble": "Только Pebble 2 или Pebble 2 SE. Синхронизирует шаги и сон, а на Pebble 2 и пульс (у SE нет датчика пульса).",
   "devicePickerBlurbUltrahuman": "Читает данные напрямую с кольца — без аккаунта и обмена ключами.",
   "devicesWhatItDoesBeats": "Интервалы между ударами сохраняются и приписываются этому датчику. Он записывает во время тренировки и несколько минут после её окончания. Оценка тренировки по нему экспериментальна и выключена, пока не проверена на реальном устройстве.",

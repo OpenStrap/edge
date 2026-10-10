@@ -10,6 +10,7 @@ import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
+import 'package:openstrap_edge/models/payloads.dart' show todayHeadlineOf;
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -39,12 +40,13 @@ void main() {
     required int edgeSec,
     String? day,
     num? rmssd,
+    num? readiness,
   }) async {
     await db.insert('day_result', {
       'day_id': day ?? todayLabel(),
       'algo_version': kAlgoVersion,
       'payload_json': jsonEncode({
-        if (rmssd != null) 'scalars': {'rmssd': rmssd},
+        'scalars': {'rmssd': ?rmssd, 'readiness': ?readiness},
         'sleep': {
           'window': {
             'value': {'offset_ms': wakeSec * 1000},
@@ -54,7 +56,7 @@ void main() {
           },
         },
       }),
-      'window_json': '{}',
+      'window_json': jsonEncode({'offset_ms': wakeSec * 1000}),
       'computed_at': 1,
       'finalized': 0,
     });
@@ -240,6 +242,66 @@ void main() {
     expect(today['hrv']?['rmssd'], isNot(77));
   });
 
+  test('a night the active wearable supplied settles on its own edge',
+      () async {
+    // The band was left on the charger: its edge sits before the night. The
+    // ring's row was derived against the ring's edge, two hours past wake.
+    final wake = nowSec - 3 * 3600;
+    await seed(wakeSec: wake, edgeSec: wake - 8 * 3600);
+    await db.update(
+      'day_result',
+      {
+        'payload_json': jsonEncode({
+          'sleep': {
+            'window': {
+              'value': {'offset_ms': wake * 1000},
+            },
+            'accounting': {
+              'value': {'tst_sec': 6 * 3600},
+            },
+          },
+          'data_edge_sec': wake + 2 * 3600,
+        }),
+      },
+      where: 'day_id = ?',
+      whereArgs: [todayLabel()],
+    );
+    expect(await overnightDay(), todayLabel());
+    final row = await LocalDb.computeFreshness('today');
+    expect(jsonDecode(row!['payload_json'] as String)['recovery_state'],
+        'final');
+  });
+
+  test('a row derived mid-drain stays unsettled after the band edge moves on',
+      () async {
+    // Derived with the edge at the wake; the band has since synced past it,
+    // but the row (and its score) is still the partial night.
+    final wake = nowSec - 3 * 3600;
+    await seed(wakeSec: wake, edgeSec: wake + 2 * 3600);
+    await db.update(
+      'day_result',
+      {
+        'payload_json': jsonEncode({
+          'sleep': {
+            'window': {
+              'value': {'offset_ms': wake * 1000},
+            },
+            'accounting': {
+              'value': {'tst_sec': 6 * 3600},
+            },
+          },
+          'data_edge_sec': wake + 60,
+        }),
+      },
+      where: 'day_id = ?',
+      whereArgs: [todayLabel()],
+    );
+    expect(await overnightDay(), isNot(todayLabel()));
+    final row = await LocalDb.computeFreshness('today');
+    expect(jsonDecode(row!['payload_json'] as String)['recovery_state'],
+        'night_in_progress');
+  });
+
   test('readiness chart leaves out the night getToday holds back', () async {
     final wake = nowSec - 20 * 60;
     await seed(wakeSec: wake, edgeSec: wake + 60);
@@ -307,5 +369,49 @@ void main() {
       ),
       isFalse,
     );
+  });
+
+  group('recovery_state through getToday', () {
+    Future<Map<String, dynamic>> today() async {
+      await LocalDb.refreshComputeFreshness();
+      return LocalRepositoryImpl(getProfileMap: () => const {}).getToday();
+    }
+
+    test('edge at the window close → night in progress, no number', () async {
+      final wake = nowSec - 10 * 60;
+      await seed(wakeSec: wake, edgeSec: wake, readiness: 2);
+      final t = await today();
+      expect(t['status']['recovery_state'], 'night_in_progress');
+      expect(todayHeadlineOf(t)['recovery'], isNull);
+    });
+
+    test('wake confirmed, not settled → provisional number', () async {
+      final wake = nowSec - 50 * 60;
+      await seed(wakeSec: wake, edgeSec: wake + 40 * 60, readiness: 27.6);
+      final h = todayHeadlineOf(await today());
+      expect(h['recovery_state'], 'provisional');
+      expect(h['recovery'], 27.6);
+    });
+
+    test('final night: a legacy pin without wake yields to the live value',
+        () async {
+      final wake = nowSec - 3 * 3600;
+      await seed(wakeSec: wake, edgeSec: wake + 2 * 3600, readiness: 27.6);
+      await LocalDb.setFrozenHeadline(todayLabel(), 2);
+      final h = todayHeadlineOf(await today());
+      expect(h['recovery_state'], 'final');
+      expect(h['recovery'], 27.6);
+      // A pin taken on this night's wake is honoured.
+      await LocalDb.setFrozenHeadline(todayLabel(), 28, wakeSec: wake);
+      final h2 = todayHeadlineOf(await today());
+      // A wake before kMinPinWakeHour local is never pinnable, so when this
+      // test runs in the small hours the pin is ignored and the live value
+      // shows. Assert whichever the clock makes correct.
+      final pinnable = DateTime.fromMillisecondsSinceEpoch(wake * 1000).hour >=
+          kMinPinWakeHour;
+      expect(h2['recovery'], pinnable ? 28 : 27.6);
+      // 27.6 was shown as 28 already: same number, no "Updated" note.
+      expect(h2['recovery_update'], isNull);
+    });
   });
 }
