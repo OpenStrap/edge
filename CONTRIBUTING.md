@@ -47,6 +47,40 @@ in `pubspec.yaml` actually contains it — that mismatch has shipped a bug befor
 classes; the engine wires them together and the policies decide. That's what
 makes any of this testable without a band on your wrist.
 
+## Repo layout
+
+```
+lib/ai/        BYOK AI assistant: briefings, journal AI, nightly sweep
+lib/ble/       Bluetooth link + history-sync state machine
+lib/cloud/     optional companion/backend + cloud import clients
+lib/coach/     read-only SQL coach over allow-listed views
+lib/compute/   runs the analytics pipeline, writes results
+lib/data/      local storage + the repository seam the UI reads from
+lib/debug/     debug-mode flags
+lib/ecg/       ECG readings
+lib/gestures/  device action / gesture dispatch
+lib/gps/       GPS route tracking for outdoor activities
+lib/health/    HealthKit / Health Connect import + export
+lib/import/    backup + third-party data import
+lib/l10n/      translations (.arb)
+lib/live/      Live Activity / breathing session
+lib/models/    shared data models (Metric, payloads, app status)
+lib/notify/    the single notification emitter + alert policies
+lib/platform/  platform-channel glue (app icon, Tasker, device actions)
+lib/scan/      barcode scanning (swapped for a FOSS reader in the F-Droid build)
+lib/state/     AppState, the one source of truth, plus its sync/workout/live controllers
+lib/stress/    guided-breathing session logic
+lib/sync/      background/headless sync policies
+lib/telemetry/ opt-in error + usage telemetry
+lib/theme/     design tokens, theming, transitions
+lib/ui2/       every screen
+lib/widget/    App-Group snapshot for the home-screen/watch widget
+```
+
+See `AGENTS.md` §2 for the full architecture map, invariants, and the biggest
+files by ownership. Build steps and how the pieces fit together are in
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
 ## Running it
 
 ```bash
@@ -122,5 +156,13 @@ event table is empirical guesswork by one person — more eyes genuinely helps.
 This project talks to hardware people already own, using their own data, on
 their own device. Please keep contributions within that: no scraping WHOOP's
 services, no redistributing their code, firmware, or assets, and no vendored
-material from other reverse-engineering projects whose licences don't permit it.
+third-party material whose licences don't permit it.
 Facts about a protocol are fine. Someone else's source code is not.
+
+## License
+
+OpenStrap is licensed under AGPL-3.0 (see [LICENSE](LICENSE)). By contributing, you
+agree that your contributions are licensed under the same AGPL-3.0 terms. You keep the
+copyright in your work.
+
+The OpenStrap name and logo are covered separately by [TRADEMARKS.md](TRADEMARKS.md).

@@ -7,7 +7,7 @@ body:
       value: |
         Worth saying up front, so nobody wastes time: **OpenStrap's numbers are
         not meant to match WHOOP's.** Different algorithms, published methods,
-        computed from a reverse-engineered byte stream. "It doesn't match the
+        computed on your phone from the device's raw data. "It doesn't match the
         WHOOP app" on its own isn't a bug.
 
         What *is* a bug: a number that's physiologically implausible, one that

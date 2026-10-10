@@ -13,7 +13,7 @@ symbol names don't; verify against the source, not this doc.
 
 ## 1. What this is
 
-A Flutter app for a reverse-engineered WHOOP 4.0 band. **Fully on-device,
+A Flutter health app for wearables (WHOOP 4.0/5.0/MG supported today). **Fully on-device,
 local-first**: BLE offload → SQLite → on-device analytics → UI. No backend owns
 user data. Network use is limited to OTA update pointers, opt-in
 telemetry/Crashlytics, and BYOK LLM calls.

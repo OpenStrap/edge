@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OpenStrap Edge — use your WHOOP 4.0, 5, or MG without a subscription</title>
-<meta name="description" content="An open-source app that makes a WHOOP band useful without a WHOOP subscription. Pairs over Bluetooth, computes recovery, strain and sleep entirely on your phone. No cloud, no account, MIT licensed.">
-<meta property="og:title" content="OpenStrap Edge — use your WHOOP band without a subscription">
-<meta property="og:description" content="Pairs over Bluetooth, computes everything on your phone. No cloud, no account, MIT licensed.">
+<title>OpenStrap Edge: a health app for your wearables</title>
+<meta name="description" content="A health app for your wearables. No subscription, no fees, private by default. Pairs over Bluetooth and computes sleep, recovery and strain entirely on your phone. AGPL-3.0 licensed.">
+<meta property="og:title" content="OpenStrap Edge: a health app for your wearables">
+<meta property="og:description" content="No subscription, no fees, private by default. Everything is computed on your phone. AGPL-3.0 licensed.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://openstrap.site/">
 <meta property="og:image" content="https://raw.githubusercontent.com/OpenStrap/edge/main/screenshots/today.png">
@@ -19,7 +19,7 @@
   "@type": "MobileApplication",
   "name": "OpenStrap Edge",
   "url": "https://openstrap.site/",
-  "description": "Open-source app that reads a WHOOP 4.0, WHOOP 5, or MG band over Bluetooth and computes recovery, strain and sleep entirely on-device, without a WHOOP subscription.",
+  "description": "A health app for your wearables. No subscription, no fees, private by default. Reads supported devices over Bluetooth and computes sleep, recovery and strain entirely on-device.",
   "operatingSystem": "iOS, Android",
   "applicationCategory": "HealthApplication",
   "license": "https://github.com/OpenStrap/edge/blob/main/LICENSE",
@@ -41,12 +41,11 @@
 
   <main>
     <section class="hero">
-      <h1>Your strap doesn&rsquo;t stop working when the subscription does.</h1>
+      <h1>A health app for your wearables.</h1>
       <p class="lede">
-        Only the app goes dark. Edge pairs with your band over Bluetooth, decodes what it
-        recorded, and works out your sleep, recovery, strain and the rest &mdash;
-        entirely on your phone. No account, no subscription, and no server that ever
-        receives your health data.
+        No subscription, no fees, private by default. Edge pairs with your device over
+        Bluetooth and works out your sleep, recovery, strain and the rest entirely on
+        your phone. No account, and no server that ever receives your health data.
       </p>
 
       <div class="cta-row">
@@ -61,26 +60,20 @@
       </div>
 
       <p class="fineprint">
-        Free and MIT licensed. Not affiliated with WHOOP.
+        Free and AGPL-3.0 licensed. Independent, not affiliated with any device maker.
       </p>
     </section>
 
     <section class="honest" aria-label="Device support">
-      <h2>Supports</h2>
+      <h2>Devices</h2>
       <ul>
-        <li><strong>WHOOP 4, WHOOP 5, MG</strong> &mdash; full support: sleep, recovery,
-          strain, everything computed on-device. WHOOP 4 gets the most daily wear-testing.</li>
-        <li><strong>Any standard Bluetooth heart-rate strap</strong> &mdash; pairs for
-          workout tracking today (heart rate and beat timing, stored and shown). Full
-          metrics from it are on the roadmap.</li>
-        <li><strong>Oura Ring</strong> &mdash; the protocol groundwork is in the codebase;
-          not pairable in the app yet.</li>
+        <li><strong>Supported:</strong> WHOOP 4.0, 5.0 and MG. Sleep, recovery, strain
+          and the rest, computed on-device.</li>
+        <li><strong>Being built:</strong> Oura Ring, Garmin, Pebble, Colmi, Ultrahuman,
+          Mi Band and more.</li>
+        <li><strong>Any standard Bluetooth heart-rate strap</strong> pairs for workout
+          tracking today.</li>
       </ul>
-      <p class="fineprint">
-        More device support is ongoing work, not a promise with a date &mdash; see the
-        <a href="https://github.com/OpenStrap/protocol">protocol</a> repo for what's decoded
-        so far.
-      </p>
     </section>
 
     <section class="press" aria-label="Press coverage">
@@ -115,23 +108,22 @@
 
     <section class="shots">
       <figure>
-        <img src="https://raw.githubusercontent.com/OpenStrap/edge/main/screenshots/today.png" alt="The Today screen, showing a readiness ring and the day's headline metrics" loading="lazy">
+        <img src="https://raw.githubusercontent.com/OpenStrap/edge/main/screenshots/today.png" alt="The Today screen, showing the day&rsquo;s recovery, strain and sleep" loading="lazy">
         <figcaption>Today</figcaption>
       </figure>
       <figure>
-        <img src="https://raw.githubusercontent.com/OpenStrap/edge/main/screenshots/sleep.png" alt="The Sleep screen, showing a hypnogram and sleep stage breakdown" loading="lazy">
+        <img src="https://raw.githubusercontent.com/OpenStrap/edge/main/screenshots/sleep.png" alt="The Sleep screen, showing a hypnogram" loading="lazy">
         <figcaption>Sleep</figcaption>
       </figure>
       <figure>
-        <img src="https://raw.githubusercontent.com/OpenStrap/edge/main/screenshots/heart.png" alt="The Heart screen, showing heart rate and HRV trends" loading="lazy">
-        <figcaption>Heart</figcaption>
+        <img src="https://raw.githubusercontent.com/OpenStrap/edge/main/screenshots/heart-rate.png" alt="The resting heart rate screen, with a live reading and your normal range" loading="lazy">
+        <figcaption>Heart rate</figcaption>
       </figure>
       <figure>
-        <img src="https://raw.githubusercontent.com/OpenStrap/edge/main/screenshots/recap.png" alt="The weekly Recap screen" loading="lazy">
-        <figcaption>Recap</figcaption>
+        <img src="https://raw.githubusercontent.com/OpenStrap/edge/main/screenshots/workout.png" alt="The Workout screen" loading="lazy">
+        <figcaption>Workout</figcaption>
       </figure>
     </section>
-    <p class="shots-note">Every screenshot is real output from a WHOOP&nbsp;4.0.</p>
 
     <section class="cards">
       <div class="card">
@@ -153,7 +145,7 @@
         <h2>Published methods, cited</h2>
         <p>
           Banister TRIMP, Cole&ndash;Kripke, Lomb&ndash;Scargle, van&nbsp;Hees and friends.
-          Nothing invented, no neural net guessing at WHOOP&rsquo;s formulas. You can go
+          Nothing invented, no neural net guessing at anyone&rsquo;s formulas. You can go
           read the paper and decide whether you trust the number.
         </p>
       </div>
@@ -167,12 +159,11 @@
         </p>
       </div>
       <div class="card">
-        <h2>Not a WHOOP clone</h2>
+        <h2>Its own numbers</h2>
         <p>
-          Different algorithms, different numbers. They have years of research and a
-          team; this is textbook methods over a reverse-engineered byte stream. It trends
-          correctly and it&rsquo;ll tell you when you&rsquo;re under-recovered. It
-          isn&rsquo;t their secret sauce and never claims to be.
+          Different algorithms from any device maker&rsquo;s app, so expect different
+          numbers. Textbook methods over the data your device records. It trends
+          correctly and it&rsquo;ll tell you when you&rsquo;re under-recovered.
         </p>
       </div>
     </section>
@@ -180,8 +171,8 @@
     <section class="honest">
       <h2>Before you install</h2>
       <ul>
-        <li><strong>Quit the official WHOOP app before pairing.</strong> Bluetooth only lets one app own the band at a time.</li>
-        <li><strong>Pick one and stay on it.</strong> A firmware push from the official app could change the records this depends on, and there&rsquo;s no fixing that from here.</li>
+        <li><strong>Close the device maker&rsquo;s app before pairing.</strong> Bluetooth only lets one app own a device at a time.</li>
+        <li><strong>Pick one and stay on it.</strong> A firmware update pushed from the device maker&rsquo;s app could change the records this depends on, and there&rsquo;s no fixing that from here.</li>
         <li><strong>Not medical-grade.</strong> These are approximations from published research, not validated against a lab. Nothing here is a diagnosis.</li>
         <li><strong>There are bugs.</strong> It&rsquo;s a beta built by one person. <a href="https://github.com/OpenStrap/edge/issues">Open an issue</a> when something looks wrong &mdash; that&rsquo;s genuinely the most useful thing you can do.</li>
       </ul>
@@ -227,8 +218,8 @@
       <div class="donate">
         <h2>☕ Like it? Help keep it going.</h2>
         <p class="donate-lede">
-          No subscription, no paywall, no company behind this. If OpenStrap gave your
-          band a second life, a small tip genuinely helps.
+          No subscription, no paywall, no company behind this. If OpenStrap is useful
+          to you, a small tip genuinely helps.
         </p>
 
         <dl class="addr">
@@ -240,8 +231,8 @@
 
         <p class="fineprint">
           Tap an address to select it. What this actually pays for: the Apple Developer
-          membership that keeps the TestFlight build alive, a second band to get
-          WHOOP&nbsp;5 support tested, and coffee.
+          membership that keeps the TestFlight build alive, more devices to test
+          support on, and coffee.
           <a href="https://github.com/OpenStrap/edge/blob/main/DONATE.md">More &rarr;</a>
         </p>
         <p class="fineprint">
@@ -261,9 +252,9 @@
       <a href="notice.html">Notice</a>
     </p>
     <p class="fineprint">
-      Not affiliated with, endorsed by, or connected to WHOOP,&nbsp;Inc.
-      &ldquo;WHOOP&rdquo; is their trademark, used only to say which device this talks to.
-      MIT licensed.
+      OpenStrap is independent and not affiliated with or endorsed by WHOOP, Oura, Garmin
+      or any device maker. Product names are trademarks of their owners and are used
+      only to describe compatibility. AGPL-3.0 licensed.
     </p>
   </footer>
 </div>
