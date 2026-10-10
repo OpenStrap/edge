@@ -254,8 +254,27 @@ class ActivityProposalCard extends StatelessWidget {
             runSpacing: S.x2,
             children: [
               _action(c, l?.activityConfirm ?? 'Confirm', onConfirm, accent),
-              _action(c, l?.activityEdit ?? 'Edit', onEdit, accent),
-              _action(c, l?.activityDiscard ?? 'Discard', onDiscard, C.red),
+              // The workout editor is where the sport is picked, so it says
+              // that; a nap only has times to edit.
+              _action(
+                c,
+                nap
+                    ? (l?.activityEdit ?? 'Edit')
+                    : (l?.activityChangeSport ?? 'Change sport'),
+                onEdit,
+                accent,
+              ),
+              // Same words as the correction on a logged nap and a night, so
+              // "this was wrong" reads the same wherever the detection shows.
+              // A discard is kept by window and wins over every re-detection.
+              _action(
+                c,
+                nap
+                    ? (l?.napsNotANapLabel ?? 'Not a nap')
+                    : (l?.activityNotAWorkout ?? 'Not a workout'),
+                onDiscard,
+                C.red,
+              ),
             ],
           ),
         ],

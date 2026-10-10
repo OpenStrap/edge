@@ -8441,6 +8441,10 @@
   "@sleepDetailUndoRejection": {
     "description": "Button: undo a not-sleep rejection and return the day to automatic staging."
   },
+  "sleepDetailIWasAsleep": "I was asleep",
+  "@sleepDetailIWasAsleep": {
+    "description": "Button on a night with no sleep found: enter the bed and wake times yourself."
+  },
   "sleepDetailReanalysing": "Re-analysing the night…",
   "@sleepDetailReanalysing": {
     "description": "Progress label shown while the night is being re-derived after a window edit."
@@ -12542,6 +12546,14 @@
   "activityConfirm": "Confirm",
   "activityEdit": "Edit",
   "activityDiscard": "Discard",
+  "activityChangeSport": "Change sport",
+  "@activityChangeSport": {
+    "description": "Action on a detected workout: open the editor to pick the right sport (and times)."
+  },
+  "activityNotAWorkout": "Not a workout",
+  "@activityNotAWorkout": {
+    "description": "One-tap correction on a detected workout: it was not a workout. Kept across re-analysis."
+  },
   "activitySaveConfirm": "Save and confirm",
   "activityNothing": "Nothing to review",
   "activityEmptyBody": "Possible naps and workouts will appear here.",

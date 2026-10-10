@@ -550,4 +550,25 @@ void main() {
     expect(find.text('Deep').evaluate().length, deep);
     expect(find.text('REM'), findsNothing);
   });
+
+  testWidgets('a night with nothing found offers "I was asleep" at 44 pt',
+      (t) async {
+    await _pump(t, const SleepData(day: '2026-05-20'));
+    expect(find.text('No night to show'), findsOneWidget);
+    final b = find.widgetWithText(TextButton, 'I was asleep');
+    expect(b, findsOneWidget);
+    expect(t.getSize(b).height, greaterThanOrEqualTo(44));
+    await t.tap(b);
+    await t.pumpAndSettle();
+    // The same pickers as "Change the times", seeded on the night before.
+    expect(find.text('WHEN YOU GOT INTO BED'), findsOneWidget);
+  });
+
+  testWidgets('a night marked not sleep offers undo, not "I was asleep"',
+      (t) async {
+    await _pump(t, const SleepData(
+        day: '2026-05-20', night: {'sleep_source': 'rejected'}));
+    expect(find.text('Marked as not sleep'), findsOneWidget);
+    expect(find.text('I was asleep'), findsNothing);
+  });
 }

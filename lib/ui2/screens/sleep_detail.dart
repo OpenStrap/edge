@@ -468,6 +468,7 @@ class _SleepDetailState extends State<SleepDetail> {
     setState(() {
       _day = day;
       _scrub = null;
+      _overrideFailed = null;
       _loading = true;
     });
     _load();
@@ -521,6 +522,27 @@ class _SleepDetailState extends State<SleepDetail> {
             child: Text(
                 l?.sleepDetailUndoRejection ?? 'Undo — go back to automatic'),
           ),
+        ] else if (rejectedDay != null) ...[
+          // A night the detector missed is the other half of "it got it
+          // wrong": the same manual window a mis-staged night gets, stored as
+          // an override so every later re-analysis stages from it.
+          const SizedBox(height: S.x2),
+          TextButton(
+            onPressed: _saving || _loading
+                ? null
+                : () => _addWindow(rejectedDay),
+            child: Text(l?.sleepDetailIWasAsleep ?? 'I was asleep'),
+          ),
+          if (_saving)
+            Text(l?.sleepDetailReanalysing ?? 'Re-analysing the night…',
+                style: F.cap.copyWith(color: P.of(c).ink3)),
+          if (!_saving && _overrideFailed != null)
+            StatusCard(
+              l?.sleepDetailCorrectionFailedTitle ??
+                  'That correction has not been applied',
+              _overrideFailed!,
+              icon: LucideIcons.triangleAlert,
+            ),
         ],
         // A day with no main-sleep window can still have naps — worn all
         // day, off overnight, or a rejected night — so this door to the naps
@@ -847,6 +869,19 @@ class _SleepDetailState extends State<SleepDetail> {
     final (newOnset, newWake) = correctedSleepWindow(onset, wake, bed, up);
     await _runOverride(
       () => context.read<AppState>().setSleepOverride(day, newOnset, newWake),
+    );
+  }
+
+  /// "I was asleep" on a night with no window: the edit pickers, seeded with
+  /// 23:00 the evening before and 07:00 on [day] (the night belongs to the
+  /// day it ends on).
+  Future<void> _addWindow(String day) async {
+    final d = DateTime.tryParse(day);
+    if (d == null) return;
+    await _editWindow(
+      day,
+      DateTime(d.year, d.month, d.day - 1, 23).millisecondsSinceEpoch ~/ 1000,
+      DateTime(d.year, d.month, d.day, 7).millisecondsSinceEpoch ~/ 1000,
     );
   }
 

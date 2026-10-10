@@ -62,8 +62,8 @@ void main() {
       expect(find.text('61 min'), findsOneWidget);
       // Every answer is reachable, including the one that matters most.
       expect(find.text('Confirm'), findsOneWidget);
-      expect(find.text('Edit'), findsOneWidget);
-      expect(find.text('Discard'), findsOneWidget);
+      expect(find.text('Change sport'), findsOneWidget);
+      expect(find.text('Not a workout'), findsOneWidget);
       // and it never prints a strain or a calorie figure it has not scored
       expect(find.textContaining('strain'), findsNothing);
     });
