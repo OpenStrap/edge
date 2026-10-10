@@ -11177,8 +11177,8 @@ class LocalDb {
     final todayWake = await wakeDayFeatures(today);
     final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     // The band's edge: a peripheral streaming this morning says nothing about
-    // how far the band's night has drained. Per row it yields to the
-    // wearable's stored edge when the active wearable supplied the night.
+    // how far the band's night has drained. Only for legacy rows without a
+    // stored `data_edge_sec`.
     final bandEdgeSec = await lastDecodedRecTs() ?? 0;
     String? latestOvernightDay;
     int? latestOvernightComputedAt;
@@ -11206,14 +11206,13 @@ class LocalDb {
       final windowVal = windowMap is Map ? windowMap['value'] : null;
       final offsetMs = windowVal is Map ? windowVal['offset_ms'] : null;
       final wakeSec = offsetMs is num ? offsetMs ~/ 1000 : null;
-      // A night the active wearable supplied is judged on the edge its row
-      // was derived against (the wearable's, `data_edge_sec`): the band's
-      // edge sits wherever the unworn band last synced. A band row's stored
-      // edge never passes the band's own, so the max leaves it unchanged.
-      final rowEdge = (decoded['data_edge_sec'] as num?)?.toInt();
-      final edgeSec = rowEdge != null && rowEdge > bandEdgeSec
-          ? rowEdge
-          : bandEdgeSec;
+      // A night is judged on the edge its row was derived against
+      // (`data_edge_sec`), so wake and edge share one substrate: a later band
+      // sync must not settle a row still holding the partial night, and an
+      // unworn band's edge says nothing about a wearable's night. Legacy rows
+      // without the stamp fall back to the band's edge.
+      final edgeSec =
+          (decoded['data_edge_sec'] as num?)?.toInt() ?? bandEdgeSec;
       if (dayId == today) {
         recoveryState = recoveryStateOf(
           wakeSec: wakeSec,

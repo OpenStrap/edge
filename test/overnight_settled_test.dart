@@ -272,6 +272,36 @@ void main() {
         'final');
   });
 
+  test('a row derived mid-drain stays unsettled after the band edge moves on',
+      () async {
+    // Derived with the edge at the wake; the band has since synced past it,
+    // but the row (and its score) is still the partial night.
+    final wake = nowSec - 3 * 3600;
+    await seed(wakeSec: wake, edgeSec: wake + 2 * 3600);
+    await db.update(
+      'day_result',
+      {
+        'payload_json': jsonEncode({
+          'sleep': {
+            'window': {
+              'value': {'offset_ms': wake * 1000},
+            },
+            'accounting': {
+              'value': {'tst_sec': 6 * 3600},
+            },
+          },
+          'data_edge_sec': wake + 60,
+        }),
+      },
+      where: 'day_id = ?',
+      whereArgs: [todayLabel()],
+    );
+    expect(await overnightDay(), isNot(todayLabel()));
+    final row = await LocalDb.computeFreshness('today');
+    expect(jsonDecode(row!['payload_json'] as String)['recovery_state'],
+        'night_in_progress');
+  });
+
   test('readiness chart leaves out the night getToday holds back', () async {
     final wake = nowSec - 20 * 60;
     await seed(wakeSec: wake, edgeSec: wake + 60);
