@@ -718,20 +718,6 @@
       }
     }
   },
-  "monthGridSemanticsLabel": "{title}: значения есть за {have} из {total} дней. Оттенки соответствуют вашему диапазону.",
-  "@monthGridSemanticsLabel": {
-    "placeholders": {
-      "title": {
-        "type": "String"
-      },
-      "have": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
   "monthGridDaysAgo": "{days} дн. назад",
   "@monthGridDaysAgo": {
     "placeholders": {
@@ -741,26 +727,6 @@
     }
   },
   "monthGridToday": "Сегодня",
-  "monthGridFootnote": "Одна ячейка — один день. Чем темнее, тем выше в вашем диапазоне; контур без заливки — нет значения. Это положение дня, а не его качество.",
-  "monthGridNotShadedYetTitle": "{title}: оттенки пока недоступны",
-  "@monthGridNotShadedYetTitle": {
-    "placeholders": {
-      "title": {
-        "type": "String"
-      }
-    }
-  },
-  "monthGridNotShadedYetBody": "{days, plural, one{{days} день — ещё не диапазон} few{{days} дня — ещё не диапазон} many{{days} дней — ещё не диапазон} other{{days} дня — ещё не диапазон}}. Оттенок показывает положение дня в вашем диапазоне. Он появится при {min}.",
-  "@monthGridNotShadedYetBody": {
-    "placeholders": {
-      "days": {
-        "type": "int"
-      },
-      "min": {
-        "type": "int"
-      }
-    }
-  },
   "whatChangedTitle": "Что изменилось",
   "whatChangedSub": "В СРАВНЕНИИ С ВАШЕЙ ИСТОРИЕЙ",
   "whatChangedNoDataTitle": "За этот день пока нет данных",
@@ -1164,20 +1130,6 @@
     }
   },
   "driverBreakdownToday": "Сегодня",
-  "driverBreakdownUsualRange": "Ваш обычный диапазон {lo}–{hi}{unit}",
-  "@driverBreakdownUsualRange": {
-    "placeholders": {
-      "lo": {
-        "type": "String"
-      },
-      "hi": {
-        "type": "String"
-      },
-      "unit": {
-        "type": "String"
-      }
-    }
-  },
   "driverBreakdownAbsenceTitle": "Нет данных для разбивки",
   "driverBreakdownAbsenceAlgoVersion": "В последнем обновлении изменился расчёт восстановления. Ваши дни пересчитываются.",
   "driverBreakdownAbsenceStale": "Тренды устарели. Синхронизируйте браслет, чтобы обновить их.",
@@ -3030,14 +2982,6 @@
     }
   },
   "healthZeroDaysStored": "Сохранённых дней: 0.",
-  "healthVsDayAverage": "относительно среднего за {days} дн.",
-  "@healthVsDayAverage": {
-    "placeholders": {
-      "days": {
-        "type": "int"
-      }
-    }
-  },
   "healthAsOf": " · на {date}",
   "@healthAsOf": {
     "placeholders": {
@@ -3047,7 +2991,6 @@
     }
   },
   "healthNoBaseline": "обычный диапазон ещё не известен",
-  "healthFirstReadings": "первые измерения",
   "healthTimeAsleep": "Время сна",
   "healthVsNeed": "относительно потребности {need}",
   "@healthVsNeed": {
@@ -7322,6 +7265,15 @@
   "monthGridLegendWorse": "Хуже обычного",
   "monthGridLegendOutside": "Вне обычного диапазона",
   "monthGridRangeFootnote": "Одна ячейка — один день. Полоска сверху — выше обычного диапазона, снизу — ниже. Контур без заливки — нет значения.",
+  "monthGridNoRangeTitle": "{title}: обычного диапазона пока нет",
+  "@monthGridNoRangeTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "monthGridFlatBody": "Ваши дни пока почти не отличаются друг от друга, поэтому обычного диапазона, с которым можно сравнить день, ещё нет.",
   "monthGridRowSemantics": "{title}: значения есть за {have} из {total} дн. Ниже обычного диапазона: {below}, выше: {above}.",
   "@monthGridRowSemantics": {
     "placeholders": {

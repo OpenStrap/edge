@@ -1355,7 +1355,7 @@ class _MetricDetailState extends State<MetricDetail> {
                   // provenance, not an event that happened to the user.
             footnote: marks.isEmpty
                 ? (band == null && stored.length - 1 < kUsualMinDays
-                    ? usualNeedsDaysText(l, stored.length - 1)
+                    ? usualNeedsDaysText(l, stored.length)
                     : null)
                 : (l?.metricDetailAlgoBreakFootnote(marks.length) ??
                     (marks.length == 1

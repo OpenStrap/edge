@@ -462,7 +462,6 @@ Widget _chart(BuildContext c, P p, DriverFacts f) {
     ],
     format: fmt,
   );
-  final unit = unitBeside(f.spec.unit);
 
   return ChartFrame(
     title: f.label,
@@ -477,15 +476,7 @@ Widget _chart(BuildContext c, P p, DriverFacts f) {
             l?.driverBreakdownToday ?? 'Today',
           ],
     series: win,
-    footnote: band == null
-        ? null
-        : (l?.driverBreakdownUsualRange(
-                metricValue(f.spec.unit, band.$1),
-                metricValue(f.spec.unit, band.$2),
-                unit.isEmpty ? '' : ' $unit') ??
-            'Your usual range ${metricValue(f.spec.unit, band.$1)}–'
-                '${metricValue(f.spec.unit, band.$2)}'
-                '${unit.isEmpty ? '' : ' $unit'}'),
+    // The usual range is keyed under the chart by ChartFrame itself.
     empty: axis == null ? const NoData() : null,
     band: band == null ? null : UsualRange(band.$1, band.$2),
     bandColor: p.wash(f.spec.color),

@@ -59,16 +59,26 @@ class _FakeRepo extends LocalRepository {
   /// day id -> the night `getDaySleepV2` serves for it.
   final Map<String, Map<String, dynamic>> nights;
 
+  /// The `baselines` block `getDayHeart` serves for today.
+  final Map<String, dynamic>? baselines;
+
+  /// metric -> the stored points `getChart` serves for it.
+  final Map<String, List<Map<String, num>>> charts;
+
   _FakeRepo(
       {this.insights = const {},
       this.days = const [],
       this.today = const {},
       this.daytimeHrv = const {},
-      this.nights = const {}});
+      this.nights = const {},
+      this.baselines,
+      this.charts = const {}});
 
   @override
-  Future<Map<String, dynamic>> getDayHeart(String date) async =>
-      {'daytime_hrv': ?daytimeHrv[date]};
+  Future<Map<String, dynamic>> getDayHeart(String date) async => {
+        'daytime_hrv': ?daytimeHrv[date],
+        if (date == _day(0)) 'baselines': ?baselines,
+      };
   @override
   Future<Map<String, dynamic>> getDaySleepV2(String date) async =>
       nights[date] ?? const {};
@@ -84,7 +94,7 @@ class _FakeRepo extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getChart(String metric,
           {int? from, int? to, Set<String> signals = const {}}) async =>
-      const {'points': []};
+      {'points': charts[metric] ?? const []};
   // Health reads the wear block for the night's off-wrist stretches and the
   // day's naps. Absent here on purpose: an empty map is "we never looked",
   // which is what a fake with no fixture is.
@@ -252,6 +262,37 @@ void main() {
       expect(d.insightsStale?['kind'], 'algo_version');
       expect(d.need.value, isNull);
     });
+
+    // The HRV and resting HR cards take their band from the pipeline's own
+    // baseline, read off getDayHeart, never from the chart. The chart below
+    // is flat at 50, so a priorTo band would say "Normal"; only the baseline
+    // (centre 60, spread 4: 55.0-65.0) says tonight's 50 is below usual.
+    testWidgets('HRV and resting HR are judged against the pipeline baseline',
+        (t) async {
+      List<Map<String, num>> flat(num v) => [
+            for (var i = 20; i >= 0; i--) {'t': _noon(i), 'v': v},
+          ];
+      final d = await t.runAsync(() => HealthData.load(_FakeRepo(
+            charts: {'hrv': flat(50), 'resting_hr': flat(50)},
+            baselines: const {
+              'hrv': {'baseline': 60, 'spread': 4, 'n_valid': 30},
+              'resting_hr': {'baseline': 60, 'spread': 4, 'n_valid': 30},
+            },
+          )));
+      expect(d!.baselines?['hrv'], isNotNull);
+      t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(body: HealthScreen(data: d, tab: 2)),
+      ));
+      await t.pumpAndSettle();
+      // Both cards read below: bad news for HRV, good news for resting HR.
+      expect(find.text('Below usual'), findsNWidgets(2));
+      expect(find.text('· −10 ms from your usual 60 ms'), findsOneWidget);
+      expect(find.text('· −10 bpm from your usual 60 bpm'), findsOneWidget);
+    });
   });
 
   // ── the caption and the number have to be the same subtraction ──
@@ -329,7 +370,7 @@ void main() {
             'sleep': [(t: _noon(1), v: 400.0), (t: _noon(0), v: 420.0)],
           }));
       expect(
-          find.text('Your usual range appears after 14 days. 1 so far.'),
+          find.text('Your usual range appears after 14 days. 2 so far.'),
           findsOneWidget);
       expect(find.text('Above usual'), findsNothing);
     });

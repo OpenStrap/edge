@@ -125,6 +125,10 @@ void main() {
       expect(bars.colorOf!(30), p.on(C.orange));
       // Enough history: the Steady band is drawn, no abstain note.
       expect(find.byType(BandLayer), findsOneWidget);
+      // Steady is green too, so the green key names it; the band has a
+      // visible key of its own, not only a spoken one.
+      expect(find.text('Good to go / Steady'), findsOneWidget);
+      expect(find.text('Usual range 37–61'), findsOneWidget);
 
       final strip = find.byWidgetPredicate(
           (w) => w is Scrubber && w.label == 'Recovery');
@@ -138,7 +142,7 @@ void main() {
       await _host(t, ReadinessDetail(data: data(const [50, 55, 20])),
           height: 2400, screen: true);
       expect(find.byType(BandLayer), findsNothing);
-      expect(find.text('Your usual range appears after 14 days. 2 so far.'),
+      expect(find.text('Your usual range appears after 14 days. 3 so far.'),
           findsOneWidget);
     });
   });

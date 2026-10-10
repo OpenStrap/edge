@@ -519,7 +519,9 @@ class Bars extends CustomPainter {
   /// Per-bar ink from the bar's own value, for bars coloured by what the value
   /// MEANS (a recovery bar in its band's colour). Null paints every bar
   /// [color]. Applied after aggregation, so a merged column takes the colour
-  /// of the value it draws.
+  /// of the value it draws: its MAX. Where bars would be under 3 pt and days
+  /// merge, a low day sharing a column with a high one takes the high one's
+  /// colour. Not reached at phone width for 90 days.
   final Color Function(double v)? colorOf;
 
   Bars(this.d, this.color,

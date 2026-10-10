@@ -681,7 +681,7 @@ class _TrendCardState extends State<TrendCard> {
     return Surface(
       onTap: w.onTap,
       semanticLabel:
-          '${w.label}, ${w.value} $displayUnit${band == null ? ', ${w.delta}' : ''} ${w.window}${judgement.isEmpty ? '' : ', $judgement'}'
+          '${w.label}, ${w.value} $displayUnit${band == null && w.delta.isNotEmpty ? ', ${w.delta}' : ''} ${w.window}${judgement.isEmpty ? '' : ', $judgement'}'
               .trim(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2549,7 +2549,9 @@ class ChartFrame extends StatelessWidget {
             ),
 
           // ── legend ──
-          if (legend.isNotEmpty)
+          // The band gets a visible key of its own; it is spoken once
+          // already, in the frame's label above.
+          if (legend.isNotEmpty || (band != null && a != null))
             ExcludeSemantics(
               child: Padding(
                 padding: const EdgeInsets.only(top: S.x3),
@@ -2578,6 +2580,35 @@ class ChartFrame extends StatelessWidget {
                           // than a 390 pt card at 2× text and overflowed the item
                           // rather than wrapping inside it.
                           Flexible(child: Text(label, style: tick)),
+                        ],
+                      ),
+                    if (band != null && a != null)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 14,
+                            height: 9,
+                            decoration: BoxDecoration(
+                              color: bandColor ?? p.wash(p.ink3),
+                              borderRadius: R.rSm,
+                              border: Border.all(color: p.line, width: .5),
+                            ),
+                          ),
+                          const SizedBox(width: S.x1),
+                          Flexible(
+                            child: Text(
+                              usualRangeText(
+                                AppLocalizations.of(c),
+                                presentationText(
+                                    AppLocalizations.of(c), a.format(band!.lo)),
+                                presentationText(
+                                    AppLocalizations.of(c), a.format(band!.hi)),
+                                '',
+                              ),
+                              style: tick,
+                            ),
+                          ),
                         ],
                       ),
                   ],

@@ -52,6 +52,7 @@ class GridRow {
     required this.cells,
     required this.have,
     required this.historyDays,
+    required this.ranged,
   });
 
   final MetricSpec spec;
@@ -67,7 +68,13 @@ class GridRow {
   /// Days of stored history the range was built from.
   final int historyDays;
 
-  bool get shaded => cells.any((c) => c != null);
+  /// Whether there is a usual range to place a day against at all.
+  final bool ranged;
+
+  /// Coloured only with enough history AND a range. A long history with no
+  /// value this month still has a range (its cells are outlines); a flat one
+  /// has none.
+  bool get shaded => ranged && historyDays >= kGridMinHistory;
 
   /// Null for a metric with no better side.
   bool? get higherBetter =>
@@ -83,12 +90,14 @@ List<Side?> sideCells(List<double?> window, UsualRange? band) => [
 GridRow gridRow(String key, List<ChartPoint> points) {
   final window = denseDays(points, kGridDays);
   final history = [for (final p in points) p.v];
+  final band = usualRangeFor(key, history, null);
   return GridRow(
     spec: specOf(key),
     key: key,
-    cells: sideCells(window, usualRangeFor(key, history, null)),
+    cells: sideCells(window, band),
     have: window.where((v) => v != null).length,
     historyDays: history.length,
+    ranged: band != null,
   );
 }
 
@@ -310,12 +319,14 @@ class MonthGrid extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: S.x3),
             child: StatusCard(
-              l?.monthGridNotShadedYetTitle(uiText(c, r.spec.title)) ??
-                  '${r.spec.title} is not shaded yet',
-              l?.monthGridNotShadedYetBody(r.historyDays, kGridMinHistory) ??
-                  'A shade is where a day sits in your own range, and '
-                      '${r.historyDays} day${r.historyDays == 1 ? '' : 's'} is not '
-                      'a range. It appears at $kGridMinHistory.',
+              l?.monthGridNoRangeTitle(uiText(c, r.spec.title)) ??
+                  '${r.spec.title}: no usual range yet',
+              // The same words, and the same count, as every trend card.
+              r.historyDays < kGridMinHistory
+                  ? usualNeedsDaysText(l, r.historyDays)
+                  : (l?.monthGridFlatBody ??
+                      'Your days have all been about the same, so there is '
+                          'no usual range to place a day against yet.'),
             ),
           ),
       ],

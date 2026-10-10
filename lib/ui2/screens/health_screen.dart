@@ -1036,7 +1036,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       final band = usualRangeFor(key, s, d.baselines);
       final prior = s.length - 1;
       final abstain = prior < kUsualMinDays
-          ? usualNeedsDaysText(l, prior)
+          ? usualNeedsDaysText(l, s.length)
           : (l?.healthNoBaseline ?? 'no usual range yet');
       final win = denseDays(pts, 30);
       final metricKey = key == 'sleep' ? 'sleep' : key;

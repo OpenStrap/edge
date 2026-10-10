@@ -369,11 +369,17 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
         ],
         series: win,
         legend: [
-          (l?.homeReadinessGoodToGo ?? 'Good to go', p.on(C.green)),
+          // Steady is green on the ring too, so the green key names both:
+          // a 45 inside the band is not "Good to go".
+          (
+            '${l?.homeReadinessGoodToGo ?? 'Good to go'} / '
+                '${l?.homeReadinessSteady ?? 'Steady'}',
+            p.on(C.green)
+          ),
           (l?.homeReadinessTakeItEasy ?? 'Take it easy', p.on(C.orange)),
           (l?.homeReadinessRestToday ?? 'Rest today', p.on(C.red)),
         ],
-        footnote: band == null ? usualNeedsDaysText(l, scored.length - 1) : null,
+        footnote: band == null ? usualNeedsDaysText(l, scored.length) : null,
         child: win.length < 2
             ? CustomPaint(
                 size: Size.infinite,

@@ -1691,21 +1691,6 @@
       }
     }
   },
-  "monthGridSemanticsLabel": "{title}: {have} of {total} days have a value. Shaded against your own range.",
-  "@monthGridSemanticsLabel": {
-    "description": "Month grid: accessibility label read for one metric's heat-map strip.",
-    "placeholders": {
-      "title": {
-        "type": "String"
-      },
-      "have": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
   "monthGridDaysAgo": "{days} days ago",
   "@monthGridDaysAgo": {
     "description": "Month grid: left-edge axis label, e.g. '30 days ago'.",
@@ -1718,31 +1703,6 @@
   "monthGridToday": "Today",
   "@monthGridToday": {
     "description": "Month grid: right-edge axis label for the most recent day."
-  },
-  "monthGridFootnote": "One cell per day. Darker means higher within your own range; an outlined cell has no value. It shows where a day sat, not whether it was good.",
-  "@monthGridFootnote": {
-    "description": "Month grid: explanatory footnote under the strips about what shading means."
-  },
-  "monthGridNotShadedYetTitle": "{title} is not shaded yet",
-  "@monthGridNotShadedYetTitle": {
-    "description": "Month grid: status card title when a metric has too little history to shade, e.g. 'Sleep is not shaded yet'.",
-    "placeholders": {
-      "title": {
-        "type": "String"
-      }
-    }
-  },
-  "monthGridNotShadedYetBody": "{days, plural, one{{days} day} other{{days} days}} is not a range — a shade is where a day sits in your own range. It appears at {min}.",
-  "@monthGridNotShadedYetBody": {
-    "description": "Month grid: status card body explaining how many days of history exist and how many are needed before shading starts.",
-    "placeholders": {
-      "days": {
-        "type": "int"
-      },
-      "min": {
-        "type": "int"
-      }
-    }
   },
   "whatChangedTitle": "What changed",
   "@whatChangedTitle": {
@@ -2584,21 +2544,6 @@
   "driverBreakdownToday": "Today",
   "@driverBreakdownToday": {
     "description": "X-axis end label on a driver's history chart."
-  },
-  "driverBreakdownUsualRange": "Your usual range {lo}–{hi}{unit}",
-  "@driverBreakdownUsualRange": {
-    "description": "Chart footnote stating the user's usual range for this driver.",
-    "placeholders": {
-      "lo": {
-        "type": "String"
-      },
-      "hi": {
-        "type": "String"
-      },
-      "unit": {
-        "type": "String"
-      }
-    }
   },
   "driverBreakdownAbsenceTitle": "No breakdown to show",
   "@driverBreakdownAbsenceTitle": {
@@ -6606,15 +6551,6 @@
   "@healthZeroDaysStored": {
     "description": "Trend card empty-state body"
   },
-  "healthVsDayAverage": "vs your {days}-day average",
-  "@healthVsDayAverage": {
-    "description": "Trend card comparison window label",
-    "placeholders": {
-      "days": {
-        "type": "int"
-      }
-    }
-  },
   "healthAsOf": " · as of {date}",
   "@healthAsOf": {
     "description": "Trend card suffix noting the hero number's date when it is not today",
@@ -6627,10 +6563,6 @@
   "healthNoBaseline": "no usual range yet",
   "@healthNoBaseline": {
     "description": "Trend card delta label when there is no baseline to compare to"
-  },
-  "healthFirstReadings": "first readings",
-  "@healthFirstReadings": {
-    "description": "Trend card window label on the very first readings"
   },
   "healthTimeAsleep": "Time asleep",
   "@healthTimeAsleep": {
@@ -15241,6 +15173,19 @@
   "monthGridRangeFootnote": "One cell per day. A bar at the top means above your usual range, at the bottom below it. An outlined cell has no value.",
   "@monthGridRangeFootnote": {
     "description": "Month grid footnote explaining the cell marks."
+  },
+  "monthGridNoRangeTitle": "{title}: no usual range yet",
+  "@monthGridNoRangeTitle": {
+    "description": "Month grid: status card title when a metric has no usual range to colour its days against, e.g. 'Sleep: no usual range yet'.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "monthGridFlatBody": "Your days have all been about the same, so there is no usual range to place a day against yet.",
+  "@monthGridFlatBody": {
+    "description": "Month grid: status card body when there is enough history but it is too flat to give a usual range."
   },
   "monthGridRowSemantics": "{title}: {have} of {total} days have a value. {below} below and {above} above your usual range.",
   "@monthGridRowSemantics": {
