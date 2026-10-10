@@ -374,7 +374,12 @@ void main() {
       // A pin taken on this night's wake is honoured.
       await LocalDb.setFrozenHeadline(todayLabel(), 28, wakeSec: wake);
       final h2 = todayHeadlineOf(await today());
-      expect(h2['recovery'], 28);
+      // A wake before kMinPinWakeHour local is never pinnable, so when this
+      // test runs in the small hours the pin is ignored and the live value
+      // shows. Assert whichever the clock makes correct.
+      final pinnable = DateTime.fromMillisecondsSinceEpoch(wake * 1000).hour >=
+          kMinPinWakeHour;
+      expect(h2['recovery'], pinnable ? 28 : 27.6);
       // 27.6 was shown as 28 already: same number, no "Updated" note.
       expect(h2['recovery_update'], isNull);
     });
