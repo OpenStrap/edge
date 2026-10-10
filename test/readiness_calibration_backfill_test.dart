@@ -159,4 +159,41 @@ void main() {
         .firstWhere((m) => m['date'] == day(45))['value'];
     expect(trend, row['readiness']);
   });
+
+  test('a substrate day whose derive always fails ends the backfill within '
+      'the pass limit', () async {
+    await LocalDb.deleteComputeFreshness(kReadinessCalibrationKey);
+    final b = bundle(-1, 0.5, 0);
+    await LocalDb.putDayResult(
+      dayId: day(50),
+      algoVersion: 111,
+      payloadJson: jsonEncode(b),
+      windowJson: '{}',
+      finalized: true,
+      readiness: 30,
+    );
+    Future<List<double> Function(String, String?)> none() async =>
+        (_, _) => const <double>[];
+    // Its raw never goes away and its derive never lands.
+    final results = [
+      for (var i = 0; i < kReadinessBackfillMaxPasses + 1; i++)
+        await backfillReadinessCalibration(
+            rawDays: {day(50)}, zHistoryLoader: none),
+    ];
+    // Waiting passes touch only the pending ids: no history-wide seed.
+    for (final r in results.take(kReadinessBackfillMaxPasses - 1)) {
+      expect(r.rescored, 0);
+    }
+    expect(results[1].seeded, 0);
+    final last = results[kReadinessBackfillMaxPasses - 1];
+    expect(last.rescored, 1);
+    expect(last.forced, 1);
+    expect((await LocalDb.dayResult(day(50)))!['algo_version'], kAlgoVersion);
+    // Done.
+    expect(results.last.rescored + results.last.seeded, 0);
+    expect(
+        (await LocalDb.computeFreshness(kReadinessCalibrationKey))![
+            'payload_json'],
+        contains('done'));
+  });
 }

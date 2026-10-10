@@ -95,6 +95,13 @@ double rescoreStoredReadiness(
   return cal.score;
 }
 
+/// Passes a substrate day may wait for its own derive before the re-score
+/// takes it from its stored inputs anyway. A day whose derive keeps failing
+/// would otherwise hold the backfill open forever.
+/// ponytail: one global limit; per-day counts if a slow, healthy derive
+/// ever needs more than this.
+const int kReadinessBackfillMaxPasses = 3;
+
 /// `compute_freshness` key for the bounded pre-derive seed.
 const String kReadinessZSeedKey = 'readiness_z_seed_v112';
 
@@ -165,7 +172,7 @@ Future<int> seedRecentReadinessZ() async {
 /// written, a lookup of the trailing `readiness_z` window strictly before a
 /// day for that day's device family — the same window a derive would use.
 /// One-shot.
-Future<({int seeded, int rescored})> backfillReadinessCalibration({
+Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
   /// Days with substrate: decoded band rows AND the active wearable's rows.
   required Set<String> rawDays,
   required Future<List<double> Function(String day, String? deviceFamily)>
@@ -173,12 +180,21 @@ Future<({int seeded, int rescored})> backfillReadinessCalibration({
       zHistoryLoader,
   bool force = false,
 }) async {
-  if (!force &&
-      await LocalDb.computeFreshness(kReadinessCalibrationKey) != null) {
-    return (seeded: 0, rescored: 0);
-  }
-  final days = await _storedDays();
-  final seeded = await _seedZ(days);
+  // Absent = first run. {done} = finished. {passes, pending} = an earlier
+  // pass left [pending] substrate days to their derive; only those are
+  // looked at again, never the whole history.
+  final state = force
+      ? null
+      : _decode((await LocalDb.computeFreshness(
+          kReadinessCalibrationKey))?['payload_json']);
+  if (state?['done'] == true) return (seeded: 0, rescored: 0, forced: 0);
+  final waiting = (state?['pending'] as List?)?.whereType<String>().toList();
+  final passes = (state?['passes'] as num?)?.toInt() ?? 0;
+  // Last allowed pass: substrate days still below v112 are re-scored from
+  // their stored inputs like pruned ones (their derive has failed this long).
+  final last = passes + 1 >= kReadinessBackfillMaxPasses;
+  final days = waiting ?? await _storedDays();
+  final seeded = waiting == null ? await _seedZ(days) : 0;
   final lookup = await zHistoryLoader();
   final versions = await LocalDb.dayResultVersions();
   var rescored = 0;
@@ -186,11 +202,13 @@ Future<({int seeded, int rescored})> backfillReadinessCalibration({
   // light pass need not reach them all, and their raw can be pruned before it
   // does — so while any remain, the backfill is NOT marked done and the next
   // pass looks again (by then each is either re-derived or substrate-less).
-  var pendingRaw = 0;
+  final pending = <String>[];
+  var forced = 0;
   for (final day in days) {
     if ((versions[day] ?? 0) >= kAlgoVersion) continue;
-    if (rawDays.contains(day)) {
-      pendingRaw++;
+    final raw = rawDays.contains(day);
+    if (raw && !last) {
+      pending.add(day);
       continue;
     }
     final row = await LocalDb.dayResult(day);
@@ -222,9 +240,15 @@ Future<({int seeded, int rescored})> backfillReadinessCalibration({
       readiness: score,
     );
     rescored++;
+    if (raw) forced++;
   }
-  if (pendingRaw == 0) await _markDone();
-  return (seeded: seeded, rescored: rescored);
+  if (pending.isEmpty) {
+    await _markDone();
+  } else {
+    await LocalDb.putComputeFreshness(kReadinessCalibrationKey,
+        jsonEncode({'passes': passes + 1, 'pending': pending}));
+  }
+  return (seeded: seeded, rescored: rescored, forced: forced);
 }
 
 Future<void> _markDone() => LocalDb.putComputeFreshness(

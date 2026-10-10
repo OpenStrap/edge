@@ -3299,7 +3299,9 @@ class DerivationEngine {
         );
         if (r.seeded > 0 || r.rescored > 0) {
           _log('[derive] readiness calibration: ${r.seeded} z seeded, '
-              '${r.rescored} day(s) re-scored');
+              '${r.rescored} day(s) re-scored'
+              '${r.forced > 0 ? ' (${r.forced} with substrate whose derive '
+                  'never landed, from stored inputs)' : ''}');
           await _refreshBaselines();
         }
         if (r.rescored > 0) await _runCrossDay(profile);
