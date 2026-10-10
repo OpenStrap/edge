@@ -13,17 +13,21 @@
 // file:
 //   1. writes `readiness_z` for every stored day whose drivers allow it (the
 //      history the calibration needs, going back as far as bundles do);
-//   2. re-scores days the derive can no longer reach (raw pruned) from that
-//      z and the calibration over the days before it. Days still inside raw
-//      retention are LEFT for the real re-derive the version bump triggers.
+//   2. re-scores days the derive can no longer reach (no raw substrate left)
+//      from that z and the calibration over the days before it. Days that
+//      still have substrate are LEFT for the real re-derive the version bump
+//      triggers.
+// Split in two so the first v112 pass derives today promptly: a bounded seed
+// of the recent window runs before the derive ([seedRecentReadinessZ]), the
+// history-wide work after it ([backfillReadinessCalibration]).
 // A day without a published headline (absent composite, or one the z-cap
 // withheld) or without parseable drivers is left exactly as it was.
 
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
-import '../data/day_label.dart';
 import '../data/db.dart';
 import 'derivation_engine.dart' show kAlgoVersion, rawRetentionDays;
 
@@ -91,10 +95,78 @@ double rescoreStoredReadiness(
   return cal.score;
 }
 
-/// Run the backfill once. [zHistoryLoader] returns, after the z rows are
+/// `compute_freshness` key for the bounded pre-derive seed.
+const String kReadinessZSeedKey = 'readiness_z_seed_v112';
+
+/// Stored days the pre-derive seed covers: the 28-night calibration window
+/// behind the oldest day a pass can still re-derive (raw retention), plus a
+/// little slack. Older days only matter to the post-derive re-score.
+const int kReadinessZSeedDays = 28 + rawRetentionDays + 3;
+
+/// Measured, non-imported, non-skipped, non-partial stored days, oldest first.
+Future<List<String>> _storedDays() async {
+  final imported = await LocalDb.importedDates();
+  return <String>[
+    for (final r in await LocalDb.recentDayResultsMeta(-1))
+      if (r['day_id'] case final String d)
+        if (!imported.contains(d) &&
+            (r['skipped'] as num?)?.toInt() != 1 &&
+            (r['partial'] as num?)?.toInt() != 1)
+          d,
+  ]..sort();
+}
+
+Future<Set<String>> _haveZ() async => {
+      for (final r in await LocalDb.metricSeries('readiness_z'))
+        if (r['value'] is num) r['date'] as String,
+    };
+
+/// Write `readiness_z` for [days] that lack it. The payload decode runs off the
+/// calling isolate ([Isolate.run]): it is the expensive part.
+Future<int> _seedZ(Iterable<String> days) async {
+  final have = await _haveZ();
+  final todo = <(String, String)>[
+    for (final day in days)
+      if (!have.contains(day))
+        if ((await LocalDb.dayResult(day))?['payload_json'] case final String j)
+          (day, j),
+  ];
+  if (todo.isEmpty) return 0;
+  final zs = await Isolate.run(() => [
+        for (final (day, json) in todo)
+          if (_decode(json) case final p?)
+            if (storedReadinessZ(p) case final s?) (day, s.z),
+      ]);
+  for (final (day, z) in zs) {
+    await LocalDb.putMetricSeriesValue(day, 'readiness_z', z);
+  }
+  return zs.length;
+}
+
+/// BEFORE the derive: the readiness_z history today's (and every re-derived
+/// day's) calibration reads — only the newest [kReadinessZSeedDays] stored
+/// days, so the first v112 pass is not held up by the whole history. One-shot.
+Future<int> seedRecentReadinessZ() async {
+  if (await LocalDb.computeFreshness(kReadinessZSeedKey) != null) return 0;
+  final days = await _storedDays();
+  final n = await _seedZ(
+      days.skip(days.length > kReadinessZSeedDays
+          ? days.length - kReadinessZSeedDays
+          : 0));
+  await LocalDb.putComputeFreshness(kReadinessZSeedKey, '{"done":true}');
+  return n;
+}
+
+/// AFTER the derive: seed `readiness_z` for the rest of history, then re-score
+/// every stored day below [kAlgoVersion] that has no raw substrate left
+/// ([rawDays] = the days that still have decoded rows; a day with substrate
+/// is the derive's to re-derive, and one whose derive failed this pass is
+/// retried by the next one). [zHistoryLoader] returns, after the z rows are
 /// written, a lookup of the trailing `readiness_z` window strictly before a
 /// day for that day's device family — the same window a derive would use.
+/// One-shot.
 Future<({int seeded, int rescored})> backfillReadinessCalibration({
+  required Set<String> rawDays,
   required Future<List<double> Function(String day, String? deviceFamily)>
       Function()
       zHistoryLoader,
@@ -104,57 +176,20 @@ Future<({int seeded, int rescored})> backfillReadinessCalibration({
       await LocalDb.computeFreshness(kReadinessCalibrationKey) != null) {
     return (seeded: 0, rescored: 0);
   }
-  final imported = await LocalDb.importedDates();
-  final have = {
-    for (final r in await LocalDb.metricSeries('readiness_z'))
-      if (r['value'] is num) r['date'] as String,
-  };
-  final days = <String>[
-    for (final r in await LocalDb.recentDayResultsMeta(-1))
-      if (r['day_id'] case final String d)
-        if (!imported.contains(d) &&
-            (r['skipped'] as num?)?.toInt() != 1 &&
-            (r['partial'] as num?)?.toInt() != 1)
-          d,
-  ]..sort();
-  if (days.isEmpty) {
-    await _markDone();
-    return (seeded: 0, rescored: 0);
-  }
-
-  // 1. The z history.
-  final rows = <String, Map<String, dynamic>>{};
-  final payloads = <String, Map<String, dynamic>>{};
-  final zs = <String, ({double z, Map<String, double> contributions})>{};
-  var seeded = 0;
-  for (final day in days) {
-    final row = await LocalDb.dayResult(day);
-    final payload = _decode(row?['payload_json']);
-    if (row == null || payload == null) continue;
-    final stored = storedReadinessZ(payload);
-    if (stored == null) continue;
-    rows[day] = row;
-    payloads[day] = payload;
-    zs[day] = stored;
-    if (!have.contains(day)) {
-      await LocalDb.putMetricSeriesValue(day, 'readiness_z', stored.z);
-      seeded++;
-    }
-  }
-
-  // 2. Re-score what the derive cannot reach. Cutoff = data edge minus raw
-  // retention, measured like the pruner (never the wall clock).
-  final cutoff = dayLabelOf(DateTime.parse(days.last)
-      .add(const Duration(days: -rawRetentionDays)));
+  final days = await _storedDays();
+  final seeded = await _seedZ(days);
   final lookup = await zHistoryLoader();
   var rescored = 0;
   for (final day in days) {
-    if (day.compareTo(cutoff) >= 0) continue;
-    final row = rows[day], payload = payloads[day], stored = zs[day];
-    if (row == null || payload == null || stored == null) continue;
-    if (((row['algo_version'] as num?)?.toInt() ?? 0) >= kAlgoVersion) {
+    if (rawDays.contains(day)) continue;
+    final row = await LocalDb.dayResult(day);
+    if (row == null ||
+        ((row['algo_version'] as num?)?.toInt() ?? 0) >= kAlgoVersion) {
       continue;
     }
+    final payload = _decode(row['payload_json']);
+    final stored = payload == null ? null : storedReadinessZ(payload);
+    if (payload == null || stored == null) continue;
     final score = rescoreStoredReadiness(payload, stored,
         lookup(day, payload['device_family'] as String?));
     // `series: {}` + no `source`: the stored payload is rewritten as-is apart

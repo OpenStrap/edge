@@ -509,11 +509,10 @@ dependencies:
       # feat/multidevice-analytics head: main @ b7d5819 plus the rings'
       # provisional skin-temp settle band (no WHOOP family touched). Re-point
       # at the merge commit once it lands on analytics main.
-      # feat/recovery-calibration @ 608c46f (on analytics main e59d63c, which
-      # merged the above): readiness autonomic merge + spread calibration +
-      # capped re-centring + robust lnRMSSD centre, for kAlgoVersion 112. Re-point at the merge
-      # commit once it lands on analytics main.
-      ref: 608c46fc639ae5a12610c65469c4f35bd25deaf3
+      # analytics main @ 77fe373, the #95 merge (tree-identical to its head
+      # 608c46f): readiness autonomic merge + spread calibration + capped
+      # re-centring + robust lnRMSSD centre, for kAlgoVersion 112.
+      ref: 77fe373eb819fda235f80610e898a4bc20a7a249
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

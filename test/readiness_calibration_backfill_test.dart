@@ -59,7 +59,7 @@ void main() {
     expect(storedReadinessZ(b), isNull);
   });
 
-  test('seeds readiness_z everywhere, re-scores only beyond raw retention',
+  test('bounded seed before the derive; re-score picks days by substrate',
       () async {
     // 40 days, a wide (SD ~1.3) alternating spread.
     for (var i = 0; i < 40; i++) {
@@ -75,8 +75,23 @@ void main() {
         series: {'readiness': (b['scalars'] as Map)['readiness'] as double},
       );
     }
+    // Before the derive: only the newest window is seeded.
+    expect(await seedRecentReadinessZ(), kReadinessZSeedDays);
+    final seededDates = {
+      for (final r in await LocalDb.metricSeries('readiness_z'))
+        r['date'] as String
+    };
+    expect(seededDates.contains(day(39)), isTrue);
+    expect(seededDates.contains(day(40 - kReadinessZSeedDays - 1)), isFalse);
+    expect(await seedRecentReadinessZ(), 0); // one-shot
+
+    // Substrate survives only for day 20-21 (a user whose newest stored days
+    // are already pruned): every OTHER day below v112 is re-scored, the
+    // newest included; the two substrate days are left for the derive.
     final zBy = <String, double>{};
-    final r = await backfillReadinessCalibration(zHistoryLoader: () async {
+    final r = await backfillReadinessCalibration(
+        rawDays: {day(20), day(21)},
+        zHistoryLoader: () async {
       for (final row in await LocalDb.metricSeries('readiness_z')) {
         zBy[row['date'] as String] = (row['value'] as num).toDouble();
       }
@@ -86,12 +101,11 @@ void main() {
               if (e.key.compareTo(d) < 0) e.value
           ].reversed.take(28).toList().reversed.toList();
     });
-    expect(r.seeded, 40);
-    // Data edge day(39); retention 5 → day(34) and later are left alone.
-    expect(r.rescored, 34);
+    expect(r.seeded, 40 - kReadinessZSeedDays);
+    expect(r.rescored, 38);
 
-    final old = await LocalDb.dayResult(day(39));
-    expect(old!['algo_version'], 111);
+    expect((await LocalDb.dayResult(day(20)))!['algo_version'], 111);
+    expect((await LocalDb.dayResult(day(39)))!['algo_version'], kAlgoVersion);
 
     final row = await LocalDb.dayResult(day(30));
     expect(row!['algo_version'], kAlgoVersion);
@@ -110,7 +124,9 @@ void main() {
 
     // One-shot.
     final again =
-        await backfillReadinessCalibration(zHistoryLoader: () async => (_, _) => const <double>[]);
+        await backfillReadinessCalibration(
+            rawDays: const {},
+            zHistoryLoader: () async => (_, _) => const <double>[]);
     expect(again.seeded + again.rescored, 0);
   });
 }
