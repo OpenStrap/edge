@@ -2,7 +2,7 @@
  "day_result": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 111,
+   "algo_version": 112,
    "payload_json": {
     "date": "2026-07-13",
     "day_confidence": 0.6,
@@ -171,9 +171,10 @@
       "value": {
        "ln_rmssd_today": 3.455716,
        "rolling7_mean": 3.51852,
+       "rolling7_median": 3.526361,
        "cv_pct": 1.688921,
-       "z": -1.056862,
-       "swc": 0.029713,
+       "z": -1.056045,
+       "swc": 0.033448,
        "band": "suppressed",
        "saturation_flag": false
       },
@@ -186,8 +187,12 @@
      },
      "readiness_composite": {
       "value": {
-       "score": 27.570884,
-       "composite_z": -0.965848
+       "score": 27.033823,
+       "composite_z": -0.992907,
+       "calibration": {
+        "status": "calibrating",
+        "nights": 0
+       }
       },
       "confidence": 0.75,
       "tier": "ESTIMATE",
@@ -199,21 +204,21 @@
       "drivers": [
        {
         "label": "HRV",
-        "contribution": -0.603454,
+        "contribution": -0.739232,
         "detail": "oriented robust-z (median+MAD)=-1.056045"
        },
        {
         "label": "temp",
-        "contribution": -0.529957,
+        "contribution": -0.37097,
         "detail": "oriented robust-z (median+MAD)=-3.709699"
        },
        {
         "label": "RR",
-        "contribution": 0.167563,
+        "contribution": 0.117294,
         "detail": "oriented robust-z (median+MAD)=0.586472"
        }
       ],
-      "note": "GLASS-BOX readiness: disclosed weights HRV>RHR>RR>temp, renormalized over present inputs. Drivers are definitional within the formula (correction, not inferred cause)."
+      "note": "GLASS-BOX readiness: disclosed weights autonomic (HRV+RHR, mean of their z) 0.70 > RR 0.20 > temp 0.10, renormalized over present inputs. Drivers are definitional within the formula (correction, not inferred cause). calibrating:have=0,need=14."
      },
      "strain": {
       "value": "—",
@@ -23004,7 +23009,8 @@
      "rhr_nocturnal": 48.08833333333333,
      "rmssd": 31.68095766979699,
      "rmssd_whole": 32.12768524038331,
-     "readiness": 27.570883885947165,
+     "readiness": 27.03382323567632,
+     "readiness_z": -0.992907207334149,
      "strain": null,
      "max_hr_used": 184.2,
      "ln_rmssd": 3.4557157959652387,
@@ -24888,14 +24894,14 @@
    "finalized": 0,
    "rhr": 48.08833333333333,
    "rmssd": 31.68095766979699,
-   "readiness": 27.570883885947165,
+   "readiness": 27.03382323567632,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "b52d03aa8473fe5444f84005f966c102dfbbee31d1b312aced90f6b47b84b72e"
+   "payload_sha256": "60dc25a126260e2d36683ca57322e96d5f0cc389ac50849d29c8ae2c31e18ef3"
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 111,
+   "algo_version": 112,
    "payload_json": {
     "date": "2026-07-14",
     "day_confidence": 0.6,
@@ -25064,10 +25070,11 @@
       "value": {
        "ln_rmssd_today": 3.455716,
        "rolling7_mean": 3.508428,
+       "rolling7_median": 3.48124,
        "cv_pct": 1.816067,
-       "z": -0.827303,
-       "swc": 0.031858,
-       "band": "suppressed",
+       "z": -0.381554,
+       "swc": 0.033448,
+       "band": "normal",
        "saturation_flag": false
       },
       "confidence": 0.9,
@@ -25079,8 +25086,12 @@
      },
      "readiness_composite": {
       "value": {
-       "score": 27.570564,
-       "composite_z": -0.965864
+       "score": 27.033602,
+       "composite_z": -0.992918,
+       "calibration": {
+        "status": "calibrating",
+        "nights": 1
+       }
       },
       "confidence": 0.75,
       "tier": "ESTIMATE",
@@ -25092,21 +25103,21 @@
       "drivers": [
        {
         "label": "HRV",
-        "contribution": -0.603454,
+        "contribution": -0.739232,
         "detail": "oriented robust-z (median+MAD)=-1.056045"
        },
        {
         "label": "temp",
-        "contribution": -0.529973,
+        "contribution": -0.370981,
         "detail": "oriented robust-z (median+MAD)=-3.709811"
        },
        {
         "label": "RR",
-        "contribution": 0.167563,
+        "contribution": 0.117294,
         "detail": "oriented robust-z (median+MAD)=0.586472"
        }
       ],
-      "note": "GLASS-BOX readiness: disclosed weights HRV>RHR>RR>temp, renormalized over present inputs. Drivers are definitional within the formula (correction, not inferred cause)."
+      "note": "GLASS-BOX readiness: disclosed weights autonomic (HRV+RHR, mean of their z) 0.70 > RR 0.20 > temp 0.10, renormalized over present inputs. Drivers are definitional within the formula (correction, not inferred cause). calibrating:have=1,need=14."
      },
      "strain": {
       "value": "—",
@@ -47717,7 +47728,8 @@
      "rhr_nocturnal": 48.08833333333333,
      "rmssd": 31.68095766979699,
      "rmssd_whole": 32.12768524038331,
-     "readiness": 27.57056364399391,
+     "readiness": 27.033601802905416,
+     "readiness_z": -0.9929184330476359,
      "strain": null,
      "max_hr_used": 184.2,
      "ln_rmssd": 3.4557157959652387,
@@ -49574,14 +49586,14 @@
    "finalized": 0,
    "rhr": 48.08833333333333,
    "rmssd": 31.68095766979699,
-   "readiness": 27.57056364399391,
+   "readiness": 27.033601802905416,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "656372a5190c363ad43f171e2f064b11c1a6b8a20a33d9c1604f82396a0003e4"
+   "payload_sha256": "3b87013e0141707e5ce9c0a7ee315b72d4567d24d8e4f59a21704dec370b60ff"
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 111,
+   "algo_version": 112,
    "payload_json": {
     "date": "2026-07-15",
     "day_confidence": 0.6,
@@ -49750,10 +49762,11 @@
       "value": {
        "ln_rmssd_today": 3.455716,
        "rolling7_mean": 3.504781,
+       "rolling7_median": 3.48124,
        "cv_pct": 1.889192,
-       "z": -0.741038,
-       "swc": 0.033106,
-       "band": "suppressed",
+       "z": -0.381554,
+       "swc": 0.033448,
+       "band": "normal",
        "saturation_flag": false
       },
       "confidence": 0.9,
@@ -49765,8 +49778,12 @@
      },
      "readiness_composite": {
       "value": {
-       "score": 61.111179,
-       "composite_z": 0.451988
+       "score": 66.115554,
+       "composite_z": 0.668448,
+       "calibration": {
+        "status": "calibrating",
+        "nights": 2
+       }
       },
       "confidence": 0.9,
       "tier": "ESTIMATE",
@@ -49779,12 +49796,12 @@
       "drivers": [
        {
         "label": "RHR",
-        "contribution": 0.981946,
+        "contribution": 1.145604,
         "detail": "oriented robust-z (median+MAD)=3.273154"
        },
        {
         "label": "HRV",
-        "contribution": -0.422418,
+        "contribution": -0.369616,
         "detail": "oriented robust-z (median+MAD)=-1.056045"
        },
        {
@@ -49798,7 +49815,7 @@
         "detail": "oriented robust-z (median+MAD)=0.586472"
        }
       ],
-      "note": "GLASS-BOX readiness: disclosed weights HRV>RHR>RR>temp, renormalized over present inputs. Drivers are definitional within the formula (correction, not inferred cause)."
+      "note": "GLASS-BOX readiness: disclosed weights autonomic (HRV+RHR, mean of their z) 0.70 > RR 0.20 > temp 0.10, renormalized over present inputs. Drivers are definitional within the formula (correction, not inferred cause). calibrating:have=2,need=14."
      },
      "strain": {
       "value": "—",
@@ -71025,7 +71042,8 @@
      "rhr_nocturnal": 48.08833333333333,
      "rmssd": 31.68095766979699,
      "rmssd_whole": 32.12768524038331,
-     "readiness": 61.11117885187857,
+     "readiness": 66.1155535435143,
+     "readiness_z": 0.6684479198992354,
      "strain": null,
      "max_hr_used": 184.2,
      "ln_rmssd": 3.4557157959652387,
@@ -72693,10 +72711,10 @@
    "finalized": 0,
    "rhr": 48.08833333333333,
    "rmssd": 31.68095766979699,
-   "readiness": 61.11117885187857,
+   "readiness": 66.1155535435143,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "5775e0058beea689be103bd295ab9a7211ae2d6365edbff7cd471774ab2461c7"
+   "payload_sha256": "21ae11a5dfab83cf051a74c64031dd68776921f8a772b21e2d39d9afab4d2675"
   }
  ],
  "metric_series": [
@@ -72813,7 +72831,12 @@
   {
    "date": "2026-07-13",
    "key": "readiness",
-   "value": 27.570883885947165
+   "value": 27.03382323567632
+  },
+  {
+   "date": "2026-07-13",
+   "key": "readiness_z",
+   "value": -0.992907207334149
   },
   {
    "date": "2026-07-13",
@@ -73018,7 +73041,12 @@
   {
    "date": "2026-07-14",
    "key": "readiness",
-   "value": 27.57056364399391
+   "value": 27.033601802905416
+  },
+  {
+   "date": "2026-07-14",
+   "key": "readiness_z",
+   "value": -0.9929184330476359
   },
   {
    "date": "2026-07-14",
@@ -73223,7 +73251,12 @@
   {
    "date": "2026-07-15",
    "key": "readiness",
-   "value": 61.11117885187857
+   "value": 66.1155535435143
+  },
+  {
+   "date": "2026-07-15",
+   "key": "readiness_z",
+   "value": 0.6684479198992354
   },
   {
    "date": "2026-07-15",
@@ -73319,7 +73352,7 @@
  "metric_series_version": [
   {
    "date": "2026-07-13",
-   "algo_version": 111,
+   "algo_version": 112,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -73327,7 +73360,7 @@
   },
   {
    "date": "2026-07-14",
-   "algo_version": 111,
+   "algo_version": 112,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -73335,7 +73368,7 @@
   },
   {
    "date": "2026-07-15",
-   "algo_version": 111,
+   "algo_version": 112,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -73345,7 +73378,7 @@
  "wake_day_features": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 111,
+   "algo_version": 112,
    "payload_json": {
     "day_id": "2026-07-13",
     "active_min": 90,
@@ -74553,7 +74586,7 @@
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 111,
+   "algo_version": 112,
    "payload_json": {
     "day_id": "2026-07-14",
     "active_min": 240,
@@ -75761,7 +75794,7 @@
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 111,
+   "algo_version": 112,
    "payload_json": {
     "day_id": "2026-07-15",
     "active_min": 40,
@@ -76953,7 +76986,7 @@
    "date": "2026-07-13",
    "rhr": 48.08833333333333,
    "rmssd": 31.68095766979699,
-   "readiness": 27.570883885947165,
+   "readiness": 27.03382323567632,
    "resp_rate": 13.51304972588547,
    "skin_temp_z": 3.8090587513754603,
    "trimp": 227.5841832798056,
@@ -77163,7 +77196,7 @@
    "date": "2026-07-14",
    "rhr": 48.08833333333333,
    "rmssd": 31.68095766979699,
-   "readiness": 27.57056364399391,
+   "readiness": 27.033601802905416,
    "resp_rate": 13.51304972588547,
    "skin_temp_z": 2.5820748428079483,
    "trimp": 221.15132594116318,
@@ -77373,7 +77406,7 @@
    "date": "2026-07-15",
    "rhr": 48.08833333333333,
    "rmssd": 31.68095766979699,
-   "readiness": 61.11117885187857,
+   "readiness": 66.1155535435143,
    "resp_rate": 13.51304972588547,
    "skin_temp_z": 2.083348400888466,
    "trimp": 218.15549360346512,

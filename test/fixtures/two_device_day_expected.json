@@ -3886,6 +3886,7 @@
       "rmssd": 19.899932209964643,
       "rmssd_whole": 19.99843722189908,
       "readiness": null,
+      "readiness_z": null,
       "strain": null,
       "max_hr_used": null,
       "ln_rmssd": 2.9907163251902045,

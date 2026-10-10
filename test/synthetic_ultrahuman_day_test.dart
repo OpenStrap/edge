@@ -81,11 +81,16 @@ void main() {
         await DerivationEngine().runDays(_profile, {_dayId}, force: true), 0);
     expect(await LocalDb.dayResult(_dayId), isNull);
     expect(await dayCells(_dayId), isNull);
+    // Flag off: the ring's rows are nobody's substrate.
+    expect(await substrateDays(), isEmpty);
   });
 
   test('flag on: every Ultrahuman cell derives, stores and serves in its '
       'class', () async {
     await LocalDb.setCursor(wearableEnabledCursor('ultrahuman'), '1');
+    // Flag on: the ring's days are substrate days (the v112 readiness
+    // re-score leaves them to the derive).
+    expect(await substrateDays(), containsAll(_dayIds));
     // Twice: the first pass derives the days concurrently, so the baselines
     // and the cross-day rollup only see each other on the second.
     for (var i = 0; i < 2; i++) {
