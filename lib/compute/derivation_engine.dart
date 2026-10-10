@@ -2017,8 +2017,10 @@ const String kAnalyticsPin = 'ad6384746d36a2e6b7b964658d308e40de403c8a';
 // derivation reads.
 // REPIN: protocol main @ ecb512b (#72-#77).
 // REPIN: feat/multidevice-verified-decoders head; re-point at the protocol
-// main merge commit.
-const String kProtocolPin = '7cd6e3e182195d3ee06eeea0a9520c04a909a088';
+// main merge commit. Re-pointed at that branch's Huami gap fix (minutes()
+// empty after a counter gap); NO kAlgoVersion bump: the adapter already
+// decoded only gap-free transfers, so no output changes.
+const String kProtocolPin = '89080bcfac7767b3a871fd3a7d9307f5f30dad26';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
