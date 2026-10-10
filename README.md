@@ -125,7 +125,7 @@ Every screenshot above is real output from a WHOOP 4.0.
 - **Any standard Bluetooth heart-rate strap** — pairs for workout tracking today (heart
   rate + beat timing, stored and shown). Feeding it into recovery/strain is on the roadmap.
 - **Oura Ring** — experimental. Pairs with the key the ring already holds, so there is
-  no factory reset and the Oura app keeps working ([how to get that key](docs/OURA_KEY.md)),
+  no factory reset and the Oura app keeps working,
   then syncs the ring's history to the phone. That history is stored but doesn't feed
   any score yet; nobody on the project has checked its decoding against a ring in hand.
 
@@ -298,7 +298,6 @@ Protocol decoding and analytics live in their own repos —
 - [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md) — sideloading without a paid developer account.
 - [`guides/IOS_SHORTCUTS.md`](guides/IOS_SHORTCUTS.md) — syncing the band from Shortcuts, on demand or on a schedule.
 - [`guides/WATCH_SETUP.md`](guides/WATCH_SETUP.md) — the Apple Watch companion app.
-- [`docs/OURA_KEY.md`](docs/OURA_KEY.md) — getting the key an Oura ring already holds.
 - [`guides/AI_COACH.md`](guides/AI_COACH.md) — bring-your-own-key AI coach, briefings, and journal.
 - [`guides/TASKER_INTEGRATION.md`](guides/TASKER_INTEGRATION.md) — buzzing the strap from Tasker/automation.
 - [`guides/BUZZ_MEANINGS.md`](guides/BUZZ_MEANINGS.md) — what each buzz pattern means.
