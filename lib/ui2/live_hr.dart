@@ -41,15 +41,15 @@ import 'ui2.dart';
 
 /// The tap's cycling rule: the next streaming device after [current] in
 /// [ranked]'s order, wrapping — a two-device tap is a toggle, a three-device
-/// tap is a rotation. Streaming is approximated by "has a trace", which is
-/// the same thing [AppState.liveHrTrace] itself reads.
+/// tap is a rotation. Only a device [AppState.liveHrDeviceId] would accept:
+/// streaming, and not a flag-off strap.
 String? _nextDevice(AppState app, List<HealthSource> ranked, String? current) {
   final ids = [
     for (final s in ranked)
       // Resolved once and skipped when null (the phone has no `device` row),
       // rather than force-unwrapped after a trace lookup on that same null.
       if (deviceIdOf(s) case final id?)
-        if (app.liveHrTrace(id).isNotEmpty) id,
+        if (app.liveHrSelectable(id)) id,
   ];
   if (ids.isEmpty) return null;
   final i = current == null ? -1 : ids.indexOf(current);

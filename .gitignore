@@ -104,9 +104,6 @@ lib/l10n/app_localizations*.dart
 docs/*.gif
 docs/*.mp4
 
-# golden test failure output
-test/failures/
-
 # xcodebuild output from a direct target build
 ios/build/
 
@@ -120,10 +117,4 @@ docs/internal/
 # HRV/sleep payloads (RMSSD/SDNN/pNN50 tied to a calendar date). Never commit.
 payload*.json
 
-# Golden images. 416 PNGs, 27 MB, regenerated locally with
-# `flutter test --update-goldens`. They are machine- and SDK-specific — the two
-# Flutter SDKs on this machine already disagree on antialiasing — so a
-# committed set is a diff nobody can review and a merge conflict nobody can
-# resolve. The test code stays; the pictures do not.
-test/goldens/
 MULTIDEVICE_PROGRESS.md

@@ -4,7 +4,9 @@
 // a wrong offset does not throw, it silently reads the wrong byte.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' show Guid;
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
+import 'package:openstrap_edge/ble/hrs_link.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 void main() {
@@ -19,31 +21,13 @@ void main() {
           'polar_pmd',
           'coros',
           'ultrahuman',
-          'withings_steel_hr',
           'miband234',
           'pebble',
-          'makibeshr3',
-          'id115',
-          'smaq2oss',
-          'xwatch',
-          'tlw64',
-          'dafit',
-          'o2ring',
-          'zetime',
-          'wearfit',
-          'ringconn',
-          'dt78',
-          'lefun',
-          'hplus',
-          'pinetime',
-          'qhybrid',
           'colmi',
-          'casio',
-          'jyou',
-          'watch9',
-          'banglejs',
           'garmin',
-          'ring11m',
+          'thermometer',
+          'miscale_bc',
+          'miscale2',
         ]);
   });
 
@@ -89,29 +73,39 @@ void main() {
     expect(kBleHrs.wire, isNull, reason: 'BandProfile is a framed envelope');
   });
 
-  test('a Garmin entry has one service and its write/notify pair', () {
+  test('Mi scales are matched by service data; Mi Band 2/3 by name, '
+      'unfiltered', () {
+    final ads = HrsLink.scanAdFilters([kMiScaleComposition, kMiScale2]);
+    expect(ads.serviceData.map((f) => f.service), [
+      Guid(kMiScaleBodyCompositionService),
+      Guid(kMiScaleWeightService),
+    ]);
+    expect(HrsLink.scanServiceFilter([kMiBand234]), isEmpty);
+    for (final n in ['mi band 2', 'mi band 3', 'xiaomi band 3']) {
+      expect(kMiBand234.nameMatcher!(n), isTrue, reason: n);
+    }
+    expect(kMiBand234.nameMatcher!('mi smart band 4'), isFalse);
+    // The GATT service is still what is checked after connect.
+    expect(kMiBand234.service, kHuami234Service);
+  });
+
+  test('a Garmin entry: found by company id or service data, its data '
+      'characteristic chosen after connect', () {
     expect(kGarmin.isFramed, isFalse);
     expect(kGarmin.service, kGarminService);
-    expect(kGarmin.requiredCharacteristics,
-        [kGarminWriteChar, kGarminNotifyChar]);
+    expect(kGarmin.requiredCharacteristics, isEmpty);
+    expect(kGarmin.scanCompanyIds, containsAll([0x0087, 0x8700]));
+    expect(kGarmin.scanServiceData, hasLength(3));
+    expect(kAskSensorCompanyIds['garmin'], 0x0087);
+    final ads = HrsLink.scanAdFilters([kBleHrs, kGarmin]);
+    expect(ads.msd.map((f) => f.manufacturerId), [0x0087, 0x8700]);
+    expect(ads.serviceData.map((f) => f.service),
+        contains(Guid('fe1f')));
+    expect(HrsLink.scanAdFilters([kGarmin, kUltrahuman]).msd, isEmpty,
+        reason: 'an unfiltered scan stays unfiltered');
     expect(kGarmin.gatt, isNull);
     expect(kGarmin.wire, isNull);
     expect(() => kGarmin.commands, throwsA(anything));
-  });
-
-  test('a PineTime entry filters on its OWN service, not the shared HRS one',
-      () {
-    expect(kPineTime.isFramed, isFalse);
-    expect(kPineTime.service, kPineTimeMotionService);
-    expect(kPineTime.servicePrefix, '00030000');
-    // Distinct from kBleHrs's own scan filter — two rows sharing one service
-    // is the collision `HrsLink.scanForAny` treats as a registry bug.
-    expect(kPineTime.service, isNot(kBleHrs.service));
-    // Both required, even though they sit on two different GATT services —
-    // `GattBandLink` matches a characteristic across every discovered
-    // service, not only the scan-filter one.
-    expect(kPineTime.requiredCharacteristics,
-        [kPineTimeStepCountChar, kHeartRateMeasurementUuid]);
   });
 
   test('D3 — frameOpcodeIndex lands on the opcode of a real built frame', () {
@@ -143,7 +137,7 @@ void main() {
     expect(kWhoopGen4.timeAnchor, TimeAnchor.measured);
     expect(kWhoopGen5.timeAnchor, TimeAnchor.measured);
     expect(kBleHrs.timeAnchor, TimeAnchor.arrival);
-    expect(kPebble.timeAnchor, TimeAnchor.arrival);
+    expect(kPebble.timeAnchor, TimeAnchor.measured);
   });
 
   test('Pebble 2 / Pebble 2 SE — one scan-filter service, five required '

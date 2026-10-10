@@ -41,6 +41,10 @@ import '../../l10n/display_text.dart';
 // scanned row would. No scan runs first, so no `CBCentralManager` exists to
 // make that picker fail either — but the pairing connect after it creates one,
 // so the iOS gate's warning still shows.
+//
+// A notify-class sensor NOT in `kAskPickerSensors` (Polar PMD, Coros) has no
+// picker and no scan on iOS 18+, so the screen says so instead of running a
+// scan that returns nothing.
 
 import 'dart:async' show unawaited;
 
@@ -62,6 +66,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'profile.dart';
+import 'wearable_numbers.dart' show WearableUnlocks;
 
 /// A sensor this phone already has a `device` row for.
 typedef PairedSensor = ({String id, String? label});
@@ -120,6 +125,10 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
   /// (iOS 18+ and [kAskPickerSensors]). Decided once, in [_load].
   bool _viaPicker = false;
 
+  /// True on iOS 18+ for a sensor NOT in [kAskPickerSensors]: no picker of
+  /// its own and a scan that cannot see it, so searching says so instead.
+  bool _unreachable = false;
+
   /// The key field's text, when [PairSensorScreen.onPickedWithKey] is set.
   final TextEditingController _key = TextEditingController();
 
@@ -158,14 +167,16 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
         break;
       }
     }
-    final viaPicker = kAskPickerSensors.any((e) => e.id == widget.entry.id) &&
-        await AccessorySetup.isSupported();
+    final askOn = await AccessorySetup.isSupported();
+    final viaPicker =
+        kAskPickerSensors.any((e) => e.id == widget.entry.id) && askOn;
     // Kept on the picker path too: no scan runs there, but pairing the ring
     // connects through flutter_blue_plus, which creates the same central.
     final held = await HrsLink.scanHeldBackReason();
     if (!mounted) return;
     setState(() {
       _viaPicker = viaPicker;
+      _unreachable = askOn && !viaPicker;
       _paired = row == null
           ? null
           : (id: row['id'] as String, label: row['label'] as String?);
@@ -175,6 +186,16 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
 
   Future<void> _scan() async {
     if (_viaPicker) return _pairViaPicker();
+    if (_unreachable) {
+      final label = widget.entry.label;
+      setState(() => _problem =
+          AppLocalizations.of(context)?.pairSensorUnreachableIos(label) ??
+              'This iPhone only lets the app reach sensors approved in the '
+                  'system pairing sheet, and a $label cannot be offered there '
+                  'yet: its advertisement does not carry the service it is '
+                  'identified by. Pair it on Android for now.');
+      return;
+    }
     setState(() {
       _scanning = true;
       _problem = null;
@@ -310,6 +331,7 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
   @override
   Widget build(BuildContext c) => PairSensorView(
     entryLabel: uiText(c, widget.entry.label),
+    adapterId: widget.entry.id,
     candidates: _found,
     scanning: _scanning,
     heldBack: _heldBack,
@@ -327,6 +349,10 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
 /// render every state without a radio.
 class PairSensorView extends StatelessWidget {
   final String entryLabel;
+
+  /// The entry's adapter, for "what this wearable unlocks"; null, or one
+  /// with no column in the metric x device table, draws nothing extra.
+  final String? adapterId;
   final List<BandCandidate> candidates;
   final bool scanning;
 
@@ -347,6 +373,7 @@ class PairSensorView extends StatelessWidget {
   const PairSensorView({
     super.key,
     required this.entryLabel,
+    this.adapterId,
     this.candidates = const [],
     this.scanning = false,
     this.heldBack,
@@ -383,18 +410,64 @@ class PairSensorView extends StatelessWidget {
                       ? (l?.pairSensorWhatThisAdds ?? 'What this adds')
                       : (l?.pairSensorPairAnother ?? 'Pair another'),
                   Surface(
+                    // Worded per kind of device: a watch or ring does feed
+                    // numbers (behind its flag, R6), a strap only a workout,
+                    // and a Coros watch neither (no workout arms it).
                     child: Text(
-                      withIosUninstallWarning(c, l?.pairSensorExplainer ??
-                          'A sensor is used only while a workout is running, and '
-                              'only for heart rate and beat timing. It does not '
-                              'replace your band, it is never used overnight, and '
-                              'nothing it records feeds a score yet — its readings are '
-                              'stored and shown, and that is all.'),
+                      withIosUninstallWarning(
+                          c,
+                      switch (categoryOf(adapterId)) {
+                        _ when adapterId == kCoros.id =>
+                          l?.pairSensorExplainerCoros ??
+                              'A sports watch. When it syncs, it reads battery '
+                                  'and a few seconds of live heart rate. No '
+                                  'workout uses it, and recorded activities '
+                                  'stay on the watch. Its readings are stored '
+                                  'and shown; no number of ours is worked out '
+                                  'from them.',
+                        DeviceCategory.wearable =>
+                          l?.pairSensorExplainerWearable ??
+                              "A wearable's own records are stored and "
+                                  'attributed to it, and its own values are '
+                                  'always labelled as its. Working out our '
+                                  'numbers from it (sleep, resting heart rate, '
+                                  'strain) is experimental, and off until it '
+                                  'has been checked against the hardware.',
+                        DeviceCategory.healthMeasurement =>
+                          l?.pairSensorExplainerMeasurement ??
+                              "A measurement device's readings are stored and "
+                                  'attributed to it. Using them in your profile '
+                                  'is experimental, and off until it has been '
+                                  'checked against the hardware.',
+                        _ => l?.pairSensorExplainerWorkout ??
+                            'A sensor gives heart rate and beat timing for '
+                                'workouts. It does not replace your band. It '
+                                'records while a workout runs, and a few '
+                                'minutes after it ends. Its readings are '
+                                'stored and shown. Scoring a workout from them '
+                                'is experimental, and off until checked against '
+                                'the hardware.',
+                      }),
                       style: F.cap.copyWith(color: p.ink3, height: 1.5),
                     ),
                   ),
                 ),
+                if (adapterId != null) WearableUnlocks(adapterId!),
                 if (keyController != null) ...[
+                  // Before the user commits: a new key evicts the ring's own
+                  // app, and there is no state in which both work.
+                  const SizedBox(height: S.x4),
+                  StatusCard(
+                    l?.pairSensorKeyReplacesTitle ??
+                        "Pairing replaces the Oura app's key",
+                    l?.pairSensorKeyReplacesBody ??
+                        'The ring holds one key. Pairing without a key from '
+                            'the Oura app gives the ring a new key of its own, '
+                            'and the Oura app then stops working with this '
+                            'ring until the ring is reset and set up there '
+                            'again.',
+                    icon: LucideIcons.triangleAlert,
+                  ),
                   const SizedBox(height: S.x4),
                   _keySection(c, keyController!, busy || scanning),
                 ],
@@ -535,7 +608,18 @@ class PairSensorView extends StatelessWidget {
               // A sensor that advertised no name is shown as what it is, not
               // as an invented one.
               s.label ?? entryLabel,
-              sub: l?.pairSensorUsedDuringWorkouts ?? 'Used during workouts',
+              // Only a workout-armed sensor is used during workouts; a
+              // wearable or a measurement device never is.
+              sub: switch (categoryOf(adapterId)) {
+                _ when adapterId == kCoros.id =>
+                  l?.pairSensorSyncedInWindows ?? 'Synced in short windows',
+                DeviceCategory.wearable =>
+                  l?.pairSensorStoredOnSync ?? 'Records stored when it syncs',
+                DeviceCategory.healthMeasurement =>
+                  l?.pairSensorStoredOnReading ??
+                      'Readings stored as it takes them',
+                _ => l?.pairSensorUsedDuringWorkouts ?? 'Used during workouts',
+              },
               chevron: false,
               onTap: null,
             ),

@@ -242,6 +242,36 @@ void main() {
     expect(today['hrv']?['rmssd'], isNot(77));
   });
 
+  test('a night the active wearable supplied settles on its own edge',
+      () async {
+    // The band was left on the charger: its edge sits before the night. The
+    // ring's row was derived against the ring's edge, two hours past wake.
+    final wake = nowSec - 3 * 3600;
+    await seed(wakeSec: wake, edgeSec: wake - 8 * 3600);
+    await db.update(
+      'day_result',
+      {
+        'payload_json': jsonEncode({
+          'sleep': {
+            'window': {
+              'value': {'offset_ms': wake * 1000},
+            },
+            'accounting': {
+              'value': {'tst_sec': 6 * 3600},
+            },
+          },
+          'data_edge_sec': wake + 2 * 3600,
+        }),
+      },
+      where: 'day_id = ?',
+      whereArgs: [todayLabel()],
+    );
+    expect(await overnightDay(), todayLabel());
+    final row = await LocalDb.computeFreshness('today');
+    expect(jsonDecode(row!['payload_json'] as String)['recovery_state'],
+        'final');
+  });
+
   test('readiness chart leaves out the night getToday holds back', () async {
     final wake = nowSec - 20 * 60;
     await seed(wakeSec: wake, edgeSec: wake + 60);

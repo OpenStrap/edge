@@ -53,7 +53,14 @@ class PolarPmdAdapter extends BandAdapter {
     // moment a START reply for the PPI type arrives. A misbehaving sensor
     // that never answers times out rather than hanging the session.
     final started = Completer<bool>();
+    // Completed when the sensor ends the PPI stream by itself: the session
+    // would otherwise sit armed on a silent stream until disconnect.
+    final stopped = Completer<void>();
     final controlSub = link.notify(kPolarPmdControlChar).listen((rec) {
+      if (polarPmdPpiStopped(rec.$2)) {
+        if (!stopped.isCompleted) stopped.complete();
+        return;
+      }
       final r = parsePolarPmdControlResponse(rec.$2);
       if (r != null &&
           r.reqOpcode == kPolarPmdOpRequestMeasurementStart &&
@@ -73,11 +80,22 @@ class PolarPmdAdapter extends BandAdapter {
     // `_Inbox` exists for; smaller because this stream needs no "next with
     // timeout", just a buffered pass-through.
     final dataEvents = StreamController<(int, List<int>)>();
+    // The stop signal below closes [dataEvents] while this subscription is
+    // still live, so a notification already in flight must not add to it.
     final dataSub = link.notify(kPolarPmdDataChar).listen(
-          dataEvents.add,
+          (r) {
+            if (!dataEvents.isClosed) dataEvents.add(r);
+          },
           onDone: dataEvents.close,
-          onError: dataEvents.addError,
+          onError: (Object e) {
+            if (!dataEvents.isClosed) dataEvents.addError(e);
+          },
         );
+    unawaited(stopped.future.then((_) {
+      link.log('polar_pmd: the sensor stopped the PPI stream; ending the '
+          'session.');
+      dataEvents.close();
+    }));
     try {
       if (!await link.write(kPolarPmdControlChar, polarPmdStartPpi())) {
         link.log('polar_pmd: START write refused; ending the session.');
@@ -90,38 +108,49 @@ class PolarPmdAdapter extends BandAdapter {
             'session.');
         return;
       }
+      // Time covered by records whose interval was not banked since the last
+      // banked one: the next banked beat carries it as its gap.
+      var gapMs = 0;
       await for (final (atSec, value) in dataEvents.stream) {
         final samples = parsePolarPmdPpiFrame(value);
         if (samples == null) continue;
-        final neutrals = [
-          for (final s in samples)
-            // hr == 0 is the sensor's own "no valid beat this record" — a
-            // refusal, not a low reading. Storing it would put a fabricated
-            // zero into a heart-rate series, the same rule `ble_hrs` applies
-            // to a strap reporting no skin contact.
-            if (s.hr != 0)
-              NeutralSample(
-                anchor: TimeAnchor.arrival,
-                tsEpoch: atSec,
-                hr: s.hr,
-                rrMs: [s.ppiMs],
-                vendor: {
-                  'blocker': s.blocker,
-                  // Raw bits, under their own name — their real-world
-                  // polarity is not independently confirmed against
-                  // hardware, so nothing here gates on them (see
-                  // `PolarPpiSample.skinContactBits`'s own doc).
-                  'skin_contact': s.skinContactBits,
-                  'error_ms': s.errorEstimateMs,
-                },
-              ),
-        ];
+        final neutrals = <NeutralSample>[];
+        for (final s in samples) {
+          // hr == 0 is the sensor's own "no valid beat this record" — a
+          // refusal, not a low reading. Storing it would put a fabricated
+          // zero into a heart-rate series. "Supported, no contact" is the
+          // same refusal `ble_hrs` applies to 0x2A37's identical bits: a
+          // sensor off the skin reports confident nonsense.
+          // A blocker record's interval is marked invalid by the sensor
+          // (motion); its HR carries no such mark, so only the interval is
+          // dropped. Either way the time still passed.
+          final dropped = s.hr == 0 || s.contact == false;
+          if (dropped || s.blocker) {
+            gapMs += s.ppiMs;
+            if (dropped) continue;
+          }
+          final banked = !s.blocker;
+          neutrals.add(NeutralSample(
+            anchor: TimeAnchor.arrival,
+            tsEpoch: atSec,
+            hr: s.hr,
+            rrMs: banked ? [s.ppiMs] : const <int>[],
+            gapMs: banked ? gapMs : 0,
+            vendor: {
+              'blocker': s.blocker,
+              'skin_contact': s.skinContactBits,
+              'error_ms': s.errorEstimateMs,
+            },
+          ));
+          if (banked) gapMs = 0;
+        }
         if (neutrals.isNotEmpty) yield SampleBatch(neutrals);
       }
     } finally {
-      // Best-effort: a link that has already dropped simply refuses this
-      // write, which is fine — the sensor stops streaming on disconnect
-      // regardless.
+      // Lands only when the session ends on its own with the link still up.
+      // On a disarm the link is already closed by the time this runs and
+      // refuses it; `PolarPmdLink` sends its own STOP before closing, and
+      // the sensor stops streaming on disconnect regardless.
       unawaited(link.write(kPolarPmdControlChar, polarPmdStopPpi()));
       await controlSub.cancel();
       await dataSub.cancel();

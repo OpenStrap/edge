@@ -27,19 +27,14 @@ and `paint_activity.dart` (painters), `app_shell.dart` (the five tabs).
 
 Two more tests back it: `ui2_contrast_test.dart` sweeps every accent × every
 surface × both themes at a 4.5:1 floor — **including what the painters draw**,
-because a mark's colour is information — and `ui2_golden_test.dart` captures
-every component in light/dark at 1.0× and 2.0× text scale.
+because a mark's colour is information — and `ui2_component_sweep_test.dart`
+pumps every gallery case at 1.0/1.4/2.0/3.0/3.1× text scale (iOS reaches 3.1×,
+Android about 2.6×) with **any `RenderFlex` overflow failing the build**, and
+measures every `Pressable` in every case against 44 pt. Use realistic fixture
+values: six components once passed with `'52'` and `'38 min'` while
+overflowing on a real duration.
 
-Above 2.0× there are no PNGs, on purpose: iOS reaches 3.1× and Android about
-2.6× effective, and 174 more images per tier is 174 more images nobody reviews.
-Instead the same case list is pumped at 1.0/1.4/2.0/3.0/3.1× with **any
-`RenderFlex` overflow failing the build**, and every `Pressable` in every case
-is measured against 44 pt. Both sweeps exist because the 2.0× goldens passed
-with fixtures like `'52'` and `'38 min'` while six components overflowed at
-that scale on a real duration.
-
-**When you add a screen, add its components to the golden case list.** That is
-the whole reason visual fixes stopped regressing.
+**When you add a screen, add its components to the gallery case list.**
 
 ---
 

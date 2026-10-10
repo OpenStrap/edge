@@ -65,9 +65,10 @@ final List<int> _nonceReply =
 final List<int> _authOk = _frame(0x2f, _hex('2e00'));
 final List<int> _authBad = _frame(0x2f, _hex('2e01'));
 
-List<int> _summary(int received, int bytesLeft) => _frame(0x11, <int>[
+List<int> _summary(int received, int bytesLeft, {int progress = 0}) =>
+    _frame(0x11, <int>[
       received,
-      0,
+      progress,
       bytesLeft & 0xff,
       (bytesLeft >> 8) & 0xff,
       (bytesLeft >> 16) & 0xff,
@@ -121,6 +122,10 @@ Future<(List<BandEvent>, ReplayBandLink)> _drive(
 }
 
 void main() {
+  /// Header 0x00, then `00 55 aa ff`: MSB-first 2-bit codes, four epochs each
+  /// of deep, light, rem, awake, so 2.0 min per stage.
+  List<int> hypnogramBody() => _hex('000055aaff');
+
   /// One battery event and one temperature event, then the batch is done.
   List<List<int>> ringWithOneBatch(int i, List<int> v) {
     if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
@@ -543,30 +548,6 @@ void main() {
     );
   });
 
-  test('a replayed tail that stops short of the cursor strands it even with '
-      'no bytes left', () async {
-    // After a reboot the counter restarts below the bookmark: the ring's
-    // newest event is far below the last one we read, and bytesLeft can be 0.
-    final (events, _) = await _drive(_adapter(startCursorDs: 5000), (i, v) {
-      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
-      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
-      if (v.first == 0x10) {
-        return [
-          _event(kOuraEvtTimeSync, 4000, _syncBody(1782043215)),
-          _event(kOuraEvtTempPeriod, 4100, _hex('6c0d')),
-          _summary(2, 0),
-        ];
-      }
-      return const [];
-    });
-    expect(
-      events.whereType<BandNote>().any((n) => n.key == 'oura_cursor_stranded'),
-      isTrue,
-      reason: 'keeping the bookmark skips everything the new boot records '
-          'below it',
-    );
-  });
-
   test('an old boot record in the replayed tail is not a new reboot', () async {
     // A boot record below the cursor was already read by an earlier sync;
     // only `bytesLeft > 0` means stranded.
@@ -617,18 +598,17 @@ void main() {
     );
   });
 
-  test('a batch of replays and new events keeps only the new', () async {
-    // Events at or after the cursor flow through; replays never reach the
-    // batch, raw included.
+  test('every delivered event is kept, and the cursor follows the last one',
+      () async {
+    // Nothing is filtered by stamp: a replayed event is the same bytes and the
+    // same row again, which collapses downstream.
     const syncUnix = 1782043215;
     final (events, link) = await _drive(_adapter(startCursorDs: 1000), (i, v) {
       if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
       if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
       if (v.first == 0x10) {
         return [
-          // Replays below the 1000 we asked from.
           _event(kOuraEvtTempPeriod, 900, _hex('6c0d')),
-          // New data at and after the cursor.
           _event(kOuraEvtTimeSync, 1000, _syncBody(syncUnix)),
           _event(kOuraEvtTempPeriod, 1100, _hex('6c0d')),
           _summary(3, 0),
@@ -637,11 +617,8 @@ void main() {
       return const [];
     });
     final batch = events.whereType<SampleBatch>().single;
-    // Only the two new frames — the replay never reached `raw`.
-    expect(batch.raw, hasLength(2));
-    expect(batch.samples, hasLength(1),
-        reason: 'the replay is not a second temperature second');
-    // And the cursor advanced past the new data only, to its own max + 1.
+    expect(batch.raw, hasLength(3));
+    expect(batch.samples.map((s) => s.tsEpoch), [syncUnix - 10, syncUnix + 10]);
     final cursor = events
         .whereType<BandNote>()
         .firstWhere((n) => n.key == 'oura_cursor_ds');
@@ -650,42 +627,28 @@ void main() {
         reason: 'bytesLeft 0 ends the drain after this batch');
   });
 
-  // ── One frame per notification; trailing bytes are not a frame ────────
-  test(
-      'trailing bytes after a valid frame are NOT read as a second frame',
-      () async {
-    // `parseOuraFrame`'s contract: one notification carries exactly one
-    // frame, and the ring may append bytes past the declared length. Here
-    // the trailing bytes happen to look like a whole second temperature
-    // frame. They must be ignored: one sample (1100), not two, and the
-    // archive row is the whole notification as delivered, trailing bytes
-    // included, not a second row.
-    const syncUnix = 1782043215;
-    final anchor = _event(kOuraEvtTimeSync, 1000, _syncBody(syncUnix));
-    final temp = _event(kOuraEvtTempPeriod, 1100, _hex('6c0d'));
-    final trailing = _event(kOuraEvtTempPeriod, 1200, _hex('6c0e'));
-    final withTrailing = <int>[...temp, ...trailing];
-    final (events, link) = await _drive(_adapter(), (i, v) {
+  test('a batch crossing a reboot archives every frame and moves the cursor '
+      'to the last delivered stamp, not the largest', () async {
+    final (events, link) = await _drive(_adapter(startCursorDs: 1000), (i, v) {
       if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
       if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
-      if (v.first == 0x10) return [anchor, withTrailing, _summary(2, 0)];
-      return const [];
+      if (v.first != 0x10) return const [];
+      final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+      if (cursor != 1000) return [_summary(0, 0)];
+      return [
+        _event(kOuraEvtTempPeriod, 1000, _hex('6c0d')),
+        _event(kOuraEvtTempPeriod, 1005, _hex('6c0d')),
+        _event(kOuraEvtTempPeriod, 3, _hex('6c0d')),
+        _event(kOuraEvtTempPeriod, 4, _hex('6c0d')),
+        _summary(4, 512),
+      ];
     });
-    final batch = events.whereType<SampleBatch>().single;
-    expect(batch.samples, hasLength(1),
-        reason: 'the trailing bytes are not a second temperature record');
-    final raw = batch.raw!;
-    expect(raw, hasLength(2), reason: 'one archive row per notification');
-    expect(raw[0], anchor);
-    expect(raw[1], withTrailing,
-        reason: 'archived byte for byte as delivered, trailing bytes kept');
-    expect(
-      events.whereType<BandNote>().where((n) => n.key == 'oura_drain_ok'),
-      hasLength(1),
-    );
-    expect(link.writes.where((w) => w.$2.first == 0x10), hasLength(1));
+    expect(events.whereType<SampleBatch>().first.raw, hasLength(4));
+    final requests = link.writes.where((w) => w.$2.first == 0x10).toList();
+    expect(requests[1].$2.sublist(2, 6), <int>[5, 0, 0, 0]);
   });
 
+  // ── Notification boundaries ─────────────────────────────────────────
   test(
       'a frame split across two notifications is NOT reassembled — the '
       'documented boundary is the notification',
@@ -796,9 +759,368 @@ void main() {
 
   // ── The ring's own sleep staging, banked as vendor scalars ──────────────
 
-  /// Header 0x00, then `00 55 aa ff`: MSB-first 2-bit codes, four epochs each
-  /// of deep, light, rem, awake, so 2.0 min per stage.
-  List<int> hypnogramBody() => _hex('000055aaff');
+  test('an empty batch with bytes left steps the cursor one decisecond and '
+      'asks again before anything is reset', () async {
+    final (events, link) = await _drive(_adapter(startCursorDs: 700), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first != 0x10) return const [];
+      final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+      if (cursor == 700) return [_summary(0, 4096)];
+      return [_event(kOuraEvtTempPeriod, 720, _hex('6c0d')), _summary(1, 0)];
+    });
+    final cursors = [
+      for (final w in link.writes)
+        if (w.$2.first == 0x10) w.$2[2] | (w.$2[3] << 8),
+    ];
+    expect(cursors, [700, 701]);
+    expect(
+      events.whereType<BandNote>().any((n) => n.key == 'oura_cursor_stranded'),
+      isFalse,
+    );
+    expect(events.whereType<SampleBatch>().single.raw, hasLength(1));
+  });
+
+  test('sleep analysis in progress with nothing left asks again from the new '
+      'cursor', () async {
+    final (events, link) = await _drive(
+      OuraAdapter(
+        key: _kKey,
+        confirmTimeout: _kFast,
+        replyTimeout: _kFast,
+        firstFrameTimeout: _kFast,
+        analysisPollDelay: Duration.zero,
+      ),
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first != 0x10) return const [];
+        final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+        if (cursor == 0) {
+          return [
+            _event(kOuraEvtTempPeriod, 200, _hex('6c0d')),
+            _summary(1, 0, progress: 40),
+          ];
+        }
+        return [
+          _event(kOuraEvtSleepPhaseData, 300, hypnogramBody()),
+          _summary(1, 0),
+        ];
+      },
+    );
+    final cursors = events
+        .whereType<BandNote>()
+        .where((n) => n.key == 'oura_cursor_ds')
+        .map((n) => n.value);
+    expect(cursors, [201, 301]);
+    expect(link.writes.where((w) => w.$2.first == 0x10), hasLength(2));
+  });
+
+  test('a summary too short to carry bytes-left still ends the batch', () async {
+    final (events, link) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first != 0x10) return const [];
+      return [
+        _event(kOuraEvtTempPeriod, 200, _hex('6c0d')),
+        _frame(0x11, const [1]),
+      ];
+    });
+    expect(events.whereType<SampleBatch>().single.raw, hasLength(1));
+    expect(link.logs.any((l) => l.contains('no batch summary')), isFalse);
+    expect(link.writes.where((w) => w.$2.first == 0x10), hasLength(1));
+  });
+
+  test('a GetEvent the ring rejects as unsupported ends at once, by name',
+      () async {
+    final watch = Stopwatch()..start();
+    final (events, link) = await _drive(
+      OuraAdapter(
+        key: _kKey,
+        confirmTimeout: _kFast,
+        replyTimeout: _kFast,
+        firstFrameTimeout: const Duration(seconds: 30),
+      ),
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first == 0x10) return [_hex('300110')];
+        return const [];
+      },
+    );
+    expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+    expect(events.whereType<SampleBatch>(), isEmpty);
+    expect(link.logs.any((l) => l.contains('GetEvent (0x10) as unsupported')),
+        isTrue);
+  });
+
+  test('auth rejected as unsupported is logged as that, not as silence',
+      () async {
+    final (_, link) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f) return [_hex('30012f')];
+      return const [];
+    });
+    expect(link.logs.any((l) => l.contains('auth (0x2f) as unsupported')),
+        isTrue);
+    expect(link.writes.any((w) => w.$2.first == 0x10), isFalse);
+  });
+
+  test('the first frame of a batch gets the long window, later ones the short',
+      () async {
+    final adapter = OuraAdapter(
+      key: _kKey,
+      confirmTimeout: const Duration(seconds: 2),
+      replyTimeout: _kFast,
+      firstFrameTimeout: const Duration(seconds: 2),
+    );
+    final link = ReplayBandLink();
+    final events = <BandEvent>[];
+    final done = Completer<void>();
+    adapter.run(link).listen((e) async {
+      events.add(e);
+      if (e is OffloadCheckpoint) await e.confirm();
+    }, onDone: done.complete);
+    var served = 0;
+    final clock = Stopwatch()..start();
+    while (!done.isCompleted && clock.elapsed < const Duration(seconds: 5)) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      while (served < link.writes.length) {
+        final v = link.writes[served++].$2;
+        List<List<int>> out = const [];
+        if (v.first == 0x2f && v[2] == 0x2b) out = [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) out = [_authOk];
+        if (v.first == 0x10) {
+          // Slower than replyTimeout, well inside firstFrameTimeout.
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+          out = [_event(kOuraEvtTempPeriod, 200, _hex('6c0d')), _summary(1, 0)];
+        }
+        for (final f in out) {
+          link.feed(kOuraNotifyChar, f, atSec: 1786000000);
+        }
+      }
+    }
+    await link.close();
+    expect(events.whereType<SampleBatch>(), hasLength(1));
+  });
+
+  test('the clock set carries the timezone, and is forced only with no origin',
+      () async {
+    List<int> syncWrite(ReplayBandLink l) =>
+        l.writes.firstWhere((w) => w.$2.first == 0x12).$2;
+    final (_, bare) = await _drive(
+      OuraAdapter(
+        key: _kKey,
+        nowSeconds: () => 1782043215,
+        tzHalfHours: () => 11,
+        confirmTimeout: _kFast,
+        replyTimeout: _kFast,
+      ),
+      ringWithOneBatch,
+    );
+    expect(syncWrite(bare),
+        ouraCmdSyncTime(1782043215, tzHalfHours: 11, force: true));
+    final (_, anchored) = await _drive(
+      OuraAdapter(
+        key: _kKey,
+        anchor: (1000, 1782043215),
+        nowSeconds: () => 1782043215,
+        tzHalfHours: () => -10,
+        confirmTimeout: _kFast,
+        replyTimeout: _kFast,
+      ),
+      ringWithOneBatch,
+    );
+    expect(syncWrite(anchored), ouraCmdSyncTime(1782043215, tzHalfHours: -10));
+    expect(syncWrite(anchored)[1], 0x09);
+  });
+
+  test('a skipped clock set is reported, and never becomes an origin',
+      () async {
+    final (events, _) = await _drive(
+      OuraAdapter(
+        key: _kKey,
+        nowSeconds: () => 1782043215,
+        confirmTimeout: _kFast,
+        replyTimeout: _kFast,
+      ),
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first != 0x10) return const [];
+        return [
+          _event(kOuraEvtTimeSyncSkipped, 900,
+              _hex('4fd2376a00000000') + const [0x0b, 0x01]),
+          _event(kOuraEvtTempPeriod, 950, _hex('6c0d')),
+          _summary(2, 0),
+        ];
+      },
+    );
+    final notes = events.whereType<BandNote>();
+    expect(
+        notes
+            .firstWhere((n) => n.key == 'oura_time_sync_skipped')
+            .value,
+        kOuraSkipReasonPpgMeasuring);
+    expect(notes.any((n) => n.key == 'oura_anchor'), isFalse);
+    expect(events.whereType<SampleBatch>().single.samples, isEmpty);
+  });
+
+  test('a ring start that restarted the counter drops the old origin; the '
+      'new boot is stamped from its own time_sync', () async {
+    const t0 = 1782043215;
+    const t1 = 1782050000;
+    final (events, _) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first != 0x10) return const [];
+      final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+      if (cursor != 0) return [_summary(0, 0)];
+      return [
+        _event(kOuraEvtTimeSync, 5000000, _syncBody(t0)),
+        _event(kOuraEvtRingStart, 10, const [4, 0, 0, 0, 0x02]),
+        _event(kOuraEvtTempPeriod, 50, _hex('6c0d')),
+        _event(kOuraEvtTimeSync, 100, _syncBody(t1)),
+        _summary(4, 0),
+      ];
+    });
+    final s = events.whereType<SampleBatch>().single.samples.single;
+    expect(s.tsEpoch, t1 - 5, reason: 'not t0 - 499996');
+    expect(
+        events
+            .whereType<BandNote>()
+            .where((n) => n.key == 'oura_anchor')
+            .map((n) => n.value),
+        ['5000000,$t0', null, '100,$t1']);
+  });
+
+  test('a ring start with the reset bit clear but stamped below the origin '
+      'still drops it', () async {
+    const t0 = 1782043215;
+    final (events, _) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first != 0x10) return const [];
+      final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+      if (cursor != 0) return [_summary(0, 0)];
+      return [
+        _event(kOuraEvtTimeSync, 5000000, _syncBody(t0)),
+        _event(kOuraEvtRingStart, 10, const [4, 0, 0, 0, 0x00]),
+        _event(kOuraEvtTempPeriod, 50, _hex('6c0d')),
+        _summary(3, 0),
+      ];
+    });
+    expect(events.whereType<SampleBatch>().single.samples, isEmpty);
+    expect(
+        events
+            .whereType<BandNote>()
+            .where((n) => n.key == 'oura_anchor')
+            .map((n) => n.value),
+        ['5000000,$t0', null]);
+  });
+
+  test('a ring start above the origin with the reset bit set still drops it',
+      () async {
+    const t0 = 1782043215;
+    final (events, _) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first != 0x10) return const [];
+      final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+      if (cursor != 0) return [_summary(0, 0)];
+      return [
+        _event(kOuraEvtTimeSync, 1000, _syncBody(t0)),
+        _event(kOuraEvtRingStart, 2000, const [4, 0, 0, 0, 0x02]),
+        _event(kOuraEvtTempPeriod, 2050, _hex('6c0d')),
+        _summary(3, 0),
+      ];
+    });
+    expect(events.whereType<SampleBatch>().single.samples, isEmpty,
+        reason: 'not stamped t0 + 105 from the dead boot');
+    expect(
+        events
+            .whereType<BandNote>()
+            .where((n) => n.key == 'oura_anchor')
+            .map((n) => n.value),
+        ['1000,$t0', null]);
+  });
+
+  test('a ring start with the reset bit clear above the origin keeps it',
+      () async {
+    const t0 = 1782043215;
+    final (events, _) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first != 0x10) return const [];
+      final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+      if (cursor != 0) return [_summary(0, 0)];
+      return [
+        _event(kOuraEvtTimeSync, 1000, _syncBody(t0)),
+        _event(kOuraEvtRingStart, 2000, const [4, 0, 0, 0, 0x00]),
+        _event(kOuraEvtTempPeriod, 2050, _hex('6c0d')),
+        _summary(3, 0),
+      ];
+    });
+    expect(events.whereType<SampleBatch>().single.samples.single.tsEpoch,
+        t0 + 105);
+  });
+
+  test('a skip of a clock set whose time_sync also arrived is not reported',
+      () async {
+    const now = 1782043215;
+    final (events, _) = await _drive(
+      OuraAdapter(
+        key: _kKey,
+        nowSeconds: () => now,
+        confirmTimeout: _kFast,
+        replyTimeout: _kFast,
+      ),
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first != 0x10) return const [];
+        final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+        if (cursor != 0) return [_summary(0, 0)];
+        return [
+          _event(kOuraEvtTimeSyncSkipped, 900,
+              _hex('4fd2376a00000000') + const [0x0b, 0x01]),
+          _event(kOuraEvtTimeSync, 950, _syncBody(now)),
+          _summary(2, 0),
+        ];
+      },
+    );
+    final notes = events.whereType<BandNote>();
+    expect(notes.any((n) => n.key == 'oura_time_sync_skipped'), isFalse);
+    expect(notes.any((n) => n.key == 'oura_anchor'), isTrue);
+  });
+
+  test('a batch whose next cursor is the one asked for is no progress: it '
+      'steps, then strands, instead of re-asking forever', () async {
+    // Newer events, then a new-boot tail landing on cursor - 1, bytes left.
+    final (events, link) = await _drive(_adapter(startCursorDs: 1000), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first != 0x10) return const [];
+      return [
+        _event(kOuraEvtTempPeriod, 1005, _hex('6c0d')),
+        _event(kOuraEvtTempPeriod, 999, _hex('6c0d')),
+        _summary(2, 512),
+      ];
+    });
+    final cursors = [
+      for (final w in link.writes)
+        if (w.$2.first == 0x10) w.$2[2] | (w.$2[3] << 8),
+    ];
+    expect(cursors.first, 1000);
+    expect(cursors[1], 1001, reason: 'a 1 ds step, not the same request');
+    expect(cursors.length, lessThan(10));
+    expect(
+      events.whereType<BandNote>().any((n) => n.key == 'oura_cursor_stranded'),
+      isTrue,
+    );
+  });
+
+
+  // ── The ring's own sleep staging, banked as vendor scalars ──────────────
 
   test('a hypnogram event with an anchor banks per-stage minutes as vendor '
       'scalars', () async {
@@ -815,7 +1137,7 @@ void main() {
         if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
         if (v.first == 0x10) {
           return [
-            _event(kOuraEvtSleepPhaseInformation, 1200, hypnogramBody()),
+            _event(kOuraEvtSleepPhaseDetails, 1200, hypnogramBody()),
             _summary(1, 0),
           ];
         }
@@ -900,10 +1222,11 @@ void main() {
     }
   });
 
-  test('hypnogram events sharing a second or a decisecond keep all their '
-      'minutes', () async {
-    // Rows are keyed by (ts_ms, vendorKey): two events stamped alike would
-    // REPLACE each other.
+  test('a details page and a data page with the same index count once; '
+      "each page's minutes sit at its own stamp", () async {
+    // 0x4e and 0x5a are pages of ONE buffer: the same index is the same 52
+    // epochs, and the later one replaces the earlier. Rows are keyed by
+    // (ts_ms, vendorKey), so distinct pages sharing a stamp must be summed.
     final (events, _) = await _drive(
       OuraAdapter(
         key: _kKey,
@@ -916,12 +1239,11 @@ void main() {
         if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
         if (v.first == 0x10) {
           return [
-            // Same second, different deciseconds.
             _event(kOuraEvtSleepPhaseData, 1200, hypnogramBody()),
             _event(kOuraEvtSleepPhaseData, 1205, _hex('010055aaff')),
-            // Same decisecond, two carriers.
-            _event(kOuraEvtSleepPhaseInformation, 1300, hypnogramBody()),
-            _event(kOuraEvtSleepPhaseData, 1300, hypnogramBody()),
+            // Page 0 again, on the details carrier: replaces the 1200 page.
+            _event(kOuraEvtSleepPhaseDetails, 1300, hypnogramBody()),
+            _event(kOuraEvtSleepPhaseData, 1300, _hex('020055aaff')),
             _summary(4, 0),
           ];
         }
@@ -934,11 +1256,98 @@ void main() {
         if (o.vendorKey == 'sleep_deep_min') o.at.millisecondsSinceEpoch: o.value,
     };
     const base = 1782043215 * 1000;
-    expect(deep, {
-      base + 20000: 2.0,
-      base + 20500: 2.0,
-      base + 30000: 4.0,
-    });
+    // Page 1 at its own stamp; pages 0 (the replacement) and 2 share 1300.
+    expect(deep, {base + 20500: 2.0, base + 30000: 4.0});
+  });
+
+  test("a re-read that sees more of the night stamps a page where it did "
+      'before, so the row replaces itself', () async {
+    Future<Map<int, num>> drain(List<List<int>> pages) async {
+      final (events, _) = await _drive(
+        OuraAdapter(
+          key: _kKey,
+          anchor: (1000, 1782043215),
+          confirmTimeout: _kFast,
+          replyTimeout: _kFast,
+        ),
+        (i, v) {
+          if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+          if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+          if (v.first == 0x10) return [...pages, _summary(pages.length, 0)];
+          return const [];
+        },
+      );
+      return {
+        for (final o in events.whereType<VendorScalars>().single.rows)
+          if (o.vendorKey == 'sleep_deep_min') o.at.millisecondsSinceEpoch: o.value,
+      };
+    }
+
+    final page0 = _event(kOuraEvtSleepPhaseData, 1200, hypnogramBody());
+    final first = await drain([page0]);
+    final again = await drain(
+        [page0, _event(kOuraEvtSleepPhaseData, 1300, _hex('010055aaff'))]);
+    const base = 1782043215 * 1000;
+    expect(first, {base + 20000: 2.0});
+    expect(again[base + 20000], 2.0,
+        reason: 'the same key, so the night is not counted twice');
+    expect(again.keys, hasLength(2));
+  });
+
+  test('a sleep summary starts a new night, so the same page index counts '
+      'again after it', () async {
+    final (events, _) = await _drive(
+      OuraAdapter(
+        key: _kKey,
+        anchor: (1000, 1782043215),
+        confirmTimeout: _kFast,
+        replyTimeout: _kFast,
+      ),
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first == 0x10) {
+          return [
+            _event(kOuraEvtSleepPhaseData, 1200, hypnogramBody()),
+            _event(kOuraEvtSleepSummary1, 1250, const [0, 0]),
+            _event(kOuraEvtSleepPhaseData, 1300, hypnogramBody()),
+            _summary(3, 0),
+          ];
+        }
+        return const [];
+      },
+    );
+    final deep = events
+        .whereType<VendorScalars>()
+        .single
+        .rows
+        .where((o) => o.vendorKey == 'sleep_deep_min');
+    expect(deep, hasLength(2));
+  });
+
+  test('0x4b is archived but never staged', () async {
+    final (events, _) = await _drive(
+      OuraAdapter(
+        key: _kKey,
+        anchor: (1000, 1782043215),
+        confirmTimeout: _kFast,
+        replyTimeout: _kFast,
+      ),
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first == 0x10) {
+          return [
+            _event(kOuraEvtSleepPhaseInformation, 1200, hypnogramBody()),
+            _summary(1, 0),
+          ];
+        }
+        return const [];
+      },
+    );
+    expect(events.whereType<VendorScalars>(), isEmpty);
+    expect(events.whereType<VendorHypnogram>(), isEmpty);
+    expect(events.whereType<SampleBatch>().single.raw, hasLength(1));
   });
 
   test('a decisecond a full batch cuts is stamped once, by the re-read, even '
@@ -963,13 +1372,13 @@ void main() {
           return [
             for (var n = 0; n < 254; n++)
               _event(kOuraEvtTempPeriod, 1100, _hex('6c0d')),
-            _event(kOuraEvtSleepPhaseInformation, 1300, hypnogramBody()),
+            _event(kOuraEvtSleepPhaseDetails, 1300, hypnogramBody()),
             _summary(255, 4096),
           ];
         }
         return [
-          _event(kOuraEvtSleepPhaseInformation, 1300, hypnogramBody()),
-          _event(kOuraEvtSleepPhaseData, 1300, hypnogramBody()),
+          _event(kOuraEvtSleepPhaseDetails, 1300, hypnogramBody()),
+          _event(kOuraEvtSleepPhaseData, 1300, _hex('010055aaff')),
           _event(kOuraEvtTimeSync, 1405, _syncBody(base + 40)),
           _summary(3, 0),
         ];
@@ -1003,7 +1412,7 @@ void main() {
         return [
           for (var n = 0; n < 254; n++)
             _event(kOuraEvtTempPeriod, 1100, _hex('6c0d')),
-          _event(kOuraEvtSleepPhaseInformation, 1300, hypnogramBody()),
+          _event(kOuraEvtSleepPhaseDetails, 1300, hypnogramBody()),
           _summary(255, 0),
         ];
       },
@@ -1038,5 +1447,70 @@ void main() {
     final batch = events.whereType<SampleBatch>().single;
     expect(batch.raw, hasLength(1),
         reason: 'the hypnogram frame itself is banked regardless');
+  });
+
+  test('heart rate, beats, the ring RMSSD and SpO2 are stamped off the '
+      'origin; an implausible beat cuts the run before it', () async {
+    // 1000 ds = 1782043215. Beats 1000 ms each: an 11-bit interval is the
+    // high byte (125), two middle bits (0) and a low bit (0).
+    List<int> ibiBody(List<int> ibis) => [
+          for (final i in ibis) i >> 3,
+          for (final i in ibis) i & 1,
+          ((ibis[0] >> 1) & 3) << 6 |
+              ((ibis[1] >> 1) & 3) << 4 |
+              ((ibis[2] >> 1) & 3) << 2 |
+              ((ibis[3] >> 1) & 3),
+          ((ibis[4] >> 1) & 3) << 6 | ((ibis[5] >> 1) & 3) << 4,
+        ];
+    final (events, _) = await _drive(
+      OuraAdapter(
+        key: _kKey,
+        anchor: (1000, 1782043215),
+        confirmTimeout: _kFast,
+        replyTimeout: _kFast,
+      ),
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first == 0x10) {
+          return [
+            // Two 5-minute pairs, the second ending at the event; a zero
+            // RMSSD is no reading.
+            _event(kOuraEvtHrv, 7000, [52, 40, 54, 0]),
+            // A burst: one HR, the mean; a zero bpm is no reading.
+            _event(kOuraEvtAohr, 8000, [1, 0, 3, 70, 1, 0, 0, 74, 1]),
+            _event(kOuraEvtSpo2, 9000, [0, 96, 98, 0xff]),
+            _event(kOuraEvtSpo2, 9010, [0, 97, 40]),
+            _event(kOuraEvtIbiAmplitude, 9500,
+                ibiBody([200, 1000, 1000, 1000, 1000, 1000])),
+            _summary(5, 0),
+          ];
+        }
+        return const [];
+      },
+    );
+    final samples = events.whereType<SampleBatch>().single.samples;
+    expect({for (final s in samples) if (s.hr != null) s.tsEpoch: s.hr}, {
+      1782043215 + 600 - 300: 52,
+      1782043215 + 600: 54,
+      1782043215 + 700: 72,
+    });
+    final beat = samples.singleWhere((s) => s.rrMs.isNotEmpty);
+    expect(beat.rrMs, List.filled(5, 1000),
+        reason: 'the 200 ms interval and every beat before it are cut');
+    final end = (1782043215 + 850) * 1000;
+    expect(beat.beatTsMs, [for (var k = 4; k >= 0; k--) end - 1000 * k]);
+    expect(beat.anchor, TimeAnchor.measured);
+    final rows = {
+      for (final o in events.whereType<VendorScalars>().single.rows)
+        o.vendorKey: o,
+    };
+    expect(rows['hrv_avg']!.value, 40);
+    expect(rows['hrv_avg']!.at.millisecondsSinceEpoch ~/ 1000,
+        1782043215 + 600);
+    expect(rows['spo2_avg']!.value, 97, reason: '96, 98, 97; 40 is no reading');
+    expect(rows['spo2_avg']!.at.millisecondsSinceEpoch ~/ 1000,
+        1782043215 + 800, reason: "stamped at the batch's first reading");
+    expect(rows['spo2_avg']!.attribution, 'Oura');
   });
 }

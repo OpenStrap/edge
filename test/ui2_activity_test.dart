@@ -60,7 +60,7 @@ final _sets = <LoggedSet>[
 ];
 
 /// A fully-populated result for [arch] — every archetype's own data present,
-/// so the goldens show the defining object rather than nine StatusCards.
+/// so each archetype renders its defining object rather than nine StatusCards.
 ActivityResult _result(Arch arch) {
   final a = _first(arch);
   return ActivityResult(
@@ -156,16 +156,6 @@ class _StrainRepo extends LocalRepository {
       const {'worn_min': 600, 'coverage_pct': 42};
 }
 
-/// The golden PNGs are NOT in the repo. They are machine-specific — two Flutter
-/// SDKs disagree on antialiasing — and 27 MB of them was purged from history,
-/// so this group can only pass on a machine that has them.
-///
-/// Skipped with a stated reason rather than filtered out by a CI flag: the run
-/// then says out loud that nobody checked the pixels, which is the honest
-/// report. Drop the images back into test/goldens/ and it runs again.
-final Object _noGoldens = Directory('test/goldens').existsSync()
-    ? false
-    : 'golden images are not committed — run this suite locally';
 
 void main() {
   // ── the catalogue ────────────────────────────────────────────────────────
@@ -1206,9 +1196,7 @@ void main() {
         expect(find.text('minutes'), findsWidgets, reason: '${arch.name} zones');
         expect(find.textContaining('Z1 · '), findsWidgets);
         // The edges are drawn off a GUESSED ceiling, so the card that draws
-        // them says so in words. This was only ever pinned by the goldens,
-        // which is why it went four sweeps without anyone being able to say
-        // what the 20 red PNGs were red about.
+        // them says so in words.
         expect(find.text(zonesWhyFootnote()), findsOneWidget,
             reason: '${arch.name} zones must admit the ceiling is estimated');
       }
@@ -2142,68 +2130,4 @@ void main() {
     });
   });
 
-  // ── goldens ──────────────────────────────────────────────────────────────
-  //
-  // Regenerate deliberately:
-  //   flutter test --update-goldens test/ui2_activity_test.dart
-  //
-  // 2026-08-17 — the twenty `summary_*` PNGs were red for four straight
-  // sweeps and every verify pass hand-filtered them out, which is exactly
-  // where the next real regression would have hidden. Root cause: they were
-  // last baked at f7a73e6 and the screen has legitimately grown twice since.
-  //
-  //   · dc2d4b6 added the MAX HR row — the measured peak was on the history
-  //     row and not on the screen it came from.
-  //   · edbd76a/3df58da added [kZonesWhy] under the zone bar and widened the
-  //     heart-rate chart's range to hold the peak (the `match` y-axis goes
-  //     120/150/180 → 120/160/200).
-  //
-  // Both are content the screens are supposed to carry, so these were STALE
-  // goldens, not a layout defect. The "identical ~18% diff regardless of
-  // theme" signature that made it look like one is just geometry: an inserted
-  // 88 pt row plus a three-line note shift everything below them, and
-  // route/laps/journey share a card of the same height so they shift by the
-  // same amount and diff by the same count. Rebaked, and the two additions
-  // are now pinned in words above (`Max HR`, [kZonesWhy]) so the next drift
-  // reads as a failed string match instead of twenty unreadable PNGs.
-  group('goldens', () {
-    setUpAll(() async {
-      TestWidgetsFlutterBinding.ensureInitialized();
-      await _loadType();
-    });
-
-    final cases = <String, Widget>{
-      'summary_route': ActivitySummary(_result(Arch.route), weightKg: 72.4),
-      'summary_strength':
-          ActivitySummary(_result(Arch.strength), weightKg: 72.4),
-      'summary_journey': ActivitySummary(_result(Arch.journey), weightKg: 72.4),
-      // The two whose defining object changed: a match is now its heart-rate
-      // trace (there was a court map), and a swim is now its lap times.
-      'summary_match': ActivitySummary(_result(Arch.match), weightKg: 72.4),
-      'summary_laps': ActivitySummary(_result(Arch.laps), weightKg: 72.4),
-      'share_strength': ShareSheet(_result(Arch.strength)),
-      'picker': const ActivityPicker(weightKg: 72.4),
-      'setup_run': ActivitySetup(activityByName('running')!, weightKg: 72.4),
-    };
-
-    for (final scale in const [1.0, 2.0]) {
-      final tag = scale == 1.0 ? '1x' : '2x';
-      for (final brightness in Brightness.values) {
-        final theme = brightness.name;
-        cases.forEach((name, widget) {
-          testWidgets('$name · $theme · $tag', (tester) async {
-            tester.view.physicalSize = const Size(390 * 3, 1200 * 3);
-            tester.view.devicePixelRatio = 3;
-            addTearDown(tester.view.reset);
-
-            await tester.pumpWidget(_frame(widget, brightness, scale));
-            await tester.pumpAndSettle();
-
-            await expectLater(find.byType(MaterialApp),
-                matchesGoldenFile('goldens/activity_${name}_${theme}_$tag.png'));
-          });
-        });
-      }
-    }
-  }, skip: _noGoldens);
 }

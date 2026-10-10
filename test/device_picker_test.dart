@@ -8,6 +8,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart' show BluetoothDevice;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/hrs_link.dart';
+import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/pairing/device_picker.dart';
 import 'package:openstrap_edge/ui2/profile/devices.dart' show kPairableSensors;
 import 'package:openstrap_edge/ui2/ui2.dart';
@@ -95,6 +96,12 @@ void main() {
       expect(find.textContaining('4E5F'), findsOneWidget);
     });
 
+    testWidgets('a found Mi Band 2/3 says to unpair it first before the one tap',
+        (t) async {
+      await _pump(t, _view(found: [_cand('AA', 'miband234', label: 'MI Band 2')]));
+      expect(find.textContaining('Unpair it from'), findsOneWidget);
+    });
+
     testWidgets('the candidate mid-pair says so and the row cannot be tapped again',
         (t) async {
       await _pump(t,
@@ -170,5 +177,45 @@ void main() {
       expect(steps, contains(e.id),
           reason: '${e.id} is offered by the picker with no way to pair it');
     }
+  });
+
+  testWidgets("the Ultrahuman blurb is localised like every other ring's",
+      (t) async {
+    late String blurb;
+    await t.pumpWidget(MaterialApp(
+      locale: const Locale('de'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: Builder(builder: (c) {
+        blurb = debugCategoryBlurb(c, kUltrahuman);
+        return const SizedBox();
+      }),
+    ));
+    expect(blurb,
+        'Liest den Ring direkt aus – kein Konto, kein Schlüsselaustausch.');
+  });
+
+  testWidgets('a Mi Band 2/3 row speaks the app language, idle and mid-pair',
+      (t) async {
+    Future<void> pumpFr(String? busy) async {
+      await t.pumpWidget(MaterialApp(
+        locale: const Locale('fr'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: _view(
+            found: [_cand('AA', 'miband234', label: 'MI Band 2')],
+            busyRemoteId: busy),
+      ));
+      for (var i = 0; i < 5; i++) {
+        await t.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    await pumpFr(null);
+    expect(find.textContaining('Dissociez-le'), findsOneWidget);
+    expect(find.textContaining('Unpair it'), findsNothing);
+    await pumpFr('AA');
+    expect(find.textContaining('touchez-le pour confirmer'), findsOneWidget);
+    expect(find.textContaining('If the band buzzes'), findsNothing);
   });
 }

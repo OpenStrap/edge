@@ -18,6 +18,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import 'adapters/_registry.dart' show plistUuid;
+
 class AccessorySetup {
   static const _ch = MethodChannel('openstrap/accessory_setup');
 
@@ -74,10 +76,11 @@ class AccessorySetup {
   /// the app has no standard Bluetooth authorization, so a sensor the user has
   /// not approved here cannot be found by a scan at all (#371/#372). Each
   /// service must be declared under `OSAskSensorServices`; the native side
-  /// refuses anything else. An already-approved sensor comes back with no sheet.
+  /// refuses anything else. Sent in [plistUuid] form (`180D`, not the 128-bit
+  /// expansion), the form the plist declares. An already-approved sensor comes back with no sheet.
   static Future<String> showSensorPicker(List<String> services) async {
     final id = await _ch.invokeMethod<String>('showPicker', <String, Object>{
-      'services': [for (final s in services) s.toUpperCase()],
+      'services': [for (final s in services) plistUuid(s)],
     });
     if (id == null || id.isEmpty) {
       throw Exception('Pairing cancelled.');

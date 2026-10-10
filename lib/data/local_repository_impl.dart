@@ -21,6 +21,8 @@ import 'dart:math' as math;
 import '../compute/derivation_engine.dart';
 import '../compute/findings.dart' show servedReadiness;
 import '../compute/hr_max.dart';
+import '../compute/inputs/canonical.dart'
+    show deviceFlagOn, withoutWearableEstimates;
 import '../compute/manual_session.dart';
 import '../compute/onehz_pipeline.dart' show kUnknownAbsenceNote, needInputNote;
 import '../compute/profile.dart';
@@ -34,6 +36,7 @@ import 'activity_store.dart';
 import '../models/activity_suggestion.dart';
 import '../health/health_export.dart';
 import 'journal_fields.dart';
+import '../ble/adapters/_registry.dart' show kBandRegistry;
 import 'local_repository.dart';
 import 'series_codec.dart';
 import '../gps/route_models.dart';
@@ -97,7 +100,8 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>?> _bundle(String date) async {
     final row = await LocalDb.dayResult(date);
     if (row == null) return null;
-    return _decode(row['payload_json']);
+    final b = _decode(row['payload_json']);
+    return b == null ? null : withoutWearableEstimates(b);
   }
 
   /// The most-recent COMPLETE derived day to show on Today. With the calendar-day
@@ -117,8 +121,9 @@ class LocalRepositoryImpl extends LocalRepository {
     Map<String, dynamic>? newest, withScalars;
     for (final row in rows) {
       if (skipDay != null && row['day_id']?.toString() == skipDay) continue;
-      final b = _decode(row['payload_json']);
-      if (b == null) continue;
+      final raw = _decode(row['payload_json']);
+      if (raw == null) continue;
+      final b = withoutWearableEstimates(raw);
       newest ??= b;
       if (b['skipped'] == true) continue;
       final scalars = b['scalars'];
@@ -152,7 +157,30 @@ class LocalRepositoryImpl extends LocalRepository {
   /// read this, and only so `getInsights` can report why it withheld it.
   Future<Map<String, dynamic>?> _crossDayArtifact() async {
     final r = await LocalDb.baseline('crossday');
-    return _decode(r?['payload_json']);
+    final cd = _decode(r?['payload_json']);
+    if (cd == null) return null;
+    // A wearable's estimated TRIMP anywhere in the crossday input (a ring's,
+    // say) moves the load and the strain target built on it: the load's EWMA
+    // runs over the input's whole span (90 day rows), not 42 days. Labelled
+    // Estimated where shown, not dropped (whether it counts is the owner's).
+    final notOurs = await LocalDb.metricNotOursDates('trimp');
+    if (notOurs.isEmpty) return cd;
+    final now = DateTime.now();
+    var from = dayLabelOf(DateTime(now.year, now.month, now.day - 90));
+    // 90 rows can span more than 90 calendar days: the input's oldest wins.
+    final input =
+        _decode((await LocalDb.baseline('crossday_input'))?['payload_json']);
+    final inDays = input?['days'];
+    if (inDays is List && inDays.isNotEmpty) {
+      final first = (inDays.first as Map?)?['date'];
+      if (first is String && first.compareTo(from) < 0) from = first;
+    }
+    if (!notOurs.any((d) => d.compareTo(from) >= 0)) return cd;
+    return {
+      ...cd,
+      for (final k in const ['load', 'strain_coach'])
+        if (cd[k] is Map) k: {...cd[k] as Map, 'estimated': true},
+    };
   }
 
   Future<Map<String, dynamic>?> _freshness(String key) async {
@@ -810,6 +838,9 @@ class LocalRepositoryImpl extends LocalRepository {
         'tier': (env?['tier'] as String?) ?? ana.Tier.relative,
         'inputs_used': env?['inputs_used'] ?? const ['skin_temp_raw'],
         'note': ?env?['note'],
+        // A ring's deviation rests on a settle band not yet measured on one:
+        // the row says so rather than read as a settled figure.
+        if (env?['provisional'] == true) 'provisional': true,
       };
     }
     final have = (await LocalDb.metricSeries('skin_temp_adc')).length;
@@ -1986,7 +2017,13 @@ class LocalRepositoryImpl extends LocalRepository {
       };
     }
     final key = _trendKey(metric);
-    final rows = await LocalDb.metricSeries(key);
+    // A wearable's estimate is not drawn as a measured point, as on the
+    // native cards ([withoutWearableEstimates]).
+    final notOurs = await LocalDb.metricNotOursDates(key);
+    final rows = [
+      for (final r in await LocalDb.metricSeries(key))
+        if (!notOurs.contains(r['date'])) r,
+    ];
     // THE PIN WINS. getToday serves the frozen morning headline for readiness,
     // but metric_series is rewritten by every later re-derive of the same day —
     // which is the pin's whole reason for existing — so Readiness detail drew
@@ -2179,6 +2216,56 @@ class LocalRepositoryImpl extends LocalRepository {
       LocalDb.observationsForDay(date);
 
   @override
+  Future<List<Map<String, Object?>>> getDeviceNights(String date) async {
+    final dayStart = _localMidnightSec(date);
+    final dayEnd = _localDayEndSec(date);
+    final devices = await LocalDb.deviceRows();
+    final labels = {
+      for (final r in devices)
+        r['id']: (r['label'] as String?) ??
+            kBandRegistry
+                .where((e) => e.id == r['adapter_id'])
+                .firstOrNull
+                ?.label,
+    };
+    final families = {
+      for (final r in devices) r['id']: r['adapter_id'] as String?,
+    };
+    final out = <Map<String, Object?>>[];
+    for (final n in await LocalDb.vendorSleepNights(dayStart - 86400, dayEnd)) {
+      // The day model: a night belongs to the day it ENDS on.
+      if (n.offsetSec < dayStart || n.offsetSec >= dayEnd) continue;
+      // Rule R6: a device whose flag is off shows no night.
+      if (n.deviceId != LocalDb.kPrimaryDeviceId &&
+          !await deviceFlagOn(n.deviceId)) {
+        continue;
+      }
+      final minutes = <String, int>{};
+      for (final e in n.epochs) {
+        minutes[e.stage] = (minutes[e.stage] ?? 0) + (e.endSec - e.startSec) ~/ 60;
+      }
+      out.add({
+        'device_id': n.deviceId,
+        'label': labels[n.deviceId] ?? n.source,
+        'family': families[n.deviceId],
+        'onset_ts': n.onsetSec,
+        'wake_ts': n.offsetSec,
+        'duration_min': minutes.entries
+            .where((e) => e.key != 'wake')
+            .fold<int>(0, (s, e) => s + e.value),
+        'stage_min': minutes,
+        // Same point shape as our own night: each stage from its start,
+        // closed by a final point at wake.
+        'hypnogram': [
+          for (final e in n.epochs) {'t': e.startSec, 'stage': e.stage},
+          {'t': n.offsetSec, 'stage': n.epochs.last.stage},
+        ],
+      });
+    }
+    return out;
+  }
+
+  @override
   Future<Map<String, dynamic>> getRecords() async {
     // ONE INTEGER. The only caller is workout_screen's `_loadWorkoutData`,
     // which reads `['workouts_tracked']` and nothing else — and it awaits this
@@ -2369,7 +2456,10 @@ class LocalRepositoryImpl extends LocalRepository {
     // from the few minutes it was awake for. Persists on improvement, so the
     // list and the share card see the corrected value too.
     final rescored = await _rescoreSessionFromSubstrate(stored);
-    final w = _workoutOf(rescored.row);
+    // Rule R6: a session only a now flag-off device measured serves no
+    // score of it, stored trace included.
+    final row = (await LocalDb.withoutFlagOffScores([rescored.row])).first;
+    final w = _workoutOf(row);
     // TS-04 — whether `zone_min` below and the `zone_bands` added further down
     // describe the SAME zone set. They are recomputed from the current anchors
     // while the minutes can be a kept live split binned against an older
@@ -2395,12 +2485,12 @@ class LocalRepositoryImpl extends LocalRepository {
       // has cut into this window and only its tail is left. Redrawing from that
       // would swap the full session for its cooldown, so serve the banked trace
       // until the substrate is at least as complete as it.
-      final banked = (rescored.row['trace_samples'] as num?)?.toInt();
+      final banked = (row['trace_samples'] as num?)?.toInt();
       if (hrRows.isNotEmpty && (banked == null || hrRows.length >= banked)) {
         final ts = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
         final hr = [for (final e in hrRows) (e['hr'] as num).toInt()];
         w.addAll(_sessionTrace(ts, hr, startTs, endTs,
-            rescored.row['device_family'] as String?, await _zoneAnchors()));
+            row['device_family'] as String?, await _zoneAnchors()));
         final avg = hr.reduce((a, b) => a + b) / hr.length;
         w['avg_hr'] = avg.round();
         if (w['status'] == 'done') {
@@ -2415,7 +2505,7 @@ class LocalRepositoryImpl extends LocalRepository {
         // while the summary scalars in their own columns kept rendering.
         // Nothing new is claimed here: these are the numbers the app showed
         // for the same session when it was two days old.
-        w.addAll(_frozenTrace(rescored.row));
+        w.addAll(_frozenTrace(row));
       }
     } catch (_) {
       /* enrichment is best-effort — the summary scalars still render */
@@ -2979,6 +3069,8 @@ class LocalRepositoryImpl extends LocalRepository {
       await LocalDb.putSession(row);
     }
 
+    await _stampSessionSensor(row['id'] as String, hrRows);
+
     // Retire the fragment(s) this window supersedes, so the athlete isn't
     // asked "did you work out?" about the session they just logged.
     try {
@@ -3047,12 +3139,20 @@ class LocalRepositoryImpl extends LocalRepository {
       return (row: row, hrRows: null, zoneMinutesRebinned: true);
     }
     try {
+      // Scored by a workout sensor whose flag is now off: what the window
+      // holds without it (the band's partial minutes) must not overwrite its
+      // stored score, which flag on serves again (rule R6).
+      if ((await LocalDb.sessionSensorsOf(id))
+          .any((s) => !LocalDb.sessionSensorSources.contains(s))) {
+        return (row: row, hrRows: null, zoneMinutesRebinned: true);
+      }
       // Returned to the caller: `getWorkout` enriches from the SAME 1 Hz window
       // straight after this, and a two-hour session is ~7200 rows to scan twice.
       final hrRows = await LocalDb.hrSamplesInRange(startTs, endTs);
       if (hrRows.isEmpty) {
         return (row: row, hrRows: hrRows, zoneMinutesRebinned: true);
       }
+      await _stampSessionSensor(id, hrRows);
 
       final profile = Profile.fromMap(getProfileMap());
       final hrBpm = [for (final e in hrRows) (e['hr'] as num).toInt()];
@@ -3215,6 +3315,19 @@ class LocalRepositoryImpl extends LocalRepository {
     } catch (_) {
       // best-effort: the stored row renders
       return (row: row, hrRows: null, zoneMinutesRebinned: true);
+    }
+  }
+
+  /// Stamps session [id] with the workout sensor whose rows [hrRows] (a
+  /// [LocalDb.hrSamplesInRange] read) scored it, if one did: rule R6 serves
+  /// its score empty once that sensor's flag is off.
+  Future<void> _stampSessionSensor(
+      String id, List<Map<String, dynamic>> hrRows) async {
+    for (final r in hrRows) {
+      final s = r['source'];
+      if (s is String && LocalDb.sessionSensorSources.contains(s)) {
+        return LocalDb.stampSessionSensor(id, s);
+      }
     }
   }
 
@@ -3661,10 +3774,18 @@ class LocalRepositoryImpl extends LocalRepository {
     for (final od in outcomeDefs) {
       final key = od['key'] as String;
       final m = <String, double>{};
+      // A wearable's estimate (or provisional readiness) is not a measured
+      // outcome either, as on the trend charts (getChart).
+      final notOurs = await LocalDb.metricNotOursDates(key);
       for (final r in await LocalDb.metricSeries(key)) {
         final d = r['date'];
         final v = (r['value'] as num?)?.toDouble();
-        if (v != null && d is String && !imported.contains(d)) m[d] = v;
+        if (v != null &&
+            d is String &&
+            !imported.contains(d) &&
+            !notOurs.contains(d)) {
+          m[d] = v;
+        }
       }
       maps[key] = m;
     }
@@ -3880,7 +4001,11 @@ class LocalRepositoryImpl extends LocalRepository {
     // MEASURED DAYS ONLY — a permutation test over a series spliced from two
     // different algorithms reports the splice, not the weekday (same reasoning
     // as the journal outcomes above).
-    final rows = await LocalDb.metricSeries(key, measuredOnly: true);
+    final notOurs = await LocalDb.metricNotOursDates(key);
+    final rows = [
+      for (final r in await LocalDb.metricSeries(key, measuredOnly: true))
+        if (!notOurs.contains(r['date'])) r,
+    ];
     if (rows.isEmpty) return const {};
     final dates = <String>[];
     final values = <double?>[];
@@ -4511,6 +4636,7 @@ Map<String, dynamic>? coachToday(Map<String, dynamic>? crossDay) {
       'low': lo,
       'high': hi,
       'rationale': (v['rationale'] ?? '').toString(),
+      if (metric['estimated'] == true) 'estimated': true,
     },
   };
 }

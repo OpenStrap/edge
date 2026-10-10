@@ -259,7 +259,10 @@ dependencies:
       # REPIN: protocol #71 merge (oura `decodeSleepPhases`) @ f04931b, on top of
       # bc7d8d0.
       # REPIN: protocol main @ ecb512b (#72-#77).
-      ref: ecb512b710fbfa5fffce999f939a64aa7c486ee0
+      # REPIN: protocol feat/multidevice-verified-decoders head (multi-device
+      # decoders; WHOOP decode untouched, pinned by whoop_freeze_golden_test).
+      # Re-point at the merge commit once it lands on protocol main.
+      ref: 89080bcfac7767b3a871fd3a7d9307f5f30dad26
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
@@ -503,7 +506,10 @@ dependencies:
       # analytics main @ b7d5819: adds #88 (rr over-count gate), #89 (20-difference
       # window floor), #90 (gap-aware rsa respiration), #91 (personal quiet level),
       # #78 (sleep detection no longer bridges unobserved gaps; bridges capped at 90 min).
-      ref: b7d5819a504cbf7842d0bdf09806d4189a8ac0e2
+      # feat/multidevice-analytics head: main @ b7d5819 plus the rings'
+      # provisional skin-temp settle band (no WHOOP family touched). Re-point
+      # at the merge commit once it lands on analytics main.
+      ref: ad6384746d36a2e6b7b964658d308e40de403c8a
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

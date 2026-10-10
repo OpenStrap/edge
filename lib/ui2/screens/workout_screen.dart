@@ -330,6 +330,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
               Text(loc?.workoutFitnessLabel ?? 'fitness',
                   style: F.cap.copyWith(color: p.ink3)),
               const Spacer(),
+              if (ld.estimated) ...[
+                Pill(loc?.wearableEstimated ?? 'Estimated', C.purple),
+                const SizedBox(width: S.x2),
+              ],
               if (ld.tsb != null)
                 Pill(_form(c, ld.tsb!), ld.tsb! >= 0 ? C.green : C.orange),
             ]),
@@ -607,6 +611,16 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             onDelete: w.id.isEmpty
                 ? null
                 : () => _confirmDeleteWorkout(c, w),
+            onScore: w.importedFrom != null && w.id.isNotEmpty
+                ? () async {
+                    await scoreImportedWorkout(c,
+                        uuid: w.id,
+                        start: w.start,
+                        end: w.start.add(w.duration),
+                        activity: w.activity);
+                    if (mounted) reload();
+                  }
+                : null,
             // A retime is a re-score over the new window, so it is offered
             // only where there is something of ours to re-score: an imported
             // row's times belong to the app that recorded it, and this band
@@ -965,8 +979,11 @@ class _HistoryRow extends StatelessWidget {
   /// Remove this session locally. Null hides the control (no id to delete).
   final VoidCallback? onDelete;
 
+  /// An imported row's tap: score its window from the band (#325).
+  final VoidCallback? onScore;
+
   const _HistoryRow(this.w,
-      {this.weightKg, this.onRetime, this.onDelete});
+      {this.weightKg, this.onRetime, this.onDelete, this.onScore});
 
   Future<void> _open(BuildContext c) async {
     final nav = Navigator.of(c);
@@ -982,13 +999,11 @@ class _HistoryRow extends StatelessWidget {
     final a = w.activity;
     final stats = _stats(c);
     return Surface(
-      // An imported row does not open. The summary screen behind this tap is
-      // built to show a session THIS band measured — its rating control, its
-      // heart-rate trace, its zone split — and it has nowhere to say whose
-      // workout it is. A screen that presents an Apple Watch run exactly like
-      // one of ours is the fabrication this whole table exists to avoid, so
-      // the row stays a row until that screen can name its source.
-      onTap: w.importedFrom == null ? () => _open(c) : null,
+      // An imported row does not open the summary: that screen shows a
+      // session THIS band measured and has nowhere to say whose workout it is.
+      // Its tap offers to score the window from the band's own heart rate
+      // instead, which makes it one of ours and replaces the import (#325).
+      onTap: w.importedFrom == null ? () => _open(c) : onScore,
       child: Column(children: [
         Row(children: [
           Container(
@@ -1659,7 +1674,10 @@ class _Load {
   /// Nullable: the pipeline can produce fitness without fatigue and form, and
   /// zero is a real training state that must not stand in for "not computed".
   final double? atl, tsb;
-  const _Load(this.ctl, this.atl, this.tsb);
+
+  /// A wearable's estimated TRIMP is in its span: labelled, not dropped.
+  final bool estimated;
+  const _Load(this.ctl, this.atl, this.tsb, {this.estimated = false});
 }
 
 /// TS-12 — the two facts, carried only when they point the same way.
@@ -1968,6 +1986,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
           (v['ctl'] as num).toDouble(),
           (v['atl'] as num?)?.toDouble(),
           (v['tsb'] as num?)?.toDouble(),
+          estimated: raw['estimated'] == true,
         );
       }
     }
@@ -1998,9 +2017,11 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
           if (r is! Map) continue;
           final ts = (r['start_ts'] as num?)?.toInt();
           if (ts == null) continue;
+          // An unknown type keeps its own name: a scored import is saved
+          // under the store's sport (`surfing`), which the catalogue may lack.
           final a = activityByName(r['type'] as String?) ??
-              const Activity('Workout', LucideIcons.activity, C.purple,
-                  Track.duration, 5.0);
+              Activity(importedWorkoutTitle(r['type']), LucideIcons.activity,
+                  C.purple, Track.duration, 5.0);
           past.add(_PastWorkout(
             (r['id'] as String?) ?? '',
             a,
@@ -2049,9 +2070,12 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
           // type. The NAME always comes from the store — `activityByName`
           // resolves the ~40 types this app can start, and the fallback would
           // print "Workout" over a surf.
+          // Named after the store's type, not "Workout": scoring this row
+          // saves `activity.typeKey`, and a generic fallback would replace
+          // the import's sport with `workout`.
           activityByName(title) ??
-              const Activity('Workout', LucideIcons.activity, C.purple,
-                  Track.duration, 5.0),
+              Activity(title, LucideIcons.activity, C.purple, Track.duration,
+                  5.0),
           at,
           Motion.tick * (endTs - ts),
           // No strain, ever. It is not omitted pending a better idea — there

@@ -1562,4 +1562,29 @@ void main() {
           findsOneWidget);
     });
   });
+
+  // A band that folds REM into light serves rem_min as null: its light/deep
+  // counts still show, with no REM row.
+  group('stage minutes, as counted', () {
+    testWidgets('a night with no REM figure keeps light and deep', (t) async {
+      t.view.physicalSize = const Size(390 * 3, 3000 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Investigate('sleep',
+            data: InvestigateData(day: _day(0), night: const {
+              'light_min': 301,
+              'deep_min': 83,
+              'rem_min': null,
+              'awake_min': 20,
+              'duration_min': 384,
+            })),
+      ));
+      await t.pumpAndSettle();
+      expect(find.textContaining('301 min · shown as'), findsOneWidget);
+      expect(find.textContaining('83 min · shown as'), findsOneWidget);
+      expect(find.text('REM'), findsNothing);
+    });
+  });
 }

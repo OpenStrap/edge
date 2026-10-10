@@ -407,6 +407,7 @@ Future<CsvExportResult> exportCsvFiles(
   DateTime? now,
 }) async {
   final db = await LocalDb.instance;
+  await LocalDb.refreshSessionScoreMask();
   final (dir, stamp) = await _newRunDir(now);
   final paths = <String>[];
   final failed = <String>[];

@@ -250,6 +250,12 @@ class GattBandLink implements BandLink {
     }
   }
 
+  /// Whether a write to a characteristic with [p] goes without response:
+  /// only when that is the one write kind it declares.
+  @visibleForTesting
+  static bool writeWithoutResponseFor(CharacteristicProperties p) =>
+      p.writeWithoutResponse && !p.write;
+
   @override
   Future<bool> write(String characteristicUuid, List<int> value) {
     // THE DANGEROUS-OPCODE BLOCK, at the one place every adapter's writes
@@ -263,6 +269,34 @@ class GattBandLink implements BandLink {
     if (opcode != null &&
         (dangerousCmds.contains(opcode) || OpcodeSafety.isDestructive(opcode))) {
       log('REFUSED dangerous opcode 0x${opcode.toRadixString(16)} at BandLink');
+      return Future.value(false);
+    }
+    // The Colmi ring has no envelope for the check above to read, but its
+    // command byte is frame[0] on its write characteristic: reboot and
+    // factory reset are refused here the same way.
+    if (entry.id == kColmi.id &&
+        gattUuidMatches(characteristicUuid, Guid(kColmiWriteChar)) &&
+        colmiIsDestructive(value)) {
+      log('REFUSED dangerous Colmi command 0x${value[0].toRadixString(16)} '
+          'at BandLink');
+      return Future.value(false);
+    }
+    // A Mi scale's history takes only request, send and stop: anything else
+    // (its `04` acknowledgement DELETES the stored records) is refused.
+    // Matched as [_find] resolves it, so no other spelling of the uuid
+    // (case, SIG-base form) reaches the characteristic around the check.
+    if ((entry.id == kMiScaleComposition.id || entry.id == kMiScale2.id) &&
+        gattUuidMatches(characteristicUuid, Guid(kMiScaleHistoryChar)) &&
+        (value.isEmpty || value[0] < 0x01 || value[0] > 0x03)) {
+      log('REFUSED: a Mi scale history write other than request, send, stop.');
+      return Future.value(false);
+    }
+    // A Coros link is read-only. Its vendor channel takes unauthenticated
+    // commands (a factory reset, a Bluetooth-address rotation), and nothing
+    // here has a reason to write to the watch, so every write is refused
+    // rather than a denylist kept for that channel.
+    if (entry.id == kCoros.id) {
+      log('REFUSED: a Coros link is read-only.');
       return Future.value(false);
     }
     // Refused BEFORE the chain, as in the engine: a blocked opcode must not
@@ -281,13 +315,19 @@ class GattBandLink implements BandLink {
               'on this peripheral.');
           return false;
         }
-        // withoutResponse: false is what triggers bonding AND what gets
-        // commands acknowledged; a without-response write is silently dropped
-        // by the band. allowLongWrite covers the one frame that exceeds the
-        // 20-byte ATT limit of a default MTU (the rich SET_ALARM_TIME), and is
-        // a no-op below it.
+        // With response wherever the characteristic allows it: that is what
+        // triggers bonding AND what gets commands acknowledged; a
+        // without-response write is silently dropped by the band. A
+        // characteristic that only declares write-without-response (the
+        // Ultrahuman command characteristic may) would refuse a
+        // with-response write outright, so it gets the only kind it takes.
+        // allowLongWrite covers the one frame that exceeds the 20-byte ATT
+        // limit of a default MTU (the rich SET_ALARM_TIME), and is a no-op
+        // below it; it needs a with-response write.
+        final noResponse = writeWithoutResponseFor(c.properties);
         await c
-            .write(value, withoutResponse: false, allowLongWrite: true)
+            .write(value,
+                withoutResponse: noResponse, allowLongWrite: !noResponse)
             .timeout(_writeTimeout);
         return true;
       } on TimeoutException {

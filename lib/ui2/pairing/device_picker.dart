@@ -526,21 +526,30 @@ class _NearbySection extends StatelessWidget {
     final signal = cand.rssi == null
         ? (l?.devicesConnected ?? 'Connected')
         : '${cand.rssi} dBm';
+    final idle = cand.label == null ? '…$tail · $signal' : signal;
     return SetRow(
       sensorIcon(cand.entryId),
       C.green,
       cand.label ?? cand.entryId,
       sub: busyRemoteId == id
-          ? (l?.pairSensorPairing ?? 'Pairing…')
-          : cand.label == null
-              ? '…$tail · $signal'
-              : signal,
+          // A Mi Band 2/3 may wait up to 30 s for a tap on the band, and this
+          // path opens no screen of its own to say so.
+          ? (cand.entryId == kMiBand234.id
+              ? (l?.pairSensorPairingMiband234 ??
+                  'Pairing… If the band buzzes, tap it to confirm.')
+              : (l?.pairSensorPairing ?? 'Pairing…'))
+          // One tap pairs a Mi Band 2/3, so its unpair-first step shows on
+          // the row before that tap, not only on the category list.
+          : cand.entryId == kMiBand234.id
+              ? '$idle\n${deviceCategoryBlurb(AppLocalizations.of(c), kMiBand234)}'
+              : idle,
       chevron: !busy,
       onTap: busy || onTap == null ? null : () => onTap!(cand),
     );
   }
 }
 
+/// The one-line description under each device in the picker, localised.
 String deviceCategoryBlurb(AppLocalizations? l, BandEntry e) {
   return localizedText(l, switch (e.id) {
       'gen4' || 'gen5' => l?.devicePickerBlurbBand ??
@@ -553,57 +562,32 @@ String deviceCategoryBlurb(AppLocalizations? l, BandEntry e) {
       'coros' => l?.devicePickerBlurbCoros ??
           'A sports watch. Reads battery and live heart rate — recorded '
               'activities stay on the watch.',
-    'ultrahuman' => 'Reads the ring directly — no account, no key exchange.',
-      'withings_steel_hr' => l?.devicePickerBlurbWithingsSteelHr ??
-          'Pairs and connects — nothing it captures is decoded into a '
-              'number yet.',
+      'ultrahuman' => l?.devicePickerBlurbUltrahuman ??
+          'Reads the ring directly — no account, no key exchange.',
       'miband234' => l?.devicePickerBlurbMiband234 ??
-          'A Mi Band 2, 3 or 4. Pairs and connects; nothing derives from it '
-              'yet.',
-      'pebble' => 'Pebble 2 or Pebble 2 SE only. Pairs only for now — '
-          'nothing is read or stored yet.',
-      'makibeshr3' => 'An unbranded Makibes HR3 board. Pairs and banks its '
-          'raw data; nothing is derived from it yet.',
-      'id115' => 'An unbranded ID115 board. Pairs and banks its raw data; '
-          'nothing is derived from it yet.',
-      'smaq2oss' => 'An SMA-Q2-OSS smartwatch. Pairs and banks its raw '
-          'data; nothing is derived from it yet.',
-      'xwatch' => 'An unbranded XWatch board. Pairs and banks its raw data; '
-          'nothing is derived from it yet.',
-      'watch9' => 'An unbranded Watch9 board. Pairs and banks its raw data; '
-          'nothing is derived from it yet.',
-      'tlw64' => 'A TLW64 or NO1 F1 fitness band. Pairs and banks its raw '
-          'data; nothing is derived from it yet.',
-      'dafit' => 'An unbranded DaFit/MOYOUNG-style watch. Pairs and banks '
-          'its own data; nothing derives from it yet.',
-      'o2ring' => l?.devicePickerBlurbO2Ring ??
-          'Reads its battery, model and serial. No reading from the ring '
-              'itself is decoded yet.',
-      'zetime' => l?.devicePickerBlurbZeTime ??
-          'Pairs and connects. Nothing is decoded from it yet beyond its own '
-              'battery level.',
-      'wearfit' => l?.devicePickerBlurbWearFit ??
-          'A Howear-branded band, paired through the WearFit app family.',
-    'dt78' => 'Pairs and banks its raw data — nothing is decoded yet.',
-      'lefun' => 'A generic ring or band sold under many storefront names. '
-          'Pairs and connects; reports nothing yet.',
-      'hplus' => 'A generic HPlus-family HR band. Pairs and banks its '
-          'history; nothing is decoded into a number yet.',
-      'pinetime' => 'Pairs and banks its raw data in the background, but '
-          'does not derive anything from it yet.',
-      'qhybrid' =>
-        'The original Fossil/Skagen hybrid smartwatch, not the newer '
-            'Hybrid HR. Pairs and connects; nothing derives from it yet.',
+          'A Mi Band 2 or 3. Unpair it from Mi Fit or Zepp first (or '
+              'factory-reset it): it only takes a new key while it holds '
+              'none. Syncs its stored heart rate, steps and sleep. '
+              'If the band buzzes while pairing, tap it to confirm.',
+      'pebble' => l?.devicePickerBlurbPebble ??
+          'Pebble 2 or Pebble 2 SE only. Syncs steps and sleep, and heart '
+              'rate on a Pebble 2 (the SE has no heart-rate sensor).',
+      'thermometer' => l?.devicePickerBlurbThermometer ??
+          'Saves each reading as a body temperature.',
+      'miscale_bc' => l?.devicePickerBlurbMiscaleBc ??
+          'Saves each settled weight and bio-impedance, including stored ones.',
+      'miscale2' => l?.devicePickerBlurbMiscale2 ??
+          'Saves each settled weight, including stored ones.',
       'colmi' => l?.devicePickerBlurbColmi ??
-          'A Colmi ring. Pairs and banks its history; nothing is decoded '
-              'into a number yet.',
-      'jyou' => 'A budget activity band. Pairs and banks its raw data, but '
-          'nothing is derived from it yet.',
-      'banglejs' => l?.devicePickerBlurbBangleJs ??
-          'Pairs any Espruino/Nordic-UART device generically, not just '
-              'Bangle.js-branded watches. Banks raw bytes only; nothing is '
-              'decoded into a number.',
+          'A Colmi ring. Syncs heart rate, sleep stages, steps, SpO2, HRV '
+              "and stress; values the ring computes itself are labelled as "
+              "Colmi's. Experimental.",
       _ => l?.devicePickerBlurbSensor ??
           'A chest strap or armband, for beat timing during a workout.',
   });
 }
+
+/// Test seam for the category blurbs: each one localised.
+@visibleForTesting
+String debugCategoryBlurb(BuildContext c, BandEntry e) =>
+    deviceCategoryBlurb(AppLocalizations.of(c), e);

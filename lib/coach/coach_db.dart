@@ -95,6 +95,7 @@ class CoachDb {
     'notifications', 'journal', 'cycle_log', 'cycle_symptom', 'notif_fired',
     'sleep_override', 'sleep_session_candidates', 'wake_day_features',
     'workout_suggestions', 'workout_route', 'live_coverage',
+    'session_score_mask', 'session_sensor',
     // raw / decoded substrate
     'raw_records', 'raw_archive', 'decoded_onehz', 'decoded_rr', 'samples',
     'events', 'band_events', 'band_battery', 'substrate_archive',
@@ -555,6 +556,7 @@ class CoachDb {
       ({String day, num? readiness})? today) async {
     try {
       final db = await _readonly();
+      await LocalDb.refreshSessionScoreMask();
       await _serveToday(db, today);
       await _assertAllowedBtrees(db, sql);
       // ponytail: sqflite exposes no sqlite3_progress_handler, so a slow

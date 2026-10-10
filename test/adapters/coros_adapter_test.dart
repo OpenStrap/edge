@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/adapters/adapter.dart';
+import 'package:openstrap_edge/ble/adapters/host.dart';
 import 'package:openstrap_edge/ble/adapters/coros.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
 
@@ -112,11 +113,44 @@ void main() {
     expect(notes['firmware'], '3.0512.0');
   });
 
+  test('a watch with no Firmware Revision reports its Software Revision as '
+      'firmware', () async {
+    final events = await replay(
+      const [(1_800_000_000, kHrWithTwoRr)],
+      reads: {kSoftwareRevisionUuid: utf8Bytes('V 3.0808.0')},
+    );
+    final notes = {
+      for (final e in events.whereType<BandNote>()) e.key: e.value,
+    };
+    expect(notes['firmware'], 'V 3.0808.0');
+  });
+
   test('a watch that answers nothing for the status pull still connects and '
       'still yields HR', () async {
     final events = await replay(const [(1_800_000_000, kHrWithTwoRr)]);
     expect(events.whereType<BandNote>(), isEmpty);
     expect(events.whereType<SampleBatch>(), hasLength(1));
+  });
+
+  test('the beats of an off-chest notification still pass time on the chain',
+      () async {
+    // 1024 ticks = 1000 ms each. The middle notification is refused, but its
+    // beat happened: the next banked beat carries it as a gap, so the chain
+    // ends that beat two intervals after the first instead of one.
+    final events = await replay(const [
+      (1_800_000_000, <int>[0x16, 60, 0x00, 0x04]),
+      (1_800_000_001, <int>[0x14, 60, 0x00, 0x04]), // off the chest
+      (1_800_000_002, <int>[0x16, 60, 0x00, 0x04]),
+    ]);
+    final s = [
+      for (final e in events)
+        if (e is SampleBatch) ...e.samples,
+    ];
+    expect(s.map((x) => x.gapMs), [0, 1000]);
+    final a = beatEndTimesMs(s[0].rrMs, s[0].tsEpoch, null);
+    final b = beatEndTimesMs(s[1].rrMs, s[1].tsEpoch, a.last,
+        gapsMs: [s[1].gapMs]);
+    expect(b.single - a.single, 2000);
   });
 }
 

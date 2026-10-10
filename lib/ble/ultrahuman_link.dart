@@ -3,9 +3,10 @@
 //
 // NOTHING HERE HAS MET HARDWARE. Nobody on this project owns a ring (owner
 // ruling R6), so not one byte of this path has been exercised against one. The
-// registry entry stays EXPERIMENTAL, `UltrahumanAdapter.signals` stays
-// `const {}`, and nothing this file writes becomes a number: its rows carry a
-// non-null `source`, and every derive/export read filters `source IS NULL`.
+// registry entry stays EXPERIMENTAL. Its rows carry `source = 'ultrahuman'`
+// and `kDerivableSources` does not name it, so they never join a band's day.
+// A day the band never saw derives off them only while the ring is the
+// active wearable and its flag is on (`compute/inputs/canonical.dart`).
 //
 // SIMPLER THAN OURA'S HOST, and for two real reasons rather than one:
 //
@@ -26,18 +27,22 @@
 // THE DESTRUCTIVE COMMANDS ARE UNREACHABLE FROM HERE. `GattBandLink`'s
 // dangerous-opcode block does not cover an unframed band (ASSUMPTIONS I1) —
 // this file's own defense is that `protocol`'s `ultrahuman.dart` has no
-// builder for reset, airplane mode or the power-saving toggle, and this file
-// writes nothing it did not get from a builder there.
+// builder for any of the ring's destructive opcodes (device reset / shipping
+// mode 0x17, software reset 0x98, airplane mode, power saving and the rest
+// listed there), and this file writes nothing it did not get from a builder
+// there.
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import 'adapters/_registry.dart';
+import 'adapters/adapter.dart' show ReplayBandLink;
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart' show BandHost;
 import 'adapters/ultrahuman.dart';
@@ -138,7 +143,8 @@ class UltrahumanLink {
     }
 
     _deviceId = deviceId;
-    final cursor = await LocalDb.getCursorInt(_cursorItem(deviceId)) ?? 0;
+    final cursor = await LocalDb.getCursorInt(_cursorItem(deviceId)) ??
+        kUltrahumanFirstIndex;
 
     try {
       // A cap on concurrent SECONDARY links — see `ble_state.dart`'s
@@ -149,7 +155,10 @@ class UltrahumanLink {
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
-          await device.connect(timeout: const Duration(seconds: 20));
+          // 247 is the MTU the ring is built around (seven 32-byte records
+          // per notification). Android only; iOS negotiates its own.
+          await device.connect(
+              timeout: const Duration(seconds: 20), mtu: 247);
           final services = await device.discoverServices();
           final link = GattBandLink(
             entry: kUltrahuman,
@@ -165,6 +174,18 @@ class UltrahumanLink {
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
           }
+          // Enable the reply notification HERE, where an auth failure can
+          // still be seen: `GattBandLink.notify` swallows it, and the drain
+          // would then end with nothing and report success, every sync.
+          final notifyChar = services
+              .expand((s) => s.characteristics)
+              .firstWhere((c) =>
+                  c.uuid == Guid(kUltrahumanNotifyChar));
+          await enableNotifyWithBondRetry(
+            () => notifyChar.setNotifyValue(true),
+            device.createBond,
+            isAndroid: Platform.isAndroid,
+          );
           final host = _makeHost(
             deviceId,
             UltrahumanAdapter(startIndex: cursor),
@@ -206,6 +227,9 @@ class UltrahumanLink {
         deviceId: deviceId,
         onLog: (m) => debugPrint('[ultrahuman] $m'),
         onNote: _handleNote,
+        // The cursor passes days whose values only just went out: it must
+        // not move unless they landed.
+        notesAfterVendorWrites: true,
         buildArchive: _buildArchiveRow,
         nowSeconds: _now,
       );
@@ -216,13 +240,6 @@ class UltrahumanLink {
         // Emitted only AFTER the host confirmed, which is only after the
         // commit landed — same ordering guarantee as Oura's cursor note.
         if (value is int) _writeCursor(value);
-      case 'ultrahuman_cursor_stranded':
-        // The bookmark is past everything the ring holds — its own record
-        // index restarted below it. Dropping it costs one full re-read and is
-        // otherwise free: `raw_archive` dedups on the frame bytes.
-        debugPrint('[ultrahuman] the bookmark is past the end of the ring — '
-            'dropping it so the next sync re-reads from the beginning.');
-        _writeCursor(0);
       case 'battery':
         if (value is int) _batteryPct = value;
       default:
@@ -231,9 +248,9 @@ class UltrahumanLink {
   }
 
   /// Bank one 32-byte record verbatim, decoded or not (owner rulings R1-R3).
-  /// HR, HRV, SpO2, skin temperature, activity, steps and stress are all in
-  /// here undecoded — the bytes are banked now so a decoder written when
-  /// someone owns a ring can be run over them.
+  /// Every field, decoded or not (both HRV bytes, the quality bytes, the
+  /// ambient temperature, activity), is in here — the bytes are banked now so
+  /// a decoder checked against a real ring can be run over them.
   ArchiveRecord? _buildArchiveRow(List<int> bytes, int capturedAtMs) {
     if (bytes.length != kUltrahumanRecordLen) return null;
     // The record's own timestamp, if it parses — this ring measures its own
@@ -242,10 +259,9 @@ class UltrahumanLink {
     final rec = parseUltrahumanRecord(bytes, 0);
     return ArchiveRecord(
       hex: _hex(bytes),
-      // NULL, not 0: these 32 bytes carry no flash-record counter of their
-      // own (the drain index that fetched them is not attached here) — same
-      // reasoning `oura_link.dart` gives for its own null `counter`.
-      counter: null,
+      // Bytes 30-31: the ring's own u16-LE record index. Informational here;
+      // archive thinning only touches `undecodable_rec_v20`.
+      counter: rec?.index,
       // The opcode whose response this record came from — every archived
       // record shares one, since there is only one kind.
       packetType: kUltrahumanOpGetRecordings,
@@ -257,6 +273,80 @@ class UltrahumanLink {
       // right bytes.
       reason: 'ultrahuman_record',
     );
+  }
+
+  /// Replay a scripted ring through the REAL [UltrahumanAdapter], the real
+  /// host and the real cursor persistence. `flutter_blue_plus` has no
+  /// simulator path, so this is the only way in. Same shape as
+  /// `ColmiLink.ingestForTest`.
+  @visibleForTesting
+  Future<ReplayBandLink> ingestForTest(
+    String deviceId,
+    List<List<int>> Function(int writeIndex, List<int> value) reply, {
+    required int Function() nowSeconds,
+    Duration timeout = const Duration(milliseconds: 100),
+  }) async {
+    _deviceId = deviceId;
+    final cursor = await LocalDb.getCursorInt(_cursorItem(deviceId)) ??
+        kUltrahumanFirstIndex;
+    final link = ReplayBandLink();
+    final host = BandHost(
+      adapter: UltrahumanAdapter(
+        startIndex: cursor,
+        replyTimeout: timeout,
+        confirmTimeout: const Duration(seconds: 5),
+        nowSeconds: nowSeconds,
+      ),
+      deviceId: deviceId,
+      onLog: (m) => debugPrint('[ultrahuman] $m'),
+      onNote: _handleNote,
+      notesAfterVendorWrites: true,
+      buildArchive: _buildArchiveRow,
+      nowSeconds: nowSeconds,
+    );
+    _host = host;
+    var finished = false;
+    final done = host.run(link).whenComplete(() => finished = true);
+    var served = 0;
+    for (var spin = 0; spin < 4000 && !finished; spin++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      while (served < link.writes.length) {
+        for (final f in reply(served, link.writes[served].$2)) {
+          link.feed(kUltrahumanNotifyChar, f, atSec: nowSeconds());
+        }
+        served++;
+      }
+    }
+    await link.close();
+    await done.timeout(const Duration(seconds: 5), onTimeout: () {});
+    await host.stop();
+    await _cursorWrites;
+    _host = null;
+    _deviceId = null;
+    return link;
+  }
+
+  /// GATT statuses that mean "this link must be encrypted first":
+  /// insufficient authentication / authorization / encryption, auth failure.
+  static const Set<int> _kAuthErrors = {5, 8, 15, 137};
+
+  /// Run [enable]; when Android refuses it for lack of a bond, [bond] and
+  /// try exactly once more. A second failure, or any other error, throws and
+  /// fails the sync. iOS pairs on its own, so there it never retries.
+  @visibleForTesting
+  static Future<void> enableNotifyWithBondRetry(
+    Future<Object?> Function() enable,
+    Future<void> Function() bond, {
+    required bool isAndroid,
+  }) async {
+    try {
+      await enable();
+    } on FlutterBluePlusException catch (e) {
+      if (!isAndroid || !_kAuthErrors.contains(e.code)) rethrow;
+      debugPrint('[ultrahuman] notify refused (${e.code}); bonding once.');
+      await bond();
+      await enable();
+    }
   }
 
   Future<void> _persistCursor(int index) async {

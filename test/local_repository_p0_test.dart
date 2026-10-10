@@ -281,6 +281,36 @@ void main() {
     expect(walk.first['rho'], isNull);
   });
 
+  test("a wearable's estimated outcome never reaches the journal analysis",
+      () async {
+    // The caffeine set-up above, but every efficiency value is a wearable's
+    // estimate (metric_method class): not a measured outcome to correlate.
+    final db = await LocalDb.instance;
+    for (var i = 0; i < 30; i++) {
+      final date = '2026-06-${(1 + i).toString().padLeft(2, '0')}';
+      final late = i.isEven;
+      await LocalDb.putJournalMetrics(date, {
+        'caffeine_mg': JournalMetricValue(
+          200,
+          atMinuteOfDay: late ? 19 * 60 : 8 * 60,
+        ),
+      });
+      await LocalDb.putMetricSeriesValue(
+          date, 'efficiency', late ? 80.0 + (i % 3) : 92.0 + (i % 3));
+      await db.insert('metric_method', {
+        'date': date,
+        'key': 'efficiency',
+        'method': 'hr_5min',
+        'family': 'colmi',
+        'class': 'estimated',
+      });
+    }
+    final j = await repo.getJournalInsights(range: 'all');
+    final rows = (j['numeric_insights'] as List).cast<Map<String, dynamic>>();
+    expect(rows.where((r) => r['outcome'] == 'efficiency'), isEmpty);
+    expect(rows, isEmpty);
+  });
+
   // ── MIND-12 ──────────────────────────────────────────────────────────────
   test(
     'the weekday test refuses under its history floor, and says why',

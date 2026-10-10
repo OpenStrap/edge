@@ -36,6 +36,7 @@ import '../ble/hrs_link.dart';
 import '../ble/live_cadence.dart';
 import '../ble/polar_pmd_link.dart';
 import '../compute/hr_max.dart';
+import '../compute/inputs/canonical.dart' show kStrapTailSec;
 import '../compute/manual_session.dart' show strainFromPerMinuteHr;
 import '../compute/profile.dart';
 import '../compute/quiet_level.dart';
@@ -86,7 +87,10 @@ class WorkoutController {
     required Future<void> Function() buzz,
     required LocalRepository? Function() repo,
     required bool Function() hostDisposed,
+    String? Function()? liveSensor,
+    void Function()? requestHeavyDerive,
   })  : _user = user,
+        _liveSensor = liveSensor ?? _noSensor,
         _linkDeviceFamily = linkDeviceFamily,
         _clearRadioFallbackAndReconcile = clearRadioFallbackAndReconcile,
         _nudgeLive = nudgeLive,
@@ -109,7 +113,9 @@ class WorkoutController {
         _exportToHealth = exportToHealth,
         _buzz = buzz,
         _repo = repo,
-        _hostDisposed = hostDisposed;
+        _hostDisposed = hostDisposed {
+    onStrapTailBanked = requestHeavyDerive ?? () {};
+  }
 
   final Map<String, dynamic>? Function() _user;
   final String? Function() _linkDeviceFamily;
@@ -147,6 +153,16 @@ class WorkoutController {
   final Future<void> Function() _buzz;
   final LocalRepository? Function() _repo;
   final bool Function() _hostDisposed;
+
+  // The workout sensor (adapter id) the live heart rate is coming from right
+  // now, or null when it is the band's or nothing's.
+  final String? Function() _liveSensor;
+  static String? _noSensor() => null;
+
+  /// The workout sensor (adapter id) whose live reading a tick of the active
+  /// workout scored, if one did. Stamped on the session at stop so rule R6
+  /// serves its score empty once that sensor's flag is off.
+  String? _workoutSensor;
 
   // Per-minute RAW step counts for the ACTIVE workout only, for
   // [sessionCadenceSpm]. Bounded at 12 h of minutes; a session longer than that
@@ -370,6 +386,7 @@ class WorkoutController {
   /// Clears the active workout's step-tracking state. Start sites then set
   /// [_workoutRawBase] (and, on a resume, [_workoutStepsGap]).
   void _resetWorkoutStepState() {
+    _workoutSensor = null;
     _workoutRawBase = null;
     _workoutSawSamples = false;
     _workoutLastGaitMs = null;
@@ -509,9 +526,70 @@ class WorkoutController {
     // GPS route: only for run/ride/walk, and only if the user grants location.
     unawaited(_maybeStartRouteTracking(id, type));
     // A paired heart-rate sensor is armed by a workout and only by a workout —
-    // the same rule GPS follows. No-op when nothing is paired.
+    // the same rule GPS follows. No-op when nothing is paired. A sensor still
+    // recording the last workout's recovery tail stays armed into this one.
+    _cancelStrapTail();
+    _sensorArms++;
     unawaited(HrsLink.instance.arm());
     unawaited(PolarPmdLink.instance.arm());
+  }
+
+  /// Bumped each time a workout arms the sensors, so a tail whose timer had
+  /// already fired cannot disarm the next workout's links between its awaits.
+  int _sensorArms = 0;
+
+  /// Runs while the workout sensors stay armed past a workout's stop.
+  Timer? _strapTail;
+
+  /// The stopped workout whose tail [_strapTail] is recording.
+  String? _strapTailWorkoutId;
+
+  /// Whether the sensors are still recording a stopped workout's tail.
+  bool get strapTailRunning => _strapTail?.isActive ?? false;
+
+  void _cancelStrapTail() {
+    _strapTail?.cancel();
+    _strapTail = null;
+  }
+
+  /// A stopped workout's sensors bank what they have now and stay armed
+  /// [kStrapTailSec] longer: heart-rate recovery is read off the minutes
+  /// after the end ([kStrapTailSec]), which a strap disarmed at the stop
+  /// never records. Then they disarm.
+  ///
+  /// Once the tail is banked the day is derived again ([onStrapTailBanked]):
+  /// the stop's own derive ran before the tail existed, so its heart-rate
+  /// recovery abstained.
+  ///
+  /// ponytail: an in-memory timer; a process killed (or an OS-suspended app)
+  /// inside the tail leaves the link to the OS teardown and the tail shorter.
+  Future<void> _startStrapTail(String? workoutId) async {
+    // AWAITED: the finish screen reads the session back next.
+    await HrsLink.instance.flush();
+    await PolarPmdLink.instance.flush();
+    _cancelStrapTail();
+    _strapTailWorkoutId = workoutId;
+    final arms = _sensorArms;
+    _strapTail = Timer(strapTailFor, () async {
+      _strapTail = null;
+      if (arms != _sensorArms) return;
+      await HrsLink.instance.disarm();
+      if (arms != _sensorArms) return;
+      await PolarPmdLink.instance.disarm();
+      if (!_hostDisposed()) onStrapTailBanked();
+    });
+  }
+
+  /// How long a stopped workout's sensors stay armed; a test shortens it.
+  Duration strapTailFor = const Duration(seconds: kStrapTailSec);
+
+  /// Asks for the derive that reads a banked tail.
+  late void Function() onStrapTailBanked;
+
+  Future<void> _disarmSensors() async {
+    _cancelStrapTail();
+    await HrsLink.instance.disarm();
+    await PolarPmdLink.instance.disarm();
   }
 
   /// Start recording the route if the type is eligible and location permission
@@ -707,6 +785,7 @@ class WorkoutController {
           // rows (`id` is unchanged), so the pre-restart part of the route is
           // kept and the gap shows honestly as a segment break.
           unawaited(_maybeStartRouteTracking(id, activeWorkout!.type));
+          _sensorArms++;
           unawaited(HrsLink.instance.arm());
           unawaited(PolarPmdLink.instance.arm());
           _setWorkoutActive(true);
@@ -791,16 +870,17 @@ class WorkoutController {
     // A session that never got a tracker (permission denied) still armed
     // nothing, but a session whose tracker was already cleared by another path
     // would otherwise leave the screen pinned awake until the app is killed.
-    // AWAITED, like the route tail: an unawaited disarm races the finish screen
+    // AWAITED, like the route tail: an unflushed sensor races the finish screen
     // and the last buffered batch of sensor beats never reaches the database.
-    await HrsLink.instance.disarm();
-    await PolarPmdLink.instance.disarm();
+    // The sensors stay armed for the recovery tail ([_startStrapTail]).
+    await _startStrapTail(activeWorkout?.workoutId);
     ScreenWake.releaseOwner('workout');
     _setWorkoutActive(false);
     final w = activeWorkout!;
     // Off the clock, not the last tick: a session finished while still paused
     // after a relaunch has never ticked, and its elapsed is still zero.
-    w.elapsed = _sessionClock(w, DateTime.now());
+    w.elapsed =
+        _sessionClock(w, DateTime.fromMillisecondsSinceEpoch(stopMs));
     // Nullable for the same reason `steps` below is: an unanchored profile
     // means this session was never costed, and a 0 in the column reads as
     // "burned nothing" rather than "not measured".
@@ -816,7 +896,9 @@ class WorkoutController {
     // the per-zone seconds the 1 Hz tick accumulated (Z1..Z5, minutes).
     final id = w.workoutId ?? 'w${w.startTime.millisecondsSinceEpoch}';
     final zoneMin = w.zoneMinutes();
-    final endTs = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    // The user's stop, not after the awaited flushes above: the minutes
+    // after it are the recovery tail, not the workout.
+    final endTs = stopMs ~/ 1000;
     // Which strap measured this workout. `putSession` is INSERT OR REPLACE, so
     // an omitted key would blank the stamp startWorkout banked — keep that one
     // when the link has since dropped rather than downgrading a real answer to
@@ -851,6 +933,8 @@ class WorkoutController {
     // propagates instead of being reported as a finished, saved session.
     try {
       await LocalDb.putSession(sessionRow);
+      final sensor = _workoutSensor;
+      if (sensor != null) await LocalDb.stampSessionSensor(id, sensor);
       // The session is durable — tell the screens that read sessions. Without
       // this the Workout tab, which loads once and caches, showed no trace of
       // the workout you had just finished in History, "This week", "Tracked"
@@ -931,8 +1015,8 @@ class WorkoutController {
     }
     // AWAITED, like the route tail: an unawaited disarm races the finish screen
     // and the last buffered batch of sensor beats never reaches the database.
-    await HrsLink.instance.disarm();
-    await PolarPmdLink.instance.disarm();
+    // A discarded workout has no recovery tail to record.
+    await _disarmSensors();
     ScreenWake.releaseOwner('workout');
     _setWorkoutActive(false);
     activeWorkout = null;
@@ -958,6 +1042,8 @@ class WorkoutController {
   Future<void> deleteWorkout(String id) async {
     final live = activeWorkout?.workoutId == id;
     if (live) await _cancelActiveWorkoutTeardown();
+    // A deleted workout's recovery tail is recorded for nothing.
+    if (strapTailRunning && _strapTailWorkoutId == id) await _disarmSensors();
     // The live session is already gone either way: a failed delete leaves its
     // row `status='live'`, which the relaunch reconcile finalizes. The UI still
     // has to hear that nothing is live any more.
@@ -1063,6 +1149,17 @@ class WorkoutController {
       // Per-zone time: one tick ≈ one second in the current zone (persisted as
       // zone_min at stop — this is what feeds the Time-in-Zones bar).
       if (hr > 0) w.zoneSeconds[_zoneFor(hr)] += 1;
+      final sensor = _liveSensor();
+      if (sensor != null && sensor != _workoutSensor) {
+        _workoutSensor = sensor;
+        // Stamped as it latches, not only at stop: a workout resumed after a
+        // relaunch (its latch gone) or finalized by the relaunch reconcile
+        // keeps it, and rule R6 still serves its restored tally empty.
+        final id = w.workoutId;
+        if (id != null) {
+          unawaited(LocalDb.stampSessionSensor(id, sensor).catchError((_) {}));
+        }
+      }
     }
 
     // HR-zone-crossing haptic (opt-in, see [zoneAlertEnabled]). Skipped
@@ -1205,6 +1302,7 @@ class WorkoutController {
   void dispose() {
     _workoutTimer?.cancel();
     _workoutTimer = null;
+    if (strapTailRunning) unawaited(_disarmSensors());
   }
 }
 

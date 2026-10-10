@@ -39,6 +39,7 @@ import '../compute/derivation_engine.dart'
         recoveryStateOf,
         RecoveryStateWire;
 import '../compute/sleep_profile_policy.dart' show SleepProfilePolicy;
+import '../ble/adapters/_registry.dart' show kAdapterSignals;
 import '../ble/adapters/adapter.dart' show NeutralSample;
 import '../ble/adapters/signals.dart' show InputSignal;
 import '../import/import_container.dart';
@@ -141,6 +142,66 @@ String derivableSourceSql([String col = 'source']) => kDerivableSources.isEmpty
     : '($col IS NULL OR $col IN '
           "(${kDerivableSources.map((s) => "'$s'").join(', ')}))";
 
+/// The rows a read INSIDE one session window keeps, out of [rows]: every row
+/// of the window (`source`, `rec_ts`, `hr`), in any order. With no flagged-on
+/// workout sensor ([LocalDb.sessionSensorSources]) in the window, exactly the
+/// [derivableSourceSql] rows. With one, the session override as the derive
+/// lays it over a wearable's day (`withStrapSessions`): the sensor that
+/// recorded most of the window (one, never two blended) from its first worn
+/// row to its last, and outside that span the active wearable's rows
+/// ([LocalDb.sessionWearableSource]), so a strap put on late leaves the
+/// minutes before it to the wrist, on the workout card as in the day.
+///
+/// Never over the primary band: a window the band has rows in stays the
+/// band's, as the day's strain, zones and recovery are, so a band's workout
+/// and its day agree. The check is per window, not per day: on a band day, a
+/// window the band has NO rows in (taken off to charge mid-workout) is the
+/// strap's, while the day's strain and zones still read the band substrate,
+/// which leaves that gap empty.
+///
+/// ponytail: on that gap the workout screen and the day disagree; give the
+/// band day the strap's window too (or drop the override there) once the
+/// owner decides whether a strap may fill a band gap.
+List<T> sessionWindowRows<T extends Map<String, Object?>>(List<T> rows) {
+  bool derivable(Object? s) => s == null || kDerivableSources.contains(s);
+  List<T> plain() => [
+        for (final r in rows)
+          if (derivable(r['source'])) r,
+      ];
+  bool worn(T r) => ((r['hr'] as num?) ?? 0) > 0;
+  final n = <Object?, int>{};
+  for (final r in rows) {
+    final s = r['source'];
+    if (s == null) return plain();
+    if (LocalDb.sessionSensorSources.contains(s) && worn(r)) {
+      n[s] = (n[s] ?? 0) + 1;
+    }
+  }
+  if (n.isEmpty) return plain();
+  final owner = n.entries
+      .reduce((a, b) => b.value > a.value ||
+              (b.value == a.value && '${b.key}'.compareTo('${a.key}') < 0)
+          ? b
+          : a)
+      .key;
+  int? lo, hi;
+  for (final r in rows) {
+    if (r['source'] != owner || !worn(r)) continue;
+    final t = (r['rec_ts'] as num).toInt();
+    if (lo == null || t < lo) lo = t;
+    if (hi == null || t > hi) hi = t;
+  }
+  final wearable = LocalDb.sessionWearableSource;
+  return [
+    for (final r in rows)
+      if (r['source'] == owner ||
+          ((derivable(r['source']) ||
+                  (wearable != null && r['source'] == wearable)) &&
+              ((r['rec_ts'] as num) < lo! || (r['rec_ts'] as num) > hi!)))
+        r,
+  ];
+}
+
 /// SQL fragment for the reads that mean THE PRIMARY BAND SPECIFICALLY, not
 /// "admitted to derive" — they look identical today and they are not the same
 /// question, which is the whole reason both have names.
@@ -154,6 +215,17 @@ const String kPrimaryBandSourceSql = 'source IS NULL';
 class LocalDb {
   static Database? _db;
   static String dbName = 'openstrap.db';
+
+  /// Workout sensors (adapter ids) whose rule-R6 flag is on, admitted inside
+  /// a session window only ([sessionWindowRows]). Loaded from the flags by
+  /// `refreshSessionSensorSources` (compute/inputs/canonical.dart); empty
+  /// until one is turned on, which leaves every read as it was.
+  static Set<String> sessionSensorSources = const {};
+
+  /// The active wearable's adapter id (flag on), loaded with
+  /// [sessionSensorSources]: its rows fill a session window around the
+  /// strap's span ([sessionWindowRows]). Null with none.
+  static String? sessionWearableSource;
 
   static Future<Database> get instance async {
     final db = _db;
@@ -216,6 +288,7 @@ class LocalDb {
     // their ledger so local decisions can guard incoming records before an
     // imported confirmation becomes local too.
     'sessions',
+    'session_sensor',
     'activity_suggestions',
     'activity_review_meta',
     'activity_review_days',
@@ -235,6 +308,7 @@ class LocalDb {
     'day_result',
     'metric_series',
     'metric_series_version',
+    'metric_method',
     'baselines',
     'step_calibration',
     'step_calibration_day',
@@ -1254,6 +1328,10 @@ class LocalDb {
     await _addColumnIfMissing(
       db, 'device', 'wearing_set_ts', 'INTEGER',
     );
+    // A paired device's last reported battery and when — additive, no
+    // version bump (same reasoning as the columns above).
+    await _addColumnIfMissing(db, 'device', 'battery_pct', 'INTEGER');
+    await _addColumnIfMissing(db, 'device', 'battery_ts', 'INTEGER');
     await _createStepCalibration(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
@@ -2310,17 +2388,37 @@ class LocalDb {
   static const int _kVendorNightChainSec = 30 * 60;
 
   /// Bank [epochs] for [deviceId]. REPLACE on (device, start): a re-read page
-  /// overwrites itself.
+  /// overwrites itself. A night re-read with its epochs moved (a ring that
+  /// anchors its night at the end, re-closing it later) replaces every epoch
+  /// of the device's that the new ones overlap, so the two never stack. With
+  /// [wholeNights] (a band that only ever sends whole nights) the overlapped
+  /// stored night goes entire, its epochs outside the new ones included.
   static Future<void> putVendorSleepEpochs(
     List<VendorEpoch> epochs, {
     required String deviceId,
     required String source,
+    bool wholeNights = false,
   }) async {
     if (epochs.isEmpty) return;
     final sorted = [...epochs]..sort((a, b) => a.startSec.compareTo(b.startSec));
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final db = await instance;
     await db.transaction((txn) async {
+      for (final e in sorted) {
+        // A re-reported whole night that starts later would otherwise keep
+        // the old report's leading epochs, chained in by onset.
+        if (wholeNights) {
+          await txn.rawDelete(
+              'DELETE FROM vendor_sleep_epoch WHERE device_id = ? AND '
+              'night_onset_ts IN (SELECT night_onset_ts FROM '
+              'vendor_sleep_epoch WHERE device_id = ? AND start_ts < ? '
+              'AND end_ts > ?)',
+              [deviceId, deviceId, e.endSec, e.startSec]);
+        }
+        await txn.delete('vendor_sleep_epoch',
+            where: 'device_id = ? AND start_ts < ? AND end_ts > ?',
+            whereArgs: [deviceId, e.endSec, e.startSec]);
+      }
       int? onset;
       var prevEnd = 0;
       for (final e in sorted) {
@@ -2347,6 +2445,16 @@ class LocalDb {
         prevEnd = e.endSec;
       }
     });
+  }
+
+  /// `{device id -> end of its newest banked vendor sleep epoch}`.
+  static Future<Map<String, int>> lastVendorSleepEndTsByDevice() async {
+    final db = await instance;
+    return {
+      for (final r in await db.rawQuery('SELECT device_id, MAX(end_ts) AS t '
+          'FROM vendor_sleep_epoch GROUP BY device_id'))
+        r['device_id'] as String: (r['t'] as num).toInt(),
+    };
   }
 
   /// Every banked vendor night whose onset is in [[fromSec], [toSec]).
@@ -2601,6 +2709,31 @@ class LocalDb {
   /// one. `PairedDevice.save` passes it when the remote id changed and the
   /// caller does not know the new band's family. It is ignored when
   /// [adapterId] is non-null — a caller that knows wins over one that clears.
+  /// Fires whenever a paired device's row changes after pairing (a sync
+  /// committed data, or the device reported its battery), so the screens
+  /// listing devices can re-read them.
+  static final StreamController<String> deviceRowChanged =
+      StreamController<String>.broadcast();
+
+  /// A sync with [id] committed data: stamp `last_seen` now.
+  static Future<void> markDeviceSynced(String id) async {
+    if (id == kPrimaryDeviceId) return;
+    final db = await instance;
+    final n = await db.rawUpdate('UPDATE device SET last_seen = ? WHERE id = ?',
+        [DateTime.now().millisecondsSinceEpoch ~/ 1000, id]);
+    if (n > 0) deviceRowChanged.add(id);
+  }
+
+  /// [id] reported its battery level.
+  static Future<void> setDeviceBattery(String id, int pct) async {
+    if (id == kPrimaryDeviceId || pct < 0 || pct > 100) return;
+    final db = await instance;
+    final n = await db.rawUpdate(
+        'UPDATE device SET battery_pct = ?, battery_ts = ? WHERE id = ?',
+        [pct, DateTime.now().millisecondsSinceEpoch ~/ 1000, id]);
+    if (n > 0) deviceRowChanged.add(id);
+  }
+
   static Future<void> upsertDevice({
     String id = kPrimaryDeviceId,
     String? adapterId,
@@ -2754,10 +2887,14 @@ class LocalDb {
   static Future<int> putObservations(
     List<Observation> rows, {
     String deviceId = kPrimaryDeviceId,
+    Map<String, String> cursors = const {},
   }) async {
-    if (rows.isEmpty) return 0;
+    if (rows.isEmpty && cursors.isEmpty) return 0;
     final db = await instance;
     await db.transaction((txn) async {
+      for (final c in cursors.entries) {
+        await setCursor(c.key, c.value, txn: txn);
+      }
       final batch = txn.batch();
       for (final o in rows) {
         batch.insert('observation', {
@@ -2805,6 +2942,28 @@ class LocalDb {
       whereArgs: [date],
       orderBy: 'attribution ASC, COALESCE(vendor_key, key) ASC',
     );
+  }
+
+  /// One device's own stored values under [key] from [fromMs] on, keyed by
+  /// timestamp — for a link carrying a running total forward across
+  /// sessions (a watch that never re-sends what it already delivered). Reads
+  /// back only what that same device wrote; never an input to a derivation.
+  static Future<Map<int, num>> deviceObservationValues(
+    String deviceId,
+    String key, {
+    int fromMs = 0,
+  }) async {
+    final db = await instance;
+    final rows = await db.query(
+      'observation',
+      columns: ['ts_ms', 'value'],
+      where: 'device_id = ? AND key = ? AND ts_ms >= ?',
+      whereArgs: [deviceId, key, fromMs],
+    );
+    return {
+      for (final r in rows)
+        if (r['value'] != null) r['ts_ms'] as int: r['value'] as num,
+    };
   }
 
   // ── IMPORTED WORKOUTS (Apple Health / Health Connect) ──────────────────────
@@ -2892,6 +3051,28 @@ class LocalDb {
       where: 'session_id = ?',
       whereArgs: [uuid],
     );
+  }
+
+  /// Replace an imported workout with the band session scored over its window
+  /// (#325). Its route, if the store had one, moves to [sessionId] instead of
+  /// being dropped; the row itself goes, so the workout is listed once.
+  static Future<void> supersedeImportedWorkout(
+    String uuid,
+    String sessionId,
+  ) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      // A session that already has its own route keeps it whole: moving only
+      // the non-colliding points would splice two routes into one.
+      await txn.rawUpdate(
+          'UPDATE workout_route SET session_id = ? WHERE session_id = ? '
+          'AND NOT EXISTS (SELECT 1 FROM workout_route WHERE session_id = ?)',
+          [sessionId, uuid, sessionId]);
+      await txn.delete('workout_route',
+          where: 'session_id = ?', whereArgs: [uuid]);
+      await txn.delete('imported_workout',
+          where: 'uuid = ?', whereArgs: [uuid]);
+    });
   }
 
   /// Drop every imported workout whose source is one of [sources], AND its
@@ -3231,6 +3412,7 @@ class LocalDb {
     required List<int> sampleSecs,
     List<NeutralSample>? neutrals,
     Map<String, int>? toleranceSec,
+    String? deviceFamily,
   }) async {
     assert(samples.length == sampleSecs.length,
         'sampleSecs must be parallel to samples');
@@ -3254,10 +3436,19 @@ class LocalDb {
       if (s.skinTempRaw != null) observe('skinTempRaw', sec);
       if (s.rrIntervalsMs.isNotEmpty) observe('rrIntervals', sec);
     }
+    // A wearable storing HR a minute or more apart covers `hrSparse`, never
+    // `hr1Hz`: its rows must not be spliced into a 1 Hz substrate. Its spans
+    // tolerate two of its own gaps, or every reading would be its own row.
+    final sparseSec =
+        kAdapterSignals[deviceFamily]?[InputSignal.hrSparse]?.inSeconds ?? 0;
+    final hrSignal = sparseSec > 1 ? 'hrSparse' : 'hr1Hz';
+    if (sparseSec > 1) {
+      toleranceSec = {'hrSparse': 2 * sparseSec, ...?toleranceSec};
+    }
     if (neutrals != null) {
       for (final n in neutrals) {
         if (n.tsEpoch <= 0) continue;
-        if (n.hr != null) observe('hr1Hz', n.tsEpoch);
+        if (n.hr != null) observe(hrSignal, n.tsEpoch);
         if (n.rrMs.isNotEmpty) observe('rrIntervals', n.tsEpoch);
       }
     }
@@ -4191,6 +4382,7 @@ class LocalDb {
           sampleSecs: sampleSecs,
           neutrals: neutrals,
           toleranceSec: coverageToleranceSec,
+          deviceFamily: deviceFamily,
         );
         await setCursor(kCounter, '$maxCounter', txn: txn);
         await setCursor(kRecTs, '$maxRecTs', txn: txn);
@@ -4363,6 +4555,25 @@ class LocalDb {
         /* already present */
       }
     }
+    // PER-(date, key) METHOD AND CLASS, beside the per-day stamp above and
+    // NOT a column of it or of `metric_series`: both are pivoted into views
+    // (and pinned by the band's freeze goldens), so a new column would move
+    // every existing day's row. `method` is the method that produced the
+    // value; `family` its method family (`hr_1hz`, `hr_1min`, `hr_5min`, or
+    // `device`); `class` is ours / device / estimated. Baselines are kept per
+    // method family off `family`.
+    // Additive, no backfill: a day written before it has no row here, which
+    // reads as unknown and is never guessed at.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS metric_method (
+        date TEXT NOT NULL,
+        key TEXT NOT NULL,
+        method TEXT NOT NULL,
+        family TEXT NOT NULL,
+        class TEXT NOT NULL,
+        PRIMARY KEY (date, key)
+      )
+    ''');
   }
 
   /// Backfill the stamp from `day_result`, which has carried the version all
@@ -4386,6 +4597,31 @@ class LocalDb {
       'SELECT day_id, MAX(algo_version) FROM day_result '
       'WHERE skipped = 0 AND partial = 0 GROUP BY day_id',
     );
+  }
+
+  /// `{date -> method family}` for [key]'s stored values (`metric_method`).
+  /// A day with no row is absent: unknown, never guessed.
+  static Future<Map<String, String>> metricFamilies(String key) async {
+    final db = await instance;
+    return {
+      for (final r in await db.query('metric_method',
+          columns: ['date', 'family'], where: 'key = ?', whereArgs: [key]))
+        r['date'] as String: r['family'] as String,
+    };
+  }
+
+  /// The dates whose stored [key] is a wearable's estimate, or a row its
+  /// column serves as unavailable (`metric_method.class`): not a measurement
+  /// a plain trend line may draw.
+  static Future<Set<String>> metricNotOursDates(String key) async {
+    final db = await instance;
+    return {
+      for (final r in await db.query('metric_method',
+          columns: ['date'],
+          where: "key = ? AND class IN ('estimated', 'unavailable')",
+          whereArgs: [key]))
+        r['date'] as String,
+    };
   }
 
   /// The algo version behind each day's `metric_series` scalars, oldest first.
@@ -4962,6 +5198,30 @@ class LocalDb {
       'INTEGER NOT NULL DEFAULT 0',
     );
     await _ensureSessionTraceColumns(db);
+    // Which workout sensors scored a session ([stampSessionSensor]), one row
+    // each: a strap serving both heart-rate services can hand the live
+    // source from one to the other mid-workout. A side table, not a
+    // `sessions` column: the stamp outlives the sensor's raw rows, which are
+    // pruned at `rawRetentionDays`.
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS session_sensor '
+      '(session_id TEXT NOT NULL, source TEXT NOT NULL, '
+      'PRIMARY KEY (session_id, source))',
+    );
+    // A pre-release build keyed it by session alone; rebuild that shape so a
+    // second sensor stops replacing the first. Every open, so a no-op after.
+    final pk = await db.rawQuery('PRAGMA table_info(session_sensor)');
+    if (!pk.any((c) => c['name'] == 'source' && (c['pk'] as int? ?? 0) > 0)) {
+      // Plain statements, no transaction: this also runs inside onUpgrade's.
+      await db.execute('ALTER TABLE session_sensor RENAME TO session_sensor_v1');
+      await db.execute(
+        'CREATE TABLE session_sensor (session_id TEXT NOT NULL, '
+        'source TEXT NOT NULL, PRIMARY KEY (session_id, source))',
+      );
+      await db.execute('INSERT INTO session_sensor SELECT session_id, source '
+          'FROM session_sensor_v1');
+      await db.execute('DROP TABLE session_sensor_v1');
+    }
     // `sessions` is keyed by a TEXT id, so every read that matters — the
     // workouts list, the activity tab, both `decoded_onehz` HR joins,
     // [sessionsInRange], [liveSessions] — was a full table scan plus a full
@@ -5170,13 +5430,27 @@ class LocalDb {
     // (issue #129: coach mis-dated workouts near local-midnight boundaries).
     // Private sessions stay out: this view is what the coach and the CSV
     // export read, and private means hidden from both.
+    // A session only a now flag-off device measured serves its scores empty
+    // here too (rule R6); [refreshSessionScoreMask] keeps the mask current.
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS session_score_mask '
+      '(session_id TEXT PRIMARY KEY)',
+    );
     await db.execute('''
       CREATE VIEW v_sessions AS
       SELECT id, start_ts, end_ts,
              strftime('%Y-%m-%d', start_ts, 'unixepoch', 'localtime') AS date,
-             type, status, calories, strain, max_hr,
-             duration_min, steps, hrr_bpm, source, zone_min_json
+             type, status,
+             CASE WHEN m.session_id IS NULL THEN calories END AS calories,
+             CASE WHEN m.session_id IS NULL THEN strain END AS strain,
+             CASE WHEN m.session_id IS NULL THEN max_hr END AS max_hr,
+             duration_min, steps,
+             CASE WHEN m.session_id IS NULL THEN hrr_bpm END AS hrr_bpm,
+             source,
+             CASE WHEN m.session_id IS NULL THEN zone_min_json END
+               AS zone_min_json
       FROM sessions
+      LEFT JOIN session_score_mask m ON m.session_id = sessions.id
       WHERE private = 0
     ''');
     // Rolling personal baselines (json_extract; missing paths return NULL safely).
@@ -6555,9 +6829,8 @@ class LocalDb {
   /// re-read of the same range is idempotent by design on a fetch-by-cursor
   /// band.
   ///
-  /// `beat_ts_ms` stays NULL here: [NeutralSample] carries no sub-second, so
-  /// there is nothing to write regardless of [NeutralSample.anchor] — this
-  /// widens the day a neutral source measures its own sub-second.
+  /// `beat_ts_ms` is [NeutralSample.beatTsMs] when the host timed the beats
+  /// (an arrival-stamped strap, off its own beat chain), NULL otherwise.
   ///
   /// `counter` is 0. It is a WHOOP flash-record number this class of band does
   /// not have; nothing reads the column except `ORDER BY rec_ts, counter`.
@@ -6610,6 +6883,9 @@ class LocalDb {
           'beat_index': i,
           'rr_ts_ms': recTs * 1000,
           'rr_ms': rr,
+          // The beat's own end time when the host kept it (a strap's chain);
+          // NULL otherwise, as on every row before it was kept.
+          'beat_ts_ms': ?n.beatTsMs?[i],
           'device_family': deviceFamily,
           'source': deviceFamily,
         },
@@ -8202,6 +8478,10 @@ class LocalDb {
     // the column is that a guessed provenance is worse than none. See
     // [_createMetricSeriesVersion].
     String? source,
+    // Per series key: the method, method family and class behind the stored
+    // value (`metric_method`). Null writes nothing.
+    ({String method, String family, String cls}) Function(String key)?
+        seriesMethod,
     // WHICH BAND'S UNITS these scalars are in — the substrate's own
     // `device_family` stamp, which is already null when the window spans two
     // straps or carries no stamp at all. Same rule as [source]: never guessed.
@@ -8277,6 +8557,26 @@ class LocalDb {
         // Inside the same transaction as the values, so the stamp and what it
         // describes can never disagree. Skipped when the series map is empty:
         // an empty map wrote nothing, so there is nothing to attribute.
+        if (seriesMethod != null) {
+          for (final key in reviewedSeries.keys) {
+            final m = seriesMethod(key);
+            await txn.insert('metric_method', {
+              'date': dayId,
+              'key': key,
+              'method': m.method,
+              'family': m.family,
+              'class': m.cls,
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+          }
+        } else if (reviewedSeries.isNotEmpty) {
+          // No method for these values (a window spanning two straps, or an
+          // unstamped one): the previous writer's class no longer describes
+          // them, and an 'estimated' left behind would hide a real value.
+          await txn.delete('metric_method',
+              where: 'date = ? AND key IN '
+                  '(${List.filled(reviewedSeries.length, '?').join(',')})',
+              whereArgs: [dayId, ...reviewedSeries.keys]);
+        }
         if (reviewedSeries.isNotEmpty) {
           await txn.insert('metric_series_version', {
             'date': dayId,
@@ -8915,6 +9215,7 @@ class LocalDb {
           where: 'date = ?',
           whereArgs: [dayId],
         );
+        await copyRows('metric_method', where: 'date = ?', whereArgs: [dayId]);
         await copyRows('journal', where: 'date = ?', whereArgs: [dayId]);
         await copyRows('journal_metric', where: 'date = ?', whereArgs: [dayId]);
         await copyRows('cycle_log', where: 'date = ?', whereArgs: [dayId]);
@@ -8949,6 +9250,33 @@ class LocalDb {
     }
     await out.close();
     return dest;
+  }
+
+  /// Drops what a derive wrote for [dayIds] and nothing the user or a device
+  /// wrote: for a day whose only source was just switched off, so a re-derive
+  /// that finds nothing leaves nothing behind.
+  static Future<void> clearDerivedDays(Set<String> dayIds) async {
+    final sorted = dayIds.toList()..sort();
+    if (sorted.isEmpty) return;
+    final db = await instance;
+    await db.transaction((txn) async {
+      for (final (table, column) in const [
+        ('day_result', 'day_id'),
+        ('metric_series', 'date'),
+        ('metric_series_version', 'date'),
+        ('metric_method', 'date'),
+        ('sleep_session_candidates', 'day_id'),
+        ('wake_day_features', 'day_id'),
+      ]) {
+        for (final chunk in _sqlVarChunks(sorted)) {
+          await txn.rawDelete(
+            'DELETE FROM $table WHERE $column IN '
+            '(${List.filled(chunk.length, '?').join(',')})',
+            chunk,
+          );
+        }
+      }
+    });
   }
 
   static Future<int> deleteDays(Set<String> dayIds) async {
@@ -9020,6 +9348,7 @@ class LocalDb {
           'workout_route',
           'workout_split',
           'strength_set',
+          'session_sensor',
         ]) {
           deleted += await txn.rawDelete(
             'DELETE FROM $child WHERE session_id IN '
@@ -9041,6 +9370,7 @@ class LocalDb {
       await deleteByIn(txn, 'day_result', 'day_id', sorted);
       await deleteByIn(txn, 'metric_series', 'date', sorted);
       await deleteByIn(txn, 'metric_series_version', 'date', sorted);
+      await deleteByIn(txn, 'metric_method', 'date', sorted);
       await deleteByIn(txn, 'journal', 'date', sorted);
       await deleteByIn(txn, 'journal_metric', 'date', sorted);
       await deleteByIn(txn, 'cycle_log', 'date', sorted);
@@ -9254,15 +9584,29 @@ class LocalDb {
   ///  * A single-family user gets the EMPTY SET, because nothing differs from
   ///    the newest stamp. So this changes no number until a strap actually
   ///    changes generation.
-  static Future<Set<String>> foreignFamilyDates() async {
+  ///
+  /// [ignore] are families that take no part in the seam, neither masked nor
+  /// deciding the newest stamp: the wearables, whose baselines are split by
+  /// their own family instead. Without it a ring's newest day would mask a
+  /// band user's whole skin-temperature history.
+  static Future<Set<String>> foreignFamilyDates({
+    Iterable<String> ignore = const [],
+  }) async {
     final db = await instance;
+    final skip = ignore.toList();
+    final notIn = skip.isEmpty
+        ? ''
+        : 'AND device_family NOT IN '
+            '(${List.filled(skip.length, '?').join(', ')}) ';
     final rows = await db.rawQuery(
       'SELECT date FROM metric_series_version '
-      'WHERE date IS NOT NULL AND device_family IS NOT NULL '
+      'WHERE date IS NOT NULL AND device_family IS NOT NULL $notIn'
       'AND device_family <> ('
       '  SELECT device_family FROM metric_series_version '
-      '  WHERE device_family IS NOT NULL ORDER BY date DESC LIMIT 1'
+      '  WHERE device_family IS NOT NULL $notIn'
+      'ORDER BY date DESC LIMIT 1'
       ')',
+      [...skip, ...skip],
     );
     return {for (final r in rows) r['date'] as String};
   }
@@ -9360,6 +9704,7 @@ class LocalDb {
       'workout_suggestions',
       // Keep the decision merge after both kinds of accepted activity.
       'sessions',
+      'session_sensor',
       'activity_suggestions',
       'activity_review_meta',
       'activity_review_days',
@@ -9390,6 +9735,7 @@ class LocalDb {
       'day_result',
       'metric_series',
       'metric_series_version',
+      'metric_method',
       // Every day's step windows. Append-only with an AUTOINCREMENT id, so the
       // merge drops the id and skips windows already here (see below).
       'live_coverage',
@@ -9795,7 +10141,9 @@ class LocalDb {
                   }
                   importedDays?.add('${row['day_id']}');
                 }
-                if ((t == 'metric_series' || t == 'metric_series_version') &&
+                if ((t == 'metric_series' ||
+                        t == 'metric_series_version' ||
+                        t == 'metric_method') &&
                     finalizedDays.contains('${row['date']}')) {
                   continue;
                 }
@@ -10156,6 +10504,7 @@ class LocalDb {
       'workout_split',
       'notif_fired',
       'metric_series_version',
+      'metric_method',
       'band_backlog',
       'external_hr',
       'imported_measurement',
@@ -10827,8 +11176,9 @@ class LocalDb {
     final latestRawTs = (raw['max_rec_ts'] as num?)?.toInt();
     final todayWake = await wakeDayFeatures(today);
     final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    // The band's edge, same as the readiness freeze: a peripheral streaming
-    // this morning says nothing about how far the band's night has drained.
+    // The band's edge: a peripheral streaming this morning says nothing about
+    // how far the band's night has drained. Per row it yields to the
+    // wearable's stored edge when the active wearable supplied the night.
     final bandEdgeSec = await lastDecodedRecTs() ?? 0;
     String? latestOvernightDay;
     int? latestOvernightComputedAt;
@@ -10856,22 +11206,30 @@ class LocalDb {
       final windowVal = windowMap is Map ? windowMap['value'] : null;
       final offsetMs = windowVal is Map ? windowVal['offset_ms'] : null;
       final wakeSec = offsetMs is num ? offsetMs ~/ 1000 : null;
+      // A night the active wearable supplied is judged on the edge its row
+      // was derived against (the wearable's, `data_edge_sec`): the band's
+      // edge sits wherever the unworn band last synced. A band row's stored
+      // edge never passes the band's own, so the max leaves it unchanged.
+      final rowEdge = (decoded['data_edge_sec'] as num?)?.toInt();
+      final edgeSec = rowEdge != null && rowEdge > bandEdgeSec
+          ? rowEdge
+          : bandEdgeSec;
       if (dayId == today) {
         recoveryState = recoveryStateOf(
           wakeSec: wakeSec,
-          dataEdgeSec: bandEdgeSec,
+          dataEdgeSec: edgeSec,
           nowSec: nowSec,
         )?.wire;
       }
       if (dayId == today &&
           !overnightSettled(
             sleepOffsetSec: wakeSec,
-            dataEdgeSec: bandEdgeSec,
+            dataEdgeSec: edgeSec,
             nowSec: nowSec,
           )) {
         // When the give-up lands; getToday re-checks then, since a quiet
         // strap triggers no derive to do it.
-        overnightRecheckAt = (wakeSec ?? bandEdgeSec) + kOvernightGiveUpSec;
+        overnightRecheckAt = (wakeSec ?? edgeSec) + kOvernightGiveUpSec;
         continue;
       }
       final scalars = ((decoded['scalars'] as Map?) ?? const {})
@@ -11795,17 +12153,122 @@ class LocalDb {
     int toTs,
   ) async {
     final db = await instance;
-    return db.query(
+    return withoutFlagOffScores(await db.query(
       'sessions',
       where: 'start_ts >= ? AND start_ts <= ?',
       whereArgs: [fromTs, toTs],
       orderBy: 'start_ts DESC',
-    );
+    ));
+  }
+
+  /// What a session's sensor scored: served empty, not stored empty.
+  static const List<String> _sensorScoreColumns = [
+    'calories',
+    'strain',
+    'max_hr',
+    'avg_hr',
+    'vo2max_estimate',
+    'zone_min_json',
+    'hrr_bpm',
+    'trace_json',
+    'trace_samples',
+  ];
+
+  /// [rows] with the scored columns ([_sensorScoreColumns]) empty on each
+  /// finished session whose window's worn seconds all came from a device
+  /// whose flag is now off: not the band, no flagged-on workout sensor
+  /// ([sessionSensorSources]), not the active wearable (rule R6). The stored
+  /// row is untouched, so turning the flag back on serves it again. A window
+  /// with no worn rows left (pruned, or hand-entered) keeps its score.
+  ///
+  /// ponytail: one window scan per session; batch it into one join if a long
+  /// session list gets slow.
+  static Future<List<Map<String, dynamic>>> withoutFlagOffScores(
+      List<Map<String, dynamic>> rows) async {
+    final out = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      out.add(await _flagOffOnly(r)
+          ? {...r, for (final c in _sensorScoreColumns) c: null}
+          : r);
+    }
+    return out;
+  }
+
+  /// Whether finished session [r]'s window has worn seconds and every one of
+  /// them came from a device whose flag is now off (see
+  /// [withoutFlagOffScores]).
+  static Future<bool> _flagOffOnly(Map<String, dynamic> r) async {
+    final s = (r['start_ts'] as num?)?.toInt();
+    final e = (r['end_ts'] as num?)?.toInt();
+    if (s == null || e == null || r['status'] != 'done') return false;
+    // Scored by a workout sensor whose flag is now off: its score is that
+    // sensor's whatever else the window holds (a band's partial minutes, the
+    // wearable's) and once its raw is pruned.
+    // ponytail: a stamped window the band also measured serves empty too,
+    // not band-only; rescore it from the band's rows if that matters.
+    if ((await sessionSensorsOf(r['id']))
+        .any((s) => !sessionSensorSources.contains(s))) {
+      return true;
+    }
+    final on = {...sessionSensorSources, ?sessionWearableSource};
+    final sources = [
+      for (final x in await (await instance).rawQuery(
+          'SELECT DISTINCT source FROM decoded_onehz '
+          'WHERE rec_ts >= ? AND rec_ts <= ? AND hr > 0',
+          [s, e]))
+        x['source'],
+    ];
+    return sources.isNotEmpty &&
+        sources.every((x) =>
+            x != null && !kDerivableSources.contains(x) && !on.contains(x));
+  }
+
+  /// Rewrites `session_score_mask` to the finished sessions
+  /// [withoutFlagOffScores] would serve empty, so `v_sessions` (the coach's
+  /// SQL and the CSV export) blanks the same scores. Run before reading it:
+  /// the mask follows the flags and the substrate, neither of which a view
+  /// can see.
+  ///
+  /// ponytail: rescans every finished session per call; keep it incremental
+  /// if a long history makes coach queries slow.
+  static Future<void> refreshSessionScoreMask() async {
+    final db = await instance;
+    final ids = [
+      for (final r in await db.query('sessions',
+          columns: ['id', 'start_ts', 'end_ts', 'status'],
+          where: "status = 'done'"))
+        if (await _flagOffOnly(r)) r['id'],
+    ];
+    await db.transaction((txn) async {
+      await txn.delete('session_score_mask');
+      for (final id in ids) {
+        await txn.insert('session_score_mask', {'session_id': id});
+      }
+    });
+  }
+
+  /// Every workout sensor stamped on session [id] ([stampSessionSensor]).
+  static Future<Set<String>> sessionSensorsOf(Object? id) async => {
+        for (final r in await (await instance).query('session_sensor',
+            columns: ['source'], where: 'session_id = ?', whereArgs: [id]))
+          r['source'] as String,
+      };
+
+  /// Records that workout sensor [source] (an adapter id) scored session
+  /// [id], so [withoutFlagOffScores] serves the score empty while that
+  /// sensor's flag is off, after its raw rows are gone too. One row per
+  /// sensor: a later one adds to the stamp, it does not replace it.
+  static Future<void> stampSessionSensor(String id, String source) async {
+    final db = await instance;
+    await db.insert('session_sensor', {'session_id': id, 'source': source},
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   static Future<void> deleteSession(String id) async {
     final db = await instance;
     await db.delete('sessions', where: 'id = ?', whereArgs: [id]);
+    await db.delete('session_sensor',
+        where: 'session_id = ?', whereArgs: [id]);
     // Cascade: a route belongs to its session (on-device only, no FK enforced).
     await db.delete('workout_route', where: 'session_id = ?', whereArgs: [id]);
     // …and its frozen per-km splits (CV-01), same reason.
@@ -11972,14 +12435,62 @@ class LocalDb {
     int toTs,
   ) async {
     final db = await instance;
-    return db.query(
+    if (sessionSensorSources.isEmpty) {
+      return db.query(
+        'decoded_onehz',
+        columns: ['rec_ts', 'hr'],
+        where: 'rec_ts >= ? AND rec_ts <= ? AND hr > 0 AND '
+            '${derivableSourceSql()}',
+        whereArgs: [fromTs, toTs],
+        orderBy: 'rec_ts ASC',
+      );
+    }
+    final rows = await db.query(
       'decoded_onehz',
-      columns: ['rec_ts', 'hr'],
-      where:
-          'rec_ts >= ? AND rec_ts <= ? AND hr > 0 AND ${derivableSourceSql()}',
+      columns: ['rec_ts', 'hr', 'source'],
+      where: 'rec_ts >= ? AND rec_ts <= ?',
       whereArgs: [fromTs, toTs],
       orderBy: 'rec_ts ASC',
     );
+    return [
+      for (final r in sessionWindowRows(rows))
+        if (((r['hr'] as num?) ?? 0) > 0)
+        {'rec_ts': r['rec_ts'], 'hr': r['hr'], 'source': r['source']},
+    ];
+  }
+
+  /// Every session in [fromTs, toTs] (epoch SECONDS) with the worn rows of
+  /// its window a session read keeps ([sessionWindowRows]), ascending. Only
+  /// with a workout sensor flagged on; a session with none is absent, as from
+  /// the band-only joins.
+  static Future<Map<String, List<Map<String, Object?>>>> _sessionWindows(
+    int fromTs,
+    int toTs,
+  ) async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT s.id AS id, d.source AS source, d.rec_ts AS rec_ts, d.hr AS hr '
+      'FROM sessions s '
+      'JOIN decoded_onehz d ON d.rec_ts >= s.start_ts '
+      '  AND d.rec_ts <= COALESCE(s.end_ts, s.start_ts) '
+      'WHERE s.start_ts >= ? AND s.start_ts <= ? '
+      'ORDER BY s.id, d.rec_ts ASC',
+      [fromTs, toTs],
+    );
+    final by = <String, List<Map<String, Object?>>>{};
+    for (final r in rows) {
+      final id = r['id'] as String?;
+      if (id != null) (by[id] ??= []).add(r);
+    }
+    return {
+      for (final MapEntry(key: id, value: rs) in by.entries)
+        if ([
+          for (final r in sessionWindowRows(rs))
+            if (((r['hr'] as num?) ?? 0) > 0) r,
+        ]
+            case final kept when kept.isNotEmpty)
+          id: kept,
+    };
   }
 
   /// Per-session HR aggregates over the 1 Hz substrate for every session in
@@ -11998,6 +12509,29 @@ class LocalDb {
     int maxHrCeiling = 0,
     int minHrFloor = 0,
   }) async {
+    if (sessionSensorSources.isNotEmpty) {
+      return {
+        for (final MapEntry(key: id, value: rs)
+            in (await _sessionWindows(fromTs, toTs)).entries)
+          id: () {
+            final hr = [for (final r in rs) (r['hr'] as num).toInt()];
+            final low = [
+              for (final h in hr)
+                if (minHrFloor <= 0 || h >= minHrFloor) h,
+            ];
+            final high = [
+              for (final h in hr)
+                if (maxHrCeiling <= 0 || h <= maxHrCeiling) h,
+            ];
+            return <String, num>{
+              'n': hr.length,
+              'avg_hr': hr.fold<int>(0, (a, b) => a + b) / hr.length,
+              'min_hr': low.isEmpty ? 0 : low.reduce((a, b) => a < b ? a : b),
+              'max_hr': high.isEmpty ? 0 : high.reduce((a, b) => a > b ? a : b),
+            };
+          }(),
+      };
+    }
     final db = await instance;
     final ceilClause = maxHrCeiling > 0 ? 'AND d.hr <= $maxHrCeiling ' : '';
     final floorClause = minHrFloor > 0 ? 'AND d.hr >= $minHrFloor ' : '';
@@ -12038,6 +12572,13 @@ class LocalDb {
     int fromTs,
     int toTs,
   ) async {
+    if (sessionSensorSources.isNotEmpty) {
+      return {
+        for (final MapEntry(key: id, value: rs)
+            in (await _sessionWindows(fromTs, toTs)).entries)
+          id: [for (final r in rs) (r['hr'] as num).toInt()],
+      };
+    }
     final db = await instance;
     final rows = await db.rawQuery(
       'SELECT s.id AS id, d.hr AS hr '

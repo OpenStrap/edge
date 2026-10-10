@@ -1,4 +1,4 @@
-// The Mi Band 2/3/4 auth handshake, replayed through [ReplayBandLink].
+// The Mi Band 2/3 auth handshake, replayed through [ReplayBandLink].
 //
 // WHAT THIS EXISTS TO PROVE, and it is not the crypto (that is
 // `oura_auth_crypto_test.dart`'s sibling below, pinned against a published
@@ -10,8 +10,9 @@
 //   * any refusal — a bad install ack, a bad challenge, a bad final result,
 //     or silence — ends the session before anything is subscribed;
 //   * battery, steps and heart-rate notifications reach the host as raw,
-//     undecoded bytes with no [NeutralSample] and no [OffloadCheckpoint] —
-//     this band's flash is never touched.
+//     undecoded bytes with no [NeutralSample];
+//   * a history round reads the announced number of minute SAMPLES, not
+//     bytes, and ends on the band's done notification.
 //
 // Nothing here has met hardware. It proves the state machine, not the band.
 
@@ -21,6 +22,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/adapters/adapter.dart';
 import 'package:openstrap_edge/ble/adapters/miband234.dart';
+import 'package:openstrap_edge/ble/adapters/signals.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart'
+    show
+        kHuamiActivityControlChar,
+        kHuamiActivityDataChar,
+        kHuamiKindLightSleep;
 
 /// Any 16 bytes. The replay band answers a scripted result rather than
 /// actually verifying the AES block, so the VALUE of the key is not what is
@@ -43,6 +50,8 @@ MiBand234Adapter _adapter({bool needsKeyWrite = false}) => MiBand234Adapter(
       key: _kKey,
       needsKeyWrite: needsKeyWrite,
       replyTimeout: const Duration(milliseconds: 50),
+      confirmTimeout: const Duration(milliseconds: 50),
+      fetchTimeout: const Duration(milliseconds: 50),
     );
 
 /// Drive [adapter] over a replay link, answering each write on the auth
@@ -57,7 +66,8 @@ Future<(List<BandEvent>, ReplayBandLink)> _drive(
   final sub = adapter.run(link).listen(events.add, onDone: done.complete);
   var served = 0;
   for (var spin = 0; spin < 400 && !done.isCompleted; spin++) {
-    await Future<void>.delayed(Duration.zero);
+    // Real time passes, so a reply timeout can expire mid-drive.
+    await Future<void>.delayed(const Duration(milliseconds: 1));
     while (served < link.writes.length) {
       final w = link.writes[served];
       for (final f in reply(served, w.$2)) {
@@ -74,38 +84,117 @@ Future<(List<BandEvent>, ReplayBandLink)> _drive(
 
 /// The band's ordinary reply script once a key is already installed.
 List<List<int>> _reconnectReply(int i, List<int> v) {
-  if (v.length == 2 && v[0] == 0x02 && v[1] == 0x08) {
+  if (v.length == 3 && v[0] == 0x02 && v[1] == 0x00 && v[2] == 0x02) {
     return [_challengeFrame(_kChallenge)];
   }
   if (v.isNotEmpty && v[0] == 0x03) return [_authResult(0x01)];
   return const [];
 }
 
+/// One session from [from] (local midnight) that the band answers with three
+/// days announced but is cut after two whole days and 100 minutes: what
+/// [BandHost.stop] does when the sync window closes. [kindAt] gives each
+/// minute's activity kind (default awake).
+Future<List<BandEvent>> _cutSession(DateTime from, int nowSec,
+    {int Function(int minute)? kindAt}) async {
+  final startSec = from.millisecondsSinceEpoch ~/ 1000;
+  final adapter = MiBand234Adapter(
+    key: _kKey,
+    replyTimeout: const Duration(milliseconds: 50),
+    // Long: the band is still sending when the session is cut.
+    fetchTimeout: const Duration(seconds: 30),
+    sinceSec: startSec,
+    nowSeconds: () => nowSec,
+  );
+  const announced = 3 * 1440;
+  const sent = 2 * 1440 + 100; // the cut comes partway through day 3
+  final samples = [
+    for (var m = 0; m < sent; m++) ...[kindAt?.call(m) ?? 1, 10, 2, 60],
+  ];
+  final tz = (from.timeZoneOffset.inMinutes ~/ 15) & 0xff;
+  final link = ReplayBandLink();
+  final events = <BandEvent>[];
+  final sub = adapter.run(link).listen(events.add);
+  var served = 0;
+  for (var spin = 0;
+      spin < 300 && events.whereType<BandNote>().length < 2;
+      spin++) {
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    while (served < link.writes.length) {
+      final (char, v) = link.writes[served++];
+      if (char == kHuami234AuthChar) {
+        for (final f in _reconnectReply(served, v)) {
+          link.feed(kHuami234AuthChar, f, atSec: 1786000000);
+        }
+      } else if (char == kHuamiActivityControlChar && v[0] == 0x01) {
+        link.feed(kHuamiActivityControlChar, [
+          0x10, 0x01, 0x01, announced & 0xff, announced >> 8, 0, 0, //
+          from.year & 0xff, from.year >> 8, from.month, from.day,
+          0, 0, 0, tz,
+        ], atSec: 1786000000);
+      } else if (char == kHuamiActivityControlChar && v[0] == 0x02) {
+        for (var i = 0, c = 0; i < samples.length; i += 16, c++) {
+          link.feed(kHuamiActivityDataChar,
+              [c & 0xff, ...samples.sublist(i, i + 16)],
+              atSec: 1786000000);
+        }
+      }
+    }
+  }
+  // Nothing the adapter yields after the cancel reaches the host. Closing
+  // the link only lets the parked generator unwind.
+  final cancelled = sub.cancel();
+  await link.close();
+  await cancelled;
+  return events;
+}
+
 void main() {
-  test('declares no signals — every optional channel is archived, not decoded',
-      () {
-    expect(_adapter().signals, isEmpty);
+  test('declares hrSparse (one stored HR per minute) and the registry '
+      'mirrors it', () {
+    expect(_adapter().signals.keys, [
+      InputSignal.hrSparse,
+      InputSignal.steps,
+      InputSignal.deviceStages,
+    ]);
+    expect(kAdapterSignals['miband234'], _adapter().signals);
   });
 
   test('a first pairing writes the key before requesting a challenge',
       () async {
     final (_, link) = await _drive(_adapter(needsKeyWrite: true), (i, v) {
-      if (v.length == 18 && v[0] == 0x01 && v[1] == 0x08) {
+      if (v.length == 18 && v[0] == 0x01 && v[1] == 0x00) {
         return [_sendKeyAck(0x01)];
       }
       return _reconnectReply(i, v);
     });
-    expect(link.writes[0].$2, <int>[0x01, 0x08, ..._kKey]);
-    expect(link.writes[1].$2, <int>[0x02, 0x08]);
+    expect(link.writes[0].$2, <int>[0x01, 0x00, ..._kKey]);
+    expect(link.writes[1].$2, <int>[0x02, 0x00, 0x02]);
     final answer = miBand234AuthResponse(_kKey, _kChallenge);
-    expect(link.writes[2].$2, <int>[0x03, 0x08, ...answer]);
+    expect(link.writes[2].$2, <int>[0x03, 0x00, ...answer]);
   });
 
   test('a reconnect with an installed key skips the key write entirely',
       () async {
     final (_, link) = await _drive(_adapter(), _reconnectReply);
-    expect(link.writes, hasLength(2));
-    expect(link.writes.first.$2, <int>[0x02, 0x08]);
+    final auth = link.writes.where((w) => w.$1 == kHuami234AuthChar).toList();
+    expect(auth, hasLength(2));
+    expect(auth.first.$2, <int>[0x02, 0x00, 0x02]);
+  });
+
+  test('an unanswered challenge request is retried in its short form',
+      () async {
+    final (_, link) = await _drive(_adapter(), (i, v) {
+      if (v.length == 2 && v[0] == 0x02) return [_challengeFrame(_kChallenge)];
+      if (v.isNotEmpty && v[0] == 0x03) return [_authResult(0x01)];
+      return const [];
+    });
+    final auth = link.writes.where((w) => w.$1 == kHuami234AuthChar).toList();
+    expect(auth.map((w) => w.$2.sublist(0, 2)), [
+      [0x02, 0x00],
+      [0x02, 0x00],
+      [0x03, 0x00],
+    ]);
   });
 
   test('a refused key install ends the session before any challenge request',
@@ -130,7 +219,7 @@ void main() {
 
   test('a challenge with the wrong status is unusable', () async {
     final (events, _) = await _drive(_adapter(), (i, v) {
-      if (v.length == 2 && v[0] == 0x02) {
+      if (v[0] == 0x02) {
         return [<int>[0x10, 0x02, 0x00, ..._kChallenge]];
       }
       return const [];
@@ -141,7 +230,7 @@ void main() {
   test('0x04 on the final result means the wrong key or still bound '
       'elsewhere — either way the session ends', () async {
     final (events, link) = await _drive(_adapter(), (i, v) {
-      if (v.length == 2 && v[0] == 0x02) return [_challengeFrame(_kChallenge)];
+      if (v[0] == 0x02) return [_challengeFrame(_kChallenge)];
       if (v.isNotEmpty && v[0] == 0x03) return [_authResult(0x04)];
       return const [];
     });
@@ -152,7 +241,7 @@ void main() {
   });
 
   test('battery, steps and heart rate are archived raw, undecoded, and never '
-      'checkpoint', () async {
+      'checkpoint without history', () async {
     final link = ReplayBandLink();
     final events = <BandEvent>[];
     final done = Completer<void>();
@@ -199,9 +288,115 @@ void main() {
           equals(<int>[kMiBand234ArchiveSteps, 0x2a, 0x00, 0x00, 0x00])),
     );
     expect(raws, anyElement(equals(<int>[kMiBand234ArchiveHr, 0x00, 65])));
-    // This band's flash is never touched — no history command exists on this
-    // path at all, so there is nothing to checkpoint.
+    // The band answered no history round, so there is nothing to checkpoint.
     expect(events.whereType<OffloadCheckpoint>(), isEmpty);
+  });
+
+  test('a history round reads the announced number of minute samples, then '
+      'notes the cursor before its checkpoint', () async {
+    final start = DateTime.utc(2026, 10, 3);
+    final startSec = start.millisecondsSinceEpoch ~/ 1000;
+    final adapter = MiBand234Adapter(
+      key: _kKey,
+      replyTimeout: const Duration(milliseconds: 50),
+      fetchTimeout: const Duration(milliseconds: 50),
+      sinceSec: startSec,
+      nowSeconds: () => startSec + 86400,
+    );
+    // 8 minutes = 32 bytes, in two 16-byte packets.
+    final samples = [for (var m = 0; m < 8; m++) ...[1, 10, 0, 60 + m]];
+    var rounds = 0;
+    final link = ReplayBandLink();
+    final events = <BandEvent>[];
+    final done = Completer<void>();
+    final sub = adapter.run(link).listen(events.add, onDone: done.complete);
+    var served = 0;
+    for (var spin = 0; spin < 300 && !done.isCompleted; spin++) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+      while (served < link.writes.length) {
+        final (char, v) = link.writes[served++];
+        if (char == kHuami234AuthChar) {
+          for (final f in _reconnectReply(served, v)) {
+            link.feed(kHuami234AuthChar, f, atSec: 1786000000);
+          }
+        } else if (char == kHuamiActivityControlChar && v[0] == 0x01) {
+          final n = rounds++ == 0 ? 8 : 0;
+          link.feed(kHuamiActivityControlChar, [
+            0x10, 0x01, 0x01, n, 0, 0, 0, //
+            0xea, 0x07, 10, 3, 0, 0, 0, 0,
+          ], atSec: 1786000000);
+        } else if (char == kHuamiActivityControlChar && v[0] == 0x02) {
+          link
+            ..feed(kHuamiActivityDataChar, [0, ...samples.sublist(0, 16)],
+                atSec: 1786000000)
+            ..feed(kHuamiActivityDataChar, [1, ...samples.sublist(16)],
+                atSec: 1786000000)
+            ..feed(kHuamiActivityControlChar, [0x10, 0x02, 0x01],
+                atSec: 1786000000);
+        }
+      }
+    }
+    await link.close();
+    await done.future.timeout(const Duration(seconds: 2), onTimeout: () {});
+    await sub.cancel();
+
+    final hr = [
+      for (final b in events.whereType<SampleBatch>()) ...b.samples,
+    ];
+    expect(hr.map((s) => s.hr), [60, 61, 62, 63, 64, 65, 66, 67]);
+    expect(hr.first.tsEpoch, startSec);
+    expect(rounds, 2, reason: 'the next round starts after the 8 minutes');
+    final order = [
+      for (final e in events)
+        if (e is BandNote) 'note' else if (e is OffloadCheckpoint) 'checkpoint',
+    ];
+    expect(order, ['note', 'checkpoint']);
+  });
+
+  test('a round cut short still banks each whole day it delivered: HR, '
+      'steps and the cursor', () async {
+    final start = DateTime(2026, 10, 1);
+    final startSec = start.millisecondsSinceEpoch ~/ 1000;
+    final events = await _cutSession(start, startSec + 3 * 86400);
+
+    final hr = [for (final b in events.whereType<SampleBatch>()) ...b.samples];
+    expect(hr, hasLength(2 * 1440), reason: 'two whole days banked');
+    final steps = {
+      for (final v in events.whereType<VendorScalars>())
+        for (final o in v.rows)
+          if (o.key == 'steps') o.at: o.value,
+    };
+    expect(steps[DateTime(2026, 10, 1)], 2 * 1440);
+    expect(steps[DateTime(2026, 10, 2)], 2 * 1440);
+    final notes = events.whereType<BandNote>().toList();
+    expect(notes.last.key, 'miband_since');
+    expect(notes.last.value,
+        DateTime(2026, 10, 3).millisecondsSinceEpoch ~/ 1000,
+        reason: 'the first day not read whole');
+    expect(events.whereType<OffloadCheckpoint>(), hasLength(2));
+  });
+
+  test('sessions cut after about two days each still move the cursor '
+      'forward', () async {
+    final now = DateTime(2026, 10, 9).millisecondsSinceEpoch ~/ 1000;
+    int cursor(List<BandEvent> events) =>
+        events.whereType<BandNote>().last.value as int;
+    final first = cursor(await _cutSession(DateTime(2026, 10, 1), now));
+    expect(first, DateTime(2026, 10, 3).millisecondsSinceEpoch ~/ 1000);
+    final second = cursor(await _cutSession(
+        DateTime.fromMillisecondsSinceEpoch(first * 1000), now));
+    expect(second, DateTime(2026, 10, 5).millisecondsSinceEpoch ~/ 1000);
+  });
+
+  test('a night still running when the session is cut holds the cursor at '
+      'the day it began', () async {
+    final start = DateTime(2026, 10, 1);
+    final now = DateTime(2026, 10, 9).millisecondsSinceEpoch ~/ 1000;
+    // Awake until 22:00 on day 2, then asleep through the cut.
+    final events = await _cutSession(start, now,
+        kindAt: (m) => m >= 1440 + 22 * 60 ? kHuamiKindLightSleep : 1);
+    expect(events.whereType<BandNote>().last.value,
+        DateTime(2026, 10, 2).millisecondsSinceEpoch ~/ 1000);
   });
 
   test(
@@ -213,10 +408,12 @@ void main() {
     // subscribed to battery/steps/HR — same drive loop as the test above,
     // minus collecting events, stopping the instant the subscribe happens.
     var served = 0;
+    // The history fetch runs first and waits out its reply timeout on this
+    // silent link, so this spin lets real time pass.
     for (var spin = 0;
         spin < 400 && !link.isListening(kHuami234BatteryChar);
         spin++) {
-      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
       while (served < link.writes.length) {
         for (final f in _reconnectReply(served, link.writes[served].$2)) {
           link.feed(kHuami234AuthChar, f, atSec: 1786000000);

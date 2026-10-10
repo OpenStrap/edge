@@ -75,7 +75,7 @@ String _esc(String s) => s
 String _servicesBody(List<BandEntry> registry) {
   final buf = StringBuffer();
   for (final e in registry) {
-    buf.writeln('\t\t<string>${e.service.toUpperCase()}</string>');
+    buf.writeln('\t\t<string>${plistUuid(e.service)}</string>');
   }
   buf
     ..writeln('\t\t<!-- 16-bit SIG member UUID. Distinct from the 128-bit '
@@ -90,7 +90,7 @@ String _servicesBody(List<BandEntry> registry) {
 }
 
 String _sensorServicesBody(List<BandEntry> sensors) => sensors
-    .map((e) => '\t\t<string>${e.service.toUpperCase()}</string>\n')
+    .map((e) => '\t\t<string>${plistUuid(e.service)}</string>\n')
     .join();
 
 String _companyIdsBody(List<BandEntry> sensors) => [
@@ -100,7 +100,7 @@ String _companyIdsBody(List<BandEntry> sensors) => [
     ].join();
 
 String _labelsBody(List<BandEntry> registry) => registry
-    .map((e) => '\t\t<key>${e.service.toUpperCase()}</key>\n'
+    .map((e) => '\t\t<key>${plistUuid(e.service)}</key>\n'
         '\t\t<string>${_esc(e.label)}</string>\n')
     .join();
 

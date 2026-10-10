@@ -19,6 +19,10 @@
 // numbers, next to its name, and are never summed into ours: two devices'
 // calorie models added together is one number neither of them would agree with.
 //
+// The one way across (#325): tapping an import re-logs its window as a band
+// session scored from our own 1 Hz heart rate, and that session REPLACES the
+// import (`LocalDb.supersedeImportedWorkout`), so nothing is counted twice.
+//
 // The refusal is structural, not a filter someone has to remember: these rows
 // live in their own table (see db.dart `_createImportedWorkout`), so nothing
 // that reads `sessions` can reach them by accident. The screen opts a row IN,
@@ -239,7 +243,14 @@ Future<Set<String>> deletedUuids() async {
   return {...(prefs.getStringList(_kTombstonesPref) ?? const [])};
 }
 
-Future<void> rememberDeletedUuid(String uuid) async {
+// Serialized: each write replaces the whole list, so two overlapping calls
+// would each drop the other's uuid.
+Future<void> _tombstoneWrites = Future.value();
+
+Future<void> rememberDeletedUuid(String uuid) => _tombstoneWrites =
+    _tombstoneWrites.catchError((_) {}).then((_) => _remember(uuid));
+
+Future<void> _remember(String uuid) async {
   final prefs = await SharedPreferences.getInstance();
   final set = await deletedUuids();
   if (set.contains(uuid)) return;
@@ -362,6 +373,13 @@ class HealthWorkoutImporter {
     await LocalDb.putImportedWorkouts([for (final r in alive) r.toRow()]);
     final withRoutes = await _importRoutes(start, end,
         skip: {...tombstones, ...ownUuids}, prompt: prompt);
+    // Re-read: a workout scored or deleted while this pass was in flight, or
+    // one an interrupted pass tombstoned without removing, must not stay
+    // listed (or keep a route) beside the session that replaced it.
+    final dead = await deletedUuids();
+    for (final r in rows) {
+      if (dead.contains(r.uuid)) await LocalDb.deleteImportedWorkout(r.uuid);
+    }
     return WorkoutImportResult(
       workouts: alive.length,
       withRoutes: withRoutes,

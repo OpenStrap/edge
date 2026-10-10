@@ -24,10 +24,13 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart'
-    show ValueListenable, ValueNotifier, debugPrint;
+    show ValueListenable, ValueNotifier, debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart' show polarPmdStopPpi;
 
+import '../compute/inputs/canonical.dart' show wearableEnabled;
 import '../data/db.dart';
+import 'adapters/_registry.dart' show kPolarPmdControlChar;
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart' show BandHost, HrsReading;
 import 'adapters/polar_pmd.dart' show kPolarPmdAdapter;
@@ -47,11 +50,19 @@ class PolarPmdLink {
   bool _armed = false;
   bool _holdsSecondaryLinkSlot = false;
 
+  /// Set when the sensor dropped the link itself: a STOP write then has
+  /// nowhere to go and would only wait out the write timeout.
+  bool _peerGone = false;
+
   ValueListenable<HrsReading?> get reading => _reading;
   final ValueNotifier<HrsReading?> _reading = ValueNotifier(null);
 
   /// The armed sensor's `device_id`, or null when nothing is armed.
   String? get deviceId => _host?.deviceId;
+
+  /// Bank what the armed sensor has sent so far and stay armed (a workout's
+  /// stop, with the recovery tail still to record). No-op when not armed.
+  Future<void> flush() async => _host?.flush();
 
   /// The `device` row for the paired sensor, or null.
   static Future<Map<String, Object?>?> pairedSensorRow() async {
@@ -96,6 +107,9 @@ class PolarPmdLink {
 
   Future<bool> _arm() async {
     final disarmsAtStart = _disarms;
+    // Rule R6: a sensor whose flag is off is never armed, so nothing it
+    // reads reaches a live trace, a workout's score or the day.
+    if (!await wearableEnabled(kPolarPmdAdapter.id)) return false;
     final row = await pairedSensorRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;
@@ -145,7 +159,10 @@ class PolarPmdLink {
         unawaited(disarm());
       }));
       _connSub = device.connectionState.listen((s) {
-        if (s == BluetoothConnectionState.disconnected) unawaited(disarm());
+        if (s == BluetoothConnectionState.disconnected) {
+          _peerGone = true;
+          unawaited(disarm());
+        }
       });
       _armed = true;
       _reading.value = const HrsReading();
@@ -195,12 +212,27 @@ class PolarPmdLink {
     await _disarm();
   }
 
+  /// STOP the PPI stream, then close [link]. In that order: a closed link
+  /// refuses every write, so a STOP issued after `close()` (the adapter's own
+  /// `finally`, reached during `host.stop()`) never leaves the phone. The
+  /// close itself still comes before `host.stop()` — see `BandHost.stop` on
+  /// why its cancel waits for a generator parked on an open link. Skipped
+  /// when the sensor already dropped the link ([peerGone]).
+  @visibleForTesting
+  static Future<void> stopThenClose(GattBandLink link,
+      {required bool peerGone}) async {
+    if (!peerGone) await link.write(kPolarPmdControlChar, polarPmdStopPpi());
+    link.close();
+  }
+
   Future<void> _disarm() async {
     final d = _device;
     try {
-      _link?.close();
+      final link = _link;
+      if (link != null) await stopThenClose(link, peerGone: _peerGone);
       await _host?.stop();
     } finally {
+      _peerGone = false;
       await _connSub?.cancel();
       _link = null;
       _host = null;
