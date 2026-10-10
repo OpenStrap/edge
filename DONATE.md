@@ -1,6 +1,6 @@
 # Support OpenStrap
 
-OpenStrap is free, MIT-licensed, and has no company, no subscription, and no
+OpenStrap is free, AGPL-3.0 licensed, and has no company, no subscription, and no
 revenue behind it. It exists because a perfectly good sensor turned into a
 bracelet and that seemed like a stupid reason to throw hardware away.
 
