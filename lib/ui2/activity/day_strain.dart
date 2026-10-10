@@ -66,6 +66,9 @@ class DayStrainData {
   final String? zoneSource;
   final num? zoneMaxHr;
 
+  /// The five lower zone edges, in bpm, of the set this day was binned with.
+  final List<num>? zoneLowerBpm;
+
   final int? peakHr, wornMin, coveragePct;
 
   /// WHY the day has no strain, as the bundle said it — never a sentence
@@ -81,6 +84,7 @@ class DayStrainData {
     this.maxHrUsed,
     this.zoneSource,
     this.zoneMaxHr,
+    this.zoneLowerBpm,
     this.peakHr,
     this.wornMin,
     this.coveragePct,
@@ -145,6 +149,11 @@ class DayStrainData {
       maxHrUsed: s['max_hr_used'] as num?,
       zoneSource: s['zone_source'] as String?,
       zoneMaxHr: s['zone_max_hr'] as num?,
+      zoneLowerBpm: switch (s['zone_lower_bpm']) {
+        final List e when e.length == 5 && e.every((v) => v is num) =>
+          e.cast<num>(),
+        _ => null,
+      },
       peakHr: hr is Map ? (hr['max'] as num?)?.toInt() : null,
       wornMin: (wear['worn_min'] as num?)?.toInt(),
       coveragePct: (wear['coverage_pct'] as num?)?.toInt(),
@@ -268,13 +277,15 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
         ),
       ];
     }
-    final axis = AxisSpec.of(d.curve.whereType<double>(), floor: 0)!;
+    // The whole 0–21 scale the header names, so the ticks and the header
+    // agree and two days can be compared by eye.
+    const axis = AxisSpec(min: 0, max: 21, ticks: 4, format: axisInt);
     final drawn = d.curve.where((v) => v != null).length;
     return [
       Surface(
         child: Column(children: [
           ChartFrame(
-            title: l?.dayStrainChartTitle ?? 'STRAIN THROUGH THE DAY',
+            title: l?.dayStrainChartTitle ?? 'Strain through the day',
             unit: '0–21',
             height: 170,
             yAxis: axis,
@@ -328,14 +339,10 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       Section(
         l?.dayStrainTimeInZonesSection ?? 'Time in zones',
         Surface(
-          child: ChartFrame(
-            title: l?.dayStrainZonesChartTitle ?? 'TIME IN ZONES',
-            unit: 'minutes',
-            height: 10,
-            legend: [
-              for (var i = 0; i < 5; i++)
-                ('Z${i + 1} · ${z[i]}m', ZoneBar.cols(p)[i]),
-            ],
+          child: ZoneRows(
+            [for (final v in z) v.toDouble()],
+            lowerBpm: d.zoneLowerBpm,
+            title: l?.dayStrainZonesChartTitle ?? 'Time in zones',
             // TS-03/TS-04 — the edges, and where THIS day's came from. Stated
             // per day, not as a standing hedge: the same screen tomorrow can be
             // banded on a measured ceiling, and a footnote that still said
@@ -343,10 +350,6 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
             // distribution is NOT here — it lives one tap away and is gated on
             // the same anchors (TS-05).
             footnote: zonesWhy(d.zoneSource, d.zoneMaxHr, l),
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: ZoneBar([for (final v in z) v / total], p),
-            ),
           ),
         ),
         // Progressive disclosure: this day screen gains a LINK, not a row. The

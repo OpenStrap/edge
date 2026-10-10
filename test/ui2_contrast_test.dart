@@ -21,18 +21,6 @@ import 'package:openstrap_edge/ui2/theme.dart';
 /// WCAG 2.1 AA for body text. The same constant the tokens solve against.
 const _aa = 4.5;
 
-/// A canvas that records nothing but how tall each band was drawn — the second
-/// channel [ZoneBar] uses so its ordinal survives colour-vision deficiency.
-class _Heights implements Canvas {
-  final heights = <double>[];
-
-  @override
-  void drawRRect(RRect r, Paint p) => heights.add(r.outerRect.height);
-
-  @override
-  void noSuchMethod(Invocation i) {}
-}
-
 void main() {
   final themes = {'light': const P(false), 'dark': const P(true)};
 
@@ -134,8 +122,8 @@ void main() {
     themes.forEach((name, p) {
       final marks = <String, Color>{
         for (final e in Hypnogram.cols(p).entries) 'hypnogram ${e.key.name}': e.value,
-        for (var i = 0; i < ZoneBar.cols(p).length; i++)
-          'zone ${i + 1}': ZoneBar.cols(p)[i],
+        for (var i = 0; i < ZoneRows.cols(p).length; i++)
+          'zone ${i + 1}': ZoneRows.cols(p)[i],
       };
       marks.forEach((what, ink) {
         test('$name · $what against the card it is drawn on', () {
@@ -155,30 +143,26 @@ void main() {
       for (final p in themes.values) {
         expect([for (final (_, c) in Hypnogram.legend(p)) c],
             [for (final s in SleepStage.values) Hypnogram.cols(p)[s]]);
-        expect([for (final (_, c) in ZoneBar.legend(p)) c], ZoneBar.cols(p));
       }
     });
 
-    test('the zone ramp does not rely on hue alone', () {
-      // Zone 4 against zone 5 is 1.34:1 — measured against EACH OTHER, which
-      // no surface-based solve can fix, and a stacked bar has no lane position
-      // to separate them with. So the ordinal is also drawn as height.
-      const p = P(false);
-      final worst = <double>[
-        for (var i = 1; i < ZoneBar.cols(p).length; i++)
-          P.contrast(ZoneBar.cols(p)[i - 1], ZoneBar.cols(p)[i]),
-      ].reduce((a, b) => a < b ? a : b);
-      expect(worst, lessThan(3),
-          reason: 'if adjacent bands ever DO separate by colour alone, this '
-              'test is the place to relax the second channel — not the place '
-              'to delete it silently');
-
-      final rec = _Heights();
-      ZoneBar(const [.2, .2, .2, .2, .2], p).paint(rec, const Size(300, 20));
-      expect(rec.heights, hasLength(5));
-      for (var i = 1; i < rec.heights.length; i++) {
-        expect(rec.heights[i], greaterThan(rec.heights[i - 1]),
-            reason: 'band ${i + 1} must stand taller than band $i');
+    test('the sleep lanes run light to dark in both themes', () {
+      // Awake palest, deep darkest, by luminance, so the order reads without
+      // hue — and each step is far enough from the next to tell apart.
+      for (final p in themes.values) {
+        final ink = Hypnogram.cols(p);
+        final lum = [
+          for (final s in SleepStage.values) ink[s]!.computeLuminance(),
+        ];
+        for (var i = 1; i < lum.length; i++) {
+          expect(lum[i], lessThan(lum[i - 1]),
+              reason: '${SleepStage.values[i].name} must be darker than '
+                  '${SleepStage.values[i - 1].name} (dark: ${p.dark})');
+          expect(
+              P.contrast(ink[SleepStage.values[i]]!,
+                  ink[SleepStage.values[i - 1]]!),
+              greaterThan(1.2));
+        }
       }
     });
   });

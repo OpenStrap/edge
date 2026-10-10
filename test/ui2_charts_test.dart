@@ -145,10 +145,8 @@ void main() {
         LineChart(const [], Colors.red),
         Bars(const [], Colors.red),
         Hypnogram(const [], const P(false)),
-        ZoneBar(const [], const P(false)),
         Actogram(const [], Colors.red),
         HeatMap(const [], Colors.red, Colors.grey),
-        Spectrum(const []),
         NightStack(const [], const [Colors.red]),
       ]) {
         expect(() => p.paint(canvas, size), returnsNormally,
@@ -487,20 +485,11 @@ void main() {
       expect(rec.rrects, hasLength(1));
     });
 
-    test('a skipped zone band does not shift the ones after it', () {
-      final rec = _Rec();
-      ZoneBar(const [.5, .001, .499], const P(false)).paint(rec, const Size(300, 10));
-      expect(rec.rrects, hasLength(2));
-      // The hairline band is skipped; its width still has to be spent.
-      expect(rec.rrects[1].outerRect.left, closeTo(300 * .501, .01));
-    });
-
     test('painters survive non-finite input without drawing it', () {
       const size = Size(300, 100);
       for (final p in <CustomPainter>[
         LineChart(const [double.nan, 60.0], Colors.red),
         Bars(const [double.nan, 60.0], Colors.red),
-        ZoneBar(const [double.nan, .5], const P(false)),
         Actogram([List.filled(24, double.nan)], Colors.red),
         NightStack(const [
           [double.nan, 60.0]
@@ -642,10 +631,45 @@ void main() {
           ['Awake', 'REM', 'Light', 'Deep']);
     });
 
-    test('every zone has a key', () {
-      const p = P(false);
-      expect(ZoneBar.legend(p), hasLength(ZoneBar.cols(p).length));
-      expect(ZoneBar.legend(p).last.$1, 'Zone 5');
+    testWidgets('zones need no key: every row names its zone and range',
+        (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(_host(const ZoneRows([6, 14, 22, 16, double.nan],
+          lowerBpm: [95, 114, 133, 152, 171], title: 'Time in zones')));
+      expect(find.textContaining('Zone 1'), findsOneWidget);
+      expect(find.textContaining('Zone 5'), findsOneWidget);
+      expect(find.textContaining('95–114 bpm'), findsOneWidget);
+      expect(find.textContaining('171+ bpm'), findsOneWidget);
+      expect(find.text('22 min'), findsOneWidget);
+      // A non-finite minute count is drawn as nothing, not as a crash.
+      expect(find.text('0 min'), findsOneWidget);
+      // One spoken row per zone: name, range and minutes together.
+      expect(
+          find.bySemanticsLabel(
+              RegExp(r'Zone 3.*133–152 bpm.*22 min', dotAll: true)),
+          findsOneWidget);
+      handle.dispose();
+    });
+
+    testWidgets('without edges a zone row shows no invented range',
+        (tester) async {
+      await tester.pumpWidget(_host(const ZoneRows([1, 2, 3, 4, 5])));
+      expect(find.textContaining('bpm'), findsNothing);
+      expect(find.textContaining('Zone 4'), findsOneWidget);
+    });
+
+    testWidgets('zone rows fit at 3.1x text in both themes', (tester) async {
+      for (final b in Brightness.values) {
+        await tester.pumpWidget(_host(
+            const SingleChildScrollView(
+                child: ZoneRows([6, 14, 22, 16, 4],
+                lowerBpm: [95, 114, 133, 152, 171],
+                title: 'Time in zones',
+                footnote: 'Zone edges are percentages of a maximum heart rate.')),
+            scale: 3.1,
+            b: b));
+        expect(tester.takeException(), isNull, reason: '$b overflowed');
+      }
     });
   });
 
@@ -711,7 +735,7 @@ void main() {
             painter: Hypnogram(const [SleepStage.deep], const P(false))),
       )));
       for (final s in SleepStage.values) {
-        expect(find.text(s.label), findsOneWidget);
+        expect(find.text(s.label()), findsOneWidget);
       }
     });
 
@@ -803,7 +827,7 @@ void main() {
             unit: 'ms',
             yAxis: AxisSpec(min: 0, max: 480, format: axisHm),
             xLabels: const ['22:30', '02:00', '05:30', '07:10'],
-            legend: ZoneBar.legend(P(b == Brightness.dark)),
+            legend: Hypnogram.legend(P(b == Brightness.dark)),
             footnote: 'Relative to your own 14-night baseline.',
             child: CustomPaint(painter: LineChart(const [40.0, 90.0], C.teal)),
           ),

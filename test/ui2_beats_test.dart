@@ -342,8 +342,8 @@ void main() {
   ) async {
     await _pump(t, _night());
     final text = _allText(t);
-    expect(text, contains('1 bin holds'));
-    expect(text, contains('left empty rather than joined across'));
+    // One sentence covers it: a blank is a block with too few clean beats.
+    expect(text, contains('a blank where too few clean beats were left'));
     // The band is a band: every drawn bin carries its lo/hi, so the series
     // handed to the frame keeps the hole in place rather than compacting it.
     final frame = t

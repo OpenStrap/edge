@@ -918,25 +918,23 @@ class _SleepDetailState extends State<SleepDetail> {
     final t1 = (n['wake_ts'] as num?)?.round();
     final cycles = (n['cycle_count'] as num?)?.toInt() ?? 0;
     final mean = n['cycles_mean_min'] as num?;
+    // One lane per stage, tall enough for its own name at any text size.
+    final scaler = MediaQuery.textScalerOf(c);
+    final lane = math.max(33.0, scaler.scale(F.over.fontSize!) * F.over.height! + 8);
+    final totals = _stageTotals(device ?? n, device: device != null);
     return Surface(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         ChartFrame(
           title: l?.sleepDetailThroughTheNight ?? 'Through the night',
           unit: l?.sleepDetailUnitStage ?? 'stage',
-          height: 132,
+          height: lane * 4,
           xLabels: [
             clockOfTs(t0),
             if (t0 != null && t1 != null && t1 > t0)
               clockOfTs(t0 + (t1 - t0) ~/ 2),
             clockOfTs(t1),
           ],
-          // Driven by the night, not by the enum: a night with no REM in
-          // it used to still print REM in its key.
-          legend: [
-            for (final e in Hypnogram.legend(p))
-              if (stages.any((s) => s?.label == e.$1)) e,
-          ],
-          child: _hypnogram(c, p, stages, n),
+          child: _labelledHypnogram(c, p, stages, n, lane, totals),
         ),
         if (device != null) ..._deviceStaging(c, p, device),
         // Not our staging: say whose it is, wherever it is drawn.
@@ -1070,7 +1068,7 @@ class _SleepDetailState extends State<SleepDetail> {
   /// apply is that the readout has to exist without a pointer — [Scrubber]
   /// carries the slider role and speaks [describe] at each step.
   Widget _hypnogram(BuildContext c, P p, List<SleepStage?> stages,
-          Map<String, dynamic> n) =>
+          Map<String, dynamic> n, double height) =>
       Scrubber(
         value: _scrub,
         onChanged: (v) => setState(() => _scrub = v),
@@ -1092,7 +1090,7 @@ class _SleepDetailState extends State<SleepDetail> {
           return l?.sleepDetailScrubAt(at, stageName) ?? '$at, $stageName';
         },
         child: SizedBox(
-          height: 132,
+          height: height,
           child: Stack(children: [
             // One painter per watched stretch, laid out by its width in
             // columns, with nothing at all where the band was not recording.
@@ -1205,6 +1203,95 @@ class _SleepDetailState extends State<SleepDetail> {
     };
   }
 
+  /// The hypnogram with each lane named on its left and its total on its
+  /// right, so nobody has to match a colour to a key. Above the big-text
+  /// threshold the totals column goes: the Stages table under the chart
+  /// carries the same figures, and the plot keeps its width.
+  Widget _labelledHypnogram(BuildContext c, P p, List<SleepStage?> stages,
+      Map<String, dynamic> n, double lane, Map<SleepStage, String> totals) {
+    final l = AppLocalizations.of(c);
+    final ink = Hypnogram.cols(p);
+    Widget column(String Function(SleepStage) text, TextAlign align,
+            {bool coloured = false}) =>
+        Column(
+          crossAxisAlignment: align == TextAlign.right
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            for (final s in SleepStage.values)
+              SizedBox(
+                height: lane,
+                child: Align(
+                  alignment: align == TextAlign.right
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
+                  child: Text(
+                    text(s),
+                    textAlign: align,
+                    maxLines: 1,
+                    style: F.over.copyWith(
+                        color: coloured ? ink[s] : p.ink2,
+                        fontWeight: coloured ? FontWeight.w600 : null),
+                  ),
+                ),
+              ),
+          ],
+        );
+    // A lane the night never used, and has no figure for, stays unnamed: a
+    // band that folds REM into light should not print REM at all.
+    bool named(SleepStage s) => totals[s] != null || stages.contains(s);
+    return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      // Spoken by the totals column, or by the scrubber's own readout.
+      ExcludeSemantics(
+          child: column((s) => named(s) ? s.label(l) : '', TextAlign.left,
+              coloured: true)),
+      const SizedBox(width: S.x2),
+      Expanded(child: _hypnogram(c, p, stages, n, lane * 4)),
+      if (!bigText(c) && totals.isNotEmpty) ...[
+        const SizedBox(width: S.x2),
+        Semantics(
+          label: [
+            for (final s in SleepStage.values)
+              if (totals[s] case final t?) '${s.label(l)} $t',
+          ].join(', '),
+          child: ExcludeSemantics(
+              child: column((s) => totals[s] ?? '', TextAlign.right)),
+        ),
+      ],
+    ]);
+  }
+
+  /// What each stage came to, as the Stages table prints it: a device's own
+  /// minutes, a device-staged night's exact minutes, or our estimator's range.
+  /// Awake is always one figure. A stage with nothing to say is left out.
+  Map<SleepStage, String> _stageTotals(Map<String, dynamic> n,
+      {bool device = false}) {
+    if (device) {
+      final m = (n['stage_min'] as Map?) ?? const {};
+      final reported = vendorStagesReported(n['family'] as String?);
+      String? at(String k) =>
+          reported.contains(k) && m[k] is num ? hm((m[k] as num).toDouble()) : null;
+      return {
+        SleepStage.awake: ?at('wake'),
+        SleepStage.rem: ?at('rem'),
+        SleepStage.light: ?at('light'),
+        SleepStage.deep: ?at('deep'),
+      };
+    }
+    final vendor = n['sleep_source'] == 'vendor_staged';
+    final r = vendor ? null : _ranges(n);
+    String? exact(String k) =>
+        vendor && n[k] is num ? hm((n[k] as num).toDouble()) : null;
+    final awake = n['awake_min'] as num?;
+    return {
+      SleepStage.awake: ?(awake == null ? null : hm(awake)),
+      SleepStage.rem: ?(exact('rem_min') ??
+          (r != null && n['rem_min'] != null ? _rangeText(r.rem) : null)),
+      SleepStage.light: ?(exact('light_min') ?? (r == null ? null : _rangeText(r.light))),
+      SleepStage.deep: ?(exact('deep_min') ?? (r == null ? null : _rangeText(r.deep))),
+    };
+  }
+
   /// One stage of the night: a name and what it came to. The value is one
   /// string — the range for a staged figure, a plain duration for Awake — so
   /// the column has ONE right edge down the whole table. It is `Flexible`
@@ -1258,23 +1345,18 @@ class _SleepDetailState extends State<SleepDetail> {
     final l = AppLocalizations.of(c);
     // A device-staged night: the device counted its stages, so its own
     // minutes, not our estimator's ranges.
-    final vendor = n['sleep_source'] == 'vendor_staged';
-    final r = vendor ? null : _ranges(n);
-    String? exact(String k) =>
-        vendor && n[k] is num ? hm((n[k] as num).toDouble()) : null;
-    final awake = n['awake_min'] as num?;
+    final r = n['sleep_source'] == 'vendor_staged' ? null : _ranges(n);
+    // The same figures, and the same colours, as the lanes on the chart.
+    final totals = _stageTotals(n);
+    final ink = Hypnogram.cols(P.of(c));
     final rows = <(String, String, Color)>[
-      if (exact('deep_min') case final v?) (l?.sleepDetailDeep ?? 'Deep', v, C.blue),
-      if (exact('rem_min') case final v?)
-        (l?.sleepDetailStageRem ?? 'REM', v, C.teal),
-      if (exact('light_min') case final v?)
-        (l?.sleepDetailLight ?? 'Light', v, C.sky),
-      if (r != null) (l?.sleepDetailDeep ?? 'Deep', _rangeText(r.deep), C.blue),
-      if (r != null && n['rem_min'] != null)
-        (l?.sleepDetailStageRem ?? 'REM', _rangeText(r.rem), C.teal),
-      if (r != null) (l?.sleepDetailLight ?? 'Light', _rangeText(r.light), C.sky),
-      if (awake != null)
-        (l?.sleepDetailStageAwake ?? 'Awake', hm(awake), C.orange),
+      for (final s in const [
+        SleepStage.deep,
+        SleepStage.rem,
+        SleepStage.light,
+        SleepStage.awake,
+      ])
+        if (totals[s] case final v?) (s.label(l), v, ink[s]!),
     ];
     if (rows.isEmpty) {
       return StatusCard(

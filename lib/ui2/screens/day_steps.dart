@@ -351,7 +351,7 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
       child: Column(
         children: [
           ChartFrame(
-            title: l?.dayStepsChartTitle ?? 'WHEN THEY WERE COUNTED',
+            title: l?.dayStepsChartTitle ?? 'When they were counted',
             unit: l?.dayStepsUnit ?? 'steps',
             height: 150,
             yAxis: axis,

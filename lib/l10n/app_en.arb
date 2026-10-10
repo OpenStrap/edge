@@ -2296,7 +2296,7 @@
       }
     }
   },
-  "dayStepsChartTitle": "WHEN THEY WERE COUNTED",
+  "dayStepsChartTitle": "When they were counted",
   "@dayStepsChartTitle": {
     "description": "Title of the hourly steps chart, shown in caps."
   },
@@ -2673,7 +2673,7 @@
   "@circadianDetailAsleep": {
     "description": "Legend label for the actogram's asleep series"
   },
-  "circadianDetailSleepFootnote": "{count, plural, one{{count} night, one column each. Darker is more of that hour asleep.} other{{count} nights, one column each. Darker is more of that hour asleep.}}",
+  "circadianDetailSleepFootnote": "{count, plural, one{{count} night, one column each, darker where more of that hour was asleep.} other{{count} nights, one column each, darker where more of that hour was asleep.}}",
   "@circadianDetailSleepFootnote": {
     "description": "Footnote under the actogram stating how many nights are drawn",
     "placeholders": {
@@ -2727,7 +2727,7 @@
   "@circadianDetailStillnessTitle": {
     "description": "Chart title for the hourly HRV-while-still chart"
   },
-  "circadianDetailStillnessFootnote": "Each hour is the middle of {lo}–{hi} still five-minute stretches over the last {days, plural, one{{days} day} other{{days} days}}. {drawn} of 24 hours had enough. Not a stress score.",
+  "circadianDetailStillnessFootnote": "Each hour is the middle of {lo}–{hi} still five-minute stretches over {days, plural, one{{days} day} other{{days} days}}, and {drawn} of 24 hours had enough, so read it as stillness, not stress.",
   "@circadianDetailStillnessFootnote": {
     "description": "Footnote explaining the HRV-while-still chart's methodology and coverage",
     "placeholders": {
@@ -2939,7 +2939,7 @@
   "@beatsScatterTitle": {
     "description": "Chart title for the Poincaré (beat vs previous beat) scatter"
   },
-  "beatsScatterFootnote": "The diagonal is where a beat came out the same length as the one before it. Spread across that line is SD1, beat to beat; spread along it is SD2, the slower drift.",
+  "beatsScatterFootnote": "A point on the diagonal is a beat the same length as the one before it, and the wider the cloud across that line, the more your beats vary.",
   "@beatsScatterFootnote": {
     "description": "Footnote explaining how to read the Poincaré scatter's SD1/SD2 axes"
   },
@@ -3014,18 +3014,9 @@
   "@beatsStart": {
     "description": "X-axis label for the start of the night when no wall-clock origin is known"
   },
-  "beatsBandFootnote": "The bar is how sure we are of the bin, not a range your body passed through. The mark inside it is the value.",
+  "beatsBandFootnote": "Each bar is how sure we are of that block and the mark inside it is the value, with a blank where too few clean beats were left.",
   "@beatsBandFootnote": {
     "description": "Footnote explaining the RMSSD band chart's bar-vs-mark meaning"
-  },
-  "beatsHolesFootnote": "{count, plural, one{ {count} bin holds too few clean beats to publish one, and is left empty rather than joined across.} other{ {count} bins hold too few clean beats to publish one, and are left empty rather than joined across.}}",
-  "@beatsHolesFootnote": {
-    "description": "Footnote fragment noting how many bins were left empty for too few clean beats",
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
   },
   "beatsFirstThird": "First third",
   "@beatsFirstThird": {
@@ -3072,7 +3063,7 @@
   "@beatsCleanBeats": {
     "description": "Inline metric label: percentage of beats that were clean"
   },
-  "beatsDcNote": "Yours only. Compare it against your own other nights and nothing else — there is no reference band for a wrist.\n\nIt averages the beats around each moment your heart slowed. A rising line can be a cleaner signal rather than a different heart, so read it beside the anchor count and clean-beat share above. If you changed straps inside this window, the two halves do not compare.",
+  "beatsDcNote": "Compare it only with your own nights, because a cleaner signal can raise it as much as a change in you.",
   "@beatsDcNote": {
     "description": "Explanatory note under the deceleration-capacity chart about how to interpret it"
   },
@@ -4808,30 +4799,6 @@
   "@investigateTooFewBeatsToBin": {
     "description": "Status card fallback body: too few beats to bin the night"
   },
-  "investigateShapeOfTheNight": "Shape of the night",
-  "@investigateShapeOfTheNight": {
-    "description": "Chart title: RMSSD shape across the night"
-  },
-  "investigateBinRmssd": "Bin RMSSD",
-  "@investigateBinRmssd": {
-    "description": "Chart legend label: per-bin RMSSD line"
-  },
-  "investigateSamplingRange": "Sampling range",
-  "@investigateSamplingRange": {
-    "description": "Chart legend label: sampling spread band"
-  },
-  "investigateShapeFootnote": "{drawn} of {total} bins carried enough beats to read; the rest are gaps, not zeroes. The outer pair is the estimator's own sampling spread, not a range you were in. This describes the night and cannot explain it — a low first third is equally consistent with alcohol, a late meal, late training, a warm room, an illness starting, or nothing at all.",
-  "@investigateShapeFootnote": {
-    "description": "Chart footnote explaining night-shape bin coverage and caveats",
-    "placeholders": {
-      "drawn": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
   "investigateNightShape": "Night shape",
   "@investigateNightShape": {
     "description": "Table title: night-shape summary stats"
@@ -4855,27 +4822,6 @@
   "investigateLastThirdOverFirst": "Last third ÷ first",
   "@investigateLastThirdOverFirst": {
     "description": "Night-shape row: ratio of last third to first third"
-  },
-  "investigate29DaysAgo": "29 days ago",
-  "@investigate29DaysAgo": {
-    "description": "Chart x-axis label: 29 days before today"
-  },
-  "investigateToday": "Today",
-  "@investigateToday": {
-    "description": "Chart x-axis label: today"
-  },
-  "investigateDcFootnoteWithBeats": "Your own nights only — no reference range, and none exists for pulse arrivals. Night-to-night signal quality moves this line on its own, and last night was {beats} beats.",
-  "@investigateDcFootnoteWithBeats": {
-    "description": "Deceleration capacity chart footnote, including last night's beat count",
-    "placeholders": {
-      "beats": {
-        "type": "String"
-      }
-    }
-  },
-  "investigateDcFootnote": "Your own nights only — no reference range, and none exists for pulse arrivals. Night-to-night signal quality moves this line on its own.",
-  "@investigateDcFootnote": {
-    "description": "Deceleration capacity chart footnote, no beat count available"
   },
   "investigateIrregularRhythmScreen": "Irregular-rhythm screen",
   "@investigateIrregularRhythmScreen": {
@@ -5503,14 +5449,6 @@
   "metricDetailWearBandFix": "Wear the band overnight to start the series",
   "@metricDetailWearBandFix": {
     "description": "Empty-state fix suggestion telling the user to wear the band overnight."
-  },
-  "metricDetailBeatsLinkTitle": "Beats",
-  "@metricDetailBeatsLinkTitle": {
-    "description": "Title of the doorway row from the HRV metric screen into the Beats (Poincare/rhythm) screen."
-  },
-  "metricDetailBeatsLinkSub": "The intervals a night is made of, drawn",
-  "@metricDetailBeatsLinkSub": {
-    "description": "Subtitle of the doorway row into the Beats screen."
   },
   "metricDetailBreakdownLinkTitle": "Breakdown",
   "@metricDetailBreakdownLinkTitle": {
@@ -8972,7 +8910,7 @@
   "@workoutTodaysStrainAction": {
     "description": "Link action under Training load section, opens day strain detail"
   },
-  "workoutMechanicalLoadTitle": "MECHANICAL LOAD",
+  "workoutMechanicalLoadTitle": "Mechanical load",
   "@workoutMechanicalLoadTitle": {
     "description": "Chart title for weekly strength tonnage"
   },
@@ -9023,7 +8961,7 @@
   "@workoutFitnessLabel": {
     "description": "Small caption under the CTL number on the load card"
   },
-  "workoutDailyLoadTitle": "HEART EFFORT BY DAY",
+  "workoutDailyLoadTitle": "Heart effort by day",
   "@workoutDailyLoadTitle": {
     "description": "Chart title for daily TRIMP"
   },
@@ -9304,13 +9242,9 @@
   "@workoutStrainLabel": {
     "description": "Small caption beside the strain number on a history row"
   },
-  "workoutTimeInZonesTitle": "TIME IN ZONES",
+  "workoutTimeInZonesTitle": "Time in zones",
   "@workoutTimeInZonesTitle": {
     "description": "Chart title on the history row zone bar"
-  },
-  "workoutMinutesUnit": "minutes",
-  "@workoutMinutesUnit": {
-    "description": "Chart unit label on the history row zone bar"
   },
   "workoutFixTimesOnSessionLabel": "Fix the times on this session",
   "@workoutFixTimesOnSessionLabel": {
@@ -9636,7 +9570,7 @@
   "@dayStrainWearBandFix": {
     "description": "Suggested fix action on the no-strain-trace card, shown when the band never saw the day"
   },
-  "dayStrainChartTitle": "STRAIN THROUGH THE DAY",
+  "dayStrainChartTitle": "Strain through the day",
   "@dayStrainChartTitle": {
     "description": "Chart title above the day's strain-over-time curve"
   },
@@ -9674,7 +9608,7 @@
   "@dayStrainTimeInZonesSection": {
     "description": "Section header above the heart-rate zone bar for the day"
   },
-  "dayStrainZonesChartTitle": "TIME IN ZONES",
+  "dayStrainZonesChartTitle": "Time in zones",
   "@dayStrainZonesChartTitle": {
     "description": "Chart title for the day's time-in-zones bar"
   },
@@ -9886,7 +9820,7 @@
   "@activityZonesAgeEstimateBody": {
     "description": "Explanation of why the intensity distribution is withheld when zones are only age-estimated"
   },
-  "activityZonesSessionMinutesChartTitle": "SESSION MINUTES, LAST 28 DAYS",
+  "activityZonesSessionMinutesChartTitle": "Session minutes, last 28 days",
   "@activityZonesSessionMinutesChartTitle": {
     "description": "Chart title for the 28-day session-minutes-by-zone bar"
   },
@@ -10143,7 +10077,7 @@
   "@activitySummaryNoRouteBody": {
     "description": "Body of the status card when a route session recorded no GPS track"
   },
-  "activitySummaryRouteTitle": "ROUTE",
+  "activitySummaryRouteTitle": "Route",
   "@activitySummaryRouteTitle": {
     "description": "Chart title above the route map"
   },
@@ -10187,7 +10121,7 @@
   "@activitySummaryNoRoundsBody": {
     "description": "Body of the status card when an interval session has no rounds recorded"
   },
-  "activitySummaryIntervalLadderTitle": "INTERVAL LADDER",
+  "activitySummaryIntervalLadderTitle": "Interval ladder",
   "@activitySummaryIntervalLadderTitle": {
     "description": "Chart title above the interval work/rest ladder"
   },
@@ -10234,13 +10168,9 @@
   "@activitySummaryNoLapsBody": {
     "description": "Body of the status card when a laps session has no laps counted"
   },
-  "activitySummaryLapsTitle": "LAPS",
+  "activitySummaryLapsTitle": "Laps",
   "@activitySummaryLapsTitle": {
     "description": "Chart title above the lap-time bar chart"
-  },
-  "activitySummarySecondsPerLap": "seconds per lap",
-  "@activitySummarySecondsPerLap": {
-    "description": "Unit label on the lap-time bar chart"
   },
   "activitySummaryLapLabel": "Lap {n}",
   "@activitySummaryLapLabel": {
@@ -10286,7 +10216,7 @@
   "@activitySummaryNoElevationBody": {
     "description": "Body of the status card when a journey session has no elevation profile"
   },
-  "activitySummaryElevationTitle": "ELEVATION",
+  "activitySummaryElevationTitle": "Elevation",
   "@activitySummaryElevationTitle": {
     "description": "Chart title above the elevation profile"
   },
@@ -10372,7 +10302,7 @@
       }
     }
   },
-  "activitySummaryHeartRateTitle": "HEART RATE",
+  "activitySummaryHeartRateTitle": "Heart rate",
   "@activitySummaryHeartRateTitle": {
     "description": "Chart title above the heart-rate trace"
   },
@@ -10385,7 +10315,7 @@
       }
     }
   },
-  "activitySummaryTimeInZonesTitle": "TIME IN ZONES",
+  "activitySummaryTimeInZonesTitle": "Time in zones",
   "@activitySummaryTimeInZonesTitle": {
     "description": "Chart title above the heart-rate zone bar"
   },
@@ -10720,7 +10650,7 @@
   "@activityLiveLapButtonLabel": {
     "description": "Live swim screen: label on the big circular tap-a-lap button."
   },
-  "activityLiveLapsChartTitle": "LAPS",
+  "activityLiveLapsChartTitle": "Laps",
   "@activityLiveLapsChartTitle": {
     "description": "Live swim screen: chart title for the per-lap time bars."
   },
@@ -10736,21 +10666,12 @@
       }
     }
   },
-  "activityLiveLapsFootnote": "Fastest {time} · bar length is speed against it.",
+  "activityLiveLapsFootnote": "Fastest {time}, in bold; bar length is speed against it.",
   "@activityLiveLapsFootnote": {
     "description": "Live swim screen: footnote naming the fastest lap under the laps chart.",
     "placeholders": {
       "time": {
         "type": "String"
-      }
-    }
-  },
-  "activityLiveLapXLabel": "Lap {n}",
-  "@activityLiveLapXLabel": {
-    "description": "Live swim screen: x-axis label on the laps chart, e.g. 'Lap 1'.",
-    "placeholders": {
-      "n": {
-        "type": "int"
       }
     }
   },
@@ -11028,7 +10949,7 @@
       }
     }
   },
-  "activityLiveRouteSoFarTitle": "ROUTE SO FAR",
+  "activityLiveRouteSoFarTitle": "Route so far",
   "@activityLiveRouteSoFarTitle": {
     "description": "Live measured session: chart title for the in-progress GPS route."
   },
@@ -11086,7 +11007,7 @@
   "@activityLiveThisExerciseLabel": {
     "description": "Live strength screen: header above the current exercise's logged sets."
   },
-  "activityLiveTimeInZonesTitle": "TIME IN ZONES",
+  "activityLiveTimeInZonesTitle": "Time in zones",
   "@activityLiveTimeInZonesTitle": {
     "description": "Live heart-rate block: chart title for time spent in each heart-rate zone."
   },
@@ -15207,5 +15128,67 @@
         "type": "int"
       }
     }
+  },
+  "zoneRowsRange": "{lo}–{hi} bpm",
+  "@zoneRowsRange": {
+    "description": "Heart-rate zone row: the zone's range in beats per minute.",
+    "placeholders": {
+      "lo": {
+        "type": "int"
+      },
+      "hi": {
+        "type": "int"
+      }
+    }
+  },
+  "zoneRowsRangeTop": "{lo}+ bpm",
+  "@zoneRowsRangeTop": {
+    "description": "Heart-rate zone row: the top zone, which has no upper edge.",
+    "placeholders": {
+      "lo": {
+        "type": "int"
+      }
+    }
+  },
+  "zoneRowsMinutes": "{minutes} min",
+  "@zoneRowsMinutes": {
+    "description": "Heart-rate zone row: minutes spent in the zone.",
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "advancedTitle": "Advanced charts",
+  "@advancedTitle": {
+    "description": "Title of the screen that holds the research charts, reached from Health."
+  },
+  "advancedIntro": "Research views of the same data. Nothing here changes your scores.",
+  "@advancedIntro": {
+    "description": "One-line introduction at the top of the Advanced charts screen."
+  },
+  "advancedBeatsTitle": "Beat to beat",
+  "@advancedBeatsTitle": {
+    "description": "Advanced charts screen: row opening the beat-to-beat charts."
+  },
+  "advancedBeatsSub": "Each beat against the last, HRV through the night, deceleration capacity",
+  "@advancedBeatsSub": {
+    "description": "Advanced charts screen: what the beat-to-beat row contains."
+  },
+  "advancedRhythmTitle": "Sleep timing and daily rhythm",
+  "@advancedRhythmTitle": {
+    "description": "Advanced charts screen: row and screen title for the sleep-timing and daily-rhythm research charts."
+  },
+  "advancedRhythmSub": "Sleep hour by hour, variability while still, the predicted shape of today",
+  "@advancedRhythmSub": {
+    "description": "Advanced charts screen: what the sleep-timing row contains."
+  },
+  "healthAdvancedLinkTitle": "Advanced charts",
+  "@healthAdvancedLinkTitle": {
+    "description": "Health tab: link row to the Advanced charts screen."
+  },
+  "healthAdvancedLinkSub": "Beat-to-beat detail and sleep timing, for the curious",
+  "@healthAdvancedLinkSub": {
+    "description": "Health tab: subtitle of the link row to the Advanced charts screen."
   }
 }

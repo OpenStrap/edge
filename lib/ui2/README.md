@@ -264,10 +264,10 @@ Bars(List<double> d, Color color,
 Ring(double v, Color color, Color track, {double stroke = 10, double t = 1})
 MacroRing(double v, Color color, Color track)
 Hypnogram(List<SleepStage> stages, P p, {double t = 1})  // awake/rem/light/deep
-ZoneBar(List<double> z, P p)                         // five fractions
+ZoneRows(List<double> minutes, {List<num>? lowerBpm, String? title, footnote})
+        // a widget: five labelled rows, zone + bpm range + bar + minutes
 Actogram(List<List<double>?> days, Color color)      // per day, 24 slots; null = no record
 HeatMap(List<List<double?>> weeks, Color color, Color track)  // null = no data
-Spectrum(List<double> psd, {double split = .28, Color lf, Color hf})
 NightStack(List<List<double>> series, List<Color> colors,
            {List<AxisSpec?>? axes})   // one per lane; lanes are different units
 
@@ -281,11 +281,11 @@ Elevation(List<double> metres, Color color, {Color markerInk, AxisSpec? axis})
 PowerCurve(List<double> watts, double max, Color color,
            {double targetLo = 0, double targetHi = 0, AxisSpec? axis})
            // axis supersedes max when given
-LapBars(List<double> laps, Color color, Color track, {int done = -1})
 BreathRing(double t, Color color)     // t is YOURS — never loop it internally
 MovementMap(List<Offset> pts, Color color, Color line, {Rect court})
 IntervalLadder(List<({double work, double rest})> rounds, Color work, Color rest)
 PaceBar(double frac, Color color)     // a widget, not a painter
+LapRows(List<int> secs, Color color)  // activity/summary.dart; laps in lap order
 ```
 
 `t` on `LineChart`/`Bars`/`Ring`/`Hypnogram` is draw-in progress — feed it
@@ -375,16 +375,15 @@ Five rules:
    the only thing that can say what it is. Keep the wording flat — a version
    change is provenance, not something that happened to the user.
 4. **More than one colour means a `legend`.** Use the painters' own, never
-   retyped: `Hypnogram.legend(p)`, `ZoneBar.legend(p)`, `Spectrum.legend`
-   (instance), `IntervalLadder.legend` (instance). The swatch is the mark's
-   *solved* colour, so the key and the plot can never disagree.
+   retyped: `Hypnogram.legend(p, l)`, `IntervalLadder.legend` (instance).
+   The swatch is the mark's *solved* colour, so the key and the plot can never
+   disagree. Zones need no legend: `ZoneRows` names every row.
 
    The two painters that own a palette take `P` for exactly that reason: raw
    `C.sky` measures 1.67:1 on a white card, so the Light lane was invisible in
    light mode. Everything else takes its colour from the caller — pass
-   `p.on(accent)`, never the pigment. `ZoneBar` also steps its bands up in
-   height, because zone 4 against zone 5 is 1.34:1 *to each other* and a
-   stacked bar has no lane position to separate them with.
+   `p.on(accent)`, never the pigment. The hypnogram lanes run light to dark
+   (awake palest, deep darkest) in both themes, each at its own contrast step.
 5. **Empty is `empty:`, not an empty axis.** `empty: const NoData(message: '…')` keeps
    the title and the unit and drops the axis entirely. A whole metric with no
    value is still a `StatusCard` — `NoData` is the smaller case where the

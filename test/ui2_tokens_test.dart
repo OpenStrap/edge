@@ -272,6 +272,8 @@ const _notComponents = {
   // Reads the day bundle AND the raw beat store to draw one night's Poincaré
   // cloud — a gallery case would have to mock 27 000 beat intervals.
   'Beats',
+  // A list of two links into Beats and the body clock's research view.
+  'AdvancedScreen',
   'Investigate',
   'JournalCompose', 'JournalFindings',
   'LogFoodSheet', 'CalmBreathing',

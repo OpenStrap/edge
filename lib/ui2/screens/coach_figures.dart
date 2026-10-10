@@ -365,15 +365,14 @@ class CoachFigure extends StatelessWidget {
       CustomPaint(size: Size.infinite, painter: Hypnogram(grid, p)),
       height: 130,
       xLabels: [hhmm(t0), hhmm(t1)],
-      legend: Hypnogram.legend(p),
+      legend: Hypnogram.legend(p, AppLocalizations.of(c)),
     );
   }
 
   // ── zone bar ───────────────────────────────────────────────────────────────
   //
-  // ONE bar of five zones — what `ZoneBar` is and what the app draws elsewhere.
-  // A per-day stacked version would need a second painter and would be the only
-  // stacked bar in the app.
+  // Five labelled rows, the same component every zone split in the app uses.
+  // No bpm ranges: a figure spec carries minutes, not the edges they were cut at.
   Widget _zones(BuildContext c, P p, String title) {
     final l = AppLocalizations.of(c);
     var z = [
@@ -398,14 +397,9 @@ class CoachFigure extends StatelessWidget {
             message: l?.coachFiguresNoTimeInZone ?? 'No time in zone'),
       );
     }
-    final fracs = [for (final v in z.take(5)) v / total];
-    return _frame(
-      c,
-      title,
-      'min',
-      CustomPaint(size: Size.infinite, painter: ZoneBar(fracs, p)),
-      height: 56,
-      legend: ZoneBar.legend(p),
+    return ZoneRows(
+      [...z.take(5)],
+      title: title.isEmpty ? (l?.coachFiguresFigure ?? 'Figure') : title,
       footnote: l?.coachFiguresMinTotal(total.round()) ??
           '${total.round()} min total',
     );

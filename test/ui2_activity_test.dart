@@ -466,14 +466,13 @@ void main() {
           reason: 'no curve means no average — not the instant');
     });
 
-    test('lap speeds are derived from lap seconds, so they cannot disagree',
+    test('lap count is derived from lap seconds, so they cannot disagree',
         () {
       final r = ActivityResult(_first(Arch.laps),
           start: _start,
           duration: const Duration(minutes: 10),
           lapSecs: const [40, 80]);
       expect(r.lapCount, 2);
-      expect(r.lapSpeeds, [1.0, .5]);
     });
 
     test('an unfinished session survives being killed', () async {
@@ -1163,7 +1162,7 @@ void main() {
           1.0));
       await tester.pumpAndSettle();
 
-      expect(find.text('HEART RATE'), findsOneWidget);
+      expect(find.text('Heart rate'), findsOneWidget);
       expect(find.text('bpm'), findsWidgets);
       expect(find.textContaining('above 80%'), findsOneWidget);
       expect(find.textContaining('COURT'), findsNothing);
@@ -1178,7 +1177,7 @@ void main() {
       for (final (arch, unit) in const [
         (Arch.route, 'km'),
         (Arch.journey, 'm'),
-        (Arch.laps, 'seconds per lap'),
+        (Arch.laps, 'Lap 1'),
         (Arch.interval, 'seconds'),
         // No `strength` row. A lift has no chart in its overview: the muscle
         // map that used to be there was a lookup table painted on a body, not
@@ -1192,9 +1191,10 @@ void main() {
             1.0));
         await tester.pumpAndSettle();
         expect(find.text(unit), findsWidgets, reason: '${arch.name} chart');
-        // Five bands of colour with the minutes in the key.
-        expect(find.text('minutes'), findsWidgets, reason: '${arch.name} zones');
-        expect(find.textContaining('Z1 · '), findsWidgets);
+        // Five labelled rows, each with its own minutes.
+        expect(find.textContaining('Zone 1'), findsWidgets,
+            reason: '${arch.name} zones');
+        expect(find.textContaining(' min'), findsWidgets);
         // The edges are drawn off a GUESSED ceiling, so the card that draws
         // them says so in words.
         expect(find.text(zonesWhyFootnote()), findsOneWidget,

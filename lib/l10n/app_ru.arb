@@ -1007,7 +1007,7 @@
       }
     }
   },
-  "dayStepsChartTitle": "КОГДА ПОДСЧИТАНЫ ШАГИ",
+  "dayStepsChartTitle": "Когда подсчитаны шаги",
   "dayStepsUnit": "шагов",
   "dayStepsYourPhone": "Ваш телефон",
   "dayStepsYourBand": "Ваш браслет",
@@ -1185,7 +1185,7 @@
   "circadianDetailNoNightsFix": "Носите браслет ночью",
   "circadianDetailSleepTitle": "Сон по ночам",
   "circadianDetailAsleep": "Сон",
-  "circadianDetailSleepFootnote": "{count, plural, one{{count} ночь} few{{count} ночи} many{{count} ночей} other{{count} ночи}}, по столбцу на каждую. Чем темнее, тем большая часть этого часа проведена во сне.",
+  "circadianDetailSleepFootnote": "{count, plural, one{{count} ночь} few{{count} ночи} many{{count} ночей} other{{count} ночи}}, по столбцу на каждую; чем темнее, тем большая часть часа прошла во сне.",
   "@circadianDetailSleepFootnote": {
     "placeholders": {
       "count": {
@@ -1210,7 +1210,7 @@
     }
   },
   "circadianDetailStillnessTitle": "Вариабельность между ударами в покое",
-  "circadianDetailStillnessFootnote": "Каждый час — середина {lo}–{hi} спокойных пятиминутных отрезков за последние {days, plural, one{{days} день} few{{days} дня} many{{days} дней} other{{days} дня}}. Данных хватило для {drawn} из 24 часов. Это не оценка стресса.",
+  "circadianDetailStillnessFootnote": "Каждый час — середина {lo}–{hi} спокойных пятиминутных отрезков за {days, plural, one{{days} день} few{{days} дня} many{{days} дней} other{{days} дня}}, данных хватило для {drawn} из 24 часов, и это не оценка стресса.",
   "@circadianDetailStillnessFootnote": {
     "placeholders": {
       "lo": {
@@ -1311,7 +1311,7 @@
     }
   },
   "beatsScatterTitle": "Каждый интервал в сравнении с предыдущим",
-  "beatsScatterFootnote": "На диагонали находятся интервалы той же длины, что и предыдущий. Разброс поперёк диагонали — SD1, изменения от удара к удару; вдоль неё — SD2, более медленные колебания.",
+  "beatsScatterFootnote": "Точка на диагонали — удар той же длины, что и предыдущий, и чем шире облако поперёк этой линии, тем сильнее меняются ваши интервалы.",
   "beatsSd1Label": "SD1",
   "beatsSd2Label": "SD2",
   "beatsIntervalsLabel": "Интервалы",
@@ -1347,15 +1347,7 @@
   "beatsNoBinsStored": "За эту ночь интервалы не сохранены.",
   "beatsRmssdTitle": "ВСР по получасовым отрезкам",
   "beatsStart": "Начало",
-  "beatsBandFootnote": "Полоса показывает уверенность в оценке отрезка, а не диапазон изменений в вашем организме. Метка внутри — значение показателя.",
-  "beatsHolesFootnote": "{count, plural, one{ В {count} отрезке слишком мало чистых интервалов для расчёта: он оставлен пустым, без соединения через разрыв.} few{ В {count} отрезках слишком мало чистых интервалов для расчёта: они оставлены пустыми, без соединения через разрывы.} many{ В {count} отрезках слишком мало чистых интервалов для расчёта: они оставлены пустыми, без соединения через разрывы.} other{ В {count} отрезках слишком мало чистых интервалов для расчёта: они оставлены пустыми, без соединения через разрывы.}}",
-  "@beatsHolesFootnote": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
+  "beatsBandFootnote": "Каждый столбец показывает, насколько мы уверены в этом отрезке, метка внутри — значение, а пропуск — отрезок, где осталось слишком мало чистых ударов.",
   "beatsFirstThird": "Первая треть",
   "beatsLastThird": "Последняя треть",
   "beatsDcSection": "Способность к замедлению ритма",
@@ -1373,7 +1365,7 @@
   "beatsTodayLabel": "Сегодня",
   "beatsAnchorsLastNight": "Опорные точки прошлой ночи",
   "beatsCleanBeats": "Чистые интервалы",
-  "beatsDcNote": "Сравнивайте только со своими другими ночами — для измерений на запястье нет эталонного диапазона.\n\nЭто усреднение интервалов вокруг каждого момента замедления сердца. Рост линии может означать более чистый сигнал, а не изменение работы сердца: смотрите также на число опорных точек и долю чистых интервалов выше. Если в пределах этого периода вы сменили браслет, его части нельзя сравнивать.",
+  "beatsDcNote": "Сравнивайте только со своими ночами: более чистый сигнал может поднять показатель так же, как изменения в вас.",
   "beatsRhythmSection": "Проверка ритма",
   "beatsRhythmChartTitle": "Одна ячейка на день",
   "beatsScreenNotFired": "Признаки не обнаружены",
@@ -2074,37 +2066,12 @@
   "investigateBeatsAnalysed24h": "Проанализированные удары за 24 ч",
   "investigateNoShapeForNight": "Нет профиля этой ночи",
   "investigateTooFewBeatsToBin": "За ночь слишком мало чистых интервалов для расчёта по отрезкам.",
-  "investigateShapeOfTheNight": "Профиль ночи",
-  "investigateBinRmssd": "RMSSD интервала",
-  "investigateSamplingRange": "Диапазон выборки",
-  "investigateShapeFootnote": "Достаточно интервалов в {drawn} из {total} отрезков; остальные — пропуски, а не нули. Внешняя пара линий показывает выборочный разброс оценки, а не диапазон изменений вашего состояния. График описывает ночь, но не объясняет её: низкие значения в первой трети могут одинаково соответствовать алкоголю, поздней еде или тренировке, жаркой комнате, началу болезни — либо не иметь особой причины.",
-  "@investigateShapeFootnote": {
-    "placeholders": {
-      "drawn": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
   "investigateNightShape": "Профиль ночи",
   "investigateBinWidth": "Ширина интервала",
   "investigateBinsRead": "Прочитанные интервалы",
   "investigateFirstThird": "Первая треть",
   "investigateLastThird": "Последняя треть",
   "investigateLastThirdOverFirst": "Последняя треть ÷ первая",
-  "investigate29DaysAgo": "29 дней назад",
-  "investigateToday": "Сегодня",
-  "investigateDcFootnoteWithBeats": "Только ваши ночи — эталонного диапазона для пульсовых интервалов нет. Качество сигнала само по себе меняет линию от ночи к ночи. Прошлой ночью: {beats} ударов.",
-  "@investigateDcFootnoteWithBeats": {
-    "placeholders": {
-      "beats": {
-        "type": "String"
-      }
-    }
-  },
-  "investigateDcFootnote": "Только ваши ночи — эталонного диапазона для пульсовых интервалов нет. Качество сигнала само по себе меняет линию от ночи к ночи.",
   "investigateIrregularRhythmScreen": "Проверка нерегулярного ритма",
   "investigateOneSquarePerDay": "один квадрат на день",
   "investigate12WeeksAgo": "12 недель назад",
@@ -2388,8 +2355,6 @@
   "metricDetailNoValueYetWiderRanges": "За сегодня значения ещё нет. В более широких периодах выше есть дни с рассчитанными значениями.",
   "metricDetailNoValueInWindow": "За этот период значений нет.",
   "metricDetailWearBandFix": "Носите браслет ночью для начала ряда",
-  "metricDetailBeatsLinkTitle": "Удары сердца",
-  "metricDetailBeatsLinkSub": "График интервалов, по которым рассчитана ночь",
   "metricDetailBreakdownLinkTitle": "Подробности",
   "metricDetailBreakdownLinkSub": "Каждый отрезок дня и источник его оценки",
   "metricDetailNerdStatsTitle": "Подробная статистика",
@@ -4168,7 +4133,7 @@
   "workoutTrainingLoad": "Тренировочная нагрузка",
   "metricHeartEffortTitle": "Нагрузка на сердце",
   "workoutTodaysStrainAction": "Нагрузка за сегодня",
-  "workoutMechanicalLoadTitle": "МЕХАНИЧЕСКАЯ НАГРУЗКА",
+  "workoutMechanicalLoadTitle": "Механическая нагрузка",
   "workoutKgLiftedUnit": "кг поднято",
   "workoutTonnageFootnoteIntro": "Повторы × вес по подходам, в которых вы указали вес. ",
   "workoutTonnageFootnotePartial": "Подходы без веса не учитываются: это нижняя граница, а не полная сумма. ",
@@ -4191,7 +4156,7 @@
   "workoutNoLoadTitle": "Тренировочная нагрузка пока не рассчитана",
   "workoutNoLoadBody": "Форма и усталость — средние за 42 и 7 дней. Нужны примерно две недели тренировок.",
   "workoutFitnessLabel": "тренированность",
-  "workoutDailyLoadTitle": "НАГРУЗКА НА СЕРДЦЕ ПО ДНЯМ",
+  "workoutDailyLoadTitle": "Нагрузка на сердце по дням",
   "workoutTrimpUnit": "баллы",
   "workoutDailyLoadFootnoteIntro": "Очки нагрузки на сердце без верхнего предела: минуты в каждой зоне пульса, более высокие зоны весят больше. Нагрузка за день показывает тот же пульс по шкале 0–21. ",
   "workoutDailyLoadAllDays": "Последние семь дней.",
@@ -4344,8 +4309,7 @@
   "workoutInsideRangeSuffix": " · в пределах вашего разброса между ночами",
   "workoutDeleteSessionLabel": "Удалить тренировку",
   "workoutStrainLabel": "нагрузка",
-  "workoutTimeInZonesTitle": "ВРЕМЯ В ЗОНАХ",
-  "workoutMinutesUnit": "минут",
+  "workoutTimeInZonesTitle": "Время в зонах",
   "workoutFixTimesOnSessionLabel": "Исправить время этой тренировки",
   "workoutFixTimes": "Исправить время",
   "workoutTimeStatLabel": "Время",
@@ -4489,7 +4453,7 @@
     }
   },
   "dayStrainWearBandFix": "Носите браслет в течение дня",
-  "dayStrainChartTitle": "НАГРУЗКА В ТЕЧЕНИЕ ДНЯ",
+  "dayStrainChartTitle": "Нагрузка в течение дня",
   "dayStrainChartFootnote": "Усилие выше вашего обычного темпа бодрствования. Позже может снизиться, если вы вернётесь к этому темпу. По {drawn} записанным минутам бодрствования.",
   "@dayStrainChartFootnote": {
     "placeholders": {
@@ -4510,7 +4474,7 @@
   },
   "dayStrainLowCoverageBody": "Нагрузка суммируется по записанным минутам. День с неполным ношением даёт меньшее значение, чем полный; их нельзя сравнивать напрямую.",
   "dayStrainTimeInZonesSection": "Время в зонах",
-  "dayStrainZonesChartTitle": "ВРЕМЯ В ЗОНАХ",
+  "dayStrainZonesChartTitle": "Время в зонах",
   "dayStrainZoneFootnoteKarvonen": "Границы зон делят промежуток между измеренным пульсом в покое и наибольшим наблюдавшимся ({maxHr} уд/мин). Оба значения измерены у вас.",
   "@dayStrainZoneFootnoteKarvonen": {
     "placeholders": {
@@ -4618,7 +4582,7 @@
   "activityZonesNotShownTitle": "Пока не показано",
   "activityZonesNeedsMonthBody": "Нужен примерно месяц записанных тренировок с поминутным пульсом.",
   "activityZonesAgeEstimateBody": "Столбцы отражали бы оценку по возрасту, а не ваши тренировки. Они появятся после определения границ зон по измерениям.",
-  "activityZonesSessionMinutesChartTitle": "МИНУТЫ ТРЕНИРОВОК ЗА 28 ДНЕЙ",
+  "activityZonesSessionMinutesChartTitle": "Минуты тренировок за 28 дней",
   "activityZonesShapePyramidal": "Большинство минут — лёгкая нагрузка, меньше — средняя, ещё меньше — высокая: пирамида.",
   "activityZonesShapePolarised": "Большинство минут — лёгкая нагрузка, остальные — высокая. Средней почти нет.",
   "activityZonesShapeMiddleHeavy": "Большинство минут приходится на среднюю нагрузку.",
@@ -4735,7 +4699,7 @@
   },
   "activitySummaryNoRouteTitle": "Нет маршрута этой тренировки",
   "activitySummaryNoRouteBody": "Геолокация была выключена или активность записывалась без GPS.",
-  "activitySummaryRouteTitle": "МАРШРУТ",
+  "activitySummaryRouteTitle": "Маршрут",
   "activitySummarySlower": "Медленнее",
   "activitySummaryFaster": "Быстрее",
   "activitySummaryStartFinishPinned": "Старт и финиш отмечены.",
@@ -4754,7 +4718,7 @@
   "activitySummaryNoSetsBody": "Для тренировки ничего не введено. Нет веса и объёма для подсчёта.",
   "activitySummaryNoRoundsTitle": "Раунды не записаны",
   "activitySummaryNoRoundsBody": "Записанных раундов: 0.",
-  "activitySummaryIntervalLadderTitle": "ИНТЕРВАЛЫ",
+  "activitySummaryIntervalLadderTitle": "Интервалы",
   "activitySummaryWork": "Работа",
   "activitySummaryRest": "Отдых",
   "activitySummaryRoundLabel": "Раунд {n}",
@@ -4783,8 +4747,7 @@
   },
   "activitySummaryNoLapsTitle": "Круги не подсчитаны",
   "activitySummaryNoLapsBody": "Отмеченных кругов: 0.",
-  "activitySummaryLapsTitle": "КРУГИ",
-  "activitySummarySecondsPerLap": "секунд на круг",
+  "activitySummaryLapsTitle": "Круги",
   "activitySummaryLapLabel": "Круг {n}",
   "@activitySummaryLapLabel": {
     "placeholders": {
@@ -4819,7 +4782,7 @@
   },
   "activitySummaryNoElevationTitle": "Нет профиля высоты",
   "activitySummaryNoElevationBody": "Нет маршрута или данных о высоте.",
-  "activitySummaryElevationTitle": "ВЫСОТА",
+  "activitySummaryElevationTitle": "Высота",
   "activitySummaryStart": "Начало",
   "activitySummaryFinish": "Финиш",
   "activitySummaryGain": "Набор высоты",
@@ -4860,7 +4823,7 @@
       }
     }
   },
-  "activitySummaryHeartRateTitle": "ПУЛЬС",
+  "activitySummaryHeartRateTitle": "Пульс",
   "activitySummaryHardMinutesNote": "{min} мин выше 80% вашего максимума.",
   "@activitySummaryHardMinutesNote": {
     "placeholders": {
@@ -4869,7 +4832,7 @@
       }
     }
   },
-  "activitySummaryTimeInZonesTitle": "ВРЕМЯ В ЗОНАХ",
+  "activitySummaryTimeInZonesTitle": "Время в зонах",
   "activitySummaryTopSet": "Лучший подход",
   "activitySummaryOneRepMax": "Оценка 1RM: {kg} кг",
   "@activitySummaryOneRepMax": {
@@ -5040,7 +5003,7 @@
   "activityLiveKcalEstUnit": "ккал · оценка",
   "activityLiveKgVolumeUnit": "кг объёма",
   "activityLiveLapButtonLabel": "КРУГ",
-  "activityLiveLapsChartTitle": "КРУГИ",
+  "activityLiveLapsChartTitle": "Круги",
   "activityLiveLapsCount": "{count, plural, one{{count} круг} few{{count} круга} many{{count} кругов} other{{count} круга}} · {stroke}",
   "@activityLiveLapsCount": {
     "placeholders": {
@@ -5052,19 +5015,11 @@
       }
     }
   },
-  "activityLiveLapsFootnote": "Быстрейший: {time} · длина столбца — скорость относительно него.",
+  "activityLiveLapsFootnote": "Быстрейший: {time}, выделен жирным; длина столбца — скорость относительно него.",
   "@activityLiveLapsFootnote": {
     "placeholders": {
       "time": {
         "type": "String"
-      }
-    }
-  },
-  "activityLiveLapXLabel": "Круг {n}",
-  "@activityLiveLapXLabel": {
-    "placeholders": {
-      "n": {
-        "type": "int"
       }
     }
   },
@@ -5210,7 +5165,7 @@
       }
     }
   },
-  "activityLiveRouteSoFarTitle": "ТЕКУЩИЙ МАРШРУТ",
+  "activityLiveRouteSoFarTitle": "Текущий маршрут",
   "activityLiveSetNumber": "Подход {n}",
   "@activityLiveSetNumber": {
     "placeholders": {
@@ -5236,7 +5191,7 @@
   "activityLiveStrokeFly": "Баттерфляй",
   "activityLiveStrokeFree": "Вольный стиль",
   "activityLiveThisExerciseLabel": "ЭТО УПРАЖНЕНИЕ",
-  "activityLiveTimeInZonesTitle": "ВРЕМЯ В ЗОНАХ",
+  "activityLiveTimeInZonesTitle": "Время в зонах",
   "activityLiveTimeUnit": "время",
   "activityLiveTryAgain": "Повторить",
   "activityLiveTurnOnLocation": "Включить геолокацию",
@@ -7290,6 +7245,41 @@
         "type": "int"
       },
       "above": {
+        "type": "int"
+      }
+    }
+  },
+  "zoneRowsRange": "{lo}–{hi} уд/мин",
+  "zoneRowsRangeTop": "{lo}+ уд/мин",
+  "zoneRowsMinutes": "{minutes} мин",
+  "advancedTitle": "Расширенные графики",
+  "advancedIntro": "Исследовательские представления тех же данных. Здесь ничего не меняет ваши оценки.",
+  "advancedBeatsTitle": "Удар за ударом",
+  "advancedBeatsSub": "Каждый удар относительно предыдущего, ВСР за ночь, способность к замедлению",
+  "advancedRhythmTitle": "Время сна и суточный ритм",
+  "advancedRhythmSub": "Сон по часам, вариабельность в покое, прогнозируемая форма сегодняшнего дня",
+  "healthAdvancedLinkTitle": "Расширенные графики",
+  "healthAdvancedLinkSub": "Подробности по ударам и время сна, для любознательных",
+  "@zoneRowsRange": {
+    "placeholders": {
+      "lo": {
+        "type": "int"
+      },
+      "hi": {
+        "type": "int"
+      }
+    }
+  },
+  "@zoneRowsRangeTop": {
+    "placeholders": {
+      "lo": {
+        "type": "int"
+      }
+    }
+  },
+  "@zoneRowsMinutes": {
+    "placeholders": {
+      "minutes": {
         "type": "int"
       }
     }

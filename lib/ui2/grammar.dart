@@ -2178,9 +2178,8 @@ class BigButton extends StatelessWidget {
 ///     when there is no series. The frame keeps the title and the unit and
 ///     drops the axis entirely, because an axis with nothing on it reads as a
 ///     measurement of zero.
-///   • MORE THAN ONE COLOUR MEANS A [legend]. `Hypnogram.legend`,
-///     `ZoneBar.legend`, `Spectrum.legend` and `IntervalLadder.legend` are
-///     derived from the painters' own palettes — pass those rather than
+///   • MORE THAN ONE COLOUR MEANS A [legend]. `Hypnogram.legend` and
+///     `IntervalLadder.legend` are derived from the painters' own palettes — pass those rather than
 ///     retyping them, so a recolour can never orphan its key.
 ///
 /// [xLabels] are laid out first-flush-left, last-flush-right and the rest

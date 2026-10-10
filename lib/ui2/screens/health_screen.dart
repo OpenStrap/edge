@@ -22,6 +22,7 @@ import '../../models/metric.dart';
 import '../profile/wearable_numbers.dart'
     show WearableCells, kHealthWearableRows;
 import '../ui2.dart';
+import 'advanced.dart';
 import 'circadian_detail.dart';
 import 'ecg.dart' show EcgEntryCard, pairedIsMaverickOf;
 import 'findings_log.dart';
@@ -1294,6 +1295,16 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               preview: _hrvPreview(c, d),
               onTap: () => go(c, const Investigate('hrv'))),
         ),
+
+      // The research charts, all behind one door.
+      const SizedBox(height: S.x3),
+      detailLinkRow(
+          c,
+          LucideIcons.flaskConical,
+          l?.healthAdvancedLinkTitle ?? 'Advanced charts',
+          l?.healthAdvancedLinkSub ??
+              'Beat-to-beat detail and sleep timing, for the curious',
+          () => go(c, const AdvancedScreen())),
     ]);
   }
 

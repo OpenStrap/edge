@@ -450,7 +450,7 @@ class _ZonesDetailState extends State<ZonesDetail> {
                   width: 8,
                   height: 28,
                   decoration: BoxDecoration(
-                    color: ZoneBar.cols(p)[z.zone - 1],
+                    color: ZoneRows.cols(p)[z.zone - 1],
                     borderRadius: R.rSm,
                   ),
                 ),
@@ -547,20 +547,13 @@ class _ZonesDetailState extends State<ZonesDetail> {
       Section(
         l?.activityZonesIntensitySection ?? 'Where your intensity went',
         Surface(
-          child: ChartFrame(
+          // No bpm ranges on these rows: 28 days of sessions can span more
+          // than one set of edges, and the current edges are listed above.
+          child: ZoneRows(
+            [for (final v in mins) v.toDouble()],
             title: l?.activityZonesSessionMinutesChartTitle ??
-                'SESSION MINUTES, LAST 28 DAYS',
-            unit: 'minutes',
-            height: 10,
-            legend: [
-              for (var i = 0; i < 5; i++)
-                ('Z${i + 1} · ${mins[i]}m', ZoneBar.cols(p)[i]),
-            ],
+                'Session minutes, last 28 days',
             footnote: _shapeCopy(l, d),
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: ZoneBar([for (final v in mins) v / total], p),
-            ),
           ),
         ),
       ),

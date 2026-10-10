@@ -273,7 +273,12 @@ String _shortDay(Object? day) {
 
 class CircadianDetail extends StatefulWidget {
   final CircadianData? data;
-  const CircadianDetail({super.key, this.data});
+
+  /// The research view: the sleep-by-hour grid, variability while still and
+  /// the predicted shape of today, reached from the Advanced screen. The
+  /// default view is the rhythm itself, in rows and words.
+  final bool advanced;
+  const CircadianDetail({super.key, this.data, this.advanced = false});
 
   @override
   State<CircadianDetail> createState() => _CircadianDetailState();
@@ -323,11 +328,17 @@ class _CircadianDetailState extends State<CircadianDetail> {
     final d = _d ?? const CircadianData();
     final drawn = d.actogram.where((e) => e != null).length;
 
-    return detailScaffold(c, l?.circadianDetailTitle ?? 'Body clock', [
+    final advanced = widget.advanced;
+    return detailScaffold(
+        c,
+        advanced
+            ? (l?.advancedRhythmTitle ?? 'Sleep timing and daily rhythm')
+            : (l?.circadianDetailTitle ?? 'Body clock'),
+        [
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
-      ] else ...[
+      ] else if (advanced) ...[
         if (drawn == 0)
           StatusCard(
             l?.circadianDetailNoNightsTitle ?? 'No nights to plot yet',
@@ -355,14 +366,19 @@ class _CircadianDetailState extends State<CircadianDetail> {
                   : [d.labels.first, d.labels.last],
               legend: [(l?.circadianDetailAsleep ?? 'Asleep', C.indigo)],
               footnote: l?.circadianDetailSleepFootnote(drawn) ??
-                  '$drawn night${drawn == 1 ? '' : 's'}, one column each. '
-                      'Darker is more of that hour asleep.',
+                  '$drawn night${drawn == 1 ? '' : 's'}, one column each, '
+                      'darker where more of that hour was asleep.',
               child: CustomPaint(
                 size: Size.infinite,
                 painter: Actogram(d.actogram, p.on(C.indigo)),
               ),
             ),
           ),
+        if (_forecast(c, p, d) case final f?)
+          Section(l?.circadianDetailTodayPredicted ?? 'Today, predicted', f),
+        Section(l?.circadianDetailWhenStill ?? 'When you are still',
+            _stillness(c, p, d)),
+      ] else ...[
 
         // SLP-08 rides in this section's action, so the screen gains a tap
         // rather than two permanent rows.
@@ -379,11 +395,6 @@ class _CircadianDetailState extends State<CircadianDetail> {
               : () => setState(() => _showNights = !_showNights),
         ),
 
-        // MIND-11 sits directly under the measured rhythm because it is built
-        // on it — and directly above the battery it borrows the acrophase from.
-        if (_forecast(c, p, d) case final f?)
-          Section(l?.circadianDetailTodayPredicted ?? 'Today, predicted', f),
-
         // COLLAPSED BY DEFAULT, and that is how the screen paid for the card
         // above. Interdaily stability, intradaily variability, relative
         // amplitude and an adjusted R² are density-3 numbers that were sitting
@@ -399,14 +410,6 @@ class _CircadianDetailState extends State<CircadianDetail> {
           onAction: () => setState(() => _showStrength = !_showStrength),
         ),
 
-        // The social-jetlag InsightCard that used to sit here restated three
-        // rows of the table above it as a sentence. Its one extra fact — the
-        // DIRECTION, which is the sign of free minus work and not the unsigned
-        // magnitude the card used to assert "later" from — is on the Social
-        // jetlag row itself now, and the night counts are beside it. One card
-        // off, so the hourly row below can go on.
-        Section(l?.circadianDetailWhenStill ?? 'When you are still',
-            _stillness(c, p, d)),
       ],
     ]);
   }
@@ -468,9 +471,9 @@ class _CircadianDetailState extends State<CircadianDetail> {
         series: d.hourly,
         footnote: l?.circadianDetailStillnessFootnote(lo, hi, d.hourlyDays, drawn) ??
             'Each hour is the middle of $lo–$hi still five-minute '
-                'stretches over the last '
-                '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'}. $drawn of '
-                '24 hours had enough. Not a stress score.',
+                'stretches over '
+                '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'}, and $drawn '
+                'of 24 hours had enough, so read it as stillness, not stress.',
         child: CustomPaint(
           size: Size.infinite,
           // Uncoloured. A hue here would be a verdict about an hour of your

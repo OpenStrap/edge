@@ -481,17 +481,10 @@ Map<String, Widget> _chartCases() {
       );
     }),
     'chart_zones': Builder(builder: (c) {
-      final p = P.of(c);
-      return Surface(
-        child: ChartFrame(
-          title: 'Time in heart-rate zones',
-          unit: 'share of the session',
-          height: 28,
-          legend: ZoneBar.legend(p),
-          child: CustomPaint(
-              size: Size.infinite,
-              painter: ZoneBar(const [.18, .34, .28, .15, .05], p)),
-        ),
+      return const Surface(
+        child: ZoneRows([7, 14, 11, 6, 2],
+            lowerBpm: [95, 114, 133, 152, 171],
+            title: 'Time in heart-rate zones'),
       );
     }),
     'chart_empty': const Surface(
@@ -690,9 +683,6 @@ final _route = [
 // broken painter from.
 final _metres = List<double>.generate(
     120, (i) => 180 + 240 * sin(i / 120 * pi) + (i % 7) * 3.0);
-final _psd = List<double>.generate(64, (i) => (i < 20 ? 40 - i : 26 - i * .3)
-    .clamp(1, 60)
-    .toDouble());
 
 Map<String, Widget> extraCases() => {
       // The edge treatment that tells a horizontal row it continues. Swept
@@ -948,20 +938,6 @@ Map<String, Widget> extraCases() => {
           ),
         );
       }),
-      'chart_spectrum': Builder(builder: (c) {
-        final p = P.of(c);
-        final painter = Spectrum(_psd, lf: p.on(C.blue), hf: p.on(C.purple));
-        return Surface(
-          child: ChartFrame(
-            title: 'Heart-rate variability spectrum',
-            unit: 'ms² per Hz',
-            height: 96,
-            legend: painter.legend,
-            footnote: 'Beat timing at 1 Hz is pulse-rate variability, not ECG.',
-            child: CustomPaint(size: Size.infinite, painter: painter),
-          ),
-        );
-      }),
       'chart_night_stack': Builder(builder: (c) {
         final p = P.of(c);
         return Surface(
@@ -997,8 +973,8 @@ Map<String, Widget> extraCases() => {
               size: Size.infinite,
               painter: RouteMap(_route,
                   pace: [for (var i = 0; i < _route.length; i++) (i % 20) / 20],
-                  slow: p.on(C.red),
-                  fast: p.on(C.green),
+                  slow: p.on(C.blue),
+                  fast: p.on(C.orange),
                   pinStart: p.on(C.green),
                   pinEnd: p.on(C.red),
                   pinInk: p.inkOnFill),
@@ -1025,19 +1001,8 @@ Map<String, Widget> extraCases() => {
         );
       }),
       'activity_lap_bars': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Laps',
-            unit: '50 m, fastest first',
-            height: 120,
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: LapBars(const [1, .92, .88, .95, .71, .64],
-                  p.on(C.domHealth), p.track,
-                  done: 3),
-            ),
-          ),
+        return const Surface(
+          child: LapRows([52, 56, 59, 55, 73, 81], C.domHealth),
         );
       }),
       'activity_breath_ring': Builder(builder: (c) {

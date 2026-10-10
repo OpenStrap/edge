@@ -270,6 +270,11 @@ class ActivityResult {
   final String? zoneSource;
   final num? zoneMaxHr;
 
+  /// The five lower edges, in bpm, of the set [zoneMinutes] was binned with.
+  /// Null under the same rule as [zoneSource]: no edges unless they are the
+  /// ones these minutes were cut at.
+  final List<num>? zoneLowerBpm;
+
   /// Steps the strap's own 100 Hz pedometer counted over this session —
   /// `AppState.workoutStepsMeasured` while it runs, `sessions.steps` once it is
   /// banked. That column has exactly one producer (an import and a hand-logged
@@ -339,6 +344,7 @@ class ActivityResult {
     this.zoneMinutes = const [],
     this.zoneSource,
     this.zoneMaxHr,
+    this.zoneLowerBpm,
     this.steps,
     this.traceCoveragePct,
     this.route = const [],
@@ -373,6 +379,7 @@ class ActivityResult {
     List<double>? zoneMinutes,
     String? zoneSource,
     num? zoneMaxHr,
+    List<num>? zoneLowerBpm,
     int? traceCoveragePct,
     List<Offset>? route,
     List<(double lat, double lng)>? geo,
@@ -401,6 +408,7 @@ class ActivityResult {
         zoneMinutes: zoneMinutes ?? this.zoneMinutes,
         zoneSource: zoneSource ?? this.zoneSource,
         zoneMaxHr: zoneMaxHr ?? this.zoneMaxHr,
+        zoneLowerBpm: zoneLowerBpm ?? this.zoneLowerBpm,
         // Carried, never re-derived: every enrichment pass on this object goes
         // through here, and a field left off this list is a measurement the
         // detail screen silently loses the moment it opens.
@@ -436,14 +444,6 @@ class ActivityResult {
   /// pinned equal by `gait_step_types_test` — so a count banked under one type
   /// can never surface on a screen for another.
   int? get stepsCounted => activity.gait ? steps : null;
-
-  /// Per-lap speed relative to the fastest lap — what [LapBars] draws. The
-  /// fastest lap is the only reference the swim itself provides.
-  List<double> get lapSpeeds {
-    if (lapSecs.isEmpty) return const [];
-    final fastest = lapSecs.reduce((x, y) => x < y ? x : y);
-    return [for (final t in lapSecs) t <= 0 ? 1.0 : fastest / t];
-  }
 
   /// Minutes above 80% of max heart rate — Z4 and Z5. Null when the session
   /// banked no zone split, because "0 hard minutes" and "nobody counted" are
@@ -488,6 +488,48 @@ String clock(int seconds) {
 }
 
 String hms(Duration d) => clock(d.inSeconds);
+
+/// Laps as rows in lap order, top to bottom: the lap number, a bar as long as
+/// that lap's speed against the fastest, and the lap time. The fastest lap's
+/// time is set bold, so the order on screen is always the order swum.
+class LapRows extends StatelessWidget {
+  final List<int> secs;
+  final Color color;
+  const LapRows(this.secs, this.color, {super.key});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final valid = [for (final t in secs) if (t > 0) t];
+    final fastest = valid.isEmpty ? 0 : valid.reduce((a, b) => a < b ? a : b);
+    return Column(children: [
+      for (var i = 0; i < secs.length; i++)
+        Padding(
+          padding: EdgeInsets.only(top: i == 0 ? 0 : S.x2),
+          child: MergeSemantics(
+            child: Row(children: [
+              Text(l?.activitySummaryLapLabel(i + 1) ?? 'Lap ${i + 1}',
+                  style: F.cap.copyWith(color: p.ink2)),
+              const SizedBox(width: S.x3),
+              Expanded(
+                child: PaceBar(
+                    secs[i] <= 0 || fastest <= 0 ? 0 : fastest / secs[i],
+                    color),
+              ),
+              const SizedBox(width: S.x3),
+              Text(clock(secs[i]),
+                  style: F.cap.copyWith(
+                      color: p.ink,
+                      fontWeight: secs[i] == fastest
+                          ? FontWeight.w700
+                          : FontWeight.w400)),
+            ]),
+          ),
+        ),
+    ]);
+  }
+}
 
 /// 1 234 → "1,234". Thousands separators, because six-thousand-eight-hundred
 /// and forty-two kilos should not read as a phone number.
@@ -1284,18 +1326,17 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         return [
           Surface(
             child: ChartFrame(
-              title: l?.activitySummaryRouteTitle ?? 'ROUTE',
+              title: l?.activitySummaryRouteTitle ?? 'Route',
               unit: _distanceUnit,
               height: 200,
               legend: r.routePace == null
                   ? const []
-                  // Fast is GREEN, matching `paceColor` on the share card.
-                  // These were opposite: the same run read green at its
-                  // slowest here and green at its fastest on the poster, so a
-                  // card and the screen it came from disagreed about the run.
+                  // Blue to orange, not red to green: the classic red/green
+                  // pair collapses for the commonest colour-vision deficiency,
+                  // and blue/orange stays apart for all of them.
                   : [
-                      (l?.activitySummarySlower ?? 'Slower', p.on(C.red)),
-                      (l?.activitySummaryFaster ?? 'Faster', p.on(C.green)),
+                      (l?.activitySummarySlower ?? 'Slower', p.on(C.blue)),
+                      (l?.activitySummaryFaster ?? 'Faster', p.on(C.orange)),
                     ],
               footnote: _distance == null
                   ? (l?.activitySummaryStartFinishPinned ??
@@ -1312,8 +1353,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                     size: Size.infinite,
                     painter: RouteMap(r.route,
                         pace: r.routePace,
-                        slow: p.on(C.red),
-                        fast: p.on(C.green),
+                        slow: p.on(C.blue),
+                        fast: p.on(C.orange),
                         pinStart: p.on(C.green),
                         pinEnd: p.on(C.red),
                         pinInk: p.card),
@@ -1364,7 +1405,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         return [
           Surface(
             child: ChartFrame(
-              title: l?.activitySummaryIntervalLadderTitle ?? 'INTERVAL LADDER',
+              title: l?.activitySummaryIntervalLadderTitle ?? 'Interval ladder',
               unit: 'seconds',
               height: 110,
               legend: [
@@ -1441,16 +1482,15 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         final slowest = r.lapSecs.reduce((x, y) => x > y ? x : y);
         return [
           Surface(
-            child: ChartFrame(
-              title: l?.activitySummaryLapsTitle ?? 'LAPS',
-              unit: l?.activitySummarySecondsPerLap ?? 'seconds per lap',
-              height: 150,
-              xLabels: [
-                l?.activitySummaryLapLabel(1) ?? 'Lap 1',
-                l?.activitySummaryLapLabel(r.lapSecs.length) ??
-                    'Lap ${r.lapSecs.length}',
-              ],
-              footnote: [
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(l?.activitySummaryLapsTitle ?? 'Laps',
+                  style: F.cap.copyWith(
+                      color: p.ink, fontWeight: FontWeight.w600)),
+              const SizedBox(height: S.x3),
+              LapRows(r.lapSecs, C.blue),
+              const SizedBox(height: S.x3),
+              Text([
                 if (r.poolLengthM != null)
                   l?.activitySummaryPoolLength(r.poolLengthM!) ??
                       '${r.poolLengthM} m pool',
@@ -1458,11 +1498,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                     'fastest ${clock(fastest)}',
                 l?.activitySummarySlowest(clock(slowest)) ??
                     'slowest ${clock(slowest)}',
-              ].join(' · '),
-              child: CustomPaint(
-                  size: Size.infinite,
-                  painter: LapBars(r.lapSpeeds, p.on(C.blue), p.track)),
-            ),
+              ].join(' · '), style: F.cap.copyWith(color: p.ink3)),
+            ]),
           ),
         ];
 
@@ -1483,7 +1520,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           Surface(
             child: Column(children: [
               ChartFrame(
-                title: l?.activitySummaryElevationTitle ?? 'ELEVATION',
+                title: l?.activitySummaryElevationTitle ?? 'Elevation',
                 unit: 'm',
                 height: 130,
                 yAxis: axis,
@@ -1673,7 +1710,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       ?extra,
     ];
     return ChartFrame(
-      title: l?.activitySummaryHeartRateTitle ?? 'HEART RATE',
+      title: l?.activitySummaryHeartRateTitle ?? 'Heart rate',
       unit: 'bpm',
       height: height,
       yAxis: axis,
@@ -1687,20 +1724,13 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     );
   }
 
-  /// The zone split, with the minutes in the key rather than in a second row
-  /// underneath it that has to be kept in step by hand.
-  Widget _zoneFrame(P p) => ChartFrame(
+  /// The zone split: one row per zone with its range and minutes.
+  Widget _zoneFrame(P p) => ZoneRows(
+        r.zoneMinutes,
+        lowerBpm: r.zoneLowerBpm,
         title: AppLocalizations.of(context)?.activitySummaryTimeInZonesTitle ??
-            'TIME IN ZONES',
-        unit: 'minutes',
-        height: 10,
-        legend: [
-          for (var i = 0; i < 5; i++)
-            ('Z${i + 1} · ${r.zoneMinutes[i].round()}m', ZoneBar.cols(p)[i]),
-        ],
+            'Time in zones',
         footnote: zonesWhy(r.zoneSource, r.zoneMaxHr, AppLocalizations.of(context)),
-        child: CustomPaint(
-            size: Size.infinite, painter: ZoneBar(_zoneFractions(), p)),
       );
 
   // ─────────── ARCHETYPE BODY ───────────
@@ -1829,12 +1859,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   'Heart-rate zones',
               Surface(child: _zoneFrame(p))),
         ];
-
-  List<double> _zoneFractions() {
-    final total = r.zoneMinutes.fold<double>(0, (x, y) => x + y);
-    if (total <= 0) return const [0, 0, 0, 0, 0];
-    return [for (final z in r.zoneMinutes) z / total];
-  }
 
   /// [v] is always in kg (storage unit); [_u] converts + rounds for display
   /// the same way its edit-field does.
@@ -2195,11 +2219,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             child: Builder(builder: (_) {
               final axis = AxisSpec.of(g.$4.whereType<double>());
               return ChartFrame(
-                title: g.$1.toUpperCase(),
+                title: g.$1,
                 unit: g.$2,
                 height: 110,
                 yAxis: axis,
-                xLabels: ['Start', hms(r.duration)],
+                xLabels: [l?.activitySummaryStart ?? 'Start', hms(r.duration)],
                 // The gap belongs to the heart-rate trace, not to the altitude
                 // the phone recorded alongside it.
                 footnote: g.$1 == 'Heart rate' ? _traceNote : null,

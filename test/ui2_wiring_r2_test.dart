@@ -1071,22 +1071,30 @@ void main() {
       t.view.physicalSize = const Size(390 * 3, 2600 * 3);
       t.view.devicePixelRatio = 3;
       addTearDown(t.view.reset);
+      final data = CircadianData(
+        hourly: [for (var h = 0; h < 24; h++) h.isEven ? 40.0 + h : null],
+        hourlyN: List<int>.filled(24, 5),
+        hourlyDays: 7,
+        jetlag: const Metric(value: 1.5, confidence: .6, tier: MetricTier.estimate),
+        midFreeH: 4.5,
+        midWorkH: 3.0,
+        nFree: 3,
+        nWork: 9,
+      );
+      // The hourly chart is a research view now, behind Advanced.
       await t.pumpWidget(MaterialApp(
         theme: buildTheme(Brightness.light),
-        home: CircadianDetail(
-            data: CircadianData(
-          hourly: [for (var h = 0; h < 24; h++) h.isEven ? 40.0 + h : null],
-          hourlyN: List<int>.filled(24, 5),
-          hourlyDays: 7,
-          jetlag: const Metric(value: 1.5, confidence: .6, tier: MetricTier.estimate),
-          midFreeH: 4.5,
-          midWorkH: 3.0,
-          nFree: 3,
-          nWork: 9,
-        )),
+        home: CircadianDetail(data: data),
       ));
       await t.pumpAndSettle();
-      expect(find.textContaining('Not a stress score'), findsOneWidget);
+      expect(find.textContaining('still five-minute stretches'), findsNothing);
+      expect(find.text('1h 30m later'), findsOneWidget);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: CircadianDetail(data: data, advanced: true),
+      ));
+      await t.pumpAndSettle();
+      expect(find.textContaining('not stress'), findsOneWidget);
       // How deep each drawn hour is, not just a grand total.
       expect(find.textContaining('middle of 5–5 still five-minute stretches'),
           findsOneWidget);
@@ -1095,6 +1103,11 @@ void main() {
       // extra fact — the DIRECTION, which is the sign of free minus work — is
       // on the row it belongs to.
       expect(find.textContaining('free-day clock runs'), findsNothing);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: CircadianDetail(data: data),
+      ));
+      await t.pumpAndSettle();
       expect(find.text('1h 30m later'), findsOneWidget);
       expect(find.text('3 / 9'), findsOneWidget);
     });
@@ -1126,7 +1139,7 @@ void main() {
     });
 
     Future<void> pumpC(WidgetTester t, CircadianData d,
-        {double scale = 1}) async {
+        {double scale = 1, bool advanced = true}) async {
       t.view.physicalSize = Size(390 * 3, 4000 * 3 * scale);
       t.view.devicePixelRatio = 3;
       addTearDown(t.view.reset);
@@ -1134,7 +1147,8 @@ void main() {
         data: MediaQueryData(textScaler: TextScaler.linear(scale)),
         child: MaterialApp(
           theme: buildTheme(Brightness.light),
-          home: CircadianDetail(data: d),
+          // The forecast is a research view, behind Advanced.
+          home: CircadianDetail(data: d, advanced: advanced),
         ),
       ));
       await t.pumpAndSettle();
@@ -1193,7 +1207,8 @@ void main() {
           t,
           const CircadianData(
               rhythmV: {'IS': .62, 'IV': .81, 'RA': .74},
-              cosinorV: {'acrophase_hours': 15.2}));
+              cosinorV: {'acrophase_hours': 15.2}),
+          advanced: false);
       expect(find.text('Day-to-day stability'), findsNothing);
       await t.tap(find.text('Show'));
       await t.pumpAndSettle();
@@ -1436,28 +1451,19 @@ void main() {
       await t.pumpAndSettle();
     }
 
-    testWidgets('three lines on one axis — the band, not a line', (t) async {
+    testWidgets('the night shape is numbers here; the chart is on Beats',
+        (t) async {
       await pumpH(t, {'night_shape': shape()});
-      expect(find.text('Shape of the night'), findsOneWidget);
-      // The corridor is drawn as lo/hi/mid against ONE shared AxisSpec: an edge
-      // drawn off an axis fitted to the middle is a clipped edge.
-      final lines = t
-          .widgetList<CustomPaint>(find.byType(CustomPaint))
-          .map((w) => w.painter)
-          .whereType<LineChart>()
-          .where((l) => l.axis != null)
-          .toList();
-      expect(lines.length, greaterThanOrEqualTo(3));
-      expect(lines.map((l) => l.axis).toSet().length, 1);
-      // The band's edges set the scale, so the top edge is inside it.
-      expect(lines.first.axis!.max, greaterThanOrEqualTo(58.0));
-      // The legend names the outer pair as the estimator's spread, and the
-      // footnote refuses to explain the shape it just drew.
-      expect(find.text('Sampling range'), findsOneWidget);
-      expect(find.textContaining('describes the night and cannot explain it'),
-          findsOneWidget);
-      expect(find.textContaining('equally consistent with alcohol'),
-          findsOneWidget);
+      // The chart of the bins lives behind Advanced, on Beats, so it is drawn
+      // once in the app. Nerd stats keeps the table.
+      expect(find.text('Shape of the night'), findsNothing);
+      expect(
+          t
+              .widgetList<CustomPaint>(find.byType(CustomPaint))
+              .map((w) => w.painter)
+              .whereType<LineChart>()
+              .where((l) => l.axis != null),
+          isEmpty);
       // The ratio is a ratio. No adjective, no direction, no colour.
       expect(find.text('1.55'), findsOneWidget);
       expect(find.text('9 of 9'), findsOneWidget);
@@ -1467,20 +1473,9 @@ void main() {
       expect(find.textContaining('first bin'), findsNothing);
     });
 
-    testWidgets('a bin under the beat floor stays a hole', (t) async {
+    testWidgets('a bin under the beat floor is not counted as read', (t) async {
       await pumpH(t, {'night_shape': shape(gaps: {3, 4})});
       expect(find.text('7 of 9'), findsOneWidget);
-      expect(find.textContaining('gaps, not zeroes'), findsOneWidget);
-      // The painter is handed the nulls, not a compacted series — that is what
-      // makes it break the line across a charging gap instead of drawing over
-      // it.
-      final mid = t
-          .widgetList<CustomPaint>(find.byType(CustomPaint))
-          .map((w) => w.painter)
-          .whereType<LineChart>()
-          .firstWhere((l) => l.axis != null && l.d.length == 9);
-      expect(mid.d[3], isNull);
-      expect(mid.d.whereType<double>().length, 7);
     });
 
     testWidgets('an abstaining night quotes the estimator, not a guess',
@@ -1506,7 +1501,7 @@ void main() {
 
     testWidgets('the panel survives 3.1x text', (t) async {
       await pumpH(t, {'night_shape': shape()}, scale: 3.1);
-      expect(find.text('Shape of the night'), findsOneWidget);
+      expect(find.text('9 of 9'), findsOneWidget);
     });
   });
 

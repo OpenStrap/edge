@@ -1652,6 +1652,8 @@ class LocalRepositoryImpl extends LocalRepository {
       // footnote states what the bar IS rather than what it usually is.
       'zone_source': b['zone_source'],
       'zone_max_hr': (b['zone_max_hr'] as num?)?.round(),
+      // The edges those bins were cut at, so the zone rows can print them.
+      'zone_lower_bpm': b['zone_lower_bpm'],
       // The HEADLINE absence's reason, promoted to the top level because the
       // screen's primary content when there is no strain is a single card
       // explaining why. Same string as `absent.strain`.

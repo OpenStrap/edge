@@ -183,47 +183,6 @@ class Elevation extends CustomPainter {
       o.metres != metres || o.axis != axis;
 }
 
-/// ════════ LAP LADDER ── the defining object for swimming
-///
-/// [laps] is one 0…1 relative speed per lap. [done] is how many are complete;
-/// pass -1 for a finished session.
-class LapBars extends CustomPainter {
-  final List<double> laps;
-  final Color color, track;
-  final int done;
-
-  LapBars(this.laps, this.color, this.track, {this.done = -1});
-
-  @override
-  void paint(Canvas cv, Size s) {
-    if (laps.isEmpty) return;
-    final h = s.height / laps.length;
-    for (var i = 0; i < laps.length; i++) {
-      final y = i * h + h * .22;
-      final bh = h * .5;
-      if (bh <= 0) return;
-      cv.drawRRect(
-        RRect.fromRectAndRadius(
-            Rect.fromLTWH(0, y, s.width, bh), Radius.circular(bh / 2)),
-        Paint()..color = track,
-      );
-      final w = s.width * laps[i].clamp(0, 1);
-      if (w <= 0) continue;
-      cv.drawRRect(
-        RRect.fromRectAndRadius(
-            Rect.fromLTWH(0, y, w, bh), Radius.circular(bh / 2)),
-        Paint()
-          ..color = (done < 0 || i < done)
-              ? color
-              : color.withValues(alpha: .35),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant LapBars o) => o.laps != laps || o.done != done;
-}
-
 /// ════════ BREATH RING ── the defining object for yoga / meditation
 ///
 /// [t] is the 0…1 breath phase and is owned by the CALLER. That is deliberate:

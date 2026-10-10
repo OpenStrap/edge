@@ -154,10 +154,11 @@ void main() {
       // No confidence published => the WIDEST interval, which is the honest
       // default: we do not know how well we saw the night, so we say least.
       // deep 80m, half-width 0.75x = 60m.
-      // Twice: the Stages row, and the header of the Deep comparison below it.
-      // Both had to move — one card showing a range while the other still
-      // showed a count is the contradiction this item exists to remove.
-      expect(find.text('20m–2h 20m'), findsNWidgets(2));
+      // Three times: beside the Deep lane, the Stages row, and the header of
+      // the Deep comparison below it. All had to move — one card showing a
+      // range while another still showed a count is the contradiction this
+      // item exists to remove.
+      expect(find.text('20m–2h 20m'), findsNWidgets(3));
       // And the share column is gone with the count it was computed from.
       for (final share in const ['52%', '17%', '19%', '13%']) {
         expect(find.text(share), findsNothing);
@@ -174,9 +175,11 @@ void main() {
       };
       await _pump(t,
           SleepData(day: '2026-05-20', night: n, tstHistory: _flat(20, 420)));
-      // Twice: the Stages row and the Deep comparison, both the count.
-      expect(find.text('1h 20m'), findsNWidgets(2));
-      expect(find.text('4h 10m'), findsOneWidget);
+      // Three times: the Deep lane, the Stages row and the Deep comparison,
+      // all the count.
+      expect(find.text('1h 20m'), findsNWidgets(3));
+      // Beside the Light lane and in the Stages row.
+      expect(find.text('4h 10m'), findsNWidgets(2));
       expect(find.textContaining('Each stage is a range'), findsNothing);
     });
 
@@ -189,7 +192,7 @@ void main() {
               tstHistory: _flat(20, 420)));
       // Same 80 minutes, half-width 0.45x = 36m. Narrower than the 60m above,
       // from the night's own confidence rather than one published figure.
-      expect(find.text('44m–1h 56m'), findsNWidgets(2));
+      expect(find.text('44m–1h 56m'), findsNWidgets(3));
     });
 
     testWidgets('the deep comparison stops asserting a difference', (t) async {
