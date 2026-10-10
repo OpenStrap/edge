@@ -145,8 +145,13 @@ ProgressCard(String label, String value, String target, double frac,
 // C · changing over time
 TrendCard(String label, String value, String unit, String delta,
           String window, List<double> series, Color color,
-          {bool up = false, bool? good = true, VoidCallback? onTap})
+          {bool up = false, bool? good = true, VoidCallback? onTap,
+           UsualRange? band, double? latest, bool? higherBetter,
+           String Function(double)? format, String Function(int)? dayOf})
           // good: null = no baseline. No arrow, no verdict.
+          // band + latest: the shared trend header (trend.dart): verdict
+          // word, arrow, difference from usual, band behind the sparkline.
+          // dayOf: press and hold the sparkline to read a day.
 
 // D · something the system noticed
 InsightCard(String headline, String reason,

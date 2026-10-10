@@ -85,6 +85,10 @@ class HealthData {
   /// history is there from the first run instead of starting empty today.
   final List<Finding> findings;
 
+  /// The newest day bundle's personal `baselines` block — the usual range the
+  /// trend cards draw for resting HR and HRV. Null when it could not be read.
+  final Map<String, dynamic>? baselines;
+
   const HealthData({
     this.today = const {},
     this.insights = const {},
@@ -98,6 +102,7 @@ class HealthData {
     this.napCount,
     this.napDay = '',
     this.findings = const [],
+    this.baselines,
   });
 
   /// The stored points for [key].
@@ -206,6 +211,7 @@ class HealthData {
     // today has usually not derived yet.
     final napDay = days.isEmpty ? todayLabel() : days.first;
     final naps = await _soft(() => repo.getDayNaps(napDay));
+    final heart = await _soft(() => repo.getDayHeart(todayLabel()));
 
     return HealthData(
       today: today,
@@ -222,6 +228,9 @@ class HealthData {
       napDay: napDay,
       findings:
           findingsHistory(cd, readiness: ready, irregularDays: irregular),
+      baselines: heart['baselines'] is Map
+          ? (heart['baselines'] as Map).cast<String, dynamic>()
+          : null,
     );
   }
 }
@@ -1021,19 +1030,14 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
           icon: LucideIcons.chartLine,
         );
       }
-      final prior = s.length > 1
-          ? s.sublist(s.length - 1 - (s.length - 1).clamp(0, 28), s.length - 1)
-          : const <double>[];
-      // "vs your 28-day average" printed from the SECOND stored value, over a
-      // mean of one. The window has to say how many days it actually holds.
-      final mean =
-          prior.isEmpty ? null : prior.reduce((a, b) => a + b) / prior.length;
-      final base = against ?? mean;
-      final window = against != null
-          ? (againstLabel ?? '')
-          : (l?.healthVsDayAverage(prior.length) ??
-              'vs your ${prior.length}-day average');
-      final delta = base == null ? 0.0 : s.last - base;
+      String fmt(double v) => key == 'sleep' ? hm(v) : metricValue(unit, v);
+      // Your usual range, or nothing. Under two weeks of history the card
+      // abstains: no band, no arrow, one short line saying when it arrives.
+      final band = usualRangeFor(key, s, d.baselines);
+      final prior = s.length - 1;
+      final abstain = prior < kUsualMinDays
+          ? usualNeedsDaysText(l, prior)
+          : (l?.healthNoBaseline ?? 'no usual range yet');
       final win = denseDays(pts, 30);
       final metricKey = key == 'sleep' ? 'sleep' : key;
       // The hero number is the newest STORED point, which after a sync gap is
@@ -1042,20 +1046,37 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       final asOf = behind <= 0
           ? ''
           : (l?.healthAsOf(axisDay(pts.last.t)) ?? ' · as of ${axisDay(pts.last.t)}');
+      // [against] is the sleep need. It is a different question from "is this
+      // usual for you" and stays as the small print: the debt is the more
+      // useful of the two numbers on a sleep card.
+      final toNeed = against == null ? null : s.last - against;
+      final needLine = toNeed == null
+          ? null
+          : '${signed(toNeed, fmt(toNeed.abs()))} ${againstLabel ?? ''}'.trim();
+      final small = needLine ?? (band == null ? abstain : '');
+      final window = small.isEmpty && asOf.startsWith(' · ')
+          ? asOf.substring(3)
+          : '$small$asOf';
+      final n = DateTime.now();
       return TrendCard(
         label,
-        key == 'sleep' ? hm(s.last) : metricValue(unit, s.last),
+        fmt(s.last),
         key == 'sleep' ? '' : unit,
-        base == null
-            ? (l?.healthNoBaseline ?? 'no usual range yet')
-            : (key == 'sleep' ? hm(delta.abs()) : metricValue(unit, delta.abs())),
-        '${base == null ? (l?.healthFirstReadings ?? 'first readings') : window}$asOf',
+        band != null || toNeed == null ? '' : fmt(toNeed.abs()),
+        band == null && toNeed != null ? '${againstLabel ?? ''}$asOf' : window,
         win,
         col,
-        up: delta >= 0,
-        // Null with no baseline: an arrow and a good/bad hue about a
+        up: (toNeed ?? 0) >= 0,
+        // Null with no comparison: an arrow and a good/bad hue about a
         // comparison the card has just said it cannot make.
-        good: base == null ? null : (delta >= 0) == higherBetter,
+        good: toNeed == null ? null : (toNeed >= 0) == higherBetter,
+        band: band,
+        latest: s.last,
+        higherBetter: higherBetter,
+        format: fmt,
+        dayOf: (i) => prettyDay(
+            dayLabelOf(DateTime(n.year, n.month, n.day - (win.length - 1 - i))),
+            l),
         onTap: () => go(c, MetricDetail(metricKey)),
       );
     }

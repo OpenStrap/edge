@@ -508,6 +508,11 @@ class MetricData {
   /// did not contribute to; it does not re-query.
   final String? viewingDeviceId;
 
+  /// The newest day bundle's personal `baselines` block, loaded only for the
+  /// metrics the pipeline keeps a baseline for ([kBaselineKeyOf]). It is the
+  /// usual range the chart draws, the same band the recovery breakdown draws.
+  final Map<String, dynamic>? baselines;
+
   const MetricData({
     this.series = const [],
     this.wear = const [],
@@ -520,6 +525,7 @@ class MetricData {
     this.recording = const {},
     this.sources = const [],
     this.viewingDeviceId,
+    this.baselines,
   });
 
   static Future<MetricData> load(
@@ -557,6 +563,14 @@ class MetricData {
           if (e is Map && e['outcome'] == outcome) e.cast<String, dynamic>(),
       ];
     }
+    Map<String, dynamic>? baselines;
+    if (kBaselineKeyOf.containsKey(key)) {
+      // An unreadable bundle is no band, never a guessed one.
+      try {
+        final b = (await repo.getDayHeart(todayLabel()))['baselines'];
+        if (b is Map) baselines = b.cast<String, dynamic>();
+      } catch (_) {}
+    }
     final coverage = _coverageOf(chart['coverage_devices']);
     final recording = _coverageOf(chart['coverage_recording']);
     return MetricData(
@@ -574,6 +588,7 @@ class MetricData {
       recording: recording,
       sources: _deviceOptions(candidates, coverage),
       // viewingDeviceId stays null: see the field's doc.
+      baselines: baselines,
     );
   }
 }
@@ -1185,6 +1200,13 @@ class _MetricDetailState extends State<MetricDetail> {
     // a day that derives, so after a sync gap the newest stored point is days
     // old — and this line is the answer to "is there a today?".
     final asOf = all.isEmpty ? '' : axisDay(all.last.t);
+    // Your usual range: the band behind the chart and the verdict on the
+    // newest reading. Null under two weeks of history.
+    final stored = valuesOf(all);
+    final band = usualRangeFor(widget.metricKey, stored, d.baselines);
+    final ub = unitBeside(spec.unit);
+    final u = ub.isEmpty ? '' : ' ${uiText(context, ub)}';
+    final diff = band == null ? 0.0 : latest - band.usual;
 
     return Surface(
       child: Column(children: [
@@ -1227,6 +1249,22 @@ class _MetricDetailState extends State<MetricDetail> {
                         'Latest ${_fmt(spec, latest)} ${unitBeside(spec.unit)} · $asOf')
                     .replaceAll('  ', ' '),
                 style: F.cap.copyWith(color: p.ink3)),
+          ),
+        ],
+        if (band != null) ...[
+          const SizedBox(height: S.x2),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ReadingVerdict(
+              side: band.side(latest),
+              detail: vsUsualText(
+                l,
+                '${signed(diff, _fmt(spec, diff.abs()))}$u',
+                '${_fmt(spec, band.usual)}$u',
+              ),
+              higherBetter: betterDirection(widget.metricKey,
+                  higherBetter: spec.higherBetter),
+            ),
           ),
         ],
         if (d.sources.length >= 2) ...[
@@ -1279,16 +1317,17 @@ class _MetricDetailState extends State<MetricDetail> {
         Builder(builder: (c) {
           // One axis, shared by the labels and the curve. `min` unit metrics
           // print `7h 30m` on the gridlines rather than `450`.
-          final axis = AxisSpec.of(vals,
-              ticks: 3,
-              format: spec.unit == 'min'
-                  ? axisHm
-                  : (spec.unit == 'steps' || spec.unit == 'kcal'
-                      ? (v) => thousands(v)
-                      : (vals.every((v) => v.abs() >= 10)
-                          ? axisInt
-                          : axisFixed)),
-              floor: spec.unit == '%' ? 0 : null);
+          final String Function(double) fmt = spec.unit == 'min'
+              ? axisHm
+              : (spec.unit == 'steps' || spec.unit == 'kcal'
+                  ? (v) => thousands(v)
+                  : (vals.every((v) => v.abs() >= 10) ? axisInt : axisFixed));
+          // With a usual range the axis is scaled to the band, so a calm
+          // month sits calmly inside it instead of filling the card.
+          final axis = band?.axis(vals,
+                  format: fmt, floor: spec.unit == '%' ? 0 : null) ??
+              AxisSpec.of(vals,
+                  ticks: 3, format: fmt, floor: spec.unit == '%' ? 0 : null);
           // WHERE A RELEASE SITS ON THE LINE.
           //
           // A break's stamp is the first day computed the NEW way, so the
@@ -1308,12 +1347,16 @@ class _MetricDetailState extends State<MetricDetail> {
                   unit: spec.unit.isEmpty ? 'score' : spec.unit,
                   height: 150,
                   yAxis: axis,
+                  band: band,
+                  bandColor: p.wash(spec.color),
                   xMarks: marks,
                   // The mark's only screen-reader form, and the only thing that can
                   // say what it is. Deliberately flat: a version change is
                   // provenance, not an event that happened to the user.
             footnote: marks.isEmpty
-                ? null
+                ? (band == null && stored.length - 1 < kUsualMinDays
+                    ? usualNeedsDaysText(l, stored.length - 1)
+                    : null)
                 : (l?.metricDetailAlgoBreakFootnote(marks.length) ??
                     (marks.length == 1
                         ? 'The dotted line is a change in how these days were '

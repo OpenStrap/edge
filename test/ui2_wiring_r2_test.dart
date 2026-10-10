@@ -287,11 +287,21 @@ void main() {
       await t.pumpAndSettle();
     }
 
-    testWidgets('with no sleep need, the delta is vs the stored average',
+    testWidgets('with no sleep need, the verdict is against your usual range',
         (t) async {
-      await pump(t, sleepFixture());
-      expect(find.text('20m'), findsOneWidget); // 420 − 400
-      expect(find.text('vs your 28-day average'), findsOneWidget);
+      // 28 nights alternating 6h 30m / 6h 50m: usual 6h 40m, and tonight's
+      // 7h is above the band. Same subtraction as the words under it.
+      await pump(
+          t,
+          HealthData(charts: {
+            'sleep': [
+              for (var i = 28; i >= 1; i--)
+                (t: _noon(i), v: i.isEven ? 390.0 : 410.0),
+              (t: _noon(0), v: 420.0),
+            ],
+          }));
+      expect(find.text('Above usual'), findsOneWidget);
+      expect(find.text('· +20m from your usual 6h 40m'), findsOneWidget);
     });
 
     testWidgets('captioned "vs your need", the delta IS vs the need',
@@ -309,14 +319,19 @@ void main() {
       expect(find.text('vs your 7h 42m need'), findsOneWidget);
     });
 
-    testWidgets('the window says how many days it actually holds', (t) async {
-      // "vs your 28-day average" printed from the SECOND stored value.
+    testWidgets('under two weeks it abstains and says how many days it has',
+        (t) async {
+      // "vs your 28-day average" used to be printed from the SECOND stored
+      // value. Now there is no comparison at all until the range exists.
       await pump(
           t,
           HealthData(charts: {
             'sleep': [(t: _noon(1), v: 400.0), (t: _noon(0), v: 420.0)],
           }));
-      expect(find.text('vs your 1-day average'), findsOneWidget);
+      expect(
+          find.text('Your usual range appears after 14 days. 1 so far.'),
+          findsOneWidget);
+      expect(find.text('Above usual'), findsNothing);
     });
   });
 

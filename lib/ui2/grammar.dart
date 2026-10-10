@@ -43,6 +43,7 @@ import '../models/metric.dart';
 import 'charts.dart';
 import 'scroll_hint.dart';
 import 'theme.dart';
+import 'trend.dart';
 
 /// ── PRESSABLE ── the only gesture primitive in lib/ui2 ────────────────────
 ///
@@ -150,6 +151,12 @@ class Scrubber extends StatelessWidget {
 
   final Widget child;
 
+  /// PRESS AND HOLD instead of touch-and-drag, for a chart that sits inside a
+  /// tappable card: a tap still opens the card, a hold reads a value, and
+  /// [onEnd] fires when the finger lifts so the readout can go away.
+  final bool hold;
+  final VoidCallback? onEnd;
+
   const Scrubber({
     super.key,
     required this.value,
@@ -158,6 +165,8 @@ class Scrubber extends StatelessWidget {
     required this.describe,
     required this.child,
     this.step = .05,
+    this.hold = false,
+    this.onEnd,
   });
 
   @override
@@ -186,6 +195,16 @@ class Scrubber extends StatelessWidget {
           final w = box.maxWidth;
           void set(Offset o) =>
               onChanged(w <= 0 ? 0 : (o.dx / w).clamp(0.0, 1.0));
+          if (hold) {
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onLongPressStart: (e) => set(e.localPosition),
+              onLongPressMoveUpdate: (e) => set(e.localPosition),
+              onLongPressEnd: (_) => onEnd?.call(),
+              onLongPressCancel: () => onEnd?.call(),
+              child: child,
+            );
+          }
           return Listener(
             // Opaque, like Pressable. A `Listener` defers to its child by
             // default, so the strip was only touchable where the painter
@@ -495,19 +514,44 @@ class _Bar extends StatelessWidget {
 
 // ══════════════════ C · TREND ══════════════════
 /// Something changing. Value → context → direction.
-class TrendCard extends StatelessWidget {
+///
+/// Given a [band] and the [latest] reading it is the shared trend header: the
+/// value, a word ("Normal for you" / "Above usual" / "Below usual"), an arrow,
+/// the difference from usual, and a sparkline drawn over the band on an axis
+/// scaled to it, so a calm month looks calm. Without one it is the plain card:
+/// [delta] and [window] as the caller wrote them.
+///
+/// With [dayOf], pressing and holding the sparkline reads the day under the
+/// finger in place of [window]; a tap still opens [onTap].
+class TrendCard extends StatefulWidget {
   final String label, value, unit, delta, window;
   final bool up;
 
   /// Whether the move is good news — or NULL when there is nothing to compare
   /// against. Null draws no arrow and passes no judgement: the card states
-  /// [delta] as the caller wrote it ("no baseline") and stops there.
+  /// [delta] as the caller wrote it ("no baseline") and stops there. Unused
+  /// when a [band] is given; the band decides.
   final bool? good;
 
   /// DENSE — see [MetricRow.series].
   final List<double?> series;
   final Color color;
   final VoidCallback? onTap;
+
+  /// Your usual range. Non-null switches the card to the verdict header.
+  final UsualRange? band;
+
+  /// The reading judged against [band] — the number [value] prints.
+  final double? latest;
+
+  /// Null for a metric with no better direction.
+  final bool? higherBetter;
+
+  /// How a raw number in this metric prints, without its unit.
+  final String Function(double)? format;
+
+  /// The day a series slot stands for, for the press-and-hold readout.
+  final String Function(int slot)? dayOf;
 
   const TrendCard(
     this.label,
@@ -521,13 +565,39 @@ class TrendCard extends StatelessWidget {
     this.up = false,
     this.good = true,
     this.onTap,
+    this.band,
+    this.latest,
+    this.higherBetter = true,
+    this.format,
+    this.dayOf,
   });
 
   @override
+  State<TrendCard> createState() => _TrendCardState();
+}
+
+class _TrendCardState extends State<TrendCard> {
+  int? _held;
+
+  String _fmt(double v) => widget.format?.call(v) ?? axisFixedOrInt(v);
+
+  @override
   Widget build(BuildContext c) {
+    final w = widget;
     final p = P.of(c);
-    final displayUnit = uiText(c, unit);
-    final j = good;
+    final l = AppLocalizations.of(c);
+    final displayUnit = uiText(c, w.unit);
+    final u = displayUnit.isEmpty ? '' : ' $displayUnit';
+    final band = w.latest == null ? null : w.band;
+    final side = band?.side(w.latest!);
+    final verdictDetail = band == null
+        ? ''
+        : vsUsualText(
+            l,
+            '${signed(w.latest! - band.usual, _fmt((w.latest! - band.usual).abs()))}$u',
+            '${_fmt(band.usual)}$u',
+          );
+    final j = band == null ? w.good : null;
     // The arrow says which WAY, the colour says whether that is good news, and
     // those are independent: "HRV down" and "resting heart rate down" draw the
     // same arrow in different hues. Hue alone is not a channel, so the reading
@@ -537,35 +607,86 @@ class TrendCard extends StatelessWidget {
     // both be inventions, so neither is drawn and the label says nothing about
     // better or worse.
     final dir = j == null ? p.ink3 : p.on(j ? C.green : C.orange);
-    final judgement = j == null
-        ? ''
-        : uiText(c, j ? 'an improvement' : 'worse than usual');
+    final judgement = band != null
+        ? '${usualWord(l, side!)}, $verdictDetail'
+        : (j == null
+            ? ''
+            : uiText(c, j ? 'an improvement' : 'worse than usual'));
     final change = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (j != null) ...[
           Icon(
-            up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
+            w.up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
             size: 14,
             color: dir,
           ),
           const SizedBox(width: S.x1),
         ],
         Text(
-          delta,
+          w.delta,
           style: F.cap.copyWith(color: dir, fontWeight: FontWeight.w600),
         ),
       ],
     );
+    final held = _held;
+    final heldValue =
+        held == null || held >= w.series.length ? null : w.series[held];
+    final small = held == null || w.dayOf == null
+        ? w.window
+        : '${w.dayOf!(held)} · ${heldValue == null ? (l?.metricDetailNoRecordLabel ?? 'No record') : '${_fmt(heldValue)}$u'}';
+
+    final vals = [
+      for (final v in w.series)
+        if (v != null && v.isFinite) v,
+    ];
+    final axis = band?.axis(vals, format: _fmt);
+    final ink = p.on(w.color);
+    Widget plot = Stack(fit: StackFit.expand, children: [
+      if (band != null && axis != null)
+        BandLayer(band, axis, p.wash(w.color)),
+      CustomPaint(
+        size: Size.infinite,
+        // No `dotInk` when there is no band: `dots` is off then, and the
+        // knockout colour is only ever read inside the head-dot branch.
+        painter: LineChart(w.series, ink,
+            fill: false,
+            dots: band != null,
+            dotInk: p.card,
+            axis: axis,
+            selectedX: held == null || w.series.length < 2
+                ? null
+                : held / (w.series.length - 1)),
+      ),
+    ]);
+    if (w.dayOf != null && w.series.length > 1) {
+      // Excluded from semantics: the card's own label carries the summary and
+      // the card is a button into the metric screen, whose chart is the
+      // screen-reader slider.
+      plot = ExcludeSemantics(
+        child: Scrubber(
+          hold: true,
+          value: held == null ? null : held / (w.series.length - 1),
+          step: 1 / (w.series.length - 1),
+          label: w.label,
+          describe: (v) => '',
+          onChanged: (v) => setState(
+              () => _held = (v * (w.series.length - 1)).round()),
+          onEnd: () => setState(() => _held = null),
+          child: plot,
+        ),
+      );
+    }
+
     return Surface(
-      onTap: onTap,
+      onTap: w.onTap,
       semanticLabel:
-          '$label, $value $displayUnit, $delta $window${judgement.isEmpty ? '' : ', $judgement'}'
+          '${w.label}, ${w.value} $displayUnit${band == null ? ', ${w.delta}' : ''} ${w.window}${judgement.isEmpty ? '' : ', $judgement'}'
               .trim(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: F.cap.copyWith(color: p.ink2)),
+          Text(w.label, style: F.cap.copyWith(color: p.ink2)),
           const SizedBox(height: S.x2),
           // A realistic value — `7h 42m`, not the two characters the golden used
           // to pass on — pushed the delta and its arrow clean off the card: 202 px
@@ -577,9 +698,9 @@ class TrendCard extends StatelessWidget {
               spacing: S.x2,
               runSpacing: S.x1,
               children: [
-                Text(value, style: F.n34.copyWith(color: p.ink)),
+                Text(w.value, style: F.n34.copyWith(color: p.ink)),
                 Text(displayUnit, style: F.cap.copyWith(color: p.ink3)),
-                change,
+                if (band == null) change,
               ],
             )
           else
@@ -589,7 +710,7 @@ class TrendCard extends StatelessWidget {
               children: [
                 Flexible(
                   child: Text(
-                    value,
+                    w.value,
                     style: F.n34.copyWith(color: p.ink),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -603,35 +724,42 @@ class TrendCard extends StatelessWidget {
                 // and the unit goes back to its own size.
                 Text(displayUnit, style: F.cap.copyWith(color: p.ink3)),
                 const Spacer(),
-                if (j != null) ...[
-                  Icon(
-                    up ? LucideIcons.arrowUpRight : LucideIcons.arrowDownRight,
-                    size: 14,
-                    color: dir,
+                if (band == null) ...[
+                  if (j != null) ...[
+                    Icon(
+                      w.up
+                          ? LucideIcons.arrowUpRight
+                          : LucideIcons.arrowDownRight,
+                      size: 14,
+                      color: dir,
+                    ),
+                    const SizedBox(width: S.x1),
+                  ],
+                  Flexible(
+                    child: Text(
+                      w.delta,
+                      style: F.cap.copyWith(
+                        color: dir,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      textAlign: TextAlign.end,
+                    ),
                   ),
-                  const SizedBox(width: S.x1),
                 ],
-                Text(
-                  delta,
-                  style: F.cap.copyWith(
-                    color: dir,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
               ],
             ),
-          const SizedBox(height: S.x1),
-          Text(window, style: F.over.copyWith(color: p.ink3)),
-          const SizedBox(height: S.x4),
-          SizedBox(
-            height: 64,
-            child: CustomPaint(
-              size: Size.infinite,
-              // No `dotInk`: `dots` is off here, and the knockout colour is
-              // only ever read inside the head-dot branch.
-              painter: LineChart(series, p.on(color)),
+          if (band != null) ...[
+            const SizedBox(height: S.x1),
+            ReadingVerdict(
+              side: side!,
+              detail: verdictDetail,
+              higherBetter: w.higherBetter,
             ),
-          ),
+          ],
+          const SizedBox(height: S.x1),
+          Text(small, style: F.over.copyWith(color: p.ink3)),
+          const SizedBox(height: S.x4),
+          SizedBox(height: 64, child: plot),
         ],
       ),
     );
@@ -2102,6 +2230,14 @@ class ChartFrame extends StatelessWidget {
   /// a measured line. It does not take taps.
   final List<double> xMarks;
 
+  /// Your usual range, drawn behind [child] on [yAxis] and spoken as part of
+  /// the summary. Ignored without a [yAxis]: a band needs the scale it sits on.
+  /// Build the axis with [UsualRange.axis] so the band is always on screen.
+  final UsualRange? band;
+
+  /// The band's ink. Defaults to a wash of the muted ink.
+  final Color? bandColor;
+
   const ChartFrame({
     super.key,
     required this.title,
@@ -2115,6 +2251,8 @@ class ChartFrame extends StatelessWidget {
     this.empty,
     this.series = const [],
     this.xMarks = const [],
+    this.band,
+    this.bandColor,
   });
 
   /// Width and height of [s] as it will actually be laid out — including the
@@ -2275,6 +2413,13 @@ class ChartFrame extends StatelessWidget {
         AppLocalizations.of(c)?.supplementMeasuredIn(uiText(c, unit)) ??
             'measured in $unit',
         ?_spoken(c),
+        if (band != null && a != null)
+          usualRangeText(
+            AppLocalizations.of(c),
+            presentationText(AppLocalizations.of(c), a.format(band!.lo)),
+            presentationText(AppLocalizations.of(c), a.format(band!.hi)),
+            '',
+          ),
         if (xLabels.length > 1)
           AppLocalizations.of(
                 c,
@@ -2350,6 +2495,14 @@ class ChartFrame extends StatelessWidget {
                           Positioned.fill(
                             child: CustomPaint(
                               painter: _Gridlines(labels.length, p.line),
+                            ),
+                          ),
+                        if (band != null && a != null)
+                          Positioned.fill(
+                            child: BandLayer(
+                              band!,
+                              a,
+                              bandColor ?? p.wash(p.ink3),
                             ),
                           ),
                         Positioned.fill(child: child),

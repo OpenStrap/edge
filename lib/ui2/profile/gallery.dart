@@ -1241,6 +1241,34 @@ Map<String, Widget> _stateCases() => {
       'trend_down_bad': TrendCard('Heart-rate variability', '48', 'ms', '−13',
           'vs 14-day baseline', _series, C.orange,
           good: false),
+      // The shared trend header: a usual range behind the line, the axis
+      // scaled to it, and a verdict with the difference from usual.
+      'trend_banded': TrendCard('Resting heart rate', '61', 'bpm', '', '',
+          _series, C.red,
+          band: const UsualRange(52, 58),
+          latest: 61,
+          higherBetter: false,
+          format: (v) => v.round().toString()),
+      'reading_verdict': const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ReadingVerdict(side: Side.inside, detail: '+1 bpm from your usual 55 bpm'),
+          ReadingVerdict(
+              side: Side.below,
+              detail: '−6 ms from your usual 54 ms'),
+          ReadingVerdict(
+              side: Side.above,
+              detail: '+3.2 from your usual 9.8',
+              higherBetter: null),
+        ],
+      ),
+      'band_layer': SizedBox(
+        height: 80,
+        child: BandLayer(
+            const UsualRange(52, 58),
+            const AxisSpec(min: 40, max: 70, format: axisInt),
+            C.red.withValues(alpha: .15)),
+      ),
       // A gap in the middle of the series — the strap was off the wrist for
       // three days, and the line must BREAK rather than interpolate across it.
       'trend_with_gap': TrendCard(

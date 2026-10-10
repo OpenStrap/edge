@@ -7277,5 +7277,69 @@
         "type": "String"
       }
     }
+  },
+  "trendNormalForYou": "Как обычно",
+  "trendAboveUsual": "Выше обычного",
+  "trendBelowUsual": "Ниже обычного",
+  "trendVsUsual": "{diff} от вашего обычного {usual}",
+  "@trendVsUsual": {
+    "placeholders": {
+      "diff": {
+        "type": "String"
+      },
+      "usual": {
+        "type": "String"
+      }
+    }
+  },
+  "trendUsualRange": "Обычный диапазон {lo}–{hi}{unit}",
+  "@trendUsualRange": {
+    "placeholders": {
+      "lo": {
+        "type": "String"
+      },
+      "hi": {
+        "type": "String"
+      },
+      "unit": {
+        "type": "String"
+      }
+    }
+  },
+  "trendNeedsDays": "Обычный диапазон появится после {need} дн. Сейчас: {have}.",
+  "@trendNeedsDays": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "have": {
+        "type": "int"
+      }
+    }
+  },
+  "monthGridLegendBetter": "Лучше обычного",
+  "monthGridLegendUsual": "Обычно для вас",
+  "monthGridLegendWorse": "Хуже обычного",
+  "monthGridLegendOutside": "Вне обычного диапазона",
+  "monthGridRangeFootnote": "Одна ячейка — один день. Полоска сверху — выше обычного диапазона, снизу — ниже. Контур без заливки — нет значения.",
+  "monthGridRowSemantics": "{title}: значения есть за {have} из {total} дн. Ниже обычного диапазона: {below}, выше: {above}.",
+  "@monthGridRowSemantics": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "have": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "below": {
+        "type": "int"
+      },
+      "above": {
+        "type": "int"
+      }
+    }
   }
 }

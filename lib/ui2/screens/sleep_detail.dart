@@ -1,3 +1,4 @@
+import '../../l10n/display_text.dart';
 // SLEEP — one question, answered in three seconds, then revealed by scrolling.
 //
 // "How did my night go?" → what happened → how it compares to YOUR nights →
@@ -1721,7 +1722,15 @@ class _SleepDetailState extends State<SleepDetail> {
       if (present.length < 2) return;
       series.add(g);
       colors.add(col);
-      legend.add(('$label ($unit)', col));
+      // The night's own low and high, in numbers. A lane is auto-fitted to
+      // its night, so without them a 52–55 bpm night and a 48–80 one drew
+      // the same height of wiggle and nothing on the card told them apart.
+      var lo = present.first, hi = present.first;
+      for (final v in present) {
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+      legend.add(('$label ${format(lo)}–${format(hi)} ${uiText(c, unit)}', col));
       axes.add(AxisSpec.of(present, ticks: 2, format: format));
       units.add(unit);
     }
@@ -1742,6 +1751,10 @@ class _SleepDetailState extends State<SleepDetail> {
           ? _noOvernightLines(c)
           : Surface(child: InlineMetrics(summary));
     }
+    final linked = n['onset_ts'] is num &&
+        n['wake_ts'] is num &&
+        t0 == (n['onset_ts'] as num).round() &&
+        t1 == (n['wake_ts'] as num).round();
     return Surface(
       child: Column(children: [
         if (summary.isNotEmpty) ...[
@@ -1760,10 +1773,27 @@ class _SleepDetailState extends State<SleepDetail> {
           // No footnote. The legend already names each lane and its unit, and
           // the lanes are visibly separate — a paragraph explaining that they
           // are separate was describing the picture instead of letting it work.
-          child: CustomPaint(
-              size: Size.infinite,
-              painter: NightStack(series, colors, axes: axes)),
+          // The hypnogram's cursor, on the same onset→wake clock: scrub
+          // either chart and both show the same instant, with the readout
+          // under each. Only when the night has both ends, which is what
+          // makes the two time bases one.
+          child: linked
+              ? Scrubber(
+                  value: _scrub,
+                  onChanged: (v) => setState(() => _scrub = v),
+                  label: loc?.sleepDetailThroughTheNight ?? 'Through the night',
+                  describe: (v) => clockOfTs(
+                      t0 + ((t1 - t0) * v).round()),
+                  child: CustomPaint(
+                      size: Size.infinite,
+                      painter: NightStack(series, colors,
+                          axes: axes, selectedX: _scrub, cursor: p.ink)),
+                )
+              : CustomPaint(
+                  size: Size.infinite,
+                  painter: NightStack(series, colors, axes: axes)),
         ),
+        if (linked && _scrub != null) _scrubCard(c, p, d),
       ]),
     );
   }

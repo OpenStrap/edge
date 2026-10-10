@@ -15170,5 +15170,97 @@
         "type": "String"
       }
     }
+  },
+  "trendNormalForYou": "Normal for you",
+  "@trendNormalForYou": {
+    "description": "Trend verdict: the reading is inside the user's usual range."
+  },
+  "trendAboveUsual": "Above usual",
+  "@trendAboveUsual": {
+    "description": "Trend verdict: the reading is above the user's usual range."
+  },
+  "trendBelowUsual": "Below usual",
+  "@trendBelowUsual": {
+    "description": "Trend verdict: the reading is below the user's usual range."
+  },
+  "trendVsUsual": "{diff} from your usual {usual}",
+  "@trendVsUsual": {
+    "description": "Difference between the reading and the centre of the user's usual range; diff is signed and formatted with its unit.",
+    "placeholders": {
+      "diff": {
+        "type": "String"
+      },
+      "usual": {
+        "type": "String"
+      }
+    }
+  },
+  "trendUsualRange": "Usual range {lo}–{hi}{unit}",
+  "@trendUsualRange": {
+    "description": "The user's usual range in words; unit is empty or starts with a space.",
+    "placeholders": {
+      "lo": {
+        "type": "String"
+      },
+      "hi": {
+        "type": "String"
+      },
+      "unit": {
+        "type": "String"
+      }
+    }
+  },
+  "trendNeedsDays": "Your usual range appears after {need} days. {have} so far.",
+  "@trendNeedsDays": {
+    "description": "Short note shown instead of the usual-range band while there is not enough history.",
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "have": {
+        "type": "int"
+      }
+    }
+  },
+  "monthGridLegendBetter": "Better than usual",
+  "@monthGridLegendBetter": {
+    "description": "Month grid legend: day outside the usual range in the good direction."
+  },
+  "monthGridLegendUsual": "Usual for you",
+  "@monthGridLegendUsual": {
+    "description": "Month grid legend: day inside the usual range."
+  },
+  "monthGridLegendWorse": "Worse than usual",
+  "@monthGridLegendWorse": {
+    "description": "Month grid legend: day outside the usual range in the bad direction."
+  },
+  "monthGridLegendOutside": "Outside your usual range",
+  "@monthGridLegendOutside": {
+    "description": "Month grid legend: day outside the usual range for a metric with no better direction."
+  },
+  "monthGridRangeFootnote": "One cell per day. A bar at the top means above your usual range, at the bottom below it. An outlined cell has no value.",
+  "@monthGridRangeFootnote": {
+    "description": "Month grid footnote explaining the cell marks."
+  },
+  "monthGridRowSemantics": "{title}: {have} of {total} days have a value. {below} below and {above} above your usual range.",
+  "@monthGridRowSemantics": {
+    "description": "Screen-reader summary of one month grid row.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "have": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "below": {
+        "type": "int"
+      },
+      "above": {
+        "type": "int"
+      }
+    }
   }
 }

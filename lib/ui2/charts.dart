@@ -516,7 +516,14 @@ class Bars extends CustomPainter {
   // No track colour: nothing is drawn behind a bar. A missing bucket is a gap
   // in the row and a real zero gets the 2 pt floor below, which is the whole
   // absence channel.
-  Bars(this.d, this.color, {this.highlight = -1, this.t = 1, this.axis});
+  /// Per-bar ink from the bar's own value, for bars coloured by what the value
+  /// MEANS (a recovery bar in its band's colour). Null paints every bar
+  /// [color]. Applied after aggregation, so a merged column takes the colour
+  /// of the value it draws.
+  final Color Function(double v)? colorOf;
+
+  Bars(this.d, this.color,
+      {this.highlight = -1, this.t = 1, this.axis, this.colorOf});
 
   /// [maxColumns] over a series with holes: a column of nothing stays nothing.
   static List<double?> _columns(List<double?> d, int cols) {
@@ -573,15 +580,20 @@ class Bars extends CustomPainter {
           const Radius.circular(3),
         ),
         Paint()
-          ..color =
-              (hl < 0 || i == hl) ? color : color.withValues(alpha: .35),
+          ..color = (hl < 0 || i == hl)
+              ? (colorOf?.call(value) ?? color)
+              : (colorOf?.call(value) ?? color).withValues(alpha: .35),
       );
     }
   }
 
   @override
   bool shouldRepaint(covariant Bars o) =>
-      o.d != d || o.t != t || o.highlight != highlight || o.axis != axis;
+      o.d != d ||
+      o.t != t ||
+      o.highlight != highlight ||
+      o.axis != axis ||
+      o.color != color;
 }
 
 /// The score dial. One value, one arc.
@@ -1149,7 +1161,13 @@ class NightStack extends CustomPainter {
   /// night. Pin the ones the screen labels.
   final List<AxisSpec?>? axes;
 
-  NightStack(this.series, this.colors, {this.axes});
+  /// The shared night cursor, 0…1 across the plot, or null for none. The
+  /// hypnogram above draws the same instant, so the two read together.
+  final double? selectedX;
+  final Color? cursor;
+
+  NightStack(this.series, this.colors,
+      {this.axes, this.selectedX, this.cursor});
 
   @override
   void paint(Canvas cv, Size s) {
@@ -1179,11 +1197,24 @@ class NightStack extends CustomPainter {
         cv.drawPath(_polyline(run, smooth: false), paint);
       }
     }
+    final x = selectedX?.clamp(0.0, 1.0);
+    if (x != null) {
+      cv.drawLine(
+        Offset(s.width * x, 0),
+        Offset(s.width * x, s.height),
+        Paint()
+          ..strokeWidth = 2
+          ..color = cursor ?? colors.first,
+      );
+    }
   }
 
   @override
   bool shouldRepaint(covariant NightStack o) =>
-      o.series != series || o.axes != axes;
+      o.series != series ||
+      o.axes != axes ||
+      o.selectedX != selectedX ||
+      o.cursor != cursor;
 }
 
 /// The context behind a day's curve: when you were asleep, when you worked

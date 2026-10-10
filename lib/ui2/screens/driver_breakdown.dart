@@ -487,20 +487,19 @@ Widget _chart(BuildContext c, P p, DriverFacts f) {
                 '${metricValue(f.spec.unit, band.$2)}'
                 '${unit.isEmpty ? '' : ' $unit'}'),
     empty: axis == null ? const NoData() : null,
+    band: band == null ? null : UsualRange(band.$1, band.$2),
+    bandColor: p.wash(f.spec.color),
     child: axis == null
         ? const SizedBox.shrink()
-        : Stack(fit: StackFit.expand, children: [
-            if (band != null) _Band(band.$1, band.$2, axis, p.wash(f.spec.color)),
-            CustomPaint(
-              size: Size.infinite,
-              // No fill. A gradient under the line and a tinted band behind it
-              // are two washes of the same colour arguing about which one the
-              // eye should read as "normal".
-              painter: LineChart(win, ink,
-                  fill: false, dots: true, dotInk: p.card, t: animate(c, 1),
-                  axis: axis),
-            ),
-          ]),
+        : CustomPaint(
+            size: Size.infinite,
+            // No fill. A gradient under the line and a tinted band behind it
+            // are two washes of the same colour arguing about which one the
+            // eye should read as "normal".
+            painter: LineChart(win, ink,
+                fill: false, dots: true, dotInk: p.card, t: animate(c, 1),
+                axis: axis),
+          ),
   );
 }
 
@@ -510,37 +509,6 @@ Widget _chart(BuildContext c, P p, DriverFacts f) {
 List<double?> _window(List<double?> s) {
   final first = s.indexWhere((v) => v != null);
   return first <= 0 ? s : s.sublist(first);
-}
-
-/// The usual range, drawn behind the curve on the SAME [AxisSpec] the line and
-/// the gridlines use — a band solved against its own scale is decoration.
-class _Band extends StatelessWidget {
-  const _Band(this.lo, this.hi, this.axis, this.color);
-
-  final double lo, hi;
-  final AxisSpec axis;
-  final Color color;
-
-  @override
-  Widget build(BuildContext c) => LayoutBuilder(
-        builder: (_, box) {
-          final h = box.maxHeight;
-          final top = h * (1 - axis.t(hi));
-          final height = h * (axis.t(hi) - axis.t(lo));
-          if (height <= 0) return const SizedBox.shrink();
-          return Stack(children: [
-            Positioned(
-              left: 0,
-              right: 0,
-              top: top,
-              height: height,
-              child: DecoratedBox(
-                decoration: BoxDecoration(color: color, borderRadius: R.rSm),
-              ),
-            ),
-          ]);
-        },
-      );
 }
 
 /// A day with no readiness at all.
