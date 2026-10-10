@@ -23,8 +23,33 @@ Full feature list: [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Support
 
-No company and no paywall behind this. If it's useful to you, a tip helps keep it
-going: [donate](DONATE.md) (BTC or any EVM chain).
+OpenStrap has no company, no subscription and no paywall behind it. If it's useful to
+you, a tip helps keep it going.
+
+**Bitcoin**
+
+```
+bc1qvtcch38dcwp967ar764uu6eetw7tf907844wfq
+```
+
+**EVM** (Ethereum, Base, Arbitrum, Optimism, Polygon)
+
+```
+0x8310C89393366b7eBCD47ABa82e1dfB5ECeFFbD9
+```
+
+These are the only donation addresses. There is no token and nothing for sale.
+
+**What donations pay for:** the Apple Developer membership that keeps the TestFlight
+build alive, and test devices. Every new wearable we support needs real hardware on a
+real wrist before its numbers can be trusted.
+
+**What they don't buy:** priority, features or support. Nothing is gated behind paying,
+and nothing ever will be.
+
+**Other ways to help, free:** report a number that looks wrong, test a device you own
+(see [docs/FEATURES.md](docs/FEATURES.md) for what's being built), or tell someone
+whose wearable is sitting in a drawer. More in [DONATE.md](DONATE.md).
 
 ## Community
 
@@ -47,7 +72,7 @@ going: [donate](DONATE.md) (BTC or any EVM chain).
 
 Bug reports from real devices are the most useful thing you can send. PRs are welcome;
 read [CONTRIBUTING.md](CONTRIBUTING.md) first, which covers which repo a change belongs
-in and the [CLA](CLA.md) you accept with your first PR. Security issues go through
+in. Security issues go through
 [SECURITY.md](SECURITY.md).
 
 ## Privacy

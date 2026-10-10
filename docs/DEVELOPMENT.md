@@ -1,7 +1,7 @@
 # Development
 
 How to build and run OpenStrap Edge from source, and how the pieces fit together.
-For which repo a change belongs in, tests, and the CLA, see
+For which repo a change belongs in, and tests, see
 [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Build and run

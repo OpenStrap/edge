@@ -159,15 +159,10 @@ services, no redistributing their code, firmware, or assets, and no vendored
 third-party material whose licences don't permit it.
 Facts about a protocol are fine. Someone else's source code is not.
 
-## License and CLA
+## License
 
-OpenStrap is licensed under AGPL-3.0 (see [LICENSE](LICENSE)). Before your first PR
-is merged you need to accept the [Contributor License Agreement](CLA.md). In short:
-you keep the copyright in your work, and you grant the copyright holder, OpenStrap,
-the right to relicense your contributions, including under commercial licences.
-To accept, add this line to your first PR description:
-
-> I have read the OpenStrap CLA (CLA.md) and agree to its terms for this and all my
-> future contributions to OpenStrap.
+OpenStrap is licensed under AGPL-3.0 (see [LICENSE](LICENSE)). By contributing, you
+agree that your contributions are licensed under the same AGPL-3.0 terms. You keep the
+copyright in your work.
 
 The OpenStrap name and logo are covered separately by [TRADEMARKS.md](TRADEMARKS.md).
