@@ -3,7 +3,7 @@
 // Readiness changed in two ways: HRV and RHR now form one autonomic input
 // (mean of their oriented z's, weight 0.70), and the score is mapped through
 // the user's own composite-z spread once 14 prior nights exist
-// (`calibratedReadinessScore`). Both need a history of composite z's that no
+// and re-centred on its capped median (`calibratedReadinessScore`). Both need a history of composite z's that no
 // day derived before v112 wrote.
 //
 // Neither needs raw. Every stored bundle carries the composite's drivers, and
@@ -76,7 +76,10 @@ double rescoreStoredReadiness(
   final cal = ana.calibratedReadinessScore(stored.z, zHistory);
   final rc = (payload['clinical'] as Map)['readiness_composite'] as Map;
   rc['value'] = ana.Readiness(cal.score, stored.z,
-          calibrationSigma: cal.sigma, calibrationNights: cal.nights)
+          calibrationSigma: cal.sigma,
+          calibrationNights: cal.nights,
+          calibrationCentreRaw: cal.centreRaw,
+          calibrationCentre: cal.centre)
       .toJson();
   for (final d in rc['drivers'] as List) {
     final c = stored.contributions[(d as Map)['label']];
