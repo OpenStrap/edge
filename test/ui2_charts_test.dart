@@ -635,10 +635,12 @@ void main() {
         (tester) async {
       final handle = tester.ensureSemantics();
       await tester.pumpWidget(_host(const ZoneRows([6, 14, 22, 16, double.nan],
-          lowerBpm: [95, 114, 133, 152, 171], title: 'Time in zones')));
+          lowerBpm: [95, 115, 134, 153, 171], title: 'Time in zones')));
       expect(find.textContaining('Zone 1'), findsOneWidget);
       expect(find.textContaining('Zone 5'), findsOneWidget);
+      // Adjacent rows never share an endpoint: zone 2 starts at 115.
       expect(find.textContaining('95–114 bpm'), findsOneWidget);
+      expect(find.textContaining('115–133 bpm'), findsOneWidget);
       expect(find.textContaining('171+ bpm'), findsOneWidget);
       expect(find.text('22 min'), findsOneWidget);
       // A non-finite minute count is drawn as nothing, not as a crash.
@@ -646,7 +648,7 @@ void main() {
       // One spoken row per zone: name, range and minutes together.
       expect(
           find.bySemanticsLabel(
-              RegExp(r'Zone 3.*133–152 bpm.*22 min', dotAll: true)),
+              RegExp(r'Zone 3.*134–152 bpm.*22 min', dotAll: true)),
           findsOneWidget);
       handle.dispose();
     });
@@ -656,6 +658,21 @@ void main() {
       await tester.pumpWidget(_host(const ZoneRows([1, 2, 3, 4, 5])));
       expect(find.textContaining('bpm'), findsNothing);
       expect(find.textContaining('Zone 4'), findsOneWidget);
+    });
+
+    testWidgets('compact zone rows are one line each and fit at 3.1x',
+        (tester) async {
+      await tester.pumpWidget(_host(
+          const SingleChildScrollView(child: ZoneRows([6, 14, 22, 16, 4]))));
+      final full = tester.getSize(find.byType(ZoneRows)).height;
+      await tester.pumpWidget(_host(const SingleChildScrollView(
+          child: ZoneRows([6, 14, 22, 16, 4], compact: true))));
+      expect(tester.getSize(find.byType(ZoneRows)).height, lessThan(full * .75));
+      expect(find.text('22 min'), findsOneWidget);
+      await tester.pumpWidget(_host(
+          const ZoneRows([6, 14, 22, 16, 4], compact: true),
+          scale: 3.1));
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('zone rows fit at 3.1x text in both themes', (tester) async {

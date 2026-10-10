@@ -1204,61 +1204,94 @@ class _SleepDetailState extends State<SleepDetail> {
   }
 
   /// The hypnogram with each lane named on its left and its total on its
-  /// right, so nobody has to match a colour to a key. Above the big-text
-  /// threshold the totals column goes: the Stages table under the chart
-  /// carries the same figures, and the plot keeps its width.
+  /// right, so nobody has to match a colour to a key.
+  ///
+  /// The plot comes first. The name column is capped at [_nameShare] of the
+  /// card and ellipsizes past it ("Бодрствование" at 3x would otherwise eat
+  /// the chart), and the totals column is dropped whenever it would leave the
+  /// plot under [_minPlotShare], and always above the big-text threshold. The
+  /// Stages table under the chart carries the same figures.
+  static const _nameShare = .3, _minPlotShare = .55;
+
   Widget _labelledHypnogram(BuildContext c, P p, List<SleepStage?> stages,
       Map<String, dynamic> n, double lane, Map<SleepStage, String> totals) {
     final l = AppLocalizations.of(c);
     final ink = Hypnogram.cols(p);
-    Widget column(String Function(SleepStage) text, TextAlign align,
-            {bool coloured = false}) =>
-        Column(
-          crossAxisAlignment: align == TextAlign.right
-              ? CrossAxisAlignment.end
-              : CrossAxisAlignment.start,
-          children: [
+    final scaler = MediaQuery.textScalerOf(c);
+    final dir = Directionality.of(c);
+    final nameStyle = F.over.copyWith(fontWeight: FontWeight.w600);
+    double widest(Iterable<String> ts, TextStyle st) {
+      var w = 0.0;
+      for (final t in ts) {
+        final tp = TextPainter(
+            text: TextSpan(text: t, style: st),
+            textScaler: scaler,
+            textDirection: dir,
+            maxLines: 1)
+          ..layout();
+        w = math.max(w, tp.width);
+        tp.dispose();
+      }
+      return w.ceilToDouble();
+    }
+
+    // A lane the night never used, and has no figure for, stays unnamed: a
+    // band that folds REM into light should not print REM at all.
+    bool named(SleepStage s) => totals[s] != null || stages.contains(s);
+    String name(SleepStage s) => named(s) ? s.label(l) : '';
+
+    Widget column(String Function(SleepStage) text, double width,
+            {bool right = false, bool coloured = false}) =>
+        SizedBox(
+          width: width,
+          child: Column(children: [
             for (final s in SleepStage.values)
               SizedBox(
                 height: lane,
                 child: Align(
-                  alignment: align == TextAlign.right
-                      ? Alignment.centerRight
-                      : Alignment.centerLeft,
+                  alignment:
+                      right ? Alignment.centerRight : Alignment.centerLeft,
                   child: Text(
                     text(s),
-                    textAlign: align,
+                    textAlign: right ? TextAlign.right : TextAlign.left,
                     maxLines: 1,
-                    style: F.over.copyWith(
-                        color: coloured ? ink[s] : p.ink2,
-                        fontWeight: coloured ? FontWeight.w600 : null),
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                    style: coloured
+                        ? nameStyle.copyWith(color: ink[s])
+                        : F.over.copyWith(color: p.ink2),
                   ),
                 ),
               ),
-          ],
+          ]),
         );
-    // A lane the night never used, and has no figure for, stays unnamed: a
-    // band that folds REM into light should not print REM at all.
-    bool named(SleepStage s) => totals[s] != null || stages.contains(s);
-    return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      // Spoken by the totals column, or by the scrubber's own readout.
-      ExcludeSemantics(
-          child: column((s) => named(s) ? s.label(l) : '', TextAlign.left,
-              coloured: true)),
-      const SizedBox(width: S.x2),
-      Expanded(child: _hypnogram(c, p, stages, n, lane * 4)),
-      if (!bigText(c) && totals.isNotEmpty) ...[
+
+    return LayoutBuilder(builder: (c, box) {
+      final w = box.maxWidth;
+      final nameW = math.min(
+          widest(SleepStage.values.map(name), nameStyle), w * _nameShare);
+      final totW = widest(totals.values, F.over);
+      final withTotals = !bigText(c) &&
+          totals.isNotEmpty &&
+          w - nameW - totW - 2 * S.x2 >= w * _minPlotShare;
+      return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        // Spoken by the totals column, or by the scrubber's own readout.
+        ExcludeSemantics(child: column(name, nameW, coloured: true)),
         const SizedBox(width: S.x2),
-        Semantics(
-          label: [
-            for (final s in SleepStage.values)
-              if (totals[s] case final t?) '${s.label(l)} $t',
-          ].join(', '),
-          child: ExcludeSemantics(
-              child: column((s) => totals[s] ?? '', TextAlign.right)),
-        ),
-      ],
-    ]);
+        Expanded(child: _hypnogram(c, p, stages, n, lane * 4)),
+        if (withTotals) ...[
+          const SizedBox(width: S.x2),
+          Semantics(
+            label: [
+              for (final s in SleepStage.values)
+                if (totals[s] case final t?) '${s.label(l)} $t',
+            ].join(', '),
+            child: ExcludeSemantics(
+                child: column((s) => totals[s] ?? '', totW, right: true)),
+          ),
+        ],
+      ]);
+    });
   }
 
   /// What each stage came to, as the Stages table prints it: a device's own

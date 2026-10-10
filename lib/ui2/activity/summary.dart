@@ -512,13 +512,22 @@ class LapRows extends StatelessWidget {
               Text(l?.activitySummaryLapLabel(i + 1) ?? 'Lap ${i + 1}',
                   style: F.cap.copyWith(color: p.ink2)),
               const SizedBox(width: S.x3),
+              // The bar's percentage means nothing read aloud; the time does.
               Expanded(
-                child: PaceBar(
-                    secs[i] <= 0 || fastest <= 0 ? 0 : fastest / secs[i],
-                    color),
+                child: ExcludeSemantics(
+                  child: PaceBar(
+                      secs[i] <= 0 || fastest <= 0 ? 0 : fastest / secs[i],
+                      color),
+                ),
               ),
               const SizedBox(width: S.x3),
+              // Bold is invisible to a screen reader, so the fastest lap
+              // says so in words.
               Text(clock(secs[i]),
+                  semanticsLabel: secs[i] == fastest
+                      ? (l?.activitySummaryLapFastest(clock(secs[i])) ??
+                          '${clock(secs[i])}, fastest')
+                      : null,
                   style: F.cap.copyWith(
                       color: p.ink,
                       fontWeight: secs[i] == fastest
@@ -1484,9 +1493,12 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           Surface(
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(l?.activitySummaryLapsTitle ?? 'Laps',
-                  style: F.cap.copyWith(
-                      color: p.ink, fontWeight: FontWeight.w600)),
+              Semantics(
+                header: true,
+                child: Text(l?.activitySummaryLapsTitle ?? 'Laps',
+                    style: F.cap.copyWith(
+                        color: p.ink, fontWeight: FontWeight.w600)),
+              ),
               const SizedBox(height: S.x3),
               LapRows(r.lapSecs, C.blue),
               const SizedBox(height: S.x3),

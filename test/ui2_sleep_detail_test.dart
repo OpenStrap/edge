@@ -8,6 +8,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
@@ -154,11 +155,12 @@ void main() {
       // No confidence published => the WIDEST interval, which is the honest
       // default: we do not know how well we saw the night, so we say least.
       // deep 80m, half-width 0.75x = 60m.
-      // Three times: beside the Deep lane, the Stages row, and the header of
-      // the Deep comparison below it. All had to move — one card showing a
-      // range while another still showed a count is the contradiction this
-      // item exists to remove.
-      expect(find.text('20m–2h 20m'), findsNWidgets(3));
+      // Twice: the Stages row and the header of the Deep comparison below
+      // it. Both had to move — one card showing a range while another still
+      // showed a count is the contradiction this item exists to remove. Range
+      // totals are too wide to sit beside the lanes on a 390pt phone without
+      // starving the plot, so the hypnogram leaves them to the table.
+      expect(find.text('20m–2h 20m'), findsNWidgets(2));
       // And the share column is gone with the count it was computed from.
       for (final share in const ['52%', '17%', '19%', '13%']) {
         expect(find.text(share), findsNothing);
@@ -192,7 +194,7 @@ void main() {
               tstHistory: _flat(20, 420)));
       // Same 80 minutes, half-width 0.45x = 36m. Narrower than the 60m above,
       // from the night's own confidence rather than one published figure.
-      expect(find.text('44m–1h 56m'), findsNWidgets(3));
+      expect(find.text('44m–1h 56m'), findsNWidgets(2));
     });
 
     testWidgets('the deep comparison stops asserting a difference', (t) async {
@@ -278,6 +280,39 @@ void main() {
         scale: scale,
       );
       expect(find.text('Unusual on Wednesday, 20 May'), findsOneWidget);
+    });
+  }
+
+  // The lane names and totals sit beside the plot. Russian names and range
+  // totals are long, so on a narrow phone at large text they used to squeeze
+  // the hypnogram to a sliver or overflow the row outright.
+  for (final (lang, scale) in const [
+    ('ru', 1.0), ('ru', 1.3), ('ru', 3.1), ('en', 1.3),
+  ]) {
+    testWidgets('$lang at ${scale}x on a 360pt phone keeps the hypnogram wide',
+        (t) async {
+      t.view.physicalSize = Size(360 * 3, 5200 * 3 * scale);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        locale: Locale(lang),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        theme: buildTheme(Brightness.light),
+        builder: (c, child) => MediaQuery(
+          data: MediaQuery.of(c).copyWith(textScaler: TextScaler.linear(scale)),
+          child: child!,
+        ),
+        home: SleepDetail(data: SleepData(day: '2026-05-20', night: _night())),
+      ));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      final label = lang == 'ru' ? 'Гипнограмма' : 'Hypnogram';
+      final plot =
+          find.byWidgetPredicate((w) => w is Scrubber && w.label == label);
+      expect(plot, findsOneWidget);
+      // Over half of the 360pt screen, whatever the language or text size.
+      expect(t.getSize(plot).width, greaterThanOrEqualTo(180));
     });
   }
 

@@ -4582,6 +4582,7 @@
   "activityZonesNotShownTitle": "Пока не показано",
   "activityZonesNeedsMonthBody": "Нужен примерно месяц записанных тренировок с поминутным пульсом.",
   "activityZonesAgeEstimateBody": "Столбцы отражали бы оценку по возрасту, а не ваши тренировки. Они появятся после определения границ зон по измерениям.",
+  "activityZonesCurrentEdgesNote": "Диапазоны — ваши текущие границы зон; старые тренировки могли считаться по другим.",
   "activityZonesSessionMinutesChartTitle": "Минуты тренировок за 28 дней",
   "activityZonesShapePyramidal": "Большинство минут — лёгкая нагрузка, меньше — средняя, ещё меньше — высокая: пирамида.",
   "activityZonesShapePolarised": "Большинство минут — лёгкая нагрузка, остальные — высокая. Средней почти нет.",
@@ -4753,6 +4754,14 @@
     "placeholders": {
       "n": {
         "type": "int"
+      }
+    }
+  },
+  "activitySummaryLapFastest": "{time}, самый быстрый",
+  "@activitySummaryLapFastest": {
+    "placeholders": {
+      "time": {
+        "type": "String"
       }
     }
   },

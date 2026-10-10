@@ -9820,6 +9820,10 @@
   "@activityZonesAgeEstimateBody": {
     "description": "Explanation of why the intensity distribution is withheld when zones are only age-estimated"
   },
+  "activityZonesCurrentEdgesNote": "Ranges are your current zone edges; older sessions may have been counted with different ones.",
+  "@activityZonesCurrentEdgesNote": {
+    "description": "Footnote under the 28-day zone minutes: the printed bpm ranges are today's edges"
+  },
   "activityZonesSessionMinutesChartTitle": "Session minutes, last 28 days",
   "@activityZonesSessionMinutesChartTitle": {
     "description": "Chart title for the 28-day session-minutes-by-zone bar"
@@ -10174,10 +10178,19 @@
   },
   "activitySummaryLapLabel": "Lap {n}",
   "@activitySummaryLapLabel": {
-    "description": "X-axis label naming a lap number on the lap-time chart",
+    "description": "Row label naming a lap number in the lap list",
     "placeholders": {
       "n": {
         "type": "int"
+      }
+    }
+  },
+  "activitySummaryLapFastest": "{time}, fastest",
+  "@activitySummaryLapFastest": {
+    "description": "Screen-reader label for the fastest lap's time, since bold is not spoken",
+    "placeholders": {
+      "time": {
+        "type": "String"
       }
     }
   },

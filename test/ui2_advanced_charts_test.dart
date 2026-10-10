@@ -6,7 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/activity/day_strain.dart';
 import 'package:openstrap_edge/ui2/activity/summary.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
+import 'package:openstrap_edge/theme/theme_controller.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
+import 'package:provider/provider.dart';
 
 Widget _app(Widget home, {double scale = 1, Brightness b = Brightness.light}) =>
     MediaQuery(
@@ -14,20 +16,59 @@ Widget _app(Widget home, {double scale = 1, Brightness b = Brightness.light}) =>
       child: MaterialApp(theme: buildTheme(b), home: home),
     );
 
+/// [_app] plus the theme controller a pushed route reads, so a link can be
+/// tapped rather than its target pumped on its own.
+Widget _nav(Widget home) => ChangeNotifierProvider<ThemeController>.value(
+    value: ThemeController.seed(AppThemeChoice.light, Brightness.light),
+    child: _app(home));
+
 void main() {
-  testWidgets('Health vitals opens the Advanced screen', (t) async {
+  Future<void> tapLink(WidgetTester t, String text) async {
+    await t.ensureVisible(find.text(text));
+    await t.pumpAndSettle();
+    await t.tap(find.text(text));
+    await t.pumpAndSettle();
+  }
+
+  testWidgets('Health vitals opens the Advanced screen, and it opens both '
+      'research views', (t) async {
     t.view.physicalSize = const Size(390 * 3, 4000 * 3);
     t.view.devicePixelRatio = 3;
     addTearDown(t.view.reset);
-    await t.pumpWidget(_app(const HealthScreen(
+    await t.pumpWidget(_nav(const HealthScreen(
         data: HealthData(daysWithData: 2), vitals: VitalsData(), tab: 3)));
     await t.pumpAndSettle();
-    expect(find.text('Advanced charts'), findsOneWidget);
-    // `go` needs the app's providers, so the screen is pumped on its own.
-    await t.pumpWidget(_app(const AdvancedScreen()));
+    await tapLink(t, 'Advanced charts');
+    expect(find.byType(AdvancedScreen), findsOneWidget);
+
+    await tapLink(t, 'Beat to beat');
+    expect(find.byType(Beats), findsOneWidget);
+    t.state<NavigatorState>(find.byType(Navigator)).pop();
     await t.pumpAndSettle();
-    expect(find.text('Beat to beat'), findsOneWidget);
-    expect(find.text('Sleep timing and daily rhythm'), findsOneWidget);
+
+    await tapLink(t, 'Sleep timing and daily rhythm');
+    expect(
+        t.widget<CircadianDetail>(find.byType(CircadianDetail)).advanced, isTrue);
+  });
+
+  testWidgets('HRV detail has the same door to Advanced', (t) async {
+    t.view.physicalSize = const Size(390 * 3, 4000 * 3);
+    t.view.devicePixelRatio = 3;
+    addTearDown(t.view.reset);
+    final now = DateTime.now();
+    await t.pumpWidget(_nav(MetricDetail('hrv',
+        data: MetricData(daysAvailable: 7, series: [
+          for (var i = 0; i < 7; i++)
+            (
+              t: DateTime(now.year, now.month, now.day - 6 + i, 12)
+                      .millisecondsSinceEpoch ~/
+                  1000,
+              v: 50.0 + i,
+            ),
+        ]))));
+    await t.pumpAndSettle();
+    await tapLink(t, 'Advanced charts');
+    expect(find.byType(AdvancedScreen), findsOneWidget);
   });
 
   testWidgets('the Advanced screen fits 3.1x text in both themes', (t) async {
@@ -35,6 +76,22 @@ void main() {
       await t.pumpWidget(_app(const AdvancedScreen(), scale: 3.1, b: b));
       await t.pumpAndSettle();
       expect(t.takeException(), isNull, reason: '$b overflowed');
+    }
+  });
+
+  testWidgets('the research rhythm view fits 3.1x text in both themes',
+      (t) async {
+    t.view.physicalSize = const Size(390 * 3, 6000 * 3);
+    t.view.devicePixelRatio = 3;
+    addTearDown(t.view.reset);
+    final d = CircadianData(
+        actogram: [for (var i = 0; i < 7; i++) List<double>.filled(24, .5)]);
+    for (final b in Brightness.values) {
+      await t.pumpWidget(
+          _app(CircadianDetail(data: d, advanced: true), scale: 3.1, b: b));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull, reason: '$b overflowed');
+      expect(find.text('Sleep, night by night'), findsOneWidget);
     }
   });
 
@@ -92,5 +149,17 @@ void main() {
     expect(find.text('00:52'), findsOneWidget);
     final fastest = t.widget<Text>(find.text('00:52'));
     expect(fastest.style!.fontWeight, FontWeight.w700);
+  });
+
+  testWidgets('a lap is read as its number and time, the fastest said aloud',
+      (t) async {
+    final h = t.ensureSemantics();
+    await t.pumpWidget(_app(const Scaffold(body: LapRows([60, 52, 58], C.blue))));
+    expect(find.bySemanticsLabel(RegExp(r'^Lap 2\s+00:52, fastest$')),
+        findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp(r'^Lap 1\s+01:00$')), findsOneWidget);
+    // The bar's percentage is not spoken.
+    expect(find.bySemanticsLabel(RegExp('%')), findsNothing);
+    h.dispose();
   });
 }

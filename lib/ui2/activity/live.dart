@@ -2019,9 +2019,12 @@ class _LiveSwimState extends State<LiveSwim> {
             final fastest = secs.reduce((x, y) => x < y ? x : y);
             return Column(
                 crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(l?.activityLiveLapsChartTitle ?? 'Laps',
-                  style: F.cap.copyWith(
-                      color: p.ink, fontWeight: FontWeight.w600)),
+              Semantics(
+                header: true,
+                child: Text(l?.activityLiveLapsChartTitle ?? 'Laps',
+                    style: F.cap.copyWith(
+                        color: p.ink, fontWeight: FontWeight.w600)),
+              ),
               const SizedBox(height: S.x3),
               LapRows(secs, C.blue),
               const SizedBox(height: S.x3),

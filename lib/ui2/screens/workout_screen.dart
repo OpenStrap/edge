@@ -1072,6 +1072,7 @@ class _HistoryRow extends StatelessWidget {
         if (w.zoneMinutes.length == 5) ...[
           const SizedBox(height: S.x4),
           ZoneRows(w.zoneMinutes,
+              compact: true,
               title: loc?.workoutTimeInZonesTitle ?? 'Time in zones'),
         ],
           const SizedBox(height: S.x4),

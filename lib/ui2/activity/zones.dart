@@ -467,7 +467,9 @@ class _ZonesDetailState extends State<ZonesDetail> {
                   ),
                 ),
                 Text(
-                  z.zone == 5 ? '${z.lo}+' : '${z.lo}–${z.hi}',
+                  // One beat below the next edge, as [ZoneRows.range] prints
+                  // it, so no bpm sits in two zones.
+                  z.zone == 5 ? '${z.lo}+' : '${z.lo}–${z.hi > z.lo ? z.hi - 1 : z.hi}',
                   style: F.n17.copyWith(color: p.ink2),
                 ),
                 const SizedBox(width: S.x2),
@@ -547,13 +549,21 @@ class _ZonesDetailState extends State<ZonesDetail> {
       Section(
         l?.activityZonesIntensitySection ?? 'Where your intensity went',
         Surface(
-          // No bpm ranges on these rows: 28 days of sessions can span more
-          // than one set of edges, and the current edges are listed above.
+          // The ranges are today's edges. 28 days of sessions can span more
+          // than one set, so the footnote says so rather than implying these
+          // were the edges every minute was counted with.
           child: ZoneRows(
             [for (final v in mins) v.toDouble()],
+            lowerBpm: d.zones.length == 5 ? [for (final z in d.zones) z.lo] : null,
             title: l?.activityZonesSessionMinutesChartTitle ??
                 'Session minutes, last 28 days',
-            footnote: _shapeCopy(l, d),
+            footnote: [
+              _shapeCopy(l, d),
+              if (d.zones.length == 5)
+                l?.activityZonesCurrentEdgesNote ??
+                    'Ranges are your current zone edges; older sessions may '
+                        'have been counted with different ones.',
+            ].where((s) => s.isNotEmpty).join(' '),
           ),
         ),
       ),

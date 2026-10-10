@@ -938,22 +938,27 @@ class ZoneRows extends StatelessWidget {
   /// and footnote so the card reads like the charts around it.
   final String? title, footnote;
 
+  /// One line per zone (name, bar, minutes) for a list card, where five
+  /// two-line rows would make every session in the list twice as tall.
+  final bool compact;
+
   const ZoneRows(this.minutes,
-      {super.key, this.lowerBpm, this.title, this.footnote});
+      {super.key, this.lowerBpm, this.title, this.footnote, this.compact = false});
 
   static const pigment = [C.blueSoft, C.blue, C.green, C.orange, C.red];
 
   /// The bar colours as drawn, solved against the surface like every mark.
   static List<Color> cols(P p) => [for (final c in pigment) p.on(c)];
 
-  /// "95–114 bpm", "171+ bpm", or null when the edges are unknown.
+  /// "95–114 bpm" when zone 2 starts at 115, "171+ bpm", or null when the
+  /// edges are unknown. Each row stops one beat below the next one's lower
+  /// edge, so no bpm belongs to two rows.
   static String? range(List<num>? lower, int i, [AppLocalizations? l]) {
     if (lower == null || lower.length != 5) return null;
     final lo = lower[i].round();
-    return i == 4
-        ? (l?.zoneRowsRangeTop(lo) ?? '$lo+ bpm')
-        : (l?.zoneRowsRange(lo, lower[i + 1].round()) ??
-            '$lo–${lower[i + 1].round()} bpm');
+    if (i == 4) return l?.zoneRowsRangeTop(lo) ?? '$lo+ bpm';
+    final hi = max(lo, lower[i + 1].round() - 1);
+    return l?.zoneRowsRange(lo, hi) ?? '$lo–$hi bpm';
   }
 
   @override
@@ -975,9 +980,20 @@ class ZoneRows extends StatelessWidget {
         ],
         for (var i = 0; i < 5 && i < minutes.length; i++)
           Padding(
-            padding: EdgeInsets.only(top: i == 0 ? 0 : S.x3),
+            padding: EdgeInsets.only(top: i == 0 ? 0 : (compact ? S.x1 : S.x3)),
             child: MergeSemantics(
-              child: Column(
+              child: compact ? Row(children: [
+                Text(l?.activityLiveZoneLabel(i + 1) ?? 'Zone ${i + 1}',
+                    style: F.cap.copyWith(color: p.ink2)),
+                const SizedBox(width: S.x2),
+                Expanded(child: _bar(p, ink[i], top, minutes[i])),
+                const SizedBox(width: S.x2),
+                Text(
+                  l?.zoneRowsMinutes(_round(minutes[i])) ??
+                      '${_round(minutes[i])} min',
+                  style: F.cap.copyWith(color: p.ink),
+                ),
+              ]) : Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(
@@ -1008,23 +1024,7 @@ class ZoneRows extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: S.x1),
-                  ExcludeSemantics(
-                    child: Container(
-                      height: 8,
-                      decoration:
-                          BoxDecoration(color: p.track, borderRadius: R.rSm),
-                      alignment: AlignmentDirectional.centerStart,
-                      child: FractionallySizedBox(
-                        widthFactor: top <= 0 || !minutes[i].isFinite
-                            ? 0
-                            : (minutes[i] / top).clamp(0.0, 1.0),
-                        child: Container(
-                          decoration: BoxDecoration(
-                              color: ink[i], borderRadius: R.rSm),
-                        ),
-                      ),
-                    ),
-                  ),
+                  _bar(p, ink[i], top, minutes[i]),
                 ],
               ),
             ),
@@ -1038,6 +1038,21 @@ class ZoneRows extends StatelessWidget {
   }
 
   static int _round(double v) => v.isFinite ? v.round() : 0;
+
+  /// A bar as long as this zone's share of the longest one.
+  static Widget _bar(P p, Color ink, double top, double v) => ExcludeSemantics(
+        child: Container(
+          height: 8,
+          decoration: BoxDecoration(color: p.track, borderRadius: R.rSm),
+          alignment: AlignmentDirectional.centerStart,
+          child: FractionallySizedBox(
+            widthFactor: top <= 0 || !v.isFinite ? 0 : (v / top).clamp(0.0, 1.0),
+            child: Container(
+              decoration: BoxDecoration(color: ink, borderRadius: R.rSm),
+            ),
+          ),
+        ),
+      );
 }
 
 /// Actogram — hour of day (rows) × date (columns). The circadian view.

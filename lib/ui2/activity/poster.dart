@@ -636,12 +636,12 @@ IconData posterStatIcon(String name) => switch (name) {
       _ => LucideIcons.activity,
     };
 
-/// Fast → slow, as a four-stop ramp. [t] is the 0…1 speed a fix was carrying,
-/// 1 being the fastest of the session — so green is where you were moving and
-/// red is where you were not.
+/// Slow → fast, as a four-stop ramp. [t] is the 0…1 speed a fix was carrying,
+/// 1 being the fastest of the session — so orange is where you were moving
+/// and blue is where you were not, as on the session screen's route.
 Color paceColor(double t) {
-  // The route's own ramp, not the UI accents. Slow to fast: red, orange,
-  // amber, lime. See the note on [C.routeFast] for why these are a separate
+  // The route's own ramp, not the UI accents. Slow to fast: blue, sky,
+  // amber, orange. See the note on [C.routeFast] for why these are a separate
   // set — a line over a photograph is not a label on a card.
   const ramp = [C.routeSlow, C.routeHard, C.routeMid, C.routeFast];
   final x = t.clamp(0.0, 1.0) * (ramp.length - 1);
@@ -757,8 +757,8 @@ class PosterMap extends CustomPainter {
   /// core.
   ///
   /// The glow is what stops the line reading as a sticker on the picture. It
-  /// is the route's own colour, blurred and at low alpha, so a lime stretch
-  /// bleeds lime and a red one bleeds red — a single white halo would put the
+  /// is the route's own colour, blurred and at low alpha, so an orange stretch
+  /// bleeds orange and a blue one bleeds blue — a single white halo would put the
   /// same ring around both and flatten the ramp it exists to support. The
   /// casing stays because a glow is not a separator: over a pale patch of
   /// photograph the core still needs a dark edge to sit against.

@@ -65,10 +65,14 @@ class C {
   /// Deliberately NOT in [all]. `all` is the set the contrast sweep measures
   /// as ink and as fill, and these are neither: they are a line on a picture.
   /// Putting them in would be asking the wrong question of them.
-  static const routeFast = Color(0xFF7CFF6B);
+  ///
+  /// Slow to fast it runs blue, sky, amber, orange: the same direction as the
+  /// in-app route (blue slower, orange faster), and no red against green for
+  /// a colour-blind reader to lose.
+  static const routeFast = Color(0xFFFF8A30);
   static const routeMid = Color(0xFFFFC83D);
-  static const routeHard = Color(0xFFFF8A30);
-  static const routeSlow = Color(0xFFFF4D4D);
+  static const routeHard = Color(0xFF7DD3FC);
+  static const routeSlow = Color(0xFF3D9BFF);
 
   /// The basemap's two ends, which is the whole of the map's styling: every
   /// tile pixel is mapped onto the line between them by `_themeFilter`.

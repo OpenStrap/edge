@@ -93,13 +93,16 @@ class RouteMap extends CustomPainter {
     }
     if (!pins) return;
     _pin(cv, at(0), pinStart);
-    _pin(cv, at(p.length - 1), pinEnd);
+    _pin(cv, at(p.length - 1), pinEnd, ring: true);
   }
 
-  void _pin(Canvas cv, Offset o, Color c) {
+  /// The finish is a ring and the start a dot, so the two ends differ by
+  /// shape and not only by green against red.
+  void _pin(Canvas cv, Offset o, Color c, {bool ring = false}) {
     if (!o.isFinite) return;
     cv.drawCircle(o, 7, Paint()..color = pinInk);
     cv.drawCircle(o, 5, Paint()..color = c);
+    if (ring) cv.drawCircle(o, 2.5, Paint()..color = pinInk);
   }
 
   @override

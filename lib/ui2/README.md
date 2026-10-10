@@ -264,7 +264,7 @@ Bars(List<double> d, Color color,
 Ring(double v, Color color, Color track, {double stroke = 10, double t = 1})
 MacroRing(double v, Color color, Color track)
 Hypnogram(List<SleepStage> stages, P p, {double t = 1})  // awake/rem/light/deep
-ZoneRows(List<double> minutes, {List<num>? lowerBpm, String? title, footnote})
+ZoneRows(List<double> minutes, {List<num>? lowerBpm, String? title, footnote, bool compact})
         // a widget: five labelled rows, zone + bpm range + bar + minutes
 Actogram(List<List<double>?> days, Color color)      // per day, 24 slots; null = no record
 HeatMap(List<List<double?>> weeks, Color color, Color track)  // null = no data
