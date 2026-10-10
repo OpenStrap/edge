@@ -29,6 +29,8 @@ import 'dart:math' as math;
 
 import 'quiet_level_seed.dart' show seedQuietHrrHistoryOnce;
 import 'strain_backfill.dart' show backfillStrainScale;
+import 'readiness_calibration_backfill.dart'
+    show backfillReadinessCalibration;
 
 import 'package:crypto/crypto.dart' show sha1;
 import 'package:flutter/foundation.dart';
@@ -1795,7 +1797,8 @@ import 'vendor_sleep.dart';
 // 109 → 110: analytics main @ b7d5819, #78 #88-#91. Sleep detection no longer bridges unobserved recording gaps; bridges capped at 90 min. rmssd is one nightly estimator, the mean of the sleep session's 5-min windows, absent when the RR stream banks more beat-time than elapsed or no window has 20 clean differences; the RSA respiratory rate survives sensor gaps; strain (and the new trimp_net) is priced against the user's own quiet-waking level (quiet_hrr, median of 28 prior days, abstains under 3). Days derived before 110 keep their stored values.
 // 110 → 111 (#315): new scalar `sdnn_window`, the mean of 5-min-window SDNNs over the sleep NN (windows under 21 beats left out); the Apple Health HRV SDNN sample now carries it instead of the drift-inflated whole-night `sdnn`, which is unchanged. Edge-only.
 // (no bump) The multi-device wearable paths (`compute/inputs/`, the partial readiness composite, wearable worn-minutes and skin-temp cadence, ring nights) only run for a wearable whose developer flag is on and which is the active wearable; flags default off and a flag-off device contributes nothing. WHOOP output is unchanged, pinned by test/whoop_freeze_golden_test.dart against goldens generated from main.
-const int kAlgoVersion = 111;
+// 111 → 112 (recovery calibration): analytics feat/recovery-calibration @ 658a6eb. Readiness merges HRV and RHR into one autonomic input (mean of their oriented z's, weight 0.70) and maps the composite z through the user's own spread once 14 prior nights exist: score = logistic(0.65·z/σ̂), σ̂ = MAD×1.4826 of the trailing `readiness_z` series, floored at 0.3 (calibrating before that). The per-day composite z is stored as `readiness_z`; `readiness_calibration_backfill.dart` rebuilds it from stored drivers and re-scores days whose raw is pruned. readiness_lnrmssd's z/SWC/band use the prior window's median + MAD.
+const int kAlgoVersion = 112;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1978,7 +1981,9 @@ const int kAlgoVersion = 111;
 // REPIN @ c0effea: analytics main, #79 + #86 (rmssd gate), for v105.
 // REPIN: feat/multidevice-analytics head (ring settle band), WHOOP output
 // unchanged; re-point at the analytics main merge commit.
-const String kAnalyticsPin = 'ad6384746d36a2e6b7b964658d308e40de403c8a';
+// REPIN @ 658a6eb: analytics feat/recovery-calibration (readiness autonomic
+// merge + spread calibration + robust lnRMSSD centre), for v112.
+const String kAnalyticsPin = '658a6eb9b1f1c796572555bfcf317abefd1e1651';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both
@@ -2450,6 +2455,9 @@ class _BaselineHistoryCache {
     'resp_rate',
     'skin_temp_adc',
     'readiness',
+    // The readiness composite z — later days' scores are calibrated against
+    // its spread (`calibratedReadinessScore`).
+    'readiness_z',
     // Per-day high quantile of the calibration-invariant dynamic accel
     // amplitude. The 1 Hz activity estimator's floor is anchored on the MEDIAN
     // of this series across trailing days, never on a same-day value: a
@@ -2976,6 +2984,26 @@ class DerivationEngine {
       // to derive nothing else would, and the days the levels now price would
       // never be re-scored. Its own guard — the seed is already marked done,
       // so a failure here is not a seed failure; the next refresh catches up.
+      // v112 readiness calibration: the composite-z history from stored
+      // drivers, and a re-score of the days raw no longer reaches. Before the
+      // history snapshot for the same reason as the seed above; one-shot.
+      _diag['stage'] = 'readiness_calibration';
+      try {
+        final r = await backfillReadinessCalibration(
+          zHistoryLoader: () async {
+            final h = await _BaselineHistoryCache.load();
+            return (day, fam) => h.valuesBefore('readiness_z', day,
+                family: _baselineFamily('readiness_z', fam));
+          },
+        );
+        if (r.seeded > 0 || r.rescored > 0) {
+          _log('[derive] readiness calibration: ${r.seeded} z seeded, '
+              '${r.rescored} day(s) re-scored');
+          seeded += r.seeded + r.rescored;
+        }
+      } catch (e) {
+        _log('[derive] readiness calibration failed (will retry): $e');
+      }
       if (seeded > 0) {
         try {
           await _refreshBaselines();
@@ -5712,6 +5740,7 @@ class DerivationEngine {
         'rmssd': sc('rmssd'),
         'sdnn': sc('sdnn'),
         'readiness': sc('readiness'),
+        'readiness_z': sc('readiness_z'),
         'ln_rmssd': sc('ln_rmssd'),
         'resp_rate': sc('resp_rate'),
         'skin_temp_z': sc('skin_temp_z'),
@@ -6240,6 +6269,7 @@ class DerivationEngine {
     // second half's recompute gets (`_DayBlocksInput.quietHrrHistory`), so the
     // two cannot score the day on different levels.
     m['quiet_hrr_history'] = before('quiet_hrr');
+    m['readiness_z_history'] = before('readiness_z');
     return m;
   }
 

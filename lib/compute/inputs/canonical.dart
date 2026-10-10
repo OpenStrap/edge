@@ -873,6 +873,7 @@ const Map<String, String> kSeriesKeyRow = {
   'skin_temp_z': 'skin_temp',
   'skin_temp_adc': 'skin_temp',
   'readiness': 'readiness',
+  'readiness_z': 'readiness',
   'irregular_rhythm_flag': 'irregular_rhythm',
   'tst_min': 'sleep_window',
   'efficiency': 'efficiency_awakenings',
