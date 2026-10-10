@@ -340,18 +340,17 @@ void main() {
       expect(screenForRoute(kRouteJournalCompose), isNotNull);
     });
 
-    test('the medication reminder lands on Wellness, which owns the checklist',
-        () {
+    test('the medication reminder lands on the Medication checklist', () {
       final t = resolveTapRoute(kRouteMeds);
-      // Not the Home fallback an unknown payload gets — the route is KNOWN,
+      // Not the Today fallback an unknown payload gets — the route is KNOWN,
       // which is the half `/profile` and `/recap` were missing.
       expect(t.screen, kRouteMeds);
-      expect(domainForRoute(kRouteMeds), ShellDomain.wellness);
-      // Still pushes nothing, and that is now the WORKING answer rather than
-      // the ceiling it used to be: the checklist is a sub-tab of a shell tab,
-      // so anything pushed would be a second copy of Wellness over Wellness.
-      // The shell asks the screen for the tab instead.
-      expect(screenForRoute(kRouteMeds), isNull);
+      expect(domainForRoute(kRouteMeds), ShellDomain.health);
+      // Wellness is a pushed page now, so the deep link pushes it open on
+      // Medication rather than asking a kept-alive tab to switch.
+      final screen = screenForRoute(kRouteMeds);
+      expect(screen, isA<WellnessScreen>());
+      expect((screen! as WellnessScreen).initialTab, WellnessScreen.medsTab);
       // The number that deep link hands over. It is an index into a private
       // list, so a reorder would silently land the tap on Habits.
       expect(WellnessScreen.tabs[WellnessScreen.medsTab], 'Medication');

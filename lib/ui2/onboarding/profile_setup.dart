@@ -40,10 +40,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     return ProfileSetupView(
       initial: app.user ?? const {},
       units: context.watch<UnitsController>(),
+      cycleTracking: app.cycleTrackingEnabled,
       onSave: (fields) async {
         await app.updateProfile(fields);
         widget.onDone?.call();
       },
+      onCycleTracking: app.setCycleTrackingEnabled,
     );
   }
 }
@@ -74,8 +76,19 @@ class ProfileSetupView extends StatefulWidget {
   /// the storage is.
   final UnitsController? units;
 
+  /// Cycle tracking, offered here rather than left off in Settings where
+  /// nobody found it. [cycleTracking] is the current setting; null leaves the
+  /// switch to follow the sex picked (on for female).
+  final bool? cycleTracking;
+  final Future<void> Function(bool on)? onCycleTracking;
+
   const ProfileSetupView(
-      {super.key, required this.onSave, this.initial = const {}, this.units});
+      {super.key,
+      required this.onSave,
+      this.initial = const {},
+      this.units,
+      this.cycleTracking,
+      this.onCycleTracking});
 
   @override
   State<ProfileSetupView> createState() => _ProfileSetupViewState();
@@ -92,6 +105,10 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
       text: _u.weightField(widget.initial['weight_kg'] as num?));
 
   static String _str(Object? v) => v == null ? '' : '$v';
+
+  /// Null until touched: then it follows the sex picked, on for female.
+  bool? _cycle;
+  bool get _cycleOn => _cycle ?? (widget.cycleTracking == true || _sex == 'f');
 
   @override
   void dispose() {
@@ -123,6 +140,7 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
       sayUnreadable(context, bad);
       return;
     }
+    await widget.onCycleTracking?.call(_cycleOn);
     await widget.onSave(_fields());
   }
 
@@ -193,6 +211,20 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
               uiText(c, _u.isImperial ? 'lb' : 'kg'),
               l?.profileSetupWeightConsequence ??
                     'Without it: calories and training load.',
+            ),
+            // Offered to everyone, on by default for a female profile.
+            // Changeable any time in Settings; switching it off keeps what
+            // was logged.
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _cycleOn,
+              onChanged: (v) => setState(() => _cycle = v),
+              title: Text(l?.settingsCycleTrackingRowTitle ?? 'Cycle tracking',
+                  style: F.body.copyWith(color: p.ink)),
+              subtitle: Text(
+                  l?.profileSetupCycleSub ??
+                      'Log your period in Health. You can change this later.',
+                  style: F.cap.copyWith(color: p.ink3)),
             ),
             const SizedBox(height: S.x5),
             BigButton(l?.actionContinue ?? 'Continue',

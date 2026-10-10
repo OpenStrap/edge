@@ -343,7 +343,9 @@ Future<void> _openRecovery(
         child: Builder(
           builder: (c) => Scaffold(
             backgroundColor: P.of(c).bg,
-            body: const WellnessScreen(),
+            // The sleep plan lives on the Sleep tab now, inside its list.
+            body: ListView(
+                children: const [WellnessScreen(sleepPlanOnly: true)]),
           ),
         ),
       ),
@@ -356,7 +358,6 @@ Future<void> _openRecovery(
   // that a `ListView` hands unbounded height), and this test is about the tab
   // that comes next. Only what the switch to Recovery reports is in scope.
   errors.clear();
-  await t.tap(find.text('Sleep plan'), warnIfMissed: false);
   await _frames(t);
 
   // RESTORED BEFORE THE FIRST expect. A failing expectation while the test

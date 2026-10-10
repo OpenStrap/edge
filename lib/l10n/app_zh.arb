@@ -2614,5 +2614,8 @@
   "nutritionTargetReached": "已达目标",
   "pairSensorUnreachableIos": "此 iPhone 只允许应用连接在系统配对面板中批准的传感器，而 {label} 目前还无法在那里提供：它的广播不包含用于识别它的服务。请暂时在 Android 上配对。",
   "sleepDetailStagedBy": "由 {label} 分期",
-  "sleepDetailDeviceMissingStages": "{label} 不报告{stages}；这段时间计入它的其他阶段。"
+  "sleepDetailDeviceMissingStages": "{label} 不报告{stages}；这段时间计入它的其他阶段。",
+  "tabToday": "今天",
+  "tabSleep": "睡眠",
+  "tabActivity": "活动"
 }

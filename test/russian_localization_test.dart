@@ -359,13 +359,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Бег'), findsOneWidget);
-    for (final title in [
-      'Главная',
-      'Здоровье',
-      'Питание',
-      'Тренировка',
-      'Самочувствие',
-    ]) {
+    for (final title in ['Сегодня', 'Сон', 'Активность', 'Здоровье']) {
       expect(find.text(title), findsOneWidget);
     }
     expect(tester.takeException(), isNull);

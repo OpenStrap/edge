@@ -1,11 +1,11 @@
 import '../../l10n/display_text.dart';
 // Wellness — softer than Health, same system.
 //
-// Health tells you what your body did. Wellness is where you tell it back, and
-// where the app explains itself. Five sub-tabs: Mind, Recovery, Habits,
-// Medication, Cycle. Cycle is a SUB-TAB and not a sixth shell tab — see
-// `app_shell.dart`; anything that feels like a sixth domain belongs inside the
-// domain that owns it.
+// Health tells you what your body did. Wellness is where you tell it back.
+// It is no longer a tab: Health pushes it (Mind, Habits, Medication, Cycle),
+// and the Sleep tab shows its sleep plan on its own ([sleepPlanOnly]). The
+// sub-tab indices stay logical (Mind 0, sleep plan 1, Habits 2, Medication 3,
+// Cycle 4) so a deep link to [medsTab] means the same thing it always did.
 //
 // Three rules this screen exists to hold:
 //   · Habits are a CONSISTENCY, never a streak. "5 of 7 days" cannot reset to
@@ -42,7 +42,14 @@ import 'metric_detail.dart' show detailScaffold;
 import 'sleep_detail.dart';
 
 class WellnessScreen extends StatefulWidget {
-  const WellnessScreen({super.key});
+  /// Only the sleep plan (need, debt, bedtime, what charged and drained you),
+  /// as a block inside the Sleep tab rather than a page.
+  final bool sleepPlanOnly;
+
+  /// The logical sub-tab to open on — [medsTab] from the dose reminder.
+  final int? initialTab;
+
+  const WellnessScreen({super.key, this.sleepPlanOnly = false, this.initialTab});
 
   /// A deep link asking for one of the sub-tabs — [medsTab] from the dose
   /// reminder. -1 for the ordinary case: open where the screen opens.
@@ -115,6 +122,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
   @override
   void initState() {
     super.initState();
+    _tab = widget.initialTab ?? 0;
     final t = WellnessScreen.tabRequest.value;
     if (t >= 0 && t < _tabs.length) _tab = t;
     WellnessScreen.tabRequest.addListener(_onTabRequest);
@@ -230,10 +238,14 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
   @override
   Widget build(BuildContext c) {
     final l = AppLocalizations.of(c);
+    if (widget.sleepPlanOnly) {
+      return _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _recovery(c);
+    }
     final last = _breathing.isEmpty ? null : _breathing.first;
-    // `select`, not `watch`: this screen lives in the shell's IndexedStack and
-    // stays mounted, so a plain watch would rebuild it on every unrelated
-    // AppState notification for the life of the app.
+    // `select`, not `watch`: AppState ticks at ~1 Hz during a live session and
+    // this screen only cares about the one bool.
     final showCycle =
         c.select<AppState, bool>((a) => a.cycleTrackingEnabled);
     final labels = [
@@ -243,21 +255,30 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
       l?.wellnessTabMedication ?? 'Medication',
       l?.wellnessTabCycle ?? 'Cycle',
     ];
-    final tabs = showCycle ? labels : labels.take(labels.length - 1).toList();
-    // Clamped rather than reset: switching Cycle off while standing on it
-    // lands on Medication, not back at Mind.
-    final tab = _tab.clamp(0, tabs.length - 1);
+    // Logical indices on screen. The sleep plan (1) lives on the Sleep tab.
+    final visible = [0, 2, 3, if (showCycle) 4];
+    // Switching Cycle off while standing on it lands on Medication, not Mind.
+    final tab = visible.contains(_tab) ? _tab : (_tab == 4 ? 3 : 0);
+    final p = P.of(c);
     // Same rule as Workout: the LIST drops its side padding and hands it to
     // every child except the hero, which is how that one runs edge to edge.
     // The card cannot escape its own parent — a negative margin asserts and an
     // OverflowBox takes an unbounded height in a scroll view and blanks the
     // whole tab. Padding the siblings is ordinary layout and does neither.
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(0, S.x4, 0, S.x16),
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: NavBar(l?.wellnessTitle ?? 'Wellness'),
+          ),
+          Expanded(child: ListView(
+      padding: const EdgeInsets.fromLTRB(0, 0, 0, S.x16),
       children: [
         for (final w in <Widget>[
-          ScreenTitle(l?.wellnessTitle ?? 'Wellness'),
-          SubTabs(tabs, tab, (i) => setState(() => _tab = i),
+          SubTabs([for (final i in visible) labels[i]], visible.indexOf(tab),
+              (i) => setState(() => _tab = visible[i]),
               color: C.domMind),
           const SizedBox(height: S.x5),
           if (_loading)
@@ -318,6 +339,9 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
                 padding: const EdgeInsets.symmetric(horizontal: S.x4),
                 child: w),
       ],
+    )),
+        ]),
+      ),
     );
   }
 

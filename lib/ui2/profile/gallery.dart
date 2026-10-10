@@ -323,6 +323,9 @@ Map<String, Widget> componentCases() => {
         onSelect: (_) {},
       ),
       'nav_bar': const NavBar('Last night', sub: 'MON 14 AUG'),
+      // The way into Profile from every tab's header. No AppState here, so
+      // it draws the plain glyph rather than an initial.
+      'profile_avatar': const ProfileAvatar(),
       // The stepper every single-day screen wears. Shot mid-history, where
       // both arrows are live and the middle opens the calendar — the state a
       // user spends all their time in once there is more than a week on disk.

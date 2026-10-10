@@ -7,7 +7,7 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 ```
 
 Five files: `theme.dart` (tokens), `grammar.dart` (components), `charts.dart`
-and `paint_activity.dart` (painters), `app_shell.dart` (the five tabs).
+and `paint_activity.dart` (painters), `app_shell.dart` (the four tabs).
 
 ---
 
@@ -401,16 +401,18 @@ title instead of truncating it.
 
 ```dart
 AppShell({required Widget Function(BuildContext, ShellDomain) builder,
-          ShellDomain initial = ShellDomain.home,
+          ShellDomain initial = ShellDomain.today,
           void Function(ShellDomain)? onSelect})
 
-enum ShellDomain { home, health, nutrition, workout, wellness }
+enum ShellDomain { today, sleep, activity, health }
   // .label · .icon · .accent
 ```
 
-Tabs build lazily and are kept alive after first visit. **There is no sixth
-tab.** Anything that feels like one is `SubTabs` inside the domain that owns
-it.
+Tabs build lazily and are kept alive after first visit. **There is no fifth
+tab.** Anything that feels like one is a section or a pushed screen inside
+the domain that owns it: Nutrition is pushed from Activity, Wellness (mind,
+habits, medication, cycle) from Health. Profile is `ProfileAvatar` in every
+tab's header.
 
 ### The catalogue — Health › Explore
 

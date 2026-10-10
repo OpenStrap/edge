@@ -29,6 +29,7 @@ import '../../state/locale_controller.dart';
 import '../../state/prefs.dart';
 import '../../models/metric.dart';
 import '../profile/devices.dart' show DeviceFilter;
+import '../profile/profile.dart' show ProfileAvatar;
 import '../ui2.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
@@ -365,13 +366,57 @@ class SleepDetail extends StatefulWidget {
   /// passed before this existed and what the stepper starts from.
   final String? day;
 
-  const SleepDetail({super.key, this.data, this.day});
+  /// The Sleep tab's root rather than a pushed screen: a tab header with the
+  /// profile avatar instead of a back arrow, pull to re-read, and [footer]
+  /// (the sleep plan, alarm and body clock) under the night.
+  final bool embedded;
+  final List<Widget> footer;
+
+  const SleepDetail(
+      {super.key,
+      this.data,
+      this.day,
+      this.embedded = false,
+      this.footer = const []});
 
   @override
   State<SleepDetail> createState() => _SleepDetailState();
 }
 
-class _SleepDetailState extends State<SleepDetail> {
+class _SleepDetailState extends State<SleepDetail> with RevisionReload {
+  /// A pushed copy lives for one look. The tab is kept alive by the shell, so
+  /// it has to re-read when a sync or a derive lands.
+  @override
+  bool get revisionReloads => widget.embedded && widget.data == null;
+
+  @override
+  void reload() => _load();
+
+  /// The pushed screen's scaffold, or the tab's own header and footer.
+  Widget _frame(BuildContext c, String title, List<Widget> body,
+      {String sub = ''}) {
+    if (!widget.embedded) return detailScaffold(c, title, body, sub: sub);
+    final p = P.of(c);
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x16),
+        children: [
+          ScreenTitle(title,
+              trailing: const ProfileAvatar(accent: C.domSleep)),
+          if (sub.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: S.x1, bottom: S.x2),
+              child: Text(sub, style: F.over.copyWith(color: p.ink3)),
+            ),
+          ...body,
+          ...widget.footer,
+        ],
+      ),
+    );
+  }
+
   SleepData? _d;
   bool _loading = true;
   String? _day;
@@ -481,7 +526,7 @@ class _SleepDetailState extends State<SleepDetail> {
     final title = l?.sleepDetailNavTitle ?? 'Sleep';
 
     if (_loading && _d == null) {
-      return detailScaffold(c, title, const [
+      return _frame(c, title, const [
         SizedBox(height: S.x8),
         Center(child: CircularProgressIndicator()),
       ]);
@@ -494,7 +539,7 @@ class _SleepDetailState extends State<SleepDetail> {
       final rejectedDay = d.day;
       final rejected =
           (d.night['sleep_source'] as String?) == 'rejected' && rejectedDay != null;
-      return detailScaffold(c, title, [
+      return _frame(c, title, [
         ...dayNavRow(_day ?? d.day, d.days, _goDay),
         const SizedBox(height: S.x2),
         // A day CAN be in `availableDays` and still hold no night — the band
@@ -558,7 +603,7 @@ class _SleepDetailState extends State<SleepDetail> {
     // The stepper names the night, so the nav bar does not say it twice. With
     // one night on disk there is no stepper, and then the subtitle is the only
     // thing that dates the screen.
-    return detailScaffold(c, title,
+    return _frame(c, title,
         sub: d.days.length < 2 ? (d.day ?? '').toUpperCase() : '', [
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
 

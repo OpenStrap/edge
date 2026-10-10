@@ -7295,5 +7295,73 @@
         "type": "int"
       }
     }
-  }
+  },
+  "tabToday": "Сегодня",
+  "tabSleep": "Сон",
+  "tabActivity": "Активность",
+  "profileBandBattery": "Браслет {pct}%",
+  "@profileBandBattery": {
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      }
+    }
+  },
+  "profileExportRow": "Экспорт и резервная копия",
+  "profileExportRowSub": "Таблицы, полная копия и перенос истории",
+  "profileSettingsRow": "Настройки",
+  "profileSettingsRowSub": "Браслет, приложение, данные, конфиденциальность и дополнительно",
+  "settingsGroupApp": "Приложение",
+  "settingsGroupData": "Данные",
+  "settingsGroupAdvanced": "Дополнительно",
+  "settingsCycleTrackingRowSubHealth": "Добавляет цикл в раздел «Здоровье». Если выключить, раздел скроется, а всё записанное сохранится",
+  "sleepTabPlanTitle": "Ваш план сна",
+  "sleepTabMoreTitle": "Будильник и биологические часы",
+  "healthWellbeingTitle": "Настроение, привычки и лекарства",
+  "healthWellbeingMindSub": "Дыхание, настроение и дневник",
+  "healthWellbeingHabitsSub": "Ежедневные привычки — сколько дней выполнено",
+  "healthWellbeingMedsSub": "Сегодняшние приёмы и последняя неделя",
+  "healthWellbeingCycleSub": "Отмечайте менструацию и смотрите фазу цикла",
+  "activityStepsFoodTitle": "Шаги и питание",
+  "activityStepsSub": "Сегодня и все предыдущие дни",
+  "activityNutritionSub": "Записывайте еду и смотрите белок за сегодня",
+  "homeBackToToday": "Вернуться к сегодня",
+  "homeSomeDataMissingTitle": "Часть сегодняшних данных отсутствует",
+  "homeFirstWeekTitle": "Ваши первые недели",
+  "homeFirstWeekWear": "Наденьте браслет на ночь",
+  "homeFirstWeekSleep": "Сон: утром после первой ночи",
+  "homeFirstWeekStrain": "Нагрузка: с {day}-го дня",
+  "@homeFirstWeekStrain": {
+    "placeholders": {
+      "day": {
+        "type": "int"
+      }
+    }
+  },
+  "homeFirstWeekRecovery": "Восстановление: с {night}-й ночи, когда станет известна ваша норма",
+  "@homeFirstWeekRecovery": {
+    "placeholders": {
+      "night": {
+        "type": "int"
+      }
+    }
+  },
+  "homeFirstWeekSoFar": "{count, plural, one{Записан {count} день} few{Записано {count} дня} many{Записано {count} дней} other{Записано {count} дня}}",
+  "@homeFirstWeekSoFar": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "homeFirstWeekDone": "Готово: {step}",
+  "@homeFirstWeekDone": {
+    "placeholders": {
+      "step": {
+        "type": "String"
+      }
+    }
+  },
+  "homeCoachSetUpChip": "Задавайте вопросы о своих данных: настройте тренера",
+  "profileSetupCycleSub": "Отмечайте менструацию в разделе «Здоровье». Это можно изменить позже."
 }

@@ -75,7 +75,12 @@ class Prefs {
   }
 
   // ── selection keys (one namespace; keep them disjoint) ──────────────────────
+  /// The five-tab bar's index (Home, Health, Nutrition, Workout, Wellness).
+  /// Read once to migrate, never written.
   static const String shellTab = 'ui.shell_tab';
+
+  /// The four-tab bar's index (Today, Sleep, Activity, Health).
+  static const String shellTabV2 = 'ui.shell_tab.v2';
   static const String recapRange = 'ui.recap_range';
   static const String workoutsRange = 'ui.workouts_range';
 

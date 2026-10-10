@@ -600,15 +600,20 @@ class WelcomeView extends StatelessWidget {
                 color: C.green,
                 onTap: busy ? null : onNew),
             const SizedBox(height: S.x3),
-            BigButton(
-                busy
+            // One primary path. Importing first is a real choice but a rarer
+            // one, so it is a text link rather than a second button of equal
+            // weight beside "Set up my band".
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: busy ? null : onImport,
+                icon: const Icon(LucideIcons.upload, size: 16),
+                label: Text(busy
                     ? (l?.welcomeImporting ?? 'Importing…')
-                    : (l?.welcomeBringMyHistoryFirst ?? 'Bring my history first'),
-                icon: LucideIcons.upload,
-                color: C.blue,
-                soft: true,
-                onTap: busy ? null : onImport),
-            const SizedBox(height: S.x3),
+                    : (l?.welcomeBringMyHistoryFirst ??
+                        'Bring my history first')),
+              ),
+            ),
             Text(
               // Was: "imported days are marked as imported — they are never
               // mixed into days this app measured itself". There is no source

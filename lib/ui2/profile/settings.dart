@@ -667,24 +667,22 @@ class MoreSettingsView extends StatelessWidget {
                             'Zone $zoneAlertZone',
                         chevron: false,
                         onTap: onCycleZoneAlertZone),
+                  // The picker died with the old ui tree and the engine kept
+                  // running against a mapping nothing could set — the whole
+                  // feature was live code pinned at "do nothing".
+                  Builder(
+                      builder: (c) => SetRow(
+                          LucideIcons.hand, C.orange,
+                          AppLocalizations.of(c)?.settingsDoubleTapRowTitle ??
+                              'Double-tap',
+                          sub: AppLocalizations.of(c)
+                                  ?.settingsDoubleTapRowSub ??
+                              'What a double-tap on the band does',
+                          onTap: () => goto(c, const BandGestures()))),
                 ]),
-                // NOT in Preferences. Units and Appearance change how numbers
-                // are drawn; this one asks the OS for a sensor and decides
-                // where a measurement comes from. Its own group, next to the
-                // band, because the two together are the step ladder — the
-                // band covers the workout, the phone covers the rest — and
-                // "This phone" is what the sources screen already calls it.
-                settingsGroup(c, l?.settingsGroupThisPhone ?? 'This phone', [
-                  SetRow(LucideIcons.footprints, C.teal,
-                      l?.settingsStepsRowTitle ?? 'Steps',
-                      sub: l?.settingsStepsRowSub ??
-                          'This phone’s own step counter, for the hours the '
-                              'band doesn’t cover. Nothing leaves the device',
-                      value: phoneSteps ? on : off,
-                      onTap: onTogglePhoneSteps),
-                ]),
-                settingsGroup(
-                    c, l?.settingsGroupNotifications ?? 'Notifications', [
+                // Band, App, Data, Privacy, Advanced: named for what is in
+                // them, so nothing needs a sub-line listing its contents.
+                settingsGroup(c, l?.settingsGroupApp ?? 'App', [
                   SetRow(LucideIcons.bell, C.blue,
                       l?.settingsManageNotificationsRowTitle ??
                           'Manage notifications',
@@ -692,8 +690,6 @@ class MoreSettingsView extends StatelessWidget {
                           'What may interrupt you, quiet hours, and off '
                               'switches for all of them',
                       onTap: onNotifications),
-                ]),
-                settingsGroup(c, l?.settingsGroupPreferences ?? 'Preferences', [
                   SetRow(LucideIcons.ruler, C.blue,
                       l?.settingsUnitsRowTitle ?? 'Units',
                       value: units, onTap: onCycleUnits),
@@ -718,16 +714,13 @@ class MoreSettingsView extends StatelessWidget {
                   // switching it off throws the entries away.
                   SetRow(LucideIcons.droplet, C.pink,
                       l?.settingsCycleTrackingRowTitle ?? 'Cycle tracking',
-                      sub: l?.settingsCycleTrackingRowSub ??
-                          'Adds the Cycle tab to Wellness. Off hides it and '
-                              'keeps everything already logged',
+                      sub: l?.settingsCycleTrackingRowSubHealth ??
+                          'Adds Cycle to Health. Off hides it and keeps '
+                              'everything already logged',
                       value: cycleTracking ? on : off,
                       onTap: onToggleCycleTracking),
                 ]),
-                // How a non-WHOOP wearable's numbers are drawn. Developer
-                // only while every wearable is (rule R6).
-                if (devMode) wearableSettingsGroup(c),
-                settingsGroup(c, l?.settingsGroupYourData ?? 'Your data', [
+                settingsGroup(c, l?.settingsGroupData ?? 'Data', [
                   SetRow(LucideIcons.download, C.green,
                       l?.settingsExportBackupImportRowTitle ??
                           'Export, backup, import',
@@ -745,30 +738,13 @@ class MoreSettingsView extends StatelessWidget {
                       sub: healthSyncSub(c, healthSync, healthState, healthStore),
                       value: healthSync ? on : off,
                       onTap: onToggleHealthSync),
-                ]),
-                settingsGroup(c, l?.settingsGroupAutomation ?? 'Automation', [
-                  // The picker died with the old ui tree and the engine kept
-                  // running against a mapping nothing could set — the whole
-                  // feature was live code pinned at "do nothing".
-                  Builder(
-                      builder: (c) => SetRow(
-                          LucideIcons.hand, C.orange,
-                          AppLocalizations.of(c)?.settingsDoubleTapRowTitle ??
-                              'Double-tap',
-                          sub: AppLocalizations.of(c)
-                                  ?.settingsDoubleTapRowSub ??
-                              'What a double-tap on the band does',
-                          onTap: () => goto(c, const BandGestures()))),
-                  SetRow(LucideIcons.workflow, C.indigo,
-                      l?.settingsTaskerShortcutsRowTitle ??
-                          'Tasker and Shortcuts',
-                      // The row states the asymmetry rather than leaving it to
-                      // the screen: someone on an iPhone should learn what they
-                      // are not getting before they tap into it.
-                      sub: l?.settingsTaskerShortcutsRowSub ??
-                          'Android only for events out. iOS can buzz the band '
-                              'but cannot be triggered by it',
-                      onTap: onAutomation),
+                  SetRow(LucideIcons.footprints, C.teal,
+                      l?.settingsStepsRowTitle ?? 'Steps',
+                      sub: l?.settingsStepsRowSub ??
+                          'This phone’s own step counter, for the hours the '
+                              'band doesn’t cover. Nothing leaves the device',
+                      value: phoneSteps ? on : off,
+                      onTap: onTogglePhoneSteps),
                 ]),
                 settingsGroup(c, l?.settingsGroupPrivacy ?? 'Privacy', [
                   SetRow(LucideIcons.bug, C.orange,
@@ -814,6 +790,21 @@ class MoreSettingsView extends StatelessWidget {
                         value: updateChecks ? on : off,
                         onTap: onToggleUpdateChecks),
                 ]),
+                settingsGroup(c, l?.settingsGroupAdvanced ?? 'Advanced', [
+                  SetRow(LucideIcons.workflow, C.indigo,
+                      l?.settingsTaskerShortcutsRowTitle ??
+                          'Tasker and Shortcuts',
+                      // The row states the asymmetry rather than leaving it to
+                      // the screen: someone on an iPhone should learn what they
+                      // are not getting before they tap into it.
+                      sub: l?.settingsTaskerShortcutsRowSub ??
+                          'Android only for events out. iOS can buzz the band '
+                              'but cannot be triggered by it',
+                      onTap: onAutomation),
+                ]),
+                // How a non-WHOOP wearable's numbers are drawn. Developer
+                // only while every wearable is (rule R6).
+                if (devMode) wearableSettingsGroup(c),
                 settingsGroup(c, l?.settingsGroupAbout ?? 'About', [
                   if (version.isNotEmpty)
                     SetRow(LucideIcons.info, C.n500,

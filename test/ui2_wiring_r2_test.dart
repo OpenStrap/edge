@@ -23,6 +23,7 @@ import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/models/metric.dart';
+import 'package:openstrap_edge/ui2/profile/profile.dart' show ProfileAvatar;
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 import 'package:provider/provider.dart';
@@ -836,8 +837,8 @@ void main() {
     });
   });
 
-  // ── the sparkles button is not an advert for a feature you never set up ──
-  group('the AI button on Home', () {
+  // ── the coach is findable before it is set up ──
+  group('the coach chip on Today', () {
     Widget frame(bool configured) => MaterialApp(
         theme: buildTheme(Brightness.light),
         home: ChangeNotifierProvider<CoachConfig>.value(
@@ -846,18 +847,20 @@ void main() {
               body: HomeScreen(data: HomeData(dayId: '2026-05-20'), hour: 20)),
         ));
 
-    testWidgets('no model, no button', (t) async {
+    testWidgets('no model: the chip says what the coach is for', (t) async {
       await t.pumpWidget(frame(false));
-      expect(find.byIcon(LucideIcons.sparkles), findsNothing);
-      // The profile/settings button beside it is untouched — this is one
-      // button, not the row. (It's a gear, not an avatar — the profile photo
-      // was retired from this row; see home_screen's "Profile and settings".)
-      expect(find.byIcon(LucideIcons.settings), findsOneWidget);
+      expect(find.byIcon(LucideIcons.sparkles), findsOneWidget);
+      expect(find.text('Ask questions about your data: set up the coach'),
+          findsOneWidget);
+      // Profile is the avatar every tab carries, not a gear on Home.
+      expect(find.byType(ProfileAvatar), findsOneWidget);
+      expect(find.byIcon(LucideIcons.settings), findsNothing);
     });
 
-    testWidgets('a configured coach gets its button', (t) async {
+    testWidgets('a configured coach: the chip asks it', (t) async {
       await t.pumpWidget(frame(true));
       expect(find.byIcon(LucideIcons.sparkles), findsOneWidget);
+      expect(find.text('Ask the coach'), findsOneWidget);
     });
   });
 

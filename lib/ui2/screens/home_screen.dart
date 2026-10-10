@@ -53,6 +53,8 @@ import '../../l10n/display_text.dart';
 import '../../l10n/decimal_text.dart';
 import '../../state/locale_controller.dart';
 import 'package:intl/intl.dart';
+import 'package:openstrap_analytics/onehz.dart'
+    show quietHrrMinDays, readinessCompositeMinBaseline;
 import '../../models/metric.dart';
 import '../../notify/notification_prefs.dart' show NotificationPrefs;
 import '../../state/app_state.dart';
@@ -160,6 +162,16 @@ DbRebuild? dbRebuildOf(BuildContext c) {
 bool workoutLiveOf(BuildContext c) {
   try {
     return c.select<AppState, bool>((a) => a.activeWorkout != null);
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Whether cycle tracking is on, or false in a golden. `select` for the same
+/// reason as its neighbours.
+bool cycleTrackingOf(BuildContext c) {
+  try {
+    return c.select<AppState, bool>((a) => a.cycleTrackingEnabled);
   } catch (_) {
     return false;
   }
@@ -1699,6 +1711,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               onFix: sync == null ? null : () => _tapSync(sync),
             );
           }),
+        if (!_loading && !_failed && widget.data == null) ...[
+          const SizedBox(height: S.x3),
+          firstWeekCard(c, days: _days.length, strainScored: false),
+        ],
         // The alarm lives on AppState too, so a load failure must not hide it.
         if (_day == null || _day == todayLabel())
           if (alarmArmOfContext(c) case final (DateTime?, AlarmArmState) a) ...[
@@ -1729,6 +1745,12 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     // gates the plan/live-workout copy below, which is about what to DO
     // today and reads as a stale instruction on a day already in the past.
     final isToday = _day == null || _day == todayLabel();
+
+    // Until recovery can score for the first time: what arrives when.
+    final firstWeeks = isToday &&
+        widget.data == null &&
+        d.readiness.isEmpty &&
+        _days.length <= readinessCompositeMinBaseline;
 
     final stale = staleInsightsCard(d.insightsStale, syncOf(c), l);
     // Above the greeting, not below it: if the app had to rebuild the database
@@ -1784,41 +1806,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             ]),
           ),
           const SizedBox(width: S.x3),
-          // The coach reads across all five domains, so it is not a tab and it
-          // is not any one domain's. It sits beside the avatar because that is
-          // where "things about you" already live.
-          //
-          // ONLY WHEN THERE IS A COACH. It used to render unconditionally, so
-          // on an install with no model configured it was a permanent button
-          // onto a setup form nobody had asked for — one of two things
-          // competing for the corner of a screen rebuilt around three rings.
-          // Setting the coach up is a setting, and it lives in Profile now.
-          if (coachReady(c)) ...[
-            Pressable(
-              semanticLabel: l?.homeAskCoach ?? 'Ask the coach',
-              onTap: () => go(c, const CoachScreen()),
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                    shape: BoxShape.circle, color: p.wash(kCoachAccent)),
-                child: Icon(LucideIcons.sparkles,
-                    size: 18, color: p.on(kCoachAccent)),
-              ),
-            ),
-            const SizedBox(width: S.x2),
-          ],
-          Pressable(
-            semanticLabel: l?.homeProfileSettings ?? 'Profile and settings',
-            onTap: () => go(c, const ProfileHome()),
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                  shape: BoxShape.circle, color: p.fill(C.domHome)),
-              child: Icon(LucideIcons.settings, size: 18, color: p.inkOnFill),
-            ),
-          ),
+          // The coach moved to its own chip under the plan, and Profile is the
+          // same avatar every tab carries.
+          const ProfileAvatar(accent: C.domHome),
         ]),
       ),
 
@@ -1826,20 +1816,43 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         const DetectedActivitiesCard(),
       ],
       ...dayNavRow(_day ?? d.dayId, _days, _goDay),
+      // Stepped back through the record: one tap home.
+      if (!isToday)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: () => _goDay(todayLabel()),
+            child: Text(l?.homeBackToToday ?? 'Back to today'),
+          ),
+        ),
+      // A sync or a derive in flight on an ordinary morning. It used to show
+      // only on a bare day, so yesterday's rings sat on screen during a sync
+      // with nothing but a grey "Synced through" line to say anything moved.
+      if (!bare && isToday)
+        if (_phaseStatusCard(c, l) case final phase?) ...[
+          phase,
+          const SizedBox(height: S.x3),
+        ],
       // The active wearable's day, cell by cell. Nothing on a WHOOP-only
       // install, nor when the screen is handed its data.
       if (widget.data == null)
         WearableCells(kHomeWearableRows, date: isToday ? null : _day),
 
-      if (bare)
+      if (bare) ...[
         // A live workout holds derivation, so a bare day with a session open
         // is the hold at work, not a sync problem — see [workoutHoldCard].
         // Only for TODAY: a live workout right now says nothing about why a
         // PAST day the switcher stepped onto has nothing on it.
         isToday && (widget.workoutLive ?? workoutLiveOf(c))
             ? workoutHoldCard(l)
-            : _bareStatusCard(c, d, l, pastDay: !isToday)
-      else ...[
+            : _bareStatusCard(c, d, l, pastDay: !isToday),
+        // The first morning is exactly when "when do I get numbers?" is
+        // loudest.
+        if (firstWeeks) ...[
+          const SizedBox(height: S.x3),
+          firstWeekCard(c, days: _days.length, strainScored: false),
+        ],
+      ] else ...[
         // ── the three rings ──
         //
         // Recovery, strain and sleep, each a door into its own screen. They
@@ -1899,6 +1912,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           }),
 
         const SizedBox(height: S.x3),
+        if (firstWeeks) ...[
+          firstWeekCard(c, days: _days.length, strainScored: !d.strain.isEmpty),
+          const SizedBox(height: S.x3),
+        ],
         const DetectedActivitiesCard(),
         const CommunityNudge(),
 
@@ -1937,6 +1954,11 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           const SizedBox(height: S.x3),
           alarmDoor(c, a.$1, a.$2),
         ],
+      // The coach, set up or not, on every ordinary or bare today.
+      if (isToday) ...[
+        const SizedBox(height: S.x4),
+        coachChip(c),
+      ],
     ]));
   }
 
@@ -1993,16 +2015,39 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     ];
   }
 
-  /// Pull to reload. The screen also reloads itself on `insightsRevision`, but
-  /// a derive that fails silently, an import, or anything that lands without
-  /// bumping it still leaves the user a way to ask.
+  /// Pull to sync. Pull used to re-read the phone's database and nothing
+  /// else, while every other wearable app treats it as "sync now". It now
+  /// asks the band for its backlog (today only, and only with a band), shows
+  /// the same connecting / syncing / analysing card the Sync button does, and
+  /// re-reads when the sync returns. A past day just re-reads.
   Widget _refreshable(Widget list) =>
-      RefreshIndicator(onRefresh: _load, child: list);
+      RefreshIndicator(onRefresh: _pullToSync, child: list);
+
+  Future<void> _pullToSync() async {
+    AppState? app;
+    try {
+      app = context.read<AppState>();
+    } catch (_) {
+      // No AppState above us (goldens): nothing to sync.
+    }
+    final isToday = _day == null || _day == todayLabel();
+    if (app != null && app.isPaired && isToday && widget.data == null) {
+      _tapSync(() {});
+      // ponytail: the spinner lets go after 90 s; a long backlog keeps going
+      // in the background and the syncing card stays up until it ends.
+      try {
+        await app.syncNow().timeout(const Duration(seconds: 90));
+      } catch (_) {
+        // A timeout or a failed sync still re-reads what did land.
+      }
+    }
+    await _load();
+  }
 
   Widget _glance(BuildContext c, HomeData d, {required bool isToday}) {
     final l = AppLocalizations.of(c);
     final cards = <Widget>[];
-    final absent = <Widget>[];
+    final absent = <StatusCard>[];
 
     void add(Metric m, Widget Function() card, StatusCard? Function() gap) {
       if (m.isEmpty) {
@@ -2125,7 +2170,20 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             ]),
           ),
         ],
-        for (final s in absent) ...[const SizedBox(height: S.x3), s],
+        // One card for everything missing, not one card each: a partial
+        // night used to stack two or three absence cards and read as broken.
+        if (absent.length == 1) ...[const SizedBox(height: S.x3), absent.single]
+        else if (absent.length > 1) ...[
+          const SizedBox(height: S.x3),
+          StatusCard(
+            l?.homeSomeDataMissingTitle ?? 'Some of today\'s data is missing',
+            [
+              for (final s in absent)
+                [s.what, s.why, s.fix].where((t) => t.isNotEmpty).join('. '),
+            ].join('\n'),
+            icon: LucideIcons.circleDashed,
+          ),
+        ],
       ],
     );
   }
@@ -2301,4 +2359,83 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                   fontWeight: done ? FontWeight.w600 : FontWeight.w400)),
         ]),
       );
+}
+
+/// What happens in the first weeks, with the counts the pipeline actually
+/// gates on: sleep after the first night, strain once [quietHrrMinDays] earlier
+/// days give it a resting level, recovery once [readinessCompositeMinBaseline]
+/// earlier nights give it a normal range. Read from the analytics constants so
+/// the card cannot drift from the gate.
+Widget firstWeekCard(BuildContext c,
+    {required int days, required bool strainScored}) {
+  final p = P.of(c);
+  final l = AppLocalizations.of(c);
+  final strainDay = quietHrrMinDays + 1;
+  final recoveryNight = readinessCompositeMinBaseline + 1;
+  Widget step(bool done, String text) => Semantics(
+        // The tick is drawn, so it is also said.
+        label: done ? (l?.homeFirstWeekDone(text) ?? 'Done: $text') : text,
+        excludeSemantics: true,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: S.x2),
+          child: Row(children: [
+            Icon(done ? LucideIcons.circleCheck : LucideIcons.circle,
+                size: 18, color: done ? p.on(C.green) : p.ink3),
+            const SizedBox(width: S.x3),
+            Expanded(
+                child: Text(text, style: F.body.copyWith(color: p.ink))),
+          ]),
+        ),
+      );
+  return Surface(
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(l?.homeFirstWeekTitle ?? 'Your first weeks',
+          style: F.head.copyWith(color: p.ink)),
+      const SizedBox(height: S.x2),
+      step(days > 0, l?.homeFirstWeekWear ?? 'Wear the band tonight'),
+      step(days > 0,
+          l?.homeFirstWeekSleep ?? 'Sleep: the morning after your first night'),
+      step(strainScored,
+          l?.homeFirstWeekStrain(strainDay) ?? 'Strain: from day $strainDay'),
+      step(false,
+          l?.homeFirstWeekRecovery(recoveryNight) ??
+              'Recovery: from night $recoveryNight, once it knows your normal'),
+      const SizedBox(height: S.x1),
+      Text(l?.homeFirstWeekSoFar(days) ?? '$days days recorded so far',
+          style: F.cap.copyWith(color: p.ink3)),
+    ]),
+  );
+}
+
+/// The coach's one door on Today. It used to be an icon that appeared only
+/// once a model was configured, so a new user never learned there was a
+/// coach. Not set up, the chip says what it is for and opens the setup.
+Widget coachChip(BuildContext c) {
+  final p = P.of(c);
+  final l = AppLocalizations.of(c);
+  final ready = coachReady(c);
+  final text = ready
+      ? (l?.homeAskCoach ?? 'Ask the coach')
+      : (l?.homeCoachSetUpChip ?? 'Ask questions about your data: set up the coach');
+  return Align(
+    alignment: Alignment.centerLeft,
+    child: Pressable(
+      semanticLabel: text,
+      onTap: () => go(c, ready ? const CoachScreen() : const CoachSetup()),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x3),
+        decoration:
+            BoxDecoration(color: p.wash(kCoachAccent), borderRadius: R.rPill),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(LucideIcons.sparkles, size: 16, color: p.on(kCoachAccent)),
+          const SizedBox(width: S.x2),
+          Flexible(
+            child: Text(text,
+                style: F.cap.copyWith(
+                    color: p.on(kCoachAccent), fontWeight: FontWeight.w600)),
+          ),
+        ]),
+      ),
+    ),
+  );
 }

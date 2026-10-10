@@ -38,12 +38,14 @@ import '../activity/poster.dart' show PosterStatRow;
 import '../activity/setup.dart';
 import '../activity/summary.dart';
 import '../charts.dart';
-import '../profile/profile.dart' show openProfile;
+import '../profile/profile.dart' show ProfileAvatar, openProfile;
 import '../grammar.dart';
 import '../revision.dart';
 import '../theme.dart';
 import '../../data/day_label.dart' show calendarDaysBetween;
 import 'log_workout.dart';
+import 'metric_detail.dart' show MetricDetail, detailLinkRow;
+import 'nutrition_screen.dart';
 import 'start_card.dart';
 
 class WorkoutScreen extends StatefulWidget {
@@ -99,7 +101,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           padding: const EdgeInsets.fromLTRB(0, S.x2, 0, S.x16),
           children: [
             for (final w in <Widget>[
-              ScreenTitle(loc?.workoutScreenTitle ?? 'Workout'),
+              ScreenTitle(loc?.tabActivity ?? 'Activity',
+                  trailing: const ProfileAvatar(accent: C.domMove)),
               SubTabs(_tabs(loc), tab, (i) => setState(() => tab = i),
                   color: C.domMove),
               const SizedBox(height: S.x5),
@@ -158,6 +161,28 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             ),
           ],
         ],
+      ),
+      // Steps and food, which used to be a Home tile and a tab of their own.
+      // Doors, not cards: the numbers live one tap down.
+      Section(
+        loc?.activityStepsFoodTitle ?? 'Steps and food',
+        Column(children: [
+          detailLinkRow(
+              c,
+              LucideIcons.footprints,
+              loc?.homeSteps ?? 'Steps',
+              loc?.activityStepsSub ?? 'Today and every day before it',
+              () => Navigator.of(c).push(MaterialPageRoute<void>(
+                  builder: (_) => const MetricDetail('steps')))),
+          const SizedBox(height: S.x3),
+          detailLinkRow(
+              c,
+              LucideIcons.utensils,
+              loc?.nutritionTitle ?? 'Nutrition',
+              loc?.activityNutritionSub ?? 'Log food and see today\'s protein',
+              () => Navigator.of(c).push(MaterialPageRoute<void>(
+                  builder: (_) => const NutritionScreen(page: true)))),
+        ]),
       ),
       Section(
         loc?.workoutThisWeek ?? 'This week',

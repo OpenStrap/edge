@@ -15215,5 +15215,162 @@
   "healthAdvancedLinkSub": "Beat-to-beat detail and sleep timing, for the curious",
   "@healthAdvancedLinkSub": {
     "description": "Health tab: subtitle of the link row to the Advanced charts screen."
+  },
+  "tabToday": "Today",
+  "@tabToday": {
+    "description": "Bottom tab: today's scores and plan."
+  },
+  "tabSleep": "Sleep",
+  "@tabSleep": {
+    "description": "Bottom tab: last night, sleep plan, alarm and body clock."
+  },
+  "tabActivity": "Activity",
+  "@tabActivity": {
+    "description": "Bottom tab: workouts, steps and food. Also the Activity screen title."
+  },
+  "profileBandBattery": "Band {pct}%",
+  "@profileBandBattery": {
+    "description": "Profile devices row: the band's battery level.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      }
+    }
+  },
+  "profileExportRow": "Export and backup",
+  "@profileExportRow": {
+    "description": "Profile row: open export, backup and import."
+  },
+  "profileExportRowSub": "Spreadsheets, a full copy, and bringing history in",
+  "@profileExportRowSub": {
+    "description": "Subtitle of the export row on Profile."
+  },
+  "profileSettingsRow": "Settings",
+  "@profileSettingsRow": {
+    "description": "Profile row: open Settings."
+  },
+  "profileSettingsRowSub": "Band, app, data, privacy and advanced",
+  "@profileSettingsRowSub": {
+    "description": "Subtitle of the Settings row on Profile: its groups."
+  },
+  "settingsGroupApp": "App",
+  "@settingsGroupApp": {
+    "description": "Settings group: notifications, units, appearance, time format, cycle tracking."
+  },
+  "settingsGroupData": "Data",
+  "@settingsGroupData": {
+    "description": "Settings group: export, health app sync, phone steps."
+  },
+  "settingsGroupAdvanced": "Advanced",
+  "@settingsGroupAdvanced": {
+    "description": "Settings group: automation and other rarely changed settings."
+  },
+  "settingsCycleTrackingRowSubHealth": "Adds Cycle to Health. Off hides it and keeps everything already logged",
+  "@settingsCycleTrackingRowSubHealth": {
+    "description": "Subtitle of the cycle tracking switch."
+  },
+  "sleepTabPlanTitle": "Your sleep plan",
+  "@sleepTabPlanTitle": {
+    "description": "Sleep tab section: sleep need, debt and target bedtime."
+  },
+  "sleepTabMoreTitle": "Alarm and body clock",
+  "@sleepTabMoreTitle": {
+    "description": "Sleep tab section with links to the alarm and the body clock."
+  },
+  "healthWellbeingTitle": "Mind, habits and medication",
+  "@healthWellbeingTitle": {
+    "description": "Health tab section with doors to mind, habits, medication and cycle."
+  },
+  "healthWellbeingMindSub": "Breathing, mood and the journal",
+  "@healthWellbeingMindSub": {
+    "description": "Health tab: subtitle of the Mind door."
+  },
+  "healthWellbeingHabitsSub": "Daily habits, counted as days kept",
+  "@healthWellbeingHabitsSub": {
+    "description": "Health tab: subtitle of the Habits door."
+  },
+  "healthWellbeingMedsSub": "Today's doses and the last week",
+  "@healthWellbeingMedsSub": {
+    "description": "Health tab: subtitle of the Medication door."
+  },
+  "healthWellbeingCycleSub": "Log your period and see where you are in the cycle",
+  "@healthWellbeingCycleSub": {
+    "description": "Health tab: subtitle of the Cycle door."
+  },
+  "activityStepsFoodTitle": "Steps and food",
+  "@activityStepsFoodTitle": {
+    "description": "Activity tab section with doors to steps and nutrition."
+  },
+  "activityStepsSub": "Today and every day before it",
+  "@activityStepsSub": {
+    "description": "Activity tab: subtitle of the Steps door."
+  },
+  "activityNutritionSub": "Log food and see today's protein",
+  "@activityNutritionSub": {
+    "description": "Activity tab: subtitle of the Nutrition door."
+  },
+  "homeBackToToday": "Back to today",
+  "@homeBackToToday": {
+    "description": "Today tab: button shown after stepping back to an earlier day."
+  },
+  "homeSomeDataMissingTitle": "Some of today's data is missing",
+  "@homeSomeDataMissingTitle": {
+    "description": "Today tab: one card listing every missing reading and why."
+  },
+  "homeFirstWeekTitle": "Your first weeks",
+  "@homeFirstWeekTitle": {
+    "description": "Today tab: card saying when each score first appears."
+  },
+  "homeFirstWeekWear": "Wear the band tonight",
+  "@homeFirstWeekWear": {
+    "description": "First weeks card step."
+  },
+  "homeFirstWeekSleep": "Sleep: the morning after your first night",
+  "@homeFirstWeekSleep": {
+    "description": "First weeks card step."
+  },
+  "homeFirstWeekStrain": "Strain: from day {day}",
+  "@homeFirstWeekStrain": {
+    "description": "First weeks card step. day is the first day strain can be scored.",
+    "placeholders": {
+      "day": {
+        "type": "int"
+      }
+    }
+  },
+  "homeFirstWeekRecovery": "Recovery: from night {night}, once it knows your normal",
+  "@homeFirstWeekRecovery": {
+    "description": "First weeks card step. night is the first night recovery can be scored.",
+    "placeholders": {
+      "night": {
+        "type": "int"
+      }
+    }
+  },
+  "homeFirstWeekSoFar": "{count, plural, =1{1 day recorded so far} other{{count} days recorded so far}}",
+  "@homeFirstWeekSoFar": {
+    "description": "First weeks card footer.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "homeFirstWeekDone": "Done: {step}",
+  "@homeFirstWeekDone": {
+    "description": "Screen-reader label for a finished first-weeks step.",
+    "placeholders": {
+      "step": {
+        "type": "String"
+      }
+    }
+  },
+  "homeCoachSetUpChip": "Ask questions about your data: set up the coach",
+  "@homeCoachSetUpChip": {
+    "description": "Today tab chip when no coach model is configured."
+  },
+  "profileSetupCycleSub": "Log your period in Health. You can change this later.",
+  "@profileSetupCycleSub": {
+    "description": "Onboarding: subtitle of the cycle tracking switch."
   }
 }

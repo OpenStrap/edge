@@ -2739,5 +2739,8 @@
   "nutritionTargetReached": "Ziel erreicht",
   "pairSensorUnreachableIos": "Dieses iPhone lässt die App nur Sensoren erreichen, die im Kopplungsfenster des Systems bestätigt wurden, und ein {label} kann dort noch nicht angeboten werden: Seine Werbung enthält den Dienst nicht, an dem er erkannt wird. Kopple ihn vorerst unter Android.",
   "sleepDetailStagedBy": "Phasen von {label}",
-  "sleepDetailDeviceMissingStages": "{label} meldet {stages} nicht; diese Zeit zählt zu seinen anderen Phasen."
+  "sleepDetailDeviceMissingStages": "{label} meldet {stages} nicht; diese Zeit zählt zu seinen anderen Phasen.",
+  "tabToday": "Heute",
+  "tabSleep": "Schlaf",
+  "tabActivity": "Aktivität"
 }

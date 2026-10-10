@@ -108,8 +108,10 @@ class C {
   static const white = Color(0xFFFFFFFF);
 
   /// Each domain owns an accent — the mental map is colour-coded, and the map
-  /// is the point. These five are the five tabs, in order, forever.
+  /// is the point. Today, Sleep, Activity and Health are the four tabs; food
+  /// and mind keep their accents as sections inside Activity and Health.
   static const domHome = green;
+  static const domSleep = indigo;
   static const domHealth = blue;
   static const domFood = orange;
   static const domMove = purple;
@@ -120,7 +122,7 @@ class C {
   static const all = <Color>[
     green, greenD, blue, purple, orange, red, teal, yellow, pink, indigo,
     sky, blueSoft,
-    domHome, domHealth, domFood, domMove, domMind,
+    domHome, domSleep, domHealth, domFood, domMove, domMind,
   ];
 }
 

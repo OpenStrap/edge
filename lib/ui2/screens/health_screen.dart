@@ -19,17 +19,17 @@ import '../../data/local_repository.dart';
 import '../../import/journal_csv_import.dart' show isValidDayLabel;
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
+import '../profile/profile.dart' show ProfileAvatar;
 import '../profile/wearable_numbers.dart'
     show WearableCells, kHealthWearableRows;
 import '../ui2.dart';
 import 'advanced.dart';
-import 'circadian_detail.dart';
 import 'ecg.dart' show EcgEntryCard, pairedIsMaverickOf;
 import 'findings_log.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'metric_detail.dart';
-import 'naps.dart';
+import 'wellness_screen.dart';
 
 /// A read this screen can live without. The wear block and the nap block are
 /// ADDITIONS to the repository interface, so an implementation written before
@@ -644,7 +644,8 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final d = _d ?? const HealthData();
     final l = AppLocalizations.of(c);
     return ListView(padding: pad, children: [
-      ScreenTitle(l?.healthTitle ?? 'Health'),
+      ScreenTitle(l?.healthTitle ?? 'Health',
+          trailing: const ProfileAvatar(accent: C.domHealth)),
       SubTabs(_tabsOf(l), _tab, _select, color: C.blue),
       const SizedBox(height: S.x5),
       if (_loading && _d == null)
@@ -913,48 +914,40 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         ),
       ],
 
-        // NAPS — the display and the correction, which are one feature. The
-        // section is here on a day with no naps too, because the door to logging
-        // one has to exist on exactly the day the detector found nothing.
-        Section(
-          l?.healthNapsTitle ?? 'Naps',
-          d.napCount == null
-              // `napDay` defaults to '' and `prettyDay` returns '' for anything
-              // it cannot parse, so this printed "No nap reading for" with the
-              // sentence hanging off the end of the word "for". Name the day only
-              // when there is one to name.
-              ? StatusCard(
-                  prettyDay(d.napDay, l).isEmpty
-                      ? (l?.healthNoNapReading ?? 'No nap reading')
-                      : (l?.healthNoNapReadingFor(prettyDay(d.napDay, l)) ??
-                            'No nap reading for ${prettyDay(d.napDay, l)}'),
-                l?.healthNapsBody ??
-                    'Naps come off the same second-by-second recording as the '
-                        'rest of the day, and this day does not have enough of '
-                        'it.',
-                icon: LucideIcons.sun,
-              )
-            : Surface(
-                pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                child: MetricRow(
-                  LucideIcons.sun,
-                  C.indigo,
-                  l?.healthDaytimeSleep ?? 'Daytime sleep',
-                  // A MEASURED zero, not a dash: the day was judged and held
-                  // no nap. The two are different answers and read as two.
-                  d.napCount == 0 ? (l?.healthValueNone ?? 'None') : hm(d.napMin),
-                    sub: d.napCount == 0
-                        ? (l?.healthNoneDetectedOn(prettyDay(d.napDay, l)) ??
-                              'None detected · ${prettyDay(d.napDay, l)}')
-                        : '${l?.healthNapCountLabel(d.napCount!) ?? '${d.napCount} '
-                              'nap${d.napCount == 1 ? '' : 's'}'} · '
-                              '${prettyDay(d.napDay, l)}',
-                    onTap: () => go(c, NapsScreen(day: d.napDay)),
-                  ),
-                ),
-          action: l?.healthAddOrCorrect ?? 'Add or correct',
-          onAction: () => go(c, NapsScreen(day: d.napDay)),
-        ),
+      // Naps moved to the Sleep tab, beside the night (the Naps door there).
+
+      // What used to be the Wellness tab: the things you tell the app back.
+      // One door each, onto the same screen, so the catalogue above stays the
+      // first thing on this tab.
+      Section(
+        l?.healthWellbeingTitle ?? 'Mind, habits and medication',
+        Builder(builder: (c) {
+          final cycle = cycleTrackingOf(c);
+          Widget door(IconData icon, String title, String sub, int tab) =>
+              Padding(
+                padding: const EdgeInsets.only(bottom: S.x3),
+                child: detailLinkRow(c, icon, title, sub,
+                    () => go(c, WellnessScreen(initialTab: tab))),
+              );
+          return Column(children: [
+            door(LucideIcons.wind, l?.wellnessTabMind ?? 'Mind',
+                l?.healthWellbeingMindSub ?? 'Breathing, mood and the journal',
+                0),
+            door(LucideIcons.listChecks, l?.wellnessTabHabits ?? 'Habits',
+                l?.healthWellbeingHabitsSub ??
+                    'Daily habits, counted as days kept',
+                2),
+            door(LucideIcons.pill, l?.wellnessTabMedication ?? 'Medication',
+                l?.healthWellbeingMedsSub ?? 'Today\'s doses and the last week',
+                WellnessScreen.medsTab),
+            if (cycle)
+              door(LucideIcons.droplet, l?.wellnessTabCycle ?? 'Cycle',
+                  l?.healthWellbeingCycleSub ??
+                      'Log your period and see where you are in the cycle',
+                  4),
+          ]);
+        }),
+      ),
 
       // THERE IS NO "BODY COMPOSITION" SECTION, AND THE NEXT PERSON SHOULD NOT
       // BUILD ONE. It used to print the onboarding weight scalar, and the ask
@@ -998,15 +991,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
 
   // ─────────────── TRENDS ───────────────
   Widget _trends(BuildContext c, HealthData d) {
-    final p = P.of(c);
     final l = AppLocalizations.of(c);
-    final cd = d.insights;
-    final chrono = envValue(cd['chronotype']) ?? const {};
-    final sjl = envValue(cd['social_jetlag']) ?? const {};
-    final reg = envValue(cd['regularity']) ?? const {};
-    final sjlH = sjl['abs_hours'] as num?;
-    final sri = reg['sri'] as num?;
-    final stale = staleInsightsCard(d.insightsStale, syncOf(c));
 
     /// [against] is the number the card compares the latest reading TO. Pass it
     /// and the delta is measured against that; leave it null and the delta is
@@ -1098,45 +1083,8 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
             againstLabel: l?.healthVsNeed(hm(d.need.value)) ??
                 'vs your ${hm(d.need.value)} need'),
 
-      // Chronotype, jetlag and regularity ALL come out of the cross-day
-      // rollup. When it is withheld, the section says why rather than showing
-      // the cold-start "it takes a few weeks" line, which would be a lie.
-      if (stale != null)
-        Section(l?.healthBodyClockTitle ?? 'Body clock', stale)
-      else
-        Section(
-          l?.healthBodyClockTitle ?? 'Body clock',
-          Surface(
-            onTap: () => go(c, const CircadianDetail()),
-            child: Column(children: [
-              Row(children: [
-                Expanded(
-                  child: Text(
-                      l?.healthChronotypeJetlagRegularity ??
-                          'Natural bedtime, weekend shift and schedule consistency',
-                      style: F.cap.copyWith(color: p.ink2)),
-                ),
-                Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
-              ]),
-              if (chrono.isNotEmpty || sjlH != null || sri != null) ...[
-                const SizedBox(height: S.x4),
-                InlineMetrics([
-                  if (chrono['type_label'] != null)
-                    (l?.healthChronotypeLabel ?? 'NATURAL BEDTIME',
-                        chrono['type_label'].toString(), C.indigo),
-                  if (sjlH != null)
-                    (l?.healthSocialJetlagLabel ?? 'WEEKEND SHIFT',
-                        _hoursHm(sjlH), C.orange),
-                  if (sri != null)
-                    (l?.healthRegularityLabel ?? 'CONSISTENCY',
-                        '${sri.round()} / 100', C.green),
-                ]),
-              ],
-            ]),
-          ),
-          action: l?.healthTabExplore ?? 'Explore',
-          onAction: () => go(c, const CircadianDetail()),
-        ),
+      // Body clock (natural bedtime, weekend shift, consistency) moved to
+      // the Sleep tab, beside the night it is about.
 
       Section(
         l?.healthConsistencyTitle ?? 'Consistency',
@@ -1156,10 +1104,6 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     );
   }
 
-  String _hoursHm(num h) {
-    final m = (h * 60).round();
-    return m < 60 ? '${m}m' : '${m ~/ 60}h ${(m % 60).toString().padLeft(2, '0')}m';
-  }
 
   // ─────────────── VITALS ───────────────
   Widget _vitals(BuildContext c, HealthData d) {

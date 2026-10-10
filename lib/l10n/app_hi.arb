@@ -2614,5 +2614,8 @@
   "nutritionTargetReached": "लक्ष्य पूरा",
   "pairSensorUnreachableIos": "यह iPhone ऐप को केवल सिस्टम पेयरिंग शीट में मंज़ूर सेंसर तक पहुँचने देता है, और {label} अभी वहाँ नहीं दिखाया जा सकता: उसके विज्ञापन में वह सेवा नहीं होती जिससे उसकी पहचान होती है। अभी के लिए इसे Android पर पेयर करें।",
   "sleepDetailStagedBy": "{label} द्वारा चरण",
-  "sleepDetailDeviceMissingStages": "{label} {stages} नहीं बताता; वह समय उसके दूसरे चरणों में गिना जाता है।"
+  "sleepDetailDeviceMissingStages": "{label} {stages} नहीं बताता; वह समय उसके दूसरे चरणों में गिना जाता है।",
+  "tabToday": "आज",
+  "tabSleep": "नींद",
+  "tabActivity": "गतिविधि"
 }
