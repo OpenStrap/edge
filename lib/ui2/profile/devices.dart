@@ -88,7 +88,7 @@ import '../onboarding/profile_setup.dart' show formatDay;
 import '../ui2.dart';
 import 'profile.dart';
 import 'settings.dart' show backToRoot;
-import 'wearable_numbers.dart' show WearableDayScreen;
+import 'wearable_numbers.dart' show DeviceUseSwitch, WearableDayScreen;
 
 /// Measurement quality, which is the ONLY thing that decides precedence.
 enum SourceTier {
@@ -2369,6 +2369,9 @@ class DeviceDetailView extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: S.x5),
+                    if (s.family case final family?)
+                      DeviceUseSwitch(
+                          deviceId: s.deviceId!, adapterId: family),
                   ],
                   // Band rows only. The phone has no radio link and no battery
                   // this app can read, so "Not reported since the last

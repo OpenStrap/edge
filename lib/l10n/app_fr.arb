@@ -2617,5 +2617,31 @@
   "sleepDetailDeviceMissingStages": "{label} ne signale pas {stages} ; ce temps est compté dans ses autres phases.",
   "tabToday": "Aujourd'hui",
   "tabSleep": "Sommeil",
-  "tabActivity": "Activité"
+  "tabActivity": "Activité",
+  "deviceUseScoresTitle": "Utiliser cet appareil pour les scores",
+  "deviceUseWorkoutsTitle": "Utiliser pendant les entraînements",
+  "deviceUseReadingsTitle": "Utiliser ses mesures (poids) dans vos chiffres",
+  "deviceUseBeta": "Bêta",
+  "deviceUseBetaSub": "Expérimental. Les scores de cet appareil n'ont pas encore été vérifiés sur du vrai matériel.",
+  "deviceUseWorking": "Mise à jour de vos jours…",
+  "deviceUseSheetTitle": "Utiliser {device} pour les scores ?",
+  "@deviceUseSheetTitle": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceUseSheetWhat": "Vos scores viendront de cet appareil. Les jours passés avec ses données sont recalculés. Certaines valeurs sont des estimations, et elles sont signalées.",
+  "deviceUseSheetSwitch": "Un seul appareil peut le faire à la fois, donc {other} sera désactivé.",
+  "@deviceUseSheetSwitch": {
+    "placeholders": {
+      "other": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceUseSheetOff": "Vous pouvez le désactiver à tout moment. Ce qu'il a apporté sera alors retiré.",
+  "deviceUseSheetConfirm": "L'utiliser",
+  "deviceUseSheetCancel": "Pas maintenant"
 }

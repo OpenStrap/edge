@@ -211,9 +211,31 @@ class _DataScreenState extends State<DataScreen> {
 
   Future<_Note> _reanalyze(AppState app) async {
     final l = AppLocalizations.of(context);
+    final ml = MaterialLocalizations.of(context);
+    Future<Map<String, int>> recovery() async => {
+          for (final r in await LocalDb.metricSeries('readiness'))
+            r['date'] as String: (r['value'] as num).round(),
+        };
+    final before = await recovery();
     final n = await app.reanalyzeAll();
+    final after = await recovery();
+    // Which days' recovery a re-analysis actually moved, newest first.
+    // ponytail: first 5 only; the note is a heads-up, not an audit log.
+    final changed = [
+      for (final e in after.entries)
+        if (before[e.key] != null && before[e.key] != e.value)
+          (day: e.key, from: before[e.key]!, to: e.value),
+    ].reversed.take(5).map((c) {
+      final d = DateTime.tryParse(c.day);
+      final label = d == null ? c.day : ml.formatShortMonthDay(d);
+      return '$label ${c.from} → ${c.to}';
+    }).join(', ');
+    final done =
+        l?.dataDaysReanalyzed(n) ?? '$n day${n == 1 ? '' : 's'} re-analyzed.';
     return (
-      l?.dataDaysReanalyzed(n) ?? '$n day${n == 1 ? '' : 's'} re-analyzed.',
+      changed.isEmpty
+          ? done
+          : '$done ${l?.dataRecoveryChanged(changed) ?? 'Recovery changed: $changed'}',
       false
     );
   }

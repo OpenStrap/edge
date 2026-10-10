@@ -29,7 +29,15 @@ import '../compute/substrate.dart' show beatTimesMs;
 // version, which every day_result read applies as a CEILING (see [dayResult]).
 // `show` keeps the rest of the engine out of this namespace.
 import '../coach/coach_db.dart' show CoachDb;
-import '../compute/derivation_engine.dart' show kAlgoVersion, kOvernightGiveUpSec, overnightSettled;
+import '../compute/derivation_engine.dart'
+    show
+        kAlgoVersion,
+        kOvernightGiveUpSec,
+        kPinWakeToleranceSec,
+        pinnableNight,
+        overnightSettled,
+        recoveryStateOf,
+        RecoveryStateWire;
 import '../compute/sleep_profile_policy.dart' show SleepProfilePolicy;
 import '../ble/adapters/_registry.dart' show kAdapterSignals;
 import '../ble/adapters/adapter.dart' show NeutralSample;
@@ -3850,8 +3858,8 @@ class LocalDb {
   }
 
   /// Read a sync-cursor value (null if unset).
-  static Future<String?> getCursor(String name) async {
-    final db = await instance;
+  static Future<String?> getCursor(String name, {DatabaseExecutor? txn}) async {
+    final db = txn ?? await instance;
     final rows = await db.query(
       'sync_cursor',
       columns: ['value'],
@@ -3967,6 +3975,73 @@ class LocalDb {
     }
     return null;
   }
+
+  /// The pinned headline for [day], or null unless the pin describes [day]'s
+  /// CURRENT night: its wake within [kPinWakeToleranceSec] of the stored
+  /// window's. A pin with no wake (older builds) never qualifies, so the live
+  /// final value shows instead of a possibly partial-night pin.
+  static Future<int?> headlinePinFor(String day) async {
+    final pin = await frozenHeadline();
+    final pinWake = pin?.wakeSec;
+    if (pin == null || pin.day != day || pinWake == null) return null;
+    int? wake, onset;
+    try {
+      final raw = jsonDecode(await sleepWindowJsonFor(day) ?? '{}');
+      // Bare SleepWindow JSON today; older rows wrap it in a `value` envelope.
+      final w = raw is Map && raw['value'] is Map ? raw['value'] : raw;
+      final ms = w is Map ? w['offset_ms'] : null;
+      final on = w is Map ? w['onset_ms'] : null;
+      wake = ms is num ? ms ~/ 1000 : null;
+      onset = on is num ? on ~/ 1000 : null;
+    } catch (_) {/* malformed window → no wake → no pin */}
+    if (wake == null ||
+        (wake - pinWake).abs() >= kPinWakeToleranceSec ||
+        !pinnableNight(wakeSec: wake, onsetSec: onset)) {
+      return null;
+    }
+    return pin.value;
+  }
+
+  /// Cursor holding the last FINAL headline readiness shown for a day, plus the
+  /// one it replaced, so a changed number is announced instead of silently
+  /// swapped ("Updated 8:12 · 2 → 28").
+  static const String kHeadlineShownCursor = 'headline_shown';
+
+  /// Record that [value] is the final headline served for [day]; returns the
+  /// day's latest change `{from, to, at}` (at = epoch ms) or null if the number
+  /// has not changed since it was first shown.
+  static Future<Map<String, int>?> noteHeadlineShown(
+          String day, int value) async =>
+      // One transaction: overlapping getToday calls must not write back a
+      // stale read and walk the "from" side of the note backwards.
+      (await instance).transaction((txn) async {
+    Map? cur;
+    try {
+      final d = jsonDecode(
+          await getCursor(kHeadlineShownCursor, txn: txn) ?? 'null');
+      if (d is Map && d['day'] == day && d['value'] is num) cur = d;
+    } catch (_) {/* malformed → start over */}
+    if (cur != null && (cur['value'] as num).round() == value) {
+      final prev = cur['prev'], at = cur['at'];
+      return prev is num && at is num
+          ? {'from': prev.round(), 'to': value, 'at': at.toInt()}
+          : null;
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await setCursor(
+      kHeadlineShownCursor,
+      jsonEncode({
+        'day': day,
+        'value': value,
+        if (cur != null) 'prev': (cur['value'] as num).round(),
+        if (cur != null) 'at': now,
+      }),
+      txn: txn,
+    );
+    return cur == null
+        ? null
+        : {'from': (cur['value'] as num).round(), 'to': value, 'at': now};
+  });
 
   /// Pin [value] as the frozen readiness headline for [day] (overwrites any
   /// prior pin — first-complete-settle-per-day is enforced by the caller).
@@ -11101,8 +11176,9 @@ class LocalDb {
     final latestRawTs = (raw['max_rec_ts'] as num?)?.toInt();
     final todayWake = await wakeDayFeatures(today);
     final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    // The band's edge, same as the readiness freeze: a peripheral streaming
-    // this morning says nothing about how far the band's night has drained.
+    // The band's edge: a peripheral streaming this morning says nothing about
+    // how far the band's night has drained. Only for legacy rows without a
+    // stored `data_edge_sec`.
     final bandEdgeSec = await lastDecodedRecTs() ?? 0;
     String? latestOvernightDay;
     int? latestOvernightComputedAt;
@@ -11110,6 +11186,7 @@ class LocalDb {
     int? latestRecoveryComputedAt;
     Map<String, dynamic>? todayRow;
     int? overnightRecheckAt;
+    String? recoveryState;
     for (final row in recent) {
       final dayId = row['day_id']?.toString();
       if (dayId == null || dayId.isEmpty) continue;
@@ -11129,15 +11206,29 @@ class LocalDb {
       final windowVal = windowMap is Map ? windowMap['value'] : null;
       final offsetMs = windowVal is Map ? windowVal['offset_ms'] : null;
       final wakeSec = offsetMs is num ? offsetMs ~/ 1000 : null;
+      // A night is judged on the edge its row was derived against
+      // (`data_edge_sec`), so wake and edge share one substrate: a later band
+      // sync must not settle a row still holding the partial night, and an
+      // unworn band's edge says nothing about a wearable's night. Legacy rows
+      // without the stamp fall back to the band's edge.
+      final edgeSec =
+          (decoded['data_edge_sec'] as num?)?.toInt() ?? bandEdgeSec;
+      if (dayId == today) {
+        recoveryState = recoveryStateOf(
+          wakeSec: wakeSec,
+          dataEdgeSec: edgeSec,
+          nowSec: nowSec,
+        )?.wire;
+      }
       if (dayId == today &&
           !overnightSettled(
             sleepOffsetSec: wakeSec,
-            dataEdgeSec: bandEdgeSec,
+            dataEdgeSec: edgeSec,
             nowSec: nowSec,
           )) {
         // When the give-up lands; getToday re-checks then, since a quiet
         // strap triggers no derive to do it.
-        overnightRecheckAt = (wakeSec ?? bandEdgeSec) + kOvernightGiveUpSec;
+        overnightRecheckAt = (wakeSec ?? edgeSec) + kOvernightGiveUpSec;
         continue;
       }
       final scalars = ((decoded['scalars'] as Map?) ?? const {})
@@ -11198,6 +11289,9 @@ class LocalDb {
         'overnight_state': overnightState,
         'overnight_computed_at': latestOvernightComputedAt,
         'overnight_recheck_at': overnightRecheckAt,
+        // Today's own night: night_in_progress / provisional / final, or null
+        // when today has no derived row yet. See [recoveryStateOf].
+        'recovery_state': recoveryState,
         'recovery_day': latestRecoveryDay,
         'recovery_computed_at': latestRecoveryComputedAt,
         'showing_prior_overnight':

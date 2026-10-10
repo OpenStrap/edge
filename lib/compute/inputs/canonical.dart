@@ -172,6 +172,13 @@ Future<Set<String>> _wearableDays() async {
   return w == null ? const {} : (await wearableRecTsMaxByDay(w)).keys.toSet();
 }
 
+/// Every day with substrate a derive can read: decoded band rows plus the
+/// active wearable's rows (only when its flag is on).
+Future<Set<String>> substrateDays() async => {
+      ...(await LocalDb.decodedRecTsMaxByDay()).keys,
+      ...await _wearableDays(),
+    };
+
 /// Runs [change], then hands every day it moved (each day the old wearable
 /// or the new one has rows for) to [onWearableDaysChanged], and returns them.
 /// A day the band shares is re-derived too: a night the band never saw may
@@ -873,6 +880,7 @@ const Map<String, String> kSeriesKeyRow = {
   'skin_temp_z': 'skin_temp',
   'skin_temp_adc': 'skin_temp',
   'readiness': 'readiness',
+  'readiness_z': 'readiness',
   'irregular_rhythm_flag': 'irregular_rhythm',
   'tst_min': 'sleep_window',
   'efficiency': 'efficiency_awakenings',

@@ -56,6 +56,7 @@ import 'package:intl/intl.dart';
 import 'package:openstrap_analytics/onehz.dart'
     show quietHrrMinDays, readinessCompositeMinBaseline;
 import '../../models/metric.dart';
+import '../../models/payloads.dart' show todayHeadlineOf;
 import '../../notify/notification_prefs.dart' show NotificationPrefs;
 import '../../state/app_state.dart';
 import '../../state/clock_format.dart' show formatClockOf;
@@ -870,6 +871,10 @@ class RingTrio extends StatelessWidget {
           Divider(color: p.line, height: 1),
           _GapRow(r, onTap: _open(r.kind)),
         ],
+        if (recoveryUpdatedLine(d.readinessUpdate, l) case final note?) ...[
+          const SizedBox(height: S.x2),
+          Text(note, style: F.cap.copyWith(color: p.ink3)),
+        ],
         if (d.readiness.value != null && d.drivers.isNotEmpty) ...[
           const SizedBox(height: S.x3),
           Divider(color: p.line, height: 1),
@@ -904,6 +909,30 @@ class RingTrio extends StatelessWidget {
     return f == null ? null : () => f(k);
   }
 }
+
+/// "Updated 8:12 · 2 → 28" off a `todayHeadlineOf` `recovery_update`, or null.
+String? recoveryUpdatedLine(Object? update, AppLocalizations? l) {
+  if (update case {
+    'from': final int from,
+    'to': final int to,
+    'at': final int at,
+  }) {
+    final time = formatClockOf(DateTime.fromMillisecondsSinceEpoch(at));
+    return l?.homeRecoveryUpdated(time, from, to) ??
+        'Updated $time · $from → $to';
+  }
+  return null;
+}
+
+/// The short line every screen showing today's recovery puts beside it when
+/// it is not simply final: still asleep, finishing up, or changed since shown.
+/// Read off one `todayHeadlineOf` result so Home, Readiness and Health agree.
+String? recoveryStateLine(Map<String, dynamic> head, AppLocalizations? l) =>
+    switch (head['recovery_state']) {
+      'night_in_progress' => l?.homeRecoverySleeping ?? 'Sleeping…',
+      'provisional' => l?.homeRecoveryFinishingUp ?? 'Finishing up',
+      _ => recoveryUpdatedLine(head['recovery_update'], l),
+    };
 
 /// Which ring. The three the app can stand behind on a home screen: what the
 /// night gave back, what the day has cost, and what the night was made of.
@@ -943,14 +972,18 @@ class _RingState {
     this.have,
     this.need,
     this.why,
+    this.provisional = false,
   });
+
+  /// A number that may still move (the night is still draining), drawn grey.
+  final bool provisional;
 
   /// A number the ring is actually reporting. Calibration is progress, not a
   /// reading, so it is not one.
   bool get measured => why == null && !calibrating;
 
-  Color arc(P p) => calibrating ? p.ink3 : p.on(color);
-  Color ink(P p) => measured ? p.on(color) : p.ink3;
+  Color arc(P p) => calibrating || provisional ? p.ink3 : p.on(color);
+  Color ink(P p) => measured && !provisional ? p.on(color) : p.ink3;
 
   String get spoken => [
         label,
@@ -965,6 +998,21 @@ _RingState _ringOf(HomeRingKind k, HomeData d, AppLocalizations? l) {
     case HomeRingKind.recovery:
       final v = d.readiness.value;
       final band = readinessBand(v, l);
+      if (d.recoveryState == 'night_in_progress') {
+        return _RingState(k, l?.homeRingRecovery ?? 'Recovery',
+            LucideIcons.batteryCharging, C.green,
+            value: l?.homeRecoverySleeping ?? 'Sleeping…',
+            why: l?.homeRecoveryAfterWake ??
+                'Recovery is scored after you wake.');
+      }
+      if (d.recoveryState == 'provisional' && v != null) {
+        return _RingState(k, l?.homeRingRecovery ?? 'Recovery',
+            LucideIcons.batteryCharging, band.color,
+            value: '${v.round()}',
+            sub: l?.homeRecoveryFinishingUp ?? 'Finishing up',
+            frac: v / 100,
+            provisional: true);
+      }
       return v == null
           ? _gap(k, l?.homeRingRecovery ?? 'Recovery', LucideIcons.batteryCharging,
               C.green, d.readiness, l?.homeReadinessNotScored ?? 'Not scored', l,
@@ -1149,7 +1197,7 @@ class _RingText extends StatelessWidget {
         Text(
           presentationText(AppLocalizations.of(c), r.value),
           style: r.measured
-              ? F.n24.copyWith(color: p.ink)
+              ? F.n24.copyWith(color: r.provisional ? p.ink3 : p.ink)
               : F.body.copyWith(color: p.ink2),
           textAlign: align,
         ),
@@ -1268,6 +1316,13 @@ class HomeData {
   /// from the SAME diagnostic that screen's does, or the two can disagree.
   final Map<String, dynamic>? absentDiag;
 
+  /// `todayHeadlineOf`'s recovery_state for today (null for a past day):
+  /// night_in_progress → no number, provisional → greyed number, final.
+  final String? recoveryState;
+
+  /// `{from, to, at}` when today's final recovery changed after it was shown.
+  final Map<String, dynamic>? readinessUpdate;
+
   const HomeData({
     this.name,
     this.dayId,
@@ -1289,6 +1344,8 @@ class HomeData {
     this.illnessZ,
     this.insightsStale,
     this.absentDiag,
+    this.recoveryState,
+    this.readinessUpdate,
   });
 
   /// The three illness fields, replaced together. Test-facing sugar, and they
@@ -1315,6 +1372,8 @@ class HomeData {
         illnessZ: z,
         insightsStale: insightsStale,
         absentDiag: absentDiag,
+        recoveryState: recoveryState,
+        readinessUpdate: readinessUpdate,
       );
 
   /// A day OTHER than today, for the Home day switcher.
@@ -1386,7 +1445,13 @@ class HomeData {
     // not today's cannot arrive wearing today's clothes — see
     // [overnightMetric]. Steps, active energy and strain are today's own and
     // are read straight.
-    final readiness = overnightMetric(today, d('readiness'), l);
+    // ONE headline source (todayHeadlineOf): the state Coach and the widgets
+    // read too. A provisional night shows its own number, greyed.
+    final head = todayHeadlineOf(today);
+    final recoveryState = head['recovery_state'] as String?;
+    final readiness = recoveryState == 'provisional'
+        ? metricOf(d('readiness_provisional'))
+        : overnightMetric(today, d('readiness'), l);
     final absentDiag = readiness.value != null
         ? null
         : await LocalDb.readinessAbsentDiag(
@@ -1401,6 +1466,8 @@ class HomeData {
       illnessZ: illness is Map ? (illness['z'] as num?)?.toDouble() : null,
       readiness: readiness,
       absentDiag: absentDiag,
+      recoveryState: recoveryState,
+      readinessUpdate: (head['recovery_update'] as Map?)?.cast<String, dynamic>(),
       drivers: [
         for (final e in (gbDrivers is List ? gbDrivers : const []))
           if (e is Map) e.cast<String, dynamic>(),

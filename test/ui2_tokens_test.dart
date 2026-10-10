@@ -250,6 +250,10 @@ const _notComponents = {
   // Home and Health's loader for the active wearable's cells: it reads the
   // database. `WearableCellsCard` is its pure half, and has a gallery case.
   'WearableCells',
+  // A paired device's beta "use this device" switch: reads and flips the
+  // device flags in the database, and opens a confirm sheet that re-derives.
+  // Pumped off a real database by device_use_switch_test.dart.
+  'DeviceUseSwitch',
   // The double-tap picker. A Scaffold route whose whole content is decided by
   // what the OS answered to a method channel, so a gallery case would be a
   // photograph of a fixture rather than of the screen. Rendered instead by

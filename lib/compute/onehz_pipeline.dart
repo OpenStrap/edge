@@ -308,6 +308,11 @@ class DayBundleInput {
   /// which would subtract the day's own living from itself.
   final List<double> quietHrrHistory;
 
+  /// Trailing readiness composite z's (`readiness_z`), strictly before this
+  /// day, oldest→newest — the user's own composite spread the score is
+  /// calibrated against (`calibratedReadinessScore`).
+  final List<double> readinessZHistory;
+
   /// TS-03 — the highest heart rate the band has OBSERVED (held >=15 s with
   /// corroborating motion, `observed_max_hr.dart`) on any day STRICTLY BEFORE
   /// this one, or null when there is none. Not a physiological HRmax: if the
@@ -366,6 +371,7 @@ class DayBundleInput {
     this.rmssdHistory = const [],
     this.skinTempAdcHistory = const [],
     this.quietHrrHistory = const [],
+    this.readinessZHistory = const [],
     this.observedHrCeilingBpm,
     this.dayConfidence = 0,
     this.dayFlags = const [],
@@ -398,6 +404,7 @@ class DayBundleInput {
     'rmssd_history': rmssdHistory,
     'skin_temp_adc_history': skinTempAdcHistory,
     'quiet_hrr_history': quietHrrHistory,
+    'readiness_z_history': readinessZHistory,
     'observed_hr_ceiling_bpm': observedHrCeilingBpm,
     'day_confidence': dayConfidence,
     'day_flags': dayFlags,
@@ -449,6 +456,7 @@ class DayBundleInput {
       rmssdHistory: dbls('rmssd_history'),
       skinTempAdcHistory: dbls('skin_temp_adc_history'),
       quietHrrHistory: dbls('quiet_hrr_history'),
+      readinessZHistory: dbls('readiness_z_history'),
       observedHrCeilingBpm: (m['observed_hr_ceiling_bpm'] as num?)?.toDouble(),
       dayConfidence: (m['day_confidence'] as num?)?.toDouble() ?? 0,
       dayFlags: strs('day_flags'),
@@ -809,7 +817,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       // floor is untouched.
       minWeightSum: hrCadence == null
           ? readinessCompositeMinWeight
-          : kPartialReadinessMinWeight);
+          : kPartialReadinessMinWeight,
+      compositeZHistory: d.readinessZHistory);
   // Populated when readiness comes back absent, so the main isolate can log WHY
   // instead of a bare null (this runs inside Isolate.run, so it can't call
   // Firebase directly; it just returns data). TWO consumers now, and the second
@@ -1642,6 +1651,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'rmssd': rmssdScalar,
       'rmssd_whole': rmssdWholeScalar,
       'readiness': readinessScalar,
+      // The composite z behind it — the series later days' scores are
+      // calibrated against. Only when the headline itself published: a z the
+      // cap withheld is an artefact, not this user's spread.
+      'readiness_z': readinessScalar == null ? null : composite.value!.compositeZ,
       // Headline 0–21 strain (the screens already expect a 0–21 scale); raw
       // Banister TRIMP stays under `trimp` as the secondary "training load".
       'strain': strainScalar,

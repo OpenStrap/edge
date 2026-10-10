@@ -2742,5 +2742,31 @@
   "sleepDetailDeviceMissingStages": "{label} meldet {stages} nicht; diese Zeit zählt zu seinen anderen Phasen.",
   "tabToday": "Heute",
   "tabSleep": "Schlaf",
-  "tabActivity": "Aktivität"
+  "tabActivity": "Aktivität",
+  "deviceUseScoresTitle": "Dieses Gerät für Werte nutzen",
+  "deviceUseWorkoutsTitle": "Beim Training nutzen",
+  "deviceUseReadingsTitle": "Messwerte (Gewicht) in deinen Zahlen nutzen",
+  "deviceUseBeta": "Beta",
+  "deviceUseBetaSub": "Experimentell. Werte von diesem Gerät wurden noch nicht an echter Hardware geprüft.",
+  "deviceUseWorking": "Deine Tage werden aktualisiert…",
+  "deviceUseSheetTitle": "{device} für Werte nutzen?",
+  "@deviceUseSheetTitle": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceUseSheetWhat": "Deine Werte kommen dann von diesem Gerät. Frühere Tage mit seinen Daten werden neu berechnet. Manche Werte sind Schätzungen und als solche gekennzeichnet.",
+  "deviceUseSheetSwitch": "Das geht immer nur mit einem Gerät, daher wird {other} ausgeschaltet.",
+  "@deviceUseSheetSwitch": {
+    "placeholders": {
+      "other": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceUseSheetOff": "Du kannst es jederzeit ausschalten. Was es beigetragen hat, wird dann wieder entfernt.",
+  "deviceUseSheetConfirm": "Nutzen",
+  "deviceUseSheetCancel": "Nicht jetzt"
 }

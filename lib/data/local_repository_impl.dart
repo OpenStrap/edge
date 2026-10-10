@@ -421,12 +421,27 @@ class LocalRepositoryImpl extends LocalRepository {
     // ONLY the headline is pinned — every other metric below still reflects the
     // latest re-derive. Gated to today's OWN overnight (`ready`, matching day)
     // so a prior-night fallback or a stale yesterday pin can never leak in.
+    //
+    // The pin is only trusted for the night it was taken on (its wake within an
+    // hour of today's window, see LocalDb.headlinePinFor); a pin from an older
+    // build or an earlier sleep block yields to the live final value.
+    final recoveryState = todayFresh?['recovery_state']?.toString();
+    Map<String, int>? readinessUpdate;
     if (overnightState == 'ready') {
-      final pin = await LocalDb.frozenHeadline();
-      if (pin != null && pin.day == todayDay) {
-        readinessScalar = pin.value.toDouble();
+      final pin = await LocalDb.headlinePinFor(todayDay);
+      if (pin != null) readinessScalar = pin.toDouble();
+      if (readinessScalar != null) {
+        readinessUpdate = await LocalDb.noteHeadlineShown(
+            todayDay, readinessScalar.round());
       }
     }
+    // A confirmed wake whose window has not settled yet: today's own number,
+    // served marked provisional (greyed, "Finishing up") — never pinned, and
+    // never in place of a settled one.
+    final provisionalReadiness =
+        recoveryState == 'provisional' && overnightState != 'ready'
+            ? _scalar(todayBundle, 'readiness')
+            : null;
     // Everything on the overnight side of Home is absent for ONE reason when
     // there is no night to read: there is no scored night. Said once here so
     // readiness and resting HR stop going absent with nothing at all — measured
@@ -469,6 +484,9 @@ class LocalRepositoryImpl extends LocalRepository {
     final daily = <String, dynamic>{
       'readiness': readinessMetric,
       'recovery': readinessMetric,
+      if (provisionalReadiness != null)
+        'readiness_provisional': _scalarMetric(provisionalReadiness, 'HIGH'),
+      'readiness_update': ?readinessUpdate,
       'resting_hr': _scalarMetric(
         showOvernight ? _scalar(sleepBundle, 'rhr')?.round() : null,
         'HIGH',
@@ -597,6 +615,7 @@ class LocalRepositoryImpl extends LocalRepository {
         'overnight_state': overnightState,
         'overnight_day': todayFresh?['overnight_day'],
         'overnight_computed_at': todayFresh?['overnight_computed_at'],
+        'recovery_state': recoveryState,
         'showing_prior_overnight':
             todayFresh?['showing_prior_overnight'] == true,
       },
@@ -2012,7 +2031,10 @@ class LocalRepositoryImpl extends LocalRepository {
     // which is the pin's whole reason for existing — so Readiness detail drew
     // 74 in the ring and 69 as today's point in the chart underneath it. One
     // day, one readiness number.
-    final pin = key == 'readiness' ? await LocalDb.frozenHeadline() : null;
+    final pinDay = _todayLocalLabel();
+    final pinValue =
+        key == 'readiness' ? await LocalDb.headlinePinFor(pinDay) : null;
+    final pin = pinValue == null ? null : (day: pinDay, value: pinValue);
     // #448: every derive writes today's readiness, partial night or not, and a
     // held night has no pin yet. Leave today's point out while getToday holds
     // it back, or the chart plots the number the ring above it refuses.

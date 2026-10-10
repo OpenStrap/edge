@@ -2617,5 +2617,31 @@
   "sleepDetailDeviceMissingStages": "{label} 不报告{stages}；这段时间计入它的其他阶段。",
   "tabToday": "今天",
   "tabSleep": "睡眠",
-  "tabActivity": "活动"
+  "tabActivity": "活动",
+  "deviceUseScoresTitle": "用此设备计算评分",
+  "deviceUseWorkoutsTitle": "在锻炼时使用",
+  "deviceUseReadingsTitle": "在你的数据中使用其读数（体重）",
+  "deviceUseBeta": "测试版",
+  "deviceUseBetaSub": "实验性功能。此设备的评分尚未在真实硬件上验证。",
+  "deviceUseWorking": "正在更新你的数据…",
+  "deviceUseSheetTitle": "用 {device} 计算评分？",
+  "@deviceUseSheetTitle": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceUseSheetWhat": "你的评分将来自此设备。包含其数据的过往日期会重新计算。部分数值是估算值，并已标注。",
+  "deviceUseSheetSwitch": "同一时间只能有一台设备这样做，因此 {other} 将被关闭。",
+  "@deviceUseSheetSwitch": {
+    "placeholders": {
+      "other": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceUseSheetOff": "你可以随时关闭它。届时它添加的内容会被移除。",
+  "deviceUseSheetConfirm": "使用",
+  "deviceUseSheetCancel": "暂不"
 }

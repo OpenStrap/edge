@@ -2617,5 +2617,31 @@
   "sleepDetailDeviceMissingStages": "{label} {stages} नहीं बताता; वह समय उसके दूसरे चरणों में गिना जाता है।",
   "tabToday": "आज",
   "tabSleep": "नींद",
-  "tabActivity": "गतिविधि"
+  "tabActivity": "गतिविधि",
+  "deviceUseScoresTitle": "स्कोर के लिए यह डिवाइस इस्तेमाल करें",
+  "deviceUseWorkoutsTitle": "वर्कआउट के दौरान इस्तेमाल करें",
+  "deviceUseReadingsTitle": "इसकी रीडिंग (वज़न) अपने आंकड़ों में इस्तेमाल करें",
+  "deviceUseBeta": "बीटा",
+  "deviceUseBetaSub": "प्रायोगिक। इस डिवाइस के स्कोर अभी असली हार्डवेयर पर जाँचे नहीं गए हैं।",
+  "deviceUseWorking": "आपके दिन अपडेट हो रहे हैं…",
+  "deviceUseSheetTitle": "स्कोर के लिए {device} इस्तेमाल करें?",
+  "@deviceUseSheetTitle": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceUseSheetWhat": "आपके स्कोर इसी डिवाइस से आएँगे। इसके डेटा वाले पिछले दिन फिर से गिने जाएँगे। कुछ मान अनुमान हैं, और उन पर लेबल लगा है।",
+  "deviceUseSheetSwitch": "एक समय में केवल एक डिवाइस ऐसा कर सकता है, इसलिए {other} बंद हो जाएगा।",
+  "@deviceUseSheetSwitch": {
+    "placeholders": {
+      "other": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceUseSheetOff": "आप इसे कभी भी बंद कर सकते हैं। तब इसका जोड़ा हुआ सब हटा दिया जाएगा।",
+  "deviceUseSheetConfirm": "इस्तेमाल करें",
+  "deviceUseSheetCancel": "अभी नहीं"
 }

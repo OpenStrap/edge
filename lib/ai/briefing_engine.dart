@@ -22,6 +22,7 @@ import '../coach/coach_engine.dart';
 import '../data/day_label.dart';
 import '../data/local_repository.dart';
 import '../models/metric.dart' show whyFromNote;
+import '../models/payloads.dart' show todayHeadlineOf;
 import '../ui2/screens/home_screen.dart' as ring show readinessBand;
 import 'briefing.dart';
 import 'nightly_sweep.dart';
@@ -108,7 +109,14 @@ Future<Map<String, dynamic>> collectBriefingInputs(
   }
 
   if (period == BriefingPeriod.morning) {
-    take('readiness', daily['readiness'], round: 0);
+    // The same headline Home shows: no number until today's night is final,
+    // never a held-over or still-draining one presented as this morning's.
+    take(
+        'readiness',
+        todayHeadlineOf(t)['recovery_state'] == 'final'
+            ? daily['readiness']
+            : null,
+        round: 0);
     take('resting_hr', daily['resting_hr'], round: 0);
     final hrv = _map(t['hrv']);
     take('hrv_rmssd', hrv?['rmssd'], round: 1);
