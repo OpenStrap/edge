@@ -33,9 +33,9 @@ class CoachChatCompletions {
     final text = first['text'];
     if (text is String) return {'content': text};
     throw const FormatException(
-      'Provider returned an unsupported response shape (no message/delta). '
-      'Streaming-only endpoints are not supported — use a standard '
-      'OpenAI-compatible /chat/completions endpoint.',
+      'The provider sent a reply this app can’t read. Use a standard '
+      'OpenAI-compatible /chat/completions endpoint; streaming-only ones '
+      'don’t work.',
     );
   }
 }

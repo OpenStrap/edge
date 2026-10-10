@@ -116,7 +116,7 @@ void main() {
     await t.tap(find.text('Confirm').first);
     await t.pumpAndSettle();
     expect(repo.items.single.id, 'workout');
-    await t.tap(find.text('Discard'));
+    await t.tap(find.text('Not a workout'));
     await t.pumpAndSettle();
     expect(repo.items, isEmpty);
     expect(find.text('Nothing to review'), findsOneWidget);
@@ -136,7 +136,7 @@ void main() {
     'unknown workout stays Other; stale edit shows new proposal before a second save',
     (t) async {
       final repo = await pump(t);
-      await t.tap(find.text('Edit').last);
+      await t.tap(find.text('Change sport'));
       await t.pumpAndSettle();
       expect(find.text('Other'), findsOneWidget);
       repo.items[1] = proposal(
@@ -163,7 +163,7 @@ void main() {
     t,
   ) async {
     final repo = await pump(t);
-    await t.tap(find.text('Edit').last);
+    await t.tap(find.text('Change sport'));
     await t.pumpAndSettle();
     repo.items[1] = proposal(
       'workout',

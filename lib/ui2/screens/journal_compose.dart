@@ -978,10 +978,9 @@ class _WeightTrendState extends State<_WeightTrend> {
       const SizedBox(height: S.x4),
       Text(
         l?.journalComposeWeightTrendExplainer(trend.length) ??
-            'Entered by you or your scale — the band does not measure weight. What '
-            'is drawn is a seven-day average, because a scale moves one to two '
-            'kilos on water and food alone and the raw readings would show that as '
-            'something happening to your body. ${trend.length} '
+            'From you or your scale; the band doesn’t measure weight. The line '
+            'is a 7-day average, because water and food alone move a scale '
+            '1–2 kg. ${trend.length} '
             '${trend.length == 1 ? 'day' : 'days'} entered.',
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),

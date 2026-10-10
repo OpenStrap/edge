@@ -38,12 +38,14 @@ import '../activity/poster.dart' show PosterStatRow;
 import '../activity/setup.dart';
 import '../activity/summary.dart';
 import '../charts.dart';
-import '../profile/profile.dart' show openProfile;
+import '../profile/profile.dart' show ProfileAvatar, openProfile;
 import '../grammar.dart';
 import '../revision.dart';
 import '../theme.dart';
 import '../../data/day_label.dart' show calendarDaysBetween;
 import 'log_workout.dart';
+import 'metric_detail.dart' show MetricDetail, detailLinkRow;
+import 'nutrition_screen.dart';
 import 'start_card.dart';
 
 class WorkoutScreen extends StatefulWidget {
@@ -99,7 +101,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           padding: const EdgeInsets.fromLTRB(0, S.x2, 0, S.x16),
           children: [
             for (final w in <Widget>[
-              ScreenTitle(loc?.workoutScreenTitle ?? 'Workout'),
+              ScreenTitle(loc?.tabActivity ?? 'Activity',
+                  trailing: const ProfileAvatar(accent: C.domMove)),
               SubTabs(_tabs(loc), tab, (i) => setState(() => tab = i),
                   color: C.domMove),
               const SizedBox(height: S.x5),
@@ -158,6 +161,28 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             ),
           ],
         ],
+      ),
+      // Steps and food, which used to be a Home tile and a tab of their own.
+      // Doors, not cards: the numbers live one tap down.
+      Section(
+        loc?.activityStepsFoodTitle ?? 'Steps and food',
+        Column(children: [
+          detailLinkRow(
+              c,
+              LucideIcons.footprints,
+              loc?.homeSteps ?? 'Steps',
+              loc?.activityStepsSub ?? 'Today and every day before it',
+              () => Navigator.of(c).push(MaterialPageRoute<void>(
+                  builder: (_) => const MetricDetail('steps')))),
+          const SizedBox(height: S.x3),
+          detailLinkRow(
+              c,
+              LucideIcons.utensils,
+              loc?.nutritionTitle ?? 'Nutrition',
+              loc?.activityNutritionSub ?? 'Log food and see today\'s protein',
+              () => Navigator.of(c).push(MaterialPageRoute<void>(
+                  builder: (_) => const NutritionScreen(page: true)))),
+        ]),
       ),
       Section(
         loc?.workoutThisWeek ?? 'This week',
@@ -245,7 +270,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     final axis = AxisSpec.of([for (final v in d.tonnage7) ?v], floor: 0);
     return Surface(
       child: ChartFrame(
-        title: loc?.workoutMechanicalLoadTitle ?? 'MECHANICAL LOAD',
+        title: loc?.workoutMechanicalLoadTitle ?? 'Mechanical load',
         unit: loc?.workoutKgLiftedUnit ?? 'kg lifted',
         height: 88,
         yAxis: axis,
@@ -291,14 +316,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     return InsightCard(
       loc?.workoutOverreachHeadline(
               ratio, o.nightsElevated, o.nightsConsidered) ??
-          'Your last 7 days of load are '
-              '$ratio× your usual six weeks, and your resting '
-              'heart rate was above your usual on ${o.nightsElevated} of '
-              '${o.nightsConsidered} nights.',
+          'Your last 7 days of load are $ratio× your usual six weeks, and resting heart rate ran high on ${o.nightsElevated} of ${o.nightsConsidered} nights.',
       loc?.workoutOverreachBody ??
-          'Two measurements that happen to point the same way. Illness, travel, '
-              'altitude, alcohol and a run of poor sleep all produce this same '
-              'pair, and nothing here can tell them apart.',
+          'Two measurements pointing the same way. Illness, travel, altitude, alcohol or poor sleep can all cause this, and nothing here tells them apart.',
       icon: LucideIcons.activity,
       color: C.orange,
     );
@@ -344,8 +364,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             final axis = AxisSpec.of([for (final v in d.trimp7) ?v], floor: 0);
             final days = d.trimp7.where((v) => v != null).length;
             return ChartFrame(
-              title: loc?.workoutDailyLoadTitle ?? 'DAILY LOAD',
-              unit: loc?.workoutTrimpUnit ?? 'TRIMP',
+              title: loc?.workoutDailyLoadTitle ?? 'Heart effort by day',
+              unit: loc?.workoutTrimpUnit ?? 'points',
               height: 88,
               yAxis: axis,
               // Seven slots, seven real dates. A day with nothing keeps its
@@ -355,8 +375,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                   _weekdayLetter(c, DateTime(end.year, end.month, end.day - i)),
               ],
               footnote: (loc?.workoutDailyLoadFootnoteIntro ??
-                      'Banister training impulse — minutes weighted by '
-                          'heart-rate reserve. ') +
+                      'Heart points with no cap: minutes in each heart-rate zone, harder zones counting more. Strain reads the same heart rate on a 0–21 scale. ') +
                   (days == 7
                       ? (loc?.workoutDailyLoadAllDays ?? 'Last seven days.')
                       : (loc?.workoutDailyLoadPartialDays(days) ??
@@ -592,9 +611,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         Text(
           loc?.workoutImportedThisWeekNote(importedThisWeek, storeName) ??
               '$importedThisWeek of this week’s sessions came from $storeName. '
-                  'They count here, and they are left out of weekly load — an '
-                  'imported workout arrives with no heart-rate trace, and a load '
-                  'number without one would be invented.',
+                  'They count here, but not in weekly load: they arrived '
+                  'without heart rate.',
           style: F.cap.copyWith(color: p.ink3, height: 1.5),
         ),
       ],
@@ -1078,17 +1096,9 @@ class _HistoryRow extends StatelessWidget {
           ),
         if (w.zoneMinutes.length == 5) ...[
           const SizedBox(height: S.x4),
-          ChartFrame(
-            title: loc?.workoutTimeInZonesTitle ?? 'TIME IN ZONES',
-            unit: loc?.workoutMinutesUnit ?? 'minutes',
-            height: 8,
-            legend: [
-              for (var i = 0; i < 5; i++)
-                ('Z${i + 1} · ${w.zoneMinutes[i].round()}m', ZoneBar.cols(p)[i]),
-            ],
-            child: CustomPaint(
-                size: Size.infinite, painter: ZoneBar(w.zoneFractions, p)),
-          ),
+          ZoneRows(w.zoneMinutes,
+              compact: true,
+              title: loc?.workoutTimeInZonesTitle ?? 'Time in zones'),
         ],
           const SizedBox(height: S.x4),
         for (var i = 0; i < stats.length; i++) ...[
@@ -1282,6 +1292,9 @@ LiveFeed _feedOf(AppState app) {
     // anchor change cannot rebrand a split already on screen.
     zoneSource: w?.zoneSet?.source,
     zoneMaxHr: w?.zoneSet?.maxHr,
+    zoneLowerBpm: w?.zoneSet == null
+        ? null
+        : [for (final z in w!.zoneSet!.zones) z.lower.round()],
     // DENSE, not the hole-free variant: this feeds the summary's chart, whose
     // x axis is the session clock. `perMinuteHr()` is for statistics.
     hrCurve: _curveOverSession(w),
@@ -1552,6 +1565,16 @@ Map<String, dynamic>? _topBand(Object? bands) {
   return top is Map ? top.cast<String, dynamic>() : null;
 }
 
+/// The five `lo` edges off `zone_bands`, or null unless all five are numbers.
+List<num>? _lowerEdges(Object? bands) {
+  if (bands is! List || bands.length != 5) return null;
+  final out = [
+    for (final b in bands)
+      if (b is Map && b['lo'] is num) b['lo'] as num,
+  ];
+  return out.length == 5 ? out : null;
+}
+
 /// `zone_min` comes back from the repo as raw decoded JSON — guard the type
 /// once here so a non-`List` value (or a non-numeric entry) never throws in
 /// either read path.
@@ -1612,6 +1635,8 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
       zoneSource:
           rebinned && band?['source'] is String ? band!['source'] as String : null,
       zoneMaxHr: rebinned && band?['hi'] is num ? band!['hi'] as num : null,
+      // The edges the bands were cut at, under the same rebinned rule.
+      zoneLowerBpm: rebinned ? _lowerEdges(b['zone_bands']) : null,
       // …and the MINUTES from the same read, not from the list row. Opening a
       // session rescores it (`_rescoreSessionFromSubstrate`), so the row loaded
       // with the month list can be a split binned before that correction — and
@@ -1819,12 +1844,6 @@ class _PastWorkout {
       this.importedFrom,
       this.importedTitle,
       this.distanceM});
-
-  List<double> get zoneFractions {
-    final total = zoneMinutes.fold<double>(0, (a, b) => a + b);
-    if (total <= 0) return const [0, 0, 0, 0, 0];
-    return [for (final z in zoneMinutes) z / total];
-  }
 
   String when(AppLocalizations? loc) {
     final days = calendarDaysBetween(start, DateTime.now());

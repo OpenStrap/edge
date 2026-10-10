@@ -25,9 +25,9 @@ void main() {
     expect(
       coachPresentationText(
         l,
-        'That request grew to 401 KB, over the 400 KB safety limit for data leaving this device. Start a new chat or ask a narrower question (aggregate with AVG/MIN/MAX/COUNT instead of selecting every row).',
+        'That question pulled in too much data (401 KB; the limit is 400 KB), so nothing was sent. Try a shorter time range, or start a new chat.',
       ),
-      contains('превысил предел 400 КБ'),
+      contains('при пределе 400 КБ'),
     );
   });
 

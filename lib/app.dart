@@ -35,6 +35,7 @@ import 'ui2/screens/journal_compose.dart';
 import 'ui2/screens/log_workout.dart';
 import 'ui2/screens/detected_activities.dart';
 import 'ui2/screens/nutrition_screen.dart';
+import 'ui2/screens/sleep_tab.dart';
 import 'ui2/screens/wellness_screen.dart';
 import 'ui2/screens/workout_screen.dart';
 import 'ui2/ui2.dart';
@@ -373,58 +374,67 @@ class _InitFailed extends StatelessWidget {
 
 /// A notification's tab index → the domain that now owns that content.
 ///
-/// The indices come from `tap_router.dart`, which still speaks the old
-/// five-tab vocabulary (Today · Sleep · Heart · Body · Workouts). Sleep, Heart
-/// and Body all folded into Health, so three of the five collapse onto one
-/// destination. Payloads from older builds keep working, which is the whole
-/// point — a notification is scheduled days before it is tapped.
+/// The indices come from `tap_router.dart`, which still speaks the original
+/// five-tab vocabulary (Today · Sleep · Heart · Body · Workouts). Sleep has a
+/// tab again; Heart and Body live in Health. Payloads from older builds keep
+/// working, which is the whole point — a notification is scheduled days
+/// before it is tapped.
 ShellDomain domainForTab(int tab) => switch (tab) {
-      1 || 2 || 3 => ShellDomain.health,
-      4 => ShellDomain.workout,
-      _ => ShellDomain.home,
+      1 => ShellDomain.sleep,
+      2 || 3 => ShellDomain.health,
+      4 => ShellDomain.activity,
+      _ => ShellDomain.today,
     };
+
+/// The tab a build with the five-tab bar (Home, Health, Nutrition, Workout,
+/// Wellness) saved → where that content lives now.
+ShellDomain domainForSavedTab(int old) => switch (old) {
+      1 || 4 => ShellDomain.health,
+      2 || 3 => ShellDomain.activity,
+      _ => ShellDomain.today,
+    };
+
+/// The tab to open on: the four-tab index once one was saved, otherwise the
+/// old five-tab index translated, so an upgrade lands where the user was.
+ShellDomain restoredShellTab() {
+  final v2 = Prefs.getInt(Prefs.shellTabV2, -1);
+  if (v2 >= 0 && v2 < ShellDomain.values.length) return ShellDomain.values[v2];
+  return domainForSavedTab(Prefs.getInt(Prefs.shellTab, 0));
+}
 
 /// A deep-link sub-screen route → the domain it belongs to.
 ///
 /// Every `kRoute*` in `tap_router.dart` is here, and unknown routes fall back
-/// to Home rather than crashing a cold launch on a payload from an older
+/// to Today rather than crashing a cold launch on a payload from an older
 /// build.
 ShellDomain domainForRoute(String route) => switch (routePath(route)) {
-      kRouteAiMorning || kRouteAiEvening => ShellDomain.home,
-      kRouteJournalCompose || kRouteBreathing => ShellDomain.wellness,
-      // Water is a journal field that lives on Nutrition — that is the tab
-      // behind the log screen, and where a "back" from it should land.
-      kRouteWater => ShellDomain.nutrition,
-      // The medication reminder. Wellness owns the Medication tab and its
-      // checklist, which is where a dose is actually recorded.
-      kRouteMeds => ShellDomain.wellness,
-      // The movement/sedentary nudges. Today (Home) is where the steps/rings
-      // they point at live; there is no move screen to push, so
-      // screenForRoute returns null for it — same shape as /meds below.
-      kRouteMovement => ShellDomain.home,
-      // Recovery-ready and step-goal notes. Both are about what already lives
-      // on Today, and neither has a screen of its own to push.
-      kRouteRecovery => ShellDomain.home,
-      kRouteSteps => ShellDomain.home,
-      kRouteDetectedActivities => ShellDomain.home,
-    kRouteWorkoutSuggestion => ShellDomain.home,
-      // The forgotten-workout nudge. The Workouts tab is the destination
-      // itself — the live session bar with its finish control is pinned to
-      // the shell there — so screenForRoute stays null for it.
-      kRouteWorkoutIdle => ShellDomain.workout,
-      // Emitted by the battery forecast (`app_state.dart`) and the device
-      // alerts (`device_alerts.dart`), and declared in `tap_router`
-      // alongside every other deep link — see the note below.
-      kRouteProfile => ShellDomain.home,
-      // The two alarm safety notifications and the alarm-fired note. Reached
-      // the same way as the battery/band alerts above — Profile lives on Home.
-      kRouteAlarm => ShellDomain.home,
-      // No recap screen exists. Health is where a week of sleep, strain and
-      // recovery actually lives, so it is the nearest true destination — but
-      // the notification promises a REPORT, and until one is built the honest
-      // fix is upstream, in what that notification claims.
+      kRouteAiMorning || kRouteAiEvening => ShellDomain.today,
+      // Journal, breathing and medication live behind Health's wellbeing
+      // doors, so a back from the pushed screen lands there.
+      kRouteJournalCompose || kRouteBreathing || kRouteMeds =>
+        ShellDomain.health,
+      // Water is a journal field logged beside food, and food is a section of
+      // Activity.
+      kRouteWater => ShellDomain.activity,
+      // The movement/sedentary nudges, recovery-ready and step-goal notes,
+      // and the detected-activity reviews: all about what is on Today.
+      kRouteMovement ||
+      kRouteRecovery ||
+      kRouteSteps ||
+      kRouteDetectedActivities ||
+      kRouteWorkoutSuggestion =>
+        ShellDomain.today,
+      // The forgotten-workout nudge. Activity is the destination itself — the
+      // live session bar with its finish control is pinned to the shell there
+      // — so screenForRoute stays null for it.
+      kRouteWorkoutIdle => ShellDomain.activity,
+      // Battery and band alerts. Profile is pushed over Today.
+      kRouteProfile => ShellDomain.today,
+      // The alarm safety notifications and the alarm-fired note: the alarm
+      // lives on the Sleep tab now.
+      kRouteAlarm => ShellDomain.sleep,
       kRouteRecap => ShellDomain.health,
-      _ => ShellDomain.home,
+      _ => ShellDomain.today,
     };
 
 // `/profile` and `/recap` are declared in `tap_router.dart` alongside every
@@ -451,26 +461,16 @@ Widget? screenForRoute(String route) => switch (routePath(route)) {
         const AiBriefingScreen(period: BriefingPeriod.evening),
       kRouteJournalCompose => const JournalCompose(),
       kRouteBreathing => const CalmBreathing(),
-      // The hydration reminder lands on Nutrition, where the water tile carries
-      // its own − / + and is beside the food it belongs with. There used to be
-      // a whole screen for this one field; it was reachable ONLY from here,
-      // which is how the tile that everybody actually used stayed add-only for
-      // so long — the thing that could clear a value was behind a notification.
-      // Nothing is pushed: Nutrition is a shell tab (see `/meds` below), and
-      // `_consume` has already switched to it.
-      kRouteWater => null,
+      // The hydration reminder lands on the food log, where the water tile
+      // carries its own − / + beside the food it belongs with. Nutrition is a
+      // pushed page of Activity now, so it is pushed here too.
+      kRouteWater => const NutritionScreen(page: true),
+      // The medication reminder lands on the checklist itself: Wellness is a
+      // pushed page now, so the sub-tab is a constructor argument.
+      kRouteMeds => const WellnessScreen(initialTab: WellnessScreen.medsTab),
       // The detected bout, with the three answers to it: log it, adjust the
-      // times first, or say it never happened.
-      // The medication reminder pushes NOTHING, and still lands on the
-      // checklist: it is a SUB-TAB of Wellness, so pushing anything would put
-      // a second copy of a shell tab over the shell. `_consume` asks Wellness
-      // for the tab instead (`WellnessScreen.tabRequest`) — the deep link is
-      // wired, the answer here stays null.
-      kRouteMeds => null,
-      // A CONSTRUCTOR ARGUMENT is right here and wrong for `/meds` above: this
-      // screen is PUSHED by `_consume`, so every tap builds a fresh one and the
-      // id reaches it. Wellness is a shell tab kept alive in the IndexedStack,
-      // never rebuilt on a tap, which is why that one needs a request notifier.
+      // times first, or say it never happened. PUSHED by `_consume`, so every
+      // tap builds a fresh one and the id reaches it.
       kRouteDetectedActivities => DetectedActivitiesScreen(focusId: routeId(route)),
       kRouteWorkoutSuggestion =>
         WorkoutSuggestionScreen(focusId: routeId(route)),
@@ -495,8 +495,7 @@ class _Shell extends StatefulWidget {
 
 class _ShellState extends State<_Shell> {
   /// Restore the last-selected tab so a relaunch lands where the user left off.
-  late ShellDomain _domain = ShellDomain
-      .values[Prefs.getInt(Prefs.shellTab, 0).clamp(0, ShellDomain.values.length - 1)];
+  late ShellDomain _domain = restoredShellTab();
 
   /// AppShell owns its own selection and takes only an `initial`, so a
   /// programmatic jump re-keys it.
@@ -559,15 +558,6 @@ class _ShellState extends State<_Shell> {
     // the base the payload was built with, not a second destination.
     if (s != null && s.isNotEmpty) {
       _go(domainForRoute(s));
-      // A route whose destination is a SUB-tab, which no pushed screen can
-      // express. Asked for AFTER `_go` (which may re-key the shell and build a
-      // fresh Wellness) and cleared a frame later, so whichever state ends up
-      // on screen has seen it — see `WellnessScreen.tabRequest`.
-      if (routePath(s) == kRouteMeds) {
-        WellnessScreen.tabRequest.value = WellnessScreen.medsTab;
-        WidgetsBinding.instance.addPostFrameCallback(
-            (_) => WellnessScreen.tabRequest.value = -1);
-      }
       final screen = screenForRoute(s);
       if (screen != null) {
         Navigator.of(context)
@@ -584,7 +574,7 @@ class _ShellState extends State<_Shell> {
       _domain = d;
       _rev++;
     });
-    Prefs.setInt(Prefs.shellTab, d.index);
+    Prefs.setInt(Prefs.shellTabV2, d.index);
   }
 
   @override
@@ -605,14 +595,13 @@ class _ShellState extends State<_Shell> {
       banner: live ? const _LiveSessionBar() : null,
       onSelect: (d) {
         _domain = d;
-        Prefs.setInt(Prefs.shellTab, d.index);
+        Prefs.setInt(Prefs.shellTabV2, d.index);
       },
       builder: (c, d) => switch (d) {
-        ShellDomain.home => const HomeScreen(),
+        ShellDomain.today => const HomeScreen(),
+        ShellDomain.sleep => const SleepTab(),
+        ShellDomain.activity => const WorkoutScreen(),
         ShellDomain.health => const HealthScreen(),
-        ShellDomain.nutrition => const NutritionScreen(),
-        ShellDomain.workout => const WorkoutScreen(),
-        ShellDomain.wellness => const WellnessScreen(),
       },
     );
   }

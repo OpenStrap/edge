@@ -1,27 +1,27 @@
 import '../../l10n/display_text.dart';
 // THE MONTH AS THREE STRIPS — sleep, recovery, strain, one cell per day.
 //
-// A shade is not a score. Every cell is the day's place in THIS PERSON'S OWN
-// range — the 10th to 90th percentile of every day they have stored for that
-// metric — and nothing here is compared to a population, a target, or anybody
-// else. A darker strain cell is a bigger day, not a better one; a darker sleep
-// cell is a longer night, not a healthier one. The footnote says so, because a
-// grid is the surface a reader is most likely to read a verdict into.
+// A cell says where a day sat against THIS PERSON'S OWN usual range: inside
+// it, below it or above it. It is the same range the trend charts draw as a
+// band (`usualRangeFor`), so a day "above usual" on the metric screen is above
+// usual here too. Nothing is compared to a population, a target or anybody
+// else.
 //
-// ABSENCE IS AN OUTLINE, and that rule was already solved: `HeatMap` draws a
-// null as a stroked cell rather than a faint fill, because a faint fill and a
-// genuinely low value measured 1.00:1 against each other. A day the band was
-// off must never look like a bad day.
+// DIRECTION IS PER METRIC. A short night is worse than usual, a low recovery is
+// worse than usual, and a big strain day is neither: strain has no better side,
+// so its outside days take the metric's own colour and no verdict. Colour is
+// never the only channel: an above-range cell carries a bar on its top edge and
+// a below-range cell on its bottom edge.
 //
-// A METRIC WITH NO RANGE IS NOT SHADED AT ALL. Placing a day inside a
-// distribution built from nine other days is a shade with nothing behind it, so
-// a metric under [kGridMinHistory] days is left out of the picture entirely and
-// says why in words. It does not get a paler version of the same claim.
+// ABSENCE IS AN OUTLINE. A day the band was off must never look like a bad day.
 //
-// AND THERE IS NO STREAK IN HERE. A month grid is the classic place one gets
-// in — a run of filled cells is exactly the shape a streak wants to be — so
-// the only count on the page is "N of 30 days", which cannot reset to zero and
-// does not pay more for consecutive days than for scattered ones.
+// A METRIC WITH NO RANGE IS NOT COLOURED AT ALL. Under [kGridMinHistory] days
+// there is no usual range to place a day against, so the row is left out of
+// the picture and says why in words.
+//
+// AND THERE IS NO STREAK IN HERE. The only count on the page is "N of 30
+// days", which cannot reset to zero and does not pay more for consecutive days
+// than for scattered ones.
 
 import 'package:flutter/material.dart';
 
@@ -34,80 +34,70 @@ import 'metric_detail.dart' show MetricSpec, specOf;
 /// Days on screen. One month, and the same window every trend card uses.
 const int kGridDays = 30;
 
-/// Days of the user's OWN history needed before a cell may be shaded. Below
-/// this there is no personal range to place a day inside, and inventing one is
-/// the thing this file exists to not do.
-const int kGridMinHistory = 14;
+/// Days of the user's OWN history needed before a cell may be coloured: the
+/// newest day plus the [kUsualMinDays] before it that the range is built on.
+const int kGridMinHistory = kUsualMinDays + 1;
 
 /// The three domains, in the order a day is lived: the night, what it left you
 /// with, what you spent. Keys are `specOf`'s, so the colour, the title and the
 /// chart alias all come from the one place that already owns them.
 const List<String> kGridMetrics = ['sleep', 'readiness', 'strain'];
 
-/// One domain's month: the 30 cells, and whether they may be shaded at all.
+/// One domain's month: the 30 cells, and whether they may be coloured at all.
 @immutable
 class GridRow {
   const GridRow({
     required this.spec,
+    required this.key,
     required this.cells,
     required this.have,
     required this.historyDays,
+    required this.ranged,
   });
 
   final MetricSpec spec;
+  final String key;
 
-  /// 0…1 per day, oldest first, null for a day with no stored value. Already
-  /// mapped through [shadeCells] — a painter never sees a raw value.
-  final List<double?> cells;
+  /// Per day, oldest first: where the day sat against the usual range, or null
+  /// for a day with no value or a row with no range.
+  final List<Side?> cells;
 
   /// Days in the window that have a value. NOT a streak: see the file header.
   final int have;
 
-  /// Days of stored history the shading was built from.
+  /// Days of stored history the range was built from.
   final int historyDays;
 
-  bool get shaded => historyDays >= kGridMinHistory;
+  /// Whether there is a usual range to place a day against at all.
+  final bool ranged;
+
+  /// Coloured only with enough history AND a range. A long history with no
+  /// value this month still has a range (its cells are outlines); a flat one
+  /// has none.
+  bool get shaded => ranged && historyDays >= kGridMinHistory;
+
+  /// Null for a metric with no better side.
+  bool? get higherBetter =>
+      betterDirection(key, higherBetter: spec.higherBetter);
 }
 
-/// Percentile by nearest rank over a sorted list. The same reduction the
-/// nightly sweep reads its "usually X–Y" band off, so the two surfaces cannot
-/// disagree about what this person's ordinary looks like.
-double _percentile(List<double> sorted, double q) =>
-    sorted[((sorted.length - 1) * q).round()];
-
-/// The day → shade map. PURE.
-///
-/// [history] is every value this person has stored for the metric — not just
-/// the window, because a month shaded against itself makes the best day of a
-/// bad month look like a good one. Returns nulls unchanged: a day with no
-/// value has no place in a distribution.
-///
-/// Clamped at the 10th and 90th percentile rather than min and max, so one
-/// four-hour night does not compress every other night into the same shade.
-List<double?> shadeCells(List<double?> window, List<double> history) {
-  if (history.length < kGridMinHistory) return List<double?>.filled(window.length, null);
-  final sorted = [...history]..sort();
-  final lo = _percentile(sorted, .1), hi = _percentile(sorted, .9);
-  // A flat history has no inside to place a day in. Everything measured reads
-  // as the middle, which is true: none of these days differ from each other.
-  if (!(hi > lo)) {
-    return [for (final v in window) v == null ? null : .5];
-  }
-  return [
-    for (final v in window)
-      if (v == null) null else ((v - lo) / (hi - lo)).clamp(0.0, 1.0),
-  ];
-}
+/// The day → side map. PURE. No range, no sides.
+List<Side?> sideCells(List<double?> window, UsualRange? band) => [
+      for (final v in window) band == null || v == null ? null : band.side(v),
+    ];
 
 /// Build one domain's row from its stored points.
 GridRow gridRow(String key, List<ChartPoint> points) {
   final window = denseDays(points, kGridDays);
   final history = [for (final p in points) p.v];
+  final band = usualRangeFor(key, history, null);
   return GridRow(
     spec: specOf(key),
-    cells: shadeCells(window, history),
+    key: key,
+    cells: sideCells(window, band),
     have: window.where((v) => v != null).length,
     historyDays: history.length,
+    ranged: band != null,
   );
 }
 
@@ -123,6 +113,54 @@ Future<List<GridRow>> loadGridRows(LocalRepository repo) async {
   return out;
 }
 
+/// A cell's fill: usual is a quiet neutral, outside is good/bad by the row's
+/// direction, or the metric's own colour when it has none.
+Color _cellInk(P p, GridRow r, Side s) {
+  if (s == Side.inside) return p.ink3.withValues(alpha: .35);
+  final good = sideIsGood(s, higherBetter: r.higherBetter);
+  return p.on(good == null ? r.spec.color : (good ? C.green : C.orange));
+}
+
+/// One row of cells. Above-range cells carry a bar on the top edge and
+/// below-range cells on the bottom edge, so the direction survives any
+/// palette and any colour vision.
+class _SideStrip extends CustomPainter {
+  _SideStrip(this.cells, this.ink, this.track, this.mark);
+
+  final List<Side?> cells;
+  final Color Function(Side) ink;
+  final Color track, mark;
+
+  @override
+  void paint(Canvas cv, Size s) {
+    if (cells.isEmpty) return;
+    final cw = s.width / cells.length;
+    for (var i = 0; i < cells.length; i++) {
+      final v = cells[i];
+      final r = Rect.fromLTWH(i * cw + 1, 1, cw - 2.5, s.height - 2.5);
+      final rr = RRect.fromRectAndRadius(r, const Radius.circular(2));
+      if (v == null) {
+        cv.drawRRect(
+            rr,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1
+              ..color = track);
+        continue;
+      }
+      cv.drawRRect(rr, Paint()..color = ink(v));
+      if (v != Side.inside) {
+        final y = v == Side.above ? r.top : r.bottom - 3;
+        cv.drawRect(Rect.fromLTWH(r.left, y, r.width, 3), Paint()..color = mark);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SideStrip o) =>
+      o.cells != cells || o.track != track || o.mark != mark;
+}
+
 /// The picture. Three strips, each labelled above itself rather than beside
 /// itself: a label column has to agree with the row height, and at 3.1x text
 /// it cannot.
@@ -130,6 +168,22 @@ class MonthGrid extends StatelessWidget {
   const MonthGrid(this.rows, {super.key});
 
   final List<GridRow> rows;
+
+  Widget _key(P p, Color ink, String label) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: ink,
+              border: Border.all(color: p.line, width: .5),
+            ),
+          ),
+          const SizedBox(width: S.x1),
+          Flexible(child: Text(label, style: F.over.copyWith(color: p.ink2))),
+        ],
+      );
 
   @override
   Widget build(BuildContext c) {
@@ -185,22 +239,26 @@ class MonthGrid extends StatelessWidget {
                           ),
                   ),
                   Semantics(
-                    label:
-                        l?.monthGridSemanticsLabel(
+                    label: l?.monthGridRowSemantics(
                           uiText(c, r.spec.title),
                           r.have,
                           kGridDays,
+                          r.cells.where((s) => s == Side.below).length,
+                          r.cells.where((s) => s == Side.above).length,
                         ) ??
-                        '${r.spec.title}: ${r.have} of $kGridDays days have '
-                            'a value. Shaded against your own range.',
+                        '${r.spec.title}: ${r.have} of $kGridDays days have a '
+                            'value. ${r.cells.where((s) => s == Side.below).length} '
+                            'below and ${r.cells.where((s) => s == Side.above).length} '
+                            'above your usual range.',
                     child: SizedBox(
                       height: 22,
                       child: CustomPaint(
                         size: Size.infinite,
-                        painter: HeatMap(
-                          [for (final v in r.cells) [v]],
-                          p.on(r.spec.color),
+                        painter: _SideStrip(
+                          r.cells,
+                          (s) => _cellInk(p, r, s),
                           p.line,
+                          p.ink,
                         ),
                       ),
                     ),
@@ -228,13 +286,30 @@ class MonthGrid extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: S.x3),
+                ExcludeSemantics(
+                  child: Wrap(
+                    spacing: S.x3,
+                    runSpacing: S.x1,
+                    children: [
+                      _key(p, p.ink3.withValues(alpha: .35),
+                          l?.monthGridLegendUsual ?? 'Usual for you'),
+                      if (shaded.any((r) => r.higherBetter != null)) ...[
+                        _key(p, p.on(C.green),
+                            l?.monthGridLegendBetter ?? 'Better than usual'),
+                        _key(p, p.on(C.orange),
+                            l?.monthGridLegendWorse ?? 'Worse than usual'),
+                      ],
+                      for (final r in shaded)
+                        if (r.higherBetter == null)
+                          _key(p, p.on(r.spec.color),
+                              '${uiText(c, r.spec.title)}: ${l?.monthGridLegendOutside ?? 'Outside your usual range'}'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: S.x2),
                 Text(
-                  l?.monthGridFootnote ??
-                      'One cell per day. Darker is further up YOUR own range — the '
-                      '10th to 90th percentile of every day you have stored — and '
-                      'an outlined cell is a day with no value, not a low one. '
-                      'More strain is not better strain and longer sleep is not '
-                      'healthier sleep; this says where a day sat, not how it went.',
+                  l?.monthGridRangeFootnote ??
+                      'One cell per day. A bar at the top means above your usual range, at the bottom below it. An outlined cell has no value.',
                   style: F.over.copyWith(color: p.ink3, height: 1.5),
                 ),
               ],
@@ -244,12 +319,14 @@ class MonthGrid extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: S.x3),
             child: StatusCard(
-              l?.monthGridNotShadedYetTitle(uiText(c, r.spec.title)) ??
-                  '${r.spec.title} is not shaded yet',
-              l?.monthGridNotShadedYetBody(r.historyDays, kGridMinHistory) ??
-                  'A shade is where a day sits in your own range, and '
-                      '${r.historyDays} day${r.historyDays == 1 ? '' : 's'} is not '
-                      'a range. It appears at $kGridMinHistory.',
+              l?.monthGridNoRangeTitle(uiText(c, r.spec.title)) ??
+                  '${r.spec.title}: no usual range yet',
+              // The same words, and the same count, as every trend card.
+              r.historyDays < kGridMinHistory
+                  ? usualNeedsDaysText(l, r.historyDays)
+                  : (l?.monthGridFlatBody ??
+                      'Your days have all been about the same, so there is '
+                          'no usual range to place a day against yet.'),
             ),
           ),
       ],

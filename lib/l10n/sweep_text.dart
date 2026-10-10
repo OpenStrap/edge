@@ -11,7 +11,7 @@ String sweepText(AppLocalizations? l, String text) {
       'resting heart rate',
       'sleep efficiency',
       'time asleep',
-      'readiness',
+      'recovery',
       'strain',
       'steps',
       'HRV',

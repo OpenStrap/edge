@@ -202,10 +202,7 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
             // open this file without the passphrase, including us, because
             // there is no account and no server holding a key.
             ? (l?.welcomePassphraseCreateNote ??
-                'The file is unreadable without it. And a forgotten passphrase '
-                    'means that backup is gone — there is no recovery, because '
-                    'there is no account and no server holding a key. That is the '
-                    'same thing that keeps it private.')
+                'The file can’t be opened without it. There is no account or server holding a copy, so a forgotten passphrase means the backup is lost.')
             : (l?.welcomePassphraseOpenNote ??
                 'The one you chose when this backup was written.')),
         const SizedBox(height: S.x4),
@@ -603,15 +600,20 @@ class WelcomeView extends StatelessWidget {
                 color: C.green,
                 onTap: busy ? null : onNew),
             const SizedBox(height: S.x3),
-            BigButton(
-                busy
+            // One primary path. Importing first is a real choice but a rarer
+            // one, so it is a text link rather than a second button of equal
+            // weight beside "Set up my band".
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: busy ? null : onImport,
+                icon: const Icon(LucideIcons.upload, size: 16),
+                label: Text(busy
                     ? (l?.welcomeImporting ?? 'Importing…')
-                    : (l?.welcomeBringMyHistoryFirst ?? 'Bring my history first'),
-                icon: LucideIcons.upload,
-                color: C.blue,
-                soft: true,
-                onTap: busy ? null : onImport),
-            const SizedBox(height: S.x3),
+                    : (l?.welcomeBringMyHistoryFirst ??
+                        'Bring my history first')),
+              ),
+            ),
             Text(
               // Was: "imported days are marked as imported — they are never
               // mixed into days this app measured itself". There is no source
@@ -620,11 +622,7 @@ class WelcomeView extends StatelessWidget {
               // the same rolling baselines. What IS true is the half that
               // protects data: no import overwrites a day this band measured.
               l?.welcomeImportFooterNote ??
-                  'Raw sensor exports, an OpenStrap backup (encrypted or not), '
-                      'or a vendor CSV. '
-                      'Imported days sit alongside days this app measured and feed '
-                      'the same baselines — but a day the band already measured is '
-                      'never overwritten.',
+                  'A sensor export, an OpenStrap backup or a vendor CSV. Imported days count toward your usual range, and never overwrite a day the band measured.',
               style: F.cap.copyWith(color: p.ink3),
             ),
             if (busy) ...[
@@ -786,10 +784,7 @@ class ImportReport extends StatelessWidget {
           l?.welcomeSummariesDidNotTitle ??
               'The days landed, the summaries did not',
           l?.welcomeSummariesDidNotBody('${o.rollupError}') ??
-              'Every imported row is in the database, but rebuilding the cross-day '
-                  'summaries over them threw (${o.rollupError}), so trends and '
-                  'insights still describe the data you had before. Re-analyze '
-                  'everything from Your data rebuilds them.',
+              'Every imported row is saved, but updating your trends failed (${o.rollupError}). To fix it, open Your data and tap Re-analyze everything.',
           icon: LucideIcons.triangleAlert,
         ),
       ],
@@ -832,10 +827,9 @@ class ImportReport extends StatelessWidget {
 String _archiveSkipped(ImportOutcome o, AppLocalizations? l) {
   final n = o.archiveBucketsSkipped;
   return l?.welcomeArchiveSkipped(n) ??
-      '$n day${n == 1 ? '' : 's'} of stored raw sensor history could not be '
-          'merged, because this version cannot read ${n == 1 ? 'its' : 'their'} '
-          'format. Update the app and import the backup again to bring '
-          '${n == 1 ? 'it' : 'them'} in.';
+      '$n day${n == 1 ? '' : 's'} of saved sensor history '
+          '${n == 1 ? 'is' : 'are'} in a format this version can’t read. '
+          'Update the app, then import the backup again.';
 }
 
 /// The first few refusals, with a count for the rest. Six is where a

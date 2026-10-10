@@ -144,16 +144,15 @@ class _PhoneImportState extends State<PhoneImport> {
     if (state == null) {
       return (
         l?.phoneImportRhrNothingUsable ??
-            'Nothing usable came back. A store with no resting heart rate in it, '
-                'or too few days to describe a range, cannot become a baseline.',
+            'Nothing usable came back. It needs resting heart rate over enough days to show your usual range.',
         true,
       );
     }
     if (mounted) setState(() => _seed = state);
     return (
       l?.phoneImportRhrSeeded(state.nValid) ??
-          '${state.nValid} day${state.nValid == 1 ? '' : 's'} folded into a shadow '
-              'baseline. No day was added to any chart.',
+          '${state.nValid} day${state.nValid == 1 ? '' : 's'} added to your '
+              'usual range. No day was added to any chart.',
       false,
     );
   }
@@ -227,11 +226,7 @@ class _PhoneImportState extends State<PhoneImport> {
                             // can never be a chart value — another device's
                             // resting HR is on another device's scale.
                             l?.phoneImportRhrLimit ??
-                                'Nothing uses it yet. It waits until the band has '
-                                    'measured 14 of its own nights, then gets compared '
-                                    'against them below. It never becomes a reading of '
-                                    'its own: no night on the sleep chart, no day with '
-                                    'a score.',
+                                'Not used yet. Once the band has 14 nights of its own, it is compared with them below. It never becomes a reading of its own.',
                             style: F.cap.copyWith(color: p.ink3, height: 1.5),
                           ),
                           const SizedBox(height: S.x4),
@@ -289,9 +284,8 @@ class _PhoneImportState extends State<PhoneImport> {
                               '$storeName puts your resting heart rate '
                                   '${cmp.deltaBpm.abs().toStringAsFixed(1)} bpm '
                                   '${cmp.deltaBpm > 0 ? 'higher' : 'lower'} than '
-                                  'this band measures it over '
-                                  '${cmp.bandNights} nights. They are not describing '
-                                  'the same thing, so it stays unused.')
+                                  'this band over ${cmp.bandNights} nights. They '
+                                  'measure different things, so it stays unused.')
                           : (l?.phoneImportAgreeBody(
                                   cmp.bandNights,
                                   cmp.deltaBpm.abs().toStringAsFixed(1),
@@ -315,10 +309,7 @@ class _PhoneImportState extends State<PhoneImport> {
                         children: [
                           Text(
                             l?.phoneImportMeasuredElsewhereBody ??
-                                'A cuff, a glucose meter, a thermometer. This band '
-                                    'cannot measure any of them, which is the entire '
-                                    'reason they are worth showing — and why the app '
-                                    'that recorded each reading is named beside it.',
+                                'A cuff, a glucose meter, a thermometer. The band can’t measure these, so each reading shows the app that recorded it.',
                             style: F.body.copyWith(color: p.ink2, height: 1.4),
                           ),
                           const SizedBox(height: S.x3),

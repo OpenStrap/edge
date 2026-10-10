@@ -250,7 +250,7 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          final nav = find.text('Самочувствие');
+          final nav = find.text('Активность');
           expect(nav, findsOneWidget);
           final paragraph = tester.renderObject<RenderParagraph>(nav);
           expect(paragraph.maxLines, isNull);

@@ -66,6 +66,9 @@ class LiveFeed {
   final String? zoneSource;
   final num? zoneMaxHr;
 
+  /// The five lower edges, in bpm, of that same set.
+  final List<num>? zoneLowerBpm;
+
   /// Per-minute mean heart rate for the session so far, DENSE — one slot per
   /// session minute, `null` where the band recorded nothing.
   ///
@@ -109,6 +112,7 @@ class LiveFeed {
     this.zoneMinutes = const [],
     this.zoneSource,
     this.zoneMaxHr,
+    this.zoneLowerBpm,
     this.hrCurve = const [],
     this.route = const [],
     this.gpsActive = false,
@@ -833,32 +837,18 @@ class LiveHeart extends StatelessWidget {
             // The zone's OWN colour, the one the bar underneath paints it in. A
             // fixed green said "zone 5" and "zone 1" in the same breath.
             Pill(l?.activityLiveZoneLabel(z) ?? 'Zone $z',
-                ZoneBar.pigment[(z - 1).clamp(0, 4)]),
+                ZoneRows.pigment[(z - 1).clamp(0, 4)]),
         ],
       ),
       if (feed.zoneMinutes.length == 5) ...[
         const SizedBox(height: S.x4),
-        ChartFrame(
-          title: l?.activityLiveTimeInZonesTitle ?? 'TIME IN ZONES',
-          unit: 'minutes',
-          height: 10,
-          legend: [
-            for (var i = 0; i < 5; i++)
-              ('Z${i + 1} · ${feed.zoneMinutes[i].round()}m', ZoneBar.cols(p)[i]),
-          ],
-          child: CustomPaint(
-              size: Size.infinite,
-              painter: ZoneBar(_fractions(feed.zoneMinutes), p)),
-        ),
+        ZoneRows(feed.zoneMinutes,
+            lowerBpm: feed.zoneLowerBpm,
+            title: l?.activityLiveTimeInZonesTitle ?? 'Time in zones'),
       ],
     ]);
   }
 
-  static List<double> _fractions(List<double> mins) {
-    final total = mins.fold<double>(0, (a, b) => a + b);
-    if (total <= 0) return const [0, 0, 0, 0, 0];
-    return [for (final m in mins) m / total];
-  }
 }
 
 /// Why this session is being recorded without a route, and the one thing that
@@ -1040,6 +1030,7 @@ ActivityResult _baseResult(
       zoneMinutes: feed.zoneMinutes,
       zoneSource: feed.zoneSource,
       zoneMaxHr: feed.zoneMaxHr,
+      zoneLowerBpm: feed.zoneLowerBpm,
       // The same count the live screen has printed all session, carried onto
       // the summary it hands over to. Null stays null: `stopWorkout` only banks
       // `sessions.steps` when there is one, so an unmeasured session reads the
@@ -1113,7 +1104,7 @@ class LiveMeasured extends StatelessWidget {
           if (f.route.length > 1) ...[
             const SizedBox(height: S.x5),
             ChartFrame(
-              title: l?.activityLiveRouteSoFarTitle ?? 'ROUTE SO FAR',
+              title: l?.activityLiveRouteSoFarTitle ?? 'Route so far',
               unit: _distanceUnit(ctx),
               height: 150,
               footnote: f.distanceKm == null
@@ -2026,24 +2017,23 @@ class _LiveSwimState extends State<LiveSwim> {
             final secs = lapSecs;
             if (secs.isEmpty) return const SizedBox.shrink();
             final fastest = secs.reduce((x, y) => x < y ? x : y);
-            return ChartFrame(
-              title: l?.activityLiveLapsChartTitle ?? 'LAPS',
-              unit: 'seconds per lap',
-              height: 20.0 * secs.length,
-              xLabels: [
-                l?.activityLiveLapXLabel(1) ?? 'Lap 1',
-                l?.activityLiveLapXLabel(secs.length) ?? 'Lap ${secs.length}',
-              ],
-              footnote: l?.activityLiveLapsFootnote(clock(fastest)) ??
-                  'Fastest ${clock(fastest)} · bar length is speed '
-                      'against it.',
-              child: CustomPaint(
-                  size: Size.infinite,
-                  painter: LapBars(
-                      [for (final t in secs) t <= 0 ? 1.0 : fastest / t],
-                      p.on(C.blue),
-                      p.track)),
-            );
+            return Column(
+                crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Semantics(
+                header: true,
+                child: Text(l?.activityLiveLapsChartTitle ?? 'Laps',
+                    style: F.cap.copyWith(
+                        color: p.ink, fontWeight: FontWeight.w600)),
+              ),
+              const SizedBox(height: S.x3),
+              LapRows(secs, C.blue),
+              const SizedBox(height: S.x3),
+              Text(
+                  l?.activityLiveLapsFootnote(clock(fastest)) ??
+                      'Fastest ${clock(fastest)} · bar length is speed '
+                          'against it.',
+                  style: F.cap.copyWith(color: p.ink3)),
+            ]);
           }),
           const SizedBox(height: S.x5),
           LiveHeart(f),

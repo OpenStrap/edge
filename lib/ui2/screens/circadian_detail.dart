@@ -273,7 +273,12 @@ String _shortDay(Object? day) {
 
 class CircadianDetail extends StatefulWidget {
   final CircadianData? data;
-  const CircadianDetail({super.key, this.data});
+
+  /// The research view: the sleep-by-hour grid, variability while still and
+  /// the predicted shape of today, reached from the Advanced screen. The
+  /// default view is the rhythm itself, in rows and words.
+  final bool advanced;
+  const CircadianDetail({super.key, this.data, this.advanced = false});
 
   @override
   State<CircadianDetail> createState() => _CircadianDetailState();
@@ -323,11 +328,17 @@ class _CircadianDetailState extends State<CircadianDetail> {
     final d = _d ?? const CircadianData();
     final drawn = d.actogram.where((e) => e != null).length;
 
-    return detailScaffold(c, l?.circadianDetailTitle ?? 'Body clock', [
+    final advanced = widget.advanced;
+    return detailScaffold(
+        c,
+        advanced
+            ? (l?.advancedRhythmTitle ?? 'Sleep timing and daily rhythm')
+            : (l?.circadianDetailTitle ?? 'Body clock'),
+        [
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
-      ] else ...[
+      ] else if (advanced) ...[
         if (drawn == 0)
           StatusCard(
             l?.circadianDetailNoNightsTitle ?? 'No nights to plot yet',
@@ -355,14 +366,19 @@ class _CircadianDetailState extends State<CircadianDetail> {
                   : [d.labels.first, d.labels.last],
               legend: [(l?.circadianDetailAsleep ?? 'Asleep', C.indigo)],
               footnote: l?.circadianDetailSleepFootnote(drawn) ??
-                  '$drawn night${drawn == 1 ? '' : 's'}, one column each. '
-                      'Darker is more of that hour asleep.',
+                  '$drawn night${drawn == 1 ? '' : 's'}, one column each, '
+                      'darker where more of that hour was asleep.',
               child: CustomPaint(
                 size: Size.infinite,
                 painter: Actogram(d.actogram, p.on(C.indigo)),
               ),
             ),
           ),
+        if (_forecast(c, p, d) case final f?)
+          Section(l?.circadianDetailTodayPredicted ?? 'Today, predicted', f),
+        Section(l?.circadianDetailWhenStill ?? 'When you are still',
+            _stillness(c, p, d)),
+      ] else ...[
 
         // SLP-08 rides in this section's action, so the screen gains a tap
         // rather than two permanent rows.
@@ -379,11 +395,6 @@ class _CircadianDetailState extends State<CircadianDetail> {
               : () => setState(() => _showNights = !_showNights),
         ),
 
-        // MIND-11 sits directly under the measured rhythm because it is built
-        // on it — and directly above the battery it borrows the acrophase from.
-        if (_forecast(c, p, d) case final f?)
-          Section(l?.circadianDetailTodayPredicted ?? 'Today, predicted', f),
-
         // COLLAPSED BY DEFAULT, and that is how the screen paid for the card
         // above. Interdaily stability, intradaily variability, relative
         // amplitude and an adjusted R² are density-3 numbers that were sitting
@@ -399,14 +410,6 @@ class _CircadianDetailState extends State<CircadianDetail> {
           onAction: () => setState(() => _showStrength = !_showStrength),
         ),
 
-        // The social-jetlag InsightCard that used to sit here restated three
-        // rows of the table above it as a sentence. Its one extra fact — the
-        // DIRECTION, which is the sign of free minus work and not the unsigned
-        // magnitude the card used to assert "later" from — is on the Social
-        // jetlag row itself now, and the night counts are beside it. One card
-        // off, so the hourly row below can go on.
-        Section(l?.circadianDetailWhenStill ?? 'When you are still',
-            _stillness(c, p, d)),
       ],
     ]);
   }
@@ -438,10 +441,9 @@ class _CircadianDetailState extends State<CircadianDetail> {
         d.hourlyNote?.isNotEmpty == true
             ? d.hourlyNote!
             : (l?.circadianDetailNoStillBody(d.hourlyDays) ??
-                'This reads beat timing only from the seconds you were not '
-                    'moving, and the last '
+                'This needs seconds when you were still, and the last '
                     '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'} had '
-                    'too few of them to build an hour from.'),
+                    'too few to fill an hour.'),
         icon: LucideIcons.activity,
       );
     }
@@ -468,12 +470,10 @@ class _CircadianDetailState extends State<CircadianDetail> {
         xLabels: [clock(0), clock(12 * 60), clock(23 * 60)],
         series: d.hourly,
         footnote: l?.circadianDetailStillnessFootnote(lo, hi, d.hourlyDays, drawn) ??
-            'Each hour is the middle value of $lo–$hi five-minute '
-                'stretches you were actually still, over the last '
-                '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'} — never '
-                'today\'s alone. $drawn of 24 hours had at least three '
-                'stretches; the rest are blank. Not a stress score — sitting '
-                'up, a warm room or a coffee move it just as much.',
+            'Each hour is the middle of $lo–$hi still five-minute '
+                'stretches over '
+                '${d.hourlyDays} day${d.hourlyDays == 1 ? '' : 's'}, and $drawn '
+                'of 24 hours had enough, so read it as stillness, not stress.',
         child: CustomPaint(
           size: Size.infinite,
           // Uncoloured. A hue here would be a verdict about an hour of your
@@ -542,9 +542,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
         ),
         const SizedBox(height: S.x3),
         Text(
-          '${l?.circadianDetailPredictionDisclaimer ?? 'This is a prediction, not a reading. Nothing on the band measures '
-              'how alert you are, and it knows last night and nothing else — a '
-              'nap, coffee, or anything that happens today never reaches it.'}'
+          '${l?.circadianDetailPredictionDisclaimer ?? 'A prediction, not a reading. It only knows last night; a nap, coffee or anything else today won’t change it.'}'
           '${assumedPhase ? ' ${l?.circadianDetailAssumedPhaseNote ?? 'Your own clock peak is not worked out yet, so this uses an average one.'}' : ''}',
           style: F.cap.copyWith(color: p.ink2, height: 1.6),
         ),
@@ -565,7 +563,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
     final showNights = _showNights && worst != null;
     final rows = <(String, String)>[
       if (d.chronotypeLabel.isNotEmpty)
-        (l?.circadianDetailChronotype ?? 'Chronotype', d.chronotypeLabel),
+        (l?.circadianDetailChronotype ?? 'Natural bedtime', d.chronotypeLabel),
       if (d.midFreeH != null)
         (l?.circadianDetailMidSleepFree ?? 'Mid-sleep, free days',
             _hourClock(d.midFreeH)),
@@ -577,7 +575,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
       // "later" read it off the magnitude.
       if (d.jetlag.value != null)
         (
-          l?.circadianDetailSocialJetlag ?? 'Social jetlag',
+          l?.circadianDetailSocialJetlag ?? 'Weekend shift',
           '${_hm(d.jetlag.value!)}'
               '${d.midFreeH == null || d.midWorkH == null ? '' : (d.midFreeH! >= d.midWorkH! ? ' ${l?.circadianDetailLater ?? 'later'}' : ' ${l?.circadianDetailEarlier ?? 'earlier'}')}',
         ),
@@ -585,7 +583,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
         (l?.circadianDetailNightsCompared ?? 'Free / working nights compared',
             '${d.nFree!.round()} / ${d.nWork!.round()}'),
       if (d.regularity.value != null)
-        (l?.circadianDetailRegularityIndex ?? 'Regularity index',
+        (l?.circadianDetailRegularityIndex ?? 'Schedule consistency',
             '${d.regularity.value!.round()} / 100'),
       // SLP-08 — the same arithmetic, one level down. The index above is the
       // average agreement across every adjacent pair of nights; these two rows
@@ -619,10 +617,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
       const SizedBox(height: S.x3),
       Text(
         l?.circadianDetailPairFootnote(d.sriPairs.length) ??
-            'The pair that matched least, out of ${d.sriPairs.length}. A '
-                'weekend that runs late is a different schedule, not a worse '
-                'night. Pairs where too little of either day was recorded '
-                'are left out.',
+            'The least alike pair, out of ${d.sriPairs.length}. A late weekend is a different schedule, not a worse night. Days with too little recording are left out.',
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),
     ]);
@@ -687,9 +682,8 @@ class _CircadianDetailState extends State<CircadianDetail> {
                     'your highest and lowest heart-rate hours, not your '
                     'busiest.')
             : (l?.circadianDetailStrengthFootnoteKnown(used) ??
-                'From $used fully-recorded day${used == 1 ? '' : 's'} of '
-                    'heart rate. These are your highest and lowest '
-                    'heart-rate hours, not your busiest.'),
+                'From $used fully recorded day${used == 1 ? '' : 's'}. Your '
+                    'highest and lowest heart-rate hours, not your busiest.'),
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),
     ]);

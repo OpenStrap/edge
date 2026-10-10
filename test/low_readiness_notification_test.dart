@@ -92,7 +92,7 @@ void main() {
     await seed(glassBox: 70, readiness: 20);
     await DerivationEngine().runNotificationsForTest();
     expect(shown, hasLength(1));
-    expect(shown.single.title, contains('readiness'));
+    expect(shown.single.title, contains('recovery'));
   });
 
   test('the morning pin wins over a drifted series value', () async {

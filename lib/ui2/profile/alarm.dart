@@ -307,10 +307,7 @@ class AlarmScreenView extends StatelessWidget {
                   StatusCard(
                     l?.alarmNotConnectedTitle ?? 'The band is not connected',
                     l?.alarmNotConnectedBody ??
-                        'Changing the schedule, testing and cancelling all '
-                            'write to the band, so they need a live '
-                            'connection. An alarm that is already armed is '
-                            'unaffected — it lives on the band.',
+                        'Changing, testing or cancelling the alarm needs a live connection. An alarm that is already set still works; it lives on the band.',
                     icon: LucideIcons.bluetoothOff,
                   )
                 else ...[
@@ -519,10 +516,7 @@ class AlarmScreenView extends StatelessWidget {
           'The write reached the band. Its confirmation usually arrives within '
               'a few seconds.',
       AlarmArmState.unknown => l?.alarmDetailUnknown ??
-          'The time above is what this app last sent. The band never confirmed '
-              'it — or it was set in an earlier run of the app, and there is no '
-              'way to ask the band what it is holding. Set it again while '
-              'connected if you need to be sure.',
+          'This is the time the app last sent, but the band never confirmed it. Set it again while connected if you need to be sure.',
       AlarmArmState.none => null,
     };
   }

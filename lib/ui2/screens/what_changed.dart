@@ -175,19 +175,17 @@ List<Widget> whatChangedBody(BuildContext c, WhatChangedData d) {
       StatusCard(
         l?.whatChangedNoDataTitle ?? 'Nothing has landed for this day yet',
         l?.whatChangedNoDataBody ??
-            'The sweep compares a day against the ones before it, and this day has '
-                'no value to compare. Nothing about it is unusual because nothing '
-                'about it is known.',
+            'This day has no values to compare with the days before it, so nothing can stand out.',
         icon: LucideIcons.circleSlash,
       )
     else if (d.findings.isEmpty && d.longestHistory < kSweepMinHistory) ...[
       StatusCard(
         l?.whatChangedLearningTitle ?? 'Still learning your usual',
         l?.whatChangedLearningBody(d.longestHistory, kSweepMinHistory) ??
-            'Unusual only means anything against a range, and there '
+            'Spotting the unusual needs a range first. There '
                 '${d.longestHistory == 1 ? 'is' : 'are'} ${d.longestHistory} '
-                'day${d.longestHistory == 1 ? '' : 's'} of history behind this '
-                'one. The sweep starts at $kSweepMinHistory.',
+                'day${d.longestHistory == 1 ? '' : 's'} of history so far; '
+                'checks start at $kSweepMinHistory.',
         icon: LucideIcons.hourglass,
       ),
     ] else if (d.findings.isEmpty)
@@ -223,9 +221,7 @@ List<Widget> whatChangedBody(BuildContext c, WhatChangedData d) {
       const SizedBox(height: S.x3),
       Text(
         l?.whatChangedMethodologyNote ??
-            'Measured against your own trailing days, in your own units, with the '
-            'window attached — so you can disbelieve it. Nothing here is a cause '
-            'and nothing here is a diagnosis.',
+            'Compared with your own recent days, in your own units, with the window shown. Nothing here is a cause or a diagnosis.',
         style: F.over.copyWith(color: p.ink3, height: 1.5),
       ),
     ],

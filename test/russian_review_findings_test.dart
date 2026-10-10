@@ -442,7 +442,7 @@ void main() {
     },
   );
 
-  testWidgets('Russian percentile numbers use the dative ordinal', (t) async {
+  testWidgets('Russian rank sentence carries the plain share', (t) async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     for (final n in [1, 2, 3, 11, 12, 21, 22, 23, 100]) {
       await t.pumpWidget(
@@ -459,7 +459,7 @@ void main() {
       );
       await t.pumpAndSettle();
       expect(
-        find.text(ru.metricDetailPercentileTodayNoBand('$n-му')),
+        find.text(ru.metricDetailRankToday(n)),
         findsOneWidget,
       );
       expect(t.takeException(), isNull);
@@ -497,19 +497,12 @@ void main() {
         }
         final expected = today
             ? (hasBand
-                  ? ru.metricDetailPercentileTodayBand('12-му', band)
-                  : ru.metricDetailPercentileTodayNoBand('12-му'))
+                  ? ru.metricDetailRankTodayBand(12, band)
+                  : ru.metricDetailRankToday(12))
             : (hasBand
-                  ? ru.metricDetailPercentileFromBand(
-                      axisDay(ts),
-                      '12-му',
-                      band,
-                    )
-                  : ru.metricDetailPercentileFromNoBand(axisDay(ts), '12-му'));
-        expect(
-          expected,
-          contains('соответствует 12-му процентилю вашей истории'),
-        );
+                  ? ru.metricDetailRankFromBand(axisDay(ts), 12, band)
+                  : ru.metricDetailRankFrom(axisDay(ts), 12));
+        expect(expected, contains('выше, чем в 12% ваших дней'));
         expect(find.text(expected), findsOneWidget);
         expect(t.takeException(), isNull);
       });
@@ -623,13 +616,20 @@ void main() {
       );
       await t.pumpAndSettle();
       for (final name in [
-        ru.homeDriverHrv,
-        ru.homeDriverRhr,
-        ru.homeDriverResp,
-        ru.homeDriverTemp,
+        ru.readinessDetailAskHrv,
+        ru.readinessDetailAskRhr,
+        ru.readinessDetailAskResp,
+        ru.readinessDetailAskTemp,
       ]) {
         expect(find.text(name), findsWidgets);
       }
+      // Every row is a question, so an input outside its range still answers.
+      expect(
+        find.textContaining(
+          '${ru.readinessDetailOutsideRange} · ${ru.readinessDetailLiftingScore}',
+        ),
+        findsNWidgets(4),
+      );
       expect(jsonEncode(rows), before);
       expect(t.takeException(), isNull);
     },

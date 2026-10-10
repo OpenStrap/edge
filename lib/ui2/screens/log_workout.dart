@@ -444,9 +444,7 @@ class _LogWorkoutState extends State<LogWorkout> {
                   StatusCard(
                     l?.logWorkoutScoredTitle ?? 'Scored from what the band recorded',
                     l?.logWorkoutScoredBody ??
-                        'Strain and calories come from the 1-second heart rate '
-                            'inside these times, through the same method the day '
-                            'uses. Nothing is estimated from the duration.',
+                        'Strain and calories come from your heart rate within these times, the same way the day is scored. Nothing is guessed from duration.',
                     icon: LucideIcons.heartPulse,
                   ),
                 const SizedBox(height: S.x4),

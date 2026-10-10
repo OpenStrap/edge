@@ -266,8 +266,7 @@ class _BeatsState extends State<Beats> {
           StatusCard(
             l?.beatsNoNightTitle ?? 'No night to draw yet',
             l?.beatsNoNightBody ??
-                'Nothing on this phone has produced a derived night, so '
-                    'there are no beat intervals to plot.',
+                'No night has been scored on this phone yet, so there are no heartbeats to plot.',
             fix: l?.beatsNoNightFix ?? 'Wear the band overnight, then sync',
             icon: LucideIcons.heartPulse,
           )
@@ -349,9 +348,9 @@ class _BeatsState extends State<Beats> {
             // trend this picture does not draw. The footnote below carries the
             // meaning instead, and the frame speaks it.
             footnote: l?.beatsScatterFootnote ??
-                'The diagonal is where a beat came out the same length '
-                    'as the one before it. Spread across that line is SD1, '
-                    'beat to beat; spread along it is SD2, the slower drift.',
+                'A point on the diagonal is a beat the same length as the one '
+                    'before it, and the wider the cloud across that line, the '
+                    'more your beats vary.',
             child: CustomPaint(
               size: Size.infinite,
               painter: Poincare(d.nn, p.on(C.green), axis: axis, grid: p.line),
@@ -408,8 +407,7 @@ class _BeatsState extends State<Beats> {
                 d.shape,
                 unit: l?.beatsUnitNights ?? 'nights',
                 why: l?.beatsVariabilityWhy ??
-                    'No half-hour bin of this night held enough clean beats '
-                        'to publish an RMSSD.') ??
+                    'No half-hour block of this night had enough clean beats to show HRV.') ??
             StatusCard(
                 l?.beatsVariabilitySection ?? 'Variability across the night',
                 l?.beatsNoBinsStored ?? 'No bins were stored for this night.'),
@@ -420,14 +418,13 @@ class _BeatsState extends State<Beats> {
       [for (final b in present) ...[b.lo ?? b.v!, b.hi ?? b.v!]],
       ticks: 3,
     )!;
-    final holes = d.bins.length - present.length;
 
     return Section(
       l?.beatsVariabilitySection ?? 'Variability across the night',
       Surface(
         child: Column(children: [
           ChartFrame(
-            title: l?.beatsRmssdTitle ?? 'RMSSD in half-hour bins',
+            title: l?.beatsRmssdTitle ?? 'HRV in half-hour blocks',
             unit: 'ms',
             height: 150,
             yAxis: axis,
@@ -438,14 +435,10 @@ class _BeatsState extends State<Beats> {
             // actually drawn is worse than none.
             xLabels: _nightHours(c, d),
             series: [for (final b in d.bins) b.v],
-            footnote:
-                '${l?.beatsBandFootnote ?? 'The bar is how sure we are of '
-                    'the bin, not a range your body passed through. The '
-                    'mark inside it is the value.'}'
-                '${holes == 0 ? '' : (l?.beatsHolesFootnote(holes) ?? ' $holes ${holes == 1 ? 'bin holds' : 'bins hold'} '
-                    'too few clean beats to publish one, and '
-                    '${holes == 1 ? 'is' : 'are'} left empty rather than '
-                    'joined across.')}',
+            footnote: l?.beatsBandFootnote ??
+                'Each bar is how sure we are of that block and the mark '
+                    'inside it is the value, with a blank where too few clean '
+                    'beats were left.',
             child: _NightBand(d.bins, axis,
                 color: p.on(C.green), empty: p.line),
           ),
@@ -541,14 +534,8 @@ class _BeatsState extends State<Beats> {
           _note(
             p,
             l?.beatsDcNote ??
-                'Yours only. Compare it against your own other nights and '
-                    'nothing else — there is no reference band for a '
-                    'wrist.\n\n'
-                    'It averages the beats around each moment your heart '
-                    'slowed. A rising line can be a cleaner signal rather '
-                    'than a different heart, so read it beside the anchor '
-                    'count and clean-beat share above. If you changed straps '
-                    'inside this window, the two halves do not compare.',
+                'Compare it only with your own nights, because a cleaner '
+                    'signal can raise it as much as a change in you.',
           ),
         ]),
       ),

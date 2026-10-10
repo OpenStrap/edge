@@ -23,6 +23,7 @@ import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/models/metric.dart';
+import 'package:openstrap_edge/ui2/profile/profile.dart' show ProfileAvatar;
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 import 'package:provider/provider.dart';
@@ -59,16 +60,26 @@ class _FakeRepo extends LocalRepository {
   /// day id -> the night `getDaySleepV2` serves for it.
   final Map<String, Map<String, dynamic>> nights;
 
+  /// The `baselines` block `getDayHeart` serves for today.
+  final Map<String, dynamic>? baselines;
+
+  /// metric -> the stored points `getChart` serves for it.
+  final Map<String, List<Map<String, num>>> charts;
+
   _FakeRepo(
       {this.insights = const {},
       this.days = const [],
       this.today = const {},
       this.daytimeHrv = const {},
-      this.nights = const {}});
+      this.nights = const {},
+      this.baselines,
+      this.charts = const {}});
 
   @override
-  Future<Map<String, dynamic>> getDayHeart(String date) async =>
-      {'daytime_hrv': ?daytimeHrv[date]};
+  Future<Map<String, dynamic>> getDayHeart(String date) async => {
+        'daytime_hrv': ?daytimeHrv[date],
+        if (date == _day(0)) 'baselines': ?baselines,
+      };
   @override
   Future<Map<String, dynamic>> getDaySleepV2(String date) async =>
       nights[date] ?? const {};
@@ -84,7 +95,7 @@ class _FakeRepo extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getChart(String metric,
           {int? from, int? to, Set<String> signals = const {}}) async =>
-      const {'points': []};
+      {'points': charts[metric] ?? const []};
   // Health reads the wear block for the night's off-wrist stretches and the
   // day's naps. Absent here on purpose: an empty map is "we never looked",
   // which is what a fake with no fixture is.
@@ -252,6 +263,37 @@ void main() {
       expect(d.insightsStale?['kind'], 'algo_version');
       expect(d.need.value, isNull);
     });
+
+    // The HRV and resting HR cards take their band from the pipeline's own
+    // baseline, read off getDayHeart, never from the chart. The chart below
+    // is flat at 50, so a priorTo band would say "Normal"; only the baseline
+    // (centre 60, spread 4: 55.0-65.0) says tonight's 50 is below usual.
+    testWidgets('HRV and resting HR are judged against the pipeline baseline',
+        (t) async {
+      List<Map<String, num>> flat(num v) => [
+            for (var i = 20; i >= 0; i--) {'t': _noon(i), 'v': v},
+          ];
+      final d = await t.runAsync(() => HealthData.load(_FakeRepo(
+            charts: {'hrv': flat(50), 'resting_hr': flat(50)},
+            baselines: const {
+              'hrv': {'baseline': 60, 'spread': 4, 'n_valid': 30},
+              'resting_hr': {'baseline': 60, 'spread': 4, 'n_valid': 30},
+            },
+          )));
+      expect(d!.baselines?['hrv'], isNotNull);
+      t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(body: HealthScreen(data: d, tab: 2)),
+      ));
+      await t.pumpAndSettle();
+      // Both cards read below: bad news for HRV, good news for resting HR.
+      expect(find.text('Below usual'), findsNWidgets(2));
+      expect(find.text('· −10 ms from your usual 60 ms'), findsOneWidget);
+      expect(find.text('· −10 bpm from your usual 60 bpm'), findsOneWidget);
+    });
   });
 
   // ── the caption and the number have to be the same subtraction ──
@@ -287,11 +329,21 @@ void main() {
       await t.pumpAndSettle();
     }
 
-    testWidgets('with no sleep need, the delta is vs the stored average',
+    testWidgets('with no sleep need, the verdict is against your usual range',
         (t) async {
-      await pump(t, sleepFixture());
-      expect(find.text('20m'), findsOneWidget); // 420 − 400
-      expect(find.text('vs your 28-day average'), findsOneWidget);
+      // 28 nights alternating 6h 30m / 6h 50m: usual 6h 40m, and tonight's
+      // 7h is above the band. Same subtraction as the words under it.
+      await pump(
+          t,
+          HealthData(charts: {
+            'sleep': [
+              for (var i = 28; i >= 1; i--)
+                (t: _noon(i), v: i.isEven ? 390.0 : 410.0),
+              (t: _noon(0), v: 420.0),
+            ],
+          }));
+      expect(find.text('Above usual'), findsOneWidget);
+      expect(find.text('· +20m from your usual 6h 40m'), findsOneWidget);
     });
 
     testWidgets('captioned "vs your need", the delta IS vs the need',
@@ -309,14 +361,19 @@ void main() {
       expect(find.text('vs your 7h 42m need'), findsOneWidget);
     });
 
-    testWidgets('the window says how many days it actually holds', (t) async {
-      // "vs your 28-day average" printed from the SECOND stored value.
+    testWidgets('under two weeks it abstains and says how many days it has',
+        (t) async {
+      // "vs your 28-day average" used to be printed from the SECOND stored
+      // value. Now there is no comparison at all until the range exists.
       await pump(
           t,
           HealthData(charts: {
             'sleep': [(t: _noon(1), v: 400.0), (t: _noon(0), v: 420.0)],
           }));
-      expect(find.text('vs your 1-day average'), findsOneWidget);
+      expect(
+          find.text('Your usual range appears after 14 days. 2 so far.'),
+          findsOneWidget);
+      expect(find.text('Above usual'), findsNothing);
     });
   });
 
@@ -388,7 +445,7 @@ void main() {
     // a first run and gets the first-run words.
     testWidgets('a genuine first run keeps its own card', (t) async {
       await t.pumpWidget(frame(const HomeData(dayId: '2026-05-20')));
-      expect(find.text('Nothing derived yet'), findsOneWidget);
+      expect(find.text('No nights scored yet'), findsOneWidget);
     });
 
     // A bare day during a live workout is missing COMPUTE, not data: the
@@ -458,7 +515,7 @@ void main() {
       // nights back under. Printing "1.3 deviations" without a direction read
       // as "above your baseline, 1.3 below it".
       await t.pumpWidget(frame(base.copyOrIllness('red', '2026-05-20', -1.3)));
-      expect(find.textContaining('1.3 standardised deviations below it'),
+      expect(find.textContaining('1.3× your normal night-to-night swing below it'),
           findsOneWidget);
     });
 
@@ -622,7 +679,7 @@ void main() {
                       unit: 'steps',
                       confidence: .9,
                       tier: MetricTier.high))));
-      expect(find.text('Readiness is not scored today'), findsOneWidget);
+      expect(find.text('Recovery is not scored today'), findsOneWidget);
       expect(find.text('See what was missing'), findsOneWidget);
     });
 
@@ -780,8 +837,8 @@ void main() {
     });
   });
 
-  // ── the sparkles button is not an advert for a feature you never set up ──
-  group('the AI button on Home', () {
+  // ── the coach is findable before it is set up ──
+  group('the coach chip on Today', () {
     Widget frame(bool configured) => MaterialApp(
         theme: buildTheme(Brightness.light),
         home: ChangeNotifierProvider<CoachConfig>.value(
@@ -790,18 +847,20 @@ void main() {
               body: HomeScreen(data: HomeData(dayId: '2026-05-20'), hour: 20)),
         ));
 
-    testWidgets('no model, no button', (t) async {
+    testWidgets('no model: the chip says what the coach is for', (t) async {
       await t.pumpWidget(frame(false));
-      expect(find.byIcon(LucideIcons.sparkles), findsNothing);
-      // The profile/settings button beside it is untouched — this is one
-      // button, not the row. (It's a gear, not an avatar — the profile photo
-      // was retired from this row; see home_screen's "Profile and settings".)
-      expect(find.byIcon(LucideIcons.settings), findsOneWidget);
+      expect(find.byIcon(LucideIcons.sparkles), findsOneWidget);
+      expect(find.text('Ask questions about your data: set up the coach'),
+          findsOneWidget);
+      // Profile is the avatar every tab carries, not a gear on Home.
+      expect(find.byType(ProfileAvatar), findsOneWidget);
+      expect(find.byIcon(LucideIcons.settings), findsNothing);
     });
 
-    testWidgets('a configured coach gets its button', (t) async {
+    testWidgets('a configured coach: the chip asks it', (t) async {
       await t.pumpWidget(frame(true));
       expect(find.byIcon(LucideIcons.sparkles), findsOneWidget);
+      expect(find.text('Ask the coach'), findsOneWidget);
     });
   });
 
@@ -1015,30 +1074,43 @@ void main() {
       t.view.physicalSize = const Size(390 * 3, 2600 * 3);
       t.view.devicePixelRatio = 3;
       addTearDown(t.view.reset);
+      final data = CircadianData(
+        hourly: [for (var h = 0; h < 24; h++) h.isEven ? 40.0 + h : null],
+        hourlyN: List<int>.filled(24, 5),
+        hourlyDays: 7,
+        jetlag: const Metric(value: 1.5, confidence: .6, tier: MetricTier.estimate),
+        midFreeH: 4.5,
+        midWorkH: 3.0,
+        nFree: 3,
+        nWork: 9,
+      );
+      // The hourly chart is a research view now, behind Advanced.
       await t.pumpWidget(MaterialApp(
         theme: buildTheme(Brightness.light),
-        home: CircadianDetail(
-            data: CircadianData(
-          hourly: [for (var h = 0; h < 24; h++) h.isEven ? 40.0 + h : null],
-          hourlyN: List<int>.filled(24, 5),
-          hourlyDays: 7,
-          jetlag: const Metric(value: 1.5, confidence: .6, tier: MetricTier.estimate),
-          midFreeH: 4.5,
-          midWorkH: 3.0,
-          nFree: 3,
-          nWork: 9,
-        )),
+        home: CircadianDetail(data: data),
       ));
       await t.pumpAndSettle();
-      expect(find.textContaining('Not a stress score'), findsOneWidget);
+      expect(find.textContaining('still five-minute stretches'), findsNothing);
+      expect(find.text('1h 30m later'), findsOneWidget);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: CircadianDetail(data: data, advanced: true),
+      ));
+      await t.pumpAndSettle();
+      expect(find.textContaining('not stress'), findsOneWidget);
       // How deep each drawn hour is, not just a grand total.
-      expect(find.textContaining('middle value of 5–5 five-minute stretches'),
+      expect(find.textContaining('middle of 5–5 still five-minute stretches'),
           findsOneWidget);
       expect(find.textContaining('12 of 24 hours'), findsOneWidget);
       // The InsightCard this section was paid for with is gone, and its one
       // extra fact — the DIRECTION, which is the sign of free minus work — is
       // on the row it belongs to.
       expect(find.textContaining('free-day clock runs'), findsNothing);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: CircadianDetail(data: data),
+      ));
+      await t.pumpAndSettle();
       expect(find.text('1h 30m later'), findsOneWidget);
       expect(find.text('3 / 9'), findsOneWidget);
     });
@@ -1070,7 +1142,7 @@ void main() {
     });
 
     Future<void> pumpC(WidgetTester t, CircadianData d,
-        {double scale = 1}) async {
+        {double scale = 1, bool advanced = true}) async {
       t.view.physicalSize = Size(390 * 3, 4000 * 3 * scale);
       t.view.devicePixelRatio = 3;
       addTearDown(t.view.reset);
@@ -1078,7 +1150,8 @@ void main() {
         data: MediaQueryData(textScaler: TextScaler.linear(scale)),
         child: MaterialApp(
           theme: buildTheme(Brightness.light),
-          home: CircadianDetail(data: d),
+          // The forecast is a research view, behind Advanced.
+          home: CircadianDetail(data: d, advanced: advanced),
         ),
       ));
       await t.pumpAndSettle();
@@ -1115,7 +1188,7 @@ void main() {
       expect(find.textContaining('not a fitness-to-drive check'), findsOneWidget);
       expect(find.textContaining('does not say you are impaired'),
           findsOneWidget);
-      expect(find.textContaining('a prediction, not a reading'), findsOneWidget);
+      expect(find.textContaining('A prediction, not a reading'), findsOneWidget);
     });
 
     testWidgets('the card survives 3.1x text', (t) async {
@@ -1137,7 +1210,8 @@ void main() {
           t,
           const CircadianData(
               rhythmV: {'IS': .62, 'IV': .81, 'RA': .74},
-              cosinorV: {'acrophase_hours': 15.2}));
+              cosinorV: {'acrophase_hours': 15.2}),
+          advanced: false);
       expect(find.text('Day-to-day stability'), findsNothing);
       await t.tap(find.text('Show'));
       await t.pumpAndSettle();
@@ -1293,7 +1367,7 @@ void main() {
       );
       await pumpR(t, d);
       // Density 2 is unchanged until it is asked for.
-      expect(find.text('Regularity index'), findsOneWidget);
+      expect(find.text('Schedule consistency'), findsOneWidget);
       expect(find.text('Nights least alike'), findsNothing);
 
       await t.tap(find.text('Which nights'));
@@ -1304,7 +1378,7 @@ void main() {
       // not a ranking of the user's weeks.
       expect(find.textContaining('14 Aug'), findsNothing);
       // The guard the item is mostly made of.
-      expect(find.textContaining('The pair that matched least'), findsOneWidget);
+      expect(find.textContaining('The least alike pair'), findsOneWidget);
       expect(find.textContaining('not a worse night'), findsOneWidget);
     });
 
@@ -1315,7 +1389,7 @@ void main() {
             regularity:
                 Metric(value: 62, confidence: .8, tier: MetricTier.high)),
       );
-      expect(find.text('Regularity index'), findsOneWidget);
+      expect(find.text('Schedule consistency'), findsOneWidget);
       expect(find.text('Which nights'), findsNothing);
     });
 
@@ -1380,28 +1454,19 @@ void main() {
       await t.pumpAndSettle();
     }
 
-    testWidgets('three lines on one axis — the band, not a line', (t) async {
+    testWidgets('the night shape is numbers here; the chart is on Beats',
+        (t) async {
       await pumpH(t, {'night_shape': shape()});
-      expect(find.text('Shape of the night'), findsOneWidget);
-      // The corridor is drawn as lo/hi/mid against ONE shared AxisSpec: an edge
-      // drawn off an axis fitted to the middle is a clipped edge.
-      final lines = t
-          .widgetList<CustomPaint>(find.byType(CustomPaint))
-          .map((w) => w.painter)
-          .whereType<LineChart>()
-          .where((l) => l.axis != null)
-          .toList();
-      expect(lines.length, greaterThanOrEqualTo(3));
-      expect(lines.map((l) => l.axis).toSet().length, 1);
-      // The band's edges set the scale, so the top edge is inside it.
-      expect(lines.first.axis!.max, greaterThanOrEqualTo(58.0));
-      // The legend names the outer pair as the estimator's spread, and the
-      // footnote refuses to explain the shape it just drew.
-      expect(find.text('Sampling range'), findsOneWidget);
-      expect(find.textContaining('describes the night and cannot explain it'),
-          findsOneWidget);
-      expect(find.textContaining('equally consistent with alcohol'),
-          findsOneWidget);
+      // The chart of the bins lives behind Advanced, on Beats, so it is drawn
+      // once in the app. Nerd stats keeps the table.
+      expect(find.text('Shape of the night'), findsNothing);
+      expect(
+          t
+              .widgetList<CustomPaint>(find.byType(CustomPaint))
+              .map((w) => w.painter)
+              .whereType<LineChart>()
+              .where((l) => l.axis != null),
+          isEmpty);
       // The ratio is a ratio. No adjective, no direction, no colour.
       expect(find.text('1.55'), findsOneWidget);
       expect(find.text('9 of 9'), findsOneWidget);
@@ -1411,20 +1476,9 @@ void main() {
       expect(find.textContaining('first bin'), findsNothing);
     });
 
-    testWidgets('a bin under the beat floor stays a hole', (t) async {
+    testWidgets('a bin under the beat floor is not counted as read', (t) async {
       await pumpH(t, {'night_shape': shape(gaps: {3, 4})});
       expect(find.text('7 of 9'), findsOneWidget);
-      expect(find.textContaining('gaps, not zeroes'), findsOneWidget);
-      // The painter is handed the nulls, not a compacted series — that is what
-      // makes it break the line across a charging gap instead of drawing over
-      // it.
-      final mid = t
-          .widgetList<CustomPaint>(find.byType(CustomPaint))
-          .map((w) => w.painter)
-          .whereType<LineChart>()
-          .firstWhere((l) => l.axis != null && l.d.length == 9);
-      expect(mid.d[3], isNull);
-      expect(mid.d.whereType<double>().length, 7);
     });
 
     testWidgets('an abstaining night quotes the estimator, not a guess',
@@ -1450,7 +1504,7 @@ void main() {
 
     testWidgets('the panel survives 3.1x text', (t) async {
       await pumpH(t, {'night_shape': shape()}, scale: 3.1);
-      expect(find.text('Shape of the night'), findsOneWidget);
+      expect(find.text('9 of 9'), findsOneWidget);
     });
   });
 

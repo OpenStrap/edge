@@ -510,10 +510,6 @@ class _InvestigateState extends State<Investigate> {
         (l?.investigateDcAnchors ?? 'DC anchors',
             dc['anchors'] == null ? '—' : thousands(dc['anchors'] as num)),
       ]),
-      if (d.dcPoints.isNotEmpty) ...[
-        const SizedBox(height: S.x3),
-        _dcTrend(c, d, beats),
-      ],
       if (d.rhythmPoints.isNotEmpty) ...[
         const SizedBox(height: S.x3),
         _rhythmStrip(c, d),
@@ -534,24 +530,8 @@ class _InvestigateState extends State<Investigate> {
     ];
   }
 
-  /// CV-06 — the shape of the night. Per-bin RMSSD across the sleep window.
-  ///
-  /// A BAND, NOT A LINE, and that is structural rather than styling. RMSSD off
-  /// a few hundred successive differences has real sampling spread, so the
-  /// analytics ships every bin as lo/point/hi and the chart draws the corridor:
-  /// three polylines on ONE shared axis — the two edges in `p.ink3` and the
-  /// estimate between them. A single line through the points would claim a
-  /// precision the beats do not carry, which is the whole reason the estimator
-  /// bothered to publish an interval.
-  ///
-  /// A bin under the beat floor is a HOLE in the series, not a dropped point:
-  /// `LineChart` breaks on a null, so a charging gap reads as a gap instead of
-  /// a flat stretch of low variability.
-  ///
-  /// IT DESCRIBES, IT NEVER ATTRIBUTES. A suppressed first third is equally
-  /// consistent with alcohol, a late meal, late training, a warm room, illness
-  /// onset, or nothing at all, and nothing in this pipeline can tell those
-  /// apart — so the footnote names all of them and the screen names none.
+  /// CV-06 — the shape of the night, as numbers. The chart of it lives on
+  /// Beats, behind the Advanced screen, so it is drawn once in the app.
   ///
   /// Deliberately NOT here: "time to the first bin within 10% of the night's
   /// max". It anchors on the noisiest statistic in the series and jumps by
@@ -564,7 +544,6 @@ class _InvestigateState extends State<Investigate> {
     // is right — there is nothing to explain about a night nobody measured it
     // for.
     if (raw is! Map) return const [];
-    final p = P.of(c);
     final v = envValue(raw);
     if (v == null) {
       // The estimator's own reason, VERBATIM — too few beats and a night too
@@ -593,76 +572,21 @@ class _InvestigateState extends State<Investigate> {
     if (bins.length < 3) return const [];
     List<double?> col(String k) =>
         [for (final b in bins) (b[k] as num?)?.toDouble()];
-    final mid = col('rmssd_ms'), lo = col('lo_ms'), hi = col('hi_ms');
+    final mid = col('rmssd_ms');
     final drawn = mid.where((e) => e != null).length;
     // Two bins is not a shape. The analytics already abstains per bin; this is
     // the whole-night version of the same floor.
     if (drawn < 3) return const [];
-    // ONE axis for all three polylines, spanning the band and not just the
-    // estimate — an edge drawn off an axis fitted to the middle is clipped.
-    final axis = AxisSpec.of([...lo, ...hi].whereType<double>(),
-        ticks: 3, floor: 0, format: axisInt);
-    if (axis == null) return const [];
-
     // Bin width, MEASURED off the bins rather than assumed to be 30 min: the
     // analytics takes it as a parameter and the IDEAS entry says to widen it if
     // real nights look wobbly.
     final t0 = (bins.first['t'] as num?)?.toDouble();
     final t1 = (bins[1]['t'] as num?)?.toDouble();
     final widthMin = (t0 == null || t1 == null) ? null : (t1 - t0) / 60;
-    // `t` is seconds from the FIRST BEAT; `origin_ms` is the wall clock that
-    // second zero sits at. Without it there is no clock to label, so the axis
-    // goes unlabelled rather than counting hours from an unstated start.
-    final origin = (raw['origin_ms'] as num?)?.toDouble();
-    String at(int i) {
-      final s = (bins[i]['t'] as num?)?.toDouble();
-      return (origin == null || s == null) ? '' : clockOfTs(origin / 1000 + s);
-    }
-
     String ms(Object? x) => x is num ? '${x.toStringAsFixed(1)} ms' : '—';
     final ratio = v['last_over_first'];
 
     return [
-      const SizedBox(height: S.x3),
-      Surface(
-        child: ChartFrame(
-          title: l?.investigateShapeOfTheNight ?? 'Shape of the night',
-          unit: 'ms',
-          height: 130,
-          yAxis: axis,
-          xLabels: origin == null ? const [] : [at(0), at(bins.length - 1)],
-          legend: [
-            (l?.investigateBinRmssd ?? 'Bin RMSSD', p.on(C.green)),
-            (l?.investigateSamplingRange ?? 'Sampling range', p.ink3),
-          ],
-          series: mid,
-          footnote: l?.investigateShapeFootnote(drawn, bins.length) ??
-              '$drawn of ${bins.length} bins carried enough beats to '
-              'read; the rest are gaps, not zeroes. The outer pair is the '
-              "estimator's own sampling spread, not a range you were in. This "
-              'describes the night and cannot explain it — a low first third '
-              'is equally consistent with alcohol, a late meal, late training, '
-              'a warm room, an illness starting, or nothing at all.',
-          child: Stack(children: [
-            Positioned.fill(
-              child: CustomPaint(
-                painter: LineChart(lo, p.ink3, fill: false, axis: axis),
-              ),
-            ),
-            Positioned.fill(
-              child: CustomPaint(
-                painter: LineChart(hi, p.ink3, fill: false, axis: axis),
-              ),
-            ),
-            Positioned.fill(
-              child: CustomPaint(
-                painter: LineChart(mid, p.on(C.green),
-                    fill: false, t: animate(c, 1), axis: axis),
-              ),
-            ),
-          ]),
-        ),
-      ),
       const SizedBox(height: S.x3),
       MonoTable(l?.investigateNightShape ?? 'Night shape', [
         (l?.investigateBinWidth ?? 'Bin width',
@@ -676,51 +600,6 @@ class _InvestigateState extends State<Investigate> {
             ratio is num ? ratio.toStringAsFixed(2) : '—'),
       ]),
     ];
-  }
-
-  /// CV-03 — deceleration capacity as a trend. UNCOLOURED, and that is the
-  /// whole design: DC has real outcome evidence behind it (Bauer 2006) and the
-  /// strata are ECG post-MI, while our beats are pulse arrivals. PRSA anchors
-  /// on decelerations, and pulse-arrival jitter attenuates DC by an amount that
-  /// varies with signal quality night to night — so a rising line can be a
-  /// cleaner-signal line. No colour, no threshold, no reference range, ever.
-  /// The beat count goes on the card because the artifact gate is load-bearing.
-  Widget _dcTrend(BuildContext c, InvestigateData d, Object? beats) {
-    final l = AppLocalizations.of(c);
-    final p = P.of(c);
-    final win = denseDays(d.dcPoints, 30);
-    final vals = [for (final v in win) ?v];
-    final axis = AxisSpec.of(vals, ticks: 3, format: axisFixed);
-    return Surface(
-      child: ChartFrame(
-        title: l?.investigateDecelerationCapacity ?? 'Deceleration capacity',
-        unit: 'ms',
-        height: 110,
-        yAxis: axis,
-        xLabels: [
-          l?.investigate29DaysAgo ?? '29 days ago',
-          l?.investigateToday ?? 'Today',
-        ],
-        series: win,
-        footnote: beats is num
-            ? (l?.investigateDcFootnoteWithBeats(thousands(beats)) ??
-                'Your own nights only — no reference range, and none exists '
-                    'for pulse arrivals. Night-to-night signal quality moves '
-                    'this line on its own, and last night was '
-                    '${thousands(beats)} beats.')
-            : (l?.investigateDcFootnote ??
-                'Your own nights only — no reference range, and none exists '
-                    'for pulse arrivals. Night-to-night signal quality moves '
-                    'this line on its own.'),
-        child: CustomPaint(
-          size: Size.infinite,
-          // p.ink3, not an accent. A colour here would be a verdict.
-          painter: LineChart(win, p.ink3,
-              fill: false, dots: true, dotInk: p.card, t: animate(c, 1),
-              axis: axis),
-        ),
-      ),
-    );
   }
 
   /// CV-10 — the irregular-rhythm SCREEN, night by night.

@@ -242,13 +242,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
                       child: Text(
                           a.met == null
                               ? (l?.activitySetupNoMetEstimate ??
-                                  'No estimate up front: no published MET '
-                                      'covers this activity. Calories come '
-                                      'from your heart rate instead — when '
-                                      'your age, '
-                                      'weight and sex are set, and your '
-                                      'resting and maximum rates are '
-                                      'measured rather than assumed.')
+                                  'No estimate up front: this activity has no published effort level. Calories come from heart rate once your profile and heart-rate range are known.')
                               : est == null
                                   ? (l?.activitySetupCaloriesNeedWeight ??
                                       'Calories need your weight.')
@@ -256,9 +250,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
                                           est,
                                           _estimateMin,
                                           a.met!.toStringAsFixed(1)) ??
-                                      'About $est kcal per $_estimateMin min, '
-                                          'from ${a.met!.toStringAsFixed(1)} '
-                                          'MET and your weight.'),
+                                      'About $est kcal per $_estimateMin min, from the activity\'s effort level (${a.met!.toStringAsFixed(1)}× resting) and your weight.'),
                           style: F.cap.copyWith(color: p.ink3, height: 1.5)),
                     ),
                   ]),

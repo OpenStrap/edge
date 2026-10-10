@@ -204,9 +204,8 @@ const _inputWhy = {
   // re-derive from, so the copy must not imply that wearing the band will
   // backfill it. 284 of whoop-5's 287 days are this.
   'imported_day':
-      'This day came from an imported export, which carries the night only — '
-          'nothing was recorded for the waking day, and there is no raw behind '
-          'it to work one out from.',
+      'This day came from an import that only covers the night, so there is '
+          'nothing recorded for the waking day.',
   'today_activity':
       'Today has not produced any activity to read yet — nothing has reached '
           'the app for it.',
@@ -220,10 +219,9 @@ const _inputWhy = {
   // there IS a held ceiling, it is on the screen with its date, and the card
   // would otherwise ask for the thing it is simultaneously showing.
   'maximal_effort':
-      'The highest heart rate held so far sits well below what your age '
-          'predicts, so it reads as an effort that was never maximal rather '
-          'than as your ceiling — the zones stay on the age estimate until the '
-          'band sees a harder one.',
+      'Your highest heart rate so far is well below what your age predicts, '
+          'so the zones stay on the age estimate until the band sees a harder '
+          'effort.',
   'resting_hr_days':
       'Not enough nights of resting heart rate behind the reserve yet.',
   'manual_zones':

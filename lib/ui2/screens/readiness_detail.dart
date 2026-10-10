@@ -12,6 +12,7 @@ import 'package:openstrap_analytics/onehz.dart' show readinessCompositeMinBaseli
 
 import '../../compute/onehz_pipeline.dart'
     show readinessInputShortfallNote, readinessUnstableBaselineNote;
+import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
@@ -129,6 +130,9 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
   ReadinessData? _d;
   bool _loading = true;
 
+  /// The history slot under the finger, or null.
+  int? _pick;
+
   @override
   void initState() {
     super.initState();
@@ -165,7 +169,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     // No date in the nav bar. It named the held-over night, and the headline
     // can no longer BE that night — a date up here now would be labelling
     // today's number with somebody else's day.
-    return detailScaffold(c, l?.readinessDetailTitle ?? 'Readiness', [
+    return detailScaffold(c, l?.readinessDetailTitle ?? 'Recovery', [
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
@@ -203,7 +207,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
             return Column(children: [
               StatusCard.forMetric(
                       l?.readinessDetailNotScoredTitle ??
-                          'Readiness is not scored',
+                          'Recovery is not scored',
                       d.readiness,
                       why: diagReason ?? '',
                       // Where the data stops, appended to whatever the
@@ -272,9 +276,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
             const SizedBox(height: S.x2),
             Text(
               l?.readinessDetailBreakdownNoScoreNote ??
-                  'These are a separate, looser-gated view of the same four '
-                      'inputs — they do not add up to today\'s score, which '
-                      'is absent above for the reason already given.',
+                  'A looser view of the same four inputs. They don’t add up to today’s score, which is missing for the reason above.',
               style: F.cap.copyWith(color: p.ink3, height: 1.5),
             ),
           ],
@@ -313,7 +315,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
           _historyTitle(c, d),
           !d.series.any((v) => v != null)
               ? StatusCard(
-                  l?.readinessDetailNoHistoryTitle ?? 'No readiness history',
+                  l?.readinessDetailNoHistoryTitle ?? 'No recovery history',
                   l?.readinessDetailNoHistoryBody ?? '0 days scored.',
                   fix: l?.readinessDetailWearOvernight ?? 'Wear the band overnight',
                   icon: LucideIcons.chartLine,
@@ -343,6 +345,9 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
             'Last $n day${n == 1 ? '' : 's'}');
   }
 
+  /// One bar a day, each in its own band's colour, the same colour the ring
+  /// uses for that score. It used to be one green line, so a "Rest today"
+  /// morning was red on the ring and green on its own history two cards down.
   Widget _history(BuildContext c, ReadinessData d) {
     final win = _window(d);
     // Readiness is a 0–100 score and the axis says so — auto-scaling turned a
@@ -350,26 +355,84 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     const axis = AxisSpec(min: 0, max: 100, ticks: 3, format: axisInt);
     final p = P.of(c);
     final l = AppLocalizations.of(c);
-    return ChartFrame(
-      title: l?.readinessDetailTitle ?? 'Readiness',
-      unit: l?.readinessDetailUnit ?? '/100',
-      height: 120,
-      yAxis: axis,
-      // Slot 0 is `length - 1` days behind today, not `length` — the last slot
-      // IS today. MetricDetail draws the same `recovery` series and already
-      // counts it this way; the two screens dated one chart differently.
-      xLabels: [
-        l?.readinessDetailDaysAgo(win.length - 1) ??
-            '${win.length - 1} day${win.length == 2 ? '' : 's'} ago',
-        l?.readinessDetailToday ?? 'Today',
-      ],
-      series: win,
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: LineChart(win, p.on(C.green), dots: false, t: animate(c, 1),
-            axis: axis),
+    final scored = [for (final v in win) ?v];
+    // "Steady" is the usual band; abstains under two weeks of scored days.
+    final band = usualRangeFor('readiness', scored, null);
+    final pick = _pick == null || _pick! >= win.length ? null : _pick;
+    final n = DateTime.now();
+    String dayOf(int i) => prettyDay(
+        dayLabelOf(DateTime(n.year, n.month, n.day - (win.length - 1 - i))), l);
+    String says(int i) {
+      final v = win[i];
+      if (v == null) {
+        return '${dayOf(i)} · ${l?.metricDetailNoRecordLabel ?? 'No record'}';
+      }
+      return '${dayOf(i)} · ${v.round()} · ${readinessBand(v, l).label}';
+    }
+
+    // A bar owns its whole column, so the finger picks the column it is in.
+    int slot(double v) => (v * win.length).floor().clamp(0, win.length - 1);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      ChartFrame(
+        title: l?.readinessDetailTitle ?? 'Recovery',
+        unit: l?.readinessDetailUnit ?? '/100',
+        height: 120,
+        yAxis: axis,
+        band: band,
+        // Slot 0 is `length - 1` days behind today, not `length` — the last
+        // slot IS today. MetricDetail draws the same `recovery` series and
+        // already counts it this way; the two screens dated one chart
+        // differently.
+        xLabels: [
+          l?.readinessDetailDaysAgo(win.length - 1) ??
+              '${win.length - 1} day${win.length == 2 ? '' : 's'} ago',
+          l?.readinessDetailToday ?? 'Today',
+        ],
+        series: win,
+        legend: [
+          // Steady is green on the ring too, so the green key names both:
+          // a 45 inside the band is not "Good to go".
+          (
+            '${l?.homeReadinessGoodToGo ?? 'Good to go'} / '
+                '${l?.homeReadinessSteady ?? 'Steady'}',
+            p.on(C.green)
+          ),
+          (l?.homeReadinessTakeItEasy ?? 'Take it easy', p.on(C.orange)),
+          (l?.homeReadinessRestToday ?? 'Rest today', p.on(C.red)),
+        ],
+        footnote: band == null ? usualNeedsDaysText(l, scored.length) : null,
+        child: win.length < 2
+            ? CustomPaint(
+                size: Size.infinite,
+                painter: Bars(win, p.on(C.green),
+                    t: animate(c, 1),
+                    axis: axis,
+                    colorOf: (v) => p.on(readinessBand(v, l).color)),
+              )
+            : Scrubber(
+                value: pick == null ? null : (pick + .5) / win.length,
+                step: 1 / win.length,
+                label: l?.readinessDetailTitle ?? 'Recovery',
+                describe: (v) => says(slot(v)),
+                onChanged: (v) => setState(() => _pick = slot(v)),
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: Bars(win, p.on(C.green),
+                      highlight: pick ?? -1,
+                      t: animate(c, 1),
+                      axis: axis,
+                      colorOf: (v) => p.on(readinessBand(v, l).color)),
+                ),
+              ),
       ),
-    );
+      if (pick != null) ...[
+        const SizedBox(height: S.x2),
+        ExcludeSemantics(
+          child: Text(says(pick),
+              style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+        ),
+      ],
+    ]);
   }
 
   /// The pipeline's own absence diagnostic, one row per input: did last night
@@ -475,7 +538,18 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     // printed a confident "0% weight" for a number nobody reported.
     final share = !used || raw == null || wsum <= 0 ? null : raw / wsum;
 
+    // The row is a question, so the answer comes first: yes inside the usual
+    // range (the smallest-worthwhile-change gate), no outside it, and which
+    // way it moved the score.
     final parts = [
+      if (used && !pastMdc)
+        l?.readinessDetailWithinSpread ?? 'yes, within your usual range',
+      if (used && pastMdc)
+        l?.readinessDetailOutsideRange ?? 'no, outside your usual range',
+      if (used && pastMdc && contribution != null)
+        contribution >= 0
+            ? (l?.readinessDetailLiftingScore ?? 'lifting your score')
+            : (l?.readinessDetailLoweringScore ?? 'pulling your score down'),
       if (share != null)
         l?.readinessDetailWeightPercent((share * 100).round()) ??
             '${(share * 100).round()}% weight',
@@ -486,10 +560,6 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       // temperature. It gets said, every time.
       if (key == 'temp')
         l?.readinessDetailRelativeUncalibrated ?? 'relative, uncalibrated',
-      // An unlabelled glyph is not an explanation. This is the
-      // smallest-worthwhile-change gate, so it says what it means.
-      if (used && !pastMdc)
-        l?.readinessDetailWithinSpread ?? 'within your usual spread',
     ];
 
     return Padding(
@@ -497,7 +567,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       child: Row(children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(driverLabel(key, l), style: F.body.copyWith(color: p.ink)),
+            Text(_ask(key, l), style: F.body.copyWith(color: p.ink)),
             Text(parts.join(' · '),
                 style: F.over.copyWith(color: p.ink3)),
           ]),
@@ -518,3 +588,16 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     );
   }
 }
+
+/// A breakdown row as the plain question it answers. An input the map does
+/// not cover keeps its name.
+String _ask(String key, AppLocalizations? l) => switch (key) {
+      'hrv' => l?.readinessDetailAskHrv ?? 'Is your HRV in its usual range?',
+      'rhr' => l?.readinessDetailAskRhr ??
+          'Is your resting heart rate in its usual range?',
+      'resp' => l?.readinessDetailAskResp ??
+          'Is your breathing rate in its usual range?',
+      'temp' => l?.readinessDetailAskTemp ??
+          'Is your skin temperature in its usual range?',
+      _ => driverLabel(key, l),
+    };

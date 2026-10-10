@@ -8,6 +8,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
@@ -73,7 +74,7 @@ void main() {
         effHistory: _flat(20, 91),
       ),
     );
-    expect(find.text('Time asleep'), findsOneWidget);
+    expect(find.text('Did you sleep enough?'), findsOneWidget);
     expect(find.textContaining('Typical for you'), findsWidgets);
   });
 
@@ -154,9 +155,11 @@ void main() {
       // No confidence published => the WIDEST interval, which is the honest
       // default: we do not know how well we saw the night, so we say least.
       // deep 80m, half-width 0.75x = 60m.
-      // Twice: the Stages row, and the header of the Deep comparison below it.
-      // Both had to move — one card showing a range while the other still
-      // showed a count is the contradiction this item exists to remove.
+      // Twice: the Stages row and the header of the Deep comparison below
+      // it. Both had to move — one card showing a range while another still
+      // showed a count is the contradiction this item exists to remove. Range
+      // totals are too wide to sit beside the lanes on a 390pt phone without
+      // starving the plot, so the hypnogram leaves them to the table.
       expect(find.text('20m–2h 20m'), findsNWidgets(2));
       // And the share column is gone with the count it was computed from.
       for (final share in const ['52%', '17%', '19%', '13%']) {
@@ -174,9 +177,11 @@ void main() {
       };
       await _pump(t,
           SleepData(day: '2026-05-20', night: n, tstHistory: _flat(20, 420)));
-      // Twice: the Stages row and the Deep comparison, both the count.
-      expect(find.text('1h 20m'), findsNWidgets(2));
-      expect(find.text('4h 10m'), findsOneWidget);
+      // Three times: the Deep lane, the Stages row and the Deep comparison,
+      // all the count.
+      expect(find.text('1h 20m'), findsNWidgets(3));
+      // Beside the Light lane and in the Stages row.
+      expect(find.text('4h 10m'), findsNWidgets(2));
       expect(find.textContaining('Each stage is a range'), findsNothing);
     });
 
@@ -275,6 +280,39 @@ void main() {
         scale: scale,
       );
       expect(find.text('Unusual on Wednesday, 20 May'), findsOneWidget);
+    });
+  }
+
+  // The lane names and totals sit beside the plot. Russian names and range
+  // totals are long, so on a narrow phone at large text they used to squeeze
+  // the hypnogram to a sliver or overflow the row outright.
+  for (final (lang, scale) in const [
+    ('ru', 1.0), ('ru', 1.3), ('ru', 3.1), ('en', 1.3),
+  ]) {
+    testWidgets('$lang at ${scale}x on a 360pt phone keeps the hypnogram wide',
+        (t) async {
+      t.view.physicalSize = Size(360 * 3, 5200 * 3 * scale);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        locale: Locale(lang),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        theme: buildTheme(Brightness.light),
+        builder: (c, child) => MediaQuery(
+          data: MediaQuery.of(c).copyWith(textScaler: TextScaler.linear(scale)),
+          child: child!,
+        ),
+        home: SleepDetail(data: SleepData(day: '2026-05-20', night: _night())),
+      ));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      final label = lang == 'ru' ? 'Гипнограмма' : 'Hypnogram';
+      final plot =
+          find.byWidgetPredicate((w) => w is Scrubber && w.label == label);
+      expect(plot, findsOneWidget);
+      // Over half of the 360pt screen, whatever the language or text size.
+      expect(t.getSize(plot).width, greaterThanOrEqualTo(180));
     });
   }
 
@@ -511,5 +549,26 @@ void main() {
     expect(find.text('Light').evaluate().length, light);
     expect(find.text('Deep').evaluate().length, deep);
     expect(find.text('REM'), findsNothing);
+  });
+
+  testWidgets('a night with nothing found offers "I was asleep" at 44 pt',
+      (t) async {
+    await _pump(t, const SleepData(day: '2026-05-20'));
+    expect(find.text('No night to show'), findsOneWidget);
+    final b = find.widgetWithText(TextButton, 'I was asleep');
+    expect(b, findsOneWidget);
+    expect(t.getSize(b).height, greaterThanOrEqualTo(44));
+    await t.tap(b);
+    await t.pumpAndSettle();
+    // The same pickers as "Change the times", seeded on the night before.
+    expect(find.text('WHEN YOU GOT INTO BED'), findsOneWidget);
+  });
+
+  testWidgets('a night marked not sleep offers undo, not "I was asleep"',
+      (t) async {
+    await _pump(t, const SleepData(
+        day: '2026-05-20', night: {'sleep_source': 'rejected'}));
+    expect(find.text('Marked as not sleep'), findsOneWidget);
+    expect(find.text('I was asleep'), findsNothing);
   });
 }

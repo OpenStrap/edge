@@ -331,9 +331,9 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
           : (l?.dayStepsNoStepsTitle(when) ?? 'No steps counted $when'),
       chip
           ? (l?.dayStepsStrapCounterBody(thousands(d.dayTotal), when) ??
-                'The ${thousands(d.dayTotal)} steps counted $when came from the '
-                    'strap\'s own step counter, which reports a running day total '
-                    'and no times. There is nothing to place on a clock.')
+                'The ${thousands(d.dayTotal)} steps $when came from the '
+                    'strap’s own counter, which didn’t keep times for this day, '
+                    'so they can’t go on a clock.')
           : whyFromNote(d.note, unit: 'days') ??
                 (l?.dayStepsNothingCounted(when) ??
                     'Nothing that can count steps recorded $when.'),
@@ -351,7 +351,7 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
       child: Column(
         children: [
           ChartFrame(
-            title: l?.dayStepsChartTitle ?? 'WHEN THEY WERE COUNTED',
+            title: l?.dayStepsChartTitle ?? 'When they were counted',
             unit: l?.dayStepsUnit ?? 'steps',
             height: 150,
             yAxis: axis,
@@ -426,10 +426,7 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
     final l = AppLocalizations.of(c);
     return d.mixed
         ? (l?.dayStepsHonestyMixed ??
-              'Counted at your wrist and by your phone, and the two miscount '
-                  'differently: a wrist reads a real walk low and can read rhythmic '
-                  'hand work as walking, while a phone counts only the steps you had '
-                  'it on you for.')
+              'Counted by your wrist and your phone. A wrist can read a walk low and hand work as walking; a phone only counts steps while you carry it.')
         : d.strap > 0
         ? (l?.dayStepsHonestyStrap ??
               'Counted at your wrist, where a real walk tends to read low and '

@@ -281,9 +281,7 @@ class PairingView extends StatelessWidget {
           'Nothing answered the scan. The band advertises only when it is '
               'awake and not already connected to another phone.',
       PairPhase.bondRefused => l?.pairingBondRefusedBody ??
-          'The link came up, but the band would not accept the encryption '
-              'key. That is almost always a stale pairing record on this '
-              'phone rather than a fault in the band.',
+          'The band connected but refused the encryption key. That usually means an old pairing record on this phone, not a fault in the band.',
       PairPhase.cancelled => l?.pairingCancelledBody ??
           'The system picker was dismissed before a band was chosen.',
       PairPhase.failed => l?.pairingFailedBody ??
@@ -326,9 +324,7 @@ class PairingView extends StatelessWidget {
             l?.pairingBondRefusedAdviceTitle ??
                 'Forget the band in Bluetooth settings first',
             l?.pairingBondRefusedAdviceBody ??
-                'Open the phone’s Bluetooth settings, forget the band, '
-                    'then scan again here. The refused key is the old pairing '
-                    'record, and only the system can clear it.',
+                'In the phone’s Bluetooth settings, forget the band, then scan again here. Only the system can clear the old pairing record.',
             fix: l?.pairingBondRefusedAdviceFix ?? 'Open Bluetooth settings',
             icon: LucideIcons.unlink,
           ),

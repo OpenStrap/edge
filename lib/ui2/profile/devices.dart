@@ -1302,7 +1302,7 @@ Future<void> showRestartRequiredSheet(BuildContext c) async {
         child: Text(
           uiText(
             c,
-            'iOS can only show the system pairing sheet before the app has used Bluetooth. Close OpenStrap completely, then reopen it — the sheet appears on its own.',
+            'iOS shows the pairing sheet only before the app has used Bluetooth. Close OpenStrap completely, then reopen it to see the sheet.',
           ),
           style: F.body.copyWith(color: p.ink),
         ),
@@ -2057,9 +2057,7 @@ Future<void> _confirmForgetSensor(BuildContext c, HealthSource s) async {
       ),
       content: Text(
         withIosUninstallWarning(c, l?.devicesForgetSensorBody ??
-            'It stops being used during workouts and has to be paired again. '
-                'Everything already banked on this phone is kept — this removes the '
-                'source, not the data.'),
+            'It stops being used in workouts and has to be paired again. Everything already saved on this phone stays.'),
       ),
       actions: [
         TextButton(
@@ -2166,9 +2164,7 @@ Future<void> _confirmForget(BuildContext c, AppState app, String name) async {
       title: Text(l?.devicesForgetBand(name) ?? 'Forget $name?'),
       content: Text(
         withIosUninstallWarning(c, l?.devicesForgetBandBody ??
-            'The band stops syncing and has to be paired again to measure '
-                'anything. Everything already banked on this phone is kept — this '
-                'removes the source, not the data.'),
+            'The band stops syncing until you pair it again. Everything already saved on this phone stays.'),
       ),
       actions: [
         TextButton(
@@ -2316,17 +2312,9 @@ class DeviceDetailView extends StatelessWidget {
                           l?.devicesWhatItDoes ?? 'What it does',
                           sub: s.tier == null
                               ? (l?.devicesWhatItDoesStored ??
-                                  'Everything it sends is stored and attributed '
-                                      'to it. Numbers worked out from it are '
-                                      'experimental, and off until it has been '
-                                      'checked against the hardware.')
+                                  'Everything it sends is saved under its name. Scores from it are experimental and off until it’s been checked against the hardware.')
                               : (l?.devicesWhatItDoesBeats ??
-                                  'Beat timing is stored and attributed to '
-                                      'it. It records while a workout runs, '
-                                      'and a few minutes after it ends. '
-                                      'Scoring a workout from it is '
-                                      'experimental, and off until checked '
-                                      'against the hardware.'),
+                                  'Heartbeat timing is saved under its name, during workouts and a few minutes after. Scoring workouts from it is experimental and off for now.'),
                           chevron: false),
                       Divider(color: p.line, height: 1),
                       SetRow(LucideIcons.refreshCw, C.purple,

@@ -426,7 +426,7 @@ Future<void> _toggleHealthShare(BuildContext c, AppState app) async {
       content: Text(
         l?.settingsHealthShareOnBody ??
             'Once a day, on Wi-Fi and while charging, a compressed copy of your '
-                'ENTIRE database is uploaded — every derived day and every raw sensor '
+                'ENTIRE database is uploaded — every day of scores and every raw sensor '
                 'row the band has sent. It is used to improve the algorithms.\n\n'
                 'It is not anonymous in any meaningful sense: it is your whole health '
                 'history. You can switch this off at any time, and nothing further '
@@ -463,7 +463,7 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
                 '· every measured day, sleep, workout and route\n'
                 '· every lab result, meal, medication dose, habit, breathing session '
                 'and logged set\n'
-                '· your journal, cycle log and rolling baselines\n'
+                '· your journal, cycle log and what the app has learned as your usual\n'
                 '· your profile, every preference and any stored AI key\n'
                 '· the home-screen widget and every scheduled reminder\n\n'
                 'Exported copies and backups in previous or unavailable folders '
@@ -667,24 +667,22 @@ class MoreSettingsView extends StatelessWidget {
                             'Zone $zoneAlertZone',
                         chevron: false,
                         onTap: onCycleZoneAlertZone),
+                  // The picker died with the old ui tree and the engine kept
+                  // running against a mapping nothing could set — the whole
+                  // feature was live code pinned at "do nothing".
+                  Builder(
+                      builder: (c) => SetRow(
+                          LucideIcons.hand, C.orange,
+                          AppLocalizations.of(c)?.settingsDoubleTapRowTitle ??
+                              'Double-tap',
+                          sub: AppLocalizations.of(c)
+                                  ?.settingsDoubleTapRowSub ??
+                              'What a double-tap on the band does',
+                          onTap: () => goto(c, const BandGestures()))),
                 ]),
-                // NOT in Preferences. Units and Appearance change how numbers
-                // are drawn; this one asks the OS for a sensor and decides
-                // where a measurement comes from. Its own group, next to the
-                // band, because the two together are the step ladder — the
-                // band covers the workout, the phone covers the rest — and
-                // "This phone" is what the sources screen already calls it.
-                settingsGroup(c, l?.settingsGroupThisPhone ?? 'This phone', [
-                  SetRow(LucideIcons.footprints, C.teal,
-                      l?.settingsStepsRowTitle ?? 'Steps',
-                      sub: l?.settingsStepsRowSub ??
-                          'This phone’s own step counter, for the hours the '
-                              'band doesn’t cover. Nothing leaves the device',
-                      value: phoneSteps ? on : off,
-                      onTap: onTogglePhoneSteps),
-                ]),
-                settingsGroup(
-                    c, l?.settingsGroupNotifications ?? 'Notifications', [
+                // Band, App, Data, Privacy, Advanced: named for what is in
+                // them, so nothing needs a sub-line listing its contents.
+                settingsGroup(c, l?.settingsGroupApp ?? 'App', [
                   SetRow(LucideIcons.bell, C.blue,
                       l?.settingsManageNotificationsRowTitle ??
                           'Manage notifications',
@@ -692,8 +690,6 @@ class MoreSettingsView extends StatelessWidget {
                           'What may interrupt you, quiet hours, and off '
                               'switches for all of them',
                       onTap: onNotifications),
-                ]),
-                settingsGroup(c, l?.settingsGroupPreferences ?? 'Preferences', [
                   SetRow(LucideIcons.ruler, C.blue,
                       l?.settingsUnitsRowTitle ?? 'Units',
                       value: units, onTap: onCycleUnits),
@@ -718,16 +714,13 @@ class MoreSettingsView extends StatelessWidget {
                   // switching it off throws the entries away.
                   SetRow(LucideIcons.droplet, C.pink,
                       l?.settingsCycleTrackingRowTitle ?? 'Cycle tracking',
-                      sub: l?.settingsCycleTrackingRowSub ??
-                          'Adds the Cycle tab to Wellness. Off hides it and '
-                              'keeps everything already logged',
+                      sub: l?.settingsCycleTrackingRowSubHealth ??
+                          'Adds Cycle to Health. Off hides it and keeps '
+                              'everything already logged',
                       value: cycleTracking ? on : off,
                       onTap: onToggleCycleTracking),
                 ]),
-                // How a non-WHOOP wearable's numbers are drawn. Developer
-                // only while every wearable is (rule R6).
-                if (devMode) wearableSettingsGroup(c),
-                settingsGroup(c, l?.settingsGroupYourData ?? 'Your data', [
+                settingsGroup(c, l?.settingsGroupData ?? 'Data', [
                   SetRow(LucideIcons.download, C.green,
                       l?.settingsExportBackupImportRowTitle ??
                           'Export, backup, import',
@@ -745,30 +738,13 @@ class MoreSettingsView extends StatelessWidget {
                       sub: healthSyncSub(c, healthSync, healthState, healthStore),
                       value: healthSync ? on : off,
                       onTap: onToggleHealthSync),
-                ]),
-                settingsGroup(c, l?.settingsGroupAutomation ?? 'Automation', [
-                  // The picker died with the old ui tree and the engine kept
-                  // running against a mapping nothing could set — the whole
-                  // feature was live code pinned at "do nothing".
-                  Builder(
-                      builder: (c) => SetRow(
-                          LucideIcons.hand, C.orange,
-                          AppLocalizations.of(c)?.settingsDoubleTapRowTitle ??
-                              'Double-tap',
-                          sub: AppLocalizations.of(c)
-                                  ?.settingsDoubleTapRowSub ??
-                              'What a double-tap on the band does',
-                          onTap: () => goto(c, const BandGestures()))),
-                  SetRow(LucideIcons.workflow, C.indigo,
-                      l?.settingsTaskerShortcutsRowTitle ??
-                          'Tasker and Shortcuts',
-                      // The row states the asymmetry rather than leaving it to
-                      // the screen: someone on an iPhone should learn what they
-                      // are not getting before they tap into it.
-                      sub: l?.settingsTaskerShortcutsRowSub ??
-                          'Android only for events out. iOS can buzz the band '
-                              'but cannot be triggered by it',
-                      onTap: onAutomation),
+                  SetRow(LucideIcons.footprints, C.teal,
+                      l?.settingsStepsRowTitle ?? 'Steps',
+                      sub: l?.settingsStepsRowSub ??
+                          'This phone’s own step counter, for the hours the '
+                              'band doesn’t cover. Nothing leaves the device',
+                      value: phoneSteps ? on : off,
+                      onTap: onTogglePhoneSteps),
                 ]),
                 settingsGroup(c, l?.settingsGroupPrivacy ?? 'Privacy', [
                   SetRow(LucideIcons.bug, C.orange,
@@ -814,6 +790,21 @@ class MoreSettingsView extends StatelessWidget {
                         value: updateChecks ? on : off,
                         onTap: onToggleUpdateChecks),
                 ]),
+                settingsGroup(c, l?.settingsGroupAdvanced ?? 'Advanced', [
+                  SetRow(LucideIcons.workflow, C.indigo,
+                      l?.settingsTaskerShortcutsRowTitle ??
+                          'Tasker and Shortcuts',
+                      // The row states the asymmetry rather than leaving it to
+                      // the screen: someone on an iPhone should learn what they
+                      // are not getting before they tap into it.
+                      sub: l?.settingsTaskerShortcutsRowSub ??
+                          'Android only for events out. iOS can buzz the band '
+                              'but cannot be triggered by it',
+                      onTap: onAutomation),
+                ]),
+                // How a non-WHOOP wearable's numbers are drawn. Developer
+                // only while every wearable is (rule R6).
+                if (devMode) wearableSettingsGroup(c),
                 settingsGroup(c, l?.settingsGroupAbout ?? 'About', [
                   if (version.isNotEmpty)
                     SetRow(LucideIcons.info, C.n500,
@@ -1020,8 +1011,7 @@ class NotificationSettingsView extends StatelessWidget {
                         l?.settingsHealthExceptionsRowTitle ??
                             'Health exceptions',
                         sub: l?.settingsHealthExceptionsRowSub ??
-                            'One a day at most, and only when something in '
-                                'your own baseline moved',
+                            'One a day at most, and only when something moved away from your usual',
                         value: prefs.healthEnabled ? on : off,
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
@@ -1123,10 +1113,7 @@ class NotificationSettingsView extends StatelessWidget {
                     SetRow(LucideIcons.footprints, C.orange,
                         l?.settingsMovementNudgeRowTitle ?? 'Movement nudge',
                         sub: l?.settingsMovementNudgeRowSub ??
-                            'Nudges you after a still stretch — two hours '
-                                'with no movement at all, or 90 minutes in a '
-                                'desk posture. Phone notification plus a buzz '
-                                'on the band while it is connected',
+                            'After two hours without moving, or 90 minutes at a desk. A phone notification plus a buzz on the band when it’s connected',
                         value: prefs.movementEnabled ? on : off,
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
@@ -1165,10 +1152,7 @@ class NotificationSettingsView extends StatelessWidget {
                         l?.settingsMedicationRemindersRowTitle ??
                             'Medication reminders',
                         sub: l?.settingsMedicationRemindersRowSub ??
-                            'One notification per scheduled dose, at the '
-                                'times you entered — with a buzz on the band if '
-                                'it is connected. Nothing is sent for a dose '
-                                'already marked taken or skipped',
+                            'One notification per scheduled dose, plus a buzz on the band when it’s connected. Skipped for doses already marked',
                         value: prefs.medsEnabled ? on : off,
                         chevron: false,
                         onTap: () =>
@@ -1667,10 +1651,7 @@ class _EditProfileViewState extends State<EditProfileView> {
           Text(
             isAppleHealth
                 ? (l?.settingsImportBlockAppleHealth(storeName) ??
-                    'Height, weight, birthday and sex, straight out of '
-                        '$storeName. Height and weight are taken every time; your '
-                        'age and sex only fill a gap, because neither drifts and a '
-                        'value already here was your choice.')
+                    'Height, weight, birthday and sex from $storeName. Height and weight update every time; age and sex only fill an empty field.')
                 : (l?.settingsImportBlockOther(storeName) ??
                     'Height and weight, straight out of $storeName. It has no '
                         'birthday and no sex to read — no app can — so set those '
@@ -1795,17 +1776,9 @@ class _AutomationSettingsState extends State<AutomationSettings> {
                           Text(
                             android
                                 ? (l?.settingsSyncFinishesAndroidBody ??
-                                    'The app broadcasts an intent your automation '
-                                        'app can start a profile on. Filter on the '
-                                        'action below; it carries how many records '
-                                        'landed and when, at most one a minute.')
+                                    'The app broadcasts an intent your automation app can react to. Filter on the action below; it says how many records arrived and when.')
                                 : (l?.settingsSyncFinishesIosBody ??
-                                    'iOS cannot do this. A Shortcuts personal '
-                                        'automation can only trigger on Apple’s '
-                                        'own fixed list of events, and no app can '
-                                        'add one — so nothing here can start a '
-                                        'shortcut for you. Android gets it; this '
-                                        'is a platform limit, not a setting.'),
+                                    'iOS can’t do this: Shortcuts automations only start on Apple’s own fixed events, and apps can’t add one. This is an iOS limit, not a setting.'),
                             style: F.body.copyWith(color: p.ink2, height: 1.4),
                           ),
                           if (android) ...[
@@ -1829,11 +1802,7 @@ class _AutomationSettingsState extends State<AutomationSettings> {
                   Surface(
                     child: Text(
                       l?.settingsNeverSendBody ??
-                          'No readiness, no strain, no sleep score — on either '
-                              'platform. A number this app would have shown as absent, '
-                              'with a reason attached, becomes a bare zero the moment '
-                              'it leaves. Facts about the sync go out; measurements do '
-                              'not.',
+                          'No recovery, strain or sleep score is sent, on either platform. A missing number would arrive as a bare zero. Sync facts go out, not measurements.',
                       style: F.body,
                     ),
                   ),

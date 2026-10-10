@@ -31,7 +31,11 @@ import 'journal_compose.dart' show OsTextField;
 import 'log_food.dart';
 
 class NutritionScreen extends StatefulWidget {
-  const NutritionScreen({super.key});
+  /// Pushed from the Activity tab rather than shown as a tab: a page with a
+  /// back arrow. Nutrition is a section of Activity now; the band measures
+  /// nothing about food, so it no longer holds a tab of its own.
+  final bool page;
+  const NutritionScreen({super.key, this.page = false});
 
   @override
   State<NutritionScreen> createState() => _NutritionScreenState();
@@ -223,21 +227,20 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   @override
   Widget build(BuildContext c) {
     final l = AppLocalizations.of(c);
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x16),
+    final logFood = Pressable(
+      semanticLabel: l?.nutritionLogFood ?? 'Log food',
+      onTap: _logFood,
+      child: Icon(
+        LucideIcons.circlePlus,
+        size: 22,
+        color: P.of(c).on(C.domFood),
+      ),
+    );
+    final list = ListView(
+      padding: EdgeInsets.fromLTRB(S.x4, widget.page ? 0 : S.x4, S.x4, S.x16),
       children: [
-        ScreenTitle(
-          l?.nutritionTitle ?? 'Nutrition',
-          trailing: Pressable(
-            semanticLabel: l?.nutritionLogFood ?? 'Log food',
-            onTap: _logFood,
-            child: Icon(
-              LucideIcons.circlePlus,
-              size: 22,
-              color: P.of(c).on(C.domFood),
-            ),
-          ),
-        ),
+        if (!widget.page)
+          ScreenTitle(l?.nutritionTitle ?? 'Nutrition', trailing: logFood),
         SubTabs(_tabs(c), _tab, (i) => setState(() => _tab = i), color: C.domFood),
         const SizedBox(height: S.x5),
         if (_loading)
@@ -245,6 +248,19 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         else
           [_todayTab, _weekTab, _goalsTab][_tab](c),
       ],
+    );
+    if (!widget.page) return list;
+    return Scaffold(
+      backgroundColor: P.of(c).bg,
+      body: SafeArea(
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: NavBar(l?.nutritionTitle ?? 'Nutrition', trailing: logFood),
+          ),
+          Expanded(child: list),
+        ]),
+      ),
     );
   }
 

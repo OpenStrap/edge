@@ -450,7 +450,7 @@ class _ZonesDetailState extends State<ZonesDetail> {
                   width: 8,
                   height: 28,
                   decoration: BoxDecoration(
-                    color: ZoneBar.cols(p)[z.zone - 1],
+                    color: ZoneRows.cols(p)[z.zone - 1],
                     borderRadius: R.rSm,
                   ),
                 ),
@@ -467,7 +467,9 @@ class _ZonesDetailState extends State<ZonesDetail> {
                   ),
                 ),
                 Text(
-                  z.zone == 5 ? '${z.lo}+' : '${z.lo}–${z.hi}',
+                  // One beat below the next edge, as [ZoneRows.range] prints
+                  // it, so no bpm sits in two zones.
+                  z.zone == 5 ? '${z.lo}+' : '${z.lo}–${z.hi > z.lo ? z.hi - 1 : z.hi}',
                   style: F.n17.copyWith(color: p.ink2),
                 ),
                 const SizedBox(width: S.x2),
@@ -494,24 +496,14 @@ class _ZonesDetailState extends State<ZonesDetail> {
       case 'karvonen':
         return l?.activityZonesAnchorKarvonen(
                 d.restingHr ?? 0, d.restingDays, max ?? 0) ??
-            'Built from two numbers the band measured on you: your resting '
-                'rate (${d.restingHr}, the middle of your last ${d.restingDays} '
-                'nights) and the highest we have seen ($max). A low resting rate '
-                'makes zone 1 wide. These are the usual bands, not your own '
-                'measured thresholds.';
+            'From your resting rate (${d.restingHr}, middle of your last ${d.restingDays} nights) and the highest we’ve seen ($max). Standard zones, not tested ones.';
       case 'observed':
         return l?.activityZonesAnchorObserved(
                 max ?? 0, d.restingMinDays, d.restingDays) ??
-            'Built from the highest heart rate we have seen ($max). After '
-                '${d.restingMinDays} nights of resting rate (you have '
-                '${d.restingDays}) your resting rate joins it, which fits you '
-                'better. These are the usual bands, not your own measured '
-                'thresholds.';
+            'From the highest heart rate we’ve seen ($max). After ${d.restingMinDays} nights of resting rate (you have ${d.restingDays}), that joins in too.';
       case 'tanaka':
         return l?.activityZonesAnchorTanaka(max ?? 0) ??
-            'Built from $max bpm, estimated from your age rather than '
-                'measured on you — it can be 20 bpm out either way. The edges move '
-                'to a measured ceiling once the band sees a hard enough session.';
+            'From $max bpm, estimated from your age, so it can be 20 bpm out. The zones move once the band sees a hard enough session.';
       case 'manual':
         return l?.activityZonesAnchorManual ??
             'Set by you, not computed — these five thresholds override '
@@ -557,20 +549,21 @@ class _ZonesDetailState extends State<ZonesDetail> {
       Section(
         l?.activityZonesIntensitySection ?? 'Where your intensity went',
         Surface(
-          child: ChartFrame(
+          // The ranges are today's edges. 28 days of sessions can span more
+          // than one set, so the footnote says so rather than implying these
+          // were the edges every minute was counted with.
+          child: ZoneRows(
+            [for (final v in mins) v.toDouble()],
+            lowerBpm: d.zones.length == 5 ? [for (final z in d.zones) z.lo] : null,
             title: l?.activityZonesSessionMinutesChartTitle ??
-                'SESSION MINUTES, LAST 28 DAYS',
-            unit: 'minutes',
-            height: 10,
-            legend: [
-              for (var i = 0; i < 5; i++)
-                ('Z${i + 1} · ${mins[i]}m', ZoneBar.cols(p)[i]),
-            ],
-            footnote: _shapeCopy(l, d),
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: ZoneBar([for (final v in mins) v / total], p),
-            ),
+                'Session minutes, last 28 days',
+            footnote: [
+              _shapeCopy(l, d),
+              if (d.zones.length == 5)
+                l?.activityZonesCurrentEdgesNote ??
+                    'Ranges are your current zone edges; older sessions may '
+                        'have been counted with different ones.',
+            ].where((s) => s.isNotEmpty).join(' '),
           ),
         ),
       ),

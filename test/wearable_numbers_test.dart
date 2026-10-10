@@ -382,8 +382,8 @@ void main() {
                 'method': 'skin_temp_c_event',
               },
               device: 'Oura ring'));
-      expect(find.text('Skin temperature baseline'), findsOneWidget);
-      expect(find.text('Resting HR baseline'), findsNothing);
+      expect(find.text('Usual skin temperature'), findsOneWidget);
+      expect(find.text('Usual resting HR'), findsNothing);
       expect(find.textContaining('35.3'), findsOneWidget);
       expect(find.textContaining('bpm'), findsNothing);
     });

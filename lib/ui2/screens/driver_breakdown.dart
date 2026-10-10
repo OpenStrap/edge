@@ -360,10 +360,7 @@ class _DriverBreakdownState extends State<DriverBreakdown> {
         color: p.card2,
         child: Text(
           l?.driverBreakdownFooter ??
-              'Each input is ranked against your own history — a parallel view of '
-                  'the same inputs, not slices of the score itself. "Measurement '
-                  'noise" is how far a reading can move on its own without '
-                  'anything having changed. Patterns in your own logs, not causes.',
+              'Each input is compared with your own history, beside the score rather than part of it. "Measurement noise" is how far a reading moves on its own.',
           style: F.cap.copyWith(color: p.ink3, height: 1.5),
         ),
       ),
@@ -465,7 +462,6 @@ Widget _chart(BuildContext c, P p, DriverFacts f) {
     ],
     format: fmt,
   );
-  final unit = unitBeside(f.spec.unit);
 
   return ChartFrame(
     title: f.label,
@@ -480,30 +476,21 @@ Widget _chart(BuildContext c, P p, DriverFacts f) {
             l?.driverBreakdownToday ?? 'Today',
           ],
     series: win,
-    footnote: band == null
-        ? null
-        : (l?.driverBreakdownUsualRange(
-                metricValue(f.spec.unit, band.$1),
-                metricValue(f.spec.unit, band.$2),
-                unit.isEmpty ? '' : ' $unit') ??
-            'Your usual range ${metricValue(f.spec.unit, band.$1)}–'
-                '${metricValue(f.spec.unit, band.$2)}'
-                '${unit.isEmpty ? '' : ' $unit'}'),
+    // The usual range is keyed under the chart by ChartFrame itself.
     empty: axis == null ? const NoData() : null,
+    band: band == null ? null : UsualRange(band.$1, band.$2),
+    bandColor: p.wash(f.spec.color),
     child: axis == null
         ? const SizedBox.shrink()
-        : Stack(fit: StackFit.expand, children: [
-            if (band != null) _Band(band.$1, band.$2, axis, p.wash(f.spec.color)),
-            CustomPaint(
-              size: Size.infinite,
-              // No fill. A gradient under the line and a tinted band behind it
-              // are two washes of the same colour arguing about which one the
-              // eye should read as "normal".
-              painter: LineChart(win, ink,
-                  fill: false, dots: true, dotInk: p.card, t: animate(c, 1),
-                  axis: axis),
-            ),
-          ]),
+        : CustomPaint(
+            size: Size.infinite,
+            // No fill. A gradient under the line and a tinted band behind it
+            // are two washes of the same colour arguing about which one the
+            // eye should read as "normal".
+            painter: LineChart(win, ink,
+                fill: false, dots: true, dotInk: p.card, t: animate(c, 1),
+                axis: axis),
+          ),
   );
 }
 
@@ -513,37 +500,6 @@ Widget _chart(BuildContext c, P p, DriverFacts f) {
 List<double?> _window(List<double?> s) {
   final first = s.indexWhere((v) => v != null);
   return first <= 0 ? s : s.sublist(first);
-}
-
-/// The usual range, drawn behind the curve on the SAME [AxisSpec] the line and
-/// the gridlines use — a band solved against its own scale is decoration.
-class _Band extends StatelessWidget {
-  const _Band(this.lo, this.hi, this.axis, this.color);
-
-  final double lo, hi;
-  final AxisSpec axis;
-  final Color color;
-
-  @override
-  Widget build(BuildContext c) => LayoutBuilder(
-        builder: (_, box) {
-          final h = box.maxHeight;
-          final top = h * (1 - axis.t(hi));
-          final height = h * (axis.t(hi) - axis.t(lo));
-          if (height <= 0) return const SizedBox.shrink();
-          return Stack(children: [
-            Positioned(
-              left: 0,
-              right: 0,
-              top: top,
-              height: height,
-              child: DecoratedBox(
-                decoration: BoxDecoration(color: color, borderRadius: R.rSm),
-              ),
-            ),
-          ]);
-        },
-      );
 }
 
 /// A day with no readiness at all.
@@ -564,12 +520,11 @@ StatusCard driverAbsenceCard(
       l?.driverBreakdownAbsenceTitle ?? 'No breakdown to show',
       switch (stale['kind']) {
         'algo_version' => l?.driverBreakdownAbsenceAlgoVersion ??
-            'How readiness is worked out changed with the last '
-                'update, and it is being rebuilt.',
+            'The way recovery is worked out changed in the last update. Your days are being recalculated.',
         'stale' => l?.driverBreakdownAbsenceStale ??
-            'The last rollup is too old to stand behind.',
+            'Your trends are out of date. Sync the band to update them.',
         _ => l?.driverBreakdownAbsenceNoVersion ??
-            'The stored rollup carries no version stamp.',
+            'Your trends are being updated. This takes a minute after a sync.',
       },
       fix: onSync == null ? '' : (l?.driverBreakdownSyncTheBand ?? 'Sync the band'),
       onFix: onSync,

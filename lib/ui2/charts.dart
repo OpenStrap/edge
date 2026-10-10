@@ -516,7 +516,16 @@ class Bars extends CustomPainter {
   // No track colour: nothing is drawn behind a bar. A missing bucket is a gap
   // in the row and a real zero gets the 2 pt floor below, which is the whole
   // absence channel.
-  Bars(this.d, this.color, {this.highlight = -1, this.t = 1, this.axis});
+  /// Per-bar ink from the bar's own value, for bars coloured by what the value
+  /// MEANS (a recovery bar in its band's colour). Null paints every bar
+  /// [color]. Applied after aggregation, so a merged column takes the colour
+  /// of the value it draws: its MAX. Where bars would be under 3 pt and days
+  /// merge, a low day sharing a column with a high one takes the high one's
+  /// colour. Not reached at phone width for 90 days.
+  final Color Function(double v)? colorOf;
+
+  Bars(this.d, this.color,
+      {this.highlight = -1, this.t = 1, this.axis, this.colorOf});
 
   /// [maxColumns] over a series with holes: a column of nothing stays nothing.
   static List<double?> _columns(List<double?> d, int cols) {
@@ -573,15 +582,20 @@ class Bars extends CustomPainter {
           const Radius.circular(3),
         ),
         Paint()
-          ..color =
-              (hl < 0 || i == hl) ? color : color.withValues(alpha: .35),
+          ..color = (hl < 0 || i == hl)
+              ? (colorOf?.call(value) ?? color)
+              : (colorOf?.call(value) ?? color).withValues(alpha: .35),
       );
     }
   }
 
   @override
   bool shouldRepaint(covariant Bars o) =>
-      o.d != d || o.t != t || o.highlight != highlight || o.axis != axis;
+      o.d != d ||
+      o.t != t ||
+      o.highlight != highlight ||
+      o.axis != axis ||
+      o.color != color;
 }
 
 /// The score dial. One value, one arc.
@@ -731,9 +745,14 @@ class MacroRing extends CustomPainter {
 enum SleepStage { awake, rem, light, deep }
 
 extension SleepStageX on SleepStage {
-  /// The name that goes in the legend. Four lanes of four colours with nothing
-  /// naming them is the single least readable chart in the app.
-  String get label => const ['Awake', 'REM', 'Light', 'Deep'][index];
+  /// The name printed beside the lane and in any key, in the reader's
+  /// language. English only as the fallback for a tree with no localizations.
+  String label([AppLocalizations? l]) => switch (this) {
+        SleepStage.awake => l?.sleepDetailStageAwake ?? 'Awake',
+        SleepStage.rem => l?.sleepDetailStageRem ?? 'REM',
+        SleepStage.light => l?.sleepDetailLight ?? 'Light',
+        SleepStage.deep => l?.sleepDetailDeep ?? 'Deep',
+      };
 }
 
 /// Hypnogram — conventional lanes, minimum 2pt wide so a 30 s arousal in an
@@ -761,16 +780,65 @@ class Hypnogram extends CustomPainter {
     SleepStage.deep: C.blue,
   };
 
-  /// The lane colours as drawn. Four lanes at four different heights, so hue is
-  /// never the only channel here — y position already carries the stage.
-  static Map<SleepStage, Color> cols(P p) =>
-      {for (final e in pigment.entries) e.key: p.on(e.value)};
+  /// Contrast each lane is drawn at against the worst surface it can sit on,
+  /// lightest lane first. Ordered so the ramp runs light to dark in BOTH
+  /// themes: awake is the palest mark and deep the darkest. On a light card
+  /// darker means more contrast; on a dark card it means less, so the targets
+  /// flip. The lowest target is still the 4.5:1 floor every mark clears.
+  static const _lightTheme = [4.6, 6.2, 8.2, 11.0];
+  static const _darkTheme = [11.0, 8.2, 6.2, 4.6];
+
+  /// The lane colours as drawn. Each keeps its hue and is pushed lighter or
+  /// darker until it hits its step on the ramp, so the four lanes differ by
+  /// lightness as well as hue and by lane position on top of that.
+  static Map<SleepStage, Color> cols(P p) => {
+        for (final s in SleepStage.values)
+          s: _shade(p, pigment[s]!,
+              (p.dark ? _darkTheme : _lightTheme)[s.index]),
+      };
+
+  static double _worst(P p, Color c) => [p.bg, p.card, p.card2]
+      .map((b) => P.contrast(c, b))
+      .reduce(min);
+
+  /// [hue] moved toward the page ink, or back toward the surface, until it
+  /// measures [target] against the worst surface. Bisection, like the solver
+  /// in theme.dart; the result always clears [target].
+  static Color _shade(P p, Color hue, double target) {
+    final toward = p.dark ? C.white : C.n900;
+    if (_worst(p, hue) >= target) {
+      // Already past the step: walk back toward the surface, keeping the
+      // last colour that still clears it.
+      var lo = 0.0, hi = 1.0;
+      for (var i = 0; i < 24; i++) {
+        final mid = (lo + hi) / 2;
+        if (_worst(p, Color.lerp(hue, p.card2, mid)!) >= target) {
+          lo = mid;
+        } else {
+          hi = mid;
+        }
+      }
+      return Color.lerp(hue, p.card2, lo)!;
+    }
+    var lo = 0.0, hi = 1.0;
+    for (var i = 0; i < 24; i++) {
+      final mid = (lo + hi) / 2;
+      if (_worst(p, Color.lerp(hue, toward, mid)!) >= target) {
+        hi = mid;
+      } else {
+        lo = mid;
+      }
+    }
+    return Color.lerp(hue, toward, hi)!;
+  }
 
   /// Hand straight to `ChartFrame.legend`. Derived from [cols] rather than
   /// retyped, so a lane can never be recoloured without its key following, and
   /// the swatch is the mark's real colour rather than the pigment behind it.
-  static List<(String, Color)> legend(P p) =>
-      [for (final s in SleepStage.values) (s.label, p.on(pigment[s]!))];
+  static List<(String, Color)> legend(P p, [AppLocalizations? l]) {
+    final ink = cols(p);
+    return [for (final s in SleepStage.values) (s.label(l), ink[s]!)];
+  }
 
   /// One column per drawable slot, with a STATED precedence: awake wins.
   ///
@@ -854,58 +922,137 @@ class Hypnogram extends CustomPainter {
       o.t != t || o.stages != stages || o.p.dark != p.dark;
 }
 
-/// Time-in-zone as one stacked bar. [z] is five fractions summing to ≤ 1.
-class ZoneBar extends CustomPainter {
-  final List<double> z;
-  final P p;
+/// Time in heart-rate zones as five labelled rows: the zone, its bpm range,
+/// a bar as long as its minutes, and the minutes. One component for every
+/// screen that shows a zone split, so the wording cannot drift between them.
+///
+/// The row label carries the zone, so colour is a second channel and never
+/// the only one. [lowerBpm] is the five lower edges of the set the minutes
+/// were binned with; without it a row shows no range rather than a guessed
+/// one.
+class ZoneRows extends StatelessWidget {
+  final List<double> minutes;
+  final List<num>? lowerBpm;
 
-  ZoneBar(this.z, this.p);
+  /// Printed above the rows and below them, styled as a chart frame's title
+  /// and footnote so the card reads like the charts around it.
+  final String? title, footnote;
+
+  /// One line per zone (name, bar, minutes) for a list card, where five
+  /// two-line rows would make every session in the list twice as tall.
+  final bool compact;
+
+  const ZoneRows(this.minutes,
+      {super.key, this.lowerBpm, this.title, this.footnote, this.compact = false});
 
   static const pigment = [C.blueSoft, C.blue, C.green, C.orange, C.red];
 
-  /// The bands as drawn — solved against the surface, like every other mark.
-  /// `blueSoft` measured 1.80:1 on a white card, so zone 1 was a pale smear.
+  /// The bar colours as drawn, solved against the surface like every mark.
   static List<Color> cols(P p) => [for (final c in pigment) p.on(c)];
 
-  /// Five bands of colour mean nothing without their numbers. Derived from
-  /// [cols] for the same reason [Hypnogram.legend] is.
-  static List<(String, Color)> legend(P p) =>
-      [for (var i = 0; i < pigment.length; i++) ('Zone ${i + 1}', p.on(pigment[i]))];
-
-  /// How short zone 1 is drawn relative to zone 5.
-  ///
-  /// Solving each band against the CARD does nothing for zone 4 against zone 5:
-  /// those measure 1.34:1 against EACH OTHER, and unlike [Hypnogram] a stacked
-  /// bar has no lane position to separate them with. So the ordinal gets a
-  /// second channel — the bands step up in height toward the hard end, which is
-  /// the thing the colour was trying to say anyway.
-  static const _floor = .6;
-
-  @override
-  void paint(Canvas cv, Size s) {
-    var x = 0.0;
-    final ink = cols(p);
-    final n = pigment.length;
-    for (var i = 0; i < z.length && i < n; i++) {
-      final w = z[i] * s.width;
-      if (!w.isFinite) continue;
-      // Advance first: skipping the draw must not also skip the band's width,
-      // or every later band shifts left by it.
-      x += w;
-      if (w <= .5) continue;
-      final h = s.height * (_floor + (1 - _floor) * i / (n - 1));
-      cv.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(x - w, s.height - h, max(w - 2, 1), h),
-          const Radius.circular(3),
-        ),
-        Paint()..color = ink[i],
-      );
-    }
+  /// "95–114 bpm" when zone 2 starts at 115, "171+ bpm", or null when the
+  /// edges are unknown. Each row stops one beat below the next one's lower
+  /// edge, so no bpm belongs to two rows.
+  static String? range(List<num>? lower, int i, [AppLocalizations? l]) {
+    if (lower == null || lower.length != 5) return null;
+    final lo = lower[i].round();
+    if (i == 4) return l?.zoneRowsRangeTop(lo) ?? '$lo+ bpm';
+    final hi = max(lo, lower[i + 1].round() - 1);
+    return l?.zoneRowsRange(lo, hi) ?? '$lo–$hi bpm';
   }
 
   @override
-  bool shouldRepaint(covariant ZoneBar o) => o.z != z || o.p.dark != p.dark;
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final ink = cols(p);
+    final top = minutes.fold<double>(0, (a, v) => v.isFinite && v > a ? v : a);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (title != null) ...[
+          Semantics(
+            header: true,
+            child: Text(title!,
+                style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(height: S.x3),
+        ],
+        for (var i = 0; i < 5 && i < minutes.length; i++)
+          Padding(
+            padding: EdgeInsets.only(top: i == 0 ? 0 : (compact ? S.x1 : S.x3)),
+            child: MergeSemantics(
+              child: compact ? Row(children: [
+                Text(l?.activityLiveZoneLabel(i + 1) ?? 'Zone ${i + 1}',
+                    style: F.cap.copyWith(color: p.ink2)),
+                const SizedBox(width: S.x2),
+                Expanded(child: _bar(p, ink[i], top, minutes[i])),
+                const SizedBox(width: S.x2),
+                Text(
+                  l?.zoneRowsMinutes(_round(minutes[i])) ??
+                      '${_round(minutes[i])} min',
+                  style: F.cap.copyWith(color: p.ink),
+                ),
+              ]) : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: Text.rich(
+                          TextSpan(children: [
+                            TextSpan(
+                                text: l?.activityLiveZoneLabel(i + 1) ??
+                                    'Zone ${i + 1}',
+                                style: F.cap.copyWith(
+                                    color: p.ink, fontWeight: FontWeight.w600)),
+                            if (range(lowerBpm, i, l) case final r?)
+                              TextSpan(
+                                  text: '  $r',
+                                  style: F.cap.copyWith(color: p.ink3)),
+                          ]),
+                        ),
+                      ),
+                      const SizedBox(width: S.x2),
+                      Text(
+                        l?.zoneRowsMinutes(_round(minutes[i])) ??
+                            '${_round(minutes[i])} min',
+                        style: F.cap.copyWith(
+                            color: p.ink, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: S.x1),
+                  _bar(p, ink[i], top, minutes[i]),
+                ],
+              ),
+            ),
+          ),
+        if (footnote != null) ...[
+          const SizedBox(height: S.x3),
+          Text(footnote!, style: F.cap.copyWith(color: p.ink3)),
+        ],
+      ],
+    );
+  }
+
+  static int _round(double v) => v.isFinite ? v.round() : 0;
+
+  /// A bar as long as this zone's share of the longest one.
+  static Widget _bar(P p, Color ink, double top, double v) => ExcludeSemantics(
+        child: Container(
+          height: 8,
+          decoration: BoxDecoration(color: p.track, borderRadius: R.rSm),
+          alignment: AlignmentDirectional.centerStart,
+          child: FractionallySizedBox(
+            widthFactor: top <= 0 || !v.isFinite ? 0 : (v / top).clamp(0.0, 1.0),
+            child: Container(
+              decoration: BoxDecoration(color: ink, borderRadius: R.rSm),
+            ),
+          ),
+        ),
+      );
 }
 
 /// Actogram — hour of day (rows) × date (columns). The circadian view.
@@ -999,43 +1146,6 @@ class HeatMap extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant HeatMap o) => o.weeks != weeks;
-}
-
-/// Power spectral density — the LF/HF plot behind HRV. [psd] is the computed
-/// spectrum; [split] is the fraction of the x-axis where LF becomes HF.
-class Spectrum extends CustomPainter {
-  final List<double> psd;
-  final double split;
-  final Color lf, hf;
-
-  Spectrum(this.psd, {this.split = .28, this.lf = C.blue, this.hf = C.purple});
-
-  /// Two colours that mean two different bands of a frequency axis — the one
-  /// chart in here nobody reads correctly without a key.
-  List<(String, Color)> get legend => [('LF power', lf), ('HF power', hf)];
-
-  @override
-  void paint(Canvas cv, Size s) {
-    if (psd.isEmpty) return;
-    final v = maxColumns(psd, (s.width / 3).floor().clamp(1, psd.length));
-    final mx = v.reduce(max);
-    if (mx <= 0) return;
-    final bw = s.width / v.length;
-    for (var i = 0; i < v.length; i++) {
-      final f = i / v.length;
-      final h = v[i] / mx * s.height;
-      cv.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(i * bw, s.height - h, max(bw - .8, 1), h),
-          const Radius.circular(1),
-        ),
-        Paint()..color = (f < split ? lf : hf).withValues(alpha: .85),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant Spectrum o) => o.psd != psd;
 }
 
 /// Poincaré — every beat interval plotted against the one before it.
@@ -1149,7 +1259,13 @@ class NightStack extends CustomPainter {
   /// night. Pin the ones the screen labels.
   final List<AxisSpec?>? axes;
 
-  NightStack(this.series, this.colors, {this.axes});
+  /// The shared night cursor, 0…1 across the plot, or null for none. The
+  /// hypnogram above draws the same instant, so the two read together.
+  final double? selectedX;
+  final Color? cursor;
+
+  NightStack(this.series, this.colors,
+      {this.axes, this.selectedX, this.cursor});
 
   @override
   void paint(Canvas cv, Size s) {
@@ -1179,11 +1295,24 @@ class NightStack extends CustomPainter {
         cv.drawPath(_polyline(run, smooth: false), paint);
       }
     }
+    final x = selectedX?.clamp(0.0, 1.0);
+    if (x != null) {
+      cv.drawLine(
+        Offset(s.width * x, 0),
+        Offset(s.width * x, s.height),
+        Paint()
+          ..strokeWidth = 2
+          ..color = cursor ?? colors.first,
+      );
+    }
   }
 
   @override
   bool shouldRepaint(covariant NightStack o) =>
-      o.series != series || o.axes != axes;
+      o.series != series ||
+      o.axes != axes ||
+      o.selectedX != selectedX ||
+      o.cursor != cursor;
 }
 
 /// The context behind a day's curve: when you were asleep, when you worked

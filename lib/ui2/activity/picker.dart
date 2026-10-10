@@ -278,7 +278,7 @@ class ActivityRow extends StatelessWidget {
         ? '$kcal kcal / 30 min'
         : metStr == null
             ? null
-            : '$metStr MET';
+            : '$metStr× resting';
     return Pressable(
       onTap: onTap,
       child: Padding(
@@ -315,7 +315,7 @@ class ActivityRow extends StatelessWidget {
             const SizedBox(width: S.x2),
             Text(
                 kcal == null
-                    ? (l?.activityPickerMetValue(metStr!) ?? '$metStr MET')
+                    ? (l?.activityPickerMetValue(metStr!) ?? '$metStr× resting')
                     : (l?.activityPickerKcalPer30(kcal) ??
                         '$kcal kcal / 30 min'),
                 style: F.over.copyWith(color: p.ink3)),

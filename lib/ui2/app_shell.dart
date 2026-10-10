@@ -1,14 +1,15 @@
-// The five-tab shell.
+// The four-tab shell.
 //
-// Home · Health · Nutrition · Workout · Wellness. Stable forever: the contents
-// personalise, the mental map does not. Each domain owns an accent, so colour
-// tells you where you are before the label does.
+// Today · Sleep · Activity · Health. Stable: the contents personalise, the
+// mental map does not. Each domain owns an accent, so colour tells you where
+// you are before the label does. Profile is not a tab; every tab's header
+// carries the avatar into it.
 //
-// There is no sixth tab, and the type system is what says so — [ShellDomain]
+// There is no fifth tab, and the type system is what says so — [ShellDomain]
 // is a closed enum and [AppShell] takes a builder keyed by it, so "just add a
 // tab for X" is a change to this file with a reviewer attached, not something
-// a screen can do on its own. Anything that feels like a sixth destination is
-// a `SubTabs` inside the domain that owns it.
+// a screen can do on its own. Anything that feels like another destination is
+// a section or a pushed screen inside the domain that owns it.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -17,29 +18,27 @@ import '../l10n/app_localizations.dart';
 import 'grammar.dart';
 import 'theme.dart';
 
-/// The five primary destinations, in bar order.
+/// The four primary destinations, in bar order.
 enum ShellDomain {
-  home('Home', LucideIcons.house, C.domHome),
-  health('Health', LucideIcons.heartPulse, C.domHealth),
-  nutrition('Nutrition', LucideIcons.utensils, C.domFood),
-  workout('Workout', LucideIcons.dumbbell, C.domMove),
-  wellness('Wellness', LucideIcons.leaf, C.domMind);
+  today('Today', LucideIcons.house, C.domHome),
+  sleep('Sleep', LucideIcons.moon, C.domSleep),
+  activity('Activity', LucideIcons.dumbbell, C.domMove),
+  health('Health', LucideIcons.heartPulse, C.domHealth);
 
   const ShellDomain(this.label, this.icon, this.accent);
 
   final String label;
   final IconData icon;
 
-  /// [label] in the user's language. Own keys rather than the screen titles:
-  /// zh has Health and Wellness both as 健康, two identical tabs.
+  /// [label] in the user's language. Own keys rather than the screen titles,
+  /// so two tabs can never end up with the same translated word.
   String title(BuildContext c) {
     final l = AppLocalizations.of(c);
     return switch (this) {
-          ShellDomain.home => l?.tabHome,
+          ShellDomain.today => l?.tabToday,
+          ShellDomain.sleep => l?.tabSleep,
+          ShellDomain.activity => l?.tabActivity,
           ShellDomain.health => l?.tabHealth,
-          ShellDomain.nutrition => l?.tabNutrition,
-          ShellDomain.workout => l?.tabWorkout,
-          ShellDomain.wellness => l?.tabWellness,
         } ??
         label;
   }
@@ -75,7 +74,7 @@ class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
     required this.builder,
-    this.initial = ShellDomain.home,
+    this.initial = ShellDomain.today,
     this.onSelect,
     this.banner,
   });
@@ -89,26 +88,26 @@ class _AppShellState extends State<AppShell> {
   late final Set<ShellDomain> _built = {widget.initial};
   // Tabs are kept alive, not pushed onto the Navigator. Keep their history
   // here so Android Back can return to the previous tab. A restored tab or
-  // cold-launch deep link has Home as its way back into the app.
+  // cold-launch deep link has Today as its way back into the app.
   late final List<ShellDomain> _history = [
-    if (widget.initial != ShellDomain.home) ShellDomain.home,
+    if (widget.initial != ShellDomain.today) ShellDomain.today,
   ];
 
   void _select(ShellDomain d) {
     setState(() {
       // Each tab at most once, most recent last, so switching back and forth
-      // between two tabs does not add a Back press per switch. Home stays in
+      // between two tabs does not add a Back press per switch. Today stays in
       // as the way back into the app even while it is the tab on screen.
       if (d != _current) {
         _history.remove(_current);
-        // Leaving Home puts it back at the bottom, never on top: it is the
+        // Leaving Today puts it back at the bottom, never on top: it is the
         // last stop before Back leaves the app.
-        if (_current == ShellDomain.home) {
+        if (_current == ShellDomain.today) {
           _history.insert(0, _current);
         } else {
           _history.add(_current);
         }
-        if (d != ShellDomain.home) _history.remove(d);
+        if (d != ShellDomain.today) _history.remove(d);
       }
       _current = d;
       _built.add(d);

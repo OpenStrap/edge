@@ -1,4 +1,5 @@
 // The Home / Health / drill-down screens, and the plumbing they share.
+export 'advanced.dart';
 export 'ai_briefing.dart';
 export 'beats.dart';
 export 'circadian_detail.dart';

@@ -89,7 +89,7 @@ class Finding {
         FindingKind.anomaly => 'Unusual overnight physiology',
         FindingKind.tempElevated => 'Skin temperature elevated',
         FindingKind.irregularRhythm => 'Irregular heart rhythm — screen',
-        FindingKind.lowReadiness => 'Low readiness',
+        FindingKind.lowReadiness => 'Low recovery',
         FindingKind.rhrShift => 'Your resting heart-rate trend shifted',
       };
 
@@ -97,24 +97,22 @@ class Finding {
         // A red state is ACCUMULATED evidence: one very high night followed
         // by an ordinary one is enough, so nothing here may claim a streak.
         FindingKind.illness =>
-          'Your recent overnight resting heart rates add up to a rise above '
-              'your own baseline: one very high night can do it, or a few '
-              'slightly raised ones. This watches one signal only. It names a '
+          'Recent nights put your resting heart rate above your usual, from '
+              'one very high night or a few slightly raised ones. One signal: a '
               'pattern, not a cause.',
         FindingKind.anomaly =>
-          'Your nightly signals deviate from your personal baseline.',
+          'Your overnight signals are off your usual.',
         FindingKind.tempElevated =>
-          'Sustained rise vs your baseline — a possible illness signal.',
+          'Sustained rise above your usual — a possible illness signal.',
         FindingKind.irregularRhythm =>
           'Your beat-to-beat pattern looked irregular today. This is a '
               'screen, not a diagnosis — see a clinician if you have symptoms.',
         FindingKind.lowReadiness =>
-          '${score == null ? 'Readiness was in its lowest band.' : 'Readiness scored $score, its lowest band.'} '
-              'Taken together, that night\'s signals sat well on the '
-              'unfavourable side of your own baseline.',
+          '${score == null ? 'Recovery was in its lowest band.' : 'Recovery scored $score, its lowest band.'} '
+              'Taken together, that night\'s signals sat well below your usual.',
         FindingKind.rhrShift =>
-          'Your resting HR has ${risen == false ? 'fallen' : 'risen'} '
-              'noticeably versus your recent baseline.',
+          'Your resting heart rate has ${risen == false ? 'fallen noticeably below' : 'risen noticeably above'} '
+              'its recent usual.',
       };
 
   @override

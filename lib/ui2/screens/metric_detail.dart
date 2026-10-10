@@ -22,7 +22,7 @@ import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
-import 'beats.dart';
+import 'advanced.dart';
 import 'day_steps.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
@@ -139,16 +139,16 @@ const _specs = <String, MetricSpec>{
   ),
   'readiness': MetricSpec(
     chartKey: 'recovery',
-    title: 'Readiness',
+    title: 'Recovery',
     color: C.green,
     icon: LucideIcons.batteryCharging,
     // The weights are DATA — `readiness_glassbox` emits one per input and the
     // Readiness screen renders them. Repeating them as prose here meant two
     // surfaces could disagree about the same composite, silently, forever.
-    method: 'A weighted composite of a handful of inputs, each scored against '
-        'your own history. Every input\'s weight, and whether last night had '
-        'enough history to use it, is listed on the Readiness screen. Missing '
-        'inputs are re-weighted, never zero-filled.',
+    method: 'A weighted mix of a few inputs, each compared with your own '
+        'history. Each input\'s weight, and whether it had enough history last '
+        'night, is listed on the Recovery screen. A missing input is left out '
+        'and the rest re-weighted, never counted as zero.',
     citation: 'Plews 2013 (lnRMSSD) · Hopkins smallest-worthwhile-change gate',
     requires: {
       InputSignal.rrIntervals,
@@ -261,7 +261,7 @@ const _specs = <String, MetricSpec>{
   ),
   'trimp': MetricSpec(
     chartKey: 'trimp',
-    title: 'Training load',
+    title: 'Heart effort',
     color: C.purple,
     icon: LucideIcons.dumbbell,
     method: 'Training impulse: time in each heart-rate zone, weighted by the '
@@ -283,7 +283,7 @@ const _specs = <String, MetricSpec>{
   ),
   'dip': MetricSpec(
     chartKey: 'dip',
-    title: 'Nocturnal HR dip',
+    title: 'Overnight HR dip',
     unit: '%',
     color: C.indigo,
     icon: LucideIcons.trendingDown,
@@ -508,6 +508,11 @@ class MetricData {
   /// did not contribute to; it does not re-query.
   final String? viewingDeviceId;
 
+  /// The newest day bundle's personal `baselines` block, loaded only for the
+  /// metrics the pipeline keeps a baseline for ([kBaselineKeyOf]). It is the
+  /// usual range the chart draws, the same band the recovery breakdown draws.
+  final Map<String, dynamic>? baselines;
+
   const MetricData({
     this.series = const [],
     this.wear = const [],
@@ -520,6 +525,7 @@ class MetricData {
     this.recording = const {},
     this.sources = const [],
     this.viewingDeviceId,
+    this.baselines,
   });
 
   static Future<MetricData> load(
@@ -557,6 +563,14 @@ class MetricData {
           if (e is Map && e['outcome'] == outcome) e.cast<String, dynamic>(),
       ];
     }
+    Map<String, dynamic>? baselines;
+    if (kBaselineKeyOf.containsKey(key)) {
+      // An unreadable bundle is no band, never a guessed one.
+      try {
+        final b = (await repo.getDayHeart(todayLabel()))['baselines'];
+        if (b is Map) baselines = b.cast<String, dynamic>();
+      } catch (_) {}
+    }
     final coverage = _coverageOf(chart['coverage_devices']);
     final recording = _coverageOf(chart['coverage_recording']);
     return MetricData(
@@ -574,6 +588,7 @@ class MetricData {
       recording: recording,
       sources: _deviceOptions(candidates, coverage),
       // viewingDeviceId stays null: see the field's doc.
+      baselines: baselines,
     );
   }
 }
@@ -974,23 +989,17 @@ class _MetricDetailState extends State<MetricDetail> {
         // counted by a different sensor. That breakdown is a day's worth of
         // detail and it belongs behind a tap, not on the tile and not as a
         // fourth card here.
-        // HRV's own substrate. RMSSD is one number squeezed out of tens of
-        // thousands of beat intervals, and the geometry of those intervals —
-        // the Poincaré cloud, the night's curve, deceleration capacity, the
-        // rhythm screen — is the most differentiated thing this app computes.
-        // It is a screen, not a fourth card here: one number's drill-down does
-        // not become five pictures.
+        // HRV's own substrate (the Poincaré cloud, the night's curve,
+        // deceleration capacity) is research detail, so this is the same door
+        // to the Advanced screen that Health has, not a fourth card here.
         if (widget.metricKey == 'hrv') ...[
-          // Wording, not a gate: this door opens the newest night and Beats
-          // carries its own day stepper, so it is honest under any range — but
-          // "behind this number" was not, with a 30-day average as the number.
           detailLinkRow(
               c,
               LucideIcons.heartPulse,
-              l?.metricDetailBeatsLinkTitle ?? 'Beats',
-              l?.metricDetailBeatsLinkSub ??
-                  'The intervals a night is made of, drawn',
-              () => go(c, const Beats())),
+              l?.healthAdvancedLinkTitle ?? 'Advanced charts',
+              l?.healthAdvancedLinkSub ??
+                  'Beat-to-beat detail and sleep timing, for the curious',
+              () => go(c, const AdvancedScreen())),
           const SizedBox(height: S.x3),
         ],
         // TODAY ONLY, and it is called Breakdown.
@@ -1185,6 +1194,13 @@ class _MetricDetailState extends State<MetricDetail> {
     // a day that derives, so after a sync gap the newest stored point is days
     // old — and this line is the answer to "is there a today?".
     final asOf = all.isEmpty ? '' : axisDay(all.last.t);
+    // Your usual range: the band behind the chart and the verdict on the
+    // newest reading. Null under two weeks of history.
+    final stored = valuesOf(all);
+    final band = usualRangeFor(widget.metricKey, stored, d.baselines);
+    final ub = unitBeside(spec.unit);
+    final u = ub.isEmpty ? '' : ' ${uiText(context, ub)}';
+    final diff = band == null ? 0.0 : latest - band.usual;
 
     return Surface(
       child: Column(children: [
@@ -1227,6 +1243,22 @@ class _MetricDetailState extends State<MetricDetail> {
                         'Latest ${_fmt(spec, latest)} ${unitBeside(spec.unit)} · $asOf')
                     .replaceAll('  ', ' '),
                 style: F.cap.copyWith(color: p.ink3)),
+          ),
+        ],
+        if (band != null) ...[
+          const SizedBox(height: S.x2),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ReadingVerdict(
+              side: band.side(latest),
+              detail: vsUsualText(
+                l,
+                '${signed(diff, _fmt(spec, diff.abs()))}$u',
+                '${_fmt(spec, band.usual)}$u',
+              ),
+              higherBetter: betterDirection(widget.metricKey,
+                  higherBetter: spec.higherBetter),
+            ),
           ),
         ],
         if (d.sources.length >= 2) ...[
@@ -1279,16 +1311,17 @@ class _MetricDetailState extends State<MetricDetail> {
         Builder(builder: (c) {
           // One axis, shared by the labels and the curve. `min` unit metrics
           // print `7h 30m` on the gridlines rather than `450`.
-          final axis = AxisSpec.of(vals,
-              ticks: 3,
-              format: spec.unit == 'min'
-                  ? axisHm
-                  : (spec.unit == 'steps' || spec.unit == 'kcal'
-                      ? (v) => thousands(v)
-                      : (vals.every((v) => v.abs() >= 10)
-                          ? axisInt
-                          : axisFixed)),
-              floor: spec.unit == '%' ? 0 : null);
+          final String Function(double) fmt = spec.unit == 'min'
+              ? axisHm
+              : (spec.unit == 'steps' || spec.unit == 'kcal'
+                  ? (v) => thousands(v)
+                  : (vals.every((v) => v.abs() >= 10) ? axisInt : axisFixed));
+          // With a usual range the axis is scaled to the band, so a calm
+          // month sits calmly inside it instead of filling the card.
+          final axis = band?.axis(vals,
+                  format: fmt, floor: spec.unit == '%' ? 0 : null) ??
+              AxisSpec.of(vals,
+                  ticks: 3, format: fmt, floor: spec.unit == '%' ? 0 : null);
           // WHERE A RELEASE SITS ON THE LINE.
           //
           // A break's stamp is the first day computed the NEW way, so the
@@ -1308,12 +1341,16 @@ class _MetricDetailState extends State<MetricDetail> {
                   unit: spec.unit.isEmpty ? 'score' : spec.unit,
                   height: 150,
                   yAxis: axis,
+                  band: band,
+                  bandColor: p.wash(spec.color),
                   xMarks: marks,
                   // The mark's only screen-reader form, and the only thing that can
                   // say what it is. Deliberately flat: a version change is
                   // provenance, not an event that happened to the user.
             footnote: marks.isEmpty
-                ? null
+                ? (band == null && stored.length - 1 < kUsualMinDays
+                    ? usualNeedsDaysText(l, stored.length)
+                    : null)
                 : (l?.metricDetailAlgoBreakFootnote(marks.length) ??
                     (marks.length == 1
                         ? 'The dotted line is a change in how these days were '
@@ -1623,7 +1660,6 @@ class _MetricDetailState extends State<MetricDetail> {
         'rem' ||
         'efficiency' =>
           SleepDetail(day: day),
-        'hrv' => Beats(day: day),
         'steps' => DayStepsDetail(day: day),
         _ => Investigate(key, day: day),
       };
@@ -1642,7 +1678,7 @@ class _MetricDetailState extends State<MetricDetail> {
     final band = pct?['label']?.toString();
     final rank = (pct?['percentile_of_you'] as num?);
     final isToday = (daysBehind(latestTs) ?? 0) <= 0;
-    final ordinal = rank == null ? '' : _ordinal(rank.round(), l);
+    final share = rank?.round();
 
     return Surface(
       child: Column(children: [
@@ -1663,53 +1699,23 @@ class _MetricDetailState extends State<MetricDetail> {
                   'From ${win.length} of your own days.')
               : (isToday
                   ? (band == null
-                      ? (l?.metricDetailPercentileTodayNoBand(ordinal) ??
-                          'Today sits at the $ordinal percentile of your own '
-                              'history.')
-                      : (l?.metricDetailPercentileTodayBand(ordinal, band) ??
-                          'Today sits at the $ordinal percentile of your own '
-                              'history — $band.'))
+                      ? (l?.metricDetailRankToday(share!) ??
+                          'Today is higher than $share% of your own days.')
+                      : (l?.metricDetailRankTodayBand(share!, band) ??
+                          'Today is higher than $share% of your own days — '
+                              '$band.'))
                   : (band == null
-                      ? (l?.metricDetailPercentileFromNoBand(
-                              axisDay(latestTs), ordinal) ??
-                          'Your reading from ${axisDay(latestTs)} sits at the '
-                              '$ordinal percentile of your own history.')
-                      : (l?.metricDetailPercentileFromBand(
-                              axisDay(latestTs), ordinal, band) ??
-                          'Your reading from ${axisDay(latestTs)} sits at the '
-                              '$ordinal percentile of your own history — '
-                              '$band.'))),
+                      ? (l?.metricDetailRankFrom(axisDay(latestTs), share!) ??
+                          'Your reading from ${axisDay(latestTs)} is higher '
+                              'than $share% of your own days.')
+                      : (l?.metricDetailRankFromBand(
+                              axisDay(latestTs), share!, band) ??
+                          'Your reading from ${axisDay(latestTs)} is higher '
+                              'than $share% of your own days — $band.'))),
           style: F.cap.copyWith(color: p.ink3, height: 1.5),
         ),
       ]),
     );
-  }
-
-  /// [n]th, localized. `{ordinal}` gets substituted whole into an ARB
-  /// sentence, so this is the one place the suffix has to match the reader's
-  /// language — an English "12th" inside a French sentence reads as broken,
-  /// not translated.
-  String _ordinal(int n, AppLocalizations? l) {
-    switch (l?.localeName.split('_').first) {
-      case 'fr':
-        return n == 1 ? '1er' : '${n}e';
-      case 'de':
-        return '$n.';
-      case 'es':
-        return '$nº';
-      case 'ru':
-        return '$n-му';
-      case 'hi':
-      case 'zh':
-        // Neither language marks the ordinal with a suffix here — the
-        // surrounding ARB sentence already carries the "the Nth" framing
-        // (Hindi's postposition, Chinese's 第 prefix), so a bare number is
-        // the correct rendering, not a fallback.
-        return '$n';
-      default:
-        if (n % 100 >= 11 && n % 100 <= 13) return '${n}th';
-        return '$n${const ['th', 'st', 'nd', 'rd'][n % 10 < 4 ? n % 10 : 0]}';
-    }
   }
 
   Widget _stat(P p, String v, String l) => Column(children: [

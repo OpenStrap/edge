@@ -323,6 +323,9 @@ Map<String, Widget> componentCases() => {
         onSelect: (_) {},
       ),
       'nav_bar': const NavBar('Last night', sub: 'MON 14 AUG'),
+      // The way into Profile from every tab's header. No AppState here, so
+      // it draws the plain glyph rather than an initial.
+      'profile_avatar': const ProfileAvatar(),
       // The stepper every single-day screen wears. Shot mid-history, where
       // both arrows are live and the middle opens the calendar — the state a
       // user spends all their time in once there is more than a week on disk.
@@ -431,7 +434,7 @@ Map<String, Widget> _chartCases() {
       final p = P.of(c);
       return Surface(
         child: ChartFrame(
-          title: 'Readiness',
+          title: 'Recovery',
           unit: 'score',
           yAxis: AxisSpec.of(rhr, floor: 40),
           xLabels: const ['30 Jul', '14 Aug', 'Today'],
@@ -481,17 +484,10 @@ Map<String, Widget> _chartCases() {
       );
     }),
     'chart_zones': Builder(builder: (c) {
-      final p = P.of(c);
-      return Surface(
-        child: ChartFrame(
-          title: 'Time in heart-rate zones',
-          unit: 'share of the session',
-          height: 28,
-          legend: ZoneBar.legend(p),
-          child: CustomPaint(
-              size: Size.infinite,
-              painter: ZoneBar(const [.18, .34, .28, .15, .05], p)),
-        ),
+      return const Surface(
+        child: ZoneRows([7, 14, 11, 6, 2],
+            lowerBpm: [95, 114, 133, 152, 171],
+            title: 'Time in heart-rate zones'),
       );
     }),
     'chart_empty': const Surface(
@@ -690,9 +686,6 @@ final _route = [
 // broken painter from.
 final _metres = List<double>.generate(
     120, (i) => 180 + 240 * sin(i / 120 * pi) + (i % 7) * 3.0);
-final _psd = List<double>.generate(64, (i) => (i < 20 ? 40 - i : 26 - i * .3)
-    .clamp(1, 60)
-    .toDouble());
 
 Map<String, Widget> extraCases() => {
       // The edge treatment that tells a horizontal row it continues. Swept
@@ -883,7 +876,7 @@ Map<String, Widget> extraCases() => {
         final p = P.of(c);
         return Surface(
           child: ChartFrame(
-            title: 'Readiness',
+            title: 'Recovery',
             unit: 'out of 100',
             height: 120,
             footnote: 'Against your own 14-day baseline, not a population.',
@@ -948,20 +941,6 @@ Map<String, Widget> extraCases() => {
           ),
         );
       }),
-      'chart_spectrum': Builder(builder: (c) {
-        final p = P.of(c);
-        final painter = Spectrum(_psd, lf: p.on(C.blue), hf: p.on(C.purple));
-        return Surface(
-          child: ChartFrame(
-            title: 'Heart-rate variability spectrum',
-            unit: 'ms² per Hz',
-            height: 96,
-            legend: painter.legend,
-            footnote: 'Beat timing at 1 Hz is pulse-rate variability, not ECG.',
-            child: CustomPaint(size: Size.infinite, painter: painter),
-          ),
-        );
-      }),
       'chart_night_stack': Builder(builder: (c) {
         final p = P.of(c);
         return Surface(
@@ -997,8 +976,8 @@ Map<String, Widget> extraCases() => {
               size: Size.infinite,
               painter: RouteMap(_route,
                   pace: [for (var i = 0; i < _route.length; i++) (i % 20) / 20],
-                  slow: p.on(C.red),
-                  fast: p.on(C.green),
+                  slow: p.on(C.blue),
+                  fast: p.on(C.orange),
                   pinStart: p.on(C.green),
                   pinEnd: p.on(C.red),
                   pinInk: p.inkOnFill),
@@ -1025,19 +1004,8 @@ Map<String, Widget> extraCases() => {
         );
       }),
       'activity_lap_bars': Builder(builder: (c) {
-        final p = P.of(c);
-        return Surface(
-          child: ChartFrame(
-            title: 'Laps',
-            unit: '50 m, fastest first',
-            height: 120,
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: LapBars(const [1, .92, .88, .95, .71, .64],
-                  p.on(C.domHealth), p.track,
-                  done: 3),
-            ),
-          ),
+        return const Surface(
+          child: LapRows([52, 56, 59, 55, 73, 81], C.domHealth),
         );
       }),
       'activity_breath_ring': Builder(builder: (c) {
@@ -1241,6 +1209,34 @@ Map<String, Widget> _stateCases() => {
       'trend_down_bad': TrendCard('Heart-rate variability', '48', 'ms', '−13',
           'vs 14-day baseline', _series, C.orange,
           good: false),
+      // The shared trend header: a usual range behind the line, the axis
+      // scaled to it, and a verdict with the difference from usual.
+      'trend_banded': TrendCard('Resting heart rate', '61', 'bpm', '', '',
+          _series, C.red,
+          band: const UsualRange(52, 58),
+          latest: 61,
+          higherBetter: false,
+          format: (v) => v.round().toString()),
+      'reading_verdict': const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ReadingVerdict(side: Side.inside, detail: '+1 bpm from your usual 55 bpm'),
+          ReadingVerdict(
+              side: Side.below,
+              detail: '−6 ms from your usual 54 ms'),
+          ReadingVerdict(
+              side: Side.above,
+              detail: '+3.2 from your usual 9.8',
+              higherBetter: null),
+        ],
+      ),
+      'band_layer': SizedBox(
+        height: 80,
+        child: BandLayer(
+            const UsualRange(52, 58),
+            const AxisSpec(min: 40, max: 70, format: axisInt),
+            C.red.withValues(alpha: .15)),
+      ),
       // A gap in the middle of the series — the strap was off the wrist for
       // three days, and the line must BREAK rather than interpolate across it.
       'trend_with_gap': TrendCard(

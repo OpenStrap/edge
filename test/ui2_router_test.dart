@@ -10,7 +10,7 @@
 //
 // The deep-link cases exist because a notification is scheduled days before
 // it is tapped: a payload written by an older build must still land somewhere
-// deterministic after the five tabs were renamed.
+// deterministic after the tabs were rearranged.
 
 import 'dart:io';
 
@@ -34,6 +34,8 @@ import 'package:openstrap_edge/ui2/screens/log_workout.dart'
     show WorkoutSuggestionScreen;
 import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'package:openstrap_edge/ui2/profile/profile.dart';
+import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart'
+    show NutritionScreen;
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 /// A viewport tall enough that nothing under test is below the fold. The
@@ -125,52 +127,55 @@ void main() {
     });
   });
 
-  group('deep links survive the five-tab rename', () {
+  group('deep links survive the four-tab layout', () {
     test('every notification tab index resolves', () {
-      expect(domainForTab(0), ShellDomain.home);
-      // Sleep, Heart and Body all folded into Health.
-      expect(domainForTab(1), ShellDomain.health);
+      expect(domainForTab(0), ShellDomain.today);
+      // Sleep has a tab again; Heart and Body live in Health.
+      expect(domainForTab(1), ShellDomain.sleep);
       expect(domainForTab(2), ShellDomain.health);
       expect(domainForTab(3), ShellDomain.health);
-      expect(domainForTab(4), ShellDomain.workout);
+      expect(domainForTab(4), ShellDomain.activity);
       // A payload from a build that had more tabs than we do.
-      expect(domainForTab(9), ShellDomain.home);
-      expect(domainForTab(-1), ShellDomain.home);
+      expect(domainForTab(9), ShellDomain.today);
+      expect(domainForTab(-1), ShellDomain.today);
+    });
+
+    test('a tab saved by the five-tab bar reopens where its content went', () {
+      // Home, Health, Nutrition, Workout, Wellness.
+      expect(domainForSavedTab(0), ShellDomain.today);
+      expect(domainForSavedTab(1), ShellDomain.health);
+      expect(domainForSavedTab(2), ShellDomain.activity);
+      expect(domainForSavedTab(3), ShellDomain.activity);
+      expect(domainForSavedTab(4), ShellDomain.health);
+      expect(domainForSavedTab(42), ShellDomain.today);
     });
 
     test('every kRoute constant lands somewhere deliberate', () {
-      const routes = {
-        kRouteAiMorning: ShellDomain.home,
-        kRouteAiEvening: ShellDomain.home,
-        kRouteJournalCompose: ShellDomain.wellness,
-        kRouteBreathing: ShellDomain.wellness,
-        kRouteWorkoutSuggestion: ShellDomain.home,
-        kRouteDetectedActivities: ShellDomain.home,
-        kRouteWater: ShellDomain.nutrition,
+      final routes = {
+        kRouteAiMorning: ShellDomain.today,
+        kRouteAiEvening: ShellDomain.today,
+        kRouteJournalCompose: ShellDomain.health,
+        kRouteBreathing: ShellDomain.health,
+        kRouteMeds: ShellDomain.health,
+        kRouteWorkoutSuggestion: ShellDomain.today,
+        kRouteDetectedActivities: ShellDomain.today,
+        kRouteWater: ShellDomain.activity,
+        kRouteWorkoutIdle: ShellDomain.activity,
+        kRouteAlarm: ShellDomain.sleep,
       };
       routes.forEach((route, domain) {
         expect(domainForRoute(route), domain, reason: route);
       });
-      // The hydration reminder says "tap to log a glass": it has to open the
-      // control, not the tab the control is buried on.
-      // The water reminder lands on Nutrition now — the water tile there
-      // steps and clears in place, and the single-field screen it used to
-      // open was reachable from nowhere else.
-      // It is a shell tab, so the tab switch is the whole landing: a pushed
-      // copy had no Scaffold, background or way back.
-      expect(domainForRoute(kRouteWater), ShellDomain.nutrition);
-      expect(screenForRoute(kRouteWater), isNull);
-      // Payload routes that predate the five-tab shell, and that
-      // `resolveTapRoute` does not carry yet — the destinations exist here so
-      // they stop landing on Home the moment it does.
-      expect(domainForRoute('/profile'), ShellDomain.home);
+      // The hydration reminder says "tap to log a glass": Nutrition is a
+      // pushed page of Activity now, so the tap pushes it.
+      expect(screenForRoute(kRouteWater), isA<NutritionScreen>());
+      expect((screenForRoute(kRouteWater)! as NutritionScreen).page, isTrue);
+      expect(domainForRoute('/profile'), ShellDomain.today);
       expect(screenForRoute('/profile'), isA<ProfileHome>(),
-          reason: 'the battery notification promises the band, not Home');
-      // A week of sleep, strain and recovery is Health. There is no recap
-      // screen; landing on Home was not even close.
+          reason: 'the battery notification promises the band, not Today');
       expect(domainForRoute('/recap'), ShellDomain.health);
       // Unknown / retired routes must not crash a cold launch.
-      expect(domainForRoute(''), ShellDomain.home);
+      expect(domainForRoute(''), ShellDomain.today);
       expect(screenForRoute('/nope'), isNull);
     });
 
@@ -180,7 +185,7 @@ void main() {
       // unreviewed bout is the same broken promise one screen further in.
       const id = '2026-08-19:1755625800';
       final route = workoutSuggestionRoute(id);
-      expect(domainForRoute(route), ShellDomain.home);
+      expect(domainForRoute(route), ShellDomain.today);
       final screen = screenForRoute(route);
       expect(screen, isA<WorkoutSuggestionScreen>());
       expect((screen! as WorkoutSuggestionScreen).focusId, id);

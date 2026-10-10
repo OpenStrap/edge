@@ -1,7 +1,7 @@
 // Profile.
 //
-// Reached from the Home avatar, never a sixth tab — the shell has five
-// destinations and the type system says so.
+// Reached from the avatar in every tab's header, never a tab of its own — the
+// shell has four destinations and the type system says so.
 //
 // The reference design had a Premium badge and a Following/Followers pair.
 // Both are gone, and not for lack of screen space: there is no account and no
@@ -13,12 +13,13 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import '../../health/health_import_state.dart' show storeName;
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/locale_controller.dart';
 import '../ui2.dart';
 import '../screens/coach.dart' show CoachSetup, coachSubtitle;
+import '../screens/home_screen.dart' show deviceBatteryOf;
+import 'data.dart';
 import 'devices.dart';
 import 'settings.dart';
 
@@ -132,9 +133,49 @@ Widget settingsGroup(BuildContext c, String title, List<Widget> rows) {
 Future<void> goto(BuildContext c, Widget w) =>
     Navigator.of(c).push(MaterialPageRoute<void>(builder: (_) => w));
 
-/// The one way into the profile stack. Home's avatar calls this — profile is
-/// a pushed route, never a sixth tab.
+/// The one way into the profile stack. [ProfileAvatar] calls this — profile
+/// is a pushed route, never a tab.
 void openProfile(BuildContext c) => goto(c, const ProfileHome());
+
+/// The way into Profile, in the top-right of every tab. It used to be a gear
+/// on Home only, so four tabs out of five had no road to devices, battery,
+/// export or settings.
+class ProfileAvatar extends StatelessWidget {
+  /// The tab's own accent, so the avatar reads as part of the header it sits
+  /// in.
+  final Color accent;
+  const ProfileAvatar({super.key, this.accent = C.domHome});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    String? name;
+    try {
+      name = c.select<AppState, String?>((a) => a.user?['name'] as String?);
+    } catch (_) {
+      // No AppState above us (goldens): the plain glyph.
+    }
+    final initial = (name ?? '').trim();
+    return Pressable(
+      semanticLabel:
+          AppLocalizations.of(c)?.homeProfileSettings ?? 'Profile and settings',
+      onTap: () => openProfile(c),
+      child: Container(
+        width: 40,
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: p.fill(accent)),
+        child: initial.isEmpty
+            ? Icon(LucideIcons.user, size: 18, color: p.inkOnFill)
+            : ExcludeSemantics(
+                child: Text(initial.characters.first.toUpperCase(),
+                    style: F.body.copyWith(
+                        color: p.inkOnFill, fontWeight: FontWeight.w600)),
+              ),
+      ),
+    );
+  }
+}
 
 /// Display name for a language code, sourced from a small hardcoded table.
 /// Add a row here when a contributor's `app_<code>.arb` lands — nothing else
@@ -261,6 +302,7 @@ class _ProfileHomeState extends State<ProfileHome> {
           stats: snap.data,
           onDevices: () => _open(c, const MyDevices()),
           onSettings: () => _open(c, const MoreSettings()),
+          onExport: () => _open(c, const DataScreen()),
           onEdit: () => _open(c, const EditProfile()),
           onCoach: () => _open(c, const CoachSetup()),
         ),
@@ -271,7 +313,7 @@ class ProfileHomeView extends StatelessWidget {
   /// Null while the counts are still being read — the numbers are absent, not
   /// zero, and a zero rendered during a load is a wrong number on screen.
   final ProfileStats? stats;
-  final VoidCallback? onDevices, onSettings, onEdit, onCoach;
+  final VoidCallback? onDevices, onSettings, onExport, onEdit, onCoach;
 
   const ProfileHomeView(
       {super.key,
@@ -279,6 +321,7 @@ class ProfileHomeView extends StatelessWidget {
       this.onDevices,
       this.onCoach,
       this.onSettings,
+      this.onExport,
       this.onEdit,
       });
 
@@ -301,13 +344,22 @@ class ProfileHomeView extends StatelessWidget {
               children: [
                 const SizedBox(height: S.x4),
                 settingsGroup(c, l?.profileQuickAccessGroup ?? 'Quick access', [
-                  SetRow(LucideIcons.watch, C.blue,
-                      l?.profileMyDevices ?? 'My devices',
-                      sub: s == null
-                          ? ''
-                          : (l?.profileSourcesCount(s.sources) ??
-                              '${s.sources} source${s.sources == 1 ? '' : 's'}'),
-                      onTap: onDevices),
+                  // The band's battery rides the devices row: Profile is
+                  // where "is my band all right?" is asked from every tab.
+                  Builder(builder: (c) {
+                    final battery = deviceBatteryOf(c);
+                    return SetRow(LucideIcons.watch, C.blue,
+                        l?.profileMyDevices ?? 'My devices',
+                        sub: [
+                          if (s != null)
+                            l?.profileSourcesCount(s.sources) ??
+                                '${s.sources} source${s.sources == 1 ? '' : 's'}',
+                          if (battery != null)
+                            l?.profileBandBattery(battery.$1.round()) ??
+                                'Band ${battery.$1.round()}%',
+                        ].join(' · '),
+                        onTap: onDevices);
+                  }),
                   SetRow(LucideIcons.userPen, C.purple,
                       l?.profileEditProfile ?? 'Edit profile',
                       sub: l?.profileEditProfileSub ??
@@ -342,18 +394,17 @@ class ProfileHomeView extends StatelessWidget {
                           ? ''
                           : formatBytes(s!.storageBytes!),
                       chevron: false),
+                  // Export straight from here: it used to be five taps deep,
+                  // behind a row named for its position ("More settings").
+                  SetRow(LucideIcons.download, C.green,
+                      l?.profileExportRow ?? 'Export and backup',
+                      sub: l?.profileExportRowSub ??
+                          'Spreadsheets, a full copy, and bringing history in',
+                      onTap: onExport),
                   SetRow(LucideIcons.settings, C.n500,
-                      l?.profileMoreSettings ?? 'More settings',
-                      // `From $storeName` used to sit on Quick access too. It
-                      // came off: height, weight and workouts already moved to
-                      // the screens they fill, and what is left — a resting
-                      // heart rate the app does not use yet, plus readings from
-                      // instruments this band does not have — is not quick and
-                      // is not accessed often. It keeps its one door here, and
-                      // this line names it so the door is findable.
-                      sub: l?.profileMoreSettingsSub(storeName) ??
-                          'Import from $storeName, export, backup, units, '
-                              'privacy, reset',
+                      l?.profileSettingsRow ?? 'Settings',
+                      sub: l?.profileSettingsRowSub ??
+                          'Band, app, data, privacy and advanced',
                       onTap: onSettings),
                 ]),
                 settingsGroup(c, l?.profileCommunityGroup ?? 'Community', [

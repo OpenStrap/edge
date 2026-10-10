@@ -66,6 +66,9 @@ class DayStrainData {
   final String? zoneSource;
   final num? zoneMaxHr;
 
+  /// The five lower zone edges, in bpm, of the set this day was binned with.
+  final List<num>? zoneLowerBpm;
+
   final int? peakHr, wornMin, coveragePct;
 
   /// WHY the day has no strain, as the bundle said it — never a sentence
@@ -81,6 +84,7 @@ class DayStrainData {
     this.maxHrUsed,
     this.zoneSource,
     this.zoneMaxHr,
+    this.zoneLowerBpm,
     this.peakHr,
     this.wornMin,
     this.coveragePct,
@@ -145,6 +149,11 @@ class DayStrainData {
       maxHrUsed: s['max_hr_used'] as num?,
       zoneSource: s['zone_source'] as String?,
       zoneMaxHr: s['zone_max_hr'] as num?,
+      zoneLowerBpm: switch (s['zone_lower_bpm']) {
+        final List e when e.length == 5 && e.every((v) => v is num) =>
+          e.cast<num>(),
+        _ => null,
+      },
       peakHr: hr is Map ? (hr['max'] as num?)?.toInt() : null,
       wornMin: (wear['worn_min'] as num?)?.toInt(),
       coveragePct: (wear['coverage_pct'] as num?)?.toInt(),
@@ -268,23 +277,22 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
         ),
       ];
     }
-    final axis = AxisSpec.of(d.curve.whereType<double>(), floor: 0)!;
+    // The whole 0–21 scale the header names, so the ticks and the header
+    // agree and two days can be compared by eye.
+    const axis = AxisSpec(min: 0, max: 21, ticks: 4, format: axisInt);
     final drawn = d.curve.where((v) => v != null).length;
     return [
       Surface(
         child: Column(children: [
           ChartFrame(
-            title: l?.dayStrainChartTitle ?? 'STRAIN THROUGH THE DAY',
+            title: l?.dayStrainChartTitle ?? 'Strain through the day',
             unit: '0–21',
             height: 170,
             yAxis: axis,
             xLabels: const ['00:00', '12:00', '24:00'],
             series: d.curve,
             footnote: l?.dayStrainChartFootnote(drawn) ??
-                'Effort banked above your usual waking pace — it can ease '
-                    'later in the day if intensity drops back toward that '
-                    'pace, even though the STEEP parts already happened. '
-                    'Built from $drawn recorded waking minutes.',
+                'Effort above your usual waking pace. It can ease later if you slow back toward that pace. From $drawn recorded waking minutes.',
             child: CustomPaint(
               size: Size.infinite,
               painter: LineChart(d.curve, p.on(C.purple),
@@ -331,14 +339,10 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       Section(
         l?.dayStrainTimeInZonesSection ?? 'Time in zones',
         Surface(
-          child: ChartFrame(
-            title: l?.dayStrainZonesChartTitle ?? 'TIME IN ZONES',
-            unit: 'minutes',
-            height: 10,
-            legend: [
-              for (var i = 0; i < 5; i++)
-                ('Z${i + 1} · ${z[i]}m', ZoneBar.cols(p)[i]),
-            ],
+          child: ZoneRows(
+            [for (final v in z) v.toDouble()],
+            lowerBpm: d.zoneLowerBpm,
+            title: l?.dayStrainZonesChartTitle ?? 'Time in zones',
             // TS-03/TS-04 — the edges, and where THIS day's came from. Stated
             // per day, not as a standing hedge: the same screen tomorrow can be
             // banded on a measured ceiling, and a footnote that still said
@@ -346,10 +350,6 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
             // distribution is NOT here — it lives one tap away and is gated on
             // the same anchors (TS-05).
             footnote: zonesWhy(d.zoneSource, d.zoneMaxHr, l),
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: ZoneBar([for (final v in z) v / total], p),
-            ),
           ),
         ),
         // Progressive disclosure: this day screen gains a LINK, not a row. The
@@ -371,7 +371,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       child: Text(
         [
           l?.dayStrainInputsBase ??
-              'Banister TRIMP over your waking heart rate, scaled to 0–21.',
+              'How hard your heart worked while awake, by minutes in each heart-rate zone, on a 0–21 scale.',
           if (max != null)
             l?.dayStrainInputsMaxHr(max.round()) ??
                 'It was integrated against an assumed maximum of '
@@ -383,9 +383,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
           // exactly the defect TS-03a removed.
           if (max != null && d.zoneSource != null && d.zoneSource != 'tanaka')
             l?.dayStrainInputsMeasuredCeilingNote ??
-                'The zone bar above uses the measured ceiling instead; strain has '
-                    'not been moved onto it, because that would rewrite every '
-                    'strain score you have ever seen.',
+                'The zone bar uses your measured maximum. Strain does not, so the strain scores you have already seen stay the same.',
           l?.dayStrainInputsRhrAnchor ??
               'The other anchor is your resting heart rate from the night before, '
                   'so a night the band missed moves the whole day.',
