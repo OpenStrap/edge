@@ -1208,9 +1208,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     }
     return r.avgHr == null
         ? l?.activitySummaryCalorieNoHr(met) ??
-            'Estimated from the activity\'s effort level ($met MET) and your weight. No heart rate reached this session.'
+            'Estimated from the activity\'s effort level ($met× resting) and your weight. No heart rate reached this session.'
         : l?.activitySummaryCalorieWithHr(met) ??
-            'Estimated from the activity\'s effort level ($met MET), your weight and heart rate.';
+            'Estimated from the activity\'s effort level ($met× resting), your weight and heart rate.';
   }
 
   /// (value, unit, caption). The hero is the archetype's own headline — and

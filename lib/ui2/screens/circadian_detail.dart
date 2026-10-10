@@ -580,7 +580,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
         (l?.circadianDetailNightsCompared ?? 'Free / working nights compared',
             '${d.nFree!.round()} / ${d.nWork!.round()}'),
       if (d.regularity.value != null)
-        (l?.circadianDetailRegularityIndex ?? 'Regularity index',
+        (l?.circadianDetailRegularityIndex ?? 'Schedule consistency',
             '${d.regularity.value!.round()} / 100'),
       // SLP-08 — the same arithmetic, one level down. The index above is the
       // average agreement across every adjacent pair of nights; these two rows

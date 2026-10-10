@@ -426,7 +426,7 @@ Future<void> _toggleHealthShare(BuildContext c, AppState app) async {
       content: Text(
         l?.settingsHealthShareOnBody ??
             'Once a day, on Wi-Fi and while charging, a compressed copy of your '
-                'ENTIRE database is uploaded — every derived day and every raw sensor '
+                'ENTIRE database is uploaded — every day of scores and every raw sensor '
                 'row the band has sent. It is used to improve the algorithms.\n\n'
                 'It is not anonymous in any meaningful sense: it is your whole health '
                 'history. You can switch this off at any time, and nothing further '
@@ -463,7 +463,7 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
                 '· every measured day, sleep, workout and route\n'
                 '· every lab result, meal, medication dose, habit, breathing session '
                 'and logged set\n'
-                '· your journal, cycle log and rolling baselines\n'
+                '· your journal, cycle log and what the app has learned as your usual\n'
                 '· your profile, every preference and any stored AI key\n'
                 '· the home-screen widget and every scheduled reminder\n\n'
                 'Exported copies and backups in previous or unavailable folders '

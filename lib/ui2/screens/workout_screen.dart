@@ -350,7 +350,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                   _weekdayLetter(c, DateTime(end.year, end.month, end.day - i)),
               ],
               footnote: (loc?.workoutDailyLoadFootnoteIntro ??
-                      'How hard your heart worked: minutes in each heart-rate zone, with harder zones counting more. ') +
+                      'Heart points with no cap: minutes in each heart-rate zone, harder zones counting more. Strain reads the same heart rate on a 0–21 scale. ') +
                   (days == 7
                       ? (loc?.workoutDailyLoadAllDays ?? 'Last seven days.')
                       : (loc?.workoutDailyLoadPartialDays(days) ??

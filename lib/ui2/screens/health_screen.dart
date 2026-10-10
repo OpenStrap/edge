@@ -385,7 +385,7 @@ const _catalogue = <_Cat>[
     _CatRow('active_min', 'active_min', 'Minutes of movement volume, not locomotion'),
     _CatRow('calories', 'calories', 'Active energy from heart rate and your profile'),
     _CatRow('strain', 'strain', 'Cardiovascular load over the day, on 0–21'),
-    _CatRow('trimp', 'trimp', 'Time in each zone, weighted by its cost'),
+    _CatRow('trimp', 'trimp', 'Heart points with no cap; Strain is the 0–21 view'),
   ]),
   _Cat('Body & wear', [
     _CatRow('skin_temp', 'skin_temp_z', 'Distance from your own recent nights'),
@@ -845,8 +845,8 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                         illnessZ >= 0
                             ? (l.healthDirectionAbove)
                             : (l.healthDirectionBelow)) ??
-                    'Recent nights put your resting heart rate above your '
-                        'usual. That night was '
+                    'Recent nights together put your resting heart rate above '
+                        'your usual. On its own, that night was '
                         '${illnessZ.abs().toStringAsFixed(1)}× your normal '
                         'night-to-night swing ${illnessZ >= 0 ? 'above' : 'below'} '
                         'it. A pattern, not a cause.'),
@@ -1100,13 +1100,13 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                 const SizedBox(height: S.x4),
                 InlineMetrics([
                   if (chrono['type_label'] != null)
-                    (l?.healthChronotypeLabel ?? 'CHRONOTYPE',
+                    (l?.healthChronotypeLabel ?? 'NATURAL BEDTIME',
                         chrono['type_label'].toString(), C.indigo),
                   if (sjlH != null)
-                    (l?.healthSocialJetlagLabel ?? 'SOCIAL JETLAG',
+                    (l?.healthSocialJetlagLabel ?? 'WEEKEND SHIFT',
                         _hoursHm(sjlH), C.orange),
                   if (sri != null)
-                    (l?.healthRegularityLabel ?? 'REGULARITY',
+                    (l?.healthRegularityLabel ?? 'CONSISTENCY',
                         '${sri.round()} / 100', C.green),
                 ]),
               ],

@@ -979,7 +979,10 @@
   "readinessDetailNotAvailable": "недоступно",
   "readinessDetailContributionNotReported": "вклад не указан",
   "readinessDetailRelativeUncalibrated": "относительное, без калибровки",
-  "readinessDetailWithinSpread": "в пределах обычного разброса",
+  "readinessDetailWithinSpread": "да, в пределах обычного диапазона",
+  "readinessDetailOutsideRange": "нет, вне обычного диапазона",
+  "readinessDetailLiftingScore": "повышает оценку",
+  "readinessDetailLoweringScore": "снижает оценку",
   "readinessDetailWeightPercent": "вес {pct}%",
   "@readinessDetailWeightPercent": {
     "placeholders": {
@@ -1298,7 +1301,7 @@
   "circadianDetailLater": "позже",
   "circadianDetailEarlier": "раньше",
   "circadianDetailNightsCompared": "Свободные / рабочие ночи в сравнении",
-  "circadianDetailRegularityIndex": "Индекс регулярности",
+  "circadianDetailRegularityIndex": "Постоянство режима",
   "circadianDetailNightsLeastAlike": "Наименее похожие ночи",
   "circadianDetailSamePairScale": "Та же пара в одной шкале",
   "circadianDetailRhythmNotEstablished": "Ваш ритм ещё не определён",
@@ -2972,7 +2975,7 @@
     }
   },
   "healthIllnessBodyNoZ": "В последние ночи пульс в покое выше обычного. Отслеживается один сигнал, поэтому это закономерность, а не причина.",
-  "healthIllnessBodyWithZ": "В последние ночи пульс в покое выше обычного. В ту ночь отклонение {direction} составило {z} вашего обычного разброса. Это закономерность, а не причина.",
+  "healthIllnessBodyWithZ": "В сумме за последние ночи пульс в покое выше обычного. Сама по себе та ночь была {direction} нормы на {z} вашего обычного разброса. Это закономерность, а не причина.",
   "@healthIllnessBodyWithZ": {
     "placeholders": {
       "z": {
@@ -3056,9 +3059,9 @@
   },
   "healthBodyClockTitle": "Биологические часы",
   "healthChronotypeJetlagRegularity": "Естественное время сна, сдвиг в выходные и постоянство режима",
-  "healthChronotypeLabel": "ХРОНОТИП",
-  "healthSocialJetlagLabel": "СОЦИАЛЬНЫЙ ДЖЕТЛАГ",
-  "healthRegularityLabel": "РЕГУЛЯРНОСТЬ",
+  "healthChronotypeLabel": "ЕСТЕСТВЕННОЕ ВРЕМЯ СНА",
+  "healthSocialJetlagLabel": "СДВИГ В ВЫХОДНЫЕ",
+  "healthRegularityLabel": "ПОСТОЯНСТВО",
   "healthConsistencyTitle": "Постоянство",
   "healthDaysWithRecord": "Дни с оценкой за последние 30 дней",
   "healthToday": "Сегодня",
@@ -3136,7 +3139,7 @@
   "healthBlurbActiveMin": "Минуты движения, не обязательно ходьбы",
   "healthBlurbCalories": "Активная энергия по пульсу и вашему профилю",
   "healthBlurbStrain": "Сердечно-сосудистая нагрузка за день, 0–21",
-  "healthBlurbTrimp": "Время в каждой зоне с учётом её нагрузки",
+  "healthBlurbTrimp": "Очки без предела; Нагрузка — то же по шкале 0–21",
   "healthBlurbSkinTemp": "Отклонение от ваших недавних ночей",
   "healthBlurbWear": "Минуты с записью браслета",
   "healthNothingMeasuredHere": "Здесь пока ничего не измерено",
@@ -3508,7 +3511,7 @@
       }
     }
   },
-  "homeIllnessBodyBelow": "В последние ночи пульс в покое выше обычного. В ту ночь он был ниже на {z} вашего обычного разброса. Это закономерность, а не причина.",
+  "homeIllnessBodyBelow": "В сумме за последние ночи пульс в покое выше обычного, хотя сама по себе та ночь была ниже нормы на {z} вашего обычного разброса. Это закономерность, а не причина.",
   "@homeIllnessBodyBelow": {
     "placeholders": {
       "z": {
@@ -4247,7 +4250,7 @@
   "workoutFitnessLabel": "тренированность",
   "workoutDailyLoadTitle": "НАГРУЗКА НА СЕРДЦЕ ПО ДНЯМ",
   "workoutTrimpUnit": "баллы",
-  "workoutDailyLoadFootnoteIntro": "Насколько усердно работало сердце: минуты в каждой зоне пульса, более высокие зоны весят больше. ",
+  "workoutDailyLoadFootnoteIntro": "Очки нагрузки на сердце без верхнего предела: минуты в каждой зоне пульса, более высокие зоны весят больше. Нагрузка за день показывает тот же пульс по шкале 0–21. ",
   "workoutDailyLoadAllDays": "Последние семь дней.",
   "workoutDailyLoadPartialDays": "Значение получено за {days} из последних семи дней.",
   "@workoutDailyLoadPartialDays": {
@@ -4475,7 +4478,7 @@
   "activitySetupCaloriesNeedWeight": "Для калорий нужен ваш вес.",
   "activitySetupNoMetEstimate": "Предварительной оценки нет: у активности нет опубликованного уровня усилия. Калории будут по пульсу, когда известны профиль и ваш диапазон пульса.",
   "activitySummaryCalorieNoMet": "Оценка по пульсу и весу. Для этой активности нет опубликованного уровня усилия, поэтому он не используется.",
-  "activitySetupCalorieEstimate": "Около {est} ккал за {minutes} мин, по уровню усилия активности ({met} MET) и вашему весу.",
+  "activitySetupCalorieEstimate": "Около {est} ккал за {minutes} мин, по уровню усилия активности ({met}× от покоя) и вашему весу.",
   "@activitySetupCalorieEstimate": {
     "placeholders": {
       "est": {
@@ -4513,7 +4516,7 @@
   "activityPickerQuickStart": "БЫСТРЫЙ СТАРТ",
   "activityPickerRecent": "НЕДАВНИЕ",
   "activityPickerCalorieEstimatesTitle": "Калории — оценочные значения",
-  "activityPickerMetValue": "{met} MET",
+  "activityPickerMetValue": "{met}× от покоя",
   "@activityPickerMetValue": {
     "placeholders": {
       "met": {
@@ -4743,7 +4746,7 @@
   "activitySummaryCaloriesNeedWeight": "Для калорий нужен ваш вес.",
   "activitySummaryNoCalorieNoStrain": "Нет оценки калорий. Для оценки энергии по пульсу нужны максимальный пульс и пульс в покое; один из них не задан.",
   "activitySummaryNoCalorieWithStrain": "Калорий за эту тренировку нет: укажите максимальный пульс и пульс в покое. Нагрузка выше — измеренное усилие по шкале 0–21.",
-  "activitySummaryCalorieNoHr": "Оценка по уровню усилия активности ({met} MET) и вашему весу. Пульс за эту тренировку не получен.",
+  "activitySummaryCalorieNoHr": "Оценка по уровню усилия активности ({met}× от покоя) и вашему весу. Пульс за эту тренировку не получен.",
   "@activitySummaryCalorieNoHr": {
     "placeholders": {
       "met": {
@@ -4751,7 +4754,7 @@
       }
     }
   },
-  "activitySummaryCalorieWithHr": "Оценка по уровню усилия активности ({met} MET), вашему весу и пульсу.",
+  "activitySummaryCalorieWithHr": "Оценка по уровню усилия активности ({met}× от покоя), вашему весу и пульсу.",
   "@activitySummaryCalorieWithHr": {
     "placeholders": {
       "met": {
@@ -5407,7 +5410,7 @@
   "settingsNo": "Нет",
   "settingsContribute": "Передавать",
   "settingsResetTitle": "Удалить всё?",
-  "settingsResetBody": "Будут навсегда удалены данные этого приложения на этом устройстве:\n\n· все измеренные дни, сон, тренировки и маршруты\n· все результаты анализов, питание, дозы лекарств, привычки, дыхательные сессии и записанные подходы\n· дневник, записи цикла и скользящие базовые уровни\n· профиль, все настройки и сохранённые ключи ИИ\n· виджет главного экрана и все запланированные напоминания\n\nЭкспортированные копии и резервные копии в прежних или недоступных папках могут остаться. Удалите их отдельно.\n\nСопряжение с браслетом будет удалено. Он не сможет повторно передать уже отданную историю. Чтобы сохранить копию, сначала выполните экспорт в разделе «Ваши данные».",
+  "settingsResetBody": "Будут навсегда удалены данные этого приложения на этом устройстве:\n\n· все измеренные дни, сон, тренировки и маршруты\n· все результаты анализов, питание, дозы лекарств, привычки, дыхательные сессии и записанные подходы\n· дневник, записи цикла и то, что приложение узнало о вашей норме\n· профиль, все настройки и сохранённые ключи ИИ\n· виджет главного экрана и все запланированные напоминания\n\nЭкспортированные копии и резервные копии в прежних или недоступных папках могут остаться. Удалите их отдельно.\n\nСопряжение с браслетом будет удалено. Он не сможет повторно передать уже отданную историю. Чтобы сохранить копию, сначала выполните экспорт в разделе «Ваши данные».",
   "settingsResetKeepData": "Оставить данные",
   "settingsResetDeleteEverything": "Удалить всё",
   "settingsNavTitle": "Настройки",

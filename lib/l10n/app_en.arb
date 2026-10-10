@@ -2235,9 +2235,21 @@
   "@readinessDetailRelativeUncalibrated": {
     "description": "Breakdown row tag on the temperature input: it is a relative, uncalibrated sensor deviation."
   },
-  "readinessDetailWithinSpread": "within your usual spread",
+  "readinessDetailWithinSpread": "yes, within your usual range",
   "@readinessDetailWithinSpread": {
     "description": "Breakdown row tag: the input's change was within the user's usual spread (below the smallest-worthwhile-change threshold)."
+  },
+  "readinessDetailOutsideRange": "no, outside your usual range",
+  "@readinessDetailOutsideRange": {
+    "description": "Recovery breakdown row answer: the input moved past the smallest change that counts."
+  },
+  "readinessDetailLiftingScore": "lifting your score",
+  "@readinessDetailLiftingScore": {
+    "description": "Recovery breakdown row: this input raised the score."
+  },
+  "readinessDetailLoweringScore": "pulling your score down",
+  "@readinessDetailLoweringScore": {
+    "description": "Recovery breakdown row: this input lowered the score."
   },
   "readinessDetailWeightPercent": "{pct}% weight",
   "@readinessDetailWeightPercent": {
@@ -2851,7 +2863,7 @@
   "@circadianDetailNightsCompared": {
     "description": "Row label: count of free vs working nights compared"
   },
-  "circadianDetailRegularityIndex": "Regularity index",
+  "circadianDetailRegularityIndex": "Schedule consistency",
   "@circadianDetailRegularityIndex": {
     "description": "Row label: sleep regularity index score"
   },
@@ -6498,7 +6510,7 @@
   "@healthIllnessBodyNoZ": {
     "description": "Illness observation card body when no z-score is available"
   },
-  "healthIllnessBodyWithZ": "Recent nights put your resting heart rate above your usual. That night was {z}× your normal night-to-night swing {direction} it. A pattern, not a cause.",
+  "healthIllnessBodyWithZ": "Recent nights together put your resting heart rate above your usual. On its own, that night was {z}× your normal night-to-night swing {direction} it. A pattern, not a cause.",
   "@healthIllnessBodyWithZ": {
     "description": "Illness observation card body including the standard-deviation figure and direction",
     "placeholders": {
@@ -6641,15 +6653,15 @@
   "@healthChronotypeJetlagRegularity": {
     "description": "Body clock card subtitle"
   },
-  "healthChronotypeLabel": "CHRONOTYPE",
+  "healthChronotypeLabel": "NATURAL BEDTIME",
   "@healthChronotypeLabel": {
     "description": "Body clock inline-metric label: CHRONOTYPE"
   },
-  "healthSocialJetlagLabel": "SOCIAL JETLAG",
+  "healthSocialJetlagLabel": "WEEKEND SHIFT",
   "@healthSocialJetlagLabel": {
     "description": "Body clock inline-metric label: SOCIAL JETLAG"
   },
-  "healthRegularityLabel": "REGULARITY",
+  "healthRegularityLabel": "CONSISTENCY",
   "@healthRegularityLabel": {
     "description": "Body clock inline-metric label: REGULARITY"
   },
@@ -6851,7 +6863,7 @@
   "@healthBlurbStrain": {
     "description": "Explore catalogue one-line description for strain"
   },
-  "healthBlurbTrimp": "Time in each zone, weighted by its cost",
+  "healthBlurbTrimp": "Heart points with no cap; Strain is the 0–21 view",
   "@healthBlurbTrimp": {
     "description": "Explore catalogue one-line description for TRIMP"
   },
@@ -7580,7 +7592,7 @@
       }
     }
   },
-  "homeIllnessBodyBelow": "Recent nights put your resting heart rate above your usual. That night was {z}× your normal night-to-night swing below it. A pattern, not a cause.",
+  "homeIllnessBodyBelow": "Recent nights together put your resting heart rate above your usual, even though that night on its own was {z}× your normal night-to-night swing below it. A pattern, not a cause.",
   "@homeIllnessBodyBelow": {
     "description": "Illness watch body text when the flagged night's heart rate sat below baseline, with the deviation amount.",
     "placeholders": {
@@ -9087,7 +9099,7 @@
   "@workoutTrimpUnit": {
     "description": "Chart unit label, training-impulse acronym"
   },
-  "workoutDailyLoadFootnoteIntro": "How hard your heart worked: minutes in each heart-rate zone, with harder zones counting more. ",
+  "workoutDailyLoadFootnoteIntro": "Heart points with no cap: minutes in each heart-rate zone, harder zones counting more. Strain reads the same heart rate on a 0–21 scale. ",
   "@workoutDailyLoadFootnoteIntro": {
     "description": "First sentence of the daily load chart footnote"
   },
@@ -9553,7 +9565,7 @@
   "@activitySummaryCalorieNoMet": {
     "description": "Calorie basis line on the summary screen for a session whose activity has no published MET (e.g. General workout, Padel)"
   },
-  "activitySetupCalorieEstimate": "About {est} kcal per {minutes} min, from the activity's effort level ({met} MET) and your weight.",
+  "activitySetupCalorieEstimate": "About {est} kcal per {minutes} min, from the activity's effort level ({met}× resting) and your weight.",
   "@activitySetupCalorieEstimate": {
     "description": "Calorie estimate line on the activity setup screen, e.g. 'About 250 kcal per 30 min, from 8.0 MET and your weight.'",
     "placeholders": {
@@ -9641,7 +9653,7 @@
   "@activityPickerCalorieEstimatesTitle": {
     "description": "Status card title explaining that calorie figures are estimates"
   },
-  "activityPickerMetValue": "{met} MET",
+  "activityPickerMetValue": "{met}× resting",
   "@activityPickerMetValue": {
     "description": "MET value shown on an activity row when no calorie estimate is available, e.g. '8.0 MET'",
     "placeholders": {
@@ -10130,7 +10142,7 @@
   "@activitySummaryNoCalorieWithStrain": {
     "description": "Calorie basis note when there is no calorie figure but a strain figure exists"
   },
-  "activitySummaryCalorieNoHr": "Estimated from the activity's effort level ({met} MET) and your weight. No heart rate reached this session.",
+  "activitySummaryCalorieNoHr": "Estimated from the activity's effort level ({met}× resting) and your weight. No heart rate reached this session.",
   "@activitySummaryCalorieNoHr": {
     "description": "Calorie basis note when calories were estimated from MET and weight with no heart rate",
     "placeholders": {
@@ -10139,7 +10151,7 @@
       }
     }
   },
-  "activitySummaryCalorieWithHr": "Estimated from the activity's effort level ({met} MET), your weight and heart rate.",
+  "activitySummaryCalorieWithHr": "Estimated from the activity's effort level ({met}× resting), your weight and heart rate.",
   "@activitySummaryCalorieWithHr": {
     "description": "Calorie basis note when calories were estimated using heart rate too",
     "placeholders": {
@@ -11346,7 +11358,7 @@
   "@settingsHealthShareOnTitle": {
     "description": "Dialog title asking to grant whole-database health contribution"
   },
-  "settingsHealthShareOnBody": "Once a day, on Wi-Fi and while charging, a compressed copy of your ENTIRE database is uploaded — every derived day and every raw sensor row the band has sent. It is used to improve the algorithms.\n\nIt is not anonymous in any meaningful sense: it is your whole health history. You can switch this off at any time, and nothing further is sent from that moment.",
+  "settingsHealthShareOnBody": "Once a day, on Wi-Fi and while charging, a compressed copy of your ENTIRE database is uploaded — every day of scores and every raw sensor row the band has sent. It is used to improve the algorithms.\n\nIt is not anonymous in any meaningful sense: it is your whole health history. You can switch this off at any time, and nothing further is sent from that moment.",
   "@settingsHealthShareOnBody": {
     "description": "Dialog body explaining what the whole-database health-share upload does"
   },
@@ -11366,7 +11378,7 @@
   "@settingsResetBackupWarning": {
     "description": "Warning after reset when backup files or folder access could not be removed"
   },
-  "settingsResetBody": "This permanently deletes this app's data on this device:\n\n· every measured day, sleep, workout and route\n· every lab result, meal, medication dose, habit, breathing session and logged set\n· your journal, cycle log and rolling baselines\n· your profile, every preference and any stored AI key\n· the home-screen widget and every scheduled reminder\n\nExported copies and backups in previous or unavailable folders may remain. Delete those separately.\n\nThe band is unpaired, and it cannot re-send history it has already handed over. Export from Your data first if you want a copy.",
+  "settingsResetBody": "This permanently deletes this app's data on this device:\n\n· every measured day, sleep, workout and route\n· every lab result, meal, medication dose, habit, breathing session and logged set\n· your journal, cycle log and what the app has learned as your usual\n· your profile, every preference and any stored AI key\n· the home-screen widget and every scheduled reminder\n\nExported copies and backups in previous or unavailable folders may remain. Delete those separately.\n\nThe band is unpaired, and it cannot re-send history it has already handed over. Export from Your data first if you want a copy.",
   "@settingsResetBody": {
     "description": "Confirmation dialog body listing exactly what a full reset deletes"
   },

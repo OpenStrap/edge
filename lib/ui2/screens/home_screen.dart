@@ -1985,7 +1985,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                 ? (l?.homeIllnessBodyAbove(zAbs) ??
                     'Recent nights put your resting heart rate above your usual. That night was $zAbs× your normal night-to-night swing above it. A pattern, not a cause.')
                 : (l?.homeIllnessBodyBelow(zAbs) ??
-                    'Recent nights put your resting heart rate above your usual. That night was $zAbs× your normal night-to-night swing below it. A pattern, not a cause.')),
+                    'Recent nights together put your resting heart rate above your usual, even though that night on its own was $zAbs× your normal night-to-night swing below it. A pattern, not a cause.')),
         advice: l?.homeIllnessAdvice ?? 'Worth noting if it continues past a couple of days.',
         onTap: () => go(c, const MetricDetail('resting_hr')),
       ),

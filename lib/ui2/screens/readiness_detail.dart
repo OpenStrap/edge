@@ -452,7 +452,18 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     // printed a confident "0% weight" for a number nobody reported.
     final share = !used || raw == null || wsum <= 0 ? null : raw / wsum;
 
+    // The row is a question, so the answer comes first: yes inside the usual
+    // range (the smallest-worthwhile-change gate), no outside it, and which
+    // way it moved the score.
     final parts = [
+      if (used && !pastMdc)
+        l?.readinessDetailWithinSpread ?? 'yes, within your usual range',
+      if (used && pastMdc)
+        l?.readinessDetailOutsideRange ?? 'no, outside your usual range',
+      if (used && pastMdc && contribution != null)
+        contribution >= 0
+            ? (l?.readinessDetailLiftingScore ?? 'lifting your score')
+            : (l?.readinessDetailLoweringScore ?? 'pulling your score down'),
       if (share != null)
         l?.readinessDetailWeightPercent((share * 100).round()) ??
             '${(share * 100).round()}% weight',
@@ -463,10 +474,6 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       // temperature. It gets said, every time.
       if (key == 'temp')
         l?.readinessDetailRelativeUncalibrated ?? 'relative, uncalibrated',
-      // An unlabelled glyph is not an explanation. This is the
-      // smallest-worthwhile-change gate, so it says what it means.
-      if (used && !pastMdc)
-        l?.readinessDetailWithinSpread ?? 'within your usual spread',
     ];
 
     return Padding(

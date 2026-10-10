@@ -623,6 +623,13 @@ void main() {
       ]) {
         expect(find.text(name), findsWidgets);
       }
+      // Every row is a question, so an input outside its range still answers.
+      expect(
+        find.textContaining(
+          '${ru.readinessDetailOutsideRange} · ${ru.readinessDetailLiftingScore}',
+        ),
+        findsNWidgets(4),
+      );
       expect(jsonEncode(rows), before);
       expect(t.takeException(), isNull);
     },

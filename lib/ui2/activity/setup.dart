@@ -250,7 +250,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
                                           est,
                                           _estimateMin,
                                           a.met!.toStringAsFixed(1)) ??
-                                      'About $est kcal per $_estimateMin min, from the activity\'s effort level (${a.met!.toStringAsFixed(1)} MET) and your weight.'),
+                                      'About $est kcal per $_estimateMin min, from the activity\'s effort level (${a.met!.toStringAsFixed(1)}× resting) and your weight.'),
                           style: F.cap.copyWith(color: p.ink3, height: 1.5)),
                     ),
                   ]),

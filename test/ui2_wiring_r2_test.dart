@@ -1293,7 +1293,7 @@ void main() {
       );
       await pumpR(t, d);
       // Density 2 is unchanged until it is asked for.
-      expect(find.text('Regularity index'), findsOneWidget);
+      expect(find.text('Schedule consistency'), findsOneWidget);
       expect(find.text('Nights least alike'), findsNothing);
 
       await t.tap(find.text('Which nights'));
@@ -1315,7 +1315,7 @@ void main() {
             regularity:
                 Metric(value: 62, confidence: .8, tier: MetricTier.high)),
       );
-      expect(find.text('Regularity index'), findsOneWidget);
+      expect(find.text('Schedule consistency'), findsOneWidget);
       expect(find.text('Which nights'), findsNothing);
     });
 
