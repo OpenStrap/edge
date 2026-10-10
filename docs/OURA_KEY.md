@@ -7,11 +7,8 @@ to the ring on this path, only an authentication round trip.
 The catch is that you have to supply that key, and it lives in the Oura app's own database
 on your own phone. This is how to get it out.
 
-> **Credit.** The database location and the `ringconfiguration` schema come from
-> [ringverse](https://github.com/ringverse)'s `oura/storage.md`, and this recipe follows the
-> one documented in [NOOP](https://github.com/ryanbr/noop). Nothing here touches, decompiles
-> or redistributes any Oura app code — it reads a value out of your own device backup, using
-> Apple's own backup mechanism, with a publicly documented schema.
+> Nothing here touches or redistributes any Oura app code. It reads a value out of your own
+> device backup, using Apple's own backup mechanism.
 
 ---
 
@@ -63,8 +60,7 @@ shows. Pairing is the groundwork, not a finished feature.
 
 6. **Paste it straight into OpenStrap — do not decode it.** The pairing screen accepts the
    Base64 form as it comes out of that query (24 characters, usually ending `==`), as well
-   as 32 hex digits. NOOP's version of this recipe has you decode to raw bytes first; here
-   that step is unnecessary.
+   as 32 hex digits. There is no need to decode it to raw bytes first.
 
    In the app: *Profile → the ring's pairing screen → **"Already set up elsewhere?"*** —
    paste into that field and pair.

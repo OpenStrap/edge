@@ -1,5 +1,5 @@
 name: openstrap_edge
-description: "Open-source, local-first fitness tracking companion for WHOOP 4.0 hardware. Not affiliated with WHOOP, Inc."
+description: "A local-first health app for your wearables. No subscription, no fees, private by default. Not affiliated with any device maker."
 publish_to: 'none'
 # NOTE: bumping this also requires manually bumping MARKETING_VERSION/
 # CURRENT_PROJECT_VERSION for the OpenStrapWidget(Extension) and "OpenStrapWatch
