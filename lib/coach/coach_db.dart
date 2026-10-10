@@ -535,6 +535,24 @@ class CoachDb {
     } on SqlGuardError catch (e) {
       return jsonEncode({'error': e.reason});
     }
+    // One query at a time: the TEMP views are per connection, so a second
+    // turn's _serveToday could otherwise swap them out between this one's
+    // setup and its query.
+    final previous = _sqlTail;
+    final turn = Completer<void>();
+    _sqlTail = turn.future;
+    await previous;
+    try {
+      return await _runServed(sql, rowCap, today);
+    } finally {
+      turn.complete();
+    }
+  }
+
+  static Future<void> _sqlTail = Future<void>.value();
+
+  static Future<String> _runServed(String sql, int rowCap,
+      ({String day, num? readiness})? today) async {
     try {
       final db = await _readonly();
       await _serveToday(db, today);

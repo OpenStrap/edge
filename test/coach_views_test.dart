@@ -108,5 +108,14 @@ void main() {
     expect((await rows(metric, pinnedOnly))['2026-10-09'], 31);
     const noPin = (day: '2026-10-09', readiness: null);
     expect((await rows(metric, noPin)).containsKey('2026-10-09'), isFalse);
+    // Concurrent turns each read their own headline: one turn's view swap
+    // never lands between another's setup and query.
+    final both = await Future.wait([
+      for (var i = 0; i < 6; i++)
+        rows(metric, i.isEven ? done : pending),
+    ]);
+    for (var i = 0; i < 6; i++) {
+      expect(both[i]['2026-10-08'], i.isEven ? 28 : isNull, reason: 'turn $i');
+    }
   });
 }
