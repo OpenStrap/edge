@@ -353,7 +353,6 @@ String localizedText(AppLocalizations? l, String text) {
     "Stress" => l.healthRowStress,
     "Sustained rise vs your baseline — a possible illness signal." =>
       l.supplementSustainedRiseVsYourBaseline67c853,
-    "Syncing the watch…" => l.devicesSyncingTheWatch,
     "Syncing…" => l.supplementSyncing221ca6,
     "Talk it through" => l.supplementTalkItThrough88a9d2,
     "Tap for last night's sleep, recovery and what it means for today." =>

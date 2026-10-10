@@ -63,8 +63,9 @@ List<OwnedSpan> resolveOwnership({
   // and folding it in here reintroduces the double-count that guard exists
   // to prevent. An assert, not a comment: a comment does not survive the
   // next person who sees two resolvers and tries to be helpful.
-  // NOTE there is no `InputSignal.steps` — `accelHighRate` IS the step path.
-  assert(signal != InputSignal.accelHighRate,
+  // NOTE `accelHighRate` IS the step path. `InputSignal.steps` is a device's
+  // own daily count, served beside ours and never resolved here.
+  assert(signal != InputSignal.accelHighRate && signal != InputSignal.steps,
       'steps resolve additively in live_coverage_policy, not by owner');
   // A duplicate id would make two ranks equal and the winner would depend on
   // iteration order.

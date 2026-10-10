@@ -6,9 +6,8 @@
 // covers only the generic HR parse, and `coros` is absent from
 // `kDerivableSources` — see `adapters/coros.dart`'s own header.
 //
-// WHY A BOUNDED WINDOW, NOT FETCH-BY-CURSOR OR ARM/DISARM. Same reasoning as
-// `dafit_link.dart`: this watch is continuously worn, not a workout-scoped
-// strap, and there is no stored-history request this project decodes and no
+// WHY A BOUNDED WINDOW, NOT FETCH-BY-CURSOR OR ARM/DISARM. This watch is
+// continuously worn, not a workout-scoped strap, and there is no stored-history request this project decodes and no
 // natural end-of-session signal — so a periodic background `sync()` (connect
 // briefly, read status, catch a few HR samples, disconnect) is the right
 // cadence, and a fixed window is the honest floor for it.

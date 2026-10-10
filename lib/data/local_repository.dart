@@ -227,6 +227,12 @@ abstract class LocalRepository {
   Future<List<Map<String, Object?>>> getDayObservations(String date) =>
       throw UnimplementedError('re-layer: getDayObservations');
 
+  /// Each paired device's OWN staging of the night that ended on [date], in
+  /// the same shape the sleep screen draws ours from — so a user can compare
+  /// our hypnogram with each device's, never merged.
+  Future<List<Map<String, Object?>>> getDeviceNights(String date) =>
+      throw UnimplementedError('re-layer: getDeviceNights');
+
   // ── workouts (manual / live / auto) ──────────────────────────────────────────
   Future<Map<String, dynamic>> getWorkouts({String range = 'month'}) =>
       throw UnimplementedError('re-layer: getWorkouts');

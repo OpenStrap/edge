@@ -241,6 +241,25 @@ void main() {
     expect(await LocalDb.getCursor('oura_anchor:$_deviceId'), isNull);
   });
 
+  test('a notification with an over-long event is still banked, under its '
+      'first byte', () async {
+    // 19 declared bytes: past the 18 a standard event can carry, so nothing in
+    // it is trusted for decoding. The bytes are banked all the same.
+    final overLong = _frame(0x60, List<int>.filled(19, 0x11));
+    final r = await _run([
+      [
+        _event(kOuraEvtTempPeriod, 1200, _hex(_temp3436)),
+        overLong,
+        _summary(1, 0),
+      ],
+    ]);
+    expect(r.archive, hasLength(2));
+    final row = r.archive.singleWhere((a) => a['reason'] == 'oura_evt_0x60');
+    expect(row['packet_type'], 0x60);
+    expect(row['hex'],
+        overLong.map((b) => b.toRadixString(16).padLeft(2, '0')).join());
+  });
+
   test('a reading held before the anchor arrives is written once it does',
       () async {
     // Every connect writes SET_TIME, so the ring's fresh `time_sync` lands at
@@ -321,6 +340,7 @@ void main() {
         0x12 => ouraCmdSyncTime(
             w[2] | (w[3] << 8) | (w[4] << 16) | (w[5] << 24),
             tzHalfHours: w[10],
+            force: w[1] == 0x0a,
           ),
         _ => ouraCmdGetEvents(
             w[2] | (w[3] << 8) | (w[4] << 16) | (w[5] << 24),
@@ -470,27 +490,18 @@ void main() {
     expect(await LocalDb.getCursorInt('oura_cursor_ds:$_deviceId'), 5000);
   });
 
-  test('a rebooted ring whose tail stops short of the bookmark resets it',
+  test('a ring start that restarted the counter clears the stored origin',
       () async {
-    await LocalDb.setCursor('oura_cursor_ds:$_deviceId', '5000');
-    await OuraLink.instance.ingestForTest(
-      _deviceId,
-      _key,
-      (i, v) {
-        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
-        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
-        if (v.first == 0x10) {
-          return [
-            _event(kOuraEvtTimeSync, 4000, _syncBody(1782043215)),
-            _event(kOuraEvtTempPeriod, 4100, _hex(_temp3436)),
-            _summary(2, 0),
-          ];
-        }
-        return const <List<int>>[];
-      },
-      nowSeconds: () => _nowSec,
-    );
-    expect(await LocalDb.getCursorInt('oura_cursor_ds:$_deviceId'), 0);
+    await LocalDb.setCursor('oura_anchor:$_deviceId', '5000000,1782043215');
+    await _run([
+      [
+        _event(kOuraEvtRingStart, 10, const [4, 0, 0, 0, 0x02]),
+        _summary(1, 0),
+      ],
+    ]);
+    final stored = await LocalDb.getCursor('oura_anchor:$_deviceId');
+    expect(stored == null || stored.isEmpty, isTrue,
+        reason: 'the dead boot\'s origin must not stamp the new boot');
   });
 
   test(
@@ -1976,8 +1987,8 @@ void main() {
     await LocalDb.setCursor('oura_anchor:$_deviceId', '0,$_nowSec');
     await _run([
       [
-        _event(kOuraEvtSleepPhaseInformation, 10, _hex('000055aaff')),
-        _event(kOuraEvtSleepPhaseInformation, 10000000, _hex('000055aaff')),
+        _event(kOuraEvtSleepPhaseData, 10, _hex('000055aaff')),
+        _event(kOuraEvtSleepPhaseData, 10000000, _hex('010055aaff')),
         _summary(2, 0),
       ],
     ]);
@@ -1991,6 +2002,28 @@ void main() {
     expect(rows, hasLength(4));
     expect(rows.every((r) => r['ts_ms'] == (_nowSec + 1) * 1000), isTrue,
         reason: 'the stage row a million seconds out is not written');
+  });
+
+  test("a night whose rows did not bank leaves the cursor put", () async {
+    await LocalDb.setCursor('oura_anchor:$_deviceId', '0,$_nowSec');
+    // The hypnogram write fails; the sample commit would still land.
+    await (await LocalDb.instance).execute('DROP TABLE vendor_sleep_epoch');
+    await OuraLink.instance.ingestForTest(
+      _deviceId,
+      _key,
+      _ring([
+        [
+          _event(kOuraEvtTempPeriod, 5, _hex(_temp3436)),
+          _event(kOuraEvtSleepPhaseData, 10, _hex('000055aaff')),
+          _summary(2, 0),
+        ],
+      ]),
+      nowSeconds: () => _nowSec,
+      // The confirm never comes; do not wait the full window for it.
+      timeouts: const Duration(seconds: 1),
+    );
+    expect(await LocalDb.getCursorInt('oura_cursor_ds:$_deviceId'), isNull,
+        reason: 'confirming would move past a night that is not banked');
   });
 
   group('forgetRing', () {

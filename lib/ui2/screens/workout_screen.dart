@@ -330,6 +330,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
               Text(loc?.workoutFitnessLabel ?? 'fitness',
                   style: F.cap.copyWith(color: p.ink3)),
               const Spacer(),
+              if (ld.estimated) ...[
+                Pill(loc?.wearableEstimated ?? 'Estimated', C.purple),
+                const SizedBox(width: S.x2),
+              ],
               if (ld.tsb != null)
                 Pill(_form(c, ld.tsb!), ld.tsb! >= 0 ? C.green : C.orange),
             ]),
@@ -1670,7 +1674,10 @@ class _Load {
   /// Nullable: the pipeline can produce fitness without fatigue and form, and
   /// zero is a real training state that must not stand in for "not computed".
   final double? atl, tsb;
-  const _Load(this.ctl, this.atl, this.tsb);
+
+  /// A wearable's estimated TRIMP is in its span: labelled, not dropped.
+  final bool estimated;
+  const _Load(this.ctl, this.atl, this.tsb, {this.estimated = false});
 }
 
 /// TS-12 — the two facts, carried only when they point the same way.
@@ -1979,6 +1986,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
           (v['ctl'] as num).toDouble(),
           (v['atl'] as num?)?.toDouble(),
           (v['tsb'] as num?)?.toDouble(),
+          estimated: raw['estimated'] == true,
         );
       }
     }

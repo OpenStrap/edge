@@ -39,6 +39,17 @@ HealthSource _oura() => const HealthSource(
       family: 'oura',
     );
 
+/// A device that declares no input signal at all (a thermometer).
+HealthSource _thermometer() => const HealthSource(
+      name: 'Thermometer',
+      kind: 'Thermometer',
+      tier: null,
+      icon: Icons.thermostat,
+      isBand: false,
+      deviceId: 'thermometer-A1B2',
+      family: 'thermometer',
+    );
+
 HealthSource _hrs() => const HealthSource(
       name: 'Chest strap',
       kind: 'Bluetooth heart rate sensor',
@@ -83,12 +94,12 @@ void main() {
     }
   });
 
-  // Test 2: WHOOP + Oura. OuraAdapter declares nothing, so every metric sees
+  // Test 2: WHOOP + a device that declares nothing: every metric sees
   // exactly one candidate (the band) — the declaration mechanism gates it,
   // not a hand-written exclusion.
-  contextTest('signalCandidates: WHOOP + Oura yields one candidate for every '
-      'metric', (c) {
-    final sources = [_band(), _oura()];
+  contextTest('signalCandidates: WHOOP + a device declaring nothing yields '
+      'one candidate for every metric', (c) {
+    final sources = [_band(), _thermometer()];
     for (final key in _keys) {
       final spec = specOf(key);
       final out = candidatesFromSources(c, sources, requires: spec.requires);
@@ -99,6 +110,15 @@ void main() {
         expect(out.single.deviceId, LocalDb.kPrimaryDeviceId, reason: key);
       }
     }
+  });
+
+  // An Oura ring declares its beats, as a strap does: HRV sees it beside the
+  // band.
+  contextTest('signalCandidates: WHOOP + Oura yields two for hrv', (c) {
+    final hrv = candidatesFromSources(c, [_band(), _oura()],
+        requires: specOf('hrv').requires);
+    expect(hrv.map((o) => o.deviceId),
+        containsAll([LocalDb.kPrimaryDeviceId, 'oura-A1B2']));
   });
 
   // Test 3: WHOOP + HRS. Both declare rrIntervals, so hrv sees two candidates
@@ -144,9 +164,9 @@ void main() {
     expect(
       [
         for (final s in InputSignal.values)
-          ...declaringDeviceIds([_band(), _oura()], s),
+          ...declaringDeviceIds([_band(), _thermometer()], s),
       ],
-      isNot(contains('oura-A1B2')),
+      isNot(contains('thermometer-A1B2')),
     );
   });
 
@@ -170,6 +190,23 @@ void main() {
     final contended = contendedSignalsOf([_band(), _hrs()]);
     expect(contended, contains(InputSignal.rrIntervals));
     expect(contended, isNot(contains(InputSignal.accel1Hz)));
+  });
+
+  test('a ring whose flag is off is ranked for nothing (rule R6)', () {
+    const off = HealthSource(
+      name: 'Oura ring',
+      kind: 'Oura',
+      tier: null,
+      icon: Icons.circle,
+      deviceId: 'oura-A1B2',
+      family: 'oura',
+      flagOff: true,
+    );
+    expect(contendedSignalsOf([_band(), _oura()]),
+        contains(InputSignal.rrIntervals));
+    expect(contendedSignalsOf([_band(), off]), isEmpty);
+    expect(declaringDeviceIds([_band(), off], InputSignal.rrIntervals),
+        [LocalDb.kPrimaryDeviceId]);
   });
 
   // Test 12: fewer than two options renders nothing at all.

@@ -1,4 +1,4 @@
-// The Mi Band 2/3/4 HOST: scripted frames in, `raw_archive` out — and never
+// The Mi Band 2/3 HOST: scripted frames in, `raw_archive` out — and never
 // `decoded_onehz`, because nothing on this path is decoded.
 //
 // NOTHING HERE HAS MET HARDWARE. Nobody on this project owns one (owner
@@ -10,6 +10,8 @@
 // once — never before a row points to it, never after.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart'
+    show kHuamiActivityControlChar, kHuamiActivityDataChar;
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/miband_link.dart';
 import 'package:openstrap_edge/data/db.dart';
@@ -36,7 +38,7 @@ List<int> _authResult(int status) => <int>[0x10, 0x03, status];
 
 /// The band's reply script for a reconnect (key already installed).
 List<List<int>> _reconnectReply(int i, List<int> v) {
-  if (v.length == 2 && v[0] == 0x02) return [_challengeFrame(_challenge)];
+  if (v[0] == 0x02) return [_challengeFrame(_challenge)];
   if (v.isNotEmpty && v[0] == 0x03) return [_authResult(0x01)];
   return const [];
 }
@@ -115,12 +117,55 @@ void main() {
       nowSeconds: () => _nowSec,
     );
     // A reconnect: no key write, just request-then-prove.
-    expect(link.writes, hasLength(2));
-    expect(link.writes.first.$2, <int>[0x02, 0x08]);
-    expect(link.writes.last.$2.sublist(0, 2), <int>[0x03, 0x08]);
-    // Nothing that could touch history or settings was ever written — there
-    // is no builder for either on this path.
-    expect(link.writes.every((w) => w.$2.first <= 0x03), isTrue);
+    final auth = link.writes.where((w) => w.$1 == kHuami234AuthChar).toList();
+    expect(auth, hasLength(2));
+    expect(auth.first.$2, <int>[0x02, 0x00, 0x02]);
+    expect(auth.last.$2.sublist(0, 2), <int>[0x03, 0x00]);
+    // The band's drop-acknowledgement (0x03 on the activity-control
+    // characteristic) is never sent.
+    expect(
+        link.writes.any((w) =>
+            w.$1 == kHuamiActivityControlChar && w.$2.first == 0x03),
+        isFalse);
+  });
+
+  // One history round of 4 minutes, the next round empty.
+  List<(String, List<int>)> history(String char, List<int> v) {
+    if (char != kHuamiActivityControlChar) return const [];
+    if (v[0] == 0x01) {
+      // Asked from Oct 1: the band answers with 4 minutes from Oct 3.
+      final first = v[4] == 10 && v[5] == 1;
+      return [
+        (kHuamiActivityControlChar, [
+          0x10, 0x01, 0x01, first ? 4 : 0, 0, 0, 0, //
+          0xea, 0x07, 10, 3, 0, 0, 0, 0,
+        ]),
+      ];
+    }
+    return [
+      (kHuamiActivityDataChar, [
+        0, 1, 0, 0, 60, 1, 0, 0, 61, 1, 0, 0, 62, 1, 0, 0, 63, //
+      ]),
+      (kHuamiActivityControlChar, [0x10, 0x02, 0x01]),
+    ];
+  }
+
+  test('the resume cursor is committed with the round\'s rows, or not at all',
+      () async {
+    final since = DateTime(2026, 10, 1).millisecondsSinceEpoch ~/ 1000;
+    for (final id in [_deviceId, LocalDb.kPrimaryDeviceId]) {
+      await LocalDb.setCursor('miband_since:$id', '$since');
+    }
+    await MiBand234Link.instance.ingestForTest(_deviceId, _key, _reconnectReply,
+        history: history, nowSeconds: () => since + 4 * 86400);
+    expect(await LocalDb.getCursorInt('miband_since:$_deviceId'),
+        isNot(since), reason: 'committed with its rows');
+    // The primary id is refused for these rows, so the commit fails, and the
+    // cursor must stay where it was.
+    await MiBand234Link.instance.ingestForTest(
+        LocalDb.kPrimaryDeviceId, _key, _reconnectReply,
+        history: history, nowSeconds: () => since + 4 * 86400);
+    expect(await LocalDb.getCursorInt('miband_since:'), since);
   });
 
   test('nothing paired means nothing to sync', () async {

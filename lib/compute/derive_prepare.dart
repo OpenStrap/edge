@@ -191,6 +191,13 @@ class SleepSessionCandidate {
   final int sleepOffsetSec;
   final String sleepSource;
 
+  /// Staged off a paired device's records, not the primary band's rows: such
+  /// a night is re-staged rather than served or kept from the cache.
+  final bool deviceNight;
+
+  /// The paired device whose records staged a [deviceNight], when known.
+  final String? deviceId;
+
   const SleepSessionCandidate({
     required this.dayId,
     required this.confidence,
@@ -200,6 +207,8 @@ class SleepSessionCandidate {
     required this.sleepOnsetSec,
     required this.sleepOffsetSec,
     this.sleepSource = 'auto',
+    this.deviceNight = false,
+    this.deviceId,
   });
 
   bool get present => sleepJson['tst_sec'] != null;
@@ -213,6 +222,8 @@ class SleepSessionCandidate {
     'sleep_onset_sec': sleepOnsetSec,
     'sleep_offset_sec': sleepOffsetSec,
     'sleep_source': sleepSource,
+    if (deviceNight) 'device_night': true,
+    if (deviceId != null) 'device_id': deviceId,
   };
 
   static SleepSessionCandidate fromJson(Map<String, dynamic> m) {
@@ -227,6 +238,8 @@ class SleepSessionCandidate {
       sleepOnsetSec: (m['sleep_onset_sec'] as num?)?.toInt() ?? 0,
       sleepOffsetSec: (m['sleep_offset_sec'] as num?)?.toInt() ?? 0,
       sleepSource: m['sleep_source'] as String? ?? 'auto',
+      deviceNight: m['device_night'] == true,
+      deviceId: m['device_id'] as String?,
     );
   }
 
@@ -448,11 +461,52 @@ SleepSessionCandidate prepareSleepSessionCandidate(
   List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
   List<VendorNight> vendorNights = const [],
 }) {
+  // An UNCLAIMED device night (our rows saw under half of it) ending today IS
+  // the night: above our detection, below the user's word. It never reaches
+  // calendarDays, whose gates all measure it against data we do not have —
+  // and with no rows at all there would be no day there to gate.
+  final claimed = <VendorNight>[];
+  for (final n in vendorNights) {
+    if (override == null &&
+        n.epochs.isNotEmpty &&
+        localDateLabel(n.offsetSec) == targetDay &&
+        vendorNightUnclaimed(n, sub.tsSec)) {
+      if (vendorNightRejection(n,
+              dataStartSec: 0, dataEndSec: 0, ours: null, unclaimed: true) ==
+          null) {
+        final seg = vendorOnlySegmentation(n);
+        final win = seg.window;
+        if (seg.present && win != null) {
+          return SleepSessionCandidate(
+            dayId: targetDay,
+            confidence: seg.confidence,
+            flags: const [],
+            sleepJson: seg.toJson(),
+            hypnoStages: List<String>.from(seg.stages4),
+            sleepOnsetSec: (win.onsetMs! / 1000).round(),
+            sleepOffsetSec: (win.offsetMs! / 1000).round() + 1,
+            // A night we staged ourselves off a ring's records
+            // (inputs/ultrahuman_inputs.dart) is ours, not the device's.
+            // Our HR-led window alone is the HR fallback's night.
+            sleepSource: switch (n.source) {
+              kOurRingNightSource => 'auto',
+              kHrWindowNightSource => 'auto_fallback',
+              _ => 'vendor_staged',
+            },
+            deviceNight: true,
+            deviceId: n.deviceId,
+          );
+        }
+      }
+      continue;
+    }
+    claimed.add(n);
+  }
   final payload = prepareDerivationPayload(sub,
       targetDay: targetDay,
       override: override,
       priorSleep: priorSleep,
-      vendorNights: vendorNights);
+      vendorNights: claimed);
   if (payload.days.isEmpty) return SleepSessionCandidate.absent(targetDay);
   final day = payload.days.first;
   return SleepSessionCandidate(

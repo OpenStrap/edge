@@ -287,14 +287,8 @@
   "devicesSynced": "Синхронизировано.",
   "devicesCouldNotReachRing": "Не удалось подключиться к кольцу. Оно должно быть рядом и не подключено к другому приложению.",
   "devicesCouldNotReachCorosWatch": "Не удалось подключиться. Устройство должно быть рядом и не подключено к другому приложению.",
-  "devicesSyncingTheWatch": "Синхронизация часов…",
-  "devicesConnectingZeTime": "Подключение…",
-  "devicesConnectedZeTime": "Подключено.",
-  "devicesCouldNotReachZeTime": "Не удалось подключиться к часам. Они должны быть рядом и не подключены к другому приложению.",
   "devicesSyncingTheSensor": "Синхронизация датчика…",
   "devicesCouldNotReachSensor": "Не удалось подключиться к датчику. Он должен быть рядом и не подключён к другому приложению.",
-  "devicesConnectingWatch": "Подключение…",
-  "devicesCouldNotReachWatch": "Не удалось подключиться к часам. Они должны быть рядом и не подключены к другому приложению.",
   "deviceFilterAllDevices": "Все устройства",
   "devicesForgetSensor": "Удалить {name}?",
   "@devicesForgetSensor": {
@@ -340,8 +334,6 @@
   "devicesSupport": "Поддержка",
   "devicesSensorExperimentalSub": "Данные декодируются по протоколу, но не проверены на реальном устройстве — ни у кого из участников проекта его нет.",
   "devicesWhatItDoes": "Возможности",
-  "devicesWhatItDoesUnranked": "Все полученные данные сохраняются с указанием устройства. Приложение пока ничего по ним не рассчитывает.",
-  "devicesWhatItDoesRanked": "Во время тренировки сохраняются интервалы между ударами с указанием устройства. Приложение пока ничего по ним не рассчитывает.",
   "devicesLastData": "Последние данные",
   "devicesNothingBankedYet": "Пока нет сохранённых данных",
   "devicesSyncNow": "Синхронизировать",
@@ -362,7 +354,6 @@
   "pairSensorAddASensor": "Добавить датчик",
   "pairSensorWhatThisAdds": "Что это даёт",
   "pairSensorPairAnother": "Подключить ещё",
-  "pairSensorExplainer": "Датчик используется только во время тренировки и только для пульса и интервалов между ударами. Он не заменяет браслет, не используется ночью и пока не влияет ни на один итоговый показатель — его данные только сохраняются и отображаются.",
   "pairSensorSearchWouldHideSheet": "Поиск закроет системное окно сопряжения",
   "pairSensorKeyTitle": "Уже настроено в другом приложении?",
   "pairSensorKeyBody": "Если у вас есть ключ, который уже использует это устройство, вставьте его сюда. Подключение пройдёт без сброса к заводским настройкам и без записи на устройство. Можно указать несколько ключей, каждый с новой строки: они проверяются по очереди до первого подходящего. Это удобно, если вы не знаете, какой из ключей относится к устройству. Для обычного подключения оставьте поле пустым.",
@@ -381,15 +372,10 @@
   "devicePickerBlurbBand": "Браслет, для которого создано это приложение. WHOOP 4 или 5.",
   "devicePickerBlurbRing": "Читает данные напрямую с кольца — без аккаунта и подписки Oura.",
   "devicePickerBlurbPolarPmd": "Polar Verity Sense или OH1. Оптически измеренные интервалы между ударами передаются во время тренировки, как у нагрудного датчика.",
-  "devicePickerBlurbO2Ring": "Читает заряд, модель и серийный номер. Измерения самого кольца пока не декодируются.",
-  "devicePickerBlurbWearFit": "Браслет Howear, подключаемый через приложения семейства WearFit.",
   "devicePickerBlurbSensor": "Нагрудный датчик или датчик на руку для измерения интервалов между ударами во время тренировки.",
   "devicePickerBlurbCoros": "Спортивные часы. Читает заряд и текущий пульс; записанные тренировки остаются на часах.",
-  "devicePickerBlurbWithingsSteelHr": "Поддерживает сопряжение и подключение. Измерения пока не декодируются в показатели.",
-  "devicePickerBlurbMiband234": "Mi Band 2, 3 или 4. Поддерживает сопряжение и подключение; показатели пока не рассчитываются.",
-  "devicePickerBlurbZeTime": "Поддерживает сопряжение и подключение. Пока декодируется только уровень заряда.",
-  "devicePickerBlurbColmi": "Кольцо Colmi. Подключается и сохраняет историю; показатели пока не декодируются.",
-  "devicePickerBlurbBangleJs": "Подключает любые устройства Espruino/Nordic-UART, включая часы Bangle.js. Сохраняет только исходные байты; показатели не декодируются.",
+  "devicePickerBlurbMiband234": "Mi Band 2 или 3. Сначала отвяжите браслет в Mi Fit или Zepp (или сбросьте его до заводских настроек): новый ключ он принимает, только пока не хранит другой. Синхронизирует сохранённый пульс, шаги и сон. Если браслет завибрирует при сопряжении, коснитесь его для подтверждения. Mi Band 4 требует сопряжения через приложение производителя и не поддерживается.",
+  "devicePickerBlurbColmi": "Кольцо Colmi. Синхронизирует пульс, стадии сна, шаги, SpO2, ВСР и стресс; значения, которые кольцо рассчитывает само, помечены как значения Colmi. Экспериментально.",
   "devicePickerCannotPairFromHere": "Это устройство нельзя подключить с этого экрана.",
   "pairSensorSearching": "Поиск…",
   "pairSensorSearchForSensors": "Найти датчики",
@@ -402,7 +388,6 @@
   "pairSensorUsedDuringWorkouts": "Используется во время тренировок",
   "pairSensorForgetThisSensor": "Удалить этот датчик",
   "pairSensorForgetThisSensorSub": "Удаляет источник. Уже записанные данные сохраняются.",
-  "iosUninstallUnpairsWarning": "На iOS удаление OpenStrap также снимает с телефона сопряжение всех браслетов и датчиков, сопряжённых здесь, поэтому другие приложения, включая приложение производителя, тоже их теряют.",
   "pairSensorPairing": "Сопряжение…",
   "pairSensorScanDidNotRun": "Не удалось выполнить поиск: {error}",
   "@pairSensorScanDidNotRun": {
@@ -3978,7 +3963,7 @@
   },
   "sleepDetailWindowMine": "Вы задали этот период",
   "sleepDetailWindowFallback": "Период определён по пульсу",
-  "sleepDetailStagedByRing": "Стадии определены кольцом",
+  "sleepDetailStagedByRing": "Стадии определены вашим устройством",
   "sleepDetailWindowAuto": "Стадии этого периода определены по сигналам",
   "sleepDetailWindowFallbackBody": "Не удалось определить границы по стадиям сна, поэтому время указано приблизительно.",
   "sleepDetailWindowSol": "От начала периода до засыпания: {band}.",
@@ -6838,6 +6823,388 @@
   "investigateRmssdNightly": "RMSSD, ночной (среднее по 5-минутным окнам)",
   "investigateRmssdStored": "RMSSD, ночной (прежняя оценка)",
   "devicesOuraWriteRefused": "Не удалось отправить команду кольцу. Попробуйте синхронизировать ещё раз.",
+  "devicePickerBlurbPebble": "Только Pebble 2 или Pebble 2 SE. Синхронизирует шаги и сон, а на Pebble 2 и пульс (у SE нет датчика пульса).",
+  "devicePickerBlurbUltrahuman": "Читает данные напрямую с кольца — без аккаунта и обмена ключами.",
+  "devicesWhatItDoesBeats": "Интервалы между ударами сохраняются и приписываются этому датчику. Он записывает во время тренировки и несколько минут после её окончания. Оценка тренировки по нему экспериментальна и выключена, пока не проверена на реальном устройстве.",
+  "devicesWhatItDoesStored": "Всё, что он передаёт, сохраняется и приписывается ему. Показатели, рассчитанные по нему, экспериментальны и выключены, пока он не проверен на реальном устройстве.",
+  "missingSignalActivityLevel": "нет записи активности",
+  "missingSignalDeviceHrv": "нет собственной ВСР",
+  "missingSignalDeviceResp": "нет собственной частоты дыхания",
+  "missingSignalDeviceSpo2": "нет собственного SpO2",
+  "missingSignalDeviceStages": "нет собственных стадий сна",
+  "missingSignalDeviceStress": "нет собственного стресса",
+  "missingSignalSkinTempC": "нет температуры кожи",
+  "missingSignalSteps": "нет счётчика шагов",
+  "pairSensorExplainerCoros": "Спортивные часы. При синхронизации считываются заряд и несколько секунд текущего пульса. Тренировки их не используют, а записанные активности остаются на часах. Их показания сохраняются и отображаются; наши показатели по ним не рассчитываются.",
+  "pairSensorExplainerMeasurement": "Показания измерительного устройства сохраняются и приписываются ему. Их использование в профиле экспериментально и выключено, пока устройство не проверено на реальном оборудовании.",
+  "pairSensorExplainerWearable": "Собственные записи носимого устройства сохраняются и приписываются ему, а его собственные значения всегда помечены как его. Расчёт наших показателей по нему (сон, пульс в покое, нагрузка) экспериментален и выключен, пока устройство не проверено на реальном оборудовании.",
+  "pairSensorExplainerWorkout": "Датчик даёт пульс и интервалы между ударами для тренировок. Он не заменяет браслет. Он записывает во время тренировки и несколько минут после её окончания. Это экспериментально и выключено, пока не проверено на реальном устройстве: до тех пор он ничего не записывает и ни один показатель его не использует.",
+  "pairSensorKeyReplacesBody": "Кольцо хранит один ключ. Сопряжение без ключа из приложения Oura даёт кольцу новый собственный ключ, и после этого приложение Oura перестаёт работать с этим кольцом, пока кольцо не сбросят и не настроят в нём заново.",
+  "pairSensorKeyReplacesTitle": "Сопряжение заменяет ключ приложения Oura",
+  "pairSensorPairingMiband234": "Сопряжение… Если браслет завибрирует, коснитесь его для подтверждения.",
+  "pairSensorStoredOnReading": "Показания сохраняются по мере измерения",
+  "pairSensorStoredOnSync": "Записи сохраняются при синхронизации",
+  "pairSensorSyncedInWindows": "Синхронизируется короткими сеансами",
+  "signalActivityLevel": "Активность",
+  "signalDeviceHrv": "Собственная ВСР устройства",
+  "signalDeviceResp": "Собственная частота дыхания устройства",
+  "signalDeviceSpo2": "Собственный SpO2 устройства",
+  "signalDeviceStages": "Собственные стадии сна устройства",
+  "signalDeviceStress": "Собственный стресс устройства",
+  "signalSkinTempC": "Температура кожи (°C)",
+  "signalSteps": "Шаги",
+  "wearableBand": "В синтетические тестовые дни этот метод в среднем отличается примерно на {band} от того же показателя, рассчитанного по посекундному пульсу. В отдельные дни расхождение может быть больше.",
+  "wearableBandDayTitle": "Сегодня есть данные браслета",
+  "wearableBandDayWhy": "Браслет записывал сегодня, поэтому сегодняшние показатели берутся с него, а не с этого носимого устройства",
+  "wearableBandPartial": "В синтетические тестовые дни эта оценка только по пульсу в покое в среднем отличается примерно на {band} от той же частичной оценки, рассчитанной по посекундному пульсу. С полной оценкой готовности она не сравнивается.",
+  "wearableBandTruth": "В синтетические тестовые ночи длина этого окна в среднем отличается примерно на {band} от времени в постели, с которым эти ночи были построены. В отдельные ночи расхождение может быть больше.",
+  "wearableDayRowSub": "Что мы измеряем по нему, рядом с его собственными значениями",
+  "wearableDayTitle": "Показатели за сегодня",
+  "wearableDetailDeviceSays": "Ваше устройство {device} показывает",
+  "wearableDetailNoDeviceValue": "Ваше устройство {device} не даёт собственного значения для этого показателя",
+  "wearableEstimated": "Оценка",
+  "wearableEstimatesRowSub": "Значения, которые мы оцениваем там, где носимое устройство ничего не даёт",
+  "wearableEstimatesRowTitle": "Оценки",
+  "wearableFlagActive": "Активно",
+  "wearableFlagRowSub": "Экспериментально. Если включено, данные этого устройства используются для ваших показателей",
+  "wearableMethodActivity": "шаги за 5 минут",
+  "wearableMethodDeviceStages": "его стадии сна",
+  "wearableMethodHr1min": "пульс за 1 минуту",
+  "wearableMethodHr5min": "пульс за 5 минут",
+  "wearableMethodPartialComposite": "только пульс в покое и температура кожи (частично)",
+  "wearableMethodRest": "покой по пульсу за 5 минут",
+  "wearableMethodRhrOnly": "только пульс в покое",
+  "wearableMethodRhrStrapComposite": "пульс в покое и интервалы между ударами с нагрудного датчика",
+  "wearableMethodRingBeats": "его собственные интервалы между ударами",
+  "wearableMethodSkinTemp": "температура кожи",
+  "wearableMethodStrap": "нагрудный датчик, каждую секунду",
+  "wearableMethodStrapBeats": "интервалы между ударами с нагрудного датчика",
+  "wearableMethodZoneMinutes": "минуты в пульсовых зонах",
+  "wearableNoDayTitle": "За сегодня пока ничего нет",
+  "wearableNoDayWhy": "По этому носимому устройству ещё не рассчитан ни один день",
+  "wearableNotActiveTitle": "Не ваше активное носимое устройство",
+  "wearableNotActiveWhy": "Показатели берутся с одного носимого устройства за раз, а это пока не включено",
+  "wearableNotAvailable": "Недоступно",
+  "wearableOurs": "Наше",
+  "wearablePresentationOneNumber": "Одно значение",
+  "wearablePresentationRowSub": "Одно значение на показатель или наше рядом с собственным значением устройства",
+  "wearablePresentationRowTitle": "Показывать",
+  "wearablePresentationSideBySide": "Рядом",
+  "wearableProvisional": "Предварительно",
+  "wearableRowAutoWorkouts": "Найденные тренировки",
+  "wearableRowBaselines": "Базовый пульс в покое",
+  "wearableRowCalories": "Калории",
+  "wearableRowCircadian": "Пик биологических часов",
+  "wearableRowEfficiency": "Эффективность сна",
+  "wearableRowHrr": "Восстановление пульса",
+  "wearableRowHrv": "ВСР",
+  "wearableRowIrregularRhythm": "Нерегулярный ритм",
+  "wearableRowMovement": "Движение",
+  "wearableRowNadir": "Минимальный ночной пульс",
+  "wearableRowNaps": "Дневной сон",
+  "wearableRowReadiness": "Готовность",
+  "wearableRowRespiratoryRate": "Частота дыхания",
+  "wearableRowRestingHr": "Пульс в покое",
+  "wearableRowSkinTemp": "Температура кожи",
+  "wearableRowSkinTempBaseline": "Базовая температура кожи",
+  "wearableRowSleepDebt": "Недосып",
+  "wearableRowSleepStages": "Глубокий сон",
+  "wearableRowSleepWindow": "Длина ночи",
+  "wearableRowSpo2": "Кислород в крови",
+  "wearableRowSteps": "Шаги",
+  "wearableRowStrain": "Нагрузка",
+  "wearableRowStrapWorkouts": "Тренировки с нагрудным датчиком",
+  "wearableRowStress": "Стресс",
+  "wearableScoreBodyBattery": "Body Battery",
+  "wearableScoreImpedance": "Импеданс тела",
+  "wearableScoreReadiness": "Оценка готовности",
+  "wearableScoreSleep": "Оценка сна",
+  "wearableScoresTitle": "Собственные оценки устройства {device}",
+  "wearableSettingsGroup": "Показатели носимого устройства",
+  "wearableSourceDevice": "Собственное значение устройства {device}",
+  "wearableSourceEstimated": "Оценка по устройству {device} · {method}",
+  "wearableSourceEstimatedPlain": "Оценка по устройству {device}",
+  "wearableSourceOurs": "С устройства {device} · {method}",
+  "wearableSourceOursPlain": "С устройства {device}",
+  "wearableSourceStrap": "По данным: {method}",
+  "wearableUnitBpm": "уд/мин",
+  "wearableUnitBrMin": "вд/мин",
+  "wearableUnitCelsius": "°C",
+  "wearableUnitHours": "ч",
+  "wearableUnitKcal": "ккал",
+  "wearableUnitMin": "мин",
+  "wearableUnitMs": "мс",
+  "wearableUnitPct": "%",
+  "wearableUnitSd": "СО",
+  "wearableUnlocksDevice": "Его собственные значения, помеченные как его",
+  "wearableUnlocksEstimated": "Оценка, с пометкой",
+  "wearableUnlocksNone": "Недоступно",
+  "wearableUnlocksOurs": "Измеряем мы",
+  "wearableUnlocksStrap": "Измеряем мы во время сеанса с нагрудным датчиком",
+  "wearableUnlocksTitle": "Что даёт это носимое устройство",
+  "wearableUseThis": "Использовать это носимое устройство (для разработчиков)",
+  "wearableWhyBeatsNotSeparated": "Не рассчитывается по ударам устройства {device}: ночью их нельзя отличить от ударов, записанных нагрудным датчиком",
+  "wearableWhyEstimateHidden": "Есть только оценка, а оценки скрыты в настройках",
+  "wearableWhyNeedsBeats": "Нужны интервалы между ударами",
+  "wearableWhyNeedsHistory": "Нужна история хотя бы за одну ночь",
+  "wearableWhyNeedsRhrBaseline": "Нужен базовый уровень пульса в покое",
+  "wearableWhyNeedsStrap": "Нужен сеанс с нагрудным датчиком",
+  "wearableWhyNeedsThreeDaysHr": "Нужен пульс за три дня",
+  "wearableWhyNeedsThreeNights": "Нужны три ночи",
+  "wearableWhyNeedsThreeNightsTemp": "Нужна температура кожи за три ночи",
+  "wearableWhyNeverBeats": "Нужны интервалы между ударами; устройство {device} их не даёт",
+  "wearableWhyNeverResp": "Устройство {device} не даёт частоту дыхания",
+  "wearableWhyNeverSkinTemp": "Устройство {device} не даёт температуру кожи",
+  "wearableWhyNeverSpo2": "Устройство {device} не даёт уровень кислорода в крови",
+  "wearableWhyNeverStress": "Устройство {device} не даёт стресс",
+  "wearableWhyNoDeviceHrv": "Нужны интервалы между ударами; устройство {device} не дало ВСР",
+  "wearableWhyNoDeviceNap": "Устройство {device} не записало дневной сон",
+  "wearableWhyNoDeviceResp": "Устройство {device} не дало частоту дыхания",
+  "wearableWhyNoDeviceSpo2": "Устройство {device} не дало уровень кислорода в крови",
+  "wearableWhyNoDeviceSteps": "Устройство {device} не дало счётчик шагов",
+  "wearableWhyNoDeviceStress": "Устройство {device} не дало стресс",
+  "wearableWhyNoHrDip": "Ночью пульс не снижался устойчиво",
+  "wearableWhyNoMovementData": "Нужны данные о движении, которых устройство {device} не даёт",
+  "wearableWhyNoMovementRecord": "Устройство {device} не хранит записи движения, которые мы умеем декодировать",
+  "wearableWhyNoNight": "Для этого дня не сохранено ни одной ночи",
+  "wearableWhyNoNightForNaps": "Нет ночи, с которой можно сравнить дневной отдых",
+  "wearableWhyNoNightHr": "Нет пульса за ночь",
+  "wearableWhyNoNightReading": "Нет ночных показаний с устройства {device}",
+  "wearableWhyNoStagedNight": "Устройство {device} не определило стадии ни одной ночи",
+  "wearableWhyNoWake": "Устройство {device} не сообщает о пробуждениях, а по пульсу раз в минуту мы их пока не определяем",
+  "wearableWhyNoWakeHr": "Нет пульса в бодрствовании",
+  "wearableWhyNoWakeHrOrProfile": "Нет пульса в бодрствовании или профиля",
+  "wearableWhyNotDecoded": "Устройство {device} записывает нужные для этого данные; мы их пока не декодируем",
+  "wearableWhyReadinessRhrOnly": "Нужны два из четырёх показателей, измеренных нами: ВСР, пульс в покое, частота дыхания и температура кожи; устройство {device} даёт нам только пульс в покое",
+  "wearableWhySkinTempNotDecoded": "Температура кожи пока не декодируется",
+  "wearableWhyTooSparseForWorkouts": "По одному значению пульса раз в 5 минут нельзя определить тренировку",
+  "devicePickerBlurbThermometer": "Сохраняет каждое измерение как температуру тела.",
+  "devicePickerBlurbMiscaleBc": "Сохраняет каждый установившийся вес и биоимпеданс, включая сохранённые на весах.",
+  "devicePickerBlurbMiscale2": "Сохраняет каждый установившийся вес, включая сохранённые на весах.",
+  "@wearableSourceOurs": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      },
+      "method": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableSourceOursPlain": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableSourceStrap": {
+    "placeholders": {
+      "method": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableSourceDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableSourceEstimated": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      },
+      "method": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableSourceEstimatedPlain": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableDetailDeviceSays": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableDetailNoDeviceValue": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableBand": {
+    "placeholders": {
+      "band": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableBandTruth": {
+    "placeholders": {
+      "band": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableBandPartial": {
+    "placeholders": {
+      "band": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableScoresTitle": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNoNightReading": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNoStagedNight": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNoMovementData": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNoDeviceHrv": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNoDeviceResp": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNoDeviceSpo2": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNoDeviceStress": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyReadinessRhrOnly": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNoDeviceSteps": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNoWake": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNeverBeats": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNeverResp": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNeverSpo2": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNeverStress": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNeverSkinTemp": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNoMovementRecord": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNoDeviceNap": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyNotDecoded": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "@wearableWhyBeatsNotSeparated": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "iosUninstallUnpairsWarning": "На iOS удаление OpenStrap также снимает с телефона сопряжение всех браслетов и датчиков, сопряжённых здесь, поэтому другие приложения, включая приложение производителя, тоже их теряют.",
   "logFoodEditTitle": "Изменить запись",
   "logFoodDateLabel": "Дата",
   "logFoodTimeLabel": "Время",
@@ -6862,5 +7229,41 @@
   "dataExportHeartRate": "Экспортировать пульс по минутам",
   "dataExportHeartRateSub": "Один CSV за выбранные дни: средний пульс за каждую минуту, записанную браслетом. Посекундные данные хранятся только за последние дни и входят в экспорт базы данных",
   "dataHeartRateRangeHelp": "Пульс хранится с {first} по {last}",
-  "@dataHeartRateRangeHelp": {"placeholders": {"first": {"type": "String"}, "last": {"type": "String"}}}
+  "@dataHeartRateRangeHelp": {
+    "placeholders": {
+      "first": {
+        "type": "String"
+      },
+      "last": {
+        "type": "String"
+      }
+    }
+  },
+  "pairSensorUnreachableIos": "Этот iPhone разрешает приложению подключаться только к датчикам, одобренным в системном окне сопряжения, а {label} пока нельзя там предложить: в его объявлении нет службы, по которой он определяется. Пока выполните сопряжение на Android.",
+  "@pairSensorUnreachableIos": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "sleepDetailStagedBy": "Фазы по данным {label}",
+  "@sleepDetailStagedBy": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "sleepDetailDeviceMissingStages": "{label} не сообщает {stages}; это время учтено в других его фазах.",
+  "@sleepDetailDeviceMissingStages": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "stages": {
+        "type": "String"
+      }
+    }
+  }
 }

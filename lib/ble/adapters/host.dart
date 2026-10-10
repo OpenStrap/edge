@@ -34,6 +34,7 @@ import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 
 import '../../data/db.dart';
 import '../../data/models.dart';
+import '_registry.dart' show DeviceCategory, TimeAnchor;
 import 'adapter.dart';
 
 /// What an adapter's session is saying RIGHT NOW. Display only — [BandHost]'s
@@ -58,6 +59,61 @@ class _Second {
   int? hr;
   double? skinTempC;
   final List<int> rr = [];
+
+  /// Parallel to [rr] when the beats were timed ([beatEndTimesMs]).
+  final List<int> beatTs = [];
+
+  /// Parallel to [beatTs] on a chained second: unbanked time before each beat
+  /// ([NeutralSample.gapMs]).
+  final List<int> gaps = [];
+
+  /// Where the beat chain stood before this second's first timed beat.
+  int? chainFrom;
+}
+
+/// How far before its notification's arrival second a strap's last beat may
+/// end and still be the same chain (straps notify about once a second, a
+/// beat or two after it ends).
+const int kBeatChainSlackMs = 2500;
+
+/// When each beat of [rrMs] ended (epoch ms), for a notification that arrived
+/// in second [atSec], continuing the chain whose last beat ended at
+/// [lastEndMs]. Consecutive beats are contiguous, so each ends one interval
+/// after the one before; the chain is re-anchored on the arrival second when
+/// there is none yet or it no longer fits (a dropped notification, a gap).
+///
+/// [gapsMs], parallel to [rrMs] when given, is time that passed before each
+/// beat with no interval banked for it (a record the sensor flagged or
+/// dropped): the chain advances over it, so the beat after a hole is not
+/// stamped one interval early and the hole stays visible to the HRV gap
+/// check. A chain running late is not re-anchored before [lastEndMs]: beats
+/// from two notifications must not interleave.
+List<int> beatEndTimesMs(List<int> rrMs, int atSec, int? lastEndMs,
+    {List<int>? gapsMs}) {
+  int pos(int v) => v > 0 ? v : 0;
+  int gap(int i) => gapsMs == null ? 0 : pos(gapsMs[i]);
+  var total = 0;
+  for (var i = 0; i < rrMs.length; i++) {
+    total += gap(i) + pos(rrMs[i]);
+  }
+  final arrivalEnd = atSec * 1000 + 999;
+  var t = lastEndMs;
+  if (t == null ||
+      t + total > arrivalEnd ||
+      t + total < atSec * 1000 - kBeatChainSlackMs) {
+    // ponytail: mid-second anchor, +-500 ms; a sub-second arrival stamp from
+    // the link would tighten it.
+    final anchored = atSec * 1000 + 500 - total;
+    // A late chain keeps its end, so it runs ahead of arrival by the
+    // strap/phone clock drift; past the slack it is re-anchored anyway
+    // (ponytail: may interleave there; a sub-second arrival stamp fixes it).
+    t = t != null && t > anchored && t + total <= arrivalEnd + kBeatChainSlackMs
+        ? t
+        : anchored;
+  }
+  return [
+    for (var i = 0; i < rrMs.length; i++) t = t! + gap(i) + pos(rrMs[i]),
+  ];
 }
 
 /// Drives one [BandAdapter] over one [BandLink] and banks what comes back.
@@ -71,6 +127,7 @@ class BandHost {
     required this.deviceId,
     this.flushEvery = const Duration(seconds: 15),
     this.onNote,
+    this.notesAfterVendorWrites = false,
     this.onLog = _noLog,
     bool Function(int tsEpoch)? admitSample,
     ArchiveRecord? Function(List<int> raw, int capturedAtMs)? buildArchive,
@@ -100,6 +157,15 @@ class BandHost {
 
   final Duration flushEvery;
   final void Function(String key, Object? value)? onNote;
+
+  /// For an adapter whose notes bookmark what it has delivered (a Garmin
+  /// watch's read-file list): each note reaches [onNote] only once every
+  /// vendor write before it has landed, and never after one failed, so a
+  /// file whose own numbers did not bank is read again next session. The
+  /// same holds for checkpoints: a confirm waits for those writes and is
+  /// never sent after one failed, so a device that deletes what it sees
+  /// confirmed (a Pebble's data-logging ACK) keeps it.
+  final bool notesAfterVendorWrites;
   final void Function(String) onLog;
 
   /// An extra plausibility predicate a caller supplies (e.g. Oura's own "no
@@ -134,10 +200,24 @@ class BandHost {
 
   static void _noLog(String _) {}
 
+  /// Pokes the app's derive scheduler after a wearable's session banked
+  /// something. Unset (a headless wake), the session queues the derive in
+  /// `compute_jobs` itself, which the scheduler drains when the app opens.
+  /// HEAVY, not light: one sync can bank several days (a first sync, a watch
+  /// away from the phone), and a light pass derives only one of them.
+  static void Function()? onWearableStored;
+
+  /// Whether this session banked anything a derive reads.
+  bool _stored = false;
+
   ValueListenable<HrsReading?> get reading => _reading;
   final ValueNotifier<HrsReading?> _reading = ValueNotifier(null);
 
   final Map<int, _Second> _pending = {};
+
+  /// When the last timed beat ended (epoch ms): the chain [beatEndTimesMs]
+  /// continues.
+  int? _lastBeatEndMs;
   final List<ArchiveRecord> _pendingArchive = [];
 
   Timer? _flushTimer;
@@ -182,6 +262,11 @@ class BandHost {
     }
   }
 
+  /// Bank every finished second now and keep the session running: a workout's
+  /// stop reads its HR back while a strap goes on recording the recovery
+  /// tail. The current second stays held, as on every periodic flush.
+  Future<bool> flush() => _commit();
+
   /// Flush the tail, drop the subscription. Safe when not running. AWAIT it
   /// before any screen reads the session back — an unawaited stop is how the
   /// last buffered batch goes missing.
@@ -198,9 +283,25 @@ class BandHost {
     if (done != null && !done.isCompleted) done.complete();
     await _runSub?.cancel();
     _runSub = null;
+    // A note held behind the vendor writes still joins the final commit.
+    await _vendorWrites;
     await _commit(all: true);
     await _vendorWrites;
     _reading.value = null;
+    // A wearable's day derives off what its sync banked, and nothing on the
+    // band's path notices a secondary link's rows.
+    if (_stored && adapter.entry.category == DeviceCategory.wearable) {
+      _stored = false;
+      final poke = onWearableStored;
+      if (poke != null) {
+        poke();
+      } else {
+        await LocalDb.enqueueDeriveJob(
+                type: 'derive_heavy', reason: 'wearable_sync')
+            .catchError((Object e) => onLog('[${adapter.id}] derive not '
+                'queued: $e'));
+      }
+    }
   }
 
   void _onEvent(BandEvent e) {
@@ -221,15 +322,30 @@ class BandHost {
       case OffloadCheckpoint():
         unawaited(_commitThenConfirm(e));
       case BandNote(:final key, :final value):
-        onNote?.call(key, value);
+        if (key == 'battery' && value is int) {
+          unawaited(LocalDb.setDeviceBattery(deviceId, value).catchError((_) {}));
+        }
+        if (notesAfterVendorWrites) {
+          _vendorWrites = _vendorWrites.then((_) {
+            if (_vendorFailed) {
+              onLog('[${adapter.id}] $key held back: a vendor write failed.');
+            } else {
+              onNote?.call(key, value);
+            }
+          });
+        } else {
+          onNote?.call(key, value);
+        }
         onLog('[${adapter.id}] $key = $value');
       case VendorScalars():
         // Chained, not awaited: best-effort and outside the ACK path, but
         // [stop] waits for it so a read after stop sees the rows.
         _vendorWrites = _vendorWrites.then((_) => _bankVendorScalars(e));
-      case VendorHypnogram(:final source, :final epochs):
+      case VendorHypnogram(:final source, :final epochs, :final wholeNights):
         // Same chain and same best-effort contract as vendor scalars.
         _vendorWrites = _vendorWrites.then((_) async {
+          // See [_bankVendorScalars]: nothing more lands once one failed.
+          if (notesAfterVendorWrites && _vendorFailed) return;
           final extra = _admitSample;
           final kept = [
             for (final ep in epochs)
@@ -238,8 +354,10 @@ class BandHost {
           if (kept.isEmpty) return;
           try {
             await LocalDb.putVendorSleepEpochs(kept,
-                deviceId: deviceId, source: source);
+                deviceId: deviceId, source: source, wholeNights: wholeNights);
+            _stored = true;
           } catch (err) {
+            _vendorFailed = true;
             onLog('[${adapter.id}] vendor hypnogram not banked: $err');
           }
         });
@@ -247,6 +365,10 @@ class BandHost {
   }
 
   Future<void> _vendorWrites = Future<void>.value();
+
+  /// Sticky for the session: a later bookmark note still covers the file
+  /// whose write failed ([notesAfterVendorWrites]).
+  bool _vendorFailed = false;
 
   /// Bank one device's vendor scalars. Returns rows written.
   ///
@@ -260,6 +382,10 @@ class BandHost {
   /// number. An observation without it is not renderable, so the adapter
   /// supplies it; the host never invents one.
   Future<int> _bankVendorScalars(VendorScalars e) async {
+    // Once a write failed nothing is ACKed, so the device re-sends this
+    // session. Later rows may be running totals built over the failed one
+    // (Pebble steps): landing them now would count the re-send twice.
+    if (notesAfterVendorWrites && _vendorFailed) return 0;
     // Same plausibility gate as samples: a stale origin stamps these too.
     final extra = _admitSample;
     final rows = extra == null
@@ -268,10 +394,17 @@ class BandHost {
             for (final o in e.rows)
               if (extra(o.at.millisecondsSinceEpoch ~/ 1000)) o,
           ];
-    if (rows.isEmpty) return 0;
+    final cursors = _vendorFailed
+        ? const <String, String>{}
+        : {for (final c in e.cursors.entries) '${c.key}:$deviceId': c.value};
+    if (rows.isEmpty && cursors.isEmpty) return 0;
     try {
-      return await LocalDb.putObservations(rows, deviceId: deviceId);
+      final n = await LocalDb.putObservations(rows,
+          deviceId: deviceId, cursors: cursors);
+      _stored = true;
+      return n;
     } catch (err) {
+      _vendorFailed = true;
       onLog('[${adapter.id}] vendor scalars not banked: $err');
       return 0;
     }
@@ -301,6 +434,32 @@ class BandHost {
     final slot = _pending.putIfAbsent(s.tsEpoch, _Second.new);
     if (s.hr != null) slot.hr = s.hr;
     if (s.skinTempC != null) slot.skinTempC = s.skinTempC;
+    // An arrival-stamped strap's beats keep their own times, off the chain.
+    // A second's beats are timed together, however many samples carry them
+    // (a sensor sending one beat per record): timed one at a time, each
+    // would re-anchor on the same mid-second and collide.
+    // An adapter that timed its beats off the device's own clock keeps them.
+    final timed = s.beatTsMs;
+    if (timed != null &&
+        timed.length == s.rrMs.length &&
+        slot.beatTs.length == slot.rr.length) {
+      slot.beatTs.addAll(timed);
+    } else if (s.anchor == TimeAnchor.arrival &&
+        s.rrMs.isNotEmpty &&
+        slot.beatTs.length == slot.rr.length) {
+      if (slot.beatTs.isEmpty) slot.chainFrom = _lastBeatEndMs;
+      while (slot.gaps.length < slot.rr.length) {
+        slot.gaps.add(0);
+      }
+      slot.gaps.addAll([s.gapMs, for (var i = 1; i < s.rrMs.length; i++) 0]);
+      final ends = beatEndTimesMs(
+          [...slot.rr, ...s.rrMs], s.tsEpoch, slot.chainFrom,
+          gapsMs: slot.gaps);
+      slot.beatTs
+        ..clear()
+        ..addAll(ends);
+      _lastBeatEndMs = ends.last;
+    }
     slot.rr.addAll(s.rrMs);
   }
 
@@ -310,6 +469,13 @@ class BandHost {
     // confirm() second. A commit that fails must leave the adapter's cursor
     // where it was — confirming it would authorise deleting data never
     // banked.
+    if (notesAfterVendorWrites) {
+      await _vendorWrites;
+      if (_vendorFailed) {
+        onLog('[${adapter.id}] a vendor write failed; not confirming.');
+        return;
+      }
+    }
     if (!await _commit(all: true)) {
       // The host observed the failed durable commit itself — the most
       // specific persistence signal there is. The adapter can only learn
@@ -325,6 +491,9 @@ class BandHost {
   }
 
   Future<bool> _commitChain = Future.value(true);
+
+  /// The extra cursors the last successful commit carried.
+  Map<String, String> _committedExtra = const {};
 
   /// SERIALIZED entry point. Two commits must never hold overlapping snapshots
   /// of the same buffer: `_commitLocked` empties `_pending`/`_pendingArchive`
@@ -350,7 +519,34 @@ class BandHost {
   /// NEVER call directly — go through [_commit], which serializes.
   Future<bool> _commitLocked({bool all = false}) async {
     final archive = List<ArchiveRecord>.from(_pendingArchive);
-    if (_pending.isEmpty && archive.isEmpty) return true;
+    final extra = _extraCursors?.call();
+    if (_pending.isEmpty && archive.isEmpty) {
+      // Nothing buffered means every row reported so far is durable. With
+      // [notesAfterVendorWrites] a note trails the rows it covers, so a
+      // cursor that moved since the last commit lands alone here; skipping
+      // it left the cursor behind whenever its rows had ridden an earlier
+      // commit. (Without it a note can lead its rows, so it waits for them.)
+      if (!notesAfterVendorWrites ||
+          extra == null ||
+          extra.isEmpty ||
+          (extra.length == _committedExtra.length &&
+              extra.entries.every((e) => _committedExtra[e.key] == e.value))) {
+        return true;
+      }
+      try {
+        await LocalDb.commitSyncBatch(const [], const [],
+            deviceId: deviceId,
+            deviceFamily: adapter.id,
+            neutrals: const [],
+            extraCursors: extra,
+            onCheckpoint: onLog);
+        _committedExtra = extra;
+        return true;
+      } catch (e) {
+        onLog('[${adapter.id}] cursor commit failed: $e');
+        return false;
+      }
+    }
     final now = _nowSeconds();
     final ready =
         _pending.keys.where((s) => all || s < now).toList()..sort();
@@ -365,10 +561,12 @@ class BandHost {
           hr: slot.hr,
           rrMs: slot.rr,
           skinTempC: slot.skinTempC,
+          beatTsMs: slot.beatTs.length == slot.rr.length && slot.rr.isNotEmpty
+              ? slot.beatTs
+              : null,
         ),
     ];
     try {
-      final extra = _extraCursors?.call();
       Future<void> commit() async => await LocalDb.commitSyncBatch(
             const [],
             const [],
@@ -389,6 +587,10 @@ class BandHost {
       } else {
         await commit();
       }
+      if (extra != null) _committedExtra = extra;
+      // Every device row shows when it last synced; best-effort.
+      unawaited(LocalDb.markDeviceSynced(deviceId).catchError((_) {}));
+      _stored = true;
       return true;
     } catch (e) {
       // Put the snapshot back so the next flush can retry it, same shape as

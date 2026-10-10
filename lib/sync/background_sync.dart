@@ -21,33 +21,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../ble/adapters/_registry.dart' show kWhoopGen4;
 import '../ble/adapters/host.dart' show BandHost;
 import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
-import '../ble/banglejs_link.dart';
 import '../ble/ble_engine.dart';
-import '../ble/casio_link.dart';
 import '../ble/colmi_link.dart';
+import '../ble/session_link.dart';
 import '../ble/coros_link.dart';
-import '../ble/dafit_link.dart';
 import '../ble/garmin_link.dart';
-import '../ble/id115_link.dart';
-import '../ble/jyou_link.dart';
-import '../ble/lefun_link.dart';
-import '../ble/makibeshr3_link.dart';
 import '../ble/miband_link.dart';
 import '../ble/oura_link.dart';
-import '../ble/o2ring_link.dart';
 import '../ble/pebble_link.dart';
-import '../ble/pinetime_link.dart';
-import '../ble/qhybrid_link.dart';
-import '../ble/ring11m_link.dart';
-import '../ble/ringconn_link.dart';
-import '../ble/smaq2oss_link.dart';
-import '../ble/tlw64_link.dart';
 import '../ble/ultrahuman_link.dart';
-import '../ble/watch9_link.dart';
-import '../ble/wearfit_link.dart';
-import '../ble/withings_steel_hr_link.dart';
-import '../ble/xwatch_link.dart';
-import '../ble/zetime_link.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../data/db.dart';
@@ -388,12 +370,6 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
     }
-    // Same piggyback, same reasoning, for a paired ring11m sensor.
-    try {
-      await Ring11mLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] ring11m sync skipped: $e');
-    }
     // Same piggyback, same reasoning: CorosLink.sync() no-ops when nothing is
     // paired and never throws, but this is the one shared headless entry
     // point, so a failure here must not escape either.
@@ -418,13 +394,6 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     } catch (e) {
       debugPrint('[bgsync] ultrahuman sync skipped: $e');
     }
-    // Same reasoning, same wake window: a paired Withings row otherwise never
-    // gets a second connection past pairing, since nothing else calls this.
-    try {
-      await WithingsSteelHrLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] withings sync skipped: $e');
-    }
     // Same reasoning, same slot, for a paired Mi Band: MiBand234Link.sync()
     // also no-ops when nothing is paired and never throws, but guard it
     // anyway so a surprise failure here still can't mark the WHOOP cycle
@@ -442,111 +411,6 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     } catch (e) {
       debugPrint('[bgsync] pebble sync skipped: $e');
     }
-    // Same piggyback, same reasoning: MakibesHr3Link.sync() already no-ops
-    // when nothing is paired and never throws, but a failure here still
-    // must not escape and mark the WHOOP cycle as errored.
-    try {
-      await MakibesHr3Link.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] makibeshr3 sync skipped: $e');
-    }
-    // Same piggyback, same reasoning: Id115Link.sync() already no-ops when
-    // nothing is paired and never throws, but a failure here still must not
-    // escape and mark the WHOOP cycle as errored.
-    try {
-      await Id115Link.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] id115 sync skipped: $e');
-    }
-    // Same piggyback, same reasoning: Smaq2ossLink.sync() already no-ops
-    // when nothing is paired and never throws, but a failure here still must
-    // not escape and mark the WHOOP cycle as errored.
-    try {
-      await Smaq2ossLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] smaq2oss sync skipped: $e');
-    }
-    // Same piggyback, same reasoning: XWatchLink.sync() already no-ops when
-    // nothing is paired and never throws, but a failure here still must not
-    // escape and mark the WHOOP cycle as errored.
-    try {
-      await XWatchLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] xwatch sync skipped: $e');
-    }
-    // Same piggyback, same reasoning: Tlw64Link.sync() already no-ops when
-    // nothing is paired and never throws, but a failure here still must not
-    // escape and mark the WHOOP cycle as errored.
-    try {
-      await Tlw64Link.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] tlw64 sync skipped: $e');
-    }
-    // Same piggyback, same reasoning: DafitLink.sync() no-ops when nothing is
-    // paired and never throws, but this is the one shared headless entry
-    // point, so a failure here must not escape either.
-    try {
-      await DafitLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] dafit sync skipped: $e');
-    }
-    // Same reasoning as the Oura piggyback just above: no-ops when nothing is
-    // paired, never allowed to mark the WHOOP cycle as errored.
-    try {
-      await O2RingLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] o2ring sync skipped: $e');
-    }
-    // Same piggyback, same reasoning, for the ZeTime: one-shot notify-class
-    // link, no-ops when nothing is paired, must never mark the WHOOP cycle
-    // errored.
-    try {
-      await ZeTimeLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] zetime sync skipped: $e');
-    }
-    // Same piggyback, same reasoning: WearFitLink.sync() no-ops when nothing
-    // is paired and never throws, so a failure here must not escape and mark
-    // the WHOOP cycle as errored either.
-    try {
-      await WearFitLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] wearfit sync skipped: $e');
-    }
-    // Same piggyback, same reasoning: RingConnLink.sync() no-ops when nothing
-    // is paired and never throws, but this is still the one shared headless
-    // entry point, so a failure here must not escape and mark the WHOOP
-    // cycle as errored either.
-    try {
-      await RingConnLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] ringconn sync skipped: $e');
-    }
-    // Same piggyback, same reasoning: LefunLink.sync() no-ops when nothing is
-    // paired and never throws, but this is still the one shared headless
-    // entry point, so a failure here must not escape and mark the WHOOP
-    // cycle as errored either.
-    try {
-      await LefunLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] lefun sync skipped: $e');
-    }
-    // Same piggyback, same reasoning: PineTimeLink.sync() no-ops when
-    // nothing is paired and never throws, but the shared entry point must
-    // never let it escape and mark the WHOOP cycle as errored.
-    try {
-      await PineTimeLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] pinetime sync skipped: $e');
-    }
-    // Same piggyback, same reasoning: QHybridLink.sync() no-ops when nothing
-    // is paired and never throws, but this is the one shared headless entry
-    // point, so a failure here must not escape either.
-    try {
-      await QHybridLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] qhybrid sync skipped: $e');
-    }
     // Same piggyback, same reasoning: no-ops when unpaired, must never let a
     // failure here mark the WHOOP cycle as errored.
     try {
@@ -554,50 +418,14 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     } catch (e) {
       debugPrint('[bgsync] colmi sync skipped: $e');
     }
-    // Same piggyback, same reasoning: CasioLink.sync() already no-ops when
-    // nothing is paired and never throws, but a failure here still must not
-    // escape and mark the WHOOP cycle as errored.
-    try {
-      await CasioLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] casio sync skipped: $e');
-    }
-    // Same piggyback, same reasoning: JyouLink.sync() already no-ops when
-    // nothing is paired and never throws, but a failure here still must not
-    // escape and mark the WHOOP cycle as errored.
-    try {
-      await JyouLink.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] jyou sync skipped: $e');
-    }
-    // Same piggyback, same reasoning: Watch9Link.sync() already no-ops when
-    // nothing is paired and never throws, but a failure here still must not
-    // escape and mark the WHOOP cycle as errored.
-    try {
-      await Watch9Link.instance.sync();
-    } catch (e) {
-      debugPrint('[bgsync] watch9 sync skipped: $e');
-    }
-    // Same reasoning as the ring above: no-ops when unpaired, must never
-    // escape and mark the WHOOP cycle as errored. Unlike Oura's cursor-drain
-    // (which completes as soon as its own protocol says so), this pipe has no
-    // end-of-history signal (see banglejs_link.dart) — every attempt is a
-    // full ~20s connect-and-listen window, run sequentially AFTER the WHOOP
-    // drain. The BLE-restore wake (ios_ble_restore.dart) can fire on every
-    // WHOOP reconnect, so gate attempts behind a cooldown rather than paying
-    // that window on every single wake regardless of how recently we tried.
-    // ponytail: fixed cooldown, not adaptive to how often this watch
-    // actually has something to say — revisit if real usage shows it's wrong.
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final now = DateTime.now().millisecondsSinceEpoch;
-      if (shouldAttemptBangleJsSync(
-          prefs.getInt(_kLastBangleJsAttemptMs), now)) {
-        await prefs.setInt(_kLastBangleJsAttemptMs, now);
-        await BangleJsLink.instance.sync();
+    // Thermometer and scales: same piggyback; each no-ops when unpaired and
+    // only reaches a device that happens to be awake and nearby.
+    for (final link in SessionLink.all) {
+      try {
+        await link.sync();
+      } catch (e) {
+        debugPrint('[bgsync] ${link.entry.id} sync skipped: $e');
       }
-    } catch (e) {
-      debugPrint('[bgsync] banglejs sync skipped: $e');
     }
   }
 }
@@ -608,20 +436,6 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
 // signals here), independent of THIS cycle's outcome: it reads the durable
 // `rec_ts_hw` cursor, which reflects the full sync history, not just this run.
 const String _kLastStalenessNotifiedMs = 'last_staleness_notified_ms';
-
-/// How often a headless wake is allowed to actually attempt a Bangle.js
-/// connect-and-listen window (see the call site's doc, further down).
-const String _kLastBangleJsAttemptMs = 'last_banglejs_sync_attempt_ms';
-const Duration _kBangleJsSyncCooldown = Duration(minutes: 20);
-
-/// True when a headless wake should actually pay for a Bangle.js
-/// connect-and-listen window, given the last attempt's stored epoch-ms (or
-/// null if never attempted) and now's epoch-ms. Pure so the cooldown math
-/// is checkable without standing up the BLE stack.
-@visibleForTesting
-bool shouldAttemptBangleJsSync(int? lastAttemptMs, int nowMs) =>
-    lastAttemptMs == null ||
-    nowMs - lastAttemptMs >= _kBangleJsSyncCooldown.inMilliseconds;
 
 /// The tail of a headless drain: settle the link's history, THEN write the
 /// alarm (gen5: SET_CLOCK + SET_ALARM). runSync() only stopped WAITING; the

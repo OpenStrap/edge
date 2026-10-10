@@ -60,7 +60,16 @@
 	<array>
 		<string>61080001-8D6D-82B8-614A-1C8CB0F8DCC6</string>
 		<string>FD4B0001-CCE1-4033-93CE-002D5875F58A</string>
+		<string>180D</string>
 		<string>98ED0001-A541-11E4-B6A0-0002A5D5C51B</string>
+		<string>6E40FFF0-B5A3-F393-E0A9-E50E24DCCA9E</string>
+		<string>86F65000-F706-58A0-95B2-1FB9261E4DC7</string>
+		<string>FEE1</string>
+		<string>FED9</string>
+		<string>6A4E2800-667B-11E3-949A-0800200C9A66</string>
+		<string>1809</string>
+		<string>181B</string>
+		<string>181D</string>
 		<!-- 16-bit SIG member UUID. Distinct from the 128-bit vendor service
 		     above, and NOT the Bluetooth-base expansion
 		     0000FD4B-0000-1000-8000-00805F9B34FB (no band advertises that).
@@ -88,8 +97,26 @@
 		<string>WHOOP 4</string>
 		<key>FD4B0001-CCE1-4033-93CE-002D5875F58A</key>
 		<string>WHOOP 5</string>
+		<key>180D</key>
+		<string>Bluetooth heart rate sensor</string>
 		<key>98ED0001-A541-11E4-B6A0-0002A5D5C51B</key>
 		<string>Oura Ring</string>
+		<key>6E40FFF0-B5A3-F393-E0A9-E50E24DCCA9E</key>
+		<string>Colmi ring</string>
+		<key>86F65000-F706-58A0-95B2-1FB9261E4DC7</key>
+		<string>Ultrahuman Ring Air</string>
+		<key>FEE1</key>
+		<string>Mi Band 2/3</string>
+		<key>FED9</key>
+		<string>Pebble</string>
+		<key>6A4E2800-667B-11E3-949A-0800200C9A66</key>
+		<string>Garmin watch</string>
+		<key>1809</key>
+		<string>Bluetooth thermometer</string>
+		<key>181B</key>
+		<string>Mi Body Composition Scale</string>
+		<key>181D</key>
+		<string>Mi Smart Scale 2</string>
 	</dict>
 	<!-- GENERATED (see above): the declared services that belong to a SENSOR
 	     paired through its own ASK picker, not to a band. AccessorySetup.swift
@@ -100,10 +127,21 @@
 	<key>NSAccessorySetupBluetoothCompanyIdentifiers</key>
 	<array>
 		<string>0x02B2</string>
+		<string>0x0157</string>
+		<string>0x0087</string>
 	</array>
 	<key>OSAskSensorServices</key>
 	<array>
+		<string>180D</string>
 		<string>98ED0001-A541-11E4-B6A0-0002A5D5C51B</string>
+		<string>6E40FFF0-B5A3-F393-E0A9-E50E24DCCA9E</string>
+		<string>86F65000-F706-58A0-95B2-1FB9261E4DC7</string>
+		<string>FEE1</string>
+		<string>FED9</string>
+		<string>6A4E2800-667B-11E3-949A-0800200C9A66</string>
+		<string>1809</string>
+		<string>181B</string>
+		<string>181D</string>
 	</array>
 	<!-- The automatic-backup folder lives in the app's Documents directory.
 	     Without BOTH of these it exists but is invisible in Files, so nothing

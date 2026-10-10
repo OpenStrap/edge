@@ -1,16 +1,20 @@
 // The HOST for a paired Garmin watch: connect, drive [GarminAdapter] over
 // the link for one bounded session, bank what comes back, disconnect.
 //
-// NOTHING HERE HAS MET HARDWARE (ASSUMPTIONS R6). `GarminAdapter.signals` is
-// `const {}` and `garmin` is absent from `kDerivableSources` — every row this
-// file writes carries a non-null `source`, and nothing here becomes a number.
+// NOTHING HERE HAS MET HARDWARE (ASSUMPTIONS R6). `GarminAdapter.signals`
+// declares `hrSparse` (monitoring HR, about once a minute). `garmin` is
+// absent from `kDerivableSources`, so none of these rows reaches the band's
+// substrate; they feed a derived number only through the active-wearable
+// path (`compute/inputs/canonical.dart`), while the watch's flag is on.
 //
-// WHY A BOUNDED WINDOW, NOT FETCH-BY-CURSOR OR ARM/DISARM — same reasoning as
-// `dafit_link.dart`: this family's stored activity history (FIT files, the
-// numbered real-time streams) is untouched this pass, so there is no
-// natural end-of-transfer signal. A fixed window that opens the GFDI
-// channel, receives the unprompted device-info push and one battery answer,
-// then disconnects is the honest floor.
+// THE SESSION: the adapter reads the watch's file directory, downloads every
+// health FIT file (monitoring, sleep, HRV status) it has not read yet, and
+// decodes them into sparse HR samples, the watch's hypnogram, daily steps
+// and attributed vendor observations. What it has read is kept per file
+// (index, timestamp, size) in `sync_cursor` under [_cursorItem], so a file
+// that grew is read again and one that failed is retried. The session ends
+// when the queue drains, or at the adapter's bounded window. The numbered
+// real-time streams stay untouched.
 //
 // PAIRING IS THE WATCH'S OWN MENU, NOT A KEY THIS FILE INSTALLS. Unlike the
 // Oura ring, GFDI has no pairing-time credential exchange this pass
@@ -23,12 +27,13 @@
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import 'adapters/_registry.dart';
+import 'adapters/adapter.dart' show ReplayBandLink;
 import 'adapters/garmin.dart';
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart';
@@ -36,6 +41,18 @@ import 'ble_state.dart' show withSecondaryLinkSlot;
 
 String _hex(List<int> b) =>
     b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+
+/// `sync_cursor` name for the health FIT files already read.
+String _cursorItem(String deviceId) => 'garmin_fit_files:$deviceId';
+
+/// Every characteristic under the multi-link service, as lowercase 128-bit
+/// UUIDs — what `garminMlPair` chooses from. Empty when the service is
+/// absent.
+List<String> garminMlCharsOf(List<BluetoothService> services) => [
+      for (final s in services)
+        if (s.uuid == Guid(kGarminService))
+          for (final c in s.characteristics) c.uuid.str128,
+    ];
 
 /// The live link to a paired Garmin watch. One instance; a second concurrent
 /// one is not a thing anyone asked for.
@@ -137,15 +154,20 @@ class GarminLink {
             onLog: (m) => debugPrint('[garmin] $m'),
           );
           _link = link;
-          final missing =
-              link.missingCharacteristics(kGarmin.requiredCharacteristics);
-          if (missing.isNotEmpty) {
-            debugPrint('[garmin] ${kGarmin.label}: missing required '
-                'characteristic(s) '
-                '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
+          final ml = garminMlCharsOf(services);
+          if (garminMlPair(ml) == null) {
+            debugPrint('[garmin] ${kGarmin.label}: no multi-link data '
+                'characteristic under ${kGarminService.substring(0, 8)}.');
             return false;
           }
-          final host = _makeHost(deviceId, const GarminAdapter());
+          final host = _makeHost(
+              deviceId,
+              GarminAdapter(
+                readFiles: await LocalDb.getCursor(_cursorItem(deviceId)) ?? '',
+                priorSteps: await _priorSteps(deviceId),
+                mlChars: ml,
+                maxWrite: device.mtuNow - 3,
+              ));
           _host = host;
           await host.run(link);
           return true;
@@ -169,6 +191,7 @@ class GarminLink {
     _link = null;
     await _host?.stop();
     _host = null;
+    _readFiles = null;
     _deviceId = null;
     final d = _device;
     _device = null;
@@ -179,16 +202,40 @@ class GarminLink {
     }
   }
 
+  /// The step totals stored for this watch, one row per local day.
+  Future<Map<DateTime, int>> _priorSteps(String deviceId) async => {
+        for (final MapEntry(:key, :value)
+            in (await LocalDb.deviceObservationValues(deviceId, 'steps'))
+                .entries)
+          DateTime.fromMillisecondsSinceEpoch(key): value.toInt(),
+      };
+
   BandHost _makeHost(String deviceId, GarminAdapter adapter) => BandHost(
         adapter: adapter,
         deviceId: deviceId,
         onLog: (m) => debugPrint('[garmin] $m'),
         onNote: _handleNote,
+        // The read-file list must not outrun the file's own numbers: a
+        // failed vendor write leaves the file unread, so it is read again.
+        notesAfterVendorWrites: true,
         buildArchive: _buildArchiveRow,
+        // The read-file list is folded into the SAME commit transaction as
+        // the samples decoded from those files, so a file can never be
+        // recorded as read by a commit its own rows did not survive.
+        extraCursors: () => _readFiles == null
+            ? const {}
+            : {_cursorItem(deviceId): _readFiles!},
       );
+
+  /// The adapter's latest read-file list; written only by a host commit.
+  String? _readFiles;
 
   void _handleNote(String key, Object? value) {
     switch (key) {
+      case 'garmin_fit_files':
+        // Read back by `_makeHost`'s `extraCursors` at the next commit,
+        // never written on its own.
+        if (value is String) _readFiles = value;
       case 'battery':
         if (value is int) _batteryPct = value;
       case 'model':
@@ -200,9 +247,53 @@ class GarminLink {
     }
   }
 
-  /// Bank one frame verbatim, decoded or not — this family's decode coverage
-  /// is deliberately narrow (device info, one battery answer, the plumbing
-  /// acks), so everything else is archived undecoded rather than guessed at.
+  /// Replay a scripted watch through the REAL [GarminAdapter], host and
+  /// sqlite. [reply] answers each write on the write characteristic with
+  /// notifications on the notify characteristic.
+  @visibleForTesting
+  Future<ReplayBandLink> ingestForTest(
+    String deviceId,
+    List<List<int>> Function(List<int> written) reply, {
+    required int Function() nowSeconds,
+  }) async {
+    _deviceId = deviceId;
+    final link = ReplayBandLink();
+    final host = _makeHost(
+        deviceId,
+        GarminAdapter(
+          nowSeconds: nowSeconds,
+          handshakeTimeout: const Duration(milliseconds: 200),
+          configWait: const Duration(milliseconds: 50),
+          sessionWindow: const Duration(seconds: 10),
+          registerTimeout: const Duration(milliseconds: 200),
+          notReadyDelay: const Duration(milliseconds: 10),
+          readFiles: await LocalDb.getCursor(_cursorItem(deviceId)) ?? '',
+          priorSteps: await _priorSteps(deviceId),
+        ));
+    _host = host;
+    var finished = false;
+    final done = host.run(link).whenComplete(() => finished = true);
+    var served = 0;
+    for (var spin = 0; spin < 4000 && !finished; spin++) {
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+      while (served < link.writes.length) {
+        for (final n in reply(link.writes[served++].$2)) {
+          link.feed(kGarminNotifyChar, n, atSec: nowSeconds());
+        }
+      }
+    }
+    await link.close();
+    await done.timeout(const Duration(seconds: 5), onTimeout: () {});
+    await host.stop();
+    _host = null;
+    _readFiles = null;
+    _deviceId = null;
+    return link;
+  }
+
+  /// Bank one frame verbatim, decoded or not — every GFDI frame and every
+  /// control frame this session sees, so what the adapter does not decode
+  /// is archived rather than guessed at.
   ArchiveRecord? _buildArchiveRow(List<int> bytes, int capturedAtMs) {
     if (bytes.isEmpty) return null;
     return ArchiveRecord(

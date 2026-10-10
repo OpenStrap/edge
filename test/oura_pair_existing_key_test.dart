@@ -19,6 +19,9 @@ class _Ring extends ReplayBandLink {
   _Ring(this.held);
 
   List<int>? held;
+
+  /// When set, every key install is answered with this status instead.
+  int? installStatus;
   static const List<int> nonce = [
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, //
   ];
@@ -36,6 +39,11 @@ class _Ring extends ReplayBandLink {
     if (v.isEmpty) return;
     if (v[0] == 0x24) {
       // A key install: taken only while factory reset.
+      final forced = installStatus;
+      if (forced != null) {
+        feed(kOuraNotifyChar, [0x25, 0x01, forced], atSec: 0);
+        return;
+      }
       final ok = held == null;
       if (ok) held = v.sublist(2);
       feed(kOuraNotifyChar, [0x25, 0x01, ok ? 0x00 : 0x01], atSec: 0);
@@ -126,6 +134,19 @@ void main() {
           install: true, replyWindow: _window);
       expect(attempt.refusal, contains('factory reset'));
       expect(ring.held, _appKey);
+    });
+
+    test('a ring missing its production tests is not told to reset', () async {
+      final ring = _Ring(null)..installStatus = 0x05;
+      final attempt = await ouraPairHandshake(ring, List.filled(16, 7),
+          install: true, replyWindow: _window);
+      expect(attempt.ok, isFalse);
+      expect(attempt.refusal, contains('production tests'));
+      expect(attempt.refusal, contains('does not'));
+      expect(attempt.keyRejected, isFalse,
+          reason: 'every key gets the same answer, so a trial stops here');
+      expect(ring.writes.where((w) => w.$2.first == 0x2f), isEmpty,
+          reason: 'nothing past the refused install');
     });
 
     test('reports the install only once the ring acked it', () async {

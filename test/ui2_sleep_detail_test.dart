@@ -165,6 +165,21 @@ void main() {
       expect(find.textContaining('Shares of'), findsNothing);
     });
 
+    testWidgets("a device-staged night shows the device's own minutes, no "
+        'range', (t) async {
+      final n = {
+        ...staged(conf: 0.95),
+        'sleep_source': 'vendor_staged',
+        'rem_min': null,
+      };
+      await _pump(t,
+          SleepData(day: '2026-05-20', night: n, tstHistory: _flat(20, 420)));
+      // Twice: the Stages row and the Deep comparison, both the count.
+      expect(find.text('1h 20m'), findsNWidgets(2));
+      expect(find.text('4h 10m'), findsOneWidget);
+      expect(find.textContaining('Each stage is a range'), findsNothing);
+    });
+
     testWidgets('a better-seen night gets a narrower range', (t) async {
       await _pump(
           t,
@@ -413,5 +428,88 @@ void main() {
       expect(on, DateTime(2026, 3, 2, 0, 30));
       expect(off, DateTime(2026, 3, 2, 13, 30));
     });
+  });
+
+  group('a device\'s own staging, beside ours', () {
+    Map<String, Object?> deviceNight(String id, String label, String family,
+            Map<String, int> minutes) =>
+        {
+          'device_id': id,
+          'label': label,
+          'family': family,
+          'onset_ts': _onset,
+          'wake_ts': _onset + 480 * 60,
+          'duration_min': 460,
+          'stage_min': minutes,
+          'hypnogram': [
+            {'t': _onset, 'stage': 'light'},
+            {'t': _onset + 3600, 'stage': 'deep'},
+            {'t': _onset + 480 * 60, 'stage': 'deep'},
+          ],
+        };
+
+    testWidgets('a switcher offers OpenStrap and each device; picking one '
+        'says whose staging it is and what it cannot report', (t) async {
+      await _pump(
+        t,
+        SleepData(
+          day: '2026-05-20',
+          night: _night(),
+          deviceNights: [
+            deviceNight('mb-1', 'Mi Band', 'miband234',
+                {'light': 400, 'deep': 60, 'wake': 20}),
+            deviceNight('cm-1', 'Colmi ring', 'colmi',
+                {'light': 250, 'deep': 100, 'rem': 110, 'wake': 20}),
+          ],
+        ),
+      );
+      expect(find.text('OpenStrap'), findsOneWidget);
+      expect(find.text('Mi Band'), findsOneWidget);
+      expect(find.text('Colmi ring'), findsOneWidget);
+      expect(find.textContaining('Staged by'), findsNothing,
+          reason: 'ours is the default view');
+
+      await t.tap(find.text('Mi Band'));
+      await t.pumpAndSettle();
+      expect(find.text('Staged by Mi Band'), findsOneWidget);
+      expect(find.textContaining('Deep 1h'), findsOneWidget);
+      expect(find.textContaining('does not report REM'), findsOneWidget);
+
+      // The pill row scrolls sideways; bring the last pill into view first.
+      await t.ensureVisible(find.text('Colmi ring'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Colmi ring'));
+      await t.pumpAndSettle();
+      expect(find.text('Staged by Colmi ring'), findsOneWidget);
+      expect(find.textContaining('does not report'), findsNothing);
+
+      await t.ensureVisible(find.text('OpenStrap'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('OpenStrap'));
+      await t.pumpAndSettle();
+      expect(find.textContaining('Staged by'), findsNothing);
+    });
+
+    testWidgets('no device night means no switcher', (t) async {
+      await _pump(t, SleepData(day: '2026-05-20', night: _night()));
+      expect(find.text('OpenStrap'), findsNothing);
+    });
+  });
+
+  testWidgets("a band that folds REM into light: its light and deep show, "
+      "and no REM row of 0", (t) async {
+    final n = _night()..['rem_min'] = null;
+    n['hypnogram'] = [
+      for (final p in n['hypnogram'] as List)
+        if ((p as Map)['stage'] != 'rem') p,
+    ];
+    await _pump(t, SleepData(day: '2026-05-20', night: _night()));
+    final light = find.text('Light').evaluate().length;
+    final deep = find.text('Deep').evaluate().length;
+    await t.pumpWidget(const SizedBox());
+    await _pump(t, SleepData(day: '2026-05-20', night: n));
+    expect(find.text('Light').evaluate().length, light);
+    expect(find.text('Deep').evaluate().length, deep);
+    expect(find.text('REM'), findsNothing);
   });
 }

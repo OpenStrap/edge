@@ -15,7 +15,11 @@ void main() {
   late Database db;
   late ActivityStore store;
   final now = DateTime.now();
-  final start = now.millisecondsSinceEpoch ~/ 1000 - 7200;
+  // Mid-morning two days back: the nap (and its +70 min edits) can never
+  // cross local midnight, whatever time the suite runs.
+  final start =
+      DateTime(now.year, now.month, now.day - 2, 10).millisecondsSinceEpoch ~/
+      1000;
   final day = dayLabelOf(DateTime.fromMillisecondsSinceEpoch(start * 1000));
   Map<String, dynamic> candidate() => {
     'start': start,

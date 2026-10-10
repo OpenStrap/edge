@@ -30,6 +30,8 @@ import 'package:openstrap_analytics/onehz.dart';
 // does not compromise this file's isolate safety. It is here so the sex
 // normalisation has ONE definition across the pipeline and the coordinator
 // instead of two that can drift.
+import 'inputs/garmin_inputs.dart'
+    show isWearableFamily, kHrCadenceSec, kOneHzRunGapSec;
 import 'hr_max.dart'
     show
         estimatedMaxHr,
@@ -97,6 +99,12 @@ const String kUnknownAbsenceNote = 'unknown_cause';
 /// scores. This is the belt-and-braces guard; removing the degenerate baselines at
 /// source is the sibling `fix/readiness-baseline-pollution` work.
 const double kReadinessZCap = 5.0;
+
+/// The weight floor of the PARTIAL readiness composite a wearable's day gets
+/// (no beats, so no HRV): resting HR's 0.30 plus skin temperature's 0.10,
+/// the two inputs it can measure. A 1 Hz band keeps
+/// [readinessCompositeMinWeight].
+const double kPartialReadinessMinWeight = 0.4;
 
 /// The headline readiness scalar for a computed [composite], or null when it must
 /// abstain: absent composite, or one whose |z| exceeds [kReadinessZCap] (a
@@ -474,9 +482,23 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // mostly during SLEEP, so an HR-valid count collapses "worn" to ~the sleep
   // duration (the 24 h-worn-shows-7 h bug). Bucketing by real epoch-second
   // timestamp (not array index) is also gap-safe.
+  //
+  // A wearable stores one record every few minutes, so each of its records
+  // stands for the span up to the next one, capped at its cadence (a band's
+  // day is untouched: a record is its own second).
+  final wornCap = isWearableFamily(d.deviceFamily)
+      ? calibrationFor(kHrCadenceSec, d.deviceFamily) ??
+            _medianGapSec(d.dayTsSec, minGapSec: 60)
+      : null;
   final wornMinuteBuckets = <int>{};
-  for (final ts in d.dayTsSec) {
+  for (var i = 0; i < d.dayTsSec.length; i++) {
+    final ts = d.dayTsSec[i];
     wornMinuteBuckets.add(ts ~/ 60);
+    if (wornCap == null || i + 1 >= d.dayTsSec.length) continue;
+    final end = math.min(d.dayTsSec[i + 1], ts + wornCap);
+    for (var m = ts ~/ 60 + 1; m * 60 < end; m++) {
+      wornMinuteBuckets.add(m);
+    }
   }
   final wornMin = wornMinuteBuckets.length;
 
@@ -523,7 +545,15 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final unobservedSec = (d.sleepJson['unobserved_sec'] as num?)?.toInt();
   final absenceReason = d.sleepJson['absence_reason'] as String?;
   final bandOffsetTrimSec = (d.sleepJson['band_offset_trim_sec'] as num?)?.toInt();
-  final runs = _sleepRuns(d);
+  // A night whose stages carry no wake (a device that never reports it, see
+  // vendor_sleep.dart) has no awakenings to count: a 0 there would be
+  // construction, not a measurement. Such a night serialises wake_sec as
+  // null; every staged night of ours carries a number there.
+  final runs = {
+    ..._sleepRuns(d),
+    if (hasSleep && d.sleepJson.containsKey('wake_sec') && wakeSec == null)
+      'awakenings': null,
+  };
 
   // ── CLINICAL (sleep-windowed) ──────────────────────────────────────────────
   // Whole-window time-domain HRV is kept for SDNN / detail rows only. The
@@ -666,15 +696,36 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       .where((v) => v > 0)
       .map((v) => v.toDouble())
       .toList();
-  final double? skinTempAdc = tempValid.length >= 60 ? _mean(tempValid) : null;
+  // Sixty samples: a minute of a 1 Hz band. A wearable that stores one value
+  // every few minutes ([kHrCadenceSec]) needs an hour of its readings, not
+  // sixty of them (five hours of a ring's night).
+  final hrCadence = calibrationFor(kHrCadenceSec, d.deviceFamily);
+  // A wearable with no HR cadence (a ring that stores temperature events
+  // only) is spaced by its own readings: the median gap between them.
+  final tempCadence =
+      hrCadence ??
+      (isWearableFamily(d.deviceFamily)
+          ? _medianGapSec([
+              for (var i = 0;
+                  i < d.sleepSkinTemp.length && i < d.sleepTsSec.length;
+                  i++)
+                if (d.sleepSkinTemp[i] > 0) d.sleepTsSec[i],
+            ])
+          : null);
+  final minTempSamples =
+      tempCadence == null ? 60 : math.max(1, 3600 ~/ tempCadence);
+  final double? skinTempAdc =
+      tempValid.length >= minTempSamples ? _mean(tempValid) : null;
   // WH-11a — how much of the night that mean is actually made of. The gate above
   // is sixty 1 Hz samples, i.e. one minute; on real hardware the temp channel
   // runs 35-90 samples/hour, so a "last night" skin temperature can be ~1.5% of
   // the window and nothing said so. NO THRESHOLD IS APPLIED and none should be
   // guessed here — emit the number, look at what it reads on real nights first.
-  final double? skinTempCoverage = (inBedSec == null || inBedSec <= 0)
+  // A wearable whose spacing is unknown has no coverage to report.
+  final double? skinTempCoverage = (inBedSec == null || inBedSec <= 0) ||
+          (tempCadence == null && isWearableFamily(d.deviceFamily))
       ? null
-      : (tempValid.length / inBedSec).clamp(0.0, 1.0);
+      : (tempValid.length * (tempCadence ?? 1) / inBedSec).clamp(0.0, 1.0);
   // HOW MUCH OF THE NIGHT THE STRAP SPENT AT SKIN TEMPERATURE (#250).
   //
   // `tempInput` refuses readiness's temp driver outright when this is null, and
@@ -700,8 +751,13 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     [for (final v in tempValid) AdcSample(0, v)],
     deviceFamily: d.deviceFamily,
     minSettledFraction: 0.0,
+    minSamples: minTempSamples,
   );
   final double? skinTempSettledFrac = settledTemp.value?.settledFraction;
+  // A ring's settle band was set on synthetic nights (analytics `_tempCal`):
+  // every number that leans on it below is served at half confidence and
+  // marked provisional. Always false on a band, so its payload is unchanged.
+  final tempProvisional = settledTemp.value?.provisional ?? false;
   // STEP 2 — z-score today's RAW mean against the RAW-ADC baseline history (NOT
   // the previously-computed z-scores; that unit mismatch was the bug). Gated on
   // ≥3 prior raw means.
@@ -746,7 +802,14 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       d.skinTempAdcHistory,
       settledFraction: skinTempSettledFrac,
     ),
-  ]);
+  ],
+      // A wearable gives no beats, so HRV (and resp) never enter: the
+      // composite is PARTIAL, resting HR and skin temperature, which weigh
+      // 0.30 + 0.10. Still two measured inputs, never one; the band's own
+      // floor is untouched.
+      minWeightSum: hrCadence == null
+          ? readinessCompositeMinWeight
+          : kPartialReadinessMinWeight);
   // Populated when readiness comes back absent, so the main isolate can log WHY
   // instead of a bare null (this runs inside Isolate.run, so it can't call
   // Firebase directly; it just returns data). TWO consumers now, and the second
@@ -1113,7 +1176,13 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'prsa_dc': dc.toJson((v) => v.toJson()),
     'prsa_ac': ac.toJson((v) => v.toJson()),
     'readiness_lnrmssd': lnReadiness.toJson((v) => v.toJson()),
-    'readiness_composite': composite.toJson((v) => v.toJson()),
+    'readiness_composite': {
+      ...composite.toJson((v) => v.toJson()),
+      if (tempProvisional && composite.inputs_used.contains('temp')) ...{
+        'confidence': _round(composite.confidence * 0.5, 6),
+        'provisional': true,
+      },
+    },
     // Headline 0–21 strain envelope; raw Banister TRIMP kept as `trimp`.
     // The ROOT cause replaces the shared scorer's "strain needs a TRIMP and the
     // wake window it was measured over" — true, and useless to a reader, since
@@ -1134,7 +1203,13 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       hasSleep ? sleepWinJson : null,
       confidence: sleepConf,
       tier: Tier.high,
-      inputs: const ['accel_1hz', 'hr_1hz'],
+      // What the window was actually read off: the device's own staged night,
+      // a wearable's sparse HR (no accelerometer), or our 1 Hz streams.
+      inputs: d.sleepSource == 'vendor_staged'
+          ? const ['vendor_sleep_epoch']
+          : isWearableFamily(d.deviceFamily)
+              ? const ['hr_sparse']
+              : const ['accel_1hz', 'hr_1hz'],
     ),
     'accounting': _envelope(
       hasSleep
@@ -1175,15 +1250,19 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'stager': _envelope(
       hasSleep
           ? {
-              'wake_pct': tstSec == null || inBedSec == null || inBedSec == 0
+              // Null, not 0, for a stage the night's source does not report.
+              'wake_pct': wakeSec == null ||
+                      tstSec == null ||
+                      inBedSec == null ||
+                      inBedSec == 0
                   ? null
-                  : 100.0 * (wakeSec ?? 0) / inBedSec,
+                  : 100.0 * wakeSec / inBedSec,
               'nrem_pct': tstSec == null || tstSec == 0
                   ? null
                   : 100.0 * (nremSec ?? 0) / tstSec,
-              'rem_pct': tstSec == null || tstSec == 0
+              'rem_pct': remSec == null || tstSec == null || tstSec == 0
                   ? null
-                  : 100.0 * (remSec ?? 0) / tstSec,
+                  : 100.0 * remSec / tstSec,
               'epoch_sec': 1,
               'epochs': d.hypnoStages.length,
             }
@@ -1208,7 +1287,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final wellness = <String, dynamic>{
     'skin_temp': {
       'value': skinTempZ == null ? '—' : _round(skinTempZ, 4),
-      'confidence': skinTempZ == null ? 0 : 0.5,
+      'confidence': skinTempZ == null ? 0 : (tempProvisional ? 0.25 : 0.5),
+      if (skinTempZ != null && tempProvisional) 'provisional': true,
       'tier': Tier.relative,
       // Both columns: gen4 stores a raw ADC count, gen5 centi-°C. Either way
       // this is only ever a deviation from the user's OWN baseline. The two
@@ -1814,12 +1894,30 @@ class _WakeMinuteHr {
 }
 
 List<_WakeMinuteHr> _perMinuteWakeSeries(DayBundleInput d) {
+  // A wearable that stores one HR every few minutes (inputs/garmin_inputs.dart)
+  // has each reading stand for the minutes up to the next; every other
+  // family, the bands included, is one minute per bucket as before. A strap's
+  // 1 Hz seconds laid over such a day ([withStrapSessions]) stand for their
+  // own minute only, and no reading spreads past the next one.
+  final span = (calibrationFor(kHrCadenceSec, d.deviceFamily) ?? 60) ~/ 60;
+  final n = d.dayHr.length;
   final buckets = <int, List<double>>{};
-  for (var i = 0; i < d.dayHr.length; i++) {
+  for (var i = 0; i < n; i++) {
     if (d.dayHr[i] <= 0) continue;
     final t = d.dayTsSec[i];
     if (_asleepAt(d, t)) continue; // skip sleep
     (buckets[t ~/ 60] ??= []).add(d.dayHr[i].toDouble());
+    // Inside a 1 Hz run (a second or two after the one before); a
+    // reading further off is the wearable's own, the first after a strap
+    // run included, and stands for its minutes.
+    if (i > 0 && t - d.dayTsSec[i - 1] <= kOneHzRunGapSec) continue;
+    final next = i + 1 < n ? d.dayTsSec[i + 1] : t + 60 * span;
+    if (next - t < 60) continue;
+    for (var k = 1;
+        k < span && t + 60 * k < next && !_asleepAt(d, t + 60 * k);
+        k++) {
+      (buckets[t ~/ 60 + k] ??= []).add(d.dayHr[i].toDouble());
+    }
   }
   final keys = buckets.keys.toList()..sort();
   return [for (final k in keys) _WakeMinuteHr(k * 60, _mean(buckets[k]!)!)];
@@ -2067,4 +2165,15 @@ Map<String, dynamic> _sleepRuns(DayBundleInput d) {
     'longest_sleep_sec': longest,
     'sol_sec': (forced && leadingObserved) ? firstSleep : null,
   };
+}
+
+/// The median gap (seconds) between consecutive [tsSec] at or over
+/// [minGapSec] (so a strap's 1 Hz seconds laid into a wearable's day do not
+/// set it), or null with no such gap.
+int? _medianGapSec(List<int> tsSec, {int minGapSec = 1}) {
+  final gaps = [
+    for (var i = 1; i < tsSec.length; i++)
+      if (tsSec[i] - tsSec[i - 1] >= minGapSec) tsSec[i] - tsSec[i - 1],
+  ]..sort();
+  return gaps.isEmpty ? null : gaps[gaps.length ~/ 2];
 }

@@ -51,6 +51,16 @@ import '../telemetry/firebase_bridge.dart';
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
+import 'inputs/canonical.dart';
+import 'inputs/garmin_inputs.dart'
+    show
+        isWearableFamily,
+        kHrCadenceSec,
+        kOneHzRunGapSec,
+        kWearableFamilies,
+        methodFamily;
+import 'inputs/oura_inputs.dart' show kOuraFamily, ouraStrapOwnsNight;
+import 'inputs/ultrahuman_inputs.dart' show ultrahumanDayBlock;
 import 'hr_max.dart'
     show estimatedMaxHr, kHrFloorBpm, smoothedMaxHr, smoothedMinHr;
 import 'movement_floor_policy.dart' as mfp;
@@ -1784,6 +1794,7 @@ import 'vendor_sleep.dart';
 // 108 → 109: analytics main @ 27b0ba4, #87: at low resting hr a breathing line that stays steady in Hz across the night lets rmssd publish (floor confidence) where the jitter gate refused it.
 // 109 → 110: analytics main @ b7d5819, #78 #88-#91. Sleep detection no longer bridges unobserved recording gaps; bridges capped at 90 min. rmssd is one nightly estimator, the mean of the sleep session's 5-min windows, absent when the RR stream banks more beat-time than elapsed or no window has 20 clean differences; the RSA respiratory rate survives sensor gaps; strain (and the new trimp_net) is priced against the user's own quiet-waking level (quiet_hrr, median of 28 prior days, abstains under 3). Days derived before 110 keep their stored values.
 // 110 → 111 (#315): new scalar `sdnn_window`, the mean of 5-min-window SDNNs over the sleep NN (windows under 21 beats left out); the Apple Health HRV SDNN sample now carries it instead of the drift-inflated whole-night `sdnn`, which is unchanged. Edge-only.
+// (no bump) The multi-device wearable paths (`compute/inputs/`, the partial readiness composite, wearable worn-minutes and skin-temp cadence, ring nights) only run for a wearable whose developer flag is on and which is the active wearable; flags default off and a flag-off device contributes nothing. WHOOP output is unchanged, pinned by test/whoop_freeze_golden_test.dart against goldens generated from main.
 const int kAlgoVersion = 111;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -1965,7 +1976,9 @@ const int kAlgoVersion = 111;
 // SleepSegmentation.bandOffsetTrimSec), on OpenStrap/analytics main, for v100
 // above.
 // REPIN @ c0effea: analytics main, #79 + #86 (rmssd gate), for v105.
-const String kAnalyticsPin = 'b7d5819a504cbf7842d0bdf09806d4189a8ac0e2';
+// REPIN: feat/multidevice-analytics head (ring settle band), WHOOP output
+// unchanged; re-point at the analytics main merge commit.
+const String kAnalyticsPin = 'ad6384746d36a2e6b7b964658d308e40de403c8a';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both
@@ -2003,7 +2016,11 @@ const String kAnalyticsPin = 'b7d5819a504cbf7842d0bdf09806d4189a8ac0e2';
 // NO kAlgoVersion bump: the stage minutes land in `observation`, which no
 // derivation reads.
 // REPIN: protocol main @ ecb512b (#72-#77).
-const String kProtocolPin = 'ecb512b710fbfa5fffce999f939a64aa7c486ee0';
+// REPIN: feat/multidevice-verified-decoders head; re-point at the protocol
+// main merge commit. Re-pointed at that branch's Huami gap fix (minutes()
+// empty after a counter gap); NO kAlgoVersion bump: the adapter already
+// decoded only gap-free transfers, so no output changes.
+const String kProtocolPin = '89080bcfac7767b3a871fd3a7d9307f5f30dad26';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -2276,10 +2293,15 @@ Future<List<double>> debugBaselineWindow(String key) async =>
 @visibleForTesting
 Future<List<List<double>>> debugSweepBaselineWindows(
   String key,
-  List<String> orderedDays,
-) async {
+  List<String> orderedDays, {
+  String? deviceFamily,
+}) async {
   final history = await _BaselineHistoryCache.load();
-  return [for (final day in orderedDays) history.valuesBefore(key, day)];
+  return [
+    for (final day in orderedDays)
+      history.valuesBefore(key, day,
+          family: DerivationEngine._baselineFamily(key, deviceFamily)),
+  ];
 }
 
 /// Test seam: the baseline signature [DerivationEngine.rescanRecent] gates on,
@@ -2326,7 +2348,7 @@ class _DeriveScope {
 typedef _DatedValue = ({String date, double value});
 
 class _BaselineHistoryCache {
-  _BaselineHistoryCache(this._series)
+  _BaselineHistoryCache(this._series, [this._families = const {}])
       : _prefixMax = {
           for (final entry in _series.entries)
             entry.key: _buildPrefixMax(entry.value),
@@ -2365,6 +2387,60 @@ class _BaselineHistoryCache {
   }
 
   final Map<String, List<double>> _prefixMax;
+
+  /// `key -> date -> method family` of each stored value (`metric_method`,
+  /// else the day's stamped device family). BASELINES ARE PER METHOD FAMILY:
+  /// a day derived from a 1-min wearable is scored only against 1-min days,
+  /// a band day only against band days. A date with no family is never
+  /// foreign (unknown is not a seam), and a band-only history has nothing to
+  /// exclude, so it reads exactly as before.
+  final Map<String, Map<String, String>> _families;
+  final Map<String, List<_DatedValue>> _byFamily = {};
+
+  /// The wearable's and the band's newest rows, read once per pass (this
+  /// cache lives exactly one pass) for [_agingEdgeFor]: the wearable read
+  /// scans its whole HR history, too much to repeat for every day.
+  Future<int?>? _wearableEdge, _bandEdge;
+
+  /// [key]'s series restricted to [family] (see [_families]); the whole
+  /// series when nothing in it is of another family.
+  List<_DatedValue> _seriesFor(String key, String? family) {
+    final all = _series[key] ?? const <_DatedValue>[];
+    final fams = _families[key];
+    // A day of no single family (a strap swap, legacy rows) is a band's, so
+    // its baselines are the band's method family: a wearable's days never
+    // reach them. A band-only history is all that family (or unstamped), so
+    // it still reads whole.
+    if (family == null && key != 'skin_temp_adc') {
+      family = methodFamily('gen4');
+    }
+    // A wearable's skin temperature takes only the nights stamped as that
+    // device's: an unstamped day (written before the stamp existed) is most
+    // likely a band's, in another sensor's unit.
+    bool wearable(String? f) => isWearableFamily(f);
+    final strict = key == 'skin_temp_adc' && wearable(family);
+    // A day of no single family (a strap swap, legacy rows) is a band's, and
+    // a band's skin temperature never takes a wearable's nights either.
+    if (key == 'skin_temp_adc' &&
+        family == null &&
+        fams != null &&
+        fams.values.any(wearable)) {
+      return _byFamily.putIfAbsent('$key|', () => [
+            for (final v in all)
+              if (!wearable(fams[v.date])) v,
+          ]);
+    }
+    if (!strict &&
+        (family == null ||
+            fams == null ||
+            fams.values.every((f) => f == family))) {
+      return all;
+    }
+    return _byFamily.putIfAbsent('$key|$family', () => [
+          for (final v in all)
+            if ((fams?[v.date] ?? (strict ? null : family)) == family) v,
+        ]);
+  }
 
   /// The baseline series this cache carries, keyed by `metric_series.key`.
   static const List<String> keys = [
@@ -2453,7 +2529,8 @@ class _BaselineHistoryCache {
   /// which is why it moves no number today.
   static Future<_BaselineHistoryCache> load() async {
     final imported = await LocalDb.importedDates();
-    final foreignFamily = await LocalDb.foreignFamilyDates();
+    final foreignFamily =
+        await LocalDb.foreignFamilyDates(ignore: kWearableFamilies);
     Future<List<_DatedValue>> hist(String key) async {
       final rows = await LocalDb.metricSeries(key);
       final seam =
@@ -2470,9 +2547,30 @@ class _BaselineHistoryCache {
     }
 
     final loaded = await Future.wait([for (final k in keys) hist(k)]);
+    // Each value's method family (see [_families]).
+    final dayFamily = <String, String>{
+      for (final r in await LocalDb.metricSeriesVersions())
+        if (r['date'] case final String d)
+          if (methodFamily(r['device_family'] as String?) case final String f)
+            d: f,
+    };
+    final families = <String, Map<String, String>>{
+      for (final k in keys)
+        k: {...dayFamily, ...await LocalDb.metricFamilies(k)},
+    };
+    // A wearable's skin temperature is its own sensor's unit and site (a
+    // ring's finger in centi-°C is not another ring's, nor a band's wrist),
+    // so its baseline is that device family's nights, not the resolution's
+    // (see [_seriesFamily]). Band days keep their method family.
+    for (final r in await LocalDb.metricSeriesVersions()) {
+      final d = r['date'], f = r['device_family'] as String?;
+      if (d is String && isWearableFamily(f)) {
+        families['skin_temp_adc']![d] = f!;
+      }
+    }
     return _BaselineHistoryCache({
       for (var i = 0; i < keys.length; i++) keys[i]: loaded[i],
-    });
+    }, families);
   }
 
   /// The trailing [_baselineWindowDays] values for [key], oldest→newest.
@@ -2514,10 +2612,13 @@ class _BaselineHistoryCache {
   /// window would move every zone boundary in the app with nothing on screen
   /// saying why. The date it happened is shown next to it, so an old one is
   /// visible rather than anonymous.
-  double? maxBefore(String key, String beforeDate) {
-    final series = _series[key] ?? const <_DatedValue>[];
+  double? maxBefore(String key, String beforeDate, {String? family}) {
+    final series = _seriesFor(key, family);
     final end = _beforeIndex(series, beforeDate);
     if (end == 0) return null;
+    if (!identical(series, _series[key])) {
+      return series.take(end).map((v) => v.value).reduce(math.max);
+    }
     // Every key present in _series has a matching _prefixMax entry by
     // construction (built together in the constructor from the same
     // entries) — this is unreachable today, but `?[...]` costs nothing and
@@ -2525,8 +2626,8 @@ class _BaselineHistoryCache {
     return _prefixMax[key]?[end - 1];
   }
 
-  List<double> valuesBefore(String key, String beforeDate) {
-    final series = _series[key] ?? const <_DatedValue>[];
+  List<double> valuesBefore(String key, String beforeDate, {String? family}) {
+    final series = _seriesFor(key, family);
     final end = _beforeIndex(series, beforeDate);
     final from = end <= _baselineWindowDays ? 0 : end - _baselineWindowDays;
     return [for (var i = from; i < end; i++) series[i].value];
@@ -2686,6 +2787,45 @@ class _AsyncLock {
   }
 }
 
+/// "Now, in data time": [bandEdge] (the band's newest row, or null) or the
+/// active wearable's newest reading, whichever is later. A user who moved
+/// from the band to a wearable keeps the band's old rows, and their edge
+/// alone would hold every newer wearable day short of finalizing. With no
+/// active wearable this is [bandEdge] unchanged.
+Future<int?> _withWearableEdge(int? bandEdge) async {
+  final w = await wearableLastTs();
+  if (w == null || bandEdge == null) return bandEdge ?? w;
+  return math.max(bandEdge, w);
+}
+
+/// The edge a day of [family] ages against before it finalizes: the edge of
+/// the device that supplied it. [_withWearableEdge]'s max is right for "now"
+/// (scope, pruning), but a band day aged on the ring's edge would lock while
+/// the band still holds an undrained backlog for it. A wearable day ages on
+/// the wearable's edge, every other day (band, unstamped, mixed) on the
+/// band's. With no active wearable this is [dataNowSec] unchanged.
+///
+/// ponytail: a day that only had wearable rows when derived still ages on the
+/// wearable's edge even if a band backlog for it drains later; telling a
+/// stale band from a lagging one needs the band's last-sync time.
+Future<int> _agingEdgeFor(String? family, int dataNowSec,
+    [_BaselineHistoryCache? pass]) async {
+  final w = await (pass == null
+      ? wearableLastTs()
+      : pass._wearableEdge ??= wearableLastTs());
+  if (w == null) return dataNowSec;
+  if (isWearableFamily(family)) return w;
+  final band = await (pass == null
+      ? LocalDb.lastDecodedRecTs()
+      : pass._bandEdge ??= LocalDb.lastDecodedRecTs());
+  return band ?? dataNowSec;
+}
+
+/// Test seam for [_agingEdgeFor].
+@visibleForTesting
+Future<int> debugAgingEdge(String? family, int dataNowSec) =>
+    _agingEdgeFor(family, dataNowSec);
+
 class DerivationEngine {
   DerivationEngine({this.log, this.background = false, this.offloadActive});
   final void Function(String)? log;
@@ -2810,6 +2950,9 @@ class DerivationEngine {
     } catch (_) {}
 
     try {
+      // From the flags, every pass: a headless wake derives before (or
+      // without) the app's own start-up load.
+      await refreshSessionSensorSources();
       // FIRST, ahead of every early return below: it reads only stored bundles,
       // so an install with bundles but no decoded rows (a restore) or with
       // every day finalized still gets its quiet levels — the live gauge and
@@ -2845,7 +2988,8 @@ class DerivationEngine {
       _diag
         ..['scope_days'] = scope.targetDays.length
         ..['scope_reason'] = scope.reason;
-      final dataNowSec = await LocalDb.lastDecodedRecTs() ?? 0;
+      final dataNowSec =
+          await _withWearableEdge(await LocalDb.lastDecodedRecTs()) ?? 0;
       if (dataNowSec <= 0) {
         _log('derive: no decoded data');
         return 0;
@@ -3102,8 +3246,15 @@ class DerivationEngine {
       ..['concurrency'] = _deriveConcurrency
       ..['last_error'] = null;
     try {
+      await refreshSessionSensorSources(); // as [run] does
       final scope = _scopeForDays(days.toList(), reason: 'selected-days');
-      final dataNowSec = await LocalDb.lastDecodedRecTs() ?? 0;
+      // No band data at all: a device's banked nights are still days to
+      // derive (the active wearable's), so their edge stands in as "now, in
+      // data time".
+      final dataNowSec = await _withWearableEdge(
+              await LocalDb.lastDecodedRecTs() ??
+                  await enabledVendorSleepEndTs()) ??
+          0;
       if (dataNowSec <= 0) {
         _log('derive selected: no decoded data');
         return 0;
@@ -3240,24 +3391,41 @@ class DerivationEngine {
     // this, the live decoded path — run()/runDays()/rescanRecent(), i.e. every
     // non-import day — fell back to napSub == daySub and went on bisecting
     // naps at midnight.
-    final napSub = await _loadSubstrateRange(
+    var napSub = await _loadSubstrateRange(
       dayStart,
       dayEnd - 1 + napBoundaryBufferSec,
       dayId: dayId,
       stats: stats,
       ownership: ownership,
     );
+    // A day the primary band never saw is the ACTIVE WEARABLE's, when one is
+    // chosen and flagged on (inputs/canonical.dart). Never mixed: a day with
+    // a single primary row stays the primary's, so WHOOP days cannot move.
+    // "Saw" is the calendar day, the same test the scope and the re-derive
+    // use (`decodedRecTsMaxByDay`): band rows only in the next morning's nap
+    // buffer do not keep the wearable off a day it alone covers.
+    final wearable =
+        napSub.slice(dayStart, dayEnd).isEmpty ? await activeWearable() : null;
+    if (wearable != null) {
+      await _resolveSparseOwnership(
+          unionFrom, unionTo, wearable.$1, ownership, priority);
+      napSub = await wearableSubstrate(
+          wearable, dayStart, dayEnd - 1 + napBoundaryBufferSec);
+    }
     final daySub = napSub.slice(dayStart, dayEnd);
     Substrate sleepSub = Substrate.empty;
     if (candidate.present &&
         candidate.sleepOffsetSec > candidate.sleepOnsetSec) {
-      sleepSub = await _loadSubstrateRange(
-        candidate.sleepOnsetSec,
-        candidate.sleepOffsetSec - 1,
-        dayId: dayId,
-        stats: stats,
-        ownership: ownership,
-      );
+      sleepSub = wearable != null
+          ? await wearableSubstrate(wearable, candidate.sleepOnsetSec,
+              candidate.sleepOffsetSec - 1)
+          : await _loadSubstrateRange(
+              candidate.sleepOnsetSec,
+              candidate.sleepOffsetSec - 1,
+              dayId: dayId,
+              stats: stats,
+              ownership: ownership,
+            );
     }
     // Single safe merge into the shared max-tracking diagnostics — one
     // statement, no `await` in between, so it's atomic relative to any other
@@ -3342,8 +3510,8 @@ class DerivationEngine {
       // today's single-device installs byte-identical.
       final rawPriority = await LocalDb.signalPriority(sig);
       final coverage = await LocalDb.coverageIntervals(sig, from, to);
-      final resolved = rawPriority.isEmpty
-          ? const [LocalDb.kPrimaryDeviceId]
+      var resolved = rawPriority.isEmpty
+          ? const <String>[LocalDb.kPrimaryDeviceId]
           // A device with a coverage row here is definitionally declaring
           // this signal (db.dart's own contract for `device_coverage`).
           // Union it in below the stored ranking rather than dropping it —
@@ -3359,6 +3527,14 @@ class DerivationEngine {
                   .toList()
                 ..sort(),
             ];
+      // Rule R6: a flag-off device ranked for (or covering) this signal owns
+      // nothing; its windows fall through to the next flag-on device. Nor
+      // does a flag-on one whose rows these loads never read (`bandDay`).
+      // Nothing left = the empty-priority default, never "abstain".
+      if (rawPriority.isNotEmpty) {
+        final kept = await flagOnOrPrimary(resolved, bandDay: true);
+        resolved = kept.isEmpty ? const [LocalDb.kPrimaryDeviceId] : kept;
+      }
       priority[sig] = resolved;
       ownership[sig] = resolveOwnership(
         coverage: coverage,
@@ -3369,6 +3545,45 @@ class DerivationEngine {
       );
     }
     return (ownership, priority);
+  }
+
+  /// Sparse HR (a wearable storing HR a minute or more apart; coverage stamps
+  /// it `hrSparse`, never `hr1Hz`) over `[from, to]`, added to [ownership]
+  /// and [priority]. Only on a day the ACTIVE wearable decides: a band's day
+  /// never resolves it, so a watch worn beside the band cannot add an owner
+  /// (and a `coverage` key) to that day's payload. Unranked, the active
+  /// wearable owns it, so of two paired watches only the chosen one's
+  /// minutes count; in the priority (and so `priority_hash`) only once the
+  /// user ranks it.
+  Future<void> _resolveSparseOwnership(
+    int from,
+    int to,
+    String activeId,
+    Map<InputSignal, List<OwnedSpan>> ownership,
+    Map<InputSignal, List<String>> priority,
+  ) async {
+    final rawSparse = await LocalDb.signalPriority(InputSignal.hrSparse);
+    final sparseCoverage =
+        await LocalDb.coverageIntervals(InputSignal.hrSparse, from, to);
+    // Flag-off devices dropped (rule R6); [activeId]'s flag is on.
+    final ranked = rawSparse.isEmpty
+        ? const <String>[]
+        : await flagOnOrPrimary([
+            ...rawSparse,
+            ...{for (final iv in sparseCoverage) iv.deviceId}
+                .difference(rawSparse.toSet())
+                .toList()
+              ..sort(),
+          ]);
+    final sparsePriority = ranked.isNotEmpty ? ranked : [activeId];
+    if (ranked.isNotEmpty) priority[InputSignal.hrSparse] = sparsePriority;
+    ownership[InputSignal.hrSparse] = resolveOwnership(
+      coverage: sparseCoverage,
+      priority: sparsePriority,
+      from: from,
+      to: to,
+      signal: InputSignal.hrSparse,
+    );
   }
 
   Future<SleepSessionCandidate> _sleepCandidateForDay(
@@ -3396,10 +3611,16 @@ class DerivationEngine {
         if (raw is String && raw.isNotEmpty) {
           try {
             final decoded = jsonDecode(raw);
-            if (decoded is Map) {
-              return SleepSessionCandidate.fromJson(
-                decoded.cast<String, dynamic>(),
-              );
+            final cachedNight = decoded is Map
+                ? SleepSessionCandidate.fromJson(
+                    decoded.cast<String, dynamic>())
+                : null;
+            // A device's night is re-staged, not served from the cache: its
+            // device may have had its flag turned off or lost the active
+            // slot since (rule R6), and then nothing of it may remain.
+            if (cachedNight != null &&
+                !_deviceStaged(cachedNight)) {
+              return cachedNight;
             }
           } catch (_) {
             // Fall through to rebuild the artifact.
@@ -3462,14 +3683,29 @@ class DerivationEngine {
     final priorSleep = await _storedSleepHistory(excludeDay: dayId);
     // The band's own hypnogram, from its own table — never `observation`.
     // Gated inside calendarDays; an override outranks it, so skip the read.
-    // Only a device that owns hr1Hz over the night may stage it.
-    final vendorNights = override != null
+    // Only a device that owns hr1Hz over the night may stage it — or any
+    // device, when our own rows never saw that night (an unclaimed night).
+    // Never a device whose flag is off (rule R6), nor one that is not the
+    // active wearable.
+    var vendorNights = override != null
         ? const <VendorNight>[]
         : ownedVendorNights(
-            await LocalDb.vendorSleepNights(range.$1, range.$2),
+            await enabledVendorNights(
+                await LocalDb.vendorSleepNights(range.$1, range.$2)),
             searchOwnership[InputSignal.hr1Hz] ?? const [],
             primaryDeviceId: LocalDb.kPrimaryDeviceId,
+            ourTsSec: searchSub.tsSec,
           );
+    // A day the primary band never saw, staged by us off the active
+    // wearable's own records when it keeps no hypnogram (inputs/canonical.dart).
+    // "Saw" is the calendar day, the test that hands the day to the wearable
+    // ([_prepareTargetDay]): band rows from the previous afternoon, before
+    // the ring went on, must not leave the ring's night unstaged.
+    final ownNight = override == null &&
+            searchSub.slice(_localDayLabelToSec(dayId), range.$2 + 1).isEmpty
+        ? await wearableNight(range.$1, range.$2)
+        : null;
+    if (ownNight != null) vendorNights = [...vendorNights, ownNight];
     // Cancellable + TIMED OUT. This site previously used a bare `Isolate.run`
     // with no timeout at all, so a hung staging pass never completed its future
     // — `_running` stayed true and `DeriveScheduler._drain` never returned, i.e.
@@ -3576,7 +3812,14 @@ class DerivationEngine {
         try {
           final prev = SleepSessionCandidate.fromJson(
               (jsonDecode(storedJson) as Map).cast<String, dynamic>());
-          if (keepsBankedNight(prev, candidate)) {
+          // A banked device night is kept over a fresh pass only while the
+          // same device stages this one: otherwise its device may no longer
+          // stage here (flag off, or another wearable made active; rule R6).
+          // The same device's fresh night can be shorter only because its
+          // HR rows from the evening before were pruned.
+          final sourceGone = _deviceStaged(prev) &&
+              (prev.deviceId == null || prev.deviceId != candidate.deviceId);
+          if (!sourceGone && keepsBankedNight(prev, candidate)) {
             _log('derive $dayId: kept the banked night '
                 '(${_tstSec(prev)} s) over this pass\'s '
                 '${_tstSec(candidate)} s — less substrate, not a shorter night');
@@ -4026,6 +4269,15 @@ class DerivationEngine {
     required bool force,
   }) async {
     final rawByDay = await LocalDb.decodedRecTsMaxByDay();
+    // Days only the active wearable saw (inputs/canonical.dart) are up for
+    // derivation too. No wearable chosen and flagged on = unchanged.
+    final wearable = await activeWearable();
+    if (wearable != null) {
+      for (final MapEntry(:key, :value)
+          in (await wearableRecTsMaxByDay(wearable)).entries) {
+        rawByDay.putIfAbsent(key, () => value);
+      }
+    }
     if (rawByDay.isEmpty) {
       return const _DeriveScope(
         fullHistory: true,
@@ -4351,7 +4603,9 @@ class DerivationEngine {
       final after = await _BaselineHistoryCache.load();
       final days = quietLevelRepassDays(
         owed.intersection(withRaw),
-        after: (d) => after.valuesBefore('quiet_hrr', d),
+        // The day's own method family, as its derive reads it.
+        after: (d) => after.valuesBefore('quiet_hrr', d,
+            family: after._families['quiet_hrr']?[d]),
       )..sort((a, b) => b.compareTo(a)); // newest first, like the sweep
       if (days.isEmpty) return 0;
       _log('derive: re-scoring ${days.length} day(s) owed a quiet level');
@@ -4394,6 +4648,7 @@ class DerivationEngine {
     if (_running) return 0;
     _running = true;
     try {
+      await refreshSessionSensorSources(); // as [run] does
       // Baseline gate: compute the CURRENT signature and compare to the stored
       // one. Unchanged → nothing to refresh; bail cheaply (no redundant writes).
       final sig = await _baselineSignature();
@@ -4419,12 +4674,19 @@ class DerivationEngine {
         return 0;
       }
 
-      final rawByDay = await LocalDb.decodedRecTsMaxByDay();
+      // The active wearable's days are days with substrate too (none when no
+      // wearable is on, so a band-only install rescans as before).
+      final wearable = await activeWearable();
+      final rawByDay = {
+        if (wearable != null) ...await wearableRecTsMaxByDay(wearable),
+        ...await LocalDb.decodedRecTsMaxByDay(),
+      };
       if (rawByDay.isEmpty) {
         _log('rescan: no decoded data');
         return 0;
       }
-      final dataNowSec = await LocalDb.lastDecodedRecTs() ?? 0;
+      final dataNowSec =
+          await _withWearableEdge(await LocalDb.lastDecodedRecTs()) ?? 0;
       if (dataNowSec <= 0) {
         _log('rescan: no data edge');
         return 0;
@@ -4760,6 +5022,17 @@ class DerivationEngine {
   }) async {
     final daySub = day.daySub;
     final sleepSub = day.sleepSub;
+    // Every edge this day is judged by (the wear window, aging, the stored
+    // data_edge_sec, the overnight-settled freeze) is the edge of the device
+    // that supplied it. The run's max over band and wearable is for scope
+    // and pruning only: a band day judged on the ring's later edge counts
+    // the band's unsynced hours as off-wrist and settles a half-drained night.
+    // An import supplies its own substrate and edge (sub.lastTs): the live
+    // band's DB edge never holds the imported rows.
+    if (!suppliedSubstrate) {
+      dataNowSec =
+          await _agingEdgeFor(daySub.deviceFamily, dataNowSec, history);
+    }
     // Per-second 4-class stage labels (the single source): 'wake'|'light'|
     // 'deep'|'rem'. analytics' segmentSleep exposes the 4-class stream directly
     // (NREM split into Light/Deep via the LOW-CONFIDENCE HR-depth overlay); we
@@ -4902,6 +5175,15 @@ class DerivationEngine {
     // confirmed) — drives the Sleep screen's "is this right?" prompt + the
     // manual-edit affordance. Carried verbatim from the segmentation candidate.
     bundle['sleep_source'] = day.sleepSource;
+    // A sparse watch's day (inputs/canonical.dart): our own HR-led night,
+    // served beside the watch's. Never on a band's day.
+    final hrNight = await sparseHrNight(daySub,
+        _localDayLabelToSec(day.date), _localNextDayLabelToSec(day.date));
+    if (hrNight != null) bundle['hr_sleep_window'] = hrNight;
+    final ringDay = await ultrahumanDayBlock(daySub, day.sleepOnsetSec,
+        day.sleepOffsetSec, _localNextDayLabelToSec(day.date),
+        tonightOnsetSec: day.tonightSleepOnsetSec);
+    if (ringDay != null) bundle['ring_day'] = ringDay;
 
     final scMap = (bundle['scalars'] as Map?)?.cast<String, dynamic>();
 
@@ -5154,7 +5436,10 @@ class DerivationEngine {
         stepSpans: stepSpans,
         dynFloorG: dynFloorG,
         dynHistoryDays: dynHistory.length,
-        quietHrrHistory: history.valuesBefore('quiet_hrr', day.date),
+        // Per method family like every other baseline: a wearable's day is
+        // priced on its own resolution's levels (a band's: unchanged).
+        quietHrrHistory: history.valuesBefore('quiet_hrr', day.date,
+            family: _baselineFamily('quiet_hrr', daySub.deviceFamily)),
         savedSessions: savedSessions,
         wristOffSpans: wristOffSpans,
         chargingSpans: chargingSpans,
@@ -5251,6 +5536,9 @@ class DerivationEngine {
               blocks.wake['strain_absent'] ?? kUnknownAbsenceNote;
         }
       }
+      // Method, family and class on each envelope of a wearable's day
+      // (inputs/canonical.dart). A band's day is untouched.
+      tagEnvelopes(bundle['clinical'] as Map?, daySub.deviceFamily);
 
       // DB writes + notification the pure compute deferred to us (DB-owning isolate).
       for (final w in blocks.sessionHrrWrites) {
@@ -5366,6 +5654,11 @@ class DerivationEngine {
     final scalars =
         (bundle['scalars'] as Map?)?.cast<String, dynamic>() ?? const {};
     double? sc(String k) => (scalars[k] as num?)?.toDouble();
+    final ring = daySub.deviceFamily == kOuraFamily
+        ? (await activeWearable())?.$1
+        : null;
+    final strapNight = ring != null &&
+        await ouraStrapOwnsNight(ring, day.sleepJson['window']);
     await LocalDb.putDayResult(
       dayId: day.date,
       algoVersion: kAlgoVersion,
@@ -5406,6 +5699,14 @@ class DerivationEngine {
       // Null only when no resolve ran at all (the import path).
       priorityHash:
           day.priority.isEmpty ? null : priorityKey(day.priority),
+      // Per key: the method, method family and class (inputs/canonical.dart).
+      // Its own table, so no band row this already wrote moves.
+      seriesMethod: seriesMethodFor(daySub.deviceFamily,
+          vendorNight: day.sleepSource == 'vendor_staged',
+          strapNight: strapNight,
+          provisionalReadiness: ((bundle['clinical'] as Map?)?[
+                  'readiness_composite'] as Map?)?['provisional'] ==
+              true),
       series: {
         'rhr': sc('rhr'),
         'rmssd': sc('rmssd'),
@@ -5731,6 +6032,12 @@ class DerivationEngine {
     return carried;
   }
 
+  /// A night staged off a paired device's records (its hypnogram, or our
+  /// window over its HR), not off the primary band's own rows. Not
+  /// 'auto_fallback' by itself: the band's own HR-led night carries it too.
+  static bool _deviceStaged(SleepSessionCandidate c) =>
+      c.sleepSource == 'vendor_staged' || c.deviceNight;
+
   /// Whether the banked [prev] stays over the fresh [next]: [isRicherSleep],
   /// except that the ring's own night outranks ours even when ours ran longer
   /// — but only the SAME night. A ring night whose edges do not agree with the
@@ -5888,6 +6195,14 @@ class DerivationEngine {
     }
   }
 
+  /// The family [key]'s baseline is split by for a day of [deviceFamily]:
+  /// its method family, except a wearable's skin temperature, which is that
+  /// device family's own nights (see [_BaselineHistoryCache.load]).
+  static String? _baselineFamily(String key, String? deviceFamily) =>
+      key == 'skin_temp_adc' && isWearableFamily(deviceFamily)
+          ? deviceFamily
+          : methodFamily(deviceFamily);
+
   /// Attach trailing personal history (from metric_series) for the readiness
   /// pass — the trailing window of days STRICTLY BEFORE the day being derived.
   ///
@@ -5901,25 +6216,30 @@ class DerivationEngine {
   ) {
     final m = input.toJson();
     final date = input.date;
-    m['ln_rmssd_history'] = history.valuesBefore('ln_rmssd', date);
-    m['rhr_history'] = history.valuesBefore('rhr', date);
-    m['resp_history'] = history.valuesBefore('resp_rate', date);
+    // Per method family (see [_BaselineHistoryCache._families]).
+    final fam = methodFamily(input.deviceFamily);
+    List<double> before(String key) => history.valuesBefore(key, date,
+        family: _baselineFamily(key, input.deviceFamily));
+    m['ln_rmssd_history'] = before('ln_rmssd');
+    m['rhr_history'] = before('rhr');
+    m['resp_history'] = before('resp_rate');
     // Robust nocturnal RMSSD history (the `rmssd` series) — feeds the EWMA hrv
     // baseline so its center matches today's headline RMSSD (same metric).
-    m['rmssd_history'] = history.valuesBefore('rmssd', date);
+    m['rmssd_history'] = before('rmssd');
     // BASELINE for skin_temp_z is the RAW nightly ADC-mean series (`skin_temp_adc`),
     // NOT the z-score series. Feeding z-scores back as the baseline was a unit
     // mismatch that left z permanently null. The raw mean is stored every day so
     // this series fills and z starts computing once ≥3 days exist.
-    m['skin_temp_adc_history'] = history.valuesBefore('skin_temp_adc', date);
+    m['skin_temp_adc_history'] = before('skin_temp_adc');
     // TS-03/TS-04 — the observed ceiling this day's ZONES are banded on. A max,
     // not a window (see [maxBefore]), and strictly before today so a day is
     // never banded on a ceiling its own session set.
-    m['observed_hr_ceiling_bpm'] = history.maxBefore('hr_ceiling_bpm', date);
+    m['observed_hr_ceiling_bpm'] =
+        history.maxBefore('hr_ceiling_bpm', date, family: fam);
     // The quiet-waking levels strain is priced against — the SAME window the
     // second half's recompute gets (`_DayBlocksInput.quietHrrHistory`), so the
     // two cannot score the day on different levels.
-    m['quiet_hrr_history'] = history.valuesBefore('quiet_hrr', date);
+    m['quiet_hrr_history'] = before('quiet_hrr');
     return m;
   }
 
@@ -6589,22 +6909,45 @@ class DerivationEngine {
     int sleepOffsetSec, {
     int tonightSleepOnsetSec = 0,
   }) {
+    bool asleep(int t) =>
+        (sleepOffsetSec > sleepOnsetSec &&
+            t >= sleepOnsetSec &&
+            t < sleepOffsetSec) ||
+        // Tonight's sleep, begun before midnight: asleep, not waking.
+        (tonightSleepOnsetSec > 0 && t >= tonightSleepOnsetSec);
+    // A wearable storing one HR every few minutes has each reading stand for
+    // the minutes up to the next (same rule as onehz_pipeline's wake series):
+    // a strap's 1 Hz seconds laid over its day stand for their own minute
+    // only, and no reading spreads past the next one.
+    final span = (ana.calibrationFor(kHrCadenceSec, s.deviceFamily) ?? 60) ~/ 60;
+    final n = math.min(s.hr.length, s.tsSec.length);
     final buckets = <int, List<double>>{};
-    for (var i = 0; i < s.hr.length && i < s.tsSec.length; i++) {
+    for (var i = 0; i < n; i++) {
       if (s.hr[i] <= 0) continue;
       final t = s.tsSec[i];
-      if (sleepOffsetSec > sleepOnsetSec &&
-          t >= sleepOnsetSec &&
-          t < sleepOffsetSec) {
-        continue;
-      }
-      // Tonight's sleep, begun before midnight: asleep, not waking.
-      if (tonightSleepOnsetSec > 0 && t >= tonightSleepOnsetSec) continue;
+      if (asleep(t)) continue;
       (buckets[t ~/ 60] ??= []).add(s.hr[i].toDouble());
+      // Inside a 1 Hz run (a second or two after the one before); a
+      // reading further off is the wearable's own, the first after a strap
+      // run included, and stands for its minutes.
+      if (i > 0 && t - s.tsSec[i - 1] <= kOneHzRunGapSec) continue;
+      final next = i + 1 < n ? s.tsSec[i + 1] : t + 60 * span;
+      if (next - t < 60) continue;
+      for (var k = 1;
+          k < span && t + 60 * k < next && !asleep(t + 60 * k);
+          k++) {
+        (buckets[t ~/ 60 + k] ??= []).add(s.hr[i].toDouble());
+      }
     }
     final keys = buckets.keys.toList()..sort();
     return (keys: keys, hr: [for (final k in keys) _meanWake(buckets[k]!)!]);
   }
+
+  /// Test seam for [_perMinuteMeanWake] on a day with no sleep in it.
+  @visibleForTesting
+  static ({List<int> keys, List<double> hr}) debugPerMinuteMeanWake(
+          Substrate s) =>
+      _perMinuteMeanWake(s, 0, 0);
 
   /// Whether `daySub` has AT LEAST ONE real HR sample (`hr > 0`) inside
   /// `[fromSec, toSec)` — the gate for the workout-gap credit in
