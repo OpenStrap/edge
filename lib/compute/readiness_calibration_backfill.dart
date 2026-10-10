@@ -180,19 +180,23 @@ Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
       zHistoryLoader,
   bool force = false,
 }) async {
-  // Absent = first run. {done} = finished. {passes, pending} = an earlier
-  // pass left [pending] substrate days to their derive; only those are
-  // looked at again, never the whole history.
+  // Absent = first run. {done} = finished. {pending: {day: passes}} = an
+  // earlier pass left those substrate days to their derive, each with the
+  // number of passes it has waited; only those are looked at again, never
+  // the whole history. A day leaves the map once it reaches v112, so a count
+  // is always that day's own.
   final state = force
       ? null
       : _decode((await LocalDb.computeFreshness(
           kReadinessCalibrationKey))?['payload_json']);
   if (state?['done'] == true) return (seeded: 0, rescored: 0, forced: 0);
-  final waiting = (state?['pending'] as List?)?.whereType<String>().toList();
-  final passes = (state?['passes'] as num?)?.toInt() ?? 0;
-  // Last allowed pass: substrate days still below v112 are re-scored from
-  // their stored inputs like pruned ones (their derive has failed this long).
-  final last = passes + 1 >= kReadinessBackfillMaxPasses;
+  final waited = <String, int>{
+    if (state?['pending'] case final Map m)
+      for (final e in m.entries)
+        if (e.key is String && e.value is num)
+          e.key as String: (e.value as num).toInt(),
+  };
+  final waiting = state?['pending'] is Map ? waited.keys.toList() : null;
   final days = waiting ?? await _storedDays();
   final seeded = waiting == null ? await _seedZ(days) : 0;
   final lookup = await zHistoryLoader();
@@ -202,13 +206,16 @@ Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
   // light pass need not reach them all, and their raw can be pruned before it
   // does — so while any remain, the backfill is NOT marked done and the next
   // pass looks again (by then each is either re-derived or substrate-less).
-  final pending = <String>[];
+  final pending = <String, int>{};
   var forced = 0;
   for (final day in days) {
     if ((versions[day] ?? 0) >= kAlgoVersion) continue;
     final raw = rawDays.contains(day);
-    if (raw && !last) {
-      pending.add(day);
+    // This day's last allowed pass: its derive has failed this long, so it
+    // is re-scored from its stored inputs like a pruned day.
+    final passes = (waited[day] ?? 0) + 1;
+    if (raw && passes < kReadinessBackfillMaxPasses) {
+      pending[day] = passes;
       continue;
     }
     final row = await LocalDb.dayResult(day);
@@ -246,7 +253,7 @@ Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
     await _markDone();
   } else {
     await LocalDb.putComputeFreshness(kReadinessCalibrationKey,
-        jsonEncode({'passes': passes + 1, 'pending': pending}));
+        jsonEncode({'pending': pending}));
   }
   return (seeded: seeded, rescored: rescored, forced: forced);
 }

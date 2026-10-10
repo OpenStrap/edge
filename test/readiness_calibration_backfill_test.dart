@@ -196,4 +196,38 @@ void main() {
             'payload_json'],
         contains('done'));
   });
+
+  test('the pass count is per day: a newer pending day is not forced early',
+      () async {
+    for (final d in [day(60), day(61)]) {
+      await LocalDb.putDayResult(
+        dayId: d,
+        algoVersion: 111,
+        payloadJson: jsonEncode(bundle(0.5, 0.5, 0)),
+        windowJson: '{}',
+        finalized: true,
+        readiness: 60,
+      );
+    }
+    // day 60 has already waited two passes; day 61 just joined.
+    await LocalDb.putComputeFreshness(kReadinessCalibrationKey,
+        jsonEncode({'pending': {day(60): 2, day(61): 0}}));
+    Future<List<double> Function(String, String?)> none() async =>
+        (_, _) => const <double>[];
+    final r = await backfillReadinessCalibration(
+        rawDays: {day(60), day(61)}, zHistoryLoader: none);
+    expect(r.forced, 1);
+    expect((await LocalDb.dayResult(day(60)))!['algo_version'], kAlgoVersion);
+    expect((await LocalDb.dayResult(day(61)))!['algo_version'], 111);
+    final state = jsonDecode((await LocalDb.computeFreshness(
+        kReadinessCalibrationKey))!['payload_json'] as String) as Map;
+    expect(state['pending'], {day(61): 1});
+    // day 61 then gets its own full count before it is forced.
+    expect((await backfillReadinessCalibration(
+            rawDays: {day(61)}, zHistoryLoader: none))
+        .forced, 0);
+    expect((await backfillReadinessCalibration(
+            rawDays: {day(61)}, zHistoryLoader: none))
+        .forced, 1);
+  });
 }
