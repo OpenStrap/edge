@@ -1,0 +1,175 @@
+<title>Edge UX Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,650&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single reading column, wide tables scroll in place, severity encoded as a left-edge chip */
+:root{
+  --bg:#f6f7f6; --surface:#ffffff; --fg:#17201e; --muted:#5a6663; --line:#dfe4e2;
+  --accent:#1d6b6f; --accent-soft:#e2efee;
+  --high:#b3261e; --high-soft:#fbe9e7; --med:#8a5a00; --med-soft:#fbf1dc; --low:#3b5f8a; --low-soft:#e6eef8;
+  --display:"Source Serif 4", Georgia, "Times New Roman", serif;
+  --body:"Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111615; --surface:#171e1d; --fg:#e4ebe9; --muted:#9aa8a5; --line:#2a3432;
+  --accent:#6cc1c3; --accent-soft:#1c3233;
+  --high:#ff8a80; --high-soft:#3a1d1b; --med:#f0c36a; --med-soft:#33290f; --low:#9cc0ec; --low-soft:#1b2838; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111615; --surface:#171e1d; --fg:#e4ebe9; --muted:#9aa8a5; --line:#2a3432;
+  --accent:#6cc1c3; --accent-soft:#1c3233;
+  --high:#ff8a80; --high-soft:#3a1d1b; --med:#f0c36a; --med-soft:#33290f; --low:#9cc0ec; --low-soft:#1b2838; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 var(--body)}
+.wrap{max-width:46rem;margin:0 auto;padding-inline:20px;padding-block:40px 64px;display:flex;flex-direction:column;gap:2.4rem}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;line-height:1.2;margin:0}
+h1{font-size:2.3rem;font-weight:650}
+h2{font-size:1.5rem;font-weight:650;padding-top:.4rem;border-top:1px solid var(--line)}
+h3{font-size:1.1rem;font-weight:650}
+p{margin:0}
+section{display:flex;flex-direction:column;gap:1rem}
+.eyebrow{font:500 .75rem/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.lede{font-size:1.1rem;color:var(--muted);max-width:40rem}
+.meta{font:400 .8rem/1.5 var(--mono);color:var(--muted)}
+.callout{background:var(--accent-soft);border-radius:10px;padding:1rem 1.2rem;display:flex;flex-direction:column;gap:.5rem}
+.callout.warn{background:var(--med-soft)}
+.callout strong{font-weight:600}
+ul,ol{margin:0;padding-left:1.25rem;display:flex;flex-direction:column;gap:.4rem}
+.list{list-style:none;padding:0;display:flex;flex-direction:column;gap:.75rem}
+.item{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:.9rem 1rem;display:grid;grid-template-columns:auto 1fr;gap:.25rem .9rem;align-items:start}
+.item>div{min-width:0}
+.sev{font:500 .7rem/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:.35rem .5rem;border-radius:6px;white-space:nowrap}
+.sev.h{color:var(--high);background:var(--high-soft)}
+.sev.m{color:var(--med);background:var(--med-soft)}
+.sev.l{color:var(--low);background:var(--low-soft)}
+.item h3{margin-bottom:.2rem}
+.item p{color:var(--muted);font-size:.95rem}
+.ev{font:400 .8rem/1.5 var(--mono);color:var(--muted);margin-top:.35rem}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:34rem;font-size:.92rem}
+th,td{text-align:left;padding:.6rem .8rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 .72rem/1.2 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:.6rem}
+.tab{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:.8rem;display:flex;flex-direction:column;gap:.3rem;min-width:0}
+.tab b{font-family:var(--display);font-size:1.05rem}
+.tab span{font-size:.85rem;color:var(--muted)}
+code{font-family:var(--mono);font-size:.85em;background:var(--accent-soft);padding:.05rem .3rem;border-radius:4px}
+a{color:var(--accent)}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<div class="wrap">
+
+<header style="display:flex;flex-direction:column;gap:.8rem">
+  <div class="eyebrow">OpenStrap Edge · UX research</div>
+  <h1>Edge UX Plan</h1>
+  <p class="lede">What users struggle with in Edge today, the evidence for it, and a ranked plan to fix it. Compiled from four research passes over the app code, every GitHub issue and discussion, and the leading wearable apps.</p>
+  <p class="meta">Code reviewed: edge main 2b1c8510 (TestFlight 0.10.2, build 70) · 10 Oct 2026</p>
+</header>
+
+<section>
+  <h2>Summary</h2>
+  <p>The app looks good and its numbers are carefully computed. People struggle because the numbers are hard to interpret, hard to trust, and hard to find. Charts show what was measured but rarely say whether it is good or what changed. Scores appear before there is enough data, change without explanation, and go by several names. Features people ask for already exist but sit behind the Home gear or switched off in Settings.</p>
+  <div class="callout">
+    <strong>Where the "I hate the graphs" feedback lives</strong>
+    <p>None of the 124 GitHub issues or 33 discussions contains that complaint in those words. The graph complaints on GitHub are about charts that disagree with each other, missing axes, and touch bugs. The blunter feedback is most likely on Discord and Reddit, which the research could not reach. Export those channels before the redesign is finalised.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Sources</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Pass</th><th>What it covered</th><th>Method</th></tr></thead>
+    <tbody>
+      <tr><td>User feedback</td><td>124 issues with comments, 33 discussions, 414 PR titles</td><td>Verbatim quotes, counted by user and severity</td></tr>
+      <tr><td>Chart audit</td><td>About 45 chart call sites in 30+ files</td><td>33 charts rendered light and dark at phone width; the rest read from code</td></tr>
+      <tr><td>Usability review</td><td>Nine journeys from first launch to coach</td><td>Taps worked out from navigation code; jargon counted in the English strings</td></tr>
+      <tr><td>Competitor benchmark</td><td>WHOOP, Oura, Bevel, Apple Health, Garmin, Ultrahuman, Athlytic, Gentler Streak, Rise</td><td>Public redesign notes and reviews; claims tagged observed or inferred</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Top problems</h2>
+  <ul class="list">
+    <li class="item"><span class="sev h">High</span><div><h3>No way to correct a wrong detection</h3><p>Desk work is logged as a nap, night-shift sleep as naps, and "Not sleep" did not survive reanalysis until recently. The most-reported problem by number of users.</p><p class="ev">8 users · #248, D364, #566</p></div></li>
+    <li class="item"><span class="sev h">High</span><div><h3>Charts don't answer "is this good?"</h3><p>Only one chart draws the user's normal range. Axes stretch to fit, so a 3 bpm wobble looks like a 20 bpm swing. Readiness history is always green while the ring above turns red. Only 2 of about 45 charts respond to touch.</p><p class="ev">Chart audit · #102 "HR graph is different in 3 different places", "No scale on X nor on y"</p></div></li>
+    <li class="item"><span class="sev h">High</span><div><h3>Scores appear too early, flicker, or change without a word</h3><p>Readiness 100 after 10 minutes of data. Empty states switch between a dash, 0 and garbage. A morning score can be pinned from a half-finished night (the "2 vs 27.6" bug).</p><p class="ev">5 users · #106 "keeps going blank for no reason", #448, #226, recovery-states branch</p></div></li>
+    <li class="item"><span class="sev h">High</span><div><h3>Sync is invisible</h3><p>Pull-to-refresh on Home only re-reads the phone's database; it does not sync the band. On a normal morning yesterday's rings stay up with a small grey "Synced through" line.</p><p class="ev">Usability review · home_screen.dart:2003, :1617</p></div></li>
+    <li class="item"><span class="sev m">Medium</span><div><h3>Features exist but nobody finds them</h3><p>Cycle tracking is off by default and onboarding never offers it. Settings, devices and export are reachable only from the gear on Home (export takes 5 taps). The coach icon is hidden until a model is configured.</p><p class="ev">6 users · #449, #273, #226, #376, D203</p></div></li>
+    <li class="item"><span class="sev m">Medium</span><div><h3>One score, four names; strain called three things</h3><p>Recovery on the ring, Readiness on the screen, "Good to go / Rest today" as tiers, and a Wellness sub-tab called Recovery that holds sleep planning. Strain on Home is Training load, TRIMP and Form on the Workout tab.</p><p class="ev">Usability review</p></div></li>
+    <li class="item"><span class="sev m">Medium</span><div><h3>Sleep has no home</h3><p>Sleep is spread over the Home ring, the Health row (which opens a generic chart, not the Sleep screen), Wellness, Body clock and the alarm in Settings.</p><p class="ev">Usability review</p></div></li>
+    <li class="item"><span class="sev m">Medium</span><div><h3>Jargon in everyday text</h3><p>RMSSD appears 15 times in the English strings, "derived" 23 times. TRIMP is shown as a unit, a coach error shows SQL hints, and 124 strings run past 150 characters.</p><p class="ev">4 users · #315, #102 "I have no idea what it means"</p></div></li>
+    <li class="item"><span class="sev m">Medium</span><div><h3>No history at a glance</h3><p>"What was my score yesterday, on Friday, or last week?" There is no simple way to step back through days and compare.</p><p class="ev">5 users · D229, #21, #112, #161, #546</p></div></li>
+    <li class="item"><span class="sev l">Low</span><div><h3>Errors without a next step</h3><p>Rhythm and wear-time warnings, and an AI model error that left no way to change the model.</p><p class="ev">4 users · #161 "I have no directions as to what to do about it", #94</p></div></li>
+  </ul>
+</section>
+
+<section>
+  <h2>Proposed structure</h2>
+  <p>Four tabs, with the profile reachable from every tab. This matches where Oura and WHOOP moved in their 2025 redesigns. Most of the change is routing: screens move rather than get rebuilt.</p>
+  <div class="tabs">
+    <div class="tab"><b>Today</b><span>Three headline scores, each with one name; one plan for the day; a real sync indicator; one combined "missing data" card; coach entry.</span></div>
+    <div class="tab"><b>Sleep</b><span>The Sleep screen itself, plus sleep need and debt, bedtime, naps, alarm and body clock.</span></div>
+    <div class="tab"><b>Activity</b><span>Workouts and history, steps, nutrition. Strain daily; training load only as the multi-week trend.</span></div>
+    <div class="tab"><b>Health</b><span>One metric catalogue, illness watch, labs, cycle, medication, habits, breathing. Cycle on by default for female profiles.</span></div>
+    <div class="tab"><b>Profile</b><span>From every tab: devices and battery, Settings (Band, App, Data, Privacy, Advanced), export, coach setup.</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>Chart system</h2>
+  <p>One shared treatment for every trend chart, instead of each screen inventing its own:</p>
+  <ol>
+    <li><strong>Normal-range band and value header</strong> on every trend: the value, a word like "Normal for you", an arrow, and the difference from your usual. Scale the axis to the band so a calm week looks calm. The band already exists in the driver breakdown and can be reused.</li>
+    <li><strong>Colour by good or bad, not by metric.</strong> Readiness history becomes daily bars coloured like the ring; month-grid cells show in range, below or above, with a legend.</li>
+    <li><strong>Press and hold to read a value</strong> on every time chart, using the touch handling the metric detail screen already has. Link the overnight chart's cursor to the sleep-stage chart.</li>
+    <li><strong>Labelled rows</strong> for sleep stages (name and total beside each row) and heart-rate zones (five rows, each with its bpm range and minutes). Drop the 8 to 10 pt colour strip, which fails red/green colour-blind users.</li>
+    <li><strong>An Advanced screen</strong> for research charts: the beat-to-beat scatter, deceleration capacity, HRV shape of the night, the sleep-timing heatmap. Rename the rest in plain words; one-sentence footnotes.</li>
+  </ol>
+</section>
+
+<section>
+  <h2>Plan</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Phase</th><th>Work</th><th>Effort</th><th>Fixes</th></tr></thead>
+    <tbody>
+      <tr><td>1 · Trust</td><td>Ship the recovery-states branch (provisional and final scores, no early pins, "Updated 2 → 28" note); a real sync spinner on pull-to-refresh; one consistent empty state; a "Your first week" card saying when each score appears</td><td class="num">S–M</td><td>Scores too early, invisible sync</td></tr>
+      <tr><td>2 · Corrections</td><td>"Not a nap", "Not sleep", "This was a workout" on every detected item, kept across reanalysis</td><td class="num">M</td><td>Can't correct detections</td></tr>
+      <tr><td>3 · Charts</td><td>The five chart-system changes above, starting with Home trend cards, readiness history and the overnight chart</td><td class="num">M</td><td>Charts don't answer "is this good?"</td></tr>
+      <tr><td>4 · Words</td><td>One name per score; plain-language replacements for RMSSD, TRIMP, SDNN, "derived"; contributors phrased as questions; errors that say what to do</td><td class="num">S–M</td><td>Jargon, four names</td></tr>
+      <tr><td>5 · Structure</td><td>The four-tab layout, profile on every tab, Sleep as its own tab, cycle offered in onboarding, a day stepper on Today for history</td><td class="num">M–L</td><td>Hidden features, no history, Sleep scattered</td></tr>
+    </tbody>
+  </table></div>
+  <p class="meta">Phases 1 and 4 can ship in the next build. Accessibility is already strong (44 pt tap targets, 4.5:1 contrast tested, text up to 3.1×) and every phase should keep it that way.</p>
+</section>
+
+<section>
+  <h2>Patterns worth borrowing</h2>
+  <ul>
+    <li><strong>Three scores up top, the rest one tap down.</strong> More hero numbers read as daunting to new users.</li>
+    <li><strong>Inside or outside your normal</strong> as the default reading of any trend, once about two weeks of data exist.</li>
+    <li><strong>Contributors as plain questions,</strong> top one or two shown, the rest behind a tap.</li>
+    <li><strong>A greyed provisional state with a countdown,</strong> never a blank or a zero. Unknown gets its own colour.</li>
+    <li><strong>One daily highlight and one concrete action</strong> that names type, duration and intensity.</li>
+    <li><strong>Separate places for today and the long view,</strong> with fewer tabs overall.</li>
+    <li><strong>Say "computed on your phone" openly.</strong> Edge already is; competitors now advertise it.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Risks and open questions</h2>
+  <div class="callout warn">
+    <strong>Trade dress</strong>
+    <p>WHOOP sued Bevel on 17 March 2026 (Delaware, 1:2026cv00289) over the overall look of "three circular dials… a coaching panel beneath". Edge's Home is three rings with a "Why?" panel. The redesign is a good moment to stop copying WHOOP's dial trio, colours and terms as a package. This is a design note, not legal advice; check it with a lawyer.</p>
+  </div>
+  <ul>
+    <li>Export the Discord and Reddit feedback the research could not reach, and check it against this ranking.</li>
+    <li>Chart findings came from gallery renders with made-up data and from code. Review Home, Sleep and Health on a real device before finalising.</li>
+    <li>The "first week" night counts need checking against the readiness gate before the copy ships.</li>
+    <li>Check whether any notifications still send the old tab numbers before the tab layout changes.</li>
+  </ul>
+</section>
+
+</div>
