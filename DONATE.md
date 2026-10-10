@@ -1,10 +1,10 @@
 # Support OpenStrap
 
 OpenStrap is free, AGPL-3.0 licensed, and has no company, no subscription, and no
-revenue behind it. It exists because a perfectly good sensor turned into a
-bracelet and that seemed like a stupid reason to throw hardware away.
+revenue behind it. It exists so the wearables people already own keep working without a
+subscription, with their data staying on their phone.
 
-If it gave your band a second life and you'd like to chip in, these are the only
+If it's useful to you and you'd like to chip in, these are the only
 addresses. There is no other donation channel, no token, and nothing for sale.
 
 ### Bitcoin
@@ -13,7 +13,7 @@ addresses. There is no other donation channel, no token, and nothing for sale.
 bc1qvtcch38dcwp967ar764uu6eetw7tf907844wfq
 ```
 
-### EVM — Ethereum, Base, Arbitrum, Optimism, Polygon
+### EVM (Ethereum, Base, Arbitrum, Optimism, Polygon)
 
 ```
 0x8310C89393366b7eBCD47ABa82e1dfB5ECeFFbD9
@@ -23,24 +23,23 @@ bc1qvtcch38dcwp967ar764uu6eetw7tf907844wfq
 
 **Please don't feel obliged.** The genuinely valuable contributions are free:
 
-- **Open an issue** when a number looks wrong. Bug reports from real bands on
-  real wrists are worth more than money — there's only one person's physiology
-  in the test data otherwise.
-- **Decode something.** A lot of the event table is empirical guesswork. If you
-  work out a field we don't understand, that helps everyone with one of these
-  bands. See [protocol](https://github.com/OpenStrap/protocol/issues).
-- **Tell someone** whose strap is in a drawer.
+- **Open an issue** when a number looks wrong. Reports from real devices on
+  real wrists are worth more than money: otherwise the test data is one
+  person's physiology.
+- **Test a device you own.** Oura, Garmin, Pebble, Colmi, Ultrahuman and Mi Band
+  support is being built and needs people with the hardware to check it.
+- **Tell someone** whose wearable is sitting in a drawer.
 
 ### What donations do and don't buy
 
 They don't buy priority, features, or support. This isn't a paid product and
 turning it into one would defeat the point. What they realistically cover is the
 Apple Developer Program membership that keeps the TestFlight build alive, test
-hardware (a second band is the main thing that would speed up WHOOP 5 support),
+devices (each new wearable needs real hardware before its numbers can be trusted),
 and coffee.
 
 Nothing is gated behind paying, and nothing ever will be.
 
 ---
 
-*Not affiliated with, endorsed by, or connected to WHOOP.*
+*OpenStrap is independent and not affiliated with or endorsed by WHOOP, Oura, Garmin or any device maker.*
