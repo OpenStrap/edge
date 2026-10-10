@@ -2668,5 +2668,31 @@
   "nutritionTargetReached": "Objetivo alcanzado",
   "pairSensorUnreachableIos": "Este iPhone solo deja que la app acceda a sensores aprobados en la hoja de vinculación del sistema, y un {label} aún no puede ofrecerse ahí: su anuncio no incluye el servicio con el que se identifica. Por ahora vincúlalo en Android.",
   "sleepDetailStagedBy": "Fases según {label}",
-  "sleepDetailDeviceMissingStages": "{label} no informa {stages}; ese tiempo se cuenta en sus otras fases."
+  "sleepDetailDeviceMissingStages": "{label} no informa {stages}; ese tiempo se cuenta en sus otras fases.",
+  "deviceUseScoresTitle": "Usar este dispositivo para las puntuaciones",
+  "deviceUseWorkoutsTitle": "Usar durante los entrenamientos",
+  "deviceUseReadingsTitle": "Usar sus mediciones (peso) en tus datos",
+  "deviceUseBeta": "Beta",
+  "deviceUseBetaSub": "Experimental. Las puntuaciones de este dispositivo aún no se han comprobado con hardware real.",
+  "deviceUseWorking": "Actualizando tus días…",
+  "deviceUseSheetTitle": "¿Usar {device} para las puntuaciones?",
+  "@deviceUseSheetTitle": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceUseSheetWhat": "Tus puntuaciones saldrán de este dispositivo. Los días pasados con sus datos se vuelven a calcular. Algunos valores son estimaciones y están marcados.",
+  "deviceUseSheetSwitch": "Solo un dispositivo puede hacerlo a la vez, así que {other} se desactivará.",
+  "@deviceUseSheetSwitch": {
+    "placeholders": {
+      "other": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceUseSheetOff": "Puedes desactivarlo cuando quieras. Lo que haya aportado se quitará.",
+  "deviceUseSheetConfirm": "Usarlo",
+  "deviceUseSheetCancel": "Ahora no"
 }

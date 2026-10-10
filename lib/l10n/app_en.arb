@@ -15122,5 +15122,63 @@
         "type": "String"
       }
     }
+  },
+  "deviceUseScoresTitle": "Use this device for scores",
+  "@deviceUseScoresTitle": {
+    "description": "Device page: switch title on a paired non-WHOOP wearable. On makes it the wearable the app's scores come from."
+  },
+  "deviceUseWorkoutsTitle": "Use during workouts",
+  "@deviceUseWorkoutsTitle": {
+    "description": "Device page: switch title on a paired heart-rate strap. On uses its data during workouts."
+  },
+  "deviceUseReadingsTitle": "Use readings (weight) in your numbers",
+  "@deviceUseReadingsTitle": {
+    "description": "Device page: switch title on a paired scale. On uses its weighings in the app's numbers."
+  },
+  "deviceUseBeta": "Beta",
+  "@deviceUseBeta": {
+    "description": "Small chip beside a device's use switch, marking the feature as beta."
+  },
+  "deviceUseBetaSub": "Experimental. Scores from this device haven't been checked on real hardware yet.",
+  "@deviceUseBetaSub": {
+    "description": "Device page: one-line note under the beta use switch."
+  },
+  "deviceUseWorking": "Updating your days…",
+  "@deviceUseWorking": {
+    "description": "Device page: shown under the use switch while past days are being recalculated after it was flipped."
+  },
+  "deviceUseSheetTitle": "Use {device} for scores?",
+  "@deviceUseSheetTitle": {
+    "description": "Confirmation sheet title before a wearable starts feeding scores.",
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceUseSheetWhat": "This device becomes the one your scores come from. Past days with its data are worked out again. Some values are estimates, and they're labelled.",
+  "@deviceUseSheetWhat": {
+    "description": "Confirmation sheet: what turning a wearable on does."
+  },
+  "deviceUseSheetSwitch": "Only one device can do this at a time, so {other} will be switched off.",
+  "@deviceUseSheetSwitch": {
+    "description": "Confirmation sheet: shown when another wearable is feeding scores now; it stops when this one starts.",
+    "placeholders": {
+      "other": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceUseSheetOff": "You can turn it off any time. Whatever it added is then taken back out.",
+  "@deviceUseSheetOff": {
+    "description": "Confirmation sheet: the switch can be turned off, and the device's contribution is removed."
+  },
+  "deviceUseSheetConfirm": "Use it",
+  "@deviceUseSheetConfirm": {
+    "description": "Confirmation sheet: confirm button."
+  },
+  "deviceUseSheetCancel": "Not now",
+  "@deviceUseSheetCancel": {
+    "description": "Confirmation sheet: cancel button."
   }
 }
