@@ -2347,6 +2347,17 @@ class AppState extends ChangeNotifier {
     reanalyzeProgress = 'Analyzing…';
     notifyListeners();
     try {
+      // The user asked for a fresh answer: today's morning pin would otherwise
+      // hold the old number in the ring while the re-analysis summary reports
+      // the new one. The re-derive below re-pins once the night is final.
+      // run() drops a call while another pass holds the latch, so wait it out
+      // and release right before ours takes it (as _reanalyzeForOverride).
+      do {
+        while (_derive.running) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+        }
+        await LocalDb.releaseFrozenHeadline(LocalDb.localDayLabelNow());
+      } while (_derive.running);
       final n = await _derive.run(
         _profile,
         heavy: true,

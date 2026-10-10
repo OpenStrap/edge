@@ -481,18 +481,83 @@ class CoachDb {
   static Future<void> debugAssertAllowedBtrees(String sql) async =>
       _assertAllowedBtrees(await _readonly(), sql);
 
+  /// Shadow v_daily / v_metric with TEMP views whose today readiness is the
+  /// headline's. Unqualified names resolve to temp first, the temp schema is
+  /// writable on a read-only handle, and the views read the same btrees, so
+  /// neither guard layer changes. Rebuilt per query; dropped when [today] is
+  /// null.
+  static Future<void> _serveToday(
+      Database db, ({String day, num? readiness})? today) async {
+    await db.execute('DROP VIEW IF EXISTS temp.v_daily');
+    await db.execute('DROP VIEW IF EXISTS temp.v_metric');
+    if (today == null) return;
+    final day = today.day.replaceAll("'", "''");
+    final v = today.readiness?.toString() ?? 'NULL';
+    final names = [
+      for (final r in await db.rawQuery('PRAGMA main.table_info(v_daily)'))
+        '${r['name']}',
+    ];
+    final cols = [
+      for (final n in names)
+        n == 'readiness'
+            ? "CASE WHEN date = '$day' THEN $v ELSE readiness END AS readiness"
+            : '"$n"',
+    ];
+    // A pinned headline whose day has no stored readiness (the live composite
+    // abstained on a later derive) still has to read the same as Home.
+    final added = [
+      for (final n in names)
+        n == 'date' ? "'$day'" : (n == 'readiness' ? v : 'NULL'),
+    ];
+    await db.execute(
+        'CREATE TEMP VIEW v_daily AS SELECT ${cols.join(', ')} FROM main.v_daily '
+        "UNION ALL SELECT ${added.join(', ')} WHERE $v IS NOT NULL AND NOT "
+        "EXISTS (SELECT 1 FROM main.v_daily WHERE date = '$day')");
+    await db.execute('CREATE TEMP VIEW v_metric AS SELECT date, key, '
+        "CASE WHEN date = '$day' AND key = 'readiness' THEN $v ELSE value END "
+        'AS value FROM main.v_metric '
+        "UNION ALL SELECT '$day', 'readiness', $v WHERE $v IS NOT NULL AND NOT "
+        "EXISTS (SELECT 1 FROM main.v_metric WHERE date = '$day' "
+        "AND key = 'readiness')");
+  }
+
   /// Run an LLM SELECT and return compact JSON for the tool result. On a guard
   /// rejection, returns the reason (so the model fixes its query) — never throws.
-  static Future<String> runCoachSql(String llmSql, {int rowCap = 200}) async {
+  ///
+  /// [today] is today's readiness as the Home headline serves it (null until
+  /// the night is final, the pin when there is one). Today's row in v_daily /
+  /// v_metric is otherwise whatever the last derive wrote, which mid-sync is a
+  /// partial night — the 2 Home once froze on.
+  static Future<String> runCoachSql(String llmSql,
+      {int rowCap = 200, ({String day, num? readiness})? today}) async {
     String sql;
     try {
       sql = guardAndPrepare(llmSql, rowCap: rowCap);
     } on SqlGuardError catch (e) {
       return jsonEncode({'error': e.reason});
     }
+    // One query at a time: the TEMP views are per connection, so a second
+    // turn's _serveToday could otherwise swap them out between this one's
+    // setup and its query.
+    final previous = _sqlTail;
+    final turn = Completer<void>();
+    _sqlTail = turn.future;
+    await previous;
+    try {
+      return await _runServed(sql, rowCap, today);
+    } finally {
+      turn.complete();
+    }
+  }
+
+  static Future<void> _sqlTail = Future<void>.value();
+
+  static Future<String> _runServed(String sql, int rowCap,
+      ({String day, num? readiness})? today) async {
     try {
       final db = await _readonly();
       await LocalDb.refreshSessionScoreMask();
+      await _serveToday(db, today);
       await _assertAllowedBtrees(db, sql);
       // ponytail: sqflite exposes no sqlite3_progress_handler, so a slow
       // query (e.g. a giant cross-join of allowed views) can't be cancelled

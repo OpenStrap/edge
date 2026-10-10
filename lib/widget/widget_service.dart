@@ -255,8 +255,18 @@ class WidgetService {
       // Dart rather than three times in Swift, Kotlin and Watch Swift for the
       // reason `readiness_tier` already exists: a rule copied into four build
       // targets is four rules.
+      // A provisional night rides the calibrating state, which every native
+      // reader already draws muted: the number, greyed, "Finishing up". The
+      // Watch and Siri read the bare `readiness` int and keep -1 until final.
+      final provisional = rv == null ? t.provisionalReadinessScore : null;
       final rings = [
-        rv == null
+        provisional != null
+            ? _Ring('recovery',
+                state: 1,
+                value: '$provisional',
+                sub: 'Finishing up',
+                frac: provisional / 100)
+            : rv == null
             ? _gapRing('recovery', readiness, 'Not scored')
             : _Ring('recovery',
                 value: '${rv.round()}',

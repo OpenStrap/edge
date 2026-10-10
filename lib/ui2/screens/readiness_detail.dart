@@ -16,6 +16,7 @@ import '../../data/db.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
+import '../../models/payloads.dart' show todayHeadlineOf;
 import '../ui2.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
@@ -50,7 +51,14 @@ class ReadinessData {
   /// as five consecutive days.
   final List<double?> series;
 
+  /// `todayHeadlineOf` off the same `getToday()`: the state and update note
+  /// Home shows beside this number.
+  final Map<String, dynamic> head;
+
+  bool get provisional => head['recovery_state'] == 'provisional';
+
   const ReadinessData({
+    this.head = const {},
     this.readiness = Metric.empty,
     this.breakdown = const [],
     this.inputsUsed = 0,
@@ -69,9 +77,15 @@ class ReadinessData {
     final v = envValue(gb) ?? const <String, dynamic>{};
     final bd = v['breakdown'];
 
-    final readiness = overnightMetric(today, daily is Map ? daily['readiness'] : null);
+    // Same rule as Home: a provisional night shows its own number, greyed.
+    final head = todayHeadlineOf(today);
+    final readiness = head['recovery_state'] == 'provisional'
+        ? metricOf(daily is Map ? daily['readiness_provisional'] : null)
+        : overnightMetric(
+            today, daily is Map ? daily['readiness'] : null);
 
     return ReadinessData(
+      head: head,
       readiness: readiness,
       // `narrative` and the glass-box `score` are DELIBERATELY not read. Both
       // belong to the deprecated percentile score, which bands at 70/40 while
@@ -224,16 +238,23 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
                 child: Stack(alignment: Alignment.center, children: [
                   CustomPaint(
                     size: const Size(150, 150),
-                    painter: Ring(d.readiness.normalized(100), p.on(band.color),
+                    painter: Ring(d.readiness.normalized(100),
+                        d.provisional ? p.ink3 : p.on(band.color),
                         p.track,
                         stroke: 14, t: animate(c, 1)),
                   ),
                   Column(mainAxisSize: MainAxisSize.min, children: [
-                    Text('${v.round()}', style: F.n48.copyWith(color: p.ink)),
+                    Text('${v.round()}',
+                        style: F.n48.copyWith(
+                            color: d.provisional ? p.ink3 : p.ink)),
                     Text(band.label, style: F.cap.copyWith(color: p.ink3)),
                   ]),
                 ]),
               ),
+              if (recoveryStateLine(d.head, l) case final note?) ...[
+                const SizedBox(height: S.x2),
+                Text(note, style: F.cap.copyWith(color: p.ink3)),
+              ],
             ]),
           ),
 
