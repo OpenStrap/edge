@@ -38,19 +38,6 @@ bc1qvtcch38dcwp967ar764uu6eetw7tf907844wfq
 0x8310C89393366b7eBCD47ABa82e1dfB5ECeFFbD9
 ```
 
-These are the only donation addresses. There is no token and nothing for sale.
-
-**What donations pay for:** the Apple Developer membership that keeps the TestFlight
-build alive, and test devices. Every new wearable we support needs real hardware on a
-real wrist before its numbers can be trusted.
-
-**What they don't buy:** priority, features or support. Nothing is gated behind paying,
-and nothing ever will be.
-
-**Other ways to help, free:** report a number that looks wrong, test a device you own
-(see [docs/FEATURES.md](docs/FEATURES.md) for what's being built), or tell someone
-whose wearable is sitting in a drawer. More in [DONATE.md](DONATE.md).
-
 ## Community
 
 [Discord](https://discord.gg/dUXds5MWkd) · [Reddit](https://www.reddit.com/r/OpenStrap/)
