@@ -52,3 +52,16 @@ For each candidate study, record population, design, exposure definition, effect
 - What sensitivity and stability criteria should a future age model meet before displaying numerical age and age difference?
 
 See [v0 boundaries](README.md) and the [validation plan](progress.md). These questions remain open research work; they are not grounds for inventing fallback data or a provisional age formula.
+
+## Findings from the app audit
+
+The [data availability audit](progress.md#app-data-availability-audit) inspected fork source commit `6d686b083e15efb6852bd10703c3f09917ef0825` on 2026-10-10. This supersedes the initial uncertainty about whether app data paths exist; it does not establish per-user data completeness or model validity.
+
+- Existing candidates: sleep duration, Phillips sleep regularity, source-labelled steps, daily/session HR zones, completed workouts, nocturnal RHR, recorded strength sets/sessions, and nullable chronological age. SRI and zone definitions must not be equated with proprietary WHOOP contributors.
+- Missing: a lean-mass data path and a validated combined age model. Weight/height/BMI cannot supply lean mass. Profile age is stored as an integer; Apple DOB import produces age, not a persistent DOB-based age clock.
+- VO₂ max is **conditional**, not entirely absent: a stored submaximal session estimate uses GPS kilometre splits and HR anchors. This is distinct from the removed RHR-ratio estimate and from laboratory VO₂ max. The calculation chooses a full split without an explicit pace-variance test at the edge call site; review applicability and the pinned analytics gates before using it in any combined interpretation.
+- Existing metric confidence, tier, notes, and provenance can support honest factor displays, but do not validate an age-confidence percentage. The old fitness-age path was removed after overlapping RHR-derived signals were combined; its comments are useful design history, not a model to restore.
+- v0 remains a read-only factor-summary proposal. Reuse existing values and eligibility gates, preserve missingness and exact dates, and defer a numerical age model. Review step coverage/zero semantics and workout overlap before choosing aggregation rules.
+
+The initial open questions above remain research prompts; the audit answers where several inputs live. Remaining work concerns runtime and real-user coverage, supported aggregation windows, measurement validity, the separately pinned analytics implementation, and whether any independent age model can be justified.
+
