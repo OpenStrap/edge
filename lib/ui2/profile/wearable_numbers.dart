@@ -15,7 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../ble/adapters/_registry.dart'
-    show DeviceCategory, categoryOf, kBandRegistry;
+    show DeviceCategory, categoryOf, kBandRegistry, kThermometer;
 import '../../ble/session_link.dart' show SessionLink;
 import '../../compute/inputs/canonical.dart';
 import '../../compute/inputs/validation_bands.dart' show kTruthBandRows;
@@ -572,14 +572,18 @@ class WearableDetail extends StatelessWidget {
 /// there moves here with no copy to edit. Nothing for a device with no
 /// column, nor outside developer mode: every wearable is behind its flag
 /// (R6) until a real-hardware sync, and only a developer can turn one on.
+///
+/// [always] shows it outside developer mode too: under a paired device's
+/// own "use this device" switch, where anyone can now turn it on.
 class WearableUnlocks extends StatelessWidget {
   final String adapterId;
-  const WearableUnlocks(this.adapterId, {super.key});
+  final bool always;
+  const WearableUnlocks(this.adapterId, {super.key, this.always = false});
 
   @override
   Widget build(BuildContext c) {
     final column = columnFor(adapterId);
-    if (column == null || !Prefs.getBool(Prefs.devMode, false)) {
+    if (column == null || !(always || Prefs.getBool(Prefs.devMode, false))) {
       return const SizedBox.shrink();
     }
     final p = P.of(c);
@@ -789,6 +793,159 @@ Widget wearableSettingsGroup(BuildContext c) => ListenableBuilder(
         ]);
       },
     );
+
+/// The user-facing beta switch on a paired device's page: the same rule-R6
+/// flag the developer toggles flip ([WearableDisplay.toggleDevice]), so the
+/// two stay in step. A wearable with a column scores; a workout-armed sensor
+/// is used during workouts; a scale's weighings feed the profile. Nothing for
+/// anything else (a WHOOP band, a thermometer, a Coros watch): its flag feeds
+/// no number.
+class DeviceUseSwitch extends StatefulWidget {
+  final String deviceId, adapterId;
+  const DeviceUseSwitch(
+      {super.key, required this.deviceId, required this.adapterId});
+
+  @override
+  State<DeviceUseSwitch> createState() => _DeviceUseSwitchState();
+}
+
+class _DeviceUseSwitchState extends State<DeviceUseSwitch> {
+  @override
+  void initState() {
+    super.initState();
+    WearableDisplay.instance.loadDevices().catchError((Object _) {});
+  }
+
+  String? _title(AppLocalizations l) {
+    final a = widget.adapterId;
+    if (categoryOf(a) == DeviceCategory.wearable) {
+      return columnFor(a) == null ? null : l.deviceUseScoresTitle;
+    }
+    if (kWorkoutArmedSensors.contains(a)) return l.deviceUseWorkoutsTitle;
+    if (categoryOf(a) == DeviceCategory.healthMeasurement &&
+        a != kThermometer.id) {
+      return l.deviceUseReadingsTitle;
+    }
+    return null;
+  }
+
+  Future<void> _set(bool on) async {
+    final d = WearableDisplay.instance;
+    final w = d.devices.where((w) => w.id == widget.deviceId).firstOrNull;
+    if (w == null || d.busy) return;
+    final wearable = categoryOf(w.adapter) == DeviceCategory.wearable;
+    if (on && wearable) {
+      final other = d.devices
+          .where((o) => o.active && o.on && o.id != w.id)
+          .firstOrNull;
+      if (!await _confirmUse(context, w.label, other?.label)) return;
+    }
+    await d.toggleDevice(w.id, w.adapter, w.on, w.active);
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final l = _l(c);
+    final title = _title(l);
+    if (title == null) return const SizedBox.shrink();
+    return ListenableBuilder(
+      listenable: WearableDisplay.instance,
+      builder: (c, _) {
+        final p = P.of(c);
+        final d = WearableDisplay.instance;
+        final w = d.devices.where((w) => w.id == widget.deviceId).firstOrNull;
+        if (w == null) return const SizedBox.shrink();
+        final wearable = categoryOf(w.adapter) == DeviceCategory.wearable;
+        final on = wearable ? w.on && w.active : w.on;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: S.x5),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+          Surface(
+            child: Row(children: [
+              Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Wrap(
+                      spacing: S.x2,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(title, style: F.body.copyWith(color: p.ink)),
+                        Pill(l.deviceUseBeta, C.orange),
+                      ]),
+                  const SizedBox(height: S.x1),
+                  Text(d.busy ? l.deviceUseWorking : l.deviceUseBetaSub,
+                      style: F.over.copyWith(color: p.ink3)),
+                ]),
+              ),
+              const SizedBox(width: S.x3),
+              d.busy
+                  ? const SizedBox.square(
+                      dimension: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : Switch(value: on, onChanged: _set),
+            ]),
+          ),
+          if (wearable) ...[
+            const SizedBox(height: S.x5),
+            WearableUnlocks(w.adapter, always: true),
+          ],
+        ]),
+        );
+      },
+    );
+  }
+}
+
+/// The confirm before a wearable starts scoring: what changes, that [other]
+/// (the wearable scoring now, if any) stops, and that it can be undone.
+Future<bool> _confirmUse(BuildContext c, String device, String? other) async {
+  final l = _l(c);
+  final ok = await showModalBottomSheet<bool>(
+    context: c,
+    sheetAnimationStyle: sheetMotion(c),
+    // Scrolls rather than overflows: three paragraphs at a large text size
+    // outgrow the default half-height sheet.
+    isScrollControlled: true,
+    backgroundColor: P.of(c).card,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+    ),
+    builder: (s) {
+      final p = P.of(s);
+      final body = F.cap.copyWith(color: p.ink2, height: 1.5);
+      return SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(S.x5),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(l.deviceUseSheetTitle(device),
+                  style: F.head.copyWith(color: p.ink)),
+              const SizedBox(height: S.x2),
+              Text(l.deviceUseSheetWhat, style: body),
+              if (other != null) ...[
+                const SizedBox(height: S.x2),
+                Text(l.deviceUseSheetSwitch(other), style: body),
+              ],
+              const SizedBox(height: S.x2),
+              Text(l.deviceUseSheetOff, style: body),
+              const SizedBox(height: S.x5),
+              BigButton(l.deviceUseSheetConfirm,
+                  onTap: () => Navigator.of(s).pop(true)),
+              const SizedBox(height: S.x3),
+              BigButton(l.deviceUseSheetCancel,
+                  soft: true, onTap: () => Navigator.of(s).pop(false)),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+  return ok == true;
+}
 
 /// One wearable's numbers for today, reached from its device page. Only the
 /// ACTIVE wearable serves cells (`dayCells`); any other says so.
