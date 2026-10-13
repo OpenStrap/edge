@@ -7,16 +7,26 @@ import 'package:openstrap_edge/data/models.dart';
 import 'package:openstrap_edge/debug/debug_mode.dart';
 import 'package:openstrap_edge/debug/whoop4_r10_capture.dart';
 
-String payload({int ts = 1750000000, int packet = 0x2f, int type = 10,
-    int length = 1920}) {
+String payload({
+  int ts = 1750000000,
+  int packet = 0x2f,
+  int type = 10,
+  int length = 1920,
+}) {
   final b = Uint8List(length);
-  b[0] = packet; b[1] = type;
+  b[0] = packet;
+  b[1] = type;
   if (length >= 11) ByteData.sublistView(b).setUint32(7, ts, Endian.little);
   return b.map((v) => v.toRadixString(16).padLeft(2, '0')).join();
 }
+
 RawRecord raw(String hex, {int ts = 1750000000}) => RawRecord(
-    counter: 1, packetType: int.parse(hex.substring(0,2), radix: 16),
-    hex: hex, capturedAt: 1750000100000, recTs: ts);
+  counter: 1,
+  packetType: int.parse(hex.substring(0, 2), radix: 16),
+  hex: hex,
+  capturedAt: 1750000100000,
+  recTs: ts,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -43,27 +53,33 @@ void main() {
     disabled.dispose();
   });
 
-  test('only known gen4 historical R10 is retained, exact bytes survive', () async {
-    await capture.start(consent: true);
-    final hex = payload();
-    await capture.captureBatch([
-      raw(hex), raw(payload(packet: 0x2b)), raw(payload(type: 24, length: 96)),
-      raw(payload(length: 96)), raw('2f0a${List.filled(3836, 'g').join()}'),
-    ], deviceFamily: 'gen4');
-    await capture.captureBatch([raw(hex)], deviceFamily: 'gen5');
-    await capture.captureBatch([raw(hex)], deviceFamily: null);
-    await capture.stop();
-    expect(capture.records, 1);
-    expect(capture.unsupported, 2);
-    final chunk = File('${root.path}/chunk_0.ndjson');
-    final lines = await chunk.readAsLines();
-    final row = jsonDecode(lines.first) as Map;
-    expect(row['inner_hex'], hex);
-    expect(row['received_at_epoch_ms'], 1750000100000);
-    expect(row['record_ts_epoch_s'], 1750000000);
-    expect(row['payload_scope'], 'inner');
-    expect((jsonDecode(lines.last) as Map)['ack_status'], 'not_observed');
-  });
+  test(
+    'only known gen4 historical R10 is retained, exact bytes survive',
+    () async {
+      await capture.start(consent: true);
+      final hex = payload();
+      await capture.captureBatch([
+        raw(hex),
+        raw(payload(packet: 0x2b)),
+        raw(payload(type: 24, length: 96)),
+        raw(payload(length: 96)),
+        raw('2f0a${List.filled(3836, 'g').join()}'),
+      ], deviceFamily: 'gen4');
+      await capture.captureBatch([raw(hex)], deviceFamily: 'gen5');
+      await capture.captureBatch([raw(hex)], deviceFamily: null);
+      await capture.stop();
+      expect(capture.records, 1);
+      expect(capture.unsupported, 2);
+      final chunk = File('${root.path}/chunk_0.ndjson');
+      final lines = await chunk.readAsLines();
+      final row = jsonDecode(lines.first) as Map;
+      expect(row['inner_hex'], hex);
+      expect(row['received_at_epoch_ms'], 1750000100000);
+      expect(row['record_ts_epoch_s'], 1750000000);
+      expect(row['payload_scope'], 'inner');
+      expect((jsonDecode(lines.last) as Map)['ack_status'], 'not_observed');
+    },
+  );
 
   test('retry duplicates do not inflate unique retained data', () async {
     await capture.start(consent: true);
@@ -75,19 +91,33 @@ void main() {
     expect(capture.eligible, 3);
   });
 
-  test('archive disposition stays untrusted and does not become a sample', () async {
-    await capture.start(consent: true);
-    await capture.captureBatch([], deviceFamily: 'gen4', archives: [
-      ArchiveRecord(hex: payload(), packetType: 0x2f, capturedAt: 10,
-          reason: 'gate_dropped'),
-    ]);
-    await capture.stop();
-    final row = jsonDecode((await File('${root.path}/chunk_0.ndjson')
-        .readAsLines()).first) as Map;
-    expect(row['timestamp_status'], 'untrusted');
-    expect(row['record_ts_epoch_s'], isNull);
-    expect(row['archive_reason'], 'gate_dropped');
-  });
+  test(
+    'archive disposition stays untrusted and does not become a sample',
+    () async {
+      await capture.start(consent: true);
+      await capture.captureBatch(
+        [],
+        deviceFamily: 'gen4',
+        archives: [
+          ArchiveRecord(
+            hex: payload(),
+            packetType: 0x2f,
+            capturedAt: 10,
+            reason: 'gate_dropped',
+          ),
+        ],
+      );
+      await capture.stop();
+      final row =
+          jsonDecode(
+                (await File('${root.path}/chunk_0.ndjson').readAsLines()).first,
+              )
+              as Map;
+      expect(row['timestamp_status'], 'untrusted');
+      expect(row['record_ts_epoch_s'], isNull);
+      expect(row['archive_reason'], 'gate_dropped');
+    },
+  );
 
   test('byte cap stops without silently retaining partial coverage', () async {
     capture.dispose();
@@ -119,24 +149,32 @@ void main() {
     await capture.captureBatch([raw(payload())], deviceFamily: 'gen4');
     expect(capture.records, 0);
     capture.setForeground(true);
-    for (var i=0; i<400; i++) {
-      capture.observeContext(batteryPct: (i % 100).toDouble(),
-          connected: true, generation: 'gen4');
+    for (var i = 0; i < 400; i++) {
+      capture.observeContext(
+        batteryPct: (i % 100).toDouble(),
+        connected: true,
+        generation: 'gen4',
+      );
     }
     expect(capture.manifest['events'], hasLength(256));
     expect(capture.contextTruncated, isTrue);
     expect(capture.incomplete, isTrue);
   });
 
-  test('delete invalidates queued work and removes exports and raw files', () async {
-    await capture.start(consent: true);
-    final write = capture.captureBatch([raw(payload())], deviceFamily: 'gen4');
-    await capture.delete();
-    await write;
-    expect(await root.exists(), isFalse);
-    expect(capture.active, isFalse);
-    expect(capture.hasSession, isFalse);
-  });
+  test(
+    'delete invalidates queued work and removes exports and raw files',
+    () async {
+      await capture.start(consent: true);
+      final write = capture.captureBatch([
+        raw(payload()),
+      ], deviceFamily: 'gen4');
+      await capture.delete();
+      await write;
+      expect(await root.exists(), isFalse);
+      expect(capture.active, isFalse);
+      expect(capture.hasSession, isFalse);
+    },
+  );
 
   test('start queued then revoked never re-arms', () async {
     final starting = capture.start(consent: true);
@@ -168,4 +206,14 @@ void main() {
     expect(await root.exists(), isFalse);
     expect(await unrelated.exists(), isTrue);
   });
+  test('cleanup also works after research is disabled', () async {
+    await capture.start(consent: true);
+    await capture.captureBatch([raw(payload())], deviceFamily: 'gen4');
+    await capture.stop();
+    final disabled = Whoop4R10Capture.forTesting(root: root, enabled: false);
+    await disabled.delete();
+    expect(await root.exists(), isFalse);
+    disabled.dispose();
+  });
+
 }

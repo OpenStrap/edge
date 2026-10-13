@@ -17,11 +17,11 @@ const r10ProtocolSha = '89080bcfac7767b3a871fd3a7d9307f5f30dad26';
 
 class Whoop4R10Capture extends ChangeNotifier {
   Whoop4R10Capture()
-      : enabled = whoop4R10ResearchEnabled,
-        maxBytes = 20 * 1024 * 1024,
-        lifetime = const Duration(minutes: 30),
-        _now = DateTime.now,
-        _root = _privateRoot;
+    : enabled = whoop4R10ResearchEnabled,
+      maxBytes = 20 * 1024 * 1024,
+      lifetime = const Duration(minutes: 30),
+      _now = DateTime.now,
+      _root = _privateRoot;
 
   @visibleForTesting
   Whoop4R10Capture.forTesting({
@@ -67,8 +67,9 @@ class Whoop4R10Capture extends ChangeNotifier {
     if (!Platform.isAndroid && !Platform.isIOS) {
       throw StateError('unsupported_platform');
     }
-    return Directory(p.join((await getTemporaryDirectory()).path,
-        'whoop4_r10_research'));
+    return Directory(
+      p.join((await getTemporaryDirectory()).path, 'whoop4_r10_research'),
+    );
   }
 
   Future<T> _serial<T>(Future<T> Function() operation) {
@@ -93,13 +94,18 @@ class Whoop4R10Capture extends ChangeNotifier {
       contextTruncated = true;
       return;
     }
-    _events.add({'type': type, 'observed_at_epoch_ms': _now().millisecondsSinceEpoch,
-      ..._context});
+    _events.add({
+      'type': type,
+      'observed_at_epoch_ms': _now().millisecondsSinceEpoch,
+      ..._context,
+    });
   }
 
   Future<void> start({required bool consent, String? appVersion}) {
     if (!enabled || !consent || _dead) {
-      return Future<void>.error(StateError('research_not_enabled_or_consented'));
+      return Future<void>.error(
+        StateError('research_not_enabled_or_consented'),
+      );
     }
     // Revocation can invalidate a queued start before it touches storage.
     final generation = ++_generation;
@@ -115,8 +121,10 @@ class Whoop4R10Capture extends ChangeNotifier {
       if (generation != _generation || _dead) return;
       _directory = root;
       _started = _now();
-      _alias = List.generate(16, (_) => Random.secure().nextInt(256)
-          .toRadixString(16).padLeft(2, '0')).join();
+      _alias = List.generate(
+        16,
+        (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
+      ).join();
       _appVersion = appVersion;
       records = bytes = duplicates = unsupported = eligible = _chunks = 0;
       incomplete = contextTruncated = false;
@@ -128,7 +136,10 @@ class Whoop4R10Capture extends ChangeNotifier {
       _event('start');
       await _manifest();
       if (generation != _generation || _dead) return;
-      _expiry = Timer(lifetime, () => stop(reason: 'Time limit reached', partial: true));
+      _expiry = Timer(
+        lifetime,
+        () => stop(reason: 'Time limit reached', partial: true),
+      );
       _changed();
     }).catchError((Object _) {
       fail();
@@ -136,14 +147,22 @@ class Whoop4R10Capture extends ChangeNotifier {
     });
   }
 
-  void observeContext({double? batteryPct, bool? charging, int? chargingTs,
-      required bool connected, String? generation}) {
+  void observeContext({
+    double? batteryPct,
+    bool? charging,
+    int? chargingTs,
+    required bool connected,
+    String? generation,
+  }) {
     if (!_active) return;
     final next = <String, Object?>{
       'band_battery_pct': batteryPct?.round(),
-      'charging': charging, 'charging_ts': chargingTs,
-      'connected': connected, 'generation': generation,
-      'firmware': null, 'rssi': null,
+      'charging': charging,
+      'charging_ts': chargingTs,
+      'connected': connected,
+      'generation': generation,
+      'firmware': null,
+      'rssi': null,
       'freshness': 'sync_observation_not_historical',
     };
     if (jsonEncode(next) != jsonEncode(_context)) {
@@ -179,7 +198,9 @@ class Whoop4R10Capture extends ChangeNotifier {
     revoke(reason);
     await _serial(() async {
       if (_directory != null) await _manifest();
-    }).catchError((Object _) { fail(); });
+    }).catchError((Object _) {
+      fail();
+    });
   }
 
   void fail() {
@@ -188,15 +209,18 @@ class Whoop4R10Capture extends ChangeNotifier {
   }
 
   static bool matches(String hex, String? family, int packetType) =>
-      family == 'gen4' && packetType == 0x2f &&
+      family == 'gen4' &&
+      packetType == 0x2f &&
       hex.length == 1920 * 2 &&
       hex.toLowerCase().startsWith('2f0a') &&
       RegExp(r'^[0-9a-fA-F]+$').hasMatch(hex);
 
   /// Called only after the normal durable commit, still before ACK eligibility.
   /// Research errors never escape into the normal sync failure contract.
-  Future<void> captureBatch(List<RawRecord> raws, {
-    List<ArchiveRecord>? archives, String? deviceFamily,
+  Future<void> captureBatch(
+    List<RawRecord> raws, {
+    List<ArchiveRecord>? archives,
+    String? deviceFamily,
   }) async {
     if (!_active || !_foreground || !enabled) return;
     final generation = _generation;
@@ -215,18 +239,17 @@ class Whoop4R10Capture extends ChangeNotifier {
           if (block.isEmpty || generation != _generation || !_active) return;
           final lines = block.map(jsonEncode).join('\n');
           final digest = sha256.convert(utf8.encode(lines)).toString();
-          final content = '$lines\n${jsonEncode({
-            'kind': 'chunk_end', 'records': block.length,
-            'content_sha256': digest, 'normal_commit_succeeded': true,
-            'ack_status': 'not_observed',
-          })}\n';
+          final content =
+              '$lines\n${jsonEncode({'kind': 'chunk_end', 'records': block.length, 'content_sha256': digest, 'normal_commit_succeeded': true, 'ack_status': 'not_observed'})}\n';
           final size = utf8.encode(content).length;
           if (bytes + size > maxBytes) {
             incomplete = true;
             revoke('Size limit reached');
             return;
           }
-          final file = File(p.join(_directory!.path, 'chunk_${_chunks++}.partial'));
+          final file = File(
+            p.join(_directory!.path, 'chunk_${_chunks++}.partial'),
+          );
           await file.writeAsString(content, flush: true);
           if (generation != _generation || !_active) {
             await file.delete();
@@ -238,11 +261,20 @@ class Whoop4R10Capture extends ChangeNotifier {
           block = [];
           blockBytes = 0;
         }
-        Future<void> add(String hex, int packetType, int? counter,
-            int receivedAt, int? recTs, String disposition, String? reason) async {
+
+        Future<void> add(
+          String hex,
+          int packetType,
+          int? counter,
+          int receivedAt,
+          int? recTs,
+          String disposition,
+          String? reason,
+        ) async {
           if (!_active || generation != _generation) return;
           if (!matches(hex, deviceFamily, packetType)) {
-            if (deviceFamily == 'gen4' && packetType == 0x2f &&
+            if (deviceFamily == 'gen4' &&
+                packetType == 0x2f &&
                 hex.toLowerCase().startsWith('2f0a')) {
               unsupported++;
             }
@@ -250,7 +282,10 @@ class Whoop4R10Capture extends ChangeNotifier {
           }
           eligible++;
           final digest = sha256.convert(hexToBytes(hex)).toString();
-          if (_seen.contains(digest)) { duplicates++; return; }
+          if (_seen.contains(digest)) {
+            duplicates++;
+            return;
+          }
           if (bytes + blockBytes + hex.length + 2048 > maxBytes) {
             await flush();
             incomplete = true;
@@ -258,15 +293,22 @@ class Whoop4R10Capture extends ChangeNotifier {
             return;
           }
           final row = <String, Object?>{
-            'kind': 'record', 'device_alias': _alias, 'payload_scope': 'inner',
-            'inner_hex': hex, 'payload_bytes': hex.length ~/ 2,
-            'payload_sha256': digest, 'packet_type': packetType,
-            'record_type': 10, 'sequence_counter': counter,
+            'kind': 'record',
+            'device_alias': _alias,
+            'payload_scope': 'inner',
+            'inner_hex': hex,
+            'payload_bytes': hex.length ~/ 2,
+            'payload_sha256': digest,
+            'packet_type': packetType,
+            'record_type': 10,
+            'sequence_counter': counter,
             'received_at_epoch_ms': receivedAt,
             'record_ts_epoch_s': recTs,
             'timestamp_status': disposition == 'accepted' && recTs != null
-                ? 'accepted' : 'untrusted',
-            'disposition': disposition, 'archive_reason': reason,
+                ? 'accepted'
+                : 'untrusted',
+            'disposition': disposition,
+            'archive_reason': reason,
             'context_observed_at_epoch_ms': _now().millisecondsSinceEpoch,
             'context': Map<String, Object?>.from(_context),
           };
@@ -275,15 +317,30 @@ class Whoop4R10Capture extends ChangeNotifier {
           _seen.add(digest);
           if (block.length >= 32) await flush();
         }
+
         for (final raw in raws) {
-          await add(raw.hex, raw.packetType, raw.counter, raw.capturedAt,
-              raw.recTs, 'accepted', null);
+          await add(
+            raw.hex,
+            raw.packetType,
+            raw.counter,
+            raw.capturedAt,
+            raw.recTs,
+            'accepted',
+            null,
+          );
           if (!_active || generation != _generation) break;
         }
         for (final raw in archives ?? <ArchiveRecord>[]) {
           if (!_active || generation != _generation) break;
-          await add(raw.hex, raw.packetType, raw.counter, raw.capturedAt,
-              raw.recTs, 'archived', raw.reason);
+          await add(
+            raw.hex,
+            raw.packetType,
+            raw.counter,
+            raw.capturedAt,
+            raw.recTs,
+            'archived',
+            raw.reason,
+          );
         }
         await flush();
         // Already retained chunks survive a later partial failure honestly.
@@ -296,19 +353,29 @@ class Whoop4R10Capture extends ChangeNotifier {
   }
 
   Map<String, Object?> get manifest => {
-    'schema_version': 1, 'tool': 'whoop4_r10_research',
-    'device_alias': _alias, 'started_at_epoch_ms': _started?.millisecondsSinceEpoch,
+    'schema_version': 1,
+    'tool': 'whoop4_r10_research',
+    'device_alias': _alias,
+    'started_at_epoch_ms': _started?.millisecondsSinceEpoch,
     'expires_at_epoch_ms': _started?.add(lifetime).millisecondsSinceEpoch,
-    'app_version': _appVersion, 'protocol_sha': r10ProtocolSha,
-    'status': status, 'incomplete': incomplete || active || eligible > records + duplicates,
-    'records_retained': records, 'eligible_observations': eligible,
-    'duplicate_observations': duplicates, 'unsupported_length_or_encoding': unsupported,
-    'raw_bytes_retained': bytes, 'max_raw_bytes': maxBytes,
-    'context_truncated': contextTruncated, 'events': _events,
+    'app_version': _appVersion,
+    'protocol_sha': r10ProtocolSha,
+    'status': status,
+    'incomplete': incomplete || active || eligible > records + duplicates,
+    'records_retained': records,
+    'eligible_observations': eligible,
+    'duplicate_observations': duplicates,
+    'unsupported_length_or_encoding': unsupported,
+    'raw_bytes_retained': bytes,
+    'max_raw_bytes': maxBytes,
+    'context_truncated': contextTruncated,
+    'events': _events,
     'scope': 'foreground_safe_trim_callback_only',
     'excluded_paths': ['live', 'headless', 'pre_setup_direct_store'],
-    'nominal_sample_rate_hz': 100, 'sample_rate_status': 'repository_reported',
-    'ack_status': 'not_observed', 'cache_is_evictable': true,
+    'nominal_sample_rate_hz': 100,
+    'sample_rate_status': 'repository_reported',
+    'ack_status': 'not_observed',
+    'cache_is_evictable': true,
     'firmware': null,
   };
 
@@ -320,9 +387,11 @@ class Whoop4R10Capture extends ChangeNotifier {
   }
 
   /// Serialize export with cleanup and writes; revocation can cancel export.
-  Future<T> withStoppedSession<T>(Future<T> Function(Directory, Map<String, Object?>,
-      bool Function()) operation) => _serial(() async {
-    if (active || _directory == null || _started == null) {
+  Future<T> withStoppedSession<T>(
+    Future<T> Function(Directory, Map<String, Object?>, bool Function())
+    operation,
+  ) => _serial(() async {
+    if (_dead || active || _directory == null || _started == null) {
       throw StateError('stop_capture_before_export');
     }
     if (_now().difference(_started!) >= const Duration(hours: 24)) {
@@ -332,8 +401,11 @@ class Whoop4R10Capture extends ChangeNotifier {
     }
     final generation = _generation;
     await _manifest();
-    return operation(_directory!, Map<String, Object?>.from(manifest),
-        () => !_dead && generation == _generation);
+    return operation(
+      _directory!,
+      Map<String, Object?>.from(manifest),
+      () => !_dead && generation == _generation,
+    );
   });
 
   Future<void> delete() async {
@@ -363,7 +435,9 @@ class Whoop4R10Capture extends ChangeNotifier {
         final m = jsonDecode(await info.readAsString()) as Map;
         final ms = m['started_at_epoch_ms'] as int?;
         if (ms != null) date = DateTime.fromMillisecondsSinceEpoch(ms);
-      } catch (_) { /* An interrupted session is aged by its directory. */ }
+      } catch (_) {
+        /* An interrupted session is aged by its directory. */
+      }
       date ??= (await root.stat()).modified;
       if (_now().difference(date) >= const Duration(hours: 24)) {
         revoke('Expired');
