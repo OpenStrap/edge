@@ -951,7 +951,11 @@ class SyncController {
       finalize = true;
       // A connected flag can outlive its GATT notifications. Apply the same
       // bounded probe/reconnect policy used on resume before awaiting history.
-      if (!await _linkUsableAfterResume('Sync now')) {
+      final historyStuck = engine.historyStuckThisSession;
+      if (historyStuck || !await _linkUsableAfterResume('Sync now')) {
+        if (historyStuck) {
+          _log('Sync now: history is stuck on this connection — reconnecting.');
+        }
         await engine.disconnect();
         if (!_isDisposed && !ResetGate.active) await openSession();
         return;

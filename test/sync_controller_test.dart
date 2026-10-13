@@ -54,6 +54,7 @@ class _Engine implements BleEngine {
   bool probeAnswer = true;
   Duration quiet = Duration.zero;
   bool liveArmed = false;
+  bool historyStuck = false;
   int? newestTs;
 
   /// A history task the band has not ended yet.
@@ -70,7 +71,7 @@ class _Engine implements BleEngine {
   @override
   bool get liveEnabled => liveArmed;
   @override
-  bool get historyStuckThisSession => false;
+  bool get historyStuckThisSession => historyStuck;
   @override
   int? get strapHistoryNewestTs => newestTs;
   @override
@@ -616,6 +617,17 @@ void main() {
       expect(r.trace.indexOf('disconnect'), lessThan(r.trace.indexOf('connect')));
       expect(r.engine.count('requestForegroundSync'), 0);
       expect(r.logged('Sync now: no BLE data'), isTrue);
+    }));
+
+    test('manual sync reconnects terminal history even when live data is fresh',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.historyStuck = true;
+      await r.c.syncNow();
+      await until(() => r.engine.count('connect') == 1);
+      expect(r.engine.count('disconnect'), 1);
+      expect(r.engine.count('requestForegroundSync'), 0);
+      expect(r.logged('Sync now: history is stuck on this connection'), isTrue);
     }));
 
     test('manual sync probes a quiet link and reuses it if the band replies',

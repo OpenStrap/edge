@@ -1044,7 +1044,7 @@ class AppState extends ChangeNotifier {
       phoneStepsLastSyncedDays = r.daysRead;
       phoneStepsLastTotal = r.totalSteps;
       await _refreshPhoneStepsToday();
-      if (_disposed || ResetGate.active) return 0;
+      if (!phoneStepsEnabled || _disposed || ResetGate.active) return 0;
       if (r.daysRead > 0) {
         // Use the normal durable queue: capture, workout and background holds
         // still apply, and a read finishing during derive gets a later pass.
