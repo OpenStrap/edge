@@ -51,6 +51,7 @@ String _writeExport(String root, Map<String, Object?> manifest,
   if (output.existsSync()) output.deleteSync();
   final sink = partial.openSync(mode: FileMode.write);
   var size = 0, count = 0, conflicts = 0;
+  var closed = false;
   final timestamps = <int, Set<String>>{};
   final payloads = <String>{};
   void write(Map<String, Object?> value) {
@@ -167,11 +168,15 @@ String _writeExport(String root, Map<String, Object?> manifest,
     });
     sink.flushSync();
     sink.closeSync();
+    closed = true;
     partial.renameSync(output.path);
     return output.path;
   } catch (_) {
-    sink.closeSync();
-    if (partial.existsSync()) partial.deleteSync();
+    try {
+      if (!closed) sink.closeSync();
+    } finally {
+      if (partial.existsSync()) partial.deleteSync();
+    }
     rethrow;
   }
 }

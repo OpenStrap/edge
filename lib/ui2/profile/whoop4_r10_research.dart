@@ -57,7 +57,9 @@ class _ResearchState extends State<Whoop4R10ResearchScreen> {
 
   R10StudyInterval? _interval() {
     if (_start.text.trim().isEmpty && _end.text.trim().isEmpty &&
-        _steps.text.trim().isEmpty && _label.text.trim().isEmpty) return null;
+        _steps.text.trim().isEmpty && _label.text.trim().isEmpty) {
+      return null;
+    }
     DateTime parse(String text) {
       if (!text.trim().endsWith('Z')) {
         throw const FormatException('UTC required');
