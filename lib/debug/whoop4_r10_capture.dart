@@ -243,7 +243,9 @@ class Whoop4R10Capture extends ChangeNotifier {
           if (!_active || generation != _generation) return;
           if (!matches(hex, deviceFamily, packetType)) {
             if (deviceFamily == 'gen4' && packetType == 0x2f &&
-                hex.toLowerCase().startsWith('2f0a')) unsupported++;
+                hex.toLowerCase().startsWith('2f0a')) {
+              unsupported++;
+            }
             return;
           }
           eligible++;

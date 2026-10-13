@@ -230,7 +230,9 @@ class AppState extends ChangeNotifier {
     final generation = research?.active == true ? research!.sessionGeneration : null;
     await commit();
     if (research == null || generation == null || !research.active ||
-        generation != research.sessionGeneration || _background) return;
+        generation != research.sessionGeneration || _background) {
+      return;
+    }
     try {
       _observeR10ResearchContext(device);
       await research.captureBatch(raws, archives: archives,

@@ -46,8 +46,10 @@ class _ResearchState extends State<Whoop4R10ResearchScreen> {
       await operation();
     } catch (_) {
       // Exceptions can contain private filesystem paths or payload fragments.
-      if (mounted) setState(() => _note =
+      if (mounted) {
+        setState(() => _note =
           'Research operation failed. Check the interval, device, and local storage.');
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -57,7 +59,9 @@ class _ResearchState extends State<Whoop4R10ResearchScreen> {
     if (_start.text.trim().isEmpty && _end.text.trim().isEmpty &&
         _steps.text.trim().isEmpty && _label.text.trim().isEmpty) return null;
     DateTime parse(String text) {
-      if (!text.trim().endsWith('Z')) throw const FormatException('UTC required');
+      if (!text.trim().endsWith('Z')) {
+        throw const FormatException('UTC required');
+      }
       return DateTime.parse(text.trim());
     }
     return R10StudyInterval(
@@ -127,8 +131,10 @@ class _ResearchState extends State<Whoop4R10ResearchScreen> {
           OutlinedButton(onPressed: _busy || capture.active || !capture.hasSession ?
               null : () => _run(() async {
                 final path = await exportWhoop4R10(capture, interval: _interval());
-                if (mounted) setState(() => _note =
+                if (mounted) {
+                  setState(() => _note =
                     'Local export saved at:\n$path\nCache may be evicted. Nothing was sent.');
+                }
               }), child: const Text('Export to local cache')),
           if (_note.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 16),
               child: SelectableText(_note)),
