@@ -920,16 +920,42 @@ class SyncController {
     }
   }
 
-  /// "Sync the band". On a link that is already up in the foreground,
-  /// [openSession] just reuses it and joins an offload nobody asked the band
-  /// for, so the tap pulled nothing: ask for one over the current link, then
-  /// finalize whatever landed. Floored like [foregroundCatchUp]: on a band
-  /// that just drained, a few quick taps would each come back empty, and the
-  /// empty-sync detector reads three of those as a lost clock and backs the
-  /// periodic pull off.
-  Future<void> syncNow() async {
-    if (background || !engine.isConnected) return openSession();
+  Future<void>? _manualSync;
+
+  /// Refresh both enabled data sources on an explicit tap. Repeated taps share
+  /// one operation; the phone read runs alongside BLE, never in its ACK path.
+  Future<void> syncNow() {
+    if (_isDisposed || ResetGate.active) return Future<void>.value();
+    return _manualSync ??= _runManualSync().whenComplete(() {
+      _manualSync = null;
+    });
+  }
+
+  Future<void> _refreshPhoneStepsForManualSync() async {
+    if (!_phoneStepsEnabled()) return;
     try {
+      await _syncPhoneSteps();
+    } catch (e) {
+      _log('Phone step refresh failed: $e');
+    }
+  }
+
+  Future<void> _runManualSync() async {
+    final steps = _refreshPhoneStepsForManualSync();
+    var finalize = false;
+    try {
+      if (background || !engine.isConnected) {
+        await openSession();
+        return;
+      }
+      finalize = true;
+      // A connected flag can outlive its GATT notifications. Apply the same
+      // bounded probe/reconnect policy used on resume before awaiting history.
+      if (!await _linkUsableAfterResume('Sync now')) {
+        await engine.disconnect();
+        if (!_isDisposed && !ResetGate.active) await openSession();
+        return;
+      }
       final running = _syncBurst;
       if (running != null) {
         await running;
@@ -940,8 +966,12 @@ class SyncController {
       }
     } catch (e) {
       _log('Sync failed: $e');
+    } finally {
+      await steps;
+      if (finalize && !_isDisposed && !ResetGate.active) {
+        _scheduler.requestHeavy();
+      }
     }
-    _scheduler.requestHeavy();
   }
 
   Future<SyncReport> syncForShortcut(ShortcutSyncTask task) async {

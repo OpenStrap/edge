@@ -52,6 +52,8 @@ class _Engine implements BleEngine {
   Future<void> Function()? batteryHook;
   bool foregroundSyncAllowed = true;
   bool probeAnswer = true;
+  Duration quiet = Duration.zero;
+  bool liveArmed = false;
   int? newestTs;
 
   /// A history task the band has not ended yet.
@@ -64,9 +66,9 @@ class _Engine implements BleEngine {
   @override
   bool get isConnected => link;
   @override
-  Duration get sinceLastRx => Duration.zero;
+  Duration get sinceLastRx => quiet;
   @override
-  bool get liveEnabled => false;
+  bool get liveEnabled => liveArmed;
   @override
   bool get historyStuckThisSession => false;
   @override
@@ -203,7 +205,11 @@ class _Rig {
       initError: () => initError,
       deriveScheduler: () => scheduler,
       phoneStepsEnabled: () => phoneSteps,
-      syncPhoneSteps: () async => trace.add('steps'),
+      syncPhoneSteps: () async {
+        trace.add('steps');
+        await phoneStepsGate?.future;
+        if (phoneStepsError != null) throw phoneStepsError!;
+      },
       ecgOnAppPaused: () async => trace.add('ecg.pause'),
       nudgeLive: () => trace.add('nudge'),
       recoverOrphanedLiveSession: () async => trace.add('recover'),
@@ -226,6 +232,8 @@ class _Rig {
   bool initialized = true;
   String? initError;
   bool phoneSteps = false;
+  Completer<void>? phoneStepsGate;
+  Object? phoneStepsError;
 
   bool logged(String text) => logs.any((l) => l.contains(text));
 
@@ -561,6 +569,76 @@ void main() {
         'sched.stored',
         'sched.heavy',
       ]);
+    }));
+
+    test('manual sync starts phone steps and BLE together, joins repeated taps, '
+        'and finalizes after the phone read', _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.phoneSteps = true;
+      final steps = r.phoneStepsGate = Completer<void>();
+      final first = r.c.syncNow();
+      final second = r.c.syncNow();
+      expect(identical(first, second), isTrue);
+      await until(() => r.engine.count('runSync') == 1);
+      expect(r.engine.count('steps'), 1);
+      expect(r.trace, isNot(contains('sched.heavy')));
+      steps.complete();
+      await first;
+      expect(r.trace.last, 'sched.heavy');
+      r.trace.clear();
+      await r.c.syncNow();
+      expect(r.engine.count('steps'), 1,
+          reason: 'the single-flight slot clears for the next tap');
+    }));
+
+    test('phone read failure does not prevent band sync or the next tap',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.phoneSteps = true;
+      r.phoneStepsError = StateError('sensor unavailable');
+      await r.c.syncNow();
+      expect(r.engine.count('runSync'), 1);
+      expect(r.logged('Phone step refresh failed:'), isTrue);
+      expect(r.trace.last, 'sched.heavy');
+      r.phoneStepsError = null;
+      await r.c.syncNow();
+      expect(r.engine.count('steps'), 2);
+      expect(r.engine.count('runSync'), 2);
+    }));
+
+    test('manual sync reconnects a silent link with a live stream armed',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.liveArmed = true;
+      r.engine.quiet = const Duration(seconds: 31);
+      await r.c.syncNow();
+      await until(() => r.engine.count('runSync') == 1);
+      expect(r.trace.indexOf('disconnect'), lessThan(r.trace.indexOf('connect')));
+      expect(r.engine.count('requestForegroundSync'), 0);
+      expect(r.logged('Sync now: no BLE data'), isTrue);
+    }));
+
+    test('manual sync probes a quiet link and reuses it if the band replies',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.quiet = const Duration(minutes: 5);
+      await r.c.syncNow();
+      expect(r.engine.count('probe'), 1);
+      expect(r.engine.count('disconnect'), 0);
+      expect(r.engine.count('requestForegroundSync'), 1);
+    }));
+
+    test('an unanswered manual-sync probe reconnects instead of awaiting '
+        'history on the dead link', _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.quiet = const Duration(minutes: 5);
+      r.engine.probeAnswer = false;
+      await r.c.syncNow();
+      await until(() => r.engine.count('runSync') == 1);
+      expect(r.engine.count('probe'), 1);
+      expect(r.engine.count('disconnect'), 1);
+      expect(r.engine.count('connect'), 1);
+      expect(r.engine.count('requestForegroundSync'), 0);
     }));
 
     test('syncNow while backgrounded or unlinked opens a session instead',
