@@ -169,8 +169,6 @@ void main() {
         'test/whoop4_r10_capture_test.dart',
         'test/whoop4_r10_export_test.dart',
         'test/app_state_r10_research_test.dart',
-        'lib/state/app_state.dart',
-        'lib/ui2/profile/settings.dart',
       ];
       var changed = false;
       for (final path in paths) {

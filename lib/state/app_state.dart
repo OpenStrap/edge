@@ -61,22 +61,12 @@ import '../data/journal_fields.dart'
     show JournalMetricValue, kJournalFieldsByKey;
 import '../data/med_store.dart' show MedDb, MedDef;
 import '../data/auto_backup.dart'
-    show
-        BackupCadence,
-        BackupOutcome,
-        BackupFolder,
-        AndroidBackupStorage,
-        runBackup;
+    show BackupCadence, BackupOutcome, BackupFolder, AndroidBackupStorage, runBackup;
 import '../stress/breath_phases.dart';
 // `runBackupIfDue` is also the name of the AppState method below, so the pure
 // scheduler is imported under an alias rather than shadowed by it.
-import '../data/auto_backup.dart'
-    as backup
-    show
-        runBackupIfDue,
-        selectedBackupFolder,
-        saveBackupFolder,
-        deleteAutomaticBackups;
+import '../data/auto_backup.dart' as backup
+    show runBackupIfDue, selectedBackupFolder, saveBackupFolder, deleteAutomaticBackups;
 import 'alarm_schedule.dart';
 import 'derive_coordinator.dart';
 import 'gesture_controller.dart';
@@ -128,7 +118,10 @@ import '../sync/reset_gate.dart';
 import '../sync/ios_shortcut_sync.dart';
 import '../sync/shortcut_sync_task.dart';
 import '../sync/paired_device.dart';
-import '../sync/sync_policy.dart' show BandPromptPolicy, BandPromptRequest;
+import '../sync/sync_policy.dart'
+    show
+        BandPromptPolicy,
+        BandPromptRequest;
 import '../sync/update_service.dart';
 import '../telemetry/telemetry_service.dart';
 import '../telemetry/health_uploader.dart';
@@ -313,14 +306,15 @@ class AppState extends ChangeNotifier {
     return EcgController(
       transport: t,
       guard: _ecgGuard,
-      save: (r, p) => LocalDb.insertEcgReading(r.toRow(), [
-        for (final x in p) EcgPacketCodec.toRow(x),
-      ]),
+      save: (r, p) => LocalDb.insertEcgReading(
+        r.toRow(),
+        [for (final x in p) EcgPacketCodec.toRow(x)],
+      ),
       busyReason: () => activeWorkout != null
           ? 'workout'
           : (breathingActive || breathingWindowOpen)
-          ? 'breathing'
-          : null,
+              ? 'breathing'
+              : null,
       holdScreen: ScreenWake.hold,
       releaseScreen: ScreenWake.releaseOwner,
       log: _log,
@@ -380,7 +374,8 @@ class AppState extends ChangeNotifier {
   );
   DeriveScheduler get _deriveScheduler => _deriveCoordinator.scheduler;
 
-  late final LiveStreamController _liveStreamController = LiveStreamController(
+  late final LiveStreamController _liveStreamController =
+      LiveStreamController(
     background: () => _background,
     activeWorkoutType: () => activeWorkout?.type,
     breathing: () => breathingActive || breathingWindowOpen,
@@ -572,9 +567,8 @@ class AppState extends ChangeNotifier {
   /// Re-read the sensor rows. Call after pairing or forgetting one; also runs
   /// whenever a paired device's row changes (a sync, a battery report).
   Future<void> refreshSensors() async {
-    _deviceRowSub ??= LocalDb.deviceRowChanged.stream.listen(
-      (_) => unawaited(refreshSensors()),
-    );
+    _deviceRowSub ??=
+        LocalDb.deviceRowChanged.stream.listen((_) => unawaited(refreshSensors()));
     final rows = await LocalDb.deviceRows();
     _sensors = [
       for (final r in rows)
@@ -1205,11 +1199,11 @@ class AppState extends ChangeNotifier {
     ];
     if (fromMs.isEmpty) return;
     final from = dayLabelOf(
-      DateTime.fromMillisecondsSinceEpoch(fromMs.reduce(math.min)),
-    );
+        DateTime.fromMillisecondsSinceEpoch(fromMs.reduce(math.min)));
     await rederiveDays({
       for (final r in await LocalDb.recentDayResultsMeta(14))
-        if (r['finalized'] != 1 && (r['day_id'] as String).compareTo(from) >= 0)
+        if (r['finalized'] != 1 &&
+            (r['day_id'] as String).compareTo(from) >= 0)
           r['day_id'] as String,
     });
   }
@@ -1584,6 +1578,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+
   /// A tapped notification asks the shell to switch to this tab index. The shell
   /// listens; it resets to -1 after consuming. Kept off the ChangeNotifier path so
   /// a deep-link doesn't repaint the whole tree.
@@ -1596,8 +1591,7 @@ class AppState extends ChangeNotifier {
 
   /// Bumped whenever stored insights change so listeners can re-query without a
   /// full ChangeNotifier repaint.
-  ValueNotifier<int> get insightsRevision =>
-      _deriveCoordinator.insightsRevision;
+  ValueNotifier<int> get insightsRevision => _deriveCoordinator.insightsRevision;
   StreamSubscription<String>? _tapSub;
 
   void _handleTapRoute(String route) {
@@ -1609,12 +1603,11 @@ class AppState extends ChangeNotifier {
   AppState() {
     final views = WidgetsBinding.instance.platformDispatcher.views;
     final lifecycle = WidgetsBinding.instance.lifecycleState;
-    final isHeadless =
-        views.isEmpty ||
-        lifecycle == AppLifecycleState.detached ||
-        lifecycle == null ||
-        lifecycle == AppLifecycleState.paused ||
-        lifecycle == AppLifecycleState.hidden;
+    final isHeadless = views.isEmpty || 
+                       lifecycle == AppLifecycleState.detached || 
+                       lifecycle == null || 
+                       lifecycle == AppLifecycleState.paused || 
+                       lifecycle == AppLifecycleState.hidden;
     _background = isHeadless;
 
     _gestureController = GestureController(
@@ -1649,55 +1642,41 @@ class AppState extends ChangeNotifier {
       // durable commit, same arguments, one extra await frame, and the SAME
       // failure contract: `commitNativeBatch` rethrows so
       // `DrainController.commit` still reads durability from a throw.
-      onCommitBatch:
-          (
-            raws,
-            samples,
-            trimTokenHex, {
-            archives,
-            ecgRawPackets,
-            deviceFamily,
-          }) async {
-            try {
-              // THROWS, never silently succeeds. This is the ACK gate: only
-              // `onCommit` can bank raws + archives + trim cursor in one
-              // transaction, and DrainController reads durability FROM A THROW
-              // (see its safe-trim invariant). Returning quietly here would tell
-              // the drain the chunk was banked, it would ACK, and the band would
-              // trim flash that this reset refused to store — turning a race into
-              // real data loss on a band the user may not be deleting after all if
-              // the reset then fails. A throw blocks the ACK and the records stay
-              // on the strap.
-              if (ResetGate.active) {
-                throw StateError('data reset in progress — refusing to commit');
-              }
-              await commitWithR10Research(
-                commit: () => _bandHost.commitNativeBatch(
-                  raws,
-                  samples,
-                  trimTokenHex,
-                  archives: archives,
-                  ecgRawPackets: ecgRawPackets,
-                  deviceFamily: deviceFamily,
-                ),
-                raws: raws,
+      onCommitBatch: (raws, samples, trimTokenHex,
+          {archives, ecgRawPackets, deviceFamily}) async {
+        try {
+          // THROWS, never silently succeeds. This is the ACK gate: only
+          // `onCommit` can bank raws + archives + trim cursor in one
+          // transaction, and DrainController reads durability FROM A THROW
+          // (see its safe-trim invariant). Returning quietly here would tell
+          // the drain the chunk was banked, it would ACK, and the band would
+          // trim flash that this reset refused to store — turning a race into
+          // real data loss on a band the user may not be deleting after all if
+          // the reset then fails. A throw blocks the ACK and the records stay
+          // on the strap.
+          if (ResetGate.active) {
+            throw StateError('data reset in progress — refusing to commit');
+          }
+          await commitWithR10Research(
+            commit: () => _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
                 archives: archives,
-                deviceFamily: deviceFamily,
-              );
-            } catch (_) {
-              IosShortcutSync.foregroundCommitFailed();
-              rethrow;
-            }
-            IosShortcutSync.foregroundCommitted(samples.length);
-          },
+                ecgRawPackets: ecgRawPackets,
+                deviceFamily: deviceFamily),
+            raws: raws, archives: archives, deviceFamily: deviceFamily,
+          );
+        } catch (_) {
+          IosShortcutSync.foregroundCommitFailed();
+          rethrow;
+        }
+        IosShortcutSync.foregroundCommitted(samples.length);
+      },
       // Pre-setup fallback only: the drain path archives inside commitSyncBatch.
       onArchiveRecord: (raw) async {
         if (_resetting) return; // see [_resetting]
         await LocalDb.archiveRawRecord(raw);
       },
-      cursorReader: (base) => LocalDb.getCursorInt(
-        LocalDb.cursorKeyFor(base, LocalDb.kPrimaryDeviceId),
-      ),
+      cursorReader: (base) =>
+          LocalDb.getCursorInt(LocalDb.cursorKeyFor(base, LocalDb.kPrimaryDeviceId)),
       // Debounced compute trigger: with continuous listening there's no discrete
       // "sync done", so the engine coalesces stored-record bursts and fires this
       // once a burst goes quiet. Light pass = freshness-first (TODAY when data has
@@ -1782,11 +1761,8 @@ class AppState extends ChangeNotifier {
   /// stream arming throws). When supplied it is used AS GIVEN — its callbacks
   /// are the test's responsibility, not wired back into this AppState.
   @visibleForTesting
-  AppState.forTesting({
-    BleEngine? engine,
-    EcgController? ecg,
-    Whoop4R10Capture? r10Research,
-  }) {
+  AppState.forTesting({BleEngine? engine, EcgController? ecg,
+      Whoop4R10Capture? r10Research}) {
     _r10Research = r10Research;
     _background = false;
     _ecg = ecg;
@@ -1797,8 +1773,7 @@ class AppState extends ChangeNotifier {
       onWorkoutToggle: _toggleWorkoutFromGesture,
       onLogWater: _logWaterFromGesture,
     );
-    this.engine =
-        engine ??
+    this.engine = engine ??
         BleEngine(
           onRecord: _onRecord,
           onState: (s) => _onEngineState(LocalDb.kPrimaryDeviceId, s),
@@ -1961,9 +1936,8 @@ class AppState extends ChangeNotifier {
   Future<bool> Function(Profile profile)? get debugRefreshActivityReviews =>
       _deriveCoordinator.debugRefreshActivityReviews;
   @visibleForTesting
-  set debugRefreshActivityReviews(
-    Future<bool> Function(Profile profile)? value,
-  ) => _deriveCoordinator.debugRefreshActivityReviews = value;
+  set debugRefreshActivityReviews(Future<bool> Function(Profile profile)? value) =>
+      _deriveCoordinator.debugRefreshActivityReviews = value;
 
   /// Run one post-drain derive pass directly, as the scheduler's run callback
   /// does. Tests only.
@@ -2000,7 +1974,11 @@ class AppState extends ChangeNotifier {
   /// [_onLiveFrame] does, with the ingest wall-clock supplied by the caller.
   /// Tests only — lets a test replay a session's frames deterministically.
   @visibleForTesting
-  void debugFeedLiveAccel(List<double> mags, {int? recTs, required int atMs}) {
+  void debugFeedLiveAccel(
+    List<double> mags, {
+    int? recTs,
+    required int atMs,
+  }) {
     _ingestLiveMagsAt(proto.ImuFrame(recTs ?? 0, 0, mags), atMs);
     _trackCoverage(recTs);
   }
@@ -2026,9 +2004,7 @@ class AppState extends ChangeNotifier {
   /// without going through the BLE event path. Tests only.
   @visibleForTesting
   void debugHandleAlarmEvent(int id, {int? tsSec}) => _handleAlarmEvent(
-    id,
-    tsSec ?? DateTime.now().millisecondsSinceEpoch ~/ 1000,
-  );
+      id, tsSec ?? DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
   /// Feed one `DeviceState` through [_onEngineState] for [deviceId], exactly
   /// as `BleEngine`'s `onState` callback does. Tests only — lets a test drive
@@ -2283,7 +2259,8 @@ class AppState extends ChangeNotifier {
     try {
       // Same default every other step-goal reader uses — a user who never
       // opened the goal editor still sees "100% of goal" on Home.
-      final goal = (user?['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal;
+      final goal =
+          (user?['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal;
       if (goal <= 0) return;
       final rows = await LocalDb.metricSeries('steps');
       if (rows.isEmpty) return;
@@ -2409,13 +2386,9 @@ class AppState extends ChangeNotifier {
       // refused there, and had never once fired.
       final prefs = await NotificationPrefs.load();
       if (!prefs.movementEnabled) return;
-      await NotificationService.instance.cancel(
-        NotificationService.idStillness,
-      );
+      await NotificationService.instance.cancel(NotificationService.idStillness);
       final at = NotificationCenter.stillnessNudgeAt(
-        prefs,
-        DateTime.fromMillisecondsSinceEpoch(nowMs),
-      );
+          prefs, DateTime.fromMillisecondsSinceEpoch(nowMs));
       if (at == null) return;
       await NotificationService.instance.scheduleOnce(
         id: NotificationService.idStillness,
@@ -2740,11 +2713,7 @@ class AppState extends ChangeNotifier {
       await _initSteps();
     } catch (e, st) {
       _log('[init] FAILED: $e');
-      TelemetryService.instance.recordNonFatal(
-        e,
-        st,
-        reason: 'app_init_failed',
-      );
+      TelemetryService.instance.recordNonFatal(e, st, reason: 'app_init_failed');
       // A throw AFTER `initialized` is a late, non-fatal step (the background
       // BLE arm at the tail) — the shell is already usable, so it must not
       // throw the user onto an error screen.
@@ -2758,8 +2727,7 @@ class AppState extends ChangeNotifier {
   Future<void> _initSteps() async {
     paired = await PairedDevice.load();
     final pairedSerial = paired?.serial;
-    pairedIsMaverick =
-        pairedSerial != null &&
+    pairedIsMaverick = pairedSerial != null &&
         await _ecgGuard.isRememberedMaverick(pairedSerial);
     await refreshSensors();
     await _loadProfile();
@@ -2774,11 +2742,8 @@ class AppState extends ChangeNotifier {
     // session, and now for one a background pass took.
     SessionLink.onSessionDone = adoptWeighing;
     // In the background: its re-derive must not hold the shell's launch.
-    unawaited(
-      adoptWeighing().catchError(
-        (Object e) => debugPrint('[AppState] adoptWeighing failed: $e'),
-      ),
-    );
+    unawaited(adoptWeighing().catchError(
+        (Object e) => debugPrint('[AppState] adoptWeighing failed: $e')));
     await _deriveScheduler.init();
     // Headless wakes don't roll up; openSession picks pending reviews up.
     if (!_background) unawaited(refreshActivityReviews());
@@ -2793,7 +2758,8 @@ class AppState extends ChangeNotifier {
     // every record commitSyncBatch durably persists, decoded_onehz-eligible
     // or not, so it's the honest frontier (same one RecordGate/backfill
     // policies already trust).
-    _lastRecTs = await LocalDb.getCursorInt('rec_ts_hw') ?? lastSynced?.tsEpoch;
+    _lastRecTs =
+        await LocalDb.getCursorInt('rec_ts_hw') ?? lastSynced?.tsEpoch;
     await LocalDb.refreshComputeFreshness();
     final alarmPrefs = await SharedPreferences.getInstance();
     _savedAlarm = alarmPrefs.getInt('alarm_epoch');
@@ -2810,11 +2776,10 @@ class AppState extends ChangeNotifier {
       // Resume the not-confirmed alert a killed process was still holding.
       final saved = _savedAlarm!;
       final resume = alarmLatchAlertResumeDelay(
-        alarmPrefs.getStringList('alarm_latch_alert'),
-        savedEpoch: saved,
-        confirmed: _alarm.confirmed,
-        nowMs: DateTime.now().millisecondsSinceEpoch,
-      );
+          alarmPrefs.getStringList('alarm_latch_alert'),
+          savedEpoch: saved,
+          confirmed: _alarm.confirmed,
+          nowMs: DateTime.now().millisecondsSinceEpoch);
       if (resume != null) {
         _alarmGraceTimer = Timer(resume, () {
           if (!_disposed) unawaited(_notifyAlarmLatchFailed(saved));
@@ -2893,15 +2858,11 @@ class AppState extends ChangeNotifier {
         const Duration(seconds: 20),
       );
       if (!connected) {
-        _log(
-          '[tasker] pending buzz (pattern=$pattern) still queued — '
-          'no connection within 20s, will retry on the next reconnect',
-        );
+        _log('[tasker] pending buzz (pattern=$pattern) still queued — '
+            'no connection within 20s, will retry on the next reconnect');
         return;
       }
-      _log(
-        '[tasker] consuming pending buzz (pattern=$pattern) from headless intent',
-      );
+      _log('[tasker] consuming pending buzz (pattern=$pattern) from headless intent');
       await engine.buzzPattern(pattern);
       await TaskerBridge.clearPendingBuzz();
     } finally {
@@ -2939,7 +2900,10 @@ class AppState extends ChangeNotifier {
       // reads the service and says. That also means no `HrsLink.mintDeviceId`
       // call is possible yet (its prefix IS the family), so the row keeps a
       // provisional id.
-      await LocalDb.upsertDevice(id: 'whoop:$remoteId', remoteId: remoteId);
+      await LocalDb.upsertDevice(
+        id: 'whoop:$remoteId',
+        remoteId: remoteId,
+      );
     } catch (e) {
       debugPrint('[ask] additional accessory not provisioned: $e');
       // The restore central is gone at this point if the picker threw after the
@@ -3000,10 +2964,7 @@ class AppState extends ChangeNotifier {
       } else if (meds.defs != null) {
         final instants = <DateTime>[];
         for (final s in NotificationCenter.medPromptSlots(
-          prefs,
-          meds.defs!,
-          meds.doses,
-        )) {
+            prefs, meds.defs!, meds.doses)) {
           final at = NotificationCenter.medSlotInstant(s);
           if (at != null) instants.add(at);
         }
@@ -3033,7 +2994,7 @@ class AppState extends ChangeNotifier {
   /// hang off it — check-in, wind-down, nightly sweep, weekly lookback — and
   /// a second copy of this parse is a second thing to get wrong.
   Future<({double? bedtimeMin, List<Map<String, dynamic>> recent})>
-  _readCrossdaySummary() async {
+      _readCrossdaySummary() async {
     try {
       final cd = await LocalDb.baseline('crossday');
       final m = cd?['payload_json'];
@@ -3046,8 +3007,8 @@ class AppState extends ChangeNotifier {
       }
       final bt = (j['sleep_coach'] as Map?)?['bedtime'];
       final v = bt is Map ? bt['value'] : null;
-      final bedtime = (v is Map ? (v['bedtime_min_of_day'] as num?) : null)
-          ?.toDouble();
+      final bedtime =
+          (v is Map ? (v['bedtime_min_of_day'] as num?) : null)?.toDouble();
       // Same rows `DerivationEngine._runNotifications` consumes for the daily
       // exception — {date, rhr, unsettled, illness, anomaly, temp}.
       final rawRecent = j['recent'];
@@ -3078,8 +3039,7 @@ class AppState extends ChangeNotifier {
   Future<bool?> _checkInDoneToday() async {
     try {
       return NotificationCenter.checkInDone(
-        await LocalDb.journalMetricsForDay(todayLabel()),
-      );
+          await LocalDb.journalMetricsForDay(todayLabel()));
     } catch (_) {
       return null;
     }
@@ -3093,10 +3053,8 @@ class AppState extends ChangeNotifier {
   /// medications". The scheduler cancels the armed doses on the second and
   /// preserves them on the first; returning `[]` for a failed read handed it
   /// the wrong one of those.
-  Future<
-    ({List<MedDef>? defs, Map<String, Map<int, Map<String, Object?>>> doses})
-  >
-  _medScheduleToday(NotificationPrefs prefs) async {
+  Future<({List<MedDef>? defs, Map<String, Map<int, Map<String, Object?>>> doses})>
+      _medScheduleToday(NotificationPrefs prefs) async {
     const empty = <String, Map<int, Map<String, Object?>>>{};
     if (!prefs.medsEnabled) return (defs: null, doses: empty);
     try {
@@ -3137,9 +3095,8 @@ class AppState extends ChangeNotifier {
     }
     _lastSweepScanMs = at.millisecondsSinceEpoch;
     try {
-      _sweepHeadline = sweepHeadline(
-        sweepFindings(await collectSweepSeries(r, at)),
-      );
+      _sweepHeadline =
+          sweepHeadline(sweepFindings(await collectSweepSeries(r, at)));
     } catch (e) {
       _log('[ai] sweep scan skipped: $e');
     }
@@ -3440,7 +3397,7 @@ class AppState extends ChangeNotifier {
       final rate = hz == null
           ? ''
           : ' (${hz.toStringAsFixed(0)} Hz, needs '
-                '${kMinLiveSampleRateHz.toStringAsFixed(0)})';
+              '${kMinLiveSampleRateHz.toStringAsFixed(0)})';
       return 'The strap sent motion too slowly to count steps$rate.';
     }
     return null;
@@ -3465,7 +3422,8 @@ class AppState extends ChangeNotifier {
 
   /// Asks for the derive that reads a banked tail.
   @visibleForTesting
-  void Function() get onStrapTailBanked => _workoutController.onStrapTailBanked;
+  void Function() get onStrapTailBanked =>
+      _workoutController.onStrapTailBanked;
   @visibleForTesting
   set onStrapTailBanked(void Function() f) =>
       _workoutController.onStrapTailBanked = f;
@@ -3804,10 +3762,8 @@ class AppState extends ChangeNotifier {
       if (recovered == 0) {
         _log('[steps] orphan checkpoint already banked — not re-adding');
       } else {
-        _log(
-          '[steps] recovered $recovered orphaned step(s) '
-          'from a killed session',
-        );
+        _log('[steps] recovered $recovered orphaned step(s) '
+            'from a killed session');
       }
     } catch (e) {
       _log('[steps] orphan recovery skipped: $e');
@@ -3927,10 +3883,7 @@ class AppState extends ChangeNotifier {
   List<int> liveHrTrace([String? deviceId]) {
     final id = deviceId ?? liveHrDeviceId;
     if (id == null) return const [];
-    return [
-      for (final e in _liveHrTrace)
-        if (e.deviceId == id) e.hr,
-    ];
+    return [for (final e in _liveHrTrace) if (e.deviceId == id) e.hr];
   }
 
   /// Bumped on every appended sample. A `select` on the trace's LENGTH stops
@@ -3948,8 +3901,7 @@ class AppState extends ChangeNotifier {
   bool _isStreaming(String id) {
     final at = _liveHrTraceAt[id];
     return at != null &&
-        DateTime.now().millisecondsSinceEpoch - at <=
-            liveHrMaxAge.inMilliseconds;
+        DateTime.now().millisecondsSinceEpoch - at <= liveHrMaxAge.inMilliseconds;
   }
 
   /// THE DEVICE WHOSE LIVE TRACE IS SHOWN, or null when nothing is streaming.
@@ -4182,13 +4134,8 @@ class AppState extends ChangeNotifier {
     final healed = healedPairing(paired, s.serial);
     if (healed != null) {
       paired = healed;
-      unawaited(
-        PairedDevice.save(
-          healed.remoteId,
-          healed.serial,
-          generation: s.generation,
-        ),
-      );
+      unawaited(PairedDevice.save(healed.remoteId, healed.serial,
+          generation: s.generation));
     }
     // Pin the discovered generation onto the pairing record (HEAL ONLY — same
     // rule as the serial above: never CREATE a pairing here). A known-device
@@ -4198,10 +4145,10 @@ class AppState extends ChangeNotifier {
     if (p != null &&
         (s.generation == 'gen4' || s.generation == 'gen5') &&
         s.generation != p.generation) {
-      paired = PairedDevice(p.remoteId, p.serial, generation: s.generation);
+      paired =
+          PairedDevice(p.remoteId, p.serial, generation: s.generation);
       unawaited(
-        PairedDevice.save(p.remoteId, p.serial, generation: s.generation),
-      );
+          PairedDevice.save(p.remoteId, p.serial, generation: s.generation));
     }
     // WHOOP MG identity, remembered per serial so the ECG entry survives a
     // disconnect. Set only from a positive revision-1 MAVERICK hello — never
@@ -4291,11 +4238,8 @@ class AppState extends ChangeNotifier {
     // why `_onEngineState` stamps it too — this line alone would leave
     // `device.adapter_id` blank on every install that pairs once and never
     // re-pairs.
-    await PairedDevice.save(
-      remoteId,
-      serial ?? device.serial,
-      generation: device.generation,
-    );
+    await PairedDevice.save(remoteId, serial ?? device.serial,
+        generation: device.generation);
     paired = await PairedDevice.load();
     // Now that there's a band to alert about, ask for notification permission
     // (a natural moment; battery/charging alerts depend on it). Best-effort.
@@ -4404,14 +4348,12 @@ class AppState extends ChangeNotifier {
     if (age > liveHrMaxAge.inMilliseconds) return null;
     return device.liveHr;
   }
-
   // The locally-set value is authoritative: the band has no independent alarm
   // source (its alarm is always what the app last wrote, and SET_ALARM is
   // HW-verified), while the GET_ALARM readback format is unconfirmed and was
   // clobbering the display (see the parked block in ble_engine._onDecoded).
   // device.alarmEpoch = this-session optimistic set; _savedAlarm = persisted.
   int? get alarmEpoch => device.alarmEpoch ?? _savedAlarm;
-
   /// The band's advertising name, LAST KNOWN when the link has not answered.
   ///
   /// `DeviceState.strapName` only exists after a connect and a GET round-trip,
@@ -4426,7 +4368,6 @@ class AppState extends ChangeNotifier {
     final saved = Prefs.getString(_kStrapName, '');
     return saved.isEmpty ? null : saved;
   }
-
   int? _savedAlarm;
 
   // ── weekly alarm schedule (replaces a single next-occurrence value) ────────
@@ -4440,9 +4381,8 @@ class AppState extends ChangeNotifier {
   Future<void> _loadAlarmSchedule() async {
     try {
       final rows = await LocalDb.alarmScheduleRows();
-      _schedule = fillDefaultAlarmSchedule([
-        for (final r in rows) AlarmScheduleEntry.fromRow(r),
-      ]);
+      _schedule = fillDefaultAlarmSchedule(
+          [for (final r in rows) AlarmScheduleEntry.fromRow(r)]);
     } catch (e) {
       _log('[alarm] schedule load failed: $e');
     }
@@ -4484,11 +4424,10 @@ class AppState extends ChangeNotifier {
     final current = _schedule.firstWhere(
       (e) => e.weekday == weekday,
       orElse: () => AlarmScheduleEntry(
-        weekday: weekday,
-        hour: defaultAlarmHour,
-        minute: defaultAlarmMinute,
-        enabled: false,
-      ),
+          weekday: weekday,
+          hour: defaultAlarmHour,
+          minute: defaultAlarmMinute,
+          enabled: false),
     );
     final next = current.copyWith(
       hour: hour,
@@ -4595,20 +4534,19 @@ class AppState extends ChangeNotifier {
       if (armed == null) return;
       final now = DateTime.now();
       if (!inSmartWakeWindow(
-        windowEnd: armed.windowEnd,
-        minutes: armed.minutes,
-        now: now,
-      )) {
+          windowEnd: armed.windowEnd, minutes: armed.minutes, now: now)) {
         return;
       }
       final recentRows = await LocalDb.onehzHrAccelBetween(
-        now.subtract(const Duration(minutes: 3)).millisecondsSinceEpoch ~/ 1000,
+        now.subtract(const Duration(minutes: 3)).millisecondsSinceEpoch ~/
+            1000,
         now.millisecondsSinceEpoch ~/ 1000,
       );
       final baselineRows = await LocalDb.onehzHrAccelBetween(
         now.subtract(const Duration(minutes: 93)).millisecondsSinceEpoch ~/
             1000,
-        now.subtract(const Duration(minutes: 3)).millisecondsSinceEpoch ~/ 1000,
+        now.subtract(const Duration(minutes: 3)).millisecondsSinceEpoch ~/
+            1000,
       );
       final detected = likelyLightSleep(
         baseline: [for (final r in baselineRows) SmartWakeSample.fromRow(r)],
@@ -4813,25 +4751,20 @@ class AppState extends ChangeNotifier {
   Future<void> _notifyAlarmLatchFailed(int epoch) async {
     try {
       final prefs = await NotificationPrefs.load();
-      if (!alarmLatchFailed(
-        _alarm,
-        epoch,
-        enabled: prefs.alarmLatchFailedEnabled,
-      )) {
+      if (!alarmLatchFailed(_alarm, epoch,
+          enabled: prefs.alarmLatchFailedEnabled)) {
         return;
       }
-      await NotificationCenter.instance.emit(
-        NotificationEvent(
-          dedupeKey: 'alarm_latch_failed:$epoch',
-          category: NotifCategory.device,
-          priority: NotifPriority.critical,
-          title: 'Alarm not confirmed',
-          body: 'The band did not confirm this alarm — check the strap.',
-          date: todayLabel(),
-          route: kRouteAlarm,
-          osId: NotificationService.idAlarmLatchFailed,
-        ),
-      );
+      await NotificationCenter.instance.emit(NotificationEvent(
+        dedupeKey: 'alarm_latch_failed:$epoch',
+        category: NotifCategory.device,
+        priority: NotifPriority.critical,
+        title: 'Alarm not confirmed',
+        body: 'The band did not confirm this alarm — check the strap.',
+        date: todayLabel(),
+        route: kRouteAlarm,
+        osId: NotificationService.idAlarmLatchFailed,
+      ));
     } catch (e) {
       _log('[alarm] latch-failure notification skipped: $e');
     }
@@ -4890,11 +4823,8 @@ class AppState extends ChangeNotifier {
   void _handleAlarmEvent(int id, int ts) {
     // The strap stamps events on its own RTC; the alarm was armed at
     // `when - driftSec` in that frame, so map back the same way.
-    final effect = _alarm.onEvent(
-      id,
-      DateTime.now().millisecondsSinceEpoch,
-      tsSec: ts + (engine.clockRef?.driftSec ?? 0),
-    );
+    final effect = _alarm.onEvent(id, DateTime.now().millisecondsSinceEpoch,
+        tsSec: ts + (engine.clockRef?.driftSec ?? 0));
     if (effect == null) return;
     switch (effect) {
       case AlarmEffect.confirmed:
@@ -4921,14 +4851,12 @@ class AppState extends ChangeNotifier {
       case AlarmEffect.fired:
         _log('[alarm] strap FIRED — EXECUTED (event $id) received.');
         _alarmFiredAt = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
-        unawaited(
-          SharedPreferences.getInstance()
-              .then((p) => p.setInt('alarm_fired_at', ts))
-              .catchError((Object e) {
-                _log('[alarm] persisting the fire time failed: $e');
-                return false;
-              }),
-        );
+        unawaited(SharedPreferences.getInstance()
+            .then((p) => p.setInt('alarm_fired_at', ts))
+            .catchError((Object e) {
+          _log('[alarm] persisting the fire time failed: $e');
+          return false;
+        }));
         unawaited(_notifyAlarmFired());
         // A one-shot alarm is SPENT the moment it fires. This used to only log
         // + notify, so `alarmEpoch` kept returning the past epoch across
@@ -4979,17 +4907,15 @@ class AppState extends ChangeNotifier {
 
   Future<void> _notifyAlarmFired() async {
     try {
-      await NotificationCenter.instance.emit(
-        NotificationEvent(
-          dedupeKey: 'alarm_fired:${_alarm.firedAt ?? 0}',
-          category: NotifCategory.reminders,
-          priority: NotifPriority.critical,
-          title: 'Alarm',
-          body: 'Your strap alarm just fired.',
-          date: todayLabel(),
-          route: kRouteAlarm,
-        ),
-      );
+      await NotificationCenter.instance.emit(NotificationEvent(
+        dedupeKey: 'alarm_fired:${_alarm.firedAt ?? 0}',
+        category: NotifCategory.reminders,
+        priority: NotifPriority.critical,
+        title: 'Alarm',
+        body: 'Your strap alarm just fired.',
+        date: todayLabel(),
+        route: kRouteAlarm,
+      ));
     } catch (e) {
       _log('[alarm] fired-notification skipped: $e');
     }
@@ -5008,7 +4934,6 @@ class AppState extends ChangeNotifier {
     if (foreground) _r10Research?.setForeground(true);
     return _sync.openSession(foreground: foreground);
   }
-
   Future<void> forceResync() => _sync.forceResync();
   Future<void> foregroundCatchUp() => _sync.foregroundCatchUp();
   Future<void> syncNow() => _sync.syncNow();
@@ -5055,10 +4980,7 @@ class AppState extends ChangeNotifier {
   Future<void> _refreshHighFreqWakeWindowOnce() async {
     if (!engine.isConnected) return;
     try {
-      final armed = armedSmartWakeWindow(
-        epoch: alarmEpoch,
-        schedule: _schedule,
-      );
+      final armed = armedSmartWakeWindow(epoch: alarmEpoch, schedule: _schedule);
       final plan = await HighFreqWakeWindow.planNow(
         scheduledWindowEnd: armed?.windowEnd,
         scheduledWindowMinutes: armed?.minutes ?? 0,
@@ -5107,7 +5029,6 @@ class AppState extends ChangeNotifier {
     _r10Research?.revoke('Session ended');
     return _sync.endSession();
   }
-
   String get status => _sync.status;
   DateTime? get lastDataAt => _sync.lastDataAt;
   bool get syncingNow => _sync.syncingNow;
@@ -5149,8 +5070,7 @@ class AppState extends ChangeNotifier {
 
   // ── guided breathing ───────────────────────────────────────────────────────
   bool get breathingActive => _breathingController.breathingActive;
-  set breathingActive(bool value) =>
-      _breathingController.breathingActive = value;
+  set breathingActive(bool value) => _breathingController.breathingActive = value;
 
   /// The clock a breathing session is timed by. Tests only — the app never
   /// replaces it.
@@ -5173,8 +5093,7 @@ class AppState extends ChangeNotifier {
       _breathingController.breathingResult = value;
 
   String? get breathingError => _breathingController.breathingError;
-  set breathingError(String? value) =>
-      _breathingController.breathingError = value;
+  set breathingError(String? value) => _breathingController.breathingError = value;
 
   // ── quiet windows either side of the paced block ───────────────────────────
   //
@@ -5214,10 +5133,8 @@ class AppState extends ChangeNotifier {
   Future<void> startBreathingSession({
     BreathPattern? pattern,
     Duration? target,
-  }) => _breathingController.startBreathingSession(
-    pattern: pattern,
-    target: target,
-  );
+  }) =>
+      _breathingController.startBreathingSession(pattern: pattern, target: target);
 
   /// End the guided-breathing session and bank it.
   ///
@@ -5334,11 +5251,12 @@ class AppState extends ChangeNotifier {
     double targetKcal = 300,
     String? workoutId,
     String type = 'other',
-  }) => _workoutController.startWorkout(
-    targetKcal: targetKcal,
-    workoutId: workoutId,
-    type: type,
-  );
+  }) =>
+      _workoutController.startWorkout(
+        targetKcal: targetKcal,
+        workoutId: workoutId,
+        type: type,
+      );
 
   Future<void> retryRouteTracking() => _workoutController.retryRouteTracking();
 
@@ -5437,9 +5355,8 @@ class AppState extends ChangeNotifier {
       // the whole day from what it is handed.
       final fields = {...await r.getJournalMetrics(date)};
       final now = fields['water_ml']?.value ?? 0;
-      fields['water_ml'] = JournalMetricValue(
-        (now + spec.step).clamp(0, spec.max).toDouble(),
-      );
+      fields['water_ml'] =
+          JournalMetricValue((now + spec.step).clamp(0, spec.max).toDouble());
       await r.postJournalMetrics(date, fields);
       _log('[gesture] water logged (+${spec.step.round()} ${spec.unit})');
       await HapticFeedback.mediumImpact();
