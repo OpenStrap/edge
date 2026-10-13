@@ -101,6 +101,15 @@ void main() {
     expect(await File('${root.path}/exports/whoop4_r10.partial').exists(),isFalse);
   });
 
+  test('cache eviction cannot leave export claiming complete capture', () async {
+    await capture.captureBatch([raw(1750000000)],deviceFamily:'gen4');
+    await capture.stop();
+    await File('${root.path}/chunk_0.ndjson').delete();
+    final rows=await read(await exportWhoop4R10(capture));
+    expect(rows.last['incomplete'],isTrue);
+    expect(rows.last['retained_record_count_matches_export'],isFalse);
+  });
+
   test('export size limit removes the failed output', () async {
     await capture.captureBatch([raw(1750000000)],deviceFamily:'gen4');
     await capture.stop();

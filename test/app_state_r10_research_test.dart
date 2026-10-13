@@ -78,6 +78,19 @@ void main() {
     expect(capture.active,isFalse);
   });
 
+
+  test('a pending commit cannot cross into a newly consented session', () async {
+    await capture.start(consent:true);
+    final gate=Completer<void>();
+    final commit=app.commitWithR10Research(commit:()=>gate.future,
+      raws:[record()],deviceFamily:'gen4');
+    app.revokeR10Research();
+    await capture.start(consent:true);
+    gate.complete();
+    await commit;
+    expect(capture.records,0);
+  });
+
   test('disabled path creates no files and still commits normally', () async {
     var normal=false;
     await app.commitWithR10Research(commit:() async {normal=true;},
@@ -122,7 +135,12 @@ void main() {
         final source = formatted.stdout as String;
         final marker = source.lastIndexOf('\nFormatted ');
         final text = marker < 0 ? source : source.substring(0, marker + 1);
-        print('R10_FORMAT:$path:${base64Encode(utf8.encode(text))}');
+        final encoded = base64Encode(utf8.encode(text));
+        for (var i = 0; i < encoded.length; i += 4000) {
+          final end = i + 4000 < encoded.length ? i + 4000 : encoded.length;
+          // ignore: avoid_print
+          print('R10_FORMAT:$path:$i:${encoded.substring(i, end)}');
+        }
       } else {
         expect(result.exitCode, 0, reason: 'Dart formatter must run successfully');
       }

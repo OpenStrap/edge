@@ -104,6 +104,7 @@ import '../import/whoop_import.dart';
 import '../platform/tasker_bridge.dart';
 import '../data/models.dart';
 import '../debug/whoop4_r10_capture.dart';
+import '../debug/debug_mode.dart';
 import '../notify/device_alerts.dart';
 import '../notify/notification_relay.dart';
 import '../notify/notification_service.dart';
@@ -198,6 +199,7 @@ class AppState extends ChangeNotifier {
         _background || paired == null || device.generation != 'gen4') {
       throw StateError('research_requires_foreground_paired_gen4_debug_consent');
     }
+    r10Research.setForeground(!_background);
     await r10Research.start(consent: consent, appVersion: appVersion);
     _observeR10ResearchContext(device);
   }
@@ -224,9 +226,11 @@ class AppState extends ChangeNotifier {
     List<ArchiveRecord>? archives,
     String? deviceFamily,
   }) async {
-    await commit();
     final research = _r10Research;
-    if (research == null || !research.active || _background) return;
+    final generation = research?.active == true ? research!.sessionGeneration : null;
+    await commit();
+    if (research == null || generation == null || !research.active ||
+        generation != research.sessionGeneration || _background) return;
     try {
       _observeR10ResearchContext(device);
       await research.captureBatch(raws, archives: archives,
@@ -1320,6 +1324,7 @@ class AppState extends ChangeNotifier {
     //     connected and still draining — see [_resetting].
     ResetGate.enter();
     _r10Research?.revoke('Data reset');
+    if (whoop4R10ResearchEnabled) r10Research.revoke('Data reset');
     try {
       // Wait for a running backup and remove copies while the selected folder
       // grant is still known. Queued scheduled writes see Off inside the lock.

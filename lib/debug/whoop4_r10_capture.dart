@@ -55,6 +55,7 @@ class Whoop4R10Capture extends ChangeNotifier {
   final Set<String> _seen = {};
 
   bool get active => _active;
+  int get sessionGeneration => _generation;
   bool get foreground => _foreground;
   bool get hasSession => _directory != null;
   Directory? get directory => _directory;
@@ -121,10 +122,12 @@ class Whoop4R10Capture extends ChangeNotifier {
       incomplete = contextTruncated = false;
       _seen.clear();
       _events.clear();
+      _context = {};
       _active = true;
       status = 'Capturing';
       _event('start');
       await _manifest();
+      if (generation != _generation || _dead) return;
       _expiry = Timer(lifetime, () => stop(reason: 'Time limit reached', partial: true));
       _changed();
     }).catchError((Object _) {

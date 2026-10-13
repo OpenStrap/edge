@@ -142,7 +142,9 @@ String _writeExport(String root, Map<String, Object?> manifest,
       deltas.update(delta, (v) => v+1, ifAbsent: () => 1);
     }
     write({'kind': 'manifest', ...manifest,
-      'incomplete': manifest['incomplete'] == true || partialChunks > 0,
+      'incomplete': manifest['incomplete'] == true || partialChunks > 0 ||
+          count != manifest['records_retained'],
+      'retained_record_count_matches_export': count == manifest['records_retained'],
       'exported_records': count, 'partial_chunks_excluded': partialChunks,
       'study_interval': study,
       'coverage': {
