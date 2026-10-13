@@ -103,6 +103,7 @@ import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
 import '../platform/tasker_bridge.dart';
 import '../data/models.dart';
+import '../debug/whoop4_r10_capture.dart';
 import '../notify/device_alerts.dart';
 import '../notify/notification_relay.dart';
 import '../notify/notification_service.dart';
@@ -187,6 +188,55 @@ bool recoveryNightSettled({
 
 class AppState extends ChangeNotifier {
   late final BleEngine engine;
+
+  Whoop4R10Capture? _r10Research;
+  Whoop4R10Capture get r10Research =>
+      _r10Research ??= Whoop4R10Capture();
+
+  Future<void> startR10Research({required bool consent, String? appVersion}) async {
+    if (!r10Research.enabled || !Prefs.getBool(Prefs.devMode, false) ||
+        _background || paired == null || device.generation != 'gen4') {
+      throw StateError('research_requires_foreground_paired_gen4_debug_consent');
+    }
+    await r10Research.start(consent: consent, appVersion: appVersion);
+    _observeR10ResearchContext(device);
+  }
+
+  void revokeR10Research() => _r10Research?.revoke('Developer consent revoked');
+
+  void _observeR10ResearchContext(DeviceState state) {
+    final research = _r10Research;
+    if (research == null || !research.active) return;
+    if (state.generation != null && state.generation != 'gen4') {
+      research.revoke('Device family changed');
+      return;
+    }
+    research.observeContext(batteryPct: state.batteryPct,
+        charging: state.charging, chargingTs: state.chargingTs,
+        connected: engine.isConnected, generation: state.generation);
+  }
+
+  /// Normal durability errors propagate unchanged. Research is a separate,
+  /// best-effort local copy, attempted before this callback permits an ACK.
+  Future<void> commitWithR10Research({
+    required Future<void> Function() commit,
+    required List<RawRecord> raws,
+    List<ArchiveRecord>? archives,
+    String? deviceFamily,
+  }) async {
+    await commit();
+    final research = _r10Research;
+    if (research == null || !research.active || _background) return;
+    try {
+      _observeR10ResearchContext(device);
+      await research.captureBatch(raws, archives: archives,
+          deviceFamily: deviceFamily);
+    } catch (_) {
+      // Never log payload-bearing errors or suppress normal commit failures.
+      research.fail();
+    }
+  }
+
 
   /// The real constructor's [_init] future, so [checkPendingSiriRoute] can
   /// gate itself on it regardless of which call site reaches it first — a
@@ -1269,6 +1319,7 @@ class AppState extends ChangeNotifier {
     // 0 · nothing further ENTERS the database either. The band is still
     //     connected and still draining — see [_resetting].
     ResetGate.enter();
+    _r10Research?.revoke('Data reset');
     try {
       // Wait for a running backup and remove copies while the selected folder
       // grant is still known. Queued scheduled writes see Off inside the lock.
@@ -1282,6 +1333,13 @@ class AppState extends ChangeNotifier {
       deviceId = '';
 
       String? backupCleanupError;
+      if (_r10Research != null) {
+        try {
+          await _r10Research!.delete();
+        } catch (_) {
+          backupCleanupError = 'Research cache cleanup failed.';
+        }
+      }
       try {
         await backup.deleteAutomaticBackups();
       } catch (e) {
@@ -1571,10 +1629,13 @@ class AppState extends ChangeNotifier {
           if (ResetGate.active) {
             throw StateError('data reset in progress — refusing to commit');
           }
-          await _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
-              archives: archives,
-              ecgRawPackets: ecgRawPackets,
-              deviceFamily: deviceFamily);
+          await commitWithR10Research(
+            commit: () => _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
+                archives: archives,
+                ecgRawPackets: ecgRawPackets,
+                deviceFamily: deviceFamily),
+            raws: raws, archives: archives, deviceFamily: deviceFamily,
+          );
         } catch (_) {
           IosShortcutSync.foregroundCommitFailed();
           rethrow;
@@ -1672,7 +1733,9 @@ class AppState extends ChangeNotifier {
   /// stream arming throws). When supplied it is used AS GIVEN — its callbacks
   /// are the test's responsibility, not wired back into this AppState.
   @visibleForTesting
-  AppState.forTesting({BleEngine? engine, EcgController? ecg}) {
+  AppState.forTesting({BleEngine? engine, EcgController? ecg,
+      Whoop4R10Capture? r10Research}) {
+    _r10Research = r10Research;
     _background = false;
     _ecg = ecg;
     _gestureController = GestureController(
@@ -1767,6 +1830,7 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _r10Research?.dispose();
     _deriveCoordinator.cancelActivityReviewRetry();
     if (IosShortcutSync.foregroundSync == syncForShortcut) {
       IosShortcutSync.foregroundSync = null;
@@ -3068,7 +3132,10 @@ class AppState extends ChangeNotifier {
   /// drops (band out of range / app jettisoned) — see [_onEngineState] / [_armRecovery].
   ///
   /// On Android the Edge Tracking foreground service keeps the process + connection alive.
-  Future<void> pauseForBackground() => _sync.pauseForBackground();
+  Future<void> pauseForBackground() {
+    _r10Research?.setForeground(false);
+    return _sync.pauseForBackground();
+  }
 
   /// A feature session (workout, breathing, ECG capture) is running — the
   /// "nothing else in flight" bar the one-off VACUUM waits for. ECG matters
@@ -3975,7 +4042,8 @@ class AppState extends ChangeNotifier {
   }
 
   void _onEngineState(String deviceId, DeviceState s) {
-    if (_resetting) return; // see [_resetting]
+    if (_resetting) return;
+    _observeR10ResearchContext(s); // see [_resetting]
     _appendLiveHr(deviceId, s.liveHr, s.liveHrAt);
     // Bank the name the moment the band says it, so it survives the
     // disconnect. Written through `cleanDeviceLabel` for the same reason the
@@ -4131,6 +4199,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _persistPaired(String remoteId, String? serial) async {
+    _r10Research?.revoke('Pairing changed');
     // Which band this is, if the link has already said. Passed HERE and not at
     // the two call sites (`pairWith`, `pairViaAccessorySetup`) so neither can
     // forget it — and COALESCE'd inside `upsertDevice`, so a null leaves
@@ -4178,6 +4247,7 @@ class AppState extends ChangeNotifier {
       AndroidBackground.openOemAutostartSettings();
 
   Future<void> unpair() async {
+    _r10Research?.revoke('Band unpaired');
     await _sync.unpairSession();
     await PairedDevice.clear();
     pairedIsMaverick = false;
@@ -4832,8 +4902,10 @@ class AppState extends ChangeNotifier {
   }
 
   // ── session: drain history, go live, stay connected ──────────────────────────
-  Future<void> openSession({bool foreground = true}) =>
-      _sync.openSession(foreground: foreground);
+  Future<void> openSession({bool foreground = true}) {
+    if (foreground) _r10Research?.setForeground(true);
+    return _sync.openSession(foreground: foreground);
+  }
   Future<void> forceResync() => _sync.forceResync();
   Future<void> foregroundCatchUp() => _sync.foregroundCatchUp();
   Future<void> syncNow() => _sync.syncNow();
@@ -4925,7 +4997,10 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> endSession() => _sync.endSession();
+  Future<void> endSession() {
+    _r10Research?.revoke('Session ended');
+    return _sync.endSession();
+  }
   String get status => _sync.status;
   DateTime? get lastDataAt => _sync.lastDataAt;
   bool get syncingNow => _sync.syncingNow;

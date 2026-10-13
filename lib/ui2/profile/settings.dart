@@ -20,6 +20,8 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/off_lookup.dart';
+import '../../debug/debug_mode.dart';
+import 'whoop4_r10_research.dart';
 import '../../health/health_export.dart' show HealthLinkState;
 import '../../health/health_import_state.dart';
 import '../../health/health_profile_import.dart';
@@ -142,6 +144,7 @@ class _MoreSettingsState extends State<MoreSettings> {
   }
 
   void _setDev(bool on) {
+    if (!on) context.read<AppState>().revokeR10Research();
     Prefs.setBool(Prefs.devMode, on);
     if (on) WearableDisplay.instance.loadDevices().catchError((Object _) {});
     setState(() {
@@ -162,6 +165,8 @@ class _MoreSettingsState extends State<MoreSettings> {
       onVersionTap: _tapVersion,
       onToggleDev: () => _setDev(false),
       onGallery: () => goto(c, const GalleryScreen()),
+      onR10Research: whoop4R10ResearchEnabled
+          ? () => goto(c, const Whoop4R10ResearchScreen()) : null,
       units: units.system.label,
       appearance: theme.choice.label,
       clockFormat: clock.format,
@@ -552,7 +557,7 @@ class MoreSettingsView extends StatelessWidget {
   /// a feature: nothing in it is for anyone who has not deliberately asked.
   final bool devMode;
 
-  final VoidCallback? onVersionTap, onToggleDev, onGallery;
+  final VoidCallback? onVersionTap, onToggleDev, onGallery, onR10Research;
 
   final VoidCallback? onEditProfile,
       onAlarm,
@@ -600,6 +605,7 @@ class MoreSettingsView extends StatelessWidget {
     this.onVersionTap,
     this.onToggleDev,
     this.onGallery,
+    this.onR10Research,
     this.onEditProfile,
     this.onAlarm,
     this.onNotifications,
@@ -841,6 +847,11 @@ class MoreSettingsView extends StatelessWidget {
                             'Every component, at any text scale, in either '
                                 'theme',
                         onTap: onGallery),
+                    if (whoop4R10ResearchEnabled && onR10Research != null)
+                      SetRow(LucideIcons.code, C.n500,
+                          'WHOOP 4.0 R10 research',
+                          sub: 'Opt-in local capture. No step counting.',
+                          onTap: onR10Research),
                     SetRow(LucideIcons.code, C.n500,
                         l?.settingsDeveloperModeRowTitle ?? 'Developer mode',
                         value: on, chevron: false, onTap: onToggleDev),
