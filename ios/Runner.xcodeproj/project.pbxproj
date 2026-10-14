@@ -35,6 +35,7 @@
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		ACCE55E7000000000000B11D /* AccessorySetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACCE55E7000000000000F11E /* AccessorySetup.swift */; };
 		B9D2F406183A5C7E92B1D3F5 /* HealthKitSleepWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */; };
+		C4E8A1D2F6B3407A95C2E1B7 /* HealthKitHeartbeatWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F9B2E3A7C4418BA6D3F2C8 /* HealthKitHeartbeatWriter.swift */; };
 		BEEF00000000000000000002 /* BreathingLiveActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEF00000000000000000001 /* BreathingLiveActivityBridge.swift */; };
 		FADE0001FADE0001FADE0001 /* OpenStrapWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 53962EBE2FF6EF790061A61B /* OpenStrapWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -150,6 +151,7 @@
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9AB0D2B3B0A362AED6D7BFB0 /* ShortcutUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShortcutUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthKitSleepWriter.swift; sourceTree = "<group>"; };
+		D5F9B2E3A7C4418BA6D3F2C8 /* HealthKitHeartbeatWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthKitHeartbeatWriter.swift; sourceTree = "<group>"; };
 		ACCE55E7000000000000F11E /* AccessorySetup.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AccessorySetup.swift; sourceTree = "<group>"; };
 		B0B95B9F07C8083A2DB92078 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		BEEF00000000000000000001 /* BreathingLiveActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathingLiveActivityBridge.swift; sourceTree = "<group>"; };
@@ -344,6 +346,7 @@
 				5A0C00000000000000000004 /* LongSyncDataIntent.swift */,
 				46A2B400A52A2CA90242C195 /* HealthRoutes.swift */,
 				A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */,
+				D5F9B2E3A7C4418BA6D3F2C8 /* HealthKitHeartbeatWriter.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -776,6 +779,7 @@
 				5A0C00000000000000000003 /* LongSyncDataIntent.swift in Sources */,
 				60DE9D949573401269D6DF2E /* HealthRoutes.swift in Sources */,
 				B9D2F406183A5C7E92B1D3F5 /* HealthKitSleepWriter.swift in Sources */,
+				C4E8A1D2F6B3407A95C2E1B7 /* HealthKitHeartbeatWriter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
