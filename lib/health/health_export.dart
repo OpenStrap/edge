@@ -20,6 +20,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
+import 'dart:isolate';
 
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/foundation.dart';
@@ -30,6 +31,7 @@ import '../data/day_label.dart';
 import '../data/db.dart';
 import '../data/series_codec.dart';
 import 'health_heart_rate_batch.dart';
+import 'health_heartbeat_series.dart';
 import 'health_sleep_session.dart';
 
 /// What we can do with the health store right now.
@@ -421,6 +423,7 @@ class HealthExporter {
     writer: MethodChannelHealthKitSleepSessionWriter(),
   );
   final HealthConnectHeartRateWriter _androidHeartRate;
+  final HealthKitHeartbeatWriter _appleHeartbeat;
   bool _configured = false;
 
   /// Upper bound on one plugin `delete()`. HealthKit's delete runs a sample
@@ -442,9 +445,12 @@ class HealthExporter {
 
   HealthExporter({
     HealthConnectHeartRateWriter? androidHeartRate,
+    HealthKitHeartbeatWriter? appleHeartbeat,
     @visibleForTesting Duration deleteTimeout = const Duration(seconds: 30),
   }) : _androidHeartRate =
            androidHeartRate ?? MethodChannelHealthConnectHeartRateWriter(),
+       _appleHeartbeat =
+           appleHeartbeat ?? MethodChannelHealthKitHeartbeatWriter(),
        _deleteTimeout = deleteTimeout;
 
   /// The process-wide exporter. `AppState` holds this one, and so does every
@@ -708,6 +714,9 @@ class HealthExporter {
     } catch (e) {
       debugPrint('[health] requestAuthorization: $e');
     }
+    // Heartbeat series are not a `health` plugin type, so the sheet above never
+    // offers them. A second, native sheet listing just that one type.
+    if (isApple) await _appleHeartbeat.requestAuthorization();
     return HealthLinkState.ready;
   }
 
@@ -1124,6 +1133,73 @@ class HealthExporter {
 
   /// Write one day's metrics. DELETES our prior samples for the day window first
   /// (so a re-derive overwrites instead of duplicating). Best-effort; never throws.
+  /// The night's beat-to-beat as HKHeartbeatSeriesSamples, so Health readers
+  /// that compute RMSSD themselves have something to compute it from (see
+  /// health_heartbeat_series.dart). Same cleanup window as the sleep replace.
+  ///
+  /// The BAND'S OWN beats only (`kPrimaryBandSourceSql`), for the reason the
+  /// minute-HR read below gives: nothing in the OS store can say which sensor
+  /// a beat came from.
+  ///
+  /// `decoded_rr` is pruned rawRetentionDays behind the data edge, so a night
+  /// with no beats left is SKIPPED, not cleared: re-exporting an older day
+  /// must not delete series it can never write back. A day with no night at
+  /// all is a clear, exactly as the sleep replace treats it.
+  Future<bool> _exportAppleHeartbeats(
+    Map<String, dynamic> b,
+    DateTime dayStart,
+    DateTime dayEnd,
+  ) async {
+    final night = normalizeHealthSleepSession(b);
+    final window = sleepCleanupWindow(
+      dayStart: dayStart,
+      dayEnd: dayEnd,
+      night: night,
+    );
+    if (night == null) {
+      return _appleHeartbeat.replace(
+        cleanupStart: window.start,
+        cleanupEnd: window.end,
+        series: const [],
+      );
+    }
+    final db = await LocalDb.instance;
+    // A beat carries its record's rec_ts and can sit a few seconds before it
+    // (`beatTimesMs` walks backwards), so the read is padded at the far end;
+    // the builder clips on the beat's own instant.
+    final rows = await db.rawQuery(
+      'SELECT rr_ms, COALESCE(beat_ts_ms, rr_ts_ms) AS beat_ms '
+      'FROM decoded_rr '
+      'WHERE rec_ts >= ? AND rec_ts <= ? AND $kPrimaryBandSourceSql '
+      'ORDER BY rec_ts ASC, beat_index ASC',
+      [
+        night.start.millisecondsSinceEpoch ~/ 1000,
+        night.end.millisecondsSinceEpoch ~/ 1000 + 5,
+      ],
+    );
+    if (rows.isEmpty) return true;
+    final rr = <num>[];
+    final ts = <num>[];
+    for (final r in rows) {
+      final v = r['rr_ms'];
+      final t = r['beat_ms'];
+      if (v is! num || t is! num) continue;
+      rr.add(v);
+      ts.add(t);
+    }
+    final series = await _buildHeartbeatsOffIsolate(
+      rr,
+      ts,
+      night.start,
+      night.end,
+    );
+    return _appleHeartbeat.replace(
+      cleanupStart: window.start,
+      cleanupEnd: window.end,
+      series: series,
+    );
+  }
+
   Future<bool> _exportDay(
     String date,
     Map<String, dynamic> b, {
@@ -1182,6 +1258,15 @@ class HealthExporter {
         }
       } catch (e) {
         debugPrint('[health] write Apple sleep session: $e');
+        success = false;
+      }
+      try {
+        if (!await _exportAppleHeartbeats(b, dayStart, dayEnd)) {
+          debugPrint('[health] write Apple heartbeat series returned false');
+          success = false;
+        }
+      } catch (e) {
+        debugPrint('[health] write Apple heartbeat series: $e');
         success = false;
       }
     }
@@ -1815,3 +1900,19 @@ HealthWorkoutActivityType healthActivityForType(
       return HealthWorkoutActivityType.OTHER;
   }
 }
+
+/// `correctRr` over a night's beats, off the UI isolate. Top-level so the
+/// closure captures only these arguments, never the exporter.
+Future<List<HealthHeartbeatSeries>> _buildHeartbeatsOffIsolate(
+  List<num> rrMs,
+  List<num> rrTsMs,
+  DateTime sleepStart,
+  DateTime sleepEnd,
+) => Isolate.run(
+  () => buildSleepHeartbeatSeries(
+    rrMs: rrMs,
+    rrTsMs: rrTsMs,
+    sleepStart: sleepStart,
+    sleepEnd: sleepEnd,
+  ),
+);

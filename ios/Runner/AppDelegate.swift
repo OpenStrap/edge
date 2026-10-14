@@ -122,6 +122,10 @@ import CoreMotion
     if let registrar = registry.registrar(forPlugin: "HealthKitSleepWriter") {
       HealthKitSleepWriter.register(messenger: registrar.messenger())
     }
+    // HealthKit beat-to-beat for the night. See HealthKitHeartbeatWriter.swift.
+    if let registrar = registry.registrar(forPlugin: "HealthKitHeartbeatWriter") {
+      HealthKitHeartbeatWriter.register(messenger: registrar.messenger())
+    }
     if let registrar = registry.registrar(forPlugin: "ShortcutSyncBridge") {
       ShortcutSyncBridge.shared.attach(messenger: registrar.messenger())
     }
