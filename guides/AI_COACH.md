@@ -14,7 +14,31 @@ the provider you configure. Before enabling the feature, check that
 provider's data retention and training policies — or point the app at a
 model you host yourself.
 
-## Setup
+## Use your ChatGPT plan
+
+If you pay for ChatGPT (Plus, Pro and similar plans), you can skip the API
+key: open **AI Coach → settings**, tap **ChatGPT**, then **Continue with
+ChatGPT** and sign in. Eligible coach, briefing and journal requests then use
+the usage included in your ChatGPT plan instead of API billing. Tap **List
+models** and pick one, then **Save**.
+
+- This uses OpenAI's official
+  [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source)
+  for open-source apps. OpenStrap never sees your password, and never charges
+  for it.
+- Set a limit, or disconnect OpenStrap, under
+  [ChatGPT settings → Usage](https://chatgpt.com/settings/usage). The
+  **Manage usage** button in AI settings goes there.
+- When the limit is reached the coach says so and stops; it never quietly
+  switches to an API key.
+- Your questions and the rows the coach reads go to OpenAI under your ChatGPT
+  account, exactly as with an OpenAI API key.
+- **Sign out of ChatGPT** asks OpenAI to revoke the sign-in and clears it from
+  the phone. If the app says revocation wasn't confirmed, also disconnect
+  OpenStrap in ChatGPT settings. The coach then stays off until you sign in
+  again or pick another provider.
+
+## Setup with an API key
 
 <img src="images/ai-coach/settings.png" width="300" align="right">
 
