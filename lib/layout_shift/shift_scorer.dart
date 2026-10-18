@@ -116,6 +116,35 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
       return p.latencyAt(graced ? dt - p.animationGraceMs : dt);
     }
 
+    // Hazard floor: inside the interaction window the latency multiplier is
+    // at least the largest applicable floor. The 100 ms free window is about
+    // response timing; a control moving under the finger or focus is a spatial
+    // hazard whatever the timing. The intent target is exempt: its own content
+    // changing is the expected response.
+    double floorFor(String id, ElementSnapshot? o, ElementSnapshot? e,
+        {bool dense = false}) {
+      if (ix == null || t - ix.atMs > p.interactionWindowMs) return 0;
+      if (ix.intentTargetId == id) return 0;
+      var f = dense ? p.denseShiftFloor : 0.0;
+      final src = before[ix.sourceId];
+      if (id == ix.sourceId ||
+          (o != null &&
+              o.role == ElementRole.control &&
+              src != null &&
+              _gap(o.rect, src.rect) < p.denseGapPx)) {
+        f = max(f, p.sourceShiftFloor);
+      }
+      if ((o?.focused ?? false) ||
+          (e?.focused ?? false) ||
+          s.focus.any((fe) =>
+              fe.elementId == id &&
+              fe.atMs <= t &&
+              pow(0.5, (t - fe.atMs) / p.focusHalfLifeMs) >= 0.5)) {
+        f = max(f, p.focusShiftFloor);
+      }
+      return f;
+    }
+
     double chain(String id) {
       if (ix == null) return 1;
       for (final c in chains.values) {
@@ -145,7 +174,18 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
           e.rect.area / vpArea * colorDelta * p.colorWeight;
       if (base <= 0) continue;
 
-      var v = base * (p.roleWeight[e.role] ?? 1) * latency(e.id) * chain(e.id);
+      final dense = e.role == ElementRole.control &&
+          now.values.any((q) {
+            final qo = before[q.id];
+            return q.id != e.id &&
+                qo != null &&
+                q.role == ElementRole.control &&
+                _gap(o.rect, qo.rect) < p.denseGapPx &&
+                (q.rect.left - e.rect.left != qo.rect.left - o.rect.left ||
+                    q.rect.top - e.rect.top != qo.rect.top - o.rect.top);
+          });
+      final lat = max(latency(e.id), floorFor(e.id, o, e, dense: dense));
+      var v = base * (p.roleWeight[e.role] ?? 1) * lat * chain(e.id);
       if (ix?.intentTargetId == e.id) {
         final src = now[ix!.sourceId] ?? before[ix.sourceId];
         v *= p.pairedDiscount;
@@ -164,18 +204,7 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
         v *= 1 + p.focusDistanceWeight * dFocus;
       }
       if (e.focused) v *= p.focusedMultiplier;
-      if (e.role == ElementRole.control &&
-          now.values.any((q) {
-            final qo = before[q.id];
-            return q.id != e.id &&
-                qo != null &&
-                q.role == ElementRole.control &&
-                _gap(o.rect, qo.rect) < p.denseGapPx &&
-                (q.rect.left - e.rect.left != qo.rect.left - o.rect.left ||
-                    q.rect.top - e.rect.top != qo.rect.top - o.rect.top);
-          })) {
-        v *= p.denseMultiplier;
-      }
+      if (dense) v *= p.denseMultiplier;
       if (e.focused && shielded(e.id, t)) v *= p.disabledDiscount;
       out.add(finding('shift', e.id, t, v));
     }
@@ -199,7 +228,7 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
             t,
             p.coverCost *
                 fraction *
-                latency(e.id) *
+                max(latency(e.id), floorFor(f.id, before[f.id], f)) *
                 (f.focused ? p.focusedMultiplier : 1)));
       }
     }

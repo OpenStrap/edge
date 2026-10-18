@@ -44,7 +44,7 @@ void main() {
     test('a non-source mover at 0 ms stays free', () {
       expect(shifts(_move('x')), 0);
     });
-    test('packed sibling of the source: 0.007*... see arithmetic', () {
+    test('packed sibling of the source: .009 * .5 * 3 = .0135', () {
       // src control (0,0,20,20) static. sib control 10x10 (22,0)->(22,20):
       // gap 2 < 8. union 10x30 = 0.03, d 0.2 => base 0.006; control 1.5 =
       // 0.009; floor max(source .5, dense .3) = .5 => .0045; dense x3 = .0135.

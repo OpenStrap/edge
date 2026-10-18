@@ -66,6 +66,9 @@ Immutable, `copyWith`, three presets: `ShiftPolicy.standard`,
 | `focusedMultiplier` | 2.0 | covered or shifted element is focused |
 | `denseGapPx` | 8 | controls closer than this are tightly packed |
 | `denseMultiplier` | 3.0 | relative shift between tightly packed controls |
+| `sourceShiftFloor` | 0.5 (strict .75, lenient .3) | minimum latency multiplier for the interaction's source, or a control within `denseGapPx` of it |
+| `focusShiftFloor` | 0.5 (strict .75, lenient .3) | …for an element focused before/after the frame, or with focus history of recency weight ≥ .5 |
+| `denseShiftFloor` | 0.3 (strict .5, lenient .15) | …for a control that receives `denseMultiplier` |
 | `disabledShieldMs` | 400..1000 | a shifted focused control visibly disabled for this long… |
 | `disabledDiscount` | 0.8 | …earns this multiplier (small benefit) |
 | `warnAt` / `errorAt` | 0.05 / 0.25 | per-finding severity thresholds |
@@ -82,7 +85,7 @@ pair by element id. Per moved/resized/recoloured element:
    + `area/viewport.area × colorDelta × colorWeight` (colorDelta = max RGB
    channel delta / 255).
 2. **× roleWeight**.
-3. **× latency**: curve at `t = frame.atMs − lastInteraction.atMs` (with the
+3. **× latency** (raised to the hazard floor, below): curve at `t = frame.atMs − lastInteraction.atMs` (with the
    animation grace shift), or `outOfWindowCost` beyond the window / with no
    prior interaction.
 4. **× chainDiscount** if inside a qualifying chain.
@@ -92,6 +95,19 @@ pair by element id. Per moved/resized/recoloured element:
 6. **dense**: two controls within `denseGapPx` before the frame whose relative
    offset changed ⇒ `× denseMultiplier` on both; a focused control disabled for
    a span inside `disabledShieldMs` covering the shift ⇒ `× disabledDiscount`.
+
+**Hazard floor.** The 100 ms free window is about response timing: the screen
+may react to a tap that quickly. It says nothing about where things land. A
+control that moves under the finger or focus (the one just tapped, its packed
+neighbours, the focused or recently focused element, controls shifting against
+packed neighbours) risks a wrong press, and doing it instantly is no better, so
+step 3 uses `max(latency, floor)` where floor is the largest applicable of
+`sourceShiftFloor`, `focusShiftFloor`, `denseShiftFloor`. It applies only inside
+the interaction window, raises and never lowers (out of window is already 1),
+and combines with the other multipliers like the latency did, so the disabled
+shield still discounts. The intent target of the last interaction gets no
+floor: its own content changing is the expected response. Covering gets the same
+floor when the covered element is the source or focused.
 
 Coverage: an element appearing (or growing) over a focusable element by at
 least `coverMinFraction` of its area adds `coverCost × fraction × latency`

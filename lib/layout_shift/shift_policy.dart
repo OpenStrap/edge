@@ -33,6 +33,9 @@ class ShiftPolicy {
   final double focusedMultiplier;
   final double denseGapPx;
   final double denseMultiplier;
+  final double sourceShiftFloor;
+  final double focusShiftFloor;
+  final double denseShiftFloor;
   final int disabledShieldMinMs;
   final int disabledShieldMaxMs;
   final double disabledDiscount;
@@ -87,6 +90,9 @@ class ShiftPolicy {
     this.focusedMultiplier = 2.0,
     this.denseGapPx = 8,
     this.denseMultiplier = 3.0,
+    this.sourceShiftFloor = 0.5,
+    this.focusShiftFloor = 0.5,
+    this.denseShiftFloor = 0.3,
     this.disabledShieldMinMs = 400,
     this.disabledShieldMaxMs = 1000,
     this.disabledDiscount = 0.8,
@@ -115,6 +121,9 @@ class ShiftPolicy {
     pairedDiscount: 0.75,
     focusDistanceWeight: 1.5,
     colorWeight: 0.75,
+    sourceShiftFloor: 0.75,
+    focusShiftFloor: 0.75,
+    denseShiftFloor: 0.5,
     warnAt: 0.03,
     errorAt: 0.15,
   );
@@ -132,6 +141,9 @@ class ShiftPolicy {
     pairedDiscount: 0.25,
     focusDistanceWeight: 0.5,
     colorWeight: 0.25,
+    sourceShiftFloor: 0.3,
+    focusShiftFloor: 0.3,
+    denseShiftFloor: 0.15,
     warnAt: 0.08,
     errorAt: 0.4,
   );
@@ -178,6 +190,9 @@ class ShiftPolicy {
     double? focusedMultiplier,
     double? denseGapPx,
     double? denseMultiplier,
+    double? sourceShiftFloor,
+    double? focusShiftFloor,
+    double? denseShiftFloor,
     int? disabledShieldMinMs,
     int? disabledShieldMaxMs,
     double? disabledDiscount,
@@ -213,6 +228,9 @@ class ShiftPolicy {
         focusedMultiplier: focusedMultiplier ?? this.focusedMultiplier,
         denseGapPx: denseGapPx ?? this.denseGapPx,
         denseMultiplier: denseMultiplier ?? this.denseMultiplier,
+        sourceShiftFloor: sourceShiftFloor ?? this.sourceShiftFloor,
+        focusShiftFloor: focusShiftFloor ?? this.focusShiftFloor,
+        denseShiftFloor: denseShiftFloor ?? this.denseShiftFloor,
         disabledShieldMinMs: disabledShieldMinMs ?? this.disabledShieldMinMs,
         disabledShieldMaxMs: disabledShieldMaxMs ?? this.disabledShieldMaxMs,
         disabledDiscount: disabledDiscount ?? this.disabledDiscount,
