@@ -71,6 +71,8 @@ Immutable, `copyWith`, three presets: `ShiftPolicy.standard`,
 | `denseShiftFloor` | 0.3 (strict .5, lenient .15) | …for a control that receives `denseMultiplier` |
 | `disabledShieldMs` | 400..1000 | a shifted focused control visibly disabled for this long… |
 | `disabledDiscount` | 0.8 | …earns this multiplier (small benefit) |
+| `controlMoveScore` | 0.1 (strict .15, lenient .06) | minimum score of a control with a hazard (source, packed sibling of source, focused or recently focused, dense) that moved a full `controlMoveRefPx` |
+| `controlMoveRefPx` | 48 (strict 40, lenient 64) | one touch target; displacement at or past it earns the full `controlMoveScore` |
 | `warnAt` / `errorAt` | 0.05 / 0.25 | per-finding severity thresholds |
 | `firstPaintMaxMs` / `firstPaintMaxArgb` | 20 / 0xFF222222 | launch: first paint by 20 ms, no brighter than #222 (relative luminance) |
 | `reducedMaxAnimationMs` | 150 | reduced motion: animations ≤150 ms or none |
@@ -108,6 +110,20 @@ and combines with the other multipliers like the latency did, so the disabled
 shield still discounts. The intent target of the last interaction gets no
 floor: its own content changing is the expected response. Covering gets the same
 floor when the covered element is the source or focused.
+
+**Control move.** The area-fraction base makes a small control's jump nearly
+free: a 40 px jump of a 90x32 chip on a phone is about .01. But a touch target
+displaced under the finger is what causes mis-taps, whatever its area. So a
+control with a hazard (source, packed sibling of the source, focused or with
+focus history, or receiving `denseMultiplier`) scores at least
+`controlMoveScore × min(1, displacement / controlMoveRefPx) × denseMultiplier
+(if dense) × disabledDiscount (if shielded)`, where displacement is the centre
+distance between the before and after rects. The result is `max(existing,
+this)`. It applies inside and outside the interaction window (outside, the
+existing score is already full latency, and the max still protects small
+controls). The intent target of the last interaction is exempt. Defaults: a
+40 px jump = .083 (warning); two packed controls moving against each other by
+48 px = .3 (error). `controlMoveScore: 0` turns it off.
 
 Coverage: an element appearing (or growing) over a focusable element by at
 least `coverMinFraction` of its area adds `coverCost × fraction × latency`

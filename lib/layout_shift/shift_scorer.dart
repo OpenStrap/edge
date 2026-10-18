@@ -121,27 +121,35 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
     // response timing; a control moving under the finger or focus is a spatial
     // hazard whatever the timing. The intent target is exempt: its own content
     // changing is the expected response.
-    double floorFor(String id, ElementSnapshot? o, ElementSnapshot? e,
-        {bool dense = false}) {
-      if (ix == null || t - ix.atMs > p.interactionWindowMs) return 0;
-      if (ix.intentTargetId == id) return 0;
-      var f = dense ? p.denseShiftFloor : 0.0;
-      final src = before[ix.sourceId];
-      if (id == ix.sourceId ||
-          (o != null &&
-              o.role == ElementRole.control &&
-              src != null &&
-              _gap(o.rect, src.rect) < p.denseGapPx)) {
-        f = max(f, p.sourceShiftFloor);
+    // Which hazards apply to [id], ignoring the interaction window.
+    ({bool source, bool focus}) hazards(
+        String id, ElementSnapshot? o, ElementSnapshot? e) {
+      var source = false;
+      if (ix != null && ix.intentTargetId != id) {
+        final src = before[ix.sourceId];
+        source = id == ix.sourceId ||
+            (o != null &&
+                o.role == ElementRole.control &&
+                src != null &&
+                _gap(o.rect, src.rect) < p.denseGapPx);
       }
-      if ((o?.focused ?? false) ||
+      final focus = (o?.focused ?? false) ||
           (e?.focused ?? false) ||
           s.focus.any((fe) =>
               fe.elementId == id &&
               fe.atMs <= t &&
-              pow(0.5, (t - fe.atMs) / p.focusHalfLifeMs) >= 0.5)) {
-        f = max(f, p.focusShiftFloor);
-      }
+              pow(0.5, (t - fe.atMs) / p.focusHalfLifeMs) >= 0.5);
+      return (source: source, focus: focus);
+    }
+
+    double floorFor(String id, ElementSnapshot? o, ElementSnapshot? e,
+        {bool dense = false}) {
+      if (ix == null || t - ix.atMs > p.interactionWindowMs) return 0;
+      if (ix.intentTargetId == id) return 0;
+      final h = hazards(id, o, e);
+      var f = dense ? p.denseShiftFloor : 0.0;
+      if (h.source) f = max(f, p.sourceShiftFloor);
+      if (h.focus) f = max(f, p.focusShiftFloor);
       return f;
     }
 
@@ -205,7 +213,21 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
       }
       if (e.focused) v *= p.focusedMultiplier;
       if (dense) v *= p.denseMultiplier;
-      if (e.focused && shielded(e.id, t)) v *= p.disabledDiscount;
+      final shield = e.focused && shielded(e.id, t);
+      if (shield) v *= p.disabledDiscount;
+      // Control move: the area-fraction base under-weights a small control,
+      // whose displacement is what causes a mis-tap. A control with a hazard
+      // scores at least a fixed share of a touch target's worth of movement.
+      if (e.role == ElementRole.control && ix?.intentTargetId != e.id) {
+        final h = hazards(e.id, o, e);
+        if (h.source || h.focus || dense) {
+          var cm = p.controlMoveScore *
+              min(1.0, o.rect.distanceTo(e.rect) / p.controlMoveRefPx);
+          if (dense) cm *= p.denseMultiplier;
+          if (shield) cm *= p.disabledDiscount;
+          v = max(v, cm);
+        }
+      }
       out.add(finding('shift', e.id, t, v));
     }
 

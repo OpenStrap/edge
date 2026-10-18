@@ -39,6 +39,8 @@ class ShiftPolicy {
   final int disabledShieldMinMs;
   final int disabledShieldMaxMs;
   final double disabledDiscount;
+  final double controlMoveScore;
+  final double controlMoveRefPx;
   final double warnAt;
   final double errorAt;
   final int firstPaintMaxMs;
@@ -96,6 +98,8 @@ class ShiftPolicy {
     this.disabledShieldMinMs = 400,
     this.disabledShieldMaxMs = 1000,
     this.disabledDiscount = 0.8,
+    this.controlMoveScore = 0.1,
+    this.controlMoveRefPx = 48,
     this.warnAt = 0.05,
     this.errorAt = 0.25,
     this.firstPaintMaxMs = 20,
@@ -124,6 +128,8 @@ class ShiftPolicy {
     sourceShiftFloor: 0.75,
     focusShiftFloor: 0.75,
     denseShiftFloor: 0.5,
+    controlMoveScore: 0.15,
+    controlMoveRefPx: 40,
     warnAt: 0.03,
     errorAt: 0.15,
   );
@@ -144,6 +150,8 @@ class ShiftPolicy {
     sourceShiftFloor: 0.3,
     focusShiftFloor: 0.3,
     denseShiftFloor: 0.15,
+    controlMoveScore: 0.06,
+    controlMoveRefPx: 64,
     warnAt: 0.08,
     errorAt: 0.4,
   );
@@ -196,6 +204,8 @@ class ShiftPolicy {
     int? disabledShieldMinMs,
     int? disabledShieldMaxMs,
     double? disabledDiscount,
+    double? controlMoveScore,
+    double? controlMoveRefPx,
     double? warnAt,
     double? errorAt,
     int? firstPaintMaxMs,
@@ -234,6 +244,8 @@ class ShiftPolicy {
         disabledShieldMinMs: disabledShieldMinMs ?? this.disabledShieldMinMs,
         disabledShieldMaxMs: disabledShieldMaxMs ?? this.disabledShieldMaxMs,
         disabledDiscount: disabledDiscount ?? this.disabledDiscount,
+        controlMoveScore: controlMoveScore ?? this.controlMoveScore,
+        controlMoveRefPx: controlMoveRefPx ?? this.controlMoveRefPx,
         warnAt: warnAt ?? this.warnAt,
         errorAt: errorAt ?? this.errorAt,
         firstPaintMaxMs: firstPaintMaxMs ?? this.firstPaintMaxMs,

@@ -14,7 +14,10 @@ const _b = ShiftRect(0, 20, 50, 50);
 const _ix = [Interaction(1000, 'src')];
 
 /// Shift findings only (the load finding has its own tests).
-double shifts(Scenario s, [ShiftPolicy p = ShiftPolicy.standard]) => score(s, p)
+// These pin the latency floors, so the control move score (control_move_test)
+// is off: with it on, the 20 px control jumps below score .125 instead.
+double shifts(Scenario s, [ShiftPolicy? p]) => score(
+        s, (p ?? ShiftPolicy.standard).copyWith(controlMoveScore: 0))
     .findings
     .where((f) => f.rule == 'shift')
     .fold(0.0, (a, f) => a + f.score);

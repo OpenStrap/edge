@@ -406,6 +406,11 @@ void main() {
     // A 20x20 at (0,0); B 20x20 at (24,0): gap 4 < 8.
     // B 0,0 -> 0,10 : union 20x30=600 => 0.06; dist 0.1 => 0.006; *1.5 = 0.009.
     const ctl = ElementRole.control;
+    // These pin the area-based dense multiplier; the control move score
+    // (control_move_test) would lift the 10..20 px jumps (.0625 etc.).
+    double total(Scenario s, [ShiftPolicy? p]) =>
+        score(s, (p ?? ShiftPolicy.standard).copyWith(controlMoveScore: 0))
+            .total;
     Scenario pairShift(double gapX, double aDy, double bDy) => sc([
           fr(0, [
             el('a', const ShiftRect(0, 0, 20, 20), role: ctl),
