@@ -126,7 +126,17 @@ class ShiftPolicy {
 
   /// Latency multiplier for [ms] after the interaction: piecewise linear
   /// between curve points, 0 before the first, the last cost after the last.
-  double latencyAt(int ms) => throw UnimplementedError();
+  double latencyAt(int ms) {
+    final c = latencyCurve;
+    if (ms < c.first.ms) return 0;
+    for (var i = 1; i < c.length; i++) {
+      if (ms < c[i].ms) {
+        final a = c[i - 1], b = c[i];
+        return a.cost + (b.cost - a.cost) * (ms - a.ms) / (b.ms - a.ms);
+      }
+    }
+    return c.last.cost;
+  }
 
   ShiftPolicy copyWith({
     List<LatencyPoint>? latencyCurve,
@@ -161,5 +171,37 @@ class ShiftPolicy {
     int? reducedChainCycleMinMs,
     int? reducedChainCycleMaxMs,
   }) =>
-      throw UnimplementedError();
+      ShiftPolicy(
+        latencyCurve: latencyCurve ?? this.latencyCurve,
+        animationGraceWindowMs: animationGraceWindowMs ?? this.animationGraceWindowMs,
+        animationGraceMs: animationGraceMs ?? this.animationGraceMs,
+        interactionWindowMs: interactionWindowMs ?? this.interactionWindowMs,
+        outOfWindowCost: outOfWindowCost ?? this.outOfWindowCost,
+        chainStartMinMs: chainStartMinMs ?? this.chainStartMinMs,
+        chainEndMaxMs: chainEndMaxMs ?? this.chainEndMaxMs,
+        chainCycleMinMs: chainCycleMinMs ?? this.chainCycleMinMs,
+        chainCycleMaxMs: chainCycleMaxMs ?? this.chainCycleMaxMs,
+        chainDiscount: chainDiscount ?? this.chainDiscount,
+        roleWeight: roleWeight ?? this.roleWeight,
+        colorWeight: colorWeight ?? this.colorWeight,
+        focusDistanceWeight: focusDistanceWeight ?? this.focusDistanceWeight,
+        focusHalfLifeMs: focusHalfLifeMs ?? this.focusHalfLifeMs,
+        pairedDiscount: pairedDiscount ?? this.pairedDiscount,
+        pairDistanceWeight: pairDistanceWeight ?? this.pairDistanceWeight,
+        coverCost: coverCost ?? this.coverCost,
+        coverMinFraction: coverMinFraction ?? this.coverMinFraction,
+        focusedMultiplier: focusedMultiplier ?? this.focusedMultiplier,
+        denseGapPx: denseGapPx ?? this.denseGapPx,
+        denseMultiplier: denseMultiplier ?? this.denseMultiplier,
+        disabledShieldMinMs: disabledShieldMinMs ?? this.disabledShieldMinMs,
+        disabledShieldMaxMs: disabledShieldMaxMs ?? this.disabledShieldMaxMs,
+        disabledDiscount: disabledDiscount ?? this.disabledDiscount,
+        warnAt: warnAt ?? this.warnAt,
+        errorAt: errorAt ?? this.errorAt,
+        firstPaintMaxMs: firstPaintMaxMs ?? this.firstPaintMaxMs,
+        firstPaintMaxArgb: firstPaintMaxArgb ?? this.firstPaintMaxArgb,
+        reducedMaxAnimationMs: reducedMaxAnimationMs ?? this.reducedMaxAnimationMs,
+        reducedChainCycleMinMs: reducedChainCycleMinMs ?? this.reducedChainCycleMinMs,
+        reducedChainCycleMaxMs: reducedChainCycleMaxMs ?? this.reducedChainCycleMaxMs,
+      );
 }

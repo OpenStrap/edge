@@ -4,6 +4,8 @@
 // stays deterministic. Colours are int ARGB, times are int ms since the
 // scenario start, lengths are logical pixels. See docs/LAYOUT_SHIFT.md.
 
+import 'dart:math';
+
 class ShiftPoint {
   final double x;
   final double y;
@@ -17,17 +19,30 @@ class ShiftRect {
   final double height;
   const ShiftRect(this.left, this.top, this.width, this.height);
 
-  double get area => throw UnimplementedError();
-  ShiftPoint get center => throw UnimplementedError();
+  double get area => width * height;
+  ShiftPoint get center => ShiftPoint(left + width / 2, top + height / 2);
 
   /// Overlap of the two rects, or null when they do not overlap.
-  ShiftRect? intersect(ShiftRect other) => throw UnimplementedError();
+  ShiftRect? intersect(ShiftRect other) {
+    final l = max(left, other.left), t = max(top, other.top);
+    final r = min(left + width, other.left + other.width);
+    final b = min(top + height, other.top + other.height);
+    return r > l && b > t ? ShiftRect(l, t, r - l, b - t) : null;
+  }
 
   /// Bounding box of both rects.
-  ShiftRect union(ShiftRect other) => throw UnimplementedError();
+  ShiftRect union(ShiftRect other) {
+    final l = min(left, other.left), t = min(top, other.top);
+    final r = max(left + width, other.left + other.width);
+    final b = max(top + height, other.top + other.height);
+    return ShiftRect(l, t, r - l, b - t);
+  }
 
   /// Centre to centre distance.
-  double distanceTo(ShiftRect other) => throw UnimplementedError();
+  double distanceTo(ShiftRect other) {
+    final a = center, b = other.center;
+    return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2));
+  }
 }
 
 enum ElementRole { paragraph, input, control, media, decorative, other }
