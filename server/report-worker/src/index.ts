@@ -7,6 +7,7 @@ export interface Env {
 }
 
 const DAY = 86_400_000;
+const HOUR = 3_600_000;
 export const LIMITS = {
   blobNoDb: 5 * 1024 * 1024, // logs alone can pass 2 MB
   blobDb: 95 * 1024 * 1024, // under the 100 MB request-body cap of the Workers free plan
@@ -188,34 +189,32 @@ async function postReport(req: Request, env: Env): Promise<Response> {
       if (i === 4 || !/UNIQUE|constraint/i.test(String(e))) throw e; // id collision: retry
     }
   }
-  let seen = 0; // prefix bytes checked so far
-  let received = 0;
-  let badPrefix = false;
-  const check = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, c) {
-      for (let i = 0; seen < 4 && i < chunk.length; i++) {
-        if (chunk[i] !== MAGIC[seen]) { badPrefix = true; c.error(new Error("bad_prefix")); return; }
-        seen++;
-      }
-      received += chunk.length;
-      c.enqueue(chunk);
-    },
-  });
+  // The body goes to R2 by a native pipe: no JS runs per chunk, so a 95 MB upload costs almost no CPU.
+  // (A JS TransformStream here hit the free plan's CPU limit on ~50 MB uploads, and a killed request
+  // never reached the rollback below; the cron's orphan sweep covers that case now.)
   const fixed = new FixedLengthStream(cl);
   const [put, pipe] = await Promise.allSettled([
     env.BLOBS.put(key, fixed.readable),
-    req.body.pipeThrough(check).pipeTo(fixed.writable),
+    req.body.pipeTo(fixed.writable),
   ]);
-  if (put.status === "rejected" || pipe.status === "rejected") {
-    // Undo the insert and its byte count; the day counter keeps the attempt (conservative).
+  const undo = async () => {
     await env.BLOBS.delete(key).catch(() => {});
     await env.DB.batch([
       env.DB.prepare("UPDATE stats SET v = v - (SELECT blob_bytes FROM reports WHERE id = ?) WHERE k = 'bytes'").bind(id),
       env.DB.prepare("DELETE FROM reports WHERE id = ?").bind(id),
     ]);
-    if (badPrefix) return err(400, "bad_blob");
-    if (received !== cl) return err(400, "length_mismatch"); // client aborted or lied about the length
-    throw put.status === "rejected" ? put.reason : (pipe as PromiseRejectedResult).reason;
+  };
+  if (put.status === "rejected" || pipe.status === "rejected") {
+    // Undo the insert and its byte count; the day counter keeps the attempt (conservative).
+    await undo();
+    // With no JS in the pipe we cannot count bytes; a short, long or aborted body is by far the likely cause.
+    return err(400, "length_mismatch");
+  }
+  const head = await env.BLOBS.get(key, { range: { offset: 0, length: MAGIC.length } });
+  const prefix = head ? new Uint8Array(await head.arrayBuffer()) : new Uint8Array();
+  if (!MAGIC.every((b, i) => prefix[i] === b)) {
+    await undo();
+    return err(400, "bad_blob");
   }
 
   const url = await createIssue(env, id, meta);
@@ -278,6 +277,18 @@ export async function cleanup(env: Env, now = new Date()): Promise<{ blobs: numb
     await env.DB.batch([
       env.DB.prepare("UPDATE stats SET v = v - (SELECT blob_bytes FROM reports WHERE id = ?) WHERE k = 'bytes'").bind(r.id),
       env.DB.prepare("UPDATE reports SET blob_key=NULL, blob_bytes=0 WHERE id = ?").bind(r.id),
+    ]);
+  }
+  // Orphans: a request killed mid-upload (client gone, platform limit) never runs its rollback, leaving a
+  // row with no blob that holds a rate-limit slot and stored bytes. Rows older than an hour are settled.
+  const { results: recent } = await env.DB.prepare(
+    "SELECT id, blob_key FROM reports WHERE blob_key IS NOT NULL AND created_at < ? AND created_at >= ?")
+    .bind(new Date(now.getTime() - HOUR).toISOString(), cut(LIMITS.dbTtlDays)).all<{ id: string; blob_key: string }>();
+  for (const r of recent) {
+    if (await env.BLOBS.head(r.blob_key)) continue;
+    await env.DB.batch([
+      env.DB.prepare("UPDATE stats SET v = v - (SELECT blob_bytes FROM reports WHERE id = ?) WHERE k = 'bytes'").bind(r.id),
+      env.DB.prepare("DELETE FROM reports WHERE id = ?").bind(r.id),
     ]);
   }
   // Rows past retention should already be blob-free; subtract any stragglers so the counter cannot drift.

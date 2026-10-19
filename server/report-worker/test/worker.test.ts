@@ -315,6 +315,20 @@ describe("cleanup cron", () => {
     expect(await stat(today())).toBe(7);
   });
 
+  it("sweeps rows an upload left without a blob once they are an hour old", async () => {
+    await setStat("bytes", 60);
+    const ins = (id: string, ageMs: number, bytes: number) => e.DB.prepare(`INSERT INTO reports (id,install_id,created_at,category,title,description,meta,blob_key,blob_bytes,has_db,delete_token_hash)
+      VALUES (?,'i',?,'sync','t','d','{}',?,?,1,'h')`).bind(id, new Date(Date.now() - ageMs).toISOString(), `db/${id}`, bytes).run();
+    await ins("OS-ORPH01", 2 * 3600e3, 20); // orphan: no blob, old enough
+    await ins("OS-KEEP01", 2 * 3600e3, 30); // blob present
+    await ins("OS-FRESH1", 60e3, 10); // may still be uploading
+    await e.BLOBS.put("db/OS-KEEP01", new Uint8Array(30));
+    await cleanup(e);
+    const ids = (await e.DB.prepare("SELECT id FROM reports ORDER BY id").all<any>()).results.map((r) => r.id);
+    expect(ids).toEqual(["OS-FRESH1", "OS-KEEP01"]);
+    expect(await stat("bytes")).toBe(40);
+  });
+
   it("concurrent posts cannot both pass the byte ceiling", async () => {
     await setStat("bytes", LIMITS.hardCeilingBytes - 300);
     const rs = await Promise.all([post(meta({ installId: "423e4567-e89b-42d3-a456-426614174000" })), post(meta({ installId: "523e4567-e89b-42d3-a456-426614174000" }))]);
