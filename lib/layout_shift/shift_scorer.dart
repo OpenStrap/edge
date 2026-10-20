@@ -310,5 +310,38 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
     }
     out.add(finding('load', ix.sourceId, lastChange, v));
   }
+
+  // Appearing content: per interaction, an element absent in the previous
+  // frame is charged for the viewport space it takes, scaled by how late it
+  // lands. Space a vanished element held (a placeholder replaced in place) is
+  // free: content landing in empty space is what a skeleton prevents. The
+  // first frame at/after the interaction is the initial paint and is free.
+  for (var k = 0; k < ixs.length; k++) {
+    final ix = ixs[k];
+    final until = k + 1 < ixs.length ? ixs[k + 1].atMs : null;
+    final first = s.frames.indexWhere((f) => f.atMs >= ix.atMs);
+    if (first < 0) continue;
+    for (var i = first + 1; i < s.frames.length; i++) {
+      final t = s.frames[i].atMs;
+      if (until != null && t >= until) break;
+      final prevIds = {for (final e in s.frames[i - 1].elements) e.id};
+      final nowIds = {for (final e in s.frames[i].elements) e.id};
+      final vanished = s.frames[i - 1].elements
+          .where((v) => !nowIds.contains(v.id))
+          .toList();
+      for (final e in s.frames[i].elements) {
+        if (prevIds.contains(e.id)) continue;
+        final visible = e.rect.intersect(s.viewport);
+        if (visible == null || visible.area <= 0) continue;
+        final covered = vanished.fold<double>(
+            0, (a, v) => a + (visible.intersect(v.rect)?.area ?? 0));
+        final uncovered = max(0.0, visible.area - covered);
+        if (uncovered / visible.area <= 1 - p.appearCoveredFree) continue;
+        final v =
+            p.appearWeight * uncovered / vpArea * p.loadAt(t - ix.atMs);
+        if (v > 0) out.add(finding('appear', e.id, t, v));
+      }
+    }
+  }
   return ShiftReport(out);
 }

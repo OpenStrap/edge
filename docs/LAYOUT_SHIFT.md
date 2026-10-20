@@ -49,6 +49,8 @@ Immutable, `copyWith`, three presets: `ShiftPolicy.standard`,
 | `latencyCurve` | (100,0) (200,.1) (300,.3) (400,.5) (500,1) | cost multiplier by ms after the last interaction; piecewise linear, 0 before the first point, 1 after the last |
 | `loadCurve` | (100,0) (400,.1) (1000,.3) (2000,.6) (4000,1) | cost multiplier by settle time (ms from interaction until the screen stopped changing); same shape rules as `latencyCurve` |
 | `loadWeight` | 0.25 (strict .4, lenient .15) | max cost of one load: a 4 s load is .25 = error at the default `errorAt` |
+| `appearWeight` | 0.5 (strict .75, lenient .3) | cost of content appearing after the initial paint, per viewport fraction it takes, at full `loadCurve` lateness |
+| `appearCoveredFree` | 0.9 | an appearing element at least this fraction covered by elements that vanished in the same frame (a placeholder replaced in place) is free |
 | `animationGraceWindowMs` | 100 | an animation starting within this many ms of the interaction earns… |
 | `animationGraceMs` | 100 | …this many extra free ms (curve evaluated at `t − grace`) |
 | `interactionWindowMs` | 500 | shifts later than this after the last interaction are out of window |
@@ -155,6 +157,32 @@ frame's `atMs` minus the interaction's `atMs` (nothing changed ⇒ no finding).
 - Finding: rule `load`, `elementId` = the interaction's `sourceId`, `atMs` =
   interaction + settle, severity from `warnAt` / `errorAt`; it counts in
   `ShiftReport.total`. No interactions ⇒ no load findings.
+
+## Appearing content
+
+Load time charges only for how long the screen changed, so a bare spinner
+followed by content scored the same as a skeleton the content fills in place.
+The `appear` rule charges content that lands in space nothing reserved for it.
+
+For each interaction, take the frames after the first frame at/after the
+interaction (that first frame is the initial paint and is free) and before the
+next interaction. An element present in frame i but absent (by id) in frame
+i-1 appears at `t` = frame i's `atMs`:
+
+- `visible` = the element's rect clipped to the viewport (nothing visible ⇒ no
+  finding).
+- `uncovered = max(0, visible.area − Σ intersect(visible, v).area)` over the
+  elements `v` that were in frame i-1 and are gone in frame i (the placeholder
+  it replaced).
+- Free when `uncovered / visible.area ≤ 1 − appearCoveredFree` (at the default,
+  ≥ 90% covered by a vanished placeholder).
+- score = `appearWeight × uncovered / viewportArea × loadCurve(t − interaction)`.
+  At the defaults a 400 × 300 card landing at 3 s in a 400 × 800 viewport where
+  only a 22 × 22 spinner stood scores .5 × 119516 / 320000 × .8 ≈ .149
+  (warning); the same card filling a same-size skeleton scores 0.
+- Finding: rule `appear`, `elementId` = the element's id, `atMs` = `t`; it
+  counts in `ShiftReport.total` alongside the `load` finding. No interactions ⇒
+  no appear findings.
 
 ## Launch and motion checks
 

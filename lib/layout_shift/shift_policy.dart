@@ -13,6 +13,8 @@ class ShiftPolicy {
   final List<LatencyPoint> latencyCurve;
   final List<LatencyPoint> loadCurve;
   final double loadWeight;
+  final double appearWeight;
+  final double appearCoveredFree;
   final int animationGraceWindowMs;
   final int animationGraceMs;
   final int interactionWindowMs;
@@ -65,6 +67,8 @@ class ShiftPolicy {
       LatencyPoint(4000, 1),
     ],
     this.loadWeight = 0.25,
+    this.appearWeight = 0.5,
+    this.appearCoveredFree = 0.9,
     this.animationGraceWindowMs = 100,
     this.animationGraceMs = 100,
     this.interactionWindowMs = 500,
@@ -121,6 +125,7 @@ class ShiftPolicy {
       LatencyPoint(500, 1),
     ],
     loadWeight: 0.4,
+    appearWeight: 0.75,
     chainDiscount: 0.75,
     pairedDiscount: 0.75,
     focusDistanceWeight: 1.5,
@@ -143,6 +148,7 @@ class ShiftPolicy {
       LatencyPoint(500, 1),
     ],
     loadWeight: 0.15,
+    appearWeight: 0.3,
     chainDiscount: 0.25,
     pairedDiscount: 0.25,
     focusDistanceWeight: 0.5,
@@ -178,6 +184,8 @@ class ShiftPolicy {
     List<LatencyPoint>? latencyCurve,
     List<LatencyPoint>? loadCurve,
     double? loadWeight,
+    double? appearWeight,
+    double? appearCoveredFree,
     int? animationGraceWindowMs,
     int? animationGraceMs,
     int? interactionWindowMs,
@@ -218,6 +226,8 @@ class ShiftPolicy {
         latencyCurve: latencyCurve ?? this.latencyCurve,
         loadCurve: loadCurve ?? this.loadCurve,
         loadWeight: loadWeight ?? this.loadWeight,
+        appearWeight: appearWeight ?? this.appearWeight,
+        appearCoveredFree: appearCoveredFree ?? this.appearCoveredFree,
         animationGraceWindowMs: animationGraceWindowMs ?? this.animationGraceWindowMs,
         animationGraceMs: animationGraceMs ?? this.animationGraceMs,
         interactionWindowMs: interactionWindowMs ?? this.interactionWindowMs,
