@@ -88,6 +88,9 @@ void main() {
         reason: 'the tab never showed the dose, so nothing after this is a test');
     final before = app.rearms;
 
+    // Volt spacing pushed the row down; scroll it into view first.
+    await t.ensureVisible(find.byType(MedRow));
+    await t.pumpAndSettle();
     await t.tap(find.byType(MedRow));
     // The write lands on sqflite's real event loop; wait for it, bounded.
     for (var i = 0; i < 50 && app.rearms == before; i++) {

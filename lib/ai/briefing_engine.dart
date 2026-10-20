@@ -1,6 +1,6 @@
 // briefing_engine.dart — turns the local derived store into a morning/evening
 // AI briefing via the user's OWN key (BYOK — CoachConfig + CoachEngine.postChat;
-// no second LLM client, no second key store, no OpenStrap backend).
+// no second LLM client, no second key store, no Locus backend).
 //
 // Pipeline: collect a COMPACT inputs snapshot from the repository (read-only,
 // zero compute — same store the screens read) → build a small prompt → one-shot

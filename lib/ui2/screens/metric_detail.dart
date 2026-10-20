@@ -1204,21 +1204,31 @@ class _MetricDetailState extends State<MetricDetail> {
 
     return Surface(
       child: Column(children: [
-        Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(_fmt(spec, mean), style: F.n48.copyWith(color: p.ink)),
-              const SizedBox(width: S.x2),
-              // NOT `spec.unit`. `metricValue('min', 443)` is already "7h 23m",
-              // so every min-unit metric — Time asleep, Deep, REM, Wear time —
-              // rendered its headline as "7h 23m min".
-              Text(
-                uiText(context, unitBeside(spec.unit)),
-                style: F.body.copyWith(color: p.ink3),
-              ),
-            ],
+        // The screen's hero numeral (§6), shrunk inside the line rather than
+        // truncated when an accessibility size makes it wider than the card:
+        // a cut-off "7h 2…" is a different number.
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(_fmt(spec, mean), style: F.n64.copyWith(color: p.ink)),
+                const SizedBox(width: S.x2),
+                // NOT `spec.unit`. `metricValue('min', 443)` is already
+                // "7h 23m", so every min-unit metric — Time asleep, Deep,
+                // REM, Wear time — rendered its headline as "7h 23m min".
+                Text(
+                  uiText(context, unitBeside(spec.unit)),
+                  style: F.body.copyWith(color: p.ink3),
+                ),
+              ],
+            ),
           ),
+        ),
           const SizedBox(height: S.x1),
         Align(
           alignment: Alignment.centerLeft,
@@ -1636,7 +1646,7 @@ class _MetricDetailState extends State<MetricDetail> {
             ),
             if (v != null) ...[
               const SizedBox(width: S.x2),
-              Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+              Icon(LucideIcons.chevronRight, size: I.md, color: p.ink3),
             ],
           ]),
           // WHICH DEVICE, second line, only under the gate. A day-level scalar
@@ -1899,7 +1909,7 @@ class _StepGoalGaugeState extends State<_StepGoalGauge> {
                       Pressable(
                         semanticLabel: uiText(context, 'Save step goal'),
                         onTap: _save,
-                        child: Icon(LucideIcons.check, size: 20, color: p.ink),
+                        child: Icon(LucideIcons.check, size: I.md, color: p.ink),
                       ),
                     ],
                   )
@@ -1916,7 +1926,7 @@ class _StepGoalGaugeState extends State<_StepGoalGauge> {
                               style: F.over.copyWith(color: p.ink3),
                             ),
                             const SizedBox(width: S.x1),
-                            Icon(LucideIcons.pencil, size: 12, color: p.ink3),
+                            Icon(LucideIcons.pencil, size: I.sm, color: p.ink3),
                           ],
                         ),
                         Text(
@@ -2055,12 +2065,15 @@ class DayNav extends StatelessWidget {
           child: Pressable(
             onTap: to == null ? null : () => onDay(to),
             semanticLabel: label,
-            child: Icon(icon, size: 20, color: p.ink),
+            child: Icon(icon, size: I.md, color: p.ink),
           ),
         );
 
+    // A pill with chevrons (§5.4), the same shape on every screen that steps
+    // through days.
     return Container(
-      decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
+      decoration: BoxDecoration(color: p.card2, borderRadius: R.rPill),
+      padding: const EdgeInsets.symmetric(horizontal: S.x1),
       child: Row(children: [
         arrow(LucideIcons.chevronLeft, l?.metricDetailPreviousDay ?? 'Previous day',
             older),
@@ -2112,7 +2125,7 @@ Widget detailLinkRow(BuildContext c, IconData icon, String title, String sub,
       padding: const EdgeInsets.all(S.x4),
       decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
       child: Row(children: [
-        Icon(icon, size: 17, color: p.ink3),
+        Icon(icon, size: I.sm, color: p.ink3),
         const SizedBox(width: S.x3),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -2121,7 +2134,7 @@ Widget detailLinkRow(BuildContext c, IconData icon, String title, String sub,
             Text(sub, style: F.over.copyWith(color: p.ink3)),
           ]),
         ),
-        Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+        Icon(LucideIcons.chevronRight, size: I.md, color: p.ink3),
       ]),
     ),
   );
@@ -2192,7 +2205,7 @@ class MonoTable extends StatelessWidget {
         const SizedBox(height: S.x3),
         for (final r in present)
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 5),
+            padding: const EdgeInsets.symmetric(vertical: S.x1),
             child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

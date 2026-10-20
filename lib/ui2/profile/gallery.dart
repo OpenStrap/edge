@@ -54,7 +54,8 @@ import '../activity/setup.dart' show ActivitySetup;
 import '../activity/tiles.dart';
 import '../activity/share.dart' show ShareSheet, shareOrigin;
 import '../activity/summary.dart';
-import '../onboarding/welcome.dart' show ImportOutcome, ImportReport;
+import '../onboarding/welcome.dart'
+    show BandStage, ImportOutcome, ImportReport, OnboardingStep;
 // Screens are deliberately not re-exported from the ui2 barrel (see the
 // barrel test), so their components are imported by path.
 import '../screens/screens.dart';
@@ -154,6 +155,10 @@ Map<String, Widget> galleryCases() => {...componentCases(), ...extraCases()};
 /// The components. Listed separately from [extraCases], the primitives and
 /// painters, so the gallery screen can show them as their own scroll.
 Map<String, Widget> componentCases() => {
+      // ── Volt system (§6) — every token, in whichever theme is showing, ──
+      // with the contrast each pairing actually measures. First, because
+      // every component below is built out of these.
+      ..._voltSystemCases(),
       // The one number the whole app is judged by, and the picture the app
       // leaves someone else's phone. Both are photographed rather than merely
       // swept: they are the two components a regression would be noticed in
@@ -168,6 +173,13 @@ Map<String, Widget> componentCases() => {
       // screen which can say more — including the one absence nothing
       // explained, which says exactly that.
       'rings_absent': const RingTrio(d: _ringsAbsent),
+      // D5, the other Today hero: a settled recovery in the scallop badge
+      // with the other two as small rings beside it. A calibrating recovery
+      // has no badge (there is no absent badge), so it falls back to the
+      // trio — photographed to prove it.
+      'rings_badge': const RingTrio(d: _ringsMeasured, badge: true),
+      'rings_badge_calibrating':
+          const RingTrio(d: _ringsCalibrating, badge: true),
       // The ONE card, both faces: the map as the background, and a photograph
       // as the background with the route dissolved into its corner.
       'share_card': _shareCard(photo: false),
@@ -296,6 +308,195 @@ Map<String, Widget> componentCases() => {
         SizedBox(height: S.x3),
         BigButton('Not now', color: C.domMove, soft: true),
       ]),
+      // ── Volt (DESIGN_OVERHAUL §5.2) ──
+      // The four button forms and the icon-only circle, each with a real
+      // label: the volt primary, the inverse pill, the coral destructive, and
+      // the 56 pt round power button.
+      'big_button_tones': Column(children: [
+        BigButton('Connect your band', icon: LucideIcons.bluetooth,
+            onTap: () {}),
+        const SizedBox(height: S.x3),
+        BigButton('Save the night', tone: ButtonTone.inverse, onTap: () {}),
+        const SizedBox(height: S.x3),
+        BigButton('Delete this workout', tone: ButtonTone.danger,
+            onTap: () {}),
+        const SizedBox(height: S.x3),
+        BigButton('Sync now', icon: LucideIcons.power, round: true,
+            onTap: () {}),
+      ]),
+      'text_action': Wrap(spacing: S.x4, runSpacing: S.x2, children: [
+        TextAction('See the night', () {}, icon: LucideIcons.arrowRight),
+        TextAction('Forget this band', () {}, tone: ButtonTone.danger),
+      ]),
+      'round_icon_buttons': Wrap(spacing: S.x3, children: [
+        RoundIconButton(LucideIcons.arrowLeft, () {}, 'Back'),
+        RoundIconButton(LucideIcons.sparkles, () {}, 'AI briefing'),
+        RoundIconButton(LucideIcons.settings, () {}, 'Settings',
+            tone: ButtonTone.inverse),
+        RoundIconButton(LucideIcons.x, () {}, 'Close',
+            tone: ButtonTone.glass),
+      ]),
+      'numeral': const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Numeral('7h 28m', style: F.n64),
+          SizedBox(height: S.x3),
+          Numeral('84', unit: 'bpm', style: F.n48),
+          SizedBox(height: S.x3),
+          Numeral('1,174', unit: 'kcal'),
+          SizedBox(height: S.x3),
+          Numeral('14.8', unit: 'br/min', style: F.n17),
+        ],
+      ),
+      'icon_chip': const Wrap(spacing: S.x2, children: [
+        IconChip(LucideIcons.heartPulse, C.domHealth),
+        IconChip(LucideIcons.moon, C.domSleep),
+        IconChip(LucideIcons.circleHelp, C.slate, neutral: true),
+      ]),
+      'app_switch': Builder(builder: (c) => Column(children: [
+            Row(children: [
+              Expanded(
+                  child: Text('Buzz for a high heart rate',
+                      style: F.body.copyWith(color: P.of(c).ink))),
+              AppSwitch(true, (_) {},
+                  semanticLabel: 'Buzz for a high heart rate'),
+            ]),
+            Row(children: [
+              Expanded(
+                  child: Text('Share anonymous crash reports',
+                      style: F.body.copyWith(color: P.of(c).ink))),
+              AppSwitch(false, (_) {},
+                  semanticLabel: 'Share anonymous crash reports'),
+            ]),
+          ])),
+      'app_field': const Column(children: [
+        AppField(label: 'Weight', hint: '78.4 kg'),
+        SizedBox(height: S.x4),
+        AppField(
+            label: 'Resting heart rate',
+            hint: '52',
+            errorText: 'Type a number, like 52'),
+      ]),
+      // The sheet and the dialog, drawn in place rather than opened: the
+      // sweep measures what they hold, at every text scale.
+      'app_sheet': AppSheet(
+        title: 'Log a nap',
+        actions: [
+          BigButton('Save the nap', onTap: () {}),
+          BigButton('Cancel', soft: true, onTap: () {}),
+        ],
+        child: const AppField(label: 'How long', hint: '25 min'),
+      ),
+      'app_dialog': Material(
+        type: MaterialType.transparency,
+        child: AppDialog(
+        title: 'Forget this band?',
+        body: 'Its history stays on this phone. You can pair it again '
+            'at any time.',
+        destructive: 'Forget band',
+        secondary: 'Keep it',
+        onChoice: (_) {},
+      )),
+      // Glass over the thing it is for — imagery — so the blur has something
+      // to frost. The stand-in is an aurora field, the busiest ground the app
+      // paints itself.
+      'glass': Builder(builder: (c) => AuroraTile(
+            hue: C.domHealth,
+            child: Glass(
+              radius: R.rPill,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: S.x5, vertical: S.x3),
+                child: Text('Step 2 · Connected',
+                    style: F.body.copyWith(color: P.of(c).ink)),
+              ),
+            ),
+          )),
+      // The hero badge, with and without its caret — only ever for a value
+      // that exists. There is no absent case: an absent readiness is a
+      // StatusCard, which this gallery already shows.
+      'scallop_badge': const Center(
+        child: ScallopBadge(
+            value: '72',
+            label: 'Readiness',
+            delta: '+6 vs your usual',
+            up: true),
+      ),
+      'scallop_badge_plain': const Center(
+        child: ScallopBadge(value: '7h 28m', label: 'Time asleep', size: 160),
+      ),
+      // "At a glance": three domain hues, each with a real reading and unit.
+      'aurora_tiles': Builder(builder: (c) {
+        final p = P.of(c);
+        Widget tile(Color hue, String label, String value, String unit) =>
+            AuroraTile(
+              hue: hue,
+              semanticLabel: '$label, $value $unit',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Ink only: the muted inks are not solved on aurora.
+                  Text(label, style: F.cap.copyWith(color: p.ink)),
+                  const SizedBox(height: S.x6),
+                  Numeral(value, unit: unit, unitColor: p.ink),
+                ],
+              ),
+            );
+        return Column(children: [
+          tile(C.domHealth, 'Resting heart rate', '52', 'bpm'),
+          const SizedBox(height: S.x3),
+          tile(C.domHome, 'Steps', '11,284', ''),
+          const SizedBox(height: S.x3),
+          tile(C.domFood, 'Active energy', '1,174', 'kcal'),
+        ]);
+      }),
+      'step_path': const StepPath(4, 2, height: 220),
+      // The drawn art set, every slot, on the aurora they are shown on.
+      // An empty state that is an invitation draws its picture above the copy.
+      'status_card_art': const StatusCard(
+        'Nothing logged today',
+        'One tap is a complete log.',
+        fix: 'Log an eating occasion',
+        icon: LucideIcons.utensils,
+        art: Art.food,
+      ),
+      'art_set': Builder(builder: (c) {
+        return Wrap(spacing: S.x3, runSpacing: S.x3, children: [
+          for (final a in [
+            Art.workout,
+            Art.wellness,
+            Art.sleep,
+            Art.food,
+            Art.heart,
+            Art.ring,
+            Art.watch,
+            Art.chestStrap,
+          ])
+            SizedBox(
+              width: S.x16 + S.x12,
+              child: AuroraTile(
+                hue: C.domHome,
+                intensity: .5,
+                child: Center(child: a.image(height: S.x12 + S.x8)),
+              ),
+            ),
+        ]);
+      }),
+      // The onboarding header: the step in words on a glass pill, the river
+      // under it. Char, as every onboarding screen is.
+      'onboarding_step': const AlwaysChar(child: OnboardingStep(2)),
+      // The band's picture on its aurora field (draws only the field until the
+      // art file is bundled).
+      'band_stage': const AlwaysChar(child: BandStage(Art.bandHero, height: 160)),
+      // The one theme override: a card inside it is Char whatever the app is.
+      'always_char': AlwaysChar(
+        child: Builder(
+          builder: (c) => Surface(
+            child: Text('Char in both themes',
+                style: F.body.copyWith(color: P.of(c).ink)),
+          ),
+        ),
+      ),
       'sub_tabs': SubTabs(
           const ['Today', 'Sleep', 'Recovery', 'Strain'], 1, (_) {},
           color: C.domHealth),
@@ -827,10 +1028,7 @@ Map<String, Widget> extraCases() => {
         const Metric(note: 'need_input:name=nn_beats,have=12,need=20'),
         gap: 'Your band was off your wrist 11:20 PM – 2:14 AM.',
       )!,
-      // Both asks stacked, default (unloaded) Prefs state — the same state
-      // an actual first run starts from, since an unset dismissed/last-shown
-      // key reads as "eligible, never shown yet".
-      'community_nudge': const CommunityNudge(),
+
       'surface': Builder(
         builder: (c) => Surface(
           child: Text(
@@ -980,7 +1178,7 @@ Map<String, Widget> extraCases() => {
                   fast: p.on(C.orange),
                   pinStart: p.on(C.green),
                   pinEnd: p.on(C.red),
-                  pinInk: p.inkOnFill),
+                  pinInk: p.card),
             ),
           ),
         );
@@ -998,7 +1196,7 @@ Map<String, Widget> extraCases() => {
             child: CustomPaint(
               size: Size.infinite,
               painter: Elevation(_metres, p.on(C.teal),
-                  markerInk: p.inkOnFill, axis: AxisSpec.of(_metres, floor: 0)),
+                  markerInk: p.card, axis: AxisSpec.of(_metres, floor: 0)),
             ),
           ),
         );
@@ -1456,6 +1654,9 @@ Map<String, Widget> _liveCases() => {
           hr: 148,
           zone: 4,
           zoneMinutes: [6, 14, 22, 16, 4],
+          // Minute means with a dropout in them: the live line breaks there.
+          hrCurve: [96, 112, 124, 131, 138, null, null, 141, 146, 149, 144,
+              151, 148],
           bandConnected: true)),
       // The two absences say different things, and one card used to cover
       // both — it told a user whose band had dropped to adjust the fit of a
@@ -2537,3 +2738,157 @@ const EcgReading _ecgDemoReading = EcgReading(
   notes: null,
   createdAt: 1787823784000,
 );
+
+/// The tokens themselves (DESIGN_OVERHAUL.md §6, "Volt system"): surfaces and
+/// accents with their measured contrast, the type ramp, radii and icon sizes.
+/// Rendered in the gallery's current theme, so the theme switch shows both.
+Map<String, Widget> _voltSystemCases() => {
+      'volt_surfaces': Builder(builder: (c) {
+        final p = P.of(c);
+        String r(Color a, Color b) => '${P.contrast(a, b).toStringAsFixed(1)}:1';
+        return _Swatches([
+          for (final (name, ground) in [
+            ('bg', p.bg),
+            ('card', p.card),
+            ('card2', p.card2),
+            ('inverse', p.inverse),
+          ])
+            (
+              name,
+              ground,
+              ground == p.inverse
+                  ? 'onInverse ${r(p.onInverse, ground)}'
+                  : 'ink3 ${r(p.ink3, ground)}',
+            ),
+          ('line', p.line, ''),
+          ('track', p.track, ''),
+        ]);
+      }),
+      'volt_accents': Builder(builder: (c) {
+        final p = P.of(c);
+        String r(Color a, Color b) => '${P.contrast(a, b).toStringAsFixed(1)}:1';
+        return _Swatches([
+          for (final (name, a) in [
+            ('volt', C.volt),
+            ('coral', C.coral),
+            ('slate', C.slate),
+            ('lavender', C.lavender),
+            ('sky', C.sky),
+            ('rose', C.rose),
+            ('sage', C.sage),
+            ('amber', C.amber),
+            ('aqua', C.aqua),
+          ])
+            // The fill and its ink, then the same accent solved as text on a
+            // card — the two ways a hue may ever be spent.
+            (
+              name,
+              p.fill(a),
+              'ink ${r(p.inkOn(p.fill(a)), p.fill(a))} · '
+                  'text ${r(p.on(a), p.card)}',
+            ),
+        ]);
+      }),
+      'volt_type': Builder(builder: (c) {
+        final p = P.of(c);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final (name, style, sample) in [
+              ('display', F.display, 'Connect your band'),
+              ('t1', F.t1, 'Good morning'),
+              ('t2', F.t2, 'Sleep'),
+              ('head', F.head, 'Your normal range'),
+              ('body', F.body, 'Every number is computed here.'),
+              ('cap', F.cap, 'Synced 8:12'),
+              ('over', F.over, 'RECOVERY'),
+              ('n64', F.n64, '7h 28m'),
+              ('n48', F.n48, '84'),
+              ('n34', F.n34, '1,174'),
+              ('n24', F.n24, '14.8'),
+              ('n17', F.n17, '52 bpm'),
+            ]) ...[
+              Text('F.$name · ${style.fontSize!.round()}',
+                  style: F.over.copyWith(color: p.ink3)),
+              Text(sample, style: style.copyWith(color: p.ink)),
+              const SizedBox(height: S.x2),
+            ],
+          ],
+        );
+      }),
+      'volt_radii': Builder(builder: (c) {
+        final p = P.of(c);
+        return Wrap(spacing: S.x3, runSpacing: S.x3, children: [
+          for (final (name, r) in [
+            ('sm', R.rSm),
+            ('md', R.rMd),
+            ('lg', R.rLg),
+            ('xl', R.rXl),
+            ('xxl', R.rXxl),
+            ('pill', R.rPill),
+          ])
+            Column(children: [
+              Container(
+                width: S.x16,
+                height: S.x16,
+                decoration: BoxDecoration(color: p.card2, borderRadius: r),
+              ),
+              const SizedBox(height: S.x1),
+              Text('R.$name', style: F.cap.copyWith(color: p.ink2)),
+            ]),
+        ]);
+      }),
+      'volt_icons': Builder(builder: (c) {
+        final p = P.of(c);
+        return Wrap(
+          spacing: S.x4,
+          runSpacing: S.x3,
+          crossAxisAlignment: WrapCrossAlignment.end,
+          children: [
+            for (final (name, size) in [
+              ('sm', I.sm),
+              ('md', I.md),
+              ('lg', I.lg),
+              ('xl', I.xl),
+              ('hero', I.hero),
+            ])
+              Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(LucideIcons.heart, size: size, color: p.ink),
+                Text('I.$name', style: F.cap.copyWith(color: p.ink2)),
+              ]),
+          ],
+        );
+      }),
+    };
+
+/// A wrap of named swatches, each with the measurement under it.
+class _Swatches extends StatelessWidget {
+  final List<(String, Color, String)> items;
+  const _Swatches(this.items);
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    return Wrap(spacing: S.x3, runSpacing: S.x3, children: [
+      for (final (name, color, note) in items)
+        SizedBox(
+          width: S.x16 + S.x12,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+              height: S.x10,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: R.rMd,
+                border: Border.all(color: p.line),
+              ),
+            ),
+            const SizedBox(height: S.x1),
+            Text(name,
+                style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+            if (note.isNotEmpty)
+              Text(note, style: F.over.copyWith(color: p.ink3)),
+          ]),
+        ),
+    ]);
+  }
+}

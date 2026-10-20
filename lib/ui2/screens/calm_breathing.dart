@@ -550,7 +550,7 @@ class _CalmBreathingState extends State<CalmBreathing>
                       }
                       if (c.mounted) Navigator.of(c).pop();
                     },
-                    child: Icon(LucideIcons.x, size: 22, color: p.ink2),
+                    child: Icon(LucideIcons.x, size: I.md, color: p.ink2),
                   ),
                 ),
                 Expanded(
@@ -728,7 +728,7 @@ class _Setup extends StatelessWidget {
                             child: Text(
                               l?.calmBreathingMinutesAbbrev(m) ?? '$m min',
                               style: F.body.copyWith(
-                                color: m == minutes ? p.inkOnFill : p.ink2,
+                                color: m == minutes ? p.inkOn(p.fill(C.domMind)) : p.ink2,
                               ),
                             ),
                           ),
@@ -777,7 +777,7 @@ class _Setup extends StatelessWidget {
         children: [
           Icon(
             on ? LucideIcons.circleCheck : LucideIcons.circle,
-            size: 18,
+            size: I.md,
             color: on ? p.on(C.domMind) : p.ink3,
           ),
           const SizedBox(width: S.x3),
@@ -870,7 +870,7 @@ class _Setup extends StatelessWidget {
         ),
         if (connected) ...[
           const SizedBox(width: S.x3),
-          Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+          Icon(LucideIcons.chevronRight, size: I.md, color: p.ink3),
         ],
       ],
     ),
@@ -1033,9 +1033,24 @@ class BreathCircle extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
+          // The sage field the ring breathes on (§6): painted once and
+          // cached, never animated — only the ring moves. On it the ring is
+          // ink, the one colour solved on aurora; a sage ring on a sage field
+          // would vanish. At 60% of the solved peak: the ring lays a 14% ink
+          // disc under the label, and on the full peak that measures 3.5:1 in
+          // dark (5.5:1 at 60%).
+          ClipOval(
+            child: RepaintBoundary(
+              child: CustomPaint(
+                size: const Size(240, 240),
+                painter: AuroraPainter(p.card,
+                    Color.lerp(p.card, p.aurora(C.domMind), .6)!),
+              ),
+            ),
+          ),
           CustomPaint(
             size: const Size(240, 240),
-            painter: BreathRing(t, p.on(C.domMind)),
+            painter: BreathRing(t, p.ink),
           ),
           Text(label, style: F.head.copyWith(color: p.ink)),
         ],

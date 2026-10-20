@@ -21,6 +21,7 @@ import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../screens/home_screen.dart' show monthShortName, weekdayShortName;
 import '../ui2.dart';
+import 'welcome.dart' show OnboardingStep;
 
 class ProfileSetupScreen extends StatefulWidget {
   /// Called after the profile has been written. The router uses it to let a
@@ -144,8 +145,12 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
     await widget.onSave(_fields());
   }
 
+  // Onboarding is Char in both themes (§6, D4).
   @override
-  Widget build(BuildContext c) {
+  Widget build(BuildContext c) =>
+      AlwaysChar(child: Builder(builder: _build));
+
+  Widget _build(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final sexes = _sexes(c);
@@ -155,8 +160,10 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(S.x4, S.x6, S.x4, S.x8),
           children: [
+            const OnboardingStep(3),
+            const SizedBox(height: S.x5),
             Text(l?.profileSetupTitle ?? 'About you',
-                style: F.t1.copyWith(color: p.ink)),
+                style: F.display.copyWith(color: p.ink)),
             const SizedBox(height: S.x3),
             Text(
               l?.profileSetupBody ??
@@ -215,16 +222,29 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
             // Offered to everyone, on by default for a female profile.
             // Changeable any time in Settings; switching it off keeps what
             // was logged.
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _cycleOn,
-              onChanged: (v) => setState(() => _cycle = v),
-              title: Text(l?.settingsCycleTrackingRowTitle ?? 'Cycle tracking',
-                  style: F.body.copyWith(color: p.ink)),
-              subtitle: Text(
-                  l?.profileSetupCycleSub ??
-                      'Log your period in Health. You can change this later.',
-                  style: F.cap.copyWith(color: p.ink3)),
+            // AppSwitch, not Material's SwitchListTile (which the `Switch(`
+            // ban did not match). Merged, so the row is read as one switch
+            // with its title, as the list tile was.
+            const SizedBox(height: S.x2),
+            MergeSemantics(
+              child: Row(children: [
+                Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                            l?.settingsCycleTrackingRowTitle ??
+                                'Cycle tracking',
+                            style: F.body.copyWith(color: p.ink)),
+                        Text(
+                            l?.profileSetupCycleSub ??
+                                'Log your period in Health. You can change this later.',
+                            style: F.cap.copyWith(color: p.ink3)),
+                      ]),
+                ),
+                const SizedBox(width: S.x3),
+                AppSwitch(_cycleOn, (v) => setState(() => _cycle = v)),
+              ]),
             ),
             const SizedBox(height: S.x5),
             BigButton(l?.actionContinue ?? 'Continue',
@@ -290,20 +310,11 @@ class _Field extends StatelessWidget {
               style: F.over.copyWith(color: p.ink3)),
         ]),
         const SizedBox(height: S.x1),
-        TextField(
+        AppField(
           controller: controller,
           keyboardType: TextInputType.number,
-          style: F.head.copyWith(color: p.ink),
-          decoration: InputDecoration(
-            hintText: unit,
-            hintStyle: F.head.copyWith(color: p.ink3),
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(vertical: S.x3),
-            enabledBorder:
-                UnderlineInputBorder(borderSide: BorderSide(color: p.line)),
-            focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: p.on(C.green))),
-          ),
+          textStyle: F.head,
+          hint: unit,
         ),
         const SizedBox(height: S.x1),
         Text(consequence, style: F.cap.copyWith(color: p.ink3)),

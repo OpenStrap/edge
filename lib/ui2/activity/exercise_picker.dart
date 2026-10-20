@@ -16,12 +16,7 @@ Future<String?> showExercisePicker(
   required ExercisePickMode mode,
   Set<String> selectedKeys = const {},
   List<String> recentKeys = const [],
-}) => showModalBottomSheet<String>(
-  context: context,
-  isScrollControlled: true,
-  sheetAnimationStyle: sheetMotion(context),
-  backgroundColor: P.of(context).card,
-  shape: const RoundedRectangleBorder(borderRadius: R.rXl),
+}) => AppSheet.open<String>(context,
   builder: (_) => FractionallySizedBox(
     heightFactor: .92,
     child: _ExercisePicker(
@@ -30,6 +25,7 @@ Future<String?> showExercisePicker(
       recentKeys: recentKeys,
     ),
   ),
+  scroll: true,
 );
 
 class _ExercisePicker extends StatefulWidget {
@@ -138,7 +134,7 @@ class _ExercisePickerState extends State<_ExercisePicker> {
                 Pressable(
                   semanticLabel: l?.actionCancel ?? 'Cancel',
                   onTap: () => Navigator.pop(context),
-                  child: Icon(LucideIcons.x, size: 20, color: p.ink3),
+                  child: Icon(LucideIcons.x, size: I.md, color: p.ink3),
                 ),
               ],
             ),
@@ -149,7 +145,7 @@ class _ExercisePickerState extends State<_ExercisePicker> {
               decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
               child: Row(
                 children: [
-                  Icon(LucideIcons.search, size: 17, color: p.ink3),
+                  Icon(LucideIcons.search, size: I.sm, color: p.ink3),
                   const SizedBox(width: S.x2),
                   Expanded(
                     child: Semantics(
@@ -157,20 +153,15 @@ class _ExercisePickerState extends State<_ExercisePicker> {
                           l?.activityExercisePickerSearchLabel ??
                           'Search exercises',
                       textField: true,
-                      child: TextField(
+                      child: AppField(
                         controller: search,
                         autofocus: false,
                         onChanged: (value) => setState(() => query = value),
-                        style: F.body.copyWith(color: p.ink),
-                        cursorColor: p.on(C.purple),
-                        decoration: InputDecoration.collapsed(
-                          hintText:
-                              l?.activityExercisePickerSearchHint(
+                        bare: true,
+                        hint: l?.activityExercisePickerSearchHint(
                                 exerciseLibrary.length,
                               ) ??
                               'Search ${exerciseLibrary.length} exercises',
-                          hintStyle: F.body.copyWith(color: p.ink3),
-                        ),
                       ),
                     ),
                   ),
@@ -205,7 +196,7 @@ class _ExercisePickerState extends State<_ExercisePicker> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(LucideIcons.searchX, size: 28, color: p.ink3),
+                          Icon(LucideIcons.searchX, size: I.lg, color: p.ink3),
                           const SizedBox(height: S.x3),
                           Text(
                             l?.activityExercisePickerNoMatch ??
@@ -269,7 +260,7 @@ class _ExercisePickerState extends State<_ExercisePicker> {
           child: Text(
             label,
             style: F.cap.copyWith(
-              color: selected ? p.inkOnFill : p.ink2,
+              color: selected ? p.inkOn(p.fill(C.purple)) : p.ink2,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -321,7 +312,7 @@ class _ExercisePickerState extends State<_ExercisePicker> {
                   if (selected)
                     Icon(
                       LucideIcons.circleCheck,
-                      size: 18,
+                      size: I.md,
                       color: p.on(C.purple),
                     ),
                 ],
@@ -341,7 +332,7 @@ class _ExercisePickerState extends State<_ExercisePicker> {
               child: SizedBox(
                 width: S.tap,
                 height: S.tap,
-                child: Icon(LucideIcons.info, size: 17, color: p.ink3),
+                child: Icon(LucideIcons.info, size: I.sm, color: p.ink3),
               ),
             ),
           ),

@@ -935,6 +935,18 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       _ => LucideIcons.heartPulse,
     };
 
+/// The drawn picture for a kind of sensor, or null where there is no drawing
+/// (a thermometer, a scale) and the glyph stands in.
+Art? sensorArt(String? adapterId, {bool framed = false}) {
+  if (framed) return Art.watch;
+  return switch (adapterId) {
+    'oura' || 'colmi' || 'ultrahuman' => Art.ring,
+    'polar_pmd' => Art.chestStrap,
+    'garmin' || 'miband234' || 'pebble' => Art.watch,
+    _ => null,
+  };
+}
+
 /// The tier named by a `device.tier` column, or null when the column is blank
 /// or holds a name this build does not have.
 ///
@@ -1292,38 +1304,34 @@ Future<void> addFramedBand(BuildContext c) async {
 /// One-sentence sheet: the ASK ordering constraint, stated where the user is.
 Future<void> showRestartRequiredSheet(BuildContext c) async {
   final p = P.of(c);
-  await showModalBottomSheet<void>(
-    context: c,
-    backgroundColor: p.card,
-    showDragHandle: true,
+  await AppSheet.open<void>(c,
     builder: (sheet) => SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x4),
         child: Text(
           uiText(
             c,
-            'iOS shows the pairing sheet only before the app has used Bluetooth. Close OpenStrap completely, then reopen it to see the sheet.',
+            'iOS shows the pairing sheet only before the app has used Bluetooth. Close Locus completely, then reopen it to see the sheet.',
           ),
           style: F.body.copyWith(color: p.ink),
         ),
       ),
     ),
+    dragHandle: true,
   );
 }
 
 /// One-sentence sheet giving a reason a requested action was refused.
 Future<void> showReasonSheet(BuildContext c, String reason) async {
   final p = P.of(c);
-  await showModalBottomSheet<void>(
-    context: c,
-    backgroundColor: p.card,
-    showDragHandle: true,
+  await AppSheet.open<void>(c,
     builder: (sheet) => SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x4),
         child: Text(reason, style: F.body.copyWith(color: p.ink)),
       ),
     ),
+    dragHandle: true,
   );
 }
 
@@ -1593,7 +1601,7 @@ class SourceRow extends StatelessWidget {
           height: 52,
           alignment: Alignment.center,
           decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
-          child: Icon(s.icon, size: 24, color: p.ink2),
+          child: Icon(s.icon, size: I.lg, color: p.ink2),
         ),
           const SizedBox(width: S.x3),
           Expanded(
@@ -1639,7 +1647,7 @@ class SourceRow extends StatelessWidget {
                       s.charging
                           ? LucideIcons.batteryCharging
                           : LucideIcons.battery,
-                      size: 13,
+                      size: I.sm,
                       color: p.ink3),
                   const SizedBox(width: 3),
                   Text('${battery.round()}%',
@@ -1684,7 +1692,7 @@ class TierRow extends StatelessWidget {
       color: filled ? p.wash(tier.accent) : p.card2,
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Icon(filled ? LucideIcons.badgeCheck : LucideIcons.circleDashed,
-            size: 20, color: filled ? p.on(tier.accent) : p.ink3),
+            size: I.md, color: filled ? p.on(tier.accent) : p.ink3),
         const SizedBox(width: S.x3),
         Expanded(
           child:
@@ -2051,21 +2059,13 @@ Future<void> _confirmForgetSensor(BuildContext c, HealthSource s) async {
   final l = AppLocalizations.of(c);
   final ok = await showDialog<bool>(
     context: c,
-    builder: (d) => AlertDialog(
-      title: Text(
-        l?.devicesForgetSensor(s.displayName(c)) ?? 'Forget ${s.name}?',
-      ),
-      content: Text(
-        withIosUninstallWarning(c, l?.devicesForgetSensorBody ??
+    builder: (d) => AppDialog(
+      title: l?.devicesForgetSensor(s.displayName(c)) ?? 'Forget ${s.name}?',
+      body: withIosUninstallWarning(c, l?.devicesForgetSensorBody ??
             'It stops being used in workouts and has to be paired again. Everything already saved on this phone stays.'),
-      ),
       actions: [
-        TextButton(
-            onPressed: () => Navigator.of(d).pop(false),
-            child: Text(l?.devicesKeepItPaired ?? 'Keep it paired')),
-        TextButton(
-            onPressed: () => Navigator.of(d).pop(true),
-            child: Text(l?.devicesForgetIt ?? 'Forget it')),
+        BigButton(l?.devicesKeepItPaired ?? 'Keep it paired', soft: true, onTap: () => Navigator.of(d).pop(false)),
+        BigButton(l?.devicesForgetIt ?? 'Forget it', onTap: () => Navigator.of(d).pop(true)),
       ],
     ),
   );
@@ -2094,42 +2094,35 @@ Future<void> _renameBand(BuildContext c, AppState app, String current) async {
   final err = ValueNotifier<String?>(null);
   final name = await showDialog<String>(
     context: c,
-    builder: (d) => AlertDialog(
-      title: Text(l?.devicesNameThisBand ?? 'Name this band'),
+    builder: (d) => AppDialog(
+      title: l?.devicesNameThisBand ?? 'Name this band',
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         ValueListenableBuilder<String?>(
           valueListenable: err,
-          builder: (_, e, _) => TextField(
+          builder: (_, e, _) => AppField(
             controller: ctl,
             autofocus: true,
             maxLength: 20,
-            decoration: InputDecoration(
-              hintText: l?.devicesYourBand ?? 'Your band',
-              errorText: e,
-              helperText: l?.devicesNameCharset ??
+            hint: l?.devicesYourBand ?? 'Your band',
+            errorText: e,
+            helperText: l?.devicesNameCharset ??
                   "Letters, numbers, space, and ' . _ -",
-            ),
           ),
         ),
       ]),
       actions: [
-        TextButton(
-            onPressed: () => Navigator.of(d).pop(),
-            child: Text(l?.actionCancel ?? 'Cancel')),
-        TextButton(
-          onPressed: () {
-            final v = ctl.text.trim();
-            if (v.isEmpty) {
-              err.value = l?.devicesGiveItAName ?? 'Give it a name';
-            } else if (cleanDeviceLabel(v) == null) {
-              err.value = l?.devicesNameCharsetError ??
-                  "Only letters, numbers, space, and ' . _ -";
-            } else {
-              Navigator.of(d).pop(v);
-            }
-          },
-          child: Text(l?.actionSave ?? 'Save'),
-        ),
+        BigButton(l?.actionCancel ?? 'Cancel', soft: true, onTap: () => Navigator.of(d).pop()),
+        BigButton(l?.actionSave ?? 'Save', onTap: () {
+                    final v = ctl.text.trim();
+                    if (v.isEmpty) {
+                      err.value = l?.devicesGiveItAName ?? 'Give it a name';
+                    } else if (cleanDeviceLabel(v) == null) {
+                      err.value = l?.devicesNameCharsetError ??
+                          "Only letters, numbers, space, and ' . _ -";
+                    } else {
+                      Navigator.of(d).pop(v);
+                    }
+                  }),
       ],
     ),
   );
@@ -2160,19 +2153,13 @@ Future<void> _confirmForget(BuildContext c, AppState app, String name) async {
   final l = AppLocalizations.of(c);
   final ok = await showDialog<bool>(
     context: c,
-    builder: (d) => AlertDialog(
-      title: Text(l?.devicesForgetBand(name) ?? 'Forget $name?'),
-      content: Text(
-        withIosUninstallWarning(c, l?.devicesForgetBandBody ??
+    builder: (d) => AppDialog(
+      title: l?.devicesForgetBand(name) ?? 'Forget $name?',
+      body: withIosUninstallWarning(c, l?.devicesForgetBandBody ??
             'The band stops syncing until you pair it again. Everything already saved on this phone stays.'),
-      ),
       actions: [
-        TextButton(
-            onPressed: () => Navigator.of(d).pop(false),
-            child: Text(l?.devicesKeepItPaired ?? 'Keep it paired')),
-        TextButton(
-            onPressed: () => Navigator.of(d).pop(true),
-            child: Text(l?.devicesForgetIt ?? 'Forget it')),
+        BigButton(l?.devicesKeepItPaired ?? 'Keep it paired', soft: true, onTap: () => Navigator.of(d).pop(false)),
+        BigButton(l?.devicesForgetIt ?? 'Forget it', onTap: () => Navigator.of(d).pop(true)),
       ],
     ),
   );
@@ -2259,7 +2246,7 @@ class DeviceDetailView extends StatelessWidget {
                     alignment: Alignment.center,
                     decoration:
                         BoxDecoration(color: p.card2, borderRadius: R.rXxl),
-                    child: Icon(s.icon, size: 54, color: p.ink2),
+                    child: Icon(s.icon, size: I.hero, color: p.ink2),
                   ),
                 ),
                   const SizedBox(height: S.x5),
@@ -2558,10 +2545,7 @@ String wornName(BuildContext c, int w) {
 Future<int?> _pickWearing(BuildContext c) async {
   final p = P.of(c);
   final l = AppLocalizations.of(c);
-  final chosen = await showModalBottomSheet<int>(
-    context: c,
-    backgroundColor: p.card,
-    showDragHandle: true,
+  final chosen = await AppSheet.open<int>(c,
     builder: (sheet) => SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x4),
@@ -2600,6 +2584,7 @@ Future<int?> _pickWearing(BuildContext c) async {
         ]),
       ),
     ),
+    dragHandle: true,
   );
   if (chosen == null) return null;
   // 0 rows = the device row is gone (an unpair raced the sheet).

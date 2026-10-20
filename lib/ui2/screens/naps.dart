@@ -375,7 +375,7 @@ class _NapsScreenState extends State<NapsScreen> {
         Padding(
           padding: const EdgeInsets.only(top: S.x1),
           child: Icon(mine ? LucideIcons.userCheck : LucideIcons.moon,
-              size: 16, color: p.on(mine ? C.green : C.indigo)),
+              size: I.sm, color: p.on(mine ? C.green : C.indigo)),
         ),
         const SizedBox(width: S.x3),
         Expanded(

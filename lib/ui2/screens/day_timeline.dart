@@ -1265,7 +1265,7 @@ List<Widget> timelineBody(BuildContext c, TimelineData d,
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(n.icon, size: 17, color: p.ink3),
+                        Icon(n.icon, size: I.sm, color: p.ink3),
                         const SizedBox(width: S.x3),
                         Expanded(
                           child: Column(
@@ -1333,9 +1333,9 @@ class MomentRow extends StatelessWidget {
               child: Text(clockOfTs(m.at), style: F.n17.copyWith(color: p.ink3)),
             ),
             Padding(
-              padding: const EdgeInsets.only(top: 2),
+              padding: const EdgeInsets.only(top: S.half),
               child: Icon(m.icon,
-                  size: 17, color: m.color == null ? p.ink3 : p.on(m.color!)),
+                  size: I.sm, color: m.color == null ? p.ink3 : p.on(m.color!)),
             ),
             const SizedBox(width: S.x3),
             Expanded(

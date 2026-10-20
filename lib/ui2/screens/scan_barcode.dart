@@ -17,16 +17,10 @@ import '../ui2.dart';
 
 /// Read one barcode. Resolves the digits, or null if the sheet was closed,
 /// the camera was refused, or there is no camera at all.
-Future<String?> scanBarcode(BuildContext c) => showModalBottomSheet<String>(
-      context: c,
-      isScrollControlled: true,
-      sheetAnimationStyle: sheetMotion(c),
-      backgroundColor: P.of(c).card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
-      ),
-      builder: (_) => const _ScanSheet(),
-    );
+Future<String?> scanBarcode(BuildContext c) => AppSheet.open<String>(c,
+  builder: (_) => const _ScanSheet(),
+  scroll: true,
+);
 
 class _ScanSheet extends StatelessWidget {
   const _ScanSheet();
@@ -62,7 +56,7 @@ class _ScanSheet extends StatelessWidget {
                 Pressable(
                   semanticLabel: l?.scanBarcodeClose ?? 'Close',
                   onTap: () => Navigator.of(c).pop(),
-                  child: Icon(LucideIcons.x, size: 20, color: p.ink3),
+                  child: Icon(LucideIcons.x, size: I.md, color: p.ink3),
                 ),
               ],
             ),

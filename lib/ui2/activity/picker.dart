@@ -93,7 +93,7 @@ class _ActivityPickerState extends State<ActivityPicker> {
               decoration:
                   BoxDecoration(color: p.card2, borderRadius: R.rMd),
               child: Row(children: [
-                Icon(LucideIcons.search, size: 17, color: p.ink3),
+                Icon(LucideIcons.search, size: I.sm, color: p.ink3),
                 const SizedBox(width: S.x2),
                 Expanded(
                   // Labelled and focused: this screen's entire purpose is the
@@ -102,16 +102,13 @@ class _ActivityPickerState extends State<ActivityPicker> {
                   child: Semantics(
                     label: l?.activityPickerSearchLabel ?? 'Search activities',
                     textField: true,
-                    child: TextField(
+                    child: AppField(
                       autofocus: true,
                       onChanged: (v) => setState(() => q = v),
-                      style: F.body.copyWith(color: p.ink),
-                      cursorColor: p.on(C.purple),
-                      decoration: InputDecoration.collapsed(
-                          hintText: l?.activityPickerSearchHint(
+                      bare: true,
+                      hint: l?.activityPickerSearchHint(
                                   allActivities.length) ??
                               'Search ${allActivities.length} activities',
-                          hintStyle: F.body.copyWith(color: p.ink3)),
                     ),
                   ),
                     ),
@@ -187,7 +184,7 @@ class _ActivityPickerState extends State<ActivityPicker> {
                             const EdgeInsets.symmetric(vertical: S.x3),
                         child: Row(children: [
                           Icon(activityLibrary[gi].icon,
-                              size: 18, color: p.ink2),
+                              size: I.md, color: p.ink2),
                               const SizedBox(width: S.x3),
                               Expanded(
                                 child: Text(
@@ -202,7 +199,7 @@ class _ActivityPickerState extends State<ActivityPicker> {
                             turns: group == gi ? .25 : 0,
                             duration: motion(c, Motion.base),
                             child: Icon(LucideIcons.chevronRight,
-                                size: 18, color: p.ink3),
+                                size: I.md, color: p.ink3),
                           ),
                             ],
                           ),
@@ -285,7 +282,7 @@ class ActivityRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: S.x3),
         child: Row(
           children: [
-            Icon(a.icon, size: 18, color: p.on(a.color)),
+            Icon(a.icon, size: I.md, color: p.on(a.color)),
             const SizedBox(width: S.x3),
             Expanded(
               child: Row(
@@ -298,11 +295,11 @@ class ActivityRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis)),
               if (a.private) ...[
                 const SizedBox(width: S.x2),
-                Icon(LucideIcons.lock, size: 12, color: p.ink3),
+                Icon(LucideIcons.lock, size: I.sm, color: p.ink3),
               ],
               if (a.gps) ...[
                 const SizedBox(width: S.x2),
-                Icon(LucideIcons.mapPin, size: 12, color: p.ink3),
+                Icon(LucideIcons.mapPin, size: I.sm, color: p.ink3),
               ],
             ]),
           ),
@@ -321,7 +318,7 @@ class ActivityRow extends StatelessWidget {
                 style: F.over.copyWith(color: p.ink3)),
           ],
           const SizedBox(width: S.x2),
-          Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+          Icon(LucideIcons.chevronRight, size: I.sm, color: p.ink3),
         ]),
       ),
     );
@@ -349,7 +346,7 @@ class _Quick extends StatelessWidget {
             height: 38,
             decoration:
                 BoxDecoration(color: p.wash(a.color), borderRadius: R.rMd),
-            child: Icon(a.icon, size: 18, color: p.on(a.color)),
+            child: Icon(a.icon, size: I.md, color: p.on(a.color)),
           ),
             const SizedBox(height: S.x2),
             Padding(

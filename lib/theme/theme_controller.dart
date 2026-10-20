@@ -1,20 +1,19 @@
 // Theme controller — owns the user's appearance choice (System / Light / Dark),
 // tracks the OS brightness, and resolves the two into the *effective* mode that
-// MaterialApp paints. It keeps [AppColors.active] in lockstep (set synchronously
-// before notifying) so the 546 `AppColors.x` call sites always resolve to the
-// mode being rendered, and it drives the system status-bar icon brightness.
+// MaterialApp paints. Screens read their palette from the theme through
+// `P.of(context)` (lib/ui2/theme.dart), so there is no global colour state to
+// keep in step; this drives the system bars and the iOS widget's mode.
 //
-// First launch follows the OS: if the phone is in dark mode, OpenStrap opens in
-// "Ember on Char" from the login/signup screen onward. The choice is persisted
-// and editable later from onboarding and Profile; UI updates live on change.
+// First launch follows the OS: if the phone is in dark mode, Locus opens in
+// Char (Volt's dark) from the first screen onward. The choice is persisted and
+// editable later from Profile; UI updates live on change.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../ui2/theme.dart' show P;
 import '../widget/widget_service.dart';
-import 'tokens.dart';
-import 'theme.dart';
 
 /// What the user picked. `system` defers to the OS brightness.
 enum AppThemeChoice { system, light, dark }
@@ -34,16 +33,16 @@ class ThemeController extends ChangeNotifier {
   Brightness _platform;
 
   ThemeController._(this._choice, this._platform) {
-    _applyActive(); // make AppColors.active correct immediately
+    _applyActive();
   }
 
   /// Build synchronously from already-loaded inputs (used by [bootstrap]).
   factory ThemeController.seed(AppThemeChoice choice, Brightness platform) =>
       ThemeController._(choice, platform);
 
-  /// Load the persisted choice + current OS brightness and set [AppColors.active]
-  /// BEFORE the first frame. Call from main() before runApp so login/signup
-  /// already render in the right mode.
+  /// Load the persisted choice + current OS brightness BEFORE the first frame.
+  /// Call from main() before runApp so the first screen already renders in
+  /// the right mode.
   static Future<ThemeController> bootstrap() async {
     final prefs = await SharedPreferences.getInstance();
     final choice = _parse(prefs.getString(_kChoice));
@@ -72,12 +71,10 @@ class ThemeController extends ChangeNotifier {
   bool get isDark => effective == Brightness.dark;
 
   /// We resolve `system` ourselves and hand MaterialApp an explicit mode, so the
-  /// rendered brightness can never drift from [AppColors.active].
+  /// rendered brightness can never drift from [effective].
   ThemeMode get materialThemeMode =>
       isDark ? ThemeMode.dark : ThemeMode.light;
 
-  ThemeData get lightTheme => buildOpenStrapTheme(kLightPalette);
-  ThemeData get darkTheme => buildOpenStrapTheme(kDarkPalette);
 
   /// User picked a mode (onboarding / profile). Updates live + persists.
   Future<void> setChoice(AppThemeChoice choice) async {
@@ -102,7 +99,6 @@ class ThemeController extends ChangeNotifier {
   }
 
   void _applyActive() {
-    AppColors.active = isDark ? kDarkPalette : kLightPalette;
     // Keep the iOS widget + Live Activity in the same mode (best-effort).
     WidgetService.setThemeDark(isDark);
   }
@@ -113,7 +109,9 @@ class ThemeController extends ChangeNotifier {
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
       statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
-      systemNavigationBarColor: AppColors.bg,
+      // The page colour, so the Android nav bar is one surface with the app.
+      // It was the legacy Ember `bg`, which matched nothing on screen.
+      systemNavigationBarColor: P(isDark).bg,
       systemNavigationBarIconBrightness:
           isDark ? Brightness.light : Brightness.dark,
     ));

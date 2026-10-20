@@ -184,11 +184,10 @@ class _JournalComposeState extends State<JournalCompose> {
   /// overwrite of `_tags`/`_note`.
   Future<void> _openAiChat() async {
     final cfg = context.read<CoachConfig>();
-    final result = await showModalBottomSheet<({List<String> tags, String note})>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
+    final result = await AppSheet.open<({List<String> tags, String note})>(context,
       builder: (_) => _JournalAiSheet(config: cfg),
+      scroll: true,
+      bare: true,
     );
     if (result == null || !mounted) return;
     final merged = mergeJournalEntry(
@@ -304,7 +303,7 @@ class _JournalComposeState extends State<JournalCompose> {
                                     child: Row(
                                       children: [
                                         Icon(LucideIcons.plusCircle,
-                                            size: 18, color: p.ink3),
+                                            size: I.md, color: p.ink3),
                                         const SizedBox(width: S.x2),
                                         Text(
                                             l?.journalComposeTrackSomethingElse ??
@@ -354,7 +353,7 @@ class _JournalComposeState extends State<JournalCompose> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(LucideIcons.sparkles,
-                                      size: 16, color: p.on(C.domMind)),
+                                      size: I.sm, color: p.on(C.domMind)),
                                   const SizedBox(width: S.x1),
                                   Text(
                                     // Not localized yet — a new entry point,
@@ -469,8 +468,10 @@ class MoodPicker extends StatelessWidget {
                       ),
                       child: Icon(
                         _faces[i],
-                        size: 22,
-                        color: value == i + 1 ? p.inkOnFill : p.on(_tints[i]),
+                        size: I.md,
+                        color: value == i + 1
+                            ? p.inkOn(p.fill(_tints[i]))
+                            : p.on(_tints[i]),
                       ),
                     ),
                   ),
@@ -598,7 +599,7 @@ class _Step extends StatelessWidget {
         width: 32,
         height: 32,
         decoration: BoxDecoration(color: p.card2, borderRadius: R.rSm),
-        child: Icon(icon, size: 16, color: enabled ? p.ink2 : p.ink3),
+        child: Icon(icon, size: I.sm, color: enabled ? p.ink2 : p.ink3),
       ),
     );
   }
@@ -645,19 +646,13 @@ class OsTextField extends StatelessWidget {
           child: Semantics(
             label: label,
             textField: true,
-            child: TextField(
+            child: AppField(
               controller: controller,
               maxLines: lines,
               minLines: 1,
               keyboardType: keyboard,
-              style: F.body.copyWith(color: p.ink),
-              cursorColor: p.on(C.domMind),
-              decoration: InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                hintText: hint,
-                hintStyle: F.body.copyWith(color: p.ink3),
-              ),
+              bare: true,
+              hint: hint,
             ),
           ),
         ),
@@ -781,12 +776,8 @@ class _WeightRow extends StatelessWidget {
     final l = AppLocalizations.of(c);
     return showDialog<({double? value})>(
       context: c,
-      builder: (dc) => AlertDialog(
-        backgroundColor: P.of(dc).card,
-        title: Text(
-          l?.journalComposeWeightToday ?? 'Weight today',
-          style: F.head.copyWith(color: P.of(dc).ink),
-        ),
+      builder: (dc) => AppDialog(
+        title: l?.journalComposeWeightToday ?? 'Weight today',
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -809,22 +800,12 @@ class _WeightRow extends StatelessWidget {
         ),
         actions: [
           if (kg != null)
-            TextButton(
-              onPressed: () => Navigator.of(dc).pop((value: null)),
-              child: Text(
-                l?.journalComposeClear ?? 'Clear',
-                style: F.body.copyWith(color: P.of(dc).ink2),
-              ),
-            ),
-          TextButton(
-            onPressed: () => Navigator.of(dc).pop(),
-            child: Text(
-              l?.actionCancel ?? 'Cancel',
-              style: F.body.copyWith(color: P.of(dc).ink2),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
+            BigButton(l?.journalComposeClear ?? 'Clear',
+                soft: true,
+                onTap: () => Navigator.of(dc).pop((value: null))),
+          BigButton(l?.actionCancel ?? 'Cancel',
+              soft: true, onTap: () => Navigator.of(dc).pop()),
+          BigButton(l?.actionSave ?? 'Save', onTap: () {
               // A typo is not a blank. Nothing is saved from an unreadable
               // field, and the form says which one rather than storing a hole.
               if (Typed.of(ctrl.text).bad) {
@@ -839,12 +820,7 @@ class _WeightRow extends StatelessWidget {
                   ? Typed.of(ctrl.text).value
                   : u.weightToKg(ctrl.text);
               Navigator.of(dc).pop((value: kgIn));
-            },
-            child: Text(
-              l?.actionSave ?? 'Save',
-              style: F.body.copyWith(color: P.of(dc).on(C.blue)),
-            ),
-          ),
+            }),
         ],
       ),
     ).whenComplete(ctrl.dispose);
@@ -1139,7 +1115,7 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
                               child: Text(
                                 t.text,
                                 style: F.body.copyWith(
-                                  color: t.fromUser ? p.inkOnFill : p.ink,
+                                  color: t.fromUser ? p.inkOn(p.fill(C.domMind)) : p.ink,
                                 ),
                               ),
                             ),
@@ -1169,15 +1145,11 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: TextField(
+                      child: AppField(
                         controller: _input,
                         enabled: !_busy,
                         onSubmitted: (_) => unawaited(_send()),
-                        decoration: InputDecoration(
-                          isDense: true,
-                          hintText: uiText(c, 'Tell it about your day…'),
-                          border: OutlineInputBorder(borderRadius: R.rMd),
-                        ),
+                        hint: uiText(c, 'Tell it about your day…'),
                       ),
                     ),
                     const SizedBox(width: S.x2),
@@ -1196,9 +1168,10 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
                                 width: 18,
                                 height: 18,
                                 child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: p.inkOnFill),
+                                    strokeWidth: 2, color: p.inkOn(p.fill(C.domMind))),
                               )
-                            : Icon(LucideIcons.arrowUp, color: p.inkOnFill),
+                            : Icon(LucideIcons.arrowUp,
+                                color: p.inkOn(p.fill(C.domMind))),
                       ),
                     ),
                   ],

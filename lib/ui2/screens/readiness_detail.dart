@@ -236,25 +236,37 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
         ] else
           Surface(
             child: Column(children: [
-              SizedBox(
-                width: 150,
-                height: 150,
-                child: Stack(alignment: Alignment.center, children: [
-                  CustomPaint(
-                    size: const Size(150, 150),
-                    painter: Ring(d.readiness.normalized(100),
-                        d.provisional ? p.ink3 : p.on(band.color),
-                        p.track,
-                        stroke: 14, t: animate(c, 1)),
-                  ),
-                  Column(mainAxisSize: MainAxisSize.min, children: [
-                    Text('${v.round()}',
-                        style: F.n48.copyWith(
-                            color: d.provisional ? p.ink3 : p.ink)),
-                    Text(band.label, style: F.cap.copyWith(color: p.ink3)),
+              // The screen's one hero. A settled score is the cream badge
+              // with its band as a pill under it (the ramp's hue, and the
+              // word, so the hue is never alone). A provisional one keeps the
+              // grey ring: a badge reads as final, and this number may move.
+              if (d.provisional)
+                SizedBox(
+                  width: 150,
+                  height: 150,
+                  child: Stack(alignment: Alignment.center, children: [
+                    CustomPaint(
+                      size: const Size(150, 150),
+                      painter: Ring(d.readiness.normalized(100), p.ink3,
+                          p.track,
+                          stroke: 12, t: animate(c, 1)),
+                    ),
+                    Column(mainAxisSize: MainAxisSize.min, children: [
+                      Text('${v.round()}',
+                          style: F.n48.copyWith(color: p.ink3)),
+                      Text(band.label, style: F.cap.copyWith(color: p.ink3)),
+                    ]),
                   ]),
-                ]),
-              ),
+                )
+              else ...[
+                ScallopBadge(
+                  value: '${v.round()}',
+                  label: l?.readinessDetailTitle ?? 'Recovery',
+                  size: 184,
+                ),
+                const SizedBox(height: S.x3),
+                Pill(band.label, band.color),
+              ],
               if (recoveryStateLine(d.head, l) case final note?) ...[
                 const SizedBox(height: S.x2),
                 Text(note, style: F.cap.copyWith(color: p.ink3)),

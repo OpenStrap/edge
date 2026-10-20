@@ -80,7 +80,8 @@ import 'sleep_detail.dart';
 
 // ═══════════════════ shared plumbing ═══════════════════
 
-/// Page padding. The bottom inset clears the shell's floating nav.
+/// Page padding. Tab roots replace the bottom with `S.navClear(context)`, the
+/// floating bar's real height; this default is for pushed screens.
 const pad = EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x16 + S.x8);
 
 /// Push a detail screen. Every drill-down in ui2 goes through here.
@@ -88,9 +89,9 @@ const pad = EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x16 + S.x8);
 /// This was a raw `PageRouteBuilder` with its own fade+slide, which silently
 /// killed the iOS edge-swipe-back on all ~20 screens it pushes — a
 /// PageRouteBuilder has no interactive back-gesture machinery. The app's own
-/// transition is registered in the theme instead (see page_transitions.dart),
-/// so a plain route gets the fade-through on Android and the Cupertino slide
-/// WITH swipe-back on iOS. [themedRoute] also keeps the pushed screen
+/// transition is registered in the theme instead (`buildTheme`), so a plain
+/// route gets the platform's own transition — the Cupertino slide WITH
+/// swipe-back on iOS. [themedRoute] also keeps the pushed screen
 /// re-colouring on an appearance change and names the route for Crashlytics.
 void go(BuildContext c, Widget w) => Navigator.of(c)
     .push(themedRoute((_) => w, name: w.runtimeType.toString()));
@@ -277,7 +278,7 @@ Widget? batteryLine(BuildContext c) {
   final color = lowBattery(pct, charging) ? p.on(C.red) : p.ink3;
   return Row(mainAxisSize: MainAxisSize.min, children: [
     Icon(charging ? LucideIcons.batteryCharging : LucideIcons.battery,
-        size: 13, color: color),
+        size: I.sm, color: color),
     const SizedBox(width: 3),
     Text('${pct.round()}%', style: F.cap.copyWith(color: color)),
   ]);
@@ -753,15 +754,15 @@ String prettyDay(String? dayId, [AppLocalizations? l]) {
     return (label: l?.homeReadinessNotScored ?? 'Not scored', color: C.n400, tier: -1);
   }
   if (v >= kReadinessGoodFrom) {
-    return (label: l?.homeReadinessGoodToGo ?? 'Good to go', color: C.green, tier: 3);
+    return (label: l?.homeReadinessGoodToGo ?? 'Good to go', color: C.volt, tier: 3);
   }
   if (v >= kReadinessEasyBelow) {
-    return (label: l?.homeReadinessSteady ?? 'Steady', color: C.green, tier: 2);
+    return (label: l?.homeReadinessSteady ?? 'Steady', color: C.volt, tier: 2);
   }
   if (v >= kReadinessRestBelow) {
-    return (label: l?.homeReadinessTakeItEasy ?? 'Take it easy', color: C.orange, tier: 1);
+    return (label: l?.homeReadinessTakeItEasy ?? 'Take it easy', color: C.amber, tier: 1);
   }
-  return (label: l?.homeReadinessRestToday ?? 'Rest today', color: C.red, tier: 0);
+  return (label: l?.homeReadinessRestToday ?? 'Rest today', color: C.coral, tier: 0);
 }
 
 /// Glass-box driver keys are the pipeline's own short names.
@@ -822,7 +823,13 @@ class RingTrio extends StatelessWidget {
   /// worth pushing onto.
   final void Function(HomeRingKind)? onOpen;
 
-  const RingTrio({super.key, required this.d, this.onOpen});
+  /// D5's second candidate (DESIGN_OVERHAUL.md §6): a measured, settled
+  /// recovery in a [ScallopBadge] with strain and sleep as small rings beside
+  /// it. Every other recovery state — provisional, calibrating, absent — has
+  /// no badge (the badge has no absent variant), so it falls back to the trio.
+  final bool badge;
+
+  const RingTrio({super.key, required this.d, this.onOpen, this.badge = false});
 
   /// Whether ANY of the three has something to draw. When none do, the screen
   /// owes the user one written absence, not three empty circles.
@@ -844,10 +851,32 @@ class RingTrio extends StatelessWidget {
     // ([overnightMetric]), so a ring with no night behind it is a gap row with
     // the reason in it — same place every other absence on this screen goes.
 
+    final hero = badge && rings.first.measured && !rings.first.provisional
+        ? rings.first
+        : null;
+
     return Surface(
       elevation: 2,
       child: Column(children: [
-        if (bigText(c))
+        if (hero != null) ...[
+          if (bigText(c)) ...[
+            Center(child: _Badge(hero, onTap: _open(hero.kind))),
+            for (final r in rings.skip(1)) ...[
+              const SizedBox(height: S.x2),
+              _RingRow(r, onTap: _open(r.kind)),
+            ],
+          ] else
+            Row(children: [
+              Expanded(child: _Badge(hero, onTap: _open(hero.kind))),
+              const SizedBox(width: S.x3),
+              Expanded(
+                child: Column(children: [
+                  for (final r in rings.skip(1))
+                    _RingRow(r, onTap: _open(r.kind)),
+                ]),
+              ),
+            ]),
+        ] else if (bigText(c))
           // Past ~1.3× a 100 pt column cannot hold the word "Recovery" on one
           // line and there is nowhere for it to wrap to. The ring keeps its
           // size and the type gets the width instead.
@@ -895,7 +924,7 @@ class RingTrio extends StatelessWidget {
                   style: F.cap.copyWith(color: p.ink2),
                 ),
               ),
-              Icon(LucideIcons.chevronRight, size: 15, color: p.ink3),
+              Icon(LucideIcons.chevronRight, size: I.sm, color: p.ink3),
             ]),
             ),
           ],
@@ -1039,19 +1068,19 @@ _RingState _ringOf(HomeRingKind k, HomeData d, AppLocalizations? l) {
       final v = d.strain.value;
       // 0–21 is the scale's own ceiling, not a target invented here.
       return v == null
-          ? _gap(k, l?.homeRingStrain ?? 'Strain', LucideIcons.zap, C.purple,
+          ? _gap(k, l?.homeRingStrain ?? 'Strain', LucideIcons.zap, C.domMove,
               d.strain, l?.homeRingNoStrain ?? 'No strain', l, unit: 'days')
-          : _RingState(k, l?.homeRingStrain ?? 'Strain', LucideIcons.zap, C.purple,
+          : _RingState(k, l?.homeRingStrain ?? 'Strain', LucideIcons.zap, C.domMove,
               value: v.toStringAsFixed(1), sub: l?.homeStrainOf21 ?? 'of 21', frac: v / 21);
     case HomeRingKind.sleep:
       final v = d.sleepMin.value;
       final need = d.sleepNeedMin.value;
       return v == null
-          ? _gap(k, l?.homeRingSleep ?? 'Sleep', LucideIcons.moon, C.blue,
+          ? _gap(k, l?.homeRingSleep ?? 'Sleep', LucideIcons.moon, C.domSleep,
               d.sleepMin, l?.homeRingNoSleep ?? 'No sleep', l,
               fallbackWhy: l?.homeSleepGapFallback ??
                   'No night long enough to score was recorded.')
-          : _RingState(k, l?.homeRingSleep ?? 'Sleep', LucideIcons.moon, C.blue,
+          : _RingState(k, l?.homeRingSleep ?? 'Sleep', LucideIcons.moon, C.domSleep,
               value: hm(v),
               // No computed need means no denominator. The hardcoded 480 in
               // the sleep bundle is not this user's need and must never be
@@ -1099,7 +1128,12 @@ class _Dial extends StatelessWidget {
   final _RingState r;
   final double stroke, icon;
 
-  const _Dial(this.r, {required this.stroke, required this.icon});
+  /// The number inside the ring (§5.5) rather than the icon. Only a reading
+  /// goes inside: calibration and absence are words, and words go under it.
+  final bool numeral;
+
+  const _Dial(this.r,
+      {required this.stroke, required this.icon, this.numeral = false});
 
   @override
   Widget build(BuildContext c) {
@@ -1118,14 +1152,29 @@ class _Dial extends StatelessWidget {
             : Ring(r.frac ?? 0, r.arc(p), p.track,
                 stroke: stroke, t: animate(c, 1), solid: r.measured),
       ),
-      Icon(r.icon, size: icon, color: r.ink(p)),
+      if (numeral && r.measured)
+        Padding(
+          padding: EdgeInsets.all(stroke + S.x1),
+          // A duration is the widest thing a ring holds ("7h 45m"), and it
+          // shrinks to the hole rather than overflow it.
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              presentationText(AppLocalizations.of(c), r.value),
+              style: F.n24.copyWith(color: r.provisional ? p.ink3 : p.ink),
+            ),
+          ),
+        )
+      else
+        Icon(r.icon, size: icon, color: r.ink(p)),
     ]);
   }
 }
 
-/// The default: three across, the number under the ring rather than inside it.
-/// Inside is where a duration overflows its own circle at the first
-/// accessibility step, and nothing about "7h 45m" gets shorter.
+/// The default: three across, the number inside the ring and the icon and
+/// label under it. Past the first accessibility step the trio switches to
+/// [_RingRow], where the number sits beside a smaller ring instead — inside,
+/// "7h 45m" would only get smaller, never shorter.
 class _RingColumn extends StatelessWidget {
   final _RingState r;
   final VoidCallback? onTap;
@@ -1138,15 +1187,39 @@ class _RingColumn extends StatelessWidget {
         semanticLabel: r.spoken,
         child: Column(children: [
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 96),
+            constraints: const BoxConstraints(maxWidth: 104),
             child: AspectRatio(
               aspectRatio: 1,
-              child: _Dial(r, stroke: 7, icon: 20),
+              child: _Dial(r, stroke: 12, icon: I.md, numeral: true),
             ),
           ),
           const SizedBox(height: S.x3),
-          _RingText(r, align: TextAlign.center),
+          _RingText(r, align: TextAlign.center, numeralInside: true),
         ]),
+      );
+}
+
+/// Recovery as the screen's one [ScallopBadge]: a settled reading only (see
+/// [RingTrio.badge]). The band word rides as the badge's delta line, so the
+/// verdict is never carried by colour alone.
+class _Badge extends StatelessWidget {
+  final _RingState r;
+  final VoidCallback? onTap;
+
+  const _Badge(this.r, {this.onTap});
+
+  @override
+  Widget build(BuildContext c) => Pressable(
+        onTap: onTap,
+        semanticLabel: r.spoken,
+        child: ExcludeSemantics(
+          child: ScallopBadge(
+            value: r.value,
+            label: r.label,
+            delta: presentationText(AppLocalizations.of(c), r.sub),
+            size: 168,
+          ),
+        ),
       );
 }
 
@@ -1167,7 +1240,7 @@ class _RingRow extends StatelessWidget {
             SizedBox(
               width: 56,
               height: 56,
-              child: _Dial(r, stroke: 5, icon: 15),
+              child: _Dial(r, stroke: 6, icon: I.sm),
             ),
             const SizedBox(width: S.x3),
             Expanded(child: _RingText(r, align: TextAlign.start)),
@@ -1180,7 +1253,11 @@ class _RingText extends StatelessWidget {
   final _RingState r;
   final TextAlign align;
 
-  const _RingText(this.r, {required this.align});
+  /// The number is drawn inside the ring, so the icon comes out here beside
+  /// the label and only a non-reading (calibrating, absent) prints its words.
+  final bool numeralInside;
+
+  const _RingText(this.r, {required this.align, this.numeralInside = false});
 
   @override
   Widget build(BuildContext c) {
@@ -1188,9 +1265,17 @@ class _RingText extends StatelessWidget {
     final cross = align == TextAlign.center
         ? CrossAxisAlignment.center
         : CrossAxisAlignment.start;
+    final label = Text(r.label.toUpperCase(),
+        style: F.over.copyWith(color: p.ink3), textAlign: align);
     return Column(crossAxisAlignment: cross, children: [
-      Text(r.label.toUpperCase(),
-          style: F.over.copyWith(color: p.ink3), textAlign: align),
+      // Above the label, not beside it: a third of a phone is already
+      // narrower than "ВОССТАНОВЛЕНИЕ", and an icon beside it broke the word.
+      if (numeralInside) ...[
+        Icon(r.icon, size: I.sm, color: r.ink(p)),
+        const SizedBox(height: S.x1),
+      ],
+      label,
+      if (!(numeralInside && r.measured)) ...[
         const SizedBox(height: S.x1),
         // Absent reads as words, never as a dash and never as a zero — so it
         // takes the sentence weight rather than the numeral one.
@@ -1201,16 +1286,16 @@ class _RingText extends StatelessWidget {
               : F.body.copyWith(color: p.ink2),
           textAlign: align,
         ),
-        if (r.sub.isNotEmpty) ...[
-          const SizedBox(height: 2),
-          Text(
-            presentationText(AppLocalizations.of(c), r.sub),
-            style: F.cap.copyWith(color: p.ink3),
-            textAlign: align,
-          ),
-        ],
       ],
-    );
+      if (r.sub.isNotEmpty) ...[
+        const SizedBox(height: 2),
+        Text(
+          presentationText(AppLocalizations.of(c), r.sub),
+          style: F.cap.copyWith(color: p.ink3),
+          textAlign: align,
+        ),
+      ],
+    ]);
   }
 }
 
@@ -1234,7 +1319,7 @@ class _GapRow extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(r.icon, size: 15, color: p.ink3),
+            Icon(r.icon, size: I.sm, color: p.ink3),
             const SizedBox(width: S.x2),
             Expanded(
               child: Text.rich(
@@ -1256,7 +1341,7 @@ class _GapRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: S.x2),
-            Icon(LucideIcons.chevronRight, size: 15, color: p.ink3),
+            Icon(LucideIcons.chevronRight, size: I.sm, color: p.ink3),
           ],
         ),
       ),
@@ -1735,7 +1820,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     final g = _greeting(widget.hour ?? DateTime.now().hour, l);
 
     if (d == null) {
-      return _refreshable(ListView(padding: pad, children: [
+      return _refreshable(ListView(padding: pad.copyWith(bottom: S.navClear(c)), children: [
         const SizedBox(height: S.x8),
         // No day on screen ⇒ no `todayId`, so this renders the dated form.
         // Shown here TOO: a first run, a failed read and a sync in flight are
@@ -1828,7 +1913,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     // to start, that outranks anything else this screen has to say today.
     final rebuilt = dbRebuiltCard(dbRebuildOf(c), l);
 
-    return _refreshable(ListView(padding: pad, children: [
+    return _refreshable(ListView(padding: pad.copyWith(bottom: S.navClear(c)), children: [
       if (rebuilt != null) ...[const SizedBox(height: S.x3), rebuilt],
 
       // ── the one observation Home is allowed to make ──
@@ -1841,10 +1926,11 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       // state on a morning whose own bundle has not derived yet, which is
       // exactly the morning you would most want to be told.
       ...?_bodyWatch(c, d, todayLabel(widget.now)),
-      // ── greeting ──
+      // ── greeting ── the tab-root header (§5.4): title left, round
+      // buttons right, the date and sync lines under the title.
       Padding(
         padding: const EdgeInsets.only(top: S.x3, bottom: S.x5),
-        child: Row(children: [
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1854,14 +1940,16 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                     d.name == null || d.name!.isEmpty
                         ? g.word
                         : '${g.word}, ${d.name}',
-                    style: F.t2.copyWith(color: p.ink),
+                    // A step down at accessibility sizes, where t1 beside two round
+                    // buttons wraps one word to a line.
+                    style: (bigText(c) ? F.t2 : F.t1).copyWith(color: p.ink),
                   ),
                 ),
                 const SizedBox(width: S.x2),
-                Icon(g.icon, size: 17, color: p.on(g.color)),
+                Icon(g.icon, size: I.md, color: p.on(g.color)),
               ]),
-              const SizedBox(height: 2),
-              Text(prettyDay(d.dayId, l), style: F.cap.copyWith(color: p.ink3)),
+              const SizedBox(height: S.x1),
+              Text(prettyDay(d.dayId, l), style: F.cap.copyWith(color: p.ink2)),
               // How far the band's data reaches, always — the question "am I
               // looking at today, or at last night?" used to be answerable
               // only by opening Profile > Devices.
@@ -1878,7 +1966,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           ),
           const SizedBox(width: S.x3),
           // The coach moved to its own chip under the plan, and Profile is the
-          // same avatar every tab carries.
+          // same avatar every tab carries. The briefing button is the same
+          // door as the row under the plan, without the scroll. Not ✦: that
+          // glyph is the coach's, and two ✦ opening two different screens on
+          // one page would make neither findable.
+          RoundIconButton(LucideIcons.newspaper, () => _openBriefing(c),
+              l?.homeBriefingTitle ?? 'Briefing'),
+          const SizedBox(width: S.x2),
           const ProfileAvatar(accent: C.domHome),
         ]),
       ),
@@ -1891,10 +1985,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       if (!isToday)
         Align(
           alignment: Alignment.centerLeft,
-          child: TextButton(
-            onPressed: () => _goDay(todayLabel()),
-            child: Text(l?.homeBackToToday ?? 'Back to today'),
-          ),
+          child: TextAction(l?.homeBackToToday ?? 'Back to today', () => _goDay(todayLabel())),
         ),
       // A sync or a derive in flight on an ordinary morning. It used to show
       // only on a bare day, so yesterday's rings sat on screen during a sync
@@ -1940,6 +2031,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         // diagnostics on Home makes the app read as broken.
         if (RingTrio.has(d))
           RingTrio(
+            // D5: the badge hero. Picked over the trio from the Phase 5a
+            // snapshots — at 1.0x in Russian the trio's third-width column
+            // breaks "ВОССТАНОВЛЕНИЕ" mid-word, the badge holds it whole —
+            // and at 2.0x and up both become the same stacked rows. A
+            // recovery that is not a settled reading has no badge and draws
+            // the trio either way.
+            badge: true,
             d: d,
             onOpen: (k) => go(
                 c,
@@ -1987,7 +2085,6 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
 
         const SizedBox(height: S.x3),
         const DetectedActivitiesCard(),
-        const CommunityNudge(),
 
         // ── the rollup was withheld, not absent ──
         if (stale != null) ...[const SizedBox(height: S.x3), stale],
@@ -2149,10 +2246,11 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     // duration was measured against.
     add(
       d.rhr,
-      () => SignalCard(LucideIcons.heart, C.red, l?.homeHeartRate ?? 'Heart rate',
-          '${d.rhr.value!.round()}',
+      () => SignalCard(LucideIcons.heart, C.domHealth,
+          l?.homeHeartRate ?? 'Heart rate', '${d.rhr.value!.round()}',
           unit: 'bpm',
           sub: l?.homeRestingSub ?? 'Resting',
+          aurora: true,
           onTap: () => go(c, const MetricDetail('resting_hr'))),
       // "no sleep was recorded" was stated as fact, unconditionally — and it
       // was rendered directly beside a Sleep card showing that night's
@@ -2194,14 +2292,15 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               ?stepSensorLabel(d.steps, l),
             ].join(' · '),
       onTap: () => go(c, const MetricDetail('steps')),
+      aurora: true,
       trailing: d.steps.value == null || d.stepGoal <= 0
           ? null
           : SizedBox(
-              width: 20,
-              height: 20,
+              width: I.md,
+              height: I.md,
               child: CustomPaint(
-                painter: Ring(d.steps.value! / d.stepGoal, C.green,
-                    P.of(c).track,
+                painter: Ring(d.steps.value! / d.stepGoal,
+                    P.of(c).on(C.green), P.of(c).track,
                     stroke: 3, solid: true),
               ),
             ),
@@ -2215,6 +2314,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               ? (l?.homeCaloriesEstimated ?? 'Estimated')
               : (l?.homeCaloriesTotal(thousands(d.caloriesTotal.value)) ??
                   '${thousands(d.caloriesTotal.value)} total'),
+          aurora: true,
           onTap: () => go(c, const MetricDetail('calories'))),
       // No `why:`. It said "Needs your weight and age" — and the measured run
       // printed that to a profile carrying both, because energy had gone absent
@@ -2301,7 +2401,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       rows.add(_row(
           p,
           LucideIcons.zap,
-          C.purple,
+          C.domMove,
           met
               ? (l?.homeStrainTargetMet ?? 'Strain target met')
               : (l?.homeAimForStrain(aim.toStringAsFixed(1)) ??
@@ -2323,7 +2423,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       rows.add(_row(
           p,
           LucideIcons.bedDouble,
-          C.blue,
+          C.domSleep,
           l?.homeSleepNeedRow(hm(need)) ?? '${hm(need)} of sleep',
           l?.homeTonight ?? 'Tonight',
           d.bedtime.value == null
@@ -2341,11 +2441,14 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                     ? (l?.homeNoPlanWhyStale ?? 'Your trends are being updated. This takes a minute after a sync.')
                     : (l?.homeNoPlanWhyNone ?? 'None are established yet.')) ??
             const SizedBox.shrink()
+        // One grouped card, inset hairlines from the text edge (§5.1
+        // MetricRow) — the Health › Overview list shape.
         : Surface(
-            pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x2),
+            pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x1),
             child: Column(children: [
               for (var i = 0; i < rows.length; i++) ...[
-                if (i > 0) Divider(color: p.line, height: 1),
+                if (i > 0)
+                  Divider(color: p.line, height: 1, indent: S.x8 + S.x3),
                 rows[i],
               ],
             ]),
@@ -2386,41 +2489,40 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     final cached = _resolveBriefingNow(d).briefing;
     return detailLinkRow(
       c,
-      LucideIcons.sparkles,
+      LucideIcons.newspaper,
       l?.homeBriefingTitle ?? 'Briefing',
       cached?.oneLiner == 'Nothing stood out tonight.'
           ? uiText(c, cached!.oneLiner)
           : cached?.oneLiner ?? (l?.homeBriefingSubtitleEmpty ?? 'Tap to write today\'s summary'),
-      () async {
-        // Resolved fresh at tap time via _resolveBriefingNow, not read from
-        // the value above — see that method's doc for why.
-        //
-        // Writing a briefing (BriefingStore.write, in briefing_engine.dart)
-        // does not bump AppState.insightsRevision, so RevisionReload's
-        // automatic reload never fires for it — awaiting the route and
-        // reloading on return is the only way this row picks up a briefing
-        // written during the visit instead of showing stale/empty text until
-        // some UNRELATED revision bump happens to refresh Home.
-        final screen = AiBriefingScreen(period: _resolveBriefingNow(d).period);
-        await Navigator.of(c).push(
-            themedRoute<void>((_) => screen, name: screen.runtimeType.toString()));
-        if (mounted) reload();
-      },
+      () => _openBriefing(c),
     );
+  }
+
+  Future<void> _openBriefing(BuildContext c) async {
+    // Resolved fresh at tap time via _resolveBriefingNow, not read from a
+    // value captured at build — see that method's doc for why.
+    //
+    // Writing a briefing (BriefingStore.write, in briefing_engine.dart)
+    // does not bump AppState.insightsRevision, so RevisionReload's
+    // automatic reload never fires for it — awaiting the route and
+    // reloading on return is the only way this row picks up a briefing
+    // written during the visit instead of showing stale/empty text until
+    // some UNRELATED revision bump happens to refresh Home.
+    final d = _d;
+    if (d == null) return;
+    final screen = AiBriefingScreen(period: _resolveBriefingNow(d).period);
+    await Navigator.of(c).push(
+        themedRoute<void>((_) => screen, name: screen.runtimeType.toString()));
+    if (mounted) reload();
   }
 
   Widget _row(P p, IconData i, Color col, String title, String kind,
           String meta, bool done) =>
-      Padding(
+      Container(
+        constraints: const BoxConstraints(minHeight: S.x16),
         padding: const EdgeInsets.symmetric(vertical: S.x3),
         child: Row(children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration:
-                BoxDecoration(color: p.wash(col), borderRadius: R.rSm),
-            child: Icon(i, size: 16, color: p.on(col)),
-          ),
+          IconChip(i, col),
           const SizedBox(width: S.x3),
           Expanded(
             child: Column(
@@ -2460,7 +2562,7 @@ Widget firstWeekCard(BuildContext c,
           padding: const EdgeInsets.symmetric(vertical: S.x2),
           child: Row(children: [
             Icon(done ? LucideIcons.circleCheck : LucideIcons.circle,
-                size: 18, color: done ? p.on(C.green) : p.ink3),
+                size: I.md, color: done ? p.on(C.green) : p.ink3),
             const SizedBox(width: S.x3),
             Expanded(
                 child: Text(text, style: F.body.copyWith(color: p.ink))),
@@ -2513,7 +2615,7 @@ Widget coachChip(BuildContext c) {
         decoration:
             BoxDecoration(color: p.wash(kCoachAccent), borderRadius: R.rPill),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(LucideIcons.sparkles, size: 16, color: p.on(kCoachAccent)),
+          Icon(LucideIcons.sparkles, size: I.sm, color: p.on(kCoachAccent)),
           const SizedBox(width: S.x2),
           Flexible(
             child: Text(text,

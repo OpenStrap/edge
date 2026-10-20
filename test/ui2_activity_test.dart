@@ -39,6 +39,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../tool/wger_weightlifting_selection.dart';
 
+import 'support/fonts.dart';
+
 // ── deterministic fixtures ─────────────────────────────────────────────────
 
 final _start = DateTime(2026, 5, 20, 7, 15);
@@ -125,6 +127,7 @@ Future<void> _loadType() async {
       .listSync()
       .whereType<File>()
       .where((f) => f.path.endsWith('.ttf'));
+  await loadOutfit();
   for (final family in const ['Manrope', '.SF Pro Text']) {
     final loader = FontLoader(family);
     for (final f in files) {

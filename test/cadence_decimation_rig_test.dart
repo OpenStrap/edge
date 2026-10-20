@@ -1,7 +1,7 @@
 // THE DECIMATION RIG — measure what a slower band's cadence does to a metric,
 // against the only ground truth we have: the same real night at 1 Hz.
 //
-// The premise: OpenStrap holds real 1 Hz WHOOP data, so the true answer for any
+// The premise: Locus holds real 1 Hz WHOOP data, so the true answer for any
 // window-based metric is already known. Take every Nth REAL sample of that same
 // data, run the metric again, and compare. A cadence-aware metric converges on
 // the 1 Hz answer. Most of ours do not, and this file is where that stops being

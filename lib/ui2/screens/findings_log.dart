@@ -140,7 +140,7 @@ class FindingRow extends StatelessWidget {
             children: [
               Padding(
                 padding: const EdgeInsets.only(top: S.x1),
-                child: Icon(_icon(f), size: 16, color: ink),
+                child: Icon(_icon(f), size: I.sm, color: ink),
               ),
               const SizedBox(width: S.x2),
               Expanded(

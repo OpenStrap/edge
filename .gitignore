@@ -119,3 +119,4 @@ docs/internal/
 payload*.json
 
 MULTIDEVICE_PROGRESS.md
+art_src/

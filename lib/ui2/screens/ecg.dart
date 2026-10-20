@@ -126,9 +126,7 @@ class _EcgHomeScreenState extends State<EcgHomeScreen> {
         ? null
         : await app.ecg.guard.wrist(serial);
     if (!c.mounted) return;
-    final wrist = await showModalBottomSheet<EcgWrist>(
-      context: c,
-      sheetAnimationStyle: sheetMotion(c),
+    final wrist = await AppSheet.open<EcgWrist>(c,
       builder: (_) => EcgWristSheet(current: remembered),
     );
     if (wrist == null || !c.mounted) return;
@@ -188,6 +186,7 @@ class _EcgHomeScreenState extends State<EcgHomeScreen> {
                   'Readings you take are saved here and stay readable while '
                       'the band is away.',
               icon: LucideIcons.activity,
+              art: Art.heart,
             ),
           if (_readings.isNotEmpty)
             Section(
@@ -251,7 +250,7 @@ class EcgReadingRow extends StatelessWidget {
             if (hr != null)
               Text(uiText(c, 'bpm'), style: F.cap.copyWith(color: p.ink3)),
             const SizedBox(width: S.x2),
-            Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+            Icon(LucideIcons.chevronRight, size: I.sm, color: p.ink3),
           ],
         ),
       ),
@@ -275,7 +274,7 @@ class EcgWristSheet extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: S.x5, vertical: S.x4),
         child: Row(
           children: [
-            Icon(icon, size: 20, color: p.ink2),
+            Icon(icon, size: I.md, color: p.ink2),
             const SizedBox(width: S.x3),
             Expanded(
               child: Text(
@@ -284,7 +283,7 @@ class EcgWristSheet extends StatelessWidget {
               ),
             ),
             if (current == w)
-              Icon(LucideIcons.check, size: 18, color: C.domHealth),
+              Icon(LucideIcons.check, size: I.md, color: C.domHealth),
           ],
         ),
       ),
@@ -414,7 +413,7 @@ class _EcgCaptureScreenState extends State<EcgCaptureScreen>
                   child: Pressable(
                     semanticLabel: l?.ecgClose ?? 'Close ECG',
                     onTap: () => _close(c),
-                    child: Icon(LucideIcons.x, size: 22, color: p.ink2),
+                    child: Icon(LucideIcons.x, size: I.md, color: p.ink2),
                   ),
                 ),
                 Expanded(
@@ -492,7 +491,7 @@ class EcgCaptureBody extends StatelessWidget {
             child: Text(
               label,
               style: F.body.copyWith(
-                color: primary ? p.inkOnFill : p.ink,
+                color: primary ? p.inkOn(p.fill(C.domHealth)) : p.ink,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -793,25 +792,15 @@ class _EcgDetailScreenState extends State<EcgDetailScreen> {
       final host = Uri.tryParse(cfg.apiBase)?.host ?? cfg.apiBase;
       final ok = await showDialog<bool>(
         context: c,
-        builder: (dc) => AlertDialog(
-          title: Text(
-            l?.ecgAnalyzeCloudTitle ?? 'Send this reading to your model?',
-          ),
-          content: Text(
-            l?.ecgAnalyzeCloudBody(host, cfg.model) ??
+        builder: (dc) => AppDialog(
+          title: l?.ecgAnalyzeCloudTitle ?? 'Send this reading to your model?',
+          body: l?.ecgAnalyzeCloudBody(host, cfg.model) ??
                 'The reading summary and the full waveform (every sample the '
                     'band recorded, 100 per second) will be sent to $host as '
                     '${cfg.model}. No raw frames, no band serial.',
-          ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dc).pop(false),
-              child: Text(l?.ecgCancel ?? 'Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dc).pop(true),
-              child: Text(l?.ecgContinue ?? 'Continue'),
-            ),
+            BigButton(l?.ecgCancel ?? 'Cancel', soft: true, onTap: () => Navigator.of(dc).pop(false)),
+            BigButton(l?.ecgContinue ?? 'Continue', onTap: () => Navigator.of(dc).pop(true)),
           ],
         ),
       );
@@ -919,7 +908,7 @@ class _EcgDetailScreenState extends State<EcgDetailScreen> {
                                   : null,
                               child: Icon(
                                 LucideIcons.zoomOut,
-                                size: 20,
+                                size: I.md,
                                 color: p.ink2,
                               ),
                             ),
@@ -931,7 +920,7 @@ class _EcgDetailScreenState extends State<EcgDetailScreen> {
                                   : null,
                               child: Icon(
                                 LucideIcons.zoomIn,
-                                size: 20,
+                                size: I.md,
                                 color: p.ink2,
                               ),
                             ),

@@ -1,24 +1,25 @@
-// Legibility guard for the HR-zone ramp on the live session screen.
+// Legibility guard for the HR-zone ramp.
 //
-// The live workout screen paints on AppColors.night/nightAlt regardless of the
-// user's theme, so its zone colours cannot come from the ACTIVE palette. Two
-// real bugs came out of that:
+// Two real bugs came out of the old (Ember) ramp, which this file used to
+// guard until the palette it lived in was deleted (DESIGN_OVERHAUL.md Phase 7):
 //
 //   1. In light mode the ramp handed back hues tuned for a white background
 //      and painted them on near-black.
-//   2. Even on the dark palette, Z0 mapped to `cool` — a SURFACE token, not an
-//      ink. As a foreground it measured 1.03:1 against nightAlt: invisible.
-//      Z0 is the RESTING zone, so it is what is on screen at the start of
+//   2. The resting zone mapped to a SURFACE token, not an ink, and measured
+//      1.03:1 against the session background: invisible, at the start of
 //      every workout and whenever heart rate is low or absent.
 //
-// These assert the fix numerically rather than by eye, so a palette edit can't
-// silently reintroduce an unreadable zone.
+// The ramp the app draws now is ZoneRows.pigment, solved through P, so both
+// lessons are one assertion: every zone, in both themes, clears 4.5:1 on every
+// surface — including zone 1, the resting one. A palette edit cannot silently
+// reintroduce an unreadable zone.
 
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/theme/tokens.dart';
+import 'package:openstrap_edge/ui2/charts.dart' show ZoneRows;
+import 'package:openstrap_edge/ui2/theme.dart' show C, P;
 
 /// WCAG 2.1 relative luminance.
 double _luminance(Color c) {
@@ -42,47 +43,38 @@ double _contrast(Color a, Color b) {
 }
 
 void main() {
-  // 3:1 is the WCAG AA floor for large text and non-text UI components, which
-  // is what these are: big tabular figures and coloured indicators.
-  const minRatio = 3.0;
-
-  group('zoneOnDark is legible on the session surface', () {
-    for (final surface in <String, Color>{
-      'night': AppColors.night,
-      'nightAlt': AppColors.nightAlt,
-    }.entries) {
-      for (var z = 0; z <= 5; z++) {
-        test('Z$z on ${surface.key} clears $minRatio:1', () {
-          final ratio = _contrast(AppColors.zoneOnDark(z), surface.value);
-          expect(
-            ratio,
-            greaterThanOrEqualTo(minRatio),
-            reason: 'Z$z renders at ${ratio.toStringAsFixed(2)}:1 on '
-                '${surface.key} — unreadable. Zone colours on the live '
-                'session screen must be inks, not surface tokens.',
-          );
+  // ── the Volt ramp (DESIGN_OVERHAUL D7) ──────────────────────────────────
+  //
+  // Same 4.5:1 floor the ui2 contrast test uses for every mark.
+  group('ZoneRows.cols (the ramp the app draws) is legible', () {
+    for (final dark in [true, false]) {
+      final p = P(dark);
+      for (var z = 0; z < 5; z++) {
+        test('zone ${z + 1}, ${dark ? 'dark' : 'light'}: 4.5:1 on every surface',
+            () {
+          final ink = ZoneRows.cols(p)[z];
+          for (final s in {'bg': p.bg, 'card': p.card, 'card2': p.card2}.entries) {
+            final r = _contrast(ink, s.value);
+            expect(r, greaterThanOrEqualTo(4.5),
+                reason: 'zone ${z + 1} is ${r.toStringAsFixed(2)}:1 on ${s.key}');
+          }
         });
       }
     }
 
-    test('Z0 specifically — the regression that shipped', () {
-      // `cool` is what Z0 used to resolve to. Pin the old value as a failing
-      // reference so the intent of the fix stays legible.
-      final broken = _contrast(kDarkPalette.cool, AppColors.nightAlt);
-      final fixed = _contrast(AppColors.zoneOnDark(0), AppColors.nightAlt);
-      expect(broken, lessThan(1.5), reason: 'the old Z0 was invisible');
-      expect(fixed, greaterThan(6.0), reason: 'the new Z0 is clearly legible');
+    test('the ramp is slate-blue, sky, volt, amber, coral', () {
+      expect(ZoneRows.pigment, [C.blueSoft, C.sky, C.volt, C.amber, C.coral]);
+    });
+
+    test('neighbouring zones are different colours, not just lighter', () {
+      for (final dark in [true, false]) {
+        final c = ZoneRows.cols(P(dark));
+        for (var z = 1; z < 5; z++) {
+          expect(c[z], isNot(c[z - 1]),
+              reason: 'zone ${z + 1} is zone $z in ${dark ? 'dark' : 'light'}');
+        }
+      }
     });
   });
 
-  test('the ramp is independent of the ACTIVE palette', () {
-    // The live screen is always dark; flipping the app theme must not change
-    // a single zone colour on it.
-    AppColors.active = kLightPalette;
-    final inLight = [for (var z = 0; z <= 5; z++) AppColors.zoneOnDark(z)];
-    AppColors.active = kDarkPalette;
-    final inDark = [for (var z = 0; z <= 5; z++) AppColors.zoneOnDark(z)];
-    addTearDown(() => AppColors.active = kLightPalette);
-    expect(inLight, equals(inDark));
-  });
 }

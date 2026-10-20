@@ -18,6 +18,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
+import 'support/fonts.dart';
+
 /// The type the app ships. Without it the harness measures its fallback
 /// glyphs, and a width assertion against the wrong font is a width assertion
 /// against nothing.
@@ -26,6 +28,7 @@ Future<void> _loadType() async {
       .listSync()
       .whereType<File>()
       .where((f) => f.path.endsWith('.ttf'));
+  await loadOutfit();
   for (final family in const ['Manrope', '.SF Pro Text']) {
     final loader = FontLoader(family);
     for (final f in files) {
@@ -105,13 +108,25 @@ void main() {
     // 360 is the Android floor we design against, 390 is the iPhone the app is
     // developed on, 430 is the largest phone. If the row fitted on any of
     // them the honest fix would be to stop it scrolling, not to decorate it.
+    //
+    // Re-measured in Volt (DESIGN_OVERHAUL D10): Outfit is narrower than the
+    // Manrope these numbers were first taken in, and the Health row now FITS
+    // on the 430 pt phone at 1.0x. ScrollHint is absent there, which is the
+    // honesty contract below doing its job; on every other width and scale
+    // the row still overflows.
     for (final screen in const [360.0, 390.0, 430.0]) {
       test('${screen.toInt()} pt, 1.0x text', () {
         final vp = _viewport(screen);
         expect(_row(_wellness, 1.0), greaterThan(vp),
             reason: 'Wellness fits — drop ScrollHint rather than ship it');
-        expect(_row(_health, 1.0), greaterThan(vp),
-            reason: 'Health fits — drop ScrollHint rather than ship it');
+        if (screen < 430) {
+          expect(_row(_health, 1.0), greaterThan(vp),
+              reason: 'Health fits — drop ScrollHint rather than ship it');
+        } else {
+          expect(_row(_health, 1.0), lessThanOrEqualTo(vp),
+              reason: 'Health measured as fitting the widest phone in Outfit; '
+                  'if it no longer does, update this premise');
+        }
       });
     }
 
@@ -143,13 +158,15 @@ void main() {
     }
 
     test('and only a sliver at 390 pt', () {
-      // Under 20 pt of a 60–66 pt chip, and what shows is its left padding
-      // rather than any letters — which is why a fade alone was not enough.
+      // Under half the chip. In Manrope it was under 20 pt — only the left
+      // padding. Re-measured in Outfit (D10) it is about 25 pt: the padding
+      // and the first letter or two, still not a word anyone can read, which
+      // is why a fade alone was not enough.
       for (final labels in const [_wellness, _health]) {
         final shown =
             _chip(labels.last, 1.0, active: false) - (_row(labels, 1.0) - _viewport(390));
         expect(shown, greaterThan(0));
-        expect(shown, lessThan(S.x5),
+        expect(shown, lessThan(_chip(labels.last, 1.0, active: false) / 2),
             reason: '${labels.last} shows ${shown.toStringAsFixed(1)} pt');
       }
     });

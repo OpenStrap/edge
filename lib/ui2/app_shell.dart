@@ -1,9 +1,15 @@
 // The four-tab shell.
 //
 // Today · Sleep · Activity · Health. Stable: the contents personalise, the
-// mental map does not. Each domain owns an accent, so colour tells you where
-// you are before the label does. Profile is not a tab; every tab's header
-// carries the avatar into it.
+// mental map does not. Profile is not a tab; every tab's header carries the
+// avatar into it.
+//
+// Volt (DESIGN_OVERHAUL §5.3): the bar is a frosted Glass pill that FLOATS over
+// the tabs, which run full-bleed behind it, and the active tab is volt in every
+// domain (decision D1). A domain's hue no longer colours the bar — it feeds
+// that screen's hero glow instead. Because the bar floats, every tab's scroll
+// view ends in `S.navClear(context)` of padding so its last row can be lifted
+// clear of it.
 //
 // There is no fifth tab, and the type system is what says so — [ShellDomain]
 // is a closed enum and [AppShell] takes a builder keyed by it, so "just add a
@@ -43,8 +49,9 @@ enum ShellDomain {
         label;
   }
 
-  /// The domain's pigment. Use `P.of(context).on(accent)` for text and
-  /// `.fill(accent)` for a filled surface — the raw value is not AA-safe.
+  /// The domain's pigment — the hue of its hero glow and aurora, NOT of the
+  /// tab bar (D1). Use `P.of(context).on(accent)` for text and `.fill(accent)`
+  /// for a filled surface — the raw value is not AA-safe.
   final Color accent;
 }
 
@@ -134,16 +141,18 @@ class _AppShellState extends State<AppShell> {
       },
       child: Scaffold(
         backgroundColor: p.bg,
-        body: SafeArea(
-          bottom: false,
-          child: Column(
-            children: [
-              Expanded(
+        // The tabs run behind the bar; each one clears it with S.navClear.
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: SafeArea(
+                bottom: false,
                 child: IndexedStack(
                   index: _current.index,
                   children: [
-                    // An unvisited tab is an empty box, not a built screen — the
-                    // old shell built all forty screens' worth of state on launch.
+                    // An unvisited tab is an empty box, not a built screen —
+                    // the old shell built all forty screens' worth of state on
+                    // launch.
                     for (final d in ShellDomain.values)
                       if (_built.contains(d))
                         widget.builder(c, d)
@@ -152,11 +161,27 @@ class _AppShellState extends State<AppShell> {
                   ],
                 ),
               ),
-              if (widget.banner != null) widget.banner!,
-            ],
-          ),
+            ),
+            Positioned(
+              left: S.x4,
+              right: S.x4,
+              bottom: S.x4 + MediaQuery.paddingOf(c).bottom,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // The minimised workout floats just above the bar as its
+                  // own glass pill. Two blurs on screen, the §5.7 budget.
+                  if (widget.banner != null) ...[
+                    Glass(radius: R.rPill, child: widget.banner!),
+                    const SizedBox(height: S.x2),
+                  ],
+                  _TabBar(current: _current, onTap: _select),
+                ],
+              ),
+            ),
+          ],
         ),
-        bottomNavigationBar: _TabBar(current: _current, onTap: _select),
       ),
     );
   }
@@ -170,17 +195,15 @@ class _TabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) {
-    final p = P.of(c);
-    return Container(
-      decoration: BoxDecoration(
-        color: p.card,
-        border: Border(top: BorderSide(color: p.line)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: IntrinsicHeight(
+    return Glass(
+      radius: R.rPill,
+      // A minimum, not a height: the labels cap their own scale below, but
+      // the bar should still be free to grow rather than ever clip.
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: S.navBar),
+        child: Padding(
+          padding: const EdgeInsets.all(S.x1),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               for (final d in ShellDomain.values)
                 Expanded(
@@ -198,6 +221,9 @@ class _TabBar extends StatelessWidget {
   }
 }
 
+/// One destination: icon over label. The active one is a volt pill holding
+/// dark ink; the rest are bare ink3. The label is on EVERY tab, active or not
+/// — for screen readers, and because an icon alone is a guess at 3× text.
 class _Tab extends StatelessWidget {
   final ShellDomain domain;
   final bool on;
@@ -208,38 +234,47 @@ class _Tab extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    final ink = on ? p.on(domain.accent) : p.ink3;
+    final fill = p.fill(C.volt);
+    final ink = on ? p.inkOn(fill) : p.ink3;
     final label = domain.title(c);
     return Semantics(
       selected: on,
       child: Pressable(
         onTap: onTap,
         semanticLabel: label,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+        child: AnimatedContainer(
+          duration: motion(c, Motion.base),
+          curve: Ease.standard,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: S.x1),
+          decoration: BoxDecoration(
+            color: on ? fill : const Color(0x00000000),
+            borderRadius: R.rPill,
+          ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-            AnimatedContainer(
-              duration: motion(c, Motion.base),
-              padding: EdgeInsets.symmetric(
-                horizontal: on ? S.x3 : 0,
-                vertical: S.x1,
-              ),
-              decoration: BoxDecoration(
-                color: on ? p.wash(domain.accent) : const Color(0x00000000),
-                borderRadius: R.rPill,
-              ),
-              child: Icon(domain.icon, size: 20, color: ink),
-            ),
-              const SizedBox(height: 3),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-              style: F.over.copyWith(
-                color: ink,
-                fontWeight: on ? FontWeight.w600 : FontWeight.w500,
-              ),
+              Icon(domain.icon, size: I.md, color: ink),
+              const SizedBox(height: 2),
+              // Four equal slots cannot hold a 3.1x label, so the bar's text
+              // stops growing at 1.3x — the way the platform's own bars do.
+              // The full label is still spoken, and the content is not capped.
+              MediaQuery.withClampedTextScaling(
+                maxScaleFactor: 1.3,
+                // Shrinks rather than truncates: "Активность" is a whole word
+                // or it is a different word. (A long label scales down a
+                // little; it is never cut.)
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: F.over.copyWith(
+                      color: ink,
+                      fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),

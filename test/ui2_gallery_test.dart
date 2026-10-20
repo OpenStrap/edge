@@ -25,7 +25,8 @@ Widget _wrap(Widget child) => MaterialApp(
 /// bottom of the screen passes whether the row is there or not — including
 /// the one that has to fail if the gallery ever ships visible.
 void _tallPhone(WidgetTester tester) {
-  tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+  // 2800, not 2400: Volt spacing (§5.1) made the settings list taller.
+  tester.view.physicalSize = const Size(390 * 3, 2800 * 3);
   tester.view.devicePixelRatio = 3;
   addTearDown(tester.view.reset);
 }
@@ -57,6 +58,7 @@ void main() {
       onGallery: () => opened = true,
     )));
     expect(find.text('Developer'), findsOneWidget);
+    await tester.ensureVisible(find.text('Component gallery'));
     await tester.tap(find.text('Component gallery'));
     expect(opened, isTrue);
   });

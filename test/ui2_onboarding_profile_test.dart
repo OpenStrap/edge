@@ -23,6 +23,8 @@ import 'package:openstrap_edge/ui2/profile/profile.dart';
 import 'package:openstrap_edge/ui2/profile/settings.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
+import 'support/fonts.dart';
+
 /// Fixed, so a test is never a function of the calendar or of a real band.
 final _synced = DateTime(2026, 8, 22, 7, 12);
 
@@ -164,6 +166,7 @@ Future<void> _loadType() async {
       .listSync()
       .whereType<File>()
       .where((f) => f.path.endsWith('.ttf'));
+  await loadOutfit();
   for (final family in const ['Manrope', '.SF Pro Text']) {
     final loader = FontLoader(family);
     for (final f in files) {

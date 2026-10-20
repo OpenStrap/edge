@@ -90,34 +90,22 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       builder: (c, snap) {
         final loc = AppLocalizations.of(c);
         final d = snap.data ?? const _WorkoutData.empty();
-        // THE LIST DROPS ITS SIDE PADDING and hands it to each child instead,
-        // so the hero card can be the one child that does not get it and runs
-        // edge to edge. Two earlier attempts had the CARD escape its parent —
-        // a negative margin (which Flutter asserts against) and an OverflowBox
-        // (which takes an unbounded height inside a scroll view and blanked
-        // this whole tab on device). Padding the siblings is ordinary layout
-        // and cannot do either.
+        // The hero card used to run edge to edge, so the list padded its
+        // children rather than itself. Since Volt the card is an aurora tile
+        // in the gutter like everything else (see start_card.dart).
         return ListView(
-          padding: const EdgeInsets.fromLTRB(0, S.x2, 0, S.x16),
+          padding: EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.navClear(c)),
           children: [
-            for (final w in <Widget>[
-              ScreenTitle(loc?.tabActivity ?? 'Activity',
-                  trailing: const ProfileAvatar(accent: C.domMove)),
-              SubTabs(_tabs(loc), tab, (i) => setState(() => tab = i),
-                  color: C.domMove),
-              const SizedBox(height: S.x5),
-              ...switch (tab) {
-                0 => _forYou(c, d),
-                1 => _activities(c, d),
-                _ => _history(c, d),
-              },
-            ])
-              if (w is StartCard)
-                w
-              else
-                Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: S.x4),
-                    child: w),
+            ScreenTitle(loc?.tabActivity ?? 'Activity',
+                trailing: const ProfileAvatar(accent: C.domMove)),
+            SubTabs(_tabs(loc), tab, (i) => setState(() => tab = i),
+                color: C.domMove),
+            const SizedBox(height: S.x5),
+            ...switch (tab) {
+              0 => _forYou(c, d),
+              1 => _activities(c, d),
+              _ => _history(c, d),
+            },
           ],
         );
       },
@@ -141,9 +129,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         label: loc?.workoutStartSessionLabel ?? 'START A SESSION',
         count: allActivities.length,
         noun: loc?.workoutActivitiesNoun ?? 'activities',
-        asset: 'mascot_workout.png',
-        accent: C.purple,
-        deep: C.indigo,
+        art: Art.workout,
+        accent: C.domMove,
         onTap: () => _openPicker(c, d),
       ),
       const SizedBox(height: S.x3),
@@ -200,24 +187,27 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
               ];
               final today = DateTime.now().weekday - 1;
               final done = d.weekDays.contains(i);
+              // The Consistency dot row (§5.1): a trained day is a volt dot
+              // with a tick, any other day an empty one, and today is ringed
+              // in ink so it is found without a hue. Not a streak.
+              final fill = p.fill(C.volt);
               return Expanded(
                 child: Column(children: [
                   Text(days[i], style: F.over.copyWith(color: p.ink3)),
                   const SizedBox(height: S.x2),
                   Container(
-                    width: 30,
-                    height: 30,
+                    width: S.x8,
+                    height: S.x8,
                     decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: done
-                            ? p.wash(C.green, strength: 1.5)
-                            : (i == today ? p.fill(C.purple) : p.card2)),
-                    child: Icon(
-                        done
-                            ? LucideIcons.check
-                            : (i == today ? LucideIcons.play : null),
-                        size: 14,
-                        color: done ? p.on(C.green) : p.inkOnFill),
+                        color: done ? fill : p.card2,
+                        border: i == today && !done
+                            ? Border.all(color: p.ink, width: 2)
+                            : null),
+                    child: done
+                        ? Icon(LucideIcons.check,
+                            size: I.sm, color: p.inkOn(fill))
+                        : null,
                   ),
                 ]),
               );
@@ -441,7 +431,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           padding: const EdgeInsets.symmetric(horizontal: S.x4),
           decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
           child: Row(children: [
-            Icon(LucideIcons.search, size: 17, color: p.ink3),
+            Icon(LucideIcons.search, size: I.sm, color: p.ink3),
             const SizedBox(width: S.x2),
             Text(
                 loc?.workoutSearchActivitiesCount(allActivities.length) ??
@@ -678,10 +668,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
           'Delete this ${w.activity.displayName(context).toLowerCase()}?',
       body: w.importedFrom == null
           ? (loc?.workoutDeleteBodyOwn(storeName) ??
-              'It disappears from OpenStrap. A copy in $storeName, if there is '
+              'It disappears from Locus. A copy in $storeName, if there is '
                   'one, stays where it is.')
           : (loc?.workoutDeleteBodyImported(storeName) ??
-              'It disappears from OpenStrap and will not be re-imported. '
+              'It disappears from Locus and will not be re-imported. '
                   'The original in $storeName stays.'),
     );
     if (!ok || !mounted) return;
@@ -723,7 +713,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                 onTap: () => _setAutoImport(!_autoImport),
                 child: Icon(
                   _autoImport ? LucideIcons.circleCheckBig : LucideIcons.circle,
-                  size: 22,
+                  size: I.md,
                   color: _autoImport ? p.on(C.domMove) : p.ink3,
                 ),
               ),
@@ -743,9 +733,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                 child: Padding(
                   padding: const EdgeInsets.all(S.x2),
                   child: _importing || !_autoImport
-                      ? Icon(LucideIcons.refreshCw, size: 18, color: p.ink3)
+                      ? Icon(LucideIcons.refreshCw, size: I.md, color: p.ink3)
                       : Icon(LucideIcons.refreshCw,
-                          size: 18, color: p.on(C.domMove)),
+                          size: I.md, color: p.on(C.domMove)),
                 ),
               ),
             ],
@@ -964,13 +954,7 @@ class WorkoutQuickTile extends StatelessWidget {
       semanticLabel: a.displayName(c),
       child: Column(
         children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration:
-              BoxDecoration(color: p.wash(a.color), borderRadius: R.rMd),
-          child: Icon(a.icon, size: 19, color: p.on(a.color)),
-        ),
+          IconChip(a.icon, a.color),
           const SizedBox(height: S.x2),
           Text(
             a.displayName(c),
@@ -1029,7 +1013,7 @@ class _HistoryRow extends StatelessWidget {
             height: 40,
             decoration:
                 BoxDecoration(color: p.wash(a.color), borderRadius: R.rMd),
-            child: Icon(a.icon, size: 19, color: p.on(a.color)),
+            child: Icon(a.icon, size: I.md, color: p.on(a.color)),
           ),
               const SizedBox(width: S.x3),
               Expanded(
@@ -1053,7 +1037,7 @@ class _HistoryRow extends StatelessWidget {
                     // list this session shows up in.
                     if (w.private) ...[
                       const SizedBox(width: S.x2),
-                      Icon(LucideIcons.lock, size: 13, color: p.ink3),
+                      Icon(LucideIcons.lock, size: I.sm, color: p.ink3),
                     ],
                   ]),
                   // "Apple Watch · Today, 07:12". The source is not decoration
@@ -1088,7 +1072,7 @@ class _HistoryRow extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.all(S.x1),
                 child:
-                    Icon(LucideIcons.trash2, size: 17, color: p.ink3),
+                    Icon(LucideIcons.trash2, size: I.sm, color: p.ink3),
               ),
             ),
           ],
@@ -1121,7 +1105,7 @@ class _HistoryRow extends StatelessWidget {
             semanticLabel: loc?.workoutFixTimesOnSessionLabel ??
                 'Fix the times on this session',
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(LucideIcons.clock, size: 14, color: p.on(C.blue)),
+              Icon(LucideIcons.clock, size: I.sm, color: p.on(C.blue)),
               const SizedBox(width: S.x2),
               Text(loc?.workoutFixTimes ?? 'Fix the times',
                   style: F.cap.copyWith(

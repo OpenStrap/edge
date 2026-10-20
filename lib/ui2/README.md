@@ -9,6 +9,14 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 Five files: `theme.dart` (tokens), `grammar.dart` (components), `charts.dart`
 and `paint_activity.dart` (painters), `app_shell.dart` (the four tabs).
 
+The look is **Volt** (docs/design/DESIGN_OVERHAUL.md): a near-black ("Char")
+or cream ("Cream") instrument with one electric-lime action colour, soft
+geometric type, very round shapes, and colour only where there is data.
+Monochrome first; volt means "act here / you are here / good"; coral is
+signal, never brand; a domain's hue lives in its hero, never in chrome. The
+legacy "Ember" theme (`lib/theme/tokens.dart`, `theme.dart`) is gone — there
+is one palette, and it is `P`.
+
 ---
 
 ## The rules the tests enforce
@@ -19,11 +27,20 @@ and `paint_activity.dart` (painters), `app_shell.dart` (the four tabs).
 |---|---|
 | `fontSize:` | `F.body`, `F.cap`, `F.n34`, … |
 | `Color(0x…)` | `C.*` / `P.of(context).*` (only `theme.dart` may declare pigment) |
-| `Colors.white` / `Colors.black` | `p.card`, `p.ink`, `p.inkOnFill` |
+| `Colors.white` / `Colors.black` | `p.card`, `p.ink`, `p.inkOn(fill)` |
 | `BorderRadius.circular(12)` | `R.rMd` (`R.rSm` … `R.rPill`) |
 | `.repeat(` | a caller-owned phase value — see `BreathRing.t` |
 | `Duration(…)` | `Motion.fast/base/slow` through `motion(context, …)` |
 | `GestureDetector` / `InkWell` / `Listener` | `Pressable`, or `Scrubber` for a drag |
+| `BackdropFilter(` | `Glass` (carries the blur budget) |
+| `TextButton` | `TextAction`, or `BigButton` |
+| `AlertDialog(` | `AppDialog.show` |
+| `showModalBottomSheet(` | `AppSheet.open` / `AppSheet.show` |
+| `TextField(` / `TextFormField(` | `AppField` |
+| `Switch(` | `AppSwitch` |
+| numeric `Icon(size:)` | `I.sm` … `I.hero` |
+| numeric `EdgeInsets` | `S.*` |
+| `Image.asset(` | `Art.*.image()` |
 
 Two more tests back it: `ui2_contrast_test.dart` sweeps every accent × every
 surface × both themes at a 4.5:1 floor — **including what the painters draw**,
@@ -54,39 +71,89 @@ final p = P.of(context);   // first line of every build()
 | `p.ink` | primary text |
 | `p.ink2` | secondary text |
 | `p.ink3` | muted / caption text — **still clears 4.5:1 on every surface** |
-| `p.el(int level)` | `List<BoxShadow>`; `0` = flat |
+| `p.el(int level)` | `List<BoxShadow>`; flat in dark (a hairline does the work), one soft shadow in light |
+| `p.inverse` / `p.onInverse` | monochrome chrome: black on cream, cream on char (active SubTab, inverse button) |
+| `p.glass` | the frosted tint under `Glass` |
+| `p.aurora(hue)` | an `AuroraTile`'s brightest point — the surface its text is measured on |
+
+`P.of(context)` reads the ambient `Theme`. The one place a subtree is forced
+dark is `AlwaysChar` (theme.dart): onboarding, the connect-a-device flow and
+the live workout are Char in both themes. No screen writes its own
+`Theme(...)`.
 
 ### Accents — never raw
 
-`C.green`, `C.blue`, `C.purple`, `C.orange`, `C.red`, `C.teal`, `C.yellow`,
-`C.pink`, `C.indigo`, `C.greenD`, `C.sky`, `C.blueSoft`, plus the five domain
-aliases `C.domHome/domHealth/domFood/domMove/domMind`.
+Brand and signal: `C.volt` (the one action colour), `C.coral` (low /
+attention / destructive), `C.slate`. The data palette — charts, aurora tiles,
+hero glows, never buttons: `C.lavender`, `C.sky`, `C.rose`, `C.sage`,
+`C.amber`, `C.aqua`, and the domain names that point into it:
 
-Raw pigment is **not** legible as text — `C.green` on white is 2.28:1. Convert:
+| Domain | Token | Hue |
+|---|---|---|
+| Today | `C.domHome` | volt |
+| Sleep | `C.domSleep` | lavender |
+| Activity | `C.domMove` | sky |
+| Health | `C.domHealth` | rose |
+| Mind | `C.domMind` | sage |
+| Food | `C.domFood` | amber |
+
+The pre-Volt names (`C.green`, `C.red`, `C.blue`, `C.purple`, `C.indigo`,
+`C.teal`, `C.orange`, `C.yellow`, `C.pink`) are kept as aliases onto these —
+hundreds of call sites name them — so no off-palette hue survives. Prefer the
+Volt name in new code.
+
+Raw pigment is **not** legible as text — `C.volt` on cream is 1.3:1. Convert:
 
 | Call | Meaning |
 |---|---|
 | `p.on(accent)` | the accent **as text or an icon** on any surface (≥ 4.5:1) |
-| `p.fill(accent)` | the accent **as a filled surface** under `p.inkOnFill` (≥ 4.5:1) |
+| `p.fill(accent)` | the accent **as a filled surface**: pure pigment when dark ink clears it, else darkened for white |
 | `p.wash(accent)` | a tint for a card background or an active chip — never carries its own text; pair with `p.on` |
-| `p.inkOnFill` | the ink that goes on top of `p.fill` |
+| `p.inkOn(fill)` | the ink that goes on top of a fill — dark preferred, white only when dark fails |
+
+**On an aurora field only `p.ink` is solved.** `p.aurora(hue)` is the most of
+the hue the page ink still clears 4.5:1 on; `ink2`/`ink3` measure 1.6–2.6:1
+on a dark peak. Every word on an `AuroraTile` is `p.ink` — hierarchy is size
+and weight — and `test/ui2_aurora_ink_test.dart` measures what the widgets
+actually paint.
 
 `P.contrast(a, b)` is public if you need to measure.
 
 ### Type — 7 steps, 3 weights
 
-`F.display` 34 · `F.t1` 28 · `F.t2` 22 · `F.head` 17 · `F.body` 15 ·
-`F.cap` 13 · `F.over` 11.
+One bundled family, **Outfit** (SIL OFL, `assets/fonts/Outfit`), on every
+platform. It has no Cyrillic, so Russian falls through to the bundled
+**Manrope**. Large text is lighter than it used to be: display and hero
+w500, titles w600, body w400.
+
+`F.display` 36 · `F.t1` 28 · `F.t2` 22 · `F.head` 17 · `F.body` 15 ·
+`F.cap` 13 · `F.over` 11 (callers uppercase it).
 
 Numerals (tabular figures — a changing value must not re-flow its own layout):
-`F.n48`, `F.n34`, `F.n24`, `F.n17`. **Use these for every number that can
-change.**
+`F.n64`, `F.n48`, `F.n34`, `F.n24`, `F.n17`. **Use these for every number
+that can change**, and `Numeral(value, unit:)` to set a unit on its baseline.
+A hero numeral that can be wider than its card at accessibility sizes goes in
+a `FittedBox(fit: BoxFit.scaleDown)` — a shrunk measurement is still the
+measurement; a truncated one is a different number.
 
-### Spacing and radii
+### Spacing, radii, icons
 
-`S.x1` 4 → `S.x16` 64 on a 4 pt grid, plus `S.tap` = 44.
-`R.rSm/rMd/rLg/rXl/rXxl/rPill` are `BorderRadius`; `R.sm/md/lg/…` the raw
-doubles when a painter needs one.
+`S.x1` 4 → `S.x16` 64 on a 4 pt grid, plus `S.tap` = 44, `S.gutter` = 20 and
+`S.navClear(context)` — the bottom padding that lifts a tab's last row clear
+of the floating tab bar.
+
+`R.sm` 10 · `md` 16 · `lg` 22 · `xl` 28 (every `Surface`) · `xxl` 36 (hero
+tiles, sheet tops) · `pill`. `R.rSm … R.rPill` are the `BorderRadius` forms.
+
+`I.sm` 16 · `I.md` 20 · `I.lg` 24 · `I.xl` 32 · `I.hero` 48. Lucide is the
+icon set.
+
+### Imagery, effects
+
+`Art.bandHero … Art.heart` name every bundled image (docs/design/
+IMAGE_PROMPTS.md); `Art.x.image()` draws nothing — never a broken-image icon —
+until the file lands. `Fx` holds the numbers behind `Glass`, `AuroraTile` and
+`ScallopBadge`; `Perf.lowGlass` renders every `Glass` solid.
 
 ### Motion
 
@@ -96,8 +163,11 @@ final t = animate(context, controller.value);   // returns 1 when motion is off
 Motion.enabled(context);                        // if you must branch
 ```
 
-`Motion.fast` 120 ms · `base` 180 ms · `slow` 280 ms. Reduced motion collapses
-all of them to zero at this one gate. Never start a `repeat()`.
+`Motion.fast` 120 ms · `base` 180 ms · `slow` 280 ms · `hero` 420 ms (a
+one-time draw-in: a ring, the scallop). Reduced motion collapses all of them
+to zero at this one gate. Curves: `Ease.standard` (easeOutCubic) and
+`Ease.emphasized` (easeOutBack — scale only, never layout). Never start a
+`repeat()`.
 
 ---
 
@@ -232,14 +302,54 @@ zero. Do not add one.
 
 ```dart
 SubTabs(List<String> items, int index, ValueChanged<int> onTap,
-        {Color color = C.green})
+        {Color color = C.green})      // active = inverse pill, never volt
 ScreenTitle(String title, {Widget? trailing})
 Pill(String text, Color color, {IconData? icon})
 BigButton(String label, {IconData? icon, Color color = C.green,
-                         bool soft = false, VoidCallback? onTap})
+                         bool soft = false, ButtonTone tone, bool round,
+                         bool busy = false, VoidCallback? onTap})
 NavBar(String title, {String sub = '', Widget? trailing,
-                      VoidCallback? onBack})
+                      VoidCallback? onBack})   // a RoundIconButton back
 ```
+
+A tab root's header: `ScreenTitle` (or the greeting) left, `RoundIconButton`s
+and `ProfileAvatar` right, the date and sync lines under the title. At most
+one volt primary per screen.
+
+### Volt components
+
+```dart
+Numeral(String value, {String unit = '', TextStyle style = F.n34,
+        Color? color, Color? unitColor})        // number + unit, one baseline
+TextAction(String label, VoidCallback? onTap,
+           {IconData? icon, ButtonTone tone})   // the text button
+RoundIconButton(IconData icon, VoidCallback? onTap, String semanticLabel,
+                {ButtonTone tone})              // 48 pt circle; label required
+Glass({required Widget child, BorderRadius radius})
+AppSwitch(bool value, ValueChanged<bool>? onChanged, {String? semanticLabel})
+AppField({String label, TextEditingController? controller, …})
+AppSheet.open<T>(context, …) / AppSheet.show<T>(context, …)
+AppDialog.show(context, {required String title, String body,
+               String? primary, String? secondary, String? destructive})
+ScallopBadge({required String value, String unit, required String label,
+              String delta, bool? up, double size})
+AuroraTile({required Color hue, required Widget child, double intensity,
+            VoidCallback? onTap, String? semanticLabel})
+StepPath(int count, int current, {double height})
+IconChip(IconData icon, Color color, {Color? ground, bool neutral})
+```
+
+The three signatures are budgeted:
+
+- **One hero per screen.** A `ScallopBadge`, a big `Numeral`, or an
+  `AuroraTile` — and none of them has an absent variant. A badge or tile with
+  nothing in it would look like a reading; a missing value is a `StatusCard`.
+  Today's hero is the badge (D5); a recovery that is not a settled reading
+  draws the ring trio instead.
+- **At most two `Glass` on screen** — the tab bar and one overlay — and never
+  in a list item.
+- **Aurora and the scallop are painted once** behind a `RepaintBoundary`.
+  Nothing animates a gradient.
 
 ---
 

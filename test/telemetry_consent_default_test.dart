@@ -1,6 +1,6 @@
 // ZERO COLLECTION BEFORE CONSENT.
 //
-// OpenStrap's store builds collect nothing, ever. The Firebase SDKs, however,
+// Locus's store builds collect nothing, ever. The Firebase SDKs, however,
 // auto-collect from process start unless the PLATFORM config says otherwise:
 // Analytics logs first_open/session_start, Performance opens app-start and
 // network traces, Crashlytics uploads any startup crash. All of that happens

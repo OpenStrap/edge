@@ -251,12 +251,8 @@ class _CoachScreenState extends State<CoachScreen> {
     final l = AppLocalizations.of(context);
     final ok = await showDialog<bool>(
       context: context,
-      builder: (d) => AlertDialog(
-        backgroundColor: p.card,
-        title: Text(
-          uiText(context, req.title),
-          style: F.head.copyWith(color: p.ink),
-        ),
+      builder: (d) => AppDialog(
+        title: uiText(context, req.title),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -276,20 +272,8 @@ class _CoachScreenState extends State<CoachScreen> {
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(d).pop(false),
-            child: Text(l?.actionCancel ?? 'Cancel', style: F.body.copyWith(color: p.ink2)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(d).pop(true),
-            child: Text(
-              destructive ? (l?.coachDeleteIt ?? 'Delete it') : (l?.coachSaveIt ?? 'Save it'),
-              style: F.body.copyWith(
-                color: p.on(destructive ? C.red : kCoachAccent),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
+          BigButton(l?.actionCancel ?? 'Cancel', soft: true, onTap: () => Navigator.of(d).pop(false)),
+          BigButton(destructive ? (l?.coachDeleteIt ?? 'Delete it') : (l?.coachSaveIt ?? 'Save it'), onTap: () => Navigator.of(d).pop(true)),
         ],
       ),
     );
@@ -329,11 +313,7 @@ class _CoachScreenState extends State<CoachScreen> {
     final engine = _engine;
     final p = P.of(context);
     final l = AppLocalizations.of(context);
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: p.card,
-      showDragHandle: true,
-      isScrollControlled: true,
+    await AppSheet.open<void>(context,
       builder: (sheet) => SafeArea(
         child: StatefulBuilder(
           builder: (sheet, setSheet) => ListView(
@@ -414,6 +394,8 @@ class _CoachScreenState extends State<CoachScreen> {
           ),
         ),
       ),
+      dragHandle: true,
+      scroll: true,
     );
   }
 
@@ -435,7 +417,7 @@ class _CoachScreenState extends State<CoachScreen> {
                 trailing: Pressable(
                   semanticLabel: l?.coachMenuSemantic ?? 'Chats and AI settings',
                   onTap: _menu,
-                  child: Icon(LucideIcons.ellipsis, size: 22, color: p.ink),
+                  child: Icon(LucideIcons.ellipsis, size: I.md, color: p.ink),
                 ),
               ),
             ),
@@ -506,7 +488,7 @@ class _CoachScreenState extends State<CoachScreen> {
           StatusCard(
             l?.coachNotSetUpTitle ?? 'The coach is not set up',
             l?.coachNotSetUpBody ??
-                'Pick a model on your own computer, or any OpenAI-compatible provider with your own key. Nothing goes through OpenStrap either way.',
+                'Pick a model on your own computer, or any OpenAI-compatible provider with your own key. Nothing goes through Locus either way.',
             fix: l?.coachChooseModelFix ?? 'Choose a model',
             icon: LucideIcons.sparkles,
             onFix: () => go(c, const CoachSetup()),
@@ -543,7 +525,7 @@ class _CoachScreenState extends State<CoachScreen> {
                   children: [
                     Icon(
                       LucideIcons.sparkles,
-                      size: 17,
+                      size: I.sm,
                       color: p.on(kCoachAccent),
                     ),
                     const SizedBox(width: S.x2),
@@ -588,7 +570,7 @@ class _CoachScreenState extends State<CoachScreen> {
                             ),
                             Icon(
                               LucideIcons.chevronRight,
-                              size: 16,
+                              size: I.sm,
                               color: p.ink3,
                             ),
                           ],
@@ -636,21 +618,15 @@ class _CoachScreenState extends State<CoachScreen> {
             child: Semantics(
               label: l?.coachAskLabel ?? 'Ask the coach',
               textField: true,
-              child: TextField(
+              child: AppField(
                 controller: _input,
                 minLines: 1,
                 maxLines: 4,
                 enabled: !_busy,
-                style: F.body.copyWith(color: p.ink),
-                cursorColor: p.on(kCoachAccent),
                 textInputAction: TextInputAction.send,
                 onSubmitted: _busy ? null : _send,
-                decoration: InputDecoration(
-                  isDense: true,
-                  border: InputBorder.none,
-                  hintText: l?.coachInputHint ?? 'Ask about your health…',
-                  hintStyle: F.body.copyWith(color: p.ink3),
-                ),
+                bare: true,
+                hint: l?.coachInputHint ?? 'Ask about your health…',
               ),
             ),
           ),
@@ -668,8 +644,8 @@ class _CoachScreenState extends State<CoachScreen> {
             ),
             child: Icon(
               LucideIcons.arrowUp,
-              size: 20,
-              color: _busy ? p.ink3 : p.inkOnFill,
+              size: I.md,
+              color: _busy ? p.ink3 : p.inkOn(p.fill(kCoachAccent)),
             ),
           ),
         ),
@@ -763,7 +739,7 @@ class _MenuRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: S.x3),
         child: Row(
           children: [
-            Icon(icon, size: 17, color: p.ink3),
+            Icon(icon, size: I.sm, color: p.ink3),
             const SizedBox(width: S.x3),
             Expanded(
               child: Column(
@@ -790,7 +766,7 @@ class _MenuRow extends StatelessWidget {
                 semanticLabel:
                     AppLocalizations.of(c)?.coachDeleteChat(title) ?? 'Delete $title',
                 onTap: onRemove,
-                child: Icon(LucideIcons.trash2, size: 16, color: p.ink3),
+                child: Icon(LucideIcons.trash2, size: I.sm, color: p.ink3),
               ),
           ],
         ),
@@ -1038,7 +1014,7 @@ class _CoachSetupState extends State<CoachSetup> {
                                     preset.local
                                         ? LucideIcons.house
                                         : LucideIcons.cloud,
-                                    size: 17,
+                                    size: I.sm,
                                     color: p.on(
                                       preset.local ? C.green : kCoachAccent,
                                     ),
@@ -1185,7 +1161,7 @@ class _CoachSetupState extends State<CoachSetup> {
                                       m == _model
                                           ? LucideIcons.circleCheck
                                           : LucideIcons.circle,
-                                      size: 16,
+                                      size: I.sm,
                                       color: m == _model
                                           ? p.on(kCoachAccent)
                                           : p.ink3,

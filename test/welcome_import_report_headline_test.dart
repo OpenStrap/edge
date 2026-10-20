@@ -36,7 +36,7 @@ void main() {
     await _pump(
       tester,
       const ImportOutcome(
-          source: 'OpenStrap backup', days: 10, workouts: 3, journalRows: 1, labRows: 1),
+          source: 'Locus backup', days: 10, workouts: 3, journalRows: 1, labRows: 1),
     );
     expect(find.textContaining('10 days imported'), findsOneWidget);
     // The others still show, just not as the headline — journal gets its own
@@ -51,7 +51,7 @@ void main() {
     await _pump(
       tester,
       const ImportOutcome(
-          source: 'OpenStrap backup', days: 4, archiveBucketsSkipped: 2),
+          source: 'Locus backup', days: 4, archiveBucketsSkipped: 2),
     );
     expect(find.textContaining('Part of that file could not be used'),
         findsOneWidget);
@@ -65,7 +65,7 @@ void main() {
     // Every backed-up day already finalized here: 0 days imported.
     await _pump(
       tester,
-      const ImportOutcome(source: 'OpenStrap backup', archiveBucketsSkipped: 1),
+      const ImportOutcome(source: 'Locus backup', archiveBucketsSkipped: 1),
     );
     expect(find.textContaining('Nothing was imported'), findsOneWidget);
     expect(find.textContaining('1 day of saved sensor history'),
@@ -97,7 +97,7 @@ void main() {
       (tester) async {
     await _pump(
       tester,
-      const ImportOutcome(source: 'OpenStrap backup', archiveBucketsRestored: 3),
+      const ImportOutcome(source: 'Locus backup', archiveBucketsRestored: 3),
     );
     expect(find.textContaining('Nothing was imported'), findsNothing);
     expect(find.textContaining('restored or extended for 3 days'),

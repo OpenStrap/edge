@@ -151,7 +151,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
           onStage: (st) => _setStep(_stageText(l, st)));
       _setStep(l.reportStageSharing);
       await Share.shareXFiles([XFile(r.zip.path)],
-          subject: 'OpenStrap issue report', sharePositionOrigin: origin);
+          subject: 'Locus issue report', sharePositionOrigin: origin);
     } catch (e) {
       if (mounted) setState(() => _error = e is ReportSendError ? e.status : -2);
     } finally {
@@ -203,23 +203,12 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
       padding: const EdgeInsets.only(bottom: S.x4),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label, style: F.over.copyWith(color: p.ink3)),
-        TextField(
+        AppField(
           controller: ctl,
           minLines: lines,
           maxLines: lines == 1 ? 1 : null,
           maxLength: max,
-          style: F.body.copyWith(color: p.ink),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: F.body.copyWith(color: p.ink3),
-            isDense: true,
-            counterText: '',
-            contentPadding: const EdgeInsets.symmetric(vertical: S.x3),
-            enabledBorder:
-                UnderlineInputBorder(borderSide: BorderSide(color: p.line)),
-            focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: p.on(C.green))),
-          ),
+          hint: hint,
         ),
       ]),
     );
@@ -287,9 +276,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
                       sub: _full
                           ? l.reportDatabaseCovered
                           : l.reportDatabaseWarning,
-                      trailing: Switch(
-                          value: _db || _full,
-                          onChanged: _busy || _full
+                      trailing: AppSwitch(_db || _full, _busy || _full
                               ? null
                               : (v) => setState(() => _db = v)),
                       chevron: false,
@@ -298,10 +285,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
                           : () => setState(() => _db = !_db)),
                   SetRow(LucideIcons.database, C.red, l.reportFullDatabaseRow,
                       sub: l.reportFullDatabaseWarning,
-                      trailing: Switch(
-                          value: _full,
-                          onChanged:
-                              _busy ? null : (v) => setState(() => _full = v)),
+                      trailing: AppSwitch(_full, _busy ? null : (v) => setState(() => _full = v)),
                       chevron: false,
                       onTap:
                           _busy ? null : () => setState(() => _full = !_full)),

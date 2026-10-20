@@ -19,7 +19,7 @@
 // of ours. The source name is a NOT NULL column for that reason.
 //
 // This is the ONLY honest route to blood pressure or glucose in this app. Both
-// are permanently refused as things OpenStrap computes.
+// are permanently refused as things Locus computes.
 
 import 'dart:io' show Platform;
 

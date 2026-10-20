@@ -274,9 +274,8 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
             child: NavBar(l?.wellnessTitle ?? 'Wellness'),
           ),
           Expanded(child: ListView(
-      padding: const EdgeInsets.fromLTRB(0, 0, 0, S.x16),
+      padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x16),
       children: [
-        for (final w in <Widget>[
           SubTabs([for (final i in visible) labels[i]], visible.indexOf(tab),
               (i) => setState(() => _tab = visible[i]),
               color: C.domMind),
@@ -299,26 +298,8 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
                     : (l?.wellnessLastMinutes(
                             (_reading(last['seconds']) ?? 0) ~/ 60) ??
                         'Last: ${(_reading(last['seconds']) ?? 0) ~/ 60} min'),
-                asset: 'mascot_wellness.png',
+                art: Art.wellness,
                 accent: C.domMind,
-                deep: C.teal,
-                // Sized so the CHARACTER matches Workout's, not the frame.
-                // Two corrections got us here: the asset carried ~30%
-                // transparent padding (cropped away), and what is left still
-                // has a soft halo above the head, so the figure is 87% of the
-                // frame height where the workout mascot is 100% of its own.
-                // 145 x 0.87 puts the character at ~126, the same as Workout.
-                // Not cropped tighter than this on purpose — the halo is nearly
-                // opaque, so trimming it slices a hard arc through the artwork.
-                // The 118 here was originally compensating for
-                // ~30% transparent padding baked into the asset, which made
-                // the art render a third smaller than the workout one at the
-                // same height. The asset is cropped to its own alpha bounds,
-                // so the height is the art's height and the two mascots read
-                // as the same size. Still slightly wider than tall (1.03 vs
-                // 0.93), and at 126 that is 130 px — narrower than the padded
-                // asset was, so the copy has more room than before, not less.
-                mascotHeight: 145,
                 onTap: () async {
                   await Navigator.of(c).push(
                     MaterialPageRoute<void>(
@@ -331,13 +312,6 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
             ],
             [_mind, _recovery, _habitsTab, _medication, _cycle][tab](c),
           ],
-        ])
-          if (w is StartCard)
-            w
-          else
-            Padding(
-                padding: const EdgeInsets.symmetric(horizontal: S.x4),
-                child: w),
       ],
     )),
         ]),
@@ -625,7 +599,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
                           padding: const EdgeInsets.only(right: S.x3),
                           child: Icon(
                             LucideIcons.trash2,
-                            size: 18,
+                            size: I.md,
                             color: p.ink3,
                           ),
                         ),
@@ -927,10 +901,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final skipped = s.state == DoseState.skipped;
-    await showModalBottomSheet<void>(
-      context: c,
-      backgroundColor: p.card,
-      showDragHandle: true,
+    await AppSheet.open<void>(c,
       builder: (sheet) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -981,6 +952,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
           ],
         ),
       ),
+      dragHandle: true,
     );
   }
 
@@ -1080,29 +1052,16 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
       context: c,
       builder: (d) {
         final l = AppLocalizations.of(d);
-        return AlertDialog(
-          backgroundColor: P.of(d).card,
-          title: Text(title, style: F.head.copyWith(color: P.of(d).ink)),
+        return AppDialog(
+          title: title,
           content: OsTextField(
             controller: ctrl,
             label: l?.wellnessNameLabel ?? 'Name',
             hint: hint,
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(d).pop(),
-              child: Text(
-                l?.actionCancel ?? 'Cancel',
-                style: F.body.copyWith(color: P.of(d).ink2),
-              ),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(d).pop(ctrl.text.trim()),
-              child: Text(
-                l?.wellnessAdd ?? 'Add',
-                style: F.body.copyWith(color: P.of(d).on(C.domMind)),
-              ),
-            ),
+            BigButton(l?.actionCancel ?? 'Cancel', soft: true, onTap: () => Navigator.of(d).pop()),
+            BigButton(l?.wellnessAdd ?? 'Add', onTap: () => Navigator.of(d).pop(ctrl.text.trim())),
           ],
         );
       },
@@ -1184,7 +1143,7 @@ class DriverRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(LucideIcons.dot, size: 18, color: p.on(C.domMind)),
+          Icon(LucideIcons.dot, size: I.md, color: p.on(C.domMind)),
           const SizedBox(width: S.x2),
           Expanded(
             child: Column(
@@ -1253,11 +1212,7 @@ Future<MedSchedule?> pickMedSchedule(
   var picked = days.toSet();
   final p = P.of(c);
   final l = AppLocalizations.of(c);
-  return showModalBottomSheet<MedSchedule>(
-    context: c,
-    backgroundColor: p.card,
-    showDragHandle: true,
-    isScrollControlled: true,
+  return AppSheet.open<MedSchedule>(c,
     builder: (sheet) => SafeArea(
       child: StatefulBuilder(
         builder: (sheet, setSheet) => Padding(
@@ -1290,7 +1245,7 @@ Future<MedSchedule?> pickMedSchedule(
                   decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
                   child: Row(
                     children: [
-                      Icon(LucideIcons.clock, size: 17, color: p.ink3),
+                      Icon(LucideIcons.clock, size: I.sm, color: p.ink3),
                       const SizedBox(width: S.x3),
                       Expanded(
                         child: Text(
@@ -1298,7 +1253,7 @@ Future<MedSchedule?> pickMedSchedule(
                           style: F.n17.copyWith(color: p.ink),
                         ),
                       ),
-                      Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
+                      Icon(LucideIcons.chevronRight, size: I.sm, color: p.ink3),
                     ],
                   ),
                 ),
@@ -1373,6 +1328,8 @@ Future<MedSchedule?> pickMedSchedule(
         ),
       ),
     ),
+    dragHandle: true,
+    scroll: true,
   );
 }
 
@@ -1392,7 +1349,7 @@ class _SheetAction extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: S.x5, vertical: S.x3),
         child: Row(
           children: [
-            Icon(icon, size: 17, color: p.ink3),
+            Icon(icon, size: I.sm, color: p.ink3),
             const SizedBox(width: S.x3),
             Expanded(
               child: Column(
@@ -1444,7 +1401,7 @@ class MedRow extends StatelessWidget {
                 color: p.wash(C.blue),
                 borderRadius: R.rMd,
               ),
-              child: Icon(LucideIcons.pill, size: 17, color: p.on(C.blue)),
+              child: Icon(LucideIcons.pill, size: I.sm, color: p.on(C.blue)),
             ),
             const SizedBox(width: S.x3),
             Expanded(
@@ -1471,7 +1428,7 @@ class MedRow extends StatelessWidget {
                 onTap: onMore,
                 child: Padding(
                   padding: const EdgeInsets.only(right: S.x3),
-                  child: Icon(LucideIcons.ellipsis, size: 18, color: p.ink3),
+                  child: Icon(LucideIcons.ellipsis, size: I.md, color: p.ink3),
                 ),
               ),
             _Check(on: taken, onTap: null),
@@ -1507,7 +1464,8 @@ class _Check extends StatelessWidget {
         border: on ? null : Border.all(color: p.line, width: 1.6),
       ),
       child: on
-          ? Icon(LucideIcons.check, size: 15, color: p.inkOnFill)
+          ? Icon(LucideIcons.check,
+              size: I.sm, color: p.inkOn(p.fill(C.green)))
           : const SizedBox.shrink(),
     );
     if (onTap == null) return box;

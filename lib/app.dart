@@ -129,7 +129,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
     final twelveHour = !context.watch<ClockFormatController>().resolve24h(
         MediaQuery.alwaysUse24HourFormatOf(context));
     return MaterialApp(
-      title: 'OpenStrap',
+      title: 'Locus',
       debugShowCheckedModeBanner: false,
       // The palette is the design system's, the CHOICE is still the user's.
       theme: buildTheme(Brightness.light),
@@ -334,7 +334,7 @@ class _InitFailed extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('OpenStrap could not start',
+                Text('Locus could not start',
                     style: F.t2.copyWith(color: p.ink)),
                 const SizedBox(height: 8),
                 Text(
@@ -660,12 +660,8 @@ class _LiveSessionBar extends StatelessWidget {
     // with every later one refused. Offer the one action that is certainly
     // right rather than a button that opens the wrong screen.
     if (a == null) {
-      return Container(
-        decoration: BoxDecoration(
-          color: p.card,
-          border: Border(top: BorderSide(color: p.line)),
-        ),
-        child: Pressable(
+      // No ground of its own: the shell floats this inside a Glass pill.
+      return Pressable(
           semanticLabel: 'Finish the session that is still running',
           onTap: () => app.stopWorkout(),
           child: Padding(
@@ -679,15 +675,9 @@ class _LiveSessionBar extends StatelessWidget {
               Icon(LucideIcons.square, size: 18, color: p.ink3),
             ]),
           ),
-        ),
       );
     }
-    return Container(
-      decoration: BoxDecoration(
-        color: p.card,
-        border: Border(top: BorderSide(color: p.line)),
-      ),
-      child: Pressable(
+    return Pressable(
         semanticLabel: 'Back to your ${a.name.toLowerCase()} session',
         onTap: () => _resume(c),
         child: Padding(
@@ -718,7 +708,6 @@ class _LiveSessionBar extends StatelessWidget {
             Icon(LucideIcons.chevronUp, size: 20, color: p.ink3),
           ]),
         ),
-      ),
     );
   }
 }

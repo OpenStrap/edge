@@ -21,6 +21,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/prefs.dart';
 import '../ui2.dart';
+import 'welcome.dart' show BandStage;
 
 /// Onboarding steps the user deliberately walked past.
 ///
@@ -186,8 +187,13 @@ class PairingView extends StatelessWidget {
     this.onSkip,
   });
 
+  // Char in both themes: connecting a band is the onboarding flow, wherever
+  // it was opened from (§6, D4).
   @override
-  Widget build(BuildContext c) {
+  Widget build(BuildContext c) =>
+      AlwaysChar(child: Builder(builder: _build));
+
+  Widget _build(BuildContext c) {
     final p = P.of(c);
     final busy = phase == PairPhase.scanning;
     // The copy for this one lives in the BLE layer, so this screen and the
@@ -202,14 +208,20 @@ class PairingView extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(S.x4, S.x8, S.x4, S.x8),
           children: [
-            Icon(
-                blocked == null
-                    ? LucideIcons.bluetooth
-                    : LucideIcons.bluetoothOff,
-                size: 36,
-                color: p.on(C.blue)),
+            // The band itself where the phone can reach it; the radio's own
+            // icon only when the phone is what is wrong. Charger view while
+            // it is being woken, top-down while it is searched for.
+            if (blocked != null)
+              Icon(LucideIcons.bluetoothOff, size: I.xl, color: p.on(C.blue))
+            else
+              switch (phase) {
+                PairPhase.scanning => const BandStage(Art.bandTop, height: 180),
+                PairPhase.paired => const BandStage(Art.bandHero, height: 180),
+                _ => const BandStage(Art.bandSide, height: 140),
+              },
             const SizedBox(height: S.x5),
-            Text(_title(c, phase, blocker), style: F.t1.copyWith(color: p.ink)),
+            Text(_title(c, phase, blocker),
+                style: F.display.copyWith(color: p.ink)),
             const SizedBox(height: S.x3),
             Text(_body(c, phase, blocker), style: F.body.copyWith(color: p.ink2)),
             if (blocked?.fix != null) ...[

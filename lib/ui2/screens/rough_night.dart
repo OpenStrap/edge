@@ -447,7 +447,7 @@ class _RoughNightCardState extends State<RoughNightCard> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(LucideIcons.moonStar, size: 18, color: p.on(C.indigo)),
+              Icon(LucideIcons.moonStar, size: I.md, color: p.on(C.indigo)),
               const SizedBox(width: S.x3),
               Expanded(
                 child: Text(
@@ -468,7 +468,7 @@ class _RoughNightCardState extends State<RoughNightCard> {
               Pressable(
                 semanticLabel: l?.roughNightDismiss ?? 'Dismiss',
                 onTap: _dismiss,
-                child: Icon(LucideIcons.x, size: 16, color: p.ink3),
+                child: Icon(LucideIcons.x, size: I.sm, color: p.ink3),
               ),
             ],
           ),
@@ -487,7 +487,7 @@ class _RoughNightCardState extends State<RoughNightCard> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(LucideIcons.dot, size: 16, color: p.on(C.indigo)),
+                Icon(LucideIcons.dot, size: I.sm, color: p.on(C.indigo)),
                 const SizedBox(width: S.x2),
                 Expanded(
                   child: Text(

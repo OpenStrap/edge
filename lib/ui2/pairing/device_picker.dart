@@ -46,8 +46,9 @@ import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../onboarding/pairing.dart' show PairingScreen;
+import '../onboarding/welcome.dart' show OnboardingStep;
 import '../ui2.dart';
-import '../profile/devices.dart' show kPairableSensors, sensorIcon;
+import '../profile/devices.dart' show kPairableSensors, sensorArt, sensorIcon;
 import '../profile/pair_sensor.dart' show PairSensorScreen;
 import '../profile/profile.dart' show SetRow;
 
@@ -281,6 +282,22 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       e.isFramed ? LucideIcons.watch : sensorIcon(e.id);
 }
 
+/// A sensor's row: its drawn picture where there is one, the Lucide glyph
+/// where there is not (a thermometer, a scale).
+Widget _sensorRow({
+  required Art? art,
+  required IconData icon,
+  required Color color,
+  required String title,
+  String sub = '',
+  bool chevron = true,
+  VoidCallback? onTap,
+}) =>
+    art == null
+        ? SetRow(icon, color, title, sub: sub, chevron: chevron, onTap: onTap)
+        : SetRow.brand((_) => art.image(height: I.lg), color, title,
+            sub: sub, chevron: chevron, onTap: onTap);
+
 /// The pure half — every state this screen can be in, from values, so a
 /// test can render each one without a radio.
 class DevicePickerView extends StatelessWidget {
@@ -317,8 +334,13 @@ class DevicePickerView extends StatelessWidget {
     this.onSkip,
   });
 
+  // Char in both themes: picking and connecting a device is the onboarding
+  // flow, wherever it was opened from (§6, D4).
   @override
-  Widget build(BuildContext c) {
+  Widget build(BuildContext c) =>
+      AlwaysChar(child: Builder(builder: _build));
+
+  Widget _build(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final busy = busyRemoteId != null;
@@ -334,6 +356,12 @@ class DevicePickerView extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
               children: [
+                // Step 2 only inside onboarding, which is the one caller that
+                // can skip.
+                if (onSkip != null) ...[
+                  const OnboardingStep(2),
+                  const SizedBox(height: S.x4),
+                ],
                 Text(subtitle, style: F.body.copyWith(color: p.ink3)),
                 const SizedBox(height: S.x4),
                 _SearchField(controller: query),
@@ -370,17 +398,20 @@ class DevicePickerView extends StatelessWidget {
                         child: Column(
                           children: [
                             for (var i = 0; i < categories.length; i++) ...[
-                              SetRow(
-                                categories[i].icon,
-                                C.blue,
-                                uiText(c, categories[i].entry.label),
+                              _sensorRow(
+                                art: sensorArt(categories[i].entry.id,
+                                    framed: categories[i].entry.isFramed),
+                                icon: categories[i].icon,
+                                color: C.blue,
+                                title: uiText(c, categories[i].entry.label),
                                 sub: uiText(c, categories[i].blurb),
                             onTap: busy
                                 ? null
                                 : () => onOpenEntry?.call(categories[i].entry),
                           ),
                           if (i < categories.length - 1)
-                            Divider(color: p.line, height: 1),
+                            Divider(
+                                color: p.line, height: 1, indent: S.x8 + S.x3),
                             ],
                           ],
                         ),
@@ -390,7 +421,7 @@ class DevicePickerView extends StatelessWidget {
                 Surface(
                   color: p.card2,
                   child: Row(children: [
-                    Icon(LucideIcons.shieldCheck, size: 18, color: p.on(C.blue)),
+                    Icon(LucideIcons.shieldCheck, size: I.md, color: p.on(C.blue)),
                     const SizedBox(width: S.x3),
                     Expanded(
                       child: Text(
@@ -437,20 +468,16 @@ class _SearchField extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: S.x4),
       decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
       child: Row(children: [
-        Icon(LucideIcons.search, size: 17, color: p.ink3),
+        Icon(LucideIcons.search, size: I.sm, color: p.ink3),
         const SizedBox(width: S.x2),
         Expanded(
           child: Semantics(
             label: l?.devicePickerSearchLabel ?? 'Search devices or types',
             textField: true,
-            child: TextField(
+            child: AppField(
               controller: controller,
-              style: F.body.copyWith(color: p.ink),
-              cursorColor: p.on(C.blue),
-              decoration: InputDecoration.collapsed(
-                hintText: l?.devicePickerSearchHint ?? 'Search devices or types',
-                hintStyle: F.body.copyWith(color: p.ink3),
-              ),
+              bare: true,
+              hint: l?.devicePickerSearchHint ?? 'Search devices or types',
             ),
           ),
         ),
@@ -495,7 +522,7 @@ class _NearbySection extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: S.x3),
               child: Row(children: [
-                Icon(LucideIcons.bluetoothSearching, size: 18, color: p.on(C.blue)),
+                Icon(LucideIcons.bluetoothSearching, size: I.md, color: p.on(C.blue)),
                 const SizedBox(width: S.x3),
                 Expanded(
                   child: Text(
@@ -527,10 +554,11 @@ class _NearbySection extends StatelessWidget {
         ? (l?.devicesConnected ?? 'Connected')
         : '${cand.rssi} dBm';
     final idle = cand.label == null ? '…$tail · $signal' : signal;
-    return SetRow(
-      sensorIcon(cand.entryId),
-      C.green,
-      cand.label ?? cand.entryId,
+    return _sensorRow(
+      art: sensorArt(cand.entryId),
+      icon: sensorIcon(cand.entryId),
+      color: C.green,
+      title: cand.label ?? cand.entryId,
       sub: busyRemoteId == id
           // A Mi Band 2/3 may wait up to 30 s for a tap on the band, and this
           // path opens no screen of its own to say so.

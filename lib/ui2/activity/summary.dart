@@ -1050,7 +1050,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                     semanticLabel:
                         l?.activitySummaryChangeType ?? 'Change activity type',
                     onTap: () => _changeType(c),
-                    child: Icon(LucideIcons.pencil, size: 18, color: p.ink2),
+                    child: Icon(LucideIcons.pencil, size: I.md, color: p.ink2),
                   ),
                   const SizedBox(width: S.x3),
                 ],
@@ -1062,7 +1062,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                           'Share this ${a.name.toLowerCase()}',
                   onTap: () => Navigator.of(c).push(MaterialPageRoute(
                       builder: (_) => ShareSheet(r))),
-                      child: Icon(LucideIcons.share2, size: 19, color: p.ink2),
+                      child: Icon(LucideIcons.share2, size: I.md, color: p.ink2),
                     ),
                   ],
                 ),
@@ -1080,7 +1080,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 child: Pressable(
                   onTap: () => _exportGpx(c),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(LucideIcons.upload, size: 16, color: p.ink2),
+                    Icon(LucideIcons.upload, size: I.sm, color: p.ink2),
                     const SizedBox(width: S.x2),
                     Text(
                         l?.activitySummaryShareToStrava ?? 'Share to Strava',
@@ -1458,7 +1458,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(LucideIcons.personStanding, size: 44, color: p.on(C.teal)),
+                  Icon(LucideIcons.personStanding, size: I.hero, color: p.on(C.teal)),
                   const SizedBox(height: S.x2),
                   Text(
                       r.poses.isEmpty
@@ -1764,7 +1764,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                     decoration: BoxDecoration(
                         color: p.wash(C.yellow), borderRadius: R.rMd),
                     child: Icon(LucideIcons.trophy,
-                        size: 19, color: p.on(C.yellow)),
+                        size: I.md, color: p.on(C.yellow)),
                   ),
                   const SizedBox(width: S.x3),
                   Expanded(

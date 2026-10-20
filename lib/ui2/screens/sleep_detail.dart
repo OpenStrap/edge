@@ -401,7 +401,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       onRefresh: _load,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x16),
+        padding: EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.navClear(c)),
         children: [
           ScreenTitle(title,
               trailing: const ProfileAvatar(accent: C.domSleep)),
@@ -559,25 +559,21 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           fix: rejected ? '' : (l?.sleepDetailNoNightFix ??
               'Wear the band overnight and sync in the morning'),
           icon: rejected ? LucideIcons.undo2 : LucideIcons.moon,
+          // A day with no night is an invitation to wear the band, so the
+          // moon; a night the user rejected is a decision, so no picture.
+          art: rejected ? null : Art.sleep,
         ),
         if (rejected) ...[
           const SizedBox(height: S.x2),
-          TextButton(
-            onPressed: _saving ? null : () => _clearWindow(rejectedDay),
-            child: Text(
-                l?.sleepDetailUndoRejection ?? 'Undo — go back to automatic'),
-          ),
+          TextAction(l?.sleepDetailUndoRejection ?? 'Undo — go back to automatic', _saving ? null : () => _clearWindow(rejectedDay)),
         ] else if (rejectedDay != null) ...[
           // A night the detector missed is the other half of "it got it
           // wrong": the same manual window a mis-staged night gets, stored as
           // an override so every later re-analysis stages from it.
           const SizedBox(height: S.x2),
-          TextButton(
-            onPressed: _saving || _loading
+          TextAction(l?.sleepDetailIWasAsleep ?? 'I was asleep', _saving || _loading
                 ? null
-                : () => _addWindow(rejectedDay),
-            child: Text(l?.sleepDetailIWasAsleep ?? 'I was asleep'),
-          ),
+                : () => _addWindow(rejectedDay)),
           if (_saving)
             Text(l?.sleepDetailReanalysing ?? 'Re-analysing the night…',
                 style: F.cap.copyWith(color: P.of(c).ink3)),
@@ -616,7 +612,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       // side by side as alternatives, never merged.
       if (d.deviceNights.isNotEmpty) ...[
         DeviceFilter(
-          allLabel: 'OpenStrap',
+          allLabel: 'Locus',
           showWithOne: true,
           options: [
             for (final dn in d.deviceNights)
@@ -698,16 +694,27 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final watched = (inBed == null || unobserved == null || unobserved <= 0)
         ? null
         : math.max(0, inBed - unobserved);
-    return Surface(
+    // The screen's hero (§6): the night's total, big, on a lavender field.
+    // Only the page ink is legible on aurora, so every word on it is ink;
+    // the ratios that qualify it keep their hues on a plain card under it.
+    final hero = AuroraTile(
+      hue: C.domSleep,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(hm(tst), style: F.n48.copyWith(color: p.ink)),
-        const SizedBox(height: S.x1),
         Text(l?.sleepDetailTotalSleep ?? 'Total sleep',
-            style: F.cap.copyWith(color: p.ink3)),
+            style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+        const SizedBox(height: S.x2),
+        // Shrinks rather than truncates: at accessibility sizes a 64 pt
+        // "7h 23m" is wider than the tile, and a cut duration is a different
+        // number.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: AlignmentDirectional.centerStart,
+          child: Text(hm(tst), style: F.n64.copyWith(color: p.ink)),
+        ),
         if (from.isNotEmpty && to.isNotEmpty) ...[
-          const SizedBox(height: S.x4),
+          const SizedBox(height: S.x3),
           Row(children: [
-            Icon(LucideIcons.moon, size: 15, color: p.ink3),
+            Icon(LucideIcons.moon, size: I.sm, color: p.ink),
             const SizedBox(width: S.x2),
             Flexible(
               child: Text('$from → $to',
@@ -716,8 +723,14 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
             ),
           ]),
         ],
-        if (inBed != null || eff != null) ...[
-          const SizedBox(height: S.x4),
+      ]),
+    );
+    if (inBed == null && eff == null) return hero;
+    return Column(children: [
+      hero,
+      const SizedBox(height: S.x3),
+      Surface(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           InlineMetrics([
             if (inBed != null) (l?.sleepDetailInBed ?? 'IN BED', hm(inBed), C.indigo),
             if (watched != null)
@@ -728,19 +741,19 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
                   : (l?.sleepDetailAsleep ?? 'ASLEEP'),
                   _pct(eff * 100), C.green),
           ]),
-        ],
-        if (watched != null) ...[
-          const SizedBox(height: S.x3),
-          Text(
-            l?.sleepDetailWatchedExplain(hm(watched), hm(inBed!)) ??
-                'We watched ${hm(watched)} of your ${hm(inBed!)} in bed; the rest '
-                    'is not a measurement. Asleep, and the stage shares below, are out '
-                    'of the time we watched.',
-            style: F.over.copyWith(color: p.ink3, height: 1.5),
-          ),
-        ],
-      ]),
-    );
+          if (watched != null) ...[
+            const SizedBox(height: S.x3),
+            Text(
+              l?.sleepDetailWatchedExplain(hm(watched), hm(inBed!)) ??
+                  'We watched ${hm(watched)} of your ${hm(inBed!)} in bed; the rest '
+                      'is not a measurement. Asleep, and the stage shares below, are out '
+                      'of the time we watched.',
+              style: F.over.copyWith(color: p.ink3, height: 1.5),
+            ),
+          ],
+        ]),
+      ),
+    ]);
   }
 
   /// Where this night's window came from, and the user's say over it.
@@ -766,14 +779,11 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     if (day == null) return const [];
     return [
       const SizedBox(height: S.x2),
-      TextButton(
-        // `_loading` too: `_goDay` swaps `_day` and keeps the old `_d` on
-        // screen until `_load()` resolves, so a tap in that window would
-        // open naps for the day you just navigated away from.
-        onPressed:
-            _saving || _loading ? null : () => go(c, NapsScreen(day: day)),
-        child: Text(l?.sleepDetailEditNaps ?? 'Naps'),
-      ),
+      // `_loading` too: `_goDay` swaps `_day` and keeps the old `_d` on
+      // screen until `_load()` resolves, so a tap in that window would
+      // open naps for the day you just navigated away from.
+      TextAction(l?.sleepDetailEditNaps ?? 'Naps',
+          _saving || _loading ? null : () => go(c, NapsScreen(day: day))),
     ];
   }
 
@@ -796,7 +806,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Icon(mine ? LucideIcons.userCheck : LucideIcons.wandSparkles,
-                size: 16, color: p.ink3),
+                size: I.sm, color: p.ink3),
             const SizedBox(width: S.x2),
             Expanded(
               child: Text(
@@ -841,29 +851,16 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           const SizedBox(height: S.x2),
           Wrap(spacing: S.x2, children: [
             if (fallback)
-              TextButton(
-                onPressed: busy ? null : () => _confirmWindow(day),
-                child: Text(l?.sleepDetailConfirmTimes ?? 'These times are right'),
-              ),
-            TextButton(
-              onPressed: busy ? null : () => _editWindow(day, t0, t1),
-              child: Text(mine
+              TextAction(l?.sleepDetailConfirmTimes ?? 'These times are right', busy ? null : () => _confirmWindow(day)),
+            TextAction(mine
                   ? (l?.sleepDetailChangeTimes ?? 'Change the times')
-                  : (l?.sleepDetailSetTimesMyself ?? 'Set the times myself')),
-            ),
+                  : (l?.sleepDetailSetTimesMyself ?? 'Set the times myself'), busy ? null : () => _editWindow(day, t0, t1)),
             if (mine)
-              TextButton(
-                onPressed: busy ? null : () => _clearWindow(day),
-                child:
-                    Text(l?.sleepDetailBackToAutomatic ?? 'Back to automatic'),
-              ),
+              TextAction(l?.sleepDetailBackToAutomatic ?? 'Back to automatic', busy ? null : () => _clearWindow(day)),
             // The missing third answer next to "Looks right"/"Edit": naps
             // already have a reject action (sleep_nap source='rejected');
             // a whole-night main-sleep session didn't (edge#248).
-            TextButton(
-              onPressed: busy ? null : () => _rejectWindow(day),
-              child: Text(l?.sleepDetailNotSleep ?? 'Not sleep'),
-            ),
+            TextAction(l?.sleepDetailNotSleep ?? 'Not sleep', busy ? null : () => _rejectWindow(day)),
           ]),
           if (busy) ...[
             const SizedBox(height: S.x2),
@@ -1792,7 +1789,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         color: p.card2,
         elevation: 0,
         child: Row(children: [
-          Icon(LucideIcons.check, size: 16, color: p.on(C.green)),
+          Icon(LucideIcons.check, size: I.sm, color: p.on(C.green)),
           const SizedBox(width: S.x3),
           Expanded(
             child: Text(l?.sleepDetailNothingStoodOut ?? 'Nothing stood out.',

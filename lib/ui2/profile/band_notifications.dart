@@ -261,7 +261,7 @@ class _AppRow extends StatelessWidget {
                     decoration: BoxDecoration(
                         color: p.wash(C.purple), borderRadius: R.rSm),
                     child: Icon(LucideIcons.appWindow,
-                        size: 16, color: p.on(C.purple)),
+                        size: I.sm, color: p.on(C.purple)),
                   ),
           ),
           const SizedBox(width: S.x3),

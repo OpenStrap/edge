@@ -10,6 +10,8 @@ import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
+import 'support/fonts.dart';
+
 /// Deterministic, so a failure is never noise.
 List<double> _series(int n, double base, double amp) => List<double>.generate(
   n,
@@ -229,6 +231,7 @@ Future<void> _loadType() async {
   final files = Directory(
     'assets/fonts/Manrope',
   ).listSync().whereType<File>().where((f) => f.path.endsWith('.ttf'));
+  await loadOutfit();
   for (final family in const ['Manrope', '.SF Pro Text', 'Menlo']) {
     final loader = FontLoader(family);
     for (final f in files) {

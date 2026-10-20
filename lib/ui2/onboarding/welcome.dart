@@ -191,10 +191,10 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
   Widget build(BuildContext c) {
     final creating = widget.creating;
     final l = AppLocalizations.of(c);
-    return AlertDialog(
-      title: Text(creating
+    return AppDialog(
+      title: creating
           ? (l?.welcomeChoosePassphrase ?? 'Choose a passphrase')
-          : (l?.welcomePassphrase ?? 'Passphrase')),
+          : (l?.welcomePassphrase ?? 'Passphrase'),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         Text(creating
             // Both halves, in the same breath. The second half is not a
@@ -206,21 +206,19 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
             : (l?.welcomePassphraseOpenNote ??
                 'The one you chose when this backup was written.')),
         const SizedBox(height: S.x4),
-        TextField(
+        AppField(
           controller: _a,
-          obscureText: true,
+          obscure: true,
           autofocus: true,
-          decoration: InputDecoration(
-              labelText: l?.welcomePassphrase ?? 'Passphrase'),
+          label: l?.welcomePassphrase ?? 'Passphrase',
           onSubmitted: creating ? null : (_) => _submit(),
         ),
         if (creating) ...[
           const SizedBox(height: S.x3),
-          TextField(
+          AppField(
             controller: _b,
-            obscureText: true,
-            decoration: InputDecoration(
-                labelText: l?.welcomeRepeatIt ?? 'Repeat it'),
+            obscure: true,
+            label: l?.welcomeRepeatIt ?? 'Repeat it',
             onSubmitted: (_) => _submit(),
           ),
         ],
@@ -230,14 +228,10 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
         ],
       ]),
       actions: [
-        TextButton(
-            onPressed: () => Navigator.of(c).pop(),
-            child: Text(l?.actionCancel ?? 'Cancel')),
-        TextButton(
-            onPressed: _submit,
-            child: Text(creating
-                ? (l?.welcomeEncrypt ?? 'Encrypt')
-                : (l?.welcomeUnlock ?? 'Unlock'))),
+        BigButton(l?.actionCancel ?? 'Cancel', soft: true, onTap: () => Navigator.of(c).pop()),
+        BigButton(creating
+                        ? (l?.welcomeEncrypt ?? 'Encrypt')
+                        : (l?.welcomeUnlock ?? 'Unlock'), onTap: _submit),
       ],
     );
   }
@@ -383,7 +377,7 @@ Future<ImportOutcome> runImport(
   }
 
   if (decrypted.isNotEmpty) sources.add('Encrypted backup');
-  if (plain.any(_isDbBackup)) sources.add('OpenStrap backup');
+  if (plain.any(_isDbBackup)) sources.add('Locus backup');
   try {
     for (final p in db) {
       days += await app.importEdgeBackup(p);
@@ -469,7 +463,7 @@ Future<ImportOutcome> runImport(
   if (vendor.isNotEmpty) {
     // The catch-all group: anything that is not a backup or a raw export is
     // handed to the vendor importer, so it is also where junk in a mixed
-    // selection lands. Throwing from here would report an OpenStrap backup
+    // selection lands. Throwing from here would report a Locus backup
     // that HAS just landed as a failed import, so it is caught and named
     // instead — unless it is the only thing that was picked.
     try {
@@ -570,8 +564,12 @@ class WelcomeView extends StatelessWidget {
     this.outcome,
   });
 
+  // Onboarding is Char in both themes (§6, D4).
   @override
-  Widget build(BuildContext c) {
+  Widget build(BuildContext c) =>
+      AlwaysChar(child: Builder(builder: _build));
+
+  Widget _build(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final o = outcome;
@@ -579,9 +577,11 @@ class WelcomeView extends StatelessWidget {
       backgroundColor: p.bg,
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(S.x4, S.x8, S.x4, S.x8),
+          padding: const EdgeInsets.fromLTRB(S.x4, S.x6, S.x4, S.x8),
           children: [
-            Icon(LucideIcons.activity, size: 40, color: p.on(C.green)),
+            const OnboardingStep(1),
+            const SizedBox(height: S.x5),
+            BandStage(Art.bandHero, height: 200),
             const SizedBox(height: S.x5),
             Text(l?.welcomeHeadline ?? 'Your band, decoded here',
                 style: F.display.copyWith(color: p.ink)),
@@ -605,13 +605,13 @@ class WelcomeView extends StatelessWidget {
             // weight beside "Set up my band".
             Align(
               alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: busy ? null : onImport,
-                icon: const Icon(LucideIcons.upload, size: 16),
-                label: Text(busy
+              child: TextAction(
+                busy
                     ? (l?.welcomeImporting ?? 'Importing…')
                     : (l?.welcomeBringMyHistoryFirst ??
-                        'Bring my history first')),
+                        'Bring my history first'),
+                busy ? null : onImport,
+                icon: LucideIcons.upload,
               ),
             ),
             Text(
@@ -622,7 +622,7 @@ class WelcomeView extends StatelessWidget {
               // the same rolling baselines. What IS true is the half that
               // protects data: no import overwrites a day this band measured.
               l?.welcomeImportFooterNote ??
-                  'A sensor export, an OpenStrap backup or a vendor CSV. Imported days count toward your usual range, and never overwrite a day the band measured.',
+                  'A sensor export, a Locus backup or a vendor CSV. Imported days count toward your usual range, and never overwrite a day the band measured.',
               style: F.cap.copyWith(color: p.ink3),
             ),
             if (busy) ...[
@@ -637,6 +637,53 @@ class WelcomeView extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// The band's picture on an aurora field: the art is black, and black on the
+/// onboarding canvas does not read, so it sits on a soft volt glow (§5.6 —
+/// "the app paints the background behind the art"). Decorative: no semantics.
+class BandStage extends StatelessWidget {
+  final Art art;
+  final double height;
+
+  const BandStage(this.art, {super.key, required this.height});
+
+  @override
+  Widget build(BuildContext c) => AuroraTile(
+        hue: C.domHome,
+        intensity: .55,
+        child: Center(child: art.image(height: height)),
+      );
+}
+
+/// Where the user is in setup: a glass pill naming the step, and the volt
+/// river (§5.2 [StepPath]) through all of them. The pill carries the meaning;
+/// the river is decoration and says nothing to a screen reader.
+class OnboardingStep extends StatelessWidget {
+  /// 1-based: welcome, pick a band, about you.
+  final int step;
+  static const total = 3;
+
+  const OnboardingStep(this.step, {super.key});
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Glass(
+        radius: R.rPill,
+        child: Padding(
+          padding:
+              const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x2),
+          child: Text(l?.onboardingStepOf(step, total) ?? 'Step $step of $total',
+              style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+        ),
+      ),
+      const SizedBox(height: S.x3),
+      StepPath(total, step - 1, height: S.x16 + S.x8),
+    ]);
   }
 }
 
@@ -736,7 +783,7 @@ class ImportReport extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Surface(
         child: Row(children: [
-          Icon(LucideIcons.check, size: 20, color: p.on(C.green)),
+          Icon(LucideIcons.check, size: I.md, color: p.on(C.green)),
           const SizedBox(width: S.x3),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

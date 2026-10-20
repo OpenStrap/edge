@@ -128,9 +128,15 @@ void main() {
     await t.tap(find.bySemanticsLabel('Previous day'));
     await _settle(t);
 
+    // A tall phone: the whole page is on screen, so the row is tapped where
+    // it is drawn. (On the default 800 × 600 surface it scrolled into the
+    // list's bottom padding, which clears the floating tab bar and takes no
+    // taps.)
+    t.view.physicalSize = const Size(800, 3000);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    await t.pump();
     final row = find.text('Breakdown of your day');
-    await t.scrollUntilVisible(row, 300,
-        scrollable: find.byType(Scrollable).first);
     await t.tap(row);
     await _settle(t);
     expect(t.widget<DayTimelineScreen>(find.byType(DayTimelineScreen)).day,

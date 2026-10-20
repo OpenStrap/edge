@@ -1,6 +1,6 @@
 {
   "@@locale": "en",
-  "appTitle": "OpenStrap",
+  "appTitle": "Locus",
   "@appTitle": {
     "description": "App name shown in the OS task switcher / MaterialApp title."
   },
@@ -59,6 +59,18 @@
   "pillLocalNoCloud": "Local · no cloud",
   "@pillLocalNoCloud": {
     "description": "Pill badge: everything computed on-device."
+  },
+  "onboardingStepOf": "Step {step} of {total}",
+  "@onboardingStepOf": {
+    "description": "Onboarding: which step of the setup this screen is, on the small pill at the top.",
+    "placeholders": {
+      "step": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
   },
   "pairingSkipForNow": "Skip for now",
   "@pairingSkipForNow": {
@@ -527,7 +539,7 @@
   "@dataImportFile": {
     "description": "Row title."
   },
-  "dataImportFileSub": "An OpenStrap backup, a journal CSV, a raw sensor export or a vendor CSV. Days the band already measured are never overwritten",
+  "dataImportFileSub": "A Locus backup, a journal CSV, a raw sensor export or a vendor CSV. Days the band already measured are never overwritten",
   "@dataImportFileSub": {
     "description": "Row sub."
   },
@@ -1410,7 +1422,7 @@
   "@welcomeBringMyHistoryFirst": {
     "description": "Button label: idle."
   },
-  "welcomeImportFooterNote": "A sensor export, an OpenStrap backup or a vendor CSV. Imported days count toward your usual range, and never overwrite a day the band measured.",
+  "welcomeImportFooterNote": "A sensor export, a Locus backup or a vendor CSV. Imported days count toward your usual range, and never overwrite a day the band measured.",
   "@welcomeImportFooterNote": {
     "description": "Footer note about imports."
   },
@@ -4457,7 +4469,7 @@
   "@coachNotSetUp": {
     "description": "Coach screen: subtitle shown wherever the coach has no model configured yet"
   },
-  "coachNotSetUpBody": "Pick a model on your own computer, or any OpenAI-compatible provider with your own key. Nothing goes through OpenStrap either way.",
+  "coachNotSetUpBody": "Pick a model on your own computer, or any OpenAI-compatible provider with your own key. Nothing goes through Locus either way.",
   "@coachNotSetUpBody": {
     "description": "Coach screen: body text explaining how to set up the coach and its privacy stance"
   },
@@ -9291,7 +9303,7 @@
       }
     }
   },
-  "workoutDeleteBodyOwn": "It disappears from OpenStrap. A copy in {storeName}, if there is one, stays where it is.",
+  "workoutDeleteBodyOwn": "It disappears from Locus. A copy in {storeName}, if there is one, stays where it is.",
   "@workoutDeleteBodyOwn": {
     "description": "Confirm-delete dialog body for a session this band recorded",
     "placeholders": {
@@ -9300,7 +9312,7 @@
       }
     }
   },
-  "workoutDeleteBodyImported": "It disappears from OpenStrap and will not be re-imported. The original in {storeName} stays.",
+  "workoutDeleteBodyImported": "It disappears from Locus and will not be re-imported. The original in {storeName} stays.",
   "@workoutDeleteBodyImported": {
     "description": "Confirm-delete dialog body for an imported session",
     "placeholders": {
@@ -11828,11 +11840,11 @@
   "@bandStatusBluetoothDeniedTitle": {
     "description": "BandStatus card title: app-level Bluetooth permission denied"
   },
-  "bandStatusBluetoothDeniedReason": "The phone isn’t letting OpenStrap use Bluetooth, so nothing can connect. Allow Bluetooth for OpenStrap in your phone’s settings.",
+  "bandStatusBluetoothDeniedReason": "The phone isn’t letting Locus use Bluetooth, so nothing can connect. Allow Bluetooth for Locus in your phone’s settings.",
   "@bandStatusBluetoothDeniedReason": {
     "description": "BandStatus card body: app-level Bluetooth permission denied"
   },
-  "bandStatusBluetoothDeniedFix": "Open Settings → OpenStrap and allow Bluetooth",
+  "bandStatusBluetoothDeniedFix": "Open Settings → Locus and allow Bluetooth",
   "@bandStatusBluetoothDeniedFix": {
     "description": "BandStatus fix action: app-level Bluetooth permission denied"
   },
@@ -12064,74 +12076,6 @@
   "deviceActionBroadcastToTaskerBlurb": "Fire a broadcast intent so Tasker can trigger any automation.",
   "@deviceActionBroadcastToTaskerBlurb": {
     "description": "Band double-tap action picker: blurb for Tasker broadcast (Android only)"
-  },
-  "profileCommunityGroup": "Community",
-  "@profileCommunityGroup": {
-    "description": "Title of the Profile section grouping the project's public community links."
-  },
-  "profileGithubTitle": "GitHub",
-  "@profileGithubTitle": {
-    "description": "Title of the Profile row linking to the project's GitHub repo."
-  },
-  "profileGithubSub": "Please star and show your support — it helps the project grow",
-  "@profileGithubSub": {
-    "description": "Subtitle of the Profile row linking to the project's GitHub repo."
-  },
-  "profileRedditTitle": "Reddit",
-  "@profileRedditTitle": {
-    "description": "Title of the Profile row linking to the project's subreddit."
-  },
-  "profileRedditSub": "Join r/OpenStrap — post your achievements, questions, anything",
-  "@profileRedditSub": {
-    "description": "Subtitle of the Profile row linking to the project's subreddit."
-  },
-  "profileDiscordTitle": "Discord",
-  "@profileDiscordTitle": {
-    "description": "Title of the Profile row linking to the project's Discord server."
-  },
-  "profileDiscordSub": "Hang out with other users and the people building this",
-  "@profileDiscordSub": {
-    "description": "Subtitle of the Profile row linking to the project's Discord server."
-  },
-  "profileSponsorTitle": "Sponsor",
-  "@profileSponsorTitle": {
-    "description": "Title of the Profile row linking to GitHub Sponsors."
-  },
-  "profileSponsorSub": "This is a free, open-source project — sponsoring keeps it going",
-  "@profileSponsorSub": {
-    "description": "Subtitle of the Profile row linking to GitHub Sponsors."
-  },
-  "nudgeDiscordTitle": "Come say hi",
-  "@nudgeDiscordTitle": {
-    "description": "Title of the Home nudge card inviting the user to join Discord."
-  },
-  "nudgeDiscordBody": "Other OpenStrap users hang out on Discord — bugs, ideas, and people running the same band as you.",
-  "@nudgeDiscordBody": {
-    "description": "Body of the Home nudge card inviting the user to join Discord."
-  },
-  "nudgeDiscordCta": "Join Discord",
-  "@nudgeDiscordCta": {
-    "description": "CTA button label of the Home nudge card inviting the user to join Discord."
-  },
-  "nudgeDonateTitle": "Enjoying OpenStrap?",
-  "@nudgeDonateTitle": {
-    "description": "Title of the Home nudge card inviting the user to sponsor the project."
-  },
-  "nudgeDonateBody": "It is a free, open-source project with no subscription. Sponsoring keeps it maintained.",
-  "@nudgeDonateBody": {
-    "description": "Body of the Home nudge card inviting the user to sponsor the project."
-  },
-  "nudgeDonateCta": "Support the project",
-  "@nudgeDonateCta": {
-    "description": "CTA button label of the Home nudge card inviting the user to sponsor the project."
-  },
-  "nudgeNotNow": "Not now",
-  "@nudgeNotNow": {
-    "description": "Semantic label for the button that snoozes a Home community nudge."
-  },
-  "nudgeDontShowAgain": "Don't show this again",
-  "@nudgeDontShowAgain": {
-    "description": "Label and semantic label for the button that permanently dismisses a Home community nudge."
   },
   "signalRrIntervals": "Beat-to-beat intervals",
   "@signalRrIntervals": {
@@ -13213,7 +13157,7 @@
   "@supplementALowConfidenceOverlayA9fbabe": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
-  "supplementAMinuteOfNotesTonightac2cf6": "A minute of notes tonight teaches OpenStrap what actually moves your recovery.",
+  "supplementAMinuteOfNotesTonightac2cf6": "A minute of notes tonight teaches Locus what actually moves your recovery.",
   "@supplementAMinuteOfNotesTonightac2cf6": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
@@ -14077,7 +14021,7 @@
   "@supplementG54fd17": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
-  "supplementIOSCanOnlyShowThe2139b2": "iOS shows the pairing sheet only before the app has used Bluetooth. Close OpenStrap completely, then reopen it to see the sheet.",
+  "supplementIOSCanOnlyShowThe2139b2": "iOS shows the pairing sheet only before the app has used Bluetooth. Close Locus completely, then reopen it to see the sheet.",
   "@supplementIOSCanOnlyShowThe2139b2": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
@@ -14934,9 +14878,9 @@
   "@devicePickerBlurbMiscale2": {
     "description": "Device picker blurb under this device category."
   },
-  "iosUninstallUnpairsWarning": "On iOS, deleting OpenStrap also unpairs every band and sensor paired here from the phone, so other apps, including the maker's own, lose them too.",
+  "iosUninstallUnpairsWarning": "On iOS, deleting Locus also unpairs every band and sensor paired here from the phone, so other apps, including the maker's own, lose them too.",
   "@iosUninstallUnpairsWarning": {
-    "description": "iOS only: AccessorySetupKit pairings are removed by iOS for all apps when OpenStrap is deleted."
+    "description": "iOS only: AccessorySetupKit pairings are removed by iOS for all apps when Locus is deleted."
   },
   "logFoodEditTitle": "Edit this entry",
   "@logFoodEditTitle": {

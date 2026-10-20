@@ -1,13 +1,8 @@
-<img width="1774" height="887" alt="OpenStrap Edge" src="https://github.com/user-attachments/assets/66653a25-ac97-4f8c-8be1-6c9fceeaf08b" />
+# Locus
+
+Locus is a fork of [OpenStrap Edge](https://github.com/OpenStrap/edge), the local-first health app for wearables, under the same AGPL-3.0 licence. It is not the official OpenStrap app and is not endorsed by or affiliated with the OpenStrap project. The sections below are inherited from upstream and still describe it; they are being updated.
 
 A health app for your wearables. No subscription, no fees, private by default.
-
-<a href="https://trendshift.io/repositories/51733?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-51733" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/51733" alt="OpenStrap%2Fedge | Trendshift" width="250" height="55"/></a>
-
-[![Download for Android](https://img.shields.io/badge/Android-Download%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/OpenStrap/edge/releases/latest)
-[![Download on TestFlight](https://img.shields.io/badge/iOS-TestFlight-0D96F6?style=for-the-badge&logo=apple&logoColor=white)](https://testflight.apple.com/join/2BVSwq65)
-
-As featured in [Hackaday](https://hackaday.com/2026/07/15/making-a-locked-down-wearable-work-without-a-subscription/) and [Adafruit](https://blog.adafruit.com/2026/07/15/openstrap-edge-makes-a-whoop-4-0-band-useful-without-a-subscription/).
 
 | <img src="screenshots/today.png" width="160" alt="Today"> | <img src="screenshots/health.png" width="160" alt="Health"> | <img src="screenshots/sleep.png" width="160" alt="Sleep"> | <img src="screenshots/heart-rate.png" width="160" alt="Resting heart rate"> | <img src="screenshots/workout.png" width="160" alt="Workout"> |
 |:--:|:--:|:--:|:--:|:--:|
@@ -20,27 +15,6 @@ As featured in [Hackaday](https://hackaday.com/2026/07/15/making-a-locked-down-w
 **Being built:** Oura Ring, Garmin, Pebble, Colmi, Ultrahuman, Mi Band and more.
 
 Full feature list: [docs/FEATURES.md](docs/FEATURES.md).
-
-## Support
-
-OpenStrap has no company, no subscription and no paywall behind it. If it's useful to
-you, a tip helps keep it going.
-
-**Bitcoin**
-
-```
-bc1qvtcch38dcwp967ar764uu6eetw7tf907844wfq
-```
-
-**EVM** (Ethereum, Base, Arbitrum, Optimism, Polygon)
-
-```
-0x8310C89393366b7eBCD47ABa82e1dfB5ECeFFbD9
-```
-
-## Community
-
-[Discord](https://discord.gg/dUXds5MWkd) · [Reddit](https://www.reddit.com/r/OpenStrap/)
 
 ## Guides
 

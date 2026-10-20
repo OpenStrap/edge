@@ -7,12 +7,15 @@ import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/profile/gallery.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
+import 'support/fonts.dart';
+
 void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
     final fonts = Directory(
       'assets/fonts/Manrope',
     ).listSync().whereType<File>().where((f) => f.path.endsWith('.ttf'));
+    await loadOutfit();
     for (final family in ['Manrope', '.SF Pro Text']) {
       final loader = FontLoader(family);
       for (final file in fonts) {

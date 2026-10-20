@@ -1,12 +1,11 @@
 // Smooth, foolproof theme switching.
 //
 // Two problems this solves:
-//  1) Colours are global statics (AppColors.x), so the framework has no
-//     dependency edge telling it what to rebuild when the mode flips. We fix
-//     that by making every route rebuild: the home stack watches the controller
-//     (see app.dart), and pushed routes go through [themedRoute], whose body is
-//     a [_ThemeReactive] that depends on the controller and reconstructs its
-//     screen on change (State is preserved — same type at the same position).
+//  1) Every route rebuilds on a mode flip: the home stack watches the
+//     controller (see app.dart), and pushed routes go through [themedRoute],
+//     whose body is a [_ThemeReactive] that depends on the controller and
+//     reconstructs its screen on change (State is preserved — same type at
+//     the same position). The palette itself rides the Theme (`P.of`).
 //  2) A hard colour swap looks janky. [ThemeSwitchOverlay] snapshots the live
 //     frame the instant before the swap and cross-fades it out over the freshly
 //     re-coloured tree underneath — a clean dissolve, with the nav stack intact.
@@ -16,8 +15,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 
+import '../ui2/theme.dart' show Ease;
 import 'theme_controller.dart';
-import 'tokens.dart';
 
 /// Wrap a screen builder so the route rebuilds on every mode change.
 /// Use everywhere instead of `MaterialPageRoute(builder: ...)`.
@@ -25,10 +24,10 @@ import 'tokens.dart';
 /// NAVIGATION CONTRACT — this MUST stay a [MaterialPageRoute] (or another
 /// route mixing in Material/Cupertino route-transition machinery). A raw
 /// PageRouteBuilder has no interactive back-gesture support, which silently
-/// kills the iOS edge-swipe-back on every pushed screen. The app's shared-axis
-/// fade-through transition therefore lives in the theme's pageTransitionsTheme
-/// instead (see buildOpenStrapTheme + page_transitions.dart): Android-likes
-/// keep the fade-through, iOS/macOS get the Cupertino slide WITH swipe-back.
+/// kills the iOS edge-swipe-back on every pushed screen. Transitions therefore
+/// live in the theme's pageTransitionsTheme (`buildTheme`, lib/ui2/theme.dart):
+/// each platform's own, gated by reduced motion, so iOS/macOS keep the
+/// Cupertino slide WITH swipe-back.
 /// [name] shows up as `current_screen` on the next Crashlytics crash/ANR
 /// report (see TelemetryNavigatorObserver) — without it, every push here
 /// falls back to a generic `MaterialPageRoute<...>` label, which isn't useful
@@ -50,7 +49,7 @@ class _ThemeReactive extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Depend on the controller → this route's body rebuilds when the mode flips,
-    // reconstructing the screen with fresh AppColors while keeping its State.
+    // reconstructing the screen in the new palette while keeping its State.
     context.watch<ThemeController>();
     return builder(context);
   }
@@ -127,7 +126,7 @@ class ThemeSwitchOverlayState extends State<ThemeSwitchOverlay>
           Positioned.fill(
             child: IgnorePointer(
               child: Opacity(
-                opacity: (1.0 - Motion.curve.transform(_fade.value)).clamp(0.0, 1.0),
+                opacity: (1.0 - Ease.standard.transform(_fade.value)).clamp(0.0, 1.0),
                 child: RawImage(image: _snapshot, fit: BoxFit.cover),
               ),
             ),

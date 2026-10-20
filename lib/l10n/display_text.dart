@@ -7,11 +7,11 @@ String uiText(BuildContext context, String text) =>
     localizedText(AppLocalizations.of(context), text);
 
 /// iOS deletes AccessorySetupKit pairings, bond included and for every app,
-/// when OpenStrap is uninstalled, and there is no hook to stop it (#538).
+/// when Locus is uninstalled, and there is no hook to stop it (#538).
 /// Appended to pairing and unpair/reset copy so nobody learns it afterwards.
 String withIosUninstallWarning(BuildContext context, String body) =>
     defaultTargetPlatform == TargetPlatform.iOS
-        ? '$body\n\n${AppLocalizations.of(context)?.iosUninstallUnpairsWarning ?? "On iOS, deleting OpenStrap also unpairs every band and sensor paired here from the phone, so other apps, including the maker's own, lose them too."}'
+        ? '$body\n\n${AppLocalizations.of(context)?.iosUninstallUnpairsWarning ?? "On iOS, deleting Locus also unpairs every band and sensor paired here from the phone, so other apps, including the maker's own, lose them too."}'
         : body;
 
 String journalTagText(BuildContext context, String tag) =>
@@ -142,7 +142,7 @@ String localizedText(AppLocalizations? l, String text) {
       l.supplementALocalModelCanTake62d4a8,
     "A low-confidence overlay: a wrist sensor cannot see slow-wave activity, so deep sleep here is heart-rate flatness inside NREM." =>
       l.supplementALowConfidenceOverlayA9fbabe,
-    "A minute of notes tonight teaches OpenStrap what actually moves your recovery." =>
+    "A minute of notes tonight teaches Locus what actually moves your recovery." =>
       l.supplementAMinuteOfNotesTonightac2cf6,
     "A possible nap is ready to review." =>
       l.supplementAPossibleNapIsReady84b3cf,
@@ -493,7 +493,7 @@ String localizedText(AppLocalizations? l, String text) {
     "every day" => l.supplementEveryDaya3fd74,
     "figure" => l.supplementFiguref85bdc,
     "g" => l.supplementG54fd17,
-    "iOS shows the pairing sheet only before the app has used Bluetooth. Close OpenStrap completely, then reopen it to see the sheet." =>
+    "iOS shows the pairing sheet only before the app has used Bluetooth. Close Locus completely, then reopen it to see the sheet." =>
       l.supplementIOSCanOnlyShowThe2139b2,
     "kcal" => l.supplementKcal72037b,
     "kg" => l.supplementKg138984,

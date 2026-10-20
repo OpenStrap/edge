@@ -36,7 +36,7 @@ String buildGpx(WorkoutRoute route, {required String name}) {
 
   final buf = StringBuffer()
     ..writeln('<?xml version="1.0" encoding="UTF-8"?>')
-    ..writeln('<gpx version="1.1" creator="OpenStrap" '
+    ..writeln('<gpx version="1.1" creator="Locus" '
         'xmlns="http://www.topografix.com/GPX/1/1" '
         'xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">')
     ..writeln('<trk><name>${_xmlEscape(name)}</name><trkseg>');

@@ -72,8 +72,12 @@ class _BootSplashState extends State<BootSplash> {
 class _Cover extends StatelessWidget {
   const _Cover();
 
+  // Char in both themes, like the onboarding it opens onto (§6, D4).
   @override
-  Widget build(BuildContext c) {
+  Widget build(BuildContext c) =>
+      AlwaysChar(child: Builder(builder: _build));
+
+  Widget _build(BuildContext c) {
     final p = P.of(c);
     // Material, not ColoredBox: the cover sits at MaterialApp.home, above every
     // route, so its own text has no Material ancestor to inherit from and debug
@@ -82,9 +86,9 @@ class _Cover extends StatelessWidget {
       color: p.bg,
       child: Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(LucideIcons.activity, size: 44, color: p.on(C.green)),
+          Icon(LucideIcons.activity, size: I.hero, color: p.on(C.green)),
           const SizedBox(height: S.x4),
-          Text('OpenStrap', style: F.t2.copyWith(color: p.ink)),
+          Text('Locus', style: F.t2.copyWith(color: p.ink)),
         ]),
       ),
     );

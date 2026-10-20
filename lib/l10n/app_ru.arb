@@ -1,6 +1,6 @@
 {
   "@@locale": "ru",
-  "appTitle": "OpenStrap",
+  "appTitle": "Locus",
   "profileTitle": "Профиль",
   "profileMyDevices": "Мои устройства",
   "profileLanguage": "Язык",
@@ -14,6 +14,17 @@
   "stateOn": "Вкл.",
   "stateOff": "Выкл.",
   "pillLocalNoCloud": "Локально · без облака",
+  "onboardingStepOf": "Шаг {step} из {total}",
+  "@onboardingStepOf": {
+    "placeholders": {
+      "step": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
   "pairingSkipForNow": "Пропустить",
   "pairingSkipNote": "Приложение откроется без браслета. Пока браслет не подключён, измерения выполняться не будут.",
   "pairingIdleTitle": "Разбудите браслет и держите его рядом",
@@ -155,7 +166,7 @@
   "dataBackUpNow": "Создать копию сейчас",
   "dataBringDataInGroup": "Импорт данных",
   "dataImportFile": "Импортировать файл",
-  "dataImportFileSub": "Резервная копия OpenStrap, CSV дневника, выгрузка датчиков или CSV производителя. Дни, измеренные браслетом, не перезаписываются",
+  "dataImportFileSub": "Резервная копия Locus, CSV дневника, выгрузка датчиков или CSV производителя. Дни, измеренные браслетом, не перезаписываются",
   "dataFromYourPhone": "С телефона",
   "dataFromYourPhoneSub": "Пульс в покое, артериальное давление, глюкоза и температура тела.",
   "dataRebuildGroup": "Пересчёт",
@@ -558,7 +569,7 @@
   "welcomeSetUpMyBand": "Настроить браслет",
   "welcomeImporting": "Импорт…",
   "welcomeBringMyHistoryFirst": "Сначала импортировать историю",
-  "welcomeImportFooterNote": "Выгрузка датчиков, резервная копия OpenStrap или CSV производителя. Импортированные дни учитываются в обычном диапазоне и не заменяют дни, измеренные браслетом.",
+  "welcomeImportFooterNote": "Выгрузка датчиков, резервная копия Locus или CSV производителя. Импортированные дни учитываются в обычном диапазоне и не заменяют дни, измеренные браслетом.",
   "welcomeChoosePassphrase": "Задайте парольную фразу",
   "welcomePassphrase": "Парольная фраза",
   "welcomePassphraseCreateNote": "Без неё файл не открыть. Ни аккаунта, ни сервера с копией нет, поэтому забытый пароль означает потерю резервной копии.",
@@ -1971,7 +1982,7 @@
   "coachNoDataTitle": "Пока нет данных для чтения",
   "coachNoModelsListed": "Сервис не предоставил список моделей. Введите название ниже.",
   "coachNotSetUp": "Не настроено",
-  "coachNotSetUpBody": "Выберите модель на своём компьютере или любого совместимого с OpenAI провайдера со своим ключом. Данные в любом случае не проходят через OpenStrap.",
+  "coachNotSetUpBody": "Выберите модель на своём компьютере или любого совместимого с OpenAI провайдера со своим ключом. Данные в любом случае не проходят через Locus.",
   "coachNotSetUpTitle": "Тренер не настроен",
   "coachPastChats": "ПРОШЛЫЕ ЧАТЫ",
   "coachPickModelFirst": "Сначала выберите или укажите модель.",
@@ -4327,7 +4338,7 @@
       }
     }
   },
-  "workoutDeleteBodyOwn": "Тренировка исчезнет из OpenStrap. Копия в {storeName}, если она есть, останется.",
+  "workoutDeleteBodyOwn": "Тренировка исчезнет из Locus. Копия в {storeName}, если она есть, останется.",
   "@workoutDeleteBodyOwn": {
     "placeholders": {
       "storeName": {
@@ -4335,7 +4346,7 @@
       }
     }
   },
-  "workoutDeleteBodyImported": "Тренировка исчезнет из OpenStrap и не будет импортирована снова. Оригинал в {storeName} останется.",
+  "workoutDeleteBodyImported": "Тренировка исчезнет из Locus и не будет импортирована снова. Оригинал в {storeName} останется.",
   "@workoutDeleteBodyImported": {
     "placeholders": {
       "storeName": {
@@ -5517,8 +5528,8 @@
   "settingsCopied": "Скопировано",
   "settingsCopyTheToken": "Скопировать токен",
   "bandStatusBluetoothDeniedTitle": "Bluetooth запрещён для приложения",
-  "bandStatusBluetoothDeniedReason": "Телефон не даёт OpenStrap использовать Bluetooth, поэтому подключиться нельзя. Разрешите Bluetooth для OpenStrap в настройках телефона.",
-  "bandStatusBluetoothDeniedFix": "Откройте «Настройки → OpenStrap» и разрешите Bluetooth",
+  "bandStatusBluetoothDeniedReason": "Телефон не даёт Locus использовать Bluetooth, поэтому подключиться нельзя. Разрешите Bluetooth для Locus в настройках телефона.",
+  "bandStatusBluetoothDeniedFix": "Откройте «Настройки → Locus» и разрешите Bluetooth",
   "bandStatusBluetoothOffTitle": "Bluetooth выключен",
   "bandStatusBluetoothOffReason": "Bluetooth телефона выключен, поэтому ни одно приложение не может связаться с браслетом. Он продолжает запись, данные не теряются.",
   "bandStatusBluetoothOffFix": "Включить Bluetooth",
@@ -5582,23 +5593,6 @@
   "deviceActionLogWaterBlurb": "Добавить стакан к сегодняшней воде, как кнопкой «+» на экране питания.",
   "deviceActionBroadcastToTaskerLabel": "Передать событие в Tasker",
   "deviceActionBroadcastToTaskerBlurb": "Отправить широковещательный Intent для запуска автоматизации в Tasker.",
-  "profileCommunityGroup": "Сообщество",
-  "profileGithubTitle": "GitHub",
-  "profileGithubSub": "Поставьте звезду и поддержите проект — это помогает ему развиваться",
-  "profileRedditTitle": "Reddit",
-  "profileRedditSub": "Присоединяйтесь к r/OpenStrap: делитесь успехами, вопросами и идеями",
-  "profileDiscordTitle": "Discord",
-  "profileDiscordSub": "Общайтесь с пользователями и разработчиками",
-  "profileSponsorTitle": "Поддержать проект",
-  "profileSponsorSub": "Это бесплатный проект с открытым кодом — поддержка помогает продолжать работу",
-  "nudgeDiscordTitle": "Присоединяйтесь",
-  "nudgeDiscordBody": "В Discord общаются пользователи OpenStrap: ошибки, идеи и люди с таким же браслетом, как у вас.",
-  "nudgeDiscordCta": "Присоединиться к Discord",
-  "nudgeDonateTitle": "Нравится OpenStrap?",
-  "nudgeDonateBody": "Это бесплатный проект с открытым кодом и без подписки. Поддержка помогает его сопровождать.",
-  "nudgeDonateCta": "Поддержать проект",
-  "nudgeNotNow": "Не сейчас",
-  "nudgeDontShowAgain": "Больше не показывать",
   "signalRrIntervals": "Интервалы между ударами",
   "signalHr1Hz": "Непрерывный пульс",
   "signalHrSparse": "Пульс",
@@ -6304,7 +6298,7 @@
   "supplementADoseIsDue1543e3": "Пора принять дозу.",
   "supplementALocalModelCanTake62d4a8": "Локальной модели может понадобиться время на загрузку перед первым ответом. По умолчанию 5 минут (300 с). Облачные провайдеры всегда используют 2 минуты.",
   "supplementALowConfidenceOverlayA9fbabe": "Оценка с низкой уверенностью: датчик на запястье не видит медленные волны мозга. Глубокий сон здесь определяется по стабильности пульса внутри NREM.",
-  "supplementAMinuteOfNotesTonightac2cf6": "Минута вечерних записей помогает OpenStrap узнать, что связано с вашим восстановлением.",
+  "supplementAMinuteOfNotesTonightac2cf6": "Минута вечерних записей помогает Locus узнать, что связано с вашим восстановлением.",
   "supplementAPossibleNapIsReady84b3cf": "Можно проверить возможный дневной сон.",
   "supplementAPossibleWorkoutIsReady2861bb": "Можно проверить возможную тренировку.",
   "supplementAStepGoalOf500f44746": "Цель по шагам должна быть от 500 до 100 000. Ничего не сохранено.",
@@ -6520,7 +6514,7 @@
   "supplementEveryDaya3fd74": "каждый день",
   "supplementFiguref85bdc": "график",
   "supplementG54fd17": "г",
-  "supplementIOSCanOnlyShowThe2139b2": "iOS показывает окно сопряжения, только пока приложение не использовало Bluetooth. Полностью закройте OpenStrap и откройте снова.",
+  "supplementIOSCanOnlyShowThe2139b2": "iOS показывает окно сопряжения, только пока приложение не использовало Bluetooth. Полностью закройте Locus и откройте снова.",
   "supplementKcal72037b": "ккал",
   "supplementKg138984": "кг",
   "supplementKm08ec69": "км",
@@ -7126,7 +7120,7 @@
       }
     }
   },
-  "iosUninstallUnpairsWarning": "На iOS удаление OpenStrap также снимает с телефона сопряжение всех браслетов и датчиков, сопряжённых здесь, поэтому другие приложения, включая приложение производителя, тоже их теряют.",
+  "iosUninstallUnpairsWarning": "На iOS удаление Locus также снимает с телефона сопряжение всех браслетов и датчиков, сопряжённых здесь, поэтому другие приложения, включая приложение производителя, тоже их теряют.",
   "logFoodEditTitle": "Изменить запись",
   "logFoodDateLabel": "Дата",
   "logFoodTimeLabel": "Время",

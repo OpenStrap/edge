@@ -217,14 +217,7 @@ class _ZonesDetailState extends State<ZonesDetail> {
                 : ''),
     ];
     final l = AppLocalizations.of(c);
-    final saved = await showModalBottomSheet<bool>(
-      context: c,
-      isScrollControlled: true,
-      sheetAnimationStyle: sheetMotion(c),
-      backgroundColor: P.of(c).card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
-      ),
+    final saved = await AppSheet.open<bool>(c,
       builder: (s) => Padding(
         padding: EdgeInsets.only(
             left: S.x5,
@@ -263,6 +256,7 @@ class _ZonesDetailState extends State<ZonesDetail> {
           ],
         ),
       ),
+      scroll: true,
     );
     final typed = [for (final ctl in ctrls) Typed.of(ctl.text)];
     for (final ctl in ctrls) {

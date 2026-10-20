@@ -534,7 +534,7 @@ class PairSensorView extends StatelessWidget {
                 'Have this device’s key? Paste it to pair without a factory reset. Several keys, one per line, are tried in turn. Leave it empty to pair normally.',
             style: F.cap.copyWith(color: p.ink3, height: 1.5),
           ),
-          TextField(
+          AppField(
             controller: ctl,
             enabled: !locked,
             autocorrect: false,
@@ -547,19 +547,10 @@ class PairSensorView extends StatelessWidget {
             maxLines: 5,
             keyboardType: TextInputType.multiline,
             textInputAction: TextInputAction.newline,
-            style: F.head.copyWith(color: p.ink),
-            decoration: InputDecoration(
-              hintText: l?.pairSensorKeyHint ??
+            textStyle: F.head,
+            hint: l?.pairSensorKeyHint ??
                   '32 hex digits or base64 — one key per line',
-              hintStyle: F.head.copyWith(color: p.ink3),
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(vertical: S.x3),
-              enabledBorder:
-                  UnderlineInputBorder(borderSide: BorderSide(color: p.line)),
-              focusedBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: p.on(C.green))),
-            ),
-            ),
+          ),
           ],
         ),
       ),

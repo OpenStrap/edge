@@ -208,7 +208,7 @@ void main() {
     });
 
     // #538: iOS removes AccessorySetupKit pairings for every app when
-    // OpenStrap is deleted. Say so before pairing, and only on iOS.
+    // Locus is deleted. Say so before pairing, and only on iOS.
     for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
       testWidgets('the uninstall-unpairs warning on ${platform.name}',
           (t) async {
@@ -216,7 +216,7 @@ void main() {
         await _pump(t,
             const PairSensorView(entryLabel: 'Bluetooth heart rate sensor'));
         expect(
-          find.textContaining('deleting OpenStrap also unpairs'),
+          find.textContaining('deleting Locus also unpairs'),
           platform == TargetPlatform.iOS ? findsOneWidget : findsNothing,
         );
         debugDefaultTargetPlatformOverride = null;

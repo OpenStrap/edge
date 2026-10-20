@@ -45,7 +45,7 @@ final _rules = <_Rule>[
   _Rule(
     'Colors.white / Colors.black',
     RegExp(r'\bColors\.(white|black)\b'),
-    'Hard white is a hole in a dark card. Use p.card / p.ink / p.inkOnFill.',
+    'Hard white is a hole in a dark card. Use p.card / p.ink / p.inkOn(fill).',
   ),
   _Rule(
     'numeric BorderRadius.circular',
@@ -86,6 +86,73 @@ final _rules = <_Rule>[
         'site that bypasses them is a call site that opts out of them.',
     allow: {_gestureFile},
   ),
+  _Rule(
+    'raw BackdropFilter',
+    // DESIGN_OVERHAUL §5.7: blur is budgeted — two on screen, never in a list
+    // item — and only `Glass` knows the budget and the solid fallback.
+    RegExp(r'\bBackdropFilter\s*\('),
+    'Use Glass. It carries the blur budget and renders solid under high '
+        'contrast and Perf.lowGlass.',
+    allow: {_gestureFile},
+  ),
+  // ── the Volt leaks (DESIGN_OVERHAUL §2, closed in Phase 4) ──────────────
+  // Each of these used to be written raw at 12–38 call sites, each styled
+  // slightly differently. The component carries the one style.
+  _Rule(
+    'raw TextButton',
+    RegExp(r'TextButton'),
+    'Use TextAction (a text link) or BigButton (a dialog action).',
+    allow: {_gestureFile},
+  ),
+  _Rule(
+    'raw AlertDialog',
+    RegExp(r'AlertDialog\s*\('),
+    'Use AppDialog.',
+    allow: {_gestureFile},
+  ),
+  _Rule(
+    'raw showModalBottomSheet',
+    RegExp(r'showModalBottomSheet\s*[<(]'),
+    'Use AppSheet.open (a sheet with its own content) or AppSheet.show.',
+    allow: {_gestureFile},
+  ),
+  _Rule(
+    'raw TextField',
+    RegExp(r'(TextField|TextFormField)\s*\('),
+    'Use AppField.',
+    allow: {_gestureFile},
+  ),
+  _Rule(
+    'raw Switch',
+    RegExp(r'Switch(\.adaptive)?\s*\('),
+    'Use AppSwitch.',
+    allow: {_gestureFile},
+  ),
+  _Rule(
+    'numeric Icon size',
+    RegExp(r'Icon\((?:[^;{}]|\{[^}]*\})*?size:\s*\d'),
+    'Icon sizes come from I (I.sm 16, I.md 20, I.lg 24, I.xl 32, I.hero 48).',
+    allow: {_tokenFile},
+    multiline: true,
+  ),
+  _Rule(
+    'numeric EdgeInsets',
+    // A zero is not a size; `S.x10` and `pips - 1` are not literals.
+    RegExp(r'EdgeInsets\.\w+\([^)]*[(:,]\s*[1-9]\d*(\.\d+)?\s*[,)]'),
+    'Spacing comes from S (S.x1 … S.x16, S.half, S.gutter).',
+    allow: {_tokenFile},
+  ),
+  _Rule(
+    'raw Image.asset',
+    RegExp(r'Image\.asset\s*\('),
+    'Name imagery through Art (theme.dart), so no screen writes an asset path.',
+    allow: {
+      _tokenFile,
+      // The app-icon picker shows the launcher icons the user can choose
+      // between; they are not part of the imagery set and have no Art slot.
+      'lib/ui2/profile/settings.dart',
+    },
+  ),
 ];
 
 class _Rule {
@@ -93,7 +160,12 @@ class _Rule {
   final RegExp pattern;
   final String why;
   final Set<String> allow;
-  _Rule(this.name, this.pattern, this.why, {this.allow = const {}});
+
+  /// Match against the whole file instead of line by line, for a call that
+  /// spans lines (an `Icon(` whose `size:` is on the next line).
+  final bool multiline;
+  _Rule(this.name, this.pattern, this.why,
+      {this.allow = const {}, this.multiline = false});
 }
 
 void main() {
@@ -119,9 +191,19 @@ void main() {
     test('no ${rule.name} outside the token boundary', () {
       final hits = <String>[];
       for (final f in files) {
-        final rel = f.path.replaceFirst(RegExp(r'^\./'), '');
+        // Forward slashes, so the allow-list matches on Windows too.
+        final rel =
+            f.path.replaceAll(r'\', '/').replaceFirst(RegExp(r'^\./'), '');
         if (rule.allow.contains(rel)) continue;
         final lines = codeLines(f.readAsStringSync());
+        if (rule.multiline) {
+          final text = lines.join('\n');
+          for (final m in rule.pattern.allMatches(text)) {
+            final line = '\n'.allMatches(text.substring(0, m.start)).length;
+            hits.add('$rel:${line + 1}  ${lines[line].trim()}');
+          }
+          continue;
+        }
         for (var i = 0; i < lines.length; i++) {
           if (rule.pattern.hasMatch(lines[i])) {
             hits.add('$rel:${i + 1}  ${lines[i].trim()}');

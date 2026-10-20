@@ -1,0 +1,4 @@
+# Tags used under test/. Declared so `flutter test` does not warn about them.
+tags:
+  # test/design_snapshots_test.dart: writes PNGs, skipped unless SNAPSHOTS=1.
+  snapshots:

@@ -58,7 +58,7 @@ void main() {
       // The export rewrites them under a new uuid each pass; importing them
       // would duplicate every band session in History.
       final rows = workoutsFrom([
-        _w(uuid: 'ios', source: 'OpenStrap', sourceId: 'wtf.openstrap.x'),
+        _w(uuid: 'ios', source: 'Locus', sourceId: 'wtf.openstrap.x'),
         _w(uuid: 'android', source: 'wtf.openstrap.x', sourceId: ''),
         _w(uuid: 'strava'),
       ], ownApp: 'wtf.openstrap.x');

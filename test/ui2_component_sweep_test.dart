@@ -14,6 +14,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/profile/gallery.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
+import 'support/fonts.dart';
+
 /// The component, not the page: the boundary the sweeps measure.
 final _shot = GlobalKey();
 
@@ -52,6 +54,7 @@ Future<void> _loadType() async {
   // hardware, so on Android and in the test harness the type IS Manrope —
   // registering it under the primary name makes text measure as a non-Apple
   // user sees it, rather than as the harness's fallback blocks.
+  await loadOutfit();
   for (final family in const ['Manrope', '.SF Pro Text']) {
     final loader = FontLoader(family);
     for (final f in files) {

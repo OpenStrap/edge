@@ -36,11 +36,11 @@ void main() {
     expect(find.byType(ProfileAvatar), findsOneWidget);
     expect(find.text('plan below the night'), findsOneWidget);
     // A tab has no way back; the pushed screen keeps its arrow.
-    expect(find.byIcon(LucideIcons.chevronLeft), findsNothing);
+    expect(find.byIcon(LucideIcons.arrowLeft), findsNothing);
 
     await t.pumpWidget(_app(const SleepDetail(data: SleepData())));
     await t.pump();
-    expect(find.byIcon(LucideIcons.chevronLeft), findsOneWidget);
+    expect(find.byIcon(LucideIcons.arrowLeft), findsOneWidget);
     expect(find.byType(ProfileAvatar), findsNothing);
   });
 
@@ -69,13 +69,13 @@ void main() {
       onSave: (_) async {},
       onCycleTracking: (on) async => saved = on,
     )));
-    final toggle = find.byType(SwitchListTile);
+    final toggle = find.byType(AppSwitch);
     expect(toggle, findsOneWidget);
-    expect(t.widget<SwitchListTile>(toggle).value, isFalse);
+    expect(t.widget<AppSwitch>(toggle).value, isFalse);
 
     await t.tap(find.text('Female'));
     await t.pump();
-    expect(t.widget<SwitchListTile>(toggle).value, isTrue);
+    expect(t.widget<AppSwitch>(toggle).value, isTrue);
 
     await t.tap(find.text('Continue'));
     await t.pump();

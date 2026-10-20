@@ -265,13 +265,9 @@ class _LogWorkoutState extends State<LogWorkout> {
   }
 
   Future<void> _pickActivity() async {
-    final picked = await showModalBottomSheet<Activity>(
-      context: context,
-      isScrollControlled: true,
-      sheetAnimationStyle: sheetMotion(context),
-      backgroundColor: P.of(context).card,
-      shape: const RoundedRectangleBorder(borderRadius: R.rXl),
+    final picked = await AppSheet.open<Activity>(context,
       builder: (_) => const _TypeSheet(),
+      scroll: true,
     );
     if (picked != null) setState(() => _activity = picked);
   }
@@ -482,7 +478,6 @@ class _TypeSheetState extends State<_TypeSheet> {
 
   @override
   Widget build(BuildContext c) {
-    final p = P.of(c);
     final l = AppLocalizations.of(c);
     final q = _q.trim().toLowerCase();
     final items = q.isEmpty
@@ -499,20 +494,10 @@ class _TypeSheetState extends State<_TypeSheet> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(S.x4, S.x4, S.x4, S.x2),
-            child: TextField(
+            child: AppField(
               autofocus: false,
-              style: F.body.copyWith(color: p.ink),
               onChanged: (v) => setState(() => _q = v),
-              decoration: InputDecoration(
-                hintText: l?.logWorkoutSearchActivities ?? 'Search activities',
-                hintStyle: F.body.copyWith(color: p.ink3),
-                filled: true,
-                fillColor: p.card2,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: S.x4, vertical: S.x3),
-                border: const OutlineInputBorder(
-                    borderRadius: R.rPill, borderSide: BorderSide.none),
-              ),
+              hint: l?.logWorkoutSearchActivities ?? 'Search activities',
             ),
           ),
           Flexible(

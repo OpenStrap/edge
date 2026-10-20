@@ -75,11 +75,12 @@ class SetRow extends StatelessWidget {
             width: 32,
             height: 32,
             alignment: Alignment.center,
+            // A circle, like every icon chip since Volt (§5.1).
             decoration:
-                BoxDecoration(color: p.wash(accent), borderRadius: R.rSm),
+                BoxDecoration(color: p.wash(accent), shape: BoxShape.circle),
             child: glyph != null
                 ? glyph!(p.on(accent))
-                : Icon(icon, size: 16, color: p.on(accent)),
+                : Icon(icon, size: I.sm, color: p.on(accent)),
           ),
           const SizedBox(width: S.x3),
           Expanded(
@@ -111,7 +112,7 @@ class SetRow extends StatelessWidget {
           ],
           if (trailing == null && chevron && !danger) ...[
             const SizedBox(width: S.x2),
-            Icon(LucideIcons.chevronRight, size: 17, color: p.ink3),
+            Icon(LucideIcons.chevronRight, size: I.sm, color: p.ink3),
           ],
         ]),
       ),
@@ -119,7 +120,8 @@ class SetRow extends StatelessWidget {
   }
 }
 
-/// A titled card of [SetRow]s, hairline-separated.
+/// A titled card of [SetRow]s, hairline-separated. The hairlines start at
+/// the text, not the card edge (§6: grouped lists with inset hairlines).
 Widget settingsGroup(BuildContext c, String title, List<Widget> rows) {
   final p = P.of(c);
   return Section(
@@ -129,7 +131,8 @@ Widget settingsGroup(BuildContext c, String title, List<Widget> rows) {
       child: Column(children: [
         for (var i = 0; i < rows.length; i++) ...[
           rows[i],
-          if (i < rows.length - 1) Divider(color: p.line, height: 1),
+          if (i < rows.length - 1)
+            Divider(color: p.line, height: 1, indent: S.x8 + S.x3),
         ],
       ]),
     ),
@@ -165,21 +168,25 @@ class ProfileAvatar extends StatelessWidget {
       // No AppState above us (goldens): the plain glyph.
     }
     final initial = (name ?? '').trim();
+    // Neutral chrome (§5.4): the same recessed circle as RoundIconButton, in
+    // ink. The tab's accent used to colour it; since Volt a domain hue lives
+    // in its hero, not its buttons. [accent] is still taken so the six
+    // headers that pass it compile.
     return Pressable(
       semanticLabel:
           AppLocalizations.of(c)?.homeProfileSettings ?? 'Profile and settings',
       onTap: () => openProfile(c),
       child: Container(
-        width: 40,
-        height: 40,
+        width: S.x12,
+        height: S.x12,
         alignment: Alignment.center,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: p.fill(accent)),
+        decoration: BoxDecoration(shape: BoxShape.circle, color: p.card2),
         child: initial.isEmpty
-            ? Icon(LucideIcons.user, size: 18, color: p.inkOnFill)
+            ? Icon(LucideIcons.user, size: I.md, color: p.ink)
             : ExcludeSemantics(
                 child: Text(initial.characters.first.toUpperCase(),
-                    style: F.body.copyWith(
-                        color: p.inkOnFill, fontWeight: FontWeight.w600)),
+                    style: F.body
+                        .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
               ),
       ),
     );
@@ -208,10 +215,7 @@ Future<void> _pickLanguage(BuildContext c) async {
   final p = P.of(c);
   final ctrl = c.read<LocaleController>();
   final options = <String?>[null, ...AppLocalizations.supportedLocales.map((l) => l.languageCode)];
-  await showModalBottomSheet<void>(
-    context: c,
-    backgroundColor: p.card,
-    showDragHandle: true,
+  await AppSheet.open<void>(c,
     builder: (sheet) => SafeArea(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -220,7 +224,7 @@ Future<void> _pickLanguage(BuildContext c) async {
             ListTile(
               title: Text(_languageLabel(sheet, code), style: F.body.copyWith(color: p.ink)),
               trailing: ctrl.code == code
-                  ? Icon(LucideIcons.check, size: 18, color: p.on(C.blue))
+                  ? Icon(LucideIcons.check, size: I.md, color: p.on(C.blue))
                   : null,
               onTap: () async {
                 await ctrl.setCode(code);
@@ -230,6 +234,7 @@ Future<void> _pickLanguage(BuildContext c) async {
         ],
       ),
     ),
+    dragHandle: true,
   );
 }
 
@@ -415,32 +420,6 @@ class ProfileHomeView extends StatelessWidget {
                       sub: l?.profileSettingsRowSub ??
                           'Band, app, data, privacy and advanced',
                       onTap: onSettings),
-                ]),
-                settingsGroup(c, l?.profileCommunityGroup ?? 'Community', [
-                  SetRow.brand(brandGlyph('assets/icons/github.svg'), C.n500,
-                      l?.profileGithubTitle ?? 'GitHub',
-                      sub: l?.profileGithubSub ??
-                          'Please star and show your support — it helps '
-                              'the project grow',
-                      onTap: () => open3rdPartyLink(kGithubUrl)),
-                  SetRow.brand(brandGlyph('assets/icons/reddit.svg'), C.orange,
-                      l?.profileRedditTitle ?? 'Reddit',
-                      sub: l?.profileRedditSub ??
-                          'Join r/OpenStrap — post your achievements, '
-                              'questions, anything',
-                      onTap: () => open3rdPartyLink(kRedditUrl)),
-                  SetRow.brand(brandGlyph('assets/icons/discord.svg'),
-                      C.indigo, l?.profileDiscordTitle ?? 'Discord',
-                      sub: l?.profileDiscordSub ??
-                          'Hang out with other users and the people '
-                              'building this',
-                      onTap: () => open3rdPartyLink(kDiscordUrl)),
-                  SetRow(LucideIcons.heartHandshake, C.pink,
-                      l?.profileSponsorTitle ?? 'Sponsor',
-                      sub: l?.profileSponsorSub ??
-                          'This is a free, open-source project — '
-                              'sponsoring keeps it going',
-                      onTap: () => open3rdPartyLink(kSponsorUrl)),
                 ]),
               ],
             ),

@@ -250,7 +250,7 @@ class _IconRow extends StatelessWidget {
           alignment: Alignment.center,
           decoration:
               BoxDecoration(color: p.wash(C.indigo), borderRadius: R.rSm),
-          child: Icon(LucideIcons.image, size: 16, color: p.on(C.indigo)),
+          child: Icon(LucideIcons.image, size: I.sm, color: p.on(C.indigo)),
         ),
         const SizedBox(width: S.x3),
         Expanded(
@@ -299,7 +299,7 @@ class _IconChoice extends StatelessWidget {
           '${l?.settingsIconChoiceLabel(choice.label) ?? '${choice.label} icon.'}'
           '${selected ? (l?.settingsSelectedSuffix ?? ' Selected.') : ''}',
       child: Container(
-        padding: const EdgeInsets.all(S.x1 / 2),
+        padding: const EdgeInsets.all(S.half),
         decoration: BoxDecoration(
           borderRadius: R.rMd,
           border: Border.all(
@@ -389,10 +389,9 @@ Future<void> _toggleHealthShare(BuildContext c, AppState app) async {
     final l = AppLocalizations.of(c);
     await showDialog<void>(
       context: c,
-      builder: (d) => AlertDialog(
-        title: Text(l?.settingsHealthShareOffTitle ?? 'Contribution off'),
-        content: Text(
-          last == null
+      builder: (d) => AppDialog(
+        title: l?.settingsHealthShareOffTitle ?? 'Contribution off',
+        body: last == null
               ? (l?.settingsHealthShareOffNeverUploaded ??
                   'Nothing was ever uploaded. Nothing will be.')
               // What we KNOW, not what we hope: the revocation is posted
@@ -408,11 +407,8 @@ Future<void> _toggleHealthShare(BuildContext c, AppState app) async {
                       'once and is not retried, so if this phone is offline it '
                       'will not have arrived, and we cannot show you that the copy '
                       'is gone either.'),
-        ),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.of(d).pop(),
-              child: Text(l?.settingsOk ?? 'OK')),
+          BigButton(l?.settingsOk ?? 'OK', onTap: () => Navigator.of(d).pop()),
         ],
       ),
     );
@@ -421,25 +417,18 @@ Future<void> _toggleHealthShare(BuildContext c, AppState app) async {
   final l = AppLocalizations.of(c);
   final ok = await showDialog<bool>(
     context: c,
-    builder: (d) => AlertDialog(
-      title: Text(
-          l?.settingsHealthShareOnTitle ?? 'Contribute your health data?'),
-      content: Text(
-        l?.settingsHealthShareOnBody ??
+    builder: (d) => AppDialog(
+      title: l?.settingsHealthShareOnTitle ?? 'Contribute your health data?',
+      body: l?.settingsHealthShareOnBody ??
             'Once a day, on Wi-Fi and while charging, a compressed copy of your '
                 'ENTIRE database is uploaded — every day of scores and every raw sensor '
                 'row the band has sent. It is used to improve the algorithms.\n\n'
                 'It is not anonymous in any meaningful sense: it is your whole health '
                 'history. You can switch this off at any time, and nothing further '
                 'is sent from that moment.',
-      ),
       actions: [
-        TextButton(
-            onPressed: () => Navigator.of(d).pop(false),
-            child: Text(l?.settingsNo ?? 'No')),
-        TextButton(
-            onPressed: () => Navigator.of(d).pop(true),
-            child: Text(l?.settingsContribute ?? 'Contribute')),
+        BigButton(l?.settingsNo ?? 'No', soft: true, onTap: () => Navigator.of(d).pop(false)),
+        BigButton(l?.settingsContribute ?? 'Contribute', onTap: () => Navigator.of(d).pop(true)),
       ],
     ),
   );
@@ -450,16 +439,15 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
   final l = AppLocalizations.of(c);
   final ok = await showDialog<bool>(
     context: c,
-    builder: (d) => AlertDialog(
-      title: Text(l?.settingsResetTitle ?? 'Delete everything?'),
+    builder: (d) => AppDialog(
+      title: l?.settingsResetTitle ?? 'Delete everything?',
       // Enumerated, because the previous wording ("every measured day, session
       // and profile field") was false in about twenty places: it deleted the
       // derived days and left the labs, the meals, the doses, the breathing
       // sessions, the logged sets, the baselines, the consent flags, the
       // install id, the stored API key and the home-screen widget standing.
       // It now removes all of that, so it can say so.
-      content: Text(
-        withIosUninstallWarning(c, l?.settingsResetBody ??
+      body: withIosUninstallWarning(c, l?.settingsResetBody ??
             'This permanently deletes this app\'s data on this device:\n\n'
                 '· every measured day, sleep, workout and route\n'
                 '· every lab result, meal, medication dose, habit, breathing session '
@@ -471,14 +459,9 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
                 'may remain. Delete those separately.\n\n'
                 'The band is unpaired, and it cannot re-send history it has already '
                 'handed over. Export from Your data first if you want a copy.'),
-      ),
       actions: [
-        TextButton(
-            onPressed: () => Navigator.of(d).pop(false),
-            child: Text(l?.settingsResetKeepData ?? 'Keep my data')),
-        TextButton(
-            onPressed: () => Navigator.of(d).pop(true),
-            child: Text(l?.settingsResetDeleteEverything ?? 'Delete everything')),
+        BigButton(l?.settingsResetKeepData ?? 'Keep my data', soft: true, onTap: () => Navigator.of(d).pop(false)),
+        BigButton(l?.settingsResetDeleteEverything ?? 'Delete everything', onTap: () => Navigator.of(d).pop(true)),
       ],
     ),
   );
@@ -1691,20 +1674,11 @@ class _EditProfileViewState extends State<EditProfileView> {
     final l = AppLocalizations.of(c);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(label, style: F.over.copyWith(color: p.ink3)),
-      TextField(
+      AppField(
         controller: ctl,
         keyboardType: kind,
-        style: F.head.copyWith(color: p.ink),
-        decoration: InputDecoration(
-          hintText: l?.settingsNotSetHint ?? 'Not set',
-          hintStyle: F.head.copyWith(color: p.ink3),
-          isDense: true,
-          contentPadding: const EdgeInsets.symmetric(vertical: S.x3),
-          enabledBorder:
-              UnderlineInputBorder(borderSide: BorderSide(color: p.line)),
-          focusedBorder:
-              UnderlineInputBorder(borderSide: BorderSide(color: p.on(C.green))),
-        ),
+        textStyle: F.head,
+        hint: l?.settingsNotSetHint ?? 'Not set',
       ),
     ]);
   }

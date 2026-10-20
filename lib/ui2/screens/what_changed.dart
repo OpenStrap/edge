@@ -254,10 +254,10 @@ class SweepFindingRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 2),
+            padding: const EdgeInsets.only(top: S.half),
             child: Icon(
               f.high ? LucideIcons.arrowUp : LucideIcons.arrowDown,
-              size: 17,
+              size: I.sm,
               // Direction, in plain ink. A red arrow would be this screen
               // deciding that up is bad, which it cannot know for strain,
               // steps or time asleep.

@@ -232,7 +232,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       onTap: _logFood,
       child: Icon(
         LucideIcons.circlePlus,
-        size: 22,
+        size: I.md,
         color: P.of(c).on(C.domFood),
       ),
     );
@@ -279,6 +279,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             l?.nutritionEmptyTodayBody ?? 'One tap is a complete log.',
             fix: l?.nutritionLogOccasionFix ?? 'Log an eating occasion',
             icon: LucideIcons.utensils,
+            art: Art.food,
             onFix: _logFood,
           )
         else
@@ -530,14 +531,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       for (final g in specs)
         g.$1: TextEditingController(text: _target(g.$1)?.round().toString() ?? ''),
     };
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      sheetAnimationStyle: sheetMotion(context),
-      backgroundColor: P.of(context).card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
-      ),
+    final saved = await AppSheet.open<bool>(context,
       builder: (s) {
         final l = AppLocalizations.of(s);
         return Padding(
@@ -569,6 +563,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           ),
         );
       },
+      scroll: true,
     );
     // Blank clears the target; a typo does NOT. "2,000" used to clear it and
     // the sheet closed as if it had saved.
@@ -630,7 +625,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
             children: [
               Row(
                 children: [
-                  Icon(LucideIcons.cpu, size: 16, color: p.on(C.purple)),
+                  Icon(LucideIcons.cpu, size: I.sm, color: p.on(C.purple)),
                   const SizedBox(width: S.x2),
                   Expanded(
                     child: Text(
@@ -875,7 +870,7 @@ class MealRow extends StatelessWidget {
               decoration: BoxDecoration(color: p.card2, borderRadius: R.rSm),
               child: Icon(
                 _icons[meal] ?? LucideIcons.utensils,
-                size: 17,
+                size: I.sm,
                 color: p.ink2,
               ),
             ),
@@ -905,7 +900,7 @@ class MealRow extends StatelessWidget {
               entries.isEmpty
                   ? LucideIcons.circlePlus
                   : LucideIcons.circleCheck,
-              size: 20,
+              size: I.md,
               color: entries.isEmpty ? p.ink3 : p.on(C.green),
             ),
           ],
@@ -992,7 +987,7 @@ class _WaterRow extends StatelessWidget {
     final p = P.of(c);
     return Surface(
       child: Row(children: [
-        Icon(LucideIcons.glassWater, size: 18, color: p.on(C.blue)),
+        Icon(LucideIcons.glassWater, size: I.md, color: p.on(C.blue)),
         const SizedBox(width: S.x3),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1054,7 +1049,7 @@ class _WaterStep extends StatelessWidget {
           color: on ? p.wash(C.blue) : p.card2,
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, size: 18, color: on ? p.on(C.blue) : p.ink3),
+        child: Icon(icon, size: I.md, color: on ? p.on(C.blue) : p.ink3),
       ),
     );
   }

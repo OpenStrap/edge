@@ -271,13 +271,8 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
   /// screen to the conservative reading rather than trapping her in a state she
   /// tapped once.
   Future<void> _pickRepro() async {
-    final p = P.of(context);
     final l = AppLocalizations.of(context);
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      sheetAnimationStyle: sheetMotion(context),
-      backgroundColor: p.card,
-      shape: const RoundedRectangleBorder(borderRadius: R.rXl),
+    final picked = await AppSheet.open<String>(context,
       builder: (c) => SafeArea(
         child: ListView(
           shrinkWrap: true,
@@ -650,7 +645,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
               ),
               Icon(
                 _showShape ? LucideIcons.chevronUp : LucideIcons.chevronDown,
-                size: 18,
+                size: I.md,
                 color: p.ink3,
               ),
             ],
@@ -763,7 +758,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
                         ) ??
                         'Remove ${recent[i]['date']}',
                     onTap: () => _deleteLog(recent[i]['date'] as String),
-                    child: Icon(LucideIcons.x, size: 18, color: p.ink3),
+                    child: Icon(LucideIcons.x, size: I.md, color: p.ink3),
                   ),
                 ],
               ),

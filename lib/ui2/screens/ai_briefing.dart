@@ -242,7 +242,7 @@ class SentPayload extends StatelessWidget {
                   none || local
                       ? LucideIcons.house
                       : LucideIcons.cloudUpload,
-                  size: 17,
+                  size: I.sm,
                   color: p.on(none || local ? C.green : C.orange),
                 ),
                 const SizedBox(width: S.x3),

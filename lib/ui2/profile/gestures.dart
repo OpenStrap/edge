@@ -159,7 +159,7 @@ class _ActionRow extends StatelessWidget {
           ),
           const SizedBox(width: S.x2),
           Icon(selected ? LucideIcons.check : LucideIcons.circle,
-              size: 17, color: selected ? p.on(C.indigo) : p.line),
+              size: I.sm, color: selected ? p.on(C.indigo) : p.line),
         ]),
       ),
     );

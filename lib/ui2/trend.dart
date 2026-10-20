@@ -197,7 +197,7 @@ class ReadingVerdict extends StatelessWidget {
             side == Side.above
                 ? LucideIcons.arrowUpRight
                 : LucideIcons.arrowDownRight,
-            size: 14,
+            size: I.sm,
             color: ink,
           ),
         Text(

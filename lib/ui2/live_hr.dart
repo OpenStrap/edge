@@ -115,7 +115,7 @@ class LiveHrCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Icon(LucideIcons.heart, size: 26, color: p.on(C.red)),
+              Icon(LucideIcons.heart, size: I.lg, color: p.on(C.red)),
               const SizedBox(width: S.x3),
               Expanded(
                 child: FittedBox(
@@ -153,12 +153,12 @@ class LiveHrCard extends StatelessWidget {
                       semanticLabel:
                           l?.liveHrShowingDeviceSemantics(label) ??
                           'Showing $label. Tap to switch device.',
-                      child: Pill(label, C.red, icon: LucideIcons.radio),
+                      child: Pill(label, C.coral, icon: LucideIcons.radio),
                     );
                   },
                 )
               else
-                Pill(l?.devicesLive ?? 'LIVE', C.red, icon: LucideIcons.radio),
+                Pill(l?.devicesLive ?? 'LIVE', C.coral, icon: LucideIcons.radio),
             ],
           ),
         if (trace.length > 2) ...[
@@ -168,7 +168,7 @@ class LiveHrCard extends StatelessWidget {
             child: CustomPaint(
               painter: LineChart(
                 [for (final v in trace) v.toDouble()],
-                C.red,
+                p.on(C.coral),
                 fill: false,
               ),
               size: Size.infinite,

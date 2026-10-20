@@ -351,7 +351,7 @@ class PosterCard extends StatelessWidget {
         // is the one string on the card that may never be truncated, and a
         // face wider than the one this was measured in is not a reason to
         // print 'OpenStr…'.
-        child: Text('OpenStrap',
+        child: Text('Locus',
             style: F.over.copyWith(
                 color: C.white.withValues(alpha: .72),
                 fontWeight: FontWeight.w700),
@@ -375,7 +375,7 @@ class PosterCard extends StatelessWidget {
       ),
         if (r.private) ...[
           const SizedBox(width: S.x2),
-          Icon(LucideIcons.lock, size: 13, color: accent),
+          Icon(LucideIcons.lock, size: I.sm, color: accent),
         ],
       ]);
 
@@ -491,7 +491,7 @@ class PosterCard extends StatelessWidget {
 
   Widget _stamp(BuildContext c, Color accent) => Row(
     children: [
-      Icon(LucideIcons.calendar, size: 11, color: accent),
+      Icon(LucideIcons.calendar, size: I.sm, color: accent),
       const SizedBox(width: S.x2),
       // The longest string on the card relative to its slot — it shrinks to
       // fit rather than pushing itself off the column.
@@ -565,7 +565,7 @@ class PosterStatRow extends StatelessWidget {
           shape: BoxShape.circle,
           border: Border.all(color: accent.withValues(alpha: .55)),
         ),
-        child: Icon(icon, size: 12 * k, color: accent),
+        child: Icon(icon, size: I.sm * k, color: accent),
       ),
         const SizedBox(width: S.x3),
         Expanded(

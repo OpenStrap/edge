@@ -646,7 +646,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   Widget build(BuildContext c) {
     final d = _d ?? const HealthData();
     final l = AppLocalizations.of(c);
-    return ListView(padding: pad, children: [
+    return ListView(padding: pad.copyWith(bottom: S.navClear(c)), children: [
       ScreenTitle(l?.healthTitle ?? 'Health',
           trailing: const ProfileAvatar(accent: C.domHealth)),
       SubTabs(_tabsOf(l), _tab, _select, color: C.blue),
@@ -717,7 +717,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final sleepMin = d.sleepMin;
 
     final rhr = d.daily('resting_hr');
-    row(rhr, LucideIcons.heart, C.red, l?.healthRowRestingHr ?? 'Resting heart rate',
+    row(rhr, LucideIcons.heart, C.domHealth, l?.healthRowRestingHr ?? 'Resting heart rate',
         ofNight(l?.healthSubOvernight ?? 'Overnight'),
         rhr.value == null ? '' : '${rhr.value!.round()}', 'bpm',
         d.spark('resting_hr', 24), 'resting_hr',
@@ -750,7 +750,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     row(
       sleepMin,
       LucideIcons.moon,
-      C.blue,
+      C.domSleep,
       l?.healthRowSleep ?? 'Sleep',
       night == null
           ? (l?.healthSubLastNight ?? 'Last night')
@@ -887,7 +887,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
           pad: const EdgeInsets.symmetric(horizontal: S.x4),
           child: Column(children: [
             for (var i = 0; i < rows.length; i++) ...[
-              if (i > 0) Divider(color: p.line, height: 1),
+              if (i > 0) Divider(color: p.line, height: 1, indent: S.x8),
               rows[i],
             ],
           ]),
@@ -1151,7 +1151,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     // list in the app already puts it.
     final rows = <Widget>[
       if (lo != null && hi != null)
-        MetricRow(LucideIcons.heart, C.red, l?.healthRowHeartRate ?? 'Heart rate',
+        MetricRow(LucideIcons.heart, C.domHealth, l?.healthRowHeartRate ?? 'Heart rate',
             '${lo.round()} – ${hi.round()}',
             sub: dayWord, unit: 'bpm'),
       if (resp != null)
@@ -1214,7 +1214,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
           pad: const EdgeInsets.symmetric(horizontal: S.x4),
           child: Column(children: [
             for (var i = 0; i < rows.length; i++) ...[
-              if (i > 0) Divider(color: p.line, height: 1),
+              if (i > 0) Divider(color: p.line, height: 1, indent: S.x8),
               rows[i],
             ],
           ]),
@@ -1574,7 +1574,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
           // This is the user's own blood work in an app that keeps it on their
           // phone; being able to take it back out is the premise, not a setting.
           const SizedBox(width: S.x2),
-          Icon(LucideIcons.trash2, size: 16, color: p.ink3),
+          Icon(LucideIcons.trash2, size: I.sm, color: p.ink3),
         ]),
       ),
     );
@@ -1663,7 +1663,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                         ]),
                   ),
                   const SizedBox(width: S.x2),
-                  Icon(LucideIcons.trash2, size: 16, color: p.ink3),
+                  Icon(LucideIcons.trash2, size: I.sm, color: p.ink3),
                 ]),
               ),
             ),
@@ -1724,8 +1724,8 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final ok = await showDialog<bool>(
       context: c,
       builder: (dc) => StatefulBuilder(
-        builder: (dc, setLocal) => AlertDialog(
-          title: Text(loc?.healthAddAResult ?? 'Add a result'),
+        builder: (dc, setLocal) => AppDialog(
+          title: loc?.healthAddAResult ?? 'Add a result',
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1747,29 +1747,22 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                     onChanged: (m) => setLocal(() => marker = m ?? marker),
                   ),
                 ),
-              TextFormField(
+              AppField(
                 onChanged: (s) => valueText = s,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                    labelText: loc?.healthValueUnit(marker.unit) ??
-                        'Value (${marker.unit})'),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                label: loc?.healthValueUnit(marker.unit) ??
+                        'Value (${marker.unit})',
               ),
-              TextFormField(
+              AppField(
                 initialValue: takenOnText,
                 onChanged: (s) => takenOnText = s,
-                decoration: InputDecoration(
-                    labelText: loc?.healthDateDrawn ?? 'Date drawn (YYYY-MM-DD)'),
+                label: loc?.healthDateDrawn ?? 'Date drawn (YYYY-MM-DD)',
               ),
             ]),
           ),
           actions: [
-            TextButton(
-                onPressed: () => Navigator.of(dc).pop(false),
-                child: Text(loc?.actionCancel ?? 'Cancel')),
-            TextButton(
-                onPressed: () => Navigator.of(dc).pop(true),
-                child: Text(loc?.actionSave ?? 'Save')),
+            BigButton(loc?.actionCancel ?? 'Cancel', soft: true, onTap: () => Navigator.of(dc).pop(false)),
+            BigButton(loc?.actionSave ?? 'Save', onTap: () => Navigator.of(dc).pop(true)),
           ],
         ),
       ),

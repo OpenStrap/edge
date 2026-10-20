@@ -177,11 +177,14 @@ void main() {
       };
       await _pump(t,
           SleepData(day: '2026-05-20', night: n, tstHistory: _flat(20, 420)));
-      // Three times: the Deep lane, the Stages row and the Deep comparison,
-      // all the count.
-      expect(find.text('1h 20m'), findsNWidgets(3));
-      // Beside the Light lane and in the Stages row.
-      expect(find.text('4h 10m'), findsNWidgets(2));
+      // Two times: the Stages row and the Deep comparison, both the count.
+      // Before Volt a third sat beside the Deep lane; the card's 20 pt
+      // padding (§5.1) leaves the plot under its minimum share at 390 pt, so
+      // the hypnogram drops its totals column — by its own documented rule —
+      // and the Stages table carries the figure.
+      expect(find.text('1h 20m'), findsNWidgets(2));
+      // In the Stages row (and beside the Light lane, when it fits).
+      expect(find.text('4h 10m'), findsNWidgets(1));
       expect(find.textContaining('Each stage is a range'), findsNothing);
     });
 
@@ -486,7 +489,7 @@ void main() {
           ],
         };
 
-    testWidgets('a switcher offers OpenStrap and each device; picking one '
+    testWidgets('a switcher offers Locus and each device; picking one '
         'says whose staging it is and what it cannot report', (t) async {
       await _pump(
         t,
@@ -501,7 +504,7 @@ void main() {
           ],
         ),
       );
-      expect(find.text('OpenStrap'), findsOneWidget);
+      expect(find.text('Locus'), findsOneWidget);
       expect(find.text('Mi Band'), findsOneWidget);
       expect(find.text('Colmi ring'), findsOneWidget);
       expect(find.textContaining('Staged by'), findsNothing,
@@ -521,16 +524,16 @@ void main() {
       expect(find.text('Staged by Colmi ring'), findsOneWidget);
       expect(find.textContaining('does not report'), findsNothing);
 
-      await t.ensureVisible(find.text('OpenStrap'));
+      await t.ensureVisible(find.text('Locus'));
       await t.pumpAndSettle();
-      await t.tap(find.text('OpenStrap'));
+      await t.tap(find.text('Locus'));
       await t.pumpAndSettle();
       expect(find.textContaining('Staged by'), findsNothing);
     });
 
     testWidgets('no device night means no switcher', (t) async {
       await _pump(t, SleepData(day: '2026-05-20', night: _night()));
-      expect(find.text('OpenStrap'), findsNothing);
+      expect(find.text('Locus'), findsNothing);
     });
   });
 
@@ -555,7 +558,7 @@ void main() {
       (t) async {
     await _pump(t, const SleepData(day: '2026-05-20'));
     expect(find.text('No night to show'), findsOneWidget);
-    final b = find.widgetWithText(TextButton, 'I was asleep');
+    final b = find.widgetWithText(TextAction, 'I was asleep');
     expect(b, findsOneWidget);
     expect(t.getSize(b).height, greaterThanOrEqualTo(44));
     await t.tap(b);

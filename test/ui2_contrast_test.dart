@@ -69,17 +69,76 @@ void main() {
     });
   });
 
-  group('P.fill() makes any accent safe under inkOnFill', () {
+  group('P.fill() makes any accent safe under inkOn()', () {
+    // Volt's fill model (DESIGN_OVERHAUL §4.4): a fill stays pure pigment
+    // when dark ink clears it, and inkOn picks the ink. The old model darkened
+    // every fill for WHITE text, which turns volt into olive.
     themes.forEach((name, p) {
       for (final accent in C.all) {
         final hex = accent.toARGB32().toRadixString(16).padLeft(8, '0');
-        test('$name · inkOnFill on fill(#$hex)', () {
-          final r = P.contrast(p.inkOnFill, p.fill(accent));
+        test('$name · inkOn(fill(#$hex)) on fill(#$hex)', () {
+          final fill = p.fill(accent);
+          final r = P.contrast(p.inkOn(fill), fill);
           expect(r, greaterThanOrEqualTo(_aa),
               reason: 'a button label measures ${r.toStringAsFixed(2)}:1 on '
                   'its own fill in the $name theme.');
         });
       }
+    });
+
+    test('volt stays volt, and takes dark ink — never white', () {
+      for (final p in themes.values) {
+        expect(p.fill(C.volt), C.volt);
+        expect(p.inkOn(p.fill(C.volt)), C.char);
+        expect(P.contrast(C.white, C.volt), lessThan(_aa),
+            reason: 'white on volt is 1.37:1 — the reason inkOn exists');
+      }
+    });
+
+    test('a pigment too dark for dark ink still gets a legible fill', () {
+      // slate: dark ink fails on it, so it is solved for white instead.
+      for (final p in themes.values) {
+        final fill = p.fill(C.slate);
+        expect(p.inkOn(fill), C.white);
+        expect(P.contrast(C.white, fill), greaterThanOrEqualTo(_aa));
+      }
+    });
+  });
+
+  group('text on the Volt surfaces that are not cards', () {
+    themes.forEach((name, p) {
+      // AuroraTile: its text is measured against the BRIGHTEST point of the
+      // gradient, blended over the card (§5.2).
+      for (final hue in C.all) {
+        final hex = hue.toARGB32().toRadixString(16).padLeft(8, '0');
+        test('$name · ink on aurora(#$hex) peak', () {
+          final r = P.contrast(p.ink, p.aurora(hue));
+          expect(r, greaterThanOrEqualTo(_aa),
+              reason: 'aurora tile text measures ${r.toStringAsFixed(2)}:1 '
+                  'on its brightest point in the $name theme.');
+        });
+      }
+
+      // Glass: the solid fallback colour, over the page and over the worst
+      // backdrop art can put under it — white in dark, black in light.
+      test('$name · ink on glass over bg and over the worst backdrop', () {
+        final worst = p.dark ? C.white : const Color(0xFF000000);
+        for (final under in {'bg': p.bg, 'art': worst}.entries) {
+          final surface = Color.alphaBlend(p.glass, under.value);
+          final r = P.contrast(p.ink, surface);
+          expect(r, greaterThanOrEqualTo(_aa),
+              reason: 'glass text measures ${r.toStringAsFixed(2)}:1 over '
+                  '${under.key} in the $name theme.');
+        }
+      });
+
+      test('$name · inverse chrome', () {
+        expect(P.contrast(p.onInverse, p.inverse), greaterThanOrEqualTo(_aa));
+      });
+    });
+
+    test('ScallopBadge: char ink on the cream disc, in both themes', () {
+      expect(P.contrast(C.char, C.cream), greaterThanOrEqualTo(_aa));
     });
   });
 

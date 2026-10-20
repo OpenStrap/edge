@@ -58,15 +58,9 @@ class LogFoodSheet extends StatefulWidget {
     String? date,
     String meal = 'snack',
     FoodEntry? entry,
-  }) => showModalBottomSheet<bool>(
-    context: c,
-    isScrollControlled: true,
-    sheetAnimationStyle: sheetMotion(c),
-    backgroundColor: P.of(c).card,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
-    ),
+  }) => AppSheet.open<bool>(c,
     builder: (_) => LogFoodSheet(date: date, meal: meal, entry: entry),
+    scroll: true,
   );
 
   @override
@@ -458,7 +452,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                 Pressable(
                   semanticLabel: l?.logFoodClose ?? 'Close',
                   onTap: () => Navigator.of(c).pop(),
-                  child: Icon(LucideIcons.x, size: 20, color: p.ink3),
+                  child: Icon(LucideIcons.x, size: I.md, color: p.ink3),
                 ),
               ],
             ),
@@ -480,7 +474,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                           child: Text(
                             _mealLabel(c, m),
                             style: F.cap.copyWith(
-                              color: m == _meal ? p.inkOnFill : p.ink2,
+                              color: m == _meal ? p.inkOn(p.fill(C.domFood)) : p.ink2,
                             ),
                           ),
                         ),
@@ -579,7 +573,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                 children: [
                   Icon(
                     _detail ? LucideIcons.chevronDown : LucideIcons.chevronRight,
-                    size: 18,
+                    size: I.md,
                     color: p.ink3,
                   ),
                   const SizedBox(width: S.x2),
@@ -781,14 +775,8 @@ String _productLabel(OffProduct p) {
 /// Asked once, then remembered; revocable from Settings › Privacy. It states
 /// what leaves the phone — the barcode, and nothing else — because this app's
 /// whole claim is that nothing does unless you said so.
-Future<bool?> _askLookupConsent(BuildContext c) => showModalBottomSheet<bool>(
-      context: c,
-      sheetAnimationStyle: sheetMotion(c),
-      backgroundColor: P.of(c).card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
-      ),
-      builder: (s) {
+Future<bool?> _askLookupConsent(BuildContext c) => AppSheet.open<bool>(c,
+  builder: (s) {
         final p = P.of(s);
         final l = AppLocalizations.of(s);
         return SafeArea(
@@ -839,7 +827,7 @@ Future<bool?> _askLookupConsent(BuildContext c) => showModalBottomSheet<bool>(
           ),
         );
       },
-    );
+);
 
 /// The ODbL credit, wherever Open Food Facts numbers are shown. Both links
 /// are the licence's, not decoration — the notice names the source and the
@@ -939,7 +927,7 @@ class FoodRow extends StatelessWidget {
               width: 34,
               height: 34,
               decoration: BoxDecoration(color: p.card2, borderRadius: R.rSm),
-              child: Icon(LucideIcons.utensils, size: 16, color: p.ink3),
+              child: Icon(LucideIcons.utensils, size: I.sm, color: p.ink3),
             ),
             const SizedBox(width: S.x3),
             Expanded(
@@ -962,7 +950,7 @@ class FoodRow extends StatelessWidget {
             if (!stacked) ...[const SizedBox(width: S.x2), badge],
             if (trailing != null) ...[
               const SizedBox(width: S.x2),
-              Icon(trailing, size: 20, color: p.on(C.domFood)),
+              Icon(trailing, size: I.md, color: p.on(C.domFood)),
             ],
           ],
         ),

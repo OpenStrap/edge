@@ -6,7 +6,7 @@ import 'package:openstrap_edge/ui2/theme.dart';
 /// This card was built blind and shipped three defects a rendered check would
 /// have caught immediately: a negative `Container.margin` (Flutter asserts
 /// `margin.isNonNegative`, so it threw on every build and painted a
-/// 358x100000 overflow stripe), the mascot stacked UNDER the copy at 176 px
+/// 358x100000 overflow stripe), the art stacked UNDER the copy at 176 px
 /// inside a 190 px card with no clip, and `'\$count activities'` with the
 /// dollar escaped, which printed the literal text to the user.
 ///
@@ -37,9 +37,8 @@ void main() {
                 label: 'START A SESSION',
                 count: 71,
                 noun: 'activities',
-                asset: 'mascot_workout.png',
-                accent: C.purple,
-                deep: C.indigo,
+                art: Art.bandHero,
+                accent: C.domMove,
               ),
             ),
           );
@@ -70,9 +69,9 @@ void main() {
     expect(w, 390);
   });
 
-  testWidgets('the copy is not squeezed by the mascot', (t) async {
+  testWidgets('the copy is not squeezed by the art', (t) async {
     await pump(t);
-    // The defect this pins is "71 activit…" — the mascot taking so much width
+    // The defect this pins is "71 activit…" — the art taking so much width
     // that the headline ellipsised. Finding the exact string is the check;
     // an ellipsised RenderParagraph would not match it.
     expect(find.text('71 activities'), findsOneWidget);
@@ -96,10 +95,9 @@ void main() {
           label: 'START A SITTING',
           count: 3,
           noun: 'exercises',
-          asset: 'mascot_wellness.png',
+          art: Art.bandTop,
           accent: C.domMind,
-          deep: C.teal,
-          mascotHeight: 118,
+
         ),
       ),
     ));

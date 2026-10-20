@@ -507,9 +507,7 @@ Future<void> showWearableDetail(
   required Map<String, Object?> cell,
   required String device,
 }) =>
-    showModalBottomSheet<void>(
-      context: c,
-      backgroundColor: P.of(c).card,
+    AppSheet.open<void>(c,
       builder: (c) => WearableDetail(row: row, cell: cell, device: device),
     );
 
@@ -884,7 +882,7 @@ class _DeviceUseSwitchState extends State<DeviceUseSwitch> {
                   ? const SizedBox.square(
                       dimension: 24,
                       child: CircularProgressIndicator(strokeWidth: 2))
-                  : Switch(value: on, onChanged: _set),
+                  : AppSwitch(on, _set),
             ]),
           ),
           if (wearable) ...[
@@ -902,16 +900,9 @@ class _DeviceUseSwitchState extends State<DeviceUseSwitch> {
 /// (the wearable scoring now, if any) stops, and that it can be undone.
 Future<bool> _confirmUse(BuildContext c, String device, String? other) async {
   final l = _l(c);
-  final ok = await showModalBottomSheet<bool>(
-    context: c,
-    sheetAnimationStyle: sheetMotion(c),
-    // Scrolls rather than overflows: three paragraphs at a large text size
-    // outgrow the default half-height sheet.
-    isScrollControlled: true,
-    backgroundColor: P.of(c).card,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
-    ),
+  // Scrolls rather than overflows: three paragraphs at a large text size
+  // outgrow the default half-height sheet.
+  final ok = await AppSheet.open<bool>(c,
     builder: (s) {
       final p = P.of(s);
       final body = F.cap.copyWith(color: p.ink2, height: 1.5);
@@ -943,6 +934,7 @@ Future<bool> _confirmUse(BuildContext c, String device, String? other) async {
         ),
       );
     },
+    scroll: true,
   );
   return ok == true;
 }

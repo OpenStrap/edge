@@ -142,7 +142,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
                       height: 84,
                       decoration: BoxDecoration(
                           color: p.wash(a.color), shape: BoxShape.circle),
-                      child: Icon(a.icon, size: 38, color: p.on(a.color)),
+                      child: Icon(a.icon, size: I.xl, color: p.on(a.color)),
                     ),
                         const SizedBox(height: S.x4),
                         Text(
@@ -305,7 +305,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
   Widget _row(P p, IconData i, String n, String s, bool? on) => Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x3),
         child: Row(children: [
-          Icon(i, size: 17, color: p.ink2),
+          Icon(i, size: I.sm, color: p.ink2),
           const SizedBox(width: S.x3),
           Expanded(
             child: Column(
@@ -317,7 +317,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
           ),
           if (on != null)
             Icon(on ? LucideIcons.circleCheck : LucideIcons.circleSlash,
-                size: 20, color: on ? p.on(C.green) : p.line),
+                size: I.md, color: on ? p.on(C.green) : p.line),
         ]),
       );
 
@@ -350,7 +350,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: S.x3),
           child: Row(children: [
-            Icon(i, size: 17, color: p.ink2),
+            Icon(i, size: I.sm, color: p.ink2),
             const SizedBox(width: S.x3),
             Expanded(
               child: Column(
@@ -364,7 +364,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
               duration: motion(context, Motion.base),
               width: 44,
               height: 26,
-              padding: const EdgeInsets.all(3),
+              padding: const EdgeInsets.all(S.half),
               decoration: BoxDecoration(
                   color: on ? p.fill(C.green) : p.track,
                   borderRadius: R.rPill),
@@ -376,7 +376,7 @@ class _ActivitySetupState extends State<ActivitySetup> {
                   width: 20,
                   height: 20,
                   decoration: BoxDecoration(
-                      color: p.inkOnFill, shape: BoxShape.circle),
+                      color: on ? p.inkOn(p.fill(C.green)) : p.ink3, shape: BoxShape.circle),
                 ),
               ),
             ),

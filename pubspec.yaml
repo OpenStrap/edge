@@ -28,9 +28,9 @@ dependencies:
   # glyph the design names.
   lucide_icons_flutter: ^3.1.15
 
-  # Renders the three community brand marks (assets/icons/) as tinted SVG —
-  # GitHub/Discord/Reddit have their own logos, not a Lucide glyph standing
-  # in for them. Nowhere else: every other icon in the app is still Lucide.
+  # No consumer since the community brand marks went (assets/icons/ is
+  # deleted); kept so pubspec.lock does not churn. Drop it with the next
+  # `flutter pub get` you are happy to commit.
   flutter_svg: ^2.0.10+1
 
   # Local pure-Dart packages — the protocol byte codecs and the metric/analytics
@@ -584,8 +584,8 @@ dependencies:
   latlong2: ^0.9.1
   geolocator: ^13.0.2
 
-  # Type: Manrope + Barlow Condensed are BUNDLED under assets/fonts/ (declared
-  # in flutter.fonts below), not pulled at runtime — see the note there.
+  # Type: Outfit + Manrope are BUNDLED under assets/fonts/ (declared in
+  # flutter.fonts below), not pulled at runtime — see the note there.
 
   # Declarative motion (flutter_animate) and the five-pack icon mix that
   # backed lib/ui/kit/os_icons.dart went with lib/ui. lib/ui2 has one icon
@@ -717,7 +717,7 @@ flutter_launcher_icons:
   remove_alpha_ios: true
   # The icon's own plate, so the ring the mask leaves around the artwork is the
   # same colour as the artwork's edge rather than the old cream.
-  adaptive_icon_background: "#020D1C"
+  adaptive_icon_background: "#21351A"
   adaptive_icon_foreground: "assets/launcher/icon_adaptive.png"
 
 flutter:
@@ -727,11 +727,6 @@ flutter:
     - assets/images/
     - assets/images/2.0x/
     - assets/images/3.0x/
-    # The three community brand marks the one-icon-family rule (see
-    # lucide_icons_flutter below) deliberately doesn't cover — a generic
-    # Lucide glyph can't stand in for GitHub/Discord/Reddit's own logos.
-    # Official simple-icons SVGs, single fill path, tinted at paint time.
-    - assets/icons/
   # Both families are bundled, not fetched. google_fonts resolves a missing
   # family over HTTP to fonts.gstatic.com on first launch — before the user
   # has seen the consent screen, and contrary to PRIVACY.md. It also lets the
@@ -739,12 +734,21 @@ flutter:
   # SIL Open Font License (OFL.txt alongside the .ttf files, from
   # https://github.com/google/fonts).
   fonts:
-    - family: Barlow Condensed
+    # The Volt type family (docs/design/DESIGN_OVERHAUL.md §4.5). SIL OFL,
+    # licence in assets/fonts/Outfit/OFL.txt. 700 is bundled because seven
+    # call sites still ask for it; without the file Flutter would fake it.
+    - family: Outfit
       fonts:
-        - asset: assets/fonts/BarlowCondensed/BarlowCondensed-Bold.ttf
+        - asset: assets/fonts/Outfit/Outfit-400.ttf
+          weight: 400
+        - asset: assets/fonts/Outfit/Outfit-500.ttf
+          weight: 500
+        - asset: assets/fonts/Outfit/Outfit-600.ttf
+          weight: 600
+        - asset: assets/fonts/Outfit/Outfit-700.ttf
           weight: 700
-        - asset: assets/fonts/BarlowCondensed/BarlowCondensed-ExtraBold.ttf
-          weight: 800
+    # Outfit has no Cyrillic: Russian falls through to Manrope (F's
+    # fontFamilyFallback, lib/ui2/theme.dart), so it stays bundled.
     - family: Manrope
       fonts:
         - asset: assets/fonts/Manrope/Manrope-400.ttf

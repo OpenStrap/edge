@@ -303,7 +303,7 @@ void main() {
       await t.tap(find.text('Add a result'));
       await t.pumpAndSettle();
       final fields = find.descendant(
-          of: find.byType(AlertDialog), matching: find.byType(TextField));
+          of: find.byType(AppDialog), matching: find.byType(TextField));
       await t.enterText(fields.at(0), '42');
       await t.enterText(fields.at(1), bad);
       await t.tap(find.text('Save'));
@@ -327,7 +327,7 @@ void main() {
       await t.tap(find.text('Add a result'));
       await t.pumpAndSettle();
       final fields = find.descendant(
-          of: find.byType(AlertDialog), matching: find.byType(TextField));
+          of: find.byType(AppDialog), matching: find.byType(TextField));
       await t.enterText(fields.at(0), '42');
       await t.enterText(fields.at(1), bad);
       await t.tap(find.text('Save'));

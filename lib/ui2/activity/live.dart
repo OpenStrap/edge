@@ -560,9 +560,15 @@ class LiveShellState extends State<LiveShell> {
 
   @override
   Widget build(BuildContext c) {
-    final p = P.of(c);
     final l = AppLocalizations.of(c);
     final a = widget.a;
+    // Char in both themes (§6): a workout is watched from arm's length, often
+    // outdoors, and this is the one full-bleed dark screen light mode allows.
+    // Everything below reads its palette inside the override.
+    return AlwaysChar(child: Builder(builder: (c) => _shell(c, P.of(c), l, a)));
+  }
+
+  Widget _shell(BuildContext c, P p, AppLocalizations? l, Activity a) {
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -574,11 +580,10 @@ class LiveShellState extends State<LiveShell> {
               // route, so leaving the screen — by this chevron, by Android
               // back, or by an iOS edge-swipe — puts it away rather than
               // destroying it. The bar above the tab bar brings it back.
-              Pressable(
-                semanticLabel: l?.activityLiveMinimiseLabel ?? 'Minimise',
-                onTap: () => Navigator.maybePop(c),
-                child:
-                    Icon(LucideIcons.chevronDown, size: 24, color: p.ink3),
+              RoundIconButton(
+                LucideIcons.chevronDown,
+                () => Navigator.maybePop(c),
+                l?.activityLiveMinimiseLabel ?? 'Minimise',
               ),
                   Expanded(
                     child: Column(
@@ -596,10 +601,13 @@ class LiveShellState extends State<LiveShell> {
                         overflow: TextOverflow.ellipsis),
                 ]),
               ),
-              if (widget.private)
-                Icon(LucideIcons.lock, size: 18, color: p.ink3)
-              else
-                const SizedBox(width: S.x5),
+              // Balances the minimise button, so the title stays centred.
+              SizedBox(
+                width: S.x12,
+                child: widget.private
+                    ? Icon(LucideIcons.lock, size: I.md, color: p.ink3)
+                    : null,
+              ),
             ]),
           ),
           Expanded(
@@ -635,8 +643,9 @@ class LiveShellState extends State<LiveShell> {
               // A control with no callback is announced as content and does
               // nothing when activated. Locking the screen is not implemented,
               // so the affordance is not drawn.
-              const SizedBox(width: 54),
+              const SizedBox(width: S.x12 + S.x2),
               const SizedBox(width: S.x4),
+              // The screen's one volt control (§6): pause / resume.
               Expanded(
                 child: Pressable(
                   semanticLabel: paused
@@ -647,14 +656,14 @@ class LiveShellState extends State<LiveShell> {
                     LiveDraft.current?.setPaused(paused);
                   }),
                   child: Container(
-                    height: 60,
+                    height: S.x12 + S.x2,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                        color: p.fill(a.color), borderRadius: R.rLg),
+                        color: p.fill(C.volt), borderRadius: R.rPill),
                     child: Icon(
                         paused ? LucideIcons.play : LucideIcons.pause,
-                        size: 25,
-                        color: p.inkOnFill),
+                        size: I.lg,
+                        color: p.inkOn(p.fill(C.volt))),
                   ),
                 ),
               ),
@@ -675,10 +684,10 @@ class LiveShellState extends State<LiveShell> {
         semanticLabel: label,
         onTap: onTap,
         child: Container(
-          width: 54,
-          height: 54,
+          width: S.x12 + S.x2,
+          height: S.x12 + S.x2,
           decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-          child: Icon(i, size: 20, color: fg),
+          child: Icon(i, size: I.md, color: fg),
         ),
       );
 }
@@ -819,20 +828,31 @@ class LiveHeart extends StatelessWidget {
       // at a normal text size and overflowed the live screen by 64 px at an
       // accessibility one. Two lines is the honest answer; a clipped heart
       // rate on a screen the user is exercising in front of is not.
+      //
+      // The heart rate is the screen's hero (§6), at n64 — scaled down inside
+      // the line rather than clipped when an accessibility size makes it wider
+      // than the phone.
       Wrap(
         alignment: WrapAlignment.center,
         crossAxisAlignment: WrapCrossAlignment.center,
         spacing: S.x2,
         runSpacing: S.x1,
         children: [
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(LucideIcons.heart, size: 18, color: p.on(C.red)),
-            const SizedBox(width: S.x2),
-            Text('${feed.hr}', style: F.n24.copyWith(color: p.ink)),
-            const SizedBox(width: S.x1),
-            Text(l?.activityLiveBpmUnit ?? 'bpm',
-                style: F.cap.copyWith(color: p.ink3)),
-          ]),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Icon(LucideIcons.heart, size: I.lg, color: p.on(C.coral)),
+                  const SizedBox(width: S.x2),
+                  Text('${feed.hr}', style: F.n64.copyWith(color: p.ink)),
+                  const SizedBox(width: S.x1),
+                  Text(l?.activityLiveBpmUnit ?? 'bpm',
+                      style: F.body.copyWith(color: p.ink3)),
+                ]),
+          ),
           if (z != null)
             // The zone's OWN colour, the one the bar underneath paints it in. A
             // fixed green said "zone 5" and "zone 1" in the same breath.
@@ -840,6 +860,23 @@ class LiveHeart extends StatelessWidget {
                 ZoneRows.pigment[(z - 1).clamp(0, 4)]),
         ],
       ),
+      // The session so far, minute by minute, in coral: the live line. A
+      // shape under the number, not a chart to read values off — the summary
+      // is where the curve gets its axis. Gaps stay gaps (the painter breaks
+      // at a null), and with fewer than two minutes there is no line.
+      if (feed.hrCurve.whereType<double>().length >= 2) ...[
+        const SizedBox(height: S.x3),
+        ExcludeSemantics(
+          child: SizedBox(
+            height: S.x16,
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: LineChart(feed.hrCurve, p.on(C.coral),
+                  fill: false, dotInk: p.bg),
+            ),
+          ),
+        ),
+      ],
       if (feed.zoneMinutes.length == 5) ...[
         const SizedBox(height: S.x4),
         ZoneRows(feed.zoneMinutes,
@@ -1133,7 +1170,7 @@ class LiveMeasured extends StatelessWidget {
           if (private) ...[
             const SizedBox(height: S.x5),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(LucideIcons.lock, size: 12, color: p.ink3),
+              Icon(LucideIcons.lock, size: I.sm, color: p.ink3),
               const SizedBox(width: S.x1),
               Text(l?.activityLivePrivateSession ?? 'Private session',
                   style: F.over.copyWith(color: p.ink3)),
@@ -1526,7 +1563,7 @@ class _LiveStrengthState extends State<LiveStrength> {
           semanticLabel: l?.activityLivePreviousExercise ?? 'Previous exercise',
           onTap: index == 0 ? null : () => goExercise(index - 1),
           child: Icon(LucideIcons.chevronLeft,
-              size: 20, color: index == 0 ? p.line : p.ink3),
+              size: I.md, color: index == 0 ? p.line : p.ink3),
         ),
         Expanded(
           child: Pressable(
@@ -1549,7 +1586,7 @@ class _LiveStrengthState extends State<LiveStrength> {
                       style: F.t2.copyWith(color: p.ink)),
                 ),
                 const SizedBox(width: S.x2),
-                Icon(LucideIcons.chevronsUpDown, size: 15, color: p.ink3),
+                Icon(LucideIcons.chevronsUpDown, size: I.sm, color: p.ink3),
               ]),
             ]),
           ),
@@ -1559,13 +1596,13 @@ class _LiveStrengthState extends State<LiveStrength> {
           onTap:
               index == plan.length - 1 ? null : () => goExercise(index + 1),
           child: Icon(LucideIcons.chevronRight,
-              size: 20, color: index == plan.length - 1 ? p.line : p.ink3),
+              size: I.md, color: index == plan.length - 1 ? p.line : p.ink3),
         ),
       ]),
       Pressable(
         onTap: addExercise,
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(LucideIcons.plus, size: 15, color: p.on(C.purple)),
+          Icon(LucideIcons.plus, size: I.sm, color: p.on(C.purple)),
           const SizedBox(width: S.x1),
           Text(l?.activityLiveAddExerciseTitle ?? 'Add exercise',
               style: F.cap.copyWith(
@@ -1733,7 +1770,7 @@ class _LiveStrengthState extends State<LiveStrength> {
                       borderRadius: R.rMd),
                   child: Text('$v',
                       style: F.head.copyWith(
-                          color: on ? p.inkOnFill : p.on(cols[i]))),
+                          color: on ? p.inkOn(p.fill(cols[i])) : p.on(cols[i]))),
                 ),
               ),
             );
@@ -1816,7 +1853,7 @@ class _LiveStrengthState extends State<LiveStrength> {
         child: Column(children: [
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             if (gold) ...[
-              Icon(LucideIcons.trophy, size: 12, color: p.on(C.yellow)),
+              Icon(LucideIcons.trophy, size: I.sm, color: p.on(C.yellow)),
               const SizedBox(width: S.x1),
             ],
             Text(label.toUpperCase(),
@@ -1969,9 +2006,9 @@ class _LiveSwimState extends State<LiveSwim> {
                 child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(LucideIcons.plus, size: 30, color: p.inkOnFill),
+                      Icon(LucideIcons.plus, size: I.xl, color: p.inkOn(p.fill(C.blue))),
                       Text(l?.activityLiveLapButtonLabel ?? 'LAP',
-                          style: F.over.copyWith(color: p.inkOnFill)),
+                          style: F.over.copyWith(color: p.inkOn(p.fill(C.blue)))),
                     ]),
               ),
             ),
@@ -2186,7 +2223,7 @@ class _LiveFlowState extends State<LiveFlow>
               ),
               Column(mainAxisSize: MainAxisSize.min, children: [
                 Icon(LucideIcons.personStanding,
-                    size: 46, color: p.on(C.teal)),
+                    size: I.hero, color: p.on(C.teal)),
                 const SizedBox(height: S.x2),
                 Text(_poseLabel(ctx, poses[pose]),
                     style: F.t2.copyWith(color: p.ink)),
@@ -2576,7 +2613,7 @@ class _LiveIntervalState extends State<LiveInterval> {
                 (i) => Expanded(
                       child: Container(
                         margin:
-                            EdgeInsets.only(right: i == pips - 1 ? 0 : 4),
+                            EdgeInsets.only(right: i == pips - 1 ? 0 : S.x1),
                         height: 6,
                         decoration: BoxDecoration(
                             color: i < round ? p.on(C.red) : p.track,

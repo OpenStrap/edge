@@ -4,7 +4,7 @@
 // DB, or Flutter — every type is exhaustively unit-testable and the engine
 // just feeds it observations and reads back decisions.
 //
-// WHOOP 4.0 only (the only family OpenStrap supports). A prior speculative
+// WHOOP 4.0 only (the only family Locus supports). A prior speculative
 // Whoop5EmptyOffloadTracker was removed — unwired, untested dead code with no
 // real WHOOP5 offload path to integrate with. Write its real equivalent
 // alongside actual WHOOP5 support when that's built; it won't be identical

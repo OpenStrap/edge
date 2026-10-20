@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#020D1C</color>
+    <color name="ic_launcher_background">#21351A</color>
     <!-- The window behind the app while the process starts and while Flutter
          draws its first frame. Same value as P.bg, so the handoff from the OS
          to lib/ui2 is a colour that does not change. The night/ copy is the

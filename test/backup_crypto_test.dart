@@ -132,7 +132,7 @@ void main() {
         isA<BackupFormatException>().having(
           (e) => e.message,
           'message',
-          contains('not an OpenStrap backup'),
+          contains('not a Locus backup'),
         ),
       ),
     );

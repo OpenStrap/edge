@@ -415,7 +415,7 @@ class _DriverTile extends StatelessWidget {
         if (onTap != null) ...[
           const SizedBox(width: S.x2),
           Icon(open ? LucideIcons.chevronUp : LucideIcons.chevronDown,
-              size: 16, color: p.ink3),
+              size: I.sm, color: p.ink3),
         ],
       ]),
     );

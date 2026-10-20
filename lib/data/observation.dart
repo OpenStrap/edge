@@ -1,4 +1,4 @@
-// observation.dart — the type for a number OpenStrap did not compute.
+// observation.dart — the type for a number Locus did not compute.
 //
 // Deliberately NOT `Metric`. `Metric` carries `tier`, `confidence` and
 // `inputs_used`, and every one of those is a statement about OUR method: which
@@ -38,7 +38,7 @@ enum ObservationSource {
   imported,
 }
 
-/// One scalar OpenStrap stores but did not derive.
+/// One scalar Locus stores but did not derive.
 ///
 /// Exactly one of [key] and [vendorKey] identifies the row, and at least one
 /// MUST be set — the storage layer's unique index is built on

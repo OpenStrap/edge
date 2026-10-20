@@ -144,7 +144,7 @@ void main() {
   test('our own exported workouts are not imported back', () async {
     const app = 'wtf.openstrap.openstrap_edge';
     PackageInfo.setMockInitialValues(
-      appName: 'OpenStrap',
+      appName: 'Locus',
       packageName: app,
       version: '1.0.0',
       buildNumber: '1',
@@ -157,12 +157,12 @@ void main() {
         'start_ts': 1,
         'end_ts': 2,
         'kind': 'RUNNING',
-        'source': 'OpenStrap',
+        'source': 'Locus',
       },
     ]);
     final importer = HealthWorkoutImporter(
       health: _FakeHealth([
-        _w('ours-ios', sourceId: app, sourceName: 'OpenStrap'),
+        _w('ours-ios', sourceId: app, sourceName: 'Locus'),
         _w('ours-android', sourceId: '', sourceName: app),
         _w('strava'),
       ]),

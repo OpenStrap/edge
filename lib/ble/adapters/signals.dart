@@ -1,4 +1,4 @@
-// What a band physically EMITS. Never what OpenStrap can compute from it.
+// What a band physically EMITS. Never what Locus can compute from it.
 //
 // This is the whole reason the seam is shaped the way it is. A capability
 // boolean (`supportsSpo2()`) names an OUTPUT: metric N+1 widens the interface

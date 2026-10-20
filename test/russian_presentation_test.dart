@@ -23,6 +23,8 @@ import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
+import 'support/fonts.dart';
+
 Widget harness(Widget child, {double scale = 1, String locale = 'ru'}) =>
     MaterialApp(
       locale: Locale(locale),
@@ -42,6 +44,7 @@ void main() {
   final ru = AppLocalizationsRu();
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
+    await loadOutfit();
     final loader = FontLoader('Manrope');
     for (final file in Directory(
       'assets/fonts/Manrope',

@@ -22,15 +22,14 @@ Future<JournalFieldSpec?> showCustomJournalFieldSheet(
   BuildContext context, {
   required Set<String> existingKeys,
 }) {
-  return showModalBottomSheet<JournalFieldSpec>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
+  return AppSheet.open<JournalFieldSpec>(context,
     builder: (ctx) => Padding(
       // The sheet holds a text field; without this it sits under the keyboard.
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
       child: _CustomFieldSheet(existingKeys: existingKeys),
     ),
+    scroll: true,
+    bare: true,
   );
 }
 

@@ -223,7 +223,7 @@ class ActivityProposalCard extends StatelessWidget {
               Icon(
                 nap ? LucideIcons.moon : LucideIcons.activity,
                 color: p.on(accent),
-                size: 20,
+                size: I.md,
               ),
               const SizedBox(width: S.x2),
               Expanded(
@@ -235,7 +235,7 @@ class ActivityProposalCard extends StatelessWidget {
                 ),
               ),
               if (highlighted)
-                Icon(LucideIcons.bell, color: p.on(accent), size: 20),
+                Icon(LucideIcons.bell, color: p.on(accent), size: I.md),
             ],
           ),
           const SizedBox(height: S.x2),
