@@ -1,4 +1,6 @@
 // Laws the scorer must keep for any input.
+import 'dart:math';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/layout_shift/layout_shift.dart';
 
@@ -100,5 +102,78 @@ void main() {
     expect(sig(score(s, ShiftPolicy.standard)),
         sig(score(s, ShiftPolicy.standard)));
     expect(sig(score(s, ShiftPolicy.standard)), isNotEmpty);
+  });
+  group('random rects (seeded)', () {
+    // Rects anywhere around and inside the viewport, some empty, some far
+    // larger than it. Every role, focus, colour and placeholder mixes in.
+    List<ElementSnapshot> frame(Random rng, int n, double w, double h) => [
+          for (var i = 0; i < n; i++)
+            if (rng.nextInt(6) > 0)
+              el('e$i', ShiftRect(
+                  (rng.nextDouble() * 3 - 1) * w,
+                  (rng.nextDouble() * 3 - 1) * h,
+                  rng.nextInt(8) == 0 ? 0 : rng.nextDouble() * 2.5 * w,
+                  rng.nextInt(8) == 0 ? 0 : rng.nextDouble() * 4 * h),
+                  role: ElementRole.values[
+                      rng.nextInt(ElementRole.values.length)],
+                  color: 0xFF000000 | rng.nextInt(0xFFFFFF),
+                  focusable: rng.nextBool(),
+                  focused: rng.nextInt(5) == 0,
+                  enabled: rng.nextInt(4) > 0),
+        ];
+
+    test('no NaN or Infinity reaches a finding; consistency stays bounded', () {
+      final rng = Random(20261020);
+      for (var run = 0; run < 300; run++) {
+        final p = [
+          ShiftPolicy.standard,
+          ShiftPolicy.strict,
+          ShiftPolicy.lenient,
+        ][run % 3];
+        final w = 1 + rng.nextDouble() * 999, h = 1 + rng.nextDouble() * 1999;
+        final view = ShiftRect(rng.nextDouble() * 50, rng.nextDouble() * 50, w, h);
+        final frames = [
+          for (var f = 0; f < 4; f++) fr(f * 300, frame(rng, 8, w, h)),
+        ];
+        final s = sc(frames,
+            viewport: view,
+            interactions: [
+              Interaction(0, 'e${rng.nextInt(8)}',
+                  intentTargetId: 'e${rng.nextInt(8)}'),
+              Interaction(500, 'e${rng.nextInt(8)}'),
+            ],
+            focus: [FocusEvent(200, 'e${rng.nextInt(8)}')],
+            animations: const [AnimationSpan(100, 400, chainId: 'c')]);
+        for (final f in score(s, p).findings) {
+          expect(f.score.isFinite && f.score >= 0, isTrue,
+              reason: 'run $run ${f.rule} ${f.elementId} ${f.score}');
+        }
+        // One consistency finding: at most one viewport x the largest
+        // roleWeight x consistencyWeight, or the drift floor if larger.
+        final wMax = [1.0, ...p.roleWeight.values].reduce(max);
+        final bound = max(p.consistencyMoveScore, wMax * p.consistencyWeight);
+        final c = compareLayouts(frames[0], frames[3], p, viewport: view);
+        for (final f in c.findings) {
+          expect(f.score.isFinite && f.score > 0, isTrue,
+              reason: 'run $run ${f.elementId} ${f.score}');
+          expect(f.score, lessThanOrEqualTo(bound + 1e-9),
+              reason: 'run $run ${f.elementId}');
+        }
+      }
+    });
+  });
+
+  test('a zero-area viewport is refused with ArgumentError', () {
+    for (final v in const [
+      ShiftRect(0, 0, 0, 100),
+      ShiftRect(0, 0, 100, 0),
+      ShiftRect(0, 0, -100, -100),
+    ]) {
+      final s = Scenario(
+          viewport: v,
+          frames: _busy(1).frames,
+          interactions: _busy(1).interactions);
+      expect(() => score(s, ShiftPolicy.standard), throwsArgumentError);
+    }
   });
 }

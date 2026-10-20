@@ -53,9 +53,44 @@ ShiftSeverity _severity(double v, ShiftPolicy p) => v >= p.errorAt
 int _channelDelta(int a, int b, int shift) =>
     (((a >> shift) & 0xFF) - ((b >> shift) & 0xFF)).abs();
 
+/// Every score is a fraction of the viewport, so a viewport with no area
+/// has no meaningful score (it would divide by zero into NaN/Infinity). That
+/// is a caller bug, so it throws rather than returning an empty report a
+/// test would pass on.
+void _checkViewport(ShiftRect v) {
+  if (!(v.width > 0 && v.height > 0 && v.area.isFinite)) {
+    throw ArgumentError.value(
+        '${v.width} x ${v.height}', 'viewport', 'must have a finite, positive area');
+  }
+}
+
+/// Area of the union of [rects] (axis-aligned, so exact): split the plane on
+/// every rect edge and add up the grid cells some rect contains. Quadratic
+/// in edges, fine for the handful of placeholders one element replaces;
+/// independent of rect order.
+double _unionArea(List<ShiftRect> rects) {
+  final xs = {for (final r in rects) ...[r.left, r.left + r.width]}.toList()
+    ..sort();
+  final ys = {for (final r in rects) ...[r.top, r.top + r.height]}.toList()
+    ..sort();
+  var a = 0.0;
+  for (var i = 0; i + 1 < xs.length; i++) {
+    for (var j = 0; j + 1 < ys.length; j++) {
+      final cx = (xs[i] + xs[i + 1]) / 2, cy = (ys[j] + ys[j + 1]) / 2;
+      if (rects.any((r) =>
+          cx > r.left && cx < r.left + r.width && cy > r.top && cy < r.top + r.height)) {
+        a += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j]);
+      }
+    }
+  }
+  return a;
+}
+
 /// Scores every consecutive frame pair of [s] under [p]. Pure and
-/// deterministic: same input, same report.
+/// deterministic: same input, same report. Throws [ArgumentError] when
+/// `s.viewport` has no area.
 ShiftReport score(Scenario s, ShiftPolicy p) {
+  _checkViewport(s.viewport);
   final vpArea = s.viewport.area;
   final vpSide = max(s.viewport.width, s.viewport.height);
   final chains = <String, List<AnimationSpan>>{};
@@ -337,12 +372,17 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
         if (prevIds.contains(e.id)) continue;
         final visible = e.rect.intersect(s.viewport);
         if (visible == null || visible.area <= 0) continue;
-        final covered = vanished.fold<double>(
-            0, (a, v) => a + (visible.intersect(v.rect)?.area ?? 0));
+        // The union, not the sum: a skeleton line inside its own skeleton
+        // card covers nothing the card did not.
+        final covered = _unionArea(
+            [for (final v in vanished) ?visible.intersect(v.rect)]);
         final uncovered = max(0.0, visible.area - covered);
         if (uncovered / visible.area <= 1 - p.appearCoveredFree) continue;
-        final v =
-            p.appearWeight * uncovered / vpArea * p.loadAt(t - ix.atMs);
+        final v = p.appearWeight *
+            (p.roleWeight[e.role] ?? 1) *
+            uncovered /
+            vpArea *
+            p.loadAt(t - ix.atMs);
         if (v > 0) out.add(finding('appear', e.id, t, v));
       }
     }
@@ -356,9 +396,11 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
 ///
 /// [viewport] is required because a [Frame] does not carry one, and guessing
 /// it from the elements would make the score depend on what is on screen.
-/// [only] restricts the comparison to the ids it accepts.
+/// [only] restricts the comparison to the ids it accepts. Throws
+/// [ArgumentError] when [viewport] has no area.
 ShiftReport compareLayouts(Frame a, Frame b, ShiftPolicy p,
     {required ShiftRect viewport, bool Function(String id)? only}) {
+  _checkViewport(viewport);
   final vpArea = viewport.area;
   final vpSide = max(viewport.width, viewport.height);
   final inA = {for (final e in a.elements) e.id: e};
@@ -385,14 +427,23 @@ ShiftReport compareLayouts(Frame a, Frame b, ShiftPolicy p,
     if (!kept(e.id)) continue;
     final o = inA[e.id];
     if (o == null) continue;
+    // Clipped to the viewport like the one-sided term below: what the user
+    // never saw, they cannot remember. Off-screen in both ⇒ nothing to charge.
+    double seen(ShiftRect r) => r.intersect(viewport)?.area ?? 0;
+    final seenA = seen(o.rect), seenB = seen(e.rect);
+    if (seenA <= 0 && seenB <= 0) continue;
     final d = o.rect.distanceTo(e.rect);
     final dSize = max((o.rect.width - e.rect.width).abs(),
         (o.rect.height - e.rect.height).abs());
     final moved = d > p.consistencyTolerancePx;
     final resized = dSize > p.consistencyTolerancePx;
     if (!moved && !resized) continue;
-    var v = ((moved ? o.rect.union(e.rect).area / vpArea * d / vpSide : 0) +
-            (resized ? (o.rect.area - e.rect.area).abs() / vpArea : 0)) *
+    // Capped at one viewport: a far move would otherwise score past "the
+    // whole screen changed".
+    var v = min(
+            1.0,
+            (moved ? seen(o.rect.union(e.rect)) / vpArea * d / vpSide : 0) +
+                (resized ? (seenA - seenB).abs() / vpArea : 0)) *
         (p.roleWeight[e.role] ?? 1) *
         p.consistencyWeight;
     // The area formula makes a few px of drift on a small element worth

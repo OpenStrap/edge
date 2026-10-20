@@ -301,6 +301,64 @@ void main() {
     });
   });
 
+  group('clipped to the viewport (what the user never saw is not charged)', () {
+    // A placeholder has no drift floor, so the area term is the whole score.
+    // 2000 px tall, top at 700: only (16, 700, 368, 100) is on screen.
+    const tall = ShiftRect(16, 700, 368, 2000);
+    const seen = ShiftRect(16, 700, 368, 100);
+    double moved12(ShiftRect r) => _charged(_cmp(
+            fr(0, [el('list', r, role: ElementRole.placeholder)]),
+            fr(0, [el('list', _dx(r, 12), role: ElementRole.placeholder)])))
+        .single
+        .score;
+
+    test('a list mostly below the fold moving 12 px scores as its visible part',
+        () {
+      // Clipped union 380 x 100 = 38000; 38000/320000 x 12/800 x .5 = 8.906e-4.
+      // Unclipped it was 380 x 2000: twenty times that.
+      expect(moved12(tall), closeTo(38000 / 320000 * 12 / 800 * 0.5, 1e-12));
+      expect(moved12(tall), closeTo(moved12(seen), 1e-12));
+    });
+
+    test('growth below the fold adds no size term', () {
+      // Visible area is 368 x 100 before and after: size term 0, and the
+      // centre moves 500 px (off screen), so the move term is the clipped
+      // union 368 x 100 x 500/800 x .5.
+      final r = _cmp(fr(0, [el('list', tall, role: ElementRole.placeholder)]),
+          fr(0, [el('list', const ShiftRect(16, 700, 368, 3000),
+              role: ElementRole.placeholder)]));
+      expect(_charged(r).single.score,
+          closeTo(36800 / 320000 * 500 / 800 * 0.5, 1e-12));
+    });
+
+    test('an element wholly off screen in both layouts is not charged', () {
+      final r = _cmp(fr(0, [el('row', const ShiftRect(0, 900, 400, 60))]),
+          fr(0, [el('row', const ShiftRect(0, 960, 400, 80))]));
+      expect(r.findings, isEmpty);
+    });
+
+    test('one finding is worth at most one viewport (or the drift floor)', () {
+      // A full-screen paragraph flung 5000 px: area fraction capped at 1,
+      // times roleWeight 2 x consistencyWeight 1.
+      final r = _cmp(
+          fr(0, [el('page', _vp, role: ElementRole.paragraph)]),
+          fr(0, [el('page', const ShiftRect(0, 5000, 400, 1600),
+              role: ElementRole.paragraph)]));
+      expect(_charged(r).single.score, closeTo(2.0, 1e-12));
+    });
+  });
+
+  test('a zero-area viewport is refused with ArgumentError', () {
+    final a = fr(0, [_av(_avatar)]), b = fr(0, [_av(_dx(_avatar, 8))]);
+    for (final v in const [
+      ShiftRect(0, 0, 0, 800),
+      ShiftRect(0, 0, 400, 0),
+      ShiftRect(0, 0, -400, -800),
+    ]) {
+      expect(() => compareLayouts(a, b, p, viewport: v), throwsArgumentError);
+    }
+  });
+
   test('pure: same input, same report', () {
     final a = fr(0, [_av(_avatar), el('card:x', _card)]);
     final b = fr(0, [_av(_dx(_avatar, 8)), el('body', _content)]);

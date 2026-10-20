@@ -171,7 +171,79 @@ void main() {
     });
   });
 
-  test('score = appearWeight x uncovered/vpArea x loadAt(t - ix)', () {
+  group('coverage is the union of the vanished placeholders', () {
+    // A half-card skeleton (0, 0, 400, 150) and a skeleton line inside it:
+    // together they cover exactly the top half of the card, 60000 of 120000.
+    Scenario two(ElementSnapshot line) => sc([
+          fr(16, [
+            el('skeleton:card', const ShiftRect(0, 0, 400, 150),
+                role: ElementRole.placeholder),
+            line,
+          ]),
+          fr(3000, [el('card', _card)]),
+          fr(3100, [el('card', _card)]),
+        ], viewport: _vp, interactions: const [Interaction(0, 'tap')]);
+
+    test('a skeleton line inside its skeleton card is not counted twice', () {
+      final s = two(el('skeleton:line', const ShiftRect(16, 20, 368, 20),
+          role: ElementRole.placeholder));
+      // uncovered = 120000 - 60000; .5 x 60000 / 320000 x .8 = .075
+      expect(_appearScore(s), closeTo(0.5 * 60000 / 320000 * 0.8, 1e-12));
+    });
+
+    test('two overlapping halves do not add up to "covered"', () {
+      // Summed they are 60000 + 56000 = 116000 >= 90% of the card (free);
+      // their union is still only the top half.
+      final s = two(el('skeleton:card2', const ShiftRect(0, 0, 400, 140),
+          role: ElementRole.placeholder));
+      expect(_appearScore(s), closeTo(0.5 * 60000 / 320000 * 0.8, 1e-12));
+    });
+
+    test('order of the placeholders does not matter', () {
+      Scenario s(bool flip) {
+        final phs = [
+          el('a', const ShiftRect(0, 0, 250, 200), role: ElementRole.placeholder),
+          el('b', const ShiftRect(100, 100, 300, 150),
+              role: ElementRole.placeholder),
+          el('c', const ShiftRect(50, 50, 100, 260),
+              role: ElementRole.placeholder),
+        ];
+        return sc([
+          fr(16, flip ? phs.reversed.toList() : phs),
+          fr(3000, [el('card', _card)]),
+          fr(3100, [el('card', _card)]),
+        ], viewport: _vp, interactions: const [Interaction(0, 'tap')]);
+      }
+
+      // Union: a 250x200 = 50000, b adds 300x150 - overlap 150x100 = 30000,
+      // c (clipped to y<300) adds 100x250 minus parts already in a or b:
+      // x 50..150, y 50..300; a covers y 50..200 (100x150), b covers
+      // x 100..150, y 200..250 (50x50); remaining 100x250 - 15000 - 2500
+      // = 7500. Total 87500; uncovered 32500.
+      expect(_appearScore(s(false)), closeTo(0.5 * 32500 / 320000 * 0.8, 1e-12));
+      expect(_appearScore(s(true)), closeTo(_appearScore(s(false)), 1e-15));
+    });
+  });
+
+  group('roleWeight applies to appearing content', () {
+    double as(ElementRole role) =>
+        _appearScore(_load(3000, content: el('card', _card, role: role)));
+
+    test('a placeholder appearing late costs half (roleWeight .5)', () {
+      // .5 x .5 x 119516 / 320000 x .8
+      expect(as(ElementRole.placeholder),
+          closeTo(0.5 * 0.5 * 119516 / 320000 * 0.8, 1e-12));
+    });
+
+    test('a paragraph appearing late costs double (roleWeight 2)', () {
+      expect(as(ElementRole.paragraph),
+          closeTo(2 * 0.5 * 119516 / 320000 * 0.8, 1e-12));
+    });
+  });
+
+  test('score = appearWeight x roleWeight x uncovered/vpArea x loadAt(t - ix)',
+      () {
+    // roleWeight of an `other` card is 1.
     // uncovered = 120000 - 484 (the vanished spinner over the card) = 119516
     // .5 * 119516 / 320000 * .8
     expect(_appearScore(_load(3000)),
