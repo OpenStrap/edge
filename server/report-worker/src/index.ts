@@ -12,8 +12,8 @@ export const LIMITS = {
   blobDb: 95 * 1024 * 1024, // under the 100 MB request-body cap of the Workers free plan
   metaHeader: 36 * 1024, // X-Report-Meta, base64url; worst valid meta (every char a 6-byte JSON escape) is ~35.3 KB
   perInstallPerDay: 3,
-  ceilingBytes: 8 * 1024 ** 3, // database attachments refused above this
-  hardCeilingBytes: 9 * 1024 ** 3, // every report refused above this: R2 free tier is 10 GB
+  ceilingBytes: 5 * 1024 ** 3, // database attachments refused above this
+  hardCeilingBytes: 5.5 * 1024 ** 3, // every report refused above this: R2 free tier is 10 GB for the whole account, shared with other buckets
   dailyTotal: 1000, // all installs together; install ids are client-chosen, so this is the real spam cap
   blobTtlDays: 30,
   dbTtlDays: 14,
