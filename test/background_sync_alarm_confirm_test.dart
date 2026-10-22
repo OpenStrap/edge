@@ -52,7 +52,7 @@ void main() {
         latchAtMs = DateTime.now().millisecondsSinceEpoch;
         sleep(const Duration(milliseconds: 5));
         await Future<void>.delayed(const Duration(seconds: 5));
-        return (epoch: 1750000000, disabled: false);
+        return (epoch: 1750000000, disabled: false, echoed: false);
       }, (sinceMs) async => latchAtMs != null && latchAtMs! >= sinceMs);
       fa.elapse(const Duration(seconds: 40));
     });
@@ -66,9 +66,8 @@ void main() {
       () async {
     SharedPreferences.setMockInitialValues({});
     await headlessArmAndConfirm(
-      () async => (epoch: 1750000000, disabled: false),
+      () async => (epoch: 1750000000, disabled: false, echoed: true),
       (sinceMs) async => fail('must not wait for event 56'),
-      echoed: () => true,
     );
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getInt('alarm_epoch'), 1750000000);

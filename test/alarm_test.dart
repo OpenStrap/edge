@@ -22,7 +22,10 @@ import 'package:openstrap_edge/state/alarm_schedule.dart'
         alarmLatchAlertAtMs,
         alarmLatchAlertDelay,
         alarmLatchAlertResumeDelay,
-        alarmLatchFailed;
+        alarmLatchFailed,
+        AlarmScheduleEntry,
+        armNextScheduledOccurrence,
+        nextAlarmOccurrence;
 import 'package:openstrap_edge/sync/sync_policy.dart' show ClockRef;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
@@ -579,9 +582,10 @@ void main() {
             ? echoReply(seq, opcode, 1750000010, 0x0a)
             : null,
       );
-      expect(await link.engine.setAlarm(lowByteWake), lowByteWake,
+      final r = await link.engine.armAlarm(lowByteWake);
+      expect(r.armed, lowByteWake,
           reason: 'the status byte is an epoch byte, not a refusal');
-      expect(link.engine.lastAlarmArmEchoed, isTrue);
+      expect(r.echoed, isTrue);
     });
 
     test('an echo of a different wake time is accepted but not a confirmation',
@@ -591,8 +595,9 @@ void main() {
             ? echoReply(seq, opcode, 1750000999, 0x0a)
             : null,
       );
-      expect(await link.engine.setAlarm(lowByteWake), lowByteWake);
-      expect(link.engine.lastAlarmArmEchoed, isFalse);
+      final r = await link.engine.armAlarm(lowByteWake);
+      expect(r.armed, lowByteWake);
+      expect(r.echoed, isFalse);
       expect(link.logged('not treating the reply as a confirmation'), isTrue);
     });
 
@@ -619,12 +624,13 @@ void main() {
         },
       );
       final at = DateTime.fromMillisecondsSinceEpoch(1792731600 * 1000);
-      expect(await engine.setAlarm(at), at,
+      final r = await engine.armAlarm(at);
+      expect(r.armed, at,
           reason: 'epoch low byte 0xd0 is not a status, so no rejection');
-      expect(engine.lastAlarmArmEchoed, isTrue);
+      expect(r.echoed, isTrue);
     });
 
-    test('no echo leaves the arm unconfirmed, and the flag resets per arm',
+    test('no echo leaves the arm unconfirmed, per call',
         () async {
       var echo = true;
       final link = _Link(
@@ -634,12 +640,46 @@ void main() {
                 : _alarmReply(opcode, seq, proto.AlarmStatus.validInputPattern))
             : null,
       );
-      await link.engine.setAlarm(lowByteWake);
-      expect(link.engine.lastAlarmArmEchoed, isTrue);
+      expect((await link.engine.armAlarm(lowByteWake)).echoed, isTrue);
       echo = false;
-      expect(await link.engine.setAlarm(lowByteWake), lowByteWake);
-      expect(link.engine.lastAlarmArmEchoed, isFalse,
-          reason: 'a stale true from the previous arm would confirm this one');
+      final r = await link.engine.armAlarm(lowByteWake);
+      expect(r.armed, lowByteWake);
+      expect(r.echoed, isFalse,
+          reason: 'a previous arm\'s echo must not confirm this one');
+    });
+
+    test('the scheduled arm carries the engine\'s echo to its caller',
+        () async {
+      final schedule = [
+        for (var d = 0; d < 7; d++)
+          AlarmScheduleEntry(weekday: d, hour: 7, minute: 0, enabled: true),
+      ];
+      final now = DateTime(2026, 10, 22, 12);
+      final next = nextAlarmOccurrence(schedule, now)!;
+      final epoch = next.millisecondsSinceEpoch ~/ 1000;
+      var echo = true;
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.setAlarmTime
+            ? (echo
+                ? echoReply(seq, opcode, epoch, epoch & 0xff)
+                : _alarmReply(opcode, seq, proto.AlarmStatus.validInputPattern))
+            : null,
+      );
+      final echoed = await armNextScheduledOccurrence(
+          engine: link.engine,
+          schedule: schedule,
+          currentArmedEpoch: null,
+          now: now);
+      expect(echoed.epoch, epoch);
+      expect(echoed.echoed, isTrue);
+      echo = false;
+      final plain = await armNextScheduledOccurrence(
+          engine: link.engine,
+          schedule: schedule,
+          currentArmedEpoch: null,
+          now: now);
+      expect(plain.epoch, epoch);
+      expect(plain.echoed, isFalse);
     });
 
     test('a FAILURE outer result rejects the arm even with no status byte',

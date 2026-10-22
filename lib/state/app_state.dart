@@ -4405,7 +4405,7 @@ class AppState extends ChangeNotifier {
       final epoch = result.epoch;
       if (epoch == null) return;
       await _onArmed(DateTime.fromMillisecondsSinceEpoch(epoch * 1000), epoch,
-          echoed: engine.lastAlarmArmEchoed);
+          echoed: result.echoed);
     } catch (e) {
       _log('[alarm] weekly-schedule arm failed: $e');
     }
@@ -4531,8 +4531,7 @@ class AppState extends ChangeNotifier {
     // rich 20-byte firing form (a hardcoded 0 subsec would still fire, but the
     // engine owns the exact on-wire layout). Persist the wall instant the
     // engine reports armed (null = write never reached the band).
-    final armed = await engine.setAlarm(when);
-    final echoed = engine.lastAlarmArmEchoed;
+    final (:armed, :echoed) = await engine.armAlarm(when);
     if (armed == null) {
       // Do NOT persist or start the confirmation machine, or we'd strand a
       // phantom alarm "waiting for the strap to confirm" that can never fire.
@@ -4667,8 +4666,9 @@ class AppState extends ChangeNotifier {
       // gen5 made setAlarm return the armed instant (null = the write never
       // reached the band) where it used to return a bool. Same signal, so the
       // retry bookkeeping below is unchanged.
-      rearmed = await engine.setAlarm(when) != null;
-      echoed = rearmed && engine.lastAlarmArmEchoed;
+      final r = await engine.armAlarm(when);
+      rearmed = r.armed != null;
+      echoed = r.echoed;
     } catch (e) {
       _log('[alarm] auto-retry re-arm failed: $e');
     }

@@ -8376,11 +8376,6 @@ class BleEngine {
   /// frames queued ahead of the response, not to be a plausible steady state.
   static const Duration _clockReadTimeout = Duration(seconds: 3);
 
-  /// True when the last [setAlarm] reply echoed exactly the wake time we sent
-  /// (strap frame): the strap itself reported what it stored, so the arm is
-  /// confirmed without waiting for event 56. Reset on every [setAlarm].
-  bool lastAlarmArmEchoed = false;
-
   /// On-device wake alarm (SET_ALARM_TIME = 0x42), band-generation aware via
   /// [AlarmPayloads.setPayloadForBand]:
   ///
@@ -8429,9 +8424,20 @@ class BleEngine {
     DateTime when, {
     int index = 0,
     List<int>? haptics,
+  }) async =>
+      (await armAlarm(when, index: index, haptics: haptics)).armed;
+
+  /// [setAlarm], plus whether the reply echoed exactly the wake time we sent
+  /// (strap frame): the strap itself reported what it stored, so the arm is
+  /// confirmed without waiting for event 56. Returned per call, not kept on
+  /// the engine, so an arm that gets no reply can never inherit another
+  /// arm's echo.
+  Future<({DateTime? armed, bool echoed})> armAlarm(
+    DateTime when, {
+    int index = 0,
+    List<int>? haptics,
   }) async {
     final isGen5 = _session?.band.isGen5 ?? false;
-    lastAlarmArmEchoed = false;
     if (isGen5) {
       // SET_CLOCK before SET_ALARM. Await the reply so the
       // correlation below is the drift-0 one this write produces: a
@@ -8474,7 +8480,7 @@ class BleEngine {
       '${isGen5 && payload.length >= 2 ? 'idx=${payload[1]} ' : ''}'
       'write=${out.written ? 'ok' : 'FAILED'}',
     );
-    if (!out.written) return null;
+    if (!out.written) return (armed: null, echoed: false);
     // Worst case here is the awaiter's single 5 s timeout, applied once, with
     // no resend — arming is a user-facing action, not a background poll, and a
     // duplicate SET after a slow-but-successful one would rewrite the strap's
@@ -8484,7 +8490,7 @@ class BleEngine {
       _log('[ALARM] arm UNCONFIRMED — no correlated SET_ALARM_TIME reply. '
           'Treating the write as the arm (the strap may not echo the '
           'originating sequence); verify with getAlarm().');
-      return when;
+      return (armed: when, echoed: false);
     }
     final code = (resp.fields['alarm_status'] as num?)?.toInt();
     final name = resp.fields['alarm_status_name'] as String?;
@@ -8499,17 +8505,17 @@ class BleEngine {
       _log('[ALARM] arm REJECTED by the strap — result=${resp.status} '
           'alarm_status=$code ($name). NOT recording an alarm: there is '
           'nothing armed on the band.');
-      return null;
+      return (armed: null, echoed: false);
     }
     _log('[ALARM] arm accepted — result=${resp.status} '
         'alarm_status=${code ?? 'absent'} (${name ?? 'no status byte'}).');
     final armSec = armWhen.millisecondsSinceEpoch ~/ 1000;
-    lastAlarmArmEchoed = echo == armSec;
-    if (echo != null && !lastAlarmArmEchoed) {
+    final echoed = echo == armSec;
+    if (echo != null && !echoed) {
       _log('[ALARM] strap echoed wake time $echo, sent $armSec — not '
           'treating the reply as a confirmation.');
     }
-    return when;
+    return (armed: when, echoed: echoed);
   }
 
   /// Time-only alarm (SET_ALARM_TIME = 0x42), SHORT 7-byte form:
