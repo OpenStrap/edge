@@ -4404,7 +4404,8 @@ class AppState extends ChangeNotifier {
       }
       final epoch = result.epoch;
       if (epoch == null) return;
-      await _onArmed(DateTime.fromMillisecondsSinceEpoch(epoch * 1000), epoch);
+      await _onArmed(DateTime.fromMillisecondsSinceEpoch(epoch * 1000), epoch,
+          echoed: engine.lastAlarmArmEchoed);
     } catch (e) {
       _log('[alarm] weekly-schedule arm failed: $e');
     }
@@ -4531,6 +4532,7 @@ class AppState extends ChangeNotifier {
     // engine owns the exact on-wire layout). Persist the wall instant the
     // engine reports armed (null = write never reached the band).
     final armed = await engine.setAlarm(when);
+    final echoed = engine.lastAlarmArmEchoed;
     if (armed == null) {
       // Do NOT persist or start the confirmation machine, or we'd strand a
       // phantom alarm "waiting for the strap to confirm" that can never fire.
@@ -4542,7 +4544,8 @@ class AppState extends ChangeNotifier {
       // phone and an explicit refusal — the engine log says which.
       throw Exception('Alarm not set');
     }
-    await _onArmed(armed, armed.millisecondsSinceEpoch ~/ 1000);
+    await _onArmed(armed, armed.millisecondsSinceEpoch ~/ 1000,
+        echoed: echoed);
   }
 
   /// Shared bookkeeping for anything that just armed the band: optimistic
@@ -4550,18 +4553,28 @@ class AppState extends ChangeNotifier {
   /// timer. [setAlarm] (an explicit write) and [_armNextAlarmOccurrence] (the
   /// schedule engine) both funnel through here so the two can never drift
   /// apart on what "armed" means.
-  Future<void> _onArmed(DateTime when, int epoch) async {
+  ///
+  /// [echoed]: the strap's reply already reported this exact wake time, so the
+  /// arm is confirmed now; event 56 stays as later corroboration.
+  Future<void> _onArmed(DateTime when, int epoch, {bool echoed = false}) async {
     _savedAlarm = epoch;
     device.alarmEpoch = epoch; // optimistic display
     final setAtMs = DateTime.now().millisecondsSinceEpoch;
     _alarm.set(epoch, setAtMs); // await event 56
+    if (echoed) _alarm.confirmed = true;
     _alarmAutoRetried = false; // a fresh arm gets its one retry
     _alarmGraceExtensions = 0;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('alarm_epoch', epoch);
     await prefs.setInt('alarm_set_at_ms', setAtMs);
     // Not confirmed yet — event 56 (below, in _handleAlarmEvent) flips this.
-    await prefs.setBool('alarm_epoch_confirmed', false);
+    await prefs.setBool('alarm_epoch_confirmed', echoed);
+    if (echoed) {
+      await prefs.remove('alarm_latch_alert');
+      _alarmGraceTimer?.cancel();
+      notifyListeners();
+      return;
+    }
     // The alert timers below live in memory only; this lets a relaunch
     // still send the critical alert if the process dies before it goes out.
     await prefs.setStringList('alarm_latch_alert', [

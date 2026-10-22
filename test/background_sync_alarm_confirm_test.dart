@@ -61,4 +61,17 @@ void main() {
       expect(prefs.getBool('alarm_epoch_confirmed'), isTrue);
     });
   });
+
+  test('a reply that echoed the wake time confirms without the latch wait',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    await headlessArmAndConfirm(
+      () async => (epoch: 1750000000, disabled: false),
+      (sinceMs) async => fail('must not wait for event 56'),
+      echoed: () => true,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getInt('alarm_epoch'), 1750000000);
+    expect(prefs.getBool('alarm_epoch_confirmed'), isTrue);
+  });
 }

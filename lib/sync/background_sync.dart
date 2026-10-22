@@ -71,7 +71,8 @@ Future<void> handleHeadlessAlarmEvent(int id) async {
 /// instead of deduping on a stale epoch.
 @visibleForTesting
 Future<void> headlessArmAndConfirm(Future<AlarmArmResult> Function() arm,
-    Future<bool> Function(int sinceMs) latchedSince) async {
+    Future<bool> Function(int sinceMs) latchedSince,
+    {bool Function()? echoed}) async {
   final armedAtMs = DateTime.now().millisecondsSinceEpoch;
   final result = await arm();
   final prefs = await SharedPreferences.getInstance();
@@ -79,7 +80,9 @@ Future<void> headlessArmAndConfirm(Future<AlarmArmResult> Function() arm,
     await prefs.remove('alarm_epoch');
     await prefs.remove('alarm_epoch_confirmed');
   } else if (result.epoch != null) {
-    final confirmed = await awaitAlarmLatch(() => latchedSince(armedAtMs));
+    // The strap's own reply already named this wake time: no wait needed.
+    final confirmed = (echoed?.call() ?? false) ||
+        await awaitAlarmLatch(() => latchedSince(armedAtMs));
     await prefs.setInt('alarm_epoch', result.epoch!);
     await prefs.setInt('alarm_set_at_ms', armedAtMs);
     await prefs.setBool('alarm_epoch_confirmed', confirmed);
@@ -263,6 +266,7 @@ Future<void> rearmHeadlessAlarm(BleEngine engine) async {
         currentArmedEpoch: prefs.getInt('alarm_epoch'),
       ),
       LocalDb.alarmSetConfirmedSince,
+      echoed: () => engine.lastAlarmArmEchoed,
     );
   } catch (e) {
     debugPrint('[bgsync] alarm re-arm skipped: $e');

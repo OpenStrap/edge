@@ -559,6 +559,61 @@ void main() {
       expect(link.logged('valid_input_pattern'), isTrue);
     });
 
+    // WHOOP 4 echoes the stored wake time in the reply; the shared decoder
+    // reads that epoch's low byte as an alarm "status".
+    proto.Decoded echoReply(int seq, int opcode, int echo, int lowByte) =>
+        proto.Decoded('cmd_response', {
+          'opcode': opcode,
+          'req_seq': seq,
+          'cmd_status': CommandAwaiter.statusSuccess,
+          'alarm_status': lowByte,
+          'alarm_echo_epoch': echo,
+        });
+    // A wake time whose low byte (0x0a) would read as an input rejection.
+    final lowByteWake = DateTime.fromMillisecondsSinceEpoch(1750000010 * 1000);
+
+    test('an echoed wake time confirms the arm and masks the epoch byte',
+        () async {
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.setAlarmTime
+            ? echoReply(seq, opcode, 1750000010, 0x0a)
+            : null,
+      );
+      expect(await link.engine.setAlarm(lowByteWake), lowByteWake,
+          reason: 'the status byte is an epoch byte, not a refusal');
+      expect(link.engine.lastAlarmArmEchoed, isTrue);
+    });
+
+    test('an echo of a different wake time is accepted but not a confirmation',
+        () async {
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.setAlarmTime
+            ? echoReply(seq, opcode, 1750000999, 0x0a)
+            : null,
+      );
+      expect(await link.engine.setAlarm(lowByteWake), lowByteWake);
+      expect(link.engine.lastAlarmArmEchoed, isFalse);
+      expect(link.logged('not treating the reply as a confirmation'), isTrue);
+    });
+
+    test('no echo leaves the arm unconfirmed, and the flag resets per arm',
+        () async {
+      var echo = true;
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.setAlarmTime
+            ? (echo
+                ? echoReply(seq, opcode, 1750000010, 0x0a)
+                : _alarmReply(opcode, seq, proto.AlarmStatus.validInputPattern))
+            : null,
+      );
+      await link.engine.setAlarm(lowByteWake);
+      expect(link.engine.lastAlarmArmEchoed, isTrue);
+      echo = false;
+      expect(await link.engine.setAlarm(lowByteWake), lowByteWake);
+      expect(link.engine.lastAlarmArmEchoed, isFalse,
+          reason: 'a stale true from the previous arm would confirm this one');
+    });
+
     test('a FAILURE outer result rejects the arm even with no status byte',
         () async {
       final link = _Link(

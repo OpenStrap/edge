@@ -1446,6 +1446,15 @@ class AlarmConfirmation {
     return e != null && e >= kMinPlausibleUnix ? e : null;
   }
 
+  /// The wake time (unix sec, strap frame) a WHOOP 4 SET_ALARM_TIME reply
+  /// echoes: `[type][seq][0x42][req seq][result][rev=1][u32 epoch LE][u16]`.
+  /// Null when the reply is too short or not revision 1.
+  static int? replyEchoEpoch(List<int> inner) {
+    if (inner.length < 10 || inner[5] != 1) return null;
+    final e = inner[6] | inner[7] << 8 | inner[8] << 16 | inner[9] << 24;
+    return e >= kMinPlausibleUnix ? e : null;
+  }
+
   /// Feed a strap event. Returns the resulting [AlarmEffect] the caller acts on,
   /// or null when the event is unrelated to the alarm (or belongs to an
   /// earlier arm).
