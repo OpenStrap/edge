@@ -2653,7 +2653,10 @@ class AppState extends ChangeNotifier {
     SessionLink.onSessionDone = adoptWeighing;
     // Android: hear a paired scale wake up and sync it without a Devices tap.
     if (!_background && Platform.isAndroid) {
-      (_scaleWatcher ??= ScalePresenceWatcher()).start();
+      (_scaleWatcher ??= ScalePresenceWatcher(
+        bandWaiting: () => isPaired && !engine.isConnected,
+      ))
+          .start();
     }
     // In the background: its re-derive must not hold the shell's launch.
     unawaited(adoptWeighing().catchError(

@@ -36,6 +36,7 @@ class ScalePresenceWatcher {
     Future<Map<String, String>> Function()? pairedScales,
     Future<String?> Function(List<String> remoteIds, Duration window)? hear,
     Future<void> Function(String adapterId)? sync,
+    this.bandWaiting,
     this.window = const Duration(seconds: 8),
     this.gap = const Duration(seconds: 20),
     this.cooldown = const Duration(minutes: 3),
@@ -47,6 +48,11 @@ class ScalePresenceWatcher {
   final Future<String?> Function(List<String>, Duration) _hear;
   final Future<void> Function(String) _sync;
   final Duration window, gap, cooldown;
+
+  /// True while a paired band is not connected, i.e. its reconnect scan may be
+  /// queued on the scan lock. The cycle is skipped then, so a scale scan can
+  /// never delay the band.
+  final bool Function()? bandWaiting;
 
   bool _stop = true;
   Future<void>? _loop;
@@ -71,10 +77,13 @@ class ScalePresenceWatcher {
       var wait = gap;
       try {
         final scales = await _paired(); // remote id (lower case) -> adapter id
-        if (scales.isNotEmpty) {
+        if (scales.isNotEmpty && bandWaiting?.call() != true) {
+          debugPrint('[scale-watch] scanning for ${scales.length} scale(s)');
           final hit = await _hear(scales.keys.toList(), window);
+          debugPrint('[scale-watch] scan done, hit=$hit');
           if (hit != null && !_stop) {
             await _sync(scales[hit.toLowerCase()]!);
+            debugPrint('[scale-watch] sync done');
             wait = cooldown;
           }
         }

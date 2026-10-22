@@ -10,6 +10,7 @@ ScalePresenceWatcher _w({
   required Future<String?> Function() hear,
   required List<String> synced,
   Duration cooldown = const Duration(seconds: 5),
+  bool Function()? bandWaiting,
 }) =>
     ScalePresenceWatcher(
       pairedScales: () async => paired,
@@ -18,6 +19,7 @@ ScalePresenceWatcher _w({
       window: _ms,
       gap: _ms,
       cooldown: cooldown,
+      bandWaiting: bandWaiting,
     );
 
 void main() {
@@ -76,5 +78,21 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 150));
     await w.stop().timeout(const Duration(seconds: 1));
     expect(scans, 1);
+  });
+
+  test('a band waiting to reconnect: no scale scan at all', () async {
+    var scans = 0;
+    final w = _w(
+        paired: {'aa:bb': 'miscale_bc'},
+        hear: () async {
+          scans++;
+          return 'aa:bb';
+        },
+        synced: [],
+        bandWaiting: () => true);
+    w.start();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await w.stop();
+    expect(scans, 0);
   });
 }
