@@ -4364,6 +4364,12 @@ class AppState extends ChangeNotifier {
   void _seedAlarmFromPrefs(int epoch, SharedPreferences prefs) {
     _alarm.set(epoch, prefs.getInt('alarm_set_at_ms') ?? 0);
     _alarm.confirmed = prefs.getBool('alarm_epoch_confirmed') ?? false;
+    // A relaunch inside an offload extension keeps showing "Setting alarm…"
+    // until the extended deadline (the one `alarm_latch_alert` already holds).
+    final alert = prefs.getStringList('alarm_latch_alert');
+    if (alert != null && alert.length == 2 && alert[0] == '$epoch') {
+      _alarm.pendingUntilMs = int.tryParse(alert[1]);
+    }
   }
 
   Future<void> _armNextAlarmOccurrence({int? firedEpoch}) async {

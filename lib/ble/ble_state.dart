@@ -1401,11 +1401,17 @@ class AlarmConfirmation {
   int? lastEventId; // most recent alarm event seen
   int? firedAt; // wall-ms of the last EXECUTED event
 
+  /// Wall-ms the pending state lasts until when that is later than
+  /// `setAtMs + graceMs`: a relaunch inside an offload extension restores the
+  /// extended deadline here, while `setAtMs` stays the real arm time.
+  int? pendingUntilMs;
+
   /// Record a SET write (awaiting the strap's confirmation event).
   void set(int epoch, int nowMs) {
     targetEpoch = epoch;
     confirmed = false;
     setAtMs = nowMs;
+    pendingUntilMs = null;
   }
 
   /// Record an explicit disable/clear.
@@ -1413,6 +1419,7 @@ class AlarmConfirmation {
     targetEpoch = null;
     confirmed = false;
     setAtMs = null;
+    pendingUntilMs = null;
   }
 
   /// SET written but not yet confirmed AND still inside the grace window.
@@ -1420,7 +1427,8 @@ class AlarmConfirmation {
       targetEpoch != null &&
       !confirmed &&
       setAtMs != null &&
-      nowMs - setAtMs! < graceMs;
+      (nowMs - setAtMs! < graceMs ||
+          (pendingUntilMs != null && nowMs < pendingUntilMs!));
 
   /// Set but neither confirmed nor still pending — the soft-warning state.
   bool isUnconfirmed(int nowMs) =>

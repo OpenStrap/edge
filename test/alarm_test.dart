@@ -682,6 +682,18 @@ void main() {
       expect(plain.echoed, isFalse);
     });
 
+    test('a restored extended deadline keeps the arm pending past the grace',
+        () {
+      final c = AlarmConfirmation()..set(1750000000, 1000);
+      final late = 1000 + c.graceMs + 5000;
+      expect(c.isPending(late), isFalse);
+      c.pendingUntilMs = late + 10000;
+      expect(c.isPending(late), isTrue);
+      expect(c.isPending(late + 10000), isFalse);
+      c.set(1750000000, 2000);
+      expect(c.pendingUntilMs, isNull, reason: 'a new arm drops the old window');
+    });
+
     test('a FAILURE outer result rejects the arm even with no status byte',
         () async {
       final link = _Link(
