@@ -1,0 +1,65 @@
+name: soak
+
+# Database growth + load-time soak (test/db_growth_soak_test.dart). Too slow
+# for every PR — a simulated day costs ~15-30 s through the real ingest — so it
+# runs nightly and on demand, and the per-day size report is kept as an
+# artifact either way.
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      days:
+        description: Live days to simulate
+        default: '30'
+      history:
+        description: History lengths (days) to time loads at
+        default: '30,180,365,730'
+
+# Per event, so a manual run never cancels the nightly one before its report
+# is uploaded.
+concurrency:
+  group: soak-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [gen4, mg]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Same pin as test.yml, for the same reasons.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.6
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Soak (${{ matrix.device }})
+        env:
+          OPENSTRAP_SOAK: '1'
+          SOAK_DEVICE: ${{ matrix.device }}
+          SOAK_DAYS: ${{ inputs.days || '30' }}
+          SOAK_HISTORY: ${{ inputs.history || '30,180,365,730' }}
+        run: flutter test --concurrency=1 --reporter=expanded test/db_growth_soak_test.dart
+
+      - name: Keep the size report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-growth-${{ matrix.device }}
+          path: build/soak/db_growth.csv
+          if-no-files-found: ignore
