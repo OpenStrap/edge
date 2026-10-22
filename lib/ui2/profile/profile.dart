@@ -212,22 +212,27 @@ Future<void> _pickLanguage(BuildContext c) async {
     context: c,
     backgroundColor: p.card,
     showDragHandle: true,
+    // The default sheet is capped at 9/16 of the screen; with seven languages
+    // the list overflowed it. Lift the cap and scroll if it still doesn't fit.
+    isScrollControlled: true,
     builder: (sheet) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final code in options)
-            ListTile(
-              title: Text(_languageLabel(sheet, code), style: F.body.copyWith(color: p.ink)),
-              trailing: ctrl.code == code
-                  ? Icon(LucideIcons.check, size: 18, color: p.on(C.blue))
-                  : null,
-              onTap: () async {
-                await ctrl.setCode(code);
-                if (sheet.mounted) Navigator.of(sheet).pop();
-              },
-            ),
-        ],
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final code in options)
+              ListTile(
+                title: Text(_languageLabel(sheet, code), style: F.body.copyWith(color: p.ink)),
+                trailing: ctrl.code == code
+                    ? Icon(LucideIcons.check, size: 18, color: p.on(C.blue))
+                    : null,
+                onTap: () async {
+                  await ctrl.setCode(code);
+                  if (sheet.mounted) Navigator.of(sheet).pop();
+                },
+              ),
+          ],
+        ),
       ),
     ),
   );
