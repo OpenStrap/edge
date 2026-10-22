@@ -5313,9 +5313,12 @@ class BleEngine {
     }
     final entry = _session?.entry ?? kWhoopGen4;
     final band = entry.wire!;
-    final decoded = _maybeAugmentClockEpoch(
+    final decoded = _maybeAugmentAlarmEcho(
       frame,
-      decodeFrame(frame, profile: band),
+      _maybeAugmentClockEpoch(
+        frame,
+        decodeFrame(frame, profile: band),
+      ),
     );
     // Debug-visibility ONLY (never persisted, never gated on): log the strap's
     // own console text (decoded by protocol's `parseConsoleLog`, wired into
@@ -8421,6 +8424,18 @@ class BleEngine {
     DateTime when, {
     int index = 0,
     List<int>? haptics,
+  }) async =>
+      (await armAlarm(when, index: index, haptics: haptics)).armed;
+
+  /// [setAlarm], plus whether the reply echoed exactly the wake time we sent
+  /// (strap frame): the strap itself reported what it stored, so the arm is
+  /// confirmed without waiting for event 56. Returned per call, not kept on
+  /// the engine, so an arm that gets no reply can never inherit another
+  /// arm's echo.
+  Future<({DateTime? armed, bool echoed})> armAlarm(
+    DateTime when, {
+    int index = 0,
+    List<int>? haptics,
   }) async {
     final isGen5 = _session?.band.isGen5 ?? false;
     if (isGen5) {
@@ -8465,7 +8480,7 @@ class BleEngine {
       '${isGen5 && payload.length >= 2 ? 'idx=${payload[1]} ' : ''}'
       'write=${out.written ? 'ok' : 'FAILED'}',
     );
-    if (!out.written) return null;
+    if (!out.written) return (armed: null, echoed: false);
     // Worst case here is the awaiter's single 5 s timeout, applied once, with
     // no resend — arming is a user-facing action, not a background poll, and a
     // duplicate SET after a slow-but-successful one would rewrite the strap's
@@ -8475,22 +8490,32 @@ class BleEngine {
       _log('[ALARM] arm UNCONFIRMED — no correlated SET_ALARM_TIME reply. '
           'Treating the write as the arm (the strap may not echo the '
           'originating sequence); verify with getAlarm().');
-      return when;
+      return (armed: when, echoed: false);
     }
     final code = (resp.fields['alarm_status'] as num?)?.toInt();
     final name = resp.fields['alarm_status_name'] as String?;
+    final echo = (resp.fields['alarm_echo_epoch'] as num?)?.toInt();
+    // With an echoed epoch the "status" byte is that epoch's low byte, not a
+    // status: a wake time ending in 0x02..0x04/0x0a/0x0b would read as a
+    // refusal.
     final rejected = resp.failed ||
         resp.unsupported ||
-        (code != null && AlarmStatus.isInputRejection(code));
+        (echo == null && code != null && AlarmStatus.isInputRejection(code));
     if (rejected) {
       _log('[ALARM] arm REJECTED by the strap — result=${resp.status} '
           'alarm_status=$code ($name). NOT recording an alarm: there is '
           'nothing armed on the band.');
-      return null;
+      return (armed: null, echoed: false);
     }
     _log('[ALARM] arm accepted — result=${resp.status} '
         'alarm_status=${code ?? 'absent'} (${name ?? 'no status byte'}).');
-    return when;
+    final armSec = armWhen.millisecondsSinceEpoch ~/ 1000;
+    final echoed = echo == armSec;
+    if (echo != null && !echoed) {
+      _log('[ALARM] strap echoed wake time $echo, sent $armSec — not '
+          'treating the reply as a confirmation.');
+    }
+    return (armed: when, echoed: echoed);
   }
 
   /// Time-only alarm (SET_ALARM_TIME = 0x42), SHORT 7-byte form:
@@ -9180,6 +9205,23 @@ class BleEngine {
       missing: missing,
       backward: backward,
     );
+  }
+
+  /// WHOOP 4's SET_ALARM_TIME reply echoes the wake time it stored:
+  /// `[type][seq][0x42][req seq][result][rev=1][u32 epoch LE][u16]` (seen on
+  /// a real strap, 2026-10-22). Publish it as `alarm_echo_epoch`. The shared
+  /// decoder reads inner[6] — this epoch's low byte — as an "alarm status".
+  /// gen5's reply layout is unverified, so it is left alone.
+  Decoded _maybeAugmentAlarmEcho(Frame frame, Decoded decoded) {
+    if (decoded.kind != 'cmd_response' ||
+        decoded.fields['opcode'] != Cmd.setAlarmTime ||
+        decoded.fields['cmd_status'] != 1 ||
+        (_session?.band.isGen5 ?? false)) {
+      return decoded;
+    }
+    final echo = AlarmConfirmation.replyEchoEpoch(frame.inner);
+    if (echo != null) decoded.fields['alarm_echo_epoch'] = echo;
+    return decoded;
   }
 
   /// Make sure a GET_CLOCK reply always carries a `clock_epoch` — INCLUDING an

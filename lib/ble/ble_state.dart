@@ -1401,11 +1401,17 @@ class AlarmConfirmation {
   int? lastEventId; // most recent alarm event seen
   int? firedAt; // wall-ms of the last EXECUTED event
 
+  /// Wall-ms the pending state lasts until when that is later than
+  /// `setAtMs + graceMs`: a relaunch inside an offload extension restores the
+  /// extended deadline here, while `setAtMs` stays the real arm time.
+  int? pendingUntilMs;
+
   /// Record a SET write (awaiting the strap's confirmation event).
   void set(int epoch, int nowMs) {
     targetEpoch = epoch;
     confirmed = false;
     setAtMs = nowMs;
+    pendingUntilMs = null;
   }
 
   /// Record an explicit disable/clear.
@@ -1413,6 +1419,7 @@ class AlarmConfirmation {
     targetEpoch = null;
     confirmed = false;
     setAtMs = null;
+    pendingUntilMs = null;
   }
 
   /// SET written but not yet confirmed AND still inside the grace window.
@@ -1420,7 +1427,8 @@ class AlarmConfirmation {
       targetEpoch != null &&
       !confirmed &&
       setAtMs != null &&
-      nowMs - setAtMs! < graceMs;
+      (nowMs - setAtMs! < graceMs ||
+          (pendingUntilMs != null && nowMs < pendingUntilMs!));
 
   /// Set but neither confirmed nor still pending — the soft-warning state.
   bool isUnconfirmed(int nowMs) =>
@@ -1432,6 +1440,34 @@ class AlarmConfirmation {
   /// is the ceiling).
   static const int replaySlackSec = 120;
 
+  /// How far an event-56 body's wake time may sit from the armed one and still
+  /// name it: seconds of drift, kept under the 60 s gap between two
+  /// minute-granular alarms so an adjacent-minute alarm's 56 never matches.
+  static const int payloadSlackSec = 30;
+
+  /// The wake time (unix sec, strap frame) an ALARM_SET (56) event body
+  /// carries: 4 bytes LE at offset 13 of the inner hex. Null when the body is
+  /// too short or not an event 56.
+  static int? setEventEpoch(String hex) {
+    if (hex.length < 34 || hex.substring(4, 6) != '38') return null;
+    final e = int.tryParse(
+        hex.substring(32, 34) +
+            hex.substring(30, 32) +
+            hex.substring(28, 30) +
+            hex.substring(26, 28),
+        radix: 16);
+    return e != null && e >= kMinPlausibleUnix ? e : null;
+  }
+
+  /// The wake time (unix sec, strap frame) a WHOOP 4 SET_ALARM_TIME reply
+  /// echoes: `[type][seq][0x42][req seq][result][rev=1][u32 epoch LE][u16]`.
+  /// Null when the reply is too short or not revision 1.
+  static int? replyEchoEpoch(List<int> inner) {
+    if (inner.length < 10 || inner[5] != 1) return null;
+    final e = inner[6] | inner[7] << 8 | inner[8] << 16 | inner[9] << 24;
+    return e >= kMinPlausibleUnix ? e : null;
+  }
+
   /// Feed a strap event. Returns the resulting [AlarmEffect] the caller acts on,
   /// or null when the event is unrelated to the alarm (or belongs to an
   /// earlier arm).
@@ -1442,14 +1478,28 @@ class AlarmConfirmation {
   /// 56 and 59 have to come after this arm's SET write, and a fire can't
   /// predate the wake time it fires for (or, with nothing armed, now). Null or an unset-RTC value can't be
   /// told apart and is taken as current.
-  AlarmEffect? onEvent(int id, int nowMs, {int? tsSec}) {
+  AlarmEffect? onEvent(int id, int nowMs, {int? tsSec, int? payloadEpoch}) {
     final known = tsSec != null && tsSec >= kMinPlausibleUnix;
     bool before(int? sec) =>
         known && sec != null && tsSec < sec - replaySlackSec;
     final setAtSec = setAtMs == null ? null : setAtMs! ~/ 1000;
     switch (id) {
       case kEvtSet:
-        if (before(setAtSec)) return null;
+        // A 56 names the wake time it latched. The strap queues its events
+        // while the link is busy (a stalled offload held them 30+ s), so the
+        // stamp can't tell a late genuine 56 from a replay — the epoch can.
+        // A body that names a DIFFERENT wake time belongs to another arm and
+        // never confirms this one. [payloadSlackSec] absorbs the clock-drift
+        // refresh between the arm and the event (the strap-frame time is
+        // mapped back with the drift current at delivery).
+        if (payloadEpoch != null) {
+          final t = targetEpoch;
+          if (t == null || (payloadEpoch - t).abs() > payloadSlackSec) {
+            return null;
+          }
+        } else if (before(setAtSec)) {
+          return null;
+        }
         confirmed = true;
         lastEventId = id;
         return AlarmEffect.confirmed;
