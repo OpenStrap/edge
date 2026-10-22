@@ -1150,10 +1150,10 @@ class _ArmRecordingEngine extends BleEngine {
   _ArmRecordingEngine() : super(onRecord: (_, _) async {}, onState: (_) {});
   final armed = <DateTime>[];
   @override
-  Future<DateTime?> setAlarm(DateTime when,
+  Future<({DateTime? armed, bool echoed})> armAlarm(DateTime when,
       {int index = 0, List<int>? haptics}) async {
     armed.add(when);
-    return when;
+    return (armed: when, echoed: false);
   }
 }
 
