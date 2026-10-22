@@ -215,6 +215,7 @@ Future<void> _pickLanguage(BuildContext c) async {
     // The default sheet is capped at 9/16 of the screen; with seven languages
     // the list overflowed it. Lift the cap and scroll if it still doesn't fit.
     isScrollControlled: true,
+    useSafeArea: true, // a full-height sheet must not reach under the status bar
     builder: (sheet) => SafeArea(
       child: SingleChildScrollView(
         child: Column(
