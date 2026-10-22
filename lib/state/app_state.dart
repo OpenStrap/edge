@@ -1910,8 +1910,11 @@ class AppState extends ChangeNotifier {
   /// Feed a strap alarm-lifecycle event (56 set / 57–58 fired / 59 cleared)
   /// without going through the BLE event path. Tests only.
   @visibleForTesting
-  void debugHandleAlarmEvent(int id, {int? tsSec}) => _handleAlarmEvent(
-      id, tsSec ?? DateTime.now().millisecondsSinceEpoch ~/ 1000);
+  void debugHandleAlarmEvent(int id,
+          {int? tsSec, String? hex, bool bodyVerified = true}) =>
+      _handleAlarmEvent(
+          id, tsSec ?? DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          hex: hex, bodyVerified: bodyVerified);
 
   /// Feed one `DeviceState` through [_onEngineState] for [deviceId], exactly
   /// as `BleEngine`'s `onState` callback does. Tests only — lets a test drive
@@ -2571,7 +2574,8 @@ class AppState extends ChangeNotifier {
     // M3: gesture dispatch and the alarm handler stay unscoped — neither is
     // device-scoped in M3's scope, and a double-tap on either band should
     // still log water.
-    _handleAlarmEvent(id, ts, hex: hex);
+    _handleAlarmEvent(id, ts,
+        hex: hex, bodyVerified: profile == proto.BandProfile.gen4);
     _gestureController.onEvent(id, ts, hex);
   }
 
@@ -4652,13 +4656,19 @@ class AppState extends ChangeNotifier {
         engine.offloadActive &&
         _alarmGraceExtensions < _maxAlarmGraceExtensions) {
       _alarmGraceExtensions++;
-      _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch);
       // The persisted deadline must move with the window, or a relaunch inside
       // it resumes the old one and warns during the extension.
       final nowMs = DateTime.now().millisecondsSinceEpoch;
+      _alarm.set(epoch, nowMs);
       unawaited(SharedPreferences.getInstance().then((p) async {
-        // A newer arm or a confirmation may have landed during the await.
-        if (_disposed || _savedAlarm != epoch || _alarm.confirmed) return;
+        // A newer arm (even of the same epoch) or a confirmation may have
+        // landed during the await; a re-arm restamps `setAtMs`.
+        if (_disposed ||
+            _savedAlarm != epoch ||
+            _alarm.confirmed ||
+            _alarm.setAtMs != nowMs) {
+          return;
+        }
         await p.setStringList('alarm_latch_alert',
             ['$epoch', '${alarmLatchAlertAtMs(nowMs, _alarm.graceMs)}']);
         await p.setStringList(
@@ -4802,11 +4812,16 @@ class AppState extends ChangeNotifier {
   /// the authoritative confirmation the SET write actually took. The edge DOES see
   /// the protocol EventId names (strapDrivenAlarmSet == 56, …); the pure state
   /// machine matches the raw ids so it stays dependency-free.
-  void _handleAlarmEvent(int id, int ts, {String? hex}) {
+  void _handleAlarmEvent(int id, int ts,
+      {String? hex, bool bodyVerified = true}) {
     // The strap stamps events on its own RTC; the alarm was armed at
     // `when - driftSec` in that frame, so map back the same way.
     final drift = engine.clockRef?.driftSec ?? 0;
-    final bodyEpoch = hex == null ? null : AlarmConfirmation.setEventEpoch(hex);
+    // The body layout is only verified on gen4; elsewhere fall back to the
+    // timestamp check rather than trusting 4 bytes of an unknown field.
+    final bodyEpoch = hex == null || !bodyVerified
+        ? null
+        : AlarmConfirmation.setEventEpoch(hex);
     final effect = _alarm.onEvent(id, DateTime.now().millisecondsSinceEpoch,
         tsSec: ts + drift,
         payloadEpoch: bodyEpoch == null ? null : bodyEpoch + drift);

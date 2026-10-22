@@ -722,6 +722,37 @@ void main() {
       expect(app.alarmPending, isTrue);
     });
 
+    test('an event-56 body is only trusted on a band with a verified layout',
+        () async {
+      String hexFor(int e) {
+        final b = [
+          for (var i = 0; i < 4; i++) ((e >> (8 * i)) & 0xff),
+        ].map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+        return '000038${'00' * 10}$b';
+      }
+
+      Future<AppState> armed() async {
+        final app = AppState.forTesting();
+        addTearDown(app.dispose);
+        final now = DateTime.now().millisecondsSinceEpoch;
+        SharedPreferences.setMockInitialValues({'alarm_set_at_ms': now});
+        app.debugSeedAlarmFromPrefs(
+            1750000000, await SharedPreferences.getInstance());
+        return app;
+      }
+
+      final other = hexFor(1750000000 + 1000);
+      final gen4 = await armed();
+      gen4.debugHandleAlarmEvent(56, hex: other);
+      expect(gen4.alarmConfirmed, isFalse,
+          reason: 'a gen4 body naming another wake time is another arm');
+
+      final unverified = await armed();
+      unverified.debugHandleAlarmEvent(56, hex: other, bodyVerified: false);
+      expect(unverified.alarmConfirmed, isTrue,
+          reason: 'an unverified layout falls back to the timestamp check');
+    });
+
     test('a FAILURE outer result rejects the arm even with no status byte',
         () async {
       final link = _Link(
