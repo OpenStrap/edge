@@ -3,10 +3,13 @@
 // SharedPreferences. NOTHING here ever touches our backend — the key stays on the
 // device and the app calls the OpenAI-compatible provider directly.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'coach_chatgpt.dart';
 
 /// The origin (`scheme://host[:port]`) [url] resolves to, or the trimmed
 /// string itself when it doesn't parse as a URI with a host.
@@ -119,26 +122,13 @@ bool isPrivateCoachHost(String url) {
   }
 }
 
-/// True for the iOS/macOS errSecDuplicateItem shape the plugin surfaces when
-/// its own check-then-act (containsKey -> update, else add) still lands on
-/// top of an item it did not find — a leftover from a prior install is the
-/// reported real-world trigger, since Keychain items routinely outlive an app
-/// uninstall while everything else this app stores does not.
-bool _isDuplicateItemError(Object e) {
-  if (e is! PlatformException) return false;
-  final details = e.details;
-  if (details is int && details == -25299) return true;
-  final text = '${e.message ?? ''} ${e.details ?? ''}';
-  return text.contains('-25299') ||
-      text.contains('already exists in the keychain');
-}
-
 class CoachConfig extends ChangeNotifier {
   static const _kBaseUrl = 'coach_base_url';
   static const _kModel = 'coach_model';
   static const _kApi = 'coach_api';
   static const _kKey = 'coach_api_key'; // secure storage
   static const _kTimeoutSeconds = 'coach_timeout_seconds';
+  static const _kUseChatGpt = 'coach_use_chatgpt';
 
   /// A local model's first response includes Ollama/LM Studio loading the
   /// whole model into memory, which alone can pass two minutes on modest
@@ -189,6 +179,17 @@ class CoachConfig extends ChangeNotifier {
 
   final FlutterSecureStorage _secure = const FlutterSecureStorage();
 
+  CoachConfig({ChatGptAuth? chatgpt}) : chatgpt = chatgpt ?? ChatGptAuth() {
+    this.chatgpt.addListener(notifyListeners);
+  }
+
+  /// "Sign in with ChatGPT". When [usesChatGpt], requests go to OpenAI's
+  /// Responses API on the user's ChatGPT plan instead of the BYOK endpoint;
+  /// the BYOK settings are kept untouched for switching back.
+  final ChatGptAuth chatgpt;
+  bool _useChatGpt = false;
+  bool get usesChatGpt => _useChatGpt;
+
   String _baseUrl = defaultBaseUrl;
   CoachApi _api = CoachApi.defaultFor(defaultBaseUrl);
   String _model = '';
@@ -200,7 +201,7 @@ class CoachConfig extends ChangeNotifier {
   /// user can fix by pasting one — this one fixes itself on the next unlocked
   /// read, and telling them to set a key up again would be wrong.
   bool _keyUnreadable = false;
-  bool get keyUnreadable => _keyUnreadable;
+  bool get keyUnreadable => _useChatGpt ? chatgpt.unreadable : _keyUnreadable;
 
   /// True while it is still unknown whether a key is stored — an install that
   /// predates the marker, read while the keychain was unavailable. Not shown to
@@ -255,7 +256,7 @@ class CoachConfig extends ChangeNotifier {
   }
 
   String get baseUrl => _baseUrl;
-  CoachApi get api => _api;
+  CoachApi get api => _useChatGpt ? CoachApi.responses : _api;
   String get model => _model;
   /// The saved, user-configurable timeout — meaningful only for a local
   /// endpoint (see [requestTimeout]), but kept intact and readable regardless
@@ -284,11 +285,13 @@ class CoachConfig extends ChangeNotifier {
   /// Narrower than [isLocalEndpoint]; see [isPrivateCoachHost].
   bool get isPrivateEndpoint => isPrivateCoachHost(apiBase);
 
-  bool get configured =>
-      (hasKey || isLocalEndpoint) && _baseUrl.isNotEmpty && _model.isNotEmpty;
+  bool get configured => _useChatGpt
+      ? chatgpt.sharing && _model.isNotEmpty
+      : (hasKey || isLocalEndpoint) && _baseUrl.isNotEmpty && _model.isNotEmpty;
 
   /// Normalised base, no trailing slash.
   String get apiBase {
+    if (_useChatGpt) return kChatGptApiBase;
     var b = _baseUrl.trim();
     while (b.endsWith('/')) {
       b = b.substring(0, b.length - 1);
@@ -300,7 +303,11 @@ class CoachConfig extends ChangeNotifier {
   /// device unlocked — the only condition under which an EMPTY read is real
   /// evidence about what is stored.
   Future<void> load({bool trusted = false}) async {
+    // Its own keychain item, and not awaited: a hung read of it must not hold
+    // back the BYOK settings. It notifies its own listeners, which are forwarded.
+    unawaited(chatgpt.load(trusted: trusted).catchError((_) {}));
     final prefs = await SharedPreferences.getInstance();
+    _useChatGpt = prefs.getBool(_kUseChatGpt) ?? false;
     _baseUrl = prefs.getString(_kBaseUrl) ?? defaultBaseUrl;
     _api = switch (prefs.getString(_kApi)) {
       'responses' => CoachApi.responses,
@@ -396,7 +403,7 @@ class CoachConfig extends ChangeNotifier {
   /// otherwise, so it is safe on every resume, which is exactly when a phone
   /// that was locked during a background relaunch becomes readable again.
   Future<void> refreshKeyOnResume() async {
-    if (!_keyUnreadable && !_keyUndetermined) return;
+    if (!_keyUnreadable && !_keyUndetermined && !chatgpt.unreadable) return;
     await load(trusted: true);
   }
 
@@ -409,8 +416,13 @@ class CoachConfig extends ChangeNotifier {
     String? model,
     String? apiKey,
     int? timeoutSeconds,
+    bool? useChatGpt,
   }) async {
     final prefs = await SharedPreferences.getInstance();
+    if (useChatGpt != null) {
+      _useChatGpt = useChatGpt;
+      await prefs.setBool(_kUseChatGpt, useChatGpt);
+    }
     if (baseUrl != null) {
       final previousOrigin = coachEndpointOrigin(_baseUrl);
       _baseUrl = baseUrl.trim().isEmpty ? defaultBaseUrl : baseUrl.trim();
@@ -462,7 +474,7 @@ class CoachConfig extends ChangeNotifier {
             // sitting there — delete it and retry once. A second failure is
             // rethrown as-is: this recovers the one known stale-item case, it
             // does not mask a keychain that is genuinely stuck.
-            if (!_isDuplicateItemError(e)) rethrow;
+            if (!isKeychainDuplicateItemError(e)) rethrow;
             await _secure.delete(key: _kKey, iOptions: _apple, mOptions: _macos);
             await _secure.write(
               key: _kKey,

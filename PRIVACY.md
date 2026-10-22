@@ -161,7 +161,9 @@ configure:
 - **AI Coach** — if you enable this feature and supply your own API key,
   summaries of your data are sent to the AI provider you configure (by
   default, OpenAI) to generate coaching responses. Off by default and
-  requires your own API key.
+  requires your own API key, or signing in with ChatGPT, in which case the
+  same data goes to OpenAI under your ChatGPT account. The sign-in tokens are
+  kept in the device keychain/keystore and sent only to OpenAI.
 - **Health app integration** — if you enable it, the App can write derived
   daily metrics to Apple Health or Google Health Connect, which are controlled
   by your device's own OS-level health app, not by us. The App can also *read*
