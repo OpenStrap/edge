@@ -1432,6 +1432,20 @@ class AlarmConfirmation {
   /// is the ceiling).
   static const int replaySlackSec = 120;
 
+  /// The wake time (unix sec, strap frame) an ALARM_SET (56) event body
+  /// carries: 4 bytes LE at offset 13 of the inner hex. Null when the body is
+  /// too short or not an event 56.
+  static int? setEventEpoch(String hex) {
+    if (hex.length < 34 || hex.substring(4, 6) != '38') return null;
+    final e = int.tryParse(
+        hex.substring(32, 34) +
+            hex.substring(30, 32) +
+            hex.substring(28, 30) +
+            hex.substring(26, 28),
+        radix: 16);
+    return e != null && e >= kMinPlausibleUnix ? e : null;
+  }
+
   /// Feed a strap event. Returns the resulting [AlarmEffect] the caller acts on,
   /// or null when the event is unrelated to the alarm (or belongs to an
   /// earlier arm).
@@ -1442,14 +1456,18 @@ class AlarmConfirmation {
   /// 56 and 59 have to come after this arm's SET write, and a fire can't
   /// predate the wake time it fires for (or, with nothing armed, now). Null or an unset-RTC value can't be
   /// told apart and is taken as current.
-  AlarmEffect? onEvent(int id, int nowMs, {int? tsSec}) {
+  AlarmEffect? onEvent(int id, int nowMs, {int? tsSec, int? payloadEpoch}) {
     final known = tsSec != null && tsSec >= kMinPlausibleUnix;
     bool before(int? sec) =>
         known && sec != null && tsSec < sec - replaySlackSec;
     final setAtSec = setAtMs == null ? null : setAtMs! ~/ 1000;
     switch (id) {
       case kEvtSet:
-        if (before(setAtSec)) return null;
+        // A 56 names the wake time it latched. The strap queues its events
+        // while the link is busy (a stalled offload held them 30+ s), so the
+        // stamp can't tell a late genuine 56 from a replay — the epoch can.
+        final names = payloadEpoch != null && payloadEpoch == targetEpoch;
+        if (!names && before(setAtSec)) return null;
         confirmed = true;
         lastEventId = id;
         return AlarmEffect.confirmed;

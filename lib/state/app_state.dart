@@ -2571,7 +2571,7 @@ class AppState extends ChangeNotifier {
     // M3: gesture dispatch and the alarm handler stay unscoped — neither is
     // device-scoped in M3's scope, and a double-tap on either band should
     // still log water.
-    _handleAlarmEvent(id, ts);
+    _handleAlarmEvent(id, ts, hex: hex);
     _gestureController.onEvent(id, ts, hex);
   }
 
@@ -4504,6 +4504,11 @@ class AppState extends ChangeNotifier {
   // re-sending the whole alarm. One silent, automatic re-arm covers that
   // common case; only a still-unconfirmed retry falls through to the warning.
   bool _alarmAutoRetried = false;
+  // Grace windows extended because an offload was running (the strap holds
+  // its events back while the link is busy); capped so a wedged flag can't
+  // postpone the warning forever.
+  int _alarmGraceExtensions = 0;
+  static const int _maxAlarmGraceExtensions = 2;
 
   /// The strap emitted ALARM_SET (event 56) — the alarm is confirmed armed.
   bool get alarmConfirmed => _alarm.confirmed;
@@ -4551,6 +4556,7 @@ class AppState extends ChangeNotifier {
     final setAtMs = DateTime.now().millisecondsSinceEpoch;
     _alarm.set(epoch, setAtMs); // await event 56
     _alarmAutoRetried = false; // a fresh arm gets its one retry
+    _alarmGraceExtensions = 0;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('alarm_epoch', epoch);
     await prefs.setInt('alarm_set_at_ms', setAtMs);
@@ -4600,6 +4606,16 @@ class AppState extends ChangeNotifier {
     // A newer alarm was armed while this timer was pending — that set owns the
     // confirmation machine now; retrying the stale time would clobber it.
     if (_savedAlarm != epoch) return;
+    // A running offload holds the strap's events back, so silence now says
+    // nothing about whether the arm latched, and a re-send would only add
+    // traffic to the busy link. Wait another window instead.
+    if (engine.offloadActive && _alarmGraceExtensions < _maxAlarmGraceExtensions) {
+      _alarmGraceExtensions++;
+      _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch);
+      _armAlarmGraceTimer(when);
+      notifyListeners();
+      return;
+    }
     if (_alarmAutoRetried || !isConnected) {
       // Offline, the first window is also the last, but its timer fired just
       // before it closes; end it so this rebuild lands on the warning.
@@ -4721,11 +4737,14 @@ class AppState extends ChangeNotifier {
   /// the authoritative confirmation the SET write actually took. The edge DOES see
   /// the protocol EventId names (strapDrivenAlarmSet == 56, …); the pure state
   /// machine matches the raw ids so it stays dependency-free.
-  void _handleAlarmEvent(int id, int ts) {
+  void _handleAlarmEvent(int id, int ts, {String? hex}) {
     // The strap stamps events on its own RTC; the alarm was armed at
     // `when - driftSec` in that frame, so map back the same way.
+    final drift = engine.clockRef?.driftSec ?? 0;
+    final bodyEpoch = hex == null ? null : AlarmConfirmation.setEventEpoch(hex);
     final effect = _alarm.onEvent(id, DateTime.now().millisecondsSinceEpoch,
-        tsSec: ts + (engine.clockRef?.driftSec ?? 0));
+        tsSec: ts + drift,
+        payloadEpoch: bodyEpoch == null ? null : bodyEpoch + drift);
     if (effect == null) return;
     switch (effect) {
       case AlarmEffect.confirmed:
