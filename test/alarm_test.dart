@@ -16,6 +16,8 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
+import 'package:openstrap_edge/state/app_state.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/state/alarm_schedule.dart'
     show
         alarmGraceTimerDelay,
@@ -692,6 +694,32 @@ void main() {
       expect(c.isPending(late + 10000), isFalse);
       c.set(1750000000, 2000);
       expect(c.pendingUntilMs, isNull, reason: 'a new arm drops the old window');
+    });
+
+    test('a relaunch restores the extension end, not the critical-alert time',
+        () async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      const epoch = 1750000000;
+      // Arm made long ago: grace over, the critical alert still ahead.
+      SharedPreferences.setMockInitialValues({
+        'alarm_set_at_ms': now - 120000,
+        'alarm_latch_alert': ['$epoch', '${now + 300000}'],
+      });
+      app.debugSeedAlarmFromPrefs(
+          epoch, await SharedPreferences.getInstance());
+      expect(app.alarmPending, isFalse,
+          reason: 'the alert time must not keep the UI on "Setting alarm"');
+
+      SharedPreferences.setMockInitialValues({
+        'alarm_set_at_ms': now - 120000,
+        'alarm_latch_alert': ['$epoch', '${now + 300000}'],
+        'alarm_pending_until': ['$epoch', '${now + 30000}'],
+      });
+      app.debugSeedAlarmFromPrefs(
+          epoch, await SharedPreferences.getInstance());
+      expect(app.alarmPending, isTrue);
     });
 
     test('a FAILURE outer result rejects the arm even with no status byte',

@@ -1441,8 +1441,9 @@ class AlarmConfirmation {
   static const int replaySlackSec = 120;
 
   /// How far an event-56 body's wake time may sit from the armed one and still
-  /// name it: seconds of drift, far below the gap between two real alarms.
-  static const int payloadSlackSec = 60;
+  /// name it: seconds of drift, kept under the 60 s gap between two
+  /// minute-granular alarms so an adjacent-minute alarm's 56 never matches.
+  static const int payloadSlackSec = 30;
 
   /// The wake time (unix sec, strap frame) an ALARM_SET (56) event body
   /// carries: 4 bytes LE at offset 13 of the inner hex. Null when the body is

@@ -4364,13 +4364,19 @@ class AppState extends ChangeNotifier {
   void _seedAlarmFromPrefs(int epoch, SharedPreferences prefs) {
     _alarm.set(epoch, prefs.getInt('alarm_set_at_ms') ?? 0);
     _alarm.confirmed = prefs.getBool('alarm_epoch_confirmed') ?? false;
-    // A relaunch inside an offload extension keeps showing "Setting alarm…"
-    // until the extended deadline (the one `alarm_latch_alert` already holds).
-    final alert = prefs.getStringList('alarm_latch_alert');
-    if (alert != null && alert.length == 2 && alert[0] == '$epoch') {
-      _alarm.pendingUntilMs = int.tryParse(alert[1]);
+    // Only an offload extension moves the grace-window end past
+    // `alarm_set_at_ms + grace`; it persists that end here so a relaunch inside
+    // it keeps showing "Setting alarm…". (`alarm_latch_alert` is the later
+    // critical-alert time, not the end of the grace window.)
+    final pending = prefs.getStringList('alarm_pending_until');
+    if (pending != null && pending.length == 2 && pending[0] == '$epoch') {
+      _alarm.pendingUntilMs = int.tryParse(pending[1]);
     }
   }
+
+  @visibleForTesting
+  void debugSeedAlarmFromPrefs(int epoch, SharedPreferences prefs) =>
+      _seedAlarmFromPrefs(epoch, prefs);
 
   Future<void> _armNextAlarmOccurrence({int? firedEpoch}) async {
     if (!isConnected) return;
@@ -4580,6 +4586,7 @@ class AppState extends ChangeNotifier {
     }
     // The alert timers below live in memory only; this lets a relaunch
     // still send the critical alert if the process dies before it goes out.
+    await prefs.remove('alarm_pending_until');
     await prefs.setStringList('alarm_latch_alert', [
       '$epoch',
       '${alarmLatchAlertAtMs(DateTime.now().millisecondsSinceEpoch, _alarm.graceMs)}',
@@ -4599,6 +4606,7 @@ class AppState extends ChangeNotifier {
   Future<void> _finishEchoConfirmed(SharedPreferences prefs, int epoch) async {
     if (_disposed || _savedAlarm != epoch) return;
     await prefs.remove('alarm_latch_alert');
+    await prefs.remove('alarm_pending_until');
     if (_disposed || _savedAlarm != epoch) return;
     _alarmGraceTimer?.cancel();
     unawaited(_ensureRemindersScheduled());
@@ -4645,11 +4653,13 @@ class AppState extends ChangeNotifier {
       _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch);
       // The persisted deadline must move with the window, or a relaunch inside
       // it resumes the old one and warns during the extension.
-      unawaited(SharedPreferences.getInstance().then((p) => p.setStringList(
-          'alarm_latch_alert', [
-            '$epoch',
-            '${alarmLatchAlertAtMs(DateTime.now().millisecondsSinceEpoch, _alarm.graceMs)}',
-          ])));
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      unawaited(SharedPreferences.getInstance().then((p) async {
+        await p.setStringList('alarm_latch_alert',
+            ['$epoch', '${alarmLatchAlertAtMs(nowMs, _alarm.graceMs)}']);
+        await p.setStringList(
+            'alarm_pending_until', ['$epoch', '${nowMs + _alarm.graceMs}']);
+      }));
       _armAlarmGraceTimer(when);
       notifyListeners();
       return;
