@@ -4570,7 +4570,7 @@ class AppState extends ChangeNotifier {
     // Not confirmed yet — event 56 (below, in _handleAlarmEvent) flips this.
     await prefs.setBool('alarm_epoch_confirmed', echoed);
     if (echoed) {
-      await _finishEchoConfirmed(prefs);
+      await _finishEchoConfirmed(prefs, epoch);
       return;
     }
     // The alert timers below live in memory only; this lets a relaunch
@@ -4588,8 +4588,13 @@ class AppState extends ChangeNotifier {
   /// The strap's reply echoed the armed wake time: drop the pending-warning
   /// state and re-decide the 7pm "no alarm tonight" reminder, which was
   /// scheduled before this arm (event 56 does the same when it lands).
-  Future<void> _finishEchoConfirmed(SharedPreferences prefs) async {
+  ///
+  /// [epoch] scopes it to the arm that was echoed: a newer arm that took over
+  /// during the awaits above owns the timer and the pending alert now.
+  Future<void> _finishEchoConfirmed(SharedPreferences prefs, int epoch) async {
+    if (_disposed || _savedAlarm != epoch) return;
     await prefs.remove('alarm_latch_alert');
+    if (_disposed || _savedAlarm != epoch) return;
     _alarmGraceTimer?.cancel();
     unawaited(_ensureRemindersScheduled());
     notifyListeners();
@@ -4683,9 +4688,10 @@ class AppState extends ChangeNotifier {
       // The retry's reply named this wake time: confirmed, no second window.
       _alarm.confirmed = true;
       final prefs = await SharedPreferences.getInstance();
+      // A newer arm during the await owns the persisted flag now.
+      if (_disposed || _savedAlarm != epoch) return;
       await prefs.setBool('alarm_epoch_confirmed', true);
-      if (_disposed) return;
-      await _finishEchoConfirmed(prefs);
+      await _finishEchoConfirmed(prefs, epoch);
       return;
     }
     if (rearmed && _savedAlarm == epoch && !_alarm.confirmed) {
