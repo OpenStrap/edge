@@ -4648,13 +4648,17 @@ class AppState extends ChangeNotifier {
     // A running offload holds the strap's events back, so silence now says
     // nothing about whether the arm latched, and a re-send would only add
     // traffic to the busy link. Wait another window instead.
-    if (engine.offloadActive && _alarmGraceExtensions < _maxAlarmGraceExtensions) {
+    if (isConnected &&
+        engine.offloadActive &&
+        _alarmGraceExtensions < _maxAlarmGraceExtensions) {
       _alarmGraceExtensions++;
       _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch);
       // The persisted deadline must move with the window, or a relaunch inside
       // it resumes the old one and warns during the extension.
       final nowMs = DateTime.now().millisecondsSinceEpoch;
       unawaited(SharedPreferences.getInstance().then((p) async {
+        // A newer arm or a confirmation may have landed during the await.
+        if (_disposed || _savedAlarm != epoch || _alarm.confirmed) return;
         await p.setStringList('alarm_latch_alert',
             ['$epoch', '${alarmLatchAlertAtMs(nowMs, _alarm.graceMs)}']);
         await p.setStringList(
