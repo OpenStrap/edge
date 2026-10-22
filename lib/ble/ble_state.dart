@@ -1432,6 +1432,10 @@ class AlarmConfirmation {
   /// is the ceiling).
   static const int replaySlackSec = 120;
 
+  /// How far an event-56 body's wake time may sit from the armed one and still
+  /// name it: seconds of drift, far below the gap between two real alarms.
+  static const int payloadSlackSec = 60;
+
   /// The wake time (unix sec, strap frame) an ALARM_SET (56) event body
   /// carries: 4 bytes LE at offset 13 of the inner hex. Null when the body is
   /// too short or not an event 56.
@@ -1475,8 +1479,18 @@ class AlarmConfirmation {
         // A 56 names the wake time it latched. The strap queues its events
         // while the link is busy (a stalled offload held them 30+ s), so the
         // stamp can't tell a late genuine 56 from a replay — the epoch can.
-        final names = payloadEpoch != null && payloadEpoch == targetEpoch;
-        if (!names && before(setAtSec)) return null;
+        // A body that names a DIFFERENT wake time belongs to another arm and
+        // never confirms this one. [payloadSlackSec] absorbs the clock-drift
+        // refresh between the arm and the event (the strap-frame time is
+        // mapped back with the drift current at delivery).
+        if (payloadEpoch != null) {
+          final t = targetEpoch;
+          if (t == null || (payloadEpoch - t).abs() > payloadSlackSec) {
+            return null;
+          }
+        } else if (before(setAtSec)) {
+          return null;
+        }
         confirmed = true;
         lastEventId = id;
         return AlarmEffect.confirmed;

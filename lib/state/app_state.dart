@@ -4570,9 +4570,7 @@ class AppState extends ChangeNotifier {
     // Not confirmed yet — event 56 (below, in _handleAlarmEvent) flips this.
     await prefs.setBool('alarm_epoch_confirmed', echoed);
     if (echoed) {
-      await prefs.remove('alarm_latch_alert');
-      _alarmGraceTimer?.cancel();
-      notifyListeners();
+      await _finishEchoConfirmed(prefs);
       return;
     }
     // The alert timers below live in memory only; this lets a relaunch
@@ -4584,6 +4582,16 @@ class AppState extends ChangeNotifier {
     // Nudge the UI once the grace window elapses so an unconfirmed alarm flips to
     // its soft warning even if no event ever arrives.
     _armAlarmGraceTimer(when);
+    notifyListeners();
+  }
+
+  /// The strap's reply echoed the armed wake time: drop the pending-warning
+  /// state and re-decide the 7pm "no alarm tonight" reminder, which was
+  /// scheduled before this arm (event 56 does the same when it lands).
+  Future<void> _finishEchoConfirmed(SharedPreferences prefs) async {
+    await prefs.remove('alarm_latch_alert');
+    _alarmGraceTimer?.cancel();
+    unawaited(_ensureRemindersScheduled());
     notifyListeners();
   }
 
@@ -4625,6 +4633,13 @@ class AppState extends ChangeNotifier {
     if (engine.offloadActive && _alarmGraceExtensions < _maxAlarmGraceExtensions) {
       _alarmGraceExtensions++;
       _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch);
+      // The persisted deadline must move with the window, or a relaunch inside
+      // it resumes the old one and warns during the extension.
+      unawaited(SharedPreferences.getInstance().then((p) => p.setStringList(
+          'alarm_latch_alert', [
+            '$epoch',
+            '${alarmLatchAlertAtMs(DateTime.now().millisecondsSinceEpoch, _alarm.graceMs)}',
+          ])));
       _armAlarmGraceTimer(when);
       notifyListeners();
       return;
@@ -4642,11 +4657,13 @@ class AppState extends ChangeNotifier {
     // flashing the warning between the two windows.
     _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch);
     var rearmed = false;
+    var echoed = false;
     try {
       // gen5 made setAlarm return the armed instant (null = the write never
       // reached the band) where it used to return a bool. Same signal, so the
       // retry bookkeeping below is unchanged.
       rearmed = await engine.setAlarm(when) != null;
+      echoed = rearmed && engine.lastAlarmArmEchoed;
     } catch (e) {
       _log('[alarm] auto-retry re-arm failed: $e');
     }
@@ -4662,6 +4679,15 @@ class AppState extends ChangeNotifier {
     // engine on every fire).
     if (_disposed) return;
     // Re-check staleness after the await for the same reason as above.
+    if (echoed && _savedAlarm == epoch && !_alarm.confirmed) {
+      // The retry's reply named this wake time: confirmed, no second window.
+      _alarm.confirmed = true;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('alarm_epoch_confirmed', true);
+      if (_disposed) return;
+      await _finishEchoConfirmed(prefs);
+      return;
+    }
     if (rearmed && _savedAlarm == epoch && !_alarm.confirmed) {
       _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch);
       _armAlarmGraceTimer(when);

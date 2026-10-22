@@ -45,6 +45,26 @@ void main() {
     expect(a.confirmed, isTrue);
   });
 
+  test('a 56 naming a different wake time never confirms, even with a fresh stamp',
+      () {
+    final a = AlarmConfirmation()..set(target, setSec * 1000);
+    expect(
+      a.onEvent(AlarmConfirmation.kEvtSet, (setSec + 5) * 1000,
+          tsSec: setSec + 5, payloadEpoch: 1792994400),
+      isNull,
+    );
+    expect(a.confirmed, isFalse);
+  });
+
+  test('a clock-drift refresh between arm and event still names the arm', () {
+    final a = AlarmConfirmation()..set(target, setSec * 1000);
+    expect(
+      a.onEvent(AlarmConfirmation.kEvtSet, (setSec + 30) * 1000,
+          tsSec: setSec - 600, payloadEpoch: target + 9),
+      AlarmEffect.confirmed,
+    );
+  });
+
   test('a 56 for a different (older) arm does not confirm this one', () {
     final a = AlarmConfirmation()..set(target, setSec * 1000);
     expect(

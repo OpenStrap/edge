@@ -596,6 +596,34 @@ void main() {
       expect(link.logged('not treating the reply as a confirmation'), isTrue);
     });
 
+    test('a real WHOOP 4 reply frame is augmented with the echoed wake time',
+        () async {
+      // Reply bytes verbatim from the 2026-10-22 capture, rebuilt as a wire
+      // frame and fed through the real immediate-receive path (no injected
+      // Decoded), so a break in the augmentation shows here.
+      final engine =
+          BleEngine(onRecord: (_, _) async {}, onState: (_) {}, log: (_) {});
+      engine.debugInstallFakeLink(
+        band: proto.BandProfile.gen4,
+        onWrite: (frame) async {
+          final inner =
+              proto.parseFrame(frame, profile: proto.BandProfile.gen4)!.inner;
+          final reply = proto.buildFrame(
+            [0x24, 0x94, proto.Cmd.setAlarmTime, inner[1], 0x01, 0x01,
+              0xd0, 0xe9, 0xda, 0x6a, 0x00, 0x00],
+            profile: proto.BandProfile.gen4,
+          );
+          engine.debugProcessImmediateFrame(
+              proto.parseFrame(reply, profile: proto.BandProfile.gen4)!);
+          return true;
+        },
+      );
+      final at = DateTime.fromMillisecondsSinceEpoch(1792731600 * 1000);
+      expect(await engine.setAlarm(at), at,
+          reason: 'epoch low byte 0xd0 is not a status, so no rejection');
+      expect(engine.lastAlarmArmEchoed, isTrue);
+    });
+
     test('no echo leaves the arm unconfirmed, and the flag resets per arm',
         () async {
       var echo = true;
