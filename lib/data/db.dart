@@ -4399,6 +4399,8 @@ class LocalDb {
           'cursor_advanced counter_hw=$maxCounter rec_ts_hw=$maxRecTs '
           'trim=${trimToken != null}',
         );
+        // Freshness must roll back with the rows and cursor on failure.
+        await _writeCaptureFreshness(txn, raws);
       });
     } finally {
       // ALWAYS restore NORMAL — even if the commit threw — so a leaked FULL does
@@ -4409,7 +4411,6 @@ class LocalDb {
         /* non-fatal — see open-time PRAGMA discipline */
       }
     }
-    await _writeCaptureFreshness(raws);
   }
 
   // ── DERIVED STORE (permanent, rich) ────────────────────────────────────────
@@ -6419,7 +6420,10 @@ class LocalDb {
     return fallbackSec;
   }
 
-  static Future<void> _writeCaptureFreshness(List<RawRecord> raws) async {
+  static Future<void> _writeCaptureFreshness(
+    DatabaseExecutor txn,
+    List<RawRecord> raws,
+  ) async {
     if (raws.isEmpty) return;
     var latest = 0;
     for (final raw in raws) {
@@ -6427,9 +6431,14 @@ class LocalDb {
       if (recTs > latest) latest = recTs;
     }
     if (latest <= 0) return;
-    final prev = await computeFreshness('capture');
+    final prevRows = await txn.query(
+      'compute_freshness',
+      where: 'key = ?',
+      whereArgs: ['capture'],
+      limit: 1,
+    );
     Map<String, dynamic> payload = const {};
-    final rawJson = prev?['payload_json'];
+    final rawJson = prevRows.isEmpty ? null : prevRows.first['payload_json'];
     if (rawJson is String && rawJson.isNotEmpty) {
       try {
         final d = jsonDecode(rawJson);
@@ -6443,7 +6452,7 @@ class LocalDb {
       'latest_raw_rec_ts': latest,
       'latest_raw_day': _localDayLabelFromEpoch(latest),
     };
-    await putComputeFreshness('capture', jsonEncode(payload));
+    await putComputeFreshness('capture', jsonEncode(payload), txn: txn);
   }
 
   // Canonical LOCAL day label — shared with the UI/coach via day_label.dart so
@@ -8123,8 +8132,9 @@ class LocalDb {
 
   static Future<Map<String, dynamic>?> syncLedgerEntry([
     String chunkId = 'capture',
+    DatabaseExecutor? txn,
   ]) async {
-    final db = await instance;
+    final db = txn ?? await instance;
     final rows = await db.query(
       'sync_ledger',
       where: 'chunk_id = ?',
@@ -8143,9 +8153,10 @@ class LocalDb {
     int? ackedAt,
     String? lastError,
     Map<String, dynamic>? metaPatch,
+    DatabaseExecutor? txn,
   }) async {
-    final db = await instance;
-    final existing = await syncLedgerEntry(chunkId);
+    final db = txn ?? await instance;
+    final existing = await syncLedgerEntry(chunkId, txn);
     final now = DateTime.now().millisecondsSinceEpoch;
     final meta = <String, dynamic>{};
     if (existing != null) {
@@ -8172,6 +8183,14 @@ class LocalDb {
       'last_error': lastError,
       'meta_json': jsonEncode(meta),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Commit related diagnostic ledger rows together after the trim ACK.
+  static Future<void> syncLedgerTransaction(
+    Future<void> Function(Transaction txn) body,
+  ) async {
+    final db = await instance;
+    await db.transaction(body);
   }
 
   static Future<List<Map<String, dynamic>>> syncLedger() async {
@@ -11438,9 +11457,10 @@ class LocalDb {
 
   static Future<void> putComputeFreshness(
     String key,
-    String payloadJson,
-  ) async {
-    final db = await instance;
+    String payloadJson, {
+    DatabaseExecutor? txn,
+  }) async {
+    final db = txn ?? await instance;
     await db.insert('compute_freshness', {
       'key': key,
       'payload_json': payloadJson,
