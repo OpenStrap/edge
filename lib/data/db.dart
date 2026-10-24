@@ -493,7 +493,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 59;
+  static const int schemaVersion = 60;
 
   /// In-memory cache identity, advanced after open, wipe or committed import.
   /// It is local to this isolate; no cache survives a process restart.
@@ -1308,6 +1308,10 @@ class LocalDb {
           await _createInputRev(db);
           await _createSessionCeilingRev(db);
         }
+        if (oldV < 60) {
+          await _createStoreIdentity(db);
+          await _createDayCheckpoint(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1430,10 +1434,66 @@ class LocalDb {
     // A decoded-table rebuild above drops its triggers; attach them last.
     await _createInputRev(db);
     await _createSessionCeilingRev(db);
+    await _createStoreIdentity(db);
+    await _createDayCheckpoint(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
     await _dropRawStore(db);
+  }
+
+  // Stable across opens, unique to this file's current input history. Neither
+  // restore nor salvage imports it: input_rev is local and can repeat on reset.
+  static Future<void> _createStoreIdentity(DatabaseExecutor db) async {
+    await db.execute('CREATE TABLE IF NOT EXISTS store_identity ('
+      'singleton INTEGER PRIMARY KEY CHECK(singleton = 1), id TEXT NOT NULL)');
+    await db.execute('INSERT OR IGNORE INTO store_identity(singleton, id) '
+      'VALUES(1, lower(hex(randomblob(16))))');
+  }
+
+  static Future<String> storeIdentity({DatabaseExecutor? executor}) async =>
+      (await (executor ?? await instance).rawQuery(
+        'SELECT id FROM store_identity WHERE singleton = 1')).single['id'] as String;
+
+  static Future<void> _rotateStoreIdentity(DatabaseExecutor db) async {
+    await db.execute('INSERT OR REPLACE INTO store_identity(singleton, id) '
+      'VALUES(1, lower(hex(randomblob(16))))');
+    await db.delete('day_checkpoint');
+  }
+
+  static Future<void> _createDayCheckpoint(Database db) async {
+    await db.execute('CREATE TABLE IF NOT EXISTS day_checkpoint ('
+      'day_id TEXT NOT NULL, algo_version INTEGER NOT NULL, '
+      'fmt INTEGER NOT NULL, ctx_sig TEXT NOT NULL, cp_rec_ts INTEGER NOT NULL, '
+      'rev_vec BLOB NOT NULL, state BLOB NOT NULL, night_ref TEXT, '
+      'computed_at INTEGER NOT NULL, PRIMARY KEY(day_id, algo_version))');
+  }
+
+  /// Chunk the disposable blob like substrate_archive: a whole night can
+  /// exceed Android's cursor window. A racing replacement fails codec checks.
+  static Future<Map<String, Object?>?> dayCheckpoint(
+      String day, int algorithm, {required int maxBytes}) async {
+    final db = await instance;
+    const where = 'day_id = ? AND algo_version = ?';
+    final rows = await db.rawQuery('SELECT day_id, algo_version, fmt, ctx_sig, '
+      'cp_rec_ts, rev_vec, night_ref, computed_at, length(state) AS state_length '
+      'FROM day_checkpoint WHERE $where', [day, algorithm]);
+    if (rows.isEmpty) return null;
+    final row = Map<String, Object?>.of(rows.single);
+    final length = row.remove('state_length') as int;
+    final bytes = Uint8List(length <= maxBytes ? length : 0);
+    row['state'] = bytes;
+    if (length > maxBytes) return row;
+    for (var off = 0; off < length; off += 128 * 1024) {
+      final parts = await db.rawQuery(
+        'SELECT substr(state, ?, ?) AS part FROM day_checkpoint WHERE $where',
+        [off + 1, 128 * 1024, day, algorithm]);
+      if (parts.isEmpty) return null;
+      final part = parts.single['part'] as Uint8List;
+      if (part.length > length - off) return null;
+      bytes.setRange(off, off + part.length, part);
+    }
+    return row;
   }
 
   /// One revision counter per absolute 15-minute input bucket, shared by the
@@ -11115,6 +11175,9 @@ class LocalDb {
     }
 
     await db.transaction((txn) async {
+      // Scratch prefixes can include an evening owned by another day label.
+      // Clear every copy atomically with deletion so deleted raw stays deleted.
+      await _rotateStoreIdentity(txn);
       // `raw_archive` frames are kept, but a later archive re-drive must not
       // decode them back into a day the user deleted: record the windows.
       final prevRow = await txn.query('compute_freshness',
@@ -11282,6 +11345,7 @@ class LocalDb {
         final t = r['name'];
         if (t is String) deleted += await txn.delete(t);
       }
+      await _rotateStoreIdentity(txn);
     });
     _markStoreReplaced();
     return deleted;
@@ -11665,6 +11729,7 @@ class LocalDb {
   /// frame already here, or in the backup twice, lands once. Paged on rowid,
   /// like every other table the merge reads. Returns rows offered.
   static Future<int> _mergeRawArchive(Database src, Database db, {
+    required Future<void> Function(Transaction) beforePageCommit,
     required void Function() onPageCommitted,
   }) async {
     var copied = 0;
@@ -11685,26 +11750,29 @@ class LocalDb {
         );
         if (page.isEmpty) return;
         after = (page.last['_r'] as num).toInt();
-        final batch = db.batch();
-        for (final r in page) {
-          final hex = r['hex'];
-          if (hex is! String) continue;
-          batch.insert(
-            rawArchiveTable,
-            rawArchiveRow(
-              deviceId: r['device_id'] as String? ?? kPrimaryDeviceId,
-              hex: hex,
-              counter: (r['counter'] as num?)?.toInt(),
-              packetType: (r['packet_type'] as num?)?.toInt() ?? 0,
-              recTs: (r['rec_ts'] as num?)?.toInt(),
-              capturedAt: (r['captured_at'] as num?)?.toInt() ?? 0,
-              reason: r['reason'] as String? ?? 'unknown',
-            ),
-            conflictAlgorithm: ConflictAlgorithm.ignore,
-          );
-          copied++;
-        }
-        await batch.commit(noResult: true);
+        await db.transaction((txn) async {
+          await beforePageCommit(txn);
+          final batch = txn.batch();
+          for (final r in page) {
+            final hex = r['hex'];
+            if (hex is! String) continue;
+            batch.insert(
+              rawArchiveTable,
+              rawArchiveRow(
+                deviceId: r['device_id'] as String? ?? kPrimaryDeviceId,
+                hex: hex,
+                counter: (r['counter'] as num?)?.toInt(),
+                packetType: (r['packet_type'] as num?)?.toInt() ?? 0,
+                recTs: (r['rec_ts'] as num?)?.toInt(),
+                capturedAt: (r['captured_at'] as num?)?.toInt() ?? 0,
+                reason: r['reason'] as String? ?? 'unknown',
+              ),
+              conflictAlgorithm: ConflictAlgorithm.ignore,
+            );
+            copied++;
+          }
+          await batch.commit(noResult: true);
+        });
         onPageCommitted();
       }
     }
@@ -11746,13 +11814,19 @@ class LocalDb {
       return await _mergeFromDbFileBody(path,
         only: only,
         tolerant: tolerant,
+        beforePageCommit: (txn) async {
+          if (!pageCommitted) await _rotateStoreIdentity(txn);
+        },
         onPageCommitted: () => pageCommitted = true,
       );
     } finally {
       // A later page, source close or follow-up write can fail after a durable
       // replacement. Invalidate on every such exit, but never on a rolled-back
       // first page. Keep the flag local so concurrent merges cannot share it.
-      if (pageCommitted) _markStoreReplaced();
+      if (pageCommitted) {
+        _markStoreReplaced();
+        await (await instance).delete('day_checkpoint');
+      }
     }
   }
 
@@ -11760,6 +11834,7 @@ class LocalDb {
     String path, {
     List<String>? only,
     bool tolerant = false,
+    required Future<void> Function(Transaction) beforePageCommit,
     required void Function() onPageCommitted,
   }) async {
     final db = await instance;
@@ -12034,6 +12109,7 @@ class LocalDb {
         for (final upper in ends) {
           final first = lower == 0;
           await db.transaction((txn) async {
+            await beforePageCommit(txn);
             if (t == 'day_result' && first) {
               // Inside the first chunk's transaction, so a day the engine
               // finalizes while the restore runs is still protected.
@@ -12153,6 +12229,7 @@ class LocalDb {
         if (t == 'raw_archive') {
           try {
             counts[t] = await _mergeRawArchive(src, db,
+                beforePageCommit: beforePageCommit,
                 onPageCommitted: onPageCommitted);
           } catch (_) {
             if (!tolerant) rethrow;
@@ -12357,6 +12434,9 @@ class LocalDb {
               }
             }
             await db.transaction((txn) async {
+              // Rotate atomically with the first committed page. A killed
+              // process must not leave old scratch valid after partial restore.
+              await beforePageCommit(txn);
               if (t == SubstrateArchive.table) {
                 final r = await SubstrateArchive.restoreRows(
                   txn,

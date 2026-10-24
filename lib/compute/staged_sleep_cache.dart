@@ -76,6 +76,7 @@ String stagingInputKey({
   required List<({int startSec, int endSec, String dayKey})> priorSleep,
   required List<VendorNight> vendorNights,
   required (String, String)? activeWearable,
+  bool prefixContext = false,
 }) {
   // Count local midnights, including DST days, rather than dividing by 86400.
   var walked = 0;
@@ -114,12 +115,13 @@ String stagingInputKey({
   }
   final now = DateTime.now();
   return jsonEncode([
-    fromSec, toSec, revisions,
+    fromSec, toSec, prefixContext ? const [] : revisions,
     [for (final sig in InputSignal.values) [sig.name,
       [for (final o in ownership[sig] ?? const <OwnedSpan>[])
         [o.start, o.end, o.deviceId]], priority[sig]]],
     sub.deviceFamily, (sub.deviceIds.toList()..sort()),
-    sub.length, sub.firstTs, sub.lastTs, sub.rrMs.length,
+    if (prefixContext) ...[null, null, null, null]
+    else ...[sub.length, sub.firstTs, sub.lastTs, sub.rrMs.length],
     now.timeZoneName, now.timeZoneOffset.inSeconds, zoneOffsets,
     override == null ? null :
         [override.dayId, override.onsetSec, override.offsetSec, override.source],

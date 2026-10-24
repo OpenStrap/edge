@@ -8,7 +8,23 @@ final _ac = prsaAggregator(deceleration: false);
 
 /// Settled night NN in reference order. Provisional tails only touch copies.
 class NightPrsa {
+  NightPrsa();
   Object? _dcState = _dc.empty(), _acState = _ac.empty();
+
+  Map<String, dynamic> toJson() => {
+    'v': 1, 'dc': _dc.encodeState(_dcState), 'ac': _ac.encodeState(_acState),
+  };
+
+  factory NightPrsa.fromJson(Map<String, dynamic> json, int fed) {
+    if (json['v'] != 1) throw const FormatException('PRSA version');
+    final dc = json['dc'], ac = json['ac'];
+    if (dc is! List || ac is! List || dc.first != fed || ac.first != fed) {
+      throw const FormatException('PRSA feed count');
+    }
+    return NightPrsa()
+      .._dcState = _dc.decodeState(dc)
+      .._acState = _ac.decodeState(ac);
+  }
 
   void fold(List<double> nn) {
     final column = DoubleColumn(Float64List.fromList(nn));

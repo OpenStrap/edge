@@ -34,6 +34,7 @@ import 'readiness_calibration_backfill.dart'
     show backfillReadinessCalibration, seedRecentReadinessZ;
 
 import 'package:crypto/crypto.dart' show sha1;
+import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
 import 'package:flutter/foundation.dart';
 import 'findings.dart';
 import 'nap_overlap_cleanup.dart';
@@ -75,6 +76,7 @@ import 'staged_sleep_cache.dart';
 import 'ed2b_stream_diagnostics.dart';
 import 'cardio_rows_cache.dart';
 import 'night_rr_state.dart';
+import 'night_checkpoint.dart';
 import 'substrate_retention.dart';
 import 'substrate_union.dart';
 import 'derive_prepare.dart';
@@ -3118,7 +3120,7 @@ class DerivationEngine {
   DerivationEngine({this.log, this.background = false, this.offloadActive});
   final void Function(String)? log;
 
-  // ED-2b observations. Checkpoint controls await their GREEN phase.
+  // ED-2b observations of the worker-owned caches and checkpoint path.
   final debugCheckpoints = Ed2bCheckpointDiagnostics();
   @visibleForTesting
   void Function(String day)? debugOnProfileFold;
@@ -3219,6 +3221,8 @@ class DerivationEngine {
   final _cardioRowChunks = <CardioRowsChunk>[];
   final _cardioRowOperations = <String>{};
   final _nightStates = <String, NightRrState>{};
+  final _checkpointPlans = <String, NightCheckpointPlan>{};
+  int? _checkpointGeneration;
   static const _cardioRowsSlackSec = 3600;
   static const _cardioRowsMaxBytes = 8 * 1024 * 1024;
   int _retentionEpoch = 0;
@@ -3235,6 +3239,9 @@ class DerivationEngine {
     _retained.clear();
     _cardioRowChunks.clear();
     _nightStates.clear();
+    _checkpointPlans.clear();
+    debugCheckpoints.lastEncodedPayload = null;
+    debugCheckpoints.lastDecodedPayload = null;
     debugNightStreams?.nightState.clear();
   }
 
@@ -3253,11 +3260,13 @@ class DerivationEngine {
     });
     _retentionPreparedDays.clear();
     _retentionPassEpoch = null;
+    _checkpointPlans.clear();
   }
 
   void _dropRetainedDay(String day) {
     _retained.remove(day);
     _nightStates.remove(day)?.clear();
+    _checkpointPlans.remove(day);
     _retentionPreparedDays.remove(day);
   }
   @visibleForTesting
@@ -4628,6 +4637,31 @@ class DerivationEngine {
     final (searchOwnership, searchPriority) =
         await _resolveOwnership(range.$1, range.$2);
     final rowsEpoch = _retentionEpoch;
+    _checkpointPlans.remove(dayId);
+    NightCheckpointPlan? checkpointPlan;
+    if (!debugCheckpoints.disabled && _canRetainSubstrate) {
+      try {
+        final db = await LocalDb.instance;
+        final generation = LocalDb.storeGeneration;
+        if (_checkpointGeneration != null && _checkpointGeneration != generation) {
+          // Invalidate cached state while preserving the owners' work counters.
+          for (final state in _nightStates.values) { state.clear(); }
+          _cardioRowChunks.clear();
+          _checkpointPlans.clear();
+          debugCheckpoints.lastEncodedPayload = null;
+          debugCheckpoints.lastDecodedPayload = null;
+        }
+        _checkpointGeneration = generation;
+        final rows = await db.rawQuery(
+          'SELECT bucket, rev FROM input_rev WHERE bucket >= ? AND bucket <= ? '
+          'ORDER BY bucket', [range.$1 ~/ 900, range.$2 ~/ 900]);
+        checkpointPlan = NightCheckpointPlan(range.$1, range.$2,
+          {for (final r in rows) r['bucket'] as int: r['rev'] as int},
+          generation, rowsEpoch, await LocalDb.storeIdentity(executor: db));
+      } catch (_) {
+        // Missing provenance costs a cold pass, never a partial adoption.
+      }
+    }
     List<List<Object>>? revisions;
     if (!debugDisableStagedSleepCache ||
         (!debugDisableCardioRows && _canRetainSubstrate)) {
@@ -4735,12 +4769,13 @@ class DerivationEngine {
         : null;
     if (ownNight != null) vendorNights = [...vendorNights, ownNight];
     String? stagingKey;
-    if (revisions != null && !debugDisableStagedSleepCache) {
+    if ((revisions != null && !debugDisableStagedSleepCache) || checkpointPlan != null) {
       try {
-        stagingKey = stagingInputKey(
+        final stagingWearable = override == null ? await activeWearable() : null;
+        String inputKey(bool prefixContext) => stagingInputKey(
           fromSec: range.$1,
           toSec: range.$2,
-          revisions: revisions,
+          revisions: revisions ?? const [],
           sub: searchSub,
           ownership: searchOwnership,
           priority: searchPriority,
@@ -4748,10 +4783,21 @@ class DerivationEngine {
           profileJson: profileJson,
           priorSleep: priorSleep,
           vendorNights: vendorNights,
-          activeWearable: override == null ? await activeWearable() : null,
+          activeWearable: stagingWearable,
+          prefixContext: prefixContext,
         );
+        if (revisions != null && !debugDisableStagedSleepCache) stagingKey = inputKey(false);
+        if (checkpointPlan != null) {
+          // Prefix reuse omits revision aggregates. The durable store id
+          // survives restart and changes when wipe/restore replaces inputs.
+          checkpointPlan.context = sha1.convert(utf8.encode(jsonEncode([
+            checkpointPlan.storeId, inputKey(true),
+          ]))).toString();
+          checkpointPlan.boundary = ((searchSub.lastTs ?? 0) + 1) ~/ 900 * 900;
+        }
       } catch (_) {
         // A context that cannot be keyed still takes the ordinary worker path.
+        checkpointPlan = null;
       }
     }
     // Cancellable + TIMED OUT. This site previously used a bare `Isolate.run`
@@ -4779,6 +4825,46 @@ class DerivationEngine {
     final sentChunks = cacheRows ? [for (final c in _cardioRowChunks)
       if (c.overlaps(rowsLo, rowsHi)) c] : <CardioRowsChunk>[];
     final rowBytes = [for (final c in sentChunks) c.bytes];
+    if (checkpointPlan != null && checkpointPlan.boundary > range.$1 &&
+        checkpointPlan.context != null) {
+      if (_nightStates[dayId]?.canStream != true &&
+          _nightStates[dayId]?.acceptsCheckpointAlgorithm(kAlgoVersion) != false) {
+        try {
+          debugCheckpoints.reads++;
+          final row = await LocalDb.dayCheckpoint(dayId, kAlgoVersion,
+              maxBytes: maxNightCheckpointBytes);
+          if (row == null) {
+            debugCheckpoints.misses++;
+          } else {
+            final context = checkpointPlan.context!;
+            final from = checkpointPlan.from, through = checkpointPlan.through;
+            final inputRevisions = checkpointPlan.revisions;
+            final searchRr = searchSub.rrMs, searchTimes = searchSub.rrTsMs;
+            final restored = await _runIsolateCancellable(
+              () => decodeNightCheckpoint(row, dayId, kAlgoVersion, context,
+                  from, through, inputRevisions,
+                  searchRr: searchRr, searchTimes: searchTimes), _perDayTimeout,
+              label: 'checkpoint-read $dayId');
+            if (restored.rejection != null) {
+              debugCheckpoints.rejections.add(restored.rejection!);
+              debugCheckpoints.misses++;
+            } else if (LocalDb.storeGeneration == checkpointPlan.generation &&
+                rowsEpoch == _retentionEpoch) {
+              checkpointPlan.restored = restored.night;
+              debugCheckpoints.lastDecodedPayload = restored.payload;
+              if (cacheRows && restored.cardio != null) rowBytes.add(restored.cardio!);
+            }
+          }
+        } catch (_) {
+          debugCheckpoints.misses++;
+        }
+      }
+      checkpointPlan.cardio = rowBytes;
+      _checkpointPlans[dayId] = checkpointPlan;
+      while (_checkpointPlans.length > 3) {
+        _checkpointPlans.remove(_checkpointPlans.keys.first);
+      }
+    }
     Future<(String, String?, int, Uint8List?, int, int, List<String>)> stage() =>
         _runIsolateCancellable(() {
       try {
@@ -4878,6 +4964,9 @@ class DerivationEngine {
     } else {
       debugStagingComputations++;
       final result = await stage();
+      if (checkpointPlan != null && result.$4 != null) {
+        checkpointPlan.cardio = [result.$4!];
+      }
       candidateJson = result.$1;
       observationJson = result.$2;
       debugCardioRowHits += result.$5;
@@ -6655,6 +6744,14 @@ class DerivationEngine {
     final nightEpoch = _retentionEpoch;
     final retainNight = _canRetainSubstrate && !suppliedSubstrate;
     final diagnostics = debugNightStreams;
+    final checkpointPlan = _checkpointPlans.remove(day.date);
+    final checkpointEnabled = !debugCheckpoints.disabled && retainNight &&
+        checkpointPlan?.context != null && checkpointPlan!.epoch == nightEpoch &&
+        checkpointPlan.generation == LocalDb.storeGeneration &&
+        day.sleepOnsetSec >= checkpointPlan.from &&
+        day.sleepOffsetSec <= checkpointPlan.through + 1;
+    var nightRevision = 0, nightGeneration = LocalDb.storeGeneration;
+    var nightProvenance = false;
     // Keep DB reads and engine fields outside the shipped closure. A changed
     // revision rejects even a byte-identical replacement; raw prefix proofs in
     // the worker additionally detect moved windows and in-memory mutations.
@@ -6677,18 +6774,61 @@ class DerivationEngine {
         }
         nightState.context(inputRevision: revision, generation: generation,
             algorithm: kAlgoVersion);
+        nightRevision = revision;
+        nightGeneration = generation;
+        nightProvenance = true;
       } catch (_) {
         nightState.clear(); // Unavailable provenance never certifies reuse.
       }
       diagnostics?.nightState = nightState;
     }
-    final workerResult = await _runIsolateCancellable(
-      () => (deriveDayBundle(withHistory, streamDiagnostics: diagnostics,
-          nightState: nightState), nightState, diagnostics),
+    final canCheckpoint = checkpointEnabled && nightProvenance &&
+        nightEpoch == _retentionEpoch &&
+        LocalDb.storeGeneration == checkpointPlan.generation;
+    final restoredNight = canCheckpoint ? checkpointPlan.restored : null;
+    final checkpointContext = checkpointEnabled ? checkpointPlan.context! : '';
+    final checkpointBoundary = checkpointEnabled ? checkpointPlan.boundary : 0;
+    final checkpointFrom = checkpointEnabled ? checkpointPlan.from : 0;
+    final checkpointVector = checkpointEnabled ? checkpointRevisions(
+        checkpointPlan.revisions, checkpointFrom, checkpointBoundary) : Uint8List(0);
+    final checkpointRows = checkpointEnabled ? checkpointPlan.cardio : <Uint8List>[];
+    final checkpointDay = day.date;
+    final workerResult = await _runIsolateCancellable(() {
+      var state = nightState;
+      var resumed = false;
+      if (restoredNight != null && restoredNight.acceptsPrefix(
+          input.sleepRrMs, input.sleepRrTsMs, input.date,
+          input.sleepOnsetSec)) {
+        restoredNight.bindRestoredContext(nightRevision, nightGeneration, kAlgoVersion,
+            previous: state);
+        state = restoredNight;
+        resumed = true;
+        if (diagnostics != null) diagnostics.nightState = state;
+      }
+      final result = deriveDayBundle(withHistory, streamDiagnostics: diagnostics,
+          nightState: state);
+      NightCheckpointWrite? checkpoint;
+      if (canCheckpoint) {
+        try {
+          checkpoint = encodeNightCheckpoint(state, checkpointRows, checkpointDay,
+              kAlgoVersion, checkpointContext, checkpointFrom, checkpointBoundary,
+              checkpointVector);
+        } catch (_) {
+          // Scratch serialization cannot turn a successful derive into an error.
+        }
+      }
+      return (result, state, diagnostics, resumed,
+        restoredNight != null && !resumed, checkpoint);
+    },
       _perDayTimeout,
       label: 'day-bundle ${day.date}',
     );
     final bundle = workerResult.$1;
+    if (workerResult.$4) debugCheckpoints.hits++;
+    if (workerResult.$5) {
+      debugCheckpoints.rejections.add('checkpoint night prefix/window');
+      debugCheckpoints.misses++;
+    }
     if (diagnostics != null) debugNightStreams = workerResult.$3;
     final returnedNight = workerResult.$2;
     if (returnedNight != null && retainNight && _canRetainSubstrate &&
@@ -7521,6 +7661,39 @@ class DerivationEngine {
       },
     );
     if (effectiveFinalized || effectivePartial) _dropRetainedDay(day.date);
+    if (!debugCheckpoints.disabled && !suppliedSubstrate) {
+      try {
+        final db = await LocalDb.instance;
+        if (effectiveFinalized || effectivePartial) {
+          await db.delete('day_checkpoint', where: 'day_id = ?', whereArgs: [day.date]);
+        } else if (checkpointEnabled && workerResult.$6 != null &&
+            _canRetainSubstrate && nightEpoch == _retentionEpoch &&
+            LocalDb.storeGeneration == checkpointPlan.generation) {
+          final checkpoint = workerResult.$6!;
+          await db.transaction((txn) async {
+            if (LocalDb.storeGeneration != checkpointPlan.generation ||
+                await LocalDb.storeIdentity(executor: txn) != checkpointPlan.storeId) {
+              return;
+            }
+            await txn.insert('day_checkpoint', {
+              'day_id': day.date, 'algo_version': kAlgoVersion,
+              'fmt': nightCheckpointFormat, 'ctx_sig': checkpointContext,
+              'cp_rec_ts': checkpointBoundary, 'rev_vec': checkpointVector,
+              'state': checkpoint.bytes, 'night_ref': null,
+              'computed_at': DateTime.now().millisecondsSinceEpoch,
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+            await txn.rawDelete('DELETE FROM day_checkpoint WHERE day_id NOT IN '
+              '(SELECT day_id FROM day_checkpoint GROUP BY day_id '
+              'ORDER BY day_id DESC LIMIT 3) OR algo_version != ?', [kAlgoVersion]);
+          });
+          debugCheckpoints.writes++;
+          debugCheckpoints.lastEncodedPayload = checkpoint.bytes;
+          debugCheckpoints.lastDecodedPayload = checkpoint.payload;
+        }
+      } catch (_) {
+        // Disposable scratch is never required to commit a day result.
+      }
+    }
     // AFTER the row: retired only once the row that proves it is durable.
     if (quietSettled) await LocalDb.deleteComputeFreshness(quietKey);
     // NOTE: the sweep's `history` snapshot is deliberately NOT updated here.

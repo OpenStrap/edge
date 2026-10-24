@@ -47,7 +47,7 @@ void main() {
     await db.setVersion(58);
     await LocalDb.close();
     db = await LocalDb.instance;
-    expect(await db.getVersion(), 59);
+    expect(await db.getVersion(), LocalDb.schemaVersion);
     expect(await db.query('sessions'), sessions);
     expect(await db.query('session_ceiling_rev'), isEmpty,
         reason: 'upgrade never scans or backfills existing sessions');
@@ -75,9 +75,18 @@ void main() {
     expect(await db.query('session_ceiling_rev'), hasLength(1));
     expect(await db.query('input_rev'), isNotEmpty);
     final generation = LocalDb.storeGeneration;
+    final identity = await LocalDb.storeIdentity();
     await LocalDb.wipeAll();
+    expect(await LocalDb.storeIdentity(), isNot(identity));
     for (final table in await LocalDb.tableNames()) {
-      expect(await db.query(table, limit: 1), isEmpty, reason: table);
+      if (table == 'store_identity') {
+        final rows = await db.query(table);
+        expect(rows, hasLength(1));
+        expect(rows.single['singleton'], 1);
+        expect(rows.single['id'], matches(RegExp(r'^[0-9a-f]{32}$')));
+      } else {
+        expect(await db.query(table, limit: 1), isEmpty, reason: table);
+      }
     }
     expect(LocalDb.storeGeneration, greaterThan(generation));
     await edSession();

@@ -245,6 +245,9 @@ void main() {
           offsetTs: _sec(1) + 1200, source: 'confirmed');
         final e = DerivationEngine()..debugNightStreams = Ed2bStreamDiagnostics()
           ..debugOnNightBundle = _checkNightOutput;
+        // Isolate the RAM generation contract: disk checkpoints legitimately
+        // survive reopen and would otherwise hide the required RAM rebuild.
+        if (change == 'generation') e.debugCheckpoints.disabled = true;
         expect(await e.runDays(edProfile, {_day}), 1);
         final before = e.debugNightStreams!.processedNightBeats;
         if (change == 'revision') {

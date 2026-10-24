@@ -156,9 +156,9 @@ void main() {
   });
 
   test('rung 59 is reserved for additive input revisions', () async {
-    expect(LocalDb.schemaVersion, 59, reason: 'upstream is still schema 58');
+    expect(LocalDb.schemaVersion, 60, reason: 'rung 60 follows the additive revisions at 59');
     final db = await open();
-    expect(await db.getVersion(), 59);
+    expect(await db.getVersion(), LocalDb.schemaVersion);
     expect(await _hasRevisions(db), isTrue);
     final tables = await LocalDb.tableNames();
     expect(tables, isNot(contains('store_rev')));
@@ -175,7 +175,7 @@ void main() {
       expect(await db.rawQuery('PRAGMA table_info($table)'), legacyColumns[table],
           reason: 'rung 59 must not change raw columns/defaults');
     }
-    expect(await db.getVersion(), 59);
+    expect(await db.getVersion(), LocalDb.schemaVersion);
     expect(await _hasRevisions(db), isTrue);
     final triggers = await db.rawQuery(
       "SELECT tbl_name, sql FROM sqlite_master WHERE type='trigger'",
