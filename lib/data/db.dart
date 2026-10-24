@@ -65,6 +65,7 @@ import 'series_codec.dart';
 import 'substrate_archive.dart';
 
 part 'db_input_revisions.dart';
+part 'db_session_ceiling_revisions.dart';
 
 /// The outcome of a database rebuild: why the old file would not open, where it
 /// was parked, and how many rows came back per table.
@@ -509,6 +510,13 @@ class LocalDb {
       revisionMax: (rows.single['revision_max'] as num).toInt(),
       generation: generation,
     );
+  }
+
+  /// Session identity/window writes invalidate ceiling reuse, including an
+  /// identical REPLACE or UPDATE. Derived score writes do not affect it.
+  static Future<int> sessionCeilingRevision() async {
+    final rows = await (await instance).query('session_ceiling_rev');
+    return rows.isEmpty ? 0 : (rows.single['rev'] as num).toInt();
   }
 
   @visibleForTesting
@@ -1287,6 +1295,7 @@ class LocalDb {
           // Additive revision counters only: no decoded scan or backfill.
           // Attach after any earlier rung that rebuilds decoded tables.
           await _createInputRev(db);
+          await _createSessionCeilingRev(db);
         }
       },
       onOpen: (db) async {
@@ -1409,6 +1418,7 @@ class LocalDb {
     await _ensureLiveStepCalibrationCounterVersion(db);
     // A decoded-table rebuild above drops its triggers; attach them last.
     await _createInputRev(db);
+    await _createSessionCeilingRev(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
@@ -5614,6 +5624,10 @@ class LocalDb {
       )
     ''');
   }
+
+  // Schema 59 and every-open repair; no session scan or backfill.
+  static Future<void> _createSessionCeilingRev(Database db) =>
+      _ldbCreateSessionCeilingRev(db);
 
   static Future<void> _createSyncState(DatabaseExecutor db) async {
     await db.execute('''
@@ -11248,8 +11262,8 @@ class LocalDb {
     final rows = await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'table' "
       "AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata' "
-      // Clear revisions after the decoded DELETE triggers have finished.
-      "ORDER BY name = 'input_rev'",
+      // Clear revisions after the decoded/session DELETE triggers have finished.
+      "ORDER BY name IN ('input_rev', 'session_ceiling_rev')",
     );
     var deleted = 0;
     await db.transaction((txn) async {

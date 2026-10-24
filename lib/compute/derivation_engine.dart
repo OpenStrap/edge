@@ -3096,7 +3096,7 @@ class DerivationEngine {
 
   // ED-2a RED seams. Empty cache views and no-op controls describe the current
   // uncached engine. Counters below observe real worker work, never results.
-  // E12/E13 now back staging and retention; later controls remain inert.
+  // E12/E13 back staging and retention; E18 backs finished-session reuse.
   final _stagedSleepCache = StagedSleepCache();
   @visibleForTesting
   bool debugDisableStagedSleepCache = false;
@@ -3171,7 +3171,86 @@ class DerivationEngine {
   @visibleForTesting
   int debugCeilingComputed = 0;
   @visibleForTesting
-  void debugSessionCacheRekey(int version) {}
+  void debugSessionCacheRekey(int version) {
+    for (final e in _ceilingCache.entries.toList()) {
+      _ceilingCache[e.key] = (version: version, sig: e.value.sig,
+          result: e.value.result);
+    }
+  }
+
+  // One complete envelope and the unrounded bpm used to choose the winner.
+  // Entries survive passes on this engine; oldest entries are evicted first.
+  final _ceilingCache = <(String, String),
+      ({int version, String sig, _SessionCeiling result})>{};
+  static const _ceilingCacheMax = 128;
+  final _ceilingInput = Expando<_CeilingInput>();
+
+  Future<_CeilingInput?> _ceilingInputRevision(String day) async {
+    try {
+      final db = await LocalDb.instance;
+      final generation = LocalDb.storeGeneration;
+      final lo = _localDayLabelToSec(day);
+      final hi = _localNextDayLabelToSec(day) - 1;
+      final rows = await db.rawQuery(
+          'SELECT bucket, rev FROM input_rev WHERE bucket >= ? AND bucket <= ? '
+          'ORDER BY bucket', [lo ~/ 900, hi ~/ 900]);
+      return (generation: generation, revisions: {for (final r in rows)
+        (r['bucket'] as num).toInt(): (r['rev'] as num).toInt()});
+    } catch (_) {
+      return null; // Unavailable provenance always recomputes.
+    }
+  }
+
+  Future<int?> _sessionCeilingRevision() async {
+    try {
+      return await LocalDb.sessionCeilingRevision();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map<String, String>> _ceilingSignatures(
+      PreparedDerivationDay day, List<Map<String, dynamic>> sessions,
+      int? sessionRevision) async {
+    final input = _ceilingInput[day];
+    final sub = day.daySub;
+    if (input == null || sub.isEmpty || sessionRevision == null) return const {};
+    final current = await _ceilingInputRevision(day.date);
+    if (current == null || input.generation != current.generation ||
+        sessionRevision != await _sessionCeilingRevision()) {
+      return const {};
+    }
+    final out = <String, String>{};
+    for (final row in sessions) {
+      final id = row['id']?.toString();
+      final start = (row['start_ts'] as num?)?.toInt();
+      final end = (row['end_ts'] as num?)?.toInt();
+      if (id == null || row['status'] != 'done' || start == null ||
+          end == null || end <= start) {
+        continue;
+      }
+      final lo = math.max(start, sub.tsSec.first);
+      final hi = math.min(end, sub.tsSec.last);
+      if (hi < lo) continue;
+      // E4 buckets are conservative at the clipped window's edges. Compare
+      // before/after the load so a racing decoded write cannot certify a hit.
+      String windowKey(_CeilingInput fp) => jsonEncode([
+        fp.generation, for (final e in fp.revisions.entries)
+          if (e.key >= lo ~/ 900 && e.key <= hi ~/ 900) [e.key, e.value],
+      ]);
+      final revision = windowKey(input);
+      if (revision != windowKey(current)) continue;
+      out[id] = jsonEncode([
+        revision, sessionRevision, id, row['type'], row['status'], start, end,
+        lo, hi, sub.deviceFamily, priorityKey(day.priority),
+        for (final signal in const [InputSignal.hr1Hz, InputSignal.accel1Hz])
+          [signal.name, for (final span in day.ownership[signal] ?? const <OwnedSpan>[])
+            if (span.end > lo && span.start <= hi)
+              [span.start, span.end, span.deviceId]],
+      ]);
+    }
+    return out;
+  }
   @visibleForTesting
   int debugStagingComputations = 0;
   @visibleForTesting
@@ -3754,7 +3833,8 @@ class DerivationEngine {
           } else if (prepared != null) {
             _diag['prepared_days'] = (_diag['prepared_days'] as int) + 1;
             final complete = await _derivePreparedDay(
-                prepared, profile, dataNowSec, history);
+                prepared, profile, dataNowSec, history,
+                allowSessionReuse: !heavy && !force);
             done++;
             _diag['done_days'] = done;
             // Stored only when the derive was a fixed point; see
@@ -3867,92 +3947,95 @@ class DerivationEngine {
       } catch (e) {
         _log('[derive] outcome callback threw: $e');
       }
-      // Storage housekeeping runs here, after everything, still holding
-      // `_running`. See _runStorageHousekeeping — this is the only place every
-      // entry path and every early return actually reaches.
-      _diag['stage'] = 'housekeeping';
-      _endRetentionPass();
-      await _runStorageHousekeeping(long: heavy || force);
-      // ONE-SHOT: rescale stored strain onto the recalibrated scale. Days
-      // inside the raw window re-derive from substrate above; everything older
-      // has none, so its headline is rebuilt from the stored TRIMP + wake
-      // window instead. No-ops after the first successful pass
-      // (`compute_freshness`), and never fatal — a failed rescale must not take
-      // the derive cycle down with it.
-      //
-      // AFTER the sweep, not before it. It used to be the first statement of
-      // run(), so the one launch where it actually fires — the first after the
-      // version bump, the launch the user is watching — spent a DB round trip
-      // and a bundle decode+encode PER DAY OF HISTORY before today's data was
-      // touched at all. Nothing in the sweep reads what it rewrites (it only
-      // ever touches days older than `rawRetentionDays`, which no pass
-      // re-derives), so the only thing the old ordering bought was that the
-      // FIRST cross-day rollup after the bump saw the rescaled history rather
-      // than the next one. Still holds `_running`, so nothing else can be
-      // reading day_result while it rewrites.
-      _diag['stage'] = 'strain_rescale';
       try {
-        final rescaled = await backfillStrainScale(
-          female: workoutSex(profile.sex) == 'female',
-        );
-        if (rescaled.didWork) {
-          _log('[derive] strain rescale: ${rescaled.bundleDays} day(s) '
-              'rebuilt, ${rescaled.skipped} skipped (no TRIMP or no wake '
-              'window)');
+        // Storage housekeeping runs here, after everything, still holding
+        // `_running`. See _runStorageHousekeeping — this is the only place every
+        // entry path and every early return actually reaches.
+        _diag['stage'] = 'housekeeping';
+        _endRetentionPass();
+        await _runStorageHousekeeping(long: heavy || force);
+        // ONE-SHOT: rescale stored strain onto the recalibrated scale. Days
+        // inside the raw window re-derive from substrate above; everything older
+        // has none, so its headline is rebuilt from the stored TRIMP + wake
+        // window instead. No-ops after the first successful pass
+        // (`compute_freshness`), and never fatal — a failed rescale must not take
+        // the derive cycle down with it.
+        //
+        // AFTER the sweep, not before it. It used to be the first statement of
+        // run(), so the one launch where it actually fires — the first after the
+        // version bump, the launch the user is watching — spent a DB round trip
+        // and a bundle decode+encode PER DAY OF HISTORY before today's data was
+        // touched at all. Nothing in the sweep reads what it rewrites (it only
+        // ever touches days older than `rawRetentionDays`, which no pass
+        // re-derives), so the only thing the old ordering bought was that the
+        // FIRST cross-day rollup after the bump saw the rescaled history rather
+        // than the next one. Still holds `_running`, so nothing else can be
+        // reading day_result while it rewrites.
+        _diag['stage'] = 'strain_rescale';
+        try {
+          final rescaled = await backfillStrainScale(
+            female: workoutSex(profile.sex) == 'female',
+          );
+          if (rescaled.didWork) {
+            _log('[derive] strain rescale: ${rescaled.bundleDays} day(s) '
+                'rebuilt, ${rescaled.skipped} skipped (no TRIMP or no wake '
+                'window)');
+          }
+        } catch (e) {
+          _log('[derive] strain rescale failed (kept old values): $e');
         }
-      } catch (e) {
-        _log('[derive] strain rescale failed (kept old values): $e');
-      }
-      // ONE-SHOT, after the sweep for the same reason as the strain rescale:
-      // the rest of the readiness_z history, then a re-score of every day
-      // below v112 that has no raw substrate left (substrate days were just
-      // re-derived, or are retried next pass). A re-score rewrites stored
-      // days, so the baselines and the cross-day rollup are refreshed here —
-      // `finally` is reached by every early return, including "nothing to
-      // derive" and "no decoded data".
-      _diag['stage'] = 'readiness_calibration';
-      try {
-        final r = await backfillReadinessCalibration(
-          // Both substrate sources, as `_deriveScope` reads them: a wearable
-          // day with rows is the derive's, not the re-score's.
-          rawDays: await substrateDays(),
-          zHistoryLoader: () async {
-            final h = await _BaselineHistoryCache.load();
-            return (day, fam) => h.valuesBefore('readiness_z', day,
-                family: _baselineFamily('readiness_z', fam));
-          },
-        );
-        if (r.seeded > 0 || r.rescored > 0) {
-          _log('[derive] readiness calibration: ${r.seeded} z seeded, '
-              '${r.rescored} day(s) re-scored'
-              '${r.forced > 0 ? ' (${r.forced} with substrate whose derive '
-                  'never landed, from stored inputs)' : ''}');
-          await _refreshBaselines();
+        // ONE-SHOT, after the sweep for the same reason as the strain rescale:
+        // the rest of the readiness_z history, then a re-score of every day
+        // below v112 that has no raw substrate left (substrate days were just
+        // re-derived, or are retried next pass). A re-score rewrites stored
+        // days, so the baselines and the cross-day rollup are refreshed here —
+        // `finally` is reached by every early return, including "nothing to
+        // derive" and "no decoded data".
+        _diag['stage'] = 'readiness_calibration';
+        try {
+          final r = await backfillReadinessCalibration(
+            // Both substrate sources, as `_deriveScope` reads them: a wearable
+            // day with rows is the derive's, not the re-score's.
+            rawDays: await substrateDays(),
+            zHistoryLoader: () async {
+              final h = await _BaselineHistoryCache.load();
+              return (day, fam) => h.valuesBefore('readiness_z', day,
+                  family: _baselineFamily('readiness_z', fam));
+            },
+          );
+          if (r.seeded > 0 || r.rescored > 0) {
+            _log('[derive] readiness calibration: ${r.seeded} z seeded, '
+                '${r.rescored} day(s) re-scored'
+                '${r.forced > 0 ? ' (${r.forced} with substrate whose derive '
+                    'never landed, from stored inputs)' : ''}');
+            await _refreshBaselines();
+          }
+          if (r.rescored > 0) await _runCrossDay(profile);
+        } catch (e) {
+          _log('[derive] readiness calibration failed (will retry): $e');
         }
-        if (r.rescored > 0) await _runCrossDay(profile);
-      } catch (e) {
-        _log('[derive] readiness calibration failed (will retry): $e');
-      }
-      // Restamp Today's freshness here, not in each caller: the iOS
-      // background pass has no caller to do it, and getToday reads the
-      // night from `overnight_day`, so a night settled in the background
-      // kept serving the previous one.
-      try {
-        await LocalDb.refreshComputeFreshness();
-      } catch (e) {
-        _log('[derive] freshness refresh failed: $e');
-      }
-      endWearableDayIndexPass();
-      _running = false;
-      final finishedAt = DateTime.now().millisecondsSinceEpoch;
-      _diag
-        ..['running'] = false
-        ..['stage'] = 'idle'
-        ..['active_days'] = const <String>[]
-        ..['finished_at'] = finishedAt
-        ..['duration_ms'] = finishedAt - startedAt;
+        // Restamp Today's freshness here, not in each caller: the iOS
+        // background pass has no caller to do it, and getToday reads the
+        // night from `overnight_day`, so a night settled in the background
+        // kept serving the previous one.
+        try {
+          await LocalDb.refreshComputeFreshness();
+        } catch (e) {
+          _log('[derive] freshness refresh failed: $e');
+        }
+      } finally {
+        endWearableDayIndexPass();
+        _running = false;
+        final finishedAt = DateTime.now().millisecondsSinceEpoch;
+        _diag
+          ..['running'] = false
+          ..['stage'] = 'idle'
+          ..['active_days'] = const <String>[]
+          ..['finished_at'] = finishedAt
+          ..['duration_ms'] = finishedAt - startedAt;
       
-      try { await runTrace?.stop(); } catch (_) {}
+        try { await runTrace?.stop(); } catch (_) {}
+      }
     }
   }
 
@@ -4081,16 +4164,19 @@ class DerivationEngine {
       _log('derive selected ERROR: $e\n$st');
       return 0;
     } finally {
-      _endRetentionPass();
-      await _runStorageHousekeeping();
-      final finishedAt = DateTime.now().millisecondsSinceEpoch;
-      _diag
-        ..['running'] = false
-        ..['stage'] = 'idle'
-        ..['finished_at'] = finishedAt
-        ..['duration_ms'] = finishedAt - startedAt;
-      endWearableDayIndexPass();
-      _running = false;
+      try {
+        _endRetentionPass();
+        await _runStorageHousekeeping();
+        final finishedAt = DateTime.now().millisecondsSinceEpoch;
+        _diag
+          ..['running'] = false
+          ..['stage'] = 'idle'
+          ..['finished_at'] = finishedAt
+          ..['duration_ms'] = finishedAt - startedAt;
+      } finally {
+        endWearableDayIndexPass();
+        _running = false;
+      }
     }
   }
 
@@ -4147,6 +4233,7 @@ class DerivationEngine {
     ].reduce(math.max);
 
     final (ownership, priority) = await _resolveOwnership(unionFrom, unionTo);
+    final ceilingInput = await _ceilingInputRevision(dayId);
 
     // Load the day PLUS the nap boundary buffer in ONE pass (each
     // _loadSubstrateRange spawns its own isolate, so a second load would
@@ -4216,7 +4303,7 @@ class DerivationEngine {
       dayEndSec: dayEnd,
       sleepOffsetSec: candidate.present ? candidate.sleepOffsetSec : 0,
     );
-    return candidate.toPreparedDay(
+    final prepared = candidate.toPreparedDay(
       daySub: daySub,
       napSub: napSub,
       sleepSub: sleepSub,
@@ -4230,6 +4317,12 @@ class DerivationEngine {
       ownership: ownership,
       priority: priority,
     );
+    // Wearable construction and supplied imports have other inputs; only the
+    // canonical decoded load above can carry this revision provenance.
+    if (wearable == null && ceilingInput != null) {
+      _ceilingInput[prepared] = ceilingInput;
+    }
+    return prepared;
   }
 
   /// [next] (the following day's main sleep) when it is TONIGHT's from this
@@ -5726,10 +5819,13 @@ class DerivationEngine {
       _log('rescan ERROR: $e\n$st');
       return 0;
     } finally {
-      _endRetentionPass();
-      await _runStorageHousekeeping();
-      endWearableDayIndexPass();
-      _running = false;
+      try {
+        _endRetentionPass();
+        await _runStorageHousekeeping();
+      } finally {
+        endWearableDayIndexPass();
+        _running = false;
+      }
     }
   }
 
@@ -6143,10 +6239,12 @@ class DerivationEngine {
     _BaselineHistoryCache history, {
     bool forceFinalize = false,
     bool suppliedSubstrate = false,
+    bool allowSessionReuse = false,
   }) async {
     try {
       return await _derivePreparedDayPayload(day, profile, dataNowSec, history,
-          forceFinalize: forceFinalize, suppliedSubstrate: suppliedSubstrate);
+          forceFinalize: forceFinalize, suppliedSubstrate: suppliedSubstrate,
+          allowSessionReuse: allowSessionReuse);
     } catch (_) {
       _dropRetainedDay(day.date);
       rethrow;
@@ -6160,6 +6258,7 @@ class DerivationEngine {
     _BaselineHistoryCache history, {
     bool forceFinalize = false,
     bool suppliedSubstrate = false,
+    bool allowSessionReuse = false,
   }) async {
     final daySub = day.daySub;
     final sleepSub = day.sleepSub;
@@ -6470,10 +6569,24 @@ class DerivationEngine {
       // sample, so a completed session the band's PPG lost contact for
       // entirely (zero HR samples at all, e.g. a wrist-gripping lift) can
       // fall outside them and never reach the zero-coverage credit below.
+      final sessionRevision = await _sessionCeilingRevision();
       final savedSessions = await LocalDb.sessionsInRange(
         _localDayLabelToSec(day.date),
         localNextMidnightSecForDayLabel(day.date),
       );
+      final ceilingSigs = debugDisableSessionReuse ? const <String, String>{}
+          : await _ceilingSignatures(day, savedSessions, sessionRevision);
+      final ceilingReuse = <String, _SessionCeiling>{};
+      if (allowSessionReuse && !debugDisableSessionReuse) {
+        for (final e in ceilingSigs.entries) {
+          final hit = _ceilingCache[(day.date, e.key)];
+          if (hit != null && hit.version == kAlgoVersion && hit.sig == e.value) {
+            ceilingReuse[e.key] = hit.result;
+          }
+        }
+      }
+      // Removed, live or changed sessions cannot resurrect a former result.
+      _ceilingCache.removeWhere((key, _) => key.$1 == day.date);
 
       // Off-wrist / charging spans over the NAP window (which runs past this
       // day's end), read here because the isolate has no DB handle. These are
@@ -6572,6 +6685,7 @@ class DerivationEngine {
       }
       final napEdits = await ActivityStore.napEdits(reviewDb, day.date);
       final blocksInput = _DayBlocksInput(
+        ceilingReuse: ceilingReuse,
         daySub: daySub,
         napSub: day.napSub,
         napEdits: napEdits,
@@ -6636,6 +6750,17 @@ class DerivationEngine {
           await _runDayBlocksCancellable(blocksInput, _perDayTimeout);
 
       debugCeilingComputed += blocks.ceilingComputations;
+      if (!debugDisableSessionReuse) {
+        for (final e in {...ceilingReuse, ...blocks.ceilingComputed}.entries) {
+          final sig = ceilingSigs[e.key];
+          if (sig == null) continue;
+          _ceilingCache[(day.date, e.key)] =
+              (version: kAlgoVersion, sig: sig, result: e.value);
+          while (_ceilingCache.length > _ceilingCacheMax) {
+            _ceilingCache.remove(_ceilingCache.keys.first);
+          }
+        }
+      }
 
       // Merge the computed blocks back into the isolate-1 bundle. scMap is the
       // CastMap view over bundle['scalars'], so addAll writes through — nap_min /
@@ -10888,7 +11013,9 @@ class DerivationEngine {
     if (wc.hrrBpm != null) scMap['hrr_bpm'] = wc.hrrBpm;
     if (wc.hrrTauS != null) scMap['hrr_tau_s'] = wc.hrrTauS;
     var ceilingComputations = 0;
+    final ceilingComputed = <String, _SessionCeiling>{};
     final ceiling = _dayHrCeiling(daySub, inp.savedSessions,
+        reuse: inp.ceilingReuse, computed: ceilingComputed,
         onCompute: () => ceilingComputations++);
     bundlePatch['hr_ceiling'] = ceiling;
     // TS-03 — the day's observed ceiling as a SCALAR too, so the app-wide
@@ -10947,6 +11074,7 @@ class DerivationEngine {
 
     return _DayBlocksOutput(
       ceilingComputations: ceilingComputations,
+      ceilingComputed: ceilingComputed,
       bundlePatch: bundlePatch,
       seriesPatch: seriesPatch,
       scalarPatch: scMap,
@@ -11137,52 +11265,66 @@ class DerivationEngine {
   ) =>
       _dayHrCeiling(s, saved);
 
+  // Reuse carries the full Metric JSON, including absence, and its unrounded
+  // bpm. Comparing serialized/rounded values could choose a different session.
   static Map<String, dynamic> _dayHrCeiling(
     Substrate s,
     List<Map<String, dynamic>> saved, {
+    Map<String, _SessionCeiling> reuse = const {},
+    Map<String, _SessionCeiling>? computed,
     void Function()? onCompute,
   }) {
-    ana.Metric<ana.HrCeiling>? best;
+    Map<String, dynamic>? bestJson;
+    double? bestBpm;
     String? bestId;
     String? bestType;
-    ana.Metric<ana.HrCeiling>? lastAbsent;
+    Map<String, dynamic>? lastAbsentJson;
     for (final row in saved) {
       final start = (row['start_ts'] as num?)?.toInt();
       final end = (row['end_ts'] as num?)?.toInt();
       if (start == null || end == null || end <= start) continue;
-      final hr = <ana.HrSample>[];
-      final accel = <ana.AccelSample>[];
-      for (var i = 0; i < s.length; i++) {
-        final t = s.tsSec[i];
-        if (t < start) continue;
-        if (t > end) break;
-        final tsMs = t * 1000.0;
-        hr.add(ana.HrSample(tsMs, s.hr[i].toDouble()));
-        accel.add(ana.AccelSample(tsMs, s.ax[i], s.ay[i], s.az[i],
-            valid: s.accelPresentAt(i)));
+      final id = row['id']?.toString();
+      var result = row['status'] == 'done' ? reuse[id] : null;
+      if (result == null) {
+        final hr = <ana.HrSample>[];
+        final accel = <ana.AccelSample>[];
+        for (var i = 0; i < s.length; i++) {
+          final t = s.tsSec[i];
+          if (t < start) continue;
+          if (t > end) break;
+          final tsMs = t * 1000.0;
+          hr.add(ana.HrSample(tsMs, s.hr[i].toDouble()));
+          accel.add(ana.AccelSample(tsMs, s.ax[i], s.ay[i], s.az[i],
+              valid: s.accelPresentAt(i)));
+        }
+        if (hr.isEmpty) continue;
+        onCompute?.call();
+        final m = ana.sessionHrCeiling(hr, accel, deviceFamily: s.deviceFamily);
+        result = (json: m.toJson((v) => v.toJson()),
+            bpm: m.present ? m.value!.bpm : null);
+        if (id != null && row['status'] == 'done') computed?[id] = result;
       }
-      if (hr.isEmpty) continue;
-      onCompute?.call();
-      final m = ana.sessionHrCeiling(hr, accel, deviceFamily: s.deviceFamily);
-      if (!m.present) {
-        lastAbsent = m;
+      final bpm = result.bpm;
+      if (bpm == null) {
+        lastAbsentJson = result.json;
         continue;
       }
-      if (best == null || m.value!.bpm > best.value!.bpm) {
-        best = m;
-        bestId = row['id']?.toString();
+      if (bestBpm == null || bpm > bestBpm) {
+        bestJson = result.json;
+        bestBpm = bpm;
+        bestId = id;
         bestType = row['type']?.toString();
       }
     }
-    final m = best ??
-        lastAbsent ??
+    final json = bestJson ??
+        lastAbsentJson ??
         const ana.Metric<ana.HrCeiling>.absent(
           tier: ana.Tier.high,
           inputs_used: ['hr_1hz', 'accel_1hz', 'device_family'],
           note: 'no saved session on this day to observe a ceiling in',
-        );
+        ).toJson((v) => v.toJson());
     return {
-      ...m.toJson((v) => v.toJson()),
+      ...json,
       'session_id': ?bestId,
       'session_type': ?bestType,
     };
@@ -11542,11 +11684,15 @@ Future<R> runCancellableIsolate<R>(
 }) =>
     DerivationEngine._runIsolateCancellable(compute, timeout, label: label);
 
+typedef _SessionCeiling = ({Map<String, dynamic> json, double? bpm});
+typedef _CeilingInput = ({int generation, Map<int, int> revisions});
+
 /// Sendable input for [DerivationEngine._computeDayBlocks] — crosses the
 /// `Isolate.run` boundary, so every field is plain data (Substrate is int/double
 /// lists; Profile is a primitive data class). DB reads that the
 /// pure compute needs are performed by the caller and passed in here.
 class _DayBlocksInput {
+  final Map<String, _SessionCeiling> ceilingReuse;
   final Substrate daySub;
   final Substrate napSub;
   final Substrate sleepSub;
@@ -11641,6 +11787,7 @@ class _DayBlocksInput {
   /// `[startSec, endSec]`. Nap suggestions overlapping one are dropped.
   final List<List<int>> rejectedSleepSpans;
   const _DayBlocksInput({
+    this.ceilingReuse = const {},
     required this.daySub,
     required this.napSub,
     required this.sleepSub,
@@ -11680,6 +11827,7 @@ class _DayBlocksInput {
 /// isolate; [wake] is persisted; candidates are reconciled and session HRR
 /// writes are applied by the database-owning caller.
 class _DayBlocksOutput {
+  final Map<String, _SessionCeiling> ceilingComputed;
   final int ceilingComputations;
   final List<Map<String, dynamic>> napSuggestions;
   final Map<String, dynamic> bundlePatch;
@@ -11689,6 +11837,7 @@ class _DayBlocksOutput {
   final List<Map<String, dynamic>> suggestionsToPersist;
   final List<(String, double)> sessionHrrWrites;
   const _DayBlocksOutput({
+    this.ceilingComputed = const {},
     this.ceilingComputations = 0,
     required this.bundlePatch,
     this.napSuggestions = const [],

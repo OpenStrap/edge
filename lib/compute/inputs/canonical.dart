@@ -624,19 +624,32 @@ Future<List<String>> flagOnOrPrimary(List<String> ids,
   return out;
 }
 
-// RED pass-lifetime seams: no index is retained yet. The hook runs after an
-// actual scan, so a test can count scans and inject a post-scan failure.
-bool debugDisableWearableDayIndex = false;
-void beginWearableDayIndexPass() {}
-void endWearableDayIndexPass() {}
-int get debugWearableDayIndexSize => 0;
-void debugWearableDayIndexRekey(int version) {}
+// Pass-lifetime index. The hook runs after an actual scan, so a test can
+// count scans and inject a post-scan failure.
+Map<(String, String), Future<Map<String, int>>>? _passDayIndex;
+bool _disableWearableDayIndex = false;
+bool get debugDisableWearableDayIndex => _disableWearableDayIndex;
+set debugDisableWearableDayIndex(bool value) {
+  _disableWearableDayIndex = value;
+  if (value) _passDayIndex?.clear();
+}
+void beginWearableDayIndexPass() => _passDayIndex = {};
+void endWearableDayIndexPass() => _passDayIndex = null;
+int get debugWearableDayIndexSize => _passDayIndex?.length ?? 0;
+void debugWearableDayIndexRekey(int version) => _passDayIndex?.clear();
 void Function((String, String), Map<String, int>)? debugOnWearableDayIndexScan;
 
 /// `{local day -> last second}` the active wearable has rows for, and the
 /// days a flagged-on strap recorded a session in while the wearable was off
 /// or charging ([wearableSubstrate] lays the session over the empty day).
 Future<Map<String, int>> wearableRecTsMaxByDay(
+    (String, String) wearable) {
+  final cache = debugDisableWearableDayIndex ? null : _passDayIndex;
+  if (cache == null) return _scanWearableRecTsMaxByDay(wearable);
+  return cache.putIfAbsent(wearable, () => _scanWearableRecTsMaxByDay(wearable));
+}
+
+Future<Map<String, int>> _scanWearableRecTsMaxByDay(
     (String, String) wearable) async {
   final out = {
     ...await switch (wearable.$2) {
