@@ -113,7 +113,7 @@ void main() {
         reason: 'nonfolding production staging must skip the irrelevant earlier day');
   });
 
-  test('mayFold always walks earlier days and folds once (guard; D36 excluded)', () async {
+  test('mayFold skips unused earlier days and folds the target once (D36)', () async {
     await edFresh('ed2a_e15_fold.db');
     await edRows(sub.tsSec.first, sub.tsSec.last + 1, hr: 55, az: 1);
     final edge = DateTime(2020, 1, 3, 12).millisecondsSinceEpoch ~/ 1000;
@@ -123,12 +123,12 @@ void main() {
     ana.cardioUserProfile = null;
     ana.cardioRecordObservations = true;
     ana.resetCardioObservations();
-    final full = prepareSleepSessionCandidate(search, targetDay: edDay, skipUnusedDays: false);
-    final observations = ana.takeCardioObservations()
-      ..sort((a, b) => b.epochs.compareTo(a.epochs));
-    expect(observations, isNotEmpty);
-    final o = observations.first;
-    final fullObservation = jsonEncode({'epochs': o.epochs,
+    final full = prepareSleepSessionCandidate(search, targetDay: edDay, skipUnusedDays: false,
+        recordTargetOnly: true);
+    final observations = ana.takeCardioObservations();
+    expect(observations, hasLength(1));
+    final o = observations.single;
+    final targetObservation = jsonEncode({'epochs': o.epochs,
       'hr_floor_p5': o.hrFloorP5, 'hr_floor_p25': o.hrFloorP25,
       'hr_sleep_median': o.hrSleepMedian, 'hr_arousal': o.hrArousal,
       'rmssd_med': o.rmssdMed, 'rmssd_mad': o.rmssdMad,
@@ -139,10 +139,10 @@ void main() {
         (fold, count, obs) => walked.add((fold, count, obs));
     final candidate = await e.debugSleepCandidate(edDay);
     expect(jsonEncode(candidate.toJson()), jsonEncode(full.toJson()));
-    expect(walked.single.$3, fullObservation, reason: "preserve the full walk's actual fold input");
+    expect(walked.single.$3, targetObservation, reason: "D36 folds the target's own observation");
     expect(walked.single.$1, isTrue, reason: 'fixture reaches a folding pass');
-    expect(walked.single.$2, 2,
-        reason: 'the longest observation can still belong to the earlier day upstream');
+    expect(walked.single.$2, 1,
+        reason: 'D36 permits the output-neutral E15 skip on folding passes');
     expect(walked.single.$3, isNotNull, reason: 'fixture must produce a real observation');
     final profile = (await LocalDb.baseline('sleep_user_profile'))!['payload_json'];
     final p = jsonDecode(profile as String) as Map;

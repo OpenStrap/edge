@@ -416,7 +416,7 @@ PreparedDerivationPayload prepareDerivationPayload(
   List<VendorNight> vendorNights = const [],
   bool skipUnusedDays = false,
   ana.CardioRowCache? rowCache, // ED-2b RED: unused until E6 adoption.
-  bool recordTargetOnly = false, // ED-2b RED: unused until D36 adoption.
+  bool recordTargetOnly = false,
 }) {
   if (sub.isEmpty || sub.lastTs == null) {
     return const PreparedDerivationPayload(dataNowSec: 0, days: []);
@@ -485,7 +485,7 @@ SleepSessionCandidate prepareSleepSessionCandidate(
   List<VendorNight> vendorNights = const [],
   bool skipUnusedDays = false,
   ana.CardioRowCache? rowCache, // ED-2b RED: unused until E6 adoption.
-  bool recordTargetOnly = false, // ED-2b RED: unused until D36 adoption.
+  bool recordTargetOnly = false,
 }) {
   // An UNCLAIMED device night (our rows saw under half of it) ending today IS
   // the night: above our detection, below the user's word. It never reaches

@@ -1220,8 +1220,8 @@ class SleepWindowOverride {
 String localDateLabel(int epochSec) =>
     dayLabelOf(DateTime.fromMillisecondsSinceEpoch(epochSec * 1000));
 
-// RED controls: the walk still segments every day. The counter observes its
-// actual body; GREEN must preserve the full walk for folding callers.
+// Walk controls: the counter observes the actual segmentation body; the full
+// walk remains available to check the restricted walk's target output.
 int debugSegmentedDayCount = 0;
 bool debugStageEveryWalkedDay = false;
 
@@ -1257,8 +1257,8 @@ bool debugStageEveryWalkedDay = false;
 ///
 /// With [skipUnusedDays], only [targetDay] is needed. Earlier days can be
 /// skipped when even one new history key per day cannot reach the prior's
-/// 14-night threshold. Callers needing profile observations must keep the
-/// full walk: its longest observation can belong to an earlier day.
+/// 14-night threshold. Callers needing profile observations can use
+/// [recordTargetOnly] to record the target night even during a full walk.
 List<PhysioDay> calendarDays(
   Substrate sub, {
   SleepWindowOverride? override,
@@ -1268,7 +1268,9 @@ List<PhysioDay> calendarDays(
   String? targetDay,
   bool skipUnusedDays = false,
   ana.CardioRowCache? rowCache, // ED-2b RED: unused until E6 adoption.
-  bool recordTargetOnly = false, // ED-2b RED: unused until D36 adoption.
+  // D36: other walked nights must not train under the target's ID.
+  // Restore the caller's recording flag on every exit.
+  bool recordTargetOnly = false,
 }) {
   final tzOffset = tzOffsetAt ?? tzOffsetSecondsAt;
   if (sub.isEmpty) return const [];
@@ -1296,6 +1298,9 @@ List<PhysioDay> calendarDays(
     }
     skipBefore = {for (final h in sleepHistory) h.dayKey}.length + earlier < 14;
   }
+  final recording = ana.cardioRecordObservations;
+  final onlyTarget = recordTargetOnly && targetDay != null;
+  try {
   var guard = 0;
   while (dayStart < dataEnd && guard++ < 400) {
     final dayEnd = _nextLocalMidnight(dayStart);
@@ -1316,6 +1321,7 @@ List<PhysioDay> calendarDays(
       }
     }
     debugSegmentedDayCount++;
+    if (onlyTarget) ana.cardioRecordObservations = recording && dayLabel == targetDay;
     // The main sleep that ENDS in this calendar day: search from the previous
     // local noon through this local midnight, then let the sleep selector pick
     // the overnight main block from any naps / split fragments it sees. The old
@@ -1582,6 +1588,9 @@ List<PhysioDay> calendarDays(
       ],
     ));
     dayStart = dayEnd;
+  }
+  } finally {
+    ana.cardioRecordObservations = recording;
   }
   return days;
 }
