@@ -64,6 +64,8 @@ import 'observation.dart';
 import 'series_codec.dart';
 import 'substrate_archive.dart';
 
+part 'db_input_revisions.dart';
+
 /// The outcome of a database rebuild: why the old file would not open, where it
 /// was parked, and how many rows came back per table.
 typedef DbRebuild = ({
@@ -479,7 +481,39 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 58;
+  static const int schemaVersion = 59;
+
+  /// In-memory cache identity, advanced after open, wipe or committed import.
+  /// It is local to this isolate; no cache survives a process restart.
+  static int _storeGeneration = 0;
+  static int get storeGeneration => _storeGeneration;
+
+  static void _markStoreReplaced() => _storeGeneration++;
+
+  /// Revisions over every absolute 15-minute bucket intersecting the local
+  /// calendar day. Legacy/missing buckets read zero without a raw-row backfill.
+  /// RR-only days participate, and all devices share these conservative buckets.
+  static Future<({int revisionSum, int revisionMax, int generation})>
+      inputDayFingerprint(String dayId) async {
+    final (lo, hi) = _localDayWindow(dayId);
+    final db = await instance;
+    final generation = storeGeneration;
+    final rows = await db.rawQuery(
+      'SELECT COALESCE(SUM(rev), 0) AS revision_sum, '
+      'COALESCE(MAX(rev), 0) AS revision_max FROM input_rev '
+      'WHERE bucket >= ? AND bucket <= ?',
+      [lo ~/ 900, (hi - 1) ~/ 900],
+    );
+    return (
+      revisionSum: (rows.single['revision_sum'] as num).toInt(),
+      revisionMax: (rows.single['revision_max'] as num).toInt(),
+      generation: generation,
+    );
+  }
+
+  @visibleForTesting
+  static Future<void> repairOpenSchemaForTest(Database db) =>
+      _repairOpenSchema(db);
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -540,7 +574,7 @@ class LocalDb {
   static Future<Database> _open() async {
     final dir = await getDatabasesPath();
     final path = p.join(dir, dbName);
-    return openDatabase(
+    final opened = await openDatabase(
       path,
       onConfigure: (db) async {
         // WRITE PERFORMANCE. The default rollback journal (journal_mode=delete)
@@ -1249,6 +1283,11 @@ class LocalDb {
           // A band's own hypnogram (`vendor_staged`). New table only.
           await _createVendorSleepEpoch(db);
         }
+        if (oldV < 59) {
+          // Additive revision counters only: no decoded scan or backfill.
+          // Attach after any earlier rung that rebuilds decoded tables.
+          await _createInputRev(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1264,6 +1303,8 @@ class LocalDb {
       },
       version: schemaVersion,
     );
+    _markStoreReplaced();
+    return opened;
   }
 
   static Future<void> _repairOpenSchema(Database db) async {
@@ -1366,11 +1407,18 @@ class LocalDb {
     await _addColumnIfMissing(db, 'device', 'battery_ts', 'INTEGER');
     await _createStepCalibration(db);
     await _ensureLiveStepCalibrationCounterVersion(db);
+    // A decoded-table rebuild above drops its triggers; attach them last.
+    await _createInputRev(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
     await _dropRawStore(db);
   }
+
+  /// One revision counter per absolute 15-minute input bucket, shared by the
+  /// canonical 1 Hz rows and sparse beats. Triggers cover every write path and
+  /// roll back with the input transaction. No raw rows are read at creation.
+  static Future<void> _createInputRev(Database db) => _ldbCreateInputRev(db);
 
   /// Older WHOOP CSV imports filed the export's absolute skin temp (°C) under
   /// `scalars.skin_temp_z`, which every reader treats as SDs off baseline, so
@@ -11199,7 +11247,9 @@ class LocalDb {
     final db = await instance;
     final rows = await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'table' "
-      "AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata'",
+      "AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata' "
+      // Clear revisions after the decoded DELETE triggers have finished.
+      "ORDER BY name = 'input_rev'",
     );
     var deleted = 0;
     await db.transaction((txn) async {
@@ -11208,6 +11258,7 @@ class LocalDb {
         if (t is String) deleted += await txn.delete(t);
       }
     });
+    _markStoreReplaced();
     return deleted;
   }
 
@@ -11588,7 +11639,9 @@ class LocalDb {
   /// file saved mid-move). Every row is rebuilt through [rawArchiveRow], so a
   /// frame already here, or in the backup twice, lands once. Paged on rowid,
   /// like every other table the merge reads. Returns rows offered.
-  static Future<int> _mergeRawArchive(Database src, Database db) async {
+  static Future<int> _mergeRawArchive(Database src, Database db, {
+    required void Function() onPageCommitted,
+  }) async {
     var copied = 0;
     Future<void> pageFrom(String table, String hexSql) async {
       if (await _objectType(src, table) != 'table') return;
@@ -11627,6 +11680,7 @@ class LocalDb {
           copied++;
         }
         await batch.commit(noResult: true);
+        onPageCommitted();
       }
     }
 
@@ -11661,6 +11715,27 @@ class LocalDb {
     String path, {
     List<String>? only,
     bool tolerant = false,
+  }) async {
+    var pageCommitted = false;
+    try {
+      return await _mergeFromDbFileBody(path,
+        only: only,
+        tolerant: tolerant,
+        onPageCommitted: () => pageCommitted = true,
+      );
+    } finally {
+      // A later page, source close or follow-up write can fail after a durable
+      // replacement. Invalidate on every such exit, but never on a rolled-back
+      // first page. Keep the flag local so concurrent merges cannot share it.
+      if (pageCommitted) _markStoreReplaced();
+    }
+  }
+
+  static Future<Map<String, int>> _mergeFromDbFileBody(
+    String path, {
+    List<String>? only,
+    bool tolerant = false,
+    required void Function() onPageCommitted,
   }) async {
     final db = await instance;
     final src = await openDatabase(path, readOnly: true);
@@ -11979,6 +12054,7 @@ class LocalDb {
               await txn.execute('DROP TABLE temp._restore_rr_carried');
             }
           });
+          onPageCommitted();
           lower = upper;
         }
         failed = false;
@@ -12051,7 +12127,8 @@ class LocalDb {
       for (final t in (only ?? tables)) {
         if (t == 'raw_archive') {
           try {
-            counts[t] = await _mergeRawArchive(src, db);
+            counts[t] = await _mergeRawArchive(src, db,
+                onPageCommitted: onPageCommitted);
           } catch (_) {
             if (!tolerant) rethrow;
             counts[t] = 0;
@@ -12562,6 +12639,7 @@ class LocalDb {
               }
               await flush();
             });
+            onPageCommitted();
             // Advance past the last row this page actually delivered. Read the
             // cursor BEFORE dropping the page, and stop on a short page rather
             // than issuing one more query to discover the end.

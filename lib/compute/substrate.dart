@@ -621,15 +621,27 @@ class Substrate {
         'device_ids': deviceIds.toList(),
       };
 
-  static Substrate fromJson(Map<String, dynamic> m) {
-    List<int> ints(Map<String, dynamic> m, String k) =>
-        ((m[k] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
-    // Straight into a Float64List — see [_packed]. This runs on the RECEIVING
-    // (main) isolate for every substrate handed back from a worker, so the
-    // growable intermediate was ~400 000 boxes allocated and immediately
-    // thrown away, on the UI thread.
+  /// Adopt the columns received from a worker. Packing/copies happen in the
+  /// worker or isolate transport; correctly typed arrays need no element walk
+  /// here. Loose numeric lists retain the same normalization as [fromJson].
+  static Substrate fromTransfer(Map<String, dynamic> m) =>
+      _fromColumns(m, adopt: true);
+
+  static Substrate fromJson(Map<String, dynamic> m) =>
+      _fromColumns(m, adopt: false);
+
+  static Substrate _fromColumns(Map<String, dynamic> m, {required bool adopt}) {
+    List<int> ints(Map<String, dynamic> m, String k) {
+      final src = m[k];
+      if (adopt && src is List<int>) return src;
+      return ((src as List?) ?? const [])
+          .map((e) => (e as num).toInt()).toList();
+    }
+    // Convert loose lists straight into packed doubles, without a boxed
+    // intermediate. The worker already packs these through the constructor.
     Float64List dbls(String k) {
       final src = (m[k] as List?) ?? const [];
+      if (adopt && src is Float64List) return src;
       final out = Float64List(src.length);
       for (var i = 0; i < src.length; i++) {
         out[i] = (src[i] as num).toDouble();
