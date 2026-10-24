@@ -3,6 +3,9 @@ import 'dart:typed_data';
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
+import 'night_prsa.dart';
+import 'night_resp_bins.dart';
+
 typedef NightRr = ({List<double> nn, List<double> nnTimesMs,
   double cleanFraction, int droppedCount, int correctedCount});
 typedef NightListProof = ({int beats, int times, (int, int) nn, (int, int) ts});
@@ -23,8 +26,21 @@ class NightRrState {
   (String, int)? _night;
   final _memos = <String, ({Object dependencies, Object? value})>{};
   final _digests = _PassListDigests();
+  List<double> _tailNn = const [], _tailTimes = const [];
+  ana.HrvFreqStream? _frequency;
+  ana.RsaRespStream? _rsa;
+  ana.CvhrStream? _cvhr;
+  NightPrsa? _prsa;
+  NightRespBins? _rsaBins;
+  final Map<String, int> _fed = {}, _processed = {}, _slices = {}, _restarts = {};
   int processedNightBeats = 0, nightRebuilds = 0;
 
+  bool get canStream => _corrector != null;
+  // Settled beats represented by each stream, including compacted summaries.
+  int retainedStreamBeats(String key) => _fed[key] ?? 0;
+  int processedBeats(String key) => _processed[key] ?? 0;
+  int slicesProcessed(String key) => _slices[key] ?? 0;
+  int streamRestarts(String key) => _restarts[key] ?? 0;
   int get retainedNightBeats => _rr.length;
   int get settledNightBeats => _nn.length;
   int get identityMemoEntries => _digests.entries;
@@ -51,6 +67,10 @@ class NightRrState {
     _rr.clear(); _times.clear(); _nn.clear(); _nnTimes.clear();
     _night = null;
     _memos.clear();
+    _tailNn = const []; _tailTimes = const [];
+    _frequency = null; _rsa = null; _cvhr = null;
+    _prsa = null; _rsaBins = null;
+    _fed.clear();
   }
 
   /// Shared by the night metric memos. No digest outlives this pass's
@@ -99,14 +119,15 @@ class NightRrState {
       _nn.addAll(settled.nn); _nnTimes.addAll(settled.nnTimes);
     }
     final tail = corrector.snapshot();
+    _tailNn = tail.tailNn; _tailTimes = tail.tailNnTimes;
     return (nn: [..._nn, ...tail.tailNn],
       nnTimesMs: [..._nnTimes, ...tail.tailNnTimes],
       cleanFraction: tail.cleanFraction, droppedCount: tail.droppedCount,
       correctedCount: tail.correctedCount);
   }
 
-  /// Exact batch-result reuse. Growing lists still run the ordinary batch
-  /// consumers; incremental metric streams are a separate adoption step.
+  /// Exact result reuse. Growing lists snapshot incremental metric streams;
+  /// unchanged lists also avoid re-evaluating their provisional tails.
   T memo<T>(String key, Object dependencies, T Function() compute) {
     if (_corrector == null) return compute();
     final old = _memos[key];
@@ -117,6 +138,53 @@ class NightRrState {
     }
     _memos[key] = (dependencies: dependencies, value: result);
     return result;
+  }
+
+  void _feed(String key, int Function(List<double>, List<double>) fold) {
+    final held = _fed[key] ?? 0;
+    if (!_fed.containsKey(key)) {
+      _restarts[key] = streamRestarts(key) + 1;
+      _fed[key] = 0;
+    }
+    if (held == _nn.length) return;
+    final slices = fold(_nn.sublist(held), _nnTimes.sublist(held));
+    _processed[key] = processedBeats(key) + _nn.length - held;
+    _slices[key] = slicesProcessed(key) + slices;
+    _fed[key] = _nn.length;
+  }
+
+  ana.Metric<ana.HrvFreq> nightHrvFreq(double artifactFraction) {
+    final stream = _frequency ??= ana.HrvFreqStream();
+    _feed('frequency', (nn, times) { stream.fold(nn, times); return 1; });
+    return stream.snapshot(tailNnMs: _tailNn, tailNnTimesMs: _tailTimes,
+        artifactFraction: artifactFraction);
+  }
+
+  ana.Metric<ana.RespEstimate> nightResp(double artifactFraction) {
+    final stream = _rsa ??= ana.RsaRespStream();
+    _feed('rsa', (nn, times) { stream.fold(nn, times); return 1; });
+    return stream.snapshot(tailNnMs: _tailNn, tailNnTimesMs: _tailTimes,
+        artifactFraction: artifactFraction);
+  }
+
+  ana.Metric<ana.CvhrResult> nightCvhr(double artifactFraction) {
+    final stream = _cvhr ??= ana.CvhrStream();
+    _feed('cvhr', (nn, times) { stream.fold(nn, times); return 1; });
+    // #99 handles a fresh stream's entirely provisional night too.
+    return stream.snapshot(tailNnMs: _tailNn, tailNnTimesMs: _tailTimes,
+        artifactFraction: artifactFraction);
+  }
+
+  (ana.Metric<ana.PrsaResult>, ana.Metric<ana.PrsaResult>) nightPrsa() {
+    final stream = _prsa ??= NightPrsa();
+    _feed('prsa', (nn, times) { stream.fold(nn); return 1; });
+    return stream.snapshot(_tailNn);
+  }
+
+  List<double> nightRespWindows(double artifactFraction) {
+    final stream = _rsaBins ??= NightRespBins();
+    _feed('rsa_bins', stream.fold);
+    return stream.snapshot(_tailNn, _tailTimes, artifactFraction: artifactFraction);
   }
 }
 
