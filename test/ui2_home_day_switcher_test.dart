@@ -68,6 +68,14 @@ Future<void> _settle(WidgetTester t, {int n = 40}) async {
   }
 }
 
+/// Walk the app through [states] one transition at a time, the way the
+/// engine reports them.
+void _lifecycle(WidgetTester t, List<AppLifecycleState> states) {
+  for (final st in states) {
+    t.binding.handleAppLifecycleStateChanged(st);
+  }
+}
+
 void main() {
   testWidgets('stepping to the previous day loads and shows ITS numbers',
       (t) async {
@@ -104,6 +112,77 @@ void main() {
     await t.tap(find.bySemanticsLabel('Next day'));
     await _settle(t);
     expect(find.text('70'), findsOneWidget);
+  });
+
+  testWidgets('coming back from the background opens on today', (t) async {
+    // Home lives on in the tab stack, so a day stepped back onto used to
+    // survive a night in the background: Saturday morning opened on Friday's
+    // rings with "Back to today" under them.
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    app.repo = _Repo();
+
+    await t.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: ChangeNotifierProvider<AppState>.value(
+        value: app,
+        child: const Scaffold(body: HomeScreen(hour: 9)),
+      ),
+    ));
+    await _settle(t);
+    await t.tap(find.bySemanticsLabel('Previous day'));
+    await _settle(t);
+    expect(find.text('42'), findsOneWidget);
+
+    // A glance at Control Center only makes the app inactive: stay put.
+    _lifecycle(t, const [AppLifecycleState.inactive, AppLifecycleState.resumed]);
+    await _settle(t);
+    expect(find.text('42'), findsOneWidget);
+
+    // Backgrounded and reopened: today, and no "Back to today".
+    _lifecycle(t, const [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]);
+    await _settle(t);
+    expect(find.text('70'), findsOneWidget);
+    expect(find.text('42'), findsNothing);
+    expect(find.text('Back to today'), findsNothing);
+  });
+
+  testWidgets('"Back to today" follows today instead of pinning a date',
+      (t) async {
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    app.repo = _Repo();
+
+    await t.pumpWidget(MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AppState>.value(value: app),
+        ChangeNotifierProvider<ThemeController>.value(
+            value: ThemeController.seed(
+                AppThemeChoice.light, Brightness.light)),
+      ],
+      child: MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: const Scaffold(body: HomeScreen(hour: 9)),
+      ),
+    ));
+    await _settle(t);
+    await t.tap(find.bySemanticsLabel('Previous day'));
+    await _settle(t);
+    await t.tap(find.text('Back to today'));
+    await _settle(t);
+    expect(find.text('70'), findsOneWidget);
+    // Stored as "today" (null), which is what the day ring opens on — a
+    // pinned date would hand the detail screen today's label instead.
+    t.widget<RingTrio>(find.byType(RingTrio)).onOpen!(HomeRingKind.sleep);
+    await _settle(t);
+    expect(t.widget<SleepDetail>(find.byType(SleepDetail)).day, isNull);
   });
 
   testWidgets('on a past day the day breakdown opens THAT day', (t) async {

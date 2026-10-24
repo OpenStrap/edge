@@ -1525,7 +1525,16 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// The day requested by the switcher, or null for "today" — the same
   /// null-means-today convention [_load] and [HomeData.load] already used
   /// before there was a switcher.
+  ///
+  /// NEVER today's own label: [_goDay] stores today as null. A dated "today"
+  /// does not move at midnight, so a tap on "Back to today" on Friday evening
+  /// opened Saturday morning on Friday's rings with "Back to today" under
+  /// them.
   String? _day;
+
+  /// Brings Home back to today whenever the app returns from the background.
+  /// See [_onReturnFromBackground].
+  AppLifecycleListener? _lifecycle;
 
   /// `availableDays()` — newest first — for [DayNav]. Refetched with every
   /// load: cheap, and a switcher stepping onto a day that just finished
@@ -1558,7 +1567,27 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   @override
   void dispose() {
     _syncTapTimer?.cancel();
+    _lifecycle?.dispose();
     super.dispose();
+  }
+
+  /// OPENING THE APP MEANS TODAY. Home is kept alive in the tab stack, so a
+  /// day stepped back onto used to survive the app going to the background —
+  /// overnight, too — and the next morning opened on that old day while every
+  /// detail screen behind it opened on today. `onRestart` fires only on the
+  /// way back from hidden (backgrounded), not for Control Center or a
+  /// permission sheet, which leave the app merely inactive.
+  ///
+  /// It also reloads when the switcher was already on today: a day that rolled
+  /// over while the app was backgrounded moves no database revision, so
+  /// nothing else would re-read it.
+  void _onReturnFromBackground() {
+    if (!mounted) return;
+    setState(() {
+      _day = null;
+      if (_d?.dayId != todayLabel(widget.now)) _loading = true;
+    });
+    _load();
   }
 
   @override
@@ -1569,6 +1598,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       _loading = false;
       return;
     }
+    _lifecycle = AppLifecycleListener(onRestart: _onReturnFromBackground);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
@@ -1611,7 +1641,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// already restricts the arrows to [_days] — so this just re-loads for it.
   void _goDay(String day) {
     setState(() {
-      _day = day;
+      // Today is "follow today", not a date — see [_day].
+      _day = day == todayLabel(widget.now) ? null : day;
       _loading = true;
     });
     _load();
