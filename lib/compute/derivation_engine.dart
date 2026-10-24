@@ -6582,6 +6582,18 @@ class DerivationEngine {
     return out;
   }
 
+  /// The phone zone a `crossday_input` artifact was built in. Its records are
+  /// zone-RELATIVE (`clock_shift_sec` is "this night's clock minus the zone the
+  /// record was built in"), so an artifact built before a flight, served after
+  /// it on the same day, would re-read every past night on the new clock — the
+  /// "Target bedtime 4:00 PM" bug again, until the next rebuild. A mismatch
+  /// (or an artifact without the stamp) rebuilds. Name AND offset: a DST change
+  /// alone rebuilds too, which is one cheap rebuild twice a year.
+  static String _crossDayZoneStamp() {
+    final now = DateTime.now();
+    return '${now.timeZoneName}|${now.timeZoneOffset.inMinutes}';
+  }
+
   Future<List<Map<String, dynamic>>> _crossDayInputDays() async {
     final reviewRevision = await LocalDb.activityReviewRevision();
     final artifact = await LocalDb.baseline('crossday_input');
@@ -6594,7 +6606,8 @@ class DerivationEngine {
         // day makes `_todayNum` read yesterday's strain and nap minutes as
         // today's (§3.3). See [crossDayArtifactUsableToday].
         if (crossDayArtifactUsableToday(decoded, LocalDb.localDayLabelNow()) &&
-            (decoded as Map)['review_revision'] == reviewRevision) {
+            (decoded as Map)['review_revision'] == reviewRevision &&
+            decoded['zone'] == _crossDayZoneStamp()) {
           final rows = decoded['days'] as List;
           return [
             for (final row in rows)
@@ -6620,6 +6633,7 @@ class DerivationEngine {
     final rows = await LocalDb.recentDayResults(_crossDayWindow);
     final today = LocalDb.localDayLabelNow();
     final imported = await LocalDb.importedDates();
+    final zone = _crossDayZoneStamp();
     final (days, json) = await _runIsolateCancellable(() {
       final days = <Map<String, dynamic>>[];
       for (final row in rows.reversed) {
@@ -6643,6 +6657,7 @@ class DerivationEngine {
           'algo_version': kAlgoVersion,
           'built_for_day': today,
           'review_revision': reviewRevision,
+          'zone': zone,
           'days': days,
         })
       );
@@ -6843,6 +6858,21 @@ class DerivationEngine {
       'efficiency': sc('efficiency'),
       'onset_sec': onsetMs == null ? null : (onsetMs / 1000).round(),
       'wake_sec': offsetMs == null ? null : (offsetMs / 1000).round(),
+      // Which clock the night was LIVED on, relative to the phone's zone now.
+      // `onset_sec`/`wake_sec` are absolute instants with no zone attached;
+      // SLP-09's `sleep_onset_sec` scalar froze the onset's LOCAL clock in the
+      // zone the phone was in when the day was derived, and the gap between
+      // the two readings is the zone change. Without it a flight slid every
+      // past wake by the shift and the Sleep Coach printed "Target bedtime
+      // 4:00 PM / Target wake 1:31 AM" after 7 h west.
+      //
+      // Only the shift is written: a night recorded in this zone (the shift
+      // is 0) carries no new key and reads exactly as before.
+      if (recordedClockShiftSec(
+            onsetSec: onsetMs == null ? null : (onsetMs / 1000).round(),
+            onsetClockSec: sc('sleep_onset_sec'),
+          ) case final shift when shift != 0)
+        'clock_shift_sec': shift,
       'tst_min': tstSec == null ? null : (tstSec / 60).round(),
       // Fraction of the night we actually watched — wall-clock in-bed minus the
       // seconds nobody observed, over in-bed. TS-11 drops a morning whose night

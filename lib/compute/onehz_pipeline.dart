@@ -1862,7 +1862,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
 ///
 /// Any fixed hour would do; 04:00 is the one furthest from a normal bedtime
 /// AND from a normal wake time, so neither series sits near the wrap.
-const int _sleepClockAnchorSec = 4 * 3600;
+///
+/// Public because the cross-day rollup reads `sleep_onset_sec` back to learn
+/// which clock a stored night was LIVED on (crossday_pipeline's
+/// `recordedClockShiftSec`); decoding it with a second copy of this number
+/// is the drift that would quietly put every night an anchor-change off.
+const int kSleepClockAnchorSec = 4 * 3600;
 
 /// A sleep instant's LOCAL clock position, in seconds either side of 04:00 —
 /// negative before, positive after. Null for an absent window (never 0, which
@@ -1883,7 +1888,7 @@ double? sleepClockOffsetSec(int epochSec) {
   if (epochSec <= 0) return null;
   final local = epochSec + tzOffsetSecondsAt(epochSec);
   final secOfDay = ((local % 86400) + 86400) % 86400;
-  var offset = secOfDay - _sleepClockAnchorSec;
+  var offset = secOfDay - kSleepClockAnchorSec;
   if (offset > 43200) offset -= 86400;
   if (offset <= -43200) offset += 86400;
   return offset.toDouble();
