@@ -1,10 +1,11 @@
-// ED-2b RED observations only. This object retains no analytics state and never
-// changes a result. Work is counted beside the existing batch calls. GREEN can
-// replace those calls with streams while preserving these measurement meanings.
+import 'night_rr_state.dart';
+
+// Work is counted beside the real owner and the remaining batch metric calls.
 class Ed2bStreamDiagnostics {
   int passes = 0;
-  int processedNightBeats = 0;
-  int nightRebuilds = 0;
+  NightRrState nightState = NightRrState();
+  int get processedNightBeats => nightState.processedNightBeats;
+  int get nightRebuilds => nightState.nightRebuilds;
   final Map<String, int> _batchBeats = {};
   final Map<String, int> _batchCalls = {};
   bool disabled = false;
@@ -16,14 +17,15 @@ class Ed2bStreamDiagnostics {
   void beginPass() { passes++; }
   void endPass() { onBeforePassReturn?.call(); }
   void context({required int inputRevision, required int generation,
-      required int algorithm}) {} // RED: no retained state to invalidate.
+      required int algorithm}) => nightState.context(inputRevision: inputRevision,
+        generation: generation, algorithm: algorithm);
   // Total input work: GREEN counts only newly appended/settled beats here,
   // regardless of whether the operation uses a batch call or an addSlice.
-  int get retainedNightBeats => 0;
-  int get settledNightBeats => 0;
-  int get identityMemoEntries => 0;
-  int get fullListDigests => 0;
-  int get maximumListDigestsPerIdentity => 0;
+  int get retainedNightBeats => nightState.retainedNightBeats;
+  int get settledNightBeats => nightState.settledNightBeats;
+  int get identityMemoEntries => nightState.identityMemoEntries;
+  int get fullListDigests => nightState.fullListDigests;
+  int get maximumListDigestsPerIdentity => nightState.maximumListDigestsPerIdentity;
   int retainedStreamBeats(String stream) => 0;
   int processedBeats(String stream) => _batchBeats[stream] ?? 0;
   int slicesProcessed(String stream) => _batchCalls[stream] ?? 0;
@@ -31,8 +33,6 @@ class Ed2bStreamDiagnostics {
 
   void observeNightCorrection(int rawBeats, List<double> nn,
       List<double> times, double cleanFraction) {
-    processedNightBeats += rawBeats;
-    if (rawBeats > 0) nightRebuilds++;
     onCorrected?.call(nn, times, cleanFraction);
   }
 

@@ -33,6 +33,7 @@ import 'package:openstrap_analytics/onehz.dart';
 import 'inputs/garmin_inputs.dart'
     show isWearableFamily, kHrCadenceSec, kOneHzRunGapSec;
 import 'ed2b_stream_diagnostics.dart';
+import 'night_rr_state.dart';
 import 'hr_max.dart'
     show
         estimatedMaxHr,
@@ -548,8 +549,23 @@ class DayBundleInput {
 /// `Isolate.run(() => deriveDayBundle(input))` in production.
 Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson, {
   Ed2bStreamDiagnostics? streamDiagnostics,
+  NightRrState? nightState,
 }) {
+  final state = streamDiagnostics?.disabled == true
+      ? null : nightState ?? streamDiagnostics?.nightState;
   streamDiagnostics?.beginPass();
+  state?.beginPass();
+  try {
+    final bundle = _deriveDayBundle(inputJson, state, streamDiagnostics);
+    streamDiagnostics?.endPass();
+    return bundle;
+  } finally {
+    state?.endPass();
+  }
+}
+
+Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
+    NightRrState? nightState, Ed2bStreamDiagnostics? streamDiagnostics) {
   final d = DayBundleInput.fromJson(inputJson);
 
   // ── HR over the DAY (for the curve, strain zones, dip day-side) ───────────
@@ -595,12 +611,21 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson, {
   // HRV/RHR are rest/sleep-only per the catalog. Running correctRr+hrvTime over
   // the SLEEP RR (not the whole day) is what brings RMSSD back to physiological
   // tens-of-ms instead of the whole-day ~166 ms inflated value.
-  final corrected = correctRr(d.sleepRrMs, rrTsMs: d.sleepRrTsMs);
+  final corrected = nightState == null
+      ? nightRrBatch(d.sleepRrMs, d.sleepRrTsMs)
+      : nightState.correct(d.sleepRrMs, d.sleepRrTsMs,
+          day: d.date, onsetSec: d.sleepOnsetSec);
   streamDiagnostics?.observeNightCorrection(d.sleepRrMs.length, corrected.nn,
       corrected.nnTimesMs, corrected.cleanFraction);
   final nn = corrected.nn;
   final nnTimes = corrected.nnTimesMs;
   final artifactFraction = (1.0 - corrected.cleanFraction).clamp(0.0, 1.0);
+  final nnProof = nightState?.dependencyProof(nn, nnTimes);
+  T nightMemo<T>(String key, Object? extra, T Function() compute) =>
+      nnProof == null ? compute() :
+          nightState!.memo(key, (nnProof, extra), compute);
+  Map<String, dynamic> nightJson(Map<String, dynamic> json) =>
+      nightState == null ? json : _copyNightJson(json);
   // Σ RR ÷ wall span of the raw sleep RR: above 1.10 the stream holds more
   // beat-time than elapsed (duplicated or interleaved beats), and every RMSSD
   // below refuses it. Null under 10 min of span.
@@ -659,13 +684,15 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson, {
   final sleepSessionRmssd =
       sleepSessionRmssdMetric.present ? sessionDetail!.rmssd : null;
   final hrvF = nn.length >= 20
-      ? hrvFreq(nn, nnTimes, artifactFraction: artifactFraction)
+      ? nightMemo('frequency', artifactFraction, () {
+          streamDiagnostics?.observeBatch('frequency', nn.length);
+          return hrvFreq(nn, nnTimes, artifactFraction: artifactFraction);
+        })
       : Metric<HrvFreq>.absent(
           tier: Tier.high,
           inputs_used: const ['rr_cleaned'],
           note: needInputNote('nn_beats', have: nn.length, need: 20),
         );
-  if (nn.length >= 20) streamDiagnostics?.observeBatch('frequency', nn.length);
   // Nocturnal RHR over the SLEEP HR. NO SLEEP ⇒ NO RESTING HR.
   //
   // This used to fall back to the whole-day HR when no sleep was scored, and
@@ -713,9 +740,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson, {
   // HR dip: day-side = waking HR outside the sleep window; night-side = sleep HR.
   final dayOnly = _dayHrOutsideSleep(d);
   final dip = hrDip(dayOnly, sleepHr);
-  final dc = decelerationCapacity(nn);
-  final ac = accelerationCapacity(nn);
-  streamDiagnostics?.observeBatch('prsa', nn.length);
+  final prsa = nightMemo('prsa', null, () {
+    streamDiagnostics?.observeBatch('prsa', nn.length);
+    return (decelerationCapacity(nn), accelerationCapacity(nn));
+  });
+  final dc = prsa.$1;
+  final ac = prsa.$2;
   // Baevsky Stress Index over the sleep NN — resting autonomic tension (a
   // transparent RR-histogram metric; no ML). Daily resting-stress indicator.
   // nnTimesMs lets it segment at a charging/off-wrist gap instead of letting
@@ -725,21 +755,25 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson, {
 
   // ── RESPIRATION (sleep-windowed) ───────────────────────────────────────────
   final resp = nn.length >= 30
-      ? rsaRespRate(nn, nnTimes, artifactFraction: artifactFraction)
+      ? nightMemo('rsa', artifactFraction, () {
+          streamDiagnostics?.observeBatch('rsa', nn.length);
+          return rsaRespRate(nn, nnTimes, artifactFraction: artifactFraction);
+        })
       : Metric<RespEstimate>.absent(
           tier: Tier.estimate,
           inputs_used: const ['rr_cleaned'],
           note: needInputNote('nn_beats', have: nn.length, need: 30),
         );
   final cvhr = nn.length >= 60
-      ? cvhrApneaScreen(nn, nnTimes, artifactFraction: artifactFraction)
+      ? nightMemo('cvhr', artifactFraction, () {
+          streamDiagnostics?.observeBatch('cvhr', nn.length);
+          return cvhrApneaScreen(nn, nnTimes, artifactFraction: artifactFraction);
+        })
       : Metric<CvhrResult>.absent(
           tier: Tier.estimate,
           inputs_used: const ['rr_cleaned'],
           note: needInputNote('nn_beats', have: nn.length, need: 60),
         );
-  if (nn.length >= 30) streamDiagnostics?.observeBatch('rsa', nn.length);
-  if (nn.length >= 60) streamDiagnostics?.observeBatch('cvhr', nn.length);
   // ── 24/7 IRREGULAR-RHYTHM SCREEN (day-span RR; not a diagnosis) ────────────
   // Runs over the WHOLE-DAY cleaned RR (not just sleep) so an arrhythmia screen
   // isn't limited to the sleep window. Hard-gated on beat count + artifact inside
@@ -759,8 +793,11 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson, {
   // ── BREATHING-RATE VARIABILITY (per-window RSA over the sleep NN) ──────────
   // Window the cleaned sleep NN into ~30-min bins, take each bin's RSA resp rate,
   // then BRV = dispersion + Theil-Sen trend of those per-window rates.
-  final respWindows = respPerWindow(nn, nnTimes,
-      artifactFraction: artifactFraction, diagnostics: streamDiagnostics);
+  final cachedRespWindows = nightMemo('rsa_bins', artifactFraction, () =>
+      respPerWindow(nn, nnTimes, artifactFraction: artifactFraction,
+          diagnostics: streamDiagnostics));
+  final respWindows = nightState == null
+      ? cachedRespWindows : cachedRespWindows.toList();
   streamDiagnostics?.onRespWindows?.call(respWindows);
   final brv = respWindows.length >= 3
       ? breathingRateVariability(respWindows)
@@ -1329,11 +1366,11 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson, {
       'min_diffs_per_window': sessionDetail?.minDiffsPerWindow,
     },
     'rmssd_nocturnal': robustRmssd.toJson(),
-    'hrv_freq': hrvF.toJson((v) => v.toJson()),
+    'hrv_freq': nightJson(hrvF.toJson((v) => v.toJson())),
     'resting_hr': rhr.toJson((v) => v.toJson()),
     'hr_dip': dip.toJson((v) => v.toJson()),
-    'prsa_dc': dc.toJson((v) => v.toJson()),
-    'prsa_ac': ac.toJson((v) => v.toJson()),
+    'prsa_dc': nightJson(dc.toJson((v) => v.toJson())),
+    'prsa_ac': nightJson(ac.toJson((v) => v.toJson())),
     'readiness_lnrmssd': lnReadiness.toJson((v) => v.toJson()),
     'readiness_composite': {
       ...composite.toJson((v) => v.toJson()),
@@ -1438,8 +1475,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson, {
   };
 
   final respiration = <String, dynamic>{
-    'rsa': resp.toJson((v) => v.toJson()),
-    'cvhr_apnea': cvhr.toJson((v) => v.toJson()),
+    'rsa': nightJson(resp.toJson((v) => v.toJson())),
+    'cvhr_apnea': nightJson(cvhr.toJson((v) => v.toJson())),
     'odi': odi.toJson((v) => v.toJson()),
   };
 
@@ -1708,7 +1745,6 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson, {
     ),
   };
 
-  streamDiagnostics?.endPass();
   return <String, dynamic>{
     'date': d.date,
     'day_confidence': _round(d.dayConfidence, 4),
@@ -1995,6 +2031,17 @@ List<double> respPerWindow(
     if (b != null) out.add(b);
   }
   return out;
+}
+
+// Metric serializers can expose lists owned by the cached value or envelope.
+// Detach these small JSON blocks before returning them to a caller.
+Map<String, dynamic> _copyNightJson(Map<String, dynamic> json) {
+  Object? copy(Object? value) {
+    if (value is Map<String, dynamic>) return value.map((k, v) => MapEntry(k, copy(v)));
+    if (value is List) return [for (final v in value) copy(v)];
+    return value;
+  }
+  return json.map((k, v) => MapEntry(k, copy(v)));
 }
 
 /// Wrap a value sub-map in the {value,confidence,tier,inputs_used} envelope the
