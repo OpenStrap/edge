@@ -1267,6 +1267,8 @@ List<PhysioDay> calendarDays(
   List<VendorNight> vendorNights = const [],
   String? targetDay,
   bool skipUnusedDays = false,
+  ana.CardioRowCache? rowCache, // ED-2b RED: unused until E6 adoption.
+  bool recordTargetOnly = false, // ED-2b RED: unused until D36 adoption.
 }) {
   final tzOffset = tzOffsetAt ?? tzOffsetSecondsAt;
   if (sub.isEmpty) return const [];

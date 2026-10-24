@@ -32,6 +32,7 @@ import 'package:openstrap_analytics/onehz.dart';
 // instead of two that can drift.
 import 'inputs/garmin_inputs.dart'
     show isWearableFamily, kHrCadenceSec, kOneHzRunGapSec;
+import 'ed2b_stream_diagnostics.dart';
 import 'hr_max.dart'
     show
         estimatedMaxHr,
@@ -545,7 +546,10 @@ class DayBundleInput {
 /// Pure: takes the serialized [DayBundleInput] map, returns a plain JSON map (the
 /// full derived bundle). Call directly + synchronously in tests, or via
 /// `Isolate.run(() => deriveDayBundle(input))` in production.
-Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
+Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson, {
+  Ed2bStreamDiagnostics? streamDiagnostics,
+}) {
+  streamDiagnostics?.beginPass();
   final d = DayBundleInput.fromJson(inputJson);
 
   // ── HR over the DAY (for the curve, strain zones, dip day-side) ───────────
@@ -592,6 +596,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // the SLEEP RR (not the whole day) is what brings RMSSD back to physiological
   // tens-of-ms instead of the whole-day ~166 ms inflated value.
   final corrected = correctRr(d.sleepRrMs, rrTsMs: d.sleepRrTsMs);
+  streamDiagnostics?.observeNightCorrection(d.sleepRrMs.length, corrected.nn,
+      corrected.nnTimesMs, corrected.cleanFraction);
   final nn = corrected.nn;
   final nnTimes = corrected.nnTimesMs;
   final artifactFraction = (1.0 - corrected.cleanFraction).clamp(0.0, 1.0);
@@ -659,6 +665,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           inputs_used: const ['rr_cleaned'],
           note: needInputNote('nn_beats', have: nn.length, need: 20),
         );
+  if (nn.length >= 20) streamDiagnostics?.observeBatch('frequency', nn.length);
   // Nocturnal RHR over the SLEEP HR. NO SLEEP ⇒ NO RESTING HR.
   //
   // This used to fall back to the whole-day HR when no sleep was scored, and
@@ -708,6 +715,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final dip = hrDip(dayOnly, sleepHr);
   final dc = decelerationCapacity(nn);
   final ac = accelerationCapacity(nn);
+  streamDiagnostics?.observeBatch('prsa', nn.length);
   // Baevsky Stress Index over the sleep NN — resting autonomic tension (a
   // transparent RR-histogram metric; no ML). Daily resting-stress indicator.
   // nnTimesMs lets it segment at a charging/off-wrist gap instead of letting
@@ -730,6 +738,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           inputs_used: const ['rr_cleaned'],
           note: needInputNote('nn_beats', have: nn.length, need: 60),
         );
+  if (nn.length >= 30) streamDiagnostics?.observeBatch('rsa', nn.length);
+  if (nn.length >= 60) streamDiagnostics?.observeBatch('cvhr', nn.length);
   // ── 24/7 IRREGULAR-RHYTHM SCREEN (day-span RR; not a diagnosis) ────────────
   // Runs over the WHOLE-DAY cleaned RR (not just sleep) so an arrhythmia screen
   // isn't limited to the sleep window. Hard-gated on beat count + artifact inside
@@ -749,8 +759,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // ── BREATHING-RATE VARIABILITY (per-window RSA over the sleep NN) ──────────
   // Window the cleaned sleep NN into ~30-min bins, take each bin's RSA resp rate,
   // then BRV = dispersion + Theil-Sen trend of those per-window rates.
-  final respWindows =
-      respPerWindow(nn, nnTimes, artifactFraction: artifactFraction);
+  final respWindows = respPerWindow(nn, nnTimes,
+      artifactFraction: artifactFraction, diagnostics: streamDiagnostics);
+  streamDiagnostics?.onRespWindows?.call(respWindows);
   final brv = respWindows.length >= 3
       ? breathingRateVariability(respWindows)
       : Metric<BrvResult>.absent(
@@ -1697,6 +1708,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     ),
   };
 
+  streamDiagnostics?.endPass();
   return <String, dynamic>{
     'date': d.date,
     'day_confidence': _round(d.dayConfidence, 4),
@@ -1958,6 +1970,7 @@ List<double> respPerWindow(
   List<double> nn,
   List<double> nnTimes, {
   required double artifactFraction,
+  Ed2bStreamDiagnostics? diagnostics,
   double windowMs = 1800000.0,
   int minBeats = 60,
 }) {
@@ -1977,6 +1990,7 @@ List<double> respPerWindow(
     if (segNn.length < minBeats) continue;
     final r =
         rsaRespRate(segNn, binsTs[idx]!, artifactFraction: artifactFraction);
+    diagnostics?.observeBatch('rsa_bins', segNn.length);
     final b = r.present ? r.value!.brpm : null;
     if (b != null) out.add(b);
   }
