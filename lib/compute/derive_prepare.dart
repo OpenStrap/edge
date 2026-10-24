@@ -6,6 +6,8 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import '../ble/adapters/signals.dart';
 import '../data/coverage_resolver.dart';
 import 'substrate.dart';
+import 'substrate_retention.dart';
+import 'substrate_union.dart';
 import 'vendor_sleep.dart';
 
 class PreparedDerivationDay {
@@ -317,6 +319,9 @@ void derivationPrepareWorker(SendPort mainSendPort) {
   final state = _PrepareAccumulator();
   String? targetDay;
   var mode = 'prepared_day';
+  SubstrateUnionWindow? unionWindow;
+  var loadFrom = 0, loadTo = -1;
+  Map<InputSignal, List<OwnedSpan>> loadOwnership = const {};
   mainSendPort.send(port.sendPort);
 
   void handle(Object? message) {
@@ -348,6 +353,10 @@ void derivationPrepareWorker(SendPort mainSendPort) {
       final cfgMode = message['mode']?.toString();
       if (cfgMode != null && cfgMode.isNotEmpty) mode = cfgMode;
       state.retain = message['retain'] == true;
+      unionWindow = message['union_window'] as SubstrateUnionWindow?;
+      loadFrom = message['load_from'] as int? ?? 0;
+      loadTo = message['load_to'] as int? ?? -1;
+      loadOwnership = message['ownership'] as Map<InputSignal, List<OwnedSpan>>? ?? const {};
       return;
     }
     if (type == 'seed') {
@@ -358,11 +367,20 @@ void derivationPrepareWorker(SendPort mainSendPort) {
       try {
         final substrate = state.buildSubstrate();
         if (mode == 'substrate') {
+          final extras = state.retainable ? state.retainExtras() : null;
+          final request = unionWindow;
+          final window = request == null || extras == null ? null :
+              cutSubstrateUnion(RetainedSubstrate(version: 0, context: '',
+                revisions: const {}, sub: substrate, extras: extras, cut: loadFrom,
+                from: loadFrom, to: loadTo, ownership: loadOwnership),
+                request.from, request.to, request.ownership,
+                retainMetadata: false)?.sub;
           mainSendPort.send({
             'type': 'result',
             'kind': 'substrate',
             'payload': substrate.toJson(),
-            if (state.retainable) 'retain': state.retainExtras(),
+            'retain': ?extras,
+            if (window != null) 'union_window': window.toJson(),
           });
         } else {
           final payload = prepareDerivationPayload(
@@ -661,6 +679,7 @@ class _PrepareAccumulator {
   final List<int> _rrStart = [];
   final Map<int, _BucketAcc> _buckets = {};
   Float64List? _rrTsRaw;
+  final List<List<Object?>> _provenance = [];
 
   void seed(Map message) {
     List<int> ints(String k) => message[k] as List<int>;
@@ -689,6 +708,11 @@ class _PrepareAccumulator {
     rrTsMs.addAll(dbls('rr_ts_raw').getRange(0, beats));
     rrMs.addAll(dbls('rr_ms').getRange(0, beats));
     _rrStart.addAll(starts.getRange(0, n));
+    for (final run in (message['provenance'] as List?) ?? const []) {
+      final r = (run as List).cast<Object?>();
+      if ((r[0] as int) >= n) break;
+      _provenance.add(List<Object?>.from(r));
+    }
     for (final wire in message['meta'] as List) {
       final m = wire as List;
       final bucket = m[0] as int;
@@ -706,6 +730,7 @@ class _PrepareAccumulator {
   Map<String, Object?> retainExtras() => {
     'rr_start': Int32List.fromList(_rrStart),
     'rr_ts_raw': _rrTsRaw!,
+    'provenance': _provenance,
     'meta': [for (final e in _buckets.entries)
       [e.key, e.value.families.toList(), e.value.deviceIds.toList(),
         e.value.skinUnit]],
@@ -787,6 +812,16 @@ class _PrepareAccumulator {
       if (retain) {
         _rrStart.add(rrMs.length);
         _buckets.putIfAbsent(recTs ~/ 900, _BucketAcc.new).note(row);
+        final family = row?['device_family'];
+        final id = row?['device_id'];
+        final unit = row?['skin_temp_raw'] is num ? 'raw' :
+            (row?['skin_temp_c'] is num ? 'c' : null);
+        final f = family is String && family.isNotEmpty ? family : null;
+        final d = id is String ? id : null;
+        final last = _provenance.isEmpty ? null : _provenance.last;
+        if (last == null || last[1] != f || last[2] != d || last[3] != unit) {
+          _provenance.add([tsSec.length, f, d, unit]);
+        }
       }
       tsSec.add(recTs);
       // NULL (absent), a beat-only second (no row at all) and an impossible
