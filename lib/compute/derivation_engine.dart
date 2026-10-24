@@ -73,6 +73,8 @@ import 'sleep_profile_policy.dart';
 import 'ed2b_checkpoint_diagnostics.dart';
 import 'staged_sleep_cache.dart';
 import 'ed2b_stream_diagnostics.dart';
+import 'cardio_rows_cache.dart';
+import 'night_rr_state.dart';
 import 'substrate_retention.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
@@ -3108,7 +3110,7 @@ class DerivationEngine {
   DerivationEngine({this.log, this.background = false, this.offloadActive});
   final void Function(String)? log;
 
-  // ED-2b RED observations. Controls stay inert until their GREEN phase.
+  // ED-2b observations. Checkpoint/union controls await their GREEN phase.
   final debugCheckpoints = Ed2bCheckpointDiagnostics();
   @visibleForTesting
   void Function(String day)? debugOnProfileFold;
@@ -3116,14 +3118,14 @@ class DerivationEngine {
   Future<void> debugFoldObservation(String day, String observation) =>
       _foldObservationIntoProfile(day, observation);
   @visibleForTesting
-  // ED-2b RED: optional observations follow the real day-bundle worker,
-  // carrying counters only. No night stream is retained or enabled here.
+  // Optional observations follow the real day-bundle worker and its RAM owner.
   Ed2bStreamDiagnostics? debugNightStreams;
   @visibleForTesting
   void Function(Map<String, dynamic> input, Map<String, dynamic> output)?
       debugOnNightBundle;
   @visibleForTesting
-  Uint8List? debugCardioRowBytes;
+  Uint8List? get debugCardioRowBytes =>
+      _cardioRowChunks.isEmpty ? null : _cardioRowChunks.last.bytes;
   @visibleForTesting
   bool debugDisableCardioRows = false;
   @visibleForTesting
@@ -3131,10 +3133,16 @@ class DerivationEngine {
   @visibleForTesting
   int debugCardioRowMisses = 0;
   @visibleForTesting
-  List<String> get debugCardioRowWorkerOperations => const [];
+  List<String> get debugCardioRowWorkerOperations => _cardioRowOperations.toList();
   @visibleForTesting
   void debugRekeyCardioRows({required int inputRevision,
-      required int generation, required int algorithm}) {}
+      required int generation, required int algorithm}) {
+    for (final c in _cardioRowChunks) {
+      c.generation = generation;
+      c.algorithm = algorithm;
+      c.revisions.updateAll((_, fp) => (inputRevision, fp.$2, generation));
+    }
+  }
   @visibleForTesting
   bool debugDisableUnionLoads = false;
   @visibleForTesting
@@ -3196,6 +3204,11 @@ class DerivationEngine {
   }
 
   final _retained = SubstrateRetention();
+  final _cardioRowChunks = <CardioRowsChunk>[];
+  final _cardioRowOperations = <String>{};
+  final _nightStates = <String, NightRrState>{};
+  static const _cardioRowsSlackSec = 3600;
+  static const _cardioRowsMaxBytes = 8 * 1024 * 1024;
   int _retentionEpoch = 0;
   int? _retentionPassEpoch;
   bool _retentionInBackground = false;
@@ -3208,6 +3221,9 @@ class DerivationEngine {
   void _clearRetainedSubstrate() {
     _retentionEpoch++;
     _retained.clear();
+    _cardioRowChunks.clear();
+    _nightStates.clear();
+    debugNightStreams?.nightState.clear();
   }
 
   void _beginRetentionPass() {
@@ -3218,12 +3234,18 @@ class DerivationEngine {
 
   void _endRetentionPass() {
     _retained.retainDays(_retentionPreparedDays);
+    _nightStates.removeWhere((day, state) {
+      if (_retentionPreparedDays.contains(day)) return false;
+      state.clear();
+      return true;
+    });
     _retentionPreparedDays.clear();
     _retentionPassEpoch = null;
   }
 
   void _dropRetainedDay(String day) {
     _retained.remove(day);
+    _nightStates.remove(day)?.clear();
     _retentionPreparedDays.remove(day);
   }
   @visibleForTesting
@@ -4568,8 +4590,10 @@ class DerivationEngine {
     // a night that was never scored.
     final (searchOwnership, searchPriority) =
         await _resolveOwnership(range.$1, range.$2);
+    final rowsEpoch = _retentionEpoch;
     List<List<Object>>? revisions;
-    if (!debugDisableStagedSleepCache) {
+    if (!debugDisableStagedSleepCache ||
+        (!debugDisableCardioRows && _canRetainSubstrate)) {
       try {
         revisions = [];
         final first = DateTime.fromMillisecondsSinceEpoch(range.$1 * 1000);
@@ -4657,7 +4681,7 @@ class DerivationEngine {
         : null;
     if (ownNight != null) vendorNights = [...vendorNights, ownNight];
     String? stagingKey;
-    if (revisions != null) {
+    if (revisions != null && !debugDisableStagedSleepCache) {
       try {
         stagingKey = stagingInputKey(
           fromSec: range.$1,
@@ -4685,7 +4709,24 @@ class DerivationEngine {
     // the context the worker closure ships, and the engine's callbacks (the
     // app's own fields) are not sendable.
     final stageTimeout = _perDayTimeout;
-    Future<(String, String?, int)> stage() => _runIsolateCancellable(() {
+    final cacheRows = !debugDisableCardioRows && _canRetainSubstrate &&
+        rowsEpoch == _retentionEpoch && revisions != null;
+    final rowRevisions = <String, (int, int, int)>{
+      for (final r in revisions ?? const <List<Object>>[])
+        r[0] as String: (r[1] as int, r[2] as int, r[3] as int),
+    };
+    final rowGeneration = LocalDb.storeGeneration;
+    final rowsLo = range.$1 - _cardioRowsSlackSec;
+    final rowsHi = range.$2 + _cardioRowsSlackSec;
+    _cardioRowChunks.removeWhere((c) =>
+        c.generation != rowGeneration || c.algorithm != kAlgoVersion ||
+        (c.overlaps(rowsLo, rowsHi) &&
+          !c.matches(rowRevisions, rowGeneration, kAlgoVersion)));
+    final sentChunks = cacheRows ? [for (final c in _cardioRowChunks)
+      if (c.overlaps(rowsLo, rowsHi)) c] : <CardioRowsChunk>[];
+    final rowBytes = [for (final c in sentChunks) c.bytes];
+    Future<(String, String?, int, Uint8List?, int, int, List<String>)> stage() =>
+        _runIsolateCancellable(() {
       try {
         final p = profileJson == null
             ? null
@@ -4707,6 +4748,14 @@ class DerivationEngine {
       ana.cardioRecordObservations = true;
       ana.resetCardioObservations();
       debugSegmentedDayCount = 0;
+      final rowOperations = <String>[];
+      final ana.CardioRowCache? rowCache;
+      if (cacheRows) {
+        rowCache = decodeCardioRows(rowBytes);
+        rowOperations.addAll(['decode:worker', 'merge:worker']);
+      } else {
+        rowCache = null;
+      }
       final candidate = prepareSleepSessionCandidate(
         searchSub,
         targetDay: dayId,
@@ -4715,6 +4764,7 @@ class DerivationEngine {
         override: override,
         priorSleep: priorSleep,
         vendorNights: vendorNights,
+        rowCache: rowCache,
       );
       // Fold the TARGET sleep (most epochs of its own observations) into the
       // rolling profile — done here in the worker because the observations live
@@ -4756,7 +4806,12 @@ class DerivationEngine {
           }
         }
       }
-      return (jsonEncode(candidate.toJson()), observationJson, debugSegmentedDayCount);
+      final rowsOut = rowCache == null ? null :
+          encodeCardioRows(rowCache, rowsLo, rowsHi);
+      if (rowCache != null) rowOperations.add('prune:worker');
+      return (jsonEncode(candidate.toJson()), observationJson,
+        debugSegmentedDayCount, rowsOut, rowCache?.hits ?? 0,
+        rowCache?.misses ?? 0, rowOperations);
     }, stageTimeout, label: 'sleep-staging $dayId');
     final hit = stagingKey == null ? null : _stagedSleepCache.lookup(
         dayId, kAlgoVersion, stagingKey, mayFold: mayFold);
@@ -4771,6 +4826,26 @@ class DerivationEngine {
       final result = await stage();
       candidateJson = result.$1;
       observationJson = result.$2;
+      debugCardioRowHits += result.$5;
+      debugCardioRowMisses += result.$6;
+      _cardioRowOperations.addAll(result.$7);
+      if (_canRetainSubstrate && rowsEpoch == _retentionEpoch &&
+          LocalDb.storeGeneration == rowGeneration && !debugDisableCardioRows) {
+        _cardioRowChunks.removeWhere(sentChunks.contains);
+        if (result.$4 != null && result.$4!.length <= _cardioRowsMaxBytes) {
+          _cardioRowChunks.add(CardioRowsChunk(result.$4!, rowsLo, rowsHi,
+            rowRevisions, rowGeneration, kAlgoVersion));
+        }
+        // Bound both disjoint windows and repeated fingerprint variants.
+        final newest = _cardioRowChunks.fold<int>(rowsHi,
+            (hi, c) => math.max(hi, c.hiSec));
+        _cardioRowChunks.removeWhere((c) => c.hiSec < newest - 4 * 24 * 3600);
+        while (_cardioRowChunks.length > 4 ||
+            _cardioRowChunks.fold<int>(0, (n, c) => n + c.bytes.length) >
+                _cardioRowsMaxBytes) {
+          _cardioRowChunks.removeAt(0);
+        }
+      }
       debugOnStagingWalk?.call(mayFold, result.$3, observationJson);
       if (stagingKey != null) {
         _stagedSleepCache.store(dayId, StagedSleepEntry(
@@ -6404,14 +6479,54 @@ class DerivationEngine {
 
     // Cancellable: on timeout the isolate is KILLED, not merely abandoned to
     // keep burning a core behind the worker pool's back.
+    final nightEpoch = _retentionEpoch;
+    final retainNight = _canRetainSubstrate && !suppliedSubstrate;
     final diagnostics = debugNightStreams;
+    // Keep DB reads and engine fields outside the shipped closure. A changed
+    // revision rejects even a byte-identical replacement; raw prefix proofs in
+    // the worker additionally detect moved windows and in-memory mutations.
+    NightRrState? nightState;
+    if ((retainNight && sleepSub.rrMs.isNotEmpty) || diagnostics != null) {
+      nightState = _nightStates.remove(day.date) ?? NightRrState();
+      try {
+        var revision = 0;
+        var generation = LocalDb.storeGeneration;
+        final first = DateTime.fromMillisecondsSinceEpoch(
+            day.sleepOnsetSec * 1000);
+        final last = day.sleepOffsetSec > day.sleepOnsetSec
+            ? day.sleepOffsetSec - 1 : day.sleepOnsetSec;
+        for (var date = DateTime(first.year, first.month, first.day);
+            date.millisecondsSinceEpoch ~/ 1000 <= last;
+            date = DateTime(date.year, date.month, date.day + 1)) {
+          final fp = await LocalDb.inputDayFingerprint(dayLabelOf(date));
+          revision += fp.revisionSum;
+          generation = fp.generation;
+        }
+        nightState.context(inputRevision: revision, generation: generation,
+            algorithm: kAlgoVersion);
+      } catch (_) {
+        nightState.clear(); // Unavailable provenance never certifies reuse.
+      }
+      diagnostics?.nightState = nightState;
+    }
     final workerResult = await _runIsolateCancellable(
-      () => (deriveDayBundle(withHistory, streamDiagnostics: diagnostics), diagnostics),
+      () => (deriveDayBundle(withHistory, streamDiagnostics: diagnostics,
+          nightState: nightState), nightState, diagnostics),
       _perDayTimeout,
       label: 'day-bundle ${day.date}',
     );
     final bundle = workerResult.$1;
-    if (diagnostics != null) debugNightStreams = workerResult.$2;
+    if (diagnostics != null) debugNightStreams = workerResult.$3;
+    final returnedNight = workerResult.$2;
+    if (returnedNight != null && retainNight && _canRetainSubstrate &&
+        nightEpoch == _retentionEpoch) {
+      _nightStates[day.date] = returnedNight;
+      while (_nightStates.length > math.min(2, _retained.maxDays)) {
+        _nightStates.remove(_nightStates.keys.first)?.clear();
+      }
+    } else {
+      returnedNight?.clear();
+    }
     debugOnNightBundle?.call(withHistory, bundle);
     // Readiness came back absent for TODAY specifically (not a historical
     // backfill day, which would just be noise) — log why. This ran inside

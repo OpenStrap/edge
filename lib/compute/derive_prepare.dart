@@ -415,7 +415,7 @@ PreparedDerivationPayload prepareDerivationPayload(
   List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
   List<VendorNight> vendorNights = const [],
   bool skipUnusedDays = false,
-  ana.CardioRowCache? rowCache, // ED-2b RED: unused until E6 adoption.
+  ana.CardioRowCache? rowCache,
   bool recordTargetOnly = false,
 }) {
   if (sub.isEmpty || sub.lastTs == null) {
@@ -484,7 +484,7 @@ SleepSessionCandidate prepareSleepSessionCandidate(
   List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
   List<VendorNight> vendorNights = const [],
   bool skipUnusedDays = false,
-  ana.CardioRowCache? rowCache, // ED-2b RED: unused until E6 adoption.
+  ana.CardioRowCache? rowCache,
   bool recordTargetOnly = false,
 }) {
   // An UNCLAIMED device night (our rows saw under half of it) ending today IS
