@@ -620,6 +620,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   final nn = corrected.nn;
   final nnTimes = corrected.nnTimesMs;
   final artifactFraction = (1.0 - corrected.cleanFraction).clamp(0.0, 1.0);
+  final streams = nightState?.canStream == true ? nightState : null;
   final nnProof = nightState?.dependencyProof(nn, nnTimes);
   T nightMemo<T>(String key, Object? extra, T Function() compute) =>
       nnProof == null ? compute() :
@@ -685,6 +686,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
       sleepSessionRmssdMetric.present ? sessionDetail!.rmssd : null;
   final hrvF = nn.length >= 20
       ? nightMemo('frequency', artifactFraction, () {
+          if (streams != null) return streams.nightHrvFreq(artifactFraction);
           streamDiagnostics?.observeBatch('frequency', nn.length);
           return hrvFreq(nn, nnTimes, artifactFraction: artifactFraction);
         })
@@ -741,6 +743,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   final dayOnly = _dayHrOutsideSleep(d);
   final dip = hrDip(dayOnly, sleepHr);
   final prsa = nightMemo('prsa', null, () {
+    if (streams != null) return streams.nightPrsa();
     streamDiagnostics?.observeBatch('prsa', nn.length);
     return (decelerationCapacity(nn), accelerationCapacity(nn));
   });
@@ -756,6 +759,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   // ── RESPIRATION (sleep-windowed) ───────────────────────────────────────────
   final resp = nn.length >= 30
       ? nightMemo('rsa', artifactFraction, () {
+          if (streams != null) return streams.nightResp(artifactFraction);
           streamDiagnostics?.observeBatch('rsa', nn.length);
           return rsaRespRate(nn, nnTimes, artifactFraction: artifactFraction);
         })
@@ -766,6 +770,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
         );
   final cvhr = nn.length >= 60
       ? nightMemo('cvhr', artifactFraction, () {
+          if (streams != null) return streams.nightCvhr(artifactFraction);
           streamDiagnostics?.observeBatch('cvhr', nn.length);
           return cvhrApneaScreen(nn, nnTimes, artifactFraction: artifactFraction);
         })
@@ -794,8 +799,9 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   // Window the cleaned sleep NN into ~30-min bins, take each bin's RSA resp rate,
   // then BRV = dispersion + Theil-Sen trend of those per-window rates.
   final cachedRespWindows = nightMemo('rsa_bins', artifactFraction, () =>
-      respPerWindow(nn, nnTimes, artifactFraction: artifactFraction,
-          diagnostics: streamDiagnostics));
+      streams != null ? streams.nightRespWindows(artifactFraction) :
+          respPerWindow(nn, nnTimes, artifactFraction: artifactFraction,
+              diagnostics: streamDiagnostics));
   final respWindows = nightState == null
       ? cachedRespWindows : cachedRespWindows.toList();
   streamDiagnostics?.onRespWindows?.call(respWindows);

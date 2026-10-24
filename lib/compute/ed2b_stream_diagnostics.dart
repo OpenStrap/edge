@@ -26,10 +26,12 @@ class Ed2bStreamDiagnostics {
   int get identityMemoEntries => nightState.identityMemoEntries;
   int get fullListDigests => nightState.fullListDigests;
   int get maximumListDigestsPerIdentity => nightState.maximumListDigestsPerIdentity;
-  int retainedStreamBeats(String stream) => 0;
-  int processedBeats(String stream) => _batchBeats[stream] ?? 0;
-  int slicesProcessed(String stream) => _batchCalls[stream] ?? 0;
-  int streamRestarts(String stream) => 0;
+  int retainedStreamBeats(String stream) => nightState.retainedStreamBeats(stream);
+  int processedBeats(String stream) => nightState.processedBeats(stream) +
+      (_batchBeats[stream] ?? 0);
+  int slicesProcessed(String stream) => nightState.slicesProcessed(stream) +
+      (_batchCalls[stream] ?? 0);
+  int streamRestarts(String stream) => nightState.streamRestarts(stream);
 
   void observeNightCorrection(int rawBeats, List<double> nn,
       List<double> times, double cleanFraction) {
@@ -37,7 +39,7 @@ class Ed2bStreamDiagnostics {
   }
 
   void observeBatch(String stream, int beats) {
-    _batchCalls[stream] = slicesProcessed(stream) + 1;
-    _batchBeats[stream] = processedBeats(stream) + beats;
+    _batchCalls[stream] = (_batchCalls[stream] ?? 0) + 1;
+    _batchBeats[stream] = (_batchBeats[stream] ?? 0) + beats;
   }
 }
