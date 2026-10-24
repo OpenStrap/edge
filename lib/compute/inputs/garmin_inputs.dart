@@ -107,6 +107,7 @@ Future<Substrate> sparseHrSubstrate(
     [deviceId, family, from, to],
   );
   if (rows.isEmpty) return Substrate.empty;
+  debugRecordWearableConstruction();
   final n = rows.length;
   final zeros = List<double>.filled(n, 0);
   final none = List<int>.filled(n, -1);

@@ -408,6 +408,7 @@ PreparedDerivationPayload prepareDerivationPayload(
   SleepWindowOverride? override,
   List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
   List<VendorNight> vendorNights = const [],
+  bool skipUnusedDays = false,
 }) {
   if (sub.isEmpty || sub.lastTs == null) {
     return const PreparedDerivationPayload(dataNowSec: 0, days: []);
@@ -416,6 +417,8 @@ PreparedDerivationPayload prepareDerivationPayload(
   for (final day in calendarDays(
     sub,
     override: override,
+    targetDay: targetDay,
+    skipUnusedDays: skipUnusedDays,
     priorSleep: priorSleep,
     vendorNights: vendorNights,
   )) {
@@ -470,6 +473,7 @@ SleepSessionCandidate prepareSleepSessionCandidate(
   SleepWindowOverride? override,
   List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
   List<VendorNight> vendorNights = const [],
+  bool skipUnusedDays = false,
 }) {
   // An UNCLAIMED device night (our rows saw under half of it) ending today IS
   // the night: above our detection, below the user's word. It never reaches
@@ -515,6 +519,7 @@ SleepSessionCandidate prepareSleepSessionCandidate(
   final payload = prepareDerivationPayload(sub,
       targetDay: targetDay,
       override: override,
+      skipUnusedDays: skipUnusedDays,
       priorSleep: priorSleep,
       vendorNights: claimed);
   if (payload.days.isEmpty) return SleepSessionCandidate.absent(targetDay);

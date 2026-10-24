@@ -14979,6 +14979,21 @@ class LocalDb {
     ];
   }
 
+  @visibleForTesting
+  static bool debugDisableSessionWindowsWorker = false;
+  @visibleForTesting
+  static void Function(String)? debugOnSessionWindowsConstruction;
+
+  // RED forwarding seam: still performs the two existing reads. GREEN combines
+  // these at the repository call site and prepares both results in one worker.
+  @visibleForTesting
+  static Future<({Map<String, Map<String, num>> stats,
+      Map<String, List<int>> samples})> sessionHrReadsForTest(int from, int to,
+          {int maxHrCeiling = 0, int minHrFloor = 0}) async =>
+      (stats: await sessionHrStats(from, to,
+           maxHrCeiling: maxHrCeiling, minHrFloor: minHrFloor),
+       samples: await sessionHrSamplesBySession(from, to));
+
   /// Every session in [fromTs, toTs] (epoch SECONDS) with the worn rows of
   /// its window a session read keeps ([sessionWindowRows]), ascending. Only
   /// with a workout sensor flagged on; a session with none is absent, as from
@@ -14997,6 +15012,7 @@ class LocalDb {
       'ORDER BY s.id, d.rec_ts ASC',
       [fromTs, toTs],
     );
+    debugOnSessionWindowsConstruction?.call(Isolate.current.debugName ?? 'unnamed');
     final by = <String, List<Map<String, Object?>>>{};
     for (final r in rows) {
       final id = r['id'] as String?;

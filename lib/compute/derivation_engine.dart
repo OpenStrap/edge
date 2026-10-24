@@ -70,6 +70,7 @@ import 'hr_max.dart'
     show estimatedMaxHr, kHrFloorBpm, smoothedMaxHr, smoothedMinHr;
 import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
+import 'staged_sleep_cache.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
 import 'step_cadence.dart';
@@ -3092,6 +3093,59 @@ class DerivationEngine {
   DerivationEngine({this.log, this.background = false, this.offloadActive});
   final void Function(String)? log;
 
+  // ED-2a RED seams. Empty cache views and no-op controls describe the current
+  // uncached engine. Counters below observe real worker work, never results.
+  // E12 now backs the staging controls; later steps' controls remain inert.
+  final _stagedSleepCache = StagedSleepCache();
+  @visibleForTesting
+  bool debugDisableStagedSleepCache = false;
+  @visibleForTesting
+  int get debugStagedSleepCacheMaxDays => _stagedSleepCache.maxDays;
+  @visibleForTesting
+  set debugStagedSleepCacheMaxDays(int value) => _stagedSleepCache.maxDays = value;
+  @visibleForTesting
+  int get debugStagedSleepCacheSize => _stagedSleepCache.size;
+  @visibleForTesting
+  void debugStagedSleepCacheRekey(int version) => _stagedSleepCache.rekey(version);
+  @visibleForTesting
+  bool debugDisableSubstrateRetention = false;
+  @visibleForTesting
+  int debugRetainedSubstrateMaxDays = 2;
+  @visibleForTesting
+  Set<String> get debugRetainedSubstrateDays => const {};
+  @visibleForTesting
+  void debugRetainedSubstrateRekey(int version) {}
+  @visibleForTesting
+  void trimForBackground() {}
+  @visibleForTesting
+  void handleMemoryPressure() {}
+  @visibleForTesting
+  void dispose() {}
+  @visibleForTesting
+  bool debugDisableSessionReuse = false;
+  @visibleForTesting
+  int debugCeilingComputed = 0;
+  @visibleForTesting
+  void debugSessionCacheRekey(int version) {}
+  @visibleForTesting
+  int debugStagingComputations = 0;
+  @visibleForTesting
+  void Function(bool mayFold, int segmentedDays, String? observation)? debugOnStagingWalk;
+  @visibleForTesting
+  bool debugDisableTargetDaySkip = false;
+  @visibleForTesting
+  Map<String, Object?> debugRetainedSubstrate(String day) => const {};
+  @visibleForTesting
+  Future<SleepSessionCandidate> debugSleepCandidate(String day) =>
+      _sleepCandidateForDay(day);
+  @visibleForTesting
+  Future<PreparedDerivationDay?> debugPrepareDay(String day) =>
+      _prepareTargetDay(day);
+  @visibleForTesting
+  Future<Substrate> debugLoadSubstrate(int from, int to, {required String day,
+      Map<InputSignal, List<OwnedSpan>> ownership = const {}}) =>
+      _loadSubstrateRange(from, to, dayId: day, ownership: ownership);
+
   /// True while a band offload is draining. The scheduler never STARTS a
   /// derive during one, but one can start mid-pass; the raw prune checks this
   /// before archiving each substrate bucket and stops for the pass, so a drain
@@ -3151,9 +3205,11 @@ class DerivationEngine {
   static Future<T> _withRunLock<T>(T busy, Future<T> Function() body) async {
     if (_running) return busy;
     _running = true;
+    beginWearableDayIndexPass();
     try {
       return await body();
     } finally {
+      endWearableDayIndexPass();
       _running = false;
     }
   }
@@ -3389,6 +3445,7 @@ class DerivationEngine {
   }) async {
     if (_running) return 0;
     _running = true;
+    beginWearableDayIndexPass();
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     _diag
       ..['running'] = true
@@ -3837,6 +3894,7 @@ class DerivationEngine {
       } catch (e) {
         _log('[derive] freshness refresh failed: $e');
       }
+      endWearableDayIndexPass();
       _running = false;
       final finishedAt = DateTime.now().millisecondsSinceEpoch;
       _diag
@@ -3859,6 +3917,7 @@ class DerivationEngine {
     if (days.isEmpty) return 0;
     if (_running) return 0;
     _running = true;
+    beginWearableDayIndexPass();
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     _diag
       ..['running'] = true
@@ -3979,6 +4038,7 @@ class DerivationEngine {
         ..['stage'] = 'idle'
         ..['finished_at'] = finishedAt
         ..['duration_ms'] = finishedAt - startedAt;
+      endWearableDayIndexPass();
       _running = false;
     }
   }
@@ -4241,6 +4301,7 @@ class DerivationEngine {
     // A user sleep override is the source of truth — never serve the cached auto
     // candidate, and don't cache the override result (so a later edit / clear is
     // not shadowed by a stale artifact). The auto path keeps its finalized cache.
+    // The RAM worker cache below keys the override itself, including edits.
     final overrideRow = await LocalDb.getSleepOverride(dayId);
     final override = overrideRow == null
         ? null
@@ -4282,7 +4343,24 @@ class DerivationEngine {
     // exists — and it has to be: staging the night off both devices' rows
     // while `napSub`/`sleepSub` score it off one device's is a window found in
     // a night that was never scored.
-    final (searchOwnership, _) = await _resolveOwnership(range.$1, range.$2);
+    final (searchOwnership, searchPriority) =
+        await _resolveOwnership(range.$1, range.$2);
+    List<List<Object>>? revisions;
+    if (!debugDisableStagedSleepCache) {
+      try {
+        revisions = [];
+        final first = DateTime.fromMillisecondsSinceEpoch(range.$1 * 1000);
+        for (var d = DateTime(first.year, first.month, first.day);
+            d.millisecondsSinceEpoch ~/ 1000 <= range.$2;
+            d = DateTime(d.year, d.month, d.day + 1)) {
+          final label = dayLabelOf(d);
+          final fp = await LocalDb.inputDayFingerprint(label);
+          revisions.add([label, fp.revisionSum, fp.revisionMax, fp.generation]);
+        }
+      } catch (_) {
+        revisions = null; // Unavailable provenance costs a staging, never a hit.
+      }
+    }
     final searchSub = await _loadSubstrateRange(
       range.$1,
       range.$2,
@@ -4354,12 +4432,36 @@ class DerivationEngine {
         ? await wearableNight(range.$1, range.$2)
         : null;
     if (ownNight != null) vendorNights = [...vendorNights, ownNight];
+    String? stagingKey;
+    if (revisions != null) {
+      try {
+        stagingKey = stagingInputKey(
+          fromSec: range.$1,
+          toSec: range.$2,
+          revisions: revisions,
+          sub: searchSub,
+          ownership: searchOwnership,
+          priority: searchPriority,
+          override: override,
+          profileJson: profileJson,
+          priorSleep: priorSleep,
+          vendorNights: vendorNights,
+          activeWearable: override == null ? await activeWearable() : null,
+        );
+      } catch (_) {
+        // A context that cannot be keyed still takes the ordinary worker path.
+      }
+    }
     // Cancellable + TIMED OUT. This site previously used a bare `Isolate.run`
     // with no timeout at all, so a hung staging pass never completed its future
     // — `_running` stayed true and `DeriveScheduler._drain` never returned, i.e.
     // all derivation was dead until app restart.
-    final (candidateJson, observationJson) =
-        await _runIsolateCancellable(() {
+    final skipUnusedDays = !mayFold && !debugDisableTargetDaySkip;
+    // Read here: a `_perDayTimeout` inside `stage` would capture `this` into
+    // the context the worker closure ships, and the engine's callbacks (the
+    // app's own fields) are not sendable.
+    final stageTimeout = _perDayTimeout;
+    Future<(String, String?, int)> stage() => _runIsolateCancellable(() {
       try {
         final p = profileJson == null
             ? null
@@ -4380,9 +4482,11 @@ class DerivationEngine {
       }
       ana.cardioRecordObservations = true;
       ana.resetCardioObservations();
+      debugSegmentedDayCount = 0;
       final candidate = prepareSleepSessionCandidate(
         searchSub,
         targetDay: dayId,
+        skipUnusedDays: skipUnusedDays,
         override: override,
         priorSleep: priorSleep,
         vendorNights: vendorNights,
@@ -4427,8 +4531,32 @@ class DerivationEngine {
           }
         }
       }
-      return (jsonEncode(candidate.toJson()), observationJson);
-    }, _perDayTimeout, label: 'sleep-staging $dayId');
+      return (jsonEncode(candidate.toJson()), observationJson, debugSegmentedDayCount);
+    }, stageTimeout, label: 'sleep-staging $dayId');
+    final hit = stagingKey == null ? null : _stagedSleepCache.lookup(
+        dayId, kAlgoVersion, stagingKey, mayFold: mayFold);
+    final String candidateJson;
+    final String? observationJson;
+    // Reuse worker output only; banked-night and fold checks below still run.
+    if (hit != null) {
+      candidateJson = hit.candidateJson;
+      observationJson = mayFold ? hit.observationJson : null;
+    } else {
+      debugStagingComputations++;
+      final result = await stage();
+      candidateJson = result.$1;
+      observationJson = result.$2;
+      debugOnStagingWalk?.call(mayFold, result.$3, observationJson);
+      if (stagingKey != null) {
+        _stagedSleepCache.store(dayId, StagedSleepEntry(
+          algoVersion: kAlgoVersion,
+          key: stagingKey,
+          mayFold: mayFold,
+          candidateJson: candidateJson,
+          observationJson: observationJson,
+        ));
+      }
+    }
     final candidate = SleepSessionCandidate.fromJson(
         (jsonDecode(candidateJson) as Map).cast<String, dynamic>());
     for (final f in candidate.flags) {
@@ -5311,6 +5439,7 @@ class DerivationEngine {
   }) async {
     if (_running) return 0;
     _running = true;
+    beginWearableDayIndexPass();
     try {
       await refreshSessionSensorSources(); // as [run] does
       // Baseline gate: compute the CURRENT signature and compare to the stored
@@ -5439,6 +5568,7 @@ class DerivationEngine {
       return 0;
     } finally {
       await _runStorageHousekeeping();
+      endWearableDayIndexPass();
       _running = false;
     }
   }
@@ -5753,6 +5883,7 @@ class DerivationEngine {
   Future<bool> refreshActivityReviews(Profile profile) async {
     if (_running) return false;
     _running = true;
+    beginWearableDayIndexPass();
     try {
       final revisions = await LocalDb.applyPendingActivityReviews();
       if (revisions.isEmpty) return true;
@@ -5763,6 +5894,7 @@ class DerivationEngine {
       await LocalDb.finishActivityReviews(revisions);
       return (await (await LocalDb.instance).query('activity_review_days', limit: 1)).isEmpty;
     } finally {
+      endWearableDayIndexPass();
       _running = false;
     }
   }
@@ -6323,6 +6455,8 @@ class DerivationEngine {
       await debugSecondHalfHook?.call(day.date);
       final blocks =
           await _runDayBlocksCancellable(blocksInput, _perDayTimeout);
+
+      debugCeilingComputed += blocks.ceilingComputations;
 
       // Merge the computed blocks back into the isolate-1 bundle. scMap is the
       // CastMap view over bundle['scalars'], so addAll writes through — nap_min /
@@ -10572,7 +10706,9 @@ class DerivationEngine {
     bundlePatch['workout_suggestions'] = wc.boutJson;
     if (wc.hrrBpm != null) scMap['hrr_bpm'] = wc.hrrBpm;
     if (wc.hrrTauS != null) scMap['hrr_tau_s'] = wc.hrrTauS;
-    final ceiling = _dayHrCeiling(daySub, inp.savedSessions);
+    var ceilingComputations = 0;
+    final ceiling = _dayHrCeiling(daySub, inp.savedSessions,
+        onCompute: () => ceilingComputations++);
     bundlePatch['hr_ceiling'] = ceiling;
     // TS-03 — the day's observed ceiling as a SCALAR too, so the app-wide
     // "highest we've seen" is a max over `metric_series` (one small query the
@@ -10629,6 +10765,7 @@ class DerivationEngine {
     // than no diagnostic.
 
     return _DayBlocksOutput(
+      ceilingComputations: ceilingComputations,
       bundlePatch: bundlePatch,
       seriesPatch: seriesPatch,
       scalarPatch: scMap,
@@ -10821,8 +10958,9 @@ class DerivationEngine {
 
   static Map<String, dynamic> _dayHrCeiling(
     Substrate s,
-    List<Map<String, dynamic>> saved,
-  ) {
+    List<Map<String, dynamic>> saved, {
+    void Function()? onCompute,
+  }) {
     ana.Metric<ana.HrCeiling>? best;
     String? bestId;
     String? bestType;
@@ -10843,6 +10981,7 @@ class DerivationEngine {
             valid: s.accelPresentAt(i)));
       }
       if (hr.isEmpty) continue;
+      onCompute?.call();
       final m = ana.sessionHrCeiling(hr, accel, deviceFamily: s.deviceFamily);
       if (!m.present) {
         lastAbsent = m;
@@ -11360,6 +11499,7 @@ class _DayBlocksInput {
 /// isolate; [wake] is persisted; candidates are reconciled and session HRR
 /// writes are applied by the database-owning caller.
 class _DayBlocksOutput {
+  final int ceilingComputations;
   final List<Map<String, dynamic>> napSuggestions;
   final Map<String, dynamic> bundlePatch;
   final Map<String, dynamic> seriesPatch;
@@ -11368,6 +11508,7 @@ class _DayBlocksOutput {
   final List<Map<String, dynamic>> suggestionsToPersist;
   final List<(String, double)> sessionHrrWrites;
   const _DayBlocksOutput({
+    this.ceilingComputations = 0,
     required this.bundlePatch,
     this.napSuggestions = const [],
     required this.seriesPatch,

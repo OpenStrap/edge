@@ -1220,6 +1220,11 @@ class SleepWindowOverride {
 String localDateLabel(int epochSec) =>
     dayLabelOf(DateTime.fromMillisecondsSinceEpoch(epochSec * 1000));
 
+// RED controls: the walk still segments every day. The counter observes its
+// actual body; GREEN must preserve the full walk for folding callers.
+int debugSegmentedDayCount = 0;
+bool debugStageEveryWalkedDay = false;
+
 /// Split the substrate into CALENDAR days (local midnight → next local midnight).
 ///
 /// Each day owns its 24 h of data. A day's SLEEP is the main sleep that ENDED
@@ -1249,12 +1254,19 @@ String localDateLabel(int epochSec) =>
 /// always fell back to the fixed 03:30 cold-start anchor, and a night-shift
 /// sleeper's 4 h main block lost the alignment bonus to a shorter block nearer
 /// 03:30. Days found in THIS call still win (a full restage sees them all).
+///
+/// With [skipUnusedDays], only [targetDay] is needed. Earlier days can be
+/// skipped when even one new history key per day cannot reach the prior's
+/// 14-night threshold. Callers needing profile observations must keep the
+/// full walk: its longest observation can belong to an earlier day.
 List<PhysioDay> calendarDays(
   Substrate sub, {
   SleepWindowOverride? override,
   int Function(int epochSec)? tzOffsetAt,
   List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
   List<VendorNight> vendorNights = const [],
+  String? targetDay,
+  bool skipUnusedDays = false,
 }) {
   final tzOffset = tzOffsetAt ?? tzOffsetSecondsAt;
   if (sub.isEmpty) return const [];
@@ -1268,6 +1280,20 @@ List<PhysioDay> calendarDays(
     ...priorSleep,
   ];
   var dayStart = _localMidnight(dataStart);
+  final prunable = targetDay != null &&
+      skipUnusedDays &&
+      !debugStageEveryWalkedDay &&
+      (override == null || override.dayId == targetDay);
+  var skipBefore = false;
+  if (prunable) {
+    var earlier = 0;
+    for (var d = dayStart, g = 0;
+        d < dataEnd && g++ < 400 && localDateLabel(d).compareTo(targetDay) < 0;
+        d = _nextLocalMidnight(d)) {
+      earlier++;
+    }
+    skipBefore = {for (final h in sleepHistory) h.dayKey}.length + earlier < 14;
+  }
   var guard = 0;
   while (dayStart < dataEnd && guard++ < 400) {
     final dayEnd = _nextLocalMidnight(dayStart);
@@ -1278,6 +1304,16 @@ List<PhysioDay> calendarDays(
       continue;
     }
 
+    final dayLabel = localDateLabel(dayStart);
+    if (prunable) {
+      final order = dayLabel.compareTo(targetDay);
+      if (order > 0) break;
+      if (order < 0 && skipBefore) {
+        dayStart = dayEnd;
+        continue;
+      }
+    }
+    debugSegmentedDayCount++;
     // The main sleep that ENDS in this calendar day: search from the previous
     // local noon through this local midnight, then let the sleep selector pick
     // the overnight main block from any naps / split fragments it sees. The old
@@ -1293,7 +1329,6 @@ List<PhysioDay> calendarDays(
     var sleepLo = 0, sleepHi = 0;
     var sleepSource = 'none';
     final vendorIgnored = <String>[];
-    final dayLabel = localDateLabel(dayStart);
     // Does the user have an override (manual / confirmed) for THIS day?
     final ov =
         (override != null && override.dayId == dayLabel) ? override : null;

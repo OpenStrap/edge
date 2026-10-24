@@ -390,6 +390,13 @@ Future<void> refreshSessionSensorSources() async {
   LocalDb.sessionWearableSource = (await activeWearable())?.$2;
 }
 
+bool debugDisableWearableWorker = false;
+void Function(String)? debugOnWearableConstruction;
+// Called beside the actual row loops. A worker extraction must return its
+// execution marker to this observer, not label a dispatch on the caller.
+void debugRecordWearableConstruction() =>
+    debugOnWearableConstruction?.call(Isolate.current.debugName ?? 'unnamed');
+
 /// The active wearable's rows over `[from, to]` as a substrate, for a day the
 /// primary band left empty, with a strap's session windows laid over them
 /// ([withStrapSessions]). Empty for an adapter with no inputs mapping. A day
@@ -460,6 +467,7 @@ Future<Substrate> withStrapSessions(Substrate sub, int from, int to) async {
     'AND d.rec_ts >= ? AND d.rec_ts <= ? ORDER BY d.rec_ts',
     [from, to],
   );
+  debugRecordWearableConstruction();
   final owner = ownerBy([for (final r in all) (r['sid'], r['src'])]);
   final rows = [
     for (final r in all)
@@ -616,6 +624,15 @@ Future<List<String>> flagOnOrPrimary(List<String> ids,
   return out;
 }
 
+// RED pass-lifetime seams: no index is retained yet. The hook runs after an
+// actual scan, so a test can count scans and inject a post-scan failure.
+bool debugDisableWearableDayIndex = false;
+void beginWearableDayIndexPass() {}
+void endWearableDayIndexPass() {}
+int get debugWearableDayIndexSize => 0;
+void debugWearableDayIndexRekey(int version) {}
+void Function((String, String), Map<String, int>)? debugOnWearableDayIndexScan;
+
 /// `{local day -> last second}` the active wearable has rows for, and the
 /// days a flagged-on strap recorded a session in while the wearable was off
 /// or charging ([wearableSubstrate] lays the session over the empty day).
@@ -637,6 +654,7 @@ Future<Map<String, int>> wearableRecTsMaxByDay(
       in (await _strapSessionRecTsMaxByDay()).entries) {
     out[day] = math.max(out[day] ?? t, t);
   }
+  debugOnWearableDayIndexScan?.call(wearable, out);
   return out;
 }
 
