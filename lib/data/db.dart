@@ -236,7 +236,19 @@ class LocalDb {
     // object)` — a sustained crash burst (seen in the wild on background event
     // ingest). Reopen whenever the cached handle isn't actually open.
     if (db != null && db.isOpen) return db;
-    return _db = await _openOrRebuild();
+    return _writerOpening ??= _openWriter();
+  }
+
+  static Future<Database>? _writerOpening;
+
+  static Future<Database> _openWriter() async {
+    try {
+      // A reader must never retain a handle to a closed/replaced writer's file.
+      await _retireReader(drainAll: false);
+      return _db = await _openOrRebuild();
+    } finally {
+      _writerOpening = null;
+    }
   }
 
   /// Set when [_openOrRebuild] had to quarantine an unopenable database and
@@ -400,7 +412,7 @@ class LocalDb {
         // lost. Drop them here; the card is the one surface whose whole job is
         // telling the truth about a data-loss event.
         salvaged = Map.of(
-          await _mergeFromDbFile(
+          await _mergeFromDbFileImpl(
             quarantine,
             only: _salvageTables,
             tolerant: true,
@@ -419,12 +431,167 @@ class LocalDb {
     }
   }
 
-  static Future<void> close() async {
-    if (_db != null) {
-      await _db!.close();
-      _db = null;
+  static Future<void> close() => _withReaderInvalidated(() async {
+    // A cold open may have started before close, even without a screen lease.
+    await _writerOpening;
+    final db = _db;
+    if (db != null) {
+      await db.close();
+      if (identical(_db, db)) _db = null;
+    }
+  });
+
+  static Database? _reader;
+  static Database? _readerWriter;
+  static Future<Database?>? _readerOpening;
+  static Database? _readerFailedFor;
+  static bool _foreground = false;
+  static int _readerEpoch = 0;
+  static Future<void>? _screenBarrier;
+  static Future<void>? _readerClosing;
+  static final _readLeases = <Completer<void>>{};
+  static final _readerLeases = <Completer<void>>{};
+
+  /// Bare acquisition for diagnostics. Screen queries use [withReadExecutor]
+  /// so teardown can wait across all awaits in a read.
+  static Future<Database> readExecutor() async {
+    while (_screenBarrier != null) {
+      await _screenBarrier;
+    }
+    return _acquireReadExecutor();
+  }
+
+  static Future<Database> _acquireReadExecutor() async {
+    final writer = await (_writerOpening ?? instance);
+    // Includes migrations, repair and any rebuild salvage. Existing leases may
+    // fall back to this writer while a store change waits for them to finish.
+    if (!_foreground || _screenBarrier != null) return writer;
+    final current = _reader;
+    if (current != null && current.isOpen && identical(_readerWriter, writer)) {
+      return current;
+    }
+    if (identical(_readerFailedFor, writer)) return writer;
+    final epoch = _readerEpoch;
+    final opening = _readerOpening ??= _openReader(writer, epoch);
+    final opened = await opening;
+    if (identical(_readerOpening, opening)) _readerOpening = null;
+    return _foreground && epoch == _readerEpoch &&
+            identical(_db, writer) && identical(opened, _reader)
+        ? opened ?? writer
+        : writer;
+  }
+
+  static Future<Database?> _openReader(Database writer, int epoch) async {
+    Database? candidate;
+    try {
+      candidate = await (debugReaderOpener?.call(writer.path) ??
+          openDatabase(writer.path, singleInstance: false));
+      await candidate.execute('PRAGMA query_only=ON');
+      // Read, never change, journal mode. A rollback-journal connection cannot
+      // provide the concurrent committed reads this connection exists for.
+      final mode = await candidate.rawQuery('PRAGMA journal_mode');
+      if (mode.isEmpty || '${mode.first.values.first}'.toLowerCase() != 'wal') {
+        throw StateError('reader requires WAL');
+      }
+      if (!_foreground || epoch != _readerEpoch ||
+          !identical(_db, writer) || !writer.isOpen) {
+        await candidate.close();
+        return null;
+      }
+      _reader = candidate;
+      _readerWriter = writer;
+      return candidate;
+    } catch (_) {
+      if (candidate != null) {
+        try { await candidate.close(); } catch (_) {}
+      }
+      if (epoch == _readerEpoch && identical(_db, writer)) {
+        _readerFailedFor = writer;
+      }
+      return null;
     }
   }
+
+  static Future<T> withReadExecutor<T>(
+    Future<T> Function(DatabaseExecutor db) read,
+  ) async {
+    while (_screenBarrier != null) {
+      await _screenBarrier;
+    }
+    // Register BEFORE acquisition: close also drains a read awaiting its opener
+    // and keeps the writer alive if that opener must fall back after invalidation.
+    final lease = Completer<void>();
+    _readLeases.add(lease);
+    try {
+      var db = await _acquireReadExecutor();
+      if (!db.isOpen || (!identical(db, _db) && !identical(db, _reader))) {
+        db = await instance;
+      }
+      if (identical(db, _reader)) _readerLeases.add(lease);
+      return await read(db);
+    } finally {
+      _readerLeases.remove(lease);
+      _readLeases.remove(lease);
+      lease.complete();
+    }
+  }
+
+  static Future<void> setForeground(bool foreground) {
+    _foreground = foreground;
+    return foreground ? Future<void>.value() : _retireReader();
+  }
+
+  static Future<void> _retireReader({bool drainAll = true}) {
+    _readerEpoch++;
+    _readerFailedFor = null;
+    final reader = _reader;
+    final opening = _readerOpening;
+    final previousClose = _readerClosing;
+    _reader = null;
+    _readerWriter = null;
+    final readerLeases = _readerLeases.toList();
+    final allLeases = drainAll ? _readLeases.toList() : readerLeases;
+    // Track handle retirement separately from acquisition leases: a cold
+    // writer open can itself be awaited by a lease that close is draining.
+    final closing = () async {
+      await previousClose;
+      await Future.wait(readerLeases.map((lease) => lease.future));
+      await opening;
+      if (identical(_readerOpening, opening)) _readerOpening = null;
+      if (reader != null) await reader.close();
+    }();
+    _readerClosing = closing;
+    return () async {
+      try {
+        await Future.wait([
+          closing,
+          ...allLeases.map((lease) => lease.future),
+        ]);
+      } finally {
+        if (identical(_readerClosing, closing)) _readerClosing = null;
+      }
+    }();
+  }
+
+  /// Block new screen leases while a reset/merge/close changes the store.
+  /// Existing acquisitions finish on the writer if their reader open goes stale.
+  static Future<T> _withReaderInvalidated<T>(Future<T> Function() action) async {
+    final previous = _screenBarrier;
+    final done = Completer<void>();
+    _screenBarrier = done.future;
+    try {
+      if (previous != null) await previous;
+      await _retireReader();
+      return await action();
+    } finally {
+      if (identical(_screenBarrier, done.future)) _screenBarrier = null;
+      done.complete();
+    }
+  }
+
+  /// Replaces only the second connection's open, never the writer's open.
+  @visibleForTesting
+  static Future<Database> Function(String path)? debugReaderOpener;
 
   /// Runs a write against a guaranteed-open handle, reopening ONCE if the
   /// cached handle was closed under us mid-write.
@@ -4613,8 +4780,8 @@ class LocalDb {
   /// The dates whose stored [key] is a wearable's estimate, or a row its
   /// column serves as unavailable (`metric_method.class`): not a measurement
   /// a plain trend line may draw.
-  static Future<Set<String>> metricNotOursDates(String key) async {
-    final db = await instance;
+  static Future<Set<String>> metricNotOursDates(String key, {DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
     return {
       for (final r in await db.query('metric_method',
           columns: ['date'],
@@ -4626,8 +4793,8 @@ class LocalDb {
 
   /// The algo version behind each day's `metric_series` scalars, oldest first.
   /// Days with no stamp are simply absent — never guessed at.
-  static Future<List<Map<String, dynamic>>> metricSeriesVersions() async {
-    final db = await instance;
+  static Future<List<Map<String, dynamic>>> metricSeriesVersions({DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
     return db.query('metric_series_version', orderBy: 'date ASC');
   }
 
@@ -8028,8 +8195,9 @@ class LocalDb {
     int fromTs,
     int toTs, {
     int limit = 5000,
+    DatabaseExecutor? executor,
   }) async {
-    final db = await instance;
+    final db = executor ?? await instance;
     return db.query(
       'events',
       where: 'ts >= ? AND ts < ?',
@@ -8892,8 +9060,8 @@ class LocalDb {
     );
   }
 
-  static Future<Map<String, dynamic>?> dayResult(String dayId) async {
-    final db = await instance;
+  static Future<Map<String, dynamic>?> dayResult(String dayId, {DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
     final rows = await db.query(
       'day_result',
       where: 'day_id = ? AND algo_version <= ?',
@@ -8938,8 +9106,8 @@ class LocalDb {
   }
 
   /// The N most recent days (newest day_id first), each at its LATEST version.
-  static Future<List<Map<String, dynamic>>> recentDayResults(int limit) async {
-    final db = await instance;
+  static Future<List<Map<String, dynamic>>> recentDayResults(int limit, {DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
     // For each day_id pick MAX(algo_version), then join back for the full row.
     final rows = await db.rawQuery(
       'SELECT r.* FROM day_result r '
@@ -9003,8 +9171,8 @@ class LocalDb {
   /// round trip. Rows: `{day_id, window_json}`. [before] keeps only days
   /// strictly earlier than that day_id.
   static Future<List<Map<String, dynamic>>> sleepWindowRows(int limit,
-      {String? before}) async {
-    final db = await instance;
+      {String? before, DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
     return db.rawQuery(
       'SELECT r.day_id AS day_id, r.window_json AS window_json '
       'FROM day_result r '
@@ -9079,8 +9247,8 @@ class LocalDb {
   /// derived row) and a skip-marker day both render EMPTY, so neither must
   /// bound navigation. Skips are excluded via the `skipped` column, which
   /// `_markDaySkipped` sets alongside the `{skipped:true}` payload.
-  static Future<List<String>> availableDayIds() async {
-    final db = await instance;
+  static Future<List<String>> availableDayIds({DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
     // Latest version per day (matches [dayResult]), then drop skip-markers.
     final rows = await db.rawQuery(
       'SELECT r.day_id FROM day_result r '
@@ -9710,7 +9878,9 @@ class LocalDb {
   /// run inside `openDatabase` on iOS's CPU watchdog — not somewhere to be on
   /// the tail of a destructive user action). Views are `type='view'` and are
   /// not matched; the sqlite/Android internal tables are skipped by name.
-  static Future<int> wipeAll() async {
+  static Future<int> wipeAll() => _withReaderInvalidated(_wipeAll);
+
+  static Future<int> _wipeAll() async {
     final db = await instance;
     final rows = await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -10053,6 +10223,13 @@ class LocalDb {
   static List<String> get salvageTablesForTest => _salvageTables;
 
   static Future<Map<String, int>> _mergeFromDbFile(
+    String path, {
+    List<String>? only,
+    bool tolerant = false,
+  }) => _withReaderInvalidated(() =>
+      _mergeFromDbFileImpl(path, only: only, tolerant: tolerant));
+
+  static Future<Map<String, int>> _mergeFromDbFileImpl(
     String path, {
     List<String>? only,
     bool tolerant = false,
@@ -11045,8 +11222,9 @@ class LocalDb {
     String key, {
     int? limit,
     bool measuredOnly = false,
+    DatabaseExecutor? executor,
   }) async {
-    final db = await instance;
+    final db = executor ?? await instance;
     return db.query(
       'metric_series',
       where: 'key = ? AND value IS NOT NULL${_validSql(key)}'
@@ -11097,8 +11275,8 @@ class LocalDb {
     return [for (final r in rows.reversed) (r['value'] as num).toDouble()];
   }
 
-  static Future<Map<String, dynamic>?> baseline(String key) async {
-    final db = await instance;
+  static Future<Map<String, dynamic>?> baseline(String key, {DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
     final rows = await db.query(
       'baselines',
       where: 'key = ?',
@@ -12432,15 +12610,16 @@ class LocalDb {
 
   static Future<List<Map<String, dynamic>>> sessionsInRange(
     int fromTs,
-    int toTs,
-  ) async {
-    final db = await instance;
+    int toTs, {
+    DatabaseExecutor? executor,
+  }) async {
+    final db = executor ?? await instance;
     return withoutFlagOffScores(await db.query(
       'sessions',
       where: 'start_ts >= ? AND start_ts <= ?',
       whereArgs: [fromTs, toTs],
       orderBy: 'start_ts DESC',
-    ));
+    ), executor: db);
   }
 
   /// What a session's sensor scored: served empty, not stored empty.
@@ -12466,10 +12645,10 @@ class LocalDb {
   /// ponytail: one window scan per session; batch it into one join if a long
   /// session list gets slow.
   static Future<List<Map<String, dynamic>>> withoutFlagOffScores(
-      List<Map<String, dynamic>> rows) async {
+      List<Map<String, dynamic>> rows, {DatabaseExecutor? executor}) async {
     final out = <Map<String, dynamic>>[];
     for (final r in rows) {
-      out.add(await _flagOffOnly(r)
+      out.add(await _flagOffOnly(r, executor: executor)
           ? {...r, for (final c in _sensorScoreColumns) c: null}
           : r);
     }
@@ -12479,7 +12658,8 @@ class LocalDb {
   /// Whether finished session [r]'s window has worn seconds and every one of
   /// them came from a device whose flag is now off (see
   /// [withoutFlagOffScores]).
-  static Future<bool> _flagOffOnly(Map<String, dynamic> r) async {
+  static Future<bool> _flagOffOnly(Map<String, dynamic> r,
+      {DatabaseExecutor? executor}) async {
     final s = (r['start_ts'] as num?)?.toInt();
     final e = (r['end_ts'] as num?)?.toInt();
     if (s == null || e == null || r['status'] != 'done') return false;
@@ -12488,13 +12668,13 @@ class LocalDb {
     // wearable's) and once its raw is pruned.
     // ponytail: a stamped window the band also measured serves empty too,
     // not band-only; rescore it from the band's rows if that matters.
-    if ((await sessionSensorsOf(r['id']))
+    if ((await sessionSensorsOf(r['id'], executor: executor))
         .any((s) => !sessionSensorSources.contains(s))) {
       return true;
     }
     final on = {...sessionSensorSources, ?sessionWearableSource};
     final sources = [
-      for (final x in await (await instance).rawQuery(
+      for (final x in await (executor ?? await instance).rawQuery(
           'SELECT DISTINCT source FROM decoded_onehz '
           'WHERE rec_ts >= ? AND rec_ts <= ? AND hr > 0',
           [s, e]))
@@ -12530,8 +12710,9 @@ class LocalDb {
   }
 
   /// Every workout sensor stamped on session [id] ([stampSessionSensor]).
-  static Future<Set<String>> sessionSensorsOf(Object? id) async => {
-        for (final r in await (await instance).query('session_sensor',
+  static Future<Set<String>> sessionSensorsOf(Object? id,
+      {DatabaseExecutor? executor}) async => {
+        for (final r in await (executor ?? await instance).query('session_sensor',
             columns: ['source'], where: 'session_id = ?', whereArgs: [id]))
           r['source'] as String,
       };

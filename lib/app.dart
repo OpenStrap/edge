@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import 'ai/briefing.dart' show BriefingPeriod;
 import 'coach/coach_config.dart';
+import 'data/db.dart';
 import 'l10n/app_localizations.dart';
 import 'notify/notification_service.dart';
 import 'notify/tap_router.dart';
@@ -51,6 +52,11 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    final lifecycleState = WidgetsBinding.instance.lifecycleState;
+    unawaited(LocalDb.setForeground(
+        lifecycleState != AppLifecycleState.hidden &&
+        lifecycleState != AppLifecycleState.paused &&
+        lifecycleState != AppLifecycleState.detached));
     // Hand the BYOK provider config to AppState (briefing generation + the
     // key-aware AI notification schedule live there).
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -79,6 +85,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final app = context.read<AppState>();
     if (state == AppLifecycleState.resumed) {
+      unawaited(LocalDb.setForeground(true));
       // The user may have flipped our notification switch either way in OS
       // Settings while we were backgrounded. Drop the cached authorization
       // decision so the next present/schedule re-reads reality — a denial used
@@ -114,10 +121,15 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       // a lock screen looking current.
       unawaited(WidgetService.refresh(app.repo));
       if (app.isPaired) app.openSession();
-    } else if (state == AppLifecycleState.paused) {
-      // Backgrounded: hand the band to the iOS restore path so it can wake-and-drain
-      // in the background (no-op on Android, where the foreground service holds it).
-      app.pauseForBackground();
+    } else if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      unawaited(LocalDb.setForeground(false));
+      if (state == AppLifecycleState.paused) {
+        // Backgrounded: hand the band to the iOS restore path so it can wake-and-drain
+        // in the background (no-op on Android, where the foreground service holds it).
+        app.pauseForBackground();
+      }
     }
   }
 
