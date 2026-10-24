@@ -1870,8 +1870,10 @@ import 'vendor_sleep.dart';
 // irregular-screen gaps change outputs. Retains the cosinor significance gate,
 // nullable phase/amplitudeP, RSA floor guard and checkpoint v3, and SRI rules.
 // Pooled-run batch staging labels unchanged; cardio caching respects run bounds.
-// This single bump also covers D35 inclusive ownership and D36 target-night
-// profile folding, forward-only. No profile reset.
+// D35 queries coverage and resolves half-open ownership through inclusive to + 1,
+// excluding non-owner rows at the last second. D36 folds only the target night's
+// own observation, none when absent; forward-only, preserving existing profiles
+// and folded_days. The restricted E15 walk now also applies to folding passes.
 const int kAlgoVersion = 122;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -4438,6 +4440,8 @@ class DerivationEngine {
   /// candidate — so the spans differ, but the rule producing them does not.
   Future<(Map<InputSignal, List<OwnedSpan>>, Map<InputSignal, List<String>>)>
       _resolveOwnership(int from, int to) async {
+    // Loads include `to`; coverage queries and ownership spans are half-open.
+    final end = to + 1;
     final ownership = <InputSignal, List<OwnedSpan>>{};
     // The order each signal ACTUALLY resolved under, carried on the prepared
     // day so `priority_hash` names it by construction instead of re-reading
@@ -4466,7 +4470,7 @@ class DerivationEngine {
       // gives it a rank — the conservative default, and the one that keeps
       // today's single-device installs byte-identical.
       final rawPriority = await LocalDb.signalPriority(sig);
-      final coverage = await LocalDb.coverageIntervals(sig, from, to);
+      final coverage = await LocalDb.coverageIntervals(sig, from, end);
       var resolved = rawPriority.isEmpty
           ? const <String>[LocalDb.kPrimaryDeviceId]
           // A device with a coverage row here is definitionally declaring
@@ -4497,7 +4501,7 @@ class DerivationEngine {
         coverage: coverage,
         priority: resolved,
         from: from,
-        to: to,
+        to: end,
         signal: sig,
       );
     }
@@ -4706,7 +4710,7 @@ class DerivationEngine {
     // with no timeout at all, so a hung staging pass never completed its future
     // — `_running` stayed true and `DeriveScheduler._drain` never returned, i.e.
     // all derivation was dead until app restart.
-    final skipUnusedDays = !mayFold && !debugDisableTargetDaySkip;
+    final skipUnusedDays = !debugDisableTargetDaySkip;
     // Read here: a `_perDayTimeout` inside `stage` would capture `this` into
     // the context the worker closure ships, and the engine's callbacks (the
     // app's own fields) are not sendable.
@@ -4737,11 +4741,12 @@ class DerivationEngine {
         searchSub,
         targetDay: dayId,
         skipUnusedDays: skipUnusedDays,
+        recordTargetOnly: true,
         override: override,
         priorSleep: priorSleep,
         vendorNights: vendorNights,
       );
-      // Fold the MAIN sleep (most epochs) of a freshly-staged night into the
+      // Fold the TARGET sleep (most epochs of its own observations) into the
       // rolling profile — done here in the worker because the observations live
       // in THIS isolate's globals. Skipped for overrides. EWMA self-seeds.
       String? observationJson;
@@ -4754,7 +4759,7 @@ class DerivationEngine {
       // onto whichever day was re-derived last. Measured effect of that
       // corrupt profile on the same nights: wake 4.3% -> 36.4%, deep 1.9% ->
       // 0.0%. One fold per day_id, ever.
-      if (mayFold) {
+      if (mayFold && candidate.present) {
         final obs = ana.takeCardioObservations();
         if (obs.isNotEmpty) {
           obs.sort((a, b) => b.epochs.compareTo(a.epochs));
