@@ -47,13 +47,18 @@ Future<List<UltrahumanRecord>> ultrahumanRecords(
   int to,
 ) async {
   final db = await LocalDb.instance;
-  final out = <UltrahumanRecord>[];
-  for (final r in await db.rawQuery(
+  final rows = await db.rawQuery(
     "SELECT hex FROM ${LocalDb.rawArchiveView} WHERE device_id = ? "
     "AND reason = 'ultrahuman_record' AND rec_ts >= ? AND rec_ts <= ? "
     'ORDER BY rec_ts',
     [deviceId, from, to],
-  )) {
+  );
+  return prepareWearable(() => _ultrahumanRecords(rows));
+}
+
+List<UltrahumanRecord> _ultrahumanRecords(List<Map<String, Object?>> rows) {
+  final out = <UltrahumanRecord>[];
+  for (final r in rows) {
     final hex = r['hex'] as String;
     final rec = parseUltrahumanRecord([
       for (var i = 0; i + 1 < hex.length; i += 2)
@@ -77,9 +82,13 @@ Future<Substrate> ultrahumanSubstrate(String deviceId, int from, int to) async {
   final sub =
       await sparseHrSubstrate(kUltrahumanFamily, deviceId, from, to);
   if (sub.isEmpty) return sub;
-  debugRecordWearableConstruction();
+  final records = await ultrahumanRecords(deviceId, from, to);
+  return constructWearable(() => _ultrahumanSubstrate(sub, records));
+}
+
+Substrate _ultrahumanSubstrate(Substrate sub, List<UltrahumanRecord> records) {
   final temp = {
-    for (final r in await ultrahumanRecords(deviceId, from, to))
+    for (final r in records)
       if (_skinC(r) case final c?) r.tsA: (c * 100).round(),
   };
   return Substrate(

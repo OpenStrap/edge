@@ -33,6 +33,7 @@ import '../coach/coach_db.dart' show CoachDb;
 import '../compute/derivation_engine.dart'
     show
         kAlgoVersion,
+        runCancellableIsolate,
         kOvernightGiveUpSec,
         kPinWakeToleranceSec,
         pinnableNight,
@@ -73,6 +74,11 @@ typedef DbRebuild = ({
   String cause,
   String quarantinePath,
   Map<String, int> salvaged,
+});
+
+typedef SessionHrReads = ({
+  Map<String, Map<String, num>> stats,
+  Map<String, List<int>> samples,
 });
 
 // ── SUBSTRATE ADMISSION — the one predicate that decides what may become a
@@ -169,7 +175,13 @@ String derivableSourceSql([String col = 'source']) => kDerivableSources.isEmpty
 /// ponytail: on that gap the workout screen and the day disagree; give the
 /// band day the strap's window too (or drop the override there) once the
 /// owner decides whether a strap may fill a band gap.
-List<T> sessionWindowRows<T extends Map<String, Object?>>(List<T> rows) {
+List<T> sessionWindowRows<T extends Map<String, Object?>>(List<T> rows) =>
+    _sessionWindowRowsFor(rows, sensors: LocalDb.sessionSensorSources,
+        wearable: LocalDb.sessionWearableSource);
+
+// Workers receive the flags explicitly; isolate-local statics start empty.
+List<T> _sessionWindowRowsFor<T extends Map<String, Object?>>(
+    List<T> rows, {required Set<String> sensors, required String? wearable}) {
   bool derivable(Object? s) => s == null || kDerivableSources.contains(s);
   List<T> plain() => [
         for (final r in rows)
@@ -180,7 +192,7 @@ List<T> sessionWindowRows<T extends Map<String, Object?>>(List<T> rows) {
   for (final r in rows) {
     final s = r['source'];
     if (s == null) return plain();
-    if (LocalDb.sessionSensorSources.contains(s) && worn(r)) {
+    if (sensors.contains(s) && worn(r)) {
       n[s] = (n[s] ?? 0) + 1;
     }
   }
@@ -198,7 +210,6 @@ List<T> sessionWindowRows<T extends Map<String, Object?>>(List<T> rows) {
     if (lo == null || t < lo) lo = t;
     if (hi == null || t > hi) hi = t;
   }
-  final wearable = LocalDb.sessionWearableSource;
   return [
     for (final r in rows)
       if (r['source'] == owner ||
@@ -14998,23 +15009,33 @@ class LocalDb {
   @visibleForTesting
   static void Function(String)? debugOnSessionWindowsConstruction;
 
-  // RED forwarding seam: still performs the two existing reads. GREEN combines
-  // these at the repository call site and prepares both results in one worker.
+  // Test forwarding seam for the production combined read.
   @visibleForTesting
-  static Future<({Map<String, Map<String, num>> stats,
-      Map<String, List<int>> samples})> sessionHrReadsForTest(int from, int to,
-          {int maxHrCeiling = 0, int minHrFloor = 0}) async =>
-      (stats: await sessionHrStats(from, to,
-           maxHrCeiling: maxHrCeiling, minHrFloor: minHrFloor),
-       samples: await sessionHrSamplesBySession(from, to));
+  static Future<SessionHrReads> sessionHrReadsForTest(int from, int to,
+          {int maxHrCeiling = 0, int minHrFloor = 0}) =>
+      sessionHrReads(from, to,
+          maxHrCeiling: maxHrCeiling, minHrFloor: minHrFloor);
+
+  /// Both HR reads for the workout list. With a sensor enabled, fetch each
+  /// window once and construct its stats and samples together in a worker.
+  static Future<SessionHrReads> sessionHrReads(int from, int to,
+      {int maxHrCeiling = 0, int minHrFloor = 0}) async {
+    if (sessionSensorSources.isEmpty) {
+      return (stats: await _sessionHrStatsSql(from, to, maxHrCeiling, minHrFloor),
+          samples: await _sessionHrSamplesSql(from, to));
+    }
+    return _sessionWindows(from, to, maxHrCeiling, minHrFloor);
+  }
 
   /// Every session in [fromTs, toTs] (epoch SECONDS) with the worn rows of
   /// its window a session read keeps ([sessionWindowRows]), ascending. Only
   /// with a workout sensor flagged on; a session with none is absent, as from
   /// the band-only joins.
-  static Future<Map<String, List<Map<String, Object?>>>> _sessionWindows(
+  static Future<SessionHrReads> _sessionWindows(
     int fromTs,
     int toTs,
+    int maxHrCeiling,
+    int minHrFloor,
   ) async {
     final db = await instance;
     final rows = await db.rawQuery(
@@ -15026,21 +15047,53 @@ class LocalDb {
       'ORDER BY s.id, d.rec_ts ASC',
       [fromTs, toTs],
     );
-    debugOnSessionWindowsConstruction?.call(Isolate.current.debugName ?? 'unnamed');
+    final sensors = {...sessionSensorSources};
+    final wearable = sessionWearableSource;
+    (SessionHrReads, String) construct() => _prepareSessionWindows(
+        rows, sensors, wearable, maxHrCeiling, minHrFloor);
+    final result = debugDisableSessionWindowsWorker
+        ? construct()
+        : await runCancellableIsolate(construct, const Duration(seconds: 30),
+            label: 'session windows');
+    debugOnSessionWindowsConstruction?.call(result.$2);
+    return result.$1;
+  }
+
+  static (SessionHrReads, String) _prepareSessionWindows(
+      List<Map<String, Object?>> rows, Set<String> sensors, String? wearable,
+      int maxHrCeiling, int minHrFloor) {
     final by = <String, List<Map<String, Object?>>>{};
     for (final r in rows) {
       final id = r['id'] as String?;
       if (id != null) (by[id] ??= []).add(r);
     }
-    return {
-      for (final MapEntry(key: id, value: rs) in by.entries)
-        if ([
-          for (final r in sessionWindowRows(rs))
-            if (((r['hr'] as num?) ?? 0) > 0) r,
-        ]
-            case final kept when kept.isNotEmpty)
-          id: kept,
-    };
+    final stats = <String, Map<String, num>>{};
+    final samples = <String, List<int>>{};
+    for (final MapEntry(key: id, value: rs) in by.entries) {
+      final hr = [
+        for (final r in _sessionWindowRowsFor(rs,
+            sensors: sensors, wearable: wearable))
+          if (((r['hr'] as num?) ?? 0) > 0) (r['hr'] as num).toInt(),
+      ];
+      if (hr.isEmpty) continue;
+      samples[id] = hr;
+      final low = [
+        for (final h in hr)
+          if (minHrFloor <= 0 || h >= minHrFloor) h,
+      ];
+      final high = [
+        for (final h in hr)
+          if (maxHrCeiling <= 0 || h <= maxHrCeiling) h,
+      ];
+      stats[id] = <String, num>{
+        'n': hr.length,
+        'avg_hr': hr.fold<int>(0, (a, b) => a + b) / hr.length,
+        'min_hr': low.isEmpty ? 0 : low.reduce((a, b) => a < b ? a : b),
+        'max_hr': high.isEmpty ? 0 : high.reduce((a, b) => a > b ? a : b),
+      };
+    }
+    return ((stats: stats, samples: samples),
+        Isolate.current.debugName ?? 'unnamed');
   }
 
   /// Per-session HR aggregates over the 1 Hz substrate for every session in
@@ -15060,28 +15113,14 @@ class LocalDb {
     int minHrFloor = 0,
   }) async {
     if (sessionSensorSources.isNotEmpty) {
-      return {
-        for (final MapEntry(key: id, value: rs)
-            in (await _sessionWindows(fromTs, toTs)).entries)
-          id: () {
-            final hr = [for (final r in rs) (r['hr'] as num).toInt()];
-            final low = [
-              for (final h in hr)
-                if (minHrFloor <= 0 || h >= minHrFloor) h,
-            ];
-            final high = [
-              for (final h in hr)
-                if (maxHrCeiling <= 0 || h <= maxHrCeiling) h,
-            ];
-            return <String, num>{
-              'n': hr.length,
-              'avg_hr': hr.fold<int>(0, (a, b) => a + b) / hr.length,
-              'min_hr': low.isEmpty ? 0 : low.reduce((a, b) => a < b ? a : b),
-              'max_hr': high.isEmpty ? 0 : high.reduce((a, b) => a > b ? a : b),
-            };
-          }(),
-      };
+      return (await sessionHrReads(fromTs, toTs,
+          maxHrCeiling: maxHrCeiling, minHrFloor: minHrFloor)).stats;
     }
+    return _sessionHrStatsSql(fromTs, toTs, maxHrCeiling, minHrFloor);
+  }
+
+  static Future<Map<String, Map<String, num>>> _sessionHrStatsSql(
+      int fromTs, int toTs, int maxHrCeiling, int minHrFloor) async {
     final db = await instance;
     final ceilClause = maxHrCeiling > 0 ? 'AND d.hr <= $maxHrCeiling ' : '';
     final floorClause = minHrFloor > 0 ? 'AND d.hr >= $minHrFloor ' : '';
@@ -15123,12 +15162,13 @@ class LocalDb {
     int toTs,
   ) async {
     if (sessionSensorSources.isNotEmpty) {
-      return {
-        for (final MapEntry(key: id, value: rs)
-            in (await _sessionWindows(fromTs, toTs)).entries)
-          id: [for (final r in rs) (r['hr'] as num).toInt()],
-      };
+      return (await sessionHrReads(fromTs, toTs)).samples;
     }
+    return _sessionHrSamplesSql(fromTs, toTs);
+  }
+
+  static Future<Map<String, List<int>>> _sessionHrSamplesSql(
+      int fromTs, int toTs) async {
     final db = await instance;
     final rows = await db.rawQuery(
       'SELECT s.id AS id, d.hr AS hr '

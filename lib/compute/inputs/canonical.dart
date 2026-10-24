@@ -18,7 +18,7 @@ import '../../ble/adapters/_registry.dart'
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../crossday_pipeline.dart' show buildCrossDayBundle;
-import '../derivation_engine.dart' show DerivationEngine, kAlgoVersion;
+import '../derivation_engine.dart' show DerivationEngine, kAlgoVersion, runCancellableIsolate;
 import '../substrate.dart';
 import '../vendor_sleep.dart';
 import 'colmi_inputs.dart';
@@ -394,8 +394,31 @@ bool debugDisableWearableWorker = false;
 void Function(String)? debugOnWearableConstruction;
 // Called beside the actual row loops. A worker extraction must return its
 // execution marker to this observer, not label a dispatch on the caller.
-void debugRecordWearableConstruction() =>
-    debugOnWearableConstruction?.call(Isolate.current.debugName ?? 'unnamed');
+void debugRecordWearableConstruction([String? isolateName]) =>
+    debugOnWearableConstruction?.call(
+        isolateName ?? Isolate.current.debugName ?? 'unnamed');
+
+// Only plain rows, columns and bounds are captured by these builders. Return
+// the execution marker with the value; observers stay on the calling isolate.
+Future<R> prepareWearable<R>(R Function() build) async {
+  (R, String) construct() => (build(), Isolate.current.debugName ?? 'unnamed');
+  final result = debugDisableWearableWorker
+      ? construct()
+      : await runCancellableIsolate(construct, const Duration(seconds: 30),
+          label: 'wearable construction');
+  debugRecordWearableConstruction(result.$2);
+  return result.$1;
+}
+
+Future<Substrate> constructWearable(Substrate Function() build,
+    {Substrate? unchanged}) async {
+  final columns = await prepareWearable(() {
+    final value = build();
+    return identical(value, unchanged) ? null : value.toJson();
+  });
+  // A no-op overlay preserves even a direct caller's empty optional columns.
+  return columns == null ? unchanged! : Substrate.fromTransfer(columns);
+}
 
 /// The active wearable's rows over `[from, to]` as a substrate, for a day the
 /// primary band left empty, with a strap's session windows laid over them
@@ -467,7 +490,12 @@ Future<Substrate> withStrapSessions(Substrate sub, int from, int to) async {
     'AND d.rec_ts >= ? AND d.rec_ts <= ? ORDER BY d.rec_ts',
     [from, to],
   );
-  debugRecordWearableConstruction();
+  return constructWearable(() => _overlayStrapSessions(sub, beats, all),
+      unchanged: sub);
+}
+
+Substrate _overlayStrapSessions(Substrate sub,
+    List<Map<String, Object?>> beats, List<Map<String, Object?>> all) {
   final owner = ownerBy([for (final r in all) (r['sid'], r['src'])]);
   final rows = [
     for (final r in all)

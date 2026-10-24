@@ -11676,7 +11676,7 @@ class _IsolateValue {
 /// Test seam for [DerivationEngine._runIsolateCancellable] — the isolate
 /// lifecycle guarantees (value / error / killed-on-timeout) are what the engine
 /// depends on to never hang, so they're pinned directly.
-@visibleForTesting
+/// Also used by wearable and session-window preparation in production.
 Future<R> runCancellableIsolate<R>(
   FutureOr<R> Function() compute,
   Duration timeout, {
