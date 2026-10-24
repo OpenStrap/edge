@@ -4735,7 +4735,7 @@ class DerivationEngine {
         if (kind == 'substrate') {
           final payload = ((message['payload'] as Map?) ?? const {})
               .cast<String, dynamic>();
-          if (!result.isCompleted) result.complete(Substrate.fromJson(payload));
+          if (!result.isCompleted) result.complete(Substrate.fromTransfer(payload));
         }
         return;
       }
