@@ -24,7 +24,7 @@ import '../data/day_label.dart';
 // IO, no Flutter binding, so importing it does not compromise this file's
 // isolate safety. One grammar for "a required input was missing" across both
 // pipelines rather than a second one here.
-import 'onehz_pipeline.dart' show needInputNote;
+import 'onehz_pipeline.dart' show kSleepClockAnchorSec, needInputNote;
 
 /// Build the cross-day analytics bundle from a time-ordered (OLDEST FIRST) list
 /// of per-day records and the user profile.
@@ -33,6 +33,8 @@ import 'onehz_pipeline.dart' show needInputNote;
 ///   {'date': 'YYYY-MM-DD', 'rhr': num?, 'rmssd': num?, 'readiness': num?,
 ///    'resp_rate': num?, 'skin_temp_z': num?, 'trimp': num?,
 ///    'onset_sec': int?, 'wake_sec': int?, 'tst_min': int?,
+///    'clock_shift_sec': int? (present only for a night recorded in another
+///      zone than the phone's current one — see [recordedClockShiftSec]),
 ///    'hypnogram': [{start,end,stage}]?}
 ///
 /// Returns a JSON-safe map of the latest/aggregate cross-day results. Every
@@ -152,7 +154,10 @@ Map<String, dynamic> buildCrossDayBundle(
     // LOCAL clock-hours [0,24). onset/wake are epoch SECONDS (UTC); `% 86400`
     // would give the UTC time-of-day, not the user's wall clock — convert via a
     // local DateTime so a UTC+5:30 user's 08:00 wake reads as 08:00, not 02:30.
-    final midH = _localTodMin(midSec.round()) / 60.0;
+    // …and on the clock the night was LIVED on, not the phone's current one:
+    // after a flight every past night would otherwise move by the zone change
+    // and chronotype/social jetlag would read the trip as a schedule shift.
+    final midH = _nightClockMin(midSec.round(), d) / 60.0;
     final free = _isFreeDay(d['date'] as String?);
     if (free) {
       freeMidH.add(midH);
@@ -403,9 +408,24 @@ Map<String, dynamic> buildCrossDayBundle(
           note: need.present ? needInputNote('tst_min') : need.note,
         );
   // typical wake clock-minute + efficiency from recent days (medians).
+  //
+  // The wake is read on the clock of the zone each night was LIVED in, not the
+  // phone's current zone. Converting the absolute instants with today's zone
+  // is what printed "Target bedtime 4:00 PM / Target wake 1:31 AM" to a user
+  // who had flown 7 h west: 08:31 wakes recorded at UTC+2 re-read as 01:31
+  // in the new zone, and the bedtime backed off them landed mid-afternoon.
+  //
+  // DESIGN: the targets are a LOCAL CLOCK schedule (wake ~07:45, bed ~23:30),
+  // carried into whatever zone the phone is in now — the social schedule moves
+  // with the traveller, the absolute instants do not. Nothing here models the
+  // body clock catching up across the trip; the median over up to 90 nights
+  // absorbs the first jet-lagged nights in the new zone, and as nights are
+  // lived there it simply keeps reading their local clock too. See
+  // [recordedClockShiftSec] for how a stored night's own clock is recovered.
   final wakeMins = <double>[
     for (final d in days)
-      if (d['wake_sec'] != null) _localTodMin((d['wake_sec'] as num).toInt()),
+      if (d['wake_sec'] != null)
+        _nightClockMin((d['wake_sec'] as num).toInt(), d),
   ];
   final effs = <double>[for (final d in days) ?_numOrNull(d['efficiency'])];
   final typicalWakeMin = _median(wakeMins);
@@ -656,6 +676,62 @@ Object? sanitizeForJson(
 double _localTodMin(int epochSec) {
   final t = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000);
   return t.hour * 60.0 + t.minute + t.second / 60.0;
+}
+
+/// Local minute-of-day [0,1440) of [epochSec] on the clock night [d] was LIVED
+/// on: [_localTodMin] moved by the record's `clock_shift_sec` (see
+/// [recordedClockShiftSec]). A record without one was recorded in the phone's
+/// current zone, or we cannot tell — and this IS [_localTodMin], to the second.
+double _nightClockMin(int epochSec, Map<String, dynamic> d) {
+  final shift = d['clock_shift_sec'];
+  final shiftMin = shift is num && shift.isFinite ? shift / 60.0 : 0.0;
+  return (_localTodMin(epochSec) + shiftMin) % 1440.0;
+}
+
+/// How far a stored night's OWN local clock sits from the phone's CURRENT
+/// zone, in seconds [0,86400) — 0 when it was recorded in this zone, or when
+/// we cannot tell. Called by the record builder
+/// (`DerivationEngine.crossDayInputRecord`), which writes it as
+/// `clock_shift_sec` only when it is non-zero.
+///
+/// WHY THIS EXISTS. `onset_sec`/`wake_sec` are absolute instants. The only way
+/// to put one on a wall clock is a zone, and `DateTime` only knows the phone's
+/// CURRENT zone: after a trip it converts every past night with the new zone's
+/// rules (DST-correct for the new zone, but the user was never there). The
+/// zone they were in is not stored on the day row — but the per-day pipeline
+/// wrote `sleep_onset_sec` (onehz_pipeline's `sleepClockOffsetSec`): the
+/// onset's LOCAL clock position, frozen at derive time in the zone the phone
+/// was in then ([onsetClockSec], signed seconds either side of
+/// [kSleepClockAnchorSec]). Comparing that frozen clock with the same instant
+/// re-read in today's zone yields the frame shift, which then applies to every
+/// other instant of that night (wake, mid-sleep).
+///
+/// SNAPPED TO 15 MIN, because every real UTC offset is a multiple of 15 min
+/// and the two clocks are the same instant read twice — any residue is
+/// rounding, never a zone.
+///
+/// LIMITS, stated rather than hidden:
+///   - A night without the frozen clock (derived before SLP-09 started writing
+///     it, mid-August 2026) reads in the current zone, as it always did. Those
+///     age out of the 90-night window.
+///   - A night (re)derived AFTER the trip — "Re-analyze data", today's still
+///     settling row — froze the new zone's clock and reads in it. At most
+///     `rawRetentionDays` of them; the medians ride over them.
+///   - A DST change inside the night itself is applied with the CURRENT zone's
+///     rules at the wake instant: off by at most an hour, twice a year, for a
+///     traveller only (the shift is 0 at home).
+int recordedClockShiftSec({
+  required num? onsetSec,
+  required num? onsetClockSec,
+}) {
+  if (onsetSec == null || onsetClockSec == null || !onsetClockSec.isFinite) {
+    return 0;
+  }
+  final recordedSecOfDay =
+      (onsetClockSec.round() + kSleepClockAnchorSec) % 86400;
+  final nowFrameSecOfDay = (_localTodMin(onsetSec.toInt()) * 60).round();
+  final raw = (recordedSecOfDay - nowFrameSecOfDay) % 86400;
+  return ((raw / 900).round() * 900) % 86400;
 }
 
 double? _mean(List<double> xs) {
