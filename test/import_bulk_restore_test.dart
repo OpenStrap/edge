@@ -702,6 +702,80 @@ void main() {
     expect(await (await LocalDb.instance).query('decoded_rr'), isEmpty);
   });
 
+  test('a source RR column named d or k does not change the beat maxima',
+      () async {
+    final path = p.join(tmp.path, 'rr_alias_column_src.db');
+    await databaseFactoryFfi.deleteDatabase(path);
+    final src = await databaseFactoryFfi.openDatabase(path);
+    // GROUP BY prefers a source column over a result alias of the same name.
+    await src.execute('''CREATE TABLE decoded_rr (
+      device_id TEXT, ts_ms INTEGER, rec_ts INTEGER, beat_index INTEGER,
+      rr_ts_ms INTEGER, rr_ms INTEGER, d TEXT, k INTEGER)''');
+    for (var b = 0; b < 4; b++) {
+      await src.insert('decoded_rr', {
+        'device_id': '', 'ts_ms': _t0 * 1000, 'rec_ts': _t0,
+        'beat_index': b, 'rr_ts_ms': _t0 * 1000 + b * 700, 'rr_ms': 700 + b,
+        'd': b == 3 ? 'a' : 'b', 'k': 3 - b,
+      });
+    }
+    await src.close();
+    await freshLocal();
+    final refCounts = await LocalDb.debugMergeRowByRow(path);
+    final ref = await dump();
+    final db = await freshLocal();
+    final counts = await LocalDb.importFromDbFile(path);
+    expect(counts, refCounts);
+    expect(await dump(), ref);
+    expect([for (final r in await db.query('decoded_rr', orderBy: 'beat_index'))
+      r['beat_index']], [0, 1, 2, 3]);
+  });
+
+  test('sparse source rowids are paged by row, not by rowid range', () async {
+    final path = p.join(tmp.path, 'sparse_rowid_src.db');
+    await databaseFactoryFfi.deleteDatabase(path);
+    final src = await databaseFactoryFfi.openDatabase(path);
+    // A legacy `rec_ts INTEGER PRIMARY KEY` table has rowids near 1.79e9.
+    // A smaller gap keeps the red run short: 40 empty 25k ranges.
+    await src.execute('CREATE TABLE decoded_onehz '
+        '(rec_ts INTEGER PRIMARY KEY, counter INTEGER, hr INTEGER)');
+    await src.execute('''CREATE TABLE decoded_rr (
+      device_id TEXT, ts_ms INTEGER, rec_ts INTEGER, beat_index INTEGER,
+      rr_ts_ms INTEGER, rr_ms INTEGER)''');
+    for (final rowid in [1, 1000001]) {
+      await src.insert('decoded_onehz',
+          {'rec_ts': rowid, 'counter': rowid, 'hr': 60});
+      await src.insert('decoded_rr', {
+        'rowid': rowid, 'device_id': '', 'ts_ms': (_t0 + rowid) * 1000,
+        'rec_ts': _t0 + rowid, 'beat_index': 0,
+        'rr_ts_ms': (_t0 + rowid) * 1000, 'rr_ms': 700,
+      });
+    }
+    await src.close();
+    await freshLocal();
+    final refCounts = await LocalDb.debugMergeRowByRow(path);
+    final ref = await dump();
+    await freshLocal();
+    _invokes.clear();
+    _counting = true;
+    final Map<String, int> counts;
+    try {
+      counts = await LocalDb.importFromDbFile(path);
+    } finally {
+      _counting = false;
+    }
+    expect(counts, refCounts);
+    expect(await dump(), ref);
+    for (final t in ['decoded_onehz', 'decoded_rr']) {
+      final inserts = [
+        for (final e in _invokes)
+          for (final sql in _sqlOf(e.arguments))
+            if (sql.startsWith('INSERT OR REPLACE INTO main."$t"')) sql,
+      ];
+      expect(inserts, hasLength(1), reason: '$t: 2 rows are one chunk');
+    }
+    expect(_callsTouching('decoded_rr'), lessThanOrEqualTo(15));
+  });
+
   test('plain tables use ATTACH and INSERT SELECT on the public restore path',
       () async {
     final src = await buildRulesSource();

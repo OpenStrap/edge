@@ -10314,6 +10314,20 @@ class LocalDb {
       var failed = true;
       var copied = 0;
       try {
+        // Chunk ends by row count, not fixed rowid ranges: a legacy
+        // `rec_ts INTEGER PRIMARY KEY` table has rowids near 1.8e9, which
+        // fixed 25k ranges walked as ~70k mostly empty transactions.
+        final ends = <int>[];
+        for (var lo = 0;;) {
+          final hi = Sqflite.firstIntValue(await db.rawQuery(
+            'SELECT MAX(r) FROM (SELECT rowid AS r FROM imp.${quoteSql(t)} '
+            'WHERE rowid > ? ORDER BY rowid LIMIT $chunkRows)',
+            [lo],
+          ));
+          if (hi == null) break;
+          ends.add(hi);
+          lo = hi;
+        }
         if (t == 'decoded_rr') {
           // The highest beat per second over the WHOLE source, not one chunk:
           // REPLACE renumbers rowids, so one second's beats can straddle
@@ -10326,9 +10340,11 @@ class LocalDb {
             (d TEXT, k INTEGER, m INTEGER, PRIMARY KEY (d, k))''');
           // Paged like the copy below, so a band-sync commit can land between
           // pages instead of waiting out a scan of the whole source.
-          for (var lo = 0; lo < maxRowid; lo += chunkRows) {
+          for (var i = 0; i < ends.length; i++) {
             // REPLACE with a LEFT JOIN rather than an UPSERT: Android 8-10
             // ship a system SQLite older than ON CONFLICT DO UPDATE.
+            // GROUP BY ordinals, not d/k: a source column of the same name
+            // would win over the alias.
             await db.execute('''INSERT OR REPLACE INTO temp._restore_rr_src_max
                 (d, k, m)
               SELECT c.d, c.k, MAX(c.m, COALESCE(x.m, c.m))
@@ -10337,14 +10353,13 @@ class LocalDb {
                     FROM imp.${quoteSql(t)} s
                     WHERE s.rowid > ? AND s.rowid <= ? AND $unbounded
                       AND ${numericSql(sourceColumn('beat_index'))}
-                    GROUP BY d, k) c
+                    GROUP BY 1, 2) c
               LEFT JOIN temp._restore_rr_src_max x ON x.d = c.d AND x.k = c.k''',
-                [lo, lo + chunkRows]);
+                [i == 0 ? 0 : ends[i - 1], ends[i]]);
           }
         }
         var lower = 0;
-        while (lower < maxRowid) {
-          final upper = lower + chunkRows > maxRowid ? maxRowid : lower + chunkRows;
+        for (final upper in ends) {
           final first = lower == 0;
           await db.transaction((txn) async {
             if (t == 'day_result' && first) {
