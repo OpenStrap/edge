@@ -4,7 +4,9 @@
 // without booting AppState's platform services or introducing another observer.
 import 'dart:io';
 
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/app.dart' show screenReadsForeground;
 
 import 'support/dart_source.dart';
 
@@ -63,12 +65,19 @@ void main() {
   test('visible cold start enables lazy reads through the existing app observer', () {
     final init = _body(app, 'initState');
     expect(init, contains('WidgetsBinding.instance.addObserver(this)'));
-    expect(init, contains('LocalDb.setForeground('),
+    expect(init, matches(RegExp(r'LocalDb\.setForeground\(\s*screenReadsForeground\(\s*'
+        r'WidgetsBinding\.instance\.lifecycleState\s*\)\s*\)')),
         reason: 'cold foreground start need not emit a resumed transition');
-    expect(init, contains('lifecycleState'), reason: 'cold background is excluded');
-    for (final state in ['hidden', 'paused', 'detached']) {
-      expect(init, contains('AppLifecycleState.$state'));
-    }
+  });
+
+  test('cold-start lifecycle state maps to the reader foreground flag', () {
+    // Null: no lifecycle report yet; the observer corrects it on the first one.
+    expect(screenReadsForeground(null), isTrue);
+    expect(screenReadsForeground(AppLifecycleState.resumed), isTrue);
+    expect(screenReadsForeground(AppLifecycleState.inactive), isTrue);
+    expect(screenReadsForeground(AppLifecycleState.hidden), isFalse);
+    expect(screenReadsForeground(AppLifecycleState.paused), isFalse);
+    expect(screenReadsForeground(AppLifecycleState.detached), isFalse);
   });
 
   test('resume enables lazy reads in the app lifecycle observer', () {

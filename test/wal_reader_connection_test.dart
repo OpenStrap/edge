@@ -258,6 +258,37 @@ void main() {
     expect(opens.where((e) => e.db?.isOpen ?? false), hasLength(1));
   });
 
+  test('failed reader open retries after background, not on every read', () async {
+    await _putDay(_day);
+    var attempted = 0;
+    LocalDb.debugReaderOpener = (path) async {
+      attempted++;
+      throw StateError('simulated reader open failure');
+    };
+    await repo.getDayOverview(_day);
+    await repo.getDayOverview(_day);
+    expect(attempted, 1, reason: 'a broken open is not retried per screen read');
+    await LocalDb.setForeground(false);
+    await LocalDb.setForeground(true);
+    LocalDb.debugReaderOpener = null;
+    final writer = await LocalDb.instance;
+    final reader = await LocalDb.readExecutor();
+    expect(identical(reader, writer), isFalse, reason: 'next foreground retries');
+  });
+
+  test('a throwing reader close neither fails backgrounding nor blocks close', () async {
+    LocalDb.debugReaderOpener = (path) async => _CloseThrows(
+        await databaseFactory.openDatabase(path,
+            options: OpenDatabaseOptions(singleInstance: false)));
+    final writer = await LocalDb.instance;
+    final reader = await LocalDb.readExecutor();
+    expect(reader, isA<_CloseThrows>());
+    await LocalDb.setForeground(false);
+    await LocalDb.setForeground(true);
+    await LocalDb.close();
+    expect(writer.isOpen, isFalse, reason: 'close must still reach the writer');
+  });
+
   test('non-WAL reader is rejected and closed before fallback', () async {
     await _putDay(_day);
     final writer = await LocalDb.instance;
@@ -442,6 +473,22 @@ void main() {
     });
   }
 
+  test('routes getChart multi-device coverage through reader', () async {
+    await _putDay(_day);
+    final writer = await LocalDb.instance;
+    await writer.insert('metric_series_version',
+        {'date': _day, 'algo_version': kAlgoVersion, 'coverage_devices': 'a,b'},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    final noon = localDayStartSec(_day)! + 12 * 3600;
+    await writer.insert('device_coverage', {'device_id': 'b', 'signal': 'hr',
+      'start_ts': noon, 'end_ts': noon + 3600});
+    final id = idOf(writer);
+    sql.clear();
+    final chart = await repo.getChart('rhr', signals: {'hr'});
+    expect(chart['coverage_recording'], isNotEmpty, reason: 'fixture must query coverage');
+    await readerQueries('device_coverage', id);
+  });
+
   test('shared LocalDb helpers still use writer by default for compute', () async {
     await _putDay(_day);
     await LocalDb.readExecutor();
@@ -465,14 +512,16 @@ void main() {
     await LocalDb.readExecutor();
     final writer = await writerId();
     sql.clear();
+    final before = todayLabel();
     await repo.getToday(); // missing freshness triggers the real refresh
+    final after = todayLabel();
     final freshness = sql.where((e) => e.sql.contains('compute_freshness')).toList();
     expect(freshness.any((e) => e.type == SqliteSqlCommandType.insert), isTrue);
     expect(freshness.where((e) => e.type == SqliteSqlCommandType.query).length,
         greaterThanOrEqualTo(2));
     expect(freshness.map((e) => e.id), everyElement(writer));
     final refreshed = await LocalDb.computeFreshness('today');
-    expect(jsonDecode(refreshed!['payload_json'] as String)['today_day'], todayLabel());
+    expect(jsonDecode(refreshed!['payload_json'] as String)['today_day'], anyOf(before, after));
   });
 
   test('frozenHeadline orphan lookup and compare-delete stay on writer', () async {
@@ -539,3 +588,28 @@ void main() {
     });
   }
 }
+
+// A reader whose native handle is already gone: close() throws, as on Android.
+class _CloseThrows implements Database {
+  _CloseThrows(this._db);
+  final Database _db;
+  @override
+  String get path => _db.path;
+  @override
+  bool get isOpen => _db.isOpen;
+  @override
+  Future<void> execute(String sql, [List<Object?>? arguments]) =>
+      _db.execute(sql, arguments);
+  @override
+  Future<List<Map<String, Object?>>> rawQuery(String sql,
+          [List<Object?>? arguments]) =>
+      _db.rawQuery(sql, arguments);
+  @override
+  Future<void> close() async {
+    await _db.close();
+    throw StateError('simulated native close failure');
+  }
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+

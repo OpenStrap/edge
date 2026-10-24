@@ -2138,11 +2138,12 @@ class LocalRepositoryImpl extends LocalRepository {
       // single-device install runs no additional statement, ever.
       'coverage_recording': signals.isEmpty || distinctDevices.length < 2
           ? const <String, List<String>>{}
-          : await LocalDb.coverageDevicesByDay(
+          : await LocalDb.withReadExecutor((db) => LocalDb.coverageDevicesByDay(
               signals: signals.toList(),
               fromSec: oldestDaySec,
               toSec: _nowSec(),
-            ),
+              executor: db,
+            )),
     };
   }
 

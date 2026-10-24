@@ -47,16 +47,22 @@ class OpenStrapApp extends StatefulWidget {
   State<OpenStrapApp> createState() => _OpenStrapAppState();
 }
 
+/// Whether screen reads may use the reader connection at this lifecycle state.
+/// Null (no report yet) counts as visible; the observer corrects it on the
+/// first report.
+@visibleForTesting
+bool screenReadsForeground(AppLifecycleState? state) =>
+    state != AppLifecycleState.hidden &&
+    state != AppLifecycleState.paused &&
+    state != AppLifecycleState.detached;
+
 class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    final lifecycleState = WidgetsBinding.instance.lifecycleState;
     unawaited(LocalDb.setForeground(
-        lifecycleState != AppLifecycleState.hidden &&
-        lifecycleState != AppLifecycleState.paused &&
-        lifecycleState != AppLifecycleState.detached));
+        screenReadsForeground(WidgetsBinding.instance.lifecycleState)));
     // Hand the BYOK provider config to AppState (briefing generation + the
     // key-aware AI notification schedule live there).
     WidgetsBinding.instance.addPostFrameCallback((_) {

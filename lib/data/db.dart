@@ -558,7 +558,11 @@ class LocalDb {
       await Future.wait(readerLeases.map((lease) => lease.future));
       await opening;
       if (identical(_readerOpening, opening)) _readerOpening = null;
-      if (reader != null) await reader.close();
+      // Read-only handle: Android may already have closed it natively. A failed
+      // close must not block a store change or surface from setForeground.
+      if (reader != null) {
+        try { await reader.close(); } catch (_) {}
+      }
     }();
     _readerClosing = closing;
     return () async {
@@ -8734,9 +8738,10 @@ class LocalDb {
     required List<String> signals,
     required int fromSec,
     required int toSec,
+    DatabaseExecutor? executor,
   }) async {
     if (signals.isEmpty || toSec <= fromSec) return const {};
-    final db = await instance;
+    final db = executor ?? await instance;
     final marks = List.filled(signals.length, '?').join(',');
     final rows = await db.rawQuery(
       'SELECT DISTINCT device_id, start_ts, end_ts FROM device_coverage '
