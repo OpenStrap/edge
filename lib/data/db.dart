@@ -4399,6 +4399,8 @@ class LocalDb {
           'cursor_advanced counter_hw=$maxCounter rec_ts_hw=$maxRecTs '
           'trim=${trimToken != null}',
         );
+        // Freshness must roll back with the rows and cursor on failure.
+        await _writeCaptureFreshness(txn, raws);
       });
     } finally {
       // ALWAYS restore NORMAL — even if the commit threw — so a leaked FULL does
@@ -4409,7 +4411,6 @@ class LocalDb {
         /* non-fatal — see open-time PRAGMA discipline */
       }
     }
-    await _writeCaptureFreshness(raws);
   }
 
   // ── DERIVED STORE (permanent, rich) ────────────────────────────────────────
@@ -6419,7 +6420,10 @@ class LocalDb {
     return fallbackSec;
   }
 
-  static Future<void> _writeCaptureFreshness(List<RawRecord> raws) async {
+  static Future<void> _writeCaptureFreshness(
+    DatabaseExecutor txn,
+    List<RawRecord> raws,
+  ) async {
     if (raws.isEmpty) return;
     var latest = 0;
     for (final raw in raws) {
@@ -6427,9 +6431,14 @@ class LocalDb {
       if (recTs > latest) latest = recTs;
     }
     if (latest <= 0) return;
-    final prev = await computeFreshness('capture');
+    final prevRows = await txn.query(
+      'compute_freshness',
+      where: 'key = ?',
+      whereArgs: ['capture'],
+      limit: 1,
+    );
     Map<String, dynamic> payload = const {};
-    final rawJson = prev?['payload_json'];
+    final rawJson = prevRows.isEmpty ? null : prevRows.first['payload_json'];
     if (rawJson is String && rawJson.isNotEmpty) {
       try {
         final d = jsonDecode(rawJson);
@@ -6443,7 +6452,7 @@ class LocalDb {
       'latest_raw_rec_ts': latest,
       'latest_raw_day': _localDayLabelFromEpoch(latest),
     };
-    await putComputeFreshness('capture', jsonEncode(payload));
+    await putComputeFreshness('capture', jsonEncode(payload), txn: txn);
   }
 
   // Canonical LOCAL day label — shared with the UI/coach via day_label.dart so
@@ -8123,8 +8132,9 @@ class LocalDb {
 
   static Future<Map<String, dynamic>?> syncLedgerEntry([
     String chunkId = 'capture',
+    DatabaseExecutor? txn,
   ]) async {
-    final db = await instance;
+    final db = txn ?? await instance;
     final rows = await db.query(
       'sync_ledger',
       where: 'chunk_id = ?',
@@ -8143,9 +8153,10 @@ class LocalDb {
     int? ackedAt,
     String? lastError,
     Map<String, dynamic>? metaPatch,
+    DatabaseExecutor? txn,
   }) async {
-    final db = await instance;
-    final existing = await syncLedgerEntry(chunkId);
+    final db = txn ?? await instance;
+    final existing = await syncLedgerEntry(chunkId, txn);
     final now = DateTime.now().millisecondsSinceEpoch;
     final meta = <String, dynamic>{};
     if (existing != null) {
@@ -8172,6 +8183,14 @@ class LocalDb {
       'last_error': lastError,
       'meta_json': jsonEncode(meta),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Commit related diagnostic ledger rows together after the trim ACK.
+  static Future<void> syncLedgerTransaction(
+    Future<void> Function(Transaction txn) body,
+  ) async {
+    final db = await instance;
+    await db.transaction(body);
   }
 
   static Future<List<Map<String, dynamic>>> syncLedger() async {
@@ -10052,14 +10071,43 @@ class LocalDb {
   @visibleForTesting
   static List<String> get salvageTablesForTest => _salvageTables;
 
+  /// Forces the existing per-row merge for the bulk-restore equivalence tests.
+  @visibleForTesting
+  static bool debugRowByRowMerge = false;
+
+  @visibleForTesting
+  static Future<Map<String, int>> debugMergeRowByRow(String path) async {
+    final previous = debugRowByRowMerge;
+    debugRowByRowMerge = true;
+    try {
+      return await _mergeFromDbFile(path);
+    } finally {
+      debugRowByRowMerge = previous;
+    }
+  }
+
   static Future<Map<String, int>> _mergeFromDbFile(
     String path, {
     List<String>? only,
     bool tolerant = false,
   }) async {
-    final src = await openDatabase(path, readOnly: true);
     final db = await instance;
+    final src = await openDatabase(path, readOnly: true);
     const tables = _restoreTables;
+    const bulkTables = {
+      'decoded_onehz',
+      'decoded_rr',
+      'samples',
+      'raw_archive',
+      'events',
+      'band_events',
+      'band_battery',
+      'day_result',
+      'metric_series',
+      'metric_series_version',
+      'metric_method',
+    };
+
     // Columns this app's schema actually has, per table — so a row from a NEWER
     // export carrying extra columns this build doesn't know about is filtered
     // down (dropped) instead of throwing "no such column". A column the source
@@ -10089,18 +10137,321 @@ class LocalDb {
     // version stamp and this device's baselines are the same day's history and
     // get the same protection, or trends and the rolling baselines would be
     // rebuilt from the other export's numbers while day detail serves ours.
-    final finalizedDays = {
-      for (final r in await db.query(
-        'day_result',
-        columns: ['day_id'],
-        where: 'finalized = 1',
-        distinct: true,
-      ))
-        '${r['day_id']}',
-    };
+    final finalizedDays = <String>{};
     var archiveSkipped = 0;
     int? archiveEdgeSec;
+    var impAttached = false;
+    var failed = true;
+
+    // Attempt every cleanup operation. Preserve the original restore error,
+    // but surface a cleanup failure when the copy otherwise succeeded.
+    Future<void> cleanupRestore({
+      List<String> tempTables = const [],
+      bool closeSource = false,
+      required bool preserveError,
+    }) async {
+      Object? firstError;
+      StackTrace? firstStack;
+      Future<void> attempt(Future<void> Function() action) async {
+        try {
+          await action();
+        } catch (error, stack) {
+          firstError ??= error;
+          firstStack ??= stack;
+        }
+      }
+
+      for (final name in tempTables) {
+        await attempt(() => db.execute('DROP TABLE IF EXISTS temp.$name'));
+      }
+      if (closeSource) {
+        if (impAttached) {
+          await attempt(() => db.execute('DETACH DATABASE imp'));
+        }
+        await attempt(src.close);
+      }
+      final error = firstError;
+      if (!preserveError && error != null) {
+        Error.throwWithStackTrace(error, firstStack!);
+      }
+    }
+
+    String quoteSql(String name) => '"${name.replaceAll('"', '""')}"';
+    String sourceColumn(String name) => 's.${quoteSql(name)}';
+    String numericSql(String value) =>
+        "typeof($value) IN ('integer', 'real')";
+
+    Future<bool> mergeBulkTable(String t) async {
+      if (!impAttached || !bulkTables.contains(t)) return false;
+      final exists = await db.rawQuery(
+        "SELECT 1 FROM imp.sqlite_master WHERE type = 'table' AND name = ?",
+        [t],
+      );
+      if (exists.isEmpty) return true;
+
+      if (t == 'day_result') importedDays = <String>{};
+      final destInfo = await db.rawQuery('PRAGMA main.table_info(${quoteSql(t)})');
+      if (destInfo.isEmpty) return false;
+      final sourceInfo = await db.rawQuery('PRAGMA imp.table_info(${quoteSql(t)})');
+      final destColumns = [
+        for (final column in destInfo) column['name'] as String,
+      ];
+      final sourceColumns = {
+        for (final column in sourceInfo) column['name'] as String,
+      };
+      final maxRowid = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT MAX(rowid) FROM imp.${quoteSql(t)}'),
+      );
+      if (maxRowid == null || maxRowid <= 0) {
+        counts[t] = 0;
+        return true;
+      }
+
+      if (!sourceColumns.any(destColumns.contains)) return false;
+
+      const deviceKeyed = {'samples', 'decoded_onehz', 'decoded_rr'};
+      final isDeviceKeyed = deviceKeyed.contains(t);
+      final sourceTsMs = sourceColumns.contains('ts_ms')
+          ? sourceColumn('ts_ms')
+          : 'NULL';
+      final sourceDeviceId = sourceColumns.contains('device_id')
+          ? sourceColumn('device_id')
+          : 'NULL';
+      final sourceRecTs = sourceColumns.contains('rec_ts')
+          ? sourceColumn('rec_ts')
+          : 'NULL';
+      final sourceRrTsMs = sourceColumns.contains('rr_ts_ms')
+          ? sourceColumn('rr_ts_ms')
+          : 'NULL';
+      final recoveredRecTs = t == 'decoded_rr'
+          ? 'CASE WHEN $sourceRecTs IS NULL THEN '
+              'CASE WHEN ${numericSql(sourceRrTsMs)} '
+              'THEN CAST($sourceRrTsMs AS INTEGER) / 1000 ELSE NULL END '
+              'ELSE $sourceRecTs END'
+          : sourceRecTs;
+      final keyTime = t == 'samples'
+          ? (sourceColumns.contains('ts') ? sourceColumn('ts') : 'NULL')
+          : t == 'decoded_rr'
+              ? recoveredRecTs
+              : sourceRecTs;
+      final derivedTsMs =
+          'CASE WHEN $sourceTsMs IS NULL THEN CAST($keyTime AS INTEGER) * 1000 '
+          'ELSE $sourceTsMs END';
+      final derivedDeviceId =
+          'CASE WHEN $sourceTsMs IS NULL THEN COALESCE($sourceDeviceId, '
+          "'$kPrimaryDeviceId') ELSE $sourceDeviceId END";
+
+      final expressions = <String, String>{};
+      for (final column in destColumns) {
+        if (sourceColumns.contains(column)) {
+          expressions[column] = sourceColumn(column);
+        }
+      }
+      if (t == 'decoded_onehz') {
+        if (destColumns.contains('on_wrist')) expressions['on_wrist'] = 'NULL';
+        if (destColumns.contains('hr_valid')) expressions['hr_valid'] = 'NULL';
+        if (destColumns.contains('skin_temp_c') &&
+            sourceColumns.contains('skin_temp_c')) {
+          final skinTemp = sourceColumn('skin_temp_c');
+          expressions['skin_temp_c'] =
+              'CASE WHEN ${numericSql(skinTemp)} AND $skinTemp <= -49.995 '
+              'THEN NULL ELSE $skinTemp END';
+        }
+      }
+      if (t == 'decoded_rr' && destColumns.contains('rec_ts')) {
+        expressions['rec_ts'] = recoveredRecTs;
+      }
+      if (isDeviceKeyed && destColumns.contains('device_id')) {
+        expressions['device_id'] = derivedDeviceId;
+      }
+      if (isDeviceKeyed && destColumns.contains('ts_ms')) {
+        expressions['ts_ms'] = derivedTsMs;
+      }
+      final columns = [
+        for (final column in destColumns)
+          if (expressions.containsKey(column)) column,
+      ];
+      if (columns.isEmpty) return false;
+
+      final filters = <String>[];
+      if (t == 'decoded_rr') {
+        // The oracle drops a beat with no rec_ts and no usable rr_ts_ms even
+        // when ts_ms is present; letting it through fails NOT NULL for the
+        // whole chunk.
+        filters.add('NOT ($sourceRecTs IS NULL AND NOT (${numericSql(sourceRrTsMs)}))');
+      }
+      if (isDeviceKeyed) {
+        filters.add('NOT ($sourceTsMs IS NULL AND NOT (${numericSql(keyTime)}))');
+      }
+      if (t == 'day_result') {
+        // The oracle compares interpolated strings, before destination
+        // affinity can coerce a foreign TEXT version such as '0100' to 100.
+        filters.add('NOT EXISTS (SELECT 1 FROM temp._restore_protected_day_results p '
+            'WHERE CAST(p.day_id AS TEXT) = CAST(${sourceColumn('day_id')} AS TEXT) AND '
+            'CAST(p.algo_version AS TEXT) = CAST(${sourceColumn('algo_version')} AS TEXT))');
+      }
+      if (t == 'metric_series' ||
+          t == 'metric_series_version' ||
+          t == 'metric_method') {
+        filters.add('NOT EXISTS (SELECT 1 FROM temp._restore_finalized_days p '
+            'WHERE CAST(p.day_id AS TEXT) = CAST(${sourceColumn('date')} AS TEXT))');
+      }
+      final unbounded = filters.isEmpty ? '1' : filters.join(' AND ');
+      final where = ['s.rowid > ?', 's.rowid <= ?', ...filters].join(' AND ');
+      final selectSql = 'SELECT ${[
+        for (final column in columns)
+          '${expressions[column]} AS ${quoteSql(column)}',
+      ].join(', ')} FROM imp.${quoteSql(t)} s WHERE $where';
+      // Rowid order: when derived keys collide, the later source row wins, as
+      // on the per-row path.
+      final insertSql = 'INSERT OR REPLACE INTO main.${quoteSql(t)} '
+          '(${columns.map(quoteSql).join(', ')}) $selectSql ORDER BY s.rowid';
+
+      // Small enough that a band-sync commit (which must land before the ACK)
+      // never waits long behind one, and a salvage loses little to one
+      // unreadable chunk.
+      const chunkRows = 25000;
+      var failed = true;
+      var copied = 0;
+      try {
+        // Chunk ends by row count, not fixed rowid ranges: a legacy
+        // `rec_ts INTEGER PRIMARY KEY` table has rowids near 1.8e9, which
+        // fixed 25k ranges walked as ~70k mostly empty transactions.
+        final ends = <int>[];
+        for (var lo = 0;;) {
+          final hi = Sqflite.firstIntValue(await db.rawQuery(
+            'SELECT MAX(r) FROM (SELECT rowid AS r FROM imp.${quoteSql(t)} '
+            'WHERE rowid > ? ORDER BY rowid LIMIT $chunkRows)',
+            [lo],
+          ));
+          if (hi == null) break;
+          ends.add(hi);
+          lo = hi;
+        }
+        if (t == 'decoded_rr') {
+          // The highest beat per second over the WHOLE source, not one chunk:
+          // REPLACE renumbers rowids, so one second's beats can straddle
+          // chunks out of order, and a per-chunk max would clear beats an
+          // earlier chunk just restored.
+          // Unlike the oracle's per-2k-page sweep, this also retains an earlier
+          // high beat when a later oracle page carries only lower indices.
+          await db.execute('DROP TABLE IF EXISTS temp._restore_rr_src_max');
+          await db.execute('''CREATE TEMP TABLE _restore_rr_src_max
+            (d TEXT, k INTEGER, m INTEGER, PRIMARY KEY (d, k))''');
+          // Paged like the copy below, so a band-sync commit can land between
+          // pages instead of waiting out a scan of the whole source.
+          for (var i = 0; i < ends.length; i++) {
+            // REPLACE with a LEFT JOIN rather than an UPSERT: Android 8-10
+            // ship a system SQLite older than ON CONFLICT DO UPDATE.
+            // GROUP BY ordinals, not d/k: a source column of the same name
+            // would win over the alias.
+            await db.execute('''INSERT OR REPLACE INTO temp._restore_rr_src_max
+                (d, k, m)
+              SELECT c.d, c.k, MAX(c.m, COALESCE(x.m, c.m))
+              FROM (SELECT $derivedDeviceId AS d, $derivedTsMs AS k,
+                      MAX(CAST(${sourceColumn('beat_index')} AS INTEGER)) AS m
+                    FROM imp.${quoteSql(t)} s
+                    WHERE s.rowid > ? AND s.rowid <= ? AND $unbounded
+                      AND ${numericSql(sourceColumn('beat_index'))}
+                    GROUP BY 1, 2) c
+              LEFT JOIN temp._restore_rr_src_max x ON x.d = c.d AND x.k = c.k''',
+                [i == 0 ? 0 : ends[i - 1], ends[i]]);
+          }
+        }
+        var lower = 0;
+        for (final upper in ends) {
+          final first = lower == 0;
+          await db.transaction((txn) async {
+            if (t == 'day_result' && first) {
+              // Inside the first chunk's transaction, so a day the engine
+              // finalizes while the restore runs is still protected.
+              await txn.execute(
+                  'DROP TABLE IF EXISTS temp._restore_protected_day_results');
+              await txn.execute(
+                  'CREATE TEMP TABLE _restore_protected_day_results AS '
+                  'SELECT day_id, algo_version FROM main.day_result '
+                  'WHERE finalized = 1');
+            }
+            if (t == 'day_result') {
+              final days = await txn.rawQuery(
+                'SELECT DISTINCT ${sourceColumn('day_id')} AS day_id '
+                'FROM imp.${quoteSql(t)} s WHERE $where',
+                [lower, upper],
+              );
+              importedDays?.addAll(
+                days.map((row) => '${row['day_id']}'),
+              );
+            }
+            await txn.execute(insertSql, [lower, upper]);
+            copied += Sqflite.firstIntValue(
+                  await txn.rawQuery('SELECT changes()'),
+                ) ??
+                0;
+            if (t == 'decoded_rr') {
+              // Materialised and driven from the chunk's seconds, so the
+              // delete walks decoded_rr's (device_id, ts_ms, beat_index) key
+              // once per carried second. A correlated EXISTS over the CTE
+              // scanned every local beat against every carried second.
+              await txn.execute('DROP TABLE IF EXISTS temp._restore_rr_carried');
+              await txn.execute('''CREATE TEMP TABLE _restore_rr_carried AS
+                SELECT DISTINCT x.d AS d, x.k AS k, x.m AS m
+                FROM (SELECT $derivedDeviceId AS d, $derivedTsMs AS k
+                      FROM imp.${quoteSql(t)} s WHERE $where
+                        AND ${numericSql(sourceColumn('beat_index'))}) c
+                JOIN temp._restore_rr_src_max x ON x.d = c.d AND x.k = c.k''',
+                  [lower, upper]);
+              await txn.execute('''DELETE FROM main.decoded_rr WHERE rowid IN (
+                SELECT r.rowid FROM temp._restore_rr_carried c
+                JOIN main.decoded_rr r
+                  ON r.device_id = c.d AND r.ts_ms = c.k AND r.beat_index > c.m)''');
+              await txn.execute('DROP TABLE temp._restore_rr_carried');
+            }
+          });
+          lower = upper;
+        }
+        failed = false;
+      } finally {
+        await cleanupRestore(
+          tempTables: [
+            if (t == 'day_result') '_restore_protected_day_results',
+            if (t == 'decoded_rr') ...[
+              '_restore_rr_carried', '_restore_rr_src_max',
+            ],
+          ],
+          preserveError: failed,
+        );
+      }
+      counts[t] = copied;
+      return true;
+    }
+
     try {
+      if (!debugRowByRowMerge) {
+        try {
+          await db.execute('ATTACH DATABASE ? AS imp', [path]);
+          impAttached = true;
+        } on DatabaseException {
+          // A damaged-file salvage can still try the per-row reader. A public
+          // restore must propagate its failure instead of claiming success.
+          if (!tolerant) rethrow;
+        }
+      }
+      await db.transaction((txn) async {
+        finalizedDays.addAll({
+          for (final r in await txn.query(
+            'day_result',
+            columns: ['day_id'],
+            where: 'finalized = 1',
+            distinct: true,
+          ))
+            '${r['day_id']}',
+        });
+        if (impAttached) {
+          await txn.execute('DROP TABLE IF EXISTS temp._restore_finalized_days');
+          await txn.execute('CREATE TEMP TABLE _restore_finalized_days AS '
+              'SELECT day_id FROM main.day_result WHERE finalized = 1');
+        }
+      });
       if ((only ?? tables).contains(SubstrateArchive.table)) {
         try {
           await SubstrateArchive.adoptPolicy(src, db);
@@ -10127,6 +10478,7 @@ class LocalDb {
       }
       for (final t in (only ?? tables)) {
         try {
+          if (await mergeBulkTable(t)) continue;
           // PAGED SOURCE READ — never `SELECT *` a whole table.
           //
           // This used to be a single `src.query(t)`. sqflite serialises an entire
@@ -10556,8 +10908,16 @@ class LocalDb {
           counts[t] = 0;
         }
       }
+      failed = false;
     } finally {
-      await src.close();
+      await cleanupRestore(
+        tempTables: impAttached ? [
+          '_restore_rr_carried', '_restore_rr_src_max',
+          '_restore_protected_day_results', '_restore_finalized_days',
+        ] : const [],
+        closeSource: true,
+        preserveError: failed,
+      );
     }
     if (counts.values.any((count) => count > 0)) {
       await ActivityStore.suppressImportedAlerts(db);
@@ -10605,7 +10965,8 @@ class LocalDb {
     }
     // Last, so it can never be mistaken for a table row count by anything that
     // walks this map in order.
-    if (importedDays != null) counts['_days'] = importedDays.length;
+    final days = importedDays;
+    if (days != null) counts['_days'] = days.length;
     // Archive buckets that could not be merged (a codec this build does not
     // know) — kept out of the row counts, never silently.
     if (archiveSkipped > 0) counts['_substrate_archive_skipped'] = archiveSkipped;
@@ -11438,9 +11799,10 @@ class LocalDb {
 
   static Future<void> putComputeFreshness(
     String key,
-    String payloadJson,
-  ) async {
-    final db = await instance;
+    String payloadJson, {
+    DatabaseExecutor? txn,
+  }) async {
+    final db = txn ?? await instance;
     await db.insert('compute_freshness', {
       'key': key,
       'payload_json': payloadJson,
