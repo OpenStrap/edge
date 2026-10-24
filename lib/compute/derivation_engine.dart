@@ -70,7 +70,9 @@ import 'hr_max.dart'
     show estimatedMaxHr, kHrFloorBpm, smoothedMaxHr, smoothedMinHr;
 import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
+import 'ed2b_checkpoint_diagnostics.dart';
 import 'staged_sleep_cache.dart';
+import 'ed2b_stream_diagnostics.dart';
 import 'substrate_retention.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
@@ -1850,7 +1852,16 @@ import 'vendor_sleep.dart';
 // temperature rhythm and alertness forecast use local time. Steps: the live
 // pedometer counts from stride periodicity. Workouts: a 5-15 min rest with HR
 // still raised stays inside one suggested workout.
-const int kAlgoVersion = 119;
+// 119 → 120 (analytics #99 @ f8e7d3c): RR artifact-run cap 32;
+// toleranced batch aggregators hrvTime, banisterTrimp, ctlAtlTsb, cosinor,
+// timeInZone and circadianNonparametric move last digits; Lomb–Scargle origin,
+// singular-cosinor abstention, non-finite guards and IrregularScreenState's
+// irregular-screen gaps change outputs. Retains the cosinor significance gate,
+// nullable phase/amplitudeP, RSA floor guard and checkpoint v3, and SRI rules.
+// Pooled-run batch staging labels unchanged; cardio caching respects run bounds.
+// This single bump also covers D35 inclusive ownership and D36 target-night
+// profile folding, forward-only. No profile reset.
+const int kAlgoVersion = 120;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -2037,7 +2048,8 @@ const int kAlgoVersion = 119;
 // merge + spread calibration + capped re-centring + robust lnRMSSD
 // centre), for v112.
 // REPIN @ 3a7ca34: analytics main, #101 + #100 + #97 + #98, for v119.
-const String kAnalyticsPin = '3a7ca34d30233ff11e6c2877083f319a907ccb31';
+// REPIN @ f8e7d3c: rebased analytics #99, for v120 above.
+const String kAnalyticsPin = 'f8e7d3c478cc59707fde41f3edff7736026573fe';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both
@@ -3093,6 +3105,52 @@ class CompactResult {
 class DerivationEngine {
   DerivationEngine({this.log, this.background = false, this.offloadActive});
   final void Function(String)? log;
+
+  // ED-2b RED observations. Controls stay inert until their GREEN phase.
+  final debugCheckpoints = Ed2bCheckpointDiagnostics();
+  @visibleForTesting
+  void Function(String day)? debugOnProfileFold;
+  @visibleForTesting
+  Future<void> debugFoldObservation(String day, String observation) =>
+      _foldObservationIntoProfile(day, observation);
+  @visibleForTesting
+  // ED-2b RED: optional observations follow the real day-bundle worker,
+  // carrying counters only. No night stream is retained or enabled here.
+  Ed2bStreamDiagnostics? debugNightStreams;
+  @visibleForTesting
+  void Function(Map<String, dynamic> input, Map<String, dynamic> output)?
+      debugOnNightBundle;
+  @visibleForTesting
+  Uint8List? debugCardioRowBytes;
+  @visibleForTesting
+  bool debugDisableCardioRows = false;
+  @visibleForTesting
+  int debugCardioRowHits = 0;
+  @visibleForTesting
+  int debugCardioRowMisses = 0;
+  @visibleForTesting
+  List<String> get debugCardioRowWorkerOperations => const [];
+  @visibleForTesting
+  void debugRekeyCardioRows({required int inputRevision,
+      required int generation, required int algorithm}) {}
+  @visibleForTesting
+  bool debugDisableUnionLoads = false;
+  @visibleForTesting
+  int get debugUnionWorkerCuts => 0;
+  @visibleForTesting
+  void debugRekeyUnionAlgorithm(int algorithm) {}
+  @visibleForTesting
+  void Function(int from, int to, String load)? debugOnSubstrateLoad;
+  @visibleForTesting
+  Future<(Map<InputSignal, List<OwnedSpan>>, Map<InputSignal, List<String>>)>
+      debugResolveOwnership(int from, int to) => _resolveOwnership(from, to);
+  @visibleForTesting
+  Future<Substrate> debugLoadOwnedSubstrate(int from, int to,
+      {required String day}) async {
+    final (ownership, _) = await _resolveOwnership(from, to);
+    return _loadSubstrateRange(from, to, dayId: day, ownership: ownership);
+  }
+
 
   // ED-2a RED seams. Empty cache views and no-op controls describe the current
   // uncached engine. Counters below observe real worker work, never results.
@@ -4847,6 +4905,7 @@ class DerivationEngine {
     // profile, fold, and clobber the other, losing both the fold and its
     // day_id from folded_days. SQLite's write lock is cross-connection and
     // therefore cross-isolate.
+    debugOnProfileFold?.call(dayId);
     await LocalDb.updateBaseline('sleep_user_profile', (current) {
       // Re-derive freshness INSIDE the transaction: the value this day read
       // before staging is stale by definition, another lane may have folded
@@ -4954,6 +5013,7 @@ class DerivationEngine {
     Map<InputSignal, List<OwnedSpan>> ownership = const {},
     String load = 'direct',
   }) async {
+    debugOnSubstrateLoad?.call(fromRecTs, toRecTs, load);
     if (toRecTs < fromRecTs) {
       _dropRetainedDay(dayId);
       return Substrate.empty;
@@ -6339,11 +6399,15 @@ class DerivationEngine {
 
     // Cancellable: on timeout the isolate is KILLED, not merely abandoned to
     // keep burning a core behind the worker pool's back.
-    final bundle = await _runIsolateCancellable(
-      () => deriveDayBundle(withHistory),
+    final diagnostics = debugNightStreams;
+    final workerResult = await _runIsolateCancellable(
+      () => (deriveDayBundle(withHistory, streamDiagnostics: diagnostics), diagnostics),
       _perDayTimeout,
       label: 'day-bundle ${day.date}',
     );
+    final bundle = workerResult.$1;
+    if (diagnostics != null) debugNightStreams = workerResult.$2;
+    debugOnNightBundle?.call(withHistory, bundle);
     // Readiness came back absent for TODAY specifically (not a historical
     // backfill day, which would just be noise) — log why. This ran inside
     // Isolate.run so it couldn't call Firebase itself; it just returned the

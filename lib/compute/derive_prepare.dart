@@ -415,6 +415,8 @@ PreparedDerivationPayload prepareDerivationPayload(
   List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
   List<VendorNight> vendorNights = const [],
   bool skipUnusedDays = false,
+  ana.CardioRowCache? rowCache, // ED-2b RED: unused until E6 adoption.
+  bool recordTargetOnly = false, // ED-2b RED: unused until D36 adoption.
 }) {
   if (sub.isEmpty || sub.lastTs == null) {
     return const PreparedDerivationPayload(dataNowSec: 0, days: []);
@@ -422,6 +424,8 @@ PreparedDerivationPayload prepareDerivationPayload(
   final days = <PreparedDerivationDay>[];
   for (final day in calendarDays(
     sub,
+    rowCache: rowCache,
+    recordTargetOnly: recordTargetOnly,
     override: override,
     targetDay: targetDay,
     skipUnusedDays: skipUnusedDays,
@@ -480,6 +484,8 @@ SleepSessionCandidate prepareSleepSessionCandidate(
   List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
   List<VendorNight> vendorNights = const [],
   bool skipUnusedDays = false,
+  ana.CardioRowCache? rowCache, // ED-2b RED: unused until E6 adoption.
+  bool recordTargetOnly = false, // ED-2b RED: unused until D36 adoption.
 }) {
   // An UNCLAIMED device night (our rows saw under half of it) ending today IS
   // the night: above our detection, below the user's word. It never reaches
@@ -523,6 +529,8 @@ SleepSessionCandidate prepareSleepSessionCandidate(
     claimed.add(n);
   }
   final payload = prepareDerivationPayload(sub,
+      rowCache: rowCache,
+      recordTargetOnly: recordTargetOnly,
       targetDay: targetDay,
       override: override,
       skipUnusedDays: skipUnusedDays,

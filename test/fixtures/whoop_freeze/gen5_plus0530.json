@@ -2,7 +2,7 @@
  "day_result": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 119,
+   "algo_version": 120,
    "payload_json": {
     "date": "2026-07-13",
     "day_confidence": 0.6,
@@ -232,7 +232,7 @@
       "note": "need_baseline:have=0,need=3"
      },
      "trimp": {
-      "value": 267.9104825050325,
+      "value": 267.9104825050327,
       "confidence": 0.6,
       "tier": "ESTIMATE",
       "inputs_used": [
@@ -23020,12 +23020,12 @@
      "skin_temp_dev_c": 0.11,
      "skin_temp_coverage_frac": 1.0,
      "skin_temp_settled_frac": null,
-     "sdnn": 77.77577302925846,
+     "sdnn": 77.77577302925867,
      "sdnn_window": 32.11774263281863,
      "prsa_dc": 10.513,
      "prsa_dc_anchors": 11257.0,
      "dip_pct": 27.601235828808456,
-     "trimp": 267.9104825050325,
+     "trimp": 267.9104825050327,
      "odi_per_hour": null,
      "stress": 61.03520288391907,
      "stress_si": 159.4387755102041,
@@ -25076,11 +25076,11 @@
    "readiness": 72.95885235383324,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "a6bb812440c40efd53dc915e78474d6581b354a787fd83f1d8d82274e94b052b"
+   "payload_sha256": "9f3dde3ed4f3d2bd7988104ed1312ffd3bb78cf2f9c0dc6c3bbd949763c917be"
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 119,
+   "algo_version": 120,
    "payload_json": {
     "date": "2026-07-14",
     "day_confidence": 0.6,
@@ -25310,7 +25310,7 @@
       "note": "need_baseline:have=1,need=3"
      },
      "trimp": {
-      "value": 260.0235516950477,
+      "value": 260.02355169504744,
       "confidence": 0.6,
       "tier": "ESTIMATE",
       "inputs_used": [
@@ -47918,12 +47918,12 @@
      "skin_temp_dev_c": 0.11,
      "skin_temp_coverage_frac": 1.0,
      "skin_temp_settled_frac": null,
-     "sdnn": 77.77577302925846,
+     "sdnn": 77.77577302925867,
      "sdnn_window": 32.11774263281863,
      "prsa_dc": 10.513,
      "prsa_dc_anchors": 11257.0,
      "dip_pct": 27.885325793318177,
-     "trimp": 260.0235516950477,
+     "trimp": 260.02355169504744,
      "odi_per_hour": null,
      "stress": 61.03520288391907,
      "stress_si": 159.4387755102041,
@@ -49942,11 +49942,11 @@
    "readiness": 72.95885235383324,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "e6ee25535499c542ebd13b8a1df85566c229944efba4dbdb8a44ca980c6442dc"
+   "payload_sha256": "785a07813a59e1e553b90599fbc43708ad5cf6063202796c1777f11aa886aa18"
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 119,
+   "algo_version": 120,
    "payload_json": {
     "date": "2026-07-15",
     "day_confidence": 0.6,
@@ -71400,7 +71400,7 @@
      "skin_temp_dev_c": 0.1,
      "skin_temp_coverage_frac": 1.0,
      "skin_temp_settled_frac": null,
-     "sdnn": 77.77577302925846,
+     "sdnn": 77.77577302925867,
      "sdnn_window": 32.11774263281863,
      "prsa_dc": 10.513,
      "prsa_dc_anchors": 11257.0,
@@ -71436,7 +71436,7 @@
      "trimp_net": null,
      "calories_total": 1595.2893200286808,
      "steps": 17640.0,
-     "dyn_p90": 0.016617360477042792,
+     "dyn_p90": 0.0166173604770428,
      "nap_min": 0.0,
      "hrr_bpm": 16.0
     },
@@ -73230,7 +73230,7 @@
    "readiness": 61.79377627786914,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "0ba224b91e74c386567f55d2b31b8346e4601bd61161202740d4bd0a7fa97f2c"
+   "payload_sha256": "be6cda6e9bd97c996db7f60f380433e10f15b05d35949248b39ad35d530a420b"
   }
  ],
  "metric_series": [
@@ -73377,7 +73377,7 @@
   {
    "date": "2026-07-13",
    "key": "sdnn",
-   "value": 77.77577302925846
+   "value": 77.77577302925867
   },
   {
    "date": "2026-07-13",
@@ -73422,7 +73422,7 @@
   {
    "date": "2026-07-13",
    "key": "trimp",
-   "value": 267.9104825050325
+   "value": 267.9104825050327
   },
   {
    "date": "2026-07-13",
@@ -73587,7 +73587,7 @@
   {
    "date": "2026-07-14",
    "key": "sdnn",
-   "value": 77.77577302925846
+   "value": 77.77577302925867
   },
   {
    "date": "2026-07-14",
@@ -73632,7 +73632,7 @@
   {
    "date": "2026-07-14",
    "key": "trimp",
-   "value": 260.0235516950477
+   "value": 260.02355169504744
   },
   {
    "date": "2026-07-14",
@@ -73692,7 +73692,7 @@
   {
    "date": "2026-07-15",
    "key": "dyn_p90",
-   "value": 0.016617360477042792
+   "value": 0.0166173604770428
   },
   {
    "date": "2026-07-15",
@@ -73797,7 +73797,7 @@
   {
    "date": "2026-07-15",
    "key": "sdnn",
-   "value": 77.77577302925846
+   "value": 77.77577302925867
   },
   {
    "date": "2026-07-15",
@@ -73868,7 +73868,7 @@
  "metric_series_version": [
   {
    "date": "2026-07-13",
-   "algo_version": 119,
+   "algo_version": 120,
    "source": "band",
    "device_family": "gen5",
    "coverage_devices": "",
@@ -73876,7 +73876,7 @@
   },
   {
    "date": "2026-07-14",
-   "algo_version": 119,
+   "algo_version": 120,
    "source": "band",
    "device_family": "gen5",
    "coverage_devices": "",
@@ -73884,7 +73884,7 @@
   },
   {
    "date": "2026-07-15",
-   "algo_version": 119,
+   "algo_version": 120,
    "source": "band",
    "device_family": "gen5",
    "coverage_devices": "",
@@ -73894,7 +73894,7 @@
  "wake_day_features": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 119,
+   "algo_version": 120,
    "payload_json": {
     "day_id": "2026-07-13",
     "active_min": 90,
@@ -75102,7 +75102,7 @@
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 119,
+   "algo_version": 120,
    "payload_json": {
     "day_id": "2026-07-14",
     "active_min": 240,
@@ -76310,7 +76310,7 @@
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 119,
+   "algo_version": 120,
    "payload_json": {
     "day_id": "2026-07-15",
     "active_min": 40,
@@ -77507,7 +77507,7 @@
    "skin_temp_z": 3.8090587513754603,
    "skin_temp_adc": 30406.0,
    "skin_temp_family": "gen5",
-   "trimp": 267.9104825050325,
+   "trimp": 267.9104825050327,
    "strain": null,
    "steps": 18240.0,
    "nap_min": 0.0,
@@ -77719,7 +77719,7 @@
    "skin_temp_z": 2.5820748428079483,
    "skin_temp_adc": 30406.000332864856,
    "skin_temp_family": "gen5",
-   "trimp": 260.0235516950477,
+   "trimp": 260.02355169504744,
    "strain": null,
    "steps": 17640.0,
    "nap_min": 45.0,

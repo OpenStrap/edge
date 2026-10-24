@@ -241,7 +241,7 @@ void main() {
       markTestSkipped('committed golden is UTC; run this test with TZ=UTC');
       return;
     }
-    expect(kAlgoVersion, 119, reason: 'ED-2a changes no output');
+    expect(kAlgoVersion, 120, reason: 'ED-2b repins analytics; transfer remains exact');
     final fixture = _fixture();
     final baseline = substrateFromDecodedPage(fixture.frames, fixture.rr);
     final transferred = Substrate.fromTransfer(baseline.toJson());

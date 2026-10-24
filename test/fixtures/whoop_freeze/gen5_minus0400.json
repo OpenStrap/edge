@@ -2,7 +2,7 @@
  "day_result": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 119,
+   "algo_version": 120,
    "payload_json": {
     "date": "2026-07-13",
     "day_confidence": 0.6,
@@ -232,7 +232,7 @@
       "note": "need_baseline:have=0,need=3"
      },
      "trimp": {
-      "value": 267.9104825050325,
+      "value": 267.9104825050327,
       "confidence": 0.6,
       "tier": "ESTIMATE",
       "inputs_used": [
@@ -23020,12 +23020,12 @@
      "skin_temp_dev_c": 0.11,
      "skin_temp_coverage_frac": 1.0,
      "skin_temp_settled_frac": null,
-     "sdnn": 77.77577302925846,
+     "sdnn": 77.77577302925867,
      "sdnn_window": 32.11774263281863,
      "prsa_dc": 10.513,
      "prsa_dc_anchors": 11257.0,
      "dip_pct": 27.601235828808456,
-     "trimp": 267.9104825050325,
+     "trimp": 267.9104825050327,
      "odi_per_hour": null,
      "stress": 61.03520288391907,
      "stress_si": 159.4387755102041,
@@ -25076,11 +25076,11 @@
    "readiness": 72.95885235383324,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "a3f73d5823f32766fd6f8741f46e2a72ac064ea73b044321b9ebb50480b75058"
+   "payload_sha256": "7324cb5f4edff114920b2fa3d4ba97cb974cd712eadbbd27991ebd940299011c"
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 119,
+   "algo_version": 120,
    "payload_json": {
     "date": "2026-07-14",
     "day_confidence": 0.6,
@@ -25310,7 +25310,7 @@
       "note": "need_baseline:have=1,need=3"
      },
      "trimp": {
-      "value": 260.0235516950477,
+      "value": 260.02355169504744,
       "confidence": 0.6,
       "tier": "ESTIMATE",
       "inputs_used": [
@@ -47918,12 +47918,12 @@
      "skin_temp_dev_c": 0.11,
      "skin_temp_coverage_frac": 1.0,
      "skin_temp_settled_frac": null,
-     "sdnn": 77.77577302925846,
+     "sdnn": 77.77577302925867,
      "sdnn_window": 32.11774263281863,
      "prsa_dc": 10.513,
      "prsa_dc_anchors": 11257.0,
      "dip_pct": 27.885325793318177,
-     "trimp": 260.0235516950477,
+     "trimp": 260.02355169504744,
      "odi_per_hour": null,
      "stress": 61.03520288391907,
      "stress_si": 159.4387755102041,
@@ -47954,7 +47954,7 @@
      "trimp_net": null,
      "calories_total": 1707.6018200286808,
      "steps": 17640.0,
-     "dyn_p90": 0.676695219032997,
+     "dyn_p90": 0.6766952190329969,
      "nap_min": 45.0,
      "hrr_bpm": 14.0,
      "hr_ceiling_bpm": 157.0
@@ -49942,11 +49942,11 @@
    "readiness": 72.95885235383324,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "9cc78bf91ecb2c555fe49878acefe1b2eea8f2e8b6746d742c03f8287350fcaa"
+   "payload_sha256": "b0b0de9fba0fe2e9ba7e6cadc2eb602ea27798154e12c66488143b0a603c3382"
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 119,
+   "algo_version": 120,
    "payload_json": {
     "date": "2026-07-15",
     "day_confidence": 0.6,
@@ -71400,7 +71400,7 @@
      "skin_temp_dev_c": 0.1,
      "skin_temp_coverage_frac": 1.0,
      "skin_temp_settled_frac": null,
-     "sdnn": 77.77577302925846,
+     "sdnn": 77.77577302925867,
      "sdnn_window": 32.11774263281863,
      "prsa_dc": 10.513,
      "prsa_dc_anchors": 11257.0,
@@ -71436,7 +71436,7 @@
      "trimp_net": null,
      "calories_total": 1595.2893200286808,
      "steps": 17640.0,
-     "dyn_p90": 0.016617360477042792,
+     "dyn_p90": 0.0166173604770428,
      "nap_min": 0.0,
      "hrr_bpm": 16.0
     },
@@ -73230,7 +73230,7 @@
    "readiness": 61.79377627786914,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "e8a33133f77bf08bec2c0293cf63f699c19f63a18ad915ec4228cc244786d195"
+   "payload_sha256": "6c93cfdfb231c5b9c02369f29df360cbced3fda2c908355c6cd22314c53e6572"
   }
  ],
  "metric_series": [
@@ -73377,7 +73377,7 @@
   {
    "date": "2026-07-13",
    "key": "sdnn",
-   "value": 77.77577302925846
+   "value": 77.77577302925867
   },
   {
    "date": "2026-07-13",
@@ -73422,7 +73422,7 @@
   {
    "date": "2026-07-13",
    "key": "trimp",
-   "value": 267.9104825050325
+   "value": 267.9104825050327
   },
   {
    "date": "2026-07-13",
@@ -73482,7 +73482,7 @@
   {
    "date": "2026-07-14",
    "key": "dyn_p90",
-   "value": 0.676695219032997
+   "value": 0.6766952190329969
   },
   {
    "date": "2026-07-14",
@@ -73587,7 +73587,7 @@
   {
    "date": "2026-07-14",
    "key": "sdnn",
-   "value": 77.77577302925846
+   "value": 77.77577302925867
   },
   {
    "date": "2026-07-14",
@@ -73632,7 +73632,7 @@
   {
    "date": "2026-07-14",
    "key": "trimp",
-   "value": 260.0235516950477
+   "value": 260.02355169504744
   },
   {
    "date": "2026-07-14",
@@ -73692,7 +73692,7 @@
   {
    "date": "2026-07-15",
    "key": "dyn_p90",
-   "value": 0.016617360477042792
+   "value": 0.0166173604770428
   },
   {
    "date": "2026-07-15",
@@ -73797,7 +73797,7 @@
   {
    "date": "2026-07-15",
    "key": "sdnn",
-   "value": 77.77577302925846
+   "value": 77.77577302925867
   },
   {
    "date": "2026-07-15",
@@ -73868,7 +73868,7 @@
  "metric_series_version": [
   {
    "date": "2026-07-13",
-   "algo_version": 119,
+   "algo_version": 120,
    "source": "band",
    "device_family": "gen5",
    "coverage_devices": "",
@@ -73876,7 +73876,7 @@
   },
   {
    "date": "2026-07-14",
-   "algo_version": 119,
+   "algo_version": 120,
    "source": "band",
    "device_family": "gen5",
    "coverage_devices": "",
@@ -73884,7 +73884,7 @@
   },
   {
    "date": "2026-07-15",
-   "algo_version": 119,
+   "algo_version": 120,
    "source": "band",
    "device_family": "gen5",
    "coverage_devices": "",
@@ -73894,7 +73894,7 @@
  "wake_day_features": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 119,
+   "algo_version": 120,
    "payload_json": {
     "day_id": "2026-07-13",
     "active_min": 90,
@@ -75102,7 +75102,7 @@
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 119,
+   "algo_version": 120,
    "payload_json": {
     "day_id": "2026-07-14",
     "active_min": 240,
@@ -76310,7 +76310,7 @@
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 119,
+   "algo_version": 120,
    "payload_json": {
     "day_id": "2026-07-15",
     "active_min": 40,
@@ -77507,7 +77507,7 @@
    "skin_temp_z": 3.808966711097082,
    "skin_temp_adc": 30405.99974110511,
    "skin_temp_family": "gen5",
-   "trimp": 267.9104825050325,
+   "trimp": 267.9104825050327,
    "strain": null,
    "steps": 18240.0,
    "nap_min": 0.0,
@@ -77719,7 +77719,7 @@
    "skin_temp_z": 2.581920140166515,
    "skin_temp_adc": 30405.999593165176,
    "skin_temp_family": "gen5",
-   "trimp": 260.0235516950477,
+   "trimp": 260.02355169504744,
    "strain": null,
    "steps": 17640.0,
    "nap_min": 45.0,
