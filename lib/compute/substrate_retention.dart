@@ -8,7 +8,8 @@ import 'substrate.dart';
 class RetainedSubstrate {
   RetainedSubstrate({required this.version, required this.context,
     required this.revisions, required this.sub, required this.extras,
-    required this.cut});
+    required this.cut, this.from, this.to, this.generation,
+    this.ownership = const {}});
 
   int version;
   final String context;
@@ -16,6 +17,8 @@ class RetainedSubstrate {
   final Substrate sub;
   final Map<String, Object?> extras;
   final int cut;
+  final int? from, to, generation;
+  final Map<InputSignal, List<OwnedSpan>> ownership;
 
   /// A changed closed bucket requires a cold load. Otherwise rebuild the tail
   /// from [cut], or return the whole load when every bucket is unchanged.
@@ -35,7 +38,7 @@ class RetainedSubstrate {
   };
 }
 
-/// At most three loads per day: search, buffered day and selected sleep.
+/// At most three loads per day: separate windows, or their shared union.
 /// Both days and loads are ordered least recently used first.
 class SubstrateRetention {
   final _days = <String, Map<String, RetainedSubstrate>>{};
@@ -49,6 +52,12 @@ class SubstrateRetention {
     }
   }
   Set<String> get days => _days.keys.toSet();
+  Iterable<RetainedSubstrate> get unions sync* {
+    for (final loads in _days.values) {
+      final union = loads['union'];
+      if (union != null) yield union;
+    }
+  }
 
   RetainedSubstrate? lookup(String day, String load) {
     final loads = _days.remove(day);

@@ -76,6 +76,7 @@ import 'ed2b_stream_diagnostics.dart';
 import 'cardio_rows_cache.dart';
 import 'night_rr_state.dart';
 import 'substrate_retention.dart';
+import 'substrate_union.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
 import 'step_cadence.dart';
@@ -2976,6 +2977,13 @@ class _PrepareStats {
   int rows = 0;
 }
 
+class _PrepareUnion {
+  RetainedSubstrate? load;
+  Substrate? search;
+  Map<InputSignal, List<OwnedSpan>> ownership = const {};
+  Map<InputSignal, List<String>> priority = const {};
+}
+
 /// Run [worker] over [items] with at most [concurrency] running at once. Each
 /// of up to [concurrency] "lanes" pulls the next unclaimed item as soon as
 /// it's free — a mix of fast (empty/mostly-empty day) and slow (heavy
@@ -3110,7 +3118,7 @@ class DerivationEngine {
   DerivationEngine({this.log, this.background = false, this.offloadActive});
   final void Function(String)? log;
 
-  // ED-2b observations. Checkpoint/union controls await their GREEN phase.
+  // ED-2b observations. Checkpoint controls await their GREEN phase.
   final debugCheckpoints = Ed2bCheckpointDiagnostics();
   @visibleForTesting
   void Function(String day)? debugOnProfileFold;
@@ -3146,9 +3154,11 @@ class DerivationEngine {
   @visibleForTesting
   bool debugDisableUnionLoads = false;
   @visibleForTesting
-  int get debugUnionWorkerCuts => 0;
+  int get debugUnionWorkerCuts => _unionWorkerCuts;
   @visibleForTesting
-  void debugRekeyUnionAlgorithm(int algorithm) {}
+  void debugRekeyUnionAlgorithm(int algorithm) {
+    for (final union in _retained.unions) { union.version = algorithm; }
+  }
   @visibleForTesting
   void Function(int from, int to, String load)? debugOnSubstrateLoad;
   @visibleForTesting
@@ -3204,6 +3214,8 @@ class DerivationEngine {
   }
 
   final _retained = SubstrateRetention();
+  final _unionLock = _AsyncLock();
+  int _unionWorkerCuts = 0;
   final _cardioRowChunks = <CardioRowsChunk>[];
   final _cardioRowOperations = <String>{};
   final _nightStates = <String, NightRrState>{};
@@ -4265,6 +4277,7 @@ class DerivationEngine {
   static const int _rawDecodeBatchSize = 2000;
   static const int _maxDayRawRows = 500000;
   static const int _maxDayRawPages = 300;
+  static const int _maxUnionBeats = 4 * _maxDayRawRows;
 
   Future<PreparedDerivationDay?> _prepareTargetDay(String dayId) async {
     try {
@@ -4290,7 +4303,8 @@ class DerivationEngine {
     // is telemetry-only). Each day now gets its own local accumulator,
     // merged into the shared running max exactly once, below.
     final stats = _PrepareStats();
-    final candidate = await _sleepCandidateForDay(dayId, stats: stats);
+    final union = debugDisableUnionLoads ? null : _PrepareUnion();
+    final candidate = await _sleepCandidateForDay(dayId, stats: stats, union: union);
     final dayStart = _localDayLabelToSec(dayId);
     final dayEnd = _localNextDayLabelToSec(dayId);
 
@@ -4314,8 +4328,29 @@ class DerivationEngine {
       if (candidate.present) candidate.sleepOffsetSec,
     ].reduce(math.max);
 
-    final (ownership, priority) = await _resolveOwnership(unionFrom, unionTo);
+    final (ownership, priority) = union?.load != null &&
+        union!.load!.from == unionFrom && union.load!.to == unionTo
+        ? (Map<InputSignal, List<OwnedSpan>>.of(union.ownership),
+            Map<InputSignal, List<String>>.of(union.priority))
+        : await _resolveOwnership(unionFrom, unionTo);
     final ceilingInput = await _ceilingInputRevision(dayId);
+    if (union != null && (union.load == null ||
+        unionFrom < union.load!.from! || unionTo > union.load!.to!)) {
+      // A banked candidate needs no search load. A live search already in
+      // the holder can extend to a wider selected night by borrowing itself.
+      final from = union.load == null
+          ? math.min(dayStart, candidate.present ? candidate.sleepOnsetSec : dayStart)
+          : unionFrom;
+      final to = union.load == null
+          ? math.max(dayEnd - 1 + napBoundaryBufferSec,
+              candidate.present ? candidate.sleepOffsetSec - 1 : 0)
+          : unionTo;
+      union.load = await _loadUnion(dayId, from, to, ownership, stats: stats);
+    }
+    final windows = await _cutUnionWindows(union?.load, [
+      (dayStart, dayEnd - 1 + napBoundaryBufferSec),
+      (candidate.sleepOnsetSec, candidate.sleepOffsetSec - 1),
+    ], ownership, dayStart: dayStart, dayEnd: dayEnd);
 
     // Load the day PLUS the nap boundary buffer in ONE pass (each
     // _loadSubstrateRange spawns its own isolate, so a second load would
@@ -4323,7 +4358,7 @@ class DerivationEngine {
     // this, the live decoded path — run()/runDays()/rescanRecent(), i.e. every
     // non-import day — fell back to napSub == daySub and went on bisecting
     // naps at midnight.
-    var napSub = await _loadSubstrateRange(
+    var napSub = windows.$1[0] ?? await _loadSubstrateRange(
       dayStart,
       dayEnd - 1 + napBoundaryBufferSec,
       dayId: dayId,
@@ -4337,22 +4372,23 @@ class DerivationEngine {
     // "Saw" is the calendar day, the same test the scope and the re-derive
     // use (`decodedRecTsMaxByDay`): band rows only in the next morning's nap
     // buffer do not keep the wearable off a day it alone covers.
-    final wearable =
-        napSub.slice(dayStart, dayEnd).isEmpty ? await activeWearable() : null;
+    final wearable = (windows.$2 ?? napSub.slice(dayStart, dayEnd)).isEmpty
+        ? await activeWearable() : null;
     if (wearable != null) {
       await _resolveSparseOwnership(
           unionFrom, unionTo, wearable.$1, ownership, priority);
       napSub = await wearableSubstrate(
           wearable, dayStart, dayEnd - 1 + napBoundaryBufferSec);
     }
-    final daySub = napSub.slice(dayStart, dayEnd);
+    final daySub = wearable == null && windows.$2 != null
+        ? windows.$2! : napSub.slice(dayStart, dayEnd);
     Substrate sleepSub = Substrate.empty;
     if (candidate.present &&
         candidate.sleepOffsetSec > candidate.sleepOnsetSec) {
       sleepSub = wearable != null
           ? await wearableSubstrate(wearable, candidate.sleepOnsetSec,
               candidate.sleepOffsetSec - 1)
-          : await _loadSubstrateRange(
+          : windows.$1[1] ?? await _loadSubstrateRange(
               candidate.sleepOnsetSec,
               candidate.sleepOffsetSec - 1,
               dayId: dayId,
@@ -4542,6 +4578,7 @@ class DerivationEngine {
   Future<SleepSessionCandidate> _sleepCandidateForDay(
     String dayId, {
     _PrepareStats? stats,
+    _PrepareUnion? union,
   }) async {
     // A user sleep override is the source of truth — never serve the cached auto
     // candidate, and don't cache the override result (so a later edit / clear is
@@ -4608,7 +4645,24 @@ class DerivationEngine {
         revisions = null; // Unavailable provenance costs a staging, never a hit.
       }
     }
-    final searchSub = await _loadSubstrateRange(
+    Substrate? cutSearch;
+    if (union != null) {
+      final from = range.$1;
+      final to = _localNextDayLabelToSec(dayId) - 1 + napBoundaryBufferSec;
+      final (owned, ranked) = await _resolveOwnership(from, to);
+      union.ownership = owned;
+      union.priority = ranked;
+      union.load = await _loadUnion(dayId, from, to, owned, stats: stats,
+          search: union, window: (from: range.$1, to: range.$2,
+            ownership: searchOwnership));
+      cutSearch = union.search;
+      union.search = null;
+      if (cutSearch == null) {
+        final cuts = await _cutUnionWindows(union.load, [range], searchOwnership);
+        cutSearch = cuts.$1.single;
+      }
+    }
+    final searchSub = cutSearch ?? await _loadSubstrateRange(
       range.$1,
       range.$2,
       dayId: dayId,
@@ -4676,7 +4730,7 @@ class DerivationEngine {
     // ([_prepareTargetDay]): band rows from the previous afternoon, before
     // the ring went on, must not leave the ring's night unstaged.
     final ownNight = override == null &&
-            searchSub.slice(_localDayLabelToSec(dayId), range.$2 + 1).isEmpty
+            (searchSub.lastTs ?? -1) < _localDayLabelToSec(dayId)
         ? await wearableNight(range.$1, range.$2)
         : null;
     if (ownNight != null) vendorNights = [...vendorNights, ownNight];
@@ -5085,6 +5139,116 @@ class DerivationEngine {
     return (startSec: startSec, endSec: endSec);
   }
 
+  /// The E13 owner holds one union per day. Only the loading turn is serial:
+  /// a neighbouring day can borrow its completed overlap while staging runs.
+  Future<RetainedSubstrate?> _loadUnion(String dayId, int from, int to,
+      Map<InputSignal, List<OwnedSpan>> ownership, {_PrepareStats? stats,
+      _PrepareUnion? search, SubstrateUnionWindow? window}) {
+    final epoch = _retentionEpoch;
+    return _unionLock.run(() async {
+    int generation;
+    Map<int, int> revisions;
+    try {
+      final db = await LocalDb.instance;
+      generation = LocalDb.storeGeneration;
+      final rows = await db.rawQuery(
+          'SELECT bucket, rev FROM input_rev WHERE bucket >= ? AND bucket <= ? '
+          'ORDER BY bucket', [from ~/ 900, to ~/ 900]);
+      revisions = {for (final r in rows)
+        (r['bucket'] as num).toInt(): (r['rev'] as num).toInt()};
+    } catch (_) {
+      _dropRetainedDay(dayId);
+      return null;
+    }
+    final context = substrateLoadContext(from, to, generation, ownership);
+    final bases = _canRetainSubstrate ? [for (final base in _retained.unions)
+      if (base.version == kAlgoVersion && base.generation == generation &&
+          base.context == substrateLoadContext(base.from!, base.to!,
+              generation, base.ownership)) base] : <RetainedSubstrate>[];
+    final stretches = reusableUnionStretches(bases, from, to, revisions, ownership);
+    final timeout = _perDayTimeout;
+    final whole = stretches.length == 1 &&
+        stretches.single.$1 == stretches.single.$3.from &&
+        stretches.single.$2 == stretches.single.$3.to;
+    final borrowed = whole ? <RetainedSubstrate?>[stretches.single.$3] :
+        stretches.isEmpty ? <RetainedSubstrate?>[] :
+        await _runIsolateCancellable(borrowUnionJob(stretches, ownership),
+          timeout, label: 'union-borrow $dayId');
+    if (!whole) _unionWorkerCuts += borrowed.whereType<RetainedSubstrate>().length;
+    final parts = <RetainedSubstrate>[];
+    Future<RetainedSubstrate?> read(int a, int b) async {
+      debugOnSubstrateLoad?.call(a, b, 'union');
+      final (sub, extras) = await _readSubstrateRange(a, b, dayId: dayId,
+          stats: stats, ownership: ownership, retain: true,
+          unionWindow: a == from && b == to ? window : null);
+      if (extras.isEmpty) return null;
+      final cut = extras.remove('union_window') as Substrate?;
+      if (cut != null) {
+        search?.search = cut;
+        _unionWorkerCuts++;
+      }
+      return RetainedSubstrate(version: kAlgoVersion, context: context,
+        revisions: revisions, sub: sub, extras: extras, cut: a,
+        from: a, to: b, generation: generation, ownership: ownership);
+    }
+    var pos = from;
+    for (var i = 0; i < stretches.length; i++) {
+      final part = borrowed[i];
+      if (part == null) continue;
+      if (part.from! > pos) {
+        final gap = await read(pos, part.from! - 1);
+        if (gap == null) return null;
+        parts.add(gap);
+      }
+      parts.add(part);
+      pos = part.to! + 1;
+    }
+    if (pos <= to) {
+      final gap = await read(pos, to);
+      if (gap == null) return null;
+      parts.add(gap);
+    }
+    var loaded = parts.length == 1 ? parts.single :
+        await _runIsolateCancellable(
+          joinUnionJob(parts, context, revisions, ownership), timeout,
+          label: 'union-join $dayId');
+    loaded ??= await read(from, to);
+    if (loaded == null) return null;
+    final rows = (loaded.extras['raw_rows_by_bucket'] as Map<int, int>)
+        .values.fold(0, (int n, v) => n + v);
+    _enforcePrepareBudget(dayId: dayId, fromRecTs: from, toRecTs: to,
+        rangePages: (rows / _rawDecodeBatchSize).ceil(), rangeRows: rows);
+    if (_canRetainSubstrate && epoch == _retentionEpoch &&
+        LocalDb.storeGeneration == generation &&
+        loaded.sub.length <= _maxDayRawRows &&
+        loaded.sub.rrMs.length <= _maxUnionBeats) {
+      // A sole borrowed part still carries its original, wider context.
+      loaded = RetainedSubstrate(version: kAlgoVersion, context: context,
+        revisions: revisions, sub: loaded.sub, extras: loaded.extras,
+        cut: from, from: from, to: to, generation: generation,
+        ownership: ownership);
+      _retained.store(dayId, 'union', loaded);
+    }
+    return loaded;
+    });
+  }
+
+  /// The calendar day deliberately keeps the buffered load's provenance and
+  /// beat-time slice semantics, just as the separate-window path does.
+  Future<(List<Substrate?>, Substrate?)> _cutUnionWindows(
+      RetainedSubstrate? load, List<(int, int)> ranges,
+      Map<InputSignal, List<OwnedSpan>> ownership,
+      {int? dayStart, int? dayEnd}) async {
+    if (load == null) return ([for (final _ in ranges) null], null);
+    final timeout = _perDayTimeout;
+    final cuts = await _runIsolateCancellable(
+        cutUnionJob(load, ranges, ownership, dayStart, dayEnd),
+        timeout, label: 'union-windows');
+    _unionWorkerCuts += cuts.$1.whereType<Substrate>().length;
+    if (cuts.$2 != null) _unionWorkerCuts++;
+    return cuts;
+  }
+
   Future<Substrate> _loadSubstrateRange(
     int fromRecTs,
     int toRecTs, {
@@ -5155,6 +5319,7 @@ class DerivationEngine {
     Map<InputSignal, List<OwnedSpan>> ownership = const {},
     RetainedSubstrate? seed,
     bool retain = false,
+    SubstrateUnionWindow? unionWindow,
   }) async {
     if (toRecTs < fromRecTs) return (Substrate.empty, const <String, Object?>{});
     final port = ReceivePort();
@@ -5196,6 +5361,11 @@ class DerivationEngine {
           final payload = ((message['payload'] as Map?) ?? const {})
               .cast<String, dynamic>();
           extras = ((message['retain'] as Map?) ?? const {}).cast<String, Object?>();
+          final window = message['union_window'];
+          if (window is Map) {
+            extras = {...extras,
+              'union_window': Substrate.fromTransfer(window.cast<String, dynamic>())};
+          }
           if (!result.isCompleted) result.complete(Substrate.fromTransfer(payload));
         }
         return;
@@ -5227,7 +5397,10 @@ class DerivationEngine {
     }
     try {
       final worker = await ready.future;
-      worker.send({'type': 'config', 'mode': 'substrate', 'retain': retain});
+      worker.send({'type': 'config', 'mode': 'substrate', 'retain': retain,
+        if (unionWindow != null) ...{'union_window': unionWindow,
+          'load_from': fromRecTs, 'load_to': toRecTs, 'ownership': ownership},
+      });
       if (seed != null) worker.send(seed.seed(fromRecTs));
       int? afterRecTs;
       int? afterCursor;
