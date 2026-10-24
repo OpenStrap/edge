@@ -77,6 +77,7 @@ Future<Substrate> ultrahumanSubstrate(String deviceId, int from, int to) async {
   final sub =
       await sparseHrSubstrate(kUltrahumanFamily, deviceId, from, to);
   if (sub.isEmpty) return sub;
+  debugRecordWearableConstruction();
   final temp = {
     for (final r in await ultrahumanRecords(deviceId, from, to))
       if (_skinC(r) case final c?) r.tsA: (c * 100).round(),

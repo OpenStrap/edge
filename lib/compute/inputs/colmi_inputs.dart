@@ -162,6 +162,7 @@ Future<Substrate> colmiSubstrate(String deviceId, int from, int to) async {
   final sub = await colmiHr(deviceId, from, to);
   if (sub.isEmpty) return sub;
   final temps = await colmiSkinTemps(deviceId, from, to);
+  debugRecordWearableConstruction();
   final skin = <int>[];
   var j = 0;
   for (final t in sub.tsSec) {

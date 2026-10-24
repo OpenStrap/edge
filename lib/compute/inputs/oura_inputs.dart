@@ -68,6 +68,7 @@ Future<Substrate> ouraSubstrate(String deviceId, int from, int to) async {
   if (sub.isEmpty) return _ouraTempSubstrate(deviceId, from, to);
   final c = kHrCadenceSec[kOuraFamily]!;
   final temps = await _ouraTempRows(deviceId, from - c, to + c);
+  debugRecordWearableConstruction();
   final skin = <int>[];
   var j = 0;
   for (final t in sub.tsSec) {
@@ -104,6 +105,7 @@ Future<Substrate> ouraSubstrate(String deviceId, int from, int to) async {
 Future<Substrate> _ouraTempSubstrate(String deviceId, int from, int to) async {
   final rows = await _ouraTempRows(deviceId, from, to);
   if (rows.isEmpty) return Substrate.empty;
+  debugRecordWearableConstruction();
   final n = rows.length;
   final zeros = List<double>.filled(n, 0);
   final none = List<int>.filled(n, -1);
