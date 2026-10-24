@@ -73,6 +73,7 @@ import 'hr_max.dart'
 import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
 import 'staged_sleep_cache.dart';
+import 'substrate_retention.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
 import 'step_cadence.dart';
@@ -3112,7 +3113,7 @@ class DerivationEngine {
 
   // ED-2a RED seams. Empty cache views and no-op controls describe the current
   // uncached engine. Counters below observe real worker work, never results.
-  // E12 now backs the staging controls; later steps' controls remain inert.
+  // E12/E13 now back staging and retention; later controls remain inert.
   final _stagedSleepCache = StagedSleepCache();
   @visibleForTesting
   bool debugDisableStagedSleepCache = false;
@@ -3125,19 +3126,63 @@ class DerivationEngine {
   @visibleForTesting
   void debugStagedSleepCacheRekey(int version) => _stagedSleepCache.rekey(version);
   @visibleForTesting
-  bool debugDisableSubstrateRetention = false;
+  bool get debugDisableSubstrateRetention => _disableSubstrateRetention;
   @visibleForTesting
-  int debugRetainedSubstrateMaxDays = 2;
+  set debugDisableSubstrateRetention(bool value) {
+    _disableSubstrateRetention = value;
+    if (value) _clearRetainedSubstrate();
+  }
+  bool _disableSubstrateRetention = false;
   @visibleForTesting
-  Set<String> get debugRetainedSubstrateDays => const {};
+  int get debugRetainedSubstrateMaxDays => _retained.maxDays;
   @visibleForTesting
-  void debugRetainedSubstrateRekey(int version) {}
+  set debugRetainedSubstrateMaxDays(int value) => _retained.maxDays = value;
   @visibleForTesting
-  void trimForBackground() {}
+  Set<String> get debugRetainedSubstrateDays => _retained.days;
   @visibleForTesting
-  void handleMemoryPressure() {}
-  @visibleForTesting
-  void dispose() {}
+  void debugRetainedSubstrateRekey(int version) => _retained.rekey(version);
+  void trimForBackground() {
+    _retentionInBackground = true;
+    _clearRetainedSubstrate();
+  }
+  void resumeFromBackground() => _retentionInBackground = false;
+  void handleMemoryPressure() => _clearRetainedSubstrate();
+  void dispose() {
+    _retentionDisposed = true;
+    _clearRetainedSubstrate();
+  }
+
+  final _retained = SubstrateRetention();
+  int _retentionEpoch = 0;
+  int? _retentionPassEpoch;
+  bool _retentionInBackground = false;
+  bool _retentionDisposed = false;
+  final _retentionPreparedDays = <String>{};
+  bool get _canRetainSubstrate => !debugDisableSubstrateRetention &&
+      !background && !_retentionInBackground && !_retentionDisposed &&
+      (_retentionPassEpoch == null || _retentionPassEpoch == _retentionEpoch);
+
+  void _clearRetainedSubstrate() {
+    _retentionEpoch++;
+    _retained.clear();
+  }
+
+  void _beginRetentionPass() {
+    _retentionPassEpoch = _retentionEpoch;
+    _retentionPreparedDays.clear();
+    if (!_canRetainSubstrate) _retained.clear();
+  }
+
+  void _endRetentionPass() {
+    _retained.retainDays(_retentionPreparedDays);
+    _retentionPreparedDays.clear();
+    _retentionPassEpoch = null;
+  }
+
+  void _dropRetainedDay(String day) {
+    _retained.remove(day);
+    _retentionPreparedDays.remove(day);
+  }
   @visibleForTesting
   bool debugDisableSessionReuse = false;
   @visibleForTesting
@@ -3151,7 +3196,7 @@ class DerivationEngine {
   @visibleForTesting
   bool debugDisableTargetDaySkip = false;
   @visibleForTesting
-  Map<String, Object?> debugRetainedSubstrate(String day) => const {};
+  Map<String, Object?> debugRetainedSubstrate(String day) => _retained.extras(day);
   @visibleForTesting
   Future<SleepSessionCandidate> debugSleepCandidate(String day) =>
       _sleepCandidateForDay(day);
@@ -3474,6 +3519,7 @@ class DerivationEngine {
   }) async {
     if (_running) return 0;
     _running = true;
+    _beginRetentionPass();
     beginWearableDayIndexPass();
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     _diag
@@ -3837,6 +3883,7 @@ class DerivationEngine {
     } catch (e, st) {
       _diag['last_error'] = '$e';
       lastRunError = '$e';
+      _clearRetainedSubstrate();
       _log('derive ERROR: $e\n$st');
       return 0;
     } finally {
@@ -3853,6 +3900,7 @@ class DerivationEngine {
       // `_running`. See _runStorageHousekeeping — this is the only place every
       // entry path and every early return actually reaches.
       _diag['stage'] = 'housekeeping';
+      _endRetentionPass();
       await _runStorageHousekeeping(long: heavy || force);
       // ONE-SHOT: rescale stored strain onto the recalibrated scale. Days
       // inside the raw window re-derive from substrate above; everything older
@@ -3946,6 +3994,7 @@ class DerivationEngine {
     if (days.isEmpty) return 0;
     if (_running) return 0;
     _running = true;
+    _beginRetentionPass();
     beginWearableDayIndexPass();
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     _diag
@@ -4057,9 +4106,11 @@ class DerivationEngine {
       }
       return done;
     } catch (e, st) {
+      _clearRetainedSubstrate();
       _log('derive selected ERROR: $e\n$st');
       return 0;
     } finally {
+      _endRetentionPass();
       await _runStorageHousekeeping();
       final finishedAt = DateTime.now().millisecondsSinceEpoch;
       _diag
@@ -4077,6 +4128,21 @@ class DerivationEngine {
   static const int _maxDayRawPages = 300;
 
   Future<PreparedDerivationDay?> _prepareTargetDay(String dayId) async {
+    try {
+      final prepared = await _prepareTargetDayPayload(dayId);
+      if (prepared == null || prepared.daySub.isEmpty) {
+        _dropRetainedDay(dayId);
+      } else if (_retentionPassEpoch != null) {
+        _retentionPreparedDays.add(dayId);
+      }
+      return prepared;
+    } catch (_) {
+      _dropRetainedDay(dayId);
+      rethrow;
+    }
+  }
+
+  Future<PreparedDerivationDay?> _prepareTargetDayPayload(String dayId) async {
     // Per-day page/row totals used to live in the shared `_diag` map (reset
     // then accumulated across this day's 2-3 substrate loads). Under
     // concurrent per-day processing (see `run()`), multiple days resetting/
@@ -4123,6 +4189,7 @@ class DerivationEngine {
       dayId: dayId,
       stats: stats,
       ownership: ownership,
+      load: 'day',
     );
     // A day the primary band never saw is the ACTIVE WEARABLE's, when one is
     // chosen and flagged on (inputs/canonical.dart). Never mixed: a day with
@@ -4151,6 +4218,7 @@ class DerivationEngine {
               dayId: dayId,
               stats: stats,
               ownership: ownership,
+              load: 'sleep',
             );
     }
     // Single safe merge into the shared max-tracking diagnostics — one
@@ -4396,6 +4464,7 @@ class DerivationEngine {
       dayId: dayId,
       stats: stats,
       ownership: searchOwnership,
+      load: 'search',
     );
     // PERSONALIZED STAGER (v42): stage on a WORKER isolate, NOT the main/UI
     // thread. cardioStager reads analytics "ambient" globals — the rolling sleep
@@ -4818,14 +4887,72 @@ class DerivationEngine {
     int toRecTs, {
     required String dayId,
     _PrepareStats? stats,
+    Map<InputSignal, List<OwnedSpan>> ownership = const {},
+    String load = 'direct',
+  }) async {
+    if (toRecTs < fromRecTs) {
+      _dropRetainedDay(dayId);
+      return Substrate.empty;
+    }
+    final epoch = _retentionEpoch;
+    String? context;
+    Map<int, int>? revisions;
+    if (_canRetainSubstrate) {
+      try {
+        final db = await LocalDb.instance;
+        final generation = LocalDb.storeGeneration;
+        final rows = await db.rawQuery(
+          'SELECT bucket, rev FROM input_rev WHERE bucket >= ? AND bucket <= ? '
+          'ORDER BY bucket', [fromRecTs ~/ 900, toRecTs ~/ 900]);
+        revisions = {for (final r in rows)
+          (r['bucket'] as num).toInt(): (r['rev'] as num).toInt()};
+        context = substrateLoadContext(fromRecTs, toRecTs, generation, ownership);
+      } catch (_) {
+        // Missing revision provenance always takes the ordinary cold path.
+        _dropRetainedDay(dayId);
+      }
+    } else {
+      _dropRetainedDay(dayId);
+    }
+    final old = context == null ? null : _retained.lookup(dayId, load);
+    final readFrom = old?.readFrom(kAlgoVersion, context!, revisions!, toRecTs);
+    if (readFrom != null && readFrom > toRecTs) return old!.sub;
+    try {
+      final (sub, extras) = await _readSubstrateRange(
+        readFrom ?? fromRecTs, toRecTs, dayId: dayId, stats: stats,
+        ownership: ownership, seed: readFrom == null ? null : old,
+        retain: context != null);
+      if (_canRetainSubstrate && epoch == _retentionEpoch &&
+          context != null && extras.isNotEmpty) {
+        _retained.store(dayId, load, RetainedSubstrate(
+          version: kAlgoVersion, context: context, revisions: revisions!,
+          sub: sub, extras: extras,
+          cut: math.max(fromRecTs, ((sub.lastTs ?? fromRecTs) ~/ 900) * 900)));
+      } else {
+        _dropRetainedDay(dayId);
+      }
+      return sub;
+    } catch (_) {
+      _dropRetainedDay(dayId);
+      rethrow;
+    }
+  }
+
+  Future<(Substrate, Map<String, Object?>)> _readSubstrateRange(
+    int fromRecTs,
+    int toRecTs, {
+    required String dayId,
+    _PrepareStats? stats,
     // M5: the resolved ownership spans for this call's window, keyed by
     // anchor signal. Every production caller supplies them (see
     // [_resolveOwnership]); the empty default is unfiltered, which is what a
     // single-device install resolves to anyway and what the direct-load tests
     // pass.
     Map<InputSignal, List<OwnedSpan>> ownership = const {},
+    RetainedSubstrate? seed,
+    bool retain = false,
   }) async {
-    if (toRecTs < fromRecTs) return Substrate.empty;
+    if (toRecTs < fromRecTs) return (Substrate.empty, const <String, Object?>{});
     final port = ReceivePort();
     // onError/onExit are LOAD-BEARING. Without them, an uncaught throw inside
     // the worker (a malformed SQLite row reaching one of the numeric reads in
@@ -4843,6 +4970,7 @@ class DerivationEngine {
     );
     final ready = Completer<SendPort>();
     final result = Completer<Substrate>();
+    Map<String, Object?> extras = const {};
     // A failure completes BOTH completers, but we may bail out via `ready` and
     // never await `result` — register a listener so that error is never an
     // unobserved async error. (The real error still propagates via `ready`.)
@@ -4863,6 +4991,7 @@ class DerivationEngine {
         if (kind == 'substrate') {
           final payload = ((message['payload'] as Map?) ?? const {})
               .cast<String, dynamic>();
+          extras = ((message['retain'] as Map?) ?? const {}).cast<String, Object?>();
           if (!result.isCompleted) result.complete(Substrate.fromTransfer(payload));
         }
         return;
@@ -4894,11 +5023,17 @@ class DerivationEngine {
     }
     try {
       final worker = await ready.future;
-      worker.send(const {'type': 'config', 'mode': 'substrate'});
+      worker.send({'type': 'config', 'mode': 'substrate', 'retain': retain});
+      if (seed != null) worker.send(seed.seed(fromRecTs));
       int? afterRecTs;
       int? afterCursor;
-      var rangePages = 0;
-      var rangeRows = 0;
+      final rawRowsByBucket = <int, int>{
+        if (seed != null)
+          for (final e in (seed.extras['raw_rows_by_bucket'] as Map<int, int>).entries)
+            if (e.key < fromRecTs ~/ 900) e.key: e.value,
+      };
+      var rangeRows = rawRowsByBucket.values.fold(0, (int n, v) => n + v);
+      var rangePages = rangeRows ~/ _rawDecodeBatchSize;
       // Low water mark for the BEAT read, which is NOT the same window as the
       // frame read. Paging is driven by `decoded_onehz`, but a beat can exist
       // for a second with no 1 Hz row at all (gen4 R10-lite is hr-only and
@@ -4930,6 +5065,25 @@ class DerivationEngine {
         );
         if (decodedRows.isNotEmpty) {
           _trackPrepareBatch(decodedRows.length);
+          if (retain) {
+            // Count sorted bucket runs, including rows ownership will drop.
+            // This keeps the existing full-load row budget exact on a tail read.
+            var i = 0;
+            while (i < decodedRows.length) {
+              final bucket = (decodedRows[i]['rec_ts'] as num).toInt() ~/ 900;
+              var lo = i + 1, hi = decodedRows.length;
+              while (lo < hi) {
+                final mid = (lo + hi) >> 1;
+                if ((decodedRows[mid]['rec_ts'] as num).toInt() < (bucket + 1) * 900) {
+                  lo = mid + 1;
+                } else {
+                  hi = mid;
+                }
+              }
+              rawRowsByBucket[bucket] = (rawRowsByBucket[bucket] ?? 0) + lo - i;
+              i = lo;
+            }
+          }
           rangePages += 1;
           rangeRows += decodedRows.length;
           if (stats != null) {
@@ -5028,12 +5182,15 @@ class DerivationEngine {
       // BOUNDED. `result.future` had no timeout at all, so any path that left
       // the worker unable to answer hung this call — and with it the whole
       // engine — permanently.
-      return await result.future.timeout(
+      final loaded = await result.future.timeout(
         _perDayTimeout,
         onTimeout: () => throw TimeoutException(
           'substrate prepare for $dayId timed out after $_perDayTimeout',
         ),
       );
+      return (loaded, {
+        ...extras, if (extras.isNotEmpty) 'raw_rows_by_bucket': rawRowsByBucket,
+      });
     } finally {
       // ALWAYS tear down: on success, on error, and on timeout. The isolate is
       // killed rather than abandoned so a wedged worker can never outlive the
@@ -5468,6 +5625,7 @@ class DerivationEngine {
   }) async {
     if (_running) return 0;
     _running = true;
+    _beginRetentionPass();
     beginWearableDayIndexPass();
     try {
       await refreshSessionSensorSources(); // as [run] does
@@ -5593,9 +5751,11 @@ class DerivationEngine {
       await LocalDb.refreshComputeFreshness();
       return done;
     } catch (e, st) {
+      _clearRetainedSubstrate();
       _log('rescan ERROR: $e\n$st');
       return 0;
     } finally {
+      _endRetentionPass();
       await _runStorageHousekeeping();
       endWearableDayIndexPass();
       _running = false;
@@ -6013,6 +6173,23 @@ class DerivationEngine {
     bool forceFinalize = false,
     bool suppliedSubstrate = false,
   }) async {
+    try {
+      return await _derivePreparedDayPayload(day, profile, dataNowSec, history,
+          forceFinalize: forceFinalize, suppliedSubstrate: suppliedSubstrate);
+    } catch (_) {
+      _dropRetainedDay(day.date);
+      rethrow;
+    }
+  }
+
+  Future<bool> _derivePreparedDayPayload(
+    PreparedDerivationDay day,
+    Profile profile,
+    int dataNowSec,
+    _BaselineHistoryCache history, {
+    bool forceFinalize = false,
+    bool suppliedSubstrate = false,
+  }) async {
     final daySub = day.daySub;
     final sleepSub = day.sleepSub;
     // Every edge this day is judged by (the wear window, aging, the stored
@@ -6204,6 +6381,7 @@ class DerivationEngine {
       if (_isRealDayResult(existing)) {
         _log('derive ${day.date}: no substrate (raw pruned) — kept the '
             'existing result rather than blanking it');
+        _dropRetainedDay(day.date);
         return false;
       }
     }
@@ -6279,6 +6457,7 @@ class DerivationEngine {
             "under a day that already had real night scalars — kept the "
             'existing result rather than overwriting the readiness baseline '
             '(edge#305)');
+        _dropRetainedDay(day.date);
         return false;
       }
     }
@@ -6642,6 +6821,7 @@ class DerivationEngine {
       await _persistWakeDayFeatures(dayId: day.date, wake: blocks.wake);
     } catch (e, st) {
       secondHalfOk = false;
+      _dropRetainedDay(day.date);
       _log('day-blocks (offloaded second half) failed for ${day.date} — '
           'persisting headline day (partial): $e');
       TelemetryService.instance.recordNonFatal(e, st, reason: 'day_blocks_failed');
@@ -6908,6 +7088,7 @@ class DerivationEngine {
         'hr_ceiling_bpm': sc('hr_ceiling_bpm'),
       },
     );
+    if (effectiveFinalized || effectivePartial) _dropRetainedDay(day.date);
     // AFTER the row: retired only once the row that proves it is durable.
     if (quietSettled) await LocalDb.deleteComputeFreshness(quietKey);
     // NOTE: the sweep's `history` snapshot is deliberately NOT updated here.
