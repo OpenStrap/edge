@@ -2030,6 +2030,7 @@ class AppState extends ChangeNotifier {
     }
     _sync.cancelQuietTimer();
     _disposed = true;
+    _derive.dispose();
     _ecg?.dispose();
     _ecgTransport?.dispose();
     // EVERY timer this object owns, not just three of them.
@@ -3486,7 +3487,13 @@ class AppState extends ChangeNotifier {
   /// drops (band out of range / app jettisoned) — see [_onEngineState] / [_armRecovery].
   ///
   /// On Android the Edge Tracking foreground service keeps the process + connection alive.
-  Future<void> pauseForBackground() => _sync.pauseForBackground();
+  Future<void> pauseForBackground() {
+    _derive.trimForBackground();
+    return _sync.pauseForBackground();
+  }
+
+  void resumeDerivationRetention() => _derive.resumeFromBackground();
+  void handleMemoryPressure() => _derive.handleMemoryPressure();
 
   /// A feature session (workout, breathing, ECG capture) is running — the
   /// "nothing else in flight" bar the one-off VACUUM waits for. ECG matters
