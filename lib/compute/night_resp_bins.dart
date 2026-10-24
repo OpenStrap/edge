@@ -10,6 +10,42 @@ class NightRespBins {
   RsaRespStream _open = RsaRespStream();
   final List<({int count, RsaRespStream stream})> _closed = [];
 
+  Map<String, dynamic> toJson() => {
+    'v': 2, 'origin': _origin, 'index': _openIndex, 'count': _openCount,
+    'open': _open.toJson(),
+    'closed': [for (final bin in _closed)
+      {'count': bin.count, 'state': bin.stream.toJson()}],
+  };
+
+  factory NightRespBins.fromJson(Map<String, dynamic> json, int fed) {
+    final origin = json['origin'], index = json['index'], count = json['count'];
+    final closed = json['closed'] as List;
+    if (json['v'] != 2 || index is! int || index < 0 || count is! int ||
+        count < 0 || count > fed || closed.length > fed ~/ 60 ||
+        (fed == 0 ? origin != null : origin is! num || !origin.isFinite)) {
+      throw const FormatException('RSA bins');
+    }
+    final open = (json['open'] as Map).cast<String, dynamic>();
+    if (open['n'] != count) throw const FormatException('RSA bin count');
+    final result = NightRespBins()
+      .._origin = (origin as num?)?.toDouble()
+      .._openIndex = index
+      .._openCount = count
+      .._open = RsaRespStream.fromJson(open);
+    var total = count;
+    for (final bin in closed) {
+      final n = (bin as Map)['count'];
+      final state = (bin['state'] as Map).cast<String, dynamic>();
+      if (n is! int || n < 60 || n > fed || state['n'] != n) {
+        throw const FormatException('closed RSA bin count');
+      }
+      total += n;
+      if (total > fed) throw const FormatException('RSA bins feed count');
+      result._closed.add((count: n, stream: RsaRespStream.fromJson(state)));
+    }
+    return result;
+  }
+
   int _bin(double time, double origin) => ((time - origin) / 1800000.0).floor();
 
   void _appendRate(List<double> out, Metric<RespEstimate> metric) {

@@ -334,7 +334,7 @@ void main() {
       if (n == 0) expect(d.processedNightBeats, 0);
     }
   });
-  test('E10 closed RSA bins reapply the night artifact gate after append', () {
+  test('E10 closed RSA bins reapply the night artifact gate after append and JSON restart', () {
     final input = _input(beats: 6200);
     final c = ana.correctRr(_rr(input), rrTsMs: _times(input));
     final bins = NightRespBins();
@@ -348,6 +348,10 @@ void main() {
     expect(bins.snapshot(const [], const [], artifactFraction: 0), batch(0));
     expect(batch(.5), isEmpty);
     expect(bins.snapshot(const [], const [], artifactFraction: .5), batch(.5));
+    final saved = (jsonDecode(jsonEncode(bins.toJson())) as Map).cast<String, dynamic>();
+    final restored = NightRespBins.fromJson(saved, c.nn.length);
+    expect(restored.snapshot(const [], const [], artifactFraction: .5), batch(.5));
+    expect(restored.snapshot(const [], const [], artifactFraction: 0), batch(0));
   });
 
 }

@@ -155,10 +155,10 @@ void main() {
     expect(LocalDb.restoreTablesForTest, isNot(contains('input_rev')));
   });
 
-  test('rung 61 is reserved for additive input revisions', () async {
-    expect(LocalDb.schemaVersion, 61, reason: 'upstream is schema 60');
+  test('rung 61 input revisions remain present with rung 62 checkpoints', () async {
+    expect(LocalDb.schemaVersion, 62, reason: 'checkpoint storage follows revisions at 61');
     final db = await open();
-    expect(await db.getVersion(), 61);
+    expect(await db.getVersion(), LocalDb.schemaVersion);
     expect(await _hasRevisions(db), isTrue);
     final tables = await LocalDb.tableNames();
     expect(tables, isNot(contains('store_rev')));
@@ -175,7 +175,7 @@ void main() {
       expect(await db.rawQuery('PRAGMA table_info($table)'), legacyColumns[table],
           reason: 'rung 61 must not change raw columns/defaults');
     }
-    expect(await db.getVersion(), 61);
+    expect(await db.getVersion(), LocalDb.schemaVersion);
     expect(await _hasRevisions(db), isTrue);
     final triggers = await db.rawQuery(
       "SELECT tbl_name, sql FROM sqlite_master WHERE type='trigger'",

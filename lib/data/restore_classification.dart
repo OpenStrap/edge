@@ -39,6 +39,8 @@ const kRestoreClassification = <String, RestoreClass>{
   'compute_freshness': RestoreClass.localOnly,
   'derive_fingerprint': RestoreClass.rebuildable,
   'input_rev': RestoreClass.rebuildable,
+  'day_checkpoint': RestoreClass.rebuildable,
+  'store_identity': RestoreClass.localOnly,
   'session_ceiling_rev': RestoreClass.rebuildable,
   'sleep_nap': RestoreClass.merge,
   'sleep_override': RestoreClass.merge,

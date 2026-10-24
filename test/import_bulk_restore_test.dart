@@ -62,11 +62,14 @@ int _callsTouching(String table) {
 const _t0 = 1790000000; // 2026-09-21, an arbitrary fixed second
 
 /// Stamped with DateTime.now(): differs between any two
-/// runs, so the equivalence dump leaves it out.
+/// runs, so the equivalence dump leaves it out. store_identity.id is a fresh
+/// random id on every committed restore by design (it keys night
+/// checkpoints); the singleton row itself is still compared.
 const _wallClockColumns = {
   'compute_freshness': {'updated_at'},
   'activity_review_meta': {'activated_at', 'alert_after_ts'},
   'substrate_archive': {'updated_at'},
+  'store_identity': {'id'},
 };
 
 Map<String, Object?> archiveSecond(int ts, int hr) => {

@@ -19,6 +19,7 @@ NightRr nightRrBatch(List<double> rr, List<double> times) {
 /// One RAM night, copied into a worker and returned with its result. Raw
 /// prefix copies prove append-only input; settled output is never re-corrected.
 class NightRrState {
+  NightRrState();
   static const maxRetainedBeats = 200000;
   ana.RrCorrector? _corrector;
   final List<double> _rr = [], _times = [], _nn = [], _nnTimes = [];
@@ -46,6 +47,172 @@ class NightRrState {
   int get identityMemoEntries => _digests.entries;
   int get fullListDigests => _digests.computed;
   int get maximumListDigestsPerIdentity => _digests.maximumPerIdentity;
+
+  // A cleared owner still records its algorithm. A transition must rebuild;
+  // only a fresh owner or a same-algorithm restart may adopt disk state.
+  bool acceptsCheckpointAlgorithm(int algorithm) =>
+      _context == null || _context!.$3 == algorithm;
+
+  bool acceptsPrefix(List<double> rr, List<double> times, String day, int onset) {
+    if (_night != (day, onset) || rr.length < _rr.length ||
+        rr.length != times.length) {
+      return false;
+    }
+    for (var i = 0; i < _rr.length; i++) {
+      if (!identical(rr[i], _rr[i]) || !identical(times[i], _times[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool acceptsSearchPrefix(List<double> rr, List<double> times, String day) {
+    if (_night?.$1 != day || rr.length != times.length || _times.isEmpty) {
+      return false;
+    }
+    var start = 0;
+    while (start < times.length && times[start] < _times.first) { start++; }
+    if (start + _rr.length > rr.length) return false;
+    for (var i = 0; i < _rr.length; i++) {
+      if (!identical(rr[start + i], _rr[i]) || !identical(times[start + i], _times[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void bindRestoredContext(int revision, int generation, int algorithm,
+      {NightRrState? previous}) {
+    _context = (revision, generation, algorithm);
+    // Disk state carries no work counters. Adopting it after clearing a RAM
+    // owner must preserve that owner's cumulative observations.
+    if (previous == null) return;
+    processedNightBeats = previous.processedNightBeats;
+    nightRebuilds = previous.nightRebuilds;
+    _processed.addAll(previous._processed);
+    _slices.addAll(previous._slices);
+    _restarts.addAll(previous._restarts);
+    _digests.computed = previous._digests.computed;
+    _digests.maximumPerIdentity = previous._digests.maximumPerIdentity;
+  }
+
+  /// Worker only. A checkpoint stops before the closed input boundary. Cutting
+  /// a live tail requires a separate fold; it must never rewind the live owner.
+  Map<String, dynamic>? checkpoint(int boundary) {
+    if (_corrector == null || _night == null) return null;
+    var n = 0;
+    while (n < _times.length && _times[n] < boundary * 1000) { n++; }
+    if (n == 0) return null;
+    final NightRrState state;
+    if (n == _rr.length) {
+      state = this;
+    } else {
+      state = NightRrState();
+      state.correct(_rr.sublist(0, n), _times.sublist(0, n),
+          day: _night!.$1, onsetSec: _night!.$2);
+      if (_frequency != null) {
+        final stream = state._frequency = ana.HrvFreqStream();
+        state._feed('frequency', (nn, ts) { stream.fold(nn, ts); return 1; });
+      }
+      if (_rsa != null) {
+        final stream = state._rsa = ana.RsaRespStream();
+        state._feed('rsa', (nn, ts) { stream.fold(nn, ts); return 1; });
+      }
+      if (_cvhr != null) {
+        final stream = state._cvhr = ana.CvhrStream();
+        state._feed('cvhr', (nn, ts) { stream.fold(nn, ts); return 1; });
+      }
+      if (_prsa != null) {
+        final stream = state._prsa = NightPrsa();
+        state._feed('prsa', (nn, ts) { stream.fold(nn); return 1; });
+      }
+      if (_rsaBins != null) {
+        final stream = state._rsaBins = NightRespBins();
+        state._feed('rsa_bins', stream.fold);
+      }
+    }
+    return {
+      'v': 1, 'tag': {'day': state._night!.$1, 'onset': state._night!.$2,
+        'count': state._rr.length},
+      'rr': state._rr, 'times': state._times,
+      'corrector': state._corrector!.toJson(),
+      'nn': state._nn, 'nnTimes': state._nnTimes, 'fed': state._fed,
+      'frequency': state._frequency?.toJson(), 'rsa': state._rsa?.toJson(),
+      'cvhr': state._cvhr?.toJson(), 'prsa': state._prsa?.toJson(),
+      'rsa_bins': state._rsaBins?.toJson(),
+    };
+  }
+
+  factory NightRrState.fromCheckpoint(Map<String, dynamic> json, int boundary) {
+    List<double> doubles(Object? v) {
+      final list = (v as List).map((x) => (x as num).toDouble()).toList();
+      if (list.length > maxRetainedBeats || list.any((x) => !x.isFinite)) {
+        throw const FormatException('night column');
+      }
+      return list;
+    }
+    final tag = json['tag'] as Map;
+    final rr = doubles(json['rr']), times = doubles(json['times']);
+    final nn = doubles(json['nn']), nnTimes = doubles(json['nnTimes']);
+    final correctorJson = (json['corrector'] as Map).cast<String, dynamic>();
+    final count = correctorJson['maxArtifactRun'] == null
+        ? correctorJson['n'] : (correctorJson['capped'] as Map)['n'];
+    if (json['v'] != 1 || tag['day'] is! String || tag['onset'] is! int ||
+        rr.isEmpty || rr.length != times.length || rr.length != tag['count'] ||
+        count != rr.length || nn.length != nnTimes.length || nn.length > rr.length ||
+        times.any((t) => t >= boundary * 1000) ||
+        correctorJson['maxArtifactRun'] != 32 || correctorJson['alpha'] != 5.2 ||
+        correctorJson['windowBeats'] != 91 || correctorJson['minThresholdMs'] != 100 ||
+        correctorJson['reanchorGapMs'] != 1000) {
+      throw const FormatException('night shape/count');
+    }
+    for (var i = 1; i < times.length; i++) {
+      if (times[i] < times[i - 1]) throw const FormatException('night times');
+    }
+    for (var i = 1; i < nnTimes.length; i++) {
+      if (nnTimes[i] < nnTimes[i - 1]) throw const FormatException('NN times');
+    }
+    final state = NightRrState()
+      .._night = (tag['day'] as String, tag['onset'] as int)
+      .._corrector = ana.RrCorrector.fromJson(correctorJson)
+      .._rr.addAll(rr).._times.addAll(times).._nn.addAll(nn).._nnTimes.addAll(nnTimes);
+    final fed = (json['fed'] as Map).cast<String, int>();
+    const keys = ['frequency', 'rsa', 'cvhr', 'prsa', 'rsa_bins'];
+    if (fed.keys.any((k) => !keys.contains(k))) {
+      throw const FormatException('night stream key');
+    }
+    for (final key in keys) {
+      final data = json[key];
+      if (data == null) {
+        if (fed.containsKey(key)) throw const FormatException('missing stream');
+        continue;
+      }
+      if (fed[key] != nn.length) throw const FormatException('stream feed count');
+      final map = (data as Map).cast<String, dynamic>();
+      if (key == 'prsa') {
+        state._prsa = NightPrsa.fromJson(map, fed[key]!);
+      } else if (key == 'rsa_bins') {
+        state._rsaBins = NightRespBins.fromJson(map, fed[key]!);
+      } else {
+        if (map['n'] != fed[key]) throw const FormatException('stream count');
+        if (key == 'frequency' && map['oversample'] != 4.0) {
+          throw const FormatException('frequency config');
+        }
+        if (key == 'cvhr') {
+          final defaults = ana.CvhrStream().toJson();
+          for (final name in ['minWidthSec', 'maxWidthSec', 'depthWidthRatioMin',
+              'envWindowSec', 'maxGapSec']) {
+            if (map[name] != defaults[name]) throw const FormatException('CVHR config');
+          }
+        }
+        if (key == 'frequency') state._frequency = ana.HrvFreqStream.fromJson(map);
+        if (key == 'rsa') state._rsa = ana.RsaRespStream.fromJson(map);
+        if (key == 'cvhr') state._cvhr = ana.CvhrStream.fromJson(map);
+      }
+    }
+    state._fed.addAll(fed);
+    return state;
+  }
 
   void beginPass() => _digests.clear();
   void endPass() => _digests.clear();
