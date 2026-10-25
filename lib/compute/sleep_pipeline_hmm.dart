@@ -24,7 +24,6 @@ class HMMConfig {
     SleepState.rem
   ];
 
-  // AASM-konforme Log-Transitionen
   static final Map<SleepState, Map<SleepState, double>> transitionLogProb = {
     SleepState.wake: {
       SleepState.wake: log(0.90),
@@ -59,51 +58,44 @@ class SleepStageAnalyzer {
 
   void computeBaseline(List<Map<String, dynamic>> first120minData) {
     if (first120minData.isEmpty) return;
-    final hrs = first120minData.map((d) => (d['hr'] as num).toDouble()).where((h) => h > 0).toList();
-    final rmssds = first120minData.map((d) => (d['rmssd'] as num).toDouble()).where((r) => r > 0).toList();
+    final hrs = first120minData.map((d) => (d['hr'] as num).toDouble())
+        .where((h) => h > 30.0 && h < 200.0).toList();
+    final rmssds = first120minData.map((d) => (d['rmssd'] as num).toDouble())
+        .where((r) => r > 0.0 && r < 500.0).toList();
     
-    if (hrs.isNotEmpty) hrMinNight = hrs.reduce(min);
+    if (hrs.isNotEmpty) {
+      hrs.sort();
+      hrMinNight = hrs[(hrs.length * 0.1).floor()];
+    }
     if (rmssds.isNotEmpty) rmssdMeanNight = rmssds.reduce((a, b) => a + b) / rmssds.length;
   }
 
   double _getEmissionLogProb(SleepState state, double hr, double rmssd, {bool isContactLost = false}) {
-    // Sensor-Kontaktverlust / Motion Artifacts (Drehen im Bett, loses Band):
-    // Wenn kein Puls oder RMSSD vorhanden ist (z.B. 0 oder unphysiologisch),
-    // liefert die Beobachtung NULL Information (Uniform Log-Prob für alle Zustände).
-    // Der Viterbi-Algorithmus überbrückt diese Lücke rein über die Übergangswahrscheinlichkeiten
-    // (Transition Matrix), behält also den aktuellen physiologischen Zustand bei!
-    if (isContactLost || hr <= 0 || rmssd <= 0) {
-      return log(0.25); // Neutrale Emission — keine Verzerrung der Klassifikation
-    }
-
-    if (hrMinNight == null || hrMinNight == 0 || rmssdMeanNight == null || rmssdMeanNight == 0) {
+    if (isContactLost || hr <= 0 || rmssd <= 0 || hrMinNight == null || rmssdMeanNight == null) {
       return log(0.25);
     }
 
     final hrNorm = hr / hrMinNight!;
     final rmssdNorm = rmssd / rmssdMeanNight!;
     
-    // Wissenschaftliche Heuristik für Apnoe-Indikation: 
-    // Häufige Arousals (hr spike) aus tiefem Schlaf.
-    // Wenn hrNorm sehr hoch bei eigentlich tiefem Zustand -> Strafe für Deep
-    bool apneaLikely = (hrNorm > 1.3 && rmssdNorm < 0.5);
+    double sigmoid(double x, double center, double scale) => 1.0 / (1.0 + exp(-(x - center) / scale));
 
-    double prob = 0.25;
+    double prob;
     switch (state) {
       case SleepState.wake:
-        prob = (hrNorm > 1.2 || apneaLikely) ? 0.85 : 0.15;
+        prob = sigmoid(hrNorm, 1.2, 0.05) * (1.0 - sigmoid(rmssdNorm, 0.8, 0.05));
         break;
       case SleepState.nremDeep:
-        prob = (hrNorm < 0.95 && rmssdNorm > 1.1 && !apneaLikely) ? 0.8 : 0.05;
+        prob = (1.0 - sigmoid(hrNorm, 1.0, 0.05)) * sigmoid(rmssdNorm, 1.1, 0.05);
         break;
       case SleepState.rem:
-        prob = (hrNorm > 1.05 && rmssdNorm > 0.9 && rmssdNorm < 1.1) ? 0.7 : 0.2;
+        prob = sigmoid(hrNorm, 1.05, 0.05) * sigmoid(rmssdNorm, 1.0, 0.05);
         break;
       case SleepState.nremLight:
         prob = 0.4;
         break;
     }
-    return log(prob);
+    return log(max(0.01, prob));
   }
 
   List<SleepState> viterbiDecode(List<Map<String, dynamic>> nightData) {
