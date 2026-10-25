@@ -595,6 +595,7 @@ class LocalDb {
         await _ensureRawArchiveStore(db);
         await _createDerived(db);
         await _createDayResult(db);
+    await _ensureSleepBaselineColumns(db);
         await _createUserTables(db);
         await _createSyncState(db);
         await _createSyncCursor(db);
@@ -695,6 +696,7 @@ class LocalDb {
           // migrate any existing derived_day rows across at the prior version, so
           // history survives the upgrade (raw is the source of truth regardless).
           await _createDayResult(db);
+    await _ensureSleepBaselineColumns(db);
           try {
             await db.execute(
               'INSERT OR IGNORE INTO day_result '
@@ -10796,6 +10798,7 @@ class LocalDb {
         await _createBandSignals(db);
         await _createDerived(db);
         await _createDayResult(db);
+    await _ensureSleepBaselineColumns(db);
         await _createUserTables(db);
         await _createSyncState(db);
         await _createSyncCursor(db);
@@ -15464,4 +15467,9 @@ List<String?> _reencodeBatch(List<String> payloads) {
     out.add(encoded.length < pj.length ? encoded : null);
   }
   return out;
+}
+
+Future<void> _ensureSleepBaselineColumns(Database db) async {
+  await _addColumnIfMissing(db, 'day_result', 'hr_min_night', 'REAL');
+  await _addColumnIfMissing(db, 'day_result', 'rmssd_mean_night', 'REAL');
 }

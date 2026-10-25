@@ -66,7 +66,16 @@ class SleepStageAnalyzer {
     if (rmssds.isNotEmpty) rmssdMeanNight = rmssds.reduce((a, b) => a + b) / rmssds.length;
   }
 
-  double _getEmissionLogProb(SleepState state, double hr, double rmssd) {
+  double _getEmissionLogProb(SleepState state, double hr, double rmssd, {bool isContactLost = false}) {
+    // Sensor-Kontaktverlust / Motion Artifacts (Drehen im Bett, loses Band):
+    // Wenn kein Puls oder RMSSD vorhanden ist (z.B. 0 oder unphysiologisch),
+    // liefert die Beobachtung NULL Information (Uniform Log-Prob für alle Zustände).
+    // Der Viterbi-Algorithmus überbrückt diese Lücke rein über die Übergangswahrscheinlichkeiten
+    // (Transition Matrix), behält also den aktuellen physiologischen Zustand bei!
+    if (isContactLost || hr <= 0 || rmssd <= 0) {
+      return log(0.25); // Neutrale Emission — keine Verzerrung der Klassifikation
+    }
+
     if (hrMinNight == null || hrMinNight == 0 || rmssdMeanNight == null || rmssdMeanNight == 0) {
       return log(0.25);
     }
