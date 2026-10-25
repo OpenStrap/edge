@@ -2267,7 +2267,9 @@ List<Map<String, dynamic>> _hypnogramSegments(DayBundleInput d) {
 
 /// Whether a 4-class label is SLEEP. `unobserved` is not a stage and not wake —
 /// it is a second the band did not watch, and it belongs to neither side.
-// Pipeline überarbeitet auf HMM-Logik (siehe lib/compute/sleep_pipeline_hmm.dart)
+  // Whether a 4-class label is SLEEP. `unobserved` is not a stage and not wake —
+  // it is a second the band did not watch, and it belongs to neither side.
+  bool _isSleepStage(String s) => s == 'light' || s == 'deep' || s == 'rem' || s == 'nrem';
 
 /// Sustained-awakening threshold. A CHOICE, not physiology: the 3-15 s cortical
 /// arousals PSG counts are invisible to a 1 Hz wrist, so anything shorter than
@@ -2352,7 +2354,10 @@ List<String> _classifySleepStagesHMM(List<Map<String, dynamic>> epochData) {
   final analyzer = SleepStageAnalyzer();
   final first120m = epochData.take(240).toList();
   analyzer.computeBaseline(first120m);
-  final states = analyzer.viterbiDecode(epochData);
+  final states = analyzer.viterbiDecode(epochData.map((e) => {
+    ...e,
+    "isContactLost": (e["motion_artifact"] == true)
+  }).toList());
   return states.map((s) {
     switch (s) {
       case SleepState.wake: return 'wake';
