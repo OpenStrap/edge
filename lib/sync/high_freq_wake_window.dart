@@ -8,11 +8,17 @@ class HighFreqWakePlan {
   final String source;
   final int sampleCount;
 
+  /// Time at which a pre-sync should be triggered to backfill the last
+  /// ~3 hours of raw data before the wake window opens, so the HMM
+  /// baseline can be computed without keeping BLE streaming all night.
+  final DateTime? preSyncAt;
+
   const HighFreqWakePlan({
     required this.shouldEnable,
     required this.targetWake,
     required this.source,
     required this.sampleCount,
+    this.preSyncAt,
   });
 }
 
@@ -78,11 +84,15 @@ class HighFreqWakeWindow {
             )
           : todayTarget;
       final windowStart = targetWake.subtract(lease);
+      // Pre-sync ~45 min before the window opens so the HMM has enough
+      // history to compute the nightly baseline without streaming all night.
+      final preSyncAt = targetWake.subtract(lease + const Duration(minutes: 45));
       habitualPlan = HighFreqWakePlan(
         shouldEnable: !now.isBefore(windowStart) && now.isBefore(targetWake),
         targetWake: targetWake,
         source: 'habitual_wake',
         sampleCount: wakeMinutes.length,
+        preSyncAt: preSyncAt,
       );
     }
 
@@ -94,11 +104,15 @@ class HighFreqWakeWindow {
         habitualPlan?.shouldEnable != true) {
       final scheduledStart = scheduledWindowEnd.subtract(lease);
       if (!now.isBefore(scheduledStart) && now.isBefore(scheduledWindowEnd)) {
+        final preSyncAt = scheduledWindowEnd.subtract(
+          lease + const Duration(minutes: 45),
+        );
         return HighFreqWakePlan(
           shouldEnable: true,
           targetWake: scheduledWindowEnd,
           source: 'scheduled_alarm',
           sampleCount: wakeMinutes.length,
+          preSyncAt: preSyncAt,
         );
       }
     }
