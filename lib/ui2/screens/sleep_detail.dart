@@ -662,13 +662,12 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
 
   @override
   Widget build(BuildContext c) {
-    // Medical Disclaimer Banner
     final disclaimer = Container(
       padding: const EdgeInsets.all(8),
-      color: Colors.black12,
+      color: Colors.amber.withOpacity(0.1),
       child: const Text(
         "Experimental research algorithm. Not a medical device. Consult a physician for sleep disorders.",
-        style: TextStyle(fontSize: 10),
+        style: TextStyle(fontSize: 10, color: Colors.amber),
         textAlign: TextAlign.center,
       ),
     );

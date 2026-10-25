@@ -15470,6 +15470,6 @@ List<String?> _reencodeBatch(List<String> payloads) {
 }
 
 Future<void> _ensureSleepBaselineColumns(Database db) async {
-  await _addColumnIfMissing(db, 'day_result', 'hr_min_night', 'REAL');
-  await _addColumnIfMissing(db, 'day_result', 'rmssd_mean_night', 'REAL');
+  await LocalDb._addColumnIfMissing(db, 'day_result', 'hr_min_night', 'REAL');
+  await LocalDb._addColumnIfMissing(db, 'day_result', 'rmssd_mean_night', 'REAL');
 }
