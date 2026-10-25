@@ -5732,7 +5732,12 @@ class AppState extends ChangeNotifier {
         smartWake: plan.shouldEnable && target != null
             ? BandPromptRequest.smartWake(
                 target: target,
-                lease: HighFreqWakeWindow.lease,
+                // Use the extended lease (preSyncAt → targetWake) so the band
+                // prompts from preSyncAt onward, backfilling decoded_onehz
+                // with the last ~3h of nocturnal data before the smart-wake
+                // window opens. Falls back to the shipped 90-min lease when
+                // preSyncAt is null (no plan / outside extended window).
+                lease: plan.effectiveLease ?? HighFreqWakeWindow.lease,
                 source: plan.source,
               )
             : null,

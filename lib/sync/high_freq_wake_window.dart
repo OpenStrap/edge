@@ -8,10 +8,24 @@ class HighFreqWakePlan {
   final String source;
   final int sampleCount;
 
-  /// Time at which a pre-sync should be triggered to backfill the last
-  /// ~3 hours of raw data before the wake window opens, so the HMM
-  /// baseline can be computed without keeping BLE streaming all night.
+  /// Time at which the band prompt lease should start — [preSyncLead] before
+  /// the smart-wake window opens — so the app wakes periodically and backfills
+  /// `decoded_onehz` with the last ~3h of nocturnal data before the window
+  /// opens. The smart-wake DETECTION still only runs inside the actual window
+  /// (checked by `inSmartWakeWindow` in `_checkSmartWake`); this only extends
+  /// the DATA COLLECTION lease, not the buzz window.
+  ///
+  /// When the plan is disabled (outside the extended lease), this is null.
   final DateTime? preSyncAt;
+
+  /// The total duration the band prompt lease should cover: from [preSyncAt]
+  /// (when set) or the window start, until [targetWake]. Used by callers to
+  /// compute the lease duration for `BandPromptRequest.smartWake`.
+  Duration? get effectiveLease {
+    if (targetWake == null) return null;
+    final start = preSyncAt ?? targetWake!.subtract(lease);
+    return targetWake!.difference(start);
+  }
 
   const HighFreqWakePlan({
     required this.shouldEnable,
@@ -24,6 +38,23 @@ class HighFreqWakePlan {
 
 class HighFreqWakeWindow {
   static const Duration lease = Duration(minutes: 90);
+
+  /// Extra time the band prompt lease extends BEFORE the smart-wake window
+  /// opens, so the app wakes periodically and backfills `decoded_onehz` with
+  /// the last ~3h of nocturnal data. Without this, the 10th-percentile HR
+  /// baseline (smart_wake v2, Q2) has no data to compute from when the window
+  /// opens — the band was offline or the app was suspended all night.
+  ///
+  /// The band prompt is the ONLY reliable cross-platform wake mechanism at a
+  /// specific wall-clock time (iOS BGTask/BGAppRefresh are opportunistic and
+  /// never guaranteed; Android has no periodic background scheduler since the
+  /// WorkManager tombstone). Extending the existing 61s prompt lease 45 min
+  /// earlier costs ~45 extra BLE wake cycles per night — negligible battery
+  /// impact, and it reuses infrastructure that already works.
+  ///
+  /// preSyncAt = targetWake − (lease + preSyncLead).
+  static const Duration preSyncLead = Duration(minutes: 45);
+
   static const int historyDays = 14;
   static const int minSamples = 3;
 
@@ -84,11 +115,17 @@ class HighFreqWakeWindow {
             )
           : todayTarget;
       final windowStart = targetWake.subtract(lease);
-      // Pre-sync ~45 min before the window opens so the HMM has enough
-      // history to compute the nightly baseline without streaming all night.
-      final preSyncAt = targetWake.subtract(lease + const Duration(minutes: 45));
+      // Pre-sync lead: extend the band prompt lease 45 min before the window
+      // opens so the app wakes periodically and backfills decoded_onehz with
+      // the last ~3h of nocturnal data. The smart-wake DETECTION still only
+      // runs inside the actual window (inSmartWakeWindow check in
+      // _checkSmartWake); this only extends the DATA COLLECTION lease.
+      final preSyncAt = targetWake.subtract(lease + preSyncLead);
+      // shouldEnable covers the FULL extended lease (preSyncAt → targetWake),
+      // not just the smart-wake window. The band prompts continuously; each
+      // prompt triggers _startHistoricalRefresh() which fills decoded_onehz.
       habitualPlan = HighFreqWakePlan(
-        shouldEnable: !now.isBefore(windowStart) && now.isBefore(targetWake),
+        shouldEnable: !now.isBefore(preSyncAt) && now.isBefore(targetWake),
         targetWake: targetWake,
         source: 'habitual_wake',
         sampleCount: wakeMinutes.length,
@@ -103,10 +140,8 @@ class HighFreqWakeWindow {
         scheduledWindowMinutes > 0 &&
         habitualPlan?.shouldEnable != true) {
       final scheduledStart = scheduledWindowEnd.subtract(lease);
-      if (!now.isBefore(scheduledStart) && now.isBefore(scheduledWindowEnd)) {
-        final preSyncAt = scheduledWindowEnd.subtract(
-          lease + const Duration(minutes: 45),
-        );
+      final preSyncAt = scheduledWindowEnd.subtract(lease + preSyncLead);
+      if (!now.isBefore(preSyncAt) && now.isBefore(scheduledWindowEnd)) {
         return HighFreqWakePlan(
           shouldEnable: true,
           targetWake: scheduledWindowEnd,
