@@ -662,13 +662,24 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
 
   @override
   Widget build(BuildContext c) {
+    // Medical Disclaimer Banner
+    final disclaimer = Container(
+      padding: const EdgeInsets.all(8),
+      color: Colors.black12,
+      child: const Text(
+        "Experimental research algorithm. Not a medical device. Consult a physician for sleep disorders.",
+        style: TextStyle(fontSize: 10),
+        textAlign: TextAlign.center,
+      ),
+    );
     final d = _d ?? const SleepData();
     final l = AppLocalizations.of(c);
     final title = l?.sleepDetailNavTitle ?? 'Sleep';
 
     if (_loading && _d == null) {
-      return _frame(c, title, const [
-        SizedBox(height: S.x8),
+      return _frame(c, title, [
+        disclaimer,
+        const SizedBox(height: S.x8),
         Center(child: CircularProgressIndicator()),
       ]);
     }
