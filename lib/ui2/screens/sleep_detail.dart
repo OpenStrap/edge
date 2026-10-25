@@ -665,9 +665,9 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final disclaimer = Container(
       padding: const EdgeInsets.all(8),
       color: Colors.amber.withOpacity(0.1),
-      child: const Text(
-        "Experimental research algorithm. Not a medical device. Consult a physician for sleep disorders.",
-        style: TextStyle(fontSize: 10, color: Colors.amber),
+      child: Text(
+        l?.sleepDetailMedicalDisclaimer ?? "Experimental research algorithm. Not a medical device. Consult a physician for sleep disorders.",
+        style: const TextStyle(fontSize: 10, color: Colors.amber),
         textAlign: TextAlign.center,
       ),
     );
