@@ -540,3 +540,20 @@ String localizedText(AppLocalizations? l, String text) {
     _ => text,
   };
 }
+
+/// The pinned analytics package returns 'low'/'normal'/'elevated'/'high' —
+/// English regardless of locale. Map to the localized word before display.
+String stressLevelLabel(AppLocalizations? l, String raw) {
+  switch (raw) {
+    case 'low':
+      return l?.wellnessStressLevelLow ?? raw;
+    case 'normal':
+      return l?.wellnessStressLevelNormal ?? raw;
+    case 'elevated':
+      return l?.wellnessStressLevelElevated ?? raw;
+    case 'high':
+      return l?.wellnessStressLevelHigh ?? raw;
+    default:
+      return raw;
+  }
+}

@@ -4667,6 +4667,22 @@
   "@investigateStabilityCv": {
     "description": "HRV metric label: coefficient of variation stability"
   },
+  "investigateStressIndexTitle": "Stress index",
+  "@investigateStressIndexTitle": {
+    "description": "Stress Nerd Stats table title: the Baevsky index behind the score"
+  },
+  "investigateStressIndexSi": "Index (SI)",
+  "@investigateStressIndexSi": {
+    "description": "Stress Nerd Stats row: the Baevsky stress index for the night"
+  },
+  "investigateStressLevel": "Level",
+  "@investigateStressLevel": {
+    "description": "Stress Nerd Stats row: low / normal / elevated / high band of the index"
+  },
+  "investigateStressScore": "Score (0–100)",
+  "@investigateStressScore": {
+    "description": "Stress Nerd Stats row: the 0-100 score derived from the index"
+  },
   "investigateFrequencyDomain": "Frequency domain",
   "@investigateFrequencyDomain": {
     "description": "HRV table title: frequency-domain metrics"

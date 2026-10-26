@@ -355,7 +355,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
     final stress = _stress['stress'];
     final score = _reading(stress is Map ? stress['score'] : null);
     final level = stress is Map && stress['level'] is String
-        ? _stressLevelLabel(l, stress['level'] as String)
+        ? stressLevelLabel(l, stress['level'] as String)
         : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1202,23 +1202,6 @@ class DriverRow extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-/// The pinned analytics package returns 'low'/'normal'/'elevated'/'high' —
-/// English regardless of locale. Map to the localized word before display.
-String? _stressLevelLabel(AppLocalizations? l, String raw) {
-  switch (raw) {
-    case 'low':
-      return l?.wellnessStressLevelLow ?? raw;
-    case 'normal':
-      return l?.wellnessStressLevelNormal ?? raw;
-    case 'elevated':
-      return l?.wellnessStressLevelElevated ?? raw;
-    case 'high':
-      return l?.wellnessStressLevelHigh ?? raw;
-    default:
-      return raw;
   }
 }
 
