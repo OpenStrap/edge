@@ -260,6 +260,43 @@ void main() {
         isFalse,
       );
     });
+
+    // REGRESSION (review finding, mikenrafter on PR #630): windowMinutes used
+    // to be accepted and never read — the alcohol/workout 5-minute smoothing
+    // was documentation only. The symmetric spike test above could not catch
+    // that (it passes either way), so this one is deliberately ASYMMETRIC:
+    // 2 min of high noise followed by a 3-min ramp. Judged over the whole
+    // 5 minutes the ramp is invisible (the noisy prefix dominates the first
+    // half and the rise goes negative); judged over the trailing 3 minutes it
+    // is a clear trend. Only a genuinely applied window can tell them apart.
+    test('windowMinutes is actually applied (regression: dead parameter)', () {
+      final samples = [
+        ...withEnmo(55, 0.10, 120), // 2 min flat, high
+        for (var i = 0; i < 180; i++) // 3 min ramp 0.02 → 0.08
+          sample(55, 0.02 + (0.08 - 0.02) * i / 179),
+      ];
+      expect(samples.length, 300); // 5 minutes at 1 Hz
+      // Trailing 3 minutes: a clear rise → exceeded.
+      expect(
+        enmoTrendExceeded(samples, threshold: 0.02, windowMinutes: 3),
+        isTrue,
+      );
+      // Full 5 minutes: the noisy prefix flattens it out → not exceeded.
+      expect(
+        enmoTrendExceeded(samples, threshold: 0.02, windowMinutes: 5),
+        isFalse,
+      );
+    });
+
+    test('a list shorter than the requested window is used whole', () {
+      // 2 minutes of samples, 5-minute window requested → use all 120.
+      final short = withEnmo(55, 0.03, 60) + withEnmo(55, 0.09, 60);
+      // Judged whole: first half 0.03, second half 0.09 → rise 0.06.
+      expect(
+        enmoTrendExceeded(short, threshold: 0.02, windowMinutes: 5),
+        isTrue,
+      );
+    });
   });
 
   // ── lateWindowProtection (Q3 — deep-sleep protection near window end) ──────
@@ -460,6 +497,38 @@ void main() {
           baselineHr: 48,
         ),
         isFalse, // +1 < 4 anyway, but also protection would catch it
+      );
+    });
+
+    test('v2: a 5-min recent fetch does not move the 3-min HR judgment', () {
+      // The caller now fetches up to the trend window (5 min on alcohol or
+      // workout nights). HR arousal must still be judged on the trailing 3
+      // minutes — otherwise a longer fetch would silently make the detector
+      // more eager.
+      final baseline = still(52, 90);
+      final recent = [
+        ...withEnmo(70, 0.03, 120), // first 2 min: elevated (would inflate a 5-min mean)
+        ...withEnmo(54, 0.03, 180), // last 3 min: only +2 bpm — below the 4 bpm bar
+      ];
+      expect(recent.length, 300);
+      // Judged on the trailing 3 minutes → +2 bpm → no buzz.
+      expect(
+        likelyLightSleep(baseline: baseline, recent: recent),
+        isFalse,
+      );
+      // Sanity: the same data judged as a 3-minute list is unchanged.
+      expect(
+        likelyLightSleep(baseline: baseline, recent: withEnmo(54, 0.03, 180)),
+        isFalse,
+      );
+      // And the trailing 3 minutes WOULD buzz if they were elevated.
+      final recentHot = [
+        ...withEnmo(50, 0.03, 120),
+        ...withEnmo(58, 0.03, 180), // +6 bpm in the trailing 3 min
+      ];
+      expect(
+        likelyLightSleep(baseline: baseline, recent: recentHot),
+        isTrue,
       );
     });
 

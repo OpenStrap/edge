@@ -5088,8 +5088,17 @@ class AppState extends ChangeNotifier {
       final profile = await _smartWakeConfounderProfile(now);
       if (profile.earlyBuzzDisabled) return;
 
+      // The recent window is as long as the journal's trend window asks for
+      // (5 min on alcohol/workout nights, 3 min otherwise) so the movement
+      // trend has something to smooth over. `likelyLightSleep` re-slices the
+      // trailing 3 minutes for HR arousal and the mean-motion ceiling, so a
+      // longer fetch cannot move those two checks.
+      final recentWindowMinutes = profile.trendWindowMinutes > 3
+          ? profile.trendWindowMinutes
+          : 3;
       final recentRows = await LocalDb.onehzHrAccelBetween(
-        now.subtract(const Duration(minutes: 3)).millisecondsSinceEpoch ~/
+        now.subtract(Duration(minutes: recentWindowMinutes))
+            .millisecondsSinceEpoch ~/
             1000,
         now.millisecondsSinceEpoch ~/ 1000,
       );

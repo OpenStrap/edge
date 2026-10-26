@@ -230,18 +230,29 @@ ConfounderProfile confounderProfile({
 /// a trend (computed by the caller as
 /// `max(0.02, medianENMO_last3h × 0.5) × profile.trendThresholdFactor`).
 ///
-/// [windowMinutes] controls how many of the trailing samples are used;
-/// alcohol/workout nights use 5 min (smoothing short spikes).
+/// [windowMinutes] is the trailing window the trend is judged on, and it is
+/// genuinely applied: samples are 1 Hz, so the last `windowMinutes * 60` of
+/// them are used. Alcohol/workout nights pass 5 (smoothing short rebound or
+/// post-exercise spikes that a 3-minute window would read as a trend). A list
+/// already shorter than the requested window is used whole — never padded.
 ///
-/// Returns false (never guesses) when [samples] is too short.
+/// Returns false (never guesses) when the window is too short.
 bool enmoTrendExceeded(
   List<SmartWakeSample> samples, {
   required double threshold,
   required int windowMinutes,
 }) {
-  // Minimum 30 samples (~30s at 1 Hz) — same floor as the HR check.
-  if (samples.length < 30) return false;
-  final enmos = [for (final s in samples) enmo(s)];
+  // 1 Hz samples: trim to the trailing window. Trimming HERE rather than in
+  // the caller is what makes the alcohol/workout 5-minute smoothing real —
+  // the caller hands over everything it fetched, and this decides how much
+  // of the tail the trend is judged on.
+  final want = windowMinutes <= 0 ? samples.length : windowMinutes * 60;
+  final window = samples.length > want
+      ? samples.sublist(samples.length - want)
+      : samples;
+  // Minimum 30 samples (~30 s at 1 Hz) — same floor as the HR check.
+  if (window.length < 30) return false;
+  final enmos = [for (final s in window) enmo(s)];
   final half = enmos.length ~/ 2;
   final firstHalf = _mean(enmos.sublist(0, half));
   final secondHalf = _mean(enmos.sublist(half));
@@ -339,16 +350,25 @@ bool likelyLightSleep({
   // Alcohol + stress combo: early buzz disabled entirely for this night.
   if (profile.earlyBuzzDisabled) return false;
 
-  if (baseline.length < minBaselineSamples ||
-      recent.length < minRecentSamples) {
-    return false;
-  }
+  if (baseline.length < minBaselineSamples) return false;
+
+  // `recent` may be LONGER than 3 minutes: the caller fetches up to the
+  // journal's trend window (5 min on alcohol/workout nights) so the trend
+  // check below has something to smooth over. HR arousal and the mean-motion
+  // ceiling are separate questions and are always judged on the trailing
+  // 3 minutes, exactly as they were before the trend window existed — a
+  // longer fetch must not quietly move them.
+  const int kHrWindowSamples = 180; // 3 min at 1 Hz
+  final hrWindow = recent.length > kHrWindowSamples
+      ? recent.sublist(recent.length - kHrWindowSamples)
+      : recent;
+  if (hrWindow.length < minRecentSamples) return false;
 
   // Baseline HR: caller-supplied (10th percentile from a wider window) or
   // computed here as median (v1 behavior).
   final baseHr = baselineHrOverride ?? _median([for (final s in baseline) s.hr]);
-  final recentHr = _mean([for (final s in recent) s.hr]);
-  final recentMotion = _mean([for (final s in recent) enmo(s)]);
+  final recentHr = _mean([for (final s in hrWindow) s.hr]);
+  final recentMotion = _mean([for (final s in hrWindow) enmo(s)]);
 
   // Q3: late-window deep-sleep protection — if we're in the last few minutes
   // AND HR is still near baseline, don't buzz. Fallback fires at window end.
