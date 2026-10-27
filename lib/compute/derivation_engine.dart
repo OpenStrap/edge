@@ -5732,11 +5732,17 @@ class DerivationEngine {
       
       List<Map<String, dynamic>> reconciledNaps = blocks.napSuggestions;
       if (mainSleep != null) {
+        final onset = (mainSleep['onset_ts'] as num).toInt();
+        final offset = (mainSleep['wake_ts'] as num).toInt();
         reconciledNaps = napsWithoutMainSleep(
           blocks.napSuggestions,
-          (mainSleep['onset_ts'] as num).toInt(),
-          (mainSleep['wake_ts'] as num).toInt(),
+          onset,
+          offset,
         ) ?? blocks.napSuggestions;
+        
+        if (reconciledNaps.length < blocks.napSuggestions.length) {
+          _log('masked ${blocks.napSuggestions.length - reconciledNaps.length} nap(s) overlapping main sleep [$onset, $offset)');
+        }
       }
 
       final newSuggestions = [
