@@ -1,3 +1,4 @@
+import "sleep_pipeline_hmm.dart";
 // onehz_pipeline.dart — the PURE, isolate-safe per-day analytics pipeline (V2).
 //
 // `deriveDayBundle` is a top-level function with NO DB / IO / Flutter binding
@@ -2205,7 +2206,9 @@ List<Map<String, dynamic>> _hypnogramSegments(DayBundleInput d) {
 
 /// Whether a 4-class label is SLEEP. `unobserved` is not a stage and not wake —
 /// it is a second the band did not watch, and it belongs to neither side.
-bool _isSleepStage(String s) => s == 'light' || s == 'deep' || s == 'rem';
+  // Whether a 4-class label is SLEEP. `unobserved` is not a stage and not wake —
+  // it is a second the band did not watch, and it belongs to neither side.
+  bool _isSleepStage(String s) => s == 'light' || s == 'deep' || s == 'rem' || s == 'nrem';
 
 /// Sustained-awakening threshold. A CHOICE, not physiology: the 3-15 s cortical
 /// arousals PSG counts are invisible to a 1 Hz wrist, so anything shorter than
@@ -2284,4 +2287,22 @@ int? _medianGapSec(List<int> tsSec, {int minGapSec = 1}) {
       if (tsSec[i] - tsSec[i - 1] >= minGapSec) tsSec[i] - tsSec[i - 1],
   ]..sort();
   return gaps.isEmpty ? null : gaps[gaps.length ~/ 2];
+}
+
+List<String> _classifySleepStagesHMM(List<Map<String, dynamic>> epochData) {
+  final analyzer = SleepStageAnalyzer();
+  final first120m = epochData.take(240).toList();
+  analyzer.computeBaseline(first120m);
+  final states = analyzer.viterbiDecode(epochData.map((e) => {
+    ...e,
+    "isContactLost": (e["motion_artifact"] == true)
+  }).toList());
+  return states.map((s) {
+    switch (s) {
+      case SleepState.wake: return 'wake';
+      case SleepState.nremLight: return 'light';
+      case SleepState.nremDeep: return 'deep';
+      case SleepState.rem: return 'rem';
+    }
+  }).toList();
 }
