@@ -27,13 +27,31 @@ List<Map<String, dynamic>>? napsWithoutNextNight(
   int nextOnsetSec,
   int nextOffsetSec,
 ) {
+  return _filterNaps(naps, nextOnsetSec, nextOffsetSec);
+}
+
+/// [naps] without ones overlapping the main sleep session [mainOnsetSec, mainOffsetSec).
+/// Kept: user logged naps, naps outside the window.
+List<Map<String, dynamic>>? napsWithoutMainSleep(
+  List<Map<String, dynamic>> naps,
+  int mainOnsetSec,
+  int mainOffsetSec,
+) {
+  return _filterNaps(naps, mainOnsetSec, mainOffsetSec);
+}
+
+List<Map<String, dynamic>>? _filterNaps(
+  List<Map<String, dynamic>> naps,
+  int onsetSec,
+  int offsetSec,
+) {
   final kept = [
     for (final n in naps)
       if (n['source'] != null ||
           n['start'] is! num ||
           n['end'] is! num ||
-          (n['end'] as num) <= nextOnsetSec ||
-          (n['start'] as num) >= nextOffsetSec)
+          (n['end'] as num) <= onsetSec ||
+          (n['start'] as num) >= offsetSec)
         n,
   ];
   return kept.length == naps.length ? null : kept;

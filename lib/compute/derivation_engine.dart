@@ -5725,9 +5725,23 @@ class DerivationEngine {
         await LocalDb.setSessionHrr(w.$1, w.$2);
       }
       final activityStore = ActivityStore(await LocalDb.instance);
+      
+      // Integrate HMM-based sleep masking
+      final mainSleep = blocks.wake['sleep_periods']?['periods']
+          ?.firstWhere((p) => p['is_main'] == true, orElse: () => null);
+      
+      List<Map<String, dynamic>> reconciledNaps = blocks.napSuggestions;
+      if (mainSleep != null) {
+        reconciledNaps = napsWithoutMainSleep(
+          blocks.napSuggestions,
+          (mainSleep['onset_ts'] as num).toInt(),
+          (mainSleep['wake_ts'] as num).toInt(),
+        ) ?? blocks.napSuggestions;
+      }
+
       final newSuggestions = [
         ...await activityStore.reconcile(ActivityKind.workout, blocks.suggestionsToPersist),
-        ...await activityStore.reconcile(ActivityKind.nap, blocks.napSuggestions),
+        ...await activityStore.reconcile(ActivityKind.nap, reconciledNaps),
       ];
       for (final suggestion in newSuggestions) {
         // The rows are already banked; a failed prompt must not mark the day partial.
