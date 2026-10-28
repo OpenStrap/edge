@@ -1810,7 +1810,13 @@ import 'vendor_sleep.dart';
 // store `skin_temp_ambient_r` and the illness watch leaves out WHOOP 4 nights
 // whose skin temp tracks ambient (|r| >= 0.8, or unmeasured). One-shot,
 // raw-free: days derived before v106 drop naps overlapping the next night.
-const int kAlgoVersion = 113;
+// 113 → 117 (#624): the cross-day rollup reads each night's onset/wake/mid-sleep
+// on the clock it was lived on (`clock_shift_sec`, recovered from the stored
+// `sleep_onset_sec`), so after a zone change the Sleep Coach targets, typical
+// wake, chronotype and social jetlag no longer move by the zone difference. A
+// re-derive keeps the stored night's clock. Unchanged for a user who has not
+// changed zone. Edge-only.
+const int kAlgoVersion = 117;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -5828,6 +5834,24 @@ class DerivationEngine {
       if (quietMarked) {
         await LocalDb.putComputeFreshness(quietKey, '{}');
         effectiveFinalized = false;
+      }
+    }
+
+    // RE-DERIVING KEEPS THE NIGHT'S OWN CLOCK. The pipeline freezes
+    // `sleep_onset_sec`/`midsleep_sec` with the phone's zone NOW, so re-deriving
+    // a night lived before a trip (re-analyze, a rescan, a version bump) would
+    // overwrite the only record of the zone it was lived in, and the cross-day
+    // rollup would read it on the new clock. Carry the stored row's shift.
+    final prevForClock = await LocalDb.dayResult(day.date);
+    if (_isRealDayResult(prevForClock)) {
+      final shift = storedNightClockShiftSec(
+          _decodeBundle(prevForClock!['payload_json']));
+      final s = bundle['scalars'];
+      if (shift != 0 && s is Map) {
+        for (final k in const ['sleep_onset_sec', 'midsleep_sec']) {
+          final v = shiftRecordedClockSec(s[k] as num?, shift);
+          if (v != null) s[k] = v;
+        }
       }
     }
 

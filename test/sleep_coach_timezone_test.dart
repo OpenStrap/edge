@@ -226,6 +226,41 @@ void main() {
         lessThan(1.0));
   });
 
+  test('re-deriving a pre-trip night keeps the clock it was lived on', () {
+    // A re-derive freezes `sleep_onset_sec` in the phone's zone NOW; carrying
+    // the stored row's shift puts it back on the UTC+2 clock, so the cross-day
+    // record is the same as before the re-derive, in any runner zone.
+    for (final prev in _europe()) {
+      final onsetMs = (((prev.payload['sleep'] as Map)['window']
+          as Map)['value'] as Map)['onset_ms'] as int;
+      final onset = onsetMs ~/ 1000;
+      final original =
+          (prev.payload['scalars'] as Map)['sleep_onset_sec'] as double;
+      final rederived = sleepClockOffsetSec(onset);
+      final carried = shiftRecordedClockSec(
+          rederived, storedNightClockShiftSec(prev.payload));
+      expect(carried, original);
+
+      final again = _stored(
+        day: prev.row['day_id'] as String,
+        onsetSec: onset,
+        wakeSec: onset + 8 * 3600,
+        onsetClockSec: carried,
+      );
+      expect(_records([again]).single['clock_shift_sec'],
+          _records([prev]).single['clock_shift_sec']);
+    }
+  });
+
+  test('a shifted clock wraps back into ±12 h and null stays null', () {
+    expect(shiftRecordedClockSec(43000, 1000), -42400);
+    expect(shiftRecordedClockSec(-43000, 86400 - 1000), 42400);
+    expect(shiftRecordedClockSec(-16200, 0), -16200);
+    expect(shiftRecordedClockSec(null, 7200), isNull);
+    expect(storedNightClockShiftSec(null), 0);
+    expect(storedNightClockShiftSec(const {'scalars': {}}), 0);
+  });
+
   test('no frozen clock and no onset → no shift, never a guessed one', () {
     expect(recordedClockShiftSec(onsetSec: null, onsetClockSec: -16200), 0);
     expect(recordedClockShiftSec(onsetSec: 1789000000, onsetClockSec: null), 0);

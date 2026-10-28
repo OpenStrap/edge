@@ -714,9 +714,10 @@ double _nightClockMin(int epochSec, Map<String, dynamic> d) {
 ///   - A night without the frozen clock (derived before SLP-09 started writing
 ///     it, mid-August 2026) reads in the current zone, as it always did. Those
 ///     age out of the 90-night window.
-///   - A night (re)derived AFTER the trip — "Re-analyze data", today's still
-///     settling row — froze the new zone's clock and reads in it. At most
-///     `rawRetentionDays` of them; the medians ride over them.
+///   - A night first derived AFTER the trip (synced only once there) froze
+///     the new zone's clock and reads in it. A RE-derive keeps the clock the
+///     stored row already had ([storedNightClockShiftSec]), so "Re-analyze
+///     data" or a version bump does not move a pre-trip night.
 ///   - A DST change inside the night itself is applied with the CURRENT zone's
 ///     rules at the wake instant: off by at most an hour, twice a year, for a
 ///     traveller only (the shift is 0 at home).
@@ -732,6 +733,32 @@ int recordedClockShiftSec({
   final nowFrameSecOfDay = (_localTodMin(onsetSec.toInt()) * 60).round();
   final raw = (recordedSecOfDay - nowFrameSecOfDay) % 86400;
   return ((raw / 900).round() * 900) % 86400;
+}
+
+/// [recordedClockShiftSec] of a stored `day_result` payload: its sleep onset
+/// instant against the `sleep_onset_sec` clock it froze. 0 when either is
+/// missing.
+int storedNightClockShiftSec(Map<String, dynamic>? payload) {
+  final sleep = payload?['sleep'];
+  final win = sleep is Map ? sleep['window'] : null;
+  final val = win is Map ? win['value'] : null;
+  final onsetMs = val is Map ? val['onset_ms'] : null;
+  final scalars = payload?['scalars'];
+  final clock = scalars is Map ? scalars['sleep_onset_sec'] : null;
+  return recordedClockShiftSec(
+    onsetSec: onsetMs is num ? (onsetMs / 1000).round() : null,
+    onsetClockSec: clock is num ? clock : null,
+  );
+}
+
+/// A frozen sleep clock (signed seconds either side of
+/// [kSleepClockAnchorSec], as `sleepClockOffsetSec` writes it) moved by
+/// [shiftSec] and wrapped back into (-12 h, +12 h]. Null stays null.
+double? shiftRecordedClockSec(num? clockSec, int shiftSec) {
+  if (clockSec == null || !clockSec.isFinite) return null;
+  var v = (clockSec + shiftSec) % 86400;
+  if (v > 43200) v -= 86400;
+  return v.toDouble();
 }
 
 double? _mean(List<double> xs) {
