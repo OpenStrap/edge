@@ -3143,19 +3143,14 @@ class DerivationEngine {
         final before = await LocalDb.databaseBytesOnDisk();
         onStep?.call(CompactStep.prune);
         try {
-          // Every day with substrate, the wearable's included, as the scope
-          // hands a pass's prune: a pending day missing here is not held.
-          final rawByDay = await LocalDb.decodedRecTsMaxByDay();
-          final wearable = await activeWearable();
-          if (wearable != null) {
-            for (final day in (await wearableRecTsMaxByDay(wearable)).keys) {
-              rawByDay.putIfAbsent(day, () => 0);
-            }
-          }
-          final rawDays = rawByDay.keys.toList()..sort();
+          // The scope a pass would prune against: every day with substrate,
+          // the wearable's included, so a pending one is held.
+          final scope = await _deriveScope(heavy: true, force: false);
           final dataNowSec =
               await _withWearableEdge(await LocalDb.lastDecodedRecTs()) ?? 0;
-          if (dataNowSec > 0) await _pruneOldDecoded(rawDays, dataNowSec);
+          if (dataNowSec > 0) {
+            await _pruneOldDecoded(scope.rawDays, dataNowSec);
+          }
         } catch (e) {
           _log('compact: prune skipped: $e');
         }
