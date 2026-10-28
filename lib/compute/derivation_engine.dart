@@ -3042,15 +3042,22 @@ class CompactResult {
     required this.freeBytes,
     required this.neededBytes,
     required this.vacuumed,
+    this.deferred = false,
   });
 
   final int beforeBytes, afterBytes, neededBytes;
+
+  /// True when the VACUUM was skipped because a writer that must not wait on
+  /// it (a sync, a live session) started while the prune ran. The prune
+  /// still ran.
+  final bool deferred;
 
   /// Free space on the volume when it was checked; null when the platform
   /// could not say.
   final int? freeBytes;
 
-  /// False when the free-space gate refused the VACUUM (the prune still ran).
+  /// False when the free-space gate refused the VACUUM, or it was [deferred]
+  /// (the prune still ran).
   final bool vacuumed;
 
   int get freedBytes => beforeBytes > afterBytes ? beforeBytes - afterBytes : 0;
@@ -3135,9 +3142,14 @@ class DerivationEngine {
   /// The VACUUM runs only when [freeDiskBytes] reports at least twice the
   /// database (plus its WAL) free: it writes a whole second copy before it
   /// drops the first. Unknown free space counts as not enough.
+  ///
+  /// [busy] is asked again right before the VACUUM: the caller's own check
+  /// ran before the prune, and a sync that started since would otherwise sit
+  /// on the write lock for the whole rewrite.
   Future<CompactResult> compactStorage({
     required Future<int?> Function() freeDiskBytes,
     void Function(CompactStep step)? onStep,
+    bool Function()? busy,
   }) =>
       whileIdle(() async {
         final before = await LocalDb.databaseBytesOnDisk();
@@ -3164,6 +3176,16 @@ class DerivationEngine {
             freeBytes: free,
             neededBytes: 2 * size,
             vacuumed: false,
+          );
+        }
+        if (busy?.call() ?? false) {
+          return CompactResult(
+            beforeBytes: before,
+            afterBytes: size,
+            freeBytes: free,
+            neededBytes: 2 * size,
+            vacuumed: false,
+            deferred: true,
           );
         }
         onStep?.call(CompactStep.vacuum);
@@ -5223,8 +5245,12 @@ class DerivationEngine {
       );
       if (todoDays.isEmpty) {
         _log('rescan: no recent decoded-backed days');
-        await LocalDb.setCursor('baseline_sig', sig);
+        // Quiet snapshot first: a kill between the two writes must leave the
+        // signature stale (a cheap full rescan next tick), never a fresh
+        // signature over an old quiet snapshot that narrows the next rescan
+        // against the wrong levels.
         await _storeQuietEntries();
+        await LocalDb.setCursor('baseline_sig', sig);
         return 0;
       }
       _log(
@@ -5286,8 +5312,9 @@ class DerivationEngine {
         await _runNotifications();
       }
       // Store the new signature so the next tick is a cheap no-op until it moves.
-      await LocalDb.setCursor('baseline_sig', await _baselineSignature());
+      // Quiet snapshot before the signature, for the reason given above.
       await _storeQuietEntries();
+      await LocalDb.setCursor('baseline_sig', await _baselineSignature());
       await LocalDb.refreshComputeFreshness();
       return done;
     } catch (e, st) {

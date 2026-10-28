@@ -2474,15 +2474,23 @@ class AppState extends ChangeNotifier {
   Future<CompactResult?> compactDatabase({
     void Function(CompactStep step)? onStep,
   }) async {
-    if (busy || syncingNow || _liveSessionActive) return null;
-    if (_deriveScheduler.offloadActive) return null;
+    bool writerRunning() =>
+        busy ||
+        syncingNow ||
+        _liveSessionActive ||
+        _deriveScheduler.offloadActive;
+    if (writerRunning()) return null;
     final result = await _derive.compactStorage(
       freeDiskBytes: freeDiskBytes,
       onStep: onStep,
+      busy: writerRunning,
     );
     _log('[db] compact: ${result.beforeBytes >> 20} MB -> '
-        '${result.afterBytes >> 20} MB (vacuumed=${result.vacuumed})');
-    return result;
+        '${result.afterBytes >> 20} MB (vacuumed=${result.vacuumed}, '
+        'deferred=${result.deferred})');
+    // Same answer as refusing up front: the prune ran, the VACUUM waits for
+    // the sync to finish.
+    return result.deferred ? null : result;
   }
 
   /// User-initiated "Re-analyze data": force-derive EVERY day that has raw,

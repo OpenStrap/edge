@@ -75,6 +75,21 @@ void main() {
     expect(await LocalDb.freelistBytes(), greaterThan(0));
   });
 
+  test('skips the VACUUM when a sync started while the prune ran', () async {
+    await _useFreshDb('compact_busy.db');
+    await _bloat();
+    final steps = <CompactStep>[];
+    final r = await DerivationEngine().compactStorage(
+      freeDiskBytes: () async => 1 << 40,
+      onStep: steps.add,
+      busy: () => true,
+    );
+    expect(r.vacuumed, isFalse);
+    expect(r.deferred, isTrue);
+    expect(steps, [CompactStep.prune]);
+    expect(await LocalDb.freelistBytes(), greaterThan(0));
+  });
+
   test('unknown free space counts as not enough', () async {
     await _useFreshDb('compact_unknown.db');
     await _bloat();
