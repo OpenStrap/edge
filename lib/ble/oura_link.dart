@@ -384,6 +384,11 @@ class OuraLink {
   /// permanently (ASSUMPTIONS A1).
   String? _deviceId;
 
+  /// [ResetGate.generation] when the running session started. Its host
+  /// refuses every write once a "delete everything" has run since, even
+  /// after the gate lowers again.
+  int _resetGen = ResetGate.generation;
+
   /// Wall-clock now, in Unix seconds. A field so a replay is deterministic.
   int Function() _now =
       () => DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -474,6 +479,7 @@ class OuraLink {
   }
 
   Future<bool> _sync() async {
+    _resetGen = ResetGate.generation;
     // THE CATEGORY DESCRIBES THIS CALL, not the previous one: cleared before
     // the FIRST return, so every early exit below (nothing paired, primary
     // id, unreadable key, adapter off, connect/discovery failure) reports
@@ -518,6 +524,13 @@ class OuraLink {
       // the slot, so the next queued link could connect while this one was
       // still disconnecting — one more live GATT link than the cap allows.
       return await withSecondaryLinkSlot(() async {
+        // A forget or a "delete everything" that landed while this sync was
+        // parked on the slot has already stopped it (nulling `_deviceId`)
+        // and deleted the row. The ids captured above would otherwise still
+        // connect to the forgotten ring and bank its history.
+        if (_deviceId != deviceId || ResetGate.changedSince(_resetGen)) {
+          return false;
+        }
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -833,6 +846,7 @@ class OuraLink {
   BandHost _makeHost(String deviceId, OuraAdapter adapter) => BandHost(
         adapter: adapter,
         deviceId: deviceId,
+        resetGeneration: _resetGen,
         onLog: (m) => debugPrint('[oura] $m'),
         onNote: _handleNote,
         // The night's hypnogram and stage minutes bank off the commit chain:
@@ -980,7 +994,9 @@ class OuraLink {
     // Refused during "delete everything": this write lands after the batches
     // it follows, so a reset that began mid-sync would otherwise leave the
     // deleted ring's bookmark in the wiped store.
-    if (ResetGate.active) throw StateError('data reset in progress');
+    if (ResetGate.changedSince(_resetGen)) {
+      throw StateError('data reset in progress');
+    }
     await LocalDb.setCursor(_cursorItem(deviceId), '$ds');
   }
 
@@ -1122,6 +1138,7 @@ class OuraLink {
     _link = link;
     _now = nowSeconds ?? _now;
     _deviceId = deviceId;
+    _resetGen = ResetGate.generation;
     await _loadAnchor(deviceId);
     final cursor = await LocalDb.getCursorInt(_cursorItem(deviceId)) ?? 0;
     var finished = false;
@@ -1294,6 +1311,7 @@ class OuraLink {
     onLink?.call(link);
     _now = nowSeconds ?? _now;
     _deviceId = deviceId;
+    _resetGen = ResetGate.generation;
     _drainOk = false;
     await _loadAnchor(deviceId);
     final cursor = await LocalDb.getCursorInt(_cursorItem(deviceId)) ?? 0;

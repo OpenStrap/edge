@@ -211,6 +211,54 @@ void main() {
         reason: 'no derive is queued over a wiped store');
   });
 
+  test('a session that began before a reset that has since finished still '
+      'writes nothing', () async {
+    // An Oura sync queued on the secondary-link slot, or a scale connect
+    // still in flight, can outlive the reset: by the time it commits the gate
+    // is down again, and only the generation it started under tells it the
+    // store it was writing for is gone.
+    addTearDown(ResetGate.resetForTest);
+    final notes = <String>[];
+    var confirmed = false;
+    final startedUnder = ResetGate.generation;
+    ResetGate.enter();
+    ResetGate.leave();
+    expect(ResetGate.active, isFalse);
+    final host = BandHost(
+      adapter: _CheckpointAdapter(() async {
+        confirmed = true;
+        return true;
+      }),
+      deviceId: deviceId,
+      onNote: (key, _) => notes.add(key),
+      resetGeneration: startedUnder,
+    );
+    final link = ReplayBandLink();
+    final future = host.run(link);
+    await link.close();
+    await future;
+    await host.stop();
+
+    expect(confirmed, isFalse);
+    expect(notes, contains('host_commit_failed'));
+    final db = await LocalDb.instance;
+    expect(await db.query('decoded_onehz'), isEmpty);
+    expect(await db.query('compute_jobs'), isEmpty);
+  });
+
+  test('a batch already queued on the commit gate refuses once the reset '
+      'has started', () async {
+    addTearDown(ResetGate.resetForTest);
+    await LocalDb.instance;
+    ResetGate.enter();
+    await expectLater(
+        LocalDb.commitSyncBatch(const [], const []), throwsStateError);
+    // The wipe itself runs on the same gate and still completes.
+    await LocalDb.wipeAll();
+    ResetGate.leave();
+    await LocalDb.commitSyncBatch(const [], const []);
+  });
+
   test('the control case: a landed commit confirms and emits no '
       'host_commit_failed', () async {
     final notes = <String>[];

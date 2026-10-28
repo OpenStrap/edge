@@ -4419,6 +4419,11 @@ class AppState extends ChangeNotifier {
   Future<bool> needsOemAutostartSettings() =>
       AndroidBackground.needsOemAutostartSettings();
 
+  /// Settings row: shown by manufacturer alone (see
+  /// [AndroidBackground.hasOemAutostartSettings]).
+  Future<bool> hasOemAutostartSettings() =>
+      AndroidBackground.hasOemAutostartSettings();
+
   /// Open this OEM's autostart allowlist screen (falls back to the app's
   /// standard settings page if none exists on this device).
   Future<void> openOemAutostartSettings() =>

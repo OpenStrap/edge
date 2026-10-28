@@ -123,7 +123,7 @@ class _MoreSettingsState extends State<MoreSettings>
   Future<void> _readBackground() async {
     final app = context.read<AppState>();
     final exempt = await app.isIgnoringBatteryOptimizations();
-    final oem = await app.needsOemAutostartSettings();
+    final oem = await app.hasOemAutostartSettings();
     if (mounted) {
       setState(() {
         _bgExempt = exempt;

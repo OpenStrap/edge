@@ -22,6 +22,7 @@ import 'adapters/host.dart' show BandHost;
 import 'adapters/miscale.dart';
 import 'adapters/thermometer.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
+import '../sync/reset_gate.dart';
 
 class SessionLink {
   SessionLink._(this.entry, this._adapter);
@@ -102,6 +103,11 @@ class SessionLink {
   }
 
   Future<bool> _sync() async {
+    // Read before any await: [stop] only reaches a link and host that already
+    // exist, so a connect still in flight when "delete everything" stopped
+    // this session would otherwise finish later and bank the deleted device's
+    // frames into the fresh store.
+    final resetGen = ResetGate.generation;
     try {
       final row = await pairedRow();
       final deviceId = row?['id'] as String?;
@@ -114,12 +120,18 @@ class SessionLink {
         return false;
       }
       return await withSecondaryLinkSlot(() async {
+        if (ResetGate.changedSince(resetGen)) return false;
         final device = BluetoothDevice.fromId(remoteId);
         try {
           await device.connect(timeout: const Duration(seconds: 20));
+          final services = await device.discoverServices();
+          if (ResetGate.changedSince(resetGen)) {
+            debugPrint('$_tag data was reset during connect; not syncing.');
+            return false;
+          }
           final link = GattBandLink(
             entry: entry,
-            services: await device.discoverServices(),
+            services: services,
             onLog: (m) => debugPrint('$_tag $m'),
           );
           _link = link;
@@ -130,7 +142,7 @@ class SessionLink {
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
           }
-          final host = _makeHost(deviceId, _now);
+          final host = _makeHost(deviceId, _now, resetGeneration: resetGen);
           _host = host;
           await host.run(link).timeout(window, onTimeout: () {});
           return true;
@@ -157,9 +169,12 @@ class SessionLink {
     _host = null;
   }
 
-  BandHost _makeHost(String deviceId, int Function() now) => BandHost(
+  BandHost _makeHost(String deviceId, int Function() now,
+          {int? resetGeneration}) =>
+      BandHost(
         adapter: _adapter(now),
         deviceId: deviceId,
+        resetGeneration: resetGeneration,
         onLog: (m) => debugPrint('$_tag $m'),
         buildArchive: (bytes, capturedAtMs) => ArchiveRecord(
           hex: bytes.map((x) => x.toRadixString(16).padLeft(2, '0')).join(),

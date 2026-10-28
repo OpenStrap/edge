@@ -263,6 +263,39 @@ void main() {
     expect(ResetGate.active, isFalse);
   });
 
+  test('every reset moves the generation, so a session that started before '
+      'one can tell after the gate lowers', () {
+    addTearDown(ResetGate.resetForTest);
+    final before = ResetGate.generation;
+    expect(ResetGate.changedSince(before), isFalse);
+    ResetGate.enter();
+    expect(ResetGate.changedSince(before), isTrue);
+    ResetGate.leave();
+    expect(ResetGate.active, isFalse);
+    expect(ResetGate.changedSince(before), isTrue,
+        reason: 'the reset ran after this session read the generation');
+    expect(ResetGate.changedSince(ResetGate.generation), isFalse);
+  });
+
+  test('a queued Oura sync re-checks the device and the reset once it gets '
+      'the slot', () {
+    final oura = File('lib/ble/oura_link.dart').readAsStringSync();
+    final slot = oura.indexOf('return await withSecondaryLinkSlot(() async {');
+    expect(slot, greaterThanOrEqualTo(0));
+    final head = oura.substring(slot, slot + 600);
+    expect(
+        head.contains(
+            'if (_deviceId != deviceId || ResetGate.changedSince(_resetGen))'),
+        isTrue,
+        reason: 'the first thing the slot callback does');
+  });
+
+  test('the wipe runs on the sync-commit gate', () {
+    final db = File('lib/data/db.dart').readAsStringSync();
+    expect(db.contains('static Future<int> wipeAll() => '
+        '_withCommitGate(_wipeAllLocked);'), isTrue);
+  });
+
   test('an unbalanced leave cannot drive the gate below shut', () {
     // A count below zero would make the NEXT reset's enter() fail to open the
     // gate — the failure mode that loses data.

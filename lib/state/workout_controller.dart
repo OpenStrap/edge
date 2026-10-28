@@ -53,6 +53,7 @@ import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../notify/tap_router.dart';
 import '../sync/edge_tracking.dart';
+import '../sync/reset_gate.dart';
 import '../widget/widget_service.dart';
 import '../ui2/activity/live.dart' show LiveDraft;
 import 'workout_idle.dart';
@@ -891,7 +892,15 @@ class WorkoutController {
   }
 
   Future<void> _stopWorkoutOnce() async {
-    if (activeWorkout == null) return;
+    final w = activeWorkout;
+    if (w == null) return;
+    // "Delete everything" can run while the teardown below is awaiting:
+    // [discardForReset] then drops this session, and a stop that carried on
+    // would either crash on the nulled session or save it into the wiped
+    // store. Checked after every await that a reset can land behind.
+    final resetGen = ResetGate.generation;
+    bool discarded() =>
+        !identical(activeWorkout, w) || ResetGate.changedSince(resetGen);
     // Step coverage is judged at the moment of stop: the teardown awaited
     // below can take long enough to look like an accel gap that never happened.
     final stopMs = DateTime.now().millisecondsSinceEpoch;
@@ -910,6 +919,7 @@ class WorkoutController {
       // Android: drop the FGS back to connectedDevice-only now the route ended.
       EdgeTracking.start(location: false);
     }
+    if (discarded()) return;
     // Release the display unconditionally — not inside the `rt != null` branch.
     // A session that never got a tracker (permission denied) still armed
     // nothing, but a session whose tracker was already cleared by another path
@@ -917,10 +927,14 @@ class WorkoutController {
     // AWAITED, like the route tail: an unflushed sensor races the finish screen
     // and the last buffered batch of sensor beats never reaches the database.
     // The sensors stay armed for the recovery tail ([_startStrapTail]).
-    await _startStrapTail(activeWorkout?.workoutId);
+    await _startStrapTail(w.workoutId);
+    if (discarded()) {
+      // A reset's disarm already ran; the tail just armed must not outlive it.
+      if (ResetGate.changedSince(resetGen)) await _disarmSensors();
+      return;
+    }
     ScreenWake.releaseOwner('workout');
     _setWorkoutActive(false);
-    final w = activeWorkout!;
     // Off the clock, not the last tick: a session finished while still paused
     // after a relaunch has never ticked, and its elapsed is still zero.
     w.elapsed =
@@ -949,6 +963,7 @@ class WorkoutController {
     // "unknown".
     final bandFamily = _linkDeviceFamily() ??
         ((await LocalDb.session(id))?['device_family'] as String?);
+    if (discarded()) return;
     final sessionRow = {
       'id': id,
       'start_ts': w.startTime.millisecondsSinceEpoch ~/ 1000,

@@ -134,8 +134,10 @@ class BandHost {
     ArchiveRecord? Function(List<int> raw, int capturedAtMs)? buildArchive,
     Map<String, String> Function()? extraCursors,
     int Function()? nowSeconds,
+    int? resetGeneration,
     Future<void> Function(Future<void> Function() commit)? faultCommitForTest,
-  })  : _admitSample = admitSample,
+  })  : _resetGeneration = resetGeneration ?? ResetGate.generation,
+        _admitSample = admitSample,
         _buildArchive = buildArchive,
         _extraCursors = extraCursors,
         _faultCommitForTest = faultCommitForTest,
@@ -207,9 +209,21 @@ class BandHost {
   /// put a deleted device's rows back into the fresh store. Thrown, not
   /// skipped, so each site takes its own failure path: the buffer is kept,
   /// the checkpoint is never confirmed, and the device still holds the data.
-  static void _refuseDuringReset() {
-    if (ResetGate.active) throw StateError('data reset in progress');
+  ///
+  /// Also refused once a reset has run at any point since [_resetGeneration]:
+  /// a session that started before it and was still connecting when the gate
+  /// lowered again would otherwise write the deleted device's rows into the
+  /// fresh store.
+  void _refuseDuringReset() {
+    if (ResetGate.changedSince(_resetGeneration)) {
+      throw StateError('data reset in progress');
+    }
   }
+
+  /// [ResetGate.generation] when this session began. Defaults to the moment
+  /// the host is built; a link that waits (on the secondary-link slot, on a
+  /// connect) before building it passes the value it read at the start.
+  final int _resetGeneration;
 
   /// Pokes the app's derive scheduler after a wearable's session banked
   /// something. Unset (a headless wake), the session queues the derive in
@@ -304,7 +318,7 @@ class BandHost {
     if (_stored && adapter.entry.category == DeviceCategory.wearable) {
       _stored = false;
       final poke = onWearableStored;
-      if (ResetGate.active) {
+      if (ResetGate.changedSince(_resetGeneration)) {
         // Nothing to derive from: the rows it would read were just wiped.
       } else if (poke != null) {
         poke();

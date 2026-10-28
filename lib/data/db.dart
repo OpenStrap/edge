@@ -55,6 +55,7 @@ import '../compute/vendor_sleep.dart' show VendorEpoch, VendorNight;
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
 import 'step_calibration.dart';
+import '../sync/reset_gate.dart';
 import 'med_store.dart';
 import 'models.dart';
 import 'nutrition_store.dart';
@@ -4306,6 +4307,12 @@ class LocalDb {
     String deviceId = kPrimaryDeviceId,
     Map<String, int>? coverageToleranceSec,
   }) async {
+    // A batch queued on the gate before "delete everything" started reaches
+    // here only after the wipe ([wipeAll] runs on the same gate). Every
+    // caller re-checks ResetGate before calling, but this one runs LATER than
+    // any of those checks, so it is the one that cannot be raced. Thrown, so
+    // the caller keeps its buffer and never ACKs.
+    if (ResetGate.active) throw StateError('data reset in progress');
     // NEUTRAL ROWS BELONG TO A NON-PRIMARY DEVICE. "" is the primary band
     // permanently (see kPrimaryDeviceId); a neutral-sample writer is by
     // definition a band with no framed record, which the primary is not.
@@ -10645,7 +10652,13 @@ class LocalDb {
   /// run inside `openDatabase` on iOS's CPU watchdog — not somewhere to be on
   /// the tail of a destructive user action). Views are `type='view'` and are
   /// not matched; the sqlite/Android internal tables are skipped by name.
-  static Future<int> wipeAll() async {
+  ///
+  /// Runs on the sync-commit gate, so it cannot interleave with a band batch
+  /// that is mid-commit, and a batch queued behind it sees the reset and
+  /// refuses (see [_commitSyncBatchLocked]).
+  static Future<int> wipeAll() => _withCommitGate(_wipeAllLocked);
+
+  static Future<int> _wipeAllLocked() async {
     final db = await instance;
     final rows = await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'table' "
