@@ -83,6 +83,25 @@ class PhonePedometer {
     }
   }
 
+  /// The motion coprocessor's own step count between two instants, or null when
+  /// the interval is not covered.
+  ///
+  /// The calibration routine needs a WINDOW, not a day: a household routine is
+  /// three minutes long and the reference has to be the steps inside exactly
+  /// those minutes. Null and [intervalNotCovered] both mean "no reference", and
+  /// the calibration refuses the run on either — a phone that was on a table
+  /// measured nothing, which must not be fitted as a measured zero.
+  Future<int?> stepsBetween(DateTime from, DateTime to) async {
+    if (!to.isAfter(from)) return null;
+    try {
+      final steps = await _readSteps(from, to);
+      if (steps == null || steps == intervalNotCovered || steps < 0) return null;
+      return steps;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Ask for access to the phone's step sensor. Safe to call repeatedly.
   ///
   /// THIS IS THE ONLY THING THAT MAKES THE PERMISSION EXIST. On iOS a

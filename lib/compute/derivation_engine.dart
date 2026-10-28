@@ -1810,7 +1810,28 @@ import 'vendor_sleep.dart';
 // store `skin_temp_ambient_r` and the illness watch leaves out WHOOP 4 nights
 // whose skin temp tracks ambient (|r| >= 0.8, or unmeasured). One-shot,
 // raw-free: days derived before v106 drop naps overlapping the next night.
-const int kAlgoVersion = 113;
+// → 118 (per-wearer step calibration, edge-only; 114-117 are claimed by other
+// open changes, and this has to sort above all of them): the strap's live
+// 100 Hz pedometer banks through the wearer's own calibrated gain, per activity family
+// (slow / brisk / jog against the wearer's own counted walk; household against
+// the phone). NO CALIBRATION ⇒ EVERY NUMBER IS UNCHANGED TO THE DIGIT, since an
+// uncalibrated family resolves to `StepParams.gain` exactly as before.
+//
+// What this bump does and does NOT do — the honest half:
+//   * The gain is applied when a run is BANKED (`_bankGaitRuns`), so it changes
+//     walks banked from here on. It CANNOT retroactively alter windows already
+//     in `live_coverage`: those rows store the post-gain count and their raw
+//     per-run counts are not retained, so a later recalibration cannot repair
+//     them. Recalibrating changes the future, not the past.
+//   * The bump is still required, because the OUTPUT of any day that banks
+//     afterwards differs and a `day_result` is immutable per version.
+//   * It follows that a user who calibrates today sees today's and later days
+//     move; earlier days keep the steps they were derived with. Fixing that
+//     properly means storing the RAW count per coverage window and applying the
+//     gain on READ (the daily-sum layer `calcSteps` documents as the gain's
+//     home), which is a change to `live_coverage` and its readers, not to this
+//     feature.
+const int kAlgoVersion = 118;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///

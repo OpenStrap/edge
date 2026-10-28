@@ -48,6 +48,7 @@ import '../compute/derive_scheduler.dart';
 import '../compute/inputs/canonical.dart'
     show flagOnOrPrimary, onWearableDaysChanged, refreshSessionSensorSources;
 import '../compute/manual_session.dart' show supersededSuggestionIds;
+import '../compute/step_calibration_fit.dart';
 import '../compute/hr_max.dart';
 import '../compute/inputs/measurement_inputs.dart'
     show
@@ -696,6 +697,15 @@ class AppState extends ChangeNotifier {
     // truncated backup fails loudly; `gzip.decoder` returns partial output
     // without raising and would restore short while reporting success.
     final counts = await LocalDb.importFromDbFile(path);
+    await LocalDb.refitAllLiveStepGains();
+    // An import can MERGE calibration rows (`live_step_calibration`) in from the
+    // backup without this process knowing, and the cached fit is the only thing
+    // `creditedStepsForRun` consults when a walk is banked. Without this, every
+    // walk banked after a restore would use the pre-restore gain — including the
+    // case where the backup is the reason the calibration exists at all (a new
+    // phone). The docstring on [invalidateLiveStepCalibration] names this path;
+    // this line is what makes that true.
+    invalidateLiveStepCalibration();
     lastImportArchiveSkipped = counts['_substrate_archive_skipped'] ?? 0;
     lastImportArchiveRestored = counts['substrate_archive'] ?? 0;
     if (lastImportArchiveSkipped > 0) {
@@ -1295,6 +1305,10 @@ class AppState extends ChangeNotifier {
       // 2 · every row in every table (see LocalDb.wipeAll for why it is not a
       // hand-written table list, and for the sync_cursor decision).
       await LocalDb.wipeAll();
+      // The rows are gone; the cached fit is not. Without this a walk banked
+      // after a data reset would still be corrected by the pre-reset gain — the
+      // same omission as the import path, and the same one line.
+      invalidateLiveStepCalibration();
 
       // Surfaces outside the database that were still showing it.
       await NotificationService.instance.cancelAll();
@@ -3218,6 +3232,45 @@ class AppState extends ChangeNotifier {
   /// something a source ladder can rank.
   final GaitRuns _gaitRuns = GaitRuns();
 
+  /// Admitted calibration runs for the live 100 Hz pedometer, cached per
+  /// session.
+  ///
+  /// Lazily loaded rather than fetched per banked run: the fit reads the WHOLE
+  /// run history, and a session banks a handful of runs, so a query per run
+  /// would be a query per walk for an answer that cannot change mid-session.
+  ///
+  /// The calibration screen MUST call [invalidateLiveStepCalibration] once it has
+  /// saved, or a walk that started before the save would bank with the old gain.
+  List<StepCalibrationRun>? _liveStepCalibration;
+
+  /// Bumped by every invalidation. A load that started before an invalidation
+  /// must not put its result back: the calibration screen saves while a banked
+  /// walk may already have triggered a read, and a stale list restored after the
+  /// save would have every later walk fit the previous gain.
+  int _liveStepCalibrationGeneration = 0;
+
+  Future<List<StepCalibrationRun>> _liveStepCalibrationRuns() async {
+    while (true) {
+      final cached = _liveStepCalibration;
+      if (cached != null) return cached;
+      final generation = _liveStepCalibrationGeneration;
+      final rows = await LocalDb.liveStepCalibrationRuns();
+      // Invalidated while the read was in flight: these rows may predate the
+      // save that invalidated them, so read again rather than hand the caller
+      // the previous calibration.
+      if (generation != _liveStepCalibrationGeneration) continue;
+      return _liveStepCalibration = rows;
+    }
+  }
+
+  /// Drop the cached fit so the next banked run uses a newly saved calibration.
+  /// Also called after a database import, which merges calibration rows in
+  /// without this process knowing.
+  void invalidateLiveStepCalibration() {
+    _liveStepCalibration = null;
+    _liveStepCalibrationGeneration++;
+  }
+
   /// Map a phone-clock instant onto the BAND's record-time base, the base
   /// `live_coverage` rows live in.
   ///
@@ -3251,8 +3304,14 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  /// Steps counted on the live 100 Hz stream this connected session (real,
-  /// gain-applied). Used for cadence calibration. 0 when not streaming.
+  /// Steps counted on the live 100 Hz stream this connected session. Used for
+  /// cadence calibration. 0 when not streaming.
+  ///
+  /// This used to read "(real, gain-applied)". It is NOT, and cannot be:
+  /// `_committedRaw` holds "raw (pre-gain) steps from completed minutes" and
+  /// `ana.pedometer` returns "Raw count — no calibration gain". Corrected rather
+  /// than left standing, because the calibration reads this value and depends on
+  /// it being raw.
   ///
   /// The still-filling partial minute is dropped once the stream has been
   /// MEASURED below [kMinLiveSampleRateHz] — a count off a stream that slow is
@@ -3269,6 +3328,16 @@ class AppState extends ChangeNotifier {
     if (hz != null && hz < kMinLiveSampleRateHz) return _committedRaw;
     return _committedRaw + ana.pedometer(_magMin);
   }
+
+  /// The strap's live RAW step count for this connected session — what the
+  /// calibration screen shows while the wearer walks.
+  ///
+  /// PUBLIC AND RAW ON PURPOSE. The screen's whole job is to show the gap
+  /// between what the wearer counted and what the band saw, and that gap IS the
+  /// correction. Applying the gain here would hide the answer behind the number
+  /// being calibrated, and at the moment of calibration the gain is the thing
+  /// the wearer is trying to change.
+  int get liveStrapRawSteps => _liveRaw;
 
   // ── the two safety gates on this tier — see live_step_runs.dart ────────────
   /// Phone-clock instant the current chunk's first sample arrived AFTER, i.e.
@@ -3516,13 +3585,26 @@ class AppState extends ChangeNotifier {
 
   /// Persist [runs] as `live_coverage` rows under the STRAP source.
   ///
-  /// `ana.StepParams.gain` is applied HERE and nowhere else on the persistence
-  /// path — the runs carry the raw count exactly as `pedometer()` returns it,
-  /// and this is the daily-sum layer `calcSteps` documents as the gain's home.
-  /// Applying it at both ends shipped a silent x1.23.
+  /// The step trim is applied HERE, and on the checkpoint path ONLY through the
+  /// same [creditedStepsForRun] call — the runs carry the raw count exactly as
+  /// `pedometer()` returns it, and this is the daily-sum layer `calcSteps`
+  /// documents as the gain's home. Two formulas, or one formula applied at both
+  /// ends, is the silent x1.23 this method's history records; one shared
+  /// function with one factor per run is the invariant that prevents it.
   Future<void> _bankGaitRuns(List<LiveStepRun> runs) async {
+    if (runs.isEmpty) return;
+    final calibration = await _liveStepCalibrationRuns();
     for (final run in runs) {
-      final steps = (run.rawSteps * ana.StepParams.gain).round();
+      // ONE factor per run. When the wearer has calibrated a family this file
+      // uses THAT gain; otherwise it is exactly the shipped `StepParams.gain`
+      // this line used before, to the digit. The two are never multiplied —
+      // multiplying them is the silent x1.23 this method's docstring records.
+      final steps = creditedStepsForRun(
+        rawSteps: run.rawSteps,
+        seconds: run.seconds,
+        runs: calibration,
+        fallbackGain: ana.StepParams.gain,
+      );
       if (steps <= 0) continue;
       // Per RUN, so a walk either side of midnight lands on the right days
       // instead of both going to whichever day the session started on.
@@ -3536,6 +3618,17 @@ class AppState extends ChangeNotifier {
         day,
         source: kStepSourceStrap,
       );
+      // AGENTS.md §4.7 — the other two callers of `addLiveCoverage` are
+      // enumerated here so this capability cannot be wired into one path and
+      // forgotten in the rest:
+      //   * `_recoverOrphanedLiveSessionOnce` (below) banks a checkpoint's
+      //     numbers VERBATIM, and that checkpoint is written through this same
+      //     `creditedStepsForRun`, so it carries the calibration too.
+      //   * `lib/import/noop_ingest.dart` banks another app's exported step
+      //     runs. Those are the vendor's own counts, already measured by a
+      //     device that is not this strap's pedometer, so this calibration must
+      //     NOT be applied to them — the gain describes our counter's residual,
+      //     not theirs.
     }
   }
 
@@ -3552,6 +3645,7 @@ class AppState extends ChangeNotifier {
     if (_gaitRuns.isEmpty) return;
     try {
       final prefs = await SharedPreferences.getInstance();
+      final calibration = await _liveStepCalibrationRuns();
       await prefs.setString(
         _kLiveSessionCheckpoint,
         // Runs are stored gain-applied, i.e. exactly the numbers
@@ -3561,7 +3655,19 @@ class AppState extends ChangeNotifier {
         jsonEncode({
           'runs': [
             for (final r in _gaitRuns.runs)
-              [r.startTs, r.endTs, (r.rawSteps * ana.StepParams.gain).round()],
+              [
+                r.startTs,
+                r.endTs,
+                // The SAME single application as [_bankGaitRuns], because
+                // recovery banks these numbers verbatim. A second formula here
+                // would be a second application of the gain.
+                creditedStepsForRun(
+                  rawSteps: r.rawSteps,
+                  seconds: r.seconds,
+                  runs: calibration,
+                  fallbackGain: ana.StepParams.gain,
+                ),
+              ],
           ],
         }),
       );

@@ -15755,5 +15755,67 @@
         "type": "String"
       }
     }
+  },
+  "settingsStepCalibration": "Step calibration",
+  "settingsStepCalibrationSub": "Learns how your strap over- or under-counts your own walking, and corrects it on the phone. Nothing is written to the strap and nothing leaves the device",
+  "stepCalTitle": "Step calibration",
+  "stepCalIntro": "Your strap counts steps off its own motion sensor, and how far off it is depends on you. These routines measure that. Nothing leaves your phone.",
+  "stepCalSlowTitle": "Slow walk",
+  "stepCalSlowSub": "walk slowly, phone in your pocket",
+  "stepCalSlowGuide": "Walk slowly and evenly, strap snug. Count 100 steps yourself.",
+  "stepCalBriskTitle": "Brisk walk",
+  "stepCalBriskSub": "walk at your usual pace",
+  "stepCalBriskGuide": "Walk at your normal pace. Count 100 steps yourself.",
+  "stepCalJogTitle": "Jog",
+  "stepCalJogSub": "jog steadily",
+  "stepCalJogGuide": "Jog steadily. Count 100 steps yourself.",
+  "stepCalEverydayTitle": "Around the house",
+  "stepCalEverydaySub": "tidy up for three minutes, phone in pocket",
+  "stepCalEverydayGuide": "Do ordinary things around the house \u2014 carry, lift, tidy \u2014 with your phone in your pocket. Three minutes. Do not pace deliberately.",
+  "stepCalCalibrated": "Calibrated \u2014 counted {n} times",
+  "stepCalNotCalibrated": "Not calibrated yet",
+  "stepCalBandSeen": "steps the band has seen",
+  "stepCalCountYourself": "Count your own steps. Stop when you reach {target}.",
+  "stepCalElapsed": "Keep going \u2014 this one is timed.",
+  "stepCalFinish": "Done",
+  "stepCalCancel": "Cancel",
+  "stepCalKeepWalking": "Nothing recorded yet \u2014 start walking with the strap snug.",
+  "stepCalKeepMoving": "Nothing recorded yet \u2014 keep the phone on you and keep moving.",
+  "stepCalNoSignal": "The band recorded nothing during that routine.",
+  "stepCalNoPhoneAccess": "This routine needs your phone\u2019s step counter, and access was not granted. That counter is the reference for household movement.",
+  "stepCalNoPhone": "Your phone counted no steps while you did that. Keep it in your pocket next time \u2014 it is the reference for household movement.",
+  "stepCalBandQuiet": "The band saw almost no movement. It is worth checking the strap is worn snugly and streaming.",
+  "stepCalTooShort": "That routine was too short to measure against. Walk the full count.",
+  "stepCalMismatch": "The band counted far more than you did. Something other than walking was being picked up.",
+  "stepCalWrongSource": "That routine used the wrong reference.",
+  "stepCalBadData": "That routine produced unreadable sensor data.",
+  "stepCalRatioOutOfRange": "Your count and the band\u2019s are too far apart to use. Repeat the routine and walk the full count.",
+  "stepCalRoutineTooShort": "That routine ended before the timer finished. Keep going until it completes.",
+  "stepCalSaveFailed": "Could not save that calibration.",
+  "stepCalDoneGait": "Saved. You counted {count} steps and the band saw {band} steps. From now on this kind of walking is corrected by {pct}%.",
+  "stepCalDoneHousehold": "Saved. Your phone counted {count} steps of the {band} steps the band saw. Household movement is now scaled to {gain}.",
+  "@stepCalCalibrated": {
+    "description": "Badge on a category row: how many supervised routines are behind its gain.",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "@stepCalCountYourself": {
+    "description": "Instruction during a gait routine. The wearer counts their own steps; the band's live count is shown only as feedback, because a run that ended on the band's own count would always fit exactly 1.0.",
+    "placeholders": {"target": {"type": "int"}}
+  },
+  "@stepCalDoneGait": {
+    "description": "Result of a gait calibration: what the wearer counted, what the band counted, and the percentage correction now applied. Signed, so a reduction reads as -12%.",
+    "placeholders": {
+      "count": {"type": "int"},
+      "band": {"type": "int"},
+      "pct": {"type": "int"}
+    }
+  },
+  "@stepCalDoneHousehold": {
+    "description": "Result of a household calibration: the phone's count (the reference), the band's count, and the resulting scale as a fixed-2 string.",
+    "placeholders": {
+      "count": {"type": "int"},
+      "band": {"type": "int"},
+      "gain": {"type": "String"}
+    }
   }
 }
