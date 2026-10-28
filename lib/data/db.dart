@@ -1254,6 +1254,7 @@ class LocalDb {
     await _createDerived(db);
     await _createDayResult(db);
     await _ensureDayResultImportedColumn(db);
+    await _createDeriveFingerprint(db);
     await _createUserTables(db);
     await _createSyncState(db);
     await _createSyncCursor(db);
@@ -9614,6 +9615,273 @@ class LocalDb {
       whereArgs: [algoVersion],
     );
     return {for (final r in rows) r['day_id'] as String};
+  }
+
+  /// Every stored input a derive of [dayId] reads, as one string, or null
+  /// when the derive can depend on the wall clock (a session with no end,
+  /// which activity review treats as running until now). The derivation
+  /// engine hashes this with the profile, the algorithm version, the data
+  /// edge and the baseline history, and skips a day whose hash has not moved
+  /// since a derive that changed nothing it reads (see
+  /// `DerivationEngine._dayInputFingerprint`).
+  ///
+  /// CONSERVATIVE BY CONSTRUCTION: windows are wider than any one the derive
+  /// loads ([fromSec]..[toSec] is the night search through the nap buffer
+  /// with a day of slack either side), whole small tables are read where the
+  /// derive reads part of them, and the only columns left out are write
+  /// stamps (`computed_at`, `updated_at`, `updated_ts`) and the device row's
+  /// battery/last-seen readings, none of which a derive reads. Over-reading
+  /// costs a derive that could have been skipped; under-reading would serve
+  /// a stale day, so anything in doubt is in.
+  static Future<String?> dayInputSignature({
+    required String dayId,
+    required String prevDayId,
+    required String nextDayId,
+    required int fromSec,
+    required int toSec,
+    required String? wearableDeviceId,
+  }) async {
+    final db = await instance;
+    final out = StringBuffer();
+    String rows(List<Map<String, Object?>> rs, {Set<String> drop = const {}}) {
+      final keys = rs.isEmpty
+          ? const <String>[]
+          : (rs.first.keys.where((k) => !drop.contains(k)).toList()..sort());
+      return jsonEncode([
+        for (final r in rs) [for (final k in keys) r[k]],
+      ]);
+    }
+
+    Future<void> add(String label, String sql,
+        [List<Object?> args = const [], Set<String> drop = const {}]) async {
+      out
+        ..write(label)
+        ..write('=')
+        ..write(rows(await db.rawQuery(sql, args), drop: drop))
+        ..write(';');
+    }
+
+    Future<bool> has(String table) async =>
+        (await _objectType(db, table)) != null;
+
+    final days = [prevDayId, dayId, nextDayId];
+    const stamps = {'computed_at', 'updated_at', 'updated_ts'};
+    final openSession = await db.rawQuery(
+      'SELECT 1 FROM sessions WHERE end_ts IS NULL AND start_ts <= ? LIMIT 1',
+      [toSec + 86400],
+    );
+    if (openSession.isNotEmpty) return null;
+
+    final oneHzCols = {
+      for (final c in await db.rawQuery('PRAGMA table_info(decoded_onehz)'))
+        c['name'] as String,
+    }..removeAll(const {'device_id', 'device_family', 'source'});
+    await add(
+      'onehz',
+      'SELECT COUNT(*), TOTAL(rowid), MAX(rowid), '
+          '${[for (final c in oneHzCols.toList()..sort()) 'TOTAL($c)'].join(', ')}, '
+          'TOTAL(LENGTH(device_id)), TOTAL(LENGTH(device_family)), '
+          'TOTAL(LENGTH(source)) '
+          'FROM decoded_onehz WHERE rec_ts BETWEEN ? AND ?',
+      [fromSec, toSec],
+    );
+    await add(
+      'rr',
+      'SELECT COUNT(*), TOTAL(rowid), MAX(rowid), TOTAL(rr_ms), '
+          'TOTAL(rr_ts_ms), TOTAL(LENGTH(device_id)) '
+          'FROM decoded_rr WHERE rec_ts BETWEEN ? AND ?',
+      [fromSec, toSec],
+    );
+    // The wear and charge transitions are read back past the window (the
+    // state already open at its start), so all of them count.
+    await add(
+      'band_events',
+      'SELECT COUNT(*), TOTAL(rowid), MAX(rowid) FROM band_events '
+          'WHERE (ts BETWEEN ? AND ?) OR event_id IN (?, ?, ?, ?)',
+      [
+        fromSec,
+        toSec,
+        proto.EventId.chargingOn,
+        proto.EventId.chargingOff,
+        proto.EventId.wristOn,
+        proto.EventId.wristOff,
+      ],
+    );
+    await add('live_coverage',
+        'SELECT * FROM live_coverage WHERE day = ? ORDER BY rowid', [dayId]);
+    await add(
+      'sessions',
+      'SELECT * FROM sessions WHERE start_ts BETWEEN ? AND ? ORDER BY id',
+      [fromSec - 2 * 86400, toSec + 86400],
+    );
+    for (final t in const [
+      'session_sensor',
+      'session_score_mask',
+      'signal_priority',
+      'step_calibration',
+      'activity_review_meta',
+      'activity_review_days',
+    ]) {
+      if (await has(t)) {
+        await add(t, 'SELECT * FROM $t ORDER BY rowid', const [], stamps);
+      }
+    }
+    final marks = List.filled(days.length, '?').join(',');
+    await add('sleep_override',
+        'SELECT * FROM sleep_override WHERE day_id IN ($marks) ORDER BY day_id',
+        days, stamps);
+    if (await has('sleep_nap')) {
+      await add(
+        'sleep_nap',
+        'SELECT * FROM sleep_nap WHERE day_id IN ($marks) '
+            'OR (start_ts < ? AND end_ts > ?) ORDER BY rowid',
+        [...days, toSec, fromSec],
+        stamps,
+      );
+    }
+    if (await has('activity_suggestions')) {
+      await add(
+        'activity_suggestions',
+        'SELECT * FROM activity_suggestions WHERE day_id IN ($marks) '
+            'OR (detection_start < ? AND detection_end > ?) ORDER BY id',
+        [...days, toSec + 86400, fromSec - 86400],
+        stamps,
+      );
+    }
+    await add(
+      'device',
+      'SELECT * FROM device ORDER BY id',
+      const [],
+      {...stamps, 'last_seen', 'battery_pct', 'battery_ts', 'name'},
+    );
+    await add(
+      'cursor',
+      "SELECT name, value FROM sync_cursor WHERE name IN (?, ?) "
+          "OR name LIKE 'wearable_enabled:%' ORDER BY name",
+      ['active_wearable', kDecodedPrunedBeforeCursor],
+    );
+    await add(
+      'device_coverage',
+      'SELECT * FROM device_coverage WHERE end_ts > ? AND start_ts < ? '
+          'ORDER BY rowid',
+      [fromSec, toSec],
+    );
+    if (await has('vendor_sleep_epoch')) {
+      await add(
+        'vendor_sleep',
+        'SELECT COUNT(*), TOTAL(rowid), MAX(rowid) FROM vendor_sleep_epoch '
+            'WHERE night_onset_ts BETWEEN ? AND ?',
+        [fromSec - 86400, toSec + 86400],
+      );
+    }
+    if (wearableDeviceId != null) {
+      // A wearable's substrate is read without a window (its whole HR
+      // history sets its edge) and from the archive (rings bank replies
+      // there), so all of that device's rows count.
+      await add(
+        'wearable_rows',
+        'SELECT COUNT(*), TOTAL(rowid), MAX(rowid), TOTAL(hr) '
+            'FROM decoded_onehz WHERE device_id = ?',
+        [wearableDeviceId],
+      );
+      await add(
+        'wearable_archive',
+        'SELECT COUNT(*), MAX(captured_at), TOTAL(captured_at), '
+            'TOTAL(LENGTH(hex)) FROM raw_archive WHERE device_id = ?',
+        [wearableDeviceId],
+      );
+    }
+    await add(
+      'baselines',
+      "SELECT key, payload_json FROM baselines "
+          "WHERE key IN ('sleep_user_profile', 'movement_floor') ORDER BY key",
+    );
+    await add(
+      'freshness',
+      'SELECT key, payload_json FROM compute_freshness WHERE key = ?',
+      ['quiet_repass:$dayId'],
+    );
+    // The day's own rows and its neighbours' — read back by the carry-forward
+    // guards, tonight's sleep and activity review. Hashed, not inlined.
+    final results = await db.rawQuery(
+      'SELECT day_id, algo_version, finalized, partial, skipped, rhr, rmssd, '
+      'readiness, window_json, payload_json FROM day_result '
+      'WHERE day_id IN ($marks) ORDER BY day_id, algo_version',
+      days,
+    );
+    out.write('day_result=');
+    for (final r in results) {
+      final payload = r['payload_json'];
+      out
+        ..write([
+          for (final k in const [
+            'day_id', 'algo_version', 'finalized', 'partial', 'skipped',
+            'rhr', 'rmssd', 'readiness', 'window_json',
+          ])
+            r[k],
+        ].join(','))
+        ..write(',')
+        ..write(payload is String
+            ? sha1.convert(utf8.encode(payload)).toString()
+            : 'null')
+        ..write('|');
+    }
+    out.write(';');
+    await add(
+      'candidates',
+      'SELECT day_id, algo_version, payload_json FROM sleep_session_candidates '
+          'WHERE day_id = ? ORDER BY algo_version',
+      [dayId],
+    );
+    out
+      ..write('windows=')
+      ..write(rows(await sleepWindowRows(60)))
+      ..write(';');
+    return out.toString();
+  }
+
+  /// The input fingerprint the last derive of [dayId] stored, when that
+  /// derive changed nothing it reads — see `DerivationEngine`'s skip.
+  static Future<String?> deriveFingerprint(String dayId) async {
+    final db = await instance;
+    final r = await db.query(_deriveFingerprintTable,
+        columns: ['fp'], where: 'day_id = ?', whereArgs: [dayId], limit: 1);
+    return r.isEmpty ? null : r.first['fp'] as String?;
+  }
+
+  /// Store (or, with null, clear) [dayId]'s fingerprint. Rows two months
+  /// older than [dayId] go with it: only days still re-deriving are ever
+  /// looked up. Measured from the day, not the wall clock, so a backfill of
+  /// old days does not delete its own rows.
+  static Future<void> putDeriveFingerprint(String dayId, String? fp) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      if (fp == null) {
+        await txn.delete(_deriveFingerprintTable,
+            where: 'day_id = ?', whereArgs: [dayId]);
+        return;
+      }
+      await txn.insert(_deriveFingerprintTable, {'day_id': dayId, 'fp': fp},
+          conflictAlgorithm: ConflictAlgorithm.replace);
+      final t = DateTime.tryParse(dayId);
+      if (t != null) {
+        await txn.delete(_deriveFingerprintTable,
+            where: 'day_id < ?',
+            whereArgs: [dayLabelOf(DateTime(t.year, t.month - 2, t.day))]);
+      }
+    });
+  }
+
+  static const String _deriveFingerprintTable = 'derive_fingerprint';
+
+  /// One row per day: the fingerprint above. Recomputable bookkeeping —
+  /// losing it costs one derive per day — so additive on the open pass with
+  /// no version bump, like the other repair-path tables.
+  static Future<void> _createDeriveFingerprint(Database db) async {
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS $_deriveFingerprintTable '
+      '(day_id TEXT PRIMARY KEY, fp TEXT NOT NULL)',
+    );
   }
 
   /// The set of day_id labels that are FINALIZED at [algoVersion] (locked). A

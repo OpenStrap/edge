@@ -2803,6 +2803,47 @@ class _BaselineHistoryCache {
     return [for (var i = from; i < samples.length; i++) samples[i].value];
   }
 
+  /// The dated quiet levels [_quietFingerprint] covers, newest included, as
+  /// `[date, value]` pairs: what [rescanRecent] compares against the list it
+  /// stored last time to find the days whose strain window moved.
+  List<List<Object>> quietWindowEntries() {
+    final series = _series['quiet_hrr'] ?? const <_DatedValue>[];
+    const span = _rescanWindowDays + _baselineWindowDays + 1;
+    final from = series.length <= span ? 0 : series.length - span;
+    return [
+      for (var i = from; i < series.length; i++)
+        [series[i].date, series[i].value],
+    ];
+  }
+
+  /// Every history value a derive of [date] can read, hashed: each series'
+  /// entries strictly before [date] with their method family (the windows
+  /// `valuesBefore`/`maxBefore` serve), plus every `dyn_p90` entry, whose
+  /// dates the frozen movement floor reads whole. Days after [date] are left
+  /// out, so today's values moving through the day do not unsettle the days
+  /// before it.
+  String inputsBefore(String date) {
+    final b = StringBuffer();
+    for (final key in _series.keys.toList()..sort()) {
+      final series = _series[key]!;
+      final fams = _families[key];
+      final end =
+          key == 'dyn_p90' ? series.length : _beforeIndex(series, date);
+      b.write('|$key:');
+      for (var i = 0; i < end; i++) {
+        final v = series[i];
+        b
+          ..write(v.date)
+          ..write('=')
+          ..write(v.value)
+          ..write('@')
+          ..write(fams?[v.date] ?? '')
+          ..write(',');
+      }
+    }
+    return sha1.convert(utf8.encode(b.toString())).toString();
+  }
+
   /// Strain's quiet-waking level is a baseline too, and [rescanRecent] has to
   /// re-price the recent days when ANY of their windows moves — a count and a
   /// median of the whole series do not see that: each day is priced on the
@@ -3176,6 +3217,80 @@ class DerivationEngine {
   /// Any later pass on this shared engine (a drain's light pass) resets them
   /// too, so a caller that must attribute the outcome to its own run passes
   /// [run]'s `onOutcome` instead of reading these after other awaits.
+  ///
+  /// Days [run] left alone in its last pass because nothing they read had
+  /// moved (see [_dayInputFingerprint]).
+  int lastRunUnchangedDays = 0;
+
+  /// Test seam: derive every targeted day, as before the unchanged-day skip.
+  @visibleForTesting
+  static bool debugDeriveEveryDay = false;
+
+  /// Test seam: the version [_dayInputFingerprint] keys on, to stand in for a
+  /// [kAlgoVersion] bump.
+  @visibleForTesting
+  static int? debugFingerprintAlgoVersion;
+
+  /// Everything a derive of [dayId] reads, hashed, or null when it must
+  /// derive regardless (today: its result follows the wall clock).
+  ///
+  /// [run] re-derives every unfinalized day on every pass — on a soak with
+  /// no new data, four to six days at 8-14 s each, the whole pass for
+  /// nothing. A day is skipped when this matches the value stored by a
+  /// derive of it that was a FIXED POINT: the fingerprint read just before
+  /// that derive equalled the one read just after, so the derive rewrote
+  /// nothing it reads (its own row, its neighbours', the review state, the
+  /// sessions it scores). Deterministic compute over unchanged inputs then
+  /// gives the same result again, so not running it is the same as running
+  /// it. A day still converging (tonight's sleep landing on the next pass, a
+  /// review row it just wrote) derives again until it is one.
+  ///
+  /// Mixed in: the algorithm version, the profile, the data edge (stored in
+  /// the payload, so new data anywhere is a new result), the timezone the
+  /// day's window is cut in, the session-sensor globals, the baseline history
+  /// before the day, and [LocalDb.dayInputSignature] — the rows themselves.
+  Future<String?> _dayInputFingerprint(
+    String dayId,
+    Profile profile,
+    int dataNowSec,
+    _BaselineHistoryCache history,
+  ) async {
+    if (dayId == todayLabel()) return null;
+    final dayStart = _localDayLabelToSec(dayId);
+    final dayEnd = _localNextDayLabelToSec(dayId);
+    final wearable = await activeWearable();
+    final rows = await LocalDb.dayInputSignature(
+      dayId: dayId,
+      prevDayId: localDateLabel(dayStart - 43200),
+      nextDayId: localDateLabel(dayEnd + 43200),
+      fromSec: dayStart - kNocturnalSearchLookbackSec - 86400,
+      toSec: dayEnd + napBoundaryBufferSec + 86400,
+      wearableDeviceId: wearable?.$1,
+    );
+    if (rows == null) return null;
+    final now = DateTime.now();
+    final finalized = (await LocalDb.finalizedDayIds(kAlgoVersion)).toList()
+      ..sort();
+    final head = [
+      'v${debugFingerprintAlgoVersion ?? kAlgoVersion}',
+      dataNowSec,
+      // The edges a day is aged against (band and wearable; see
+      // [_agingEdgeFor]), from the pass's own memo.
+      await _agingEdgeFor(null, dataNowSec, history),
+      await (history._wearableEdge ??= wearableLastTs()),
+      now.timeZoneName,
+      now.timeZoneOffset.inMinutes,
+      dayStart,
+      dayEnd,
+      jsonEncode(profile.toMap()),
+      (LocalDb.sessionSensorSources.toList()..sort()).join(','),
+      LocalDb.sessionWearableSource,
+      '$wearable',
+      history.inputsBefore(dayId),
+      finalized.join(','),
+    ].join('|');
+    return sha1.convert(utf8.encode('$head#$rows')).toString();
+  }
   String? lastRunError;
   int lastRunFailedDays = 0;
 
@@ -3220,6 +3335,7 @@ class DerivationEngine {
       ..['last_error'] = null;
     lastRunError = null;
     lastRunFailedDays = 0;
+    lastRunUnchangedDays = 0;
 
     FirebaseTraceHandle? runTrace;
     try {
@@ -3368,6 +3484,7 @@ class DerivationEngine {
       var done = 0;
       var completed = 0;
       var failures = 0;
+      var unchanged = 0;
       final activeDays = <String>{};
       _diag['stage'] = 'per_day';
       _diag['active_days'] = const <String>[];
@@ -3382,10 +3499,38 @@ class DerivationEngine {
       // which Dart's cooperative single-threaded scheduler makes atomic
       // relative to the other concurrent workers even though the actual
       // isolate CPU work they await genuinely runs in parallel across cores.
+      // A forced pass and a day the user just edited always derive.
+      Future<String?> fingerprint(String dayId) async {
+        if (force || editedDays.contains(dayId) || debugDeriveEveryDay) {
+          return null;
+        }
+        try {
+          return await _dayInputFingerprint(
+              dayId, profile, dataNowSec, history);
+        } catch (e) {
+          _log('derive day $dayId: fingerprint failed, deriving: $e');
+          return null;
+        }
+      }
+
       Future<void> processDay(String dayId) async {
         activeDays.add(dayId);
         _diag['active_days'] = activeDays.toList();
         try {
+          final before = await fingerprint(dayId);
+          if (before != null &&
+              before == await LocalDb.deriveFingerprint(dayId)) {
+            unchanged++;
+            _diag['unchanged_days'] = unchanged;
+            activeDays.remove(dayId);
+            _diag['active_days'] = activeDays.toList();
+            completed++;
+            onDayDone?.call(dayId, completed, orderedDays.length);
+            return;
+          }
+          // Cleared before the derive so an interrupted one cannot leave a
+          // fingerprint vouching for the row it was rewriting.
+          await LocalDb.putDeriveFingerprint(dayId, null);
           final prepared = await _prepareTargetDay(dayId);
           // Override day whose raw has been pruned (≥14 d): re-deriving would
           // produce an empty/absent result and clobber the user's manual sleep.
@@ -3399,6 +3544,11 @@ class DerivationEngine {
             await _derivePreparedDay(prepared, profile, dataNowSec, history);
             done++;
             _diag['done_days'] = done;
+            // Stored only when the derive was a fixed point; see
+            // [_dayInputFingerprint].
+            if (before != null && before == await fingerprint(dayId)) {
+              await LocalDb.putDeriveFingerprint(dayId, before);
+            }
           } else {
             _log('derive day $dayId skipped: no bounded window payload');
             await _markDaySkipped(
@@ -3436,8 +3586,15 @@ class DerivationEngine {
       _diag['stage'] = 'quiet_repass';
       done += await _quietLevelRepass(profile, dataNowSec, scope.rawDays);
 
-      // 4. Cross-day rollup + notifications (best-effort).
-      if (done > 0) {
+      lastRunUnchangedDays = unchanged;
+      if (unchanged > 0) {
+        _log('derive: $unchanged day(s) unchanged since their last derive');
+      }
+
+      // 4. Cross-day rollup + notifications (best-effort). A day left alone
+      // because nothing it reads moved still counts: the rollup and the
+      // notifications ran on every such pass before the skip existed.
+      if (done > 0 || unchanged > 0) {
         _diag['stage'] = 'baselines';
         await _refreshBaselines();
         _diag['stage'] = 'cross_day';
@@ -5072,6 +5229,7 @@ class DerivationEngine {
       if (todoDays.isEmpty) {
         _log('rescan: no recent decoded-backed days');
         await LocalDb.setCursor('baseline_sig', sig);
+        await _storeQuietEntries();
         return 0;
       }
       _log(
@@ -5080,11 +5238,31 @@ class DerivationEngine {
       );
 
       final history = await _BaselineHistoryCache.load();
+      // Only the quiet level moved: strain is priced on the quiet levels of
+      // the days BEFORE each day, so only a day after a changed level can
+      // score differently. The rest — finalized days included — keep their
+      // rows, which a re-derive would rewrite unchanged.
+      final prevQuiet = await LocalDb.getCursor(_baselineQuietCursor);
+      var rescanDays = todoDays;
+      if (prev != null &&
+          prevQuiet != null &&
+          _withoutQuietSignature(prev) == _withoutQuietSignature(sig)) {
+        final changed = changedQuietDates(
+            _decodeQuietEntries(prevQuiet), history.quietWindowEntries());
+        if (changed != null) {
+          rescanDays = [
+            for (final d in todoDays)
+              if (changed.any((c) => c.compareTo(d) < 0)) d,
+          ];
+          _log('rescan: quiet level moved on $changed — '
+              '${rescanDays.length} of ${todoDays.length} day(s) priced on it');
+        }
+      }
       // Same bounded worker-pool pattern as run()/runDays — up to
       // _rescanWindowDays (21) days is exactly the kind of sweep that used
       // to run fully sequentially for no reason (independent day_id-keyed
       // writes + one frozen baseline snapshot shared read-only here).
-      final orderedDays = todoDays.reversed.toList();
+      final orderedDays = rescanDays.reversed.toList();
       var done = 0;
       var completed = 0;
 
@@ -5106,12 +5284,15 @@ class DerivationEngine {
 
       await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
 
-      await _refreshBaselines();
-      // Cross-day rollup + notifications reflect the refreshed scalars.
-      await _runCrossDay(profile);
-      await _runNotifications();
+      if (orderedDays.isNotEmpty) {
+        await _refreshBaselines();
+        // Cross-day rollup + notifications reflect the refreshed scalars.
+        await _runCrossDay(profile);
+        await _runNotifications();
+      }
       // Store the new signature so the next tick is a cheap no-op until it moves.
       await LocalDb.setCursor('baseline_sig', await _baselineSignature());
+      await _storeQuietEntries();
       await LocalDb.refreshComputeFreshness();
       return done;
     } catch (e, st) {
@@ -5121,6 +5302,57 @@ class DerivationEngine {
       await _runStorageHousekeeping();
       _running = false;
     }
+  }
+
+  /// Cursor holding [_BaselineHistoryCache.quietWindowEntries] as of the
+  /// last `baseline_sig`, so a quiet-only change can be narrowed to the days
+  /// it reaches.
+  static const String _baselineQuietCursor = 'baseline_quiet';
+
+  Future<void> _storeQuietEntries() async => LocalDb.setCursor(
+        _baselineQuietCursor,
+        jsonEncode((await _BaselineHistoryCache.load()).quietWindowEntries()),
+      );
+
+  /// The baseline signature without its quiet-level part (`|q…`, last).
+  static String _withoutQuietSignature(String sig) {
+    final i = sig.lastIndexOf('|q');
+    return i < 0 ? sig : sig.substring(0, i);
+  }
+
+  static List<List<Object>>? _decodeQuietEntries(String json) {
+    try {
+      return [
+        for (final e in jsonDecode(json) as List)
+          [(e as List)[0] as String, (e[1] as num).toDouble()],
+      ];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The dates whose quiet level differs between [before] and [after] (both
+  /// `[date, value]`, ascending), over the dates both lists cover — an entry
+  /// that merely slid out of the older end of one is not a change. Null when
+  /// either is unreadable: the caller then rescans everything, as before.
+  @visibleForTesting
+  static Set<String>? changedQuietDates(
+    List<List<Object>>? before,
+    List<List<Object>> after,
+  ) {
+    if (before == null) return null;
+    final a = {for (final e in before) e[0] as String: e[1]};
+    final b = {for (final e in after) e[0] as String: e[1]};
+    String? first(Map<String, Object> m) =>
+        m.isEmpty ? null : (m.keys.toList()..sort()).first;
+    final fa = first(a), fb = first(b);
+    final cut = fa == null || fb == null
+        ? ''
+        : (fa.compareTo(fb) > 0 ? fa : fb);
+    return {
+      for (final d in {...a.keys, ...b.keys})
+        if (d.compareTo(cut) >= 0 && a[d] != b[d]) d,
+    };
   }
 
   /// The days [rescanRecent] re-derives: every day with substrate inside the
