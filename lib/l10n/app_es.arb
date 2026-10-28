@@ -2816,5 +2816,36 @@
   "notifBatteryForecastReserveBody": "A {rate} %/h se agota hacia las {time}, poco después de tu hora habitual de despertar: te quedará alrededor del {left} % al levantarte. Cárgala ahora para no perder el sueño de esta noche.",
   "notifBatteryForecastAfterWakeBody": "A {rate} %/h se agota hacia las {time}, después de tu hora habitual de despertar.",
   "notifWindDownBody": "Te sueles acostar hacia las {time}. Empieza a bajar el ritmo.",
-  "notifWorkoutIdleBody": "No se ha registrado nada por encima del reposo en {minutes} minutos. Si la sesión terminó, finalízala desde la pestaña Entrenamiento."
+  "notifWorkoutIdleBody": "No se ha registrado nada por encima del reposo en {minutes} minutos. Si la sesión terminó, finalízala desde la pestaña Entrenamiento.",
+  "dataStorageGroup": "Almacenamiento",
+  "dataKeepHistory": "Conservar lecturas sin procesar",
+  "dataKeepHistorySub": "Una copia comprimida de las lecturas segundo a segundo de cada día, que se conserva después de que la app las borre. Los días más antiguos mantienen sus puntuaciones, pero no se pueden recalcular cuando mejore el cálculo",
+  "dataKeepDays": "{days} días",
+  "@dataKeepDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 año",
+  "dataKeepForever": "Siempre",
+  "dataKeepShorterTitle": "¿Conservar {window} de lecturas sin procesar?",
+  "@dataKeepShorterTitle": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "Las lecturas de hace más de {window} se borran ahora. Esos días mantienen sus puntuaciones, pero no se podrán recalcular tras futuras actualizaciones.",
+  "@dataKeepShorterBody": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "Borrar lecturas antiguas",
+  "dataKeepShorterCancel": "Conservarlas"
 }

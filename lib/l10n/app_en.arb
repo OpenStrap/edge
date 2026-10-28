@@ -16082,5 +16082,60 @@
         "type": "int"
       }
     }
+  },
+  "dataStorageGroup": "Storage",
+  "@dataStorageGroup": {
+    "description": "Data screen group title: storage settings and compaction."
+  },
+  "dataKeepHistory": "Keep raw readings",
+  "@dataKeepHistory": {
+    "description": "Row title: how long the compressed raw-reading archive is kept."
+  },
+  "dataKeepHistorySub": "A compressed copy of each day's second-by-second readings, kept after the app clears them. A day older than this keeps its scores but can't be re-scored when scoring improves",
+  "@dataKeepHistorySub": {
+    "description": "Row sub for the archive window setting."
+  },
+  "dataKeepDays": "{days} days",
+  "@dataKeepDays": {
+    "description": "Archive window value: a number of days.",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 year",
+  "@dataKeepYear": {
+    "description": "Archive window value: one year."
+  },
+  "dataKeepForever": "Forever",
+  "@dataKeepForever": {
+    "description": "Archive window value: never delete."
+  },
+  "dataKeepShorterTitle": "Keep {window} of raw readings?",
+  "@dataKeepShorterTitle": {
+    "description": "Confirm title when the archive window is shortened.",
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "Readings older than {window} are deleted now. Those days keep their scores, but can't be re-scored after future updates.",
+  "@dataKeepShorterBody": {
+    "description": "Confirm body when the archive window is shortened.",
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "Delete older readings",
+  "@dataKeepShorterConfirm": {
+    "description": "Confirm button: shorten the window and delete older archive."
+  },
+  "dataKeepShorterCancel": "Keep them",
+  "@dataKeepShorterCancel": {
+    "description": "Cancel button: keep the current window."
   }
 }

@@ -7732,5 +7732,36 @@
         "type": "int"
       }
     }
-  }
+  },
+  "dataStorageGroup": "Хранилище",
+  "dataKeepHistory": "Хранить исходные показания",
+  "dataKeepHistorySub": "Сжатая копия посекундных показаний за каждый день, которая остаётся после того, как приложение их удалит. Более старые дни сохраняют свои оценки, но их нельзя пересчитать после улучшения расчётов",
+  "dataKeepDays": "{days} дн.",
+  "@dataKeepDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 год",
+  "dataKeepForever": "Всегда",
+  "dataKeepShorterTitle": "Хранить исходные показания за {window}?",
+  "@dataKeepShorterTitle": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "Показания старше {window} будут удалены сейчас. Эти дни сохранят свои оценки, но их нельзя будет пересчитать после будущих обновлений.",
+  "@dataKeepShorterBody": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "Удалить старые показания",
+  "dataKeepShorterCancel": "Оставить"
 }

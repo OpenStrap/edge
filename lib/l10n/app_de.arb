@@ -2904,5 +2904,36 @@
   "notifBatteryForecastReserveBody": "Bei {rate} %/h ist der Akku gegen {time} leer, kurz nach deiner üblichen Aufstehzeit – beim Aufwachen bleiben etwa {left} %. Lade ihn jetzt, damit die Nacht aufgezeichnet wird.",
   "notifBatteryForecastAfterWakeBody": "Bei {rate} %/h ist der Akku gegen {time} leer, nach deiner üblichen Aufstehzeit.",
   "notifWindDownBody": "Deine Schlafenszeit ist gegen {time}. Fang an, runterzufahren.",
-  "notifWorkoutIdleBody": "Seit {minutes} Minuten wurde nichts über Ruheniveau aufgezeichnet. Wenn die Einheit vorbei ist, beende sie im Tab „Training“."
+  "notifWorkoutIdleBody": "Seit {minutes} Minuten wurde nichts über Ruheniveau aufgezeichnet. Wenn die Einheit vorbei ist, beende sie im Tab „Training“.",
+  "dataStorageGroup": "Speicher",
+  "dataKeepHistory": "Rohmesswerte behalten",
+  "dataKeepHistorySub": "Eine komprimierte Kopie der sekündlichen Messwerte jedes Tages, die bleibt, nachdem die App sie gelöscht hat. Ältere Tage behalten ihre Werte, können aber nach einer verbesserten Auswertung nicht neu berechnet werden",
+  "dataKeepDays": "{days} Tage",
+  "@dataKeepDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 Jahr",
+  "dataKeepForever": "Für immer",
+  "dataKeepShorterTitle": "Rohmesswerte für {window} behalten?",
+  "@dataKeepShorterTitle": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "Messwerte, die älter als {window} sind, werden jetzt gelöscht. Diese Tage behalten ihre Werte, können nach künftigen Updates aber nicht neu berechnet werden.",
+  "@dataKeepShorterBody": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "Ältere Messwerte löschen",
+  "dataKeepShorterCancel": "Behalten"
 }

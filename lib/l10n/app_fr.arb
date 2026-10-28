@@ -2787,5 +2787,36 @@
   "notifBatteryForecastReserveBody": "À {rate} %/h, il sera vide vers {time}, juste après votre heure de réveil habituelle : il restera environ {left} % au lever. Rechargez-le maintenant pour garder la nuit.",
   "notifBatteryForecastAfterWakeBody": "À {rate} %/h, il sera vide vers {time}, après votre heure de réveil habituelle.",
   "notifWindDownBody": "Vous vous couchez vers {time}. Commencez à ralentir.",
-  "notifWorkoutIdleBody": "Rien au-dessus du repos n'a été enregistré depuis {minutes} minutes. Si la séance est finie, terminez-la depuis l'onglet Entraînement."
+  "notifWorkoutIdleBody": "Rien au-dessus du repos n'a été enregistré depuis {minutes} minutes. Si la séance est finie, terminez-la depuis l'onglet Entraînement.",
+  "dataStorageGroup": "Stockage",
+  "dataKeepHistory": "Conserver les mesures brutes",
+  "dataKeepHistorySub": "Une copie compressée des mesures seconde par seconde de chaque jour, conservée après que l'app les a effacées. Un jour plus ancien garde ses scores mais ne peut pas être recalculé quand le calcul s'améliore",
+  "dataKeepDays": "{days} jours",
+  "@dataKeepDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 an",
+  "dataKeepForever": "Toujours",
+  "dataKeepShorterTitle": "Conserver {window} de mesures brutes ?",
+  "@dataKeepShorterTitle": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "Les mesures de plus de {window} sont supprimées maintenant. Ces jours gardent leurs scores, mais ne pourront pas être recalculés après les prochaines mises à jour.",
+  "@dataKeepShorterBody": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "Supprimer les anciennes mesures",
+  "dataKeepShorterCancel": "Les garder"
 }

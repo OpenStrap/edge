@@ -7212,7 +7212,15 @@ class DerivationEngine {
   /// filled in), and a transient skip never finalizes, so a day whose second
   /// half fails every single time never becomes finalized. One such day used
   /// to latch pruning off for the whole install, forever, at ~12 MB/day.
-  static const int _maxRawHoldDays = 14;
+  ///
+  /// Seven days behind the data edge, not fourteen. Nothing that can still
+  /// finalize needs longer: a day locks once the edge is [_finalizationSec]
+  /// past it, and a strain score it is owed comes from the days BEFORE it,
+  /// which [_quietLevelUnreachable] settles as soon as those have derived. A
+  /// day still unlocked a week on is one whose derive keeps failing, and the
+  /// second week of retries only cost another week of substrate (~12 MB a
+  /// day on a WHOOP 4, several times that on an MG).
+  static const int _maxRawHoldDays = 7;
 
   /// Cursor holding the highest `rec_ts` cutoff the raw prune has applied.
   static const String _prunedBeforeCursor =

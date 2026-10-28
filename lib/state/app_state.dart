@@ -91,6 +91,7 @@ import 'prefs.dart';
 import '../ble/adapters/signals.dart' show InputSignal;
 import '../ui2/profile/devices.dart' show liveSources, rankSources;
 import '../data/db.dart';
+import '../data/substrate_archive.dart' show SubstrateArchivePolicy;
 import '../data/export_retention.dart' show purgeSharedHealthCopies;
 import '../ecg/ble_ecg_transport.dart';
 import '../ecg/ecg_controller.dart';
@@ -2447,6 +2448,20 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       _log('[derive] wearable re-derive failed: $e');
     }
+  }
+
+  /// Set how long pruned raw readings stay in `substrate_archive`. A shorter
+  /// window evicts the days it no longer covers right away, behind the derive
+  /// latch so a prune that is archiving a bucket finishes first.
+  Future<void> setSubstrateArchiveWindow(SubstrateArchivePolicy next) async {
+    final current = await LocalDb.substrateArchivePolicy();
+    await LocalDb.setSubstrateArchivePolicy(next);
+    if (!current.keepsLongerThan(next)) return;
+    final edge = await LocalDb.lastDecodedRecTs();
+    if (edge == null) return;
+    final evicted = await DerivationEngine.whileIdle(
+        () => LocalDb.evictSubstrateArchive(next, edge));
+    if (evicted > 0) _log('[db] archive window shortened: $evicted bucket(s)');
   }
 
   /// User-initiated "Re-analyze data": force-derive EVERY day that has raw,

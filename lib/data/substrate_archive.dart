@@ -39,9 +39,33 @@ import 'substrate_archive_codec.dart';
 class SubstrateArchivePolicy {
   const SubstrateArchivePolicy(this.keepDays);
 
-  /// One year. Chosen before a measurement on real exports; revisit with the
-  /// bytes/day the size probe reports (see substrate_archive_size_probe_test).
-  static const SubstrateArchivePolicy defaults = SubstrateArchivePolicy(365);
+  /// Ninety days. The archive costs ~1.6 MB per UTC day of WHOOP substrate,
+  /// so a year was ~600 MB on disk for history nothing re-derives from yet.
+  /// What the window gives up: a day older than it has no substrate left
+  /// anywhere, so a future algorithm change can never re-score it — it keeps
+  /// the score of the version that derived it. Users who want that history
+  /// kept pick a longer window ([choices]).
+  static const SubstrateArchivePolicy defaults = SubstrateArchivePolicy(90);
+
+  /// The windows the data settings offer, shortest first; -1 is forever.
+  static const List<int> choices = [30, 90, 365, -1];
+
+  /// The setting after this one in [choices], wrapping to the shortest. A
+  /// stored value that is not a choice (0 = off, or a hand-set count) moves
+  /// to the first longer choice.
+  SubstrateArchivePolicy get next {
+    int rank(int d) => d < 0 ? 1 << 30 : d;
+    for (final d in choices) {
+      if (rank(d) > rank(keepDays)) return SubstrateArchivePolicy(d);
+    }
+    return SubstrateArchivePolicy(choices.first);
+  }
+
+  /// Whether switching to [other] deletes archived days this one keeps.
+  bool keepsLongerThan(SubstrateArchivePolicy other) {
+    int rank(int d) => d < 0 ? 1 << 30 : d;
+    return other.enabled && rank(other.keepDays) < rank(keepDays);
+  }
 
   /// 0 = off (and purged), -1 = forever, otherwise days behind the data edge.
   final int keepDays;

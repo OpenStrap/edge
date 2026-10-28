@@ -80,14 +80,14 @@ void main() {
       final dataNow = _dayStart('2026-05-20') + 12 * 3600;
       final cutoff = DerivationEngine.rawPruneCutoffSec(
         dataNowSec: dataNow,
-        rawDayIds: const ['2026-05-12', '2026-05-13', '2026-05-19'],
+        rawDayIds: const ['2026-05-12', '2026-05-15', '2026-05-19'],
         finalizedDayIds: const {'2026-05-12', '2026-05-19'},
       );
-      // Held at 05-12 (05-13's night search starts 05-12 noon)…
-      expect(cutoff, _dayStart('2026-05-12'));
+      // Held at 05-14 (05-15's night search starts 05-14 noon)…
+      expect(cutoff, _dayStart('2026-05-14'));
       // …but older finalized days are still reclaimed. The old guard
       // returned early and kept them too.
-      expect(cutoff, greaterThan(_dayStart('2026-05-11')));
+      expect(cutoff, greaterThan(_dayStart('2026-05-13')));
     });
 
     // Day D's night starts the evening before. A day with a result that has
@@ -120,7 +120,7 @@ void main() {
       )!;
       expect(cutoff, greaterThan(_dayStart('2026-01-05')));
       // Never keeps more than the documented ceiling behind the data edge.
-      expect(dataNow - cutoff, lessThanOrEqualTo(14 * 86400));
+      expect(dataNow - cutoff, lessThanOrEqualTo(7 * 86400));
     });
 
     test('a day still inside the retention window does not move it', () {
