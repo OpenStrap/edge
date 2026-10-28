@@ -53,6 +53,13 @@ class SessionLink {
 
   bool _busy = false;
   BandHost? _host;
+
+  /// Bumped by every [stop]. A sync reads it before its first await and gives
+  /// up once it has moved: [stop] can only reach a link and host that already
+  /// exist, so a [forget] landing while the sync waits for a secondary-link
+  /// slot, or while it connects, would otherwise let it connect afterwards and
+  /// bank the forgotten device's readings under an id with no device row.
+  int _stopGen = 0;
   GattBandLink? _link;
 
   String get _tag => '[${entry.id}]';
@@ -108,6 +115,8 @@ class SessionLink {
     // this session would otherwise finish later and bank the deleted device's
     // frames into the fresh store.
     final resetGen = ResetGate.generation;
+    final stopGen = _stopGen;
+    bool stopped() => ResetGate.changedSince(resetGen) || _stopGen != stopGen;
     try {
       final row = await pairedRow();
       final deviceId = row?['id'] as String?;
@@ -120,13 +129,16 @@ class SessionLink {
         return false;
       }
       return await withSecondaryLinkSlot(() async {
-        if (ResetGate.changedSince(resetGen)) return false;
+        if (stopped()) {
+          debugPrint('$_tag stopped while waiting for a link slot; not syncing.');
+          return false;
+        }
         final device = BluetoothDevice.fromId(remoteId);
         try {
           await device.connect(timeout: const Duration(seconds: 20));
           final services = await device.discoverServices();
-          if (ResetGate.changedSince(resetGen)) {
-            debugPrint('$_tag data was reset during connect; not syncing.');
+          if (stopped()) {
+            debugPrint('$_tag stopped during connect; not syncing.');
             return false;
           }
           final link = GattBandLink(
@@ -163,6 +175,7 @@ class SessionLink {
   }
 
   Future<void> stop() async {
+    _stopGen++;
     _link?.close();
     _link = null;
     await _host?.stop();

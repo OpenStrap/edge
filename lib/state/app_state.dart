@@ -221,7 +221,13 @@ class AppState extends ChangeNotifier {
   /// `WhoopFramedAdapter`'s own header for why `run()` stays unwired this
   /// wave. Constructed right after [engine] since [WhoopFramedAdapter]
   /// delegates to it.
-  late final BandHost _bandHost;
+  ///
+  /// Not final: the host captures [ResetGate.generation] when it is built and
+  /// refuses every commit once a reset has run since, so [resetAllData]
+  /// replaces it. Kept, it would refuse every batch for the rest of the
+  /// process — the drain never ACKs, and a band paired again after the reset
+  /// never syncs until the app restarts.
+  late BandHost _bandHost;
   PairedDevice? paired;
 
   // ── WHOOP MG ECG ──────────────────────────────────────────────────────────
@@ -1427,11 +1433,24 @@ class AppState extends ChangeNotifier {
       await signOut();
       return backupCleanupError;
     } finally {
+      // The old host read the generation before this reset, so it would
+      // refuse every commit from now on. Built here, the new one reads the
+      // generation this reset moved to: it still refuses while the gate is up
+      // (here, or a second reset on top of this one), and accepts once it
+      // lowers. The primary drain that was running when the reset started
+      // ended with signOut's unpair, before this point.
+      _bandHost = _newPrimaryBandHost();
       // Never leave ingest refused if the reset threw part-way: a half-reset
       // install that silently drops every record is worse than the race.
       ResetGate.leave();
     }
   }
+
+  BandHost _newPrimaryBandHost() => BandHost(
+        adapter: WhoopFramedAdapter(engine, kWhoopGen4),
+        deviceId: LocalDb.kPrimaryDeviceId,
+        onLog: (msg) => _log('[COMMIT] $msg'),
+      );
 
   /// Ends every secondary sensor session for [resetAllData]. Best-effort and
   /// bounded: a link that will not tear down must not hold the reset open,
@@ -1732,11 +1751,7 @@ class AppState extends ChangeNotifier {
       // nothing new and keeps both signals consistent with each other.
       isForegroundActive: () => !_background,
     );
-    _bandHost = BandHost(
-      adapter: WhoopFramedAdapter(engine, kWhoopGen4),
-      deviceId: LocalDb.kPrimaryDeviceId,
-      onLog: (msg) => _log('[COMMIT] $msg'),
-    );
+    _bandHost = _newPrimaryBandHost();
     // Seed the engine's link-power state (issue #200). `setBackground` is
     // otherwise only called on TRANSITIONS, and a headless start begins
     // backgrounded — without this the very case that most needs the cheap

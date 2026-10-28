@@ -101,6 +101,22 @@ void main() {
     expect(fin, lessThan(lower), reason: 'lowered inside that finally');
   });
 
+  test('the reset replaces the primary band host, inside the finally', () {
+    // The host captures ResetGate.generation when built and refuses every
+    // commit once a reset has run since. Kept across a reset, it refused every
+    // batch for the rest of the process: no ACK, and a band paired again never
+    // synced until a restart.
+    expect(src.contains('late final BandHost _bandHost;'), isFalse);
+    final body = src.substring(src.indexOf('Future<String?> resetAllData() async'));
+    final fin = body.indexOf('} finally {');
+    final rebuild = body.indexOf('_bandHost = _newPrimaryBandHost();');
+    final lower = body.indexOf('ResetGate.leave();');
+    expect(rebuild, greaterThan(fin), reason: 'even when the reset throws');
+    expect(rebuild, lessThan(lower),
+        reason: 'built while the gate is still up, so it reads the new '
+            'generation and refuses until the gate lowers');
+  });
+
   test('the data edge is cleared by the reset, not left in memory', () {
     final body = src.substring(src.indexOf('Future<String?> resetAllData() async'));
     final end = body.indexOf('} finally {');
