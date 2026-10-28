@@ -662,17 +662,19 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
 
   @override
   Widget build(BuildContext c) {
+    final d = _d ?? const SleepData();
+    final l = AppLocalizations.of(c);
+    final p = P.of(c);
     final disclaimer = Container(
       padding: const EdgeInsets.all(8),
-      color: Colors.amber.withOpacity(0.1),
+      color: p.wash(C.orange),
       child: Text(
-        l?.sleepDetailMedicalDisclaimer ?? "Experimental research algorithm. Not a medical device. Consult a physician for sleep disorders.",
-        style: const TextStyle(fontSize: 10, color: Colors.amber),
+        l?.sleepDetailMedicalDisclaimer ??
+            'Experimental research algorithm. Not a medical device. Consult a physician for sleep disorders.',
+        style: F.cap.copyWith(color: p.on(C.orange)),
         textAlign: TextAlign.center,
       ),
     );
-    final d = _d ?? const SleepData();
-    final l = AppLocalizations.of(c);
     final title = l?.sleepDetailNavTitle ?? 'Sleep';
 
     if (_loading && _d == null) {
@@ -797,7 +799,6 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       ]);
     }
 
-    final p = P.of(c);
     final n = d.night;
     final unusual = _unusual(c, p, d, n);
 
