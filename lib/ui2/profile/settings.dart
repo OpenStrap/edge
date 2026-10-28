@@ -548,6 +548,12 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
               'Some files or folder access may remain.'),
     ));
   }
+  if (app.resetLeftPairingKeys && messenger.mounted) {
+    messenger.showSnackBar(const SnackBar(
+      content: Text('App data deleted, but a sensor pairing key could not be '
+          'removed from secure storage. Delete everything again to retry.'),
+    ));
+  }
 }
 
 class MoreSettingsView extends StatelessWidget {

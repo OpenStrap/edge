@@ -308,6 +308,36 @@ class OuraLink {
     return null;
   }
 
+  /// Every stored pairing key, for "delete everything", which removes the
+  /// `device` rows [forgetRing] would need and so must drop the keys itself.
+  ///
+  /// Also sweeps every stored key of this family by its item prefix: a key
+  /// orphaned by a crash mid-pair has no `device` row, so the row ids alone
+  /// would leave it behind. False when any key may remain — the keychain was
+  /// unreadable or a delete threw — so the reset can say it was incomplete
+  /// instead of reporting a clean wipe with a pairing secret still stored.
+  static Future<bool> dropStoredKeys(Iterable<String> deviceIds) async {
+    final prefix = _keyItem('');
+    final items = {for (final id in deviceIds) _keyItem(id)};
+    var complete = true;
+    try {
+      final all = await _secure.readAll(iOptions: _kApple, mOptions: _kMacos);
+      items.addAll(all.keys.where((k) => k.startsWith(prefix)));
+    } catch (e) {
+      complete = false;
+      debugPrint('[oura] could not list stored keys: $e');
+    }
+    for (final item in items) {
+      try {
+        await _secure.delete(key: item, iOptions: _kApple, mOptions: _kMacos);
+      } catch (e) {
+        complete = false;
+        debugPrint('[oura] could not drop a stored key: $e');
+      }
+    }
+    return complete;
+  }
+
   /// Delete the stored 16-byte pairing key for [deviceId], best-effort.
   ///
   /// Two callers, one problem: an Oura pairing secret must not outlive the
@@ -318,10 +348,6 @@ class OuraLink {
   /// keychain/keystore exactly as [_readKey] does — there is nothing for the
   /// user to redo, and a delete that cannot run now costs nothing left behind
   /// that this app itself can read.
-  /// [_dropKey] for "delete everything", which removes the `device` rows
-  /// [forgetRing] would need and so must drop the keys itself.
-  static Future<void> dropStoredKey(String deviceId) => _dropKey(deviceId);
-
   static Future<void> _dropKey(String deviceId) async {
     try {
       await _secure.delete(

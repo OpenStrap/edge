@@ -1152,12 +1152,21 @@ class AppState extends ChangeNotifier {
   /// First, a weighing adopted from a scale whose flag is now off is undone
   /// (rule R6, [profileWithoutStaleWeighing]): the weight goes back to the
   /// one it replaced.
+  ///
+  /// Nothing is written once a reset has started since this began: the hook
+  /// runs after a scale session the reset itself ended, and a profile written
+  /// back after the preferences are cleared is the deleted install's weight.
   Future<void> adoptWeighing() async {
+    final resetGen = ResetGate.generation;
+    bool reset() => ResetGate.changedSince(resetGen);
+    if (reset()) return;
     final staleAtMs = (user?[kWeighedAtMs] as num?)?.toInt();
     final reverted = await profileWithoutStaleWeighing(user);
+    if (reset()) return;
     if (reverted != null) await updateProfile(reverted);
     final w = await newestWeighing(near: user?['weight_kg'] as num?);
     final next = w == null ? null : profileWithWeighing(user, w);
+    if (reset()) return;
     if (next != null) await updateProfile(next);
     final fromMs = [
       if (reverted != null && staleAtMs != null) staleAtMs,
@@ -1166,8 +1175,10 @@ class AppState extends ChangeNotifier {
     if (fromMs.isEmpty) return;
     final from = dayLabelOf(
         DateTime.fromMillisecondsSinceEpoch(fromMs.reduce(math.min)));
+    final open = await LocalDb.recentDayResultsMeta(14);
+    if (reset()) return;
     await rederiveDays({
-      for (final r in await LocalDb.recentDayResultsMeta(14))
+      for (final r in open)
         if (r['finalized'] != 1 &&
             (r['day_id'] as String).compareTo(from) >= 0)
           r['day_id'] as String,
@@ -1294,6 +1305,12 @@ class AppState extends ChangeNotifier {
     await unpair();
   }
 
+  /// True when the last [resetAllData] could not confirm every sensor
+  /// pairing key was removed from secure storage. Separate from the returned
+  /// backup error because it is a different thing left behind, and the
+  /// confirmation would otherwise read as a clean wipe.
+  bool resetLeftPairingKeys = false;
+
   /// "Delete everything", and mean it.
   ///
   /// The old reset walked `availableDays()` — the non-skipped DERIVED days —
@@ -1312,7 +1329,8 @@ class AppState extends ChangeNotifier {
   ///   2. The database, then the preferences, then the keychain — the reads
   ///      that could re-create state are all downstream of the writes.
   ///   3. [signOut] last, because it flips the route and the UI unwinds.
-  /// Returns a cleanup error if backup copies or folder access remain.
+  /// Returns a cleanup error if backup copies or folder access remain;
+  /// [resetLeftPairingKeys] says whether a sensor pairing key may.
   Future<String?> resetAllData() async {
     // 0 · nothing further ENTERS the database either. The band is still
     //     connected and still draining — see [_resetting].
@@ -1377,11 +1395,13 @@ class AppState extends ChangeNotifier {
       // The ring's and Mi Band's 16-byte pairing keys. iOS keeps keychain
       // items across an uninstall, and a ring still holding the old key needs
       // a factory reset before it pairs again. A delete of a key that was
-      // never written is a no-op, so every non-primary id is tried for both.
-      for (final id in secondaryIds) {
-        await OuraLink.dropStoredKey(id);
-        await MiBand234Link.dropStoredKey(id);
-      }
+      // never written is a no-op, so every non-primary id is tried for both,
+      // along with any key a crash mid-pair left with no row at all.
+      final keysDropped = [
+        await OuraLink.dropStoredKeys(secondaryIds),
+        await MiBand234Link.dropStoredKeys(secondaryIds),
+      ];
+      resetLeftPairingKeys = keysDropped.contains(false);
 
       // 3 · the whole preference namespace, not a remembered subset — same
       // reason as wipeAll. A fresh install is the state being restored, and a

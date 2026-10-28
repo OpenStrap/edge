@@ -163,8 +163,10 @@ void main() {
   test('resetAllData drops the sensor pairing keys', () {
     final body = src.substring(src.indexOf('Future<String?> resetAllData() async'));
     final scope = body.substring(0, body.indexOf('} finally {'));
-    expect(scope.contains('OuraLink.dropStoredKey(id)'), isTrue);
-    expect(scope.contains('MiBand234Link.dropStoredKey(id)'), isTrue);
+    expect(scope.contains('OuraLink.dropStoredKeys(secondaryIds)'), isTrue);
+    expect(scope.contains('MiBand234Link.dropStoredKeys(secondaryIds)'),
+        isTrue);
+    expect(scope.contains('resetLeftPairingKeys = '), isTrue);
   });
 
   test('BandHost refuses every database write during a reset', () {

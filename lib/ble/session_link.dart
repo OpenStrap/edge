@@ -90,18 +90,34 @@ class SessionLink {
   /// adopts a new weighing into the profile). Null in tests and headless runs.
   static Future<void> Function()? onSessionDone;
 
+  /// Fires [onSessionDone] unless a reset started after [resetGen] was read:
+  /// the reset that ended the session must not have it adopt a weighing from
+  /// the deleted store back into the profile. A profile-side failure must not
+  /// fail the device's session, and its re-derive does not hold the session
+  /// open, so it is not awaited.
+  @visibleForTesting
+  static bool runSessionDone(int resetGen, {String tag = ''}) {
+    if (ResetGate.changedSince(resetGen)) {
+      debugPrint('$tag reset since the session started; no session-done hook.');
+      return false;
+    }
+    unawaited(Future(() => onSessionDone?.call()).catchError(
+        (Object e) => debugPrint('$tag session-done hook failed: $e')));
+    return true;
+  }
+
   /// One session with the paired device. False when nothing is paired, the
   /// connect failed, or a session is already running.
   Future<bool> sync() async {
     if (_busy) return false;
     _busy = true;
+    // Read before the session: a reset stops it, and a stopped session still
+    // returns true once it had connected.
+    final resetGen = ResetGate.generation;
     try {
       final ok = await _sync();
-      // A profile-side failure must not fail the device's session, and its
-      // re-derive does not hold the session open.
       if (ok && entry.category == DeviceCategory.healthMeasurement) {
-        unawaited(Future(() => onSessionDone?.call()).catchError(
-            (Object e) => debugPrint('$_tag session-done hook failed: $e')));
+        runSessionDone(resetGen, tag: _tag);
       }
       return ok;
     } finally {
