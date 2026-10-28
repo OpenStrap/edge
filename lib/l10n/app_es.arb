@@ -2847,5 +2847,41 @@
     }
   },
   "dataKeepShorterConfirm": "Borrar lecturas antiguas",
-  "dataKeepShorterCancel": "Conservarlas"
+  "dataKeepShorterCancel": "Conservarlas",
+  "dataCompact": "Compactar la base de datos",
+  "dataCompactSub": "Borra lo que los ajustes de arriba ya no conservan y devuelve el espacio libre al teléfono. Necesita un espacio libre de unas dos veces el tamaño de la base de datos",
+  "dataCompactPruning": "Borrando datos antiguos…",
+  "dataCompactVacuuming": "Compactando…",
+  "dataCompactFreed": "Se liberaron {freed} MB. La base de datos ocupa ahora {size} MB.",
+  "@dataCompactFreed": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "Se borraron los datos antiguos, pero compactar necesita {need} MB libres y el teléfono tiene {free} MB.",
+  "@dataCompactNoSpace": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "Se borraron los datos antiguos, pero no se pudo leer el espacio libre del teléfono, así que el archivo no se compactó.",
+  "dataCompactBusy": "Hay una sincronización o una sesión en curso. Inténtalo de nuevo cuando termine.",
+  "dataSizeMb": "{mb} MB",
+  "@dataSizeMb": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  }
 }

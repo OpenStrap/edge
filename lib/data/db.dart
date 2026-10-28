@@ -9519,6 +9519,31 @@ class LocalDb {
     return major > 3 || (major == 3 && minor >= 27);
   }
 
+  /// The database file plus its `-wal`: what the user's storage settings
+  /// show it costing. After a VACUUM in WAL mode the WAL can be as big as the
+  /// file until a checkpoint truncates it.
+  static Future<int> databaseBytesOnDisk() async {
+    final path = p.join(await getDatabasesPath(), dbName);
+    var total = 0;
+    for (final f in [File(path), File('$path-wal')]) {
+      if (await f.exists()) total += await f.length();
+    }
+    return total;
+  }
+
+  /// Rewrite the file without its free pages, then hand the WAL's copy of
+  /// that rewrite back to the filesystem. The caller gates it (free space,
+  /// nothing else in flight); see [vacuumIfBloated] for why this is a one-off
+  /// VACUUM and not `auto_vacuum`. The checkpoint is a `rawQuery`: the PRAGMA
+  /// returns a row, which `execute` refuses on iOS's sqflite.
+  static Future<void> vacuumAndCheckpoint() async {
+    final db = await instance;
+    await db.execute('VACUUM');
+    // VACUUM renumbers every btree root page; see [vacuumIfBloated].
+    await CoachDb.close();
+    await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+  }
+
   static Future<int> databaseFileBytes() async {
     final dir = await getDatabasesPath();
     final path = p.join(dir, dbName);

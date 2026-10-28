@@ -91,6 +91,7 @@ import 'prefs.dart';
 import '../ble/adapters/signals.dart' show InputSignal;
 import '../ui2/profile/devices.dart' show liveSources, rankSources;
 import '../data/db.dart';
+import '../data/disk_space.dart' show freeDiskBytes;
 import '../data/substrate_archive.dart' show SubstrateArchivePolicy;
 import '../data/export_retention.dart' show purgeSharedHealthCopies;
 import '../ecg/ble_ecg_transport.dart';
@@ -2462,6 +2463,26 @@ class AppState extends ChangeNotifier {
     final evicted = await DerivationEngine.whileIdle(
         () => LocalDb.evictSubstrateArchive(next, edge));
     if (evicted > 0) _log('[db] archive window shortened: $evicted bucket(s)');
+  }
+
+  /// The data settings' "Compact database": prune per the retention and
+  /// archive policies, VACUUM, truncate the WAL. Null when it declined to
+  /// start because a sync, an offload or a live session is running — a
+  /// VACUUM holds the write lock for the whole rewrite, and those are the
+  /// writers that must not wait on it. A derive in flight is waited for
+  /// rather than refused (see [DerivationEngine.compactStorage]).
+  Future<CompactResult?> compactDatabase({
+    void Function(CompactStep step)? onStep,
+  }) async {
+    if (busy || syncingNow || _liveSessionActive) return null;
+    if (_deriveScheduler.offloadActive) return null;
+    final result = await _derive.compactStorage(
+      freeDiskBytes: freeDiskBytes,
+      onStep: onStep,
+    );
+    _log('[db] compact: ${result.beforeBytes >> 20} MB -> '
+        '${result.afterBytes >> 20} MB (vacuumed=${result.vacuumed})');
+    return result;
   }
 
   /// User-initiated "Re-analyze data": force-derive EVERY day that has raw,

@@ -25,6 +25,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../data/auto_backup.dart';
 import '../../data/csv_export.dart';
 import '../../data/day_label.dart' show dayLabelOf;
+import '../../compute/derivation_engine.dart' show CompactStep;
 import '../../data/db.dart';
 import '../../data/export_retention.dart';
 import '../../data/substrate_archive.dart' show SubstrateArchivePolicy;
@@ -68,6 +69,12 @@ class _DataScreenState extends State<DataScreen> {
   /// How long pruned raw readings are archived. Null until read.
   SubstrateArchivePolicy? _archivePolicy;
 
+  /// Database file plus WAL, for the Compact row. Null until read.
+  int? _dbBytes;
+
+  /// The compaction step in progress, shown under the spinner.
+  String? _progress;
+
   @override
   void initState() {
     super.initState();
@@ -77,7 +84,13 @@ class _DataScreenState extends State<DataScreen> {
   Future<void> _loadStorage() async {
     try {
       final policy = await LocalDb.substrateArchivePolicy();
-      if (mounted) setState(() => _archivePolicy = policy);
+      final bytes = await LocalDb.databaseBytesOnDisk();
+      if (mounted) {
+        setState(() {
+          _archivePolicy = policy;
+          _dbBytes = bytes;
+        });
+      }
     } catch (_) {
       // The row stays blank; tapping it re-reads.
     }
@@ -267,6 +280,54 @@ class _DataScreenState extends State<DataScreen> {
     await app.setSubstrateArchiveWindow(next);
     if (mounted) setState(() => _archivePolicy = next);
     return ('', false);
+  }
+
+  Future<_Note> _compact(AppState app) async {
+    final l = AppLocalizations.of(context);
+    try {
+      final r = await app.compactDatabase(onStep: (step) {
+        if (!mounted) return;
+        setState(() => _progress = switch (step) {
+              CompactStep.prune =>
+                l?.dataCompactPruning ?? 'Clearing old data…',
+              CompactStep.vacuum => l?.dataCompactVacuuming ?? 'Compacting…',
+            });
+      });
+      if (r == null) {
+        return (
+          l?.dataCompactBusy ??
+              "A sync or a live session is running. Try again once it's done.",
+          true
+        );
+      }
+      int mb(int bytes) => (bytes / (1 << 20)).round();
+      if (mounted) setState(() => _dbBytes = r.afterBytes);
+      if (!r.vacuumed) {
+        final free = r.freeBytes;
+        return free == null
+            ? (
+                l?.dataCompactUnknownSpace ??
+                    "Old data was cleared, but the phone's free space couldn't "
+                        'be read, so the file was not compacted.',
+                true
+              )
+            : (
+                l?.dataCompactNoSpace(mb(r.neededBytes), mb(free)) ??
+                    'Old data was cleared, but compacting needs '
+                        '${mb(r.neededBytes)} MB free and the phone has '
+                        '${mb(free)} MB.',
+                true
+              );
+      }
+      return (
+        l?.dataCompactFreed(mb(r.freedBytes), mb(r.afterBytes)) ??
+            'Freed ${mb(r.freedBytes)} MB. The database is now '
+                '${mb(r.afterBytes)} MB.',
+        false
+      );
+    } finally {
+      if (mounted) setState(() => _progress = null);
+    }
   }
 
   Future<_Note> _reanalyze(AppState app) async {
@@ -520,6 +581,17 @@ class _DataScreenState extends State<DataScreen> {
                           ? ''
                           : _windowLabel(l, _archivePolicy!.keepDays),
                       onTap: _busy ? null : () => _run(() => _stepArchiveWindow(app))),
+                  SetRow(LucideIcons.minimize2, C.blue,
+                      l?.dataCompact ?? 'Compact database',
+                      sub: l?.dataCompactSub ??
+                          'Clears what the settings above no longer keep, then '
+                              'gives the unused space back to the phone. Needs '
+                              "free space of about twice the database's size",
+                      value: _dbBytes == null
+                          ? ''
+                          : (l?.dataSizeMb((_dbBytes! / (1 << 20)).round()) ??
+                              '${(_dbBytes! / (1 << 20)).round()} MB'),
+                      onTap: _busy ? null : () => _run(() => _compact(app))),
                 ]),
                 const SizedBox(height: S.x5),
                 settingsGroup(c, l?.dataRebuildGroup ?? 'Rebuild', [
@@ -541,6 +613,12 @@ class _DataScreenState extends State<DataScreen> {
                 if (_busy) ...[
                   const SizedBox(height: S.x6),
                   Center(child: CircularProgressIndicator(color: p.on(C.blue))),
+                  if (_progress != null) ...[
+                    const SizedBox(height: S.x3),
+                    Center(
+                        child: Text(_progress!,
+                            style: F.cap.copyWith(color: p.ink2))),
+                  ],
                 ],
                 if (_note != null && _note!.isNotEmpty) ...[
                   const SizedBox(height: S.x5),

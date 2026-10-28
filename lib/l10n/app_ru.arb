@@ -7763,5 +7763,41 @@
     }
   },
   "dataKeepShorterConfirm": "Удалить старые показания",
-  "dataKeepShorterCancel": "Оставить"
+  "dataKeepShorterCancel": "Оставить",
+  "dataCompact": "Сжать базу данных",
+  "dataCompactSub": "Удаляет то, что настройки выше больше не хранят, и возвращает свободное место телефону. Нужно свободное место примерно вдвое больше размера базы",
+  "dataCompactPruning": "Удаление старых данных…",
+  "dataCompactVacuuming": "Сжатие…",
+  "dataCompactFreed": "Освобождено {freed} МБ. Теперь база занимает {size} МБ.",
+  "@dataCompactFreed": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "Старые данные удалены, но для сжатия нужно {need} МБ свободного места, а на телефоне {free} МБ.",
+  "@dataCompactNoSpace": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "Старые данные удалены, но не удалось узнать свободное место на телефоне, поэтому файл не сжат.",
+  "dataCompactBusy": "Идёт синхронизация или активная сессия. Повторите, когда она закончится.",
+  "dataSizeMb": "{mb} МБ",
+  "@dataSizeMb": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  }
 }

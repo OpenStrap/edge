@@ -2818,5 +2818,41 @@
     }
   },
   "dataKeepShorterConfirm": "删除较早的读数",
-  "dataKeepShorterCancel": "保留"
+  "dataKeepShorterCancel": "保留",
+  "dataCompact": "压缩数据库",
+  "dataCompactSub": "清除上面设置不再保留的数据，然后把未使用的空间还给手机。需要约为数据库两倍大小的可用空间",
+  "dataCompactPruning": "正在清除旧数据…",
+  "dataCompactVacuuming": "正在压缩…",
+  "dataCompactFreed": "已释放 {freed} MB。数据库现在为 {size} MB。",
+  "@dataCompactFreed": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "旧数据已清除，但压缩需要 {need} MB 可用空间，手机只有 {free} MB。",
+  "@dataCompactNoSpace": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "旧数据已清除，但无法读取手机的可用空间，因此未压缩文件。",
+  "dataCompactBusy": "正在同步或有进行中的会话。完成后再试。",
+  "dataSizeMb": "{mb} MB",
+  "@dataSizeMb": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  }
 }

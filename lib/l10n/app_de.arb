@@ -2935,5 +2935,41 @@
     }
   },
   "dataKeepShorterConfirm": "Ältere Messwerte löschen",
-  "dataKeepShorterCancel": "Behalten"
+  "dataKeepShorterCancel": "Behalten",
+  "dataCompact": "Datenbank verkleinern",
+  "dataCompactSub": "Löscht, was die Einstellungen oben nicht mehr behalten, und gibt den freien Platz an das Telefon zurück. Braucht etwa doppelt so viel freien Speicher, wie die Datenbank groß ist",
+  "dataCompactPruning": "Alte Daten werden gelöscht…",
+  "dataCompactVacuuming": "Wird verkleinert…",
+  "dataCompactFreed": "{freed} MB freigegeben. Die Datenbank ist jetzt {size} MB groß.",
+  "@dataCompactFreed": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "Alte Daten wurden gelöscht, aber zum Verkleinern sind {need} MB frei nötig und das Telefon hat {free} MB.",
+  "@dataCompactNoSpace": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "Alte Daten wurden gelöscht, aber der freie Speicher des Telefons ließ sich nicht lesen, daher wurde die Datei nicht verkleinert.",
+  "dataCompactBusy": "Eine Synchronisierung oder eine laufende Sitzung ist aktiv. Versuche es danach noch einmal.",
+  "dataSizeMb": "{mb} MB",
+  "@dataSizeMb": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  }
 }

@@ -2989,6 +2989,32 @@ Future<int> _agingEdgeFor(String? family, int dataNowSec,
 Future<int> debugAgingEdge(String? family, int dataNowSec) =>
     _agingEdgeFor(family, dataNowSec);
 
+/// Where a [DerivationEngine.compactStorage] has got to.
+enum CompactStep { prune, vacuum }
+
+/// What a [DerivationEngine.compactStorage] did. Sizes are the database file
+/// plus its WAL, in bytes.
+class CompactResult {
+  const CompactResult({
+    required this.beforeBytes,
+    required this.afterBytes,
+    required this.freeBytes,
+    required this.neededBytes,
+    required this.vacuumed,
+  });
+
+  final int beforeBytes, afterBytes, neededBytes;
+
+  /// Free space on the volume when it was checked; null when the platform
+  /// could not say.
+  final int? freeBytes;
+
+  /// False when the free-space gate refused the VACUUM (the prune still ran).
+  final bool vacuumed;
+
+  int get freedBytes => beforeBytes > afterBytes ? beforeBytes - afterBytes : 0;
+}
+
 class DerivationEngine {
   DerivationEngine({this.log, this.background = false, this.offloadActive});
   final void Function(String)? log;
@@ -3055,6 +3081,65 @@ class DerivationEngine {
       _running = false;
     }
   }
+
+  /// The user's "Compact database": the retention prune and archive eviction
+  /// a derive pass ends with, then a full `VACUUM` and a truncating WAL
+  /// checkpoint, all under the derive latch (waiting, like [whileIdle], for a
+  /// pass in flight). The prune is the pass's own: it holds unfinalized days
+  /// exactly as [_pruneOldDecoded] does, and it never touches anything a
+  /// drain has not committed, so commit-before-ACK is untouched — a drain that
+  /// starts meanwhile only waits on the database lock, and a commit that
+  /// cannot land is never acknowledged.
+  ///
+  /// The VACUUM runs only when [freeDiskBytes] reports at least twice the
+  /// database (plus its WAL) free: it writes a whole second copy before it
+  /// drops the first. Unknown free space counts as not enough.
+  Future<CompactResult> compactStorage({
+    required Future<int?> Function() freeDiskBytes,
+    void Function(CompactStep step)? onStep,
+  }) =>
+      whileIdle(() async {
+        final before = await LocalDb.databaseBytesOnDisk();
+        onStep?.call(CompactStep.prune);
+        try {
+          // Every day with substrate, the wearable's included, as the scope
+          // hands a pass's prune: a pending day missing here is not held.
+          final rawByDay = await LocalDb.decodedRecTsMaxByDay();
+          final wearable = await activeWearable();
+          if (wearable != null) {
+            for (final day in (await wearableRecTsMaxByDay(wearable)).keys) {
+              rawByDay.putIfAbsent(day, () => 0);
+            }
+          }
+          final rawDays = rawByDay.keys.toList()..sort();
+          final dataNowSec =
+              await _withWearableEdge(await LocalDb.lastDecodedRecTs()) ?? 0;
+          if (dataNowSec > 0) await _pruneOldDecoded(rawDays, dataNowSec);
+        } catch (e) {
+          _log('compact: prune skipped: $e');
+        }
+        await _runStorageHousekeeping();
+        final size = await LocalDb.databaseBytesOnDisk();
+        final free = await freeDiskBytes();
+        if (free == null || free < 2 * size) {
+          return CompactResult(
+            beforeBytes: before,
+            afterBytes: size,
+            freeBytes: free,
+            neededBytes: 2 * size,
+            vacuumed: false,
+          );
+        }
+        onStep?.call(CompactStep.vacuum);
+        await LocalDb.vacuumAndCheckpoint();
+        return CompactResult(
+          beforeBytes: before,
+          afterBytes: await LocalDb.databaseBytesOnDisk(),
+          freeBytes: free,
+          neededBytes: 2 * size,
+          vacuumed: true,
+        );
+      });
 
   final Map<String, dynamic> _diag = {
     'running': false,
