@@ -154,6 +154,42 @@ void main() {
     expect(find.text('Back to today'), findsNothing);
   });
 
+  testWidgets('a failed read on the way back drops the past day', (t) async {
+    // The past day's rings must not stay up under today's header while the
+    // read runs, nor for good when it fails.
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    final repo = _FlakyTodayRepo();
+    app.repo = repo;
+
+    await t.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: ChangeNotifierProvider<AppState>.value(
+        value: app,
+        child: const Scaffold(body: HomeScreen(hour: 9)),
+      ),
+    ));
+    await _settle(t);
+    await t.tap(find.bySemanticsLabel('Previous day'));
+    await _settle(t);
+    expect(find.text('42'), findsOneWidget);
+
+    repo.failToday = true;
+    _lifecycle(t, const [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]);
+    await t.pump();
+    expect(find.text('42'), findsNothing);
+    await _settle(t);
+    expect(find.text('42'), findsNothing);
+    expect(find.text('Today could not be read'), findsOneWidget);
+  });
+
   testWidgets('"Back to today" follows today instead of pinning a date',
       (t) async {
     final app = AppState.forTesting();
@@ -319,4 +355,14 @@ class _EmptyPastRepo extends LocalRepository {
 class _FailingRepo extends _EmptyPastRepo {
   @override
   Future<List<String>> availableDays() async => throw StateError('read failed');
+}
+
+/// [_Repo] whose today read can be made to throw.
+class _FlakyTodayRepo extends _Repo {
+  bool failToday = false;
+  @override
+  Future<Map<String, dynamic>> getToday() async {
+    if (failToday) throw StateError('read failed');
+    return super.getToday();
+  }
 }

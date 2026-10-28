@@ -1581,11 +1581,18 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// It also reloads when the switcher was already on today: a day that rolled
   /// over while the app was backgrounded moves no database revision, so
   /// nothing else would re-read it.
+  ///
+  /// A past day on screen is dropped before the read, not after it: kept, its
+  /// rings would sit under today's header while the read runs, and stay there
+  /// for good if the read failed, since the error card only shows with no day.
   void _onReturnFromBackground() {
     if (!mounted) return;
     setState(() {
       _day = null;
-      if (_d?.dayId != todayLabel(widget.now)) _loading = true;
+      if (_d?.dayId != todayLabel(widget.now)) {
+        _d = null;
+        _loading = true;
+      }
     });
     _load();
   }
