@@ -56,12 +56,25 @@ class SleepStageAnalyzer {
   double? hrMinNight;
   double? rmssdMeanNight;
 
+  // The same plausibility window decides which samples form the baseline and
+  // which observations get scored. A value outside it (a 250 bpm spike, a NaN
+  // from a dropped beat) is a measurement fault, not physiology, and scoring it
+  // would push the decoder towards wake.
+  static bool _plausibleHr(double? h) => h != null && h.isFinite && h > 30.0 && h < 200.0;
+  static bool _plausibleRmssd(double? r) => r != null && r.isFinite && r > 0.0 && r < 500.0;
+
   void computeBaseline(List<Map<String, dynamic>> first120minData) {
     if (first120minData.isEmpty) return;
-    final hrs = first120minData.map((d) => (d['hr'] as num).toDouble())
-        .where((h) => h > 30.0 && h < 200.0).toList();
-    final rmssds = first120minData.map((d) => (d['rmssd'] as num).toDouble())
-        .where((r) => r > 0.0 && r < 500.0).toList();
+    final hrs = first120minData
+        .map((d) => (d['hr'] as num?)?.toDouble())
+        .where(_plausibleHr)
+        .cast<double>()
+        .toList();
+    final rmssds = first120minData
+        .map((d) => (d['rmssd'] as num?)?.toDouble())
+        .where(_plausibleRmssd)
+        .cast<double>()
+        .toList();
     
     if (hrs.isNotEmpty) {
       hrs.sort();
@@ -71,7 +84,11 @@ class SleepStageAnalyzer {
   }
 
   double _getEmissionLogProb(SleepState state, double hr, double rmssd, {bool isContactLost = false}) {
-    if (isContactLost || hr <= 0 || rmssd <= 0 || hrMinNight == null || rmssdMeanNight == null) {
+    if (isContactLost ||
+        !_plausibleHr(hr) ||
+        !_plausibleRmssd(rmssd) ||
+        hrMinNight == null ||
+        rmssdMeanNight == null) {
       return log(0.25);
     }
 
@@ -113,15 +130,19 @@ class SleepStageAnalyzer {
       final hr = (nightData[0]['hr'] as num?)?.toDouble() ?? 0.0;
       final rmssd = (nightData[0]['rmssd'] as num?)?.toDouble() ?? 0.0;
       final initProb = (state == SleepState.wake || state == SleepState.nremLight) ? log(0.5) : double.negativeInfinity;
-      viterbi[0][i] = initProb + _getEmissionLogProb(state, hr, rmssd);
+      viterbi[0][i] = initProb +
+          _getEmissionLogProb(state, hr, rmssd,
+              isContactLost: nightData[0]['isContactLost'] == true);
     }
 
     for (var t = 1; t < T; t++) {
       final hr = (nightData[t]['hr'] as num?)?.toDouble() ?? 0.0;
       final rmssd = (nightData[t]['rmssd'] as num?)?.toDouble() ?? 0.0;
+      final contactLost = nightData[t]['isContactLost'] == true;
       for (var j = 0; j < N; j++) {
         final nextState = states[j];
-        final emission = _getEmissionLogProb(nextState, hr, rmssd);
+        final emission =
+            _getEmissionLogProb(nextState, hr, rmssd, isContactLost: contactLost);
         var maxLogProb = double.negativeInfinity;
         var bestPrevState = 0;
         for (var i = 0; i < N; i++) {
