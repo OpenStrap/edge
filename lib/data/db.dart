@@ -1252,6 +1252,7 @@ class LocalDb {
     await _createRawArchive(db);
     await _createDerived(db);
     await _createDayResult(db);
+    await _ensureDayResultImportedColumn(db);
     await _createUserTables(db);
     await _createSyncState(db);
     await _createSyncCursor(db);
@@ -9311,16 +9312,108 @@ class LocalDb {
   /// no rows for yet, and band rows for it arriving later must still derive
   /// and replace the snapshot ([isMeasuredDayRow]). Every caller intersects
   /// this with days that have raw, so a raw-less import is still left alone.
+  ///
+  /// Read off [_dayResultFinalizedIndex] once [_ensureDayResultImportedFlag]
+  /// has filled `day_result.imported`. The LIKE it replaces read every
+  /// finalized day's whole bundle — and `finalized` itself sits after
+  /// `payload_json` in the row, so even the plain column test walked each
+  /// bundle's overflow pages — several times per derive pass.
   static Future<Set<String>> finalizedDayIds(int algoVersion) async {
     final db = await instance;
+    final indexed = await _ensureDayResultImportedFlag(db);
     final rows = await db.query(
       'day_result',
       columns: ['day_id'],
-      where: 'algo_version = ? AND finalized = 1 '
-          "AND payload_json NOT LIKE '%\"imported\":true%'",
+      where: indexed
+          ? 'algo_version = ? AND finalized = 1 AND imported = 0'
+          : 'algo_version = ? AND finalized = 1 '
+              'AND payload_json NOT LIKE $_importedPayloadLike',
       whereArgs: [algoVersion],
     );
     return {for (final r in rows) r['day_id'] as String};
+  }
+
+  /// The one test for "this bundle is an imported snapshot". The `imported`
+  /// column is computed from it by trigger, so the column and the old scan
+  /// cannot disagree about a row.
+  static const String _importedPayloadLike = "'%\"imported\":true%'";
+
+  /// Covering index for [finalizedDayIds]. Created only once every existing
+  /// row's `imported` is filled, so its presence is also the "backfill done"
+  /// marker: a database restored from a file without it backfills again.
+  static const String _dayResultFinalizedIndex = 'idx_day_result_finalized';
+
+  /// `day_result.imported` and the triggers that keep it equal to
+  /// [_importedPayloadLike] on every insert and payload update — whichever
+  /// path writes the row (derive, import, restore merge, raw SQL). Cheap and
+  /// idempotent: ADD COLUMN with a constant default rewrites nothing, so this
+  /// is safe on the every-open repair path. The backfill of existing rows is
+  /// NOT here; see [_ensureDayResultImportedFlag].
+  static Future<void> _ensureDayResultImportedColumn(Database db) async {
+    if ((await _columnsOf(db, 'day_result')).isEmpty) return;
+    await _addColumnIfMissing(
+      db, 'day_result', 'imported', 'INTEGER NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      'CREATE TRIGGER IF NOT EXISTS trg_day_result_imported_ins '
+      'AFTER INSERT ON day_result BEGIN '
+      'UPDATE day_result '
+      'SET imported = (NEW.payload_json LIKE $_importedPayloadLike) '
+      'WHERE rowid = NEW.rowid; END',
+    );
+    await db.execute(
+      'CREATE TRIGGER IF NOT EXISTS trg_day_result_imported_upd '
+      'AFTER UPDATE OF payload_json ON day_result BEGIN '
+      'UPDATE day_result '
+      'SET imported = (NEW.payload_json LIKE $_importedPayloadLike) '
+      'WHERE rowid = NEW.rowid; END',
+    );
+  }
+
+  /// True once `day_result.imported` is trustworthy for every row and
+  /// [_dayResultFinalizedIndex] exists. The first call on a database that
+  /// predates the column fills it in pages of 200 rows, each its own short
+  /// statement, then builds the index — off `openDatabase`, so a long history
+  /// never runs it under the launch watchdog. Rows written meanwhile are
+  /// already right (the triggers), and re-filling one recomputes the same
+  /// value, so a concurrent derive cannot race it. Any failure leaves the
+  /// index absent and the caller on the old scan; the next call resumes.
+  static Future<bool> _ensureDayResultImportedFlag(Database db) async {
+    Future<bool> ready() async => (await db.rawQuery(
+          "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+          [_dayResultFinalizedIndex],
+        ))
+            .isNotEmpty;
+    if (await ready()) return true;
+    try {
+      if (!(await _columnsOf(db, 'day_result')).contains('imported')) {
+        await _ensureDayResultImportedColumn(db);
+      }
+      var after = 0;
+      while (true) {
+        final page = await db.rawQuery(
+          'SELECT rowid AS r FROM day_result WHERE rowid > ? '
+          'ORDER BY rowid LIMIT 200',
+          [after],
+        );
+        if (page.isEmpty) break;
+        final hi = (page.last['r'] as num).toInt();
+        await db.rawUpdate(
+          'UPDATE day_result '
+          'SET imported = (payload_json LIKE $_importedPayloadLike) '
+          'WHERE rowid > ? AND rowid <= ?',
+          [after, hi],
+        );
+        after = hi;
+      }
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS $_dayResultFinalizedIndex '
+        'ON day_result(algo_version, finalized, imported, day_id)',
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Normalize a day_result row to also carry a `date` key (== day_id) so legacy
