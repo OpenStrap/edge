@@ -131,7 +131,16 @@ class UltrahumanLink {
     return _sync().whenComplete(() => _busy = false);
   }
 
+  /// [ResetGate.generation] when the running session started; the cursor
+  /// write checks it the same way the session's host does.
+  int _resetGen = ResetGate.generation;
+
   Future<bool> _sync() async {
+    // Read before the first await: a "delete everything" that lands while
+    // this sync is parked on the link slot or still connecting must find it
+    // here. The host refuses every write once a reset has run since.
+    final resetGen = ResetGate.generation;
+    _resetGen = resetGen;
     _drainFailed = false;
     BandHost? host;
     final row = await pairedRingRow();
@@ -159,7 +168,9 @@ class UltrahumanLink {
         // already stopped it (nulling `_deviceId`) and deleted the row. The
         // ids captured above would otherwise still connect to the forgotten
         // device and bank its history under a row that no longer exists.
-        if (_deviceId != deviceId) return false;
+        if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
+          return false;
+        }
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -196,6 +207,7 @@ class UltrahumanLink {
           );
           final h = host = _makeHost(
             deviceId,
+            resetGeneration: resetGen,
             UltrahumanAdapter(startIndex: cursor),
           );
           _host = h;
@@ -233,7 +245,10 @@ class UltrahumanLink {
     }
   }
 
-  BandHost _makeHost(String deviceId, UltrahumanAdapter adapter) => BandHost(
+  BandHost _makeHost(String deviceId, UltrahumanAdapter adapter,
+          {int? resetGeneration}) =>
+      BandHost(
+        resetGeneration: resetGeneration,
         adapter: adapter,
         deviceId: deviceId,
         onLog: (m) => debugPrint('[ultrahuman] $m'),
@@ -373,7 +388,9 @@ class UltrahumanLink {
     // NOT MONOTONIC, and it must not be — see `oura_link.dart`'s identical
     // note on why 0 arriving here is the recoverable case, not a bug.
     // Refused during "delete everything", for the same reason as Oura's.
-    if (ResetGate.active) throw StateError('data reset in progress');
+    if (ResetGate.changedSince(_resetGen)) {
+      throw StateError('data reset in progress');
+    }
     await LocalDb.setCursor(_cursorItem(deviceId), '$index');
   }
 }

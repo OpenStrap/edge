@@ -4273,6 +4273,12 @@ class LocalDb {
     // the host supplies it; a signal absent from the map defaults to
     // 2*kBucket (120s) inside [_extendCoverageVia].
     Map<String, int>? coverageToleranceSec,
+    // [ResetGate.generation] when the writing session began. Checked inside
+    // the commit gate, where it cannot be raced: a batch from a session that
+    // started before a "delete everything" is refused even once the reset has
+    // finished and the gate is down again. Null checks only that no reset is
+    // running right now.
+    int? resetGeneration,
   }) =>
       _withCommitGate(() => _commitSyncBatchLocked(
             raws,
@@ -4286,6 +4292,7 @@ class LocalDb {
             deviceFamily: deviceFamily,
             deviceId: deviceId,
             coverageToleranceSec: coverageToleranceSec,
+            resetGeneration: resetGeneration,
           ));
 
   static Future<void> _commitSyncBatchLocked(
@@ -4306,13 +4313,18 @@ class LocalDb {
     // WHICH PHYSICAL DEVICE these rows belong to (see [kPrimaryDeviceId]).
     String deviceId = kPrimaryDeviceId,
     Map<String, int>? coverageToleranceSec,
+    int? resetGeneration,
   }) async {
     // A batch queued on the gate before "delete everything" started reaches
     // here only after the wipe ([wipeAll] runs on the same gate). Every
     // caller re-checks ResetGate before calling, but this one runs LATER than
     // any of those checks, so it is the one that cannot be raced. Thrown, so
     // the caller keeps its buffer and never ACKs.
-    if (ResetGate.active) throw StateError('data reset in progress');
+    if (resetGeneration == null
+        ? ResetGate.active
+        : ResetGate.changedSince(resetGeneration)) {
+      throw StateError('data reset in progress');
+    }
     // NEUTRAL ROWS BELONG TO A NON-PRIMARY DEVICE. "" is the primary band
     // permanently (see kPrimaryDeviceId); a neutral-sample writer is by
     // definition a band with no framed record, which the primary is not.

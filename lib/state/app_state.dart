@@ -1323,19 +1323,34 @@ class AppState extends ChangeNotifier {
   /// said they would not.
   ///
   /// Order matters and is deliberate:
+  ///   0. Read the paired sensors' ids, the one step that can fail without
+  ///      anything lost: it aborts the reset before the first deletion.
   ///   1. Stop the network paths FIRST. Everything below takes time, and a
   ///      derive or backup finishing mid-reset must not upload or write a
   ///      snapshot of data the user just asked to destroy.
   ///   2. The database, then the preferences, then the keychain — the reads
   ///      that could re-create state are all downstream of the writes.
   ///   3. [signOut] last, because it flips the route and the UI unwinds.
+  ///
+  /// Every session that persists captures [ResetGate.generation] when it
+  /// starts and refuses to write once it has moved, so nothing begun before
+  /// this reset writes after it. What this method can end, it ends before the
+  /// gate lowers: the secondary links, any derive pass, and the primary link.
   /// Returns a cleanup error if backup copies or folder access remain;
   /// [resetLeftPairingKeys] says whether a sensor pairing key may.
   Future<String?> resetAllData() async {
     // 0 · nothing further ENTERS the database either. The band is still
     //     connected and still draining — see [_resetting].
     ResetGate.enter();
+    var primaryEnded = false;
+    var deriveHeld = false;
     try {
+      // FIRST, before anything is deleted: the paired sensors' ids. The wipe
+      // deletes the `device` rows, and those ids are the only way to find each
+      // sensor's pairing key afterwards. A lookup that fails aborts the reset
+      // here, while nothing is gone yet, rather than wiping the rows and
+      // leaving keys behind that nothing can find again.
+      final secondaryIds = await _secondaryDeviceIdsForReset();
       // Wait for a running backup and remove copies while the selected folder
       // grant is still known. Queued scheduled writes see Off inside the lock.
       Prefs.setString(Prefs.backupCadence, BackupCadence.off.name);
@@ -1363,9 +1378,10 @@ class AppState extends ChangeNotifier {
       // the wipe. ResetGate already refuses their commits; this ends the
       // sessions so nothing is left running against the emptied store.
       await _stopSecondaryLinksForReset();
-      // Read before the wipe: it deletes the `device` rows, and those ids are
-      // the only way to find each sensor's pairing key afterwards.
-      final secondaryIds = await _secondaryDeviceIdsForReset();
+      // And any derive pass: one running now read the store before the wipe
+      // and would write its results after it. Held until the gate lowers.
+      deriveHeld = await DerivationEngine.acquireForReset();
+      if (!deriveHeld) _log('[reset] a derive pass did not finish in time');
 
       // 2 · every row in every table (see LocalDb.wipeAll for why it is not a
       // hand-written table list, and for the sync_cursor decision). Behind the
@@ -1377,9 +1393,20 @@ class AppState extends ChangeNotifier {
       // reports) are the same records in plaintext, sitting in the cache.
       await purgeSharedHealthCopies();
 
-      // Surfaces outside the database that were still showing it.
-      await NotificationService.instance.cancelAll();
-      await WidgetService.clear();
+      // Surfaces outside the database that were still showing it. Neither
+      // may stop the reset short of [signOut]: the primary band is still
+      // connected and still draining, and only the end of this method
+      // disconnects it.
+      try {
+        await NotificationService.instance.cancelAll();
+      } catch (e) {
+        _log('[reset] notification clear failed: $e');
+      }
+      try {
+        await WidgetService.clear();
+      } catch (e) {
+        _log('[reset] widget clear failed: $e');
+      }
       try {
         await coachConfig?.save(apiKey: ''); // deletes the keychain entry
       } catch (e) {
@@ -1451,15 +1478,29 @@ class AppState extends ChangeNotifier {
 
       // signOut() unpairs, so by the time it returns nothing is delivering.
       await signOut();
+      primaryEnded = true;
       return backupCleanupError;
     } finally {
+      // THE PRIMARY LINK ENDS BEFORE THE GATE LOWERS, on every exit. Its
+      // commits go through the shared [_bandHost], and the one built below
+      // accepts them: a drain that was running when the reset started and
+      // was still connected after it would bank the band's records into the
+      // emptied store. signOut ends it on the normal path; any earlier exit
+      // ends it here. The link's last foreign-transfer banks run at teardown,
+      // so they are awaited too, while the gate still refuses them.
+      try {
+        if (!primaryEnded) await engine.disconnect();
+        await engine.settleShutdownBanks();
+      } catch (e) {
+        _log('[reset] primary link did not close cleanly: $e');
+      }
       // The old host read the generation before this reset, so it would
-      // refuse every commit from now on. Built here, the new one reads the
-      // generation this reset moved to: it still refuses while the gate is up
-      // (here, or a second reset on top of this one), and accepts once it
-      // lowers. The primary drain that was running when the reset started
-      // ended with signOut's unpair, before this point.
+      // refuse every commit from now on. Built here, after the link that was
+      // open during the reset has gone, the new one reads the generation this
+      // reset moved to: it still refuses while the gate is up (here, or a
+      // second reset on top of this one), and accepts once it lowers.
       _bandHost = _newPrimaryBandHost();
+      if (deriveHeld) DerivationEngine.releaseForReset();
       // Never leave ingest refused if the reset threw part-way: a half-reset
       // install that silently drops every record is worse than the race.
       ResetGate.leave();
@@ -1506,7 +1547,7 @@ class AppState extends ChangeNotifier {
       ];
     } catch (e) {
       _log('[reset] could not list paired sensors: $e');
-      return const [];
+      rethrow;
     }
   }
 

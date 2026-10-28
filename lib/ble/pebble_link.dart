@@ -40,6 +40,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart'
     show PebbleFrameReassembler;
 
 import 'adapters/pebble.dart';
+import '../sync/reset_gate.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
 
 /// `sync_cursor` names, as the host namespaces the adapter's cursors.
@@ -107,6 +108,10 @@ class PebbleLink {
   }
 
   Future<bool> _sync(Duration window) async {
+    // Read before the first await: a "delete everything" that lands while
+    // this sync is parked on the link slot or still connecting must find it
+    // here. The host refuses every write once a reset has run since.
+    final resetGen = ResetGate.generation;
     lastSyncHeard = false;
     final row = await pairedWatchRow();
     if (row == null) return false;
@@ -129,7 +134,9 @@ class PebbleLink {
         // already stopped it (nulling `_deviceId`) and deleted the row. The
         // ids captured above would otherwise still connect to the forgotten
         // device and bank its history under a row that no longer exists.
-        if (_deviceId != deviceId) return false;
+        if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
+          return false;
+        }
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -150,7 +157,8 @@ class PebbleLink {
             return false;
           }
           final host = await _makeHost(deviceId,
-              () => DateTime.now().millisecondsSinceEpoch ~/ 1000);
+              () => DateTime.now().millisecondsSinceEpoch ~/ 1000,
+              resetGeneration: resetGen);
           _host = host;
           // The adapter's stream has no end of its own — see the header —
           // so the window is what ends this session, not `run()` completing.
@@ -216,7 +224,8 @@ class PebbleLink {
   /// stored for this watch, the newest minute already counted and the recent
   /// sleep periods, so a day's total and a night carry forward across
   /// sessions (the watch never re-sends an ACKed message).
-  Future<BandHost> _makeHost(String deviceId, int Function() now) async {
+  Future<BandHost> _makeHost(String deviceId, int Function() now,
+      {int? resetGeneration}) async {
     final hw = await LocalDb.getCursorInt(_stepsHwItem(deviceId)) ?? 0;
     final prior = <DateTime, int>{};
     if (hw > 0) {
@@ -228,6 +237,7 @@ class PebbleLink {
           prior[DateTime.fromMillisecondsSinceEpoch(ts)] = v.toInt());
     }
     return BandHost(
+      resetGeneration: resetGeneration,
       adapter: PebbleAdapter(
           nowSeconds: now,
           priorSteps: prior,

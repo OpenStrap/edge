@@ -120,21 +120,28 @@ BleEngine createHeadlessSyncEngine({
   void Function(Object error)? onCommitError,
 }) {
   late final BandHost bandHost;
+  // EVERY write below is gated on [ResetGate]: a reset can begin at any
+  // point during a drain, and these callbacks are the reason it is not
+  // enough for AppState to guard only its own. Refusing loses nothing —
+  // none of it has been ACKed, so it is all still on the band.
+  //
+  // Against the generation this engine was built under, not just the live
+  // flag: nothing ends a headless drain when a reset starts, so one still
+  // running after the reset finished would otherwise write the band's
+  // events and records into the store the reset just emptied.
+  final resetGen = ResetGate.generation;
+  bool stale() => ResetGate.changedSince(resetGen);
   late final BleEngine engine;
   engine = BleEngine(
-    // EVERY write below is gated on [ResetGate]: a reset can begin at any
-    // point during a drain, and these callbacks are the reason it is not
-    // enough for AppState to guard only its own. Refusing loses nothing —
-    // none of it has been ACKed, so it is all still on the band.
     onRecord: (sample, raw) async {
-      if (ResetGate.active) return;
+      if (stale()) return;
       await LocalDb.insertRecord(raw, sample);
     },
     onState: (_) {},
     // This path drains exactly the one paired band (PairedDevice.load()),
     // so kPrimaryDeviceId is the correct value here, not a placeholder.
     onEvent: (id, ts, hex, profile) async {
-      if (ResetGate.active) return;
+      if (stale()) return;
       await LocalDb.insertEvent(id, ts, hex,
           deviceId: LocalDb.kPrimaryDeviceId, profile: profile);
       // The strap stamps events on its own RTC; map to wall seconds the
@@ -144,7 +151,7 @@ BleEngine createHeadlessSyncEngine({
     },
     log: (l) => debugPrint('[bgsync] $l'),
     onRecordsBatch: (raws, samples) async {
-      if (ResetGate.active) return;
+      if (stale()) return;
       await LocalDb.insertRecordsBatch(raws, samples);
     },
     // Routed through BandHost (M1a) rather than calling
@@ -164,7 +171,7 @@ BleEngine createHeadlessSyncEngine({
         // real data loss on a band the user may not be deleting after all if
         // the reset then fails. A throw blocks the ACK and the records stay
         // on the strap.
-        if (ResetGate.active) {
+        if (stale()) {
           throw StateError('data reset in progress — refusing to commit');
         }
         await bandHost.commitNativeBatch(raws, samples, trimTokenHex,
@@ -178,7 +185,7 @@ BleEngine createHeadlessSyncEngine({
       onCommitted?.call(samples.length);
     },
     onArchiveRecord: (raw) async {
-      if (ResetGate.active) return;
+      if (stale()) return;
       await LocalDb.archiveRawRecord(raw);
     },
     // A WHOOP MG left generating by a dead process must be cleaned up
@@ -206,6 +213,7 @@ BleEngine createHeadlessSyncEngine({
     isBackgroundDrainer: true,
   );
   bandHost = BandHost(
+    resetGeneration: resetGen,
     adapter: WhoopFramedAdapter(engine, kWhoopGen4),
     deviceId: LocalDb.kPrimaryDeviceId,
     onLog: (msg) => debugPrint('[bgsync][COMMIT] $msg'),
@@ -306,6 +314,10 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     '[bgsync] acquired headless lease=${ownedLease.token} '
     '(${BandOwnership.debugState})',
   );
+  // A reset that starts while this run is in flight ends everything after
+  // the drain too: the derive and the paired-sensor piggyback below would
+  // otherwise run against the store it emptied.
+  final runGen = ResetGate.generation;
   try {
     // "Delete everything" is running in this same process — see [ResetGate].
     // Checked BEFORE PairedDevice.load(), which is the only thing standing
@@ -357,6 +369,10 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     // window (bounded LIGHT pass — newest affected day only — so we stay inside
     // the short iOS execution budget). Best-effort; if the slot ends first, the
     // light pass on the next drain or the foreground finalize catches up.
+    if (ResetGate.changedSince(runGen)) {
+      debugPrint('[bgsync] a data reset ran during this drain — stopping.');
+      return true;
+    }
     try {
       await DerivationEngine(
         log: (l) => debugPrint('[bgsync-derive] $l'),
@@ -379,7 +395,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     BandOwnership.release(ownedLease);
     // Not during "delete everything": a secondary sync started now would
     // bank a device the reset is removing into the store it just emptied.
-    if (!ResetGate.active) await _syncPairedSensors();
+    if (!ResetGate.changedSince(runGen)) await _syncPairedSensors();
   }
 }
 

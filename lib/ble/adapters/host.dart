@@ -571,6 +571,7 @@ class BandHost {
       try {
         _refuseDuringReset();
         await LocalDb.commitSyncBatch(const [], const [],
+            resetGeneration: _resetGeneration,
             deviceId: deviceId,
             deviceFamily: adapter.id,
             neutrals: const [],
@@ -607,6 +608,7 @@ class BandHost {
       Future<void> commit() async => await LocalDb.commitSyncBatch(
             const [],
             const [],
+            resetGeneration: _resetGeneration,
             deviceId: deviceId,
             deviceFamily: adapter.id,
             neutrals: neutrals,
@@ -673,6 +675,7 @@ class BandHost {
         deviceFamily: deviceFamily,
         deviceId: deviceId,
         onCheckpoint: onLog,
+        resetGeneration: _resetGeneration,
       );
     } catch (e) {
       onLog('[${adapter.id}] native commit failed: $e');

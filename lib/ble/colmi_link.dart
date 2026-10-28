@@ -28,6 +28,7 @@ import 'adapters/adapter.dart' show ReplayBandLink;
 import 'adapters/colmi.dart';
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart' show BandHost;
+import '../sync/reset_gate.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
 
 String _hex(List<int> b) =>
@@ -98,6 +99,10 @@ class ColmiLink {
   }
 
   Future<bool> _sync() async {
+    // Read before the first await: a "delete everything" that lands while
+    // this sync is parked on the link slot or still connecting must find it
+    // here. The host refuses every write once a reset has run since.
+    final resetGen = ResetGate.generation;
     lastSyncUnanswered = false;
     final row = await pairedRingRow();
     if (row == null) return false;
@@ -116,7 +121,9 @@ class ColmiLink {
         // already stopped it (nulling `_deviceId`) and deleted the row. The
         // ids captured above would otherwise still connect to the forgotten
         // device and bank its history under a row that no longer exists.
-        if (_deviceId != deviceId) return false;
+        if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
+          return false;
+        }
         _connectAttempts++;
         try {
           final device = BluetoothDevice.fromId(remoteId);
@@ -140,6 +147,7 @@ class ColmiLink {
           final anchor = DateTime.now().millisecondsSinceEpoch ~/ 1000;
           _anchorSec = anchor;
           final host = BandHost(
+            resetGeneration: resetGen,
             adapter: ColmiAdapter(nowSeconds: () => anchor),
             deviceId: deviceId,
             onLog: (m) => debugPrint('[colmi] $m'),

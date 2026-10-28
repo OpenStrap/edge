@@ -173,6 +173,10 @@ class SessionLink {
           final host = _makeHost(deviceId, _now, resetGeneration: resetGen);
           _host = host;
           await host.run(link).timeout(window, onTimeout: () {});
+          // A forget or a reset that called [stop] while the session ran
+          // ends `run` like a normal finish. That session was cancelled, not
+          // completed, so its done-hook must not fire.
+          if (stopped()) return false;
           return true;
         } catch (e) {
           debugPrint('$_tag session failed: $e');

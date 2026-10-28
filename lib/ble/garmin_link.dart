@@ -37,6 +37,7 @@ import 'adapters/adapter.dart' show ReplayBandLink;
 import 'adapters/garmin.dart';
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart';
+import '../sync/reset_gate.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
 
 String _hex(List<int> b) =>
@@ -121,6 +122,10 @@ class GarminLink {
   }
 
   Future<bool> _sync() async {
+    // Read before the first await: a "delete everything" that lands while
+    // this sync is parked on the link slot or still connecting must find it
+    // here. The host refuses every write once a reset has run since.
+    final resetGen = ResetGate.generation;
     lastSyncRefused = false;
     final row = await pairedRow();
     if (row == null) return false;
@@ -149,7 +154,9 @@ class GarminLink {
         // already stopped it (nulling `_deviceId`) and deleted the row. The
         // ids captured above would otherwise still connect to the forgotten
         // device and bank its history under a row that no longer exists.
-        if (_deviceId != deviceId) return false;
+        if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
+          return false;
+        }
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -169,6 +176,7 @@ class GarminLink {
           }
           final host = _makeHost(
               deviceId,
+              resetGeneration: resetGen,
               GarminAdapter(
                 readFiles: await LocalDb.getCursor(_cursorItem(deviceId)) ?? '',
                 priorSteps: await _priorSteps(deviceId),
@@ -219,7 +227,10 @@ class GarminLink {
           DateTime.fromMillisecondsSinceEpoch(key): value.toInt(),
       };
 
-  BandHost _makeHost(String deviceId, GarminAdapter adapter) => BandHost(
+  BandHost _makeHost(String deviceId, GarminAdapter adapter,
+          {int? resetGeneration}) =>
+      BandHost(
+        resetGeneration: resetGeneration,
         adapter: adapter,
         deviceId: deviceId,
         onLog: (m) => debugPrint('[garmin] $m'),

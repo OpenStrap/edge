@@ -3097,6 +3097,29 @@ class DerivationEngine {
   @visibleForTesting
   static set debugRunning(bool v) => _running = v;
 
+  /// "Delete everything" takes this same lock for the length of its wipe.
+  /// A pass already running reads the store before the wipe and writes after
+  /// it — day results, baselines and freshness for data that no longer
+  /// exists — so the reset waits for it to finish first, and every pass that
+  /// tries to start meanwhile takes the ordinary busy skip.
+  ///
+  /// Bounded: a pass still running after [bound] is not waited for, and the
+  /// reset goes ahead without the lock (false). Each day already has its own
+  /// timeout, so that is a wedged pass, not a slow one.
+  static Future<bool> acquireForReset(
+      {Duration bound = const Duration(seconds: 120)}) async {
+    final waited = Stopwatch()..start();
+    while (_running) {
+      if (waited.elapsed >= bound) return false;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    _running = true;
+    return true;
+  }
+
+  /// Release what [acquireForReset] took. Only after it returned true.
+  static void releaseForReset() => _running = false;
+
   /// Run [body] under the process-wide derivation lock, returning [busy]
   /// unchanged if a pass is already in flight. Only for entry points that do
   /// NOT call another locked entry point (which would deadlock-by-skip).

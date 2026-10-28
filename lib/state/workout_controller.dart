@@ -626,11 +626,20 @@ class WorkoutController {
       _notify();
       return;
     }
+    // A route recorded before a "delete everything" is never written after
+    // it: the tracker's last flush can run inside a stop the reset raced, and
+    // GPS points with no session row are the worst thing to leave behind.
+    final resetGen = ResetGate.generation;
     final tracker = RouteTracker(
-      sink: (batch) => LocalDb.appendRoutePoints(
-        id,
-        [for (final p in batch) p.toRow(id)],
-      ),
+      sink: (batch) async {
+        if (ResetGate.changedSince(resetGen)) {
+          throw StateError('data reset in progress');
+        }
+        await LocalDb.appendRoutePoints(
+          id,
+          [for (final p in batch) p.toRow(id)],
+        );
+      },
       zoneNow: () => _zoneFor(activeWorkout?.currentHr ?? 0),
     );
     _routeTracker = tracker;
@@ -1021,6 +1030,9 @@ class WorkoutController {
     // day_result/derive pass (which may not run at all if the band isn't
     // connected right now); write this workout to Apple Health/Health Connect
     // immediately. Best-effort, never throws, no-ops if sync is off.
+    // A reset that started while the save was landing has already discarded
+    // this session; exporting or re-syncing it would carry it past the wipe.
+    if (ResetGate.changedSince(resetGen)) return;
     if (_healthSyncEnabled()) {
       unawaited(_exportToHealth(sessionRow));
     }

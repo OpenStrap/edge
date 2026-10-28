@@ -192,8 +192,11 @@ void main() {
   test('the headless piggyback does not sync secondaries during a reset', () {
     final run = bg.substring(bg.indexOf('Future<bool> runHeadlessSync('));
     final fin = run.substring(run.indexOf('} finally {'));
-    expect(fin.contains('if (!ResetGate.active) await _syncPairedSensors();'),
-        isTrue);
+    expect(
+        fin.contains(
+            'if (!ResetGate.changedSince(runGen)) await _syncPairedSensors();'),
+        isTrue,
+        reason: 'a reset that ran at any point during the drain ends it');
     expect(fin.substring(0, fin.indexOf('\n}\n')).contains('.instance.sync()'),
         isFalse, reason: 'every secondary sync goes through the gated helper');
   });
@@ -226,8 +229,8 @@ void main() {
       // a neighbour can never be mistaken for this one's.
       final next = bg.indexOf('\n    on', at + cb.length);
       final window = bg.substring(at, next < 0 ? bg.length : next);
-      expect(window.contains('ResetGate.active'), isTrue,
-          reason: '$cb writes without consulting ResetGate');
+      expect(window.contains('if (stale())'), isTrue,
+          reason: '$cb writes without consulting its reset generation');
     }
   });
 
@@ -249,10 +252,10 @@ void main() {
     // transaction, and DrainController reads durability from a throw. A quiet
     // return would ACK and let the band trim flash that was never stored —
     // a race turned into real data loss.
-    for (final f in [src, bg]) {
+    for (final (f, guard) in [(src, 'ResetGate.active'), (bg, 'stale()')]) {
       final at = f.indexOf('onCommitBatch:');
       final window = f.substring(at, at + 900);
-      expect(window.contains('ResetGate.active'), isTrue);
+      expect(window.contains(guard), isTrue);
       expect(window.contains('throw StateError'), isTrue,
           reason: 'the commit gate must throw, not return');
     }

@@ -22,6 +22,7 @@ import 'adapters/_registry.dart';
 import 'adapters/coros.dart';
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart';
+import '../sync/reset_gate.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
 
 /// The live link to a paired Coros watch. One instance; a second concurrent
@@ -101,6 +102,10 @@ class CorosLink {
   }
 
   Future<bool> _sync() async {
+    // Read before the first await: a "delete everything" that lands while
+    // this sync is parked on the link slot or still connecting must find it
+    // here. The host refuses every write once a reset has run since.
+    final resetGen = ResetGate.generation;
     final row = await pairedRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;
@@ -128,7 +133,9 @@ class CorosLink {
         // already stopped it (nulling `_deviceId`) and deleted the row. The
         // ids captured above would otherwise still connect to the forgotten
         // device and bank its history under a row that no longer exists.
-        if (_deviceId != deviceId) return false;
+        if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
+          return false;
+        }
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -149,6 +156,7 @@ class CorosLink {
             return false;
           }
           final host = BandHost(
+            resetGeneration: resetGen,
             adapter: const CorosAdapter(),
             deviceId: deviceId,
             onLog: (m) => debugPrint('[coros] $m'),

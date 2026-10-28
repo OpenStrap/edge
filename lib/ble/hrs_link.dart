@@ -66,6 +66,7 @@ import 'adapters/_registry.dart';
 import 'adapters/adapter.dart';
 import 'adapters/ble_hrs.dart';
 import 'adapters/gatt_link.dart';
+import '../sync/reset_gate.dart';
 import 'adapters/host.dart' show BandHost, HrsReading;
 import 'ble_state.dart'
     show
@@ -1075,6 +1076,9 @@ class HrsLink {
 
   Future<bool> _arm() async {
     final disarmsAtStart = _disarms;
+    // A sensor armed before a "delete everything" never writes after it, even
+    // if the disarm the reset sent did not reach this attempt.
+    final resetGen = ResetGate.generation;
     // Rule R6: a sensor whose flag is off is never armed, so nothing it
     // reads reaches a live trace, a workout's score or the day.
     if (!await wearableEnabled(kBleHrsAdapter.id)) return false;
@@ -1143,6 +1147,7 @@ class HrsLink {
         return false;
       }
       final host = BandHost(
+        resetGeneration: resetGen,
         adapter: kBleHrsAdapter,
         deviceId: deviceId,
         onLog: (m) => debugPrint('[hrs] $m'),
