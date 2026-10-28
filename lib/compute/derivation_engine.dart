@@ -7447,6 +7447,17 @@ class DerivationEngine {
   /// runs under iOS's CPU watchdog (invariant 11).
   Future<void> _runStorageHousekeeping() async {
     try {
+      // The pre-conversion undecodable archive, moved into the frame store a
+      // bounded slice at a time (see LocalDb.migrateLegacyRawArchive). A
+      // WHOOP MG's is ~500 MB of hex, so a background pass takes little.
+      final moved = await LocalDb.migrateLegacyRawArchive(
+        budget: Duration(seconds: background ? 3 : 15),
+      );
+      if (moved > 0) _log('moved $moved archived frame(s) to the frame store');
+    } catch (e) {
+      _log('raw archive move skipped (will retry): $e');
+    }
+    try {
       final reencoded = await LocalDb.reencodeLegacyDayResults();
       if (reencoded > 0) {
         _log('re-encoded $reencoded legacy day bundles');
