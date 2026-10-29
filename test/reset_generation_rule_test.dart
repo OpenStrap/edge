@@ -148,6 +148,25 @@ void main() {
       expect(release, greaterThan(fin));
       expect(release, lessThan(body.indexOf('ResetGate.leave();')));
     });
+
+    test('a derive pass that will not finish stops the reset before anything '
+        'is touched', () {
+      final body = _resetBody();
+      final take = body.indexOf('await DerivationEngine.acquireForReset()');
+      final refuse = body.indexOf('if (!deriveHeld) {');
+      final thrown = body.indexOf('throw StateError(', refuse);
+      expect(refuse, greaterThan(take));
+      expect(thrown, greaterThan(refuse));
+      for (final destructive in [
+        'pastLookup = true;',
+        'deleteAutomaticBackups()',
+        'telemetryConsent = false;',
+        '_stopSecondaryLinksForReset();',
+        'LocalDb.wipeAll()',
+      ]) {
+        expect(thrown, lessThan(body.indexOf(destructive)), reason: destructive);
+      }
+    });
   });
 
   group('resetAllData', () {
@@ -197,8 +216,13 @@ void main() {
       final ids = body.indexOf('await _secondaryDeviceIdsForReset();');
       final past = body.indexOf('pastLookup = true;');
       expect(past, greaterThan(ids));
-      // Nothing between the lookup and the flag can throw.
-      expect(body.substring(ids, past).split('\n').length, 2);
+      // Between the lookup and the flag only the derive lock is taken, and
+      // its refusal is meant to leave the band connected too: nothing else
+      // runs there.
+      final between = body.substring(ids, past);
+      expect('await '.allMatches(between).length, 2);
+      expect(between, contains('await DerivationEngine.acquireForReset()'));
+      expect('throw '.allMatches(between).length, 1);
       expect(past, lessThan(body.indexOf('Prefs.setString(Prefs.backupCadence')));
     });
 

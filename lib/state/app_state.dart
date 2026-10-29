@@ -1368,6 +1368,17 @@ class AppState extends ChangeNotifier {
       // here, while nothing is gone yet, rather than wiping the rows and
       // leaving keys behind that nothing can find again.
       final secondaryIds = await _secondaryDeviceIdsForReset();
+      // And any derive pass, also before anything is touched: one running now
+      // read the store before the wipe and would write its results after it,
+      // and its writes are not refused by the gate. Held until the gate lowers.
+      // A pass that will not finish in time stops the reset here, with nothing
+      // deleted, rather than wiping underneath it.
+      deriveHeld = await DerivationEngine.acquireForReset();
+      if (!deriveHeld) {
+        _log('[reset] a derive pass did not finish in time');
+        throw StateError('a calculation is still running; nothing was '
+            'deleted. Try again in a minute.');
+      }
       pastLookup = true;
       // Wait for a running backup and remove copies while the selected folder
       // grant is still known. Queued scheduled writes see Off inside the lock.
@@ -1396,10 +1407,6 @@ class AppState extends ChangeNotifier {
       // the wipe. ResetGate already refuses their commits; this ends the
       // sessions so nothing is left running against the emptied store.
       await _stopSecondaryLinksForReset();
-      // And any derive pass: one running now read the store before the wipe
-      // and would write its results after it. Held until the gate lowers.
-      deriveHeld = await DerivationEngine.acquireForReset();
-      if (!deriveHeld) _log('[reset] a derive pass did not finish in time');
 
       // 2 · every row in every table (see LocalDb.wipeAll for why it is not a
       // hand-written table list, and for the sync_cursor decision). Behind the
