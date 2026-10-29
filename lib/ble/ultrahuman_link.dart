@@ -76,6 +76,9 @@ class UltrahumanLink {
       debugPrint('[ultrahuman] refusing to forget the primary band from here.');
       return false;
     }
+    // Before the first await: a sync still reading the row has no
+    // `_deviceId` yet for the check below to match.
+    instance._forgets++;
     if (instance._deviceId == id) {
       await instance.stop();
     }
@@ -100,6 +103,10 @@ class UltrahumanLink {
 
   /// `device.id` of the paired ring. Never [LocalDb.kPrimaryDeviceId].
   String? _deviceId;
+
+  /// Bumped by every forget. A sync that saw it move since it started
+  /// does not connect, whatever its `_deviceId` says.
+  int _forgets = 0;
 
   /// Wall-clock now, in Unix seconds. Only [BandHost]'s flush cadence reads
   /// this — the adapter itself never calls `DateTime.now()`, since every
@@ -142,6 +149,7 @@ class UltrahumanLink {
     // this sync is parked on the link slot or still connecting must find it
     // here. The host refuses every write once a reset has run since.
     final resetGen = ResetGate.generation;
+    final forgets = _forgets;
     _resetGen = resetGen;
     _drainFailed = false;
     BandHost? host;
@@ -173,6 +181,8 @@ class UltrahumanLink {
         if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
           return false;
         }
+        // A forget during the row lookup above found no `_deviceId` to stop.
+        if (_forgets != forgets) return false;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;

@@ -399,7 +399,10 @@ class BandHost {
           try {
             _refuseDuringReset();
             await LocalDb.putVendorSleepEpochs(kept,
-                deviceId: deviceId, source: source, wholeNights: wholeNights);
+                deviceId: deviceId,
+                source: source,
+                wholeNights: wholeNights,
+                resetGeneration: _resetGeneration);
             _stored = true;
           } catch (err) {
             _vendorFailed = true;
@@ -478,7 +481,9 @@ class BandHost {
     try {
       _refuseDuringReset();
       final n = await LocalDb.putObservations(rows,
-          deviceId: deviceId, cursors: cursors);
+          deviceId: deviceId,
+          cursors: cursors,
+          resetGeneration: _resetGeneration);
       _stored = true;
       return n;
     } catch (err) {

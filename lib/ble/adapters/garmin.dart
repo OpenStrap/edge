@@ -269,7 +269,9 @@ class GarminAdapter extends BandAdapter {
 
     Future<void> next() async {
       if (queue.isEmpty) {
-        drained = listed;
+        // Only while the stream is open: once it closed (a disconnect, a
+        // closed handle) the file just finished had nowhere to go.
+        drained = listed && !events.isClosed;
         finish();
       } else {
         await request(queue.removeAt(0));

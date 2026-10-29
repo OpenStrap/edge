@@ -167,6 +167,25 @@ Future<List<BandEvent>> replay(
   return events;
 }
 
+/// A watch that closes the GFDI handle right behind the last chunk of file
+/// 1, before the phone has acked it.
+class _ClosesBehindLastChunk extends GarminWatchScript {
+  _ClosesBehindLastChunk(super.files);
+
+  @override
+  List<List<int>> reply(List<int> written) {
+    final before = downloaded.length;
+    final out = super.reply(written);
+    if (downloaded.length > before && downloaded.last == 1) {
+      return [
+        ...out,
+        GarminWatchScript.control(0x04, [0, 0, GarminWatchScript.handle]),
+      ];
+    }
+    return out;
+  }
+}
+
 void main() {
   final adapter = GarminAdapter(
     nowSeconds: () => 1735689600,
@@ -576,6 +595,15 @@ void main() {
       expect(lastSessionError, isA<StateError>());
       expect(events.last, isA<SampleBatch>(),
           reason: 'the archive is yielded before the error');
+    });
+
+    test('a handle closed behind the last chunk is not a finished sync',
+        () async {
+      final events = await _sync(
+          syncer(), _ClosesBehindLastChunk({1: (kGarminFitMonitor, t0, fit(10))}));
+      expect(events.whereType<OffloadCheckpoint>(), isEmpty,
+          reason: 'the file had nowhere to go once the stream closed');
+      expect(lastSessionError, isA<StateError>());
     });
 
     test('a file that grew is read again; an unchanged one is not', () async {

@@ -68,6 +68,9 @@ class PebbleLink {
       debugPrint('[pebble] refusing to forget the primary band from here.');
       return false;
     }
+    // Before the first await: a sync still reading the row has no
+    // `_deviceId` yet for the check below to match.
+    instance._forgets++;
     if (instance._deviceId == id) {
       await instance.stop();
     }
@@ -86,6 +89,10 @@ class PebbleLink {
 
   /// `device.id` of the paired watch. Never [LocalDb.kPrimaryDeviceId].
   String? _deviceId;
+
+  /// Bumped by every forget. A sync that saw it move since it started
+  /// does not connect, whatever its `_deviceId` says.
+  int _forgets = 0;
 
   bool _busy = false;
 
@@ -109,6 +116,7 @@ class PebbleLink {
     // this sync is parked on the link slot or still connecting must find it
     // here. The host refuses every write once a reset has run since.
     final resetGen = ResetGate.generation;
+    final forgets = _forgets;
     lastSyncHeard = false;
     lastSyncWriteRefused = false;
     final row = await pairedWatchRow();
@@ -135,6 +143,8 @@ class PebbleLink {
         if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
           return false;
         }
+        // A forget during the row lookup above found no `_deviceId` to stop.
+        if (_forgets != forgets) return false;
         BandHost? host;
         try {
           final device = BluetoothDevice.fromId(remoteId);

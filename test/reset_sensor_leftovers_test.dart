@@ -85,13 +85,18 @@ void main() {
       final gen = body.indexOf('final resetGen = resetGeneration ?? '
           'ResetGate.generation;');
       final wait = body.indexOf('await SharedPreferences.getInstance();');
-      final check =
-          body.indexOf('if (ResetGate.changedSince(resetGen)) return {...?user};');
+      final check = body.indexOf('if (ResetGate.changedSince(resetGen)) {');
+      final refuse = body.indexOf('throw StateError(', check);
+      final apply = body.indexOf('user = {...?user, ...fields};');
       final write = body.indexOf('await prefs.setString(_kProfile');
       expect(gen, greaterThan(0));
       expect(gen, lessThan(wait));
       expect(check, greaterThan(wait));
-      expect(write, greaterThan(check));
+      expect(refuse, greaterThan(check),
+          reason: 'a refused save must not look like a saved one');
+      expect(apply, greaterThan(refuse),
+          reason: 'nothing changes in memory when the save is refused');
+      expect(write, greaterThan(apply));
     });
   });
 

@@ -1193,16 +1193,20 @@ class AppState extends ChangeNotifier {
   /// [resetGeneration] is [ResetGate.generation] when the caller's work
   /// began; it defaults to now. A "delete everything" that runs while this
   /// waits for the preferences store has cleared it, and the profile must
-  /// not be written back over that.
+  /// not be written back over that: the change is then refused, unapplied,
+  /// and throws like any other failed save so the caller does not report it
+  /// as saved.
   Future<Map<String, dynamic>> updateProfile(
     Map<String, dynamic> fields, {
     int? resetGeneration,
   }) async {
     final resetGen = resetGeneration ?? ResetGate.generation;
     final goalBefore = user?['step_goal'];
-    user = {...?user, ...fields};
     final prefs = await SharedPreferences.getInstance();
-    if (ResetGate.changedSince(resetGen)) return {...?user};
+    if (ResetGate.changedSince(resetGen)) {
+      throw StateError('profile not saved: the app data was reset');
+    }
+    user = {...?user, ...fields};
     await prefs.setString(_kProfile, jsonEncode(user));
     notifyListeners();
     // Home bakes the step goal into its loaded data and re-reads only on the

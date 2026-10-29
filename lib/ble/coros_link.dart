@@ -66,6 +66,9 @@ class CorosLink {
       debugPrint('[coros] refusing to forget the primary band from here.');
       return false;
     }
+    // Before the first await: a sync still reading the row has no
+    // `_deviceId` yet for the check below to match.
+    instance._forgets++;
     if (instance._deviceId == id) await instance.stop();
     await LocalDb.deleteDevice(id);
     return true;
@@ -83,6 +86,10 @@ class CorosLink {
 
   /// `device.id` of the paired watch. Never [LocalDb.kPrimaryDeviceId].
   String? _deviceId;
+
+  /// Bumped by every forget. A sync that saw it move since it started
+  /// does not connect, whatever its `_deviceId` says.
+  int _forgets = 0;
 
   bool _busy = false;
 
@@ -103,6 +110,7 @@ class CorosLink {
     // this sync is parked on the link slot or still connecting must find it
     // here. The host refuses every write once a reset has run since.
     final resetGen = ResetGate.generation;
+    final forgets = _forgets;
     final row = await pairedRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;
@@ -133,6 +141,8 @@ class CorosLink {
         if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
           return false;
         }
+        // A forget during the row lookup above found no `_deviceId` to stop.
+        if (_forgets != forgets) return false;
         BandHost? host;
         try {
           final device = BluetoothDevice.fromId(remoteId);

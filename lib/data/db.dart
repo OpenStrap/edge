@@ -2444,11 +2444,40 @@ class LocalDb {
   /// of the device's that the new ones overlap, so the two never stack. With
   /// [wholeNights] (a band that only ever sends whole nights) the overlapped
   /// stored night goes entire, its epochs outside the new ones included.
+  ///
+  /// With [resetGeneration] (a sensor session's writes) this runs on the
+  /// commit gate and is refused there once a "delete everything" has started
+  /// since, exactly as [commitSyncBatch] is: [wipeAll] is on the same gate, so
+  /// nothing checked before the reset can land after the wipe.
   static Future<void> putVendorSleepEpochs(
     List<VendorEpoch> epochs, {
     required String deviceId,
     required String source,
     bool wholeNights = false,
+    int? resetGeneration,
+  }) {
+    if (resetGeneration == null) {
+      return _putVendorSleepEpochs(epochs,
+          deviceId: deviceId, source: source, wholeNights: wholeNights);
+    }
+    return _withCommitGate(() {
+      _refuseAfterReset(resetGeneration);
+      return _putVendorSleepEpochs(epochs,
+          deviceId: deviceId, source: source, wholeNights: wholeNights);
+    });
+  }
+
+  static void _refuseAfterReset(int resetGeneration) {
+    if (ResetGate.changedSince(resetGeneration)) {
+      throw StateError('data reset in progress');
+    }
+  }
+
+  static Future<void> _putVendorSleepEpochs(
+    List<VendorEpoch> epochs, {
+    required String deviceId,
+    required String source,
+    required bool wholeNights,
   }) async {
     if (epochs.isEmpty) return;
     final sorted = [...epochs]..sort((a, b) => a.startSec.compareTo(b.startSec));
@@ -2953,10 +2982,27 @@ class LocalDb {
   /// There is deliberately NO reader here yet. Nothing writes observations
   /// either: the adapter seam that will is phase 4, and wiring an existing
   /// importer into this table today would move numbers users already see.
+  ///
+  /// [resetGeneration]: as for [putVendorSleepEpochs], on the commit gate.
   static Future<int> putObservations(
     List<Observation> rows, {
     String deviceId = kPrimaryDeviceId,
     Map<String, String> cursors = const {},
+    int? resetGeneration,
+  }) {
+    if (resetGeneration == null) {
+      return _putObservations(rows, deviceId: deviceId, cursors: cursors);
+    }
+    return _withCommitGate(() {
+      _refuseAfterReset(resetGeneration);
+      return _putObservations(rows, deviceId: deviceId, cursors: cursors);
+    });
+  }
+
+  static Future<int> _putObservations(
+    List<Observation> rows, {
+    required String deviceId,
+    required Map<String, String> cursors,
   }) async {
     if (rows.isEmpty && cursors.isEmpty) return 0;
     final db = await instance;

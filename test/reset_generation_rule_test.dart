@@ -18,7 +18,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
+import 'package:openstrap_edge/compute/vendor_sleep.dart' show VendorEpoch;
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/observation.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/sync/reset_gate.dart';
 
@@ -63,6 +65,57 @@ void main() {
       await LocalDb.commitSyncBatch(const [], const [],
           resetGeneration: ResetGate.generation);
     });
+
+    test('vendor values and a vendor night are held to the same rule',
+        () async {
+      await LocalDb.instance;
+      final startedUnder = ResetGate.generation;
+      ResetGate.enter();
+      await LocalDb.wipeAll();
+      ResetGate.leave();
+      final row = Observation(
+        at: DateTime(2026, 10, 4, 12),
+        sourceKind: ObservationSource.vendor,
+        vendorKey: 'steps',
+        value: 100,
+        attribution: 'Test',
+      );
+      await expectLater(
+          LocalDb.putObservations([row],
+              deviceId: 'w-1', resetGeneration: startedUnder),
+          throwsStateError);
+      await expectLater(
+          LocalDb.putVendorSleepEpochs(
+              const [VendorEpoch(1790000000, 1790000600, 'deep')],
+              deviceId: 'w-1',
+              source: 'test',
+              resetGeneration: startedUnder),
+          throwsStateError);
+      final db = await LocalDb.instance;
+      expect(await db.query('observation'), isEmpty);
+      expect(await db.query('vendor_sleep_epoch'), isEmpty);
+      expect(
+          await LocalDb.putObservations([row],
+              deviceId: 'w-1', resetGeneration: ResetGate.generation),
+          1);
+    });
+  });
+
+  test('a sensor session hands its generation to every vendor write', () {
+    final host = _read('lib/ble/adapters/host.dart');
+    for (final call in [
+      'LocalDb.putVendorSleepEpochs(',
+      'LocalDb.putObservations(',
+    ]) {
+      final at = host.indexOf(call);
+      expect(at, greaterThan(0), reason: call);
+      expect(
+          host
+              .substring(at, host.indexOf(');', at))
+              .contains('resetGeneration: _resetGeneration'),
+          isTrue,
+          reason: call);
+    }
   });
 
   group('the derive lock', () {
@@ -214,6 +267,11 @@ void main() {
     for (final (f, forget) in [
       ('miband', 'static Future<bool> forgetBand(String id) async {'),
       ('oura', 'static Future<bool> forgetRing(String id) async {'),
+      ('colmi', 'static Future<bool> forgetRing(String id) async {'),
+      ('coros', 'static Future<bool> forget(String id) async {'),
+      ('garmin', 'static Future<bool> forget(String id) async {'),
+      ('pebble', 'static Future<bool> forgetPebble(String id) async {'),
+      ('ultrahuman', 'static Future<bool> forgetRing(String id) async {'),
     ]) {
       final src = _read('lib/ble/${f}_link.dart');
       final fg = src.indexOf(forget);

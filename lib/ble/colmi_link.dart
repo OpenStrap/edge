@@ -53,6 +53,9 @@ class ColmiLink {
       debugPrint('[colmi] refusing to forget the primary band from here.');
       return false;
     }
+    // Before the first await: a sync still reading the row has no
+    // `_deviceId` yet for the check below to match.
+    instance._forgets++;
     if (instance._deviceId == id) await instance.stop();
     await LocalDb.deleteDevice(id);
     return true;
@@ -65,6 +68,10 @@ class ColmiLink {
   GattBandLink? _link;
   BandHost? _host;
   String? _deviceId;
+
+  /// Bumped by every forget. A sync that saw it move since it started
+  /// does not connect, whatever its `_deviceId` says.
+  int _forgets = 0;
   bool _busy = false;
 
   /// How many syncs got past the slot wait to a connect attempt. Under a test
@@ -100,6 +107,7 @@ class ColmiLink {
     // this sync is parked on the link slot or still connecting must find it
     // here. The host refuses every write once a reset has run since.
     final resetGen = ResetGate.generation;
+    final forgets = _forgets;
     lastSyncUnanswered = false;
     final row = await pairedRingRow();
     if (row == null) return false;
@@ -121,6 +129,8 @@ class ColmiLink {
         if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
           return false;
         }
+        // A forget during the row lookup above found no `_deviceId` to stop.
+        if (_forgets != forgets) return false;
         _connectAttempts++;
         BandHost? host;
         try {
