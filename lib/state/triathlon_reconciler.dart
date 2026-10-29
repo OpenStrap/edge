@@ -16,9 +16,11 @@
 //  * A tap becomes a transition only when it CLEARS THE GATE: at least
 //    [kMinTaps] double-taps within [kTapWindowSec], and at least the segment's
 //    minimum duration after that segment started. Anything less is treated as
-//    an accidental touch — the same rule the live path applies.
+//    an accidental touch. The live gate (later PR) is specified to apply the
+//    same rule; this file is the offline implementation, not a claim that the
+//    live path already exists.
 //  * The whole chain is applied in ONE transaction through
-//    [TriathlonDb.applyOfflineBoundaries]. A failure halfway through leaves the
+//    [TriathlonDb.applyOfflineBoundariesInTx]. A failure halfway through leaves the
 //    race exactly as it was, not half-segmented.
 //  * It NEVER overwrites a live-recorded boundary and never touches a
 //    finalized session. Re-running is therefore safe and idempotent: the taps
@@ -41,6 +43,12 @@ const int kMinTaps = 3;
 
 /// The window those taps must fall inside, in seconds.
 const int kTapWindowSec = 6;
+
+/// Widening applied to the event window on both sides, because the strap's RTC
+/// and the phone's clock are different clocks and can drift. The boundary
+/// floor still rejects anything at or before the last recorded boundary, so a
+/// wider read can only ADD taps the strap really recorded, never rewind.
+const int kClockDriftToleranceSec = 120;
 
 /// Minimum time a segment must have been running before a transition is
 /// believable, per segment kind. These are deliberately conservative floors,
@@ -90,7 +98,12 @@ class TriathlonReconciler {
       'band_events',
       columns: ['ts'],
       where: 'event_id = ? AND device_id = ? AND ts >= ? AND ts <= ?',
-      whereArgs: [kTriathlonDoubleTapEventId, deviceId, since, until],
+      whereArgs: [
+        kTriathlonDoubleTapEventId,
+        deviceId,
+        since - kClockDriftToleranceSec,
+        until + kClockDriftToleranceSec,
+      ],
       orderBy: 'ts ASC',
     );
     final taps = [
@@ -153,13 +166,16 @@ List<ReconcileBoundary> deriveBoundaries({
     if (t != null && t > floor) floor = t;
   }
 
-  // Consecutive taps no more than [kTapWindowSec] apart form one intent. The
-  // FIRST tap of the cluster is when the athlete said "next"; the rest are
-  // the "did it register?" taps.
+  // One intent = taps that BOTH start within [kTapWindowSec] of the first tap
+  // AND follow the previous tap without a longer pause. The first condition
+  // alone stops a chain (0 s, 6 s, 12 s) from counting as a single burst.
   final clusters = <List<int>>[];
   for (final t in sorted) {
-    if (clusters.isNotEmpty && t - clusters.last.last <= kTapWindowSec) {
-      clusters.last.add(t);
+    final current = clusters.isEmpty ? null : clusters.last;
+    if (current != null &&
+        t <= current.first + kTapWindowSec &&
+        t - current.last <= kTapWindowSec) {
+      current.add(t);
     } else {
       clusters.add([t]);
     }
@@ -169,7 +185,8 @@ List<ReconcileBoundary> deriveBoundaries({
   for (final cluster in clusters) {
     final at = cluster.first;
     if (at <= floor) continue;
-    final supporting = cluster.where((t) => t <= at + kTapWindowSec).length;
+    // Every member is inside the window by construction.
+    final supporting = cluster.length;
     if (supporting < kMinTaps) continue;
 
     if (started == 0) {

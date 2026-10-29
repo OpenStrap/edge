@@ -9,11 +9,11 @@
 // THE TWO INVARIANTS THIS FILE ENFORCES, INDEPENDENT OF THE STATE MACHINE:
 //
 //  1. FINALIZED MEANS IMMUTABLE. `finalize()` stamps `finalized_at`; every
-//     later write to that session or its segments throws. A race that has been
-//     saved is a record, and a screen must not be able to quietly rewrite it.
-//     Boundary corrections belong to the not-yet-finalized session, and a
-//     future "re-derive" flow gets a NEW row, exactly like `day_result`'s
-//     immutable-per-version rule.
+//     later write to that session or its segments throws (including its note).
+//     A race that has been saved is a record, and a screen must not be able to
+//     quietly rewrite it. Boundary corrections belong to the not-yet-finalized
+//     session, and a future "re-derive" flow gets a NEW row, exactly like
+//     `day_result`'s immutable-per-version rule.
 //
 //  2. SEGMENTS CANNOT OVERLAP OR RUN BACKWARDS. A segment's end is at or after
 //     its start, and neighbours meet at one instant: segment i's end IS segment
@@ -157,6 +157,7 @@ class TriSegment {
     String? distanceSource,
     String? hrSource,
     bool clearEnd = false,
+    bool clearStart = false,
   }) {
     return TriSegment(
       sessionId: sessionId,
@@ -165,7 +166,7 @@ class TriSegment {
       environment: environment,
       plannedDistanceM: plannedDistanceM,
       goalSec: goalSec,
-      startTs: startTs ?? this.startTs,
+      startTs: clearStart ? null : (startTs ?? this.startTs),
       endTs: clearEnd ? null : (endTs ?? this.endTs),
       boundarySource: boundarySource ?? this.boundarySource,
       workoutId: workoutId ?? this.workoutId,
@@ -273,7 +274,7 @@ class TriSession {
         'updated_at': updatedAt,
       };
 
-  static TriSession? fromRow(Map<String, Object?> r) {
+  static TriSession fromRow(Map<String, Object?> r) {
     TriathlonPlan? plan;
     try {
       final decoded = jsonDecode(r['plan_json'] as String? ?? '{}');
@@ -344,6 +345,16 @@ class TriathlonDb {
       throw TriathlonWriteError('segment rows do not match the plan');
     }
     await db.transaction((txn) async {
+      final clash = await txn.query(
+        'triathlon_session',
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [session.id],
+        limit: 1,
+      );
+      if (clash.isNotEmpty) {
+        throw TriathlonWriteError('session ${session.id} already exists');
+      }
       await txn.insert('triathlon_session', session.toRow());
       final plan = session.plan!;
       for (var i = 0; i < plan.segments.length; i++) {
@@ -380,9 +391,7 @@ class TriathlonDb {
       limit: 1,
     );
     if (rows.isEmpty) return null;
-    final session = TriSession.fromRow(rows.first);
-    if (session == null) return null;
-    return _withSegments(db, session);
+    return _withSegments(db, TriSession.fromRow(rows.first));
   }
 
   static Future<List<TriSegment>> segments(DatabaseExecutor db, String id) async {
@@ -424,9 +433,7 @@ class TriathlonDb {
       limit: 1,
     );
     if (rows.isEmpty) return null;
-    final session = TriSession.fromRow(rows.first);
-    if (session == null) return null;
-    return _withSegments(db, session);
+    return _withSegments(db, TriSession.fromRow(rows.first));
   }
 
   /// Finalized sessions at [preset], newest first — the comparison set for
@@ -445,8 +452,7 @@ class TriathlonDb {
     );
     final out = <TriSession>[];
     for (final r in rows) {
-      final s = TriSession.fromRow(r);
-      if (s != null) out.add(await _withSegments(db, s));
+      out.add(await _withSegments(db, TriSession.fromRow(r)));
     }
     return out;
   }
@@ -483,6 +489,7 @@ class TriathlonDb {
         where: 'session_id = ? AND idx = ?',
         whereArgs: [segment.sessionId, segment.idx],
       );
+      _validateTimeline(await segments(txn, segment.sessionId));
       await _recomputeSessionBounds(txn, segment.sessionId);
     });
   }
@@ -514,6 +521,7 @@ class TriathlonDb {
         where: 'session_id = ? AND idx = 0',
         whereArgs: [sessionId],
       );
+      _validateTimeline(await segments(txn, sessionId));
       await _recomputeSessionBounds(txn, sessionId, status: 'active');
     });
   }
@@ -542,7 +550,12 @@ class TriathlonDb {
     });
   }
 
-  /// Closes the last open segment at [ts] and marks the session finished.
+  /// Closes the FINAL segment at [ts] and marks the session finished.
+  ///
+  /// Only the last segment may be finished: closing an earlier one would leave
+  /// later segments unstarted while the session claims to be over, and
+  /// [finalize] — which requires every segment closed — could never accept it.
+  /// A DNF needs an explicit model (skipped markers), not a silent half-race.
   static Future<void> finishSegment({
     required Database db,
     required String sessionId,
@@ -561,9 +574,11 @@ class TriathlonDb {
       if (last.startTs == null || ts < last.startTs!) {
         throw TriathlonWriteError('a segment cannot end before it starts');
       }
-      if (last.idx != segs.length - 1 &&
-          segs.any((s) => s.idx > last.idx && s.startTs != null)) {
-        throw TriathlonWriteError('the last open segment is not the last');
+      if (last.idx != segs.length - 1) {
+        throw TriathlonWriteError(
+          'finish closes the final segment; close segment ${last.idx} with a '
+          'transition instead',
+        );
       }
       await txn.update(
         'triathlon_segment',
@@ -571,6 +586,7 @@ class TriathlonDb {
         where: 'session_id = ? AND idx = ?',
         whereArgs: [sessionId, last.idx],
       );
+      _validateTimeline(await segments(txn, sessionId));
       await _recomputeSessionBounds(txn, sessionId, status: 'finished');
     });
   }
@@ -617,6 +633,7 @@ class TriathlonDb {
         where: 'session_id = ? AND idx = ?',
         whereArgs: [sessionId, idx + 1],
       );
+      _validateTimeline(await segments(txn, sessionId));
       await _recomputeSessionBounds(txn, sessionId);
     });
   }
@@ -660,6 +677,8 @@ class TriathlonDb {
           where: 'session_id = ? AND idx = 0',
           whereArgs: [sessionId],
         );
+        _validateTimeline(segs = await segments(txn, sessionId));
+        await _recomputeSessionBounds(txn, sessionId, status: 'active');
         continue;
       }
       if (open.length != 1) {
@@ -692,6 +711,7 @@ class TriathlonDb {
     }
     // A chain that never reached the last segment leaves it running; the
     // session bounds are still correct for what is known.
+    _validateTimeline(await segments(txn, sessionId));
     await _recomputeSessionBounds(txn, sessionId);
   }
 
@@ -722,19 +742,28 @@ class TriathlonDb {
     });
   }
 
-  /// Status / session-level bounds / notes. Refuses a finalized row, and never
-  /// clears `finalized_at` — finalization is one-way by design.
+  /// Note and lifecycle status. Refuses a finalized row, and never clears
+  /// `finalized_at` — finalization is one-way by design.
+  ///
+  /// Session bounds are NOT writable here: they are derived from the segments
+  /// by [_recomputeSessionBounds], and letting a screen set them would give the
+  /// same fact two sources. `finished`/`finalized` are set by their own calls.
   static Future<void> updateSession(Database db, TriSession session) async {
     await db.transaction((txn) async {
       await _requireWritable(txn, session.id);
       if (session.isFinalized || session.status == 'finalized') {
         throw TriathlonWriteError('use finalize to finalize a session');
       }
-      // Do not rewrite the frozen plan or an unknown future plan version.
+      const writable = {'armed', 'active', 'discarded'};
+      if (!writable.contains(session.status)) {
+        throw TriathlonWriteError(
+          'status ${session.status} is set by start/finish/finalize, not here',
+        );
+      }
+      // Bounds are derived from the segments (_recomputeSessionBounds) and
+      // deliberately absent here: a screen must not be able to desync them.
       final row = <String, Object?>{
         'status': session.status,
-        'start_ts': session.startTs,
-        'end_ts': session.endTs,
         'note': session.note,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       };
@@ -753,6 +782,17 @@ class TriathlonDb {
   static Future<void> finalize(Database db, String id) async {
     await db.transaction((txn) async {
       await _requireWritable(txn, id);
+      final rows = await txn.query(
+        'triathlon_session',
+        columns: ['status'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw TriathlonWriteError('no such session: $id');
+      if (rows.first['status'] != 'finished') {
+        throw TriathlonWriteError('only a finished session can be finalized');
+      }
       final segs = await segments(txn, id);
       if (segs.isEmpty) throw TriathlonWriteError('nothing to finalize');
       for (final s in segs) {
@@ -760,6 +800,7 @@ class TriathlonDb {
           throw TriathlonWriteError('segment ${s.idx} is still open');
         }
       }
+      _validateTimeline(segs);
       await txn.update(
         'triathlon_session',
         {
@@ -800,6 +841,61 @@ class TriathlonDb {
       );
       return workoutIds;
     });
+  }
+
+  /// THE timeline rule, applied to the whole session and not just the row
+  /// that changed.
+  ///
+  /// Started segments form a PREFIX: segment 3 cannot have a start while
+  /// segment 0 is still a plan row. Boundaries are contiguous and monotonic,
+  /// and at most one segment is open (started, not ended). Checking only the
+  /// edited row let a caller time segment 3 while 0 was open, which no later
+  /// operation can repair.
+  static void _validateTimeline(List<TriSegment> segs) {
+    int? prevEnd;
+    var seenUnstarted = false;
+    var open = 0;
+    for (final s in segs) {
+      final started = s.startTs != null;
+      final ended = s.endTs != null;
+      if (!started) {
+        seenUnstarted = true;
+        if (ended) {
+          throw TriathlonWriteError('segment ${s.idx} ends before it starts');
+        }
+        continue;
+      }
+      if (seenUnstarted) {
+        throw TriathlonWriteError(
+          'segment ${s.idx} starts while an earlier segment never did',
+        );
+      }
+      if (prevEnd != null && s.startTs != prevEnd) {
+        throw TriathlonWriteError(
+          'segment ${s.idx} does not start where its predecessor ended',
+        );
+      }
+      if (ended) {
+        if (s.endTs! < s.startTs!) {
+          throw TriathlonWriteError('segment ${s.idx} ends before it starts');
+        }
+        prevEnd = s.endTs;
+      } else {
+        open++;
+        if (open > 1) {
+          throw TriathlonWriteError('more than one segment is open');
+        }
+        // An open segment cannot have a started successor.
+        for (final later in segs) {
+          if (later.idx > s.idx && later.startTs != null) {
+            throw TriathlonWriteError(
+              'segment ${later.idx} starts while ${s.idx} is open',
+            );
+          }
+        }
+        prevEnd = null;
+      }
+    }
   }
 
   static void _checkBoundarySource(String source) {
@@ -849,6 +945,7 @@ class TriathlonDb {
       where: 'session_id = ? AND idx = ?',
       whereArgs: [sessionId, currentIdx + 1],
     );
+    _validateTimeline(await segments(txn, sessionId));
     await _recomputeSessionBounds(txn, sessionId);
   }
 

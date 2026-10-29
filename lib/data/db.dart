@@ -10951,16 +10951,21 @@ class LocalDb {
         where: 'start_ts >= ? AND start_ts < ?',
         whereArgs: [startSec, endSec],
       );
+      // Same midnight rule as deleteDays: a race is exported for a day when
+      // it starts that day OR one of its segments does, and always whole.
+      const triInWindow = '(SELECT id FROM triathlon_session '
+          'WHERE start_ts >= ? AND start_ts < ? '
+          'UNION SELECT session_id FROM triathlon_segment '
+          'WHERE start_ts >= ? AND start_ts < ?)';
       await copyRows(
         'triathlon_session',
-        where: 'start_ts >= ? AND start_ts < ?',
-        whereArgs: [startSec, endSec],
+        where: 'id IN $triInWindow',
+        whereArgs: [startSec, endSec, startSec, endSec],
       );
       await copyRows(
         'triathlon_segment',
-        where: 'session_id IN (SELECT id FROM triathlon_session '
-            'WHERE start_ts >= ? AND start_ts < ?)',
-        whereArgs: [startSec, endSec],
+        where: 'session_id IN $triInWindow',
+        whereArgs: [startSec, endSec, startSec, endSec],
       );
       await copyRows(
         'live_coverage',
@@ -11148,17 +11153,41 @@ class LocalDb {
         // triathlon session id, and a segment's `workout_id` merely points at
         // one. Treating them as session children matched nothing (a privacy
         // leak on delete) and could delete a race segment whose string id
-        // collided with a workout id. The child rows go first, then the parent.
-        deleted += await txn.rawDelete(
-          'DELETE FROM triathlon_segment WHERE session_id IN '
-          '(SELECT id FROM triathlon_session WHERE start_ts >= ? AND start_ts < ?)',
-          [startSec, endSec],
-        );
-        deleted += await txn.delete(
-          'triathlon_session',
-          where: 'start_ts >= ? AND start_ts < ?',
-          whereArgs: [startSec, endSec],
-        );
+        // collided with a workout id.
+        //
+        // A race that starts before midnight and ends after it belongs to
+        // BOTH days: deleting either day must not leave its rows behind, so a
+        // race is selected when it starts in the window OR when any of its
+        // segments does. The whole race goes — deleting half a race would
+        // leave a record nobody can read.
+        // READ THE IDS FIRST. Deleting the segments first would empty the
+        // subquery the parent delete is built from, so a race selected only
+        // through a segment (the cross-midnight case) survived its own
+        // deletion. Selection and deletion must not share one statement here.
+        const triInWindow = '(SELECT id FROM triathlon_session '
+            'WHERE start_ts >= ? AND start_ts < ? '
+            'UNION SELECT session_id FROM triathlon_segment '
+            'WHERE start_ts >= ? AND start_ts < ?)';
+        final triIds = <String>[
+          for (final r in await txn.query(
+            'triathlon_session',
+            columns: ['id'],
+            where: 'id IN $triInWindow',
+            whereArgs: [startSec, endSec, startSec, endSec],
+          ))
+            r['id'] as String,
+        ];
+        for (final chunk in _sqlVarChunks(triIds)) {
+          final marks = List.filled(chunk.length, '?').join(',');
+          deleted += await txn.rawDelete(
+            'DELETE FROM triathlon_segment WHERE session_id IN ($marks)',
+            chunk,
+          );
+          deleted += await txn.rawDelete(
+            'DELETE FROM triathlon_session WHERE id IN ($marks)',
+            chunk,
+          );
+        }
         deleted += await txn.delete(
           'sessions',
           where: 'start_ts >= ? AND start_ts < ?',

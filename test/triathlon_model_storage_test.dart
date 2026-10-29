@@ -3,6 +3,8 @@
 //
 // Runs against the real sqflite_ffi database — the repo standard for DB tests.
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -261,28 +263,43 @@ void main() {
         id: 'tri_sprint_fin',
         kind: 'race',
         preset: 'sprint',
-        status: 'active',
+        status: 'armed',
         plan: plan,
         createdAt: t0,
         updatedAt: t0,
       );
       await TriathlonDb.create(db, session);
 
-      // Close all 5 segments contiguously.
       var t = 1000;
-      for (var i = 0; i < 5; i++) {
-        final seg = (await TriathlonDb.segments(db, 'tri_sprint_fin'))[i];
-        final len = i.isEven ? 1000 : 60;
-        await TriathlonDb.saveSegment(
-          db,
-          seg.copyWith(startTs: t, endTs: t + len, boundarySource: 'gesture'),
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_sprint_fin',
+        ts: t,
+        boundarySource: 'gesture',
+      );
+      for (var i = 0; i < 4; i++) {
+        t += (i.isEven ? 1000 : 60);
+        await TriathlonDb.transitionSegment(
+          db: db,
+          sessionId: 'tri_sprint_fin',
+          currentIdx: i,
+          transitionTs: t,
+          boundarySource: 'gesture',
         );
-        t += len;
       }
+      t += 800;
+      await TriathlonDb.finishSegment(
+        db: db,
+        sessionId: 'tri_sprint_fin',
+        ts: t,
+        boundarySource: 'gesture',
+      );
 
       await TriathlonDb.finalize(db, 'tri_sprint_fin');
       final finalized = await TriathlonDb.byId(db, 'tri_sprint_fin');
       expect(finalized!.isFinalized, isTrue);
+      expect(finalized.status, 'finalized');
+      expect(finalized.endTs, t);
 
       // Any attempt to edit a finalized segment must throw.
       final seg0 = finalized.segments[0];
@@ -291,6 +308,37 @@ void main() {
           db,
           seg0.copyWith(distanceM: 750, distanceSource: 'user'),
         ),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      await LocalDb.close();
+    });
+
+    test('finalize refuses a session that never finished', () async {
+      final db = await freshDb('tri_finalize_unfinished_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_unfinished_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_unfinished_1',
+        ts: 1000,
+        boundarySource: 'gesture',
+      );
+      await expectLater(
+        TriathlonDb.finalize(db, 'tri_unfinished_1'),
         throwsA(isA<TriathlonWriteError>()),
       );
       await LocalDb.close();
@@ -376,8 +424,7 @@ void main() {
       await LocalDb.close();
     });
 
-    test('a race under its minimum duration is not segmented by taps',
-        () async {
+    test('a transition under the segment minimum is ignored', () async {
       final db = await freshDb('tri_posthoc_floor_test.db');
       final plan = TriathlonPlan.race(
         'sprint',
@@ -395,21 +442,35 @@ void main() {
         updatedAt: 1_000_000,
       );
       await TriathlonDb.create(db, session);
-      // 20 s in: a real swim cannot be over, so this is not a transition.
-      for (final o in [0, 1, 2]) {
-        final ts = 1_000_020 + o;
-        await db.insert('band_events', {
-          'device_id': '',
-          'hex': 'dtap_$ts',
-          'event_id': 14,
-          'name': 'DOUBLE_TAP',
-          'ts': ts,
-          'payload_json': '{}',
-          'captured_at': ts * 1000,
-        });
+
+      Future<void> taps(int first) async {
+        for (final o in [0, 1, 2]) {
+          final ts = first + o;
+          await db.insert('band_events', {
+            'device_id': '',
+            'hex': 'dtap_$ts',
+            'event_id': 14,
+            'name': 'DOUBLE_TAP',
+            'ts': ts,
+            'payload_json': '{}',
+            'captured_at': ts * 1000,
+          });
+        }
       }
+
+      // Clears the gate 600 s after arming: this is the START, not a
+      // transition, so no minimum applies to it.
+      await taps(1_000_600);
+      // 20 s later a second burst tries to end the swim. A swim cannot be
+      // over, so it must be ignored — the race keeps running.
+      await taps(1_000_620);
+
       final applied = await TriathlonReconciler(db).reconcile('tri_floor_1');
-      expect(applied, isEmpty);
+      expect(applied, hasLength(1));
+      final segs = await TriathlonDb.segments(db, 'tri_floor_1');
+      expect(segs[0].startTs, 1_000_600);
+      expect(segs[0].endTs, isNull);
+      expect(segs[1].startTs, isNull);
       await LocalDb.close();
     });
 
@@ -445,22 +506,23 @@ void main() {
         transitionTs: 1600,
         boundarySource: 'gesture',
       );
-      var segs = await TriathlonDb.segments(db, 'tri_move_1');
-      expect(segs[0].endTs, 1600);
-      expect(segs[1].startTs, 1600);
-      await TriathlonDb.transitionSegment(
+      await TriathlonDb.adjustBoundary(
         db: db,
         sessionId: 'tri_move_1',
-        currentIdx: 0,
-        transitionTs: 1700,
-        boundarySource: 'gesture',
+        idx: 0,
+        newTs: 1700,
       );
+      var segs = await TriathlonDb.segments(db, 'tri_move_1');
+      expect(segs[0].endTs, 1700);
+      expect(segs[1].startTs, 1700);
+
+      // A closed segment cannot be transitioned again.
       await expectLater(
         TriathlonDb.transitionSegment(
           db: db,
           sessionId: 'tri_move_1',
           currentIdx: 0,
-          transitionTs: 1500,
+          transitionTs: 1800,
           boundarySource: 'gesture',
         ),
         throwsA(isA<TriathlonWriteError>()),
@@ -468,6 +530,78 @@ void main() {
       segs = await TriathlonDb.segments(db, 'tri_move_1');
       expect(segs[0].endTs, 1700);
       expect(segs[1].startTs, 1700);
+      await LocalDb.close();
+    });
+
+    test('an out-of-order segment is refused by the timeline rule', () async {
+      final db = await freshDb('tri_timeline_order_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_order_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      final seg3 = (await TriathlonDb.segments(db, 'tri_order_1'))[3];
+      await expectLater(
+        TriathlonDb.saveSegment(
+          db,
+          seg3.copyWith(startTs: 500, endTs: 600),
+        ),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      await LocalDb.close();
+    });
+
+    test('finish only closes the final segment', () async {
+      final db = await freshDb('tri_finish_early_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_finish_early_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_finish_early_1',
+        ts: 1000,
+        boundarySource: 'gesture',
+      );
+      await TriathlonDb.transitionSegment(
+        db: db,
+        sessionId: 'tri_finish_early_1',
+        currentIdx: 0,
+        transitionTs: 2000,
+        boundarySource: 'gesture',
+      );
+      await expectLater(
+        TriathlonDb.finishSegment(
+          db: db,
+          sessionId: 'tri_finish_early_1',
+          ts: 2100,
+          boundarySource: 'gesture',
+        ),
+        throwsA(isA<TriathlonWriteError>()),
+      );
       await LocalDb.close();
     });
 
@@ -593,6 +727,189 @@ void main() {
             where: 'session_id = ?', whereArgs: ['tri_delete_1']),
         isEmpty,
       );
+      await LocalDb.close();
+    });
+
+
+    test('a fresh install creates the triathlon tables', () async {
+      final db = await freshDb('tri_schema_fresh_test.db');
+      final names = await LocalDb.tableNames();
+      expect(names, containsAll(['triathlon_session', 'triathlon_segment']));
+      final v = await db.rawQuery('PRAGMA user_version');
+      expect((v.first.values.first as num).toInt(), LocalDb.schemaVersion);
+      await LocalDb.close();
+    });
+
+    test('an install at v58 is upgraded to the current schema', () async {
+      const name = 'tri_upgrade_58_test.db';
+      LocalDb.dbName = name;
+      final dir = await databaseFactory.getDatabasesPath();
+      final path = p.join(dir, name);
+      await databaseFactory.deleteDatabase(path);
+      await LocalDb.instance;
+      await LocalDb.close();
+
+      // Rewind to v58 without the triathlon tables, exactly what a user who
+      // installed before this PR has.
+      final raw = await databaseFactory.openDatabase(path);
+      await raw.execute('DROP TABLE triathlon_segment');
+      await raw.execute('DROP TABLE triathlon_session');
+      await raw.execute('PRAGMA user_version = 58');
+      await raw.close();
+
+      final db = await LocalDb.instance;
+      final v = await db.rawQuery('PRAGMA user_version');
+      expect((v.first.values.first as num).toInt(), LocalDb.schemaVersion,
+          reason: 'the v60 ladder rung must run, not just the repair pass');
+      final names = await LocalDb.tableNames();
+      expect(names, containsAll(['triathlon_session', 'triathlon_segment']));
+      await LocalDb.close();
+    });
+
+    test('updateSession cannot move the derived bounds', () async {
+      final db = await freshDb('tri_update_bounds_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_bounds_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_bounds_1',
+        ts: 1000,
+        boundarySource: 'gesture',
+      );
+      final current = (await TriathlonDb.byId(db, 'tri_bounds_1'))!;
+      await TriathlonDb.updateSession(
+        db,
+        TriSession(
+          id: current.id,
+          kind: current.kind,
+          preset: current.preset,
+          status: 'active',
+          plan: current.plan,
+          startTs: 999999,
+          endTs: 999999,
+          note: 'felt good',
+          createdAt: current.createdAt,
+          updatedAt: current.updatedAt,
+        ),
+      );
+      final read = (await TriathlonDb.byId(db, 'tri_bounds_1'))!;
+      expect(read.startTs, 1000);
+      expect(read.endTs, isNull);
+      expect(read.note, 'felt good');
+      await LocalDb.close();
+    });
+
+    test('deleting the second day removes a race that crossed midnight',
+        () async {
+      final db = await freshDb('tri_midnight_test.db');
+      final now = DateTime.now();
+      final midnight = DateTime(now.year, now.month, now.day);
+      final midnightSec = midnight.millisecondsSinceEpoch ~/ 1000;
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_midnight_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: (midnightSec - 600) * 1000,
+        updatedAt: (midnightSec - 600) * 1000,
+      );
+      await TriathlonDb.create(db, session);
+      // Swim starts yesterday, the bike starts today.
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_midnight_1',
+        ts: midnightSec - 600,
+        boundarySource: 'gesture',
+      );
+      await TriathlonDb.transitionSegment(
+        db: db,
+        sessionId: 'tri_midnight_1',
+        currentIdx: 0,
+        transitionTs: midnightSec + 60,
+        boundarySource: 'gesture',
+      );
+
+      await LocalDb.deleteDays({dayLabelOf(now)});
+      expect(await TriathlonDb.byId(db, 'tri_midnight_1'), isNull);
+      await LocalDb.close();
+    });
+
+
+    test('a day export carries the race and restores it whole', () async {
+      final db = await freshDb('tri_roundtrip_source.db');
+      final now = DateTime.now();
+      final nowSec = now.millisecondsSinceEpoch ~/ 1000;
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_export_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: nowSec * 1000,
+        updatedAt: nowSec * 1000,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_export_1',
+        ts: nowSec - 60,
+        boundarySource: 'gesture',
+      );
+      await TriathlonDb.transitionSegment(
+        db: db,
+        sessionId: 'tri_export_1',
+        currentIdx: 0,
+        transitionTs: nowSec - 30,
+        boundarySource: 'gesture',
+      );
+
+      final path = await LocalDb.exportDaysDb({dayLabelOf(now)});
+      expect(File(path).existsSync(), isTrue);
+
+      // Import into a second, empty database.
+      await LocalDb.close();
+      LocalDb.dbName = 'tri_roundtrip_dest.db';
+      final dir = await databaseFactory.getDatabasesPath();
+      await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+      final dest = await LocalDb.instance;
+      final counts = await LocalDb.importFromDbFile(path);
+      expect(counts['triathlon_session'], 1);
+      expect(counts['triathlon_segment'], 5);
+
+      final restored = await TriathlonDb.byId(dest, 'tri_export_1');
+      expect(restored, isNotNull);
+      expect(restored!.segments, hasLength(5));
+      expect(restored.segments[0].startTs, nowSec - 60);
+      expect(restored.segments[1].startTs, nowSec - 30);
+      expect(restored.plan?.preset, 'sprint');
+      await File(path).delete();
       await LocalDb.close();
     });
 
