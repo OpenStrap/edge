@@ -301,6 +301,24 @@ class TriSession {
 
 /// Thrown when a write targets a finalized session, or would make segments
 /// overlap. Deliberately loud: a silent no-op here reads as "the race saved".
+/// One boundary derived from the strap's stored taps (see the reconciler).
+///
+/// Lives in the data layer so storage never has to import a state-layer file:
+/// the dependency runs one way, reconciler -> store.
+class ReconcileBoundary {
+  const ReconcileBoundary(this.atSec, this.taps, this.kind);
+
+  /// Strap time of the FIRST tap of the accepted cluster.
+  final int atSec;
+  final int taps;
+
+  /// The segment the cluster closes; its successor starts at [atSec].
+  final TriSegmentKind kind;
+
+  @override
+  String toString() => 'ReconcileBoundary($kind @$atSec, $taps taps)';
+}
+
 class TriathlonWriteError implements Exception {
   TriathlonWriteError(this.message);
   final String message;
@@ -433,59 +451,19 @@ class TriathlonDb {
     return out;
   }
 
-  /// Write one segment's boundaries. The whole point of doing this here rather
-  /// than in the UI: the neighbour rows are read INSIDE the same transaction,
-  /// so the no-overlap rule cannot be checked against a stale in-memory copy.
+  /// Write one segment's boundaries.
+  ///
+  /// Reads the plan and the neighbours INSIDE the same transaction, so the
+  /// checks cannot be made against a stale in-memory copy. A segment's INDEX
+  /// never changes here: this method only moves/records the boundaries of a
+  /// row the plan already created. Moving a boundary that neighbours share is
+  /// [adjustBoundary]'s job, because both sides have to move together.
   static Future<void> saveSegment(Database db, TriSegment segment) async {
     _checkSegmentShape(segment);
     await db.transaction((txn) async {
-      final sessionRows = await txn.query('triathlon_session',
-          where: 'id = ?', whereArgs: [segment.sessionId]);
-      if (sessionRows.isEmpty) throw TriathlonWriteError('no such session');
-      final finalized = sessionRows.first['finalized_at'] != null;
-      if (finalized) {
-        throw TriathlonWriteError('cannot write to a finalized session');
-      }
-
-      final existing = await txn.query(
-        'triathlon_segment',
-        where: 'session_id = ? AND idx = ?',
-        whereArgs: [segment.sessionId, segment.idx],
-      );
-      if (existing.isEmpty) {
-        await txn.insert('triathlon_segment', segment.toRow());
-      } else {
-        await txn.update(
-          'triathlon_segment',
-          segment.toRow(),
-          where: 'session_id = ? AND idx = ?',
-          whereArgs: [segment.sessionId, segment.idx],
-        );
-      }
-      
-      // Update session start/end
-      final segs = await txn.query('triathlon_segment',
-          where: 'session_id = ?', whereArgs: [segment.sessionId], orderBy: 'idx ASC');
-      final all = [for (final r in segs) TriSegment.fromRow(r)!];
-      final startTs = all.where((s) => s.startTs != null).map((s) => s.startTs!).reduce((a, b) => a < b ? a : b);
-      final endTs = all.where((s) => s.endTs != null).map((s) => s.endTs!).reduce((a, b) => a > b ? a : b);
-      await txn.update('triathlon_session', {'start_ts': startTs, 'end_ts': endTs, 'updated_at': DateTime.now().millisecondsSinceEpoch}, where: 'id = ?', whereArgs: [segment.sessionId]);
-    });
-  }
       await _requireWritable(txn, segment.sessionId);
-      final rows = await txn.query(
-        'triathlon_segment',
-        where: 'session_id = ?',
-        whereArgs: [segment.sessionId],
-        orderBy: 'idx ASC',
-      );
-      final existing = [
-        for (final r in rows) TriSegment.fromRow(r)
-      ].whereType<TriSegment>().toList();
+      final existing = await segments(txn, segment.sessionId);
       final matching = existing.where((s) => s.idx == segment.idx).toList();
-      if (matching.isEmpty) {
-        throw TriathlonWriteError('segment ${segment.idx} is not in the plan');
-      }
       if (matching.isEmpty) {
         throw TriathlonWriteError('segment ${segment.idx} is not in the plan');
       }
@@ -496,31 +474,55 @@ class TriathlonDb {
           segment.goalSec != original.goalSec) {
         throw TriathlonWriteError('the planned segment is immutable');
       }
-      if (segment.startTs != null && segment.endTs != null && segment.endTs! < segment.startTs!) {
-        throw TriathlonWriteError('segment ends before it starts');
-      }
-      
-      // Contiguous boundary check against current DB state
       for (final other in existing) {
-        if (other.idx == segment.idx - 1 && other.endTs != null && segment.startTs != null && other.endTs != segment.startTs) {
-          throw TriathlonWriteError('segment ${segment.idx} does not start where ${other.idx} ended');
-        }
-        if (other.idx == segment.idx + 1 && other.startTs != null && segment.endTs != null && other.startTs != segment.endTs) {
-          throw TriathlonWriteError('segment ${other.idx} does not start where ${segment.idx} ended');
-        }
+        if (other.idx != segment.idx) _checkNeighbour(segment, other);
       }
-
       await txn.update(
         'triathlon_segment',
         segment.toRow(),
         where: 'session_id = ? AND idx = ?',
         whereArgs: [segment.sessionId, segment.idx],
       );
-      await _touch(txn, segment.sessionId);
+      await _recomputeSessionBounds(txn, segment.sessionId);
     });
   }
 
-  /// Atomically closes segment [idx] and opens segment [idx+1] at [ts].
+  /// Opens segment 0 at [ts] and marks the session active.
+  ///
+  /// Fails when the session already has a boundary: an armed session may start
+  /// exactly once, and a second start is a bug in the caller, not a rewind.
+  static Future<void> startSegment({
+    required Database db,
+    required String sessionId,
+    required int ts,
+    required String boundarySource,
+  }) async {
+    if (ts <= 0) throw TriathlonWriteError('a start needs a real timestamp');
+    _checkBoundarySource(boundarySource);
+    await db.transaction((txn) async {
+      await _requireWritable(txn, sessionId);
+      final segs = await segments(txn, sessionId);
+      if (segs.isEmpty) throw TriathlonWriteError('the plan has no segments');
+      if (segs.any((s) => s.startTs != null || s.endTs != null)) {
+        throw TriathlonWriteError('the session has already started');
+      }
+      await txn.update(
+        'triathlon_segment',
+        segs.first
+            .copyWith(startTs: ts, boundarySource: boundarySource)
+            .toRow(),
+        where: 'session_id = ? AND idx = 0',
+        whereArgs: [sessionId],
+      );
+      await _recomputeSessionBounds(txn, sessionId, status: 'active');
+    });
+  }
+
+  /// Atomically closes segment [currentIdx] and opens [currentIdx + 1] at [ts].
+  ///
+  /// Both sides move or neither does. Validation is deliberately strict: the
+  /// current segment must be open, the next one must not have started, and
+  /// [ts] must not run backwards past either neighbouring boundary.
   static Future<void> transitionSegment({
     required Database db,
     required String sessionId,
@@ -528,23 +530,56 @@ class TriathlonDb {
     required int transitionTs,
     required String boundarySource,
   }) async {
+    _checkBoundarySource(boundarySource);
     await db.transaction((txn) async {
-      await _requireWritable(txn, sessionId);
-      final segs = await segments(txn, sessionId);
-      final current = segs.firstWhere((s) => s.idx == currentIdx);
-      final next = segs.firstWhere((s) => s.idx == currentIdx + 1);
-
-      await txn.update('triathlon_segment',
-          current.copyWith(endTs: transitionTs, boundarySource: boundarySource).toRow(),
-          where: 'session_id = ? AND idx = ?', whereArgs: [sessionId, currentIdx]);
-      await txn.update('triathlon_segment',
-          next.copyWith(startTs: transitionTs, boundarySource: boundarySource).toRow(),
-          where: 'session_id = ? AND idx = ?', whereArgs: [sessionId, currentIdx + 1]);
-      await _touch(txn, sessionId);
+      await _transitionInTx(
+        txn,
+        sessionId: sessionId,
+        currentIdx: currentIdx,
+        transitionTs: transitionTs,
+        boundarySource: boundarySource,
+      );
     });
   }
 
-  /// Atomically adjusts a boundary between segment [idx] and [idx+1] to [newTs].
+  /// Closes the last open segment at [ts] and marks the session finished.
+  static Future<void> finishSegment({
+    required Database db,
+    required String sessionId,
+    required int ts,
+    required String boundarySource,
+  }) async {
+    _checkBoundarySource(boundarySource);
+    await db.transaction((txn) async {
+      await _requireWritable(txn, sessionId);
+      final segs = await segments(txn, sessionId);
+      final open = segs.where((s) => s.isOpen).toList();
+      if (open.length != 1) {
+        throw TriathlonWriteError('exactly one segment must be open to finish');
+      }
+      final last = open.single;
+      if (last.startTs == null || ts < last.startTs!) {
+        throw TriathlonWriteError('a segment cannot end before it starts');
+      }
+      if (last.idx != segs.length - 1 &&
+          segs.any((s) => s.idx > last.idx && s.startTs != null)) {
+        throw TriathlonWriteError('the last open segment is not the last');
+      }
+      await txn.update(
+        'triathlon_segment',
+        last.copyWith(endTs: ts, boundarySource: boundarySource).toRow(),
+        where: 'session_id = ? AND idx = ?',
+        whereArgs: [sessionId, last.idx],
+      );
+      await _recomputeSessionBounds(txn, sessionId, status: 'finished');
+    });
+  }
+
+  /// Atomically moves a boundary shared by segment [idx] and [idx + 1].
+  ///
+  /// Separate [saveSegment] calls cannot do this: as soon as both sides have
+  /// timestamps, changing one alone breaks the contiguity rule and is refused.
+  /// Both rows must already meet, and [newTs] must stay inside both segments.
   static Future<void> adjustBoundary({
     required Database db,
     required String sessionId,
@@ -554,17 +589,110 @@ class TriathlonDb {
     await db.transaction((txn) async {
       await _requireWritable(txn, sessionId);
       final segs = await segments(txn, sessionId);
+      if (idx < 0 || idx + 1 >= segs.length) {
+        throw TriathlonWriteError('there is no boundary after segment $idx');
+      }
       final left = segs.firstWhere((s) => s.idx == idx);
       final right = segs.firstWhere((s) => s.idx == idx + 1);
-
-      await txn.update('triathlon_segment',
-          left.copyWith(endTs: newTs).toRow(),
-          where: 'session_id = ? AND idx = ?', whereArgs: [sessionId, idx]);
-      await txn.update('triathlon_segment',
-          right.copyWith(startTs: newTs).toRow(),
-          where: 'session_id = ? AND idx = ?', whereArgs: [sessionId, idx + 1]);
-      await _touch(txn, sessionId);
+      final wasStart = right.startTs;
+      final wasEnd = left.endTs;
+      if (wasStart == null || wasEnd == null || wasStart != wasEnd) {
+        throw TriathlonWriteError('segments $idx and ${idx + 1} do not meet');
+      }
+      if (left.startTs != null && newTs < left.startTs!) {
+        throw TriathlonWriteError('the boundary would precede segment $idx');
+      }
+      if (right.endTs != null && newTs > right.endTs!) {
+        throw TriathlonWriteError('the boundary would follow segment ${idx + 1}');
+      }
+      await txn.update(
+        'triathlon_segment',
+        left.copyWith(endTs: newTs).toRow(),
+        where: 'session_id = ? AND idx = ?',
+        whereArgs: [sessionId, idx],
+      );
+      await txn.update(
+        'triathlon_segment',
+        right.copyWith(startTs: newTs).toRow(),
+        where: 'session_id = ? AND idx = ?',
+        whereArgs: [sessionId, idx + 1],
+      );
+      await _recomputeSessionBounds(txn, sessionId);
     });
+  }
+
+  /// Applies a whole offline-derived boundary chain in ONE transaction.
+  ///
+  /// Used by the reconciler. The FIRST boundary starts the race when nothing
+  /// has started yet; every later one closes the current segment and opens the
+  /// next; a boundary at the very end closes the last segment. A failure
+  /// anywhere rolls the whole chain back, so a race is never left half-marked.
+  ///
+  /// Rejects a boundary that would not advance, so a stale or repeated event
+  /// log cannot rewind a session.
+  static Future<void> applyOfflineBoundariesInTx(
+    DatabaseExecutor txn, {
+    required String sessionId,
+    required List<ReconcileBoundary> boundaries,
+  }) async {
+    if (boundaries.isEmpty) return;
+    await _requireWritable(txn, sessionId);
+    var segs = await segments(txn, sessionId);
+    if (segs.isEmpty) throw TriathlonWriteError('the plan has no segments');
+    for (var i = 0; i < boundaries.length; i++) {
+      final b = boundaries[i];
+      _checkBoundarySource('posthoc');
+      segs = await segments(txn, sessionId);
+      final open = segs.where((s) => s.isOpen).toList();
+      if (open.isEmpty) {
+        // Nothing running: this boundary STARTS the race, and only as the
+        // first one. Anything later is a log we cannot place.
+        if (i != 0 ||
+            segs.any((s) => s.startTs != null) ||
+            b.kind != segs.first.kind) {
+          throw TriathlonWriteError('no open segment to close at ${b.atSec}');
+        }
+        await txn.update(
+          'triathlon_segment',
+          segs.first
+              .copyWith(startTs: b.atSec, boundarySource: 'posthoc')
+              .toRow(),
+          where: 'session_id = ? AND idx = 0',
+          whereArgs: [sessionId],
+        );
+        continue;
+      }
+      if (open.length != 1) {
+        throw TriathlonWriteError('more than one open segment');
+      }
+      final current = open.single;
+      if (b.kind != current.kind) {
+        throw TriathlonWriteError('boundary does not close the open segment');
+      }
+      final hasNext = current.idx + 1 < segs.length;
+      if (!hasNext) {
+        await txn.update(
+          'triathlon_segment',
+          current
+              .copyWith(endTs: b.atSec, boundarySource: 'posthoc')
+              .toRow(),
+          where: 'session_id = ? AND idx = ?',
+          whereArgs: [sessionId, current.idx],
+        );
+        await _recomputeSessionBounds(txn, sessionId, status: 'finished');
+        return;
+      }
+      await _transitionInTx(
+        txn,
+        sessionId: sessionId,
+        currentIdx: current.idx,
+        transitionTs: b.atSec,
+        boundarySource: 'posthoc',
+      );
+    }
+    // A chain that never reached the last segment leaves it running; the
+    // session bounds are still correct for what is known.
+    await _recomputeSessionBounds(txn, sessionId);
   }
 
   /// Link a discipline segment to the `sessions` row the live workout banked.
@@ -576,9 +704,11 @@ class TriathlonDb {
   ) async {
     await db.transaction((txn) async {
       await _requireWritable(txn, sessionId);
-      final existing = await txn.query('triathlon_segment',
-          where: 'workout_id = ? AND session_id != ?',
-          whereArgs: [workoutId, sessionId]);
+      final existing = await txn.query(
+        'triathlon_segment',
+        where: 'workout_id = ? AND NOT (session_id = ? AND idx = ?)',
+        whereArgs: [workoutId, sessionId, idx],
+      );
       if (existing.isNotEmpty) {
         throw TriathlonWriteError('workout $workoutId is already linked');
       }
@@ -670,6 +800,91 @@ class TriathlonDb {
       );
       return workoutIds;
     });
+  }
+
+  static void _checkBoundarySource(String source) {
+    if (!kTriBoundarySources.contains(source)) {
+      throw TriathlonWriteError('unknown boundary source $source');
+    }
+  }
+
+  /// The transition body, callable from inside an existing transaction.
+  ///
+  /// Public [transitionSegment] wraps it; the offline reconciler uses it to
+  /// apply a whole chain of boundaries atomically instead of one commit each.
+  static Future<void> _transitionInTx(
+    DatabaseExecutor txn, {
+    required String sessionId,
+    required int currentIdx,
+    required int transitionTs,
+    required String boundarySource,
+  }) async {
+    await _requireWritable(txn, sessionId);
+    final segs = await segments(txn, sessionId);
+    final current = segs.where((s) => s.idx == currentIdx).toList();
+    final next = segs.where((s) => s.idx == currentIdx + 1).toList();
+    if (current.isEmpty || next.isEmpty) {
+      throw TriathlonWriteError('segment $currentIdx has no successor');
+    }
+    final a = current.single;
+    final b = next.single;
+    if (!a.isOpen) {
+      throw TriathlonWriteError('segment $currentIdx is not open');
+    }
+    if (b.startTs != null) {
+      throw TriathlonWriteError('segment ${currentIdx + 1} has already started');
+    }
+    if (a.startTs != null && transitionTs < a.startTs!) {
+      throw TriathlonWriteError('a transition cannot precede its segment');
+    }
+    await txn.update(
+      'triathlon_segment',
+      a.copyWith(endTs: transitionTs, boundarySource: boundarySource).toRow(),
+      where: 'session_id = ? AND idx = ?',
+      whereArgs: [sessionId, currentIdx],
+    );
+    await txn.update(
+      'triathlon_segment',
+      b.copyWith(startTs: transitionTs, boundarySource: boundarySource).toRow(),
+      where: 'session_id = ? AND idx = ?',
+      whereArgs: [sessionId, currentIdx + 1],
+    );
+    await _recomputeSessionBounds(txn, sessionId);
+  }
+
+  /// Derives the session bounds from its segments — one source of truth.
+  ///
+  /// With NO started segment both bounds are cleared, not kept at a stale
+  /// value; a bound is written only when a segment actually supports it.
+  /// [status] is left untouched unless the caller is changing the lifecycle.
+  static Future<void> _recomputeSessionBounds(
+    DatabaseExecutor db,
+    String sessionId, {
+    String? status,
+  }) async {
+    final segs = await segments(db, sessionId);
+    int? start;
+    int? end;
+    for (final s in segs) {
+      if (s.startTs != null && (start == null || s.startTs! < start)) {
+        start = s.startTs;
+      }
+      if (s.endTs != null && (end == null || s.endTs! > end)) {
+        end = s.endTs;
+      }
+    }
+    final row = <String, Object?>{
+      'start_ts': start,
+      'end_ts': end,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+      if (status != null) 'status': status,
+    };
+    await db.update(
+      'triathlon_session',
+      row,
+      where: 'id = ?',
+      whereArgs: [sessionId],
+    );
   }
 
   static Future<void> _requireWritable(DatabaseExecutor db, String id) async {

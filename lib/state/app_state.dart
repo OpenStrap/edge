@@ -143,7 +143,7 @@ import '../telemetry/telemetry_service.dart';
 import '../telemetry/health_uploader.dart';
 import '../widget/widget_service.dart';
 import '../sync/file_log.dart';
-import '../state/triathlon_reconciler.dart';
+import 'breathing_controller.dart';
 import 'package:uuid/uuid.dart';
 
 export 'derive_coordinator.dart' show DeriveRunHook;

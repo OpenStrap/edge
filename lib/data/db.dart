@@ -11137,7 +11137,6 @@ class LocalDb {
           'workout_split',
           'strength_set',
           'session_sensor',
-          'triathlon_segment',
         ]) {
           deleted += await txn.rawDelete(
             'DELETE FROM $child WHERE session_id IN '
@@ -11145,23 +11144,27 @@ class LocalDb {
             [startSec, endSec],
           );
         }
-        // Specific triathlon table cleanup.
-        await txn.rawDelete(
+        // Triathlon rows are NOT children of `sessions`: their key is the
+        // triathlon session id, and a segment's `workout_id` merely points at
+        // one. Treating them as session children matched nothing (a privacy
+        // leak on delete) and could delete a race segment whose string id
+        // collided with a workout id. The child rows go first, then the parent.
+        deleted += await txn.rawDelete(
           'DELETE FROM triathlon_segment WHERE session_id IN '
           '(SELECT id FROM triathlon_session WHERE start_ts >= ? AND start_ts < ?)',
           [startSec, endSec],
         );
-        await txn.delete(
+        deleted += await txn.delete(
           'triathlon_session',
           where: 'start_ts >= ? AND start_ts < ?',
           whereArgs: [startSec, endSec],
         );
-        await txn.delete(
+        deleted += await txn.delete(
           'sessions',
           where: 'start_ts >= ? AND start_ts < ?',
           whereArgs: [startSec, endSec],
         );
-        await txn.delete(
+        deleted += await txn.delete(
           'live_coverage',
           where: 'end_ts > ? AND start_ts < ?',
           whereArgs: [startSec, endSec],
@@ -11513,10 +11516,6 @@ class LocalDb {
       'cycle_log',
       'cycle_symptom',
       'breathing_session',
-      // A triathlon is hand-marked at the band: the boundaries exist nowhere
-      // else, and the plan (incl. indoor/outdoor) was typed by the athlete.
-      'triathlon_session',
-      'triathlon_segment',
       // Vendor-computed, typed-in and imported scalars. In the hand-entered
       // block because a third of it IS hand-entered and nothing regenerates
       // any of it — a `reports` band trims its own history, and the app whose
@@ -11758,6 +11757,22 @@ class LocalDb {
     // get the same protection, or trends and the rolling baselines would be
     // rebuilt from the other export's numbers while day detail serves ours.
     final finalizedDays = <String>{};
+    // Finalized triathlons are this device's own record: a restore must not
+    // overwrite one with an older snapshot of the same race (its segments
+    // arrive separately, so protecting only the parent would still rewrite
+    // the boundaries).
+    final protectedTriathlons = <String>{};
+    try {
+      for (final r in await db.query(
+        'triathlon_session',
+        columns: ['id'],
+        distinct: true,
+      )) {
+        protectedTriathlons.add('${r['id']}');
+      }
+    } on DatabaseException {
+      /* table absent in an older build of this file — nothing to protect */
+    }
     var archiveSkipped = 0;
     int? archiveEdgeSec;
     var impAttached = false;
@@ -12483,6 +12498,15 @@ class LocalDb {
                       continue;
                     }
                   }
+                }
+                if (t == 'triathlon_session' &&
+                    protectedTriathlons.contains('${row['id']}')) {
+                  continue; // locally finalized — never overwritten by import
+                }
+                if (t == 'triathlon_segment' &&
+                    protectedTriathlons.contains('${row['session_id']}')) {
+                  continue;
+                }
                 }
                 if (t == 'day_result') {
                   if (protectedKeys.contains(

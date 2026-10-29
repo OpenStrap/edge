@@ -44,13 +44,6 @@ class GestureDispatcher {
 
   int _lastFiredMs = 0;
 
-  bool _triathlonActive = false;
-
-  void setTriathlonActive(bool active) {
-    _triathlonActive = active;
-    log?.call('[gesture] triathlon sync override: $_triathlonActive');
-  }
-
   /// Feed every live event here (id, band timestamp seconds, raw hex). Cheap to call
   /// for non-gesture events — it returns immediately.
   void onEvent(int eventId, int tsEpoch, String hex) {
@@ -63,7 +56,7 @@ class GestureDispatcher {
     // Stale only when the ts is plausibly a real (recent-ish but past) historical
     // record. A wildly-off ts from an unset RTC is treated as "can't tell" → allow,
     // and rely on debounce + the live-only wiring.
-    if (!_triathlonActive && tsEpoch > 0 && age > _recencyWindowSec && age < _plausibleAgeCapSec) {
+    if (tsEpoch > 0 && age > _recencyWindowSec && age < _plausibleAgeCapSec) {
       log?.call('[gesture] ignoring stale double-tap (${age}s old)');
       return;
     }

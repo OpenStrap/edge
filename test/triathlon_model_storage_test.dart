@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/state/triathlon_reconciler.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/triathlon_plan.dart';
 import 'package:openstrap_edge/data/triathlon_store.dart';
 
@@ -308,7 +309,8 @@ void main() {
       await LocalDb.close();
     });
 
-    test('Sync after band-only race: reconciler segments post-hoc', () async {
+    test('band-only race: stored taps are reconciled into boundaries',
+        () async {
       final db = await freshDb('tri_sync_posthoc_test.db');
       final plan = TriathlonPlan.race(
         'sprint',
@@ -316,34 +318,283 @@ void main() {
         bikeEnv: TriEnvironment.outdoor,
         runEnv: TriEnvironment.outdoor,
       );
-      final t0 = 1000;
+      final t0 = 1_000_000;
       final session = TriSession(
         id: 'tri_posthoc_1',
         kind: 'race',
         preset: 'sprint',
-        status: 'active',
+        status: 'armed',
         plan: plan,
         createdAt: t0,
         updatedAt: t0,
       );
       await TriathlonDb.create(db, session);
 
-      // Create a long segment 0
-      final seg0 = (await TriathlonDb.segments(db, 'tri_posthoc_1'))[0];
-      await TriathlonDb.saveSegment(db, seg0.copyWith(startTs: 1000, endTs: 5000));
+      // The whole race happened with no phone in range: the strap recorded
+      // every tap. Three taps clear the gate; two do not.
+      Future<void> taps(int first, List<int> offsets) async {
+        for (final o in offsets) {
+          final ts = first + o;
+          await db.insert('band_events', {
+            'device_id': '',
+            'hex': 'dtap_$ts',
+            'event_id': 14,
+            'name': 'DOUBLE_TAP',
+            'ts': ts,
+            'payload_json': '{}',
+            'captured_at': ts * 1000,
+          });
+        }
+      }
 
-      // Insert missed band events
-      await db.insert('band_events', {'eventId': 14, 'tsEpoch': 2000}); // Double tap
+      // Start 10 min after arming, swim for the 300 s floor, then T1 for
+      // longer than its own 20 s floor.
+      await taps(t0 + 600, [0, 2, 4]);
+      // A lone accidental bump must NOT advance anything.
+      await taps(t0 + 640, [0]);
+      await taps(t0 + 900, [0, 1, 2]);
+      await taps(t0 + 930, [0, 2, 4]);
 
-      // Reconcile
       final reconciler = TriathlonReconciler(db);
-      await reconciler.reconcile('tri_posthoc_1', 1000, 5000);
+      final applied = await reconciler.reconcile('tri_posthoc_1');
 
-      // Assert
-      final updatedSegs = await TriathlonDb.segments(db, 'tri_posthoc_1');
-      expect(updatedSegs[0].endTs, 2000);
-      expect(updatedSegs[0].boundarySource, 'posthoc');
+      expect(applied, hasLength(3));
+      final segs = await TriathlonDb.segments(db, 'tri_posthoc_1');
+      expect(segs[0].startTs, t0 + 600);
+      expect(segs[0].endTs, t0 + 900);
+      expect(segs[0].boundarySource, 'posthoc');
+      expect(segs[1].startTs, t0 + 900);
+      expect(segs[1].endTs, t0 + 930);
+      expect(segs[2].startTs, t0 + 930);
+      final read = await TriathlonDb.byId(db, 'tri_posthoc_1');
+      expect(read!.startTs, t0 + 600);
+      expect(read.status, 'active');
+
+      // Idempotent: the same log a second time adds nothing.
+      final again = await reconciler.reconcile('tri_posthoc_1');
+      expect(again, isEmpty);
       await LocalDb.close();
     });
+
+    test('a race under its minimum duration is not segmented by taps',
+        () async {
+      final db = await freshDb('tri_posthoc_floor_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_floor_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1_000_000,
+        updatedAt: 1_000_000,
+      );
+      await TriathlonDb.create(db, session);
+      // 20 s in: a real swim cannot be over, so this is not a transition.
+      for (final o in [0, 1, 2]) {
+        final ts = 1_000_020 + o;
+        await db.insert('band_events', {
+          'device_id': '',
+          'hex': 'dtap_$ts',
+          'event_id': 14,
+          'name': 'DOUBLE_TAP',
+          'ts': ts,
+          'payload_json': '{}',
+          'captured_at': ts * 1000,
+        });
+      }
+      final applied = await TriathlonReconciler(db).reconcile('tri_floor_1');
+      expect(applied, isEmpty);
+      await LocalDb.close();
+    });
+
+    test('transition and boundary adjustment move both sides atomically',
+        () async {
+      final db = await freshDb('tri_transition_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_move_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_move_1',
+        ts: 1000,
+        boundarySource: 'gesture',
+      );
+      await TriathlonDb.transitionSegment(
+        db: db,
+        sessionId: 'tri_move_1',
+        currentIdx: 0,
+        transitionTs: 1600,
+        boundarySource: 'gesture',
+      );
+      var segs = await TriathlonDb.segments(db, 'tri_move_1');
+      expect(segs[0].endTs, 1600);
+      expect(segs[1].startTs, 1600);
+      await TriathlonDb.transitionSegment(
+        db: db,
+        sessionId: 'tri_move_1',
+        currentIdx: 0,
+        transitionTs: 1700,
+        boundarySource: 'gesture',
+      );
+      await expectLater(
+        TriathlonDb.transitionSegment(
+          db: db,
+          sessionId: 'tri_move_1',
+          currentIdx: 0,
+          transitionTs: 1500,
+          boundarySource: 'gesture',
+        ),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      segs = await TriathlonDb.segments(db, 'tri_move_1');
+      expect(segs[0].endTs, 1700);
+      expect(segs[1].startTs, 1700);
+      await LocalDb.close();
+    });
+
+    test('finalizing refuses an open segment', () async {
+      final db = await freshDb('tri_finalize_open_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_open_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_open_1',
+        ts: 1000,
+        boundarySource: 'gesture',
+      );
+      await expectLater(
+        TriathlonDb.finalize(db, 'tri_open_1'),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      await LocalDb.close();
+    });
+
+    test('a plan field cannot be rewritten through saveSegment', () async {
+      final db = await freshDb('tri_plan_immutable_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_plan_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      final seg = (await TriathlonDb.segments(db, 'tri_plan_1'))[0];
+      final relabelled = TriSegment(
+        sessionId: seg.sessionId,
+        idx: seg.idx,
+        kind: seg.kind,
+        environment: TriEnvironment.indoor,
+        plannedDistanceM: seg.plannedDistanceM,
+      );
+      await expectLater(
+        TriathlonDb.saveSegment(db, relabelled),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      await LocalDb.close();
+    });
+
+    test('a workout cannot be linked to two segments', () async {
+      final db = await freshDb('tri_link_unique_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_link_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.linkWorkout(db, 'tri_link_1', 0, 'w42');
+      await expectLater(
+        TriathlonDb.linkWorkout(db, 'tri_link_1', 2, 'w42'),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      await LocalDb.close();
+    });
+
+    test('deleting a day removes the race and its segments', () async {
+      final db = await freshDb('tri_delete_day_rows_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final session = TriSession(
+        id: 'tri_delete_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: nowSec * 1000,
+        updatedAt: nowSec * 1000,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_delete_1',
+        ts: nowSec - 60,
+        boundarySource: 'gesture',
+      );
+      await LocalDb.deleteDays({dayLabelOf(DateTime.now())});
+      expect(await TriathlonDb.byId(db, 'tri_delete_1'), isNull);
+      expect(
+        await db.query('triathlon_segment',
+            where: 'session_id = ?', whereArgs: ['tri_delete_1']),
+        isEmpty,
+      );
+      await LocalDb.close();
+    });
+
   });
 }
