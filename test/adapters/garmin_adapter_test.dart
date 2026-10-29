@@ -77,6 +77,13 @@ Future<void> _push(ReplayBandLink l, Uint8List gfdi) async {
   await Future<void>.delayed(const Duration(milliseconds: 5));
 }
 
+/// The error the last [_sync] or [replay] session's stream ended on, or null
+/// when it simply ended. A session that did not read the directory and every
+/// file it listed ends on a [StateError], after everything it yielded, so the
+/// host reports the sync as unfinished; the tests that only look at the
+/// handshake leave it alone, the ones about an unfinished download assert it.
+Object? lastSessionError;
+
 /// Run [adapter] against [watch] until the session ends, answering each
 /// write the way the watch would.
 Future<List<BandEvent>> _sync(GarminAdapter adapter, GarminWatchScript watch,
@@ -84,7 +91,9 @@ Future<List<BandEvent>> _sync(GarminAdapter adapter, GarminWatchScript watch,
   final l = link ?? ReplayBandLink();
   final events = <BandEvent>[];
   final done = Completer<void>();
-  adapter.run(l).listen(events.add, onDone: done.complete);
+  lastSessionError = null;
+  adapter.run(l).listen(events.add,
+      onError: (Object e) => lastSessionError = e, onDone: done.complete);
   var served = 0;
   for (var spin = 0; spin < 2000 && !done.isCompleted; spin++) {
     await Future<void>.delayed(const Duration(milliseconds: 2));
@@ -145,7 +154,9 @@ Future<List<BandEvent>> replay(
 }) async {
   final events = <BandEvent>[];
   final done = Completer<void>();
-  final sub = adapter.run(link).listen(events.add, onDone: done.complete);
+  lastSessionError = null;
+  final sub = adapter.run(link).listen(events.add,
+      onError: (Object e) => lastSessionError = e, onDone: done.complete);
   // `run()` is `async*`: without a turn here the notify channel this adapter
   // subscribes to may not exist yet when `link.close()` iterates `_channels`.
   await Future<void>.delayed(Duration.zero);
@@ -471,7 +482,13 @@ void main() {
     );
     final link = ReplayBandLink();
     final done = Completer<void>();
-    long.run(link).listen((_) {}, onDone: done.complete);
+    final events = <BandEvent>[];
+    Object? error;
+    var eventsAfterError = 0;
+    long.run(link).listen((e) {
+      events.add(e);
+      if (error != null) eventsAfterError++;
+    }, onError: (Object e) => error = e, onDone: done.complete);
     await Future<void>.delayed(Duration.zero);
     await _open(link);
     link.feed(kGarminNotifyChar,
@@ -479,6 +496,11 @@ void main() {
         atSec: 1_800_000_000);
     await done.future.timeout(const Duration(seconds: 2));
     await link.close();
+    // Closed before the directory was read: not a finished sync. The frames
+    // it saw are still banked, ahead of the error.
+    expect(error, isA<StateError>());
+    expect(eventsAfterError, 0);
+    expect(events.whereType<SampleBatch>().last.raw, isNotEmpty);
   });
 
   test('outbound frames are cut into MTU-sized packets behind the handle',
@@ -519,6 +541,7 @@ void main() {
       final events = await _sync(syncer(), watch);
       expect(watch.downloaded, [0, 1]);
       expect(garminDecodeReadFiles(lastRead(events)).keys, [1]);
+      expect(lastSessionError, isNull, reason: 'every file was read');
     });
 
     test('a file is recorded as read just before its checkpoint, so the '
@@ -536,6 +559,7 @@ void main() {
             garminDecodeReadFiles(e.value as String?).keys.join(',')
       ];
       expect(order, ['1', 'cp', '1,2', 'cp']);
+      expect(lastSessionError, isNull, reason: 'every file was read');
     });
 
     test('a file the watch keeps refusing is not recorded as read, so the '
@@ -548,6 +572,10 @@ void main() {
       expect(watch.downloaded, [0, 1]);
       final read = garminDecodeReadFiles(lastRead(events));
       expect(read.keys, [1]);
+      // A file left for next time: this sync did not finish.
+      expect(lastSessionError, isA<StateError>());
+      expect(events.last, isA<SampleBatch>(),
+          reason: 'the archive is yielded before the error');
     });
 
     test('a file that grew is read again; an unchanged one is not', () async {
@@ -563,6 +591,7 @@ void main() {
                   {1: (t0, grown.length - 5), 2: (t0, same.length)})),
           watch);
       expect(watch.downloaded, [0, 1]);
+      expect(lastSessionError, isNull);
     });
 
     test('chunk acks: duplicate ok, wrong offset 4, bad CRC 3 and abort',
@@ -594,6 +623,8 @@ void main() {
         (kGarminTransferOffsetMismatch, 4),
         (kGarminTransferCrcMismatch, 4),
       ]);
+      // The aborted transfer leaves the sync unfinished.
+      expect(lastSessionError, isA<StateError>());
     });
 
     test('three chunks out of step in a row abort the file', () async {
@@ -620,6 +651,7 @@ void main() {
         kGarminTransferOffsetMismatch,
         kGarminTransferAbort,
       ]);
+      expect(lastSessionError, isA<StateError>());
     });
   });
 }
