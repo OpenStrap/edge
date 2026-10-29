@@ -439,6 +439,39 @@ class TriathlonDb {
   static Future<void> saveSegment(Database db, TriSegment segment) async {
     _checkSegmentShape(segment);
     await db.transaction((txn) async {
+      final sessionRows = await txn.query('triathlon_session',
+          where: 'id = ?', whereArgs: [segment.sessionId]);
+      if (sessionRows.isEmpty) throw TriathlonWriteError('no such session');
+      final finalized = sessionRows.first['finalized_at'] != null;
+      if (finalized) {
+        throw TriathlonWriteError('cannot write to a finalized session');
+      }
+
+      final existing = await txn.query(
+        'triathlon_segment',
+        where: 'session_id = ? AND idx = ?',
+        whereArgs: [segment.sessionId, segment.idx],
+      );
+      if (existing.isEmpty) {
+        await txn.insert('triathlon_segment', segment.toRow());
+      } else {
+        await txn.update(
+          'triathlon_segment',
+          segment.toRow(),
+          where: 'session_id = ? AND idx = ?',
+          whereArgs: [segment.sessionId, segment.idx],
+        );
+      }
+      
+      // Update session start/end
+      final segs = await txn.query('triathlon_segment',
+          where: 'session_id = ?', whereArgs: [segment.sessionId], orderBy: 'idx ASC');
+      final all = [for (final r in segs) TriSegment.fromRow(r)!];
+      final startTs = all.where((s) => s.startTs != null).map((s) => s.startTs!).reduce((a, b) => a < b ? a : b);
+      final endTs = all.where((s) => s.endTs != null).map((s) => s.endTs!).reduce((a, b) => a > b ? a : b);
+      await txn.update('triathlon_session', {'start_ts': startTs, 'end_ts': endTs, 'updated_at': DateTime.now().millisecondsSinceEpoch}, where: 'id = ?', whereArgs: [segment.sessionId]);
+    });
+  }
       await _requireWritable(txn, segment.sessionId);
       final rows = await txn.query(
         'triathlon_segment',
@@ -453,6 +486,9 @@ class TriathlonDb {
       if (matching.isEmpty) {
         throw TriathlonWriteError('segment ${segment.idx} is not in the plan');
       }
+      if (matching.isEmpty) {
+        throw TriathlonWriteError('segment ${segment.idx} is not in the plan');
+      }
       final original = matching.single;
       if (segment.kind != original.kind ||
           segment.environment != original.environment ||
@@ -460,10 +496,20 @@ class TriathlonDb {
           segment.goalSec != original.goalSec) {
         throw TriathlonWriteError('the planned segment is immutable');
       }
-      for (final other in existing) {
-        if (other.idx == segment.idx) continue;
-        _checkNeighbour(segment, other);
+      if (segment.startTs != null && segment.endTs != null && segment.endTs! < segment.startTs!) {
+        throw TriathlonWriteError('segment ends before it starts');
       }
+      
+      // Contiguous boundary check against current DB state
+      for (final other in existing) {
+        if (other.idx == segment.idx - 1 && other.endTs != null && segment.startTs != null && other.endTs != segment.startTs) {
+          throw TriathlonWriteError('segment ${segment.idx} does not start where ${other.idx} ended');
+        }
+        if (other.idx == segment.idx + 1 && other.startTs != null && segment.endTs != null && other.startTs != segment.endTs) {
+          throw TriathlonWriteError('segment ${other.idx} does not start where ${segment.idx} ended');
+        }
+      }
+
       await txn.update(
         'triathlon_segment',
         segment.toRow(),
@@ -471,6 +517,53 @@ class TriathlonDb {
         whereArgs: [segment.sessionId, segment.idx],
       );
       await _touch(txn, segment.sessionId);
+    });
+  }
+
+  /// Atomically closes segment [idx] and opens segment [idx+1] at [ts].
+  static Future<void> transitionSegment({
+    required Database db,
+    required String sessionId,
+    required int currentIdx,
+    required int transitionTs,
+    required String boundarySource,
+  }) async {
+    await db.transaction((txn) async {
+      await _requireWritable(txn, sessionId);
+      final segs = await segments(txn, sessionId);
+      final current = segs.firstWhere((s) => s.idx == currentIdx);
+      final next = segs.firstWhere((s) => s.idx == currentIdx + 1);
+
+      await txn.update('triathlon_segment',
+          current.copyWith(endTs: transitionTs, boundarySource: boundarySource).toRow(),
+          where: 'session_id = ? AND idx = ?', whereArgs: [sessionId, currentIdx]);
+      await txn.update('triathlon_segment',
+          next.copyWith(startTs: transitionTs, boundarySource: boundarySource).toRow(),
+          where: 'session_id = ? AND idx = ?', whereArgs: [sessionId, currentIdx + 1]);
+      await _touch(txn, sessionId);
+    });
+  }
+
+  /// Atomically adjusts a boundary between segment [idx] and [idx+1] to [newTs].
+  static Future<void> adjustBoundary({
+    required Database db,
+    required String sessionId,
+    required int idx,
+    required int newTs,
+  }) async {
+    await db.transaction((txn) async {
+      await _requireWritable(txn, sessionId);
+      final segs = await segments(txn, sessionId);
+      final left = segs.firstWhere((s) => s.idx == idx);
+      final right = segs.firstWhere((s) => s.idx == idx + 1);
+
+      await txn.update('triathlon_segment',
+          left.copyWith(endTs: newTs).toRow(),
+          where: 'session_id = ? AND idx = ?', whereArgs: [sessionId, idx]);
+      await txn.update('triathlon_segment',
+          right.copyWith(startTs: newTs).toRow(),
+          where: 'session_id = ? AND idx = ?', whereArgs: [sessionId, idx + 1]);
+      await _touch(txn, sessionId);
     });
   }
 
@@ -483,6 +576,12 @@ class TriathlonDb {
   ) async {
     await db.transaction((txn) async {
       await _requireWritable(txn, sessionId);
+      final existing = await txn.query('triathlon_segment',
+          where: 'workout_id = ? AND session_id != ?',
+          whereArgs: [workoutId, sessionId]);
+      if (existing.isNotEmpty) {
+        throw TriathlonWriteError('workout $workoutId is already linked');
+      }
       await txn.update(
         'triathlon_segment',
         {'workout_id': workoutId},

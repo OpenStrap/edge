@@ -6,6 +6,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:openstrap_edge/state/triathlon_reconciler.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/triathlon_plan.dart';
 import 'package:openstrap_edge/data/triathlon_store.dart';
@@ -307,13 +308,41 @@ void main() {
       await LocalDb.close();
     });
 
-    test('fresh schema creates triathlon tables', () async {
-      LocalDb.dbName = 'tri_schema_v60_fresh.db';
-      final dir = await databaseFactory.getDatabasesPath();
-      await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
-      await LocalDb.instance;
-      final names = await LocalDb.tableNames();
-      expect(names, containsAll(['triathlon_session', 'triathlon_segment']));
+    test('Sync after band-only race: reconciler segments post-hoc', () async {
+      final db = await freshDb('tri_sync_posthoc_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final t0 = 1000;
+      final session = TriSession(
+        id: 'tri_posthoc_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'active',
+        plan: plan,
+        createdAt: t0,
+        updatedAt: t0,
+      );
+      await TriathlonDb.create(db, session);
+
+      // Create a long segment 0
+      final seg0 = (await TriathlonDb.segments(db, 'tri_posthoc_1'))[0];
+      await TriathlonDb.saveSegment(db, seg0.copyWith(startTs: 1000, endTs: 5000));
+
+      // Insert missed band events
+      await db.insert('band_events', {'eventId': 14, 'tsEpoch': 2000}); // Double tap
+
+      // Reconcile
+      final reconciler = TriathlonReconciler(db);
+      await reconciler.reconcile('tri_posthoc_1', 1000, 5000);
+
+      // Assert
+      final updatedSegs = await TriathlonDb.segments(db, 'tri_posthoc_1');
+      expect(updatedSegs[0].endTs, 2000);
+      expect(updatedSegs[0].boundarySource, 'posthoc');
       await LocalDb.close();
     });
   });

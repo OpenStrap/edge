@@ -11137,6 +11137,7 @@ class LocalDb {
           'workout_split',
           'strength_set',
           'session_sensor',
+          'triathlon_segment',
         ]) {
           deleted += await txn.rawDelete(
             'DELETE FROM $child WHERE session_id IN '
@@ -11144,22 +11145,23 @@ class LocalDb {
             [startSec, endSec],
           );
         }
-        deleted += await txn.rawDelete(
+        // Specific triathlon table cleanup.
+        await txn.rawDelete(
           'DELETE FROM triathlon_segment WHERE session_id IN '
           '(SELECT id FROM triathlon_session WHERE start_ts >= ? AND start_ts < ?)',
           [startSec, endSec],
         );
-        deleted += await txn.delete(
+        await txn.delete(
           'triathlon_session',
           where: 'start_ts >= ? AND start_ts < ?',
           whereArgs: [startSec, endSec],
         );
-        deleted += await txn.delete(
+        await txn.delete(
           'sessions',
           where: 'start_ts >= ? AND start_ts < ?',
           whereArgs: [startSec, endSec],
         );
-        deleted += await txn.delete(
+        await txn.delete(
           'live_coverage',
           where: 'end_ts > ? AND start_ts < ?',
           whereArgs: [startSec, endSec],
@@ -11511,6 +11513,10 @@ class LocalDb {
       'cycle_log',
       'cycle_symptom',
       'breathing_session',
+      // A triathlon is hand-marked at the band: the boundaries exist nowhere
+      // else, and the plan (incl. indoor/outdoor) was typed by the athlete.
+      'triathlon_session',
+      'triathlon_segment',
       // Vendor-computed, typed-in and imported scalars. In the hand-entered
       // block because a third of it IS hand-entered and nothing regenerates
       // any of it — a `reports` band trims its own history, and the app whose
