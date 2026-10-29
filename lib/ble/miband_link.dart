@@ -39,6 +39,7 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import '../sync/paired_device.dart' show cleanDeviceLabel;
@@ -121,12 +122,8 @@ class MiBand234Link {
   static final MiBand234Link instance = MiBand234Link._();
 
   /// The `device` row for the paired band, or null.
-  static Future<Map<String, Object?>?> pairedRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kMiBand234.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedRow() =>
+      pairedRowOf(kMiBand234.id);
 
   /// Every stored pairing key, for "delete everything", which removes the
   /// `device` rows [forgetBand] would need and so must drop the keys itself.
@@ -206,6 +203,10 @@ class MiBand234Link {
       debugPrint('[miband234] refusing to forget the primary band from here.');
       return false;
     }
+    // Before the first await: a sync still reading this band's row or key
+    // has no `_deviceId` yet for the check below to match, so it learns of
+    // the forget from this instead.
+    instance._forgets++;
     if (instance._deviceId == id) await instance.stop();
     await _dropKey(id);
     await LocalDb.deleteDevice(id);
@@ -228,6 +229,10 @@ class MiBand234Link {
   /// `device.id` of the paired band. Never [LocalDb.kPrimaryDeviceId]: `''` is
   /// the primary band, permanently (ASSUMPTIONS A1).
   String? _deviceId;
+
+  /// Bumped by every [forgetBand]. A sync that saw it move since it started
+  /// does not connect, whatever its `_deviceId` says.
+  int _forgets = 0;
 
   /// Wall-clock now, in Unix seconds. A field so a replay is deterministic.
   int Function() _now = () => DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -252,6 +257,7 @@ class MiBand234Link {
     // this sync is parked on the link slot or still connecting must find it
     // here. The host refuses every write once a reset has run since.
     final resetGen = ResetGate.generation;
+    final forgets = _forgets;
     lastSyncFailure = null;
     final row = await pairedRow();
     if (row == null) return false;
@@ -279,6 +285,10 @@ class MiBand234Link {
         if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
           return false;
         }
+        // A forget during the row or key read above found no `_deviceId` to
+        // stop, so it is seen here instead.
+        if (_forgets != forgets) return false;
+        BandHost? host;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -299,7 +309,7 @@ class MiBand234Link {
             return false;
           }
           _pendingSince = null;
-          final host = _makeHost(
+          final h = host = _makeHost(
               deviceId,
               resetGeneration: resetGen,
               MiBand234Adapter(
@@ -307,20 +317,21 @@ class MiBand234Link {
                 sinceSec: await LocalDb.getCursorInt(_sinceItem(deviceId)),
                 nowSeconds: _now,
               ));
-          _host = host;
+          _host = h;
           // `run()` never completes on its own — the optional channels have
           // no end-of-data signal, unlike the Oura ring's exhausted drain —
           // so this is bounded by [window] rather than awaited to
           // completion.
-          final done = host.run(link);
+          final done = h.run(link);
           await Future.any(
               [done, Future<void>.delayed(window)]);
         } finally {
           await stop();
         }
         // Read only after [stop]: the note rides the host's vendor-write
-        // chain, which stop drains.
-        return lastSyncFailure == null;
+        // chain, which stop drains. A failed vendor write holds every later
+        // note back, the failure note included, so it is read off the host.
+        return lastSyncFailure == null && !host.vendorWriteFailed;
       });
     } catch (e) {
       debugPrint('[miband234] sync failed: $e');

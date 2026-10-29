@@ -39,6 +39,7 @@ import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import '../sync/reset_gate.dart';
@@ -64,12 +65,8 @@ class UltrahumanLink {
   ///
   /// `id` is MINTED at pairing (`HrsLink.mintDeviceId`), never the BLE remote
   /// id — see `oura_link.dart`'s identical doc for why.
-  static Future<Map<String, Object?>?> pairedRingRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kUltrahuman.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedRingRow() =>
+      pairedRowOf(kUltrahuman.id);
 
   /// Stop this ring's live session (if it is the one running) and forget it.
   /// No secret to drop — this protocol has none — so, unlike
@@ -116,7 +113,12 @@ class UltrahumanLink {
 
   void _writeCursor(int index) {
     _cursorWrites =
-        _cursorWrites.then((_) => _persistCursor(index)).catchError((_) {});
+        _cursorWrites.then((_) => _persistCursor(index)).catchError((Object e) {
+      // The ring resends from the old cursor next time, so nothing is lost,
+      // but this sync did not finish and must not say it did.
+      _drainFailed = true;
+      debugPrint('[ultrahuman] cursor write failed: $e');
+    });
   }
 
   bool _busy = false;
@@ -219,7 +221,9 @@ class UltrahumanLink {
         // Read only after [stop]: notes ride the host's vendor-write chain,
         // which stop drains. A failed vendor write holds every later note
         // back, the failure notes included, so it is read off the host.
-        return !_drainFailed && !(host?.vendorWriteFailed ?? false);
+        return !_drainFailed &&
+            !(host?.vendorWriteFailed ?? false) &&
+            !ResetGate.changedSince(resetGen);
       });
     } catch (e) {
       debugPrint('[ultrahuman] sync failed: $e');

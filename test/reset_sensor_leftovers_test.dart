@@ -106,6 +106,8 @@ void main() {
     test('settings tells the user when a key may remain', () {
       final src = File('lib/ui2/profile/settings.dart').readAsStringSync();
       expect(src.contains('if (app.resetLeftPairingKeys'), isTrue);
+      expect(src.contains('l?.settingsResetPairingKeyWarning ??'), isTrue,
+          reason: 'the warning must follow the app language');
     });
   });
 }

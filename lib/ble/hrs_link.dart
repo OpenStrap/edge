@@ -58,7 +58,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart'
     show polarPmdSupportsPpi;
 
 import '../compute/inputs/canonical.dart'
-    show adoptReplacementWearable, wearableEnabled;
+    show adoptReplacementWearable, pairedRowOf, wearableEnabled;
 import '../data/db.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
 import 'accessory_setup.dart';
@@ -184,12 +184,8 @@ class HrsLink {
   /// on Android, and letting one become the storage key fragments one strap
   /// into N identities. `remote_id` is the column that may change under the
   /// same row, and that is what this reads to connect.
-  static Future<Map<String, Object?>?> pairedSensorRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kBleHrsAdapter.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedSensorRow() =>
+      pairedRowOf(kBleHrsAdapter.id);
 
   // ── pairing: scan ─────────────────────────────────────────────────────────
 

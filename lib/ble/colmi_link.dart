@@ -21,6 +21,7 @@ import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' show kColmiCmdBigData;
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import 'adapters/_registry.dart';
@@ -41,12 +42,8 @@ class ColmiLink {
   static final ColmiLink instance = ColmiLink._();
 
   /// The `device` row for the paired ring, or null.
-  static Future<Map<String, Object?>?> pairedRingRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kColmi.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedRingRow() =>
+      pairedRowOf(kColmi.id);
 
   /// Forget a paired ring: stop any live session, drop its `device` row.
   /// No stored secret to drop — that is the whole difference from

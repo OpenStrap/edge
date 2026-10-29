@@ -28,7 +28,8 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' show polarPmdStopPpi;
 
-import '../compute/inputs/canonical.dart' show wearableEnabled;
+import '../compute/inputs/canonical.dart'
+    show pairedRowOf, wearableEnabled;
 import '../data/db.dart';
 import 'adapters/_registry.dart' show kPolarPmdControlChar;
 import 'adapters/gatt_link.dart';
@@ -71,12 +72,8 @@ class PolarPmdLink {
   Future<void> flush() async => _host?.flush();
 
   /// The `device` row for the paired sensor, or null.
-  static Future<Map<String, Object?>?> pairedSensorRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kPolarPmdAdapter.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedSensorRow() =>
+      pairedRowOf(kPolarPmdAdapter.id);
 
   Future<bool>? _arming;
 

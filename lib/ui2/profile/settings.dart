@@ -549,9 +549,10 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
     ));
   }
   if (app.resetLeftPairingKeys && messenger.mounted) {
-    messenger.showSnackBar(const SnackBar(
-      content: Text('App data deleted, but a sensor pairing key could not be '
-          'removed from secure storage. Delete everything again to retry.'),
+    messenger.showSnackBar(SnackBar(
+      content: Text(l?.settingsResetPairingKeyWarning ??
+          'App data deleted, but a sensor pairing key could not be removed '
+              'from secure storage. Delete everything again to retry.'),
     ));
   }
 }

@@ -1344,6 +1344,9 @@ class AppState extends ChangeNotifier {
     ResetGate.enter();
     var primaryEnded = false;
     var deriveHeld = false;
+    // Set once the lookup below has succeeded. A reset that aborts there has
+    // touched nothing, so it leaves the primary band's session alone.
+    var pastLookup = false;
     try {
       // FIRST, before anything is deleted: the paired sensors' ids. The wipe
       // deletes the `device` rows, and those ids are the only way to find each
@@ -1351,6 +1354,7 @@ class AppState extends ChangeNotifier {
       // here, while nothing is gone yet, rather than wiping the rows and
       // leaving keys behind that nothing can find again.
       final secondaryIds = await _secondaryDeviceIdsForReset();
+      pastLookup = true;
       // Wait for a running backup and remove copies while the selected folder
       // grant is still known. Queued scheduled writes see Off inside the lock.
       Prefs.setString(Prefs.backupCadence, BackupCadence.off.name);
@@ -1491,9 +1495,11 @@ class AppState extends ChangeNotifier {
       // was still connected after it would bank the band's records into the
       // emptied store. signOut ends it on the normal path; any earlier exit
       // ends it here. The link's last foreign-transfer banks run at teardown,
-      // so they are awaited too, while the gate still refuses them.
+      // so they are awaited too, while the gate still refuses them. A reset
+      // that failed its first, read-only step deleted nothing, so a drain
+      // carrying on across it lands in an intact store: no disconnect then.
       try {
-        if (!primaryEnded) await engine.disconnect();
+        if (!primaryEnded && pastLookup) await engine.disconnect();
         await engine.settleShutdownBanks();
       } catch (e) {
         _log('[reset] primary link did not close cleanly: $e');
@@ -4485,7 +4491,7 @@ class AppState extends ChangeNotifier {
 
   // ── Android background keep-alive (battery-optimization exemption) ──────────
   /// Whether the app is exempt from battery optimizations (always true on iOS).
-  Future<bool> isIgnoringBatteryOptimizations() =>
+  Future<bool?> isIgnoringBatteryOptimizations() =>
       AndroidBackground.isIgnoringBatteryOptimizations();
 
   /// Fire the system "ignore battery optimizations" request dialog (Android).

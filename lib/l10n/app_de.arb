@@ -2242,6 +2242,7 @@
   "settingsContribute": "Spenden",
   "settingsResetTitle": "Alles löschen?",
   "settingsResetBackupWarning": "App-Daten gelöscht. Die Backup-Bereinigung war unvollständig. Einige Dateien oder Ordnerzugriffe können erhalten bleiben.",
+  "settingsResetPairingKeyWarning": "App-Daten gelöscht, aber ein Kopplungsschlüssel eines Sensors konnte nicht aus dem sicheren Speicher entfernt werden. Lösche alles erneut, um es noch einmal zu versuchen.",
   "settingsResetBody": "Diese App-Daten werden auf diesem Gerät dauerhaft gelöscht:\n\n· alle gemessenen Tage, Schlafdaten, Trainings und Routen\n· alle Laborwerte, Mahlzeiten, Medikamenteneinnahmen, Gewohnheiten, Atemübungen und eingetragenen Sätze\n· dein Journal, dein Zykluskalender und deine Baselines\n· dein Profil, alle Einstellungen und ein gespeicherter KI-Schlüssel\n· das Widget und alle geplanten Erinnerungen\n\nExportierte Kopien und Backups in früheren oder nicht verfügbaren Ordnern können erhalten bleiben. Lösche sie separat.\n\nDas Band wird entkoppelt und kann bereits übertragene Daten nicht erneut senden. Wenn du eine Kopie möchtest, exportiere vorher unter „Deine Daten“.",
   "settingsResetKeepData": "Meine Daten behalten",
   "settingsResetDeleteEverything": "Alles löschen",

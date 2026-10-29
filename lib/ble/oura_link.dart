@@ -71,6 +71,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import '../sync/paired_device.dart' show cleanDeviceLabel;
@@ -301,12 +302,8 @@ class OuraLink {
   /// remote id is a per-app CBPeripheral UUID on iOS and a rotating RPA on
   /// Android, and letting one become the storage key fragments one ring into N
   /// identities. `remote_id` is the column that may change under the same row.
-  static Future<Map<String, Object?>?> pairedRingRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kOura.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedRingRow() =>
+      pairedRowOf(kOura.id);
 
   /// Every stored pairing key, for "delete everything", which removes the
   /// `device` rows [forgetRing] would need and so must drop the keys itself.
@@ -373,6 +370,10 @@ class OuraLink {
       debugPrint('[oura] refusing to forget the primary band from here.');
       return false;
     }
+    // Before the first await: a sync still reading this ring's row or key
+    // has no `_deviceId` yet for the check below to match, so it learns of
+    // the forget from this instead.
+    instance._forgets++;
     if (instance._deviceId == id) {
       await instance.stop();
     }
@@ -414,6 +415,10 @@ class OuraLink {
   /// refuses every write once a "delete everything" has run since, even
   /// after the gate lowers again.
   int _resetGen = ResetGate.generation;
+
+  /// Bumped by every [forgetRing]. A sync that saw it move since it started
+  /// does not connect, whatever its `_deviceId` says.
+  int _forgets = 0;
 
   /// Wall-clock now, in Unix seconds. A field so a replay is deterministic.
   int Function() _now =
@@ -506,6 +511,7 @@ class OuraLink {
 
   Future<bool> _sync() async {
     _resetGen = ResetGate.generation;
+    final forgets = _forgets;
     // THE CATEGORY DESCRIBES THIS CALL, not the previous one: cleared before
     // the FIRST return, so every early exit below (nothing paired, primary
     // id, unreadable key, adapter off, connect/discovery failure) reports
@@ -557,6 +563,9 @@ class OuraLink {
         if (_deviceId != deviceId || ResetGate.changedSince(_resetGen)) {
           return false;
         }
+        // A forget during the row or key read above found no `_deviceId` to
+        // stop, so it is seen here instead.
+        if (_forgets != forgets) return false;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;

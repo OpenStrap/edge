@@ -124,7 +124,8 @@ void main() {
       final body = _resetBody();
       final fin = body.indexOf('} finally {');
       final tail = body.substring(fin);
-      final disconnect = tail.indexOf('if (!primaryEnded) await engine.disconnect();');
+      final disconnect =
+          tail.indexOf('if (!primaryEnded && pastLookup) await engine.disconnect();');
       final banks = tail.indexOf('await engine.settleShutdownBanks();');
       final rebuild = tail.indexOf('_bandHost = _newPrimaryBandHost();');
       final lower = tail.indexOf('ResetGate.leave();');
@@ -136,6 +137,16 @@ void main() {
       expect(lower, greaterThan(rebuild));
       expect(body.indexOf('primaryEnded = true;'),
           greaterThan(body.indexOf('await signOut();')));
+    });
+
+    test('a failed sensor lookup leaves the primary band connected', () {
+      final body = _resetBody();
+      final ids = body.indexOf('await _secondaryDeviceIdsForReset();');
+      final past = body.indexOf('pastLookup = true;');
+      expect(past, greaterThan(ids));
+      // Nothing between the lookup and the flag can throw.
+      expect(body.substring(ids, past).split('\n').length, 2);
+      expect(past, lessThan(body.indexOf('Prefs.setString(Prefs.backupCadence')));
     });
 
     test('a surface cleanup that throws does not skip signOut', () {
@@ -197,6 +208,50 @@ void main() {
       at = host.indexOf('LocalDb.commitSyncBatch(', at + 1);
     }
     expect(n, 3);
+  });
+
+  test('a forget during the key read stops a keyed sync from connecting', () {
+    for (final (f, forget) in [
+      ('miband', 'static Future<bool> forgetBand(String id) async {'),
+      ('oura', 'static Future<bool> forgetRing(String id) async {'),
+    ]) {
+      final src = _read('lib/ble/${f}_link.dart');
+      final fg = src.indexOf(forget);
+      final bump = src.indexOf('instance._forgets++;', fg);
+      expect(bump, greaterThan(fg), reason: f);
+      expect(bump, lessThan(src.indexOf('await ', fg)),
+          reason: '$f bumps the count after an await');
+      final sync = src.indexOf(RegExp(r'Future<bool> _sync\([^)]*\) async \{'));
+      final cap = src.indexOf('final forgets = _forgets;', sync);
+      expect(cap, greaterThan(sync), reason: f);
+      expect(cap, lessThan(src.indexOf('await ', sync)), reason: f);
+      final slot = src.indexOf('withSecondaryLinkSlot(', sync);
+      final check = src.indexOf('if (_forgets != forgets) return false;', slot);
+      expect(check, greaterThan(slot), reason: f);
+      expect(check, lessThan(src.indexOf('.connect(', slot)), reason: f);
+    }
+  });
+
+  test('a rejected Ultrahuman cursor write fails the sync', () {
+    final src = _read('lib/ble/ultrahuman_link.dart');
+    final w = src.indexOf('void _writeCursor(int index) {');
+    final body = src.substring(w, src.indexOf('\n  }\n', w));
+    expect(body.contains('_drainFailed = true;'), isTrue);
+    expect(
+        src.contains('!(host?.vendorWriteFailed ?? false) &&\n'
+            '            !ResetGate.changedSince(resetGen);'),
+        isTrue);
+  });
+
+  test('a failed vendor write fails a Garmin, Mi Band or Pebble sync', () {
+    for (final (f, result) in [
+      ('garmin', 'return !lastSyncRefused && !host.vendorWriteFailed;'),
+      ('miband', 'return lastSyncFailure == null && !host.vendorWriteFailed;'),
+      ('pebble', 'return lastSyncHeard && !host.vendorWriteFailed;'),
+    ]) {
+      expect(_read('lib/ble/${f}_link.dart').contains(result), isTrue,
+          reason: f);
+    }
   });
 
   test('a SessionLink session stopped while it ran does not report success',

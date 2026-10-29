@@ -13,6 +13,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import 'adapters/_registry.dart';
@@ -66,12 +67,8 @@ class SessionLink {
 
   int _now() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
-  Future<Map<String, Object?>?> pairedRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == entry.id) return r;
-    }
-    return null;
-  }
+  Future<Map<String, Object?>?> pairedRow() =>
+      pairedRowOf(entry.id);
 
   /// Forget a paired device: stop any live session, drop its `device` row.
   /// A forgotten scale holds its weighing no more, so the profile weight it

@@ -57,15 +57,17 @@ class AndroidBackground {
   }
 
   /// Whether the app is already exempt from battery optimizations (Doze).
-  /// Returns true on iOS / errors-as-unknown default to false on Android.
-  static Future<bool> isIgnoringBatteryOptimizations() async {
+  /// Returns true on iOS, and null on Android when the check itself failed:
+  /// an unknown state is not "not exempt", and must not ask the user to fix
+  /// something that may already be fine.
+  static Future<bool?> isIgnoringBatteryOptimizations() async {
     if (!Platform.isAndroid) return true;
     try {
       return await _ch.invokeMethod<bool>('isIgnoringBatteryOptimizations') ==
           true;
     } catch (e) {
       debugPrint('[android-bg] battery-opt check failed: $e');
-      return false;
+      return null;
     }
   }
 

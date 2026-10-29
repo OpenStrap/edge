@@ -17,6 +17,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import 'adapters/_registry.dart';
 import 'adapters/coros.dart';
@@ -55,12 +56,8 @@ class CorosLink {
   String? _firmware;
 
   /// The `device` row for the paired watch, or null.
-  static Future<Map<String, Object?>?> pairedRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kCoros.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedRow() =>
+      pairedRowOf(kCoros.id);
 
   /// Forget a paired watch: drop its `device` row. No key to drop — this
   /// family needs none.

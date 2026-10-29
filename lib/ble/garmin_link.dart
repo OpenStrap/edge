@@ -30,6 +30,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import 'adapters/_registry.dart';
@@ -62,12 +63,8 @@ class GarminLink {
   static final GarminLink instance = GarminLink._();
 
   /// The `device` row for the paired watch, or null.
-  static Future<Map<String, Object?>?> pairedRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kGarmin.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedRow() =>
+      pairedRowOf(kGarmin.id);
 
   /// Forget a paired watch: drop its `device` row. No key to drop — this
   /// family's session has no pairing-time credential this app installs.
@@ -157,6 +154,7 @@ class GarminLink {
         if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
           return false;
         }
+        BandHost? host;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -174,7 +172,7 @@ class GarminLink {
                 'characteristic under ${kGarminService.substring(0, 8)}.');
             return false;
           }
-          final host = _makeHost(
+          final h = host = _makeHost(
               deviceId,
               resetGeneration: resetGen,
               GarminAdapter(
@@ -183,15 +181,16 @@ class GarminLink {
                 mlChars: ml,
                 maxWrite: device.mtuNow - 3,
               ));
-          _host = host;
-          await host.run(link);
+          _host = h;
+          await h.run(link);
         } finally {
           // Drop the link and DISCONNECT before the slot is released.
           await stop();
         }
         // Read only after [stop]: notes ride the host's vendor-write chain,
-        // which stop drains. A connect alone is not a sync.
-        return !lastSyncRefused;
+        // which stop drains. A connect alone is not a sync. A failed vendor
+        // write holds every later note back, so it is read off the host.
+        return !lastSyncRefused && !host.vendorWriteFailed;
       });
     } catch (e) {
       debugPrint('[garmin] sync failed: $e');

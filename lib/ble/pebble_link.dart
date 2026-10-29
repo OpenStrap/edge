@@ -30,6 +30,7 @@ import 'package:flutter/foundation.dart'
     show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import 'adapters/_registry.dart';
@@ -57,12 +58,8 @@ class PebbleLink {
   static final PebbleLink instance = PebbleLink._();
 
   /// The `device` row for the paired watch, or null.
-  static Future<Map<String, Object?>?> pairedWatchRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kPebble.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedWatchRow() =>
+      pairedRowOf(kPebble.id);
 
   /// Forget a paired Pebble: tear down a live session if this is it, drop the
   /// `device` row. No key to drop — see this file's header.
@@ -137,6 +134,7 @@ class PebbleLink {
         if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
           return false;
         }
+        BandHost? host;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -156,14 +154,14 @@ class PebbleLink {
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
           }
-          final host = await _makeHost(deviceId,
+          final h = host = await _makeHost(deviceId,
               () => DateTime.now().millisecondsSinceEpoch ~/ 1000,
               resetGeneration: resetGen);
-          _host = host;
+          _host = h;
           // The adapter's stream has no end of its own — see the header —
           // so the window is what ends this session, not `run()` completing.
           await Future.any([
-            host.run(link),
+            h.run(link),
             Future<void>.delayed(window),
           ]);
         } finally {
@@ -171,8 +169,9 @@ class PebbleLink {
           await stop();
         }
         // Read only after [stop]: the note rides the host's vendor-write
-        // chain, which stop drains. A connect alone is not a sync.
-        return lastSyncHeard;
+        // chain, which stop drains. A connect alone is not a sync, and nor is
+        // one whose vendor write failed: that holds every later note back.
+        return lastSyncHeard && !host.vendorWriteFailed;
       });
     } catch (e) {
       debugPrint('[pebble] sync failed: $e');
