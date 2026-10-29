@@ -87,6 +87,12 @@ const Map<InputSignal, Duration> kPebbleSignals = {
 /// working one look the same to the link without it.
 const String kPebbleHeardNote = 'pebble_heard';
 
+/// The [BandNote] a session carries when the watch refused one of its
+/// protocol writes (a transport ACK, a datalog ACK/NACK, the greeting). The
+/// watch keeps or re-sends what that write covered, so hearing from it is
+/// not enough to call the sync done.
+const String kPebbleWriteRefusedNote = 'pebble_write_refused';
+
 class PebbleAdapter extends BandAdapter {
   final int Function() nowSeconds;
 
@@ -167,6 +173,7 @@ class PebbleAdapter extends BandAdapter {
             if (!await link.write(
                 kPebblePpogattWriteUuid, <int>[(rxSerial << 3) | 1])) {
               link.log('pebble: ack write unconfirmed for serial $rxSerial');
+              yield const BandNote(kPebbleWriteRefusedNote);
               continue;
             }
             for (final (endpoint, p) in frames.add(value.sublist(1))) {
@@ -174,13 +181,19 @@ class PebbleAdapter extends BandAdapter {
               if (endpoint == kPebbleEndpointPhoneVersion &&
                   p.isNotEmpty &&
                   p[0] == 0x00) {
-                await send(kPebbleEndpointPhoneVersion, pebblePhoneVersionReply());
+                if (!await send(kPebbleEndpointPhoneVersion, pebblePhoneVersionReply())) {
+                  yield const BandNote(kPebbleWriteRefusedNote);
+                }
                 if (!greeted) {
                   greeted = true;
                   final now =
                       DateTime.fromMillisecondsSinceEpoch(nowSeconds() * 1000);
-                  await send(kPebbleEndpointTime, pebbleSetTimeUtc(now));
-                  await send(kPebbleEndpointDatalog, kPebbleDatalogReportSessions);
+                  if (!await send(kPebbleEndpointTime, pebbleSetTimeUtc(now))) {
+                    yield const BandNote(kPebbleWriteRefusedNote);
+                  }
+                  if (!await send(kPebbleEndpointDatalog, kPebbleDatalogReportSessions)) {
+                    yield const BandNote(kPebbleWriteRefusedNote);
+                  }
                 }
                 continue;
               }
@@ -193,15 +206,19 @@ class PebbleAdapter extends BandAdapter {
                 case kPebbleDatalogOpen:
                   final open = parsePebbleDatalogOpen(p);
                   if (open != null) sessions[sid] = open;
-                  await send(kPebbleEndpointDatalog,
-                      open == null ? pebbleDatalogNack(sid) : pebbleDatalogAck(sid));
+                  if (!await send(kPebbleEndpointDatalog,
+                      open == null ? pebbleDatalogNack(sid) : pebbleDatalogAck(sid))) {
+                    yield const BandNote(kPebbleWriteRefusedNote);
+                  }
                 case kPebbleDatalogData:
                   final session = sessions[sid];
                   final items = session == null
                       ? null
                       : parsePebbleDatalogItems(p, session.itemSize);
                   if (session == null || items == null) {
-                    await send(kPebbleEndpointDatalog, pebbleDatalogNack(sid));
+                    if (!await send(kPebbleEndpointDatalog, pebbleDatalogNack(sid))) {
+                      yield const BandNote(kPebbleWriteRefusedNote);
+                    }
                     continue;
                   }
                   final samples = <NeutralSample>[];
@@ -355,7 +372,9 @@ class PebbleAdapter extends BandAdapter {
                     overlays
                       ..clear()
                       ..addAll(overlays0);
-                    await send(kPebbleEndpointDatalog, pebbleDatalogNack(sid));
+                    if (!await send(kPebbleEndpointDatalog, pebbleDatalogNack(sid))) {
+                      yield const BandNote(kPebbleWriteRefusedNote);
+                    }
                     continue;
                   }
                   yield SampleBatch(samples, raw: raw);
@@ -373,7 +392,9 @@ class PebbleAdapter extends BandAdapter {
                 case kPebbleDatalogClose:
                 case kPebbleDatalogTimeout:
                   sessions.remove(sid);
-                  await send(kPebbleEndpointDatalog, pebbleDatalogAck(sid));
+                  if (!await send(kPebbleEndpointDatalog, pebbleDatalogAck(sid))) {
+                    yield const BandNote(kPebbleWriteRefusedNote);
+                  }
                 default:
                   yield SampleBatch(const [], raw: raw);
               }

@@ -222,7 +222,7 @@ class UltrahumanLink {
         // which stop drains. A failed vendor write holds every later note
         // back, the failure notes included, so it is read off the host.
         return !_drainFailed &&
-            !(host?.vendorWriteFailed ?? false) &&
+            !(host?.sessionFailed ?? false) &&
             !ResetGate.changedSince(resetGen);
       });
     } catch (e) {

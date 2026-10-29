@@ -61,8 +61,9 @@ void main() {
       final start = src.indexOf('Future<void> adoptWeighing() async');
       final body = src.substring(start, src.indexOf('\n  }\n', start));
       for (final write in [
-        'if (reverted != null) await updateProfile(reverted);',
-        'if (next != null) await updateProfile(next);',
+        'if (reverted != null) {\n      await updateProfile(reverted, '
+            'resetGeneration: resetGen);',
+        'if (next != null) await updateProfile(next, resetGeneration: resetGen);',
         'await rederiveDays(',
       ]) {
         final at = body.indexOf(write);
@@ -74,6 +75,23 @@ void main() {
           reason: '$write is not preceded by a reset check',
         );
       }
+    });
+
+    test('updateProfile does not write over a reset that ran while it waited',
+        () {
+      final src = File('lib/state/app_state.dart').readAsStringSync();
+      final start = src.indexOf('Future<Map<String, dynamic>> updateProfile(');
+      final body = src.substring(start, src.indexOf('\n  }\n', start));
+      final gen = body.indexOf('final resetGen = resetGeneration ?? '
+          'ResetGate.generation;');
+      final wait = body.indexOf('await SharedPreferences.getInstance();');
+      final check =
+          body.indexOf('if (ResetGate.changedSince(resetGen)) return {...?user};');
+      final write = body.indexOf('await prefs.setString(_kProfile');
+      expect(gen, greaterThan(0));
+      expect(gen, lessThan(wait));
+      expect(check, greaterThan(wait));
+      expect(write, greaterThan(check));
     });
   });
 

@@ -289,6 +289,51 @@ void main() {
       reason: 'the successful commit durably stored its rows',
     );
   });
+
+  group('sessionFailed', () {
+    Future<BandHost> runOnce(_CheckpointAdapter adapter) async {
+      final host = BandHost(adapter: adapter, deviceId: deviceId);
+      final link = ReplayBandLink();
+      final future = host.run(link);
+      await link.close();
+      await future;
+      await host.stop();
+      return host;
+    }
+
+    test('is false when every row landed and was confirmed', () async {
+      final host = await runOnce(_CheckpointAdapter(() async => true));
+      expect(host.sessionFailed, isFalse);
+    });
+
+    test('is true when the device refused the confirmation', () async {
+      final host = await runOnce(_CheckpointAdapter(() async => false));
+      expect(host.sessionFailed, isTrue);
+    });
+
+    test('is true when the adapter stream ended on an error', () async {
+      final host = await runOnce(
+          _CheckpointAdapter(() async => true, failAtEnd: true));
+      expect(host.sessionFailed, isTrue);
+      expect(host.vendorWriteFailed, isFalse);
+    });
+
+    test('is true when a reset refused the session\'s commits', () async {
+      final adapter = _CheckpointAdapter(() async => true);
+      final host = BandHost(adapter: adapter, deviceId: deviceId);
+      ResetGate.enter();
+      try {
+        final link = ReplayBandLink();
+        final future = host.run(link);
+        await link.close();
+        await future;
+        await host.stop();
+      } finally {
+        ResetGate.leave();
+      }
+      expect(host.sessionFailed, isTrue);
+    });
+  });
 }
 
 /// Minimal adapter for the checkpoint-contract tests: one batch with one
@@ -296,7 +341,8 @@ void main() {
 /// entry is reused so the stored family/source keys stay realistic.
 class _CheckpointAdapter extends BandAdapter {
   final Future<bool> Function() _confirm;
-  _CheckpointAdapter(this._confirm);
+  final bool failAtEnd;
+  _CheckpointAdapter(this._confirm, {this.failAtEnd = false});
 
   @override
   BandEntry get entry => kBleHrs;
@@ -314,5 +360,6 @@ class _CheckpointAdapter extends BandAdapter {
       ),
     ]);
     yield OffloadCheckpoint(_confirm);
+    if (failAtEnd) throw StateError('transfer cut short');
   }
 }

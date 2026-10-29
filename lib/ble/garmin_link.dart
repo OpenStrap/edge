@@ -190,7 +190,7 @@ class GarminLink {
         // Read only after [stop]: notes ride the host's vendor-write chain,
         // which stop drains. A connect alone is not a sync. A failed vendor
         // write holds every later note back, so it is read off the host.
-        return !lastSyncRefused && !host.vendorWriteFailed;
+        return !lastSyncRefused && !host.sessionFailed;
       });
     } catch (e) {
       debugPrint('[garmin] sync failed: $e');

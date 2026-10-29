@@ -147,6 +147,7 @@ class SessionLink {
           return false;
         }
         final device = BluetoothDevice.fromId(remoteId);
+        BandHost? host;
         try {
           await device.connect(timeout: const Duration(seconds: 20));
           final services = await device.discoverServices();
@@ -167,14 +168,13 @@ class SessionLink {
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
           }
-          final host = _makeHost(deviceId, _now, resetGeneration: resetGen);
-          _host = host;
-          await host.run(link).timeout(window, onTimeout: () {});
+          final h = host = _makeHost(deviceId, _now, resetGeneration: resetGen);
+          _host = h;
+          await h.run(link).timeout(window, onTimeout: () {});
           // A forget or a reset that called [stop] while the session ran
           // ends `run` like a normal finish. That session was cancelled, not
           // completed, so its done-hook must not fire.
           if (stopped()) return false;
-          return true;
         } catch (e) {
           debugPrint('$_tag session failed: $e');
           return false;
@@ -184,6 +184,8 @@ class SessionLink {
             await device.disconnect();
           } catch (_) {/* already gone */}
         }
+        // Read only after [stop]: its final flush is part of the session.
+        return !host.sessionFailed;
       });
     } catch (e) {
       debugPrint('$_tag sync failed: $e');

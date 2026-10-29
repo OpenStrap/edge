@@ -331,7 +331,7 @@ class MiBand234Link {
         // Read only after [stop]: the note rides the host's vendor-write
         // chain, which stop drains. A failed vendor write holds every later
         // note back, the failure note included, so it is read off the host.
-        return lastSyncFailure == null && !host.vendorWriteFailed;
+        return lastSyncFailure == null && !host.sessionFailed;
       });
     } catch (e) {
       debugPrint('[miband234] sync failed: $e');

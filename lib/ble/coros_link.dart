@@ -133,6 +133,7 @@ class CorosLink {
         if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
           return false;
         }
+        BandHost? host;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -152,23 +153,24 @@ class CorosLink {
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
           }
-          final host = BandHost(
+          final h = host = BandHost(
             resetGeneration: resetGen,
             adapter: const CorosAdapter(),
             deviceId: deviceId,
             onLog: (m) => debugPrint('[coros] $m'),
             onNote: _handleNote,
           );
-          _host = host;
+          _host = h;
           // The adapter holds this open for as long as the link lives, so
           // this session is bounded here, not by anything the watch or the
           // adapter itself signals.
-          await host.run(link).timeout(_sessionWindow, onTimeout: () {});
-          return true;
+          await h.run(link).timeout(_sessionWindow, onTimeout: () {});
         } finally {
           // Drop the link and DISCONNECT before the slot is released.
           await stop();
         }
+        // Read only after [stop], which makes the session's final flush.
+        return !host.sessionFailed;
       });
     } catch (e) {
       debugPrint('[coros] sync failed: $e');

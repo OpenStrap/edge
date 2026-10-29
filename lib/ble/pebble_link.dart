@@ -110,6 +110,7 @@ class PebbleLink {
     // here. The host refuses every write once a reset has run since.
     final resetGen = ResetGate.generation;
     lastSyncHeard = false;
+    lastSyncWriteRefused = false;
     final row = await pairedWatchRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;
@@ -170,8 +171,8 @@ class PebbleLink {
         }
         // Read only after [stop]: the note rides the host's vendor-write
         // chain, which stop drains. A connect alone is not a sync, and nor is
-        // one whose vendor write failed: that holds every later note back.
-        return lastSyncHeard && !host.vendorWriteFailed;
+        // one the watch refused a write in, or whose rows did not all land.
+        return lastSyncHeard && !lastSyncWriteRefused && !host.sessionFailed;
       });
     } catch (e) {
       debugPrint('[pebble] sync failed: $e');
@@ -219,6 +220,10 @@ class PebbleLink {
   /// Cleared at the start of every session.
   bool lastSyncHeard = false;
 
+  /// The watch refused one of the session's protocol writes
+  /// ([kPebbleWriteRefusedNote]). Cleared at the start of every session.
+  bool lastSyncWriteRefused = false;
+
   /// This session's host: the adapter starts from the step totals already
   /// stored for this watch, the newest minute already counted and the recent
   /// sleep periods, so a day's total and a night carry forward across
@@ -247,6 +252,7 @@ class PebbleLink {
       onLog: (m) => debugPrint('[pebble] $m'),
       onNote: (key, _) {
         if (key == kPebbleHeardNote) lastSyncHeard = true;
+        if (key == kPebbleWriteRefusedNote) lastSyncWriteRefused = true;
       },
       // An ACK deletes the message on the watch: none goes out before the
       // message's steps and sleep rows landed, or after one failed.
@@ -266,10 +272,12 @@ class PebbleLink {
     List<List<int>> arrivals, {
     int Function()? nowSeconds,
     List<List<int>> Function(int endpoint, List<int> payload)? reply,
+    bool writeSucceeds = true,
   }) async {
     final now = nowSeconds ?? () => 1800000000;
     lastSyncHeard = false;
-    final link = ReplayBandLink();
+    lastSyncWriteRefused = false;
+    final link = ReplayBandLink()..writeSucceeds = writeSucceeds;
     final host = await _makeHost(deviceId, now);
     _host = host;
     var finished = false;

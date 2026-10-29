@@ -238,16 +238,20 @@ void main() {
     final body = src.substring(w, src.indexOf('\n  }\n', w));
     expect(body.contains('_drainFailed = true;'), isTrue);
     expect(
-        src.contains('!(host?.vendorWriteFailed ?? false) &&\n'
+        src.contains('!(host?.sessionFailed ?? false) &&\n'
             '            !ResetGate.changedSince(resetGen);'),
         isTrue);
   });
 
-  test('a failed vendor write fails a Garmin, Mi Band or Pebble sync', () {
+  test('a sync that did not save everything does not report success', () {
     for (final (f, result) in [
-      ('garmin', 'return !lastSyncRefused && !host.vendorWriteFailed;'),
-      ('miband', 'return lastSyncFailure == null && !host.vendorWriteFailed;'),
-      ('pebble', 'return lastSyncHeard && !host.vendorWriteFailed;'),
+      ('garmin', 'return !lastSyncRefused && !host.sessionFailed;'),
+      ('miband', 'return lastSyncFailure == null && !host.sessionFailed;'),
+      ('pebble',
+          'return lastSyncHeard && !lastSyncWriteRefused && !host.sessionFailed;'),
+      ('colmi', 'return !lastSyncUnanswered && !host.sessionFailed;'),
+      ('coros', 'return !host.sessionFailed;'),
+      ('session', 'return !host.sessionFailed;'),
     ]) {
       expect(_read('lib/ble/${f}_link.dart').contains(result), isTrue,
           reason: f);
@@ -257,8 +261,8 @@ void main() {
   test('a SessionLink session stopped while it ran does not report success',
       () {
     final src = _read('lib/ble/session_link.dart');
-    final run = src.indexOf('await host.run(link)');
-    final ret = src.indexOf('return true;', run);
+    final run = src.indexOf('await h.run(link)');
+    final ret = src.indexOf('return !host.sessionFailed;', run);
     final window = src.substring(run, ret);
     expect(window.contains('if (stopped()) return false;'), isTrue,
         reason: 'a forget during the run would fire the done-hook');

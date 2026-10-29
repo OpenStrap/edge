@@ -59,6 +59,23 @@ void main() {
     expect(steps.single['value'], 25.0);
     expect(await LocalDb.getCursorInt('pebble_steps_hw:$_deviceId'), ts);
     expect(PebbleLink.instance.lastSyncHeard, isTrue);
+    expect(PebbleLink.instance.lastSyncWriteRefused, isFalse);
+  });
+
+  test('a watch that refused the transport ACK is heard but not synced',
+      () async {
+    final at = DateTime(2026, 10, 4, 8);
+    final ts = at.millisecondsSinceEpoch ~/ 1000;
+    await PebbleLink.instance.ingestForTest(
+      _deviceId,
+      pebblePpogattPackets(
+          pebbleFrame(kPebbleEndpointDatalog, [1, 5, ...List.filled(30, 0)]),
+          0),
+      nowSeconds: () => ts,
+      writeSucceeds: false,
+    );
+    expect(PebbleLink.instance.lastSyncHeard, isTrue);
+    expect(PebbleLink.instance.lastSyncWriteRefused, isTrue);
   });
 
   test('a watch that sends nothing for the whole window is not a sync',

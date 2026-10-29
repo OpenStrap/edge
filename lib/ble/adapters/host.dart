@@ -269,6 +269,7 @@ class BandHost {
       onDone: finish,
       onError: (Object e) {
         onLog('[${adapter.id}] session ended on error: $e');
+        _runFailed = true;
         finish();
       },
       cancelOnError: true,
@@ -310,7 +311,16 @@ class BandHost {
     _runSub = null;
     // A note held behind the vendor writes still joins the final commit.
     await _vendorWrites;
-    await _commit(all: true);
+    if (!await _commit(all: true)) _finalCommitFailed = true;
+    if (_checkpointsInFlight.isNotEmpty) {
+      try {
+        await Future.wait(List.of(_checkpointsInFlight))
+            .timeout(_checkpointSettle);
+      } on TimeoutException {
+        _checkpointFailed = true;
+        onLog('[${adapter.id}] a checkpoint was still unconfirmed at stop.');
+      }
+    }
     await _vendorWrites;
     _reading.value = null;
     // A wearable's day derives off what its sync banked, and nothing on the
@@ -347,7 +357,14 @@ class BandHost {
         }
         _publishLive(samples);
       case OffloadCheckpoint():
-        unawaited(_commitThenConfirm(e));
+        // Tracked so [stop] can wait for it: a confirm still in flight when
+        // the result is read is not one that happened.
+        late final Future<void> tracked;
+        tracked = _commitThenConfirm(e).then((_) {}, onError: (Object err) {
+          _checkpointFailed = true;
+          onLog('[${adapter.id}] checkpoint failed: $err');
+        }).whenComplete(() => _checkpointsInFlight.remove(tracked));
+        _checkpointsInFlight.add(tracked);
       case BandNote(:final key, :final value):
         if (key == 'battery' && value is int) {
           unawaited(LocalDb.setDeviceBattery(deviceId, value).catchError((_) {}));
@@ -403,6 +420,32 @@ class BandHost {
   /// failure note the adapter sends, so a link that reports its outcome off
   /// notes has to read this too. Settled once [stop] returns.
   bool get vendorWriteFailed => _vendorFailed;
+
+  /// The adapter's stream ended on an error rather than finishing.
+  bool _runFailed = false;
+
+  /// A checkpoint's commit failed, or the device refused its confirmation.
+  bool _checkpointFailed = false;
+
+  /// The flush [stop] makes of whatever was still buffered failed.
+  bool _finalCommitFailed = false;
+
+  /// Checkpoints whose commit or confirm has not finished yet.
+  final Set<Future<void>> _checkpointsInFlight = {};
+
+  /// How long [stop] waits for those before counting them as failed. A
+  /// confirm writes to a link that teardown has usually closed, so this
+  /// normally settles at once; the bound keeps a stuck one from holding a
+  /// teardown (or a reset) open.
+  static const Duration _checkpointSettle = Duration(seconds: 5);
+
+  /// This session did not end with everything it received saved and
+  /// confirmed: the adapter's stream ended on an error, a checkpoint's
+  /// commit or confirmation failed, a vendor write failed, or the final
+  /// flush did. A link that reports a sync result reads this along with its
+  /// own notes. Settled once [stop] returns.
+  bool get sessionFailed =>
+      _runFailed || _checkpointFailed || _finalCommitFailed || _vendorFailed;
 
   /// Bank one device's vendor scalars. Returns rows written.
   ///
@@ -512,6 +555,7 @@ class BandHost {
       }
     }
     if (!await _commit(all: true)) {
+      _checkpointFailed = true;
       // The host observed the failed durable commit itself — the most
       // specific persistence signal there is. The adapter can only learn
       // this from the host, so it travels as a note; the adapter's own
@@ -522,7 +566,7 @@ class BandHost {
           'it is.');
       return;
     }
-    await cp.confirm();
+    if (!await cp.confirm()) _checkpointFailed = true;
   }
 
   Future<bool> _commitChain = Future.value(true);

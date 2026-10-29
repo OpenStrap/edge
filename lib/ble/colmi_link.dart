@@ -122,6 +122,7 @@ class ColmiLink {
           return false;
         }
         _connectAttempts++;
+        BandHost? host;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -143,7 +144,7 @@ class ColmiLink {
           }
           final anchor = DateTime.now().millisecondsSinceEpoch ~/ 1000;
           _anchorSec = anchor;
-          final host = BandHost(
+          final h = host = BandHost(
             resetGeneration: resetGen,
             adapter: ColmiAdapter(nowSeconds: () => anchor),
             deviceId: deviceId,
@@ -151,8 +152,8 @@ class ColmiLink {
             onNote: _handleNote,
             buildArchive: _buildArchiveRow,
           );
-          _host = host;
-          await host.run(link);
+          _host = h;
+          await h.run(link);
         } finally {
           // Drop the link and DISCONNECT before the slot is released — same
           // ordering `OuraLink._sync` uses and for the same reason: held in
@@ -163,7 +164,8 @@ class ColmiLink {
         }
         // A connect alone is not a sync: a ring that never answered ends the
         // session as quietly as one with nothing new.
-        return !lastSyncUnanswered;
+        // Read only after [stop], which makes the session's final flush.
+        return !lastSyncUnanswered && !host.sessionFailed;
       });
     } catch (e) {
       debugPrint('[colmi] sync failed: $e');
