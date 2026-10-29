@@ -20,6 +20,7 @@
 // metric_series each time.
 
 import '../data/activity_store.dart';
+import '../sync/reset_gate.dart';
 import '../models/activity_suggestion.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -5560,8 +5561,15 @@ class DerivationEngine {
     Profile profile,
     Set<String> dates, {
     void Function(String day)? onDayDone,
+    int? resetGeneration,
   }) async {
     if (sub.isEmpty || dates.isEmpty) return 0;
+    // [resetGeneration] is [ResetGate.generation] when the import began. It
+    // waits for the lock below, and a reset holds that lock through its wipe:
+    // without this the buffered days were written into the emptied store the
+    // moment the reset let go.
+    bool resetSince() =>
+        resetGeneration != null && ResetGate.changedSince(resetGeneration);
     // Under the SAME lock as run()/runDays(): this writes day_result rows, and
     // an import racing a background derive of the same day is exactly the
     // partial-overwrites-complete case the lock exists for.
@@ -5580,6 +5588,7 @@ class DerivationEngine {
       for (var i = 0; i < days.length; i++) {
         final day = days[i];
         if (!dates.contains(day.date)) continue;
+        if (resetSince()) break;
         // NEVER clobber a day the band measured. `forceFinalize: true` below
         // both replaces the measured result and locks the day out of every
         // future re-derive, and the raw it came from is pruned within days —

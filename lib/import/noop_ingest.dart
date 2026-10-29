@@ -16,6 +16,7 @@ import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../compute/substrate.dart';
 import '../data/db.dart';
+import '../sync/reset_gate.dart';
 
 /// One contiguous run of the band's cumulative step counter, ready to bank as a
 /// `live_coverage` row: real steps over a known [startSec]..[endSec] window.
@@ -70,6 +71,18 @@ class _Sec {
 class NoopIngest {
   NoopIngest(this._profile, this._engine, {this.onProgress});
 
+  /// A "delete everything" can run while an import carries on in the
+  /// background after its screen is closed. Everything still buffered then
+  /// belongs to the deleted store, so the import stops at its next write
+  /// instead of banking it into the fresh one.
+  final int _resetGen = ResetGate.generation;
+
+  void _stopIfReset() {
+    if (ResetGate.changedSince(_resetGen)) {
+      throw StateError('import stopped: the app data was deleted');
+    }
+  }
+
   final Profile _profile;
   final DerivationEngine _engine;
   final void Function(int days)? onProgress;
@@ -112,6 +125,7 @@ class NoopIngest {
   /// too late to use, or its timestamp is implausible — the caller must then
   /// skip it entirely.
   Future<bool> offer(int ts) async {
+    _stopIfReset();
     if (ts < kNoopMinPlausibleTs || ts > kNoopMaxPlausibleTs) {
       implausibleRows++;
       return false;
@@ -203,6 +217,7 @@ class NoopIngest {
   /// End of input: derive the last buffered date, bank any steps whose date
   /// never derived, and roll the import's day rollups forward.
   Future<void> finish() async {
+    _stopIfReset();
     final last = _curDate;
     // `_secs` OR the RR buffer: `rr()` is the one channel that creates no
     // per-second entry, so a final date carrying only beats would otherwise be
@@ -211,19 +226,23 @@ class NoopIngest {
       final st = _stepsByDate.remove(last);
       if (st != null) steps += await flushStepCoverage(st, last);
       final sub = _buildSubstrate(_secs, _rrTs, _rrMs);
-      days += await _engine.deriveImportedDays(sub, _profile, {last});
+      days += await _engine.deriveImportedDays(sub, _profile, {last},
+          resetGeneration: _resetGen);
       onProgress?.call(days);
     }
     // A date that carried ONLY a step counter still banks its real count —
     // dropping it would lose steps the band actually measured.
     for (final e in _stepsByDate.entries) {
+      _stopIfReset();
       steps += await flushStepCoverage(e.value, e.key);
     }
     _stepsByDate.clear();
+    _stopIfReset();
     await _engine.finalizeImport(_profile);
   }
 
   Future<void> _deriveAndPrune(String date) async {
+    _stopIfReset();
     // Real steps must be banked BEFORE deriving: the derivation reads them via
     // LocalDb.liveStepsForDay / coverageWindowsOverlapping at derive time.
     final st = _stepsByDate.remove(date);
@@ -232,7 +251,8 @@ class NoopIngest {
     // derive ONLY [date]; the prior evening gives a sleep that started before
     // midnight its context.
     final sub = _buildSubstrate(_secs, _rrTs, _rrMs);
-    days += await _engine.deriveImportedDays(sub, _profile, {date});
+    days += await _engine.deriveImportedDays(sub, _profile, {date},
+        resetGeneration: _resetGen);
     onProgress?.call(days);
     // Keep [date]'s samples as the prior evening for the NEXT date; drop older.
     _secs.removeWhere((ts, _) => localDateLabel(ts) != date);

@@ -1353,33 +1353,32 @@ class AppState extends ChangeNotifier {
   /// Returns a cleanup error if backup copies or folder access remain;
   /// [resetLeftPairingKeys] says whether a sensor pairing key may.
   Future<String?> resetAllData() async {
+    // Before anything changes, and before the gate is raised: raising it moves
+    // ResetGate.generation for good, and every session that captured the old
+    // one has its commits refused from then on. A reset that aborts here must
+    // leave that untouched, so both steps that can abort run first.
+    //
+    // The paired sensors' ids. The wipe deletes the `device` rows, and those
+    // ids are the only way to find each sensor's pairing key afterwards. A
+    // lookup that fails aborts the reset here, while nothing is gone yet,
+    // rather than wiping the rows and leaving keys behind that nothing can
+    // find again.
+    final secondaryIds = await _secondaryDeviceIdsForReset();
+    // And any derive pass: one running now read the store before the wipe and
+    // would write its results after it, and its writes are not refused by the
+    // gate. Held until the gate lowers. A pass that will not finish in time
+    // stops the reset here, with nothing deleted, rather than wiping
+    // underneath it.
+    if (!await DerivationEngine.acquireForReset()) {
+      _log('[reset] a derive pass did not finish in time');
+      throw StateError('a calculation is still running; nothing was '
+          'deleted. Try again in a minute.');
+    }
     // 0 · nothing further ENTERS the database either. The band is still
     //     connected and still draining — see [_resetting].
     ResetGate.enter();
     var primaryEnded = false;
-    var deriveHeld = false;
-    // Set once the lookup below has succeeded. A reset that aborts there has
-    // touched nothing, so it leaves the primary band's session alone.
-    var pastLookup = false;
     try {
-      // FIRST, before anything is deleted: the paired sensors' ids. The wipe
-      // deletes the `device` rows, and those ids are the only way to find each
-      // sensor's pairing key afterwards. A lookup that fails aborts the reset
-      // here, while nothing is gone yet, rather than wiping the rows and
-      // leaving keys behind that nothing can find again.
-      final secondaryIds = await _secondaryDeviceIdsForReset();
-      // And any derive pass, also before anything is touched: one running now
-      // read the store before the wipe and would write its results after it,
-      // and its writes are not refused by the gate. Held until the gate lowers.
-      // A pass that will not finish in time stops the reset here, with nothing
-      // deleted, rather than wiping underneath it.
-      deriveHeld = await DerivationEngine.acquireForReset();
-      if (!deriveHeld) {
-        _log('[reset] a derive pass did not finish in time');
-        throw StateError('a calculation is still running; nothing was '
-            'deleted. Try again in a minute.');
-      }
-      pastLookup = true;
       // Wait for a running backup and remove copies while the selected folder
       // grant is still known. Queued scheduled writes see Off inside the lock.
       Prefs.setString(Prefs.backupCadence, BackupCadence.off.name);
@@ -1517,10 +1516,10 @@ class AppState extends ChangeNotifier {
       // emptied store. signOut ends it on the normal path; any earlier exit
       // ends it here. The link's last foreign-transfer banks run at teardown,
       // so they are awaited too, while the gate still refuses them. A reset
-      // that failed its first, read-only step deleted nothing, so a drain
-      // carrying on across it lands in an intact store: no disconnect then.
+      // that aborts before changing anything does so above the gate and never
+      // reaches here, so the drain carries on into an intact store.
       try {
-        if (!primaryEnded && pastLookup) await engine.disconnect();
+        if (!primaryEnded) await engine.disconnect();
         await engine.settleShutdownBanks();
       } catch (e) {
         _log('[reset] primary link did not close cleanly: $e');
@@ -1531,7 +1530,7 @@ class AppState extends ChangeNotifier {
       // reset moved to: it still refuses while the gate is up (here, or a
       // second reset on top of this one), and accepts once it lowers.
       _bandHost = _newPrimaryBandHost();
-      if (deriveHeld) DerivationEngine.releaseForReset();
+      DerivationEngine.releaseForReset();
       // Never leave ingest refused if the reset threw part-way: a half-reset
       // install that silently drops every record is worse than the race.
       ResetGate.leave();

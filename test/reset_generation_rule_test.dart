@@ -153,18 +153,17 @@ void main() {
         'is touched', () {
       final body = _resetBody();
       final take = body.indexOf('await DerivationEngine.acquireForReset()');
-      final refuse = body.indexOf('if (!deriveHeld) {');
-      final thrown = body.indexOf('throw StateError(', refuse);
-      expect(refuse, greaterThan(take));
-      expect(thrown, greaterThan(refuse));
-      for (final destructive in [
-        'pastLookup = true;',
+      final thrown = body.indexOf('throw StateError(', take);
+      expect(take, greaterThanOrEqualTo(0));
+      expect(thrown, greaterThan(take));
+      for (final later in [
+        'ResetGate.enter();',
         'deleteAutomaticBackups()',
         'telemetryConsent = false;',
         '_stopSecondaryLinksForReset();',
         'LocalDb.wipeAll()',
       ]) {
-        expect(thrown, lessThan(body.indexOf(destructive)), reason: destructive);
+        expect(thrown, lessThan(body.indexOf(later)), reason: later);
       }
     });
   });
@@ -197,7 +196,7 @@ void main() {
       final fin = body.indexOf('} finally {');
       final tail = body.substring(fin);
       final disconnect =
-          tail.indexOf('if (!primaryEnded && pastLookup) await engine.disconnect();');
+          tail.indexOf('if (!primaryEnded) await engine.disconnect();');
       final banks = tail.indexOf('await engine.settleShutdownBanks();');
       final rebuild = tail.indexOf('_bandHost = _newPrimaryBandHost();');
       final lower = tail.indexOf('ResetGate.leave();');
@@ -211,19 +210,25 @@ void main() {
           greaterThan(body.indexOf('await signOut();')));
     });
 
-    test('a failed sensor lookup leaves the primary band connected', () {
+    test('an abort before the wipe leaves the generation and the band alone',
+        () {
+      // Raising the gate moves the generation for good, so every open
+      // session would have its commits refused after a reset that deleted
+      // nothing. Both steps that can abort run above it, and above the try
+      // whose finally disconnects the band.
       final body = _resetBody();
       final ids = body.indexOf('await _secondaryDeviceIdsForReset();');
-      final past = body.indexOf('pastLookup = true;');
-      expect(past, greaterThan(ids));
-      // Between the lookup and the flag only the derive lock is taken, and
-      // its refusal is meant to leave the band connected too: nothing else
-      // runs there.
-      final between = body.substring(ids, past);
-      expect('await '.allMatches(between).length, 2);
-      expect(between, contains('await DerivationEngine.acquireForReset()'));
-      expect('throw '.allMatches(between).length, 1);
-      expect(past, lessThan(body.indexOf('Prefs.setString(Prefs.backupCadence')));
+      final take = body.indexOf('await DerivationEngine.acquireForReset()');
+      final enter = body.indexOf('ResetGate.enter();');
+      final tryAt = body.indexOf('    try {');
+      expect(ids, greaterThanOrEqualTo(0));
+      expect(take, greaterThan(ids));
+      expect(enter, greaterThan(take));
+      expect(tryAt, greaterThan(enter));
+      // Nothing between the start and the gate writes anything.
+      final before = body.substring(0, enter);
+      expect('await '.allMatches(before).length, 2);
+      expect(before.contains('Prefs.'), isFalse);
     });
 
     test('a surface cleanup that throws does not skip signOut', () {
