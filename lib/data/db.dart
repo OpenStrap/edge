@@ -57,6 +57,7 @@ import 'live_coverage_policy.dart';
 import '../compute/step_calibration_fit.dart';
 import 'step_calibration.dart';
 import '../sync/reset_gate.dart';
+import 'triathlon_store.dart';
 import 'med_store.dart';
 import 'models.dart';
 import 'nutrition_store.dart';
@@ -299,6 +300,10 @@ class LocalDb {
     'imported_workout',
     'workout_route',
     'workout_split',
+    // A triathlon is hand-marked at the band: the boundaries exist nowhere
+    // else, and the plan (incl. indoor/outdoor) was typed by the athlete.
+    'triathlon_session',
+    'triathlon_segment',
     // The only copy of what a paired sensor measured during a session.
     'external_hr',
     'imported_measurement',
@@ -479,7 +484,11 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 58;
+  // 59 is claimed by the open stranded-device-id PR (#537); this feature
+  // takes the next free rung rather than collide with it. The ladder is a
+  // sequence of `oldV < N` checks, so an unused 59 costs nothing: a device
+  // upgrading from 58 runs this step, and whichever PR lands second renumbers.
+  static const int schemaVersion = 60;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -1248,6 +1257,11 @@ class LocalDb {
         if (oldV < 58) {
           // A band's own hypnogram (`vendor_staged`). New table only.
           await _createVendorSleepEpoch(db);
+        }
+        if (oldV < 60) {
+          // Triathlon/multisport: parent session + per-segment boundaries.
+          // New tables only, no backfill — there is no older data to move.
+          await createTriathlonTables(db);
         }
       },
       onOpen: (db) async {
@@ -5504,6 +5518,10 @@ class LocalDb {
     // DDL belongs next to the code that reads it, not two thousand lines away.
     await createNutritionTables(db);
     await createMedTables(db);
+    // Triathlon sessions and their segments: hand-recorded race data, so the
+    // creator lives here where onCreate, the onOpen repair pass and the export
+    // database all run it. CREATE IF NOT EXISTS, so re-running is free.
+    await createTriathlonTables(db);
     // cycle_log — menstrual cycle markers; `kind` is 'start' (cycle start) etc.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS cycle_log (
@@ -11106,6 +11124,8 @@ class LocalDb {
         for (final child in const [
           'workout_route',
           'workout_split',
+      'triathlon_session',
+      'triathlon_segment',
           'strength_set',
           'session_sensor',
         ]) {
@@ -11115,6 +11135,16 @@ class LocalDb {
             [startSec, endSec],
           );
         }
+        deleted += await txn.rawDelete(
+          'DELETE FROM triathlon_segment WHERE session_id IN '
+          '(SELECT id FROM triathlon_session WHERE start_ts >= ? AND start_ts < ?)',
+          [startSec, endSec],
+        );
+        deleted += await txn.delete(
+          'triathlon_session',
+          where: 'start_ts >= ? AND start_ts < ?',
+          whereArgs: [startSec, endSec],
+        );
         deleted += await txn.delete(
           'sessions',
           where: 'start_ts >= ? AND start_ts < ?',
@@ -12829,6 +12859,8 @@ class LocalDb {
       'signal_priority',
       'vendor_sleep_epoch',
       'substrate_archive',
+      'triathlon_session',
+      'triathlon_segment',
     ];
 
     final missingTables = <String>[];
