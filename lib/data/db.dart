@@ -53,6 +53,7 @@ import '../compute/vendor_sleep.dart' show VendorEpoch, VendorNight;
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
 import 'step_calibration.dart';
+import 'triathlon_store.dart';
 import 'med_store.dart';
 import 'models.dart';
 import 'nutrition_store.dart';
@@ -295,6 +296,10 @@ class LocalDb {
     'imported_workout',
     'workout_route',
     'workout_split',
+    // A triathlon is hand-marked at the band: the boundaries exist nowhere
+    // else, and the plan (incl. indoor/outdoor) was typed by the athlete.
+    'triathlon_session',
+    'triathlon_segment',
     // The only copy of what a paired sensor measured during a session.
     'external_hr',
     'imported_measurement',
@@ -473,7 +478,11 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 58;
+  // 59 is claimed by the open stranded-device-id PR (#537); this feature
+  // takes the next free rung rather than collide with it. The ladder is a
+  // sequence of `oldV < N` checks, so an unused 59 costs nothing: a device
+  // upgrading from 58 runs this step, and whichever PR lands second renumbers.
+  static const int schemaVersion = 60;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -1227,6 +1236,11 @@ class LocalDb {
         if (oldV < 58) {
           // A band's own hypnogram (`vendor_staged`). New table only.
           await _createVendorSleepEpoch(db);
+        }
+        if (oldV < 60) {
+          // Triathlon/multisport: parent session + per-segment boundaries.
+          // New tables only, no backfill — there is no older data to move.
+          await createTriathlonTables(db);
         }
       },
       onOpen: (db) async {
@@ -4968,6 +4982,10 @@ class LocalDb {
     // DDL belongs next to the code that reads it, not two thousand lines away.
     await createNutritionTables(db);
     await createMedTables(db);
+    // Triathlon sessions and their segments: hand-recorded race data, so the
+    // creator lives here where onCreate, the onOpen repair pass and the export
+    // database all run it. CREATE IF NOT EXISTS, so re-running is free.
+    await createTriathlonTables(db);
     // cycle_log — menstrual cycle markers; `kind` is 'start' (cycle start) etc.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS cycle_log (
@@ -9454,6 +9472,22 @@ class LocalDb {
         where: 'start_ts >= ? AND start_ts < ?',
         whereArgs: [startSec, endSec],
       );
+      // Same midnight rule as deleteDays: a race is exported for a day when
+      // it starts that day OR one of its segments does, and always whole.
+      const triInWindow = '(SELECT id FROM triathlon_session '
+          'WHERE start_ts >= ? AND start_ts < ? '
+          'UNION SELECT session_id FROM triathlon_segment '
+          'WHERE start_ts >= ? AND start_ts < ?)';
+      await copyRows(
+        'triathlon_session',
+        where: 'id IN $triInWindow',
+        whereArgs: [startSec, endSec, startSec, endSec],
+      );
+      await copyRows(
+        'triathlon_segment',
+        where: 'session_id IN $triInWindow',
+        whereArgs: [startSec, endSec, startSec, endSec],
+      );
       await copyRows(
         'live_coverage',
         where: 'end_ts > ? AND start_ts < ?',
@@ -9634,6 +9668,45 @@ class LocalDb {
             'DELETE FROM $child WHERE session_id IN '
             '(SELECT id FROM sessions WHERE start_ts >= ? AND start_ts < ?)',
             [startSec, endSec],
+          );
+        }
+        // Triathlon rows are NOT children of `sessions`: their key is the
+        // triathlon session id, and a segment's `workout_id` merely points at
+        // one. Treating them as session children matched nothing (a privacy
+        // leak on delete) and could delete a race segment whose string id
+        // collided with a workout id.
+        //
+        // A race that starts before midnight and ends after it belongs to
+        // BOTH days: deleting either day must not leave its rows behind, so a
+        // race is selected when it starts in the window OR when any of its
+        // segments does. The whole race goes — deleting half a race would
+        // leave a record nobody can read.
+        // READ THE IDS FIRST. Deleting the segments first would empty the
+        // subquery the parent delete is built from, so a race selected only
+        // through a segment (the cross-midnight case) survived its own
+        // deletion. Selection and deletion must not share one statement here.
+        const triInWindow = '(SELECT id FROM triathlon_session '
+            'WHERE start_ts >= ? AND start_ts < ? '
+            'UNION SELECT session_id FROM triathlon_segment '
+            'WHERE start_ts >= ? AND start_ts < ?)';
+        final triIds = <String>[
+          for (final r in await txn.query(
+            'triathlon_session',
+            columns: ['id'],
+            where: 'id IN $triInWindow',
+            whereArgs: [startSec, endSec, startSec, endSec],
+          ))
+            r['id'] as String,
+        ];
+        for (final chunk in _sqlVarChunks(triIds)) {
+          final marks = List.filled(chunk.length, '?').join(',');
+          deleted += await txn.rawDelete(
+            'DELETE FROM triathlon_segment WHERE session_id IN ($marks)',
+            chunk,
+          );
+          deleted += await txn.rawDelete(
+            'DELETE FROM triathlon_session WHERE id IN ($marks)',
+            chunk,
           );
         }
         deleted += await txn.delete(
@@ -9985,6 +10058,9 @@ class LocalDb {
       // Keep the decision merge after both kinds of accepted activity.
       'sessions',
       'session_sensor',
+      // The recorded segment boundaries and their plans cannot be rebuilt.
+      'triathlon_session',
+      'triathlon_segment',
       'activity_suggestions',
       'activity_review_meta',
       'activity_review_days',
@@ -10098,6 +10174,23 @@ class LocalDb {
       ))
         '${r['day_id']}',
     };
+    // Finalized triathlons are this device's own record: a restore must not
+    // overwrite one with an older snapshot of the same race (its segments
+    // arrive separately, so protecting only the parent would still rewrite
+    // the boundaries).
+    final protectedTriathlons = <String>{};
+    try {
+      for (final r in await db.query(
+        'triathlon_session',
+        columns: ['id'],
+        where: "finalized_at IS NOT NULL OR status IN ('active', 'finished')",
+        distinct: true,
+      )) {
+        protectedTriathlons.add('${r['id']}');
+      }
+    } on DatabaseException {
+      /* table absent in an older build of this file — nothing to protect */
+    }
     var archiveSkipped = 0;
     int? archiveEdgeSec;
     try {
@@ -10411,6 +10504,14 @@ class LocalDb {
                       if (++ops >= chunkOps) await flush();
                     }
                   }
+                  continue;
+                }
+                if (t == 'triathlon_session' &&
+                    protectedTriathlons.contains('${row['id']}')) {
+                  continue; // locally finalized — never overwritten by import
+                }
+                if (t == 'triathlon_segment' &&
+                    protectedTriathlons.contains('${row['session_id']}')) {
                   continue;
                 }
                 if (t == 'day_result') {
@@ -10798,6 +10899,8 @@ class LocalDb {
       'signal_priority',
       'vendor_sleep_epoch',
       'substrate_archive',
+      'triathlon_session',
+      'triathlon_segment',
     ];
 
     final missingTables = <String>[];
