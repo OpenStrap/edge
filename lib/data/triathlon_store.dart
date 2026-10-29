@@ -340,10 +340,15 @@ class TriathlonDb {
               plannedDistanceM: p.plannedDistanceM,
               goalSec: p.goalSec,
             );
-        if (seg.idx != i || seg.kind != p.kind) {
+        if (seg.sessionId != session.id || seg.idx != i || seg.kind != p.kind ||
+            seg.environment != p.environment ||
+            seg.plannedDistanceM != p.plannedDistanceM || seg.goalSec != p.goalSec) {
           throw TriathlonWriteError('segment $i does not match the plan');
         }
         _checkSegmentShape(seg);
+        if (i > 0 && session.segments.isNotEmpty) {
+          _checkNeighbour(seg, session.segments[i - 1]);
+        }
         await txn.insert('triathlon_segment', seg.toRow());
       }
     });
@@ -444,8 +449,16 @@ class TriathlonDb {
       final existing = [
         for (final r in rows) TriSegment.fromRow(r)
       ].whereType<TriSegment>().toList();
-      if (existing.every((s) => s.idx != segment.idx)) {
+      final matching = existing.where((s) => s.idx == segment.idx).toList();
+      if (matching.isEmpty) {
         throw TriathlonWriteError('segment ${segment.idx} is not in the plan');
+      }
+      final original = matching.single;
+      if (segment.kind != original.kind ||
+          segment.environment != original.environment ||
+          segment.plannedDistanceM != original.plannedDistanceM ||
+          segment.goalSec != original.goalSec) {
+        throw TriathlonWriteError('the planned segment is immutable');
       }
       for (final other in existing) {
         if (other.idx == segment.idx) continue;
@@ -485,8 +498,17 @@ class TriathlonDb {
   static Future<void> updateSession(Database db, TriSession session) async {
     await db.transaction((txn) async {
       await _requireWritable(txn, session.id);
-      final row = session.toRow();
-      row['updated_at'] = DateTime.now().millisecondsSinceEpoch;
+      if (session.isFinalized || session.status == 'finalized') {
+        throw TriathlonWriteError('use finalize to finalize a session');
+      }
+      // Do not rewrite the frozen plan or an unknown future plan version.
+      final row = <String, Object?>{
+        'status': session.status,
+        'start_ts': session.startTs,
+        'end_ts': session.endTs,
+        'note': session.note,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      };
       await txn.update(
         'triathlon_session',
         row,
@@ -502,7 +524,7 @@ class TriathlonDb {
   static Future<void> finalize(Database db, String id) async {
     await db.transaction((txn) async {
       await _requireWritable(txn, id);
-      final segs = await segments(db, id);
+      final segs = await segments(txn, id);
       if (segs.isEmpty) throw TriathlonWriteError('nothing to finalize');
       for (final s in segs) {
         if (s.startTs == null || s.endTs == null) {

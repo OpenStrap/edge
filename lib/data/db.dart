@@ -10952,6 +10952,17 @@ class LocalDb {
         whereArgs: [startSec, endSec],
       );
       await copyRows(
+        'triathlon_session',
+        where: 'start_ts >= ? AND start_ts < ?',
+        whereArgs: [startSec, endSec],
+      );
+      await copyRows(
+        'triathlon_segment',
+        where: 'session_id IN (SELECT id FROM triathlon_session '
+            'WHERE start_ts >= ? AND start_ts < ?)',
+        whereArgs: [startSec, endSec],
+      );
+      await copyRows(
         'live_coverage',
         where: 'end_ts > ? AND start_ts < ?',
         whereArgs: [startSec, endSec],
@@ -11124,8 +11135,6 @@ class LocalDb {
         for (final child in const [
           'workout_route',
           'workout_split',
-      'triathlon_session',
-      'triathlon_segment',
           'strength_set',
           'session_sensor',
         ]) {
@@ -11521,6 +11530,9 @@ class LocalDb {
       // Keep the decision merge after both kinds of accepted activity.
       'sessions',
       'session_sensor',
+      // The recorded segment boundaries and their plans cannot be rebuilt.
+      'triathlon_session',
+      'triathlon_segment',
       'activity_suggestions',
       'activity_review_meta',
       'activity_review_days',

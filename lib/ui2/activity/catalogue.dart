@@ -135,7 +135,6 @@ const activityLibrary = <ActGroup>[
     Activity('Indoor bike', LucideIcons.bike, C.blue, Track.duration, 7.0),
     Activity('Rowing', LucideIcons.sailboat, C.teal, Track.distance, 7.0),
     Activity('Swimming', LucideIcons.waves, C.blue, Track.distance, 8.3),
-    Activity('Triathlon', LucideIcons.trophy, C.orange, Track.duration, null),
     Activity('Elliptical', LucideIcons.activity, C.purple, Track.duration, 5.0),
     Activity(
         'Stair climber', LucideIcons.trendingUp, C.orange, Track.duration, 9.0),

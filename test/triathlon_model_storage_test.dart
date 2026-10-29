@@ -236,8 +236,8 @@ void main() {
 
       // Attempting to start T2 at 2000 (gap after T1's 1960) throws.
       final seg2 = (await TriathlonDb.segments(db, 'tri_sprint_bounds'))[2];
-      expect(
-        () => TriathlonDb.saveSegment(
+      await expectLater(
+        TriathlonDb.saveSegment(
           db,
           seg2.copyWith(startTs: 2000, endTs: 3000, boundarySource: 'gesture'),
         ),
@@ -284,8 +284,8 @@ void main() {
 
       // Any attempt to edit a finalized segment must throw.
       final seg0 = finalized.segments[0];
-      expect(
-        () => TriathlonDb.saveSegment(
+      await expectLater(
+        TriathlonDb.saveSegment(
           db,
           seg0.copyWith(distanceM: 750, distanceSource: 'user'),
         ),
@@ -294,7 +294,20 @@ void main() {
       await LocalDb.close();
     });
 
-    test('schema migration v60 creates triathlon tables', () async {
+    test('triathlon tables participate in backup restore and salvage', () {
+      expect(LocalDb.restoreTablesForTest,
+          containsAllInOrder(['triathlon_session', 'triathlon_segment']));
+      expect(LocalDb.salvageTablesForTest,
+          containsAllInOrder(['triathlon_session', 'triathlon_segment']));
+    });
+
+    test('deleting a day works when no triathlon exists', () async {
+      await freshDb('tri_delete_day_test.db');
+      await LocalDb.deleteDays({'2026-01-01'});
+      await LocalDb.close();
+    });
+
+    test('fresh schema creates triathlon tables', () async {
       LocalDb.dbName = 'tri_schema_v60_fresh.db';
       final dir = await databaseFactory.getDatabasesPath();
       await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
