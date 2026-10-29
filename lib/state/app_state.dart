@@ -1408,15 +1408,10 @@ class AppState extends ChangeNotifier {
       await _stopSecondaryLinksForReset();
 
       // 2 · every row in every table (see LocalDb.wipeAll for why it is not a
-      // hand-written table list, and for the sync_cursor decision). Behind the
-      // derive latch: ResetGate stops ingest, not a pass already deriving from
-      // the substrate it read before the wipe, which would write those days'
-      // results and baselines straight back into the emptied store. The reset
-      // normally holds the latch already (above); waiting on it again then
-      // would wait on itself forever.
-      await (deriveHeld
-          ? LocalDb.wipeAll()
-          : DerivationEngine.whileIdle(LocalDb.wipeAll));
+      // hand-written table list, and for the sync_cursor decision). The reset
+      // holds the derive latch from before the gate went up, so no pass that
+      // read the substrate before the wipe can write its days back after it.
+      await LocalDb.wipeAll();
       // The copies already handed to share sheets (exports, CSVs, issue
       // reports) are the same records in plaintext, sitting in the cache.
       await purgeSharedHealthCopies();

@@ -17,6 +17,7 @@ class _CapturingEngine extends DerivationEngine {
     Profile profile,
     Set<String> dates, {
     void Function(String day)? onDayDone,
+    int? resetGeneration,
   }) async {
     subs.add(sub);
     return dates.length;
