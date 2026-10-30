@@ -472,16 +472,27 @@ class EnergyBalance {
   double get balance => eaten - burned;
 }
 
-/// [burnedByDate] maps a local day label to that day's total burn. Null when
-/// no counted day has one — the card then has nothing honest to subtract.
+/// Worn minutes a day needs before its total burn counts as a whole day.
+/// The basal floor is pro-rated over the minutes the band recorded, so a day
+/// it spent half off the wrist burns half a BMR and reads as a surplus.
+/// About an hour off the wrist (a charge) still counts.
+const int kWholeDayWornMin = 1380;
+
+/// [burnedByDate] maps a local day label to that day's total burn, and
+/// [wornMinByDate] to its worn minutes. A day without a whole day's wear
+/// drops out of both sides. Null when no counted day is left — the card then
+/// has nothing honest to subtract.
 EnergyBalance? weeklyEnergyBalance(
   NutritionWindow w,
   Map<String, double> burnedByDate,
+  Map<String, double> wornMinByDate,
 ) {
   var eaten = 0.0, burned = 0.0, n = 0;
   for (final d in w.counted) {
     final b = burnedByDate[d.date];
-    if (b == null || !d.kcal.complete) continue;
+    final worn = wornMinByDate[d.date];
+    if (b == null || worn == null || worn < kWholeDayWornMin) continue;
+    if (!d.kcal.complete) continue;
     eaten += d.kcal.value!;
     burned += b;
     n++;

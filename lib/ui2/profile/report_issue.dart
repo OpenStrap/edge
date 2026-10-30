@@ -150,7 +150,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
     try {
       final r = await collectReport(context.read<AppState>(), _draft(),
           onStage: (st) => _setStep(_stageText(l, st)));
-      await pruneSharedReports(r.zip.parent);
+      await pruneSharedReports(r.zip.parent, current: r.zip);
       _setStep(l.reportStageSharing);
       await Share.shareXFiles([XFile(r.zip.path)],
           subject: 'OpenStrap issue report', sharePositionOrigin: origin);

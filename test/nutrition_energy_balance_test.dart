@@ -39,7 +39,7 @@ void main() {
       '2026-08-13': 2350,
       '2026-08-14': 2250,
       today: 621,
-    })!;
+    }, _worn(['2026-08-13', '2026-08-14', today]))!;
     expect(b.days, 2);
     expect(b.eaten, 2300);
     expect(b.burned, 2300);
@@ -51,7 +51,8 @@ void main() {
       _complete('2026-08-12', 3000, today),
       _complete('2026-08-13', 2000, today),
     ]);
-    final b = weeklyEnergyBalance(w, {'2026-08-13': 2200})!;
+    final b = weeklyEnergyBalance(
+        w, {'2026-08-13': 2200}, _worn(['2026-08-12', '2026-08-13']))!;
     expect(b.days, 1);
     expect(b.eaten, 2000);
     expect(b.burned, 2200);
@@ -63,7 +64,26 @@ void main() {
       _complete('2026-08-14', 2300, today),
       rollupDay(today, [_entry(today, 500, 8)], today: today),
     ]);
-    expect(weeklyEnergyBalance(w, {today: 621}), isNull);
-    expect(weeklyEnergyBalance(w, const {}), isNull);
+    expect(weeklyEnergyBalance(w, {today: 621}, _worn([today])), isNull);
+    expect(weeklyEnergyBalance(w, const {}, const {}), isNull);
+  });
+
+  test('a day the band was off for hours drops out of both sides', () {
+    final w = NutritionWindow([
+      _complete('2026-08-13', 2300, today),
+      _complete('2026-08-14', 2300, today),
+    ]);
+    // 14th: worn 12 h, so its burn holds half a basal day.
+    final b = weeklyEnergyBalance(
+      w,
+      {'2026-08-13': 2300, '2026-08-14': 1400},
+      {'2026-08-13': 1440, '2026-08-14': 720},
+    )!;
+    expect(b.days, 1);
+    expect(b.balance, 0);
+    // No wear figure at all is not a whole day either.
+    expect(weeklyEnergyBalance(w, {'2026-08-14': 1400}, const {}), isNull);
   });
 }
+
+Map<String, double> _worn(List<String> days) => {for (final d in days) d: 1440};

@@ -15827,7 +15827,7 @@
       }
     }
   },
-  "reportDeleteConfirmBody": "It's removed from the server now, so it can't be opened from its ID any more. There's no undo.",
+  "reportDeleteConfirmBody": "It will be removed from the server straight away, and its ID won't open it any more. There's no undo.",
   "@reportDeleteConfirmBody": {
     "description": "Issue report: what deleting a sent report does."
   },

@@ -806,7 +806,7 @@
   "nutritionLabelEaten": "खाया गया",
   "nutritionLabelBurned": "जला गया",
   "nutritionLabelBalance": "संतुलन",
-  "nutritionEatenMeanNote": "खाया गया और जला गया, दोनों उन्हीं {days} पूरे दिनों का औसत हैं।",
+  "nutritionEatenMeanNote": "ली गई और खर्च हुई कैलोरी, दोनों उन्हीं {days} पूरे दिनों का औसत हैं।",
   "nutritionEnergyLoggedTitle": "दर्ज की गई ऊर्जा",
   "nutritionPartialFootnote": "{n} अधूरे, नीचे के औसत से बाहर रखे गए।",
   "nutritionNothingLoggedYet": "अभी तक कुछ भी दर्ज नहीं हुआ",

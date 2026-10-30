@@ -63,6 +63,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   /// apart from [_burned], which is today's running total and only fits the
   /// per-day card.
   Map<String, double> _burnedByDate = const {};
+  Map<String, double> _wornMinByDate = const {};
   double? _waterMl;
   /// The day [_waterMl] was read for. Past midnight on a tab nobody reloaded
   /// it is still yesterday's, and a full yesterday disabled today's + button.
@@ -93,11 +94,16 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final db = await LocalDb.instance;
     final week = await NutritionDb.window(db, days: 7);
     final weekDates = {for (final d in week.days) d.date};
-    final burnedByDate = <String, double>{
-      for (final r in await LocalDb.metricSeries('calories_total'))
-        if (weekDates.contains(r['date']))
-          r['date'] as String: (r['value'] as num).toDouble(),
-    };
+    // Measured days only: an imported vendor total is a different estimate,
+    // and averaging it with ours mixes two scales in one figure.
+    Map<String, double> weekOf(List<Map<String, dynamic>> rows) => {
+          for (final r in rows)
+            if (weekDates.contains(r['date']))
+              r['date'] as String: (r['value'] as num).toDouble(),
+        };
+    final burnedByDate = weekOf(
+        await LocalDb.metricSeries('calories_total', measuredOnly: true));
+    final wornMinByDate = weekOf(await LocalDb.metricSeries('worn_min'));
     Metric? burned;
     double? water;
     final date = _date;
@@ -113,6 +119,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       _week = week;
       _burned = burned;
       _burnedByDate = burnedByDate;
+      _wornMinByDate = wornMinByDate;
       _waterMl = water;
       _waterDate = date;
       _profile = {...?app.user};
@@ -382,7 +389,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final w = _week;
     if (w == null) return const SizedBox.shrink();
     final counted = w.counted.length;
-    final balance = weeklyEnergyBalance(w, _burnedByDate);
+    final balance = weeklyEnergyBalance(w, _burnedByDate, _wornMinByDate);
     // PARTIAL, not "excluded": today is excluded from the averages too, and it
     // is not partial — a day cannot be judged incomplete while it is still
     // happening (see `DayLogState.inProgress`).

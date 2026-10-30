@@ -1513,11 +1513,18 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       ? m.label
       : uiText(context, m.label);
 
+  /// A blank stored unit means the catalogue's (see [LabMarker.judgesUnit]),
+  /// so the row never prints a verdict with no unit beside it.
+  static String _unitOf(LabMarker? m, Map<String, dynamic> r) {
+    final stored = '${r['unit'] ?? ''}'.trim();
+    return stored.isEmpty ? (m?.unit ?? '') : stored;
+  }
+
   Widget _lab(P p, LabMarker? m, Map<String, dynamic> r, String? sex,
       VoidCallback onRemove) {
     final l = AppLocalizations.of(context);
     final v = (r['value'] as num?)?.toDouble();
-    final unit = (r['unit'] ?? m?.unit ?? '').toString();
+    final unit = _unitOf(m, r);
     // A result in another unit than the catalogue's gets no verdict at all:
     // the interval is in the catalogue's unit, not the one printed beside it.
     final judge = m != null && m.judgesUnit(r['unit']) ? m : null;
@@ -1599,7 +1606,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final takenOn = r['taken_on'].toString();
     final label = _markerName(m, marker);
     final v = (r['value'] as num).toDouble();
-    final unit = (r['unit'] ?? m?.unit ?? '').toString();
+    final unit = _unitOf(m, r);
     // The row on screen is the NEWEST draw of its marker, so an earlier one
     // takes its place rather than the marker disappearing — which without
     // being told reads as the delete having failed.

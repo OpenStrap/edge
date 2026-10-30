@@ -23,6 +23,7 @@ import '../data/day_label.dart';
 import '../data/db.dart';
 import '../data/local_repository.dart';
 import '../models/payloads.dart' show todayHeadlineOf;
+import '../sync/reset_gate.dart';
 import 'coach_actions.dart';
 import 'coach_chat_completions.dart';
 import 'coach_config.dart';
@@ -168,6 +169,11 @@ class CoachEngine {
   final CoachConfig config;
   final LocalRepository api;
   final String storageKey; // per-user, so accounts don't share a transcript
+
+  /// The data generation this engine started under. A reply still in flight
+  /// when "Delete everything" runs lands after the chat files were swept, and
+  /// saving it would write the deleted conversation back.
+  final int _resetGen = ResetGate.generation;
   final http.Client _http;
 
   /// Count of [send] calls currently inside their provider call(s). A local
@@ -442,7 +448,7 @@ class CoachEngine {
 
   /// Persist the current session (caps history, updates the index).
   Future<void> persist() async {
-    if (transcript.isEmpty) return;
+    if (transcript.isEmpty || ResetGate.changedSince(_resetGen)) return;
     if (_sessionId.isEmpty) _sessionId = _newId();
     final now = DateTime.now().millisecondsSinceEpoch;
     if (_createdAt == 0) _createdAt = now;

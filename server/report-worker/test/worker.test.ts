@@ -215,23 +215,6 @@ describe("POST /v1/reports", () => {
     expect((await post(meta())).status).toBe(201);
     spy.mockRestore();
   });
-
-  it("keeps reporter text from mentioning users or cross-referencing other repos", async () => {
-    e.GITHUB_TOKEN = "t"; e.GITHUB_REPO = "OpenStrap/reports";
-    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("{}", { status: 201 }));
-    const description = "ping @victim and @org/team, see owner/other#1\n```\n@escaped https://github.com/o/r/issues/2";
-    const r = await post(meta({ title: "@victim owner/other#1", description, deviceModel: "@phone #3" }));
-    expect(r.status).toBe(201);
-    const id = ((await r.json()) as any).id;
-    const body = JSON.parse((spy.mock.calls[0] as [string, RequestInit])[1].body as string);
-    expect(body.title).toBe(`[${id}] sync: @\u200bvictim owner/other#\u200b1`);
-    expect(body.body).toContain("````text\n" + description + "\n````");
-    expect(body.body).toContain("` 0.10.3+72 (ios 19.0, @phone #3) `");
-    // nothing reporter-typed sits outside the code block / span
-    const outside = body.body.replace(/````text\n[\s\S]*?\n````/, "").replace(/` [^`]* `/g, "");
-    expect(outside).not.toMatch(/@|#|github\.com/);
-    spy.mockRestore();
-  });
 });
 
 describe("DELETE /v1/reports/:id", () => {
@@ -254,38 +237,6 @@ describe("DELETE /v1/reports/:id", () => {
   });
 
   it("unknown id 404", async () => expect((await del("OS-ZZZZZZ", "x")).status).toBe(404));
-
-  it("blanks and closes the GitHub issue; a failed attempt is left for the cron", async () => {
-    e.GITHUB_TOKEN = "t"; e.GITHUB_REPO = "OpenStrap/reports";
-    const issue = (n: number) => new Response(JSON.stringify({ html_url: `https://github.com/OpenStrap/reports/issues/${n}` }), { status: 201 });
-    const spy = vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(issue(7))
-      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
-    const a = (await (await post(meta({ description: "started new meds" }))).json()) as any;
-    expect((await del(a.id, a.deleteToken)).status).toBe(204);
-    const [url, init] = spy.mock.calls[1] as [string, RequestInit];
-    expect(url).toBe("https://api.github.com/repos/OpenStrap/reports/issues/7");
-    expect(init.method).toBe("PATCH");
-    const patch = JSON.parse(init.body as string);
-    expect(patch.state).toBe("closed");
-    expect(JSON.stringify(patch)).not.toContain("meds");
-    expect(JSON.stringify(patch)).not.toContain("Sync stuck");
-    const rowA = await e.DB.prepare("SELECT github_issue_url u FROM reports WHERE id=?").bind(a.id).first<any>();
-    expect(rowA.u).toBeNull();
-
-    spy.mockResolvedValueOnce(issue(8)).mockRejectedValueOnce(new Error("down"));
-    const b = (await (await post(meta())).json()) as any;
-    expect((await del(b.id, b.deleteToken)).status).toBe(204);
-    const rowB = await e.DB.prepare("SELECT github_issue_url u, description d FROM reports WHERE id=?").bind(b.id).first<any>();
-    expect(rowB.d).toBe("");
-    expect(rowB.u).toContain("/issues/8");
-
-    spy.mockResolvedValueOnce(new Response("{}", { status: 200 }));
-    expect((await cleanup(e)).issues).toBe(1);
-    expect((spy.mock.calls.at(-1) as [string])[0]).toBe("https://api.github.com/repos/OpenStrap/reports/issues/8");
-    expect((await e.DB.prepare("SELECT github_issue_url u FROM reports WHERE id=?").bind(b.id).first<any>()).u).toBeNull();
-    spy.mockRestore();
-  });
 });
 
 describe("admin + health", () => {
@@ -343,7 +294,7 @@ describe("cleanup cron", () => {
     await e.DB.prepare(`INSERT INTO reports (id,install_id,created_at,category,title,description,meta,blob_bytes,has_db,delete_token_hash)
       VALUES ('OS-OLD001','i',?,'sync','t','d','{}',0,0,'h')`).bind(ago(91)).run();
     const r = await cleanup(e);
-    expect(r).toEqual({ blobs: 2, rows: 1, issues: 0 });
+    expect(r).toEqual({ blobs: 2, rows: 1 });
     expect(await e.BLOBS.head("db/OS-DB0001")).toBeNull();
     expect(await e.BLOBS.head("db/OS-DB0002")).not.toBeNull();
     expect(await e.BLOBS.head("logs/OS-LG0001")).toBeNull();
@@ -362,23 +313,6 @@ describe("cleanup cron", () => {
     expect(await stat("bytes")).toBe(0);
     expect(await stat("day:2000-01-01")).toBe(0);
     expect(await stat(today())).toBe(7);
-  });
-
-  it("retracts the issue of a row reaching 90 days and keeps the row until that succeeds", async () => {
-    e.GITHUB_TOKEN = "t"; e.GITHUB_REPO = "OpenStrap/reports";
-    await e.DB.prepare(`INSERT INTO reports (id,install_id,created_at,category,title,description,meta,blob_bytes,has_db,delete_token_hash,github_issue_url)
-      VALUES ('OS-OLD003','i',?,'sync','t','private detail','{}',0,0,'h','https://github.com/OpenStrap/reports/issues/9')`)
-      .bind(new Date(Date.now() - 91 * 864e5).toISOString()).run();
-    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("{}", { status: 502 }));
-    expect(await cleanup(e)).toEqual({ blobs: 0, rows: 0, issues: 0 });
-    expect(await e.DB.prepare("SELECT id FROM reports WHERE id='OS-OLD003'").first()).not.toBeNull();
-    spy.mockResolvedValueOnce(new Response("{}", { status: 200 }));
-    expect(await cleanup(e)).toEqual({ blobs: 0, rows: 1, issues: 1 });
-    const [url, init] = spy.mock.calls[1] as [string, RequestInit];
-    expect(url).toBe("https://api.github.com/repos/OpenStrap/reports/issues/9");
-    expect(init.method).toBe("PATCH");
-    expect(await e.DB.prepare("SELECT id FROM reports WHERE id='OS-OLD003'").first()).toBeNull();
-    spy.mockRestore();
   });
 
   it("concurrent posts cannot both pass the byte ceiling", async () => {

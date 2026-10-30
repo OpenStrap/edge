@@ -19,7 +19,6 @@ Cloudflare Worker behind "Report an issue" in the app. Contract: `~/.openstrap-r
 | Blob without DB | deleted after 30 days |
 | Blob with DB | deleted after 14 days |
 | Metadata row | deleted after 90 days |
-| GitHub issue | title and body overwritten and the issue closed when the user deletes the report or the row reaches 90 days (the token cannot delete issues, so the old text stays in the issue's edit history, visible only to repo collaborators); a failed attempt is retried by the cron and the row is kept until it succeeds |
 | Blob size | 5 MB, or 95 MB when `hasDatabase` (the free plan caps request bodies at 100 MB) |
 | Rate limit | 3 reports per install id per UTC day (user-deleted reports still count), and 1000 per UTC day across all installs, since install ids are chosen by the client |
 | Storage ceiling | DB reports get `507 storage_full` above 8 GB stored; every report gets it above 9 GB, so R2 never leaves the free 10 GB |

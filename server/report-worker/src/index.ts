@@ -84,47 +84,22 @@ export function validateMeta(raw: unknown): Meta | null {
 const expiry = (createdIso: string, hasDb: boolean) =>
   new Date(Date.parse(createdIso) + (hasDb ? LIMITS.dbTtlDays : LIMITS.blobTtlDays) * DAY).toISOString();
 
-/*
- * Everything in Meta is typed by whoever calls POST /v1/reports, which needs no key. Rendered as plain
- * markdown, "@user", "@org/team", "owner/repo#1" or an issue URL would become real mentions and
- * cross-references made with the maintainers' token. GitHub does not process those inside code, so
- * free text goes into a code span/block whose fence is longer than any backtick run in it; the title
- * cannot hold code, so "@" and "#" get a zero-width space after them there instead.
- */
-const fence = (s: string, min: number) => {
-  const longest = Math.max(0, ...(s.match(/`+/g) ?? []).map((r) => r.length));
-  return "`".repeat(Math.max(min, longest + 1));
-};
-export const codeSpan = (s: string) => {
-  const f = fence(s, 1);
-  return `${f} ${s.replace(/[\r\n]+/g, " ")} ${f}`;
-};
-export const codeBlock = (s: string) => {
-  const f = fence(s, 3);
-  return `${f}text\n${s}\n${f}`;
-};
-export const inertTitle = (s: string) => s.replace(/[@#]/g, "$&\u200b");
-
-export function issueBody(id: string, m: Meta): string {
-  return [
-    `**Report:** ${id}`, `**Category:** ${m.category}`,
-    `**App:** ${codeSpan(`${m.appVersion} (${m.platform} ${m.osVersion}, ${m.deviceModel})`)}`,
-    `**Database attached:** ${m.hasDatabase ? "yes" : "no"} | **Screenshot:** ${m.hasScreenshot ? "yes" : "no"}`,
-    "", m.description ? codeBlock(m.description) : "(no description)",
-  ].join("\n");
-}
-
 async function createIssue(env: Env, id: string, m: Meta): Promise<string | null> {
   if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) return null;
   try {
-    const body = issueBody(id, m);
+    const body = [
+      `**Report:** ${id}`, `**Category:** ${m.category}`,
+      `**App:** ${m.appVersion} (${m.platform} ${m.osVersion}, ${m.deviceModel})`,
+      `**Database attached:** ${m.hasDatabase ? "yes" : "no"} | **Screenshot:** ${m.hasScreenshot ? "yes" : "no"}`,
+      "", m.description || "(no description)",
+    ].join("\n");
     const res = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/issues`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${env.GITHUB_TOKEN}`, accept: "application/vnd.github+json",
         "user-agent": "openstrap-reports", "content-type": "application/json",
       },
-      body: JSON.stringify({ title: `[${id}] ${m.category}: ${inertTitle(m.title)}`, body, labels: [m.category, "report"] }),
+      body: JSON.stringify({ title: `[${id}] ${m.category}: ${m.title}`, body, labels: [m.category, "report"] }),
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
@@ -132,32 +107,6 @@ async function createIssue(env: Env, id: string, m: Meta): Promise<string | null
     return typeof j.html_url === "string" ? j.html_url : null;
   } catch {
     return null;
-  }
-}
-
-/**
- * Blanks and closes the tracker issue made from a report. The issue carries the plaintext title and
- * description, so it has to go when the user deletes the report and when the row reaches 90 days, or the
- * "deleted" / "kept for 90 days" promises the app makes are false. The token only has Issues: write, which
- * cannot delete an issue, so the text is overwritten instead. False means try again later.
- */
-async function retractIssue(env: Env, id: string, issueUrl: string): Promise<boolean> {
-  if (!env.GITHUB_TOKEN) return false;
-  const m = issueUrl.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)$/);
-  if (!m) return true; // nothing we could ever reach; do not hold the row for it
-  try {
-    const res = await fetch(`https://api.github.com/repos/${m[1]}/issues/${m[2]}`, {
-      method: "PATCH",
-      headers: {
-        authorization: `Bearer ${env.GITHUB_TOKEN}`, accept: "application/vnd.github+json",
-        "user-agent": "openstrap-reports", "content-type": "application/json",
-      },
-      body: JSON.stringify({ title: `[${id}] removed`, body: "Removed: deleted by the reporter or past retention.", state: "closed" }),
-      signal: AbortSignal.timeout(5000),
-    });
-    return res.ok || res.status === 404 || res.status === 410;
-  } catch {
-    return false;
   }
 }
 
@@ -276,21 +225,18 @@ async function postReport(req: Request, env: Env): Promise<Response> {
 
 async function deleteReport(req: Request, env: Env, id: string): Promise<Response> {
   const token = req.headers.get("x-delete-token") ?? "";
-  const row = await env.DB.prepare("SELECT delete_token_hash, blob_key, github_issue_url FROM reports WHERE id = ?")
-    .bind(id).first<{ delete_token_hash: string; blob_key: string | null; github_issue_url: string | null }>();
+  const row = await env.DB.prepare("SELECT delete_token_hash, blob_key FROM reports WHERE id = ?")
+    .bind(id).first<{ delete_token_hash: string; blob_key: string | null }>();
   if (!row || !row.delete_token_hash) return err(404, "not_found");
   if (!(await safeEqual(hex(await sha256(token)), row.delete_token_hash))) return err(403, "forbidden");
   if (row.blob_key) await env.BLOBS.delete(row.blob_key);
-  // A failed retraction keeps the URL so the cron retries it; the user's token is spent either way.
-  const retracted = !row.github_issue_url || (await retractIssue(env, id, row.github_issue_url));
   // Scrub but keep the row so the per-day rate limit still counts it; the cron removes it at 90 days.
   // Stats first: it reads the row's blob_bytes before the scrub zeroes it (a repeat delete subtracts 0).
   await env.DB.batch([
     env.DB.prepare("UPDATE stats SET v = v - (SELECT blob_bytes FROM reports WHERE id = ?) WHERE k = 'bytes'").bind(id),
     env.DB.prepare(
-      `UPDATE reports SET blob_key=NULL, blob_bytes=0, title='', description='', meta='{}', delete_token_hash='',
-         github_issue_url = CASE WHEN ? THEN NULL ELSE github_issue_url END WHERE id = ?`)
-      .bind(retracted ? 1 : 0, id),
+      `UPDATE reports SET blob_key=NULL, blob_bytes=0, title='', description='', meta='{}', delete_token_hash='' WHERE id = ?`)
+      .bind(id),
   ]);
   return new Response(null, { status: 204 });
 }
@@ -321,7 +267,7 @@ async function admin(req: Request, env: Env, url: URL): Promise<Response> {
   return err(404, "not_found");
 }
 
-export async function cleanup(env: Env, now = new Date()): Promise<{ blobs: number; rows: number; issues: number }> {
+export async function cleanup(env: Env, now = new Date()): Promise<{ blobs: number; rows: number }> {
   const cut = (days: number) => new Date(now.getTime() - days * DAY).toISOString();
   const { results } = await env.DB.prepare(
     `SELECT id, blob_key FROM reports WHERE blob_key IS NOT NULL AND
@@ -334,30 +280,13 @@ export async function cleanup(env: Env, now = new Date()): Promise<{ blobs: numb
       env.DB.prepare("UPDATE reports SET blob_key=NULL, blob_bytes=0 WHERE id = ?").bind(r.id),
     ]);
   }
-  // Issues of user-deleted reports whose retraction failed, and of rows reaching 90 days. Capped per run to
-  // stay inside the per-invocation subrequest limit; the rest go on the next run.
-  let issues = 0;
-  if (env.GITHUB_TOKEN) {
-    const { results: pending } = await env.DB.prepare(
-      `SELECT id, github_issue_url FROM reports WHERE github_issue_url IS NOT NULL AND (delete_token_hash = '' OR created_at < ?)
-       ORDER BY created_at LIMIT 20`)
-      .bind(cut(LIMITS.rowTtlDays)).all<{ id: string; github_issue_url: string }>();
-    for (const r of pending) {
-      if (!(await retractIssue(env, r.id, r.github_issue_url))) continue;
-      await env.DB.prepare("UPDATE reports SET github_issue_url = NULL WHERE id = ?").bind(r.id).run();
-      issues++;
-    }
-  }
-  // A row whose issue is still up stays until the issue is gone: the row holds the only pointer to it.
-  // Without a token nothing can retract it, so the row goes on schedule.
-  const expired = env.GITHUB_TOKEN ? "created_at < ? AND github_issue_url IS NULL" : "created_at < ?";
   // Rows past retention should already be blob-free; subtract any stragglers so the counter cannot drift.
   const [, rows] = await env.DB.batch([
-    env.DB.prepare(`UPDATE stats SET v = v - COALESCE((SELECT SUM(blob_bytes) FROM reports WHERE ${expired}), 0) WHERE k = 'bytes'`).bind(cut(LIMITS.rowTtlDays)),
-    env.DB.prepare(`DELETE FROM reports WHERE ${expired}`).bind(cut(LIMITS.rowTtlDays)),
+    env.DB.prepare("UPDATE stats SET v = v - COALESCE((SELECT SUM(blob_bytes) FROM reports WHERE created_at < ?), 0) WHERE k = 'bytes'").bind(cut(LIMITS.rowTtlDays)),
+    env.DB.prepare("DELETE FROM reports WHERE created_at < ?").bind(cut(LIMITS.rowTtlDays)),
     env.DB.prepare("DELETE FROM stats WHERE k LIKE 'day:%' AND k < ?").bind("day:" + cut(2).slice(0, 10)),
   ]);
-  return { blobs: results.length, rows: rows.meta.changes ?? 0, issues };
+  return { blobs: results.length, rows: rows.meta.changes ?? 0 };
 }
 
 export default {

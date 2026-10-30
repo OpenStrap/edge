@@ -155,6 +155,16 @@ void main() {
         'openstrap_report_50.db.gz',
       ]);
     });
+
+    test('the archive being shared survives a clock set back', () async {
+      for (final n in ['openstrap_report_8.zip', 'openstrap_report_9.zip']) {
+        await _touch(dir, n);
+      }
+      // Built after the clock went back, so its stamp ranks oldest.
+      final current = await _touch(dir, 'openstrap_report_5.zip');
+      await pruneSharedReports(dir, current: current);
+      expect(_names(dir), ['openstrap_report_5.zip', 'openstrap_report_9.zip']);
+    });
   });
 
   group('purgeSharedHealthCopies', () {
@@ -175,6 +185,7 @@ void main() {
         'openstrap_report_7.zip',
         'openstrap_report_8.db.gz',
         'openstrap_slice_9.db',
+        'openstrap_days_10.db',
         'unrelated.db',
       ]) {
         await _touch(dir, n);

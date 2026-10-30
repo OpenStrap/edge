@@ -88,18 +88,23 @@ final _reportName = RegExp(r'^openstrap_report_(\d+)\.zip$');
 /// export, never hears back, so the zip was never deleted — and one built
 /// with the full database is a complete plaintext copy of the health record.
 /// The previous one is kept in case its share sheet is still reading it.
+/// [current], the archive about to be shared, is never deleted: its name
+/// stamp comes from the clock, and a clock set back after earlier reports
+/// would rank it oldest.
 Future<void> pruneSharedReports(
   Directory tmpRoot, {
   int keep = kSharedExportsKept,
+  File? current,
 }) async {
   try {
     final byStamp = <int, File>{};
     for (final f in tmpRoot.listSync().whereType<File>()) {
+      if (current != null && p.equals(f.path, current.path)) continue;
       final m = _reportName.firstMatch(p.basename(f.path));
       if (m != null) byStamp[int.parse(m.group(1)!)] = f;
     }
     final stamps = byStamp.keys.toList()..sort((a, b) => b.compareTo(a));
-    for (final s in stamps.skip(keep)) {
+    for (final s in stamps.skip(current == null ? keep : keep - 1)) {
       try {
         await byStamp[s]!.delete();
       } catch (_) {}
@@ -110,11 +115,11 @@ Future<void> pruneSharedReports(
 }
 
 final _healthCopyName = RegExp(
-    r'^openstrap_(export_\d+\.db(\.osbk)?|report_\d+(\.zip|\.db\.gz)|slice_\d+\.db)$');
+    r'^openstrap_(export_\d+\.db(\.osbk)?|report_\d+(\.zip|\.db\.gz)|(slice|days)_\d+\.db)$');
 
 /// Delete every copy of the health record the app has handed to a share
-/// sheet or staged in [tmpRoot]: manual exports, CSV runs, issue-report
-/// archives and their intermediates.
+/// sheet or staged in [tmpRoot]: manual exports, selected-day exports, CSV
+/// runs, issue-report archives and their intermediates.
 ///
 /// For "Delete everything". The retention sweeps above keep the newest
 /// couple on purpose, and the OS purges the cache only when it likes, so a

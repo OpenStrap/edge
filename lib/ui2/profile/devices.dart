@@ -1343,8 +1343,9 @@ Future<bool> refuseIfSensorCapReached(BuildContext c,
 
 /// Choose which kind of sensor to pair, then hand off to the pairing screen.
 Future<void> addSensor(BuildContext c) async {
-  if (await refuseIfSensorCapReached(c)) return;
-  if (!c.mounted) return;
+  // No cap check here: at the cap the picker still has to open, so a sensor
+  // that already has a row can reach its own screen to re-pair or replace
+  // it. Each sensor and each pair is checked inside.
   // `includeBand: false` — this phone already has its one primary band;
   // re-pairing it is `RePair`'s job, not a row beside a chest strap here.
   await goto(c, const DevicePickerScreen(includeBand: false));

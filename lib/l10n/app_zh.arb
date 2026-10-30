@@ -806,7 +806,7 @@
   "nutritionLabelEaten": "摄入",
   "nutritionLabelBurned": "消耗",
   "nutritionLabelBalance": "平衡",
-  "nutritionEatenMeanNote": "摄入量和消耗量都是同样 {days} 个完整天的平均值。",
+  "nutritionEatenMeanNote": "摄入量和消耗量都是同一组 {days} 个完整天的平均值。",
   "nutritionEnergyLoggedTitle": "已记录的热量",
   "nutritionPartialFootnote": "{n} 天记录不完整，已从下面的平均值中排除。",
   "nutritionNothingLoggedYet": "还没有任何记录",
