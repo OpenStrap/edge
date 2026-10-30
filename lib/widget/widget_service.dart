@@ -535,7 +535,6 @@ class WidgetService {
     return null;
   }
 
-  /// A weekday column (0=Mon..6=Sun), once and clearing, if
   /// A pending EnableTomorrowAlarmIntent (Siri/Shortcuts) request, or null if
   /// nothing is pending. Consumed on read.
   ///

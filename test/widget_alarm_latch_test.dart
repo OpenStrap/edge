@@ -10,8 +10,10 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const home = MethodChannel('home_widget');
   final data = <String, Object?>{};
+  var failLegacyClear = true;
 
   setUp(() {
+    failLegacyClear = true;
     data
       ..clear()
       ..['enable_tomorrow_alarm_requested_at'] = 1792218600
@@ -21,7 +23,7 @@ void main() {
       final a = c.arguments is Map ? (c.arguments as Map) : const {};
       if (c.method == 'getWidgetData') return data[a['id']] ?? a['defaultValue'];
       if (c.method == 'saveWidgetData') {
-        if (a['id'] == 'enable_tomorrow_alarm_weekday') {
+        if (failLegacyClear && a['id'] == 'enable_tomorrow_alarm_weekday') {
           throw PlatformException(code: 'io');
         }
         data[a['id'] as String] = a['data'];
@@ -34,5 +36,25 @@ void main() {
   test('a failed clear leaves the timestamped request on disk', () async {
     expect(await WidgetService.consumeEnableTomorrowAlarmRequest(), isNull);
     expect(data['enable_tomorrow_alarm_requested_at'], 1792218600);
+  });
+
+  test('a timestamped request is returned once and both latches cleared',
+      () async {
+    failLegacyClear = false;
+    final r = await WidgetService.consumeEnableTomorrowAlarmRequest();
+    expect(r?.requestedAt, 1792218600);
+    expect(r?.weekday, isNull);
+    expect(data['enable_tomorrow_alarm_requested_at'], -1);
+    expect(data['enable_tomorrow_alarm_weekday'], -1);
+    expect(await WidgetService.consumeEnableTomorrowAlarmRequest(), isNull);
+  });
+
+  test('a weekday latched by an older build still comes through', () async {
+    failLegacyClear = false;
+    data['enable_tomorrow_alarm_requested_at'] = -1;
+    final r = await WidgetService.consumeEnableTomorrowAlarmRequest();
+    expect(r?.requestedAt, isNull);
+    expect(r?.weekday, 3);
+    expect(data['enable_tomorrow_alarm_weekday'], -1);
   });
 }
