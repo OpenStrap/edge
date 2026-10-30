@@ -9635,8 +9635,8 @@ class LocalDb {
     final rows = await db.rawQuery(
       'SELECT r.day_id${cols.isEmpty ? '' : ', ${cols.join(', ')}'} '
       'FROM day_result r '
-      '$_servedDayJoin '
-      'ORDER BY r.day_id DESC LIMIT ?',
+      '$_servedNewestDaysJoin '
+      'ORDER BY r.day_id DESC',
       [limit],
     );
     return [for (final r in rows) _withDate(r)];
