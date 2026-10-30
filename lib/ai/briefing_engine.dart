@@ -85,10 +85,13 @@ const String kWithheldKey = 'withheld';
 /// Read-only snapshot of what the store knows for [period]. Only fields that
 /// exist end up in the map — the prompt builder and the "based on" UI both walk
 /// this map, so what the model saw and what the user sees are the same thing.
+/// [wallNow] is the real clock for the sweep's partial-day check, separate
+/// from [now] (the day being read) so a caller can pin both.
 Future<Map<String, dynamic>> collectBriefingInputs(
   LocalRepository repo,
   BriefingPeriod period, {
   DateTime? now,
+  DateTime? wallNow,
 }) async {
   final t = await repo.getToday();
   final daily = _map(t['daily']) ?? const {};
@@ -176,7 +179,8 @@ Future<Map<String, dynamic>> collectBriefingInputs(
     // nightly_sweep.dart for the bar one has to clear, and note that an empty
     // map here is the normal, correct answer on most days.
     return sweepInputs(
-      sweepFindings(await collectSweepSeries(repo, now ?? DateTime.now())),
+      sweepFindings(await collectSweepSeries(repo, now ?? DateTime.now(),
+          wallNow: wallNow)),
       recommendedBedtime: await _recommendedBedtime(repo),
     );
   }
@@ -502,7 +506,8 @@ class BriefingEngine {
 
   /// Generate (or re-generate) the briefing for [period] today, cache it, and
   /// return it. Throws [CoachException] on provider errors / missing key.
-  Future<Briefing> generate(BriefingPeriod period, {DateTime? now}) async {
+  Future<Briefing> generate(BriefingPeriod period,
+      {DateTime? now, DateTime? wallNow}) async {
     if (!configured) {
       throw CoachException('Add your AI key to enable briefings.');
     }
@@ -511,7 +516,8 @@ class BriefingEngine {
     final effectiveNow = now ?? DateTime.now();
     final day = todayLabel(effectiveNow);
     final tod = partOfDay(effectiveNow);
-    final inputs = await collectBriefingInputs(repo, period, now: effectiveNow);
+    final inputs = await collectBriefingInputs(repo, period,
+        now: effectiveNow, wallNow: wallNow);
     // NOTHING TO SAY IS AN ANSWER. The evening sweep hands back an empty map on
     // any day where nothing was unusual for this user, which is most days. No
     // model is called — there is no question to ask — so nothing leaves the

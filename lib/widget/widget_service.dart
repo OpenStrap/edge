@@ -488,6 +488,15 @@ class WidgetService {
     }
   }
 
+  /// Sets `end_session` back after a Finish whose stop failed, so the next
+  /// resume tries again.
+  static Future<void> relatchEndSessionFlag() async {
+    try {
+      await init();
+      await HomeWidget.saveWidgetData<bool>('end_session', true);
+    } catch (_) {}
+  }
+
   /// True once (and clears) if the Live Activity's Finish button was tapped.
   /// The App Intent sets `end_session` in the App Group; we consume it on resume.
   static Future<bool> consumeEndSessionFlag() async {

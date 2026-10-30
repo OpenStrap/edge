@@ -1368,6 +1368,9 @@ class AlarmConfirmation {
   int? lastEventId; // most recent alarm event seen
   int? firedAt; // wall-ms of the last EXECUTED event
   int? firedTsSec; // that event's own stamp (wall sec), null when unplaceable
+  // The strap's own stamp before the drift mapping. The mapping moves when the
+  // clock correlation does, so only this one names the same fire twice.
+  int? firedRawTsSec;
 
   /// Record a SET write (awaiting the strap's confirmation event).
   void set(int epoch, int nowMs) {
@@ -1415,8 +1418,11 @@ class AlarmConfirmation {
   /// Dedupe key for the fired notification. Keyed on the band's own stamp so
   /// the same fire delivered twice collapses; receive time differs per
   /// delivery and never would.
-  String get firedNoticeKey =>
-      'alarm_fired:${firedTsSec != null ? firedTsSec! * 1000 : (firedAt ?? 0)}';
+  String get firedNoticeKey => 'alarm_fired:${firedRawTsSec != null
+      ? 'r${firedRawTsSec!}'
+      : firedTsSec != null
+          ? firedTsSec! * 1000
+          : (firedAt ?? 0)}';
 
   /// Feed a strap event. Returns the resulting [AlarmEffect] the caller acts on,
   /// or null when the event is unrelated to the alarm (or belongs to an
@@ -1428,7 +1434,10 @@ class AlarmConfirmation {
   /// 56 and 59 have to come after this arm's SET write, and a fire can't
   /// predate the wake time it fires for (or, with nothing armed, now). Null or an unset-RTC value can't be
   /// told apart and is taken as current.
-  AlarmEffect? onEvent(int id, int nowMs, {int? tsSec}) {
+  ///
+  /// [rawTsSec] is the strap's stamp before that mapping, used only to key
+  /// the fired notification.
+  AlarmEffect? onEvent(int id, int nowMs, {int? tsSec, int? rawTsSec}) {
     final known = tsSec != null && tsSec >= kMinPlausibleUnix;
     bool before(int? sec) =>
         known && sec != null && tsSec < sec - replaySlackSec;
@@ -1446,6 +1455,7 @@ class AlarmConfirmation {
         lastEventId = id;
         firedAt = nowMs;
         firedTsSec = known ? tsSec : null;
+        firedRawTsSec = known ? rawTsSec : null;
         return AlarmEffect.fired;
       case kEvtAppExecuted:
         // RUN_ALARM (smart wake early buzz, test buzz). The armed SET_ALARM

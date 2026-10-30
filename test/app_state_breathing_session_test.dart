@@ -564,6 +564,33 @@ void main() {
       expect((await sessionRow('w4-la3'))!['status'], 'done');
       await finish(app);
     });
+
+    test('a resume that lands before start-up reaches the reconcile keeps '
+        'the Finish for the session it brings back', () async {
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      await LocalDb.putSession({
+        'id': 'w4-la4',
+        'start_ts': nowSec - 600,
+        'end_ts': null,
+        'type': 'run',
+        'status': 'live',
+        'source': 'manual',
+        'created_at': (nowSec - 600) * 1000,
+      });
+      final app = AppState.forTesting();
+      app.debugMarkReconcilePending();
+      spies.widgetFlags['end_session'] = true;
+      await app.maybeFinishFromLiveActivity();
+      expect(spies.widgetFlags['end_session'], true,
+          reason: 'nothing to finish yet: the tap waits');
+      await app.debugReconcileOrphanedLiveWorkout();
+      expect(app.activeWorkout, isNotNull);
+      await app.maybeFinishFromLiveActivity();
+      expect(app.activeWorkout, isNull);
+      expect(spies.widgetFlags['end_session'], false);
+      expect((await sessionRow('w4-la4'))!['status'], 'done');
+      await finish(app);
+    });
   });
 
   group('session cues over the band', () {

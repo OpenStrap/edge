@@ -115,6 +115,9 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   // (apps re-post the same notification as it updates), plus a global floor so a
   // burst never machine-guns the strap.
   final Map<String, int> _lastBuzzMs = {};
+  // Bumped when the relay is switched off, so a post already waiting on the
+  // quiet-hours read does not buzz after it.
+  int _offGeneration = 0;
   int _lastAnyBuzzMs = 0;
   static const _perAppCooldownMs = 4000;
   static const _globalFloorMs = 800;
@@ -183,6 +186,7 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> setEnabled(bool on) async {
     if (!supported || on == _enabled) return;
     _enabled = on;
+    if (!on) _offGeneration++;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kEnabled, on);
     _resync();
@@ -309,6 +313,7 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   void debugOnNotification(ServiceNotificationEvent e) => _onNotification(e);
 
   Future<void> _buzzUnlessQuiet(String pkg) async {
+    final offGeneration = _offGeneration;
     bool quiet;
     try {
       quiet = await quietNow();
@@ -317,6 +322,13 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
       quiet = false;
     }
     if (quiet) return;
+    // The user may have switched the relay or this app off, or the strap
+    // dropped, while the read was pending.
+    if (offGeneration != _offGeneration ||
+        !_packages.contains(pkg) ||
+        !isConnected()) {
+      return;
+    }
     // The cooldown is read and stamped after the await, in one synchronous
     // step, so two posts racing through the prefs read cannot both pass it.
     final now = DateTime.now().millisecondsSinceEpoch;

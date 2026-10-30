@@ -256,6 +256,18 @@ void main() {
           22 * 60);
     });
 
+    test('resolvedEveningMin: a day sleeper keeps a slot before bed', () {
+      // Bedtime 11:00 -> 10:00. Past the morning floor, so the morning
+      // briefing still gets 05:00-10:00; holding it at 23:30 would buzz
+      // in the middle of that user's sleep.
+      expect(const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 11 * 60),
+          10 * 60);
+      // Bedtime 05:30 -> 04:30, before the floor: still held.
+      expect(
+          const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 5 * 60 + 30),
+          AiPrefs.eveningLatestMin);
+    });
+
     test('resolvedEveningMin: a bedtime just after 00:30 stops at 23:30', () {
       // Bedtime 00:50 -> 23:50, inside "evening" but ten minutes from the
       // day label rolling over; it is held at the latest slot instead.

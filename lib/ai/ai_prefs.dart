@@ -92,6 +92,10 @@ class AiPrefs {
   /// time left to generate before the day label rolls over.
   static const int eveningLatestMin = 23 * 60 + 30;
 
+  /// Hour the briefing picker starts offering the morning briefing (05:00).
+  /// A sweep slot earlier than this would beat it all day.
+  static const int morningFloorMin = 5 * 60;
+
   /// Resolved nightly-sweep time (minutes-from-midnight): an hour before the
   /// sleep coach's recommended bedtime when it has one, else [eveningMin].
   ///
@@ -108,10 +112,14 @@ class AiPrefs {
   /// small hours is held at [eveningLatestMin] instead. So is a bedtime
   /// between 00:31 and 00:59: its slot (23:31-23:59) is still "evening", but
   /// it leaves the sweep minutes or less before the day label rolls over.
+  /// A day sleeper's bedtime (11:00, slot 10:00) is after the morning floor
+  /// and keeps its own slot; moving it to 23:30 would land mid-sleep.
   int resolvedEveningMin({double? bedtimeMinOfDay}) {
     if (bedtimeMinOfDay != null && bedtimeMinOfDay >= 0) {
       final m = (bedtimeMinOfDay.round() - eveningBedtimeLeadMin) % 1440;
-      return (m < 12 * 60 || m > eveningLatestMin) ? eveningLatestMin : m;
+      return (m < morningFloorMin || m > eveningLatestMin)
+          ? eveningLatestMin
+          : m;
     }
     return eveningMin % 1440;
   }

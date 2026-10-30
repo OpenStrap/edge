@@ -24,6 +24,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/widgets.dart';
 
 import '../ai/ai_prefs.dart';
+import 'locale_controller.dart';
 import '../ai/briefing.dart';
 import '../ai/briefing_engine.dart';
 import '../ai/nightly_sweep.dart';
@@ -1866,7 +1867,13 @@ class AppState extends ChangeNotifier {
     // Same wiring, second notify-class sensor: PMD readings otherwise never
     // reach liveHr/the live trace at all (arm/disarm alone don't feed it).
     PolarPmdLink.instance.reading.addListener(_onPmdReading);
+    _workoutController.reconcilePending = true;
     _initDone = _init();
+    // A start-up that throws before the reconcile must not hold the
+    // lock-screen Finish back for the life of the process.
+    unawaited(_initDone!
+        .catchError((Object _) {})
+        .whenComplete(() => _workoutController.reconcilePending = false));
     // Notification taps → request a tab switch (the shell listens to navRequest).
     _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
     unawaited(NotificationService.instance.consumeLaunchRoute());
@@ -2086,6 +2093,12 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   Future<void> debugReconcileOrphanedLiveWorkout() =>
       _reconcileOrphanedLiveWorkout();
+
+  /// Mark the reconcile as not yet started, the way the app constructor does
+  /// before start-up reaches it. Tests only.
+  @visibleForTesting
+  void debugMarkReconcilePending() =>
+      _workoutController.reconcilePending = true;
 
   /// Run the cross-day anchor read (nightly RHR, quiet-waking level) that
   /// `_initSteps` awaits before the reconcile above. Tests only.
@@ -2312,6 +2325,15 @@ class AppState extends ChangeNotifier {
     unawaited(_ensureRemindersScheduled());
   }
 
+  /// Scheduled notifications carry their text in the language they were
+  /// armed in, so a language change re-arms them.
+  LocaleController? _locale;
+  void attachLocale(LocaleController l) {
+    if (identical(_locale, l)) return;
+    _locale = l;
+    l.addListener(() => unawaited(_ensureRemindersScheduled()));
+  }
+
   /// Re-assert the AI notification schedule (settings screens call this after
   /// a prefs change; also runs on every foreground via runCadenceChecks).
   Future<void> refreshAiReminders() => _ensureRemindersScheduled();
@@ -2349,7 +2371,7 @@ class AppState extends ChangeNotifier {
       );
       if (ai.eveningEnabled && minOfDay >= eveningMin) {
         want = BriefingPeriod.evening;
-      } else if (ai.morningEnabled && at.hour >= 5) {
+      } else if (ai.morningEnabled && minOfDay >= AiPrefs.morningFloorMin) {
         want = BriefingPeriod.morning;
       }
       if (want == null || BriefingStore.read(want) != null) return;
@@ -5109,7 +5131,7 @@ class AppState extends ChangeNotifier {
     // whose RTC never latched reports the alarm firing early/late by the drift.
     final wallTs = ts + (engine.clockRef?.driftSec ?? 0);
     final effect = _alarm.onEvent(id, DateTime.now().millisecondsSinceEpoch,
-        tsSec: wallTs);
+        tsSec: wallTs, rawTsSec: ts);
     if (effect == null) return;
     switch (effect) {
       case AlarmEffect.confirmed:

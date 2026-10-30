@@ -1,3 +1,4 @@
+import 'dart:async';
 // THE STRAP-BUZZ RELAY, RENDERED — and the label it has to derive.
 //
 // The point of this screen is that the app ships a notification-listener
@@ -203,6 +204,27 @@ void main() {
       relay.debugOnNotification(post('com.whatsapp'));
       await Future<void>.delayed(Duration.zero);
       expect(buzzes, 1);
+    });
+
+    test('an app switched off during the quiet-hours read does not buzz',
+        () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues(const {});
+      var buzzes = 0;
+      final read = Completer<bool>();
+      final relay = NotificationRelay(
+        buzz: () async {
+          buzzes++;
+        },
+        isConnected: () => true,
+        quietNow: () => read.future,
+      );
+      relay.packages.add('com.whatsapp');
+      relay.debugOnNotification(post('com.whatsapp'));
+      relay.packages.remove('com.whatsapp');
+      read.complete(false);
+      await Future<void>.delayed(Duration.zero);
+      expect(buzzes, 0);
     });
 
     test('the default reads the app quiet-hours setting', () async {

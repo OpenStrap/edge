@@ -243,6 +243,11 @@ class WorkoutController {
   // The relaunch reconcile, while it runs. See [maybeFinishFromLiveActivity].
   Future<void>? _reconciling;
 
+  /// Set by the app before start-up kicks the reconcile, cleared once it has
+  /// run. A resume can land before start-up reaches the reconcile at all, when
+  /// [_reconciling] is still null and there is nothing to wait for.
+  bool reconcilePending = false;
+
   // GPS route tracking for the active run/ride/walk (on-device only). Null when
   // no session is live or the type isn't route-eligible / permission denied.
   RouteTracker? _routeTracker;
@@ -675,12 +680,23 @@ class WorkoutController {
     // and the rehydrated session ran on with nothing left to end it.
     final reconciling = _reconciling;
     if (reconciling != null) await reconciling;
+    // Not reconciled yet: leave the flag latched. The rehydrated session's own
+    // tick, or the next resume, consumes it.
+    if (reconcilePending) return;
     // Consume FIRST. `&&` short-circuited the consume away whenever no session
     // was live, so a Finish tapped on a Live Activity that outlived the app
     // stayed latched on disk — and then ended the NEXT workout, days later, on
     // the first resume that happened to have one running.
     final asked = await WidgetService.consumeEndSessionFlag();
-    if (asked && activeWorkout != null) await stopWorkout();
+    if (!asked || activeWorkout == null) return;
+    try {
+      await stopWorkout();
+    } catch (_) {
+      // The consume already cleared the tap. A stop that failed keeps the
+      // session live, so put the tap back for the next resume to retry.
+      if (activeWorkout != null) await WidgetService.relatchEndSessionFlag();
+      rethrow;
+    }
   }
 
   /// Reconcile any session row still `status='live'` left over from a
@@ -709,6 +725,7 @@ class WorkoutController {
     _reconciling = f;
     return f.whenComplete(() {
       if (identical(_reconciling, f)) _reconciling = null;
+      reconcilePending = false;
     });
   }
 

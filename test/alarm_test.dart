@@ -488,6 +488,19 @@ void main() {
       expect(c.firedNoticeKey, 'alarm_fired:${late * 1000}');
     });
 
+    test('the same fire re-sent after the clock mapping moved keeps its key',
+        () {
+      const wake = 1792218600;
+      final a = AlarmConfirmation()..set(wake, (wake - 8 * 3600) * 1000);
+      a.onEvent(AlarmConfirmation.kEvtStrapExecuted, (wake + 5) * 1000,
+          tsSec: wake, rawTsSec: wake - 40);
+      // The strap re-sends it after a reconnect with a new drift estimate.
+      final b = AlarmConfirmation()..set(wake, (wake - 8 * 3600) * 1000);
+      b.onEvent(AlarmConfirmation.kEvtStrapExecuted, (wake + 60) * 1000,
+          tsSec: wake + 7, rawTsSec: wake - 40);
+      expect(b.firedNoticeKey, a.firedNoticeKey);
+    });
+
     test('an unrelated event returns null and changes nothing', () {
       final a = AlarmConfirmation();
       a.set(1750000000, 0);
