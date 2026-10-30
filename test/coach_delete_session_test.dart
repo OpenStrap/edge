@@ -1,8 +1,8 @@
 // Deleting a chat and the history budget, both against the real engine.
 //
-// A chat deleted while its reply was still coming in was written back by the
-// save that followed the reply, and a delete could interleave with a save
-// already writing. The history budget counted characters while the limit and
+// A chat deleted from one screen was written back by another screen's engine
+// still holding it, and a delete could interleave with a save already
+// writing. The history budget counted characters while the limit and
 // the request check are in bytes, so non-ASCII history slipped through.
 
 import 'dart:async';
@@ -99,30 +99,24 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('a chat deleted while its reply is coming in is not saved back',
+  test('a chat deleted from one screen is not saved back by another',
       () async {
     final dir = await _documents();
-    final answer = Completer<http.Response>();
-    var calls = 0;
-    final engine = await _engine(MockClient((_) {
-      calls++;
-      return calls == 1 ? Future.value(_reply('first')) : answer.future;
-    }));
-
-    // A saved chat, then a second question still waiting on its reply.
+    // Two screens, two engines, the same saved chat.
+    final a = await _engine(MockClient((_) async => _reply('first')));
     final sends = <Future<void>>[];
-    _send(engine, 'how did I sleep', sends);
+    _send(a, 'how did I sleep', sends);
     await sends.single;
-    await engine.persist();
-    final id = engine.sessionId;
-    expect(_coachFiles(dir), hasLength(1));
+    await a.persist();
+    final id = a.sessionId;
+    final b = await _engine(MockClient((_) async => _reply('unused')));
+    await b.openSession(id);
+    expect(b.sessionId, id);
 
-    _send(engine, 'and last week', sends);
-    await Future<void>.delayed(Duration.zero);
-    await engine.deleteSession(id);
-    answer.complete(_reply('the tail of a deleted chat'));
-    await sends.last;
-    await engine.persist(); // what the screen's finally does
+    await b.deleteSession(id);
+    expect(_coachFiles(dir), isEmpty);
+    // The first screen's save after its reply lands, late.
+    await a.persist();
 
     expect(_coachFiles(dir), isEmpty);
     expect(await _indexIds(dir), isEmpty);

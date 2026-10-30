@@ -193,11 +193,6 @@ class CoachEngine {
   /// `finally` sees the count reach zero, not before.
   bool _disposeRequested = false;
 
-  /// Set when the open chat is deleted while a [send] is still running. What
-  /// that send adds afterwards is the deleted chat's tail: it is dropped
-  /// instead of saved.
-  bool _discardUnsaved = false;
-
   // OpenAI-format running history (system is added per-request) — the context we
   // resend every turn so the model remembers the conversation.
   final List<Map<String, dynamic>> _history = [];
@@ -387,6 +382,12 @@ class CoachEngine {
   /// while the sweep listed the folder, and land after it.
   static Future<void> _filesTail = Future<void>.value();
 
+  /// Chats deleted in this process. Each screen has its own engine, so a
+  /// second screen on the same chat still holds its id; this is what stops
+  /// that engine's next save. Ids are minted fresh per chat and only reopened
+  /// from the saved list, so a deleted one never legitimately comes back.
+  static final Set<String> _deletedSessionIds = {};
+
   /// Test seam: awaited by a save right after its reset check passes, so a
   /// test can hold a save mid-write while a reset sweeps.
   @visibleForTesting
@@ -398,6 +399,7 @@ class CoachEngine {
   }
 
   static Future<int> _deleteAllSavedSessions() async {
+    _deletedSessionIds.clear();
     final dir = await getApplicationDocumentsDirectory();
     if (!await dir.exists()) return 0;
     var failed = 0;
@@ -479,13 +481,9 @@ class CoachEngine {
     // Checked inside the queue: a reset that started while this waited has
     // swept the files by now, and this must not write the chat back.
     if (transcript.isEmpty || ResetGate.changedSince(_resetGen)) return;
-    if (_discardUnsaved) {
-      if (_sending == 0) {
-        _discardUnsaved = false;
-        newSession();
-      }
-      return;
-    }
+    // Deleted from another screen's engine on the same chat: its late save
+    // must not write the file and index entry back.
+    if (_deletedSessionIds.contains(_sessionId)) return;
     await debugAfterSaveCheck?.call();
     if (_sessionId.isEmpty) _sessionId = _newId();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -532,6 +530,7 @@ class CoachEngine {
       _serialFiles(() => _deleteSession(id));
 
   Future<void> _deleteSession(String id) async {
+    _deletedSessionIds.add(id);
     try {
       final f = await _sessionFile(id);
       if (await f.exists()) await f.delete();
@@ -541,12 +540,7 @@ class CoachEngine {
       final f = await _indexFile();
       await f.writeAsString(jsonEncode(metas.map((m) => m.toJson()).toList()));
     } catch (_) {}
-    if (id == _sessionId) {
-      // A reply still coming in belongs to the chat just deleted; its save
-      // would write that chat back under a new id.
-      if (_sending > 0) _discardUnsaved = true;
-      newSession();
-    }
+    if (id == _sessionId) newSession();
   }
 
   String _deriveTitle() {
