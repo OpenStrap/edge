@@ -106,15 +106,15 @@ void main() {
         isFalse);
   });
 
-  test('a restored Mi Band can re-pair while two live sensors fill the cap',
+  test('re-pairing a restored ring still counts when two sensors are linked',
       () {
+    // The pair links the ring, so letting it through would leave three.
     final rows = [
       {'id': 'ble_hrs-1', 'adapter_id': kBleHrs.id, 'remote_id': 'A'},
       {'id': 'polar_pmd-2', 'adapter_id': kPolarPmd.id, 'remote_id': 'B'},
-      {'id': 'mi-3', 'adapter_id': kMiBand234.id, 'remote_id': ''},
+      {'id': 'oura-3', 'adapter_id': kOura.id, 'remote_id': ''},
     ];
-    expect(sensorCapReached(rows, adapterId: kMiBand234.id), isFalse);
-    expect(sensorCapReached(rows, adapterId: kBleHrs.id), isTrue,
-        reason: 'a new strap still adds a row');
+    expect(sensorCapReached(rows, adapterId: kOura.id), isTrue);
+    expect(sensorCapReached(rows, adapterId: kMiBand234.id), isTrue);
   });
 }

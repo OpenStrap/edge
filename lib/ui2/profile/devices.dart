@@ -1298,20 +1298,17 @@ bool sensorCapReached(Iterable<Map<String, Object?>> deviceRows,
   // A row with no `remote_id` holds no link — a backup restore brings a
   // sensor's row across without the old phone's handle — so it cannot take
   // a slot, and counting it would refuse the very re-pair that replaces it.
+  final secondary = deviceRows
+      .where((r) =>
+          r['id'] != LocalDb.kPrimaryDeviceId &&
+          ((r['remote_id'] as String?) ?? '').isNotEmpty)
+      .toList();
   final sameAdapterRewrites = adapterId != null &&
       (anyOfAdapter || adapterId == kOura.id || adapterId == kMiBand234.id);
-  final others = deviceRows
-      .where((r) => r['id'] != LocalDb.kPrimaryDeviceId)
-      .toList();
-  // The exemption looks at every row of the adapter, linked or not: a
-  // restored single-slot sensor's row is exactly the one its pair rewrites.
-  for (final r in others) {
+  for (final r in secondary) {
     if (repairingId != null && r['id'] == repairingId) return false;
     if (sameAdapterRewrites && r['adapter_id'] == adapterId) return false;
   }
-  final secondary = others
-      .where((r) => ((r['remote_id'] as String?) ?? '').isNotEmpty)
-      .toList();
   return secondary.length >= kMaxConcurrentSecondaryLinks;
 }
 
