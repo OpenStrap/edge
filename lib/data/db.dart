@@ -11274,7 +11274,8 @@ class LocalDb {
       'decoded_onehz',
       'decoded_rr',
       'samples',
-      'raw_archive',
+      // Not raw_archive: it has its own merge (_mergeRawArchive), which keeps
+      // the row already on this device instead of replacing it.
       'events',
       'band_events',
       'band_battery',

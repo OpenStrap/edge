@@ -792,7 +792,7 @@ void main() {
         .hasMatch(s.trimLeft())), isTrue,
         reason: 'bulk restore must attach the source on the destination handle');
     for (final t in [
-      'decoded_onehz', 'decoded_rr', 'samples', 'raw_archive', 'events',
+      'decoded_onehz', 'decoded_rr', 'samples', 'events',
       'band_events', 'band_battery', 'day_result', 'metric_series',
       'metric_series_version', 'metric_method',
     ]) {
