@@ -3,6 +3,7 @@
 // current version without touching its naps.
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -173,5 +174,29 @@ void main() {
         ['manual']);
     final edits = await LocalDb.napEdits('2026-09-02');
     expect(edits.map((e) => e['source']), ['manual']);
+  });
+
+  test('importing nap edits alone re-arms the cleanup', () async {
+    final db = await LocalDb.instance;
+    await db.insert('sleep_nap', {
+      'day_id': '2026-09-02',
+      'start_ts': 1788388200,
+      'end_ts': 1788388200 + 2400,
+      'source': 'legacy',
+      'created_at': 0,
+      'payload_json': jsonEncode({'duration_min': 40, 'source': 'legacy'}),
+    });
+    final dir = Directory.systemTemp.createTempSync('nap-cleanup-import-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final path = p.join(dir.path, 'backup.db');
+    await db.execute('VACUUM INTO ?', [path]);
+    await db.delete('sleep_nap',
+        where: 'day_id = ? AND source = ?', whereArgs: ['2026-09-02', 'legacy']);
+    await LocalDb.putComputeFreshness(kNapNextNightCleanupKey, '{}');
+
+    final counts = await LocalDb.importFromDbFile(path);
+    expect(counts['day_result'] ?? 0, 0);
+    expect(counts['sleep_nap'], greaterThan(0));
+    expect(await LocalDb.computeFreshness(kNapNextNightCleanupKey), isNull);
   });
 }

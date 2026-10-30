@@ -11786,8 +11786,11 @@ class LocalDb {
     // import. Rewind it.
     if ((counts['day_result'] ?? 0) > 0) {
       await putComputeFreshness(kReencodeCursorKey, jsonEncode({}));
-      // Same for the raw-free nap cleanup: imported old days may carry the
-      // next-night nap double count it removes, so it runs again.
+    }
+    // Same for the raw-free nap cleanup: imported old days, or legacy nap
+    // edits recomposed into kept days, may carry the next-night nap double
+    // count it removes, so it runs again.
+    if ((counts['day_result'] ?? 0) > 0 || (counts['sleep_nap'] ?? 0) > 0) {
       await deleteComputeFreshness(kNapNextNightCleanupKey);
     }
     // Last, so it can never be mistaken for a table row count by anything that
