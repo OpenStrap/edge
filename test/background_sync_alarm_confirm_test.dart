@@ -30,6 +30,40 @@ void main() {
     expect(prefs.getBool('alarm_epoch_confirmed'), isTrue);
   });
 
+  test('a 56 replayed from an earlier arm does not confirm the current one',
+      () async {
+    // Wednesday 22:00 arm; the strap re-sends Monday 22:00's ALARM_SET.
+    const wedArmMs = 1750284000000;
+    const monSec = wedArmMs ~/ 1000 - 2 * 86400;
+    SharedPreferences.setMockInitialValues({
+      'alarm_epoch': wedArmMs ~/ 1000 + 9 * 3600,
+      'alarm_set_at_ms': wedArmMs,
+      'alarm_epoch_confirmed': false,
+    });
+
+    await handleHeadlessAlarmEvent(proto.EventId.strapDrivenAlarmSet,
+        tsSec: monSec);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool('alarm_epoch_confirmed'), isFalse);
+  });
+
+  test('a 56 stamped after this arm (or with an unset RTC) still confirms',
+      () async {
+    const armMs = 1750284000000;
+    for (final ts in <int?>[armMs ~/ 1000 + 3, armMs ~/ 1000 - 60, 12345]) {
+      SharedPreferences.setMockInitialValues({
+        'alarm_epoch': armMs ~/ 1000 + 9 * 3600,
+        'alarm_set_at_ms': armMs,
+        'alarm_epoch_confirmed': false,
+      });
+      await handleHeadlessAlarmEvent(proto.EventId.strapDrivenAlarmSet,
+          tsSec: ts);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('alarm_epoch_confirmed'), isTrue, reason: 'ts=$ts');
+    }
+  });
+
   test('an unrelated event id leaves the flag untouched', () async {
     SharedPreferences.setMockInitialValues({
       'alarm_epoch': 1234,
@@ -52,7 +86,7 @@ void main() {
         latchAtMs = DateTime.now().millisecondsSinceEpoch;
         sleep(const Duration(milliseconds: 5));
         await Future<void>.delayed(const Duration(seconds: 5));
-        return (epoch: 1750000000, disabled: false, echoed: false);
+        return (epoch: 1750000000, disabled: false, failed: false, echoed: false);
       }, (sinceMs) async => latchAtMs != null && latchAtMs! >= sinceMs);
       fa.elapse(const Duration(seconds: 40));
     });
@@ -66,7 +100,7 @@ void main() {
       () async {
     SharedPreferences.setMockInitialValues({});
     await headlessArmAndConfirm(
-      () async => (epoch: 1750000000, disabled: false, echoed: true),
+      () async => (epoch: 1750000000, disabled: false, failed: false, echoed: true),
       (sinceMs) async => fail('must not wait for event 56'),
     );
     final prefs = await SharedPreferences.getInstance();

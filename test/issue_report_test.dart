@@ -218,6 +218,30 @@ void main() {
     expect(find.text(noUpload), findsNothing);
   });
 
+  testWidgets('tapping a sent report asks before deleting it', (tester) async {
+    final exp = DateTime.now().add(const Duration(days: 7)).toUtc();
+    SharedPreferences.setMockInitialValues({
+      'issue_reports_sent': jsonEncode([
+        {'id': 'r-abc123', 'deleteToken': 't', 'expiresAt': exp.toIso8601String()}
+      ]),
+    });
+    tester.view.physicalSize = const Size(390 * 3, 3000 * 3);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: const ReportIssueScreen()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('r-abc123'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete report r-abc123?'), findsOneWidget);
+    await tester.tap(find.text('Keep it'));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete report r-abc123?'), findsNothing);
+    expect(find.text('r-abc123'), findsOneWidget);
+    expect((await loadSentReports()).map((r) => r.id), ['r-abc123']);
+  });
+
   test('local path has no size cap: a gzip past the upload limit builds a zip',
       () async {
     final dir = await Directory.systemTemp.createTemp('gz');
@@ -233,6 +257,25 @@ void main() {
     expect(gz.lengthSync(), greaterThan(kReportMaxBytesWithDb));
     final zip = await _zip(db: true, gz: gz);
     expect(zip.length, greaterThan(kReportMaxBytesWithDb));
+  });
+
+  test('stale report files left in temp are swept, others are kept', () async {
+    final dir = await Directory.systemTemp.createTemp('sweep');
+    addTearDown(() => dir.delete(recursive: true));
+    final now = DateTime.now();
+    final old = File('${dir.path}/openstrap_report_1.zip')..writeAsStringSync('db');
+    old.setLastModifiedSync(now.subtract(const Duration(hours: 2)));
+    final oldGz = File('${dir.path}/openstrap_report_2.db.gz')..writeAsStringSync('db');
+    oldGz.setLastModifiedSync(now.subtract(const Duration(days: 3)));
+    final fresh = File('${dir.path}/openstrap_report_3.zip')..writeAsStringSync('db');
+    final other = File('${dir.path}/something_else.zip')..writeAsStringSync('x');
+    other.setLastModifiedSync(now.subtract(const Duration(days: 3)));
+    expect(await sweepStaleReports(dir.path, now: now), 2);
+    expect(old.existsSync(), isFalse);
+    expect(oldGz.existsSync(), isFalse);
+    expect(fresh.existsSync(), isTrue);
+    expect(other.existsSync(), isTrue);
+    expect(await sweepStaleReports('${dir.path}/missing'), 0);
   });
 
   group('last-2-weeks slice', () {

@@ -64,6 +64,11 @@ bool manualNapWindowIsValid(int startSec, int endSec) {
   return d >= kMinManualNapSec && d <= kMaxManualNapSec;
 }
 
+/// Whether a logged nap has already finished at [nowSec]. A window that ends
+/// later is a nap that has not happened yet: it would credit today's sleep need
+/// with time not slept, and suppress the real nap when the detector finds it.
+bool manualNapWindowHasEnded(int endSec, int nowSec) => endSec <= nowSec;
+
 /// Apply [edits] to the detector's [detected] naps.
 ///
 /// A rejected window removes every detected nap it OVERLAPS, not only one that

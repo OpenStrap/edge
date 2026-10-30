@@ -475,4 +475,57 @@ void main() {
       expect(attach(onset: bed, offset: up), isEmpty);
     });
   });
+
+  group("a night marked 'Not sleep' is not re-proposed as a nap", () {
+    const midnight = 1750000800;
+    // The #566 shape: a still evening block 17:51-20:00 the detector booked as
+    // the night, which the user then rejected. A rejected night leaves no main
+    // window (onset/offset 0), so only the rejected span can stop it.
+    const from = 17 * 3600 + 51 * 60;
+    const to = 20 * 3600;
+    final s = _daySubstrate(
+      startSec: midnight,
+      lengthSec: 23 * 3600,
+      napFromSec: from,
+      napToSec: to,
+    );
+
+    List<Map<String, dynamic>> attach(List<List<int>> rejected) {
+      final candidates = <Map<String, dynamic>>[];
+      DerivationEngine.debugAttachNaps(
+        <String, dynamic>{},
+        <String, dynamic>{},
+        s,
+        0,
+        0,
+        candidates: candidates,
+        attributionStartSec: midnight,
+        attributionEndSec: midnight + 86400,
+        rejectedSleep: rejected,
+      );
+      return candidates;
+    }
+
+    test('without the rejected span the bout comes back as a nap', () {
+      expect(attach(const []), hasLength(1));
+    });
+
+    test('with it, no nap is suggested over the rejected stretch', () {
+      expect(
+        attach(const [
+          [midnight + from, midnight + to],
+        ]),
+        isEmpty,
+      );
+    });
+
+    test('a rejected span elsewhere leaves a real nap alone', () {
+      expect(
+        attach(const [
+          [midnight + 2 * 3600, midnight + 6 * 3600],
+        ]),
+        hasLength(1),
+      );
+    });
+  });
 }

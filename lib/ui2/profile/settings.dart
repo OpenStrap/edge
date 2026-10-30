@@ -19,6 +19,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../compute/profile.dart'
+    show plausibleAgeYears, plausibleHeightCm, plausibleWeightKg;
 import '../../data/off_lookup.dart';
 import '../../health/health_export.dart' show HealthLinkState;
 import '../../health/health_import_state.dart';
@@ -69,7 +71,8 @@ class MoreSettings extends StatefulWidget {
   State<MoreSettings> createState() => _MoreSettingsState();
 }
 
-class _MoreSettingsState extends State<MoreSettings> {
+class _MoreSettingsState extends State<MoreSettings>
+    with WidgetsBindingObserver {
   bool _dev = Prefs.getBool(Prefs.devMode, false);
 
   /// Whether a food barcode may be looked up online. Not on AppState: it is a
@@ -83,14 +86,49 @@ class _MoreSettingsState extends State<MoreSettings> {
   /// not drawn at all where the OS cannot change it.
   AppIconChoice? _icon;
 
+  /// Android's battery-optimization exemption, asked of the OS. Null until it
+  /// answers and always null elsewhere, which keeps the row off iOS.
+  bool? _bgExempt;
+  bool _oemAutostart = false;
+
   @override
   void initState() {
     super.initState();
     _readVersion();
     _readIcon();
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      WidgetsBinding.instance.addObserver(this);
+      _readBackground();
+    }
     // The developer wearable toggles list the paired devices; best-effort.
     if (_dev) {
       WearableDisplay.instance.loadDevices().catchError((Object _) {});
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// The exemption dialog and the OEM screen both answer out of band, by the
+  /// user coming back to the app, so the rows re-read the OS on resume rather
+  /// than guessing from the tap.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _readBackground();
+  }
+
+  Future<void> _readBackground() async {
+    final app = context.read<AppState>();
+    final exempt = await app.isIgnoringBatteryOptimizations();
+    final oem = await app.hasOemAutostartSettings();
+    if (mounted) {
+      setState(() {
+        _bgExempt = exempt;
+        _oemAutostart = oem;
+      });
     }
   }
 
@@ -171,6 +209,10 @@ class _MoreSettingsState extends State<MoreSettings> {
       zoneAlertZone: app.zoneAlertTargetZone,
       appIcon: _icon,
       onPickIcon: _pickIcon,
+      backgroundExempt: _bgExempt,
+      showOemAutostart: _oemAutostart,
+      onRequestBackgroundExempt: app.requestIgnoreBatteryOptimizations,
+      onOpenOemAutostart: app.openOemAutostartSettings,
       phoneSteps: app.phoneStepsEnabled,
       telemetry: app.telemetryConsent,
       barcodeLookup: _barcode,
@@ -506,6 +548,13 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
               'Some files or folder access may remain.'),
     ));
   }
+  if (app.resetLeftPairingKeys && messenger.mounted) {
+    messenger.showSnackBar(SnackBar(
+      content: Text(l?.settingsResetPairingKeyWarning ??
+          'App data deleted, but a sensor pairing key could not be removed '
+              'from secure storage. Delete everything again to retry.'),
+    ));
+  }
 }
 
 class MoreSettingsView extends StatelessWidget {
@@ -525,6 +574,18 @@ class MoreSettingsView extends StatelessWidget {
   /// drawn: a control that cannot do its one job is worse than no control.
   final AppIconChoice? appIcon;
   final ValueChanged<AppIconChoice>? onPickIcon;
+
+  /// Android only: whether the app is exempt from battery optimization. Null
+  /// draws no row — iOS has no such switch, and an unanswered check is not a
+  /// reason to show "Allow". Without the exemption Doze, or an OEM task
+  /// killer, stops the tracking service and the night never syncs.
+  final bool? backgroundExempt;
+
+  /// Android only, on phone makers that keep a separate autostart allowlist
+  /// the stock exemption does not cover. The OS cannot say whether it is
+  /// granted, so the row is an action, not a state.
+  final bool showOemAutostart;
+  final VoidCallback? onRequestBackgroundExempt, onOpenOemAutostart;
 
   /// The health-contribution row appears only where it means something: a
   /// build that has the feature, or an install that already said yes to it.
@@ -581,6 +642,10 @@ class MoreSettingsView extends StatelessWidget {
     this.clockFormat = ClockFormat.system,
     this.appIcon,
     this.onPickIcon,
+    this.backgroundExempt,
+    this.showOemAutostart = false,
+    this.onRequestBackgroundExempt,
+    this.onOpenOemAutostart,
     this.phoneSteps = false,
     this.healthSync = false,
     this.healthState = HealthLinkState.unknown,
@@ -680,6 +745,28 @@ class MoreSettingsView extends StatelessWidget {
                                   ?.settingsDoubleTapRowSub ??
                               'What a double-tap on the band does',
                           onTap: () => goto(c, const BandGestures()))),
+                  if (backgroundExempt != null)
+                    SetRow(LucideIcons.batteryCharging, C.green,
+                        l?.settingsKeepAliveRowTitle ??
+                            'Keep syncing in the background',
+                        sub: l?.settingsKeepAliveRowSub ??
+                            'So battery saving doesn’t stop the overnight sync',
+                        value: backgroundExempt!
+                            ? on
+                            : (l?.settingsKeepAliveAllow ?? 'Allow'),
+                        // Once granted it can only be revoked in the OS
+                        // battery settings, so the row stops being a button.
+                        chevron: !backgroundExempt!,
+                        onTap: backgroundExempt!
+                            ? null
+                            : onRequestBackgroundExempt),
+                  if (showOemAutostart)
+                    SetRow(LucideIcons.power, C.green,
+                        l?.settingsAutostartRowTitle ?? 'Allow auto-start',
+                        sub: l?.settingsAutostartRowSub ??
+                            'This phone’s maker needs one more setting before '
+                                'the app can keep syncing overnight',
+                        onTap: onOpenOemAutostart),
                 ]),
                 // Band, App, Data, Privacy, Advanced: named for what is in
                 // them, so nothing needs a sub-line listing its contents.
@@ -886,14 +973,34 @@ class NotificationSettings extends StatefulWidget {
   State<NotificationSettings> createState() => _NotificationSettingsState();
 }
 
-class _NotificationSettingsState extends State<NotificationSettings> {
+class _NotificationSettingsState extends State<NotificationSettings>
+    with WidgetsBindingObserver {
   NotificationPrefs? _prefs;
   bool _granted = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Back from OS Settings: re-read the real grant, or the "off at the system
+    // level" card stays up after the user has already fixed it.
+    if (state == AppLifecycleState.resumed) _recheck();
+  }
+
+  Future<void> _recheck() async {
+    final granted = await NotificationService.instance.hasPermission();
+    if (mounted && granted != _granted) setState(() => _granted = granted);
   }
 
   Future<void> _load() async {
@@ -937,9 +1044,16 @@ class _NotificationSettingsState extends State<NotificationSettings> {
 
   /// The one contextual moment left where prompting is honest: the user is
   /// standing in the notifications screen, having just asked for one.
+  ///
+  /// Once the OS holds a denial the request is a silent no — the dialog never
+  /// shows again — so a refusal sends the user to the system page instead of
+  /// leaving the button doing nothing. The OS gives no way to tell a denial
+  /// from just now apart from one made at pairing, so both land there.
   Future<void> _requestPermission() async {
-    final ok = await NotificationService.instance.ensurePermission();
+    final svc = NotificationService.instance;
+    final ok = await svc.ensurePermission();
     if (mounted) setState(() => _granted = ok);
+    if (!ok && mounted) await svc.openSystemSettings();
   }
 
   @override
@@ -1452,6 +1566,12 @@ class _EditProfileViewState extends State<EditProfileView> {
       TextEditingController(text: _u.weightField(widget.initial['weight_kg'] as num?));
   late String? _sex = (widget.initial['sex'] as String?)?.toLowerCase();
 
+  /// The metric values the height/weight fields were last filled from, so an
+  /// untouched field saves the value it came from (see
+  /// [UnitsController.weightToKgKeeping]).
+  late num? _shownHeightCm = widget.initial['height_cm'] as num?;
+  late num? _shownWeightKg = widget.initial['weight_kg'] as num?;
+
   /// When the store last gave us something. Null is "never", which is also
   /// what an unreadable preference reads as — the first-run word on the button
   /// is the safe one either way.
@@ -1489,8 +1609,10 @@ class _EditProfileViewState extends State<EditProfileView> {
       if (!mounted) return;
       if (fields != null) {
         _age.text = _s(fields['age']);
-        _height.text = _u.heightField(fields['height_cm'] as num?);
-        _weight.text = _u.weightField(fields['weight_kg'] as num?);
+        _shownHeightCm = fields['height_cm'] as num?;
+        _shownWeightKg = fields['weight_kg'] as num?;
+        _height.text = _u.heightField(_shownHeightCm);
+        _weight.text = _u.weightField(_shownWeightKg);
         _sex = (fields['sex'] as String?)?.toLowerCase() ?? _sex;
       }
       setState(() {
@@ -1540,13 +1662,33 @@ class _EditProfileViewState extends State<EditProfileView> {
       sayUnreadable(context, bad);
       return;
     }
+    final heightCm =
+        height.value == null
+            ? null
+            : _u.heightToCmKeeping(_height.text, _shownHeightCm);
+    final weightKg =
+        weight.value == null
+            ? null
+            : _u.weightToKgKeeping(_weight.text, _shownWeightKg);
+    final off = [
+      if (age.value case final a? when !plausibleAgeYears(a))
+        (l?.settingsAgeFieldLabel ?? 'Age'),
+      if (heightCm != null && !plausibleHeightCm(heightCm))
+        uiText(context, _u.heightLabel),
+      if (weightKg != null && !plausibleWeightKg(weightKg))
+        uiText(context, _u.weightLabel),
+    ];
+    if (off.isNotEmpty) {
+      sayImplausible(context, off);
+      return;
+    }
     widget.onSave({
       'name': _name.text.trim().isEmpty ? null : _name.text.trim(),
       'sex': _sex,
       'age': age.value?.round(),
       // Typed in the units on the label, stored in metric.
-      'height_cm': height.value == null ? null : _u.heightToCm(_height.text),
-      'weight_kg': weight.value == null ? null : _u.weightToKg(_weight.text),
+      'height_cm': heightCm,
+      'weight_kg': weightKg,
     });
   }
 

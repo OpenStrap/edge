@@ -31,7 +31,8 @@ import 'onehz_pipeline.dart' show needInputNote;
 ///
 /// Each [daysOldestFirst] element is one day shaped like:
 ///   {'date': 'YYYY-MM-DD', 'rhr': num?, 'rmssd': num?, 'readiness': num?,
-///    'resp_rate': num?, 'skin_temp_z': num?, 'trimp': num?,
+///    'resp_rate': num?, 'skin_temp_z': num?, 'skin_temp_adc': num?,
+///    'skin_temp_family': String?, 'trimp': num?,
 ///    'onset_sec': int?, 'wake_sec': int?, 'tst_min': int?,
 ///    'hypnogram': [{start,end,stage}]?}
 ///
@@ -49,11 +50,17 @@ import 'onehz_pipeline.dart' show needInputNote;
 /// that day (TS-11). A day with more than one is dropped by the analytics, not
 /// split — it belongs to no single type. Empty ⇒ `session_cost` is absent,
 /// which is also its state for the first ten sessions of any type.
+///
+/// [methodFamilies] maps a device family to its method family (the
+/// engine's `kMethodFamily`). The breakdown's HRV, resting HR and breathing
+/// rate compare tonight only with prior nights of tonight's method family.
+/// Empty ⇒ nights compare by their raw device family.
 Map<String, dynamic> buildCrossDayBundle(
   List<Map<String, dynamic>> daysOldestFirst,
   Map<String, dynamic> profile, {
   List<String> cycleStartDates = const [],
   Map<String, List<String>> sessionTypesByDate = const {},
+  Map<String, String> methodFamilies = const {},
 }) {
   final days = daysOldestFirst;
   final n = days.length;
@@ -67,6 +74,47 @@ Map<String, dynamic> buildCrossDayBundle(
   final tempList = <double?>[
     for (final d in days) _numOrNull(d['skin_temp_z']),
   ];
+  // The temperature illness flag standardises its input once, itself, so it
+  // takes the RAW nightly mean — never `skin_temp_z`. That z is already scored
+  // against a mean/SD that holds the earlier fever nights, so it decays night
+  // over night, and standardising it again let a real multi-night rise fall
+  // under the flag's two-night persistence threshold.
+  //
+  // Raw values are in their device family's unit (gen4 ADC counts, gen5
+  // centi-°C, a wearable's own scale), which the z-score had been hiding. Only
+  // nights in the newest stamped scored night's family are kept; the rest are
+  // null rather than mixed into one baseline.
+  //
+  // An unstamped night (written before the stamp existed, or a day spanning
+  // two straps) is a band's, as `methodOf` below and the per-day baseline
+  // cache already treat it. Comparing the raw stamp instead made the first
+  // stamped night after an upgrade drop the whole unstamped history, and a
+  // mixed-strap newest night drop every stamped one, leaving the watch on
+  // `need_baseline` for a week either way. A wearable's nights still never
+  // take an unstamped one.
+  final rawTemp = <double?>[
+    for (final d in days) _numOrNull(d['skin_temp_adc']),
+  ];
+  final tempFamily = <String?>[
+    for (final d in days) d['skin_temp_family'] as String?,
+  ];
+  String? latestTempFamily;
+  for (var i = n - 1; i >= 0; i--) {
+    if (rawTemp[i] != null && tempFamily[i] != null) {
+      latestTempFamily = tempFamily[i];
+      break;
+    }
+  }
+  final unstampedFits = latestTempFamily == null ||
+      latestTempFamily == 'gen4' ||
+      latestTempFamily == 'gen5';
+  final tempRawList = <double?>[
+    for (var i = 0; i < n; i++)
+      tempFamily[i] == latestTempFamily ||
+              (tempFamily[i] == null && unstampedFits)
+          ? rawTemp[i]
+          : null,
+  ];
 
   // A day flagged `unsettled` (today, until it was derived from a complete
   // overnight: the data edge at least an hour past wake) is a truncated
@@ -77,6 +125,17 @@ Map<String, dynamic> buildCrossDayBundle(
   final unsettled = <bool>[for (final d in days) d['unsettled'] == true];
   T? settled<T>(int i, T? v) => unsettled[i] ? null : v;
 
+  // The skin-temp input both temperature-reading alerts take: the raw nightly
+  // mean in the newest family, minus any WHOOP 4 night whose skin temp moved
+  // with the band's ambient channel (`skin_temp_illness_ok`, see
+  // `skinTempIllnessEligible`) — a warm bedroom is not a fever. A record
+  // without the key (built by an older caller) keeps the old behaviour.
+  // Withholding `settled()` is applied at each use.
+  final tempAlertList = <double?>[
+    for (var i = 0; i < n; i++)
+      days[i]['skin_temp_illness_ok'] == false ? null : tempRawList[i],
+  ];
+
   // ── illness CUSUM (NightSignal) on nightly RHR ─────────────────────────────
   final illness = ana.illnessCusum(dates, [
     for (var i = 0; i < n; i++) settled(i, rhrList[i]),
@@ -86,12 +145,18 @@ Map<String, dynamic> buildCrossDayBundle(
   // Build one AnomalyFeatures per day (same length as dates). Days with all
   // features null still occupy a slot — the detector handles the nulls
   // internally (needs ≥2 present features tonight to compute a distance).
+  //
+  // temp is the raw nightly mean, not `skin_temp_z`, for the same reason as
+  // the temperature flag: the detector standardises every column itself, and
+  // the z had already been scored against a baseline holding the earlier fever
+  // nights, so the temp term shrank night over night and a sustained rise
+  // could fall out of the two-night persistence run.
   final feats = <ana.AnomalyFeatures>[
     for (var i = 0; i < n; i++)
       ana.AnomalyFeatures(
         rhr: settled(i, rhrList[i]),
         hrv: settled(i, rmssdList[i]),
-        temp: settled(i, tempList[i]),
+        temp: settled(i, tempAlertList[i]),
         resp: settled(i, respList[i]),
       ),
   ];
@@ -120,16 +185,8 @@ Map<String, dynamic> buildCrossDayBundle(
   // exception still fires, with the confound named. Suppressing a real illness
   // is worse than the false alarm.
   final luteal = _lutealFlags(dates, cycleStartDates);
-  //
-  // A WHOOP 4 night whose skin temp moved with the band's ambient channel is
-  // left out (`skin_temp_illness_ok`, see `skinTempIllnessEligible`): the
-  // illness watch should not fire on a warm bedroom. A record without the key
-  // (built by an older caller) keeps the old behaviour.
   final tempIllness = ana.tempIllnessFlag(dates, [
-    for (var i = 0; i < n; i++)
-      days[i]['skin_temp_illness_ok'] == false
-          ? null
-          : settled(i, tempList[i]),
+    for (var i = 0; i < n; i++) settled(i, tempAlertList[i]),
   ], luteal: luteal);
 
   // ── circadian: mid-sleep, free/work split, jetlag, chronotype, sleep debt ──
@@ -177,13 +234,35 @@ Map<String, dynamic> buildCrossDayBundle(
       : allDurH.sublist(allDurH.length - 7);
   final sleepDebt = ana.sleepDebt(recentDurH, freeDurH);
 
+  // A ring's vendor RMSSD or a 1-min watch's resting HR is not the same
+  // quantity as a band's 1 Hz one, and the headline readiness keeps a separate
+  // baseline per method family for exactly that reason. The breakdown below
+  // ranks tonight against its history, so that history has to be split the
+  // same way, or the first weeks on a new wearable read as "held you back"
+  // against the old one's numbers while the headline calls them normal.
+  // `skin_temp_family` is the day's device family (it is not temperature-
+  // specific); an unstamped day is a band's, as in the baseline cache.
+  String? methodOf(int i) {
+    final device = (days[i]['skin_temp_family'] as String?) ?? 'gen4';
+    return methodFamilies[device] ?? device;
+  }
+
+  final tonightMethod = n == 0 ? null : methodOf(n - 1);
+  List<double?> sameMethod(List<double?> series) => [
+        for (var i = 0; i < n; i++)
+          i == n - 1 || methodOf(i) == tonightMethod ? series[i] : null,
+      ];
+  final rmssdOwn = sameMethod(rmssdList);
+  final rhrOwn = sameMethod(rhrList);
+  final respOwn = sameMethod(respList);
+
   // ── percentile-of-you for today vs history (history = all-but-last) ────────
   // rhr is LOWER-is-better — the same orientation `_glassInput` ten lines below
   // has always passed for this exact list. Unoriented, a night with the user's
   // lowest resting HR in a month came back labelled "among your worst".
   final percentiles = <String, dynamic>{
-    'rmssd': _pctOfYou(rmssdList, ana.Better.higher),
-    'rhr': _pctOfYou(rhrList, ana.Better.lower),
+    'rmssd': _pctOfYou(rmssdOwn, ana.Better.higher),
+    'rhr': _pctOfYou(rhrOwn, ana.Better.lower),
     'readiness': _pctOfYou(readyList, ana.Better.higher),
   };
 
@@ -191,12 +270,12 @@ Map<String, dynamic> buildCrossDayBundle(
   // rmssd higher-better; rhr/resp lower-better; skin_temp_z lower-ABS better
   // (so we orient temp by its absolute deviation, lower=better).
   final gbInputs = <ana.GlassBoxInput>[];
-  final gbRmssd = _glassInput('hrv', rmssdList, ana.wHrv, lowerIsBetter: false);
+  final gbRmssd = _glassInput('hrv', rmssdOwn, ana.wHrv, lowerIsBetter: false);
   if (gbRmssd != null) gbInputs.add(gbRmssd);
   final gbRhr =
-      _glassInput('rhr', rhrList, ana.wRhr, lowerIsBetter: true, quantum: 1);
+      _glassInput('rhr', rhrOwn, ana.wRhr, lowerIsBetter: true, quantum: 1);
   if (gbRhr != null) gbInputs.add(gbRhr);
-  final gbResp = _glassInput('resp', respList, ana.wResp, lowerIsBetter: true);
+  final gbResp = _glassInput('resp', respOwn, ana.wResp, lowerIsBetter: true);
   if (gbResp != null) gbInputs.add(gbResp);
   // temp: use absolute z so "further from your baseline" is worse. `tempList`
   // here is `skin_temp_z` — already a z-score against the raw-ADC baseline
@@ -484,7 +563,8 @@ Map<String, dynamic> buildCrossDayBundle(
   // publishing it would hide a run that is still open. So each family
   // publishes the newest settled night that carried ITS inputs (illness: the
   // nightly RHR; anomaly: the ≥2 features it needs to score a night;
-  // temperature: the skin-temperature z). Outputs are parallel to `dates`.
+  // temperature: the raw skin-temperature mean it was allowed to read).
+  // Outputs are parallel to `dates`.
   // The entry carries its OWN `date`; consumers must date findings with it,
   // never with `recent.last`.
   int? newestScored(bool Function(int i) hasInput) {
@@ -499,12 +579,15 @@ Map<String, dynamic> buildCrossDayBundle(
   final latestAnomaly = at(
     anomaly,
     newestScored((i) =>
-        [rhrList[i], rmssdList[i], tempList[i], respList[i]]
+        [rhrList[i], rmssdList[i], tempAlertList[i], respList[i]]
             .where((v) => v != null)
             .length >=
         2),
   );
-  final latestTemp = at(tempIllness, newestScored((i) => tempList[i] != null));
+  // Same predicate that built the flag's input: an ambient-excluded night
+  // still has a raw value, but the flag saw null and held it normal.
+  final latestTemp =
+      at(tempIllness, newestScored((i) => tempAlertList[i] != null));
 
   // per-day flags (for notifications / trends): asleep/illness/anomaly/temp,
   // plus the nightly RESTING HR the "your resting HR trend shifted" CUSUM
@@ -718,8 +801,12 @@ bool _isFreeDay(String? date) {
 /// four-week luteal phase — it stops counting.
 List<bool> _lutealFlags(List<String> dates, List<String> cycleStartDates) {
   final out = List<bool>.filled(dates.length, false);
+  // Labels parsed as UTC midnight, as in [_isNextDay]: at local midnight a
+  // span holding the 23 h spring-forward day floors one day short in `inDays`,
+  // which shortens that cycle and moves its midpoint night.
+  DateTime? day(String s) => DateTime.tryParse('${s}T00:00:00Z');
   final starts = <DateTime>[
-    for (final s in cycleStartDates) ?DateTime.tryParse(s),
+    for (final s in cycleStartDates) ?day(s),
   ]..sort();
   if (starts.isEmpty) return out;
 
@@ -730,7 +817,7 @@ List<bool> _lutealFlags(List<String> dates, List<String> cycleStartDates) {
   final medianGap = _median(gaps);
 
   for (var i = 0; i < dates.length; i++) {
-    final d = DateTime.tryParse(dates[i]);
+    final d = day(dates[i]);
     if (d == null) continue;
     // Nearest PRECEDING start (inclusive: the start day is cycle day 1).
     var si = -1;

@@ -211,17 +211,17 @@ class _JournalComposeState extends State<JournalCompose> {
     // water, a moment tag) writes the same day while this screen is open.
     // Re-read and lay only this screen's own edits over it, or Save puts the
     // snapshot from when the screen opened back and the tap is lost.
-    final metrics = {...await repo.getJournalMetrics(_date)};
-    for (final k in {..._loadedValues.keys, ..._values.keys}) {
-      final v = _values[k];
-      if (v == _loadedValues[k]) continue;
-      if (v == null) {
-        metrics.remove(k);
-      } else {
-        metrics[k] = v;
+    await repo.editJournalMetrics(_date, (metrics) {
+      for (final k in {..._loadedValues.keys, ..._values.keys}) {
+        final v = _values[k];
+        if (v == _loadedValues[k]) continue;
+        if (v == null) {
+          metrics.remove(k);
+        } else {
+          metrics[k] = v;
+        }
       }
-    }
-    await repo.postJournalMetrics(_date, metrics);
+    });
     final tags = <String>{};
     for (final e in await repo.getJournal(range: '30d')) {
       if (e['date'] == _date) {

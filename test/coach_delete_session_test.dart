@@ -1,0 +1,219 @@
+// Deleting a chat and the history budget, both against the real engine.
+//
+// A chat deleted from one screen was written back by another screen's engine
+// still holding it, and a delete could interleave with a save already
+// writing. The history budget counted characters while the limit and
+// the request check are in bytes, so non-ASCII history slipped through.
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:openstrap_edge/coach/coach_config.dart';
+import 'package:openstrap_edge/coach/coach_engine.dart';
+import 'package:openstrap_edge/data/local_repository.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class _FakeRepo extends LocalRepository {}
+
+class _DocumentsProvider extends PathProviderPlatform {
+  _DocumentsProvider(this.root);
+  final String root;
+
+  @override
+  Future<String?> getApplicationDocumentsPath() async => root;
+}
+
+Future<Directory> _documents() async {
+  final dir = await Directory.systemTemp.createTemp('coach-delete-');
+  final original = PathProviderPlatform.instance;
+  PathProviderPlatform.instance = _DocumentsProvider(dir.path);
+  addTearDown(() async {
+    PathProviderPlatform.instance = original;
+    await dir.delete(recursive: true);
+  });
+  return dir;
+}
+
+Map<String, dynamic> _answer(String text) => {
+      'id': 'msg_${text.hashCode}',
+      'type': 'message',
+      'status': 'completed',
+      'role': 'assistant',
+      'phase': 'final_answer',
+      'content': [
+        {'type': 'output_text', 'text': text, 'annotations': []},
+      ],
+    };
+
+http.Response _reply(String text) => http.Response(
+      jsonEncode({
+        'status': 'completed',
+        'output': [_answer(text)],
+      }),
+      200,
+    );
+
+Future<CoachEngine> _engine(http.Client client,
+    {String storageKey = 'local'}) async {
+  final config = CoachConfig();
+  await config.save(model: 'gpt-6.1-sol');
+  addTearDown(config.dispose);
+  final engine = CoachEngine(
+    config: config,
+    api: _FakeRepo(),
+    client: client,
+    storageKey: storageKey,
+  );
+  addTearDown(engine.dispose);
+  return engine;
+}
+
+List<String> _coachFiles(Directory dir) => dir
+    .listSync()
+    .map((e) => e.uri.pathSegments.last)
+    .where((n) => n.startsWith('coach_s_'))
+    .toList();
+
+Future<List<String>> _indexIds(Directory dir) async {
+  final f = File('${dir.path}/coach_idx_local.json');
+  if (!await f.exists()) return const [];
+  return [
+    for (final m in jsonDecode(await f.readAsString()) as List)
+      (m as Map)['id'] as String,
+  ];
+}
+
+void _send(CoachEngine engine, String text, List<Future<void>> into) =>
+    into.add(engine.send(
+      text,
+      onItem: (_) {},
+      onStatus: (_) {},
+      confirm: (_) async => false,
+    ));
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test('a chat deleted from one screen is not saved back by another',
+      () async {
+    final dir = await _documents();
+    // Two screens, two engines, the same saved chat.
+    final a = await _engine(MockClient((_) async => _reply('first')));
+    final sends = <Future<void>>[];
+    _send(a, 'how did I sleep', sends);
+    await sends.single;
+    await a.persist();
+    final id = a.sessionId;
+    final b = await _engine(MockClient((_) async => _reply('unused')));
+    await b.openSession(id);
+    expect(b.sessionId, id);
+
+    await b.deleteSession(id);
+    expect(_coachFiles(dir), isEmpty);
+    // The first screen's save after its reply lands, late.
+    await a.persist();
+
+    expect(_coachFiles(dir), isEmpty);
+    expect(await _indexIds(dir), isEmpty);
+  });
+
+  test('a delete waits for a save already writing that chat', () async {
+    final dir = await _documents();
+    final engine = await _engine(MockClient((_) async => _reply('ok')));
+    final sends = <Future<void>>[];
+    _send(engine, 'how did I sleep', sends);
+    await sends.single;
+    await engine.persist();
+    final id = engine.sessionId;
+
+    final paused = Completer<void>(), release = Completer<void>();
+    CoachEngine.debugAfterSaveCheck = () {
+      paused.complete();
+      return release.future;
+    };
+    addTearDown(() => CoachEngine.debugAfterSaveCheck = null);
+
+    final saving = engine.persist();
+    await paused.future;
+    var deleted = false;
+    final deleting = engine.deleteSession(id).then((_) => deleted = true);
+    for (var i = 0; i < 20; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(deleted, isFalse, reason: 'the delete waits for the save');
+
+    release.complete();
+    await Future.wait([saving, deleting]);
+    expect(_coachFiles(dir), isEmpty);
+    expect(await _indexIds(dir), isEmpty);
+  });
+
+  test('the history budget counts bytes, so non-ASCII turns are trimmed',
+      () async {
+    await _documents();
+    final engine = await _engine(MockClient((_) async => _reply('ok')));
+    // About 50k characters each way but over 100k bytes each in UTF-8: under
+    // the budget by characters, well over it by bytes.
+    final old = 'сон' * 17000;
+    engine.debugHistory
+      ..add({'role': 'user', 'content': old})
+      ..add({'role': 'assistant', 'content': old});
+
+    final sends = <Future<void>>[];
+    _send(engine, 'and today', sends);
+    await sends.single;
+
+    expect(engine.debugHistory.any((m) => m['content'] == old), isFalse);
+    expect(engine.debugHistory.first['content'], 'and today');
+  });
+
+  test('chat ids stay apart even when minted in the same millisecond',
+      () async {
+    await _documents();
+    final engine = await _engine(MockClient((_) async => _reply('ok')));
+    final ids = <String>{};
+    for (var i = 0; i < 50; i++) {
+      engine.newSession();
+      ids.add(engine.sessionId);
+    }
+    expect(ids, hasLength(50));
+    expect(ids.first, matches(RegExp(r'^\d+-[0-9a-f]{8}$')));
+  });
+
+  test("a deleted chat id only blocks saves under the account it was in",
+      () async {
+    final dir = await _documents();
+    final local = await _engine(MockClient((_) async => _reply('ok')));
+    final sends = <Future<void>>[];
+    _send(local, 'how did I sleep', sends);
+    await sends.single;
+    await local.persist();
+    final id = local.sessionId;
+    await local.deleteSession(id);
+
+    // Another account's chat that happens to carry the same id.
+    await File('${dir.path}/coach_s_other_$id.json').writeAsString(jsonEncode({
+      'title': 'theirs',
+      'createdAt': 1,
+      'updatedAt': 1,
+      'history': <Object>[],
+      'transcript': [CoachItem.user('their question').toJson()],
+    }));
+    final other = await _engine(MockClient((_) async => _reply('ok')),
+        storageKey: 'other');
+    await other.openSession(id);
+    expect(other.sessionId, id);
+    other.transcript.add(CoachItem.user('one more'));
+    await other.persist();
+
+    final saved = jsonDecode(
+        await File('${dir.path}/coach_s_other_$id.json').readAsString()) as Map;
+    expect((saved['transcript'] as List), hasLength(2));
+  });
+}
