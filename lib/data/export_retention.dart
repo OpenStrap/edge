@@ -115,7 +115,7 @@ Future<void> pruneSharedReports(
 }
 
 final _healthCopyName = RegExp(
-    r'^openstrap_(export_\d+\.db(\.osbk)?|report_\d+(\.zip|\.db\.gz)|(slice|days)_\d+\.db)$');
+    r'^openstrap_(export_\d+\.db(\.osbk)?|report_\d+(\.zip|\.db\.gz)|(slice|days)_\d+\.db(-journal|-wal|-shm)?)$');
 
 /// Delete every copy of the health record the app has handed to a share
 /// sheet or staged in [tmpRoot]: manual exports, selected-day exports, CSV

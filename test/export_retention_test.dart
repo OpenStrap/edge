@@ -186,6 +186,9 @@ void main() {
         'openstrap_report_8.db.gz',
         'openstrap_slice_9.db',
         'openstrap_days_10.db',
+        'openstrap_days_11.db-journal',
+        'openstrap_days_12.db-wal',
+        'openstrap_days_12.db-shm',
         'unrelated.db',
       ]) {
         await _touch(dir, n);

@@ -371,7 +371,20 @@ class CoachEngine {
   /// them, and the key is the same 'local' after a reset — the next profile
   /// would reopen the previous one's conversations, tool results included.
   /// Returns the number of files that could not be deleted.
-  static Future<int> deleteAllSavedSessions() async {
+  static Future<int> deleteAllSavedSessions() =>
+      _serialFiles(_deleteAllSavedSessions);
+
+  /// One queue for every chat-file write and the reset's sweep. A save that
+  /// had already passed its reset check could otherwise still be writing
+  /// while the sweep listed the folder, and land after it.
+  static Future<void> _filesTail = Future<void>.value();
+  static Future<T> _serialFiles<T>(Future<T> Function() body) {
+    final run = _filesTail.then((_) => body());
+    _filesTail = run.then((_) {}, onError: (_) {});
+    return run;
+  }
+
+  static Future<int> _deleteAllSavedSessions() async {
     final dir = await getApplicationDocumentsDirectory();
     if (!await dir.exists()) return 0;
     var failed = 0;
@@ -447,7 +460,11 @@ class CoachEngine {
   }
 
   /// Persist the current session (caps history, updates the index).
-  Future<void> persist() async {
+  Future<void> persist() => _serialFiles(_persist);
+
+  Future<void> _persist() async {
+    // Checked inside the queue: a reset that started while this waited has
+    // swept the files by now, and this must not write the chat back.
     if (transcript.isEmpty || ResetGate.changedSince(_resetGen)) return;
     if (_sessionId.isEmpty) _sessionId = _newId();
     final now = DateTime.now().millisecondsSinceEpoch;

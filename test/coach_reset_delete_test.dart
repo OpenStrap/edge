@@ -78,4 +78,34 @@ void main() {
         .where((n) => n.startsWith('coach_'));
     expect(left, isEmpty);
   });
+
+  test('a save already under way when the sweep runs is swept with it',
+      () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
+    final dir = await Directory.systemTemp.createTemp('coach-reset-');
+    final original = PathProviderPlatform.instance;
+    PathProviderPlatform.instance = _DocumentsProvider(dir.path);
+    addTearDown(() async {
+      PathProviderPlatform.instance = original;
+      await dir.delete(recursive: true);
+    });
+    final config = CoachConfig();
+    addTearDown(config.dispose);
+    final engine = CoachEngine(config: config, api: _FakeRepo(), storageKey: 'local');
+    addTearDown(engine.dispose);
+    engine.transcript.add(CoachItem.user('how did I sleep'));
+
+    // The save passes its reset check, then the reset starts and sweeps
+    // while the save is still writing.
+    final saving = engine.persist();
+    ResetGate.enter();
+    final swept = CoachEngine.deleteAllSavedSessions();
+    await Future.wait([saving, swept]);
+    ResetGate.leave();
+
+    final left = dir.listSync().map((e) => e.uri.pathSegments.last)
+        .where((n) => n.startsWith('coach_'));
+    expect(left, isEmpty);
+  });
 }

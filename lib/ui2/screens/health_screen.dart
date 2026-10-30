@@ -1515,6 +1515,16 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
 
   /// A blank stored unit means the catalogue's (see [LabMarker.judgesUnit]),
   /// so the row never prints a verdict with no unit beside it.
+  /// The catalogue's decimals belong to its own unit: 5.4 mmol/L of glucose
+  /// at the mg/dL catalogue's 0 decimals would print as 5. A result in another
+  /// unit prints as it was stored.
+  static String _valueOf(LabMarker? m, Map<String, dynamic> r, double v) =>
+      m != null && m.judgesUnit(r['unit'])
+          ? m.format(v)
+          : v == v.roundToDouble()
+          ? v.round().toString()
+          : '$v';
+
   static String _unitOf(LabMarker? m, Map<String, dynamic> r) {
     final stored = '${r['unit'] ?? ''}'.trim();
     return stored.isEmpty ? (m?.unit ?? '') : stored;
@@ -1581,7 +1591,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
               children: [
-                Text(v == null ? '' : (m?.format(v) ?? v.toString()),
+                Text(v == null ? '' : _valueOf(m, r, v),
                     style: F.n17.copyWith(
                         color: inRange == false ? p.on(C.orange) : p.ink)),
                 const SizedBox(width: 3),
@@ -1619,8 +1629,8 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       context,
       title: loc?.healthRemoveLabelFrom(label, takenOn) ??
           'Remove $label from $takenOn?',
-      body: (loc?.healthRemoveLabBody(m?.format(v) ?? _num(v), unit) ??
-              'The ${m?.format(v) ?? _num(v)} $unit you logged for that draw. '
+      body: (loc?.healthRemoveLabBody(_valueOf(m, r, v), unit) ??
+              'The ${_valueOf(m, r, v)} $unit you logged for that draw. '
                   'It leaves this device and there is no undo.') +
           (older == null
               ? ''

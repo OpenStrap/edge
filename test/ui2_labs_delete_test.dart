@@ -158,6 +158,31 @@ void main() {
     );
   });
 
+  testWidgets('a result in another unit prints as stored, on the row and in the confirm',
+      (t) async {
+    // The catalogue's glucose is mg/dL at 0 decimals; an import in mmol/L
+    // must not print 5.4 as 5.
+    final labs = await _seed(t, [
+      ['glucose_fasting', '2026-03-04', 5.4, 'mmol/L'],
+    ]);
+    await _pumpLabs(t, labs);
+    expect(find.text('5.4'), findsOneWidget);
+    expect(find.text('5'), findsNothing);
+    expect(find.text('mmol/L'), findsOneWidget);
+
+    await t.tap(_control('Remove Fasting glucose from 2026-03-04'));
+    await t.pumpAndSettle();
+    expect(find.textContaining('5.4 mmol/L'), findsOneWidget);
+  });
+
+  testWidgets('a result stored with no unit shows the catalogue unit', (t) async {
+    final labs = await _seed(t, [
+      ['ferritin', '2026-03-04', 42, ''],
+    ]);
+    await _pumpLabs(t, labs);
+    expect(find.text('ng/mL'), findsOneWidget);
+  });
+
   testWidgets('a removed result leaves the store AND the screen, in place',
       (t) async {
     final labs = await _seed(t, _ferritinAndHba1c);
