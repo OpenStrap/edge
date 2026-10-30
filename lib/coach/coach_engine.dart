@@ -193,6 +193,11 @@ class CoachEngine {
   /// `finally` sees the count reach zero, not before.
   bool _disposeRequested = false;
 
+  /// Set when the open chat is deleted while a [send] is still running. What
+  /// that send adds afterwards is the deleted chat's tail: it is dropped
+  /// instead of saved.
+  bool _discardUnsaved = false;
+
   // OpenAI-format running history (system is added per-request) — the context we
   // resend every turn so the model remembers the conversation.
   final List<Map<String, dynamic>> _history = [];
@@ -284,7 +289,10 @@ class CoachEngine {
   int _historyChars() {
     var n = 0;
     for (final m in _history) {
-      n += jsonEncode(m).length;
+      // Bytes, as the limit says and as the request size is checked: a
+      // character count lets non-ASCII history through the trim and then
+      // over kMaxRequestBytes.
+      n += utf8.encode(jsonEncode(m)).length;
     }
     return n;
   }
@@ -471,6 +479,13 @@ class CoachEngine {
     // Checked inside the queue: a reset that started while this waited has
     // swept the files by now, and this must not write the chat back.
     if (transcript.isEmpty || ResetGate.changedSince(_resetGen)) return;
+    if (_discardUnsaved) {
+      if (_sending == 0) {
+        _discardUnsaved = false;
+        newSession();
+      }
+      return;
+    }
     await debugAfterSaveCheck?.call();
     if (_sessionId.isEmpty) _sessionId = _newId();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -513,7 +528,10 @@ class CoachEngine {
   }
 
   /// Delete a session (and start fresh if it was the current one).
-  Future<void> deleteSession(String id) async {
+  Future<void> deleteSession(String id) =>
+      _serialFiles(() => _deleteSession(id));
+
+  Future<void> _deleteSession(String id) async {
     try {
       final f = await _sessionFile(id);
       if (await f.exists()) await f.delete();
@@ -523,7 +541,12 @@ class CoachEngine {
       final f = await _indexFile();
       await f.writeAsString(jsonEncode(metas.map((m) => m.toJson()).toList()));
     } catch (_) {}
-    if (id == _sessionId) newSession();
+    if (id == _sessionId) {
+      // A reply still coming in belongs to the chat just deleted; its save
+      // would write that chat back under a new id.
+      if (_sending > 0) _discardUnsaved = true;
+      newSession();
+    }
   }
 
   String _deriveTitle() {
