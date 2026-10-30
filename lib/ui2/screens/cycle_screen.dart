@@ -326,13 +326,21 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
     await _load();
   }
 
+  /// The toggle happens against the stored row, in the store, so two chips
+  /// tapped before the reload lands both count — toggling against `_d` here let
+  /// the second write REPLACE the first.
   Future<void> _toggleSymptom(String s) async {
     final repo = context.read<AppState>().repo;
-    final d = _d;
-    if (repo == null || d == null) return;
-    final now = [...?d.symptoms[_date]];
-    now.contains(s) ? now.remove(s) : now.add(s);
-    await repo.postCycleSymptoms(_date, now);
+    if (repo == null || _d == null) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final failed = AppLocalizations.of(context)?.journalComposeSaveFailed ??
+        'Could not save it — check storage and retry.';
+    try {
+      await repo.toggleCycleSymptom(_date, s);
+    } catch (_) {
+      messenger?.showSnackBar(SnackBar(content: Text(failed)));
+    }
+    if (!mounted) return;
     await _load();
   }
 

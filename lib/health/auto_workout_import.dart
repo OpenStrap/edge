@@ -113,6 +113,9 @@ class AutoWorkoutImport {
       }
       return AutoImportOutcome.ran;
     } catch (_) {
+      // A read that threw is not a pass that ran. The stamp above still holds
+      // it off for the interval, so a store refusing on quota is not hammered
+      // on every foreground.
       return AutoImportOutcome.skipped;
     }
   }

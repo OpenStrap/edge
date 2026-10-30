@@ -62,6 +62,50 @@ void main() {
         }),
       );
 
+  test('a logged nap over the end of the main sleep is refused', () async {
+    // The night ran 02:00 to 10:15; logging 10:00-10:30 as a nap would credit
+    // the 15 minutes the night already counts a second time.
+    await LocalDb.putDayResult(
+      dayId: day,
+      algoVersion: kAlgoVersion,
+      windowJson: '{}',
+      finalized: true,
+      payloadJson: jsonEncode({
+        'scalars': {'nap_min': 0},
+        'naps': {'value': [], 'count': 0},
+        'sleep': {
+          'window': {
+            'value': {
+              'onset_ms': (start - 8 * 3600) * 1000,
+              'offset_ms': (start + 900) * 1000,
+            },
+          },
+        },
+      }),
+    );
+    expect(await LocalDb.napOverlapsMainSleep(start, start + 1800), isTrue);
+    await expectLater(
+      LocalDb.putNapEdit(
+        dayId: day,
+        startTs: start,
+        endTs: start + 1800,
+        source: 'manual',
+      ),
+      throwsA(isA<ActivityReviewException>()),
+    );
+    expect(await LocalDb.napEdits(day), isEmpty);
+    // The part after getting up is still a nap.
+    expect(await LocalDb.napOverlapsMainSleep(start + 900, start + 1800),
+        isFalse);
+    await LocalDb.putNapEdit(
+      dayId: day,
+      startTs: start + 900,
+      endTs: start + 1800,
+      source: 'manual',
+    );
+    expect(await LocalDb.napEdits(day), hasLength(1));
+  });
+
   test('a normal absent sleep window permits new nap detection', () async {
     await result(day, absentSleep: true);
     expect(

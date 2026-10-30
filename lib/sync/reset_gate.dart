@@ -55,10 +55,28 @@ class ResetGate {
   /// throws).
   static bool get active => _depth > 0;
 
+  /// Bumped by every [enter], never lowered.
+  ///
+  /// [active] only covers the reset itself. A session that STARTED before it
+  /// can still be parked when the gate lowers again: an Oura sync queued on
+  /// the secondary-link slot, a scale connect still waiting on the radio, a
+  /// workout stop awaiting its route flush. Each of those would then connect
+  /// or write into the fresh store with ids from the deleted one. They
+  /// capture this at start and check [changedSince] before writing.
+  static int _generation = 0;
+  static int get generation => _generation;
+
+  /// True while a reset runs, or if one ran at any point after [generation]
+  /// was read as [gen].
+  static bool changedSince(int gen) => active || _generation != gen;
+
   /// Raise before the wipe. Pair with [leave] in a `finally`: a half-reset
   /// install that silently drops every record is worse than the race this
   /// closes.
-  static void enter() => _depth++;
+  static void enter() {
+    _depth++;
+    _generation++;
+  }
 
   /// Clamped at zero rather than allowed to go negative: an unbalanced [leave]
   /// is a bug, but one that drove the count below zero would make the NEXT

@@ -145,6 +145,58 @@ void main() {
     });
   });
 
+  group('scheduleExpectsAlarmTonight', () {
+    // 2026-08-19 is a Wednesday; tomorrow (Thu) is weekday index 3.
+    List<AlarmScheduleEntry> only(int weekday, {int hour = 7}) =>
+        fillDefaultAlarmSchedule([
+          AlarmScheduleEntry(weekday: weekday, hour: hour, minute: 0),
+        ]);
+
+    test('nobody ever set an alarm — nothing expected', () {
+      expect(
+          scheduleExpectsAlarmTonight(
+              fillDefaultAlarmSchedule(const []), DateTime(2026, 8, 19, 12)),
+          isFalse);
+    });
+
+    test("tomorrow morning's slot enabled — expected", () {
+      expect(scheduleExpectsAlarmTonight(only(3), DateTime(2026, 8, 19, 12)),
+          isTrue);
+    });
+
+    test('tomorrow deliberately off (weekdays-only on a Friday) — not '
+        'expected', () {
+      // 2026-08-21 is a Friday; Mon–Fri enabled, Sat off.
+      final sched = fillDefaultAlarmSchedule([
+        for (var w = 0; w < 5; w++)
+          AlarmScheduleEntry(weekday: w, hour: 7, minute: 0),
+      ]);
+      expect(scheduleExpectsAlarmTonight(sched, DateTime(2026, 8, 21, 12)),
+          isFalse);
+    });
+
+    test("this morning's still-ahead alarm does not hide tomorrow's", () {
+      final sched = fillDefaultAlarmSchedule([
+        const AlarmScheduleEntry(weekday: 2, hour: 7, minute: 0),
+        const AlarmScheduleEntry(weekday: 3, hour: 7, minute: 0),
+      ]);
+      expect(
+          scheduleExpectsAlarmTonight(sched, DateTime(2026, 8, 19, 6, 30)),
+          isTrue);
+      // Only this morning's slot: tonight has none.
+      expect(
+          scheduleExpectsAlarmTonight(only(2), DateTime(2026, 8, 19, 6, 30)),
+          isFalse);
+    });
+
+    test('an afternoon slot tomorrow is not tonight', () {
+      expect(
+          scheduleExpectsAlarmTonight(
+              only(3, hour: 14), DateTime(2026, 8, 19, 12)),
+          isFalse);
+    });
+  });
+
   group('alarmArmsTonight', () {
     // Wednesday 2026-08-19, 19:00 — the 7pm check-in instant.
     final now = DateTime(2026, 8, 19, 19, 0);

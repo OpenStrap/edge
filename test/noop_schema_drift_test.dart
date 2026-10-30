@@ -387,5 +387,67 @@ void main() {
           f.path, const Profile(), DerivationEngine());
       expect(res.days, greaterThan(0));
     }, timeout: const Timeout(Duration(minutes: 5)));
+
+    /// Two adjacent days of 300 s each, with [bad] raw lines spliced in
+    /// between them (written verbatim: a µs-scaled unix_s would overflow the
+    /// ISO column `_row` builds).
+    File twoDaysWith(String name, int t0, List<String> bad) {
+      final b = StringBuffer()..writeln(_header);
+      void day(int start) {
+        for (var i = 0; i < 300; i++) {
+          b.writeln(_row(start + i, 'hr', hr: '65'));
+          b.writeln(
+              _row(start + i, 'gravity', gx: '0.1', gy: '0.2', gz: '0.97'));
+        }
+      }
+
+      day(t0);
+      bad.forEach(b.writeln);
+      day(t0 + 86400);
+      return File(p.join(tmp.path, name))..writeAsStringSync(b.toString());
+    }
+
+    test('a millisecond-scaled unix_s does not strand the rest of the file',
+        () async {
+      // One ms-scaled row used to open a date ~53,000 years out; every real
+      // day after it was then "older" than the high-water date and stranded.
+      const t0 = 1789030800; // 2026-09-10T09:00:00Z
+      final f = twoDaysWith('ms.csv', t0, [
+        '1700000000000,x,event,,,,,,,,,,,,,,BATTERY_LEVEL(3),',
+        '1700000000001,x,hr,70,,,,,,,,,,,,,,',
+      ]);
+      final res = await NoopImporter.importFile(
+          f.path, const Profile(), DerivationEngine());
+      expect(res.strandedDates, isEmpty);
+      expect(res.days, 2);
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('an RTC-unset unix_s does not blank the day it lands in', () async {
+      // A 1970 sample buffered mid-file stretched the next Substrate past the
+      // 400-day calendarDays guard, so the real day derived nothing.
+      const t0 = 1789203600; // 2026-09-12T09:00:00Z
+      final f = twoDaysWith('rtc.csv', t0, [
+        _row(250000, 'hr', hr: '70'),
+        _row(250001, 'gravity', gx: '0.1', gy: '0.2', gz: '0.97'),
+      ]);
+      final res = await NoopImporter.importFile(
+          f.path, const Profile(), DerivationEngine());
+      expect(res.strandedDates, isEmpty);
+      expect(res.days, 2);
+      final db = await LocalDb.instance;
+      final rows = await db.rawQuery(
+          "SELECT 1 FROM day_result WHERE day_id LIKE '1970-%' LIMIT 1");
+      expect(rows, isEmpty);
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('a microsecond-scaled unix_s is skipped, not a RangeError', () async {
+      const t0 = 1789376400; // 2026-09-14T09:00:00Z
+      final f = twoDaysWith('us.csv', t0, [
+        '1700000000000000,x,hr,70,,,,,,,,,,,,,,',
+      ]);
+      final res = await NoopImporter.importFile(
+          f.path, const Profile(), DerivationEngine());
+      expect(res.days, 2);
+    }, timeout: const Timeout(Duration(minutes: 5)));
   });
 }

@@ -131,6 +131,11 @@ class FiredKeyStore {
         // claim table permanently ignorant of a fire it should own.
         if (p.getBool('$_prefix$dedupeKey') ?? false) return false;
         await p.setBool('$_prefix$dedupeKey', true);
+        // The mirror is written on every fire, so it needs the same prune as
+        // the table. Pruning only in degraded mode left one prefs key per fire
+        // forever on any device with a working DB, and the whole prefs file is
+        // parsed at cold start and on every reload() above.
+        await _prunePrefs(p);
       }
       await LocalDb.pruneNotifFired(_cutoffLabel());
     } catch (_) {/* bookkeeping is best-effort — the claim stands */}
@@ -206,7 +211,7 @@ class FiredKeyStore {
   }
 
   /// Drop dated mirror flags older than [retentionDays]. Best-effort and cheap:
-  /// it only runs after a real fire (rare), and a slightly stale view just
+  /// it only runs after a won claim (rare), and a slightly stale view just
   /// prunes a little late. Keys without a leading YYYY-MM-DD are left untouched.
   static Future<void> _prunePrefs(SharedPreferences p) async {
     try {

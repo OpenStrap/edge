@@ -298,6 +298,42 @@ class ActivityStore {
       whereArgs: [e, s],
     );
     if (naps.isNotEmpty) return true;
+    for (final b in await _nightsAround(tx, s, e)) {
+      // Before its first recompute, a pre-upgrade nap still lives only in the
+      // day bundle. It is already logged and takes precedence just as a nap
+      // that has been copied into the accepted-record table does.
+      final legacy = (b['naps'] as Map?)?['value'];
+      if (legacy is List) {
+        for (final nap in legacy.whereType<Map>()) {
+          final ns = nap['start'] as num?, ne = nap['end'] as num?;
+          if (ns != null && ne != null && s < ne && e > ns) return true;
+        }
+      }
+      if (_mainSleepOverlaps(b, s, e)) return true;
+    }
+    return (await _overlappingSessions(tx, s, e)).isNotEmpty;
+  }
+
+  /// Whether [s, e) overlaps a main sleep the derived history already holds —
+  /// the night that ends on [s]'s date, or the one that begins that evening
+  /// and belongs to tomorrow. A nap logged inside one is time the night's TST
+  /// already counts, and every reader sums naps on top of it.
+  static Future<bool> overlapsMainSleep(
+    DatabaseExecutor tx,
+    int s,
+    int e,
+  ) async {
+    for (final b in await _nightsAround(tx, s, e)) {
+      if (_mainSleepOverlaps(b, s, e)) return true;
+    }
+    return false;
+  }
+
+  static Future<List<Map>> _nightsAround(
+    DatabaseExecutor tx,
+    int s,
+    int e,
+  ) async {
     final day = dayLabelOf(DateTime.fromMillisecondsSinceEpoch(s * 1000));
     final end = DateTime.fromMillisecondsSinceEpoch(e * 1000);
     // An evening interval can overlap the main sleep owned by tomorrow's
@@ -309,27 +345,17 @@ class ActivityStore {
         (SELECT MAX(r.algo_version) FROM day_result r WHERE r.day_id = d.day_id AND r.algo_version <= ?)''',
       [day, next, kAlgoVersion],
     );
-    for (final r in nights) {
-      final b = jsonDecode(r['payload_json'] as String) as Map;
-      // Before its first recompute, a pre-upgrade nap still lives only in the
-      // day bundle. It is already logged and takes precedence just as a nap
-      // that has been copied into the accepted-record table does.
-      final legacy = (b['naps'] as Map?)?['value'];
-      if (legacy is List) {
-        for (final nap in legacy.whereType<Map>()) {
-          final ns = nap['start'] as num?, ne = nap['end'] as num?;
-          if (ns != null && ne != null && s < ne && e > ns) return true;
-        }
-      }
-      final value = ((b['sleep'] as Map?)?['window'] as Map?)?['value'];
-      // Absent metric envelopes store '—', not a window object.
-      final w = value is Map ? value : null;
-      final ns = w?['onset_ms'] as num?, ne = w?['offset_ms'] as num?;
-      if (ns != null && ne != null && s * 1000 < ne && e * 1000 > ns) {
-        return true;
-      }
-    }
-    return (await _overlappingSessions(tx, s, e)).isNotEmpty;
+    return [
+      for (final r in nights) jsonDecode(r['payload_json'] as String) as Map,
+    ];
+  }
+
+  static bool _mainSleepOverlaps(Map bundle, int s, int e) {
+    final value = ((bundle['sleep'] as Map?)?['window'] as Map?)?['value'];
+    // Absent metric envelopes store '—', not a window object.
+    final w = value is Map ? value : null;
+    final ns = w?['onset_ms'] as num?, ne = w?['offset_ms'] as num?;
+    return ns != null && ne != null && s * 1000 < ne && e * 1000 > ns;
   }
 
   static Future<void> supersede(

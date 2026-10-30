@@ -1836,6 +1836,22 @@ void sayUnreadable(BuildContext c, List<String> fields) {
   );
 }
 
+/// Say which fields hold a number that cannot be a real body — a birth year
+/// in the age box, feet.inches in an inches box. Same contract as
+/// [sayUnreadable]: the form stops and nothing is saved.
+void sayImplausible(BuildContext c, List<String> fields) {
+  if (fields.isEmpty) return;
+  final joined = fields.join(', ');
+  ScaffoldMessenger.of(c).showSnackBar(
+    SnackBar(
+      content: Text(
+        AppLocalizations.of(c)?.profileImplausibleFields(joined) ??
+            'Check $joined: out of range, so nothing was saved.',
+      ),
+    ),
+  );
+}
+
 /// The one destructive confirm. Names what goes and what stays, and there is
 /// no undo behind any caller of it.
 ///
