@@ -3,8 +3,10 @@
   grid; the provider swaps layouts by live size (12+) or min width (below).
   updatePeriodMillis only re-renders the cached snapshot (no network on Android)
   so the theme and staleness stay honest when the app hasn't run for a while.
-  6 h, not 30 min: the 26 h staleness mute moves once a day at most, real
-  content arrives via app pushes, and each alarm starts the process.
+  30 min (the platform floor), same as the sleep and overnight widgets: the
+  26 h staleness mute is only evaluated when the widget renders, so the
+  cadence is how long a snapshot past that line keeps showing as current.
+  At 6 h a phone that stopped syncing showed yesterday's rings for up to 32 h.
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="250dp"
@@ -14,7 +16,7 @@
     android:targetCellWidth="4"
     android:targetCellHeight="2"
     android:resizeMode="horizontal|vertical"
-    android:updatePeriodMillis="21600000"
+    android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget_openstrap"
     android:previewLayout="@layout/widget_openstrap"
     android:description="@string/widget_openstrap_description"

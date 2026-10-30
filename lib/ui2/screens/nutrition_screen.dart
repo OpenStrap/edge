@@ -58,6 +58,12 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   String get _date => todayLabel();
   NutritionWindow? _week;
   Metric? _burned;
+
+  /// Whole-day total burn per local day label, for the weekly balance. Kept
+  /// apart from [_burned], which is today's running total and only fits the
+  /// per-day card.
+  Map<String, double> _burnedByDate = const {};
+  Map<String, double> _wornMinByDate = const {};
   double? _waterMl;
   /// The day [_waterMl] was read for. Past midnight on a tab nobody reloaded
   /// it is still yesterday's, and a full yesterday disabled today's + button.
@@ -87,6 +93,17 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final app = context.read<AppState>();
     final db = await LocalDb.instance;
     final week = await NutritionDb.window(db, days: 7);
+    final weekDates = {for (final d in week.days) d.date};
+    // Measured days only: an imported vendor total is a different estimate,
+    // and averaging it with ours mixes two scales in one figure.
+    Map<String, double> weekOf(List<Map<String, dynamic>> rows) => {
+          for (final r in rows)
+            if (weekDates.contains(r['date']))
+              r['date'] as String: (r['value'] as num).toDouble(),
+        };
+    final burnedByDate = weekOf(
+        await LocalDb.metricSeries('calories_total', measuredOnly: true));
+    final wornMinByDate = weekOf(await LocalDb.metricSeries('worn_min'));
     Metric? burned;
     double? water;
     final date = _date;
@@ -101,6 +118,8 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     setState(() {
       _week = week;
       _burned = burned;
+      _burnedByDate = burnedByDate;
+      _wornMinByDate = wornMinByDate;
       _waterMl = water;
       _waterDate = date;
       _profile = {...?app.user};
@@ -157,24 +176,25 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
       // out is what "no answer today" looks like on disk — and spreading the
       // old map back in is exactly what made this un-clearable.
       final date = _date;
-      final fields = {...await repo.getJournalMetrics(date)};
-      final v = fields.remove('water_ml')?.value;
       final spec = _waterSpec;
       double? next;
-      if (dir > 0) {
-        next = ((v ?? 0) + spec.step).clamp(0, spec.max).toDouble();
-      } else {
-        final down = (v ?? 0) - spec.step;
-        next = down <= 0 ? (v == null || v == 0 ? null : 0.0) : down;
-      }
+      await repo.editJournalMetrics(date, (fields) {
+        final v = fields.remove('water_ml')?.value;
+        if (dir > 0) {
+          next = ((v ?? 0) + spec.step).clamp(0, spec.max).toDouble();
+        } else {
+          final down = (v ?? 0) - spec.step;
+          next = down <= 0 ? (v == null || v == 0 ? null : 0.0) : down;
+        }
+        final n = next;
+        if (n != null) fields['water_ml'] = JournalMetricValue(n);
+      });
       if (mounted) {
         setState(() {
           _waterMl = next;
           _waterDate = date;
         });
       }
-      if (next != null) fields['water_ml'] = JournalMetricValue(next);
-      await repo.postJournalMetrics(date, fields);
       await _load();
     } finally {
       // Cleared unconditionally; the setState is only for the repaint. Gating
@@ -369,6 +389,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final w = _week;
     if (w == null) return const SizedBox.shrink();
     final counted = w.counted.length;
+    final balance = weeklyEnergyBalance(w, _burnedByDate, _wornMinByDate);
     // PARTIAL, not "excluded": today is excluded from the averages too, and it
     // is not partial — a day cannot be judged incomplete while it is still
     // happening (see `DayLogState.inProgress`).
@@ -414,7 +435,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                   ),
                 ),
         ),
-        if (counted > 0 && w.meanKcal.value != null && _burned?.value != null)
+        if (balance != null)
           Section(
             l?.nutritionEnergyBalance ?? 'Energy balance',
             Surface(
@@ -423,20 +444,20 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                 children: [
                   InlineMetrics([
                     (l?.nutritionLabelEaten ?? 'EATEN',
-                        '${w.meanKcal.value!.round()} kcal', C.domFood),
+                        '${balance.eaten.round()} kcal', C.domFood),
                     (l?.nutritionLabelBurned ?? 'BURNED',
-                        '${_burned!.value!.round()} kcal', C.purple),
+                        '${balance.burned.round()} kcal', C.purple),
                     (
                       l?.nutritionLabelBalance ?? 'BALANCE',
-                      '${(w.meanKcal.value! - _burned!.value!).round()} kcal',
+                      '${balance.balance.round()} kcal',
                       C.teal,
                     ),
                   ]),
                   const SizedBox(height: S.x3),
                   Text(
-                    l?.nutritionEatenMeanNote(w.meanKcal.days) ??
-                        'Eaten is the mean of ${w.meanKcal.days} complete '
-                            'days. Burned is today only.',
+                    l?.nutritionEatenMeanNote(balance.days) ??
+                        'Eaten and burned are both means over the same '
+                            '${balance.days} complete days.',
                     style: F.cap.copyWith(color: P.of(c).ink3, height: 1.45),
                   ),
                 ],

@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/csv_export.dart';
 import 'package:openstrap_edge/import/journal_csv_import.dart';
@@ -130,5 +133,15 @@ void main() {
   test('a note that legitimately begins with an apostrophe is untouched', () {
     final p = parse("date,tags,note\n2026-01-01,a,'twas fine\n");
     expect(p.rows.single.note, "'twas fine");
+  });
+  test('a cp1252 file out of a spreadsheet fails as a FormatException, before '
+      'any write', () async {
+    // The import router falls back to the lenient vendor importer only on
+    // FormatException; File.readAsString would throw FileSystemException here.
+    final dir = await Directory.systemTemp.createTemp('csv_cp1252_');
+    addTearDown(() => dir.delete(recursive: true));
+    final path = '${dir.path}/export.csv';
+    await File(path).writeAsBytes(latin1.encode('date,tags,note\n2026-10-01,alcohol,caf\u00e9\n'));
+    await expectLater(importJournalCsvFile(path), throwsA(isA<FormatException>()));
   });
 }

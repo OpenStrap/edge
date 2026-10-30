@@ -126,7 +126,36 @@ void main() {
       'recursive statement with a non-recursive sibling CTE':
           'WITH RECURSIVE a AS (SELECT 1 x), b(n) AS (SELECT 1 UNION ALL '
           'SELECT n+1 FROM b) SELECT * FROM a, b',
+      // RECURSIVE is optional in SQLite: a CTE that names itself in its own
+      // body recurses anyway, so dropping the keyword must not get past.
+      'self-referencing CTE without the RECURSIVE keyword':
+          'WITH x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM x) '
+          'SELECT count(*) FROM x JOIN v_daily ON 1=0',
+      'unbounded date generator, termination only in the outer WHERE':
+          "WITH d(day) AS (SELECT '2026-01-01' UNION ALL "
+          "SELECT date(day,'+1 day') FROM d) SELECT * FROM d "
+          "JOIN v_daily ON v_daily.date=d.day WHERE d.day<'2026-02-01'",
+      'self-reference via JOIN inside the CTE body':
+          'WITH x(n) AS (SELECT 1 UNION ALL SELECT x.n+1 FROM v_daily '
+          'JOIN x ON 1=1) SELECT * FROM x',
+      'self-reference in a comma table list, second CTE':
+          'WITH a AS (SELECT 1 n), b(n) AS (SELECT 1 UNION ALL '
+          'SELECT b.n+1 FROM a, b) SELECT * FROM b',
     };
+
+    test('a CTE reading an EARLIER sibling CTE is still allowed', () {
+      expect(
+          CoachDb.guardAndPrepare('WITH a AS (SELECT date d FROM v_daily), '
+              'b AS (SELECT d FROM a) SELECT * FROM b'),
+          contains('LIMIT'));
+    });
+
+    test('a column sharing the CTE name is not mistaken for recursion', () {
+      expect(
+          CoachDb.guardAndPrepare(
+              'WITH d AS (SELECT date AS d FROM v_daily) SELECT d FROM d'),
+          contains('LIMIT'));
+    });
 
     test('DELIBERATE TRADE-OFF: "recursive" is unusable as a CTE/alias name', () {
       // The RECURSIVE ban is a blanket token match, not position-sensitive —

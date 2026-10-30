@@ -76,6 +76,25 @@ void main() {
     });
   });
 
+  group('unit of a stored result', () {
+    final glucose = kLabMarkersByKey['glucose_fasting']!;
+
+    test('a result in another unit is not judged against the interval', () {
+      // 5.4 mmol/L is a normal fasting glucose; against 70–99 mg/dL it would
+      // read as far out of range.
+      expect(glucose.unit, 'mg/dL');
+      expect(glucose.judgesUnit('mmol/L'), isFalse);
+      expect(glucose.judgesUnit('mg/dl'), isFalse);
+    });
+
+    test('the catalogue unit, or none stored, is judged', () {
+      expect(glucose.judgesUnit('mg/dL'), isTrue);
+      expect(glucose.judgesUnit(' mg/dL '), isTrue);
+      expect(glucose.judgesUnit(null), isTrue);
+      expect(glucose.judgesUnit(''), isTrue);
+    });
+  });
+
   group('range selection', () {
     final ferritin = kLabMarkersByKey['ferritin']!;
     final hba1c = kLabMarkersByKey['hba1c']!;

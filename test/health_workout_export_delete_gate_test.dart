@@ -164,19 +164,32 @@ void main() {
     });
   });
 
-  group('healthWorkoutCaloriesToSubtract', () {
-    test('a private session stays in the day\'s active energy', () {
-      // Its WORKOUT sample is never written, so subtracting it too would drop
-      // its calories out of Health entirely.
-      expect(
-        healthWorkoutCaloriesToSubtract([
-          {..._session(), 'calories': 400, 'private': 1},
-          {..._session(), 'calories': 100},
-          {..._session(), 'calories': 50, 'status': 'live'},
-          {..._session(), 'calories': 30, 'end_ts_fabricated': 1},
-        ]),
-        100,
-      );
+  group('sessions scored from an imported workout', () {
+    // The import's original is already in the health store; the day export
+    // writing the scored copy as well listed the workout twice.
+    late _FakeHealthStore store;
+
+    tearDown(() => store.remove());
+
+    test('are never written to the health store', () async {
+      store = _FakeHealthStore(deleteResult: true)..install();
+
+      final ok = await HealthExporter().exportWorkout(
+          {..._session(), 'source': kScoredImportSessionSource});
+
+      expect(ok, isFalse);
+      expect(store.calls, isNot(contains('writeWorkoutData')));
+      expect(store.calls, isNot(contains('delete')));
+    });
+
+    test('an ordinary manual session still is', () async {
+      store = _FakeHealthStore(deleteResult: true)..install();
+
+      final ok = await HealthExporter()
+          .exportWorkout({..._session(), 'source': 'manual'});
+
+      expect(ok, isTrue);
+      expect(store.calls, contains('writeWorkoutData'));
     });
   });
 

@@ -20,7 +20,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:openstrap_analytics/onehz.dart' show journalFieldLagDays;
 import 'package:provider/provider.dart';
 
 import '../../data/db.dart';
@@ -445,13 +444,13 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
       // field written since. Open Wellness, go and write your journal from the
       // compose screen, come back without the tab reloading, tick one habit,
       // and the journal entry was gone.
-      final next = {...await repo.getJournalMetrics(_date)};
-      if (v == null) {
-        next.remove(key);
-      } else {
-        next[key] = JournalMetricValue(v);
-      }
-      await repo.postJournalMetrics(_date, next);
+      await repo.editJournalMetrics(_date, (next) {
+        if (v == null) {
+          next.remove(key);
+        } else {
+          next[key] = JournalMetricValue(v);
+        }
+      });
       await _wrote();
     } finally {
       if (mounted) setState(() => _writingField = false);
@@ -1008,8 +1007,9 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
       for (final sch in s.def.schedule)
         if (sch.minuteOfDay != s.slotMin) sch,
     ];
+    final db = await LocalDb.instance;
     await MedDb.putDef(
-      await LocalDb.instance,
+      db,
       MedDef(
         key: s.def.key,
         label: s.def.label,
@@ -1022,6 +1022,16 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
         schedule: [...rest, MedSchedule(picked.minuteOfDay, picked.days)],
       ),
     );
+    // Another slot already at the picked minute owns the doses there; merging
+    // this slot's history into it would count them twice.
+    if (!rest.any((sch) => sch.minuteOfDay == picked.minuteOfDay)) {
+      await MedDb.retimeSlot(
+        db,
+        medKey: s.def.key,
+        fromMin: s.slotMin,
+        toMin: picked.minuteOfDay,
+      );
+    }
     await _wrote();
   }
 
@@ -1061,15 +1071,13 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
     // on screen, produced by the app rather than by the person.
     final picked = await pickMedSchedule(c);
     if (picked == null || !mounted) return;
-    await MedDb.putDef(
+    // A new medication's dose is left null — "as directed" is a real answer,
+    // and demanding a number to get a reminder is how a checklist stops being
+    // used. An existing one keeps its dose and gains this time.
+    await MedDb.addScheduledTime(
       await LocalDb.instance,
-      MedDef(
-        key: MedDb.keyFor(name),
-        label: name,
-        // Dose is left null — "as directed" is a real answer, and demanding a
-        // number to get a reminder is how a checklist stops being used.
-        schedule: [MedSchedule(picked.minuteOfDay, picked.days)],
-      ),
+      name,
+      MedSchedule(picked.minuteOfDay, picked.days),
     );
     await _wrote();
   }
@@ -1701,11 +1709,7 @@ class _JournalFindingsState extends State<JournalFindings> {
   String _alignment(AppLocalizations? l, Map<String, dynamic> r) {
     // Read from the same constant analytics paired on, so the sentence cannot
     // drift away from the arithmetic.
-    final field = (r['field'] ?? '').toString();
-    // The two derived caffeine-timing keys carry caffeine's own lag.
-    final lag =
-        journalFieldLagDays[field] ??
-        (field.startsWith('caffeine') ? journalFieldLagDays['caffeine'] : null);
+    final lag = journalFieldLag((r['field'] ?? '').toString());
     if (lag == null) {
       return l?.wellnessMatchedSameDay ?? 'Matched against the same day\'s numbers.';
     }

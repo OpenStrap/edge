@@ -39,7 +39,7 @@
   "pairingNotFoundAdviceFix": "Закройте другое приложение и повторите поиск",
   "pairingBondRefusedAdviceTitle": "Сначала удалите браслет в настройках Bluetooth",
   "pairingBondRefusedAdviceBody": "В настройках Bluetooth телефона забудьте браслет и снова запустите поиск здесь. Старую запись о сопряжении может удалить только система.",
-  "pairingBondRefusedAdviceFix": "Открыть настройки Bluetooth",
+  "pairingBondRefusedAdviceFix": "Затем вернитесь и нажмите «Повторить»",
   "pairingFailedAdviceTitle": "Браслет найден, но подключение не завершилось",
   "pairingFailedAdviceBody": "Обычно помогает повторный поиск с расстояния около метра.",
   "profileSetupTitle": "О вас",
@@ -821,6 +821,7 @@
   "napsWokeUpHelp": "КОГДА ВЫ ПРОСНУЛИСЬ",
   "napsInvalidWindow": "Дневной сон длится от 5 минут до 6 часов. Более долгий сон относится к ночному, где можно просмотреть его стадии.",
   "napsOverlap": "Этот период пересекается с уже записанным дневным сном. Сначала удалите прежнюю запись, чтобы не учитывать одно время дважды.",
+  "napsOverlapsSleep": "Этот период пересекается с основным сном, который уже учитывает это время. Запишите только часть после подъёма или исправьте ночь.",
   "napsNotReanalysed": "Повторный анализ дня не выполнен: уже идёт другой анализ. Изменение сохранено и будет учтено в следующий раз.",
   "napsTitle": "Дневной сон",
   "napsNoReadingTitle": "Нет данных о дневном сне за этот день",
@@ -1726,7 +1727,7 @@
   "nutritionLabelEaten": "СЪЕДЕНО",
   "nutritionLabelBurned": "ПОТРАЧЕНО",
   "nutritionLabelBalance": "БАЛАНС",
-  "nutritionEatenMeanNote": "Съедено — среднее за {days} полных дней. Израсходовано — только за сегодня.",
+  "nutritionEatenMeanNote": "Съедено и израсходовано — средние за {days, plural, one{{days} полный день} few{одни и те же {days} полных дня} many{одни и те же {days} полных дней} other{одни и те же {days} полного дня}}.",
   "@nutritionEatenMeanNote": {
     "placeholders": {
       "days": {
@@ -3908,6 +3909,11 @@
   "sleepDetailBedTimeHelp": "КОГДА ВЫ ЛЕГЛИ В ПОСТЕЛЬ",
   "sleepDetailWakeTimeHelp": "КОГДА ВЫ ВСТАЛИ",
   "sleepDetailReanalyseFailed": "Ночь не пересчитана: шёл другой пересчёт или произошла ошибка. Время сохранено: откройте «Ваши данные» и запустите повторный анализ.",
+  "sleepDetailWindowUnrecorded": "Время сохранено, но браслет почти всё это время ничего не записывал (был снят или заряжался), поэтому оценивать нечего.",
+  "sleepDetailWindowNoSleep": "Время сохранено, но в записях браслета за эти часы нет сна, который можно оценить.",
+  "sleepDetailNightUnrecorded": "Пульс указывает на ночной сон, но большую часть ночи браслет записал слишком мало данных о движении, поэтому оценивать нечего.",
+  "sleepDetailCorrectionUnavailable": "Подробные записи этой ночи уже удалены с телефона, поэтому её сон больше нельзя исправить.",
+  "sleepDetailCorrectionEveningPruned": "Вечер перед этой ночью уже удалён с телефона, поэтому можно применить только время отхода ко сну после полуночи или «Не сон».",
   "sleepDetailNoHypnogramTitle": "За эту ночь гипнограммы нет",
   "sleepDetailNoHypnogramBody": "Для определения стадий нужны движение и межударные интервалы. Одного из источников не было.",
   "sleepDetailThroughTheNight": "В течение ночи",
@@ -5361,6 +5367,11 @@
   "settingsGroupAutomation": "Автоматизация",
   "settingsDoubleTapRowTitle": "Двойное касание",
   "settingsDoubleTapRowSub": "Действие при двойном касании браслета",
+  "settingsKeepAliveRowTitle": "Синхронизация в фоне",
+  "settingsKeepAliveRowSub": "Чтобы экономия заряда не останавливала ночную синхронизацию",
+  "settingsKeepAliveAllow": "Разрешить",
+  "settingsAutostartRowTitle": "Разрешить автозапуск",
+  "settingsAutostartRowSub": "Производитель этого телефона требует ещё одну настройку, чтобы приложение синхронизировалось ночью",
   "settingsTaskerShortcutsRowTitle": "Tasker и Команды",
   "settingsTaskerShortcutsRowSub": "Передача событий — только на Android. В iOS команда может вызвать вибрацию, но браслет не может её запустить",
   "settingsGroupPrivacy": "Конфиденциальность",
@@ -5529,7 +5540,7 @@
   "bandStatusBluetoothUnsupportedTitle": "Телефон не поддерживает Bluetooth Low Energy",
   "bandStatusBluetoothUnsupportedReason": "Браслет подключается только через Bluetooth Low Energy. Импортированные данные доступны, подключение в реальном времени — нет.",
   "bandStatusReconnectPausedTitle": "Повторное подключение приостановлено",
-  "bandStatusReconnectPausedReason": "Браслет отклонил ключ сопряжения {n, plural, one{{n} раз} few{{n} раза} many{{n} раз} other{{n} раза}} подряд, и приложение прекратило попытки, чтобы беречь батарею. Без вашего действия подключения не будет.",
+  "bandStatusReconnectPausedReason": "Браслет отклонил ключ сопряжения {n, plural, one{{n} раз} few{{n} раза} many{{n} раз} other{{n} раза}} подряд, и приложение прекратило попытки, чтобы беречь батарею. Примерно через 30 минут оно само попробует снова.",
   "@bandStatusReconnectPausedReason": {
     "placeholders": {
       "n": {
@@ -5539,6 +5550,7 @@
   },
   "bandStatusRepairNeededTitle": "Браслет нужно подключить заново",
   "bandStatusRepairNeededReason": "Браслет отклоняет ключ шифрования телефона, поэтому данные не передаются. Записи на браслете в сохранности; сопрягите его заново.",
+  "bandStatusReconnectPausedFix": "Если пауза повторится, забудьте браслет в настройках Bluetooth телефона, затем выполните сопряжение здесь заново",
   "bandStatusRepairFix": "Забудьте браслет в настройках Bluetooth телефона, затем выполните сопряжение здесь заново",
   "bandStatusSyncStuckTitle": "Передача одного пакета записей не завершается",
   "bandStatusSyncStuckReason": "Браслет снова и снова отправляет тот же пакет: подтверждение приложения не доходит. Ничего не потеряно, всё уже сохранено здесь.",
@@ -5792,7 +5804,7 @@
   "tabNutrition": "Питание",
   "tabWorkout": "Тренировка",
   "tabWellness": "Самочувствие",
-  "activityCatalogueName": "{key, select, kcardio{Кардио} kstrength{Силовые} ksports{Спорт} kathletics{Лёгкая атлетика} koutdoor{На природе} kmindbody{Тело и внимание} keveryday{Повседневные дела} kother{Другое} krunning{Бег} ktrailrunning{Трейлраннинг} kwalking{Ходьба} khiking{Пеший поход} kcycling{Велоспорт} kindoorbike{Велотренажёр} krowing{Гребля} kswimming{Плавание} kelliptical{Эллиптический тренажёр} kstairclimber{Степпер} ktreadmill{Беговая дорожка} kjumprope{Прыжки со скакалкой} kweighttraining{Силовая тренировка} kpowerlifting{Пауэрлифтинг} kbodyweight{С собственным весом} kcalisthenics{Калистеника} kkettlebell{Гиря} kcrossfit{CrossFit} khiit{ВИИТ} kcircuittraining{Круговая тренировка} kfunctional{Функциональная тренировка} kfootball{Футбол} kbasketball{Баскетбол} kcricket{Крикет} ktennis{Теннис} kbadminton{Бадминтон} ktabletennis{Настольный теннис} ksquash{Сквош} kpadel{Падел} kvolleyball{Волейбол} khockey{Хоккей} kbaseball{Бейсбол} krugby{Регби} kgolf{Гольф} kbowling{Боулинг} kboxing{Бокс} kmartialarts{Боевые искусства} kwrestling{Борьба} kclimbing{Скалолазание} ksprinting{Спринт} ktrackintervals{Интервалы на стадионе} kcrosscountry{Кросс} khurdles{Бег с барьерами} klongjump{Прыжки в длину} kshotput{Толкание ядра} kjavelin{Метание копья} kpolevault{Прыжки с шестом} kmountainbiking{Горный велосипед} kkayaking{Каякинг} ksurfing{Сёрфинг} kpaddleboard{Сапбординг} kskiing{Лыжи} ksnowboarding{Сноуборд} kskating{Катание на коньках} kskateboarding{Скейтбординг} khorseriding{Верховая езда} kyoga{Йога} kpilates{Пилатес} kstretching{Растяжка} kmobility{Подвижность суставов} ktaichi{Тайцзи} kbreathwork{Дыхательная практика} kmeditation{Медитация} khousework{Домашние дела} kgardening{Садовые работы} kdogwalking{Прогулка с собакой} kchildcare{Уход за ребёнком} kdiy{Ремонт своими руками} kshopping{Покупки} kstairs{Подъём по лестнице} kgeneralworkout{Общая тренировка} kdancing{Танцы} kintimacy{Интимная близость} kphysiotherapy{Физиотерапия} ksauna{Сауна} kcoldplunge{Погружение в холодную воду} other{{name}}}",
+  "activityCatalogueName": "{key, select, kcardio{Кардио} kstrength{Силовые} ksports{Спорт} kathletics{Лёгкая атлетика} koutdoor{На природе} kmindbody{Тело и внимание} keveryday{Повседневные дела} kother{Другое} krunning{Бег} ktrailrunning{Трейлраннинг} kwalking{Ходьба} khiking{Пеший поход} kcycling{Велоспорт} kindoorbike{Велотренажёр} krowing{Гребля} kswimming{Плавание} kelliptical{Эллиптический тренажёр} kstairclimber{Степпер} ktreadmill{Беговая дорожка} kjumprope{Прыжки со скакалкой} kweighttraining{Силовая тренировка} kpowerlifting{Пауэрлифтинг} kbodyweight{С собственным весом} kcalisthenics{Калистеника} kkettlebell{Гиря} kcrossfit{CrossFit} khiit{ВИИТ} kcircuittraining{Круговая тренировка} kfunctional{Функциональная тренировка} kfootball{Футбол} kbasketball{Баскетбол} kcricket{Крикет} ktennis{Теннис} kbadminton{Бадминтон} ktabletennis{Настольный теннис} ksquash{Сквош} kpadel{Падел} kpickleball{Пиклбол} kvolleyball{Волейбол} khockey{Хоккей} kbaseball{Бейсбол} krugby{Регби} kgolf{Гольф} kbowling{Боулинг} kboxing{Бокс} kmartialarts{Боевые искусства} kwrestling{Борьба} kclimbing{Скалолазание} ksprinting{Спринт} ktrackintervals{Интервалы на стадионе} kcrosscountry{Кросс} khurdles{Бег с барьерами} klongjump{Прыжки в длину} kshotput{Толкание ядра} kjavelin{Метание копья} kpolevault{Прыжки с шестом} kmountainbiking{Горный велосипед} kkayaking{Каякинг} ksurfing{Сёрфинг} kpaddleboard{Сапбординг} kskiing{Лыжи} ksnowboarding{Сноуборд} kskating{Катание на коньках} kskateboarding{Скейтбординг} khorseriding{Верховая езда} kyoga{Йога} kpilates{Пилатес} kstretching{Растяжка} kmobility{Подвижность суставов} ktaichi{Тайцзи} kbreathwork{Дыхательная практика} kmeditation{Медитация} khousework{Домашние дела} kgardening{Садовые работы} kdogwalking{Прогулка с собакой} kchildcare{Уход за ребёнком} kdiy{Ремонт своими руками} kshopping{Покупки} kstairs{Подъём по лестнице} kgeneralworkout{Общая тренировка} kdancing{Танцы} kintimacy{Интимная близость} kphysiotherapy{Физиотерапия} ksauna{Сауна} kcoldplunge{Погружение в холодную воду} other{{name}}}",
   "@activityCatalogueName": {
     "placeholders": {
       "key": {
@@ -6710,6 +6722,7 @@
   "coachApiFormatHelp": "Выберите API, который поддерживает ваш сервер. Responses поддерживает рассуждения OpenAI с инструментами.",
   "coachApiFormatLabel": "API",
   "settingsResetBackupWarning": "Данные приложения удалены. Очистка резервных копий завершилась не полностью: некоторые файлы или доступ к папке могут остаться.",
+  "settingsResetPairingKeyWarning": "Данные приложения удалены, но ключ сопряжения датчика не удалось удалить из защищённого хранилища. Удалите всё ещё раз, чтобы повторить попытку.",
   "dataBackupFolder": "Папка резервных копий",
   "dataBackupFolderDefault": "Папка приложения (по умолчанию)",
   "dataBackupFolderSub": "Выберите, куда сохранять новые резервные копии. Существующие копии останутся на месте",
@@ -6743,6 +6756,7 @@
     }
   },
   "devicesOuraKeyRefused": "Кольцо отклонило ключ. Выполните сопряжение заново, чтобы установить ключ, который оно примет.",
+  "devicesBandKeyRefused": "Браслет отклонил ключ. Выполните сопряжение заново, чтобы установить ключ, который он примет.",
   "devicesOuraStorageFailed": "Не удалось полностью сохранить синхронизацию. Попробуйте синхронизировать ещё раз.",
   "devicesOuraProtocolTimeout": "Кольцо перестало отвечать во время синхронизации. Попробуйте синхронизировать ещё раз.",
   "devicesOuraCheckpointUnconfirmed": "Не удалось завершить синхронизацию. Попробуйте синхронизировать ещё раз.",
@@ -7485,6 +7499,15 @@
   },
   "reportDelete": "Удалить",
   "reportDeleteFailed": "Не удалось удалить. Попробуйте позже.",
+  "reportDeleteConfirmTitle": "Удалить сообщение {id}?",
+  "@reportDeleteConfirmTitle": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "reportDeleteConfirmBody": "Оно сразу удаляется с сервера, и открыть его по ID больше не получится. Отменить нельзя.",
   "reportSaveFailedTitle": "Не удалось поделиться сообщением",
   "reportSaveFailedBody": "Не удалось собрать или передать файл. Тикет не создан.",
   "reportSaveRetry": "Повторить",
@@ -7517,6 +7540,124 @@
     "placeholders": {
       "id": {
         "type": "String"
+      }
+    }
+  },
+  "dataReanalyzeFailed": "Повторный анализ не удался: {error}",
+  "@dataReanalyzeFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "dataReanalyzeDaysFailed": "{n, plural, one{Не удалось проанализировать {n} день. Если это повторяется, пожалуйста, сообщите об этом.} few{Не удалось проанализировать {n} дня. Если это повторяется, пожалуйста, сообщите об этом.} many{Не удалось проанализировать {n} дней. Если это повторяется, пожалуйста, сообщите об этом.} other{Не удалось проанализировать {n} дня. Если это повторяется, пожалуйста, сообщите об этом.}}",
+  "@dataReanalyzeDaysFailed": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "napsInFuture": "Этот дневной сон ещё не закончился. Запишите его, когда проснётесь.",
+  "notifRecoveryReadyBody": "Восстановление {score}.",
+  "@notifRecoveryReadyBody": {
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  },
+  "notifRecoveryReadySleptBody": "Восстановление {score}, сон {hours} ч {minutes} мин.",
+  "@notifRecoveryReadySleptBody": {
+    "placeholders": {
+      "score": {
+        "type": "int"
+      },
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "notifStepGoalBody": "Вы прошли около {steps} шагов — не меньше цели в {goal}.",
+  "@notifStepGoalBody": {
+    "placeholders": {
+      "steps": {
+        "type": "int"
+      },
+      "goal": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLowBatteryBody": "Заряд браслета {percent}%. Скоро зарядите его.",
+  "@notifLowBatteryBody": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "profileImplausibleFields": "Проверьте: {fields} — вне допустимого диапазона, поэтому ничего не сохранено.",
+  "@profileImplausibleFields": {
+    "placeholders": {
+      "fields": {
+        "type": "String"
+      }
+    }
+  },
+  "notifBatteryForecastBeforeWakeBody": "При расходе {rate}%/ч заряд кончится около {time} — до того, как вы проснётесь. Зарядите браслет сейчас, чтобы сохранить сегодняшний сон.",
+  "@notifBatteryForecastBeforeWakeBody": {
+    "placeholders": {
+      "rate": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "notifBatteryForecastReserveBody": "При расходе {rate}%/ч заряд кончится около {time}, вскоре после вашего обычного подъёма — к пробуждению останется около {left}%. Зарядите браслет сейчас, чтобы сохранить сегодняшний сон.",
+  "@notifBatteryForecastReserveBody": {
+    "placeholders": {
+      "rate": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      },
+      "left": {
+        "type": "int"
+      }
+    }
+  },
+  "notifBatteryForecastAfterWakeBody": "При расходе {rate}%/ч заряд кончится около {time}, после вашего обычного подъёма.",
+  "@notifBatteryForecastAfterWakeBody": {
+    "placeholders": {
+      "rate": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "notifWindDownBody": "Вы обычно ложитесь около {time}. Пора сбавлять темп.",
+  "@notifWindDownBody": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "notifWorkoutIdleBody": "Уже {minutes} мин. не было нагрузки выше уровня покоя. Если тренировка закончилась, завершите её на вкладке «Тренировка».",
+  "@notifWorkoutIdleBody": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
       }
     }
   }

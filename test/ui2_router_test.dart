@@ -218,6 +218,20 @@ void main() {
           PairPhase.bondRefused);
     });
 
+    // Nothing in the app can open the phone's Bluetooth pane (iOS has no public
+    // URL for it), so the card's blue line must be advice, not a link that
+    // does nothing when tapped.
+    testWidgets('the refused-bond card does not promise a settings link',
+        (tester) async {
+      _tallView(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: PairingView(phase: PairPhase.bondRefused, onPair: () {}),
+      ));
+      expect(find.text('Open Bluetooth settings'), findsNothing);
+      expect(find.text('Then come back and tap Try again'), findsOneWidget);
+    });
+
     test('anything else keeps its real message and stays generic', () {
       expect(classifyPairError(Exception('gatt 133')), PairPhase.failed);
     });
