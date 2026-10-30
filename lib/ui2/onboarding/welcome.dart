@@ -528,7 +528,15 @@ Future<ImportOutcome> runImport(
         skipped += r.skippedExistingDays;
       }
     } catch (e) {
-      if (db.isEmpty && raw.isEmpty && journalRows == 0 && labRows == 0) rethrow;
+      // Something already named (a journal export that isn't UTF-8) keeps its
+      // note: a rethrow would replace it with the vendor error alone.
+      if (db.isEmpty &&
+          raw.isEmpty &&
+          journalRows == 0 &&
+          labRows == 0 &&
+          rejected.isEmpty) {
+        rethrow;
+      }
       readError = '$e';
     }
   }
@@ -562,7 +570,7 @@ Future<bool> _isOwnCsvExport(String path) async {
     final first = text.split(RegExp(r'\r?\n')).first.replaceAll('\u00ef\u00bb\u00bf', '');
     final header = [
       for (final h in first.split(','))
-        h.trim().replaceAll('"', '').toLowerCase(),
+        h.replaceAll('"', '').trim().toLowerCase(),
     ];
     return listEquals(header, kJournalCsvHeader) ||
         listEquals(header, kLabCsvHeader);

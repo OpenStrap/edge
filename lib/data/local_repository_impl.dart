@@ -2868,7 +2868,8 @@ class LocalRepositoryImpl extends LocalRepository {
     // Tombstone first: a failed delete then only leaves a row the importer
     // already skips, while the other order's failure brings it back.
     if (id.startsWith(WhoopImporter.workoutIdPrefix)) {
-      await WhoopImporter.rememberDeletedWorkout(id);
+      await WhoopImporter.rememberDeletedWorkout(id,
+          startTs: ((await LocalDb.session(id))?['start_ts'] as num?)?.toInt());
     }
     await LocalDb.deleteSession(id);
   }

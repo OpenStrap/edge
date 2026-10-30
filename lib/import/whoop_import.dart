@@ -79,12 +79,20 @@ class WhoopImporter {
   // would each drop the other's id.
   static Future<void> _deletedWrites = Future.value();
 
-  static Future<void> rememberDeletedWorkout(String id) => _deletedWrites =
-      _deletedWrites.catchError((_) {}).then((_) async {
+  /// [startTs] is the row's start as stored. A row an earlier re-import moved
+  /// onto its right instant kept its old id, and once the phone's zone matches
+  /// the export's the import computes the id from that instant instead, so
+  /// both go on the list.
+  static Future<void> rememberDeletedWorkout(String id, {int? startTs}) =>
+      _deletedWrites = _deletedWrites.catchError((_) {}).then((_) async {
         final prefs = await SharedPreferences.getInstance();
         final set = await deletedWorkoutIds();
-        if (set.contains(id)) return;
-        await prefs.setStringList(_kDeletedWorkoutsPref, [...set, id]);
+        final add = {
+          id,
+          if (startTs != null) '$workoutIdPrefix$startTs',
+        }.difference(set);
+        if (add.isEmpty) return;
+        await prefs.setStringList(_kDeletedWorkoutsPref, [...set, ...add]);
       });
 
   /// Column aliases for the energy field. The unit is read from whichever of

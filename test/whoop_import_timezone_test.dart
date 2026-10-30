@@ -214,6 +214,15 @@ void main() {
       await db.delete('sessions', where: 'id = ?', whereArgs: [movedId]);
     });
 
+    test('a moved workout deleted under its old id stays deleted', () async {
+      SharedPreferences.setMockInitialValues({});
+      final start = _utc(2024, 4, 2, 0, 15);
+      await WhoopImporter.rememberDeletedWorkout('whoop_1', startTs: start);
+      final res = await WhoopImporter.importFiles([workoutCsv('wdm.csv')]);
+      expect(res.workouts, 0);
+      expect(await sessionsAround(start), isEmpty);
+    });
+
     test('a deleted phone-zone workout stays deleted on re-import', () async {
       final legacyStart = WhoopImporter.parseExportTs(wallStart)!;
       final start = _utc(2024, 4, 2, 0, 15);
