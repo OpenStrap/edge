@@ -6097,10 +6097,18 @@ class DerivationEngine {
     // a night lived before a trip (re-analyze, a rescan, a version bump) would
     // overwrite the only record of the zone it was lived in, and the cross-day
     // rollup would read it on the new clock. Carry the stored row's shift.
-    final prevForClock = await LocalDb.dayResult(day.date);
-    if (_isRealDayResult(prevForClock)) {
-      final shift = storedNightClockShiftSec(
-          _decodeBundle(prevForClock!['payload_json']));
+    //
+    // Two numbers off the stored row, extracted in SQLite: decoding the whole
+    // previous bundle here cost a full payload read and curve expansion on
+    // this isolate for every derived day, to learn nothing for anyone who has
+    // not changed zone.
+    final prevClock = await LocalDb.storedNightClock(day.date);
+    if (prevClock != null) {
+      final onsetMs = prevClock.onsetMs;
+      final shift = recordedClockShiftSec(
+        onsetSec: onsetMs == null ? null : (onsetMs / 1000).round(),
+        onsetClockSec: prevClock.onsetClockSec,
+      );
       final s = bundle['scalars'];
       if (shift != 0 && s is Map) {
         for (final k in const ['sleep_onset_sec', 'midsleep_sec']) {
