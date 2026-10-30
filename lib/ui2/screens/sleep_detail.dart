@@ -526,6 +526,11 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   /// declined; only a bedtime after midnight, or Not sleep, can land.
   bool _wholeNightKept = true;
 
+  /// Whether "These times are right" can land. Not the same as
+  /// [_wholeNightKept]: on the oldest kept day a fallback window that starts
+  /// after the prune cut can still be confirmed.
+  bool _confirmable = true;
+
   /// Last night's state against the user's own nights, when it was rough enough
   /// to say so and has not been dismissed. See `rough_night.dart` — it REPLACES
   /// the elevated-sleeping-HR card rather than joining it, so one night can
@@ -592,12 +597,19 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       final d = await SleepData.load(repo, want: _day);
       var correctable = true;
       var wholeNightKept = true;
+      var confirmable = true;
       if (app != null && d.day != null) {
         try {
           correctable =
               await app.sleepCorrectable(d.day!, sleepSource: 'rejected');
           wholeNightKept =
               correctable && await app.sleepCorrectable(d.day!);
+          final onset = (d.night['onset_ts'] as num?)?.toInt();
+          confirmable = wholeNightKept ||
+              (correctable &&
+                  onset != null &&
+                  await app.sleepCorrectable(d.day!,
+                      sleepSource: 'confirmed', onsetSec: onset));
         } catch (_) {}
       }
       // LAST NIGHT ONLY. The card names the luteal phase, and `getCycle` knows
@@ -615,6 +627,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
               _rough = rough,
               _correctable = correctable,
               _wholeNightKept = wholeNightKept,
+              _confirmable = confirmable,
               _loading = false,
               _failed = false,
             ));
@@ -708,7 +721,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           icon: rejected ? LucideIcons.undo2 : LucideIcons.moon,
         ),
         // Undo goes back to automatic, which needs the whole night window.
-        if (rejectedDay != null && (!_correctable || !_wholeNightKept)) ...[
+        // "I was asleep" does not: a bedtime after midnight still lands, and
+        // the write is refused (and said so) when it doesn't.
+        if (rejectedDay != null &&
+            (!_correctable || (rejected && !_wholeNightKept))) ...[
           const SizedBox(height: S.x2),
           _correctable ? _eveningPrunedNote(c, l) : _uncorrectableNote(c, l),
         ] else if (rejected) ...[
@@ -739,6 +755,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
                 : () => _addWindow(rejectedDay),
             child: Text(l?.sleepDetailIWasAsleep ?? 'I was asleep'),
           ),
+          if (!_wholeNightKept) _eveningPrunedNote(c, l),
           if (_saving)
             Text(l?.sleepDetailReanalysing ?? 'Re-analysing the night…',
                 style: F.cap.copyWith(color: P.of(c).ink3)),
@@ -1014,7 +1031,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
             _uncorrectableNote(c, l)
           else
           Wrap(spacing: S.x2, children: [
-            if (fallback && _wholeNightKept)
+            if (fallback && _confirmable)
               TextButton(
                 onPressed: locked ? null : () => _confirmWindow(day),
                 child: Text(l?.sleepDetailConfirmTimes ?? 'These times are right'),

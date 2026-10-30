@@ -58,9 +58,11 @@ Future<int> cleanNextNightNapsOnce() async {
     final payload = _decode(row?['payload_json']);
     final naps = (payload?['naps'] as Map?)?['value'];
     if (payload == null || naps is! List || naps.isEmpty) continue;
-    final win = (((_decode((await LocalDb.dayResult(nextDay))?['payload_json'])
-                ?['sleep'] as Map?)?['window'] as Map?)?['value']) as Map?;
-    final on = win?['onset_ms'], off = win?['offset_ms'];
+    // '—' on a night with no sleep: a cast would throw and end the pass.
+    final win = ((_decode((await LocalDb.dayResult(nextDay))?['payload_json'])
+            ?['sleep'] as Map?)?['window'] as Map?)?['value'];
+    if (win is! Map) continue;
+    final on = win['onset_ms'], off = win['offset_ms'];
     if (on is! num || off is! num) continue;
     final kept = napsWithoutNextNight(
       [for (final n in naps) if (n is Map) n.cast<String, dynamic>()],

@@ -68,6 +68,32 @@ void main() {
       finalized: true,
     );
 
+    // An earlier day whose next night has no sleep ('—') is skipped, not a
+    // throw that ends the pass before the day above is reached.
+    await LocalDb.putDayResult(
+      dayId: '2026-07-30',
+      algoVersion: kAlgoVersion,
+      payloadJson: jsonEncode({
+        'naps': {
+          'value': [afternoon],
+          'count': 1,
+        },
+      }),
+      windowJson: '{}',
+      finalized: true,
+    );
+    await LocalDb.putDayResult(
+      dayId: '2026-07-31',
+      algoVersion: kAlgoVersion,
+      payloadJson: jsonEncode({
+        'sleep': {
+          'window': {'value': '—'},
+        },
+      }),
+      windowJson: '{}',
+      finalized: true,
+    );
+
     expect(await cleanNextNightNapsOnce(), 1);
     final row = await LocalDb.dayResult('2026-08-02');
     expect((row!['algo_version'] as num).toInt(), kAlgoVersion);

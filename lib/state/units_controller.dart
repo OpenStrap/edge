@@ -182,6 +182,21 @@ class UnitsController extends ChangeNotifier {
     return isImperial ? v * _kgPerLb : v;
   }
 
+  /// [weightToKg], except that a field still showing exactly what
+  /// [weightField] wrote for [shownKg] gives [shownKg] back. Imperial shows
+  /// whole pounds, so an untouched field otherwise drifts off the stored value
+  /// on every save (20 kg -> "44" -> 19.96 kg, under the plausible floor).
+  double? weightToKgKeeping(String text, num? shownKg) =>
+      shownKg != null && text.trim() == weightField(shownKg)
+          ? shownKg.toDouble()
+          : weightToKg(text);
+
+  /// [heightToCm] with the same untouched-field rule as [weightToKgKeeping].
+  double? heightToCmKeeping(String text, num? shownCm) =>
+      shownCm != null && text.trim() == heightField(shownCm)
+          ? shownCm.toDouble()
+          : heightToCm(text);
+
   /// Parse a height field (display units = total inches when imperial) → cm.
   double? heightToCm(String text) {
     final v = parseTypedNumber(text);

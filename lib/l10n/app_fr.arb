@@ -2780,7 +2780,7 @@
   "reportIdCopied": "{id} copié",
   "reportDeleteConfirmTitle": "Supprimer le rapport {id} ?",
   "reportDeleteConfirmBody": "Il est retiré du serveur tout de suite et ne pourra plus être ouvert avec son identifiant. Impossible d'annuler.",
-  "profileImplausibleFields": "Vérifiez {fields}. La valeur est hors limites, rien n'a donc été enregistré.",
+  "profileImplausibleFields": "Vérifiez {fields} : hors limites, rien n'a donc été enregistré.",
   "supplementChargeYourStrapBeforeBedcb17aa": "Rechargez votre bracelet avant de dormir",
   "supplementStillWorkingOut5f72c7": "Toujours en séance ?",
   "supplementWindDown1d651a": "Se détendre",

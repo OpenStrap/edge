@@ -106,4 +106,38 @@ void main() {
     expect(saved, isNull);
     expect(find.textContaining('out of range'), findsOneWidget);
   });
+  // Imperial pre-fills whole pounds: 20 kg shows "44", which reads back as
+  // 19.96 kg, under the floor. An untouched field keeps the stored value.
+  testWidgets('an untouched imperial weight on the floor still saves',
+      (t) async {
+    Map<String, dynamic>? saved;
+    await _pump(
+        t,
+        EditProfileView(
+          initial: const {'sex': 'f', 'age': 34, 'weight_kg': 20.0},
+          units: UnitsController.seed(UnitSystem.imperial),
+          onSave: (f) async => saved = f,
+        ));
+
+    await t.tap(find.text('Save'));
+    await t.pumpAndSettle();
+
+    expect(saved?['weight_kg'], 20.0);
+  });
+
+  testWidgets('onboarding keeps an untouched imperial weight', (t) async {
+    Map<String, dynamic>? saved;
+    await _pump(
+        t,
+        ProfileSetupView(
+          initial: const {'sex': 'f', 'age': 34, 'weight_kg': 20.0},
+          units: UnitsController.seed(UnitSystem.imperial),
+          onSave: (f) async => saved = f,
+        ));
+
+    await t.tap(find.text('Continue'));
+    await t.pumpAndSettle();
+
+    expect(saved?['weight_kg'], 20.0);
+  });
 }

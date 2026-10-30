@@ -2809,7 +2809,7 @@
   "reportIdCopied": "{id} copiado",
   "reportDeleteConfirmTitle": "¿Eliminar el informe {id}?",
   "reportDeleteConfirmBody": "Se borra del servidor ahora mismo y ya no se podrá abrir con su ID. No se puede deshacer.",
-  "profileImplausibleFields": "Revisa {fields}. El valor está fuera de rango, así que no se guardó nada.",
+  "profileImplausibleFields": "Revisa {fields}: fuera de rango, así que no se guardó nada.",
   "supplementChargeYourStrapBeforeBedcb17aa": "Carga tu banda antes de dormir",
   "supplementStillWorkingOut5f72c7": "¿Sigues entrenando?",
   "supplementWindDown1d651a": "Hora de relajarse",

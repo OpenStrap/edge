@@ -2780,7 +2780,7 @@
   "reportIdCopied": "{id} कॉपी हो गया",
   "reportDeleteConfirmTitle": "रिपोर्ट {id} हटाएँ?",
   "reportDeleteConfirmBody": "यह अभी सर्वर से हट जाएगी और इसके ID से फिर नहीं खुलेगी। इसे वापस नहीं लाया जा सकता।",
-  "profileImplausibleFields": "{fields} जाँचें। मान सीमा से बाहर है, इसलिए कुछ भी सहेजा नहीं गया।",
+  "profileImplausibleFields": "{fields} जाँचें: सीमा से बाहर, इसलिए कुछ भी सहेजा नहीं गया।",
   "supplementChargeYourStrapBeforeBedcb17aa": "सोने से पहले अपना स्ट्रैप चार्ज करें",
   "supplementStillWorkingOut5f72c7": "अभी भी वर्कआउट कर रहे हैं?",
   "supplementWindDown1d651a": "आराम का समय",

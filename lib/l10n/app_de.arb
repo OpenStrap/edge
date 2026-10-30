@@ -2897,7 +2897,7 @@
   "reportIdCopied": "{id} kopiert",
   "reportDeleteConfirmTitle": "Bericht {id} löschen?",
   "reportDeleteConfirmBody": "Er wird sofort vom Server entfernt und lässt sich danach nicht mehr über seine ID öffnen. Das lässt sich nicht rückgängig machen.",
-  "profileImplausibleFields": "Bitte {fields} prüfen. Der Wert liegt außerhalb des gültigen Bereichs, daher wurde nichts gespeichert.",
+  "profileImplausibleFields": "Bitte {fields} prüfen: außerhalb des gültigen Bereichs, daher wurde nichts gespeichert.",
   "supplementChargeYourStrapBeforeBedcb17aa": "Lade dein Armband vor dem Schlafengehen",
   "supplementStillWorkingOut5f72c7": "Trainierst du noch?",
   "supplementWindDown1d651a": "Zur Ruhe kommen",

@@ -3681,7 +3681,13 @@ class DerivationEngine {
     } finally {
       // Before any await: this run still holds the latch, so the fields are
       // its own on every exit path, early returns included.
-      onOutcome?.call(lastRunFailedDays, lastRunError);
+      // Guarded: a throwing callback would skip `_running = false` below and
+      // leave every later derive taking the busy skip until restart.
+      try {
+        onOutcome?.call(lastRunFailedDays, lastRunError);
+      } catch (e) {
+        _log('[derive] outcome callback threw: $e');
+      }
       // Storage housekeeping runs here, after everything, still holding
       // `_running`. See _runStorageHousekeeping — this is the only place every
       // entry path and every early return actually reaches.
@@ -6194,7 +6200,7 @@ class DerivationEngine {
         dataNowSec: dataNowSec,
         tonightSleepOnsetSec: day.tonightSleepOnsetSec,
         tonightSleepOffsetSec: day.tonightSleepOffsetSec,
-        rejectedSleepSpans: await _rejectedSleepSpans(day.date, day.endSec),
+        rejectedSleepSpans: await _rejectedSleepSpans(day.date),
       );
       await debugSecondHalfHook?.call(day.date);
       final blocks =
@@ -10894,13 +10900,19 @@ class DerivationEngine {
           Substrate s, int endSec) =>
       _hrrForBout(s, endSec);
 
+  @visibleForTesting
+  static Future<List<List<int>>> debugRejectedSleepSpans(String date) =>
+      _rejectedSleepSpans(date);
+
   /// Main-sleep windows the user rejected for this day's night and for
   /// tonight's (the next label's, which can begin inside this day's nap
   /// window). Read on the main isolate; the worker has no database.
-  static Future<List<List<int>>> _rejectedSleepSpans(
-      String date, int dayEndSec) async {
+  static Future<List<List<int>>> _rejectedSleepSpans(String date) async {
     final out = <List<int>>[];
-    for (final label in {date, localDateLabel(dayEndSec)}) {
+    // The next CALENDAR label, not the label of the day's last sample: on a
+    // day whose data stops before midnight that is `date` again, and a reject
+    // stored under tomorrow would never be read.
+    for (final label in {date, dayLabelBefore(date, -1) ?? date}) {
       final ov = await LocalDb.getSleepOverride(label);
       if (ov == null || ov['source'] != 'rejected') continue;
       final on = (ov['onset_ts'] as num).toInt();

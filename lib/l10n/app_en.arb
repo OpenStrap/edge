@@ -16021,7 +16021,7 @@
       }
     }
   },
-  "profileImplausibleFields": "Check {fields}. That value is out of range, so nothing was saved.",
+  "profileImplausibleFields": "Check {fields}: out of range, so nothing was saved.",
   "@profileImplausibleFields": {
     "description": "Shown when a typed age, height or weight is outside the believable range.",
     "placeholders": {
