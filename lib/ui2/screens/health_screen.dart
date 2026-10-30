@@ -1587,16 +1587,25 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
             ]),
           ),
           const SizedBox(width: S.x2),
-          Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Text(v == null ? '' : _valueOf(m, r, v),
+          // Sized to its text like before, but capped: a result in another
+          // unit prints every digit it was stored with, and at large text a
+          // long one would push the row past the screen. It wraps instead.
+          ConstrainedBox(
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width * 0.4),
+            child: Text.rich(
+              TextSpan(children: [
+                TextSpan(
+                    text: v == null ? '' : _valueOf(m, r, v),
                     style: F.n17.copyWith(
                         color: inRange == false ? p.on(C.orange) : p.ink)),
-                const SizedBox(width: 3),
-                Text(unit, style: F.over.copyWith(color: p.ink3)),
+                const TextSpan(text: '\u2009'),
+                TextSpan(text: unit, style: F.over.copyWith(color: p.ink3)),
               ]),
+              textAlign: TextAlign.end,
+              softWrap: true,
+            ),
+          ),
           // This is the user's own blood work in an app that keeps it on their
           // phone; being able to take it back out is the premise, not a setting.
           const SizedBox(width: S.x2),

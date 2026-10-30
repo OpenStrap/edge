@@ -31,20 +31,26 @@ final _exportName = RegExp(r'^openstrap_export_(\d+)\.db(\.osbk)?$');
 ///
 /// An export is identified by the millisecond stamp in its name, so the
 /// plaintext `.db` and its `.osbk` count as one export. Files that do not
-/// match the export name are left alone.
+/// match the export name are left alone. [current], the export about to be
+/// handed back, is never deleted: its stamp comes from the clock, and a clock
+/// set back after earlier exports would rank it oldest.
 Future<void> pruneSharedExports(
   Directory dir, {
   int keep = kSharedExportsKept,
+  String? current,
 }) async {
   try {
+    final currentStamp = current == null
+        ? null
+        : _exportName.firstMatch(p.basename(current))?.group(1);
     final byStamp = <int, List<File>>{};
     for (final f in dir.listSync().whereType<File>()) {
       final m = _exportName.firstMatch(p.basename(f.path));
-      if (m == null) continue;
+      if (m == null || m.group(1) == currentStamp) continue;
       byStamp.putIfAbsent(int.parse(m.group(1)!), () => []).add(f);
     }
     final stamps = byStamp.keys.toList()..sort((a, b) => b.compareTo(a));
-    for (final s in stamps.skip(keep)) {
+    for (final s in stamps.skip(currentStamp == null ? keep : keep - 1)) {
       for (final f in byStamp[s]!) {
         try {
           await f.delete();

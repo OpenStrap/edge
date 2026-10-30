@@ -54,6 +54,20 @@ void main() {
       ]);
     });
 
+    test('the export being handed back survives a clock set back', () async {
+      await _touch(dir, 'openstrap_export_8000.db');
+      await _touch(dir, 'openstrap_export_9000.db');
+      // Written after the clock went back, so its stamp ranks oldest.
+      final current = await _touch(dir, 'openstrap_export_5000.db');
+
+      await pruneSharedExports(dir, current: current.path);
+
+      expect(_names(dir), [
+        'openstrap_export_5000.db',
+        'openstrap_export_9000.db',
+      ]);
+    });
+
     test('leaves files that are not exports alone', () async {
       await _touch(dir, 'openstrap_export_1.db');
       await _touch(dir, 'openstrap_export_2.db');

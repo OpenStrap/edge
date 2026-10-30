@@ -216,7 +216,7 @@ class _DataScreenState extends State<DataScreen> {
   Future<String> _manualExportCopy() async {
     final dir = await sharedExportDir();
     final path = await LocalDb.exportCopy(into: dir);
-    await pruneSharedExports(dir);
+    await pruneSharedExports(dir, current: path);
     await pruneLegacyRootExports(dir.parent);
     return path;
   }

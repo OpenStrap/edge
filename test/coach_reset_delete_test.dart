@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -86,7 +87,13 @@ void main() {
     final dir = await Directory.systemTemp.createTemp('coach-reset-');
     final original = PathProviderPlatform.instance;
     PathProviderPlatform.instance = _DocumentsProvider(dir.path);
+    final paused = Completer<void>(), release = Completer<void>();
+    CoachEngine.debugAfterSaveCheck = () {
+      paused.complete();
+      return release.future;
+    };
     addTearDown(() async {
+      CoachEngine.debugAfterSaveCheck = null;
       PathProviderPlatform.instance = original;
       await dir.delete(recursive: true);
     });
@@ -96,11 +103,19 @@ void main() {
     addTearDown(engine.dispose);
     engine.transcript.add(CoachItem.user('how did I sleep'));
 
-    // The save passes its reset check, then the reset starts and sweeps
-    // while the save is still writing.
+    // The save is past its reset check and holding when the reset starts.
     final saving = engine.persist();
+    await paused.future;
     ResetGate.enter();
-    final swept = CoachEngine.deleteAllSavedSessions();
+    var sweptDone = false;
+    final swept =
+        CoachEngine.deleteAllSavedSessions().then((_) => sweptDone = true);
+    for (var i = 0; i < 20; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(sweptDone, isFalse, reason: 'the sweep waits for the save');
+
+    release.complete();
     await Future.wait([saving, swept]);
     ResetGate.leave();
 

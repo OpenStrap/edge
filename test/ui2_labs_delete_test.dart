@@ -123,7 +123,7 @@ void main() {
     for (final scale in const [1.0, 2.0, 3.0]) {
       await _pumpLabs(t, labs, scale: scale);
       expect(find.text('Ferritin'), findsOneWidget);
-      expect(find.text('42'), findsOneWidget);
+      expect(find.text('42\u2009ng/mL'), findsOneWidget);
       expect(
         _control('Remove Ferritin from 2026-03-04'),
         findsOneWidget,
@@ -166,9 +166,8 @@ void main() {
       ['glucose_fasting', '2026-03-04', 5.4, 'mmol/L'],
     ]);
     await _pumpLabs(t, labs);
-    expect(find.text('5.4'), findsOneWidget);
-    expect(find.text('5'), findsNothing);
-    expect(find.text('mmol/L'), findsOneWidget);
+    expect(find.text('5.4\u2009mmol/L'), findsOneWidget);
+    expect(find.text('5\u2009mmol/L'), findsNothing);
 
     await t.tap(_control('Remove Fasting glucose from 2026-03-04'));
     await t.pumpAndSettle();
@@ -180,7 +179,20 @@ void main() {
       ['ferritin', '2026-03-04', 42, ''],
     ]);
     await _pumpLabs(t, labs);
-    expect(find.text('ng/mL'), findsOneWidget);
+    expect(find.text('42\u2009ng/mL'), findsOneWidget);
+  });
+
+  testWidgets('a long value in another unit wraps instead of overflowing',
+      (t) async {
+    final labs = await _seed(t, [
+      ['glucose_fasting', '2026-03-04', 5.123456789012345, 'mmol/L'],
+    ]);
+    for (final scale in const [1.0, 3.0]) {
+      await _pumpLabs(t, labs, scale: scale);
+      expect(find.textContaining('5.123456789012345'), findsOneWidget);
+      expect(t.takeException(), isNull,
+          reason: 'nothing overflowed at ${scale}x');
+    }
   });
 
   testWidgets('a removed result leaves the store AND the screen, in place',
@@ -218,7 +230,7 @@ void main() {
     // underneath surfaces in its place.
     expect(find.textContaining('2025-11-02 draw stays'), findsOneWidget);
     await t.tap(find.text('Remove'));
-    await _until(t, find.text('61'));
+    await _until(t, find.text('61\u2009ng/mL'));
 
     expect(find.text('Ferritin'), findsOneWidget);
     expect(find.textContaining('Showing your 2025-11-02 draw now'),
@@ -266,8 +278,9 @@ void main() {
       await t.pumpAndSettle();
       await t.enterText(find.byType(TextField).first, '42');
       await t.tap(find.text('Save'));
-      await _until(t, find.text('42'));
-      expect(find.text('42'), findsOneWidget);
+      // The form's first marker is albumin: g/dL at one decimal.
+      await _until(t, find.text('42.0\u2009g/dL'));
+      expect(find.text('42.0\u2009g/dL'), findsOneWidget);
     });
   });
 

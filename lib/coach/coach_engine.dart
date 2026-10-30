@@ -378,6 +378,11 @@ class CoachEngine {
   /// had already passed its reset check could otherwise still be writing
   /// while the sweep listed the folder, and land after it.
   static Future<void> _filesTail = Future<void>.value();
+
+  /// Test seam: awaited by a save right after its reset check passes, so a
+  /// test can hold a save mid-write while a reset sweeps.
+  @visibleForTesting
+  static Future<void> Function()? debugAfterSaveCheck;
   static Future<T> _serialFiles<T>(Future<T> Function() body) {
     final run = _filesTail.then((_) => body());
     _filesTail = run.then((_) {}, onError: (_) {});
@@ -466,6 +471,7 @@ class CoachEngine {
     // Checked inside the queue: a reset that started while this waited has
     // swept the files by now, and this must not write the chat back.
     if (transcript.isEmpty || ResetGate.changedSince(_resetGen)) return;
+    await debugAfterSaveCheck?.call();
     if (_sessionId.isEmpty) _sessionId = _newId();
     final now = DateTime.now().millisecondsSinceEpoch;
     if (_createdAt == 0) _createdAt = now;
