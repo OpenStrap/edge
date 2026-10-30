@@ -13368,6 +13368,16 @@ class LocalDb {
   static Future<bool> napOverlapsMainSleep(int startTs, int endTs) async =>
       ActivityStore.overlapsMainSleep(await instance, startTs, endTs);
 
+  /// Drops [dayId]'s `legacy` nap edits overlapping [startSec, endSec). Logged,
+  /// confirmed and rejected edits are left alone.
+  static Future<int> deleteLegacyNapsOverlapping(
+      String dayId, int startSec, int endSec) async {
+    final db = await instance;
+    return db.delete('sleep_nap',
+        where: "day_id = ? AND source = 'legacy' AND start_ts < ? AND end_ts > ?",
+        whereArgs: [dayId, endSec, startSec]);
+  }
+
   static Future<List<Map<String, dynamic>>> napEdits(String dayId) async {
     final db = await instance;
     return db.query(

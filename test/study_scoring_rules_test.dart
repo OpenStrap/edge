@@ -100,6 +100,7 @@ void main() {
       {'start': 100, 'end': 200, 'duration_min': 2},
       {'start': 900, 'end': 1200, 'duration_min': 5},
       {'start': 950, 'end': 1000, 'duration_min': 1, 'source': 'manual'},
+      {'start': 990, 'end': 1100, 'duration_min': 2, 'source': 'legacy'},
     ];
     final kept = napsWithoutNextNight(naps, 1000, 5000)!;
     expect(kept.map((n) => n['start']), [100, 950]);

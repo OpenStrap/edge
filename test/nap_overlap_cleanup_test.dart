@@ -109,4 +109,69 @@ void main() {
     // One-shot: a second call does nothing.
     expect(await cleanNextNightNapsOnce(), 0);
   });
+
+  test('a phantom already copied aside as a legacy edit is dropped too',
+      () async {
+    await LocalDb.deleteComputeFreshness(kNapNextNightCleanupKey);
+    // 2026-09-02 22:30Z -> 2026-09-03 06:30Z.
+    const onset = 1788388200;
+    const offset = onset + 8 * 3600;
+    final legacy = {
+      'start': onset,
+      'end': onset + 2400,
+      'duration_min': 40,
+      'source': 'legacy',
+    };
+    final manual = {
+      'start': onset - 3 * 3600,
+      'end': onset - 3 * 3600 + 1200,
+      'duration_min': 20,
+      'source': 'manual',
+    };
+    await LocalDb.putDayResult(
+      dayId: '2026-09-02',
+      algoVersion: kAlgoVersion,
+      payloadJson: jsonEncode({
+        'naps': {
+          'value': [manual, legacy],
+          'count': 2,
+        },
+        'scalars': {'nap_min': 60.0},
+      }),
+      windowJson: '{}',
+      finalized: true,
+    );
+    await LocalDb.putDayResult(
+      dayId: '2026-09-03',
+      algoVersion: kAlgoVersion,
+      payloadJson: jsonEncode({
+        'sleep': {
+          'window': {
+            'value': {'onset_ms': onset * 1000, 'offset_ms': offset * 1000},
+          },
+        },
+      }),
+      windowJson: '{}',
+      finalized: true,
+    );
+    final db = await LocalDb.instance;
+    for (final n in [legacy, manual]) {
+      await db.insert('sleep_nap', {
+        'day_id': '2026-09-02',
+        'start_ts': n['start'],
+        'end_ts': n['end'],
+        'source': n['source'],
+        'created_at': 0,
+        'payload_json': jsonEncode(n),
+      });
+    }
+
+    expect(await cleanNextNightNapsOnce(), 1);
+    final out = jsonDecode(
+        (await LocalDb.dayResult('2026-09-02'))!['payload_json'] as String) as Map;
+    expect(((out['naps'] as Map)['value'] as List).map((n) => (n as Map)['source']),
+        ['manual']);
+    final edits = await LocalDb.napEdits('2026-09-02');
+    expect(edits.map((e) => e['source']), ['manual']);
+  });
 }

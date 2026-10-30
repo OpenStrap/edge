@@ -17,8 +17,10 @@ import 'nap_edits.dart' show napMinutes;
 const String kNapNextNightCleanupKey = LocalDb.kNapNextNightCleanupKey;
 
 /// [naps] without the detected ones overlapping the next day's main sleep
-/// [nextOnsetSec, nextOffsetSec). A nap the user logged (it carries a
-/// `source`) is kept. Null when nothing is dropped.
+/// [nextOnsetSec, nextOffsetSec). A nap the user logged or confirmed is kept.
+/// A `legacy` one is not: that is an old detection copied aside when its day
+/// was rewritten, so it carries the same double count. Null when nothing is
+/// dropped.
 List<Map<String, dynamic>>? napsWithoutNextNight(
   List<Map<String, dynamic>> naps,
   int nextOnsetSec,
@@ -26,7 +28,8 @@ List<Map<String, dynamic>>? napsWithoutNextNight(
 ) {
   final kept = [
     for (final n in naps)
-      if (n['source'] != null ||
+      if (n['source'] == 'manual' ||
+          n['source'] == 'confirmed' ||
           n['start'] is! num ||
           n['end'] is! num ||
           (n['end'] as num) <= nextOnsetSec ||
@@ -54,16 +57,19 @@ Future<int> cleanNextNightNapsOnce() async {
     final d = DateTime.parse(day);
     final nextDay = dayLabelOf(DateTime(d.year, d.month, d.day + 1, 12));
     if (!versions.containsKey(nextDay)) continue;
-    final row = await LocalDb.dayResult(day);
-    final payload = _decode(row?['payload_json']);
-    final naps = (payload?['naps'] as Map?)?['value'];
-    if (payload == null || naps is! List || naps.isEmpty) continue;
     // '—' on a night with no sleep: a cast would throw and end the pass.
     final win = ((_decode((await LocalDb.dayResult(nextDay))?['payload_json'])
             ?['sleep'] as Map?)?['window'] as Map?)?['value'];
     if (win is! Map) continue;
     final on = win['onset_ms'], off = win['offset_ms'];
     if (on is! num || off is! num) continue;
+    // A rewrite of this day may already have copied the phantom aside as a
+    // legacy edit, and every later derive would attach it again.
+    await LocalDb.deleteLegacyNapsOverlapping(day, on ~/ 1000, off ~/ 1000);
+    final row = await LocalDb.dayResult(day);
+    final payload = _decode(row?['payload_json']);
+    final naps = (payload?['naps'] as Map?)?['value'];
+    if (payload == null || naps is! List || naps.isEmpty) continue;
     final kept = napsWithoutNextNight(
       [for (final n in naps) if (n is Map) n.cast<String, dynamic>()],
       on ~/ 1000,
