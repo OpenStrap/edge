@@ -4,7 +4,11 @@
 import 'dart:io' show pid;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
+import 'package:openstrap_edge/ble/ble_state.dart'
+    show acquireSecondaryLinkSlot, kMaxConcurrentSecondaryLinks,
+        releaseSecondaryLinkSlot;
 import 'package:openstrap_edge/ble/session_link.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
@@ -120,6 +124,33 @@ void main() {
     ], reason: 'request, send, stop; never the deleting 04 acknowledgement');
     final rows = await _obs();
     expect(rows.map((r) => r['value']), [72.0, 71.9]);
+  });
+
+  test('a sync queued for a link slot gives up when its device is forgotten',
+      () async {
+    await LocalDb.upsertDevice(
+        id: 'thermo-q', adapterId: kThermometer.id, remoteId: 'AA:BB');
+    // Every slot taken, so the sync queues before any connect.
+    for (var i = 0; i < kMaxConcurrentSecondaryLinks; i++) {
+      expect(await acquireSecondaryLinkSlot(), isTrue);
+    }
+    final logs = <String>[];
+    final saved = debugPrint;
+    debugPrint = (String? m, {int? wrapWidth}) => logs.add(m ?? '');
+    addTearDown(() => debugPrint = saved);
+
+    final pending = SessionLink.thermometer.sync();
+    // Let it read its device row and reach the slot queue.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(await SessionLink.thermometer.forget('thermo-q'), isTrue);
+    for (var i = 0; i < kMaxConcurrentSecondaryLinks; i++) {
+      releaseSecondaryLinkSlot();
+    }
+
+    expect(await pending, isFalse);
+    expect(logs, contains(contains('stopped while waiting for a link slot')),
+        reason: 'it must give up before connecting, not fail the connect');
+    expect(await _obs(), isEmpty);
   });
 
   test('none of these devices is admitted to derivation', () {

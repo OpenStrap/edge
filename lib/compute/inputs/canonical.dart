@@ -151,6 +151,53 @@ Future<String?> activeWearableId() async {
   return null;
 }
 
+/// Called after [newId]'s row was written by a pairing: when the active
+/// wearable is another row of the same adapter, [newId] takes its place.
+/// Returns whether the cursor moved.
+///
+/// A notify-class wearable (Colmi, Ultrahuman, Garmin, Pebble) mints its id
+/// from the remote id, so a replacement device gets a second row beside the
+/// old one. Its link syncs the most recently seen row of its adapter, the
+/// new one, while [activeWearableId] only re-picks once the cursor's row is
+/// gone, so derivation would keep reading the old device and every new day
+/// would come up empty.
+///
+/// Only the cursor moves, without [setActiveWearable]'s re-derive: the old
+/// device's days keep what they were derived from, which a re-derive against
+/// the new device (no rows on those days) would clear.
+Future<bool> adoptReplacementWearable(String newId) async {
+  final row = await LocalDb.deviceRow(newId);
+  if (row == null || !isWearableRow(row)) return false;
+  final current = await LocalDb.getCursor(kActiveWearableCursor);
+  if (current == null ||
+      current.isEmpty ||
+      current == kNoActiveWearable ||
+      current == newId) {
+    return false;
+  }
+  final old = await LocalDb.deviceRow(current);
+  if (old == null || old['adapter_id'] != row['adapter_id']) return false;
+  await LocalDb.setCursor(kActiveWearableCursor, newId);
+  return true;
+}
+
+/// The paired row a link for [adapterId] connects to: the active wearable
+/// when it is one of this adapter's rows, otherwise the most recently seen
+/// one. Newest-seen alone could drift away from [adoptReplacementWearable]:
+/// the replaced device, still connected when its successor was paired,
+/// banks once more and becomes the newest row again, so the link went back
+/// to syncing it while derivation read the new one.
+Future<Map<String, Object?>?> pairedRowOf(String adapterId) async {
+  final active = await LocalDb.getCursor(kActiveWearableCursor);
+  Map<String, Object?>? newest;
+  for (final r in await LocalDb.deviceRows()) {
+    if (r['adapter_id'] != adapterId) continue;
+    if (active != null && r['id'] == active) return r;
+    newest ??= r;
+  }
+  return newest;
+}
+
 /// The active wearable as (device id, adapter id) when one is chosen AND its
 /// adapter's flag is on; null otherwise, which is every WHOOP-only install.
 Future<(String, String)?> activeWearable() async {

@@ -306,7 +306,15 @@ class _LogWorkoutState extends State<LogWorkout> {
       }
       final r = widget.sessionId == null
           ? await repo.logManualWorkout(
-              startTs: _startSec, endTs: _endSec, type: _activity.typeKey)
+              startTs: _startSec,
+              endTs: _endSec,
+              type: _activity.typeKey,
+              // Marks it as never-exported: the day export writes every
+              // ordinary session, and the import's original is already in
+              // the health store.
+              source: widget.importedUuid != null
+                  ? kScoredImportSessionSource
+                  : 'manual')
           : await repo.setWorkoutWindow(widget.sessionId!,
               startTs: _startSec, endTs: _endSec);
       if (widget.importedUuid case final uuid?) {
@@ -576,8 +584,9 @@ Future<bool> replaceImportWithScored(
   // next import pass delete an import that is still the only copy. The other
   // order's failure only re-imports it beside the scored session.
   await LocalDb.supersedeImportedWorkout(uuid, id);
-  // The original already sits in the health store; exporting ours too would
-  // put the same workout there twice.
+  // Not exported here, and the `kScoredImportSessionSource` stamp keeps the
+  // day export from writing it later: the original already sits in the health
+  // store, and ours as well would put the same workout there twice.
   await rememberDeletedUuid(uuid);
   return true;
 }

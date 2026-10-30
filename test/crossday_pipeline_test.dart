@@ -7,6 +7,8 @@
 // injected RHR spike trips the illness flag, and that absent inputs degrade to
 // honest absent envelopes (never a thrown exception, never a fabricated number).
 
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/compute/crossday_pipeline.dart';
 
@@ -48,6 +50,7 @@ List<Map<String, dynamic>> _synthDays(
       'readiness': readiness,
       'resp_rate': resp,
       'skin_temp_z': temp,
+      'skin_temp_adc': 3000.0 + wobble * 8.0,
       if (withTrimp) 'trimp': trimp,
       if (withSleep) 'onset_sec': onsetSec,
       if (withSleep) 'wake_sec': wakeSec,
@@ -736,6 +739,251 @@ void _wiredFamilies() {
       final sc = (buildCrossDayBundle(days, const {},
           sessionTypesByDate: types)['session_cost'] as Map)['rhr'] as Map;
       expect(sc['value'], '—');
+    });
+  });
+
+  // The temperature flag standardises its own input. It was handed
+  // `skin_temp_z`, which is already scored against a baseline that holds the
+  // earlier fever nights, so the z it saw decayed night over night and a real
+  // multi-night rise never stayed above threshold for two nights.
+  group('the temperature flag reads the raw nightly mean', () {
+    // Deterministic noise around 3000 ADC, SD ~8.
+    const noise = [-9.0, 4.0, 11.0, -3.0, -12.0, 7.0, 1.0, -6.0, 13.0, -5.0,
+      2.0, -10.0, 8.0, -1.0, 5.0, -7.0, 10.0, -4.0, 0.0, 6.0];
+
+    // The edge z exactly as the per-day pipeline computes it: trailing 28 raw
+    // nightly means strictly before the night, sample SD, gated at SD >= 1.
+    double? edgeZ(List<double> raw, int i) {
+      final hist = raw.sublist(i - 28 < 0 ? 0 : i - 28, i);
+      if (hist.length < 3) return null;
+      final mean = hist.reduce((a, b) => a + b) / hist.length;
+      var ss = 0.0;
+      for (final v in hist) {
+        ss += (v - mean) * (v - mean);
+      }
+      final sd = ss == 0 ? 0.0 : math.sqrt(ss / (hist.length - 1));
+      return sd >= 1 ? (raw[i] - mean) / sd : null;
+    }
+
+    List<Map<String, dynamic>> feverDays({
+      required double feverSd,
+      String? Function(int i)? family,
+      double Function(int i, double v)? shift,
+    }) {
+      const baseline = 40;
+      final raw = <double>[
+        for (var i = 0; i < baseline; i++) 3000 + noise[i % noise.length],
+        for (var i = 0; i < 3; i++) 3000 + feverSd * 8,
+      ];
+      var dt = DateTime(2024, 1, 1);
+      final out = <Map<String, dynamic>>[];
+      for (var i = 0; i < raw.length; i++) {
+        final v = shift == null ? raw[i] : shift(i, raw[i]);
+        out.add({
+          'date': '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
+              '${dt.day.toString().padLeft(2, '0')}',
+          'skin_temp_z': edgeZ(raw, i),
+          'skin_temp_adc': v,
+          if (family != null) 'skin_temp_family': family(i),
+        });
+        dt = dt.add(const Duration(days: 1));
+      }
+      return out;
+    }
+
+    List<bool> flags(List<Map<String, dynamic>> days) => [
+          for (final r in buildCrossDayBundle(days, const {})['recent'] as List)
+            (r as Map)['temp'] as bool,
+        ];
+
+    test('a three-night rise is flagged on its second and third nights', () {
+      final f = flags(feverDays(feverSd: 3));
+      expect(f.sublist(f.length - 3), [false, true, true]);
+    });
+
+    // A warm, ambient-correlated night is left out of the flag's input but
+    // still carries its raw value. Publishing its held-normal entry hid the
+    // open run from every alert surface.
+    test('an ambient-excluded last night does not hide an elevated run', () {
+      final days = feverDays(feverSd: 3);
+      days.last['skin_temp_illness_ok'] = false;
+      final b = buildCrossDayBundle(days, const {});
+      final tmp = b['temp_illness'] as Map;
+      expect(tmp['date'], days[days.length - 2]['date']);
+      expect(tmp['flag'], 'elevated');
+    });
+
+    test('nights in another family\'s unit are not mixed into the baseline',
+        () {
+      // A gen4 history in ADC counts, then a swap to gen5 reading centi-°C
+      // around 3400 for the last five nights. No fever anywhere: mixed into
+      // one series the swap itself reads as a sustained rise.
+      final days = feverDays(
+        feverSd: 0,
+        family: (i) => i < 38 ? 'gen4' : 'gen5',
+        shift: (i, v) => i < 38 ? v : 3400 + noise[i % noise.length] / 4,
+      );
+      final f = flags(days);
+      expect(f.contains(true), isFalse);
+      final b = buildCrossDayBundle(days, const {});
+      expect((b['temp_illness'] as Map)['date'], days.last['date']);
+    });
+
+    test('an unstamped history stays in the baseline once nights are stamped',
+        () {
+      // Rows from before the family stamp existed, then five stamped nights
+      // that include the rise. Too few stamped nights to baseline on their own.
+      final f = flags(feverDays(
+        feverSd: 3,
+        family: (i) => i < 38 ? null : 'gen4',
+      ));
+      expect(f.sublist(f.length - 3), [false, true, true]);
+    });
+
+    test('an unstamped newest night keeps the stamped history', () {
+      // A strap-swap day carries no single family; it is still a band night.
+      final f = flags(feverDays(
+        feverSd: 3,
+        family: (i) => i == 42 ? null : 'gen4',
+      ));
+      expect(f.sublist(f.length - 3), [false, true, true]);
+    });
+  });
+
+  // The multivariate anomaly standardises every column itself, so its temp
+  // feature is the raw nightly mean. It was handed `skin_temp_z`, which is
+  // scored against a baseline that already holds the earlier fever nights, and
+  // it skipped the ambient exclusion the temperature flag applies.
+  group('the anomaly reads the raw, ambient-gated nightly temp', () {
+    const noise = [-9.0, 4.0, 11.0, -3.0, -12.0, 7.0, 1.0, -6.0, 13.0, -5.0,
+      2.0, -10.0, 8.0, -1.0, 5.0, -7.0, 10.0, -4.0, 0.0, 6.0];
+
+    // 40 ordinary nights, then [tail] nights whose raw temp is [tailTemp].
+    // `skin_temp_z` is whatever [z] returns, so a test can make it disagree
+    // with the raw mean.
+    List<Map<String, dynamic>> nights({
+      int tail = 3,
+      double tailTemp = 3040,
+      double? Function(int i)? z,
+      bool Function(int i)? ambient,
+    }) {
+      var dt = DateTime(2024, 1, 1);
+      final out = <Map<String, dynamic>>[];
+      for (var i = 0; i < 40 + tail; i++) {
+        final w = noise[i % noise.length];
+        out.add({
+          'date': '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
+              '${dt.day.toString().padLeft(2, '0')}',
+          'rhr': 55.0 + w / 4,
+          'rmssd': 45.0 + w / 2,
+          'resp_rate': 14.0 + w / 20,
+          'skin_temp_z': z == null ? null : z(i),
+          'skin_temp_adc': i < 40 ? 3000 + w : tailTemp,
+          'skin_temp_family': 'gen4',
+          if (ambient != null && ambient(i)) 'skin_temp_illness_ok': false,
+        });
+        dt = dt.add(const Duration(days: 1));
+      }
+      return out;
+    }
+
+    double? tempDriver(List<Map<String, dynamic>> days) {
+      final a = buildCrossDayBundle(days, const {})['anomaly'] as Map?;
+      if (a == null) return null;
+      for (final d in a['drivers'] as List) {
+        if ((d as Map)['label'] == 'temp') {
+          return (d['contribution'] as num).toDouble();
+        }
+      }
+      return null;
+    }
+
+    test('a raw rise reaches the anomaly even when no z was stored', () {
+      final days = nights();
+      expect((buildCrossDayBundle(days, const {})['anomaly'] as Map)['date'],
+          days.last['date']);
+      final t = tempDriver(days);
+      expect(t, isNotNull);
+      expect(t!, greaterThan(2));
+    });
+
+    test('the temp term follows the raw rise, not a z that disagrees', () {
+      // A z claiming every night is ordinary while the raw mean has risen.
+      final days = nights(z: (i) => 0.0);
+      expect(tempDriver(days)!, greaterThan(2));
+    });
+
+    test('a night that tracked the ambient channel carries no temp term', () {
+      final days = nights(
+        tail: 1,
+        z: (i) => i < 40 ? noise[i % noise.length] / 8 : 4.0,
+        ambient: (i) => i == 40,
+      );
+      final a = buildCrossDayBundle(days, const {})['anomaly'] as Map;
+      expect(a['date'], days.last['date']);
+      expect(tempDriver(days), isNull);
+    });
+  });
+
+  group('the breakdown ranks tonight against its own method family', () {
+    const methods = {'gen4': 'hr_1hz', 'gen5': 'hr_1hz', 'oura': 'hr_5min'};
+
+    // 30 band nights, then 20 ring nights whose vendor HRV runs ~20 ms lower
+    // and whose resting HR runs ~8 bpm higher. Both series are steady within
+    // their own device; only the switch is a step.
+    List<Map<String, dynamic>> switched(String later) {
+      final days = _synthDays(50);
+      for (var i = 0; i < days.length; i++) {
+        final wobble = (i % 5) - 2;
+        final ring = i >= 30;
+        days[i]['skin_temp_family'] = ring ? later : 'gen4';
+        if (ring && later == 'oura') {
+          days[i]['rmssd'] = 25.0 + wobble * 1.5;
+          days[i]['rhr'] = 63.0 + wobble;
+        }
+      }
+      // Tonight is the ring's median night, not its worst.
+      days.last['rmssd'] = 25.0;
+      days.last['rhr'] = 63.0;
+      return days;
+    }
+
+    Map<String, dynamic> pct(Map<String, dynamic> b, String k) =>
+        ((b['percentiles'] as Map)[k] as Map)['value'] as Map<String, dynamic>;
+
+    test('a new ring is not ranked against the band it replaced', () {
+      final b = buildCrossDayBundle(switched('oura'), const {},
+          methodFamilies: methods);
+      // Only the 19 prior ring nights are history.
+      expect(pct(b, 'rmssd')['n'], 19);
+      expect(pct(b, 'rhr')['n'], 19);
+      // Tonight is the ring's median, so it ranks mid-history. Mixed with the
+      // 30 band nights it ranked near the bottom (~20th percentile for HRV,
+      // ~80th for resting HR).
+      expect(pct(b, 'rmssd')['percentile_of_you'], greaterThan(40));
+      expect(pct(b, 'rhr')['percentile_of_you'], lessThan(60));
+      final items = (((b['readiness_glassbox'] as Map)['value']
+              as Map)['breakdown'] as List)
+          .cast<Map>();
+      final hrv = items.firstWhere((m) => m['label'] == 'hrv');
+      expect(hrv['percentile_of_you'], greaterThan(40));
+    });
+
+    test('WHOOP 4 to WHOOP 5 keeps one history (same method family)', () {
+      final b = buildCrossDayBundle(switched('gen5'), const {},
+          methodFamilies: methods);
+      expect(pct(b, 'rmssd')['n'], 49);
+      expect(pct(b, 'rhr')['n'], 49);
+    });
+
+    test('an unstamped night counts as a band night', () {
+      final days = switched('gen5');
+      for (var i = 0; i < 20; i++) {
+        days[i].remove('skin_temp_family');
+      }
+      final b =
+          buildCrossDayBundle(days, const {}, methodFamilies: methods);
+      expect(pct(b, 'rmssd')['n'], 49);
     });
   });
 }

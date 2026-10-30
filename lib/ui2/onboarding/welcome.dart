@@ -9,10 +9,12 @@
 // [ImportOutcome] carries what the source cost us and [WelcomeView] renders it.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:path_provider/path_provider.dart';
@@ -449,7 +451,13 @@ Future<ImportOutcome> runImport(
     } on FormatException {
       // Text, but not UTF-8 — a latin1/cp1252 CSV out of a spreadsheet. The
       // sniff above cannot see that, and the vendor importer decodes leniently.
-      vendor.add(p);
+      // Our own journal or lab export is not something the vendor importer
+      // reads, though: it would drop it without a word, so name it instead.
+      if (await _isOwnCsvExport(p)) {
+        rejected.add(_notUtf8(p));
+      } else {
+        vendor.add(p);
+      }
       continue;
     }
     try {
@@ -461,7 +469,11 @@ Future<ImportOutcome> runImport(
     } on LabCsvFormatException {
       vendor.add(p);
     } on FormatException {
-      vendor.add(p);
+      if (await _isOwnCsvExport(p)) {
+        rejected.add(_notUtf8(p));
+      } else {
+        vendor.add(p);
+      }
     }
   }
 
@@ -481,7 +493,15 @@ Future<ImportOutcome> runImport(
         skipped += r.skippedExistingDays;
       }
     } catch (e) {
-      if (db.isEmpty && raw.isEmpty && journalRows == 0 && labRows == 0) rethrow;
+      // Something already named (a journal export that isn't UTF-8) keeps its
+      // note: a rethrow would replace it with the vendor error alone.
+      if (db.isEmpty &&
+          raw.isEmpty &&
+          journalRows == 0 &&
+          labRows == 0 &&
+          rejected.isEmpty) {
+        rethrow;
+      }
       readError = '$e';
     }
   }
@@ -505,6 +525,28 @@ Future<ImportOutcome> runImport(
     readError: readError ?? cryptoError,
   );
 }
+
+/// Whether [path]'s header row is the one our journal or lab-results export
+/// writes, read leniently so a file re-saved in a non-UTF-8 encoding still
+/// matches.
+Future<bool> _isOwnCsvExport(String path) async {
+  try {
+    final text = latin1.decode(await File(path).readAsBytes());
+    final first = text.split(RegExp(r'\r?\n')).first.replaceAll('\u00ef\u00bb\u00bf', '');
+    final header = [
+      for (final h in first.split(','))
+        h.replaceAll('"', '').trim().toLowerCase(),
+    ];
+    return listEquals(header, kJournalCsvHeader) ||
+        listEquals(header, kLabCsvHeader);
+  } catch (_) {
+    return false;
+  }
+}
+
+String _notUtf8(String path) =>
+    '${path.split(Platform.pathSeparator).last}: not saved as UTF-8 — '
+    'save it as "CSV UTF-8" and import it again';
 
 /// True when [path] starts with the encrypted-backup magic. Four bytes, so a
 /// mis-picked file costs one read and not a key derivation.

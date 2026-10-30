@@ -430,6 +430,23 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   /// Why the last correction did not take. Null when it did.
   String? _overrideFailed;
 
+  /// Whether the shown night can still be corrected. False once the day's
+  /// recordings have been pruned: no re-analysis reaches it any more, so the
+  /// correction buttons would only ever fail (see AppState.sleepCorrectable).
+  /// Unknown counts as correctable, which is how the screen behaved before.
+  bool _correctable = true;
+
+  /// Whether the night's whole derive window is still kept. False on the
+  /// oldest kept day: the prune cut at its midnight took the evening half, so
+  /// confirming the detected times or going back to automatic would be
+  /// declined; only a bedtime after midnight, or Not sleep, can land.
+  bool _wholeNightKept = true;
+
+  /// Whether "These times are right" can land. Not the same as
+  /// [_wholeNightKept]: on the oldest kept day a fallback window that starts
+  /// after the prune cut can still be confirmed.
+  bool _confirmable = true;
+
   /// Last night's state against the user's own nights, when it was rough enough
   /// to say so and has not been dismissed. See `rough_night.dart` — it REPLACES
   /// the elevated-sleeping-HR card rather than joining it, so one night can
@@ -488,8 +505,29 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       if (mounted && gen == _loadGen) setState(() => _loading = false);
       return;
     }
+    AppState? app;
+    try {
+      app = context.read<AppState>();
+    } catch (_) {}
     try {
       final d = await SleepData.load(repo, want: _day);
+      var correctable = true;
+      var wholeNightKept = true;
+      var confirmable = true;
+      if (app != null && d.day != null) {
+        try {
+          correctable =
+              await app.sleepCorrectable(d.day!, sleepSource: 'rejected');
+          wholeNightKept =
+              correctable && await app.sleepCorrectable(d.day!);
+          final onset = (d.night['onset_ts'] as num?)?.toInt();
+          confirmable = wholeNightKept ||
+              (correctable &&
+                  onset != null &&
+                  await app.sleepCorrectable(d.day!,
+                      sleepSource: 'confirmed', onsetSec: onset));
+        } catch (_) {}
+      }
       // LAST NIGHT ONLY. The card names the luteal phase, and `getCycle` knows
       // today's phase and no other day's — so a card offered while stepping
       // back through the record would either drop that half or invent it.
@@ -500,7 +538,14 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           ? await loadRoughNight(repo, d.day!, c: mounted ? context : null)
           : null;
       if (mounted && gen == _loadGen) {
-        setState(() => (_d = d, _rough = rough, _loading = false));
+        setState(() => (
+              _d = d,
+              _rough = rough,
+              _correctable = correctable,
+              _wholeNightKept = wholeNightKept,
+              _confirmable = confirmable,
+              _loading = false,
+            ));
       }
     } catch (_) {
       if (mounted && gen == _loadGen) setState(() => _loading = false);
@@ -554,19 +599,35 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
               ? (l?.sleepDetailRejectedBody ??
                   'You told us this stretch was not sleep, so nothing is '
                       'scored for it.')
-              : (l?.sleepDetailNoNightBody ??
+              : (_userWindowEmpty(d.night, l) ??
+                  _autoNightUnrecorded(d.night, l) ??
+                  l?.sleepDetailNoNightBody ??
                   'No stretch of band recordings long enough to score.'),
           fix: rejected ? '' : (l?.sleepDetailNoNightFix ??
               'Wear the band overnight and sync in the morning'),
           icon: rejected ? LucideIcons.undo2 : LucideIcons.moon,
         ),
-        if (rejected) ...[
+        // Undo goes back to automatic, which needs the whole night window.
+        // "I was asleep" does not: a bedtime after midnight still lands, and
+        // the write is refused (and said so) when it doesn't.
+        if (rejectedDay != null &&
+            (!_correctable || (rejected && !_wholeNightKept))) ...[
+          const SizedBox(height: S.x2),
+          _correctable ? _eveningPrunedNote(c, l) : _uncorrectableNote(c, l),
+        ] else if (rejected) ...[
           const SizedBox(height: S.x2),
           TextButton(
             onPressed: _saving ? null : () => _clearWindow(rejectedDay),
             child: Text(
                 l?.sleepDetailUndoRejection ?? 'Undo — go back to automatic'),
           ),
+          if (!_saving && _overrideFailed != null)
+            StatusCard(
+              l?.sleepDetailCorrectionFailedTitle ??
+                  'That correction has not been applied',
+              _overrideFailed!,
+              icon: LucideIcons.triangleAlert,
+            ),
         ] else if (rejectedDay != null) ...[
           // A night the detector missed is the other half of "it got it
           // wrong": the same manual window a mis-staged night gets, stored as
@@ -578,6 +639,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
                 : () => _addWindow(rejectedDay),
             child: Text(l?.sleepDetailIWasAsleep ?? 'I was asleep'),
           ),
+          if (!_wholeNightKept) _eveningPrunedNote(c, l),
           if (_saving)
             Text(l?.sleepDetailReanalysing ?? 'Re-analysing the night…',
                 style: F.cap.copyWith(color: P.of(c).ink3)),
@@ -839,8 +901,11 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
             ),
           ],
           const SizedBox(height: S.x2),
+          if (!_correctable)
+            _uncorrectableNote(c, l)
+          else
           Wrap(spacing: S.x2, children: [
-            if (fallback)
+            if (fallback && _confirmable)
               TextButton(
                 onPressed: busy ? null : () => _confirmWindow(day),
                 child: Text(l?.sleepDetailConfirmTimes ?? 'These times are right'),
@@ -851,7 +916,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
                   ? (l?.sleepDetailChangeTimes ?? 'Change the times')
                   : (l?.sleepDetailSetTimesMyself ?? 'Set the times myself')),
             ),
-            if (mine)
+            if (mine && _wholeNightKept)
               TextButton(
                 onPressed: busy ? null : () => _clearWindow(day),
                 child:
@@ -865,6 +930,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
               child: Text(l?.sleepDetailNotSleep ?? 'Not sleep'),
             ),
           ]),
+          if (_correctable && !_wholeNightKept) _eveningPrunedNote(c, l),
           if (busy) ...[
             const SizedBox(height: S.x2),
             Text(l?.sleepDetailReanalysing ?? 'Re-analysing the night…',
@@ -883,6 +949,23 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       ),
     ];
   }
+
+  /// Stands in for the correction buttons on a night that can no longer be
+  /// re-analysed, so it isn't offered a fix that can't land.
+  Widget _uncorrectableNote(BuildContext c, AppLocalizations? l) => Text(
+        l?.sleepDetailCorrectionUnavailable ??
+            'This night\u2019s detailed recordings are no longer on the phone, '
+                'so its sleep can\u2019t be corrected now.',
+        style: F.cap.copyWith(color: P.of(c).ink3),
+      );
+
+  /// On the oldest kept night: says why only some corrections are offered.
+  Widget _eveningPrunedNote(BuildContext c, AppLocalizations? l) => Text(
+        l?.sleepDetailCorrectionEveningPruned ??
+            'The evening before this night is no longer on the phone, so only '
+                'a bedtime after midnight, or Not sleep, can be applied.',
+        style: F.cap.copyWith(color: P.of(c).ink3),
+      );
 
   Future<void> _confirmWindow(String day) => _runOverride(
         day,
@@ -964,15 +1047,33 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       _saving = true;
       _overrideFailed = null;
     });
+    final l = AppLocalizations.of(context);
     String? failed;
     try {
       await write();
+    } on SleepCorrectionUnavailable catch (e) {
+      // Nothing was written, and re-analysing everything can't reach this
+      // night either, so the generic "tap Re-analyze everything" advice is
+      // wrong.
+      failed = e.eveningPruned
+          ? (l?.sleepDetailCorrectionEveningPruned ??
+              'The evening before this night is no longer on the phone, so '
+                  'only a bedtime after midnight, or Not sleep, can be '
+                  'applied.')
+          : (l?.sleepDetailCorrectionUnavailable ??
+              'This night\u2019s detailed recordings are no longer on the '
+                  'phone, so its sleep can\u2019t be corrected now.');
     } catch (e) {
       failed = '$e';
     } finally {
       if (mounted) setState(() => _saving = false);
     }
     final before = _source;
+    // Opened without a day, the screen reloads onto whichever night Home
+    // treats as last night, and an edit (Not sleep above all) can change
+    // that answer to another night. Pin the edited night unless the user has
+    // already stepped away from it.
+    if (_day == null && _d?.day == day) _day = day;
     if (mounted) await _load();
     if (!mounted) return;
     // EVERY failure below this screen is silent: the forced re-derive catches
@@ -988,11 +1089,52 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         ? applied(_d?.night ?? const <String, dynamic>{})
         : _source != before;
     if (failed != null || !took) {
-      final l = AppLocalizations.of(context);
       setState(() => _overrideFailed = failed ??
+          _userWindowEmpty(_d?.night ?? const <String, dynamic>{}, l) ??
           l?.sleepDetailReanalyseFailed ??
           'The night wasn’t re-analysed; another run was busy or it failed. Your times are saved: open Your data and tap Re-analyze everything.');
     }
+  }
+
+  /// Why a night the user set the times for still has nothing to show, or
+  /// null when it isn't one. The re-analysis ran and kept the window; the band
+  /// just recorded too little of it (charger, off the wrist) or no sleep in it,
+  /// so the generic "another run was busy, re-analyse everything" would send
+  /// the user to a re-run that gives the same answer.
+  static String? _userWindowEmpty(
+      Map<String, dynamic> n, AppLocalizations? l) {
+    final src = n['sleep_source'];
+    if ((src != 'manual' && src != 'confirmed') || n['has_sleep'] == true) {
+      return null;
+    }
+    return n['absence_reason'] != null
+        ? (l?.sleepDetailWindowUnrecorded ??
+            'Your times are saved, but the band wasn\u2019t recording for most '
+                'of those hours (off your wrist or charging), so there\u2019s '
+                'no night to score.')
+        : (l?.sleepDetailWindowNoSleep ??
+            'Your times are saved, but the band\u2019s recordings for those '
+                'hours show no sleep to score.');
+  }
+
+  /// Why an automatic night has nothing to show, when the derive knows: the
+  /// heart rate found a night but the band recorded too little movement
+  /// across it to stage one. Null otherwise, so an ordinary empty night keeps
+  /// the generic message.
+  static String? _autoNightUnrecorded(
+      Map<String, dynamic> n, AppLocalizations? l) {
+    final src = n['sleep_source'];
+    if (src == 'manual' ||
+        src == 'confirmed' ||
+        src == 'rejected' ||
+        n['has_sleep'] == true ||
+        n['absence_reason'] == null) {
+      return null;
+    }
+    return l?.sleepDetailNightUnrecorded ??
+        'Your heart rate shows a night\u2019s sleep, but the band recorded '
+            'too little movement data for most of it, so there\u2019s no '
+            'night to score.';
   }
 
   /// Where the drawn window came from: 'auto', 'auto_fallback', 'manual' or

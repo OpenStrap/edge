@@ -392,6 +392,33 @@ void main() {
       await finish(app);
     });
 
+    test('two stops that overlap share one stop: one write, one insights '
+        'bump, one Live Activity end, and neither caller throws', () async {
+      final app = AppState.forTesting();
+      app.startWorkout(workoutId: 'w4-overlap', type: 'strength');
+      await sessionLanded('w4-overlap');
+      final rev = app.insightsRevision.value;
+      final hold = await DbHold.acquire();
+      // The first stop parks on the write; the second arrives while it is
+      // still parked, as a resume-from-Live-Activity stop and a tap on Finish
+      // can.
+      final first = app.stopWorkout();
+      await settleMs(100);
+      final second = app.stopWorkout();
+      await settleMs(100);
+      expect(app.activeWorkout, isNotNull, reason: 'both wait on the write');
+      await hold.release();
+      await first;
+      await second;
+      expect(app.activeWorkout, isNull);
+      expect((await sessionRow('w4-overlap'))!['status'], 'done');
+      expect(app.insightsRevision.value, rev + 1);
+      await until(() => spies.liveActivityMethods.contains('end'));
+      await settleMs(200);
+      expect(spies.liveActivityMethods.where((m) => m == 'end'), hasLength(1));
+      await finish(app);
+    });
+
     test('a workout can be started again after a stop, with a fresh state',
         () async {
       final probe = TimerProbe();

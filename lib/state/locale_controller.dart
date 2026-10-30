@@ -33,6 +33,30 @@ class LocaleController extends ChangeNotifier {
     return 'en';
   }
 
+  /// The language for text rendered outside the widget tree (OS
+  /// notifications). A headless entry (background sync, BGTask, the Android
+  /// service engine) never builds the app root, so nothing is bound and
+  /// [displayLanguageCode] would fall through to the phone's language — wrong
+  /// for anyone who picked a different language in the app. Read the saved
+  /// override instead, with the same validation as [bootstrap]. Never throws.
+  static Future<String> presentationLanguageCode() async {
+    if (_active != null) return displayLanguageCode;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Another isolate (the UI) may have changed the setting since this
+      // isolate first cached the store.
+      await prefs.reload();
+      final code = _validCode(prefs.getString(_kLocale));
+      if (code != null) return code;
+    } catch (_) {}
+    return displayLanguageCode;
+  }
+
+  static String? _validCode(String? stored) =>
+      AppLocalizations.supportedLocales.any((l) => l.languageCode == stored)
+      ? stored
+      : null;
+
   factory LocaleController.seed(String? code) => LocaleController._(code);
 
   static Future<LocaleController> bootstrap() async {
@@ -41,11 +65,7 @@ class LocaleController extends ChangeNotifier {
     // A locale dropped from AppLocalizations.supportedLocales (or from a
     // stale build) has no row in the picker — fall back to system default
     // rather than showing a selection nothing matches.
-    final code =
-        AppLocalizations.supportedLocales.any((l) => l.languageCode == stored)
-        ? stored
-        : null;
-    return LocaleController._(code);
+    return LocaleController._(_validCode(stored));
   }
 
   @override

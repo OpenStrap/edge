@@ -238,5 +238,48 @@ void main() {
       // A bedtime just after midnight must not wrap to a negative minute.
       expect(const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 20), 1400);
     });
+
+    test('resolvedEveningMin: a bedtime after 01:00 keeps the sweep tonight',
+        () {
+      // Bedtime 01:10 -> an hour before is 00:10 of the NEXT calendar day.
+      // As a minute-of-day that is 10, and `minOfDay >= 10` is true all day,
+      // so the sweep would beat the morning briefing from 00:10 onwards.
+      expect(const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 69.5),
+          AiPrefs.eveningLatestMin);
+      expect(const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 3 * 60),
+          AiPrefs.eveningLatestMin);
+      // The latest slot is still late evening of the same calendar day.
+      expect(AiPrefs.eveningLatestMin, greaterThanOrEqualTo(22 * 60));
+      expect(AiPrefs.eveningLatestMin, lessThan(24 * 60));
+      // An afternoon/evening bedtime is untouched.
+      expect(const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 23 * 60),
+          22 * 60);
+    });
+
+    test('resolvedEveningMin: a day sleeper keeps a slot before bed', () {
+      // Bedtime 11:00 -> 10:00. Past the morning floor, so the morning
+      // briefing still gets 05:00-10:00; holding it at 23:30 would buzz
+      // in the middle of that user's sleep.
+      expect(const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 11 * 60),
+          10 * 60);
+      // Bedtime 05:30 -> 04:30, before the floor: still held.
+      expect(
+          const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 5 * 60 + 30),
+          AiPrefs.eveningLatestMin);
+    });
+
+    test('resolvedEveningMin: a bedtime just after 00:30 stops at 23:30', () {
+      // Bedtime 00:50 -> 23:50, inside "evening" but ten minutes from the
+      // day label rolling over; it is held at the latest slot instead.
+      expect(const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 50),
+          AiPrefs.eveningLatestMin);
+      expect(const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 31),
+          AiPrefs.eveningLatestMin);
+      expect(const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 59),
+          AiPrefs.eveningLatestMin);
+      // Exactly 00:30 lands on the limit itself.
+      expect(const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 30),
+          AiPrefs.eveningLatestMin);
+    });
   });
 }
