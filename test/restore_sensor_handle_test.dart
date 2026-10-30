@@ -105,4 +105,16 @@ void main() {
         ]),
         isFalse);
   });
+
+  test('a restored Mi Band can re-pair while two live sensors fill the cap',
+      () {
+    final rows = [
+      {'id': 'ble_hrs-1', 'adapter_id': kBleHrs.id, 'remote_id': 'A'},
+      {'id': 'polar_pmd-2', 'adapter_id': kPolarPmd.id, 'remote_id': 'B'},
+      {'id': 'mi-3', 'adapter_id': kMiBand234.id, 'remote_id': ''},
+    ];
+    expect(sensorCapReached(rows, adapterId: kMiBand234.id), isFalse);
+    expect(sensorCapReached(rows, adapterId: kBleHrs.id), isTrue,
+        reason: 'a new strap still adds a row');
+  });
 }
