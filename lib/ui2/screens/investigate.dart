@@ -39,6 +39,7 @@ import '../ui2.dart';
 import 'day_timeline.dart';
 import 'home_screen.dart';
 import 'metric_detail.dart';
+import 'wellness_screen.dart' show stressLevelLabel;
 
 /// The `stress` block of a day bundle, or empty. Its own values only: no other
 /// block stands in for a missing field.
@@ -1061,7 +1062,7 @@ class _InvestigateState extends State<Investigate> {
         (l?.investigateStressIndexSi ?? 'Index (SI)', displayFixed(si, 2)),
         (
           l?.investigateStressLevel ?? 'Level',
-          level == null ? '—' : stressLevelLabel(l, level),
+          level == null ? '—' : stressLevelLabel(l, level) ?? level,
         ),
         (l?.investigateStressScore ?? 'Score (0–100)', num2(b['score'], 1)),
       ]),
