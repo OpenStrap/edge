@@ -173,7 +173,10 @@ class CoachEngine {
   /// The data generation this engine started under. A reply still in flight
   /// when "Delete everything" runs lands after the chat files were swept, and
   /// saving it would write the deleted conversation back.
-  final int _resetGen = ResetGate.generation;
+  /// An engine built while a reset is still running (the UI is not blocked
+  /// during one) would otherwise take the new generation and save after the
+  /// sweep; -1 never matches, so it never saves.
+  final int _resetGen = ResetGate.active ? -1 : ResetGate.generation;
   final http.Client _http;
 
   /// Count of [send] calls currently inside their provider call(s). A local
@@ -367,7 +370,11 @@ class CoachEngine {
   Future<Directory> _dir() => getApplicationDocumentsDirectory();
   Future<File> _sessionFile(String id) async => File('${(await _dir()).path}/coach_s_${storageKey}_$id.json');
   Future<File> _indexFile() async => File('${(await _dir()).path}/coach_idx_$storageKey.json');
-  String _newId() => '${DateTime.now().millisecondsSinceEpoch}';
+  /// Millisecond stamp first so ids still read and sort by time, then a random
+  /// suffix: two screens' engines can start a chat in the same millisecond.
+  String _newId() => '${DateTime.now().millisecondsSinceEpoch}-'
+      '${_idRandom.nextInt(1 << 32).toRadixString(16).padLeft(8, '0')}';
+  static final _idRandom = Random();
 
   /// Deletes every saved chat for every storage key. The transcripts live as
   /// files beside the database, not in it, so wiping the database leaves
@@ -386,6 +393,7 @@ class CoachEngine {
   /// second screen on the same chat still holds its id; this is what stops
   /// that engine's next save. Ids are minted fresh per chat and only reopened
   /// from the saved list, so a deleted one never legitimately comes back.
+  /// Keyed `storageKey/id`, since chats of different accounts sit side by side.
   static final Set<String> _deletedSessionIds = {};
 
   /// Test seam: awaited by a save right after its reset check passes, so a
@@ -483,7 +491,7 @@ class CoachEngine {
     if (transcript.isEmpty || ResetGate.changedSince(_resetGen)) return;
     // Deleted from another screen's engine on the same chat: its late save
     // must not write the file and index entry back.
-    if (_deletedSessionIds.contains(_sessionId)) return;
+    if (_deletedSessionIds.contains('$storageKey/$_sessionId')) return;
     await debugAfterSaveCheck?.call();
     if (_sessionId.isEmpty) _sessionId = _newId();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -530,7 +538,7 @@ class CoachEngine {
       _serialFiles(() => _deleteSession(id));
 
   Future<void> _deleteSession(String id) async {
-    _deletedSessionIds.add(id);
+    _deletedSessionIds.add('$storageKey/$id');
     try {
       final f = await _sessionFile(id);
       if (await f.exists()) await f.delete();

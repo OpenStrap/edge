@@ -488,6 +488,19 @@ void main() {
       expect(c.firedNoticeKey, 'alarm_fired:${late * 1000}');
     });
 
+    test('a fire mapped into the future is not announced', () {
+      const wake = 1792218600;
+      final a = AlarmConfirmation()..set(wake, (wake - 8 * 3600) * 1000);
+      a.onEvent(AlarmConfirmation.kEvtStrapExecuted, wake * 1000,
+          tsSec: wake + 3600);
+      expect(a.firedJustNow(wake * 1000), isFalse);
+      // A couple of seconds ahead is ordinary clock noise.
+      final b = AlarmConfirmation()..set(wake, (wake - 8 * 3600) * 1000);
+      b.onEvent(AlarmConfirmation.kEvtStrapExecuted, wake * 1000,
+          tsSec: wake + 2);
+      expect(b.firedJustNow(wake * 1000), isTrue);
+    });
+
     test('the same fire re-sent after the clock mapping moved keeps its key',
         () {
       const wake = 1792218600;

@@ -565,9 +565,13 @@ class WidgetService {
       final hasAt = at != null && at > 0;
       final hasLegacy = legacy != null && legacy >= 0 && legacy <= 6;
       if (!hasAt && !hasLegacy) return null;
-      await HomeWidget.saveWidgetData<int>(
-          'enable_tomorrow_alarm_requested_at', -1);
-      await HomeWidget.saveWidgetData<int>('enable_tomorrow_alarm_weekday', -1);
+      // The latch being returned is cleared LAST: if the first clear throws,
+      // the request is still on disk for the next resume, never erased with
+      // nothing returned.
+      const atKey = 'enable_tomorrow_alarm_requested_at';
+      const legacyKey = 'enable_tomorrow_alarm_weekday';
+      await HomeWidget.saveWidgetData<int>(hasAt ? legacyKey : atKey, -1);
+      await HomeWidget.saveWidgetData<int>(hasAt ? atKey : legacyKey, -1);
       if (hasAt) return (requestedAt: at, weekday: null);
       return (requestedAt: null, weekday: legacy);
     } catch (_) {}

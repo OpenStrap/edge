@@ -227,13 +227,18 @@ class _CoachScreenState extends State<CoachScreen> {
         });
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-          _status = null;
-        });
+      // Unlocked only once the save is done: the menu's new / open / delete
+      // change the engine's open chat, and the save is still reading it.
+      try {
+        await engine.persist(); // survive reopen
+      } finally {
+        if (mounted) {
+          setState(() {
+            _busy = false;
+            _status = null;
+          });
+        }
       }
-      await engine.persist(); // survive reopen
       // A confirmed write can change what the reminders should say — a dose
       // marked or added, a day rated — and they are armed ahead of time.
       if (wrote) await app.refreshAiReminders();

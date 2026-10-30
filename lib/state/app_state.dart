@@ -1868,12 +1868,10 @@ class AppState extends ChangeNotifier {
     // reach liveHr/the live trace at all (arm/disarm alone don't feed it).
     PolarPmdLink.instance.reading.addListener(_onPmdReading);
     _workoutController.reconcilePending = true;
+    // Cleared by the reconcile itself, not by start-up ending: `_init` catches
+    // its own failures, and one that stopped before the reconcile has
+    // reconciled nothing. [retryInit] reaches it again.
     _initDone = _init();
-    // A start-up that throws before the reconcile must not hold the
-    // lock-screen Finish back for the life of the process.
-    unawaited(_initDone!
-        .catchError((Object _) {})
-        .whenComplete(() => _workoutController.reconcilePending = false));
     // Notification taps → request a tab switch (the shell listens to navRequest).
     _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
     unawaited(NotificationService.instance.consumeLaunchRoute());

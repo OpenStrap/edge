@@ -123,4 +123,32 @@ void main() {
         .where((n) => n.startsWith('coach_'));
     expect(left, isEmpty);
   });
+
+  test('a chat opened while a reset is still running is never saved',
+      () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
+    final dir = await Directory.systemTemp.createTemp('coach-reset-');
+    final original = PathProviderPlatform.instance;
+    PathProviderPlatform.instance = _DocumentsProvider(dir.path);
+    addTearDown(() async {
+      PathProviderPlatform.instance = original;
+      await dir.delete(recursive: true);
+    });
+    final config = CoachConfig();
+    addTearDown(config.dispose);
+
+    // The reset does not block the UI, so the coach can be opened mid-wipe.
+    ResetGate.enter();
+    final engine = CoachEngine(config: config, api: _FakeRepo(), storageKey: 'local');
+    addTearDown(engine.dispose);
+    await CoachEngine.deleteAllSavedSessions();
+    ResetGate.leave();
+
+    engine.transcript.add(CoachItem.user('how did I sleep'));
+    await engine.persist();
+    final left = dir.listSync().map((e) => e.uri.pathSegments.last)
+        .where((n) => n.startsWith('coach_'));
+    expect(left, isEmpty);
+  });
 }

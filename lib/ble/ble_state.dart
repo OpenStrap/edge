@@ -1410,10 +1410,18 @@ class AlarmConfirmation {
   /// noise about something the band already did.
   static const int lateFireNoticeSec = 600;
 
+  /// How far ahead of the phone a drift-mapped fire stamp may sit and still
+  /// count as now: the mapping is only as good as the last clock read.
+  static const int futureFireSlackSec = 5;
+
   /// Whether the last fire is recent enough at [nowMs] to notify about. An
-  /// unplaceable stamp can't be judged and is taken as current.
-  bool firedJustNow(int nowMs) =>
-      firedTsSec == null || nowMs ~/ 1000 - firedTsSec! <= lateFireNoticeSec;
+  /// unplaceable stamp can't be judged and is taken as current; one mapped
+  /// further into the future than the slack is a bad mapping, not news.
+  bool firedJustNow(int nowMs) {
+    if (firedTsSec == null) return true;
+    final age = nowMs ~/ 1000 - firedTsSec!;
+    return age >= -futureFireSlackSec && age <= lateFireNoticeSec;
+  }
 
   /// Dedupe key for the fired notification. Keyed on the band's own stamp so
   /// the same fire delivered twice collapses; receive time differs per

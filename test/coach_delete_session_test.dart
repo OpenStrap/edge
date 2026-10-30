@@ -58,7 +58,8 @@ http.Response _reply(String text) => http.Response(
       200,
     );
 
-Future<CoachEngine> _engine(http.Client client) async {
+Future<CoachEngine> _engine(http.Client client,
+    {String storageKey = 'local'}) async {
   final config = CoachConfig();
   await config.save(model: 'gpt-6.1-sol');
   addTearDown(config.dispose);
@@ -66,7 +67,7 @@ Future<CoachEngine> _engine(http.Client client) async {
     config: config,
     api: _FakeRepo(),
     client: client,
-    storageKey: 'local',
+    storageKey: storageKey,
   );
   addTearDown(engine.dispose);
   return engine;
@@ -170,5 +171,49 @@ void main() {
 
     expect(engine.debugHistory.any((m) => m['content'] == old), isFalse);
     expect(engine.debugHistory.first['content'], 'and today');
+  });
+
+  test('chat ids stay apart even when minted in the same millisecond',
+      () async {
+    await _documents();
+    final engine = await _engine(MockClient((_) async => _reply('ok')));
+    final ids = <String>{};
+    for (var i = 0; i < 50; i++) {
+      engine.newSession();
+      ids.add(engine.sessionId);
+    }
+    expect(ids, hasLength(50));
+    expect(ids.first, matches(RegExp(r'^\d+-[0-9a-f]{8}$')));
+  });
+
+  test("a deleted chat id only blocks saves under the account it was in",
+      () async {
+    final dir = await _documents();
+    final local = await _engine(MockClient((_) async => _reply('ok')));
+    final sends = <Future<void>>[];
+    _send(local, 'how did I sleep', sends);
+    await sends.single;
+    await local.persist();
+    final id = local.sessionId;
+    await local.deleteSession(id);
+
+    // Another account's chat that happens to carry the same id.
+    await File('${dir.path}/coach_s_other_$id.json').writeAsString(jsonEncode({
+      'title': 'theirs',
+      'createdAt': 1,
+      'updatedAt': 1,
+      'history': <Object>[],
+      'transcript': [CoachItem.user('their question').toJson()],
+    }));
+    final other = await _engine(MockClient((_) async => _reply('ok')),
+        storageKey: 'other');
+    await other.openSession(id);
+    expect(other.sessionId, id);
+    other.transcript.add(CoachItem.user('one more'));
+    await other.persist();
+
+    final saved = jsonDecode(
+        await File('${dir.path}/coach_s_other_$id.json').readAsString()) as Map;
+    expect((saved['transcript'] as List), hasLength(2));
   });
 }
