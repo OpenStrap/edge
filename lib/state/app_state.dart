@@ -1304,6 +1304,11 @@ class AppState extends ChangeNotifier {
       } catch (e) {
         _log('[reset] keychain clear failed: $e');
       }
+      try {
+        await coachConfig?.chatgpt.forgetAll();
+      } catch (e) {
+        _log('[reset] ChatGPT sign-in clear failed: $e');
+      }
 
       // 3 · the whole preference namespace, not a remembered subset — same
       // reason as wipeAll. A fresh install is the state being restored, and a
@@ -2884,7 +2889,7 @@ class AppState extends ChangeNotifier {
       await NotificationCenter.instance.scheduleAiReminders(
         prefs,
         ai,
-        aiConfigured: coachConfig?.hasKey ?? false,
+        aiConfigured: coachConfig?.remindersConfigured ?? false,
         bedtimeMinOfDay: cd.bedtimeMin,
         journalDoneToday: BriefingStore.journalDoneToday(),
         sweepHeadline: await _sweepHeadlineNow(),

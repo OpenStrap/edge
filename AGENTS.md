@@ -16,7 +16,8 @@ symbol names don't; verify against the source, not this doc.
 A Flutter health app for wearables (WHOOP 4.0/5.0/MG supported today). **Fully on-device,
 local-first**: BLE offload → SQLite → on-device analytics → UI. No backend owns
 user data. Network use is limited to OTA update pointers, opt-in
-telemetry/Crashlytics, and BYOK LLM calls.
+telemetry/Crashlytics, and BYOK LLM calls (or the user's ChatGPT sign-in,
+whose OAuth calls go to auth.openai.com).
 
 Three sibling repos, strict separation — push work to the right one:
 - `OpenStrap/protocol` — bytes: GATT, framing, CRC, opcodes, record decode.
