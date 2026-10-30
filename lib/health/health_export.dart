@@ -1151,7 +1151,11 @@ class HealthExporter {
         if (!await _androidSleep.replace(
           b,
           dayStart: dayStart,
-          previousWake: await previousWake(),
+          // Only the no-night clear reads it; skip decoding yesterday's
+          // bundle on every other day of a long first export.
+          previousWake: normalizeHealthSleepSession(b) == null
+              ? await previousWake()
+              : null,
         )) {
           debugPrint('[health] write Android sleep session returned false');
           success = false;

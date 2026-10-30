@@ -162,6 +162,13 @@ void main() {
         'created_at': 0,
       });
       await LocalDb.setSessionPrivate(legacyId, true);
+      // Measured over the wrong seconds before the move.
+      final db0 = await LocalDb.instance;
+      await db0.update(
+          'sessions',
+          {'trace_json': '{"hr":[]}', 'trace_samples': 10, 'avg_hr': 140},
+          where: 'id = ?',
+          whereArgs: [legacyId]);
 
       for (var i = 0; i < 2; i++) {
         final res = await WhoopImporter.importFiles([workoutCsv('w$i.csv')]);
@@ -174,9 +181,37 @@ void main() {
         expect((r['end_ts'] as num).toInt(), end);
         expect(r['type'], 'cycling');
         expect(r['private'], 1);
+        expect(r['trace_json'], isNull);
+        expect(r['avg_hr'], isNull);
+        expect(r['strain'], 9.4);
       }
       final db = await LocalDb.instance;
       await db.delete('sessions', where: 'id = ?', whereArgs: [legacyId]);
+    });
+
+    test('a workout already moved under its old id is not inserted again',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final start = _utc(2024, 4, 2, 0, 15);
+      // Any id other than the one this import would compute: the row an
+      // earlier re-import moved onto the right instant.
+      const movedId = 'whoop_1';
+      await LocalDb.putSession({
+        'id': movedId,
+        'start_ts': start,
+        'end_ts': _utc(2024, 4, 2, 1, 25),
+        'type': 'running',
+        'status': 'done',
+        'source': 'whoop',
+        'duration_min': 70,
+        'created_at': 0,
+      });
+      final res = await WhoopImporter.importFiles([workoutCsv('wm.csv')]);
+      expect(res.workouts, 0);
+      final rows = await sessionsAround(start);
+      expect(rows.map((r) => r['id']), [movedId]);
+      final db = await LocalDb.instance;
+      await db.delete('sessions', where: 'id = ?', whereArgs: [movedId]);
     });
 
     test('a deleted phone-zone workout stays deleted on re-import', () async {

@@ -424,6 +424,9 @@ class WhoopImporter {
         'strain': d(strain),
         'resp_rate': d(resp),
         'calories_total': d(caloriesTotal),
+        // Earlier imports filed this total under `calories` (active energy);
+        // the series row is only replaced for keys written, so clear it.
+        'calories': null,
         'spo2': d(spo2),
         'tst_min': d(asleepMin),
         'rem_min': d(remMin),
@@ -486,6 +489,10 @@ class WhoopImporter {
         return false;
       }
     }
+    // A row moved onto this instant by an earlier re-import keeps its old id,
+    // so the id check above misses it once the phone's zone matches the
+    // export's.
+    if (await LocalDb.hasSessionStartingAt('whoop', start)) return false;
     await LocalDb.putSession({
       'id': id,
       'start_ts': start,

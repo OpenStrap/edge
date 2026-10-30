@@ -563,13 +563,14 @@ void main() {
   });
 
   test(
-    'marking an exported workout private re-exports its day',
+    'marking a workout private does not rewind the day export',
     () async {
-      // Its calories come back into the day's active energy, and a day
-      // behind the export cursor is otherwise never written again.
+      // The day's active energy is the full daily total, workouts included,
+      // so it does not change with the flag; the workout's own re-export
+      // clears its window. Rewinding the cursor would only rewrite this day
+      // and every day after it for nothing.
       SharedPreferences.setMockInitialValues({});
       final start = sessionStart - 20 * 86400;
-      final day = dayLabelOf(DateTime.fromMillisecondsSinceEpoch(start * 1000));
       await LocalDb.putSession({
         'id': 'w-private-old',
         'start_ts': start,
@@ -585,13 +586,8 @@ void main() {
       addTearDown(() => LocalDb.setCursor('health_export_through', ''));
 
       await repo.setWorkoutPrivate('w-private-old', true);
-      String? cursor;
-      for (var i = 0; i < 50; i++) {
-        cursor = await LocalDb.getCursor('health_export_through');
-        if (cursor != through) break;
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-      }
-      expect(cursor!.compareTo(day), lessThan(0));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(await LocalDb.getCursor('health_export_through'), through);
     },
   );
 

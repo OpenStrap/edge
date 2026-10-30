@@ -13571,15 +13571,24 @@ class LocalDb {
     });
   }
 
-  /// Move a session's window without touching any other column. Not
-  /// `putSession`: the row's type correction, RPE and private flag must
-  /// survive. Returns the number of rows changed.
+  /// Move a session's window. Not `putSession`: the row's type correction,
+  /// RPE and private flag must survive. What was measured over the OLD window
+  /// (the frozen HR trace, average HR, zone minutes) belongs to other seconds,
+  /// so it goes; a re-score fills it again if the new window is still on
+  /// record. Returns the number of rows changed.
   static Future<int> setSessionWindow(String id, int startTs, int? endTs) async {
     final db = await instance;
     return db.transaction((tx) async {
       final n = await tx.update(
         'sessions',
-        {'start_ts': startTs, 'end_ts': endTs},
+        {
+          'start_ts': startTs,
+          'end_ts': endTs,
+          'trace_json': null,
+          'trace_samples': null,
+          'avg_hr': null,
+          'zone_min_json': null,
+        },
         where: 'id = ?',
         whereArgs: [id],
       );
@@ -13630,6 +13639,17 @@ class LocalDb {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  /// Whether a [source] session already starts at [startTs], under any id.
+  static Future<bool> hasSessionStartingAt(String source, int startTs) async {
+    final db = await instance;
+    final rows = await db.query('sessions',
+        columns: ['id'],
+        where: 'source = ? AND start_ts = ?',
+        whereArgs: [source, startTs],
+        limit: 1);
+    return rows.isNotEmpty;
   }
 
   static Future<Map<String, dynamic>?> session(String id) async {

@@ -63,7 +63,6 @@ int kNoopBackupPageRows = 20000;
 /// timestamp outside this range is corrupt or millisecond-scaled, and letting
 /// one into the day walk would march it across decades one day at a time.
 const int _kMinPlausibleTs = kNoopMinPlausibleTs;
-const int _kMaxPlausibleTs = kNoopMaxPlausibleTs;
 
 /// Every table read, and the columns wanted from it. ONE definition: the probe
 /// and the reads both key off this, so a name can no longer be spelled one way
@@ -534,7 +533,7 @@ class NoopBackupImporter {
       try {
         r = await src.rawQuery(
           'SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM $t WHERE ts >= ? AND ts <= ?',
-          [_kMinPlausibleTs, _kMaxPlausibleTs],
+          [_kMinPlausibleTs, noopMaxPlausibleTs()],
         );
       } catch (e) {
         if (!_isCorruptPageError(e)) rethrow;

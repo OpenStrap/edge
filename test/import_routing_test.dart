@@ -137,6 +137,31 @@ void main() {
     expect(app.vendor, isEmpty);
   });
 
+  test('a journal export re-saved as cp1252 is named, not handed to the '
+      'vendor importer', () async {
+    final app = _RoutingSpy();
+    final journal = await write('journal.csv',
+        latin1.encode('date,tags,note\n2026-08-01,,caf\u00e9\n'));
+    final whoopPath = await write('whoop.zip', _zipOf(_whoopZipMembers));
+
+    final out = await runImport(app, [journal, whoopPath]);
+
+    expect(app.vendor, [whoopPath]);
+    expect(out.rejectedRows.single, contains('journal.csv'));
+    expect(out.rejectedRows.single, contains('UTF-8'));
+  });
+
+  test('a cp1252 CSV that is not ours still goes to the vendor importer',
+      () async {
+    final app = _RoutingSpy();
+    final path = await write('cycles.csv',
+        latin1.encode('Cycle start time,Recovery score %\ncaf\u00e9,1\n'));
+
+    await runImport(app, [path]);
+
+    expect(app.vendor, [path]);
+  });
+
   test('a mixed selection reaches both importers', () async {
     final app = _RoutingSpy();
     final noopPath = await write('noop-export.csv', utf8.encode(_noopCsv));

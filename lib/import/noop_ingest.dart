@@ -48,7 +48,13 @@ class StepRun {
 /// 400-day `calendarDays` guard, so the real day silently derives nothing.
 /// A microsecond value overflows `DateTime` outright.
 const int kNoopMinPlausibleTs = 1000000000; // 2001-09-09
-const int kNoopMaxPlausibleTs = 4102444800; // 2100-01-01
+
+/// The upper bound: now, plus two days of clock skew. A fixed far-future bound
+/// let one corrupt 2099 row through, and that row alone set the backup span's
+/// end (every empty day in between was then read) and the ingest's high-water
+/// date (every real row after it stranded).
+int noopMaxPlausibleTs() =>
+    DateTime.now().millisecondsSinceEpoch ~/ 1000 + 2 * 86400;
 
 /// What to do with an incoming row given the import's high-water date.
 /// [advance] closes out the previous date; [buffer] folds the row into the
@@ -76,6 +82,8 @@ class NoopIngest {
   /// belongs to the deleted store, so the import stops at its next write
   /// instead of banking it into the fresh one.
   final int _resetGen = ResetGate.generation;
+  /// Fixed for the length of one import, so a long run cannot move it.
+  final int _maxTs = noopMaxPlausibleTs();
 
   void _stopIfReset() {
     if (ResetGate.changedSince(_resetGen)) {
@@ -110,7 +118,7 @@ class NoopIngest {
   int lateRows = 0;
 
   /// Samples whose timestamp fell outside [kNoopMinPlausibleTs]..
-  /// [kNoopMaxPlausibleTs] and were skipped.
+  /// [noopMaxPlausibleTs] and were skipped.
   int implausibleRows = 0;
 
   /// Dates that arrived AFTER a later date had already opened, so they were
@@ -126,7 +134,7 @@ class NoopIngest {
   /// skip it entirely.
   Future<bool> offer(int ts) async {
     _stopIfReset();
-    if (ts < kNoopMinPlausibleTs || ts > kNoopMaxPlausibleTs) {
+    if (ts < kNoopMinPlausibleTs || ts > _maxTs) {
       implausibleRows++;
       return false;
     }

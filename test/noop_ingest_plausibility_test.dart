@@ -53,4 +53,17 @@ void main() {
     expect(sub.hr, [60, 0, 0, 230, 25, 0, 0]);
     expect(sub.rrMs, [800.0, 250.0, 2400.0]);
   });
+
+  test('a far-future timestamp is refused, not taken as the newest day',
+      () async {
+    final engine = _CapturingEngine();
+    final ingest = NoopIngest(const Profile(), engine);
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final y2099 = DateTime(2099, 6, 1, 12).millisecondsSinceEpoch ~/ 1000;
+    expect(await ingest.offer(y2099), isFalse);
+    expect(ingest.implausibleRows, 1);
+    expect(await ingest.offer(now - 3600), isTrue);
+    expect(await ingest.offer(now + 86400), isTrue,
+        reason: 'a day of clock skew is still a real row');
+  });
 }
