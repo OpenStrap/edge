@@ -15787,5 +15787,9 @@
         "type": "String"
       }
     }
+  },
+  "sleepDetailMedicalDisclaimer": "Experimental research algorithm. Not a medical device. Consult a physician for sleep disorders.",
+  "@sleepDetailMedicalDisclaimer": {
+    "description": "Disclaimer shown on the sleep detail screen."
   }
 }

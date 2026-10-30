@@ -40,6 +40,7 @@ import 'hr_max.dart'
         smoothedMinHr,
         trainingZones;
 import 'profile.dart' show workoutSex;
+import 'sleep_pipeline_hmm.dart';
 import 'step_cadence.dart' show cadenceSpmForMinutes;
 // Same argument: a pure `DateTime` lookup, no DB / IO / Flutter binding. It is
 // the ONE definition of "the UTC offset in effect at this instant" in the tree,
@@ -2205,7 +2206,8 @@ List<Map<String, dynamic>> _hypnogramSegments(DayBundleInput d) {
 
 /// Whether a 4-class label is SLEEP. `unobserved` is not a stage and not wake —
 /// it is a second the band did not watch, and it belongs to neither side.
-bool _isSleepStage(String s) => s == 'light' || s == 'deep' || s == 'rem';
+bool _isSleepStage(String s) =>
+    s == 'light' || s == 'deep' || s == 'rem' || s == 'nrem';
 
 /// Sustained-awakening threshold. A CHOICE, not physiology: the 3-15 s cortical
 /// arousals PSG counts are invisible to a 1 Hz wrist, so anything shorter than
@@ -2284,4 +2286,25 @@ int? _medianGapSec(List<int> tsSec, {int minGapSec = 1}) {
       if (tsSec[i] - tsSec[i - 1] >= minGapSec) tsSec[i] - tsSec[i - 1],
   ]..sort();
   return gaps.isEmpty ? null : gaps[gaps.length ~/ 2];
+}
+
+// Not called yet: whether this decoder replaces the stager's labels in
+// `hypnoStages` is still undecided, so nothing derived depends on it.
+// ignore: unused_element
+List<String> _classifySleepStagesHMM(List<Map<String, dynamic>> epochData) {
+  final analyzer = SleepStageAnalyzer();
+  final first120m = epochData.take(240).toList();
+  analyzer.computeBaseline(first120m);
+  final states = analyzer.viterbiDecode(epochData.map((e) => {
+    ...e,
+    "isContactLost": (e["motion_artifact"] == true)
+  }).toList());
+  return states.map((s) {
+    switch (s) {
+      case SleepState.wake: return 'wake';
+      case SleepState.nremLight: return 'light';
+      case SleepState.nremDeep: return 'deep';
+      case SleepState.rem: return 'rem';
+    }
+  }).toList();
 }
