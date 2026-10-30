@@ -23,7 +23,9 @@
 // impedance are shown attributed; with the scale's flag on, a weighing near
 // the profile's weight becomes it (`measurement_inputs.dart`).
 //
-// EXPERIMENTAL (ASSUMPTIONS R6): nobody on this project owns one.
+// The Mi Body Composition Scale 2 (XMTZC05HM) is verified on a physical unit:
+// pairing, stored history and live weight with impedance. The Mi Smart Scale 2
+// is still EXPERIMENTAL (ASSUMPTIONS R6): nobody on this project owns one.
 
 import 'dart:async';
 import 'dart:typed_data';
