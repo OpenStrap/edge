@@ -33,6 +33,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../coach/coach_config.dart';
+import '../../coach/coach_engine.dart' show CoachSessionMeta;
 import '../../data/day_label.dart';
 import '../../ecg/ecg_controller.dart';
 import '../../ecg/ecg_models.dart';
@@ -404,6 +405,24 @@ Map<String, Widget> _coachFigureCases() => {
   ),
   // The band rename sheet's body, outside the dialog route that hosts it.
   'rename_band_dialog': const RenameBandDialog(current: 'WHOOP 4A1B2C'),
+  // The past-chats list, open and while a reply is still coming in (locked:
+  // no open, no delete control).
+  'coach_chat_list': CoachChatList(
+    sessions: [
+      CoachSessionMeta('a', 'Why was my HRV low?', 0,
+          'Two short nights in a row pulled it under your usual.'),
+      CoachSessionMeta('b', '', 0, 'Plan a lighter week'),
+    ],
+    locked: false,
+    onOpen: (_) {},
+    onDelete: (_) async {},
+  ),
+  'coach_chat_list_locked': CoachChatList(
+    sessions: [CoachSessionMeta('a', 'Why was my HRV low?', 0, '')],
+    locked: true,
+    onOpen: (_) {},
+    onDelete: (_) async {},
+  ),
 };
 
 /// Charts, framed. Every one of these is captured with the thing that was
