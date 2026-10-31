@@ -275,7 +275,8 @@ abstract final class SubstrateArchive {
   /// keep.
   ///
   /// Never adopted over local history. A local policy row always wins, and so
-  /// does a local archive under the implicit default: that history was kept
+  /// does a local archive or any live decoded reading under the implicit
+  /// default: that history was kept
   /// on this phone, and importing some other backup's "Off" must not be what
   /// deletes it (a restore only ever ADDS history). Checked and written in one
   /// transaction, so an archive cannot appear between the two.
@@ -317,6 +318,14 @@ abstract final class SubstrateArchive {
       if (ours.isNotEmpty) return;
       final anyLocal = await txn.query(table, columns: ['utc_day'], limit: 1);
       if (anyLocal.isNotEmpty) return;
+      // Live readings are local history too, the part the next prune moves
+      // into the archive: under an adopted "Off" that prune deletes them
+      // without archiving, and a shorter window drops the older ones.
+      for (final live in const ['decoded_onehz', 'decoded_rr']) {
+        if ((await txn.rawQuery('SELECT 1 FROM $live LIMIT 1')).isNotEmpty) {
+          return;
+        }
+      }
       await txn.insert('compute_freshness', {
         'key': policyKey,
         'payload_json': adopted.toJson(),

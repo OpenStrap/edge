@@ -46,6 +46,8 @@ void main() {
       await db.execute('CREATE TABLE compute_freshness (key TEXT PRIMARY KEY, '
           'payload_json TEXT NOT NULL, updated_at INTEGER NOT NULL)');
       await db.execute('CREATE TABLE ${SubstrateArchive.table} (utc_day INTEGER, day TEXT)');
+      await db.execute('CREATE TABLE decoded_onehz (rec_ts INTEGER)');
+      await db.execute('CREATE TABLE decoded_rr (rec_ts INTEGER)');
     });
     tearDown(() => db.close());
 
@@ -66,7 +68,6 @@ void main() {
 
     test('an empty archive with band readings already stored keeps a year',
         () async {
-      await db.execute('CREATE TABLE decoded_onehz (rec_ts INTEGER)');
       await db.insert('decoded_onehz', {'rec_ts': 1750000000});
       await SubstrateArchive.keepLegacyWindowOnce(db);
       expect((await SubstrateArchive.readPolicy(db)).keepDays, 365);
