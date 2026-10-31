@@ -3241,6 +3241,7 @@ class DerivationEngine {
     'todo_days': 0,
     'done_days': 0,
     'skipped_days': 0,
+    'unchanged_days': 0,
     // List, not a single day — several days can be in flight concurrently
     // (see run()'s bounded worker pool).
     'active_days': <String>[],
@@ -3371,6 +3372,7 @@ class DerivationEngine {
       ..['todo_days'] = 0
       ..['done_days'] = 0
       ..['skipped_days'] = 0
+      ..['unchanged_days'] = 0
       ..['active_days'] = <String>[]
       ..['concurrency'] = _deriveConcurrency
       ..['last_error'] = null;
@@ -3554,13 +3556,34 @@ class DerivationEngine {
         }
       }
 
+      // The stored fingerprint is only an optimization: a read or write that
+      // fails (SQLITE_BUSY with two isolates deriving) must cost the skip,
+      // never the day.
+      Future<String?> storedFingerprint(String dayId) async {
+        try {
+          return await LocalDb.deriveFingerprint(dayId);
+        } catch (e) {
+          _log('derive day $dayId: fingerprint read failed, deriving: $e');
+          return null;
+        }
+      }
+
+      Future<bool> storeFingerprint(String dayId, String? value) async {
+        try {
+          await LocalDb.putDeriveFingerprint(dayId, value);
+          return true;
+        } catch (e) {
+          _log('derive day $dayId: fingerprint write failed: $e');
+          return false;
+        }
+      }
+
       Future<void> processDay(String dayId) async {
         activeDays.add(dayId);
         _diag['active_days'] = activeDays.toList();
         try {
           final before = await fingerprint(dayId);
-          if (before != null &&
-              before == await LocalDb.deriveFingerprint(dayId)) {
+          if (before != null && before == await storedFingerprint(dayId)) {
             unchanged++;
             _diag['unchanged_days'] = unchanged;
             activeDays.remove(dayId);
@@ -3571,7 +3594,7 @@ class DerivationEngine {
           }
           // Cleared before the derive so an interrupted one cannot leave a
           // fingerprint vouching for the row it was rewriting.
-          await LocalDb.putDeriveFingerprint(dayId, null);
+          final cleared = await storeFingerprint(dayId, null);
           final prepared = await _prepareTargetDay(dayId);
           // Override day whose raw has been pruned (≥14 d): re-deriving would
           // produce an empty/absent result and clobber the user's manual sleep.
@@ -3587,8 +3610,11 @@ class DerivationEngine {
             _diag['done_days'] = done;
             // Stored only when the derive was a fixed point; see
             // [_dayInputFingerprint].
-            if (before != null && before == await fingerprint(dayId)) {
-              await LocalDb.putDeriveFingerprint(dayId, before);
+            // Never over a fingerprint that could not be cleared first.
+            if (cleared &&
+                before != null &&
+                before == await fingerprint(dayId)) {
+              await storeFingerprint(dayId, before);
             }
           } else {
             _log('derive day $dayId skipped: no bounded window payload');
@@ -3803,6 +3829,7 @@ class DerivationEngine {
       ..['todo_days'] = 0
       ..['done_days'] = 0
       ..['skipped_days'] = 0
+      ..['unchanged_days'] = 0
       ..['active_days'] = <String>[]
       ..['concurrency'] = _deriveConcurrency
       ..['last_error'] = null;
