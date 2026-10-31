@@ -1831,7 +1831,10 @@ import 'vendor_sleep.dart';
 // wake, chronotype and social jetlag no longer move by the zone difference. A
 // re-derive keeps the stored night's clock. Unchanged for a user who has not
 // changed zone. Edge-only.
-const int kAlgoVersion = 117;
+// 117 → 118 (edge-only): a legacy nap snapshot fully inside the corrected
+// main window is no longer counted on top of it; partial overlaps keep their
+// recorded minutes, and a nap the user put back stays theirs.
+const int kAlgoVersion = 118;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -3140,6 +3143,14 @@ class DerivationEngine {
     }
   }
 
+  /// Run [body] under the derive latch if no pass is in flight, or return
+  /// [busy] without running it. For opportunistic storage work (the
+  /// automatic VACUUM) that must never overlap a derive or the archive
+  /// replay inside one, and is fine to skip. [body] must not call a locked
+  /// entry point.
+  static Future<T> ifIdle<T>(T busy, Future<T> Function() body) =>
+      _withRunLock(busy, body);
+
   /// Run [body] once no pass is in flight, holding the latch so none starts
   /// until it returns. For user deletes: a pass that built its substrate
   /// before the delete keeps writing `day_result`, `metric_series` and the
@@ -3196,7 +3207,7 @@ class DerivationEngine {
         } catch (e) {
           _log('compact: prune skipped: $e');
         }
-        await _runStorageHousekeeping();
+        await _runStorageHousekeeping(long: true);
         final size = await LocalDb.databaseBytesOnDisk();
         final free = await freeDiskBytes();
         if (free == null || free < 2 * size) {
@@ -3219,7 +3230,11 @@ class DerivationEngine {
           );
         }
         onStep?.call(CompactStep.vacuum);
-        await LocalDb.vacuumAndCheckpoint();
+        if (!await LocalDb.vacuumAndCheckpoint()) {
+          // The size below is measured on disk, WAL included, so the result
+          // stays honest; the WAL shrinks at the next checkpoint.
+          _log('compact: WAL not truncated, a reader held it');
+        }
         return CompactResult(
           beforeBytes: before,
           afterBytes: await LocalDb.databaseBytesOnDisk(),
@@ -3737,7 +3752,7 @@ class DerivationEngine {
       // `_running`. See _runStorageHousekeeping — this is the only place every
       // entry path and every early return actually reaches.
       _diag['stage'] = 'housekeeping';
-      await _runStorageHousekeeping();
+      await _runStorageHousekeeping(long: heavy || force);
       // ONE-SHOT: rescale stored strain onto the recalibrated scale. Days
       // inside the raw window re-derive from substrate above; everything older
       // has none, so its headline is rebuilt from the stored TRIMP + wake
@@ -7890,16 +7905,19 @@ class DerivationEngine {
   ///     every day reported 0 back to `reanalyzeAll`. This work is a storage
   ///     optimization; nothing it does may change what the derive returns.
   ///
-  /// Bounded and resumable, so running it on every pass costs one small batch.
+  /// Bounded and resumable: a light pass gives it about three seconds (a page
+  /// of the archive move can run past that, never by more than one page), a
+  /// heavy or forced pass and an explicit compaction about fifteen.
   /// Off the path to a durable commit, and never inside a migration: `onUpgrade`
   /// runs under iOS's CPU watchdog (invariant 11).
-  Future<void> _runStorageHousekeeping() async {
+  Future<void> _runStorageHousekeeping({bool long = false}) async {
     try {
       // The pre-conversion undecodable archive, moved into the frame store a
       // bounded slice at a time (see LocalDb.migrateLegacyRawArchive). A
-      // WHOOP MG's is ~500 MB of hex, so a background pass takes little.
+      // WHOOP MG's is ~500 MB of hex, so a background or light pass takes
+      // little.
       final moved = await LocalDb.migrateLegacyRawArchive(
-        budget: Duration(seconds: background ? 3 : 15),
+        budget: Duration(seconds: long && !background ? 15 : 3),
         shouldStop: offloadActive,
       );
       if (moved > 0) _log('moved $moved archived frame(s) to the frame store');
