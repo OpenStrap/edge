@@ -54,6 +54,7 @@ import '../compute/nap_edits.dart' show NapEditKind;
 import '../compute/vendor_sleep.dart' show VendorEpoch, VendorNight;
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
+import '../compute/step_calibration_fit.dart';
 import 'step_calibration.dart';
 import '../sync/reset_gate.dart';
 import 'med_store.dart';
@@ -315,6 +316,8 @@ class LocalDb {
     'baselines',
     'step_calibration',
     'step_calibration_day',
+    'live_step_calibration',
+    'live_step_calibration_run',
     'raw_archive',
     'device_coverage',
     // Step windows. Every day's steps are read from here, and the band's live
@@ -2114,6 +2117,47 @@ class LocalDb {
         PRIMARY KEY (day, device_family, wearing)
       )
     ''');
+    // Live 100 Hz pedometer calibration — a DIFFERENT model from
+    // `step_calibration*` above and deliberately in its own tables.
+    //
+    // That pair calibrates the gen5 ON-CHIP counter: a multiplicative factor on
+    // raw ticks, per (device family, wearing). These calibrate the LIVE 100 Hz
+    // pedometer `pedometer()` feeds: a scale per ACTIVITY family (slow / brisk
+    // / jog against the wearer's own count, everyday against the phone), with
+    // its own version namespace. Sharing a table would let one model overwrite
+    // the other's stored value — the same reasoning that keeps
+    // `kLiveStepGainVersion` away from `kStepCalibrationVersion`.
+    //
+    // `live_step_calibration_run` keeps the individual runs, not just the fit,
+    // because re-calibrating is meant to REFINE: the estimator is a ratio of
+    // sums, so a stored history is what lets a second walk outweigh the first
+    // by the steps it carried. Same shape as `step_calibration_day`.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS live_step_calibration (
+        category   TEXT NOT NULL,
+        gain       REAL NOT NULL,
+        n_runs     INTEGER NOT NULL,
+        version    INTEGER NOT NULL,
+        updated_ts INTEGER NOT NULL,
+        PRIMARY KEY (category)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS live_step_calibration_run (
+        category       TEXT NOT NULL,
+        run_ts         INTEGER NOT NULL,
+        reference      TEXT NOT NULL,
+        expected_steps INTEGER NOT NULL,
+        raw_steps      INTEGER NOT NULL,
+        cadence_spm    REAL NOT NULL,
+        -- Nullable on purpose: a routine whose caller never measured these
+        -- stores NULL rather than a fabricated 0.0, which would be
+        -- indistinguishable from a real still reading.
+        p2p_g          REAL,
+        confidence     REAL,
+        PRIMARY KEY (category, run_ts)
+      )
+    ''');
   }
 
   /// Idempotent by key. NULL reference_steps = the phone did not cover the day.
@@ -2237,6 +2281,216 @@ class LocalDb {
         'wearing': p.wearing,
         'factor': p.factor,
         'n_days': p.nDays,
+        'version': p.version,
+        'updated_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  // ── live 100 Hz pedometer calibration (per activity family) ───────────────
+
+  /// Admitted calibration runs, newest first. Read back into the pure fit; the
+  /// stored rows are the evidence the gain is a ratio of sums over.
+  static Future<List<StepCalibrationRun>> liveStepCalibrationRuns({
+    DatabaseExecutor? exec,
+  }) async {
+    final db = exec ?? await instance;
+    final rows = await db.query(
+      'live_step_calibration_run',
+      orderBy: 'run_ts DESC',
+    );
+    final out = <StepCalibrationRun>[];
+    for (final r in rows) {
+      final category = StepCategory.parse(r['category']);
+      // A row whose category or reference this build does not know is SKIPPED,
+      // not guessed: attaching a run to the wrong family would corrupt that
+      // family's fit with another one's evidence.
+      if (category == null) continue;
+      final reference = switch (r['reference']) {
+        'wearerCount' => StepReference.wearerCount,
+        'phonePedometer' => StepReference.phonePedometer,
+        _ => null,
+      };
+      if (reference == null) continue;
+      out.add(StepCalibrationRun(
+        category: category,
+        reference: reference,
+        expectedSteps: (r['expected_steps'] as num?)?.toInt() ?? 0,
+        rawSteps: (r['raw_steps'] as num?)?.toInt() ?? 0,
+        cadenceSpm: (r['cadence_spm'] as num?)?.toDouble() ?? 0,
+        // NULL PASSES THROUGH AS NULL. These two columns are nullable precisely
+        // so a routine whose caller never measured them stores an ABSENCE — and
+        // a `?? 0` here would turn that absence back into a real still reading at
+        // the bottom of the scale, which is the fabrication the nullable column
+        // exists to prevent. `cadence_spm` above keeps its `?? 0` because it is
+        // NOT NULL and 0 there means "no cadence measurable", not a measurement.
+        peakToPeakG: (r['p2p_g'] as num?)?.toDouble(),
+        confidence: (r['confidence'] as num?)?.toDouble(),
+      ));
+    }
+    return out;
+  }
+
+  /// Bank one run. The caller must have admitted it first — a refused run is a
+  /// claim about the routine, not evidence, and storing it would let it weigh on
+  /// every later refit.
+  ///
+  /// Idempotent by (category, run_ts): re-banking the same routine replaces its
+  /// row rather than counting it twice.
+  static Future<void> putLiveStepCalibrationRun(
+    StepCalibrationRun r, {
+    required int runTs,
+    DatabaseExecutor? exec,
+  }) async {
+    final db = exec ?? await instance;
+    await db.insert(
+      'live_step_calibration_run',
+      {
+        'category': r.category.key,
+        'run_ts': runTs,
+        'reference': switch (r.reference) {
+          StepReference.wearerCount => 'wearerCount',
+          StepReference.phonePedometer => 'phonePedometer',
+        },
+        'expected_steps': r.expectedSteps,
+        'raw_steps': r.rawSteps,
+        'cadence_spm': r.cadenceSpm,
+        'p2p_g': r.peakToPeakG,
+        'confidence': r.confidence,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Bank one accepted calibration run and refit the family it belongs to.
+  ///
+  /// ONE call from the calibration screen, because the two writes must not be
+  /// performed by hand in two places: a run stored without the profile it
+  /// implies — or the reverse — leaves the app correcting with a gain that does
+  /// not match the evidence that produced it, and nothing downstream could tell.
+  ///
+  /// The caller must clear [AppState.invalidateLiveStepCalibration] afterwards,
+  /// or a walk already in progress would bank with the previous gain.
+  ///
+  /// Returns the refitted profile, so the screen can show the wearer the number
+  /// their routine just produced instead of a generic acknowledgement.
+  static Future<LiveStepGainProfile> bankLiveStepCalibrationRun(
+    StepCalibrationRun run, {
+    required int runTs,
+    DateTime? now,
+  }) {
+    // SERIALISED, because two routines for the same category banking at once can
+    // each read a different history snapshot and write their profiles in the
+    // opposite order — leaving the older result in place while the newer run is
+    // already durable. One lock rather than one per category: a save is three
+    // writes and the contention case is a user tapping two routines, so the
+    // simpler invariant is worth more than the parallelism.
+    // ONE transaction: a run that is durable without the profile it implies
+    // (the refit read or the profile write failing after the insert) would be
+    // reported to the wearer as a failed save while later fits quietly used it.
+    final chained = _liveStepGainLock.then((_) async {
+      final db = await instance;
+      return db.transaction((txn) async {
+        await putLiveStepCalibrationRun(run, runTs: runTs, exec: txn);
+        return refitLiveStepGain(run.category, now: now, exec: txn);
+      });
+    });
+    // The chain must survive this save's own failure, or one bad routine would
+    // block every later one.
+    _liveStepGainLock = chained.then((_) {}, onError: (_) {});
+    return chained;
+  }
+
+  /// Serialises calibration saves — see [bankLiveStepCalibrationRun].
+  static Future<void> _liveStepGainLock = Future<void>.value();
+
+  /// Recompute and store one family's gain from every admitted run on record.
+  ///
+  /// Separate from the banking call so a torn state is REPAIRABLE: if a save
+  /// ever leaves a run durable without the profile it implies — a process kill
+  /// between the two writes, a failed refit — running this again derives the
+  /// right answer from the rows, because both sides are idempotent by key and
+  /// the fit is a pure function of the stored evidence.
+  static Future<LiveStepGainProfile> refitLiveStepGain(
+    StepCategory category, {
+    DateTime? now,
+    DatabaseExecutor? exec,
+  }) async {
+    final rows = await liveStepCalibrationRuns(exec: exec);
+    final profile = estimateLiveStepGain(
+      category,
+      rows,
+      now: now ?? DateTime.now(),
+    );
+    await putLiveStepGainProfile(profile, exec: exec);
+    return profile;
+  }
+
+  /// Refit every family that has stored runs. A restore merges the backup's
+  /// runs into this phone's and its profile rows over this phone's, so neither
+  /// side's stored gain describes the combined evidence until this runs.
+  static Future<void> refitAllLiveStepGains({DateTime? now}) {
+    final chained = _liveStepGainLock.then((_) async {
+      final db = await instance;
+      await db.transaction((txn) async {
+        final runs = await liveStepCalibrationRuns(exec: txn);
+        final categories = {for (final r in runs) r.category};
+        for (final c in categories) {
+          await putLiveStepGainProfile(
+            estimateLiveStepGain(c, runs, now: now ?? DateTime.now()),
+            exec: txn,
+          );
+        }
+      });
+    });
+    _liveStepGainLock = chained.then((_) {}, onError: (_) {});
+    return chained;
+  }
+
+  /// The stored gain for one family, or null when none was fitted or the stored
+  /// version is not this code's. Null means "behave exactly as before" — never
+  /// a fabricated 1.0 that hides a mismatch.
+  static Future<LiveStepGainProfile?> liveStepGainProfile(
+    StepCategory category,
+  ) async {
+    final db = await instance;
+    final rows = await db.query(
+      'live_step_calibration',
+      where: 'category = ?',
+      whereArgs: [category.key],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    if ((row['version'] as num?)?.toInt() != kLiveStepGainVersion) return null;
+    final gain = (row['gain'] as num?)?.toDouble();
+    // The row's own clamp is re-checked here: a hand-edited or restored row must
+    // not be able to present a gain the fit would never have produced.
+    if (gain == null || !gain.isFinite) return null;
+    if (gain < gainFloor(category) || gain > gainCeiling(category)) return null;
+    return LiveStepGainProfile(
+      version: kLiveStepGainVersion,
+      category: category,
+      gain: gain,
+      nRuns: (row['n_runs'] as num?)?.toInt() ?? 0,
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(
+        ((row['updated_ts'] as num?)?.toInt() ?? 0) * 1000,
+      ),
+    );
+  }
+
+  static Future<void> putLiveStepGainProfile(
+    LiveStepGainProfile p, {
+    DatabaseExecutor? exec,
+  }) async {
+    final db = exec ?? await instance;
+    await db.insert(
+      'live_step_calibration',
+      {
+        'category': p.category.key,
+        'gain': p.gain,
+        'n_runs': p.nRuns,
         'version': p.version,
         'updated_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
       },
@@ -8193,6 +8447,23 @@ class LocalDb {
     return r.recovered;
   }
 
+  /// Drop an unfinished [redriveArchiveOnce]'s resume point before a VACUUM.
+  /// That position is a [rawArchiveTable] rowid, and the table has no
+  /// INTEGER PRIMARY KEY, so VACUUM is free to renumber it: resuming there
+  /// could skip frames. The replay skips seconds already decoded, so starting
+  /// over from the top only costs time.
+  static Future<void> _resetRedriveResume() async {
+    final row = await computeFreshness(kArchiveRedriveKey);
+    if (row?['payload_json'] case final String j) {
+      final v = jsonDecode(j);
+      if (v is! Map || v['done'] == true || v['after_hex'] == null) return;
+      await putComputeFreshness(
+        kArchiveRedriveKey,
+        jsonEncode({'recovered': v['recovered'] ?? 0}),
+      );
+    }
+  }
+
   /// GATES 4b — replay the archive through the CURRENT decoders, into
   /// `decoded_onehz` / `decoded_rr`. Returns the seconds recovered.
   ///
@@ -9947,11 +10218,24 @@ class LocalDb {
             'FROM decoded_onehz WHERE device_id = ?',
         [wearableDeviceId],
       );
+      // Read off the tables, not the view: the view's hex is built from each
+      // frame's bytes, which was text per frame per day for a length. A
+      // stored blob's hex is exactly twice its bytes, and the columns keep the
+      // view query's names (the signature orders values by them), so the
+      // value — and every stored fingerprint — is the same as before.
+      final legacyArchive = await has(_rawArchiveLegacy);
       await add(
         'wearable_archive',
-        'SELECT COUNT(*), MAX(captured_at), TOTAL(captured_at), '
-            'TOTAL(LENGTH(hex)) FROM $rawArchiveView WHERE device_id = ?',
-        [wearableDeviceId],
+        'SELECT COUNT(*) AS "COUNT(*)", '
+            'MAX(captured_at) AS "MAX(captured_at)", '
+            'TOTAL(captured_at) AS "TOTAL(captured_at)", '
+            'TOTAL(n) AS "TOTAL(LENGTH(hex))" FROM ('
+            'SELECT captured_at, CASE WHEN hex IS NOT NULL THEN LENGTH(hex) '
+            'ELSE LENGTH(frame) * 2 END AS n FROM $rawArchiveTable '
+            'WHERE device_id = ?'
+            '${legacyArchive ? ' UNION ALL SELECT captured_at, LENGTH(hex) '
+                'FROM $_rawArchiveLegacy WHERE device_id = ?' : ''})',
+        [wearableDeviceId, if (legacyArchive) wearableDeviceId],
       );
     }
     await add(
@@ -10278,13 +10562,34 @@ class LocalDb {
   /// nothing else in flight); see [vacuumIfBloated] for why this is a one-off
   /// VACUUM and not `auto_vacuum`. The checkpoint is a `rawQuery`: the PRAGMA
   /// returns a row, which `execute` refuses on iOS's sqflite.
-  static Future<void> vacuumAndCheckpoint() async {
+  ///
+  /// True when the WAL was truncated too. A reader still holding a snapshot
+  /// does not make the checkpoint throw: it returns busy = 1 in its first
+  /// column and leaves the WAL as it was, so the row is read, and tried once
+  /// more after a moment.
+  static Future<bool> vacuumAndCheckpoint() async {
     final db = await instance;
+    await _resetRedriveResume();
     await db.execute('VACUUM');
     // VACUUM renumbers every btree root page; see [vacuumIfBloated].
     await CoachDb.close();
-    await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+      if (checkpointCompleted(
+          await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)'))) {
+        return true;
+      }
+    }
+    return false;
   }
+
+  /// Whether a `PRAGMA wal_checkpoint` result row says it finished: its first
+  /// column is 1 when the checkpoint was blocked.
+  @visibleForTesting
+  static bool checkpointCompleted(List<Map<String, Object?>> rows) =>
+      rows.isEmpty || rows.first.values.first != 1;
 
   static Future<int> databaseFileBytes() async {
     final dir = await getDatabasesPath();
@@ -10924,6 +11229,27 @@ class LocalDb {
       '$_servedDayJoin '
       "WHERE r.day_id IS NOT NULL AND r.payload_json LIKE '%\"imported\":true%'";
 
+  /// [_importedDatesSql] as a per-row test on the `metric_series` row being
+  /// read: true when that row's day is NOT imported. Same two questions, same
+  /// served-version rule, but asked only of the rows the query actually walks.
+  /// `date NOT IN (_importedDatesSql)` built the whole imported set first, and
+  /// that set is a LIKE over every stored day bundle — two baseline reads on
+  /// Home went from ~2 ms at 30 days of history to ~42 ms each at 730. With
+  /// the newest-first `(key, date)` index walk and a LIMIT, this touches only
+  /// the days returned (plus any imported ones skipped on the way).
+  @visibleForTesting
+  static const String notImportedRowSql =
+      'metric_series.date IS NOT NULL '
+      'AND NOT EXISTS (SELECT 1 FROM metric_series_version v '
+      'WHERE v.date = metric_series.date AND v.source IS NOT NULL '
+      "AND v.source <> 'band') "
+      'AND NOT EXISTS (SELECT 1 FROM day_result r '
+      'WHERE r.day_id = metric_series.date '
+      'AND r.algo_version = (SELECT MAX(x.algo_version) FROM day_result x '
+      'WHERE x.day_id = metric_series.date '
+      'AND x.algo_version <= $_servedAlgoCeiling) '
+      "AND r.payload_json LIKE '%\"imported\":true%')";
+
   /// Day labels whose stored scalars are ANOTHER vendor's derived numbers.
   ///
   /// THE MASK for every baseline read, and the inverse of [isMeasuredDay]:
@@ -11128,6 +11454,8 @@ class LocalDb {
       // Calibration observations cannot be rebuilt once raw is pruned.
       'step_calibration',
       'step_calibration_day',
+      'live_step_calibration',
+      'live_step_calibration_run',
       // The devices this phone knows about — so a SECONDARY device's identity
       // survives a backup/restore round trip rather than leaving its rows in
       // `decoded_onehz` pointing at a `device_id` nothing can name. The PRIMARY
@@ -12334,7 +12662,7 @@ class LocalDb {
     return db.query(
       'metric_series',
       where: 'key = ? AND value IS NOT NULL${_validSql(key)}'
-          '${measuredOnly ? ' AND date NOT IN ($_importedDatesSql)' : ''}',
+          '${measuredOnly ? ' AND $notImportedRowSql' : ''}',
       whereArgs: [key],
       orderBy: 'date ASC',
       limit: limit,
@@ -12374,7 +12702,7 @@ class LocalDb {
       'SELECT value FROM metric_series '
       'WHERE key = ? AND value IS NOT NULL '
       '${before != null ? 'AND date < ? ' : ''}'
-      '${measuredOnly ? 'AND date NOT IN ($_importedDatesSql) ' : ''}'
+      '${measuredOnly ? 'AND $notImportedRowSql ' : ''}'
       'ORDER BY date DESC LIMIT ?',
       [key, ?before, n],
     );
@@ -13452,10 +13780,17 @@ class LocalDb {
       if (restoreSource != null) {
         // Removing a rejection means "Put it back". Keep its original asleep
         // minutes and confidence even after raw recordings have expired.
+        // This is now an explicit decision, even for a legacy snapshot: a
+        // later main-window correction must not suppress it as old detection.
+        restoreSource = 'confirmed';
+        final restored = Map<String, dynamic>.from(jsonDecode(
+          restorePayload ?? rows.single['payload_json'] as String) as Map);
+        restored['source'] = restoreSource;
+        restorePayload = jsonEncode(restored);
         await tx.update('sleep_nap', {
           'source': restoreSource,
           'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          'payload_json': ?restorePayload,
+          'payload_json': restorePayload,
         }, where: 'day_id = ? AND start_ts = ?', whereArgs: [dayId, startTs]);
       } else {
         await tx.delete('sleep_nap', where: 'day_id = ? AND start_ts = ?', whereArgs: [dayId, startTs]);
@@ -14577,6 +14912,7 @@ class LocalDb {
     final free = await freelistBytes();
     if (free < minFreeBytes) return 0;
     final db = await instance;
+    await _resetRedriveResume();
     await db.execute('VACUUM');
     // VACUUM rewrites the file and renumbers every btree root page. CoachDb
     // caches the root pages of its allow-listed views to decide what a coach
