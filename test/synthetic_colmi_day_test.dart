@@ -254,7 +254,7 @@ void main() {
     // counts from.
     final db = await LocalDb.instance;
     final stamps = await db.rawQuery(
-        "SELECT DISTINCT rec_ts FROM raw_archive WHERE reason LIKE 'colmi_big_%' "
+        "SELECT DISTINCT rec_ts FROM ${LocalDb.rawArchiveView} WHERE reason LIKE 'colmi_big_%' "
         "AND device_id = 'colmi-synthetic'");
     expect(stamps.map((r) => r['rec_ts']),
         [SyntheticDay.sec(DateTime(2026, 10, 4, 22, 30))]);
@@ -267,7 +267,7 @@ void main() {
     final reply = colmiBigDataRequest(
         kColmiBigTemperature, [0, 30, for (var k = 0; k < 48; k++) 150]);
     final db = await LocalDb.instance;
-    await db.insert('raw_archive', {
+    await db.insert(LocalDb.rawArchiveView, {
       'device_id': 'colmi-midnight',
       'hex': [for (final b in reply) b.toRadixString(16).padLeft(2, '0')]
           .join(),

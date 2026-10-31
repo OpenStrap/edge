@@ -130,7 +130,8 @@ void main() {
 
       for (final e in before.entries) {
         final after =
-            (await db.rawQuery('SELECT COUNT(*) AS n FROM ${e.key}'))
+            (await db.rawQuery('SELECT COUNT(*) AS n FROM '
+                    '${e.key == 'raw_archive' ? LocalDb.rawArchiveView : e.key}'))
                 .first['n'] as int;
         // GREATER-OR-EQUAL, not equal: the v44 rung replays archived records
         // into decoded_onehz, so that table may legitimately GAIN rows. No
