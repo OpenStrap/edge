@@ -46,6 +46,8 @@ const Map<String, (SliceKeep, String?, String)> kSliceTables = {
   'decoded_rr': (SliceKeep.highRate, 'rec_ts', 'beat-to-beat intervals'),
   'samples': (SliceKeep.highRate, 'ts', 'per-second heart rate'),
   'raw_archive': (SliceKeep.highRate, 'captured_at', 'records the app could not decode, by when they arrived'),
+  'raw_archive_frames': (SliceKeep.highRate, 'captured_at', 'records the app could not decode, by when they arrived'),
+  'raw_archive_legacy': (SliceKeep.highRate, 'captured_at', 'the same records in the older layout, until they are moved'),
   'events': (SliceKeep.recent, 'ts', 'strap event stream'),
   'band_events': (SliceKeep.recent, 'ts', 'decoded strap events'),
   'band_battery': (SliceKeep.recent, 'ts', 'battery readings every few minutes'),
@@ -79,6 +81,7 @@ const Map<String, (SliceKeep, String?, String)> kSliceTables = {
   'metric_method': (SliceKeep.all, null, 'how each daily metric was measured'),
   'baselines': (SliceKeep.all, null, 'personal baselines'),
   'compute_freshness': (SliceKeep.all, null, 'compute bookkeeping'),
+  'derive_fingerprint': (SliceKeep.all, null, 'which days changed since they were last scored'),
   'sleep_nap': (SliceKeep.all, null, 'naps'),
   'sleep_override': (SliceKeep.all, null, 'sleep times the user edited'),
   // Workouts and activity: one row each.
