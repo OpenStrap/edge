@@ -3199,7 +3199,7 @@ class DerivationEngine {
         } catch (e) {
           _log('compact: prune skipped: $e');
         }
-        await _runStorageHousekeeping();
+        await _runStorageHousekeeping(long: true);
         final size = await LocalDb.databaseBytesOnDisk();
         final free = await freeDiskBytes();
         if (free == null || free < 2 * size) {
@@ -3740,7 +3740,7 @@ class DerivationEngine {
       // `_running`. See _runStorageHousekeeping — this is the only place every
       // entry path and every early return actually reaches.
       _diag['stage'] = 'housekeeping';
-      await _runStorageHousekeeping();
+      await _runStorageHousekeeping(long: heavy || force);
       // ONE-SHOT: rescale stored strain onto the recalibrated scale. Days
       // inside the raw window re-derive from substrate above; everything older
       // has none, so its headline is rebuilt from the stored TRIMP + wake
@@ -7893,16 +7893,19 @@ class DerivationEngine {
   ///     every day reported 0 back to `reanalyzeAll`. This work is a storage
   ///     optimization; nothing it does may change what the derive returns.
   ///
-  /// Bounded and resumable, so running it on every pass costs one small batch.
+  /// Bounded and resumable: a light pass gives it about three seconds (a page
+  /// of the archive move can run past that, never by more than one page), a
+  /// heavy or forced pass and an explicit compaction about fifteen.
   /// Off the path to a durable commit, and never inside a migration: `onUpgrade`
   /// runs under iOS's CPU watchdog (invariant 11).
-  Future<void> _runStorageHousekeeping() async {
+  Future<void> _runStorageHousekeeping({bool long = false}) async {
     try {
       // The pre-conversion undecodable archive, moved into the frame store a
       // bounded slice at a time (see LocalDb.migrateLegacyRawArchive). A
-      // WHOOP MG's is ~500 MB of hex, so a background pass takes little.
+      // WHOOP MG's is ~500 MB of hex, so a background or light pass takes
+      // little.
       final moved = await LocalDb.migrateLegacyRawArchive(
-        budget: Duration(seconds: background ? 3 : 15),
+        budget: Duration(seconds: long && !background ? 15 : 3),
         shouldStop: offloadActive,
       );
       if (moved > 0) _log('moved $moved archived frame(s) to the frame store');
