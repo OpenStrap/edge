@@ -10191,11 +10191,24 @@ class LocalDb {
             'FROM decoded_onehz WHERE device_id = ?',
         [wearableDeviceId],
       );
+      // Read off the tables, not the view: the view's hex is built from each
+      // frame's bytes, which was text per frame per day for a length. A
+      // stored blob's hex is exactly twice its bytes, and the columns keep the
+      // view query's names (the signature orders values by them), so the
+      // value — and every stored fingerprint — is the same as before.
+      final legacyArchive = await has(_rawArchiveLegacy);
       await add(
         'wearable_archive',
-        'SELECT COUNT(*), MAX(captured_at), TOTAL(captured_at), '
-            'TOTAL(LENGTH(hex)) FROM $rawArchiveView WHERE device_id = ?',
-        [wearableDeviceId],
+        'SELECT COUNT(*) AS "COUNT(*)", '
+            'MAX(captured_at) AS "MAX(captured_at)", '
+            'TOTAL(captured_at) AS "TOTAL(captured_at)", '
+            'TOTAL(n) AS "TOTAL(LENGTH(hex))" FROM ('
+            'SELECT captured_at, CASE WHEN hex IS NOT NULL THEN LENGTH(hex) '
+            'ELSE LENGTH(frame) * 2 END AS n FROM $rawArchiveTable '
+            'WHERE device_id = ?'
+            '${legacyArchive ? ' UNION ALL SELECT captured_at, LENGTH(hex) '
+                'FROM $_rawArchiveLegacy WHERE device_id = ?' : ''})',
+        [wearableDeviceId, if (legacyArchive) wearableDeviceId],
       );
     }
     await add(
