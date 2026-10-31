@@ -3605,13 +3605,17 @@ class DerivationEngine {
             _log('derive day $dayId skipped: override day, raw pruned — kept');
           } else if (prepared != null) {
             _diag['prepared_days'] = (_diag['prepared_days'] as int) + 1;
-            await _derivePreparedDay(prepared, profile, dataNowSec, history);
+            final complete = await _derivePreparedDay(
+                prepared, profile, dataNowSec, history);
             done++;
             _diag['done_days'] = done;
             // Stored only when the derive was a fixed point; see
-            // [_dayInputFingerprint].
-            // Never over a fingerprint that could not be cleared first.
-            if (cleared &&
+            // [_dayInputFingerprint]. Never for a partial or declined result
+            // (two failures in a row can store the same row, and the day
+            // would then never be retried), and never over a fingerprint
+            // that could not be cleared first.
+            if (complete &&
+                cleared &&
                 before != null &&
                 before == await fingerprint(dayId)) {
               await storeFingerprint(dayId, before);
@@ -5753,7 +5757,11 @@ class DerivationEngine {
     );
   }
 
-  Future<void> _derivePreparedDay(
+  /// True only when the whole derive ran and its result was stored: a
+  /// decline that kept the existing row, or a second half that failed (a
+  /// partial row, however much of it was carried forward), is false, so the
+  /// caller never records that day as settled.
+  Future<bool> _derivePreparedDay(
     PreparedDerivationDay day,
     Profile profile,
     int dataNowSec,
@@ -5952,7 +5960,7 @@ class DerivationEngine {
       if (_isRealDayResult(existing)) {
         _log('derive ${day.date}: no substrate (raw pruned) — kept the '
             'existing result rather than blanking it');
-        return;
+        return false;
       }
     }
 
@@ -6027,7 +6035,7 @@ class DerivationEngine {
             "under a day that already had real night scalars — kept the "
             'existing result rather than overwriting the readiness baseline '
             '(edge#305)');
-        return;
+        return false;
       }
     }
 
@@ -6629,6 +6637,7 @@ class DerivationEngine {
         ],
       );
     }
+    return secondHalfOk;
   }
 
   /// Bank one day's (phone steps, counter ticks) pair for the (family,

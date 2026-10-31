@@ -97,6 +97,7 @@ void main() {
   tearDown(() async {
     DerivationEngine.debugDeriveEveryDay = false;
     DerivationEngine.debugFingerprintAlgoVersion = null;
+    DerivationEngine.debugSecondHalfHook = null;
     await LocalDb.close();
   });
 
@@ -178,4 +179,21 @@ void main() {
     DerivationEngine.debugFingerprintAlgoVersion = kAlgoVersion + 1;
     expect((await _pass()).derived, pending);
   }, timeout: const Timeout(Duration(minutes: 15)));
+
+  test('a day whose second half keeps failing is never cached as unchanged',
+      () async {
+    await _freshDb('unchanged_skip_partial.db');
+    DerivationEngine.debugSecondHalfHook =
+        (_) async => throw StateError('second half down');
+    // Failures in a row settle on the same partial row; none may vouch for
+    // it.
+    for (var i = 0; i < 4; i++) {
+      expect((await _pass()).unchanged, 0, reason: 'failing pass $i');
+    }
+    DerivationEngine.debugSecondHalfHook = null;
+    // The failure cleared: the days derive again instead of being skipped.
+    final healed = await _pass();
+    expect(healed.unchanged, 0);
+    expect(healed.derived, greaterThan(0));
+  }, timeout: const Timeout(Duration(minutes: 10)));
 }
