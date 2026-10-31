@@ -2814,7 +2814,7 @@
       }
     }
   },
-  "dataKeepShorterBody": "Les mesures de plus de {window} sont supprimées maintenant. Ces jours gardent leurs scores, mais ne pourront pas être recalculés après les prochaines mises à jour.",
+  "dataKeepShorterBody": "Les mesures de plus de {window} avant la dernière sont supprimées maintenant. Ces jours gardent leurs scores, mais ne pourront pas être recalculés après les prochaines mises à jour.",
   "@dataKeepShorterBody": {
     "placeholders": {
       "window": {

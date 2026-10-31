@@ -2843,7 +2843,7 @@
       }
     }
   },
-  "dataKeepShorterBody": "Las lecturas de hace más de {window} se borran ahora. Esos días mantienen sus puntuaciones, pero no se podrán recalcular tras futuras actualizaciones.",
+  "dataKeepShorterBody": "Las lecturas de más de {window} antes de la última se borran ahora. Esos días mantienen sus puntuaciones, pero no se podrán recalcular tras futuras actualizaciones.",
   "@dataKeepShorterBody": {
     "placeholders": {
       "window": {

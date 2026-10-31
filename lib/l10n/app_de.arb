@@ -2931,7 +2931,7 @@
       }
     }
   },
-  "dataKeepShorterBody": "Messwerte, die älter als {window} sind, werden jetzt gelöscht. Diese Tage behalten ihre Werte, können nach künftigen Updates aber nicht neu berechnet werden.",
+  "dataKeepShorterBody": "Messwerte, die mehr als {window} vor deinem letzten Messwert liegen, werden jetzt gelöscht. Diese Tage behalten ihre Werte, können nach künftigen Updates aber nicht neu berechnet werden.",
   "@dataKeepShorterBody": {
     "placeholders": {
       "window": {
