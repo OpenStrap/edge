@@ -322,11 +322,12 @@ void main() {
 
       expect(saved, isNotNull);
       expect(saved!['sex'], 'f');
-      // The three optional fields were left blank, so they are null — not
-      // zero, and not a default body.
-      expect(saved!['age'], isNull);
-      expect(saved!['height_cm'], isNull);
-      expect(saved!['weight_kg'], isNull);
+      // The three optional fields opened blank and stayed blank, so they are
+      // ABSENT — not zero, not a default body, and not a null over a value
+      // that arrived while setup was open.
+      expect(saved!.containsKey('age'), isFalse);
+      expect(saved!.containsKey('height_cm'), isFalse);
+      expect(saved!.containsKey('weight_kg'), isFalse);
     });
 
     testWidgets('what is typed is what is written', (tester) async {
@@ -346,7 +347,7 @@ void main() {
       expect(saved!['sex'], 'm');
       expect(saved!['age'], 34);
       expect(saved!['weight_kg'], 78.4);
-      expect(saved!['height_cm'], isNull);
+      expect(saved!.containsKey('height_cm'), isFalse);
     });
 
     testWidgets('clearing a stored value writes null over it', (tester) async {

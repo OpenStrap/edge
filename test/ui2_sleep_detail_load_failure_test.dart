@@ -159,6 +159,25 @@ void main() {
       await _settle(t);
       expect(find.text('No night to show'), findsOneWidget);
     }, timeout: const Timeout(Duration(seconds: 60)));
+
+    testWidgets('a retry that fails again keeps the day stepper', (t) async {
+      final repo = _FlakyRepo(0);
+      await _pump(t, repo, const SleepDetail(day: '2026-05-19'));
+
+      repo.failures = 1;
+      t.widget<DayNav>(find.byType(DayNav)).onDay('2026-05-20');
+      await t.pump();
+      await _settle(t);
+      expect(find.textContaining('could not be read'), findsOneWidget);
+
+      repo.failures = 1;
+      await t.tap(find.text('Try again'));
+      await t.pump();
+      await _settle(t);
+      expect(find.textContaining('could not be read'), findsOneWidget);
+      expect(find.byType(DayNav), findsOneWidget);
+      expect(t.widget<DayNav>(find.byType(DayNav)).day, '2026-05-20');
+    }, timeout: const Timeout(Duration(seconds: 60)));
   });
 
   group('the day timeline', () {

@@ -499,6 +499,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   }
 
   SleepData? _d;
+
+  /// The last read that worked. A retry drops `_d` so the old night is not
+  /// drawn while it runs; the error view still steps through this one's days.
+  SleepData? _lastGood;
   bool _loading = true;
   String? _day;
 
@@ -627,6 +631,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       if (mounted && gen == _loadGen) {
         setState(() => (
               _d = d,
+              _lastGood = d,
               _rough = rough,
               _correctable = correctable,
               _wholeNightKept = wholeNightKept,
@@ -646,7 +651,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   /// it goes with it.
   void _goDay(String day) {
     setState(() {
-      _day = sleepStepperDay(day, _d?.latestDay);
+      _day = sleepStepperDay(day, (_d ?? _lastGood)?.latestDay);
       _scrub = null;
       _overrideFailed = null;
       _loading = true;
@@ -673,9 +678,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       // day list is used, so the stepper stays and the day can be walked off.
       // A step to the latest night stores null in `_day`, so that night is
       // named from `latestDay`, not from the night stepped away from.
-      final shown = _day ?? d.latestDay ?? d.day;
+      final nav = _d ?? _lastGood ?? d;
+      final shown = _day ?? nav.latestDay ?? nav.day;
       return _frame(c, title, [
-        ...dayNavRow(shown, d.days, _goDay),
+        ...dayNavRow(shown, nav.days, _goDay),
         const SizedBox(height: S.x2),
         StatusCard(
           shown == null

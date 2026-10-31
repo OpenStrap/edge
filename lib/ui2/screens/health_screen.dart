@@ -517,6 +517,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     super.initState();
     _d = widget.data;
     _v = widget.vitals;
+    _vDays = widget.vitals?.days;
     _l = widget.labs;
     _e = widget.explore;
     if (widget.data != null) {
@@ -579,6 +580,11 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   /// default. Null means "whatever the loader resolves", which is today.
   String? _vDay;
 
+  /// The day list from the last read that worked. Kept when a picked day's
+  /// readings are dropped, so a day that keeps failing can still be stepped
+  /// off.
+  List<String>? _vDays;
+
   Future<void> _loadVitals({bool force = false}) async {
     final repo = repoOf(context);
     if (repo == null || (_v != null && !force)) return;
@@ -587,7 +593,9 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final t = beginRead(#vitals);
     try {
       final v = await VitalsData.load(repo, want: _vDay);
-      if (stillNewest(#vitals, t)) setState(() => (_v = v, _vFailed = false));
+      if (stillNewest(#vitals, t)) {
+        setState(() => (_v = v, _vDays = v.days, _vFailed = false));
+      }
     } catch (_) {
       if (stillNewest(#vitals, t)) setState(() => _vFailed = true);
     }
@@ -1119,15 +1127,21 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final l = AppLocalizations.of(c);
     final v = _v;
     if (v == null) {
-      return _vFailed
-          ? _readFailed(l?.healthWhatVitals ?? 'vitals', () {
-              setState(() => _vFailed = false);
-              _loadVitals();
-            })
-          : const Padding(
-              padding: EdgeInsets.only(top: S.x8),
-              child: Center(child: CircularProgressIndicator()),
-            );
+      final days = _vDays;
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        // Null `_vDay` is today, the newest day in the list.
+        if (days != null && days.isNotEmpty)
+          ...dayNavRow(_vDay ?? days.first, days, _goVitalsDay),
+        _vFailed
+            ? _readFailed(l?.healthWhatVitals ?? 'vitals', () {
+                setState(() => _vFailed = false);
+                _loadVitals();
+              })
+            : const Padding(
+                padding: EdgeInsets.only(top: S.x8),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+      ]);
     }
 
     // WHICH DAY this tab is showing. Every row here used to say "Today" for a

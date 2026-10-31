@@ -125,17 +125,23 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
     super.dispose();
   }
 
-  /// Only what was actually entered. A blank field writes an explicit null,
-  /// not nothing: the fields open filled from the stored profile, and the save
-  /// merges into it, so leaving a cleared one out kept the old value feeding
-  /// calories and load. With null the dependent metric abstains. The fields
+  /// Only what was actually entered. A field that opened filled and was
+  /// cleared writes an explicit null: the save merges into the stored
+  /// profile, so leaving it out kept the old value feeding calories and load.
+  /// A field that opened blank and stayed blank writes nothing, so a value
+  /// that arrived meanwhile (a scale weighing in) is not nulled. The fields
   /// are typed in the units on their labels and stored in metric.
-  Map<String, dynamic> _fields() => {
-        if (_sex != null) 'sex': _sex,
-        'age': Typed.of(_age.text).value?.round(),
-        'height_cm': _heightCm(),
-        'weight_kg': _weightKg(),
-      };
+  Map<String, dynamic> _fields() {
+    final out = <String, dynamic>{if (_sex != null) 'sex': _sex};
+    void put(String key, Object? v) {
+      if (v != null || widget.initial[key] != null) out[key] = v;
+    }
+
+    put('age', Typed.of(_age.text).value?.round());
+    put('height_cm', _heightCm());
+    put('weight_kg', _weightKg());
+    return out;
+  }
 
   /// Continue, unless something typed cannot be read — a typo is not a blank,
   /// and dropping it silently is how a body ends up half-described.
