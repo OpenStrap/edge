@@ -1440,7 +1440,8 @@ class LocalDb {
   }
 
   /// The column names [table] currently has (empty if the table is absent).
-  static Future<Set<String>> _columnsOf(Database db, String table) async {
+  static Future<Set<String>> _columnsOf(
+      DatabaseExecutor db, String table) async {
     final info = await db.rawQuery('PRAGMA table_info($table)');
     return {
       for (final c in info)
@@ -7556,6 +7557,15 @@ class LocalDb {
       // leave the frames table without its captured_at index until the
       // legacy table is gone, because the index name is still taken.
       await db.transaction((txn) async {
+        // A build from before the v51 rekey, rolled back to, makes this table
+        // without device_id; the view and the move both read it. Filled the
+        // way the v51 rekey filled it: the primary device.
+        if (!(await _columnsOf(txn, 'raw_archive')).contains('device_id')) {
+          await txn.execute(
+            'ALTER TABLE raw_archive ADD COLUMN device_id TEXT NOT NULL '
+            "DEFAULT '$kPrimaryDeviceId'",
+          );
+        }
         if (await _objectType(txn, _rawArchiveLegacy) == 'table') {
           // Only reachable if a file was hand-assembled with both; fold the
           // newer table into the aside one rather than lose either.

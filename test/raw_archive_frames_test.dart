@@ -281,6 +281,40 @@ void main() {
     expect(keys, [_frameHex(1), _frameHex(2)]..sort());
   });
 
+  test('a rollback to a build from before device keys still migrates',
+      () async {
+    await _fresh('raw_frames_rollback_v50.db');
+    await LocalDb.instance;
+    await LocalDb.close();
+    // A schema-50 build: raw_archive keyed by hex alone, no device_id.
+    final old = await databaseFactory.openDatabase(
+        await _path('raw_frames_rollback_v50.db'));
+    await old.execute('''
+      CREATE TABLE IF NOT EXISTS raw_archive (
+        hex TEXT PRIMARY KEY,
+        counter INTEGER,
+        packet_type INTEGER NOT NULL,
+        rec_ts INTEGER,
+        captured_at INTEGER NOT NULL,
+        reason TEXT NOT NULL
+      )
+    ''');
+    await old.insert('raw_archive', {
+      'hex': _frameHex(50),
+      'counter': 50,
+      'packet_type': 0x2F,
+      'captured_at': 1750000050000,
+      'reason': 'undecodable_rec_v20',
+    });
+    await old.close();
+
+    await LocalDb.instance;
+    while (await LocalDb.migrateLegacyRawArchive() > 0) {}
+    final rows = await _viewRows();
+    expect(rows.map((r) => '${r['device_id']}|${r['hex']}'),
+        ['|${_frameHex(50)}']);
+  });
+
   test('a backup of the new layout restores every frame', () async {
     await _fresh('raw_frames_backup_src.db');
     final frames = [_frameHex(1), 'Not-Hex', _frameHex(2)];
