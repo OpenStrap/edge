@@ -2212,7 +2212,14 @@ class AppState extends ChangeNotifier {
     if (_background || busy || _liveSessionActive) return;
     _vacuumedThisLaunch = true;
     try {
-      final freed = await LocalDb.vacuumIfBloated();
+      // Under the derive latch, skipped if a pass holds it: a VACUUM can
+      // renumber the archive's rowids under a replay reading them.
+      final freed =
+          await DerivationEngine.ifIdle(-1, () => LocalDb.vacuumIfBloated());
+      if (freed < 0) {
+        _vacuumedThisLaunch = false; // the next heavy derive tries again
+        return;
+      }
       if (freed > 0) {
         _log('[db] vacuum returned ${freed >> 20} MB to the filesystem');
       }

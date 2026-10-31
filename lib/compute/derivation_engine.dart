@@ -3143,6 +3143,14 @@ class DerivationEngine {
     }
   }
 
+  /// Run [body] under the derive latch if no pass is in flight, or return
+  /// [busy] without running it. For opportunistic storage work (the
+  /// automatic VACUUM) that must never overlap a derive or the archive
+  /// replay inside one, and is fine to skip. [body] must not call a locked
+  /// entry point.
+  static Future<T> ifIdle<T>(T busy, Future<T> Function() body) =>
+      _withRunLock(busy, body);
+
   /// Run [body] once no pass is in flight, holding the latch so none starts
   /// until it returns. For user deletes: a pass that built its substrate
   /// before the delete keeps writing `day_result`, `metric_series` and the
