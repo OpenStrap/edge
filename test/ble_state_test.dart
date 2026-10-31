@@ -588,6 +588,30 @@ void main() {
           BleBlocker.unsupported);
     });
 
+    test('CoreBluetooth startup is not a powered-off radio', () {
+      for (final state in ['Unknown', 'Resetting']) {
+        expect(
+          classifyBleBlocker(error: Exception('PlatformException(connect, '
+              'bluetooth must be turned on. (CBManagerState$state), null, null)')),
+          isNull,
+        );
+      }
+    });
+
+    test('CoreBluetooth reports its real blocker despite generic off wording', () {
+      for (final entry in {
+        'PoweredOff': BleBlocker.adapterOff,
+        'Unauthorized': BleBlocker.permissionDenied,
+        'Unsupported': BleBlocker.unsupported,
+      }.entries) {
+        expect(
+          classifyBleBlocker(error: Exception('PlatformException(connect, '
+              'bluetooth must be turned on. (CBManagerState${entry.key}), null, null)')),
+          entry.value,
+        );
+      }
+    });
+
     test('a usable stack and an ordinary band failure classify as null', () {
       expect(classifyBleBlocker(adapterState: 'on'), isNull);
       expect(classifyBleBlocker(adapterState: 'unknown'), isNull);
