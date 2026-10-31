@@ -5893,10 +5893,17 @@
     }
   },
   "supplementClimbedExport": "+{m} м высоты",
-  "supplementClimbedExportFeet": "+{ft} фт высоты",
   "@supplementClimbedExport": {
     "placeholders": {
       "m": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementClimbedExportFeet": "+{ft} фт высоты",
+  "@supplementClimbedExportFeet": {
+    "placeholders": {
+      "ft": {
         "type": "String"
       }
     }
