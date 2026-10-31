@@ -9634,10 +9634,20 @@ class LocalDb {
   /// THIS rather than writing its own `MAX(algo_version)` — the pattern had
   /// already reappeared at five readers and two views, and the ceiling has to
   /// be on all of them or it is on none of them.
-  static const String _servedDayJoin =
-      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result '
-      'WHERE algo_version <= $_servedAlgoCeiling GROUP BY day_id) m '
+  static const String _servedDayJoin = 'JOIN ($_servedVersions) m $_servedOn';
+  static const String _servedVersions =
+      'SELECT day_id, MAX(algo_version) AS v FROM day_result '
+      'WHERE algo_version <= $_servedAlgoCeiling GROUP BY day_id';
+  static const String _servedOn =
       'ON r.day_id = m.day_id AND r.algo_version = m.v';
+
+  /// [_servedDayJoin] for the newest N days only (bind N). A LIMIT on the
+  /// outer query comes after the join and its sort, so SQLite fetched and
+  /// sorted EVERY day's row, bundle and all, to return N: a 30-day read went
+  /// from ~60 ms to 250-600 ms between 30 and 730 days of history. Choosing
+  /// the days first, from the covering index, leaves N rows to fetch.
+  static const String _servedNewestDaysJoin =
+      'JOIN ($_servedVersions ORDER BY day_id DESC LIMIT ?) m $_servedOn';
 
   /// The result row for one day_id at the highest version this build serves
   /// (see [_servedAlgoCeiling]), with a normalized `date` alias for callers.
@@ -9839,8 +9849,8 @@ class LocalDb {
     // For each day_id pick MAX(algo_version), then join back for the full row.
     final rows = await db.rawQuery(
       'SELECT r.* FROM day_result r '
-      '$_servedDayJoin '
-      'ORDER BY r.day_id DESC LIMIT ?',
+      '$_servedNewestDaysJoin '
+      'ORDER BY r.day_id DESC',
       [limit],
     );
     return [for (final r in rows) _withDate(r)];
@@ -9864,8 +9874,8 @@ class LocalDb {
       'SELECT r.day_id, r.algo_version, r.computed_at, r.finalized, '
       'r.skipped, r.partial, r.rhr, r.rmssd, r.readiness '
       'FROM day_result r '
-      '$_servedDayJoin '
-      'ORDER BY r.day_id DESC LIMIT ?',
+      '$_servedNewestDaysJoin '
+      'ORDER BY r.day_id DESC',
       [limit],
     );
     return [for (final r in rows) _withDate(r)];
@@ -9911,8 +9921,8 @@ class LocalDb {
     final rows = await db.rawQuery(
       'SELECT r.day_id${cols.isEmpty ? '' : ', ${cols.join(', ')}'} '
       'FROM day_result r '
-      '$_servedDayJoin '
-      'ORDER BY r.day_id DESC LIMIT ?',
+      '$_servedNewestDaysJoin '
+      'ORDER BY r.day_id DESC',
       [limit],
     );
     return [for (final r in rows) _withDate(r)];
