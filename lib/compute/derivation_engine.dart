@@ -7771,6 +7771,7 @@ class DerivationEngine {
       // WHOOP MG's is ~500 MB of hex, so a background pass takes little.
       final moved = await LocalDb.migrateLegacyRawArchive(
         budget: Duration(seconds: background ? 3 : 15),
+        shouldStop: offloadActive,
       );
       if (moved > 0) _log('moved $moved archived frame(s) to the frame store');
     } catch (e) {

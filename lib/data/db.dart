@@ -7622,8 +7622,13 @@ class LocalDb {
   /// the same commit, so a kill between pages loses nothing and repeats
   /// nothing. Once it is empty the legacy table is dropped and the view
   /// rebuilt over the new table alone. Returns rows moved; stops after the
-  /// first page past [budget] and resumes on the next call.
-  static Future<int> migrateLegacyRawArchive({Duration? budget}) async {
+  /// first page past [budget], or when [shouldStop] says a band offload has
+  /// started (its commits would queue behind these pages), and resumes on
+  /// the next call.
+  static Future<int> migrateLegacyRawArchive({
+    Duration? budget,
+    bool Function()? shouldStop,
+  }) async {
     final db = await instance;
     if (await _objectType(db, _rawArchiveLegacy) != 'table') return 0;
     final clock = Stopwatch()..start();
@@ -7677,6 +7682,7 @@ class LocalDb {
       });
       moved += page.length;
       if (budget != null && clock.elapsed > budget) return moved;
+      if (shouldStop?.call() ?? false) return moved;
     }
   }
 

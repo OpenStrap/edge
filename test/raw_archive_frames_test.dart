@@ -233,6 +233,15 @@ void main() {
     expect(await seen(), after);
   });
 
+  test('the move stops after a page once an offload starts', () async {
+    await _legacyDb('raw_frames_offload.db', [
+      for (var i = 0; i < 1200; i++) _legacyRow('', _frameHex(100 + i), i),
+    ]);
+    // No time budget: only the offload signal can stop it early.
+    expect(await LocalDb.migrateLegacyRawArchive(shouldStop: () => true), 500);
+    expect(await LocalDb.migrateLegacyRawArchive(), 700);
+  });
+
   test('a backup of the new layout restores every frame', () async {
     await _fresh('raw_frames_backup_src.db');
     final frames = [_frameHex(1), 'Not-Hex', _frameHex(2)];
