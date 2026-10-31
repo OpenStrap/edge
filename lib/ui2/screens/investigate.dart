@@ -940,7 +940,13 @@ class _InvestigateState extends State<Investigate> {
               style: F.over.copyWith(color: p.ink3)),
           const SizedBox(height: S.x3),
           Text(
-            v.aboveOwnUsual
+            // Null until there are enough older nights to compare against;
+            // reading that as "inside your range" would hide a real jump.
+            v.aboveOwnUsual == null
+                ? (l?.investigateCvhrNoComparisonYet ??
+                    "There aren't enough earlier nights yet to compare your "
+                        'recent heart-rate cycling against.')
+                : v.aboveOwnUsual!
                 ? (l?.investigateCvhrAboveUsual(n) ??
                     'Over your most recent nights, the heart-rate cycling '
                         'this screen counts has been running higher than '

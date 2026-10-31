@@ -1049,6 +1049,7 @@
   "investigateDroppedThin": "{count, plural, one{# Nacht wegen zu weniger beobachteter Stunden ausgelassen} other{# Nächte wegen zu weniger beobachteter Stunden ausgelassen}}",
   "investigateAcrossNOwnNights": "ÜBER {n} DEINER EIGENEN NÄCHTE",
   "investigateCvhrAboveUsual": "In deinen letzten Nächten lagen die Herzfrequenzzyklen, die diese Prüfung zählt, höher als in den {n} Nächten davor.",
+  "investigateCvhrNoComparisonYet": "Es gibt noch nicht genug frühere Nächte, um deine letzten Herzfrequenzzyklen damit zu vergleichen.",
   "investigateCvhrInsideUsual": "In deinen letzten Nächten lagen die Herzfrequenzzyklen, die diese Prüfung zählt, im Bereich der {n} Nächte davor.",
   "investigateCvhrExplainer": "Das ist ein Muster in deinem Puls, keine Messung deiner Atmung und kein Test auf irgendetwas. Dieselben Zyklen entstehen auch durch einen unregelmäßigen Herzrhythmus, durch Aufenthalte in der Höhe und durch jede unterbrochene Nacht – und Betablocker, Diabetes oder Nervenerkrankungen dämpfen sie, sodass eine tatsächlich gestörte Atmung hier oft gar keine Spur hinterlässt.",
   "investigateCvhrNotNegativeResult": "Nichts hier ist also ein negatives Ergebnis, nichts gibt Entwarnung, und nichts davon sagt etwas über eine einzelne Nacht aus – der Wert einer einzelnen Nacht schwankt schon aus einem Dutzend Gründen.",

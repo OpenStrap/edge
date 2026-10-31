@@ -1020,6 +1020,7 @@
   "investigateDroppedThin": "因观测时长过短而排除 {count} 晚",
   "investigateAcrossNOwnNights": "基于你自己的 {n} 个夜晚",
   "investigateCvhrAboveUsual": "在你最近的几个夜晚中，本项筛查所计的心率周期水平高于其背后 {n} 个夜晚的整体水平。",
+  "investigateCvhrNoComparisonYet": "目前还没有足够多的早前夜晚，可用来与你最近的心率周期水平作比较。",
   "investigateCvhrInsideUsual": "在你最近的几个夜晚中，本项筛查所计的心率周期水平一直保持在其背后 {n} 个夜晚的范围之内。",
   "investigateCvhrExplainer": "这是脉搏中的一种模式，不是对呼吸的测量，也不是任何疾病的检测。同样的周期性变化可能来自心律不齐、身处高海拔，或任何断续的夜晚——而 β 受体阻滞剂、糖尿病和神经系统疾病会削弱这种信号，因此真正的呼吸紊乱往往在这里完全不留痕迹。",
   "investigateCvhrNotNegativeResult": "所以这里的一切都不构成阴性结果，也不能排除任何情况，其中任何一项都不能说明某一个具体夜晚的情况——单单一个夜晚的计数本身就会因十几种原因而波动。",
