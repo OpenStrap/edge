@@ -12631,10 +12631,17 @@ class LocalDb {
       if (restoreSource != null) {
         // Removing a rejection means "Put it back". Keep its original asleep
         // minutes and confidence even after raw recordings have expired.
+        // This is now an explicit decision, even for a legacy snapshot: a
+        // later main-window correction must not suppress it as old detection.
+        restoreSource = 'confirmed';
+        final restored = Map<String, dynamic>.from(jsonDecode(
+          restorePayload ?? rows.single['payload_json'] as String) as Map);
+        restored['source'] = restoreSource;
+        restorePayload = jsonEncode(restored);
         await tx.update('sleep_nap', {
           'source': restoreSource,
           'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          'payload_json': ?restorePayload,
+          'payload_json': restorePayload,
         }, where: 'day_id = ? AND start_ts = ?', whereArgs: [dayId, startTs]);
       } else {
         await tx.delete('sleep_nap', where: 'day_id = ? AND start_ts = ?', whereArgs: [dayId, startTs]);

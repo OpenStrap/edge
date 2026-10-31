@@ -1831,7 +1831,10 @@ import 'vendor_sleep.dart';
 // wake, chronotype and social jetlag no longer move by the zone difference. A
 // re-derive keeps the stored night's clock. Unchanged for a user who has not
 // changed zone. Edge-only.
-const int kAlgoVersion = 117;
+// 117 → 118 (edge-only): a legacy nap snapshot fully inside the corrected
+// main window is no longer counted on top of it; partial overlaps keep their
+// recorded minutes, and a nap the user put back stays theirs.
+const int kAlgoVersion = 118;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
