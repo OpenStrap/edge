@@ -512,10 +512,7 @@ dependencies:
       # analytics main @ 77fe373, the #95 merge (tree-identical to its head
       # 608c46f): readiness autonomic merge + spread calibration + capped
       # re-centring + robust lnRMSSD centre, for kAlgoVersion 112.
-      # analytics main @ 7e4f734, the #100 merge (on top of #101): main-sleep
-      # selection shares the detector's 90-minute continuation limit and the
-      # 16 h cap, for kAlgoVersion 117.
-      ref: 7e4f73467611aad8279b8b276caed07f5f476469
+      ref: 77fe373eb819fda235f80610e898a4bc20a7a249
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

@@ -1825,13 +1825,9 @@ import 'vendor_sleep.dart';
 // carries a workout-raised headline; a logged nap over the main sleep is
 // counted once; an implausible stored age is named as the reason strain,
 // calories and zones are absent.
-// 116 → 117: analytics repinned to main @ 7e4f734 (sleep staging + naps,
-// HRV/PRSA tiers): main-sleep selection shares the detector's 90-minute
-// continuation limit, so a second sleep block after an hour-long awakening
-// stays in the night, with the gap kept as wake/unobserved. A legacy nap
-// snapshot fully inside the corrected main window is no longer counted on
-// top of it; partial overlaps keep their recorded minutes, and a nap the
-// user put back stays theirs.
+// 116 → 117 (edge-only): a legacy nap snapshot fully inside the corrected
+// main window is no longer counted on top of it; partial overlaps keep their
+// recorded minutes, and a nap the user put back stays theirs.
 const int kAlgoVersion = 117;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -2018,9 +2014,7 @@ const int kAlgoVersion = 117;
 // REPIN @ 77fe373: analytics main, #95 merge (readiness autonomic
 // merge + spread calibration + capped re-centring + robust lnRMSSD
 // centre), for v112.
-// REPIN @ 7e4f734: analytics main, #100 merge on top of #101 (sleep
-// staging + naps, HRV/PRSA tiers), for v117.
-const String kAnalyticsPin = '7e4f73467611aad8279b8b276caed07f5f476469';
+const String kAnalyticsPin = '77fe373eb819fda235f80610e898a4bc20a7a249';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both

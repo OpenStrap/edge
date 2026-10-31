@@ -937,8 +937,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: 7e4f73467611aad8279b8b276caed07f5f476469
-      resolved-ref: 7e4f73467611aad8279b8b276caed07f5f476469
+      ref: "77fe373eb819fda235f80610e898a4bc20a7a249"
+      resolved-ref: "77fe373eb819fda235f80610e898a4bc20a7a249"
       url: "https://github.com/OpenStrap/analytics.git"
     source: git
     version: "1.0.0"
@@ -946,8 +946,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: 89080bcfac7767b3a871fd3a7d9307f5f30dad26
-      resolved-ref: 89080bcfac7767b3a871fd3a7d9307f5f30dad26
+      ref: "89080bcfac7767b3a871fd3a7d9307f5f30dad26"
+      resolved-ref: "89080bcfac7767b3a871fd3a7d9307f5f30dad26"
       url: "https://github.com/OpenStrap/protocol.git"
     source: git
     version: "1.0.0"
