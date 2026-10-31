@@ -209,7 +209,7 @@ void main() {
       'device_id': '', 'ts_ms': (_t0 + 1) * 1000, 'rec_ts': _t0 + 1,
       'beat_index': 0, 'rr_ts_ms': (_t0 + 1) * 1000, 'rr_ms': 888,
     });
-    await db.insert('raw_archive', {
+    await db.insert(LocalDb.rawArchiveView, {
       'device_id': '', 'hex': 'local-only', 'counter': 1,
       'packet_type': 32, 'rec_ts': _t0, 'captured_at': 1,
       'reason': 'undecodable_rec_v20',
@@ -518,7 +518,7 @@ void main() {
 
       test('raw archive keeps every frame; substrate archive merges losslessly '
           'with local winning collisions', () async {
-        final raw = await db.query('raw_archive', orderBy: 'hex');
+        final raw = await db.query(LocalDb.rawArchiveView, orderBy: 'hex');
         expect([for (final r in raw) r['hex']], ['local-only', 'src-a', 'src-b']);
         expect(counts['raw_archive'], 2);
         final row = (await db.query('substrate_archive')).single;
