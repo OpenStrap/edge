@@ -71,9 +71,11 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import '../sync/paired_device.dart' show cleanDeviceLabel;
+import '../sync/reset_gate.dart';
 import 'adapters/_registry.dart';
 import 'adapters/adapter.dart';
 import 'adapters/gatt_link.dart';
@@ -300,11 +302,37 @@ class OuraLink {
   /// remote id is a per-app CBPeripheral UUID on iOS and a rotating RPA on
   /// Android, and letting one become the storage key fragments one ring into N
   /// identities. `remote_id` is the column that may change under the same row.
-  static Future<Map<String, Object?>?> pairedRingRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kOura.id) return r;
+  static Future<Map<String, Object?>?> pairedRingRow() =>
+      pairedRowOf(kOura.id);
+
+  /// Every stored pairing key, for "delete everything", which removes the
+  /// `device` rows [forgetRing] would need and so must drop the keys itself.
+  ///
+  /// Also sweeps every stored key of this family by its item prefix: a key
+  /// orphaned by a crash mid-pair has no `device` row, so the row ids alone
+  /// would leave it behind. False when any key may remain — the keychain was
+  /// unreadable or a delete threw — so the reset can say it was incomplete
+  /// instead of reporting a clean wipe with a pairing secret still stored.
+  static Future<bool> dropStoredKeys(Iterable<String> deviceIds) async {
+    final prefix = _keyItem('');
+    final items = {for (final id in deviceIds) _keyItem(id)};
+    var complete = true;
+    try {
+      final all = await _secure.readAll(iOptions: _kApple, mOptions: _kMacos);
+      items.addAll(all.keys.where((k) => k.startsWith(prefix)));
+    } catch (e) {
+      complete = false;
+      debugPrint('[oura] could not list stored keys: $e');
     }
-    return null;
+    for (final item in items) {
+      try {
+        await _secure.delete(key: item, iOptions: _kApple, mOptions: _kMacos);
+      } catch (e) {
+        complete = false;
+        debugPrint('[oura] could not drop a stored key: $e');
+      }
+    }
+    return complete;
   }
 
   /// Delete the stored 16-byte pairing key for [deviceId], best-effort.
@@ -342,6 +370,10 @@ class OuraLink {
       debugPrint('[oura] refusing to forget the primary band from here.');
       return false;
     }
+    // Before the first await: a sync still reading this ring's row or key
+    // has no `_deviceId` yet for the check below to match, so it learns of
+    // the forget from this instead.
+    instance._forgets++;
     if (instance._deviceId == id) {
       await instance.stop();
     }
@@ -378,6 +410,15 @@ class OuraLink {
   /// carries. Never [LocalDb.kPrimaryDeviceId]: `''` is the primary band,
   /// permanently (ASSUMPTIONS A1).
   String? _deviceId;
+
+  /// [ResetGate.generation] when the running session started. Its host
+  /// refuses every write once a "delete everything" has run since, even
+  /// after the gate lowers again.
+  int _resetGen = ResetGate.generation;
+
+  /// Bumped by every [forgetRing]. A sync that saw it move since it started
+  /// does not connect, whatever its `_deviceId` says.
+  int _forgets = 0;
 
   /// Wall-clock now, in Unix seconds. A field so a replay is deterministic.
   int Function() _now =
@@ -469,6 +510,8 @@ class OuraLink {
   }
 
   Future<bool> _sync() async {
+    _resetGen = ResetGate.generation;
+    final forgets = _forgets;
     // THE CATEGORY DESCRIBES THIS CALL, not the previous one: cleared before
     // the FIRST return, so every early exit below (nothing paired, primary
     // id, unreadable key, adapter off, connect/discovery failure) reports
@@ -513,6 +556,16 @@ class OuraLink {
       // the slot, so the next queued link could connect while this one was
       // still disconnecting — one more live GATT link than the cap allows.
       return await withSecondaryLinkSlot(() async {
+        // A forget or a "delete everything" that landed while this sync was
+        // parked on the slot has already stopped it (nulling `_deviceId`)
+        // and deleted the row. The ids captured above would otherwise still
+        // connect to the forgotten ring and bank its history.
+        if (_deviceId != deviceId || ResetGate.changedSince(_resetGen)) {
+          return false;
+        }
+        // A forget during the row or key read above found no `_deviceId` to
+        // stop, so it is seen here instead.
+        if (_forgets != forgets) return false;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -828,6 +881,7 @@ class OuraLink {
   BandHost _makeHost(String deviceId, OuraAdapter adapter) => BandHost(
         adapter: adapter,
         deviceId: deviceId,
+        resetGeneration: _resetGen,
         onLog: (m) => debugPrint('[oura] $m'),
         onNote: _handleNote,
         // The night's hypnogram and stage minutes bank off the commit chain:
@@ -972,6 +1026,12 @@ class OuraLink {
     // the end, which only ever gets there by going BACKWARDS. A guard that
     // refused to lower it would turn the one recoverable case into the
     // permanent stall it exists to fix.
+    // Refused during "delete everything": this write lands after the batches
+    // it follows, so a reset that began mid-sync would otherwise leave the
+    // deleted ring's bookmark in the wiped store.
+    if (ResetGate.changedSince(_resetGen)) {
+      throw StateError('data reset in progress');
+    }
     await LocalDb.setCursor(_cursorItem(deviceId), '$ds');
   }
 
@@ -1113,6 +1173,7 @@ class OuraLink {
     _link = link;
     _now = nowSeconds ?? _now;
     _deviceId = deviceId;
+    _resetGen = ResetGate.generation;
     await _loadAnchor(deviceId);
     final cursor = await LocalDb.getCursorInt(_cursorItem(deviceId)) ?? 0;
     var finished = false;
@@ -1285,6 +1346,7 @@ class OuraLink {
     onLink?.call(link);
     _now = nowSeconds ?? _now;
     _deviceId = deviceId;
+    _resetGen = ResetGate.generation;
     _drainOk = false;
     await _loadAnchor(deviceId);
     final cursor = await LocalDb.getCursorInt(_cursorItem(deviceId)) ?? 0;
@@ -1319,6 +1381,41 @@ class OuraLink {
 String? ouraReusableDeviceId(Map<String, Object?>? priorRow) {
   final id = priorRow?['id'] as String?;
   return (id == null || id == LocalDb.kPrimaryDeviceId) ? null : id;
+}
+
+/// What a failed pairing does with the key stored under its device id.
+enum OuraFailedPairKey {
+  /// A freshly minted id's key: an orphan, nothing points at it.
+  drop,
+
+  /// The key the reused row held before this attempt overwrote it.
+  restore,
+
+  /// The ring the row names already acknowledged the new key and answers to
+  /// nothing else, so the new key stays.
+  keep,
+}
+
+/// The decision behind [_pairOuraRing]'s failure path. [reused] is true when
+/// the id came from [ouraReusableDeviceId]; [sameRing] when the ring being
+/// paired has the remote id that row names.
+///
+/// A ring that took the new key keeps it only when it is the ring the row
+/// names. A DIFFERENT ring that took the key and then failed the challenge has
+/// left the paired ring untouched, still answering to its old key, so that key
+/// goes back: keeping the new one would leave the row pointing at a ring that
+/// refuses every later sync, recoverable only by a factory reset that wipes
+/// whatever it had not synced yet.
+@visibleForTesting
+OuraFailedPairKey ouraFailedPairKey({
+  required bool reused,
+  required bool sameRing,
+  required bool keyInstalled,
+  required bool hadPriorKey,
+}) {
+  if (!reused) return OuraFailedPairKey.drop;
+  if (keyInstalled && sameRing) return OuraFailedPairKey.keep;
+  return hadPriorKey ? OuraFailedPairKey.restore : OuraFailedPairKey.drop;
 }
 
 /// What to tell a user whose OWN key the ring refused, by result code. Not
@@ -1681,7 +1778,8 @@ Future<String?> _pairOuraRing(
       'oura-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
   // A different remote id may be a different ring. The id is still reused (one
   // ring slot), but its ring-clock bookmark and anchor are not carried over —
-  // see `_cursorItem`'s doc.
+  // see `_cursorItem`'s doc. Nor, on a failed attempt, is the new key: the
+  // paired ring still answers to its own (see [ouraFailedPairKey]).
   final sameRing = priorRow?['remote_id'] == device.remoteId.str;
   // What the keychain held for [deviceId] before this attempt touched it. Only
   // meaningful when an id is being reused: the key is stored BEFORE the ring
@@ -1885,23 +1983,31 @@ Future<String?> _pairOuraRing(
     // points at it and nothing ever will, so it goes. A REUSED id's key is the
     // one the working pairing still depends on, and this attempt overwrote it
     // before the ring proved anything, so it is put back (or dropped, when
-    // there was none to put back). Once the ring acknowledged the new key, a
-    // reused id keeps it: the ring answers to nothing else now, and the row
-    // already points here.
-    if (!paired && !(reusedId != null && keyInstalled)) {
-      if (priorKey == null) {
-        await OuraLink._dropKey(deviceId);
-      } else {
-        try {
-          await _secure.write(
-            key: _keyItem(deviceId),
-            value: _hex(priorKey),
-            iOptions: _kApple,
-            mOptions: _kMacos,
-          );
-        } catch (e) {
-          debugPrint('[oura pair] could not restore the prior key: $e');
-        }
+    // there was none to put back). Once the ring the row names acknowledged
+    // the new key, it keeps it — see [ouraFailedPairKey] for why a different
+    // ring does not.
+    if (!paired) {
+      switch (ouraFailedPairKey(
+        reused: reusedId != null,
+        sameRing: sameRing,
+        keyInstalled: keyInstalled,
+        hadPriorKey: priorKey != null,
+      )) {
+        case OuraFailedPairKey.drop:
+          await OuraLink._dropKey(deviceId);
+        case OuraFailedPairKey.keep:
+          break;
+        case OuraFailedPairKey.restore:
+          try {
+            await _secure.write(
+              key: _keyItem(deviceId),
+              value: _hex(priorKey!),
+              iOptions: _kApple,
+              mOptions: _kMacos,
+            );
+          } catch (e) {
+            debugPrint('[oura pair] could not restore the prior key: $e');
+          }
       }
     }
   }

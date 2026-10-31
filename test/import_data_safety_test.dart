@@ -262,7 +262,7 @@ void main() {
         '$wake,$wake,50,60,60,5,$value,400\n',
       );
       await WhoopImporter.importFiles([f.path]);
-      return _metric(day, 'calories');
+      return _metric(day, 'calories_total');
     }
 
     test('a real 4,500 kcal ultra day is NOT rewritten as kJ', () async {
@@ -283,6 +283,30 @@ void main() {
           await importEnergy('2026-04-03 07:00:00', 'Energy burned', '5000'),
           isNull);
     });
+  });
+
+  test('WHOOP daily energy is filed as total burn, never as active energy',
+      () async {
+    // The cycle's 'Energy burned' is WHOOP's whole-day figure, resting
+    // metabolism included. Filed as `calories` (active energy over the wake
+    // span) it reached Health as ~2,600 kcal of ACTIVE_ENERGY_BURNED on an
+    // ordinary rest day.
+    const wake = '2026-04-05 07:00:00';
+    final day =
+        localDateLabel(DateTime.parse(wake).millisecondsSinceEpoch ~/ 1000);
+    final f = File(p.join(tmp.path, 'energy_total.csv'));
+    f.writeAsStringSync(
+      'Cycle start time,Wake onset,Day Strain,Energy burned (cal),'
+      'Asleep duration (min)\n'
+      '$wake,$wake,4.1,2600,400\n',
+    );
+    expect((await WhoopImporter.importFiles([f.path])).days, 1);
+    final scalars = (jsonDecode((await _row(day))!['payload_json'] as String)
+        as Map)['scalars'] as Map;
+    expect(scalars['calories_total'], 2600);
+    expect(scalars['calories'], isNull);
+    expect(await _metric(day, 'calories_total'), 2600.0);
+    expect(await _metric(day, 'calories'), isNull);
   });
 
   test('WHOOP absolute skin temp °C is not filed as skin_temp_z', () async {

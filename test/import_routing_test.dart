@@ -44,6 +44,15 @@ class _RoutingSpy extends AppState {
   }
 }
 
+class _ThrowingVendor extends _RoutingSpy {
+  @override
+  Future<int> importWhoopCsvs(List<String> paths,
+      {void Function(int days)? onProgress}) async {
+    vendor.addAll(paths);
+    throw const FormatException('no recognised files');
+  }
+}
+
 List<int> _zipOf(Map<String, String> members) {
   final a = Archive();
   members.forEach((name, body) {
@@ -135,6 +144,56 @@ void main() {
 
     expect(app.noop, [path]);
     expect(app.vendor, isEmpty);
+  });
+
+  test('a journal export re-saved as cp1252 is named, not handed to the '
+      'vendor importer', () async {
+    final app = _RoutingSpy();
+    final journal = await write('journal.csv',
+        latin1.encode('date,tags,note\n2026-08-01,,caf\u00e9\n'));
+    final whoopPath = await write('whoop.zip', _zipOf(_whoopZipMembers));
+
+    final out = await runImport(app, [journal, whoopPath]);
+
+    expect(app.vendor, [whoopPath]);
+    expect(out.rejectedRows.single, contains('journal.csv'));
+    expect(out.rejectedRows.single, contains('UTF-8'));
+  });
+
+  test('a quoted, padded header is still recognised as our journal export',
+      () async {
+    final app = _RoutingSpy();
+    final journal = await write('journal.csv',
+        latin1.encode('date," tags ",note\n2026-08-01,,caf\u00e9\n'));
+
+    final out = await runImport(app, [journal]);
+
+    expect(app.vendor, isEmpty);
+    expect(out.rejectedRows.single, contains('UTF-8'));
+  });
+
+  test('the encoding note survives a vendor file nothing could read',
+      () async {
+    final app = _ThrowingVendor();
+    final journal = await write('journal.csv',
+        latin1.encode('date,tags,note\n2026-08-01,,caf\u00e9\n'));
+    final junk = await write('junk.csv', utf8.encode('a,b\n1,2\n'));
+
+    final out = await runImport(app, [journal, junk]);
+
+    expect(out.rejectedRows.single, contains('UTF-8'));
+    expect(out.readError, contains('no recognised files'));
+  });
+
+  test('a cp1252 CSV that is not ours still goes to the vendor importer',
+      () async {
+    final app = _RoutingSpy();
+    final path = await write('cycles.csv',
+        latin1.encode('Cycle start time,Recovery score %\ncaf\u00e9,1\n'));
+
+    await runImport(app, [path]);
+
+    expect(app.vendor, [path]);
   });
 
   test('a mixed selection reaches both importers', () async {

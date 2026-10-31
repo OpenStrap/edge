@@ -174,6 +174,28 @@ void main() {
     expect(await LocalDb.liveStepsForDay(dayId), total);
   });
 
+  test('an hour that turns UNCOVERED later keeps what was already banked',
+      () async {
+    final day = yesterday();
+    final dayId = _label(day);
+
+    // 1. A good sync banks the whole day.
+    final good = PhonePedometer(stepReader: (from, to) async => 100);
+    final fullTotal = await good.syncDay(day);
+    expect(fullTotal, isNotNull);
+    expect(await LocalDb.liveStepsForDay(dayId), fullTotal);
+
+    // 2. The phone reboots: the native side records a gap from the last
+    //    delivery, and every later query touching that hour comes back
+    //    uncovered even though its earlier counts were real. The replace is
+    //    delete-then-insert, so this hour must be carried over, not dropped.
+    var h = 0;
+    final rebooted = PhonePedometer(stepReader: (from, to) async =>
+        h++ == 11 ? PhonePedometer.intervalNotCovered : 100);
+    expect(await rebooted.syncDay(day), fullTotal);
+    expect(await LocalDb.liveStepsForDay(dayId), fullTotal);
+  });
+
   test('a day with NO covered hour is unknown, not zero', () async {
     final day = yesterday();
     final dayId = _label(day);

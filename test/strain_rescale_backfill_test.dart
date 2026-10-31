@@ -14,8 +14,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:openstrap_edge/compute/derivation_engine.dart' show kAlgoVersion;
+import 'package:openstrap_edge/compute/derivation_engine.dart'
+    show kAlgoVersion, rawRetentionDays;
 import 'package:openstrap_edge/compute/strain_backfill.dart';
+import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 
 /// Seed a derived day the way the engine would have before the rescale.
@@ -262,6 +264,22 @@ void main() {
       final r = await backfillStrainScale(female: false, force: true);
       expect(r.skipped, greaterThanOrEqualTo(1));
       expect(await seriesValue('strain', '2026-06-02'), closeTo(12.79, 1e-9));
+    });
+  });
+
+  group('strainRescaleCutoff — calendar days back from the data edge', () {
+    test('counts calendar days across a spring-forward week', () {
+      // 2027-03-14 is the US spring-forward day (23 h). From local midnight on
+      // 2027-03-16 an absolute walk of rawRetentionDays * 24 h lands at 23:00
+      // the day before the calendar answer, which the pruner has already
+      // cleared. Fails before the fix under TZ=America/New_York.
+      const edge = '2027-03-16';
+      final expected = dayLabelOf(DateTime(2027, 3, 16 - rawRetentionDays));
+      expect(strainRescaleCutoff(edge), expected);
+    });
+
+    test('a malformed edge label skips everything rather than throwing', () {
+      expect(strainRescaleCutoff('bad'), 'bad');
     });
   });
 }

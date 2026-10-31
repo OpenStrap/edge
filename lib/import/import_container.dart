@@ -683,43 +683,46 @@ Future<List<String>> _extractCsvMembers(
     );
   }
 
-  if (archive.files.length > _kMaxArchiveMembers) {
-    throw ImportFormatException(
-      '“$name” holds ${archive.files.length} entries, which is far more than '
-      'any $flavor export — refusing to unpack it.',
-    );
-  }
-
-  final csvFiles = [
-    for (final f in archive.files)
-      if (f.isFile && _isCsvMember(f.name)) f,
-  ];
-
-  final declaredBytes =
-      csvFiles.fold<int>(0, (sum, f) => sum + (f.size > 0 ? f.size : 0));
-  if (declaredBytes > _kMaxUncompressedBytes) {
-    throw ImportFormatException(
-      '“$name” unpacks to more than '
-      '${(declaredBytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB of '
-      'CSV, which is not something we can import.',
-    );
-  }
-
-  if (csvFiles.isEmpty) {
-    throw ImportFormatException(
-      '“$name” is an archive with no CSV files inside '
-      '(${archive.files.length} entr${archive.files.length == 1 ? 'y' : 'ies'}). '
-      'Pick the $flavor CSV export instead.',
-    );
-  }
-
-  final out = <String>[];
-  final used = <String>{};
+  // Every exit from here on closes `input`, including the refusals: an
+  // ordinary wrong pick (a ZIP of photos) otherwise left a descriptor open on
+  // the picked file for the life of the process, one per retry.
   try {
+    if (archive.files.length > _kMaxArchiveMembers) {
+      throw ImportFormatException(
+        '“$name” holds ${archive.files.length} entries, which is far more than '
+        'any $flavor export — refusing to unpack it.',
+      );
+    }
+
+    final csvFiles = [
+      for (final f in archive.files)
+        if (f.isFile && _isCsvMember(f.name)) f,
+    ];
+
+    final declaredBytes =
+        csvFiles.fold<int>(0, (sum, f) => sum + (f.size > 0 ? f.size : 0));
+    if (declaredBytes > _kMaxUncompressedBytes) {
+      throw ImportFormatException(
+        '“$name” unpacks to more than '
+        '${(declaredBytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB of '
+        'CSV, which is not something we can import.',
+      );
+    }
+
+    if (csvFiles.isEmpty) {
+      throw ImportFormatException(
+        '“$name” is an archive with no CSV files inside '
+        '(${archive.files.length} entr${archive.files.length == 1 ? 'y' : 'ies'}). '
+        'Pick the $flavor CSV export instead.',
+      );
+    }
+
+    final out = <String>[];
+    final used = <String>{};
     for (final f in csvFiles) {
-    // Members can share a basename (`daily/data.csv`, `workouts/data.csv`).
-    // Flattening them onto one destination silently dropped one file and
-    // parsed the survivor twice.
+      // Members can share a basename (`daily/data.csv`, `workouts/data.csv`).
+      // Flattening them onto one destination silently dropped one file and
+      // parsed the survivor twice.
       var base = p.basename(f.name);
       if (!used.add(base)) {
         final stem = p.basenameWithoutExtension(base);
@@ -740,8 +743,8 @@ Future<List<String>> _extractCsvMembers(
       }
       out.add(destPath);
     }
+    return out;
   } finally {
     await input.close();
   }
-  return out;
 }
