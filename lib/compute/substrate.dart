@@ -1150,7 +1150,9 @@ class PhysioDay {
   ///   'auto_fallback' — HR-led fallback (van Hees found nothing); LOW confidence,
   ///                     surface a "is this right?" prompt
   ///   'vendor_staged' — the band's own hypnogram (window + stages), gated
-  ///   'manual'        — user typed the window (Approach 1)
+  ///   'manual'        — user typed the window (Approach 1); with no
+  ///                     [sleep] present when the window staged to nothing
+  ///                     (its `absence_reason` says why)
   ///   'confirmed'     — user accepted the fallback's proposal
   ///   'none'          — no sleep at all
   final String sleepSource;
@@ -1320,6 +1322,10 @@ List<PhysioDay> calendarDays(
 
       ana.SleepSegmentation s;
       String src;
+      // The HR-led fallback's own absence, when it found a night-shaped HR dip
+      // ending in this day but the band recorded too little of that window to
+      // stage it. Kept so the day can say why instead of a bare "no sleep".
+      ana.SleepSegmentation? fallbackUnobserved;
       if (ov != null && ov.source == 'rejected') {
         // The user's word again, the other direction: this was NOT sleep at
         // all. Skip detection/staging entirely rather than force a window —
@@ -1366,8 +1372,11 @@ List<PhysioDay> calendarDays(
           );
         } else {
           // Not an error and not "no sleep" — just no accel evidence. Fall
-          // through to the HR-led path below, which is exactly the degraded
-          // mode for this and is already marked low-confidence.
+          // through to the HR-led path below. It can still stage a night whose
+          // missing accel sits outside the HR dip (a gappy evening), but not
+          // one whose dip itself lacks gravity: the forced-window stager only
+          // counts a second as observed when it has a valid vector, so that
+          // window comes back unobserved and its reason is kept below.
           s = ana.SleepSegmentation.absent;
         }
         src = 'auto';
@@ -1394,6 +1403,10 @@ List<PhysioDay> calendarDays(
             if (s2.present) {
               s = s2;
               src = 'auto_fallback';
+            } else if (s2.absenceReason != null &&
+                cand.offsetSec >= dayStart &&
+                cand.offsetSec < dayEnd) {
+              fallbackUnobserved = s2;
             }
           }
         }
@@ -1463,6 +1476,37 @@ List<PhysioDay> calendarDays(
         // it was a rejection rather than an ordinary absence — sleep_detail
         // reads this to keep the "not sleep" state from re-prompting.
         sleepSource = 'rejected';
+      } else if (ov != null) {
+        // A user-set window that staged to nothing — most often "I was
+        // asleep" on a night the band spent on the charger, so most of the
+        // window was never observed. Labelling it 'none' made it look like no
+        // override existed: the screen then blamed a busy re-analysis and sent
+        // the user to a re-run that gives the same answer. Keep the source and
+        // the segmenter's absence (it carries `absence_reason`) so the screen
+        // can say why the saved window has no night in it.
+        //
+        // A window with no samples at all comes back as the bare `absent`
+        // (no reason); give it the same unobserved reason the segmenter gives
+        // a thinly-recorded one, so "the band wasn't recording" isn't shown as
+        // "no sleep found".
+        final span = ov.offsetSec - ov.onsetSec;
+        final have = _lowerBound(sub.tsSec, ov.offsetSec) -
+            _lowerBound(sub.tsSec, ov.onsetSec);
+        seg = (s.absenceReason == null &&
+                span > 0 &&
+                have < span * ana.kMinObservedFractionForSleep)
+            ? ana.SleepSegmentation.unobservedWindow(
+                'only ${have}s of a ${span}s window were recorded; below the '
+                '${(ana.kMinObservedFractionForSleep * 100).round()}% floor')
+            : s;
+        sleepSource = src;
+      } else if (fallbackUnobserved != null) {
+        // The HR dip says a night happened and the band could not record
+        // enough of it. The source stays 'none' (nothing was staged, and
+        // 'auto_fallback' promises a window), but the reason rides along so the
+        // screen can say the band missed the night rather than that no sleep
+        // was found.
+        seg = fallbackUnobserved;
       }
     }
 

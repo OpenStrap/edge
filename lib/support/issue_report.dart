@@ -203,8 +203,35 @@ Future<File> gzipFile(String path, String to) async {
   return File(to);
 }
 
+const _kReportPrefix = 'openstrap_report_';
+
 String _tmp(String dir, String ext) =>
-    '$dir/openstrap_report_${DateTime.now().microsecondsSinceEpoch}$ext';
+    '$dir/$_kReportPrefix${DateTime.now().microsecondsSinceEpoch}$ext';
+
+/// Delete report files left in [dir] by earlier runs: a Share locally whose
+/// cleanup never ran, or a run the OS killed mid-build. Each run writes a new
+/// name, and with the full database each one is a plaintext copy of the whole
+/// health record, so without this they pile up in the cache dir. Files newer
+/// than [olderThan] are left alone in case another build is still using them.
+Future<int> sweepStaleReports(String dir,
+    {Duration olderThan = const Duration(minutes: 10), DateTime? now}) async {
+  final cutoff = (now ?? DateTime.now()).subtract(olderThan);
+  var n = 0;
+  try {
+    await for (final e in Directory(dir).list(followLinks: false)) {
+      if (e is! File) continue;
+      final name = e.uri.pathSegments.last;
+      if (!name.startsWith(_kReportPrefix)) continue;
+      try {
+        if (e.lastModifiedSync().isBefore(cutoff)) {
+          await e.delete();
+          n++;
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return n;
+}
 
 /// Gather everything from the running app and write the archive to a temp
 /// file (the caller deletes it). Built on disk, so even the full database
@@ -300,6 +327,7 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
       ? null
       : await File(draft.screenshotPath!).readAsBytes();
   final tmp = (await getTemporaryDirectory()).path;
+  await sweepStaleReports(tmp);
   final slice = draft.includeDatabase && !draft.fullDatabase;
   Future<File> zipWith(File? dbGz, int? rawDays) {
     onStage?.call(ReportStage.packing);

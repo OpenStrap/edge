@@ -6,6 +6,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../l10n/decimal_text.dart' show parseTypedNumber;
+
 enum UnitSystem { metric, imperial }
 
 extension UnitSystemLabel on UnitSystem {
@@ -18,6 +20,7 @@ class UnitsController extends ChangeNotifier {
   static const double _cmPerIn = 2.54;
   static const double _metersPerKm = 1000.0;
   static const double _metersPerMile = 1609.344;
+  static const double _metersPerFoot = 0.3048;
 
   UnitSystem _system;
   UnitsController._(this._system);
@@ -87,6 +90,16 @@ class UnitsController extends ChangeNotifier {
 
   /// "/km" / "/mi".
   String get paceUnit => '/$distanceUnit';
+
+  // ── elevation (GPS altitude) ───────────────────────────────────────────────
+  // Its own unit, not the distance one: a climb in miles is unreadable, and a
+  // bare "m" printed under "3.12 mi" reads as miles to an imperial user.
+  /// "m" / "ft".
+  String get elevationUnit => isImperial ? 'ft' : 'm';
+
+  /// Elevation in the user's unit (m or ft), unformatted.
+  double elevationValue(double meters) =>
+      isImperial ? meters / _metersPerFoot : meters;
 
   /// Above this, a "pace" is meaningless noise, not a real number — e.g. a
   /// few metres of GPS jitter (stationary) divided into real elapsed time
@@ -164,14 +177,29 @@ class UnitsController extends ChangeNotifier {
 
   /// Parse a weight field (display units) → kg for storage.
   double? weightToKg(String text) {
-    final v = double.tryParse(text.trim());
+    final v = parseTypedNumber(text);
     if (v == null) return null;
     return isImperial ? v * _kgPerLb : v;
   }
 
+  /// [weightToKg], except that a field still showing exactly what
+  /// [weightField] wrote for [shownKg] gives [shownKg] back. Imperial shows
+  /// whole pounds, so an untouched field otherwise drifts off the stored value
+  /// on every save (20 kg -> "44" -> 19.96 kg, under the plausible floor).
+  double? weightToKgKeeping(String text, num? shownKg) =>
+      shownKg != null && text.trim() == weightField(shownKg)
+          ? shownKg.toDouble()
+          : weightToKg(text);
+
+  /// [heightToCm] with the same untouched-field rule as [weightToKgKeeping].
+  double? heightToCmKeeping(String text, num? shownCm) =>
+      shownCm != null && text.trim() == heightField(shownCm)
+          ? shownCm.toDouble()
+          : heightToCm(text);
+
   /// Parse a height field (display units = total inches when imperial) → cm.
   double? heightToCm(String text) {
-    final v = double.tryParse(text.trim());
+    final v = parseTypedNumber(text);
     if (v == null) return null;
     return isImperial ? v * _cmPerIn : v;
   }

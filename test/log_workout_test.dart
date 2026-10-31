@@ -15,10 +15,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:openstrap_edge/compute/manual_session.dart';
+import 'package:openstrap_edge/data/local_repository.dart';
+import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/screens/log_workout.dart';
 import 'package:openstrap_edge/ui2/screens/detected_activities.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
+import 'package:provider/provider.dart';
+
+/// A save that the repository refuses: a retime over a pruned substrate, or
+/// any write that throws.
+class _RefusingRepo extends LocalRepository {
+  final Object error;
+  _RefusingRepo(this.error);
+  @override
+  Future<Map<String, dynamic>> setWorkoutWindow(String id,
+          {required int startTs, required int endTs}) async =>
+      throw error;
+}
 
 /// A real phone, and tall enough that nothing under test is below the fold —
 /// the default 800x600 harness hides the very controls these tests are about.
@@ -189,6 +203,46 @@ void main() {
       // the window, and the type belongs to the row already.
       expect(find.text('Activity'), findsNothing);
     });
+
+    for (final (name, error, body) in [
+      (
+        'a retime the score cannot follow',
+        const ManualWindowException(ManualWindowError.scoreNotRecomputable),
+        ManualWindowError.scoreNotRecomputable.message,
+      ),
+      ('a write that throws', StateError('db'), 'Could not save that — try again.'),
+    ]) {
+      testWidgets('$name is shown as a refusal, never under a check', (t) async {
+        final app = AppState.forTesting();
+        addTearDown(app.dispose);
+        app.repo = _RefusingRepo(error);
+        t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+        t.view.devicePixelRatio = 3;
+        addTearDown(t.view.reset);
+        await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+          value: app,
+          child: MaterialApp(
+            theme: buildTheme(Brightness.light),
+            home: LogWorkout(
+              sessionId: 'manual:123',
+              now: _now,
+              start: _start,
+              end: _end,
+              spans: const [],
+              activity: activityByName('running'),
+              title: 'Fix the times',
+            ),
+          ),
+        ));
+        await t.pumpAndSettle();
+        await t.tap(find.text('Save the new times'));
+        await t.pumpAndSettle();
+        expect(find.text(body), findsOneWidget);
+        expect(find.text('That window will not save'), findsOneWidget);
+        expect(find.text('Times updated'), findsNothing,
+            reason: 'nothing was saved');
+      });
+    }
 
     testWidgets('picking an end time before the start rolls to the next day', (
       t,

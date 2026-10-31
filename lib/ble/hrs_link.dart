@@ -57,7 +57,8 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart'
     show polarPmdSupportsPpi;
 
-import '../compute/inputs/canonical.dart' show wearableEnabled;
+import '../compute/inputs/canonical.dart'
+    show adoptReplacementWearable, pairedRowOf, wearableEnabled;
 import '../data/db.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
 import 'accessory_setup.dart';
@@ -65,6 +66,7 @@ import 'adapters/_registry.dart';
 import 'adapters/adapter.dart';
 import 'adapters/ble_hrs.dart';
 import 'adapters/gatt_link.dart';
+import '../sync/reset_gate.dart';
 import 'adapters/host.dart' show BandHost, HrsReading;
 import 'ble_state.dart'
     show
@@ -154,6 +156,16 @@ class HrsLink {
   /// it is ending has to remember it.
   String? get deviceId => _host?.deviceId;
 
+  /// Whether the live session — published OR still being armed — belongs to
+  /// the row [id]. [deviceId] alone is not enough: it is only set once the
+  /// host is published, after a slot wait with no timeout and a 12 s connect,
+  /// and an arm for [id] already in that window would otherwise finish and
+  /// write under a row that has just been forgotten.
+  bool ownsSession(String id) => deviceId == id || _armingDeviceId == id;
+
+  @visibleForTesting
+  String? get armingDeviceIdForTest => _armingDeviceId;
+
   /// Bank what the armed sensor has sent so far and stay armed (a workout's
   /// stop, with the recovery tail still to record). No-op when not armed.
   Future<void> flush() async => _host?.flush();
@@ -172,12 +184,8 @@ class HrsLink {
   /// on Android, and letting one become the storage key fragments one strap
   /// into N identities. `remote_id` is the column that may change under the
   /// same row, and that is what this reads to connect.
-  static Future<Map<String, Object?>?> pairedSensorRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kBleHrsAdapter.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedSensorRow() =>
+      pairedRowOf(kBleHrsAdapter.id);
 
   // ── pairing: scan ─────────────────────────────────────────────────────────
 
@@ -830,13 +838,22 @@ class HrsLink {
             'saved.';
       }
       link.close();
+      final deviceId = mintDeviceId(entry, device.remoteId.str);
       await LocalDb.upsertDevice(
-        id: mintDeviceId(entry, device.remoteId.str),
+        id: deviceId,
         adapterId: entry.id,
         remoteId: device.remoteId.str,
         label: label,
         tier: deriveTier(tier, entry.id),
       );
+      // A replacement for the active wearable: syncs now land on this row,
+      // so derivation has to read it too. Best effort, the sensor is paired
+      // either way.
+      try {
+        await adoptReplacementWearable(deviceId);
+      } catch (e) {
+        debugPrint('[hrs] could not move the active wearable: $e');
+      }
       return null;
     } catch (e) {
       debugPrint('[hrs] pair setup failed: $e');
@@ -941,11 +958,18 @@ class HrsLink {
     // called unconditionally — this fallback used to run for ANY adapter
     // without its own branch above, which would tear down a live chest-strap
     // session while forgetting an unrelated device (e.g. a Colmi ring paired
-    // alongside one).
+    // alongside one). AND ON THE ARMED SESSION BEING THIS ROW'S: two straps of
+    // the same family can both be paired (each remote id mints its own row),
+    // and only the newest-seen one is armed — forgetting the old strap must
+    // not drop the new one's live session mid-workout.
+    // "This row's" covers an arm still connecting for it, not only a
+    // published session — see [ownsSession].
     if (row?['adapter_id'] == kPolarPmd.id) {
-      await PolarPmdLink.instance.disarm();
+      if (PolarPmdLink.instance.ownsSession(id)) {
+        await PolarPmdLink.instance.disarm();
+      }
     } else if (row?['adapter_id'] == kBleHrsAdapter.id) {
-      await instance.disarm();
+      if (instance.ownsSession(id)) await instance.disarm();
     }
     await LocalDb.deleteDevice(id);
   }
@@ -1009,7 +1033,10 @@ class HrsLink {
     // filled it, and a cancelled attempt completing must not null out the
     // live one's memo.
     mine = _arm().whenComplete(() {
-      if (identical(_arming, mine)) _arming = null;
+      if (identical(_arming, mine)) {
+        _arming = null;
+        _armingDeviceId = null;
+      }
     });
     return _arming = mine;
   }
@@ -1030,6 +1057,11 @@ class HrsLink {
   /// cancelled attempt un-reusable. See [arm].
   Future<bool>? _arming;
 
+  /// The row id the in-flight [arm] read, from the moment it reads the row
+  /// until it publishes or fails — the window where [deviceId] is still null.
+  /// Cleared with `_arming`. See [ownsSession].
+  String? _armingDeviceId;
+
   /// The in-flight [disarm] chain, or null when nothing is being torn down.
   /// [arm] waits on it; see its doc for what goes wrong otherwise.
   Future<void>? _disarming;
@@ -1040,6 +1072,9 @@ class HrsLink {
 
   Future<bool> _arm() async {
     final disarmsAtStart = _disarms;
+    // A sensor armed before a "delete everything" never writes after it, even
+    // if the disarm the reset sent did not reach this attempt.
+    final resetGen = ResetGate.generation;
     // Rule R6: a sensor whose flag is off is never armed, so nothing it
     // reads reaches a live trace, a workout's score or the day.
     if (!await wearableEnabled(kBleHrsAdapter.id)) return false;
@@ -1055,6 +1090,9 @@ class HrsLink {
           'device id — re-pair it with a minted id.');
       return false;
     }
+    // Only while this attempt is still the live one: a cancelled attempt
+    // must not re-label the slot a [disarm] just cleared.
+    if (_disarms == disarmsAtStart) _armingDeviceId = deviceId;
     // Declared OUT here so the catch can reach it: `_device` is not a
     // substitute, because the whole point of the cleanup below is the case
     // where a [disarm] has already nulled it (or a fresher arm has replaced
@@ -1105,6 +1143,7 @@ class HrsLink {
         return false;
       }
       final host = BandHost(
+        resetGeneration: resetGen,
         adapter: kBleHrsAdapter,
         deviceId: deviceId,
         onLog: (m) => debugPrint('[hrs] $m'),
@@ -1219,6 +1258,7 @@ class HrsLink {
     // live attempt. `arm()` identity-guards its own clear, so this cannot
     // strand a LATER attempt's memo.
     _arming = null;
+    _armingDeviceId = null;
     final prev = _disarming;
     late final Future<void> mine;
     mine = _disarmAfter(prev).whenComplete(() {

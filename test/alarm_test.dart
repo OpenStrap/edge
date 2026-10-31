@@ -16,13 +16,18 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
+import 'package:openstrap_edge/state/app_state.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/state/alarm_schedule.dart'
     show
         alarmGraceTimerDelay,
         alarmLatchAlertAtMs,
         alarmLatchAlertDelay,
         alarmLatchAlertResumeDelay,
-        alarmLatchFailed;
+        alarmLatchFailed,
+        AlarmScheduleEntry,
+        armNextScheduledOccurrence,
+        nextAlarmOccurrence;
 import 'package:openstrap_edge/sync/sync_policy.dart' show ClockRef;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
@@ -460,6 +465,60 @@ void main() {
           AlarmEffect.fired);
     });
 
+    test('a fire delivered hours late is consumed but not announced', () {
+      // Armed 22:00 for 06:30; the phone is out of range at wake time and
+      // the strap delivers the 57 (stamped 06:30) on the 13:00 reconnect.
+      const wake = 1792218600;
+      const late = wake + 390 * 60;
+      final a = AlarmConfirmation()..set(wake, (wake - 8 * 3600) * 1000);
+      expect(
+          a.onEvent(AlarmConfirmation.kEvtStrapExecuted, late * 1000,
+              tsSec: wake),
+          AlarmEffect.fired);
+      expect(a.firedJustNow(late * 1000), isFalse);
+      expect(a.firedNoticeKey, 'alarm_fired:${wake * 1000}');
+
+      // A fire received as it happens is still news, and keyed the same way
+      // whatever moment it was received at.
+      final b = AlarmConfirmation()..set(wake, (wake - 8 * 3600) * 1000);
+      b.onEvent(AlarmConfirmation.kEvtStrapExecuted, (wake + 5) * 1000,
+          tsSec: wake);
+      expect(b.firedJustNow((wake + 5) * 1000), isTrue);
+      expect(b.firedNoticeKey, a.firedNoticeKey);
+
+      // An unplaceable stamp can't be judged late.
+      final c = AlarmConfirmation()..set(wake, 0);
+      c.onEvent(AlarmConfirmation.kEvtStrapExecuted, late * 1000, tsSec: 5000);
+      expect(c.firedJustNow(late * 1000), isTrue);
+      expect(c.firedNoticeKey, 'alarm_fired:${late * 1000}');
+    });
+
+    test('a fire mapped into the future is not announced', () {
+      const wake = 1792218600;
+      final a = AlarmConfirmation()..set(wake, (wake - 8 * 3600) * 1000);
+      a.onEvent(AlarmConfirmation.kEvtStrapExecuted, wake * 1000,
+          tsSec: wake + 3600);
+      expect(a.firedJustNow(wake * 1000), isFalse);
+      // A couple of seconds ahead is ordinary clock noise.
+      final b = AlarmConfirmation()..set(wake, (wake - 8 * 3600) * 1000);
+      b.onEvent(AlarmConfirmation.kEvtStrapExecuted, wake * 1000,
+          tsSec: wake + 2);
+      expect(b.firedJustNow(wake * 1000), isTrue);
+    });
+
+    test('the same fire re-sent after the clock mapping moved keeps its key',
+        () {
+      const wake = 1792218600;
+      final a = AlarmConfirmation()..set(wake, (wake - 8 * 3600) * 1000);
+      a.onEvent(AlarmConfirmation.kEvtStrapExecuted, (wake + 5) * 1000,
+          tsSec: wake, rawTsSec: wake - 40);
+      // The strap re-sends it after a reconnect with a new drift estimate.
+      final b = AlarmConfirmation()..set(wake, (wake - 8 * 3600) * 1000);
+      b.onEvent(AlarmConfirmation.kEvtStrapExecuted, (wake + 60) * 1000,
+          tsSec: wake + 7, rawTsSec: wake - 40);
+      expect(b.firedNoticeKey, a.firedNoticeKey);
+    });
+
     test('an unrelated event returns null and changes nothing', () {
       final a = AlarmConfirmation();
       a.set(1750000000, 0);
@@ -557,6 +616,195 @@ void main() {
       expect(await link.engine.setAlarm(wake), wake);
       expect(link.logged('arm accepted'), isTrue);
       expect(link.logged('valid_input_pattern'), isTrue);
+    });
+
+    // WHOOP 4 echoes the stored wake time in the reply; the shared decoder
+    // reads that epoch's low byte as an alarm "status".
+    proto.Decoded echoReply(int seq, int opcode, int echo, int lowByte) =>
+        proto.Decoded('cmd_response', {
+          'opcode': opcode,
+          'req_seq': seq,
+          'cmd_status': CommandAwaiter.statusSuccess,
+          'alarm_status': lowByte,
+          'alarm_echo_epoch': echo,
+        });
+    // A wake time whose low byte (0x0a) would read as an input rejection.
+    final lowByteWake = DateTime.fromMillisecondsSinceEpoch(1750000010 * 1000);
+
+    test('an echoed wake time confirms the arm and masks the epoch byte',
+        () async {
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.setAlarmTime
+            ? echoReply(seq, opcode, 1750000010, 0x0a)
+            : null,
+      );
+      final r = await link.engine.armAlarm(lowByteWake);
+      expect(r.armed, lowByteWake,
+          reason: 'the status byte is an epoch byte, not a refusal');
+      expect(r.echoed, isTrue);
+    });
+
+    test('an echo of a different wake time is accepted but not a confirmation',
+        () async {
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.setAlarmTime
+            ? echoReply(seq, opcode, 1750000999, 0x0a)
+            : null,
+      );
+      final r = await link.engine.armAlarm(lowByteWake);
+      expect(r.armed, lowByteWake);
+      expect(r.echoed, isFalse);
+      expect(link.logged('not treating the reply as a confirmation'), isTrue);
+    });
+
+    test('a real WHOOP 4 reply frame is augmented with the echoed wake time',
+        () async {
+      // Reply bytes verbatim from the 2026-10-22 capture, rebuilt as a wire
+      // frame and fed through the real immediate-receive path (no injected
+      // Decoded), so a break in the augmentation shows here.
+      final engine =
+          BleEngine(onRecord: (_, _) async {}, onState: (_) {}, log: (_) {});
+      engine.debugInstallFakeLink(
+        band: proto.BandProfile.gen4,
+        onWrite: (frame) async {
+          final inner =
+              proto.parseFrame(frame, profile: proto.BandProfile.gen4)!.inner;
+          final reply = proto.buildFrame(
+            [0x24, 0x94, proto.Cmd.setAlarmTime, inner[1], 0x01, 0x01,
+              0xd0, 0xe9, 0xda, 0x6a, 0x00, 0x00],
+            profile: proto.BandProfile.gen4,
+          );
+          engine.debugProcessImmediateFrame(
+              proto.parseFrame(reply, profile: proto.BandProfile.gen4)!);
+          return true;
+        },
+      );
+      final at = DateTime.fromMillisecondsSinceEpoch(1792731600 * 1000);
+      final r = await engine.armAlarm(at);
+      expect(r.armed, at,
+          reason: 'epoch low byte 0xd0 is not a status, so no rejection');
+      expect(r.echoed, isTrue);
+    });
+
+    test('no echo leaves the arm unconfirmed, per call',
+        () async {
+      var echo = true;
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.setAlarmTime
+            ? (echo
+                ? echoReply(seq, opcode, 1750000010, 0x0a)
+                : _alarmReply(opcode, seq, proto.AlarmStatus.validInputPattern))
+            : null,
+      );
+      expect((await link.engine.armAlarm(lowByteWake)).echoed, isTrue);
+      echo = false;
+      final r = await link.engine.armAlarm(lowByteWake);
+      expect(r.armed, lowByteWake);
+      expect(r.echoed, isFalse,
+          reason: 'a previous arm\'s echo must not confirm this one');
+    });
+
+    test('the scheduled arm carries the engine\'s echo to its caller',
+        () async {
+      final schedule = [
+        for (var d = 0; d < 7; d++)
+          AlarmScheduleEntry(weekday: d, hour: 7, minute: 0, enabled: true),
+      ];
+      final now = DateTime(2026, 10, 22, 12);
+      final next = nextAlarmOccurrence(schedule, now)!;
+      final epoch = next.millisecondsSinceEpoch ~/ 1000;
+      var echo = true;
+      final link = _Link(
+        replyTo: (seq, opcode) => opcode == proto.Cmd.setAlarmTime
+            ? (echo
+                ? echoReply(seq, opcode, epoch, epoch & 0xff)
+                : _alarmReply(opcode, seq, proto.AlarmStatus.validInputPattern))
+            : null,
+      );
+      final echoed = await armNextScheduledOccurrence(
+          engine: link.engine,
+          schedule: schedule,
+          currentArmedEpoch: null,
+          now: now);
+      expect(echoed.epoch, epoch);
+      expect(echoed.echoed, isTrue);
+      echo = false;
+      final plain = await armNextScheduledOccurrence(
+          engine: link.engine,
+          schedule: schedule,
+          currentArmedEpoch: null,
+          now: now);
+      expect(plain.epoch, epoch);
+      expect(plain.echoed, isFalse);
+    });
+
+    test('a restored extended deadline keeps the arm pending past the grace',
+        () {
+      final c = AlarmConfirmation()..set(1750000000, 1000);
+      final late = 1000 + c.graceMs + 5000;
+      expect(c.isPending(late), isFalse);
+      c.pendingUntilMs = late + 10000;
+      expect(c.isPending(late), isTrue);
+      expect(c.isPending(late + 10000), isFalse);
+      c.set(1750000000, 2000);
+      expect(c.pendingUntilMs, isNull, reason: 'a new arm drops the old window');
+    });
+
+    test('a relaunch restores the extension end, not the critical-alert time',
+        () async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      const epoch = 1750000000;
+      // Arm made long ago: grace over, the critical alert still ahead.
+      SharedPreferences.setMockInitialValues({
+        'alarm_set_at_ms': now - 120000,
+        'alarm_latch_alert': ['$epoch', '${now + 300000}'],
+      });
+      app.debugSeedAlarmFromPrefs(
+          epoch, await SharedPreferences.getInstance());
+      expect(app.alarmPending, isFalse,
+          reason: 'the alert time must not keep the UI on "Setting alarm"');
+
+      SharedPreferences.setMockInitialValues({
+        'alarm_set_at_ms': now - 120000,
+        'alarm_latch_alert': ['$epoch', '${now + 300000}'],
+        'alarm_pending_until': ['$epoch', '${now + 30000}'],
+      });
+      app.debugSeedAlarmFromPrefs(
+          epoch, await SharedPreferences.getInstance());
+      expect(app.alarmPending, isTrue);
+    });
+
+    test('an event-56 body is only trusted on a band with a verified layout',
+        () async {
+      String hexFor(int e) {
+        final b = [
+          for (var i = 0; i < 4; i++) ((e >> (8 * i)) & 0xff),
+        ].map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+        return '000038${'00' * 10}$b';
+      }
+
+      Future<AppState> armed() async {
+        final app = AppState.forTesting();
+        addTearDown(app.dispose);
+        final now = DateTime.now().millisecondsSinceEpoch;
+        SharedPreferences.setMockInitialValues({'alarm_set_at_ms': now});
+        app.debugSeedAlarmFromPrefs(
+            1750000000, await SharedPreferences.getInstance());
+        return app;
+      }
+
+      final other = hexFor(1750000000 + 1000);
+      final gen4 = await armed();
+      gen4.debugHandleAlarmEvent(56, hex: other);
+      expect(gen4.alarmConfirmed, isFalse,
+          reason: 'a gen4 body naming another wake time is another arm');
+
+      final unverified = await armed();
+      unverified.debugHandleAlarmEvent(56, hex: other, bodyVerified: false);
+      expect(unverified.alarmConfirmed, isTrue,
+          reason: 'an unverified layout falls back to the timestamp check');
     });
 
     test('a FAILURE outer result rejects the arm even with no status byte',

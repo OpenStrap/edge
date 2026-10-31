@@ -39,8 +39,10 @@ import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
+import '../sync/reset_gate.dart';
 import 'adapters/_registry.dart';
 import 'adapters/adapter.dart' show ReplayBandLink;
 import 'adapters/gatt_link.dart';
@@ -63,12 +65,8 @@ class UltrahumanLink {
   ///
   /// `id` is MINTED at pairing (`HrsLink.mintDeviceId`), never the BLE remote
   /// id — see `oura_link.dart`'s identical doc for why.
-  static Future<Map<String, Object?>?> pairedRingRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kUltrahuman.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedRingRow() =>
+      pairedRowOf(kUltrahuman.id);
 
   /// Stop this ring's live session (if it is the one running) and forget it.
   /// No secret to drop — this protocol has none — so, unlike
@@ -78,6 +76,9 @@ class UltrahumanLink {
       debugPrint('[ultrahuman] refusing to forget the primary band from here.');
       return false;
     }
+    // Before the first await: a sync still reading the row has no
+    // `_deviceId` yet for the check below to match.
+    instance._forgets++;
     if (instance._deviceId == id) {
       await instance.stop();
     }
@@ -103,6 +104,10 @@ class UltrahumanLink {
   /// `device.id` of the paired ring. Never [LocalDb.kPrimaryDeviceId].
   String? _deviceId;
 
+  /// Bumped by every forget. A sync that saw it move since it started
+  /// does not connect, whatever its `_deviceId` says.
+  int _forgets = 0;
+
   /// Wall-clock now, in Unix seconds. Only [BandHost]'s flush cadence reads
   /// this — the adapter itself never calls `DateTime.now()`, since every
   /// record carries its own measured timestamp.
@@ -115,7 +120,12 @@ class UltrahumanLink {
 
   void _writeCursor(int index) {
     _cursorWrites =
-        _cursorWrites.then((_) => _persistCursor(index)).catchError((_) {});
+        _cursorWrites.then((_) => _persistCursor(index)).catchError((Object e) {
+      // The ring resends from the old cursor next time, so nothing is lost,
+      // but this sync did not finish and must not say it did.
+      _drainFailed = true;
+      debugPrint('[ultrahuman] cursor write failed: $e');
+    });
   }
 
   bool _busy = false;
@@ -130,7 +140,19 @@ class UltrahumanLink {
     return _sync().whenComplete(() => _busy = false);
   }
 
+  /// [ResetGate.generation] when the running session started; the cursor
+  /// write checks it the same way the session's host does.
+  int _resetGen = ResetGate.generation;
+
   Future<bool> _sync() async {
+    // Read before the first await: a "delete everything" that lands while
+    // this sync is parked on the link slot or still connecting must find it
+    // here. The host refuses every write once a reset has run since.
+    final resetGen = ResetGate.generation;
+    final forgets = _forgets;
+    _resetGen = resetGen;
+    _drainFailed = false;
+    BandHost? host;
     final row = await pairedRingRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;
@@ -152,6 +174,15 @@ class UltrahumanLink {
       // and disconnect all complete inside this one call, so the simple
       // scoped form is correct, same as `OuraLink._sync`.
       return await withSecondaryLinkSlot(() async {
+        // A forget that landed while this sync was parked on the slot has
+        // already stopped it (nulling `_deviceId`) and deleted the row. The
+        // ids captured above would otherwise still connect to the forgotten
+        // device and bank its history under a row that no longer exists.
+        if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
+          return false;
+        }
+        // A forget during the row lookup above found no `_deviceId` to stop.
+        if (_forgets != forgets) return false;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -186,17 +217,23 @@ class UltrahumanLink {
             device.createBond,
             isAndroid: Platform.isAndroid,
           );
-          final host = _makeHost(
+          final h = host = _makeHost(
             deviceId,
+            resetGeneration: resetGen,
             UltrahumanAdapter(startIndex: cursor),
           );
-          _host = host;
-          await host.run(link);
-          return true;
+          _host = h;
+          await h.run(link);
         } finally {
           // Drop the link and DISCONNECT before the slot is released.
           await stop();
         }
+        // Read only after [stop]: notes ride the host's vendor-write chain,
+        // which stop drains. A failed vendor write holds every later note
+        // back, the failure notes included, so it is read off the host.
+        return !_drainFailed &&
+            !(host?.sessionFailed ?? false) &&
+            !ResetGate.changedSince(resetGen);
       });
     } catch (e) {
       debugPrint('[ultrahuman] sync failed: $e');
@@ -222,7 +259,10 @@ class UltrahumanLink {
     }
   }
 
-  BandHost _makeHost(String deviceId, UltrahumanAdapter adapter) => BandHost(
+  BandHost _makeHost(String deviceId, UltrahumanAdapter adapter,
+          {int? resetGeneration}) =>
+      BandHost(
+        resetGeneration: resetGeneration,
         adapter: adapter,
         deviceId: deviceId,
         onLog: (m) => debugPrint('[ultrahuman] $m'),
@@ -234,6 +274,10 @@ class UltrahumanLink {
         nowSeconds: _now,
       );
 
+  /// The last drain stopped short (see [kUltrahumanDrainFailedNote]), or the
+  /// host could not commit a batch. Cleared at the start of every sync.
+  bool _drainFailed = false;
+
   void _handleNote(String key, Object? value) {
     switch (key) {
       case 'ultrahuman_cursor':
@@ -242,6 +286,9 @@ class UltrahumanLink {
         if (value is int) _writeCursor(value);
       case 'battery':
         if (value is int) _batteryPct = value;
+      case kUltrahumanDrainFailedNote || 'host_commit_failed':
+        _drainFailed = true;
+        debugPrint('[ultrahuman] $key = $value');
       default:
         debugPrint('[ultrahuman] $key = $value');
     }
@@ -354,6 +401,10 @@ class UltrahumanLink {
     if (deviceId == null) return;
     // NOT MONOTONIC, and it must not be — see `oura_link.dart`'s identical
     // note on why 0 arriving here is the recoverable case, not a bug.
+    // Refused during "delete everything", for the same reason as Oura's.
+    if (ResetGate.changedSince(_resetGen)) {
+      throw StateError('data reset in progress');
+    }
     await LocalDb.setCursor(_cursorItem(deviceId), '$index');
   }
 }

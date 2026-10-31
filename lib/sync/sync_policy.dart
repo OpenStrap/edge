@@ -117,6 +117,17 @@ const int kLivenessFuseSeconds = 120; // no data for >fuse ⇒ bounce the link
 // the drift comparison + bounded SET_CLOCK re-issue, so this only supplies
 // the missing periodic trigger, not new drift-correction logic.
 const int kRtcReverifyIntervalSeconds = 6 * 3600; // 6h
+
+/// Whether the proactive RTC re-verify is due. Both times are wall seconds:
+/// a suspend-paused stopwatch would let a mostly-asleep phone go days without
+/// one. A negative elapsed (the phone clock stepped backward) counts as due,
+/// otherwise the re-verify would be suspended for the size of the step on top
+/// of the interval.
+bool rtcReverifyDue(double nowWall, double? lastVerifyWall) {
+  if (lastVerifyWall == null) return true;
+  final elapsed = nowWall - lastVerifyWall;
+  return elapsed < 0 || elapsed >= kRtcReverifyIntervalSeconds;
+}
 const int kHistoricalSendFloorSeconds = 5; // official app floors 0x16 to 5s
 const int kHistoricalAbortRetryDelaySeconds =
     3; // official app retries 3s after abort
@@ -329,11 +340,12 @@ ResumeLinkAction resumeLinkAction(
 /// garbage, a misread offset. True of WHOOP, which carries a settable RTC.
 /// FALSIFIED BY: a source whose time base is uptime-since-boot, a sequence
 /// number, or milliseconds — each lands permanently under the floor.
-/// WHEN WRONG: every record is refused. Nothing is LOST (`TrimAckPolicy`
-/// correctly refuses the trim on a drop-only burst, so the band keeps its
-/// flash) but nothing is stored either, and the same chunk is re-delivered
-/// forever. [RecordGate.timeBaseNotWallClock] is what makes that case tellable
-/// from a transient wandering clock, which looks identical at the gate.
+/// WHEN WRONG: every record is refused from decoding. Its bytes land in
+/// `raw_archive` and a burst that is ALL below-floor drops is trimmed once
+/// they are committed (`TrimAckPolicy`), so nothing is lost and the drain
+/// moves on — but no day is ever derived from them.
+/// [RecordGate.timeBaseNotWallClock] is what makes that case tellable from a
+/// transient wandering clock, which looks identical at the gate.
 /// HOW TO CHECK: `gate_dropped_total` climbing while `records_seen` stays flat,
 /// with `RecordGate.droppedBelowFloor == RecordGate.dropped`.
 // ponytail: an absolute floor, so a relative time base cannot be rescued here
@@ -450,14 +462,40 @@ class ClockPolicy {
 
   /// True once a suspect-clock state has persisted past [suspectGraceSeconds].
   ///
-  /// Both arguments are MONOTONIC seconds (a `Stopwatch`), never wall clock.
-  /// The state being timed is "we do not trust `DateTime.now()`", so timing it
-  /// with `DateTime.now()` is self-defeating: a phone that steps forward a day
-  /// over NTP — while possibly still more than a day behind the strap — would
-  /// instantly age the suspicion past the grace window and re-authorize the
-  /// drain-and-trim this gate exists to hold back.
+  /// Both arguments are on the elapsed-time scale built by
+  /// [suspectElapsedStep], never raw wall clock. The state being timed is "we
+  /// do not trust `DateTime.now()`", so timing it with `DateTime.now()` alone
+  /// is self-defeating: a phone that steps forward a day over NTP — while
+  /// possibly still more than a day behind the strap — would instantly age the
+  /// suspicion past the grace window and re-authorize the drain-and-trim this
+  /// gate exists to hold back.
   static bool suspectGraceExpired(double? sinceSecs, double nowSecs) =>
       sinceSecs != null && nowSecs - sinceSecs >= suspectGraceSeconds;
+
+  /// Real time that passed between two strap clock reads, for aging the
+  /// suspect-clock grace window.
+  ///
+  /// No single phone-side clock can do this. A `Stopwatch` does not advance
+  /// while the phone is suspended (Android CLOCK_MONOTONIC), so on a phone
+  /// that sits locked overnight 12 h of grace took several real days, with
+  /// history deferred the whole time. The wall clock does advance through
+  /// suspend, but it is the clock under suspicion and can step forward.
+  ///
+  /// The strap RTC keeps ticking through phone suspend and does not move when
+  /// the phone's clock does. Taking the smaller of the strap and wall deltas
+  /// counts suspended time (both advance through it) while a forward step on
+  /// either clock alone is ignored (the other one bounds it). The monotonic
+  /// delta is a floor: it never exceeds real elapsed time, so a backward step
+  /// on either clock can only slow the window down, never stall it.
+  static double suspectElapsedStep({
+    required double strapDelta,
+    required double wallDelta,
+    required double monoDelta,
+  }) {
+    final clocks = strapDelta < wallDelta ? strapDelta : wallDelta;
+    final step = clocks > monoDelta ? clocks : monoDelta;
+    return step < 0 ? 0.0 : step;
+  }
 
   static bool phoneClockSuspect(int deviceClock, int wallNow) =>
       deviceClock >= kMinPlausibleUnix &&
@@ -527,6 +565,12 @@ class BackfillPolicy {
   ) {
     if (lastBackfillAt == null) return true;
     final elapsed = now - lastBackfillAt;
+    // A negative elapsed means `now` is on a different clock than the stamp,
+    // or that clock stepped backward. Treat the floor as spent: refusing
+    // would hold every floored trigger until the clock caught up again,
+    // which after an NTP correction can be hours of a healthy link not
+    // syncing.
+    if (elapsed < 0) return true;
     final backoff = emptyStreak >= emptyBackoffThreshold
         ? math
               .pow(2.0, (emptyStreak - emptyBackoffThreshold + 1).toDouble())
@@ -988,7 +1032,8 @@ bool shouldRenotifyStaleness(
 ///   * [remedyAfter] refusals in a row ⇒ try the remedy (SET_CLOCK + bounce).
 ///     The usual cause is a poisoned post-reconnect plausibility window.
 ///   * [giveUpAfter] remedies that did NOT work ⇒ stop assuming the next
-///     SET_CLOCK will fix it and tell the user. Still never ACKs.
+///     SET_CLOCK will fix it and tell the user. Still never ACKs, and later
+///     remedies back off exponentially ([nextRemedyThreshold]).
 ///
 /// Counting must span RECONNECTS. The remedy IS a reconnect, so a
 /// per-connection reset makes the escalation unreachable — the session is torn
@@ -998,7 +1043,14 @@ class NoDurableProgressEscalation {
   final int remedyAfter;
   final int giveUpAfter;
 
-  NoDurableProgressEscalation({this.remedyAfter = 3, this.giveUpAfter = 3});
+  /// Cap on how many times the post-give-up refusal threshold doubles.
+  final int maxBackoffDoublings;
+
+  NoDurableProgressEscalation({
+    this.remedyAfter = 3,
+    this.giveUpAfter = 3,
+    this.maxBackoffDoublings = 6,
+  });
 
   int _refusals = 0;
   int _remedies = 0;
@@ -1008,11 +1060,37 @@ class NoDurableProgressEscalation {
   int get remedies => _remedies;
   bool get gaveUp => _gaveUp;
 
+  /// Refusals needed before the next remedy. Flat [remedyAfter] until the
+  /// remedy has failed [giveUpAfter] times; after that it doubles per further
+  /// failed remedy, capped by [maxBackoffDoublings]. Without the backoff a loop
+  /// already declared unfixable kept writing SET_CLOCK and bouncing the link
+  /// every [remedyAfter] refusals for as long as the band stayed in range —
+  /// all night on Android, where the foreground service keeps reconnecting —
+  /// burning both batteries for no progress. It still retries occasionally,
+  /// because a later reconnect can genuinely clear the gate window.
+  int get nextRemedyThreshold {
+    if (_remedies < giveUpAfter) return remedyAfter;
+    var doublings = _remedies - giveUpAfter + 1;
+    if (doublings > maxBackoffDoublings) doublings = maxBackoffDoublings;
+    return remedyAfter << doublings;
+  }
+
+  int? _lastRefusedBurst;
+
   /// Feed one refused HISTORY_END. Returns true when the caller should run the
   /// remedy (and resets the refusal streak so the next run needs a fresh one).
-  bool trimRefused() {
+  ///
+  /// [burst] identifies the burst the HISTORY_END closes. A band that hears no
+  /// result re-offers the same HISTORY_END about every 2.5 s, and counting each
+  /// re-offer turned "3 bursts in a row" into 7.5 s of one burst: the remedy
+  /// bounced the link before the reconnect's gate window could clear, give-up
+  /// arrived within a minute, and the post-give-up backoff was measured in
+  /// re-offers. A repeat of the burst already counted is not a new refusal.
+  bool trimRefused({int? burst}) {
+    if (burst != null && burst == _lastRefusedBurst) return false;
+    _lastRefusedBurst = burst;
     _refusals++;
-    if (_refusals < remedyAfter) return false;
+    if (_refusals < nextRemedyThreshold) return false;
     _refusals = 0;
     _remedies++;
     return true;
@@ -1030,6 +1108,7 @@ class NoDurableProgressEscalation {
   /// proof the condition is over — clears the streak, the remedy count AND the
   /// give-up latch, so a later run can escalate again.
   void trimAcked() {
+    _lastRefusedBurst = null;
     _refusals = 0;
     _remedies = 0;
     _gaveUp = false;

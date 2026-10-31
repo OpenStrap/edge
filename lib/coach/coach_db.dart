@@ -214,6 +214,17 @@ class CoachDb {
     final refs = _tableRefs(toks, allowed: {...allowedViews, ...cte});
     if (refs.isEmpty) throw SqlGuardError('No table reference found.');
 
+    // (h2) RECURSIVE is optional in SQLite: a CTE that reads itself in its own
+    //      body recurses whether or not the keyword is there, and its working
+    //      table is invisible to layer 2. Without this, dropping the keyword
+    //      from a rejected query gets an unbounded generator past both layers,
+    //      and the read-only handle can't be closed until the statement ends.
+    final selfRef = _selfReferencingCte(toks, cte);
+    if (selfRef != null) {
+      throw SqlGuardError(
+          'Recursive CTEs are not allowed: "$selfRef" reads from itself.');
+    }
+
     // (i) Auto-append a LIMIT to protect context.
     if (!RegExp(r'\blimit\b', caseSensitive: false).hasMatch(lower)) {
       body = '$body LIMIT $rowCap';
@@ -325,6 +336,37 @@ class CoachDb {
       }
     }
     return names;
+  }
+
+  /// The first CTE whose own `AS (...)` body has its name in a table position,
+  /// or null. Table positions come from [_tableRefs] run over the body alone,
+  /// so a column that merely shares the CTE's name doesn't count.
+  static String? _selfReferencingCte(List<_Tok> toks, Set<String> cte) {
+    for (var i = 1; i < toks.length; i++) {
+      final prev = toks[i - 1];
+      final t = toks[i];
+      if (!t.ident || !cte.contains(t.text)) continue;
+      final opensCte = (prev.ident && prev.text == 'with') ||
+          (!prev.ident && prev.text == ',');
+      if (!opensCte) continue;
+      var j = i + 1;
+      if (j < toks.length && !toks[j].ident && toks[j].text == '(') {
+        j = _skipParens(toks, j);
+      }
+      if (j >= toks.length || !toks[j].ident || toks[j].text != 'as') continue;
+      var k = j + 1;
+      while (k < toks.length &&
+          toks[k].ident &&
+          (toks[k].text == 'not' || toks[k].text == 'materialized')) {
+        k++;
+      }
+      if (k >= toks.length || toks[k].ident || toks[k].text != '(') continue;
+      final end = _skipParens(toks, k);
+      final body = toks.sublist(k + 1, end > k + 1 ? end - 1 : k + 1);
+      final refs = _tableRefs(body, allowed: {...allowedViews, ...cte});
+      if (refs.contains(t.text)) return t.text;
+    }
+    return null;
   }
 
   /// Index just past the balanced ')' that matches the '(' at [open].

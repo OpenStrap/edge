@@ -69,6 +69,13 @@ enum LiveActivityBridge {
           calories: iOpt(a, "calories"), maxHr: i(a, "maxHr", 190), rhr: i(a, "rhr", 60))
   }
 
+  // How long a frame counts as live. The app pushes about every 4 s while the
+  // band reports HR and stops pushing when it doesn't (link drop, strap off,
+  // app killed), so without a stale date the lock screen kept drawing the last
+  // bpm as a live reading for the life of the activity. The widget blanks HR
+  // and zone once ActivityKit marks the frame stale.
+  private static let liveWindow: TimeInterval = 60
+
   @available(iOS 16.2, *)
   private static func start(_ a: [String: Any]) async {
     guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
@@ -85,7 +92,7 @@ enum LiveActivityBridge {
     do {
       _ = try Activity.request(
         attributes: attrs,
-        content: .init(state: state(a), staleDate: nil))
+        content: .init(state: state(a), staleDate: Date().addingTimeInterval(liveWindow)))
     } catch {
       NSLog("LiveActivity start failed: \(error)")
     }
@@ -93,7 +100,8 @@ enum LiveActivityBridge {
 
   @available(iOS 16.2, *)
   private static func update(_ a: [String: Any]) async {
-    let content = ActivityContent(state: state(a), staleDate: nil)
+    let content = ActivityContent(
+      state: state(a), staleDate: Date().addingTimeInterval(liveWindow))
     for act in Activity<OpenStrapWidgetAttributes>.activities {
       await act.update(content)
     }

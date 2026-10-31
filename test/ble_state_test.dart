@@ -8,6 +8,7 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
+import 'package:openstrap_edge/sync/sync_policy.dart' show BondRefusalGiveUp;
 
 void main() {
   group('ReconnectPolicy backoff schedule', () {
@@ -657,6 +658,20 @@ void main() {
             .reason,
         contains('5'),
       );
+    });
+
+    test('the pause copy says it lifts on its own after the cooldown', () {
+      // BondRefusalGiveUp re-arms auto-reconnect after its cooldown, so the
+      // card must not claim nothing happens until the user acts, and must not
+      // push a forget-and-re-pair for a refusal streak that clears itself.
+      final s = bandStatusFor(
+          connection: 'disconnected',
+          autoReconnectPaused: true,
+          bondRefusals: 5);
+      final minutes = BondRefusalGiveUp().cooldown.inMinutes;
+      expect(s.reason, contains('$minutes minutes'));
+      expect(s.reason.toLowerCase(), isNot(contains('until you act')));
+      expect(s.fix, startsWith('If it pauses again'));
     });
 
     test('a data-flow flag outranks the plain link state', () {
