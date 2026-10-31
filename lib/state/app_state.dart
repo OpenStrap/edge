@@ -4747,6 +4747,9 @@ class AppState extends ChangeNotifier {
       final onDisk = prefs.getInt('alarm_epoch');
       if (onDisk != _savedAlarm) {
         _savedAlarm = onDisk;
+        // Adopting another process's arm: a retry still in flight for the
+        // old one must not confirm this one with the old arm's echo.
+        _armGen++;
         // The optimistic in-session epoch is older than what headless armed,
         // and it wins in [alarmEpoch]; drop it so Home and the alarm screen
         // show the arm that's actually on the strap.
@@ -4940,7 +4943,9 @@ class AppState extends ChangeNotifier {
     // A newer arm (or a clear) during the await owns what is persisted now.
     if (_disposed || _armGen != gen) return;
     await prefs.setInt('alarm_epoch', epoch);
+    if (_disposed || _armGen != gen) return;
     await prefs.setInt('alarm_set_at_ms', setAtMs);
+    if (_disposed || _armGen != gen) return;
     // Not confirmed yet — event 56 (below, in _handleAlarmEvent) flips this.
     await prefs.setBool('alarm_epoch_confirmed', echoed);
     if (_disposed || _armGen != gen) return;
@@ -4970,6 +4975,7 @@ class AppState extends ChangeNotifier {
   Future<void> _finishEchoConfirmed(SharedPreferences prefs, int gen) async {
     if (_disposed || _armGen != gen) return;
     await prefs.remove('alarm_latch_alert');
+    if (_disposed || _armGen != gen) return;
     await prefs.remove('alarm_pending_until');
     if (_disposed || _armGen != gen) return;
     _alarmGraceTimer?.cancel();
@@ -5075,12 +5081,12 @@ class AppState extends ChangeNotifier {
     // engine on every fire).
     if (_disposed) return;
     // Re-check staleness after the await for the same reason as above.
-    if (echoed && _armGen == gen && !_alarm.confirmed) {
+    if (echoed && _armGen == gen && _savedAlarm == epoch && !_alarm.confirmed) {
       // The retry's reply named this wake time: confirmed, no second window.
       _alarm.confirmed = true;
       final prefs = await SharedPreferences.getInstance();
       // A newer arm during the await owns the persisted flag now.
-      if (_disposed || _armGen != gen) return;
+      if (_disposed || _armGen != gen || _savedAlarm != epoch) return;
       await prefs.setBool('alarm_epoch_confirmed', true);
       await _finishEchoConfirmed(prefs, gen);
       return;
