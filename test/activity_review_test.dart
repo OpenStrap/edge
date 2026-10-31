@@ -61,11 +61,13 @@ void main() {
     int? version,
     List<dynamic> naps = const [],
     String? source = 'band',
+    Map<String, num>? mainWindow,
   }) async {
     await LocalDb.putDayResult(
       dayId: day,
       algoVersion: version ?? kAlgoVersion,
       payloadJson: jsonEncode({
+        if (mainWindow != null) 'sleep': {'window': {'value': mainWindow}},
         'scalars': {'rhr': 53, 'readiness': 74, 'nap_min': 0},
         'naps': {'value': naps, 'count': naps.length},
         'sleep_periods': {
@@ -490,6 +492,65 @@ void main() {
     expect(bundle['scalars']['nap_min'], 24);
     expect((await LocalDb.napEdits(day)).single['source'], 'legacy');
     expect(await store.pending(), isEmpty);
+  });
+
+  test('a corrected main window excludes a captured legacy nap on every write', () async {
+    await db.update('activity_review_meta', {'activated_at': now});
+    await dayResult(version: kAlgoVersion - 1, naps: [nap()], source: null);
+    await dayResult(mainWindow: {
+      'onset_ms': (start - 6 * 3600) * 1000,
+      'offset_ms': (start + 3600) * 1000,
+    });
+    Future<void> check() async {
+      final saved = jsonDecode((await LocalDb.dayResult(day))!['payload_json'] as String);
+      expect(saved['naps']['value'], isEmpty);
+      expect(saved['scalars']['nap_min'], 0);
+      expect(saved['sleep_periods']['total_asleep_min'], 420);
+      expect((await LocalDb.metricSeries('nap_min')).single['value'], 0);
+      expect((await LocalDb.napEdits(day)).single['source'], 'legacy');
+    }
+    await check();
+    // The durable review path has no raw input and must compose identically.
+    await ActivityStore.markDayChanged(db, day);
+    await LocalDb.applyPendingActivityReviews();
+    await check();
+  });
+
+  test('a partially overlapping captured nap survives persistence and review', () async {
+    await db.update('activity_review_meta', {'activated_at': now});
+    await dayResult(version: kAlgoVersion - 1, naps: [nap()], source: null);
+    await dayResult(mainWindow: {
+      'onset_ms': (start - 6 * 3600) * 1000,
+      'offset_ms': (start + 900) * 1000,
+    });
+    Future<void> check() async {
+      final saved = jsonDecode((await LocalDb.dayResult(day))!['payload_json'] as String);
+      expect(saved['naps']['value'], hasLength(1));
+      expect(saved['scalars']['nap_min'], 24);
+      expect(saved['sleep_periods']['total_asleep_min'], 444);
+      expect((await LocalDb.metricSeries('nap_min')).single['value'], 24);
+      expect((await LocalDb.napEdits(day)).single['source'], 'legacy');
+    }
+    await check();
+    await ActivityStore.markDayChanged(db, day);
+    await LocalDb.applyPendingActivityReviews();
+    await check();
+  });
+
+  test('putting a legacy nap back records an explicit confirmation', () async {
+    await db.update('activity_review_meta', {'activated_at': now});
+    await dayResult(version: kAlgoVersion - 1, naps: [nap()], source: null);
+    await dayResult(mainWindow: {
+      'onset_ms': (start - 6 * 3600) * 1000,
+      'offset_ms': (start + 3600) * 1000,
+    });
+    await LocalDb.putNapEdit(dayId: day, startTs: start, endTs: start + 1800, source: 'rejected');
+    await LocalDb.deleteNapEdit(day, start);
+    await LocalDb.applyPendingActivityReviews();
+    final saved = jsonDecode((await LocalDb.dayResult(day))!['payload_json'] as String);
+    expect((await LocalDb.napEdits(day)).single['source'], 'confirmed');
+    expect(saved['naps']['value'], hasLength(1));
+    expect(saved['scalars']['nap_min'], 24);
   });
 
   test('older refresh cannot clear a newer durable review job', () async {

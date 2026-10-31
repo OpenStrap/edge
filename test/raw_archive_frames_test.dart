@@ -5,6 +5,7 @@
 // canonical hex survives verbatim, and an existing archive moves across in
 // pages without losing or duplicating a frame.
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -313,6 +314,37 @@ void main() {
     final rows = await _viewRows();
     expect(rows.map((r) => '${r['device_id']}|${r['hex']}'),
         ['|${_frameHex(50)}']);
+  });
+
+  test('the input signature reads the archive tables to the same value as '
+      'the view', () async {
+    // Mid-move: legacy rows still aside, and the frame store holding both a
+    // blob frame and a verbatim text one.
+    await _legacyDb('raw_frames_signature.db', [
+      for (var i = 0; i < 3; i++) _legacyRow('ring-1', _frameHex(300 + i), i),
+    ]);
+    await LocalDb.migrateLegacyRawArchive(budget: Duration.zero);
+    await LocalDb.archiveRawRecord(_rec(7, _frameHex(77)), deviceId: 'ring-1');
+    await LocalDb.archiveRawRecord(_rec(8, 'Not-Hex'), deviceId: 'ring-1');
+    final db = await LocalDb.instance;
+    final viewRow = (await db.rawQuery(
+      'SELECT COUNT(*), MAX(captured_at), TOTAL(captured_at), '
+      'TOTAL(LENGTH(hex)) FROM ${LocalDb.rawArchiveView} WHERE device_id = ?',
+      ['ring-1'],
+    )).single;
+    final keys = viewRow.keys.toList()..sort();
+    final expected = jsonEncode([
+      [for (final k in keys) viewRow[k]],
+    ]);
+    final sig = await LocalDb.dayInputSignature(
+      dayId: '2025-06-15',
+      prevDayId: '2025-06-14',
+      nextDayId: '2025-06-16',
+      fromSec: 1749900000,
+      toSec: 1750100000,
+      wearableDeviceId: 'ring-1',
+    );
+    expect(sig, contains('wearable_archive=$expected;'));
   });
 
   test('a backup of the new layout restores every frame', () async {
