@@ -534,6 +534,9 @@ class LocalDb {
     }
   }
 
+  /// The most the -wal keeps once a checkpoint has emptied it. See [_open].
+  static const int walSizeLimitBytes = 32 << 20;
+
   static Future<Database> _open() async {
     final dir = await getDatabasesPath();
     final path = p.join(dir, dbName);
@@ -561,6 +564,18 @@ class LocalDb {
           await db.rawQuery('PRAGMA journal_mode=WAL');
         } catch (_) {
           /* keep the default journal — this is a perf tweak, not a requirement */
+        }
+        // DISK. A checkpoint copies the -wal into the database and the next
+        // write starts over at its head, but the FILE keeps its high-water
+        // mark. One big transaction (a VACUUM writes every page through it, a
+        // backlog drain) left a -wal as large as the database for good. With
+        // a limit the file is truncated back each time it restarts, on this
+        // connection and on an existing install's oversized -wal alike.
+        // Per-connection, and it returns a row: rawQuery, never fatal.
+        try {
+          await db.rawQuery('PRAGMA journal_size_limit=$walSizeLimitBytes');
+        } catch (_) {
+          /* non-fatal */
         }
         try {
           await db.execute('PRAGMA synchronous=NORMAL');
@@ -14911,6 +14926,14 @@ class LocalDb {
     // ("Query reaches storage outside the coach views") for the rest of the
     // process. The invariant belongs to whoever moves the pages.
     await CoachDb.close();
+    // The VACUUM wrote the whole database through the -wal. Copy it back and
+    // truncate it now, rather than at the next write; the size limit set on
+    // open covers it if a reader holds this checkpoint back.
+    try {
+      await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch (_) {
+      /* non-fatal: the bytes are reclaimed, the -wal shrinks on a later write */
+    }
     return free;
   }
 
