@@ -3681,7 +3681,7 @@ class DerivationEngine {
         onDayDone?.call(dayId, completed, orderedDays.length);
       }
 
-      await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
+      await _runDayPool(orderedDays, processDay);
       // BEFORE the prune below: a day still owed a strain score is re-scored
       // while its raw exists (and the prune holds it if this fails).
       _diag['stage'] = 'quiet_repass';
@@ -3928,7 +3928,7 @@ class DerivationEngine {
         onDayDone?.call(dayId, completed, orderedDays.length);
       }
 
-      await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
+      await _runDayPool(orderedDays, processDay);
       done += await _quietLevelRepass(profile, dataNowSec);
       // A SELECTED re-analyze that happens to cover the whole raw history, with
       // every day resolved, is a full restage by any other name — it re-derived
@@ -4060,9 +4060,14 @@ class DerivationEngine {
     }
     // Tonight's sleep is the NEXT day's main sleep; it is only known once
     // that day has derived, and this day keeps re-deriving until it
-    // finalizes, so it converges on the following pass.
+    // finalizes, so it converges on the following pass. A day that would
+    // finalize in the same pass its next day is still deriving is held back
+    // ([PreparedDerivationDay.tonightPending]), or which of the two finished
+    // first would decide its stored result for good.
+    final nextDayId = localDateLabel(dayEnd);
+    final nextWindow = await LocalDb.sleepWindowJsonFor(nextDayId);
     final tonight = tonightSleep(
-      storedWindowSpan(await LocalDb.sleepWindowJsonFor(localDateLabel(dayEnd))),
+      storedWindowSpan(nextWindow),
       dayStartSec: dayStart,
       dayEndSec: dayEnd,
       sleepOffsetSec: candidate.present ? candidate.sleepOffsetSec : 0,
@@ -4073,6 +4078,7 @@ class DerivationEngine {
       sleepSub: sleepSub,
       tonightSleepOnsetSec: tonight?.startSec ?? 0,
       tonightSleepOffsetSec: tonight?.endSec ?? 0,
+      tonightPending: nextWindow == null && _passUnfinished.contains(nextDayId),
       ownership: ownership,
       priority: priority,
     );
@@ -5247,7 +5253,7 @@ class DerivationEngine {
       )..sort((a, b) => b.compareTo(a)); // newest first, like the sweep
       if (days.isEmpty) return 0;
       _log('derive: re-scoring ${days.length} day(s) owed a quiet level');
-      await runWithConcurrency(days, _deriveConcurrency, (dayId) async {
+      await _runDayPool(days, (dayId) async {
         try {
           await debugQuietRepassHook?.call(dayId);
           final prepared = await _prepareTargetDay(dayId);
@@ -5394,7 +5400,7 @@ class DerivationEngine {
         onDayDone?.call(dayId, completed, orderedDays.length);
       }
 
-      await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
+      await _runDayPool(orderedDays, processDay);
 
       if (orderedDays.isNotEmpty) {
         await _refreshBaselines();
@@ -5603,6 +5609,27 @@ class DerivationEngine {
   /// real wall-clock speedup from the device's other cores — in the FOREGROUND.
   /// A headless background slot has no spare cores to soak up, so it takes one
   /// lane; [DerivePacing] owns that decision and explains it.
+  /// The days this pass's pool has not finished yet ([_runDayPool]).
+  final Set<String> _passUnfinished = {};
+
+  /// [runWithConcurrency] over [days], tracking which are still unfinished so
+  /// a day can tell its next day is mid-derive ([_prepareTargetDay]).
+  Future<void> _runDayPool(
+      List<String> days, Future<void> Function(String dayId) body) async {
+    _passUnfinished.addAll(days);
+    try {
+      await runWithConcurrency(days, _deriveConcurrency, (dayId) async {
+        try {
+          await body(dayId);
+        } finally {
+          _passUnfinished.remove(dayId);
+        }
+      });
+    } finally {
+      _passUnfinished.removeAll(days);
+    }
+  }
+
   int get _deriveConcurrency {
     try {
       return _pacing.concurrency(Platform.numberOfProcessors);
@@ -6424,8 +6451,9 @@ class DerivationEngine {
     // forceFinalize. Locking an all-absent row is what made the destructive
     // re-analyze permanent; leaving it unlocked means a later pass (or a
     // restored/backfilled substrate) can still fill the day in.
-    final finalized =
-        !producedNothing && (forceFinalize || (ageFinalized && secondHalfOk));
+    final finalized = !producedNothing &&
+        (forceFinalize ||
+            (ageFinalized && secondHalfOk && !day.tonightPending));
 
     // A failed/timed-out second half yields a headline-only bundle, and
     // putDayResult replaces the row wholesale — so re-deriving an already
