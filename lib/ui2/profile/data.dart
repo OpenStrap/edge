@@ -270,9 +270,9 @@ class _DataScreenState extends State<DataScreen> {
         title: l?.dataKeepShorterTitle(window) ??
             'Keep $window of raw readings?',
         body: l?.dataKeepShorterBody(window) ??
-            'Readings more than $window before your latest one are deleted '
-                'now. Those days keep '
-                "their scores, but can't be re-scored after future updates.",
+            'Readings more than about $window before your latest one are '
+                'deleted now. Those days keep their scores, but '
+                "can't be re-scored after future updates.",
         remove: l?.dataKeepShorterConfirm ?? 'Delete older readings',
         keep: l?.dataKeepShorterCancel ?? 'Keep them',
       );

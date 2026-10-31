@@ -2814,7 +2814,7 @@
       }
     }
   },
-  "dataKeepShorterBody": "比最新读数早 {window} 以上的读数将立即删除。这些日子会保留评分，但在以后的更新后无法重新计算。",
+  "dataKeepShorterBody": "比最新读数早约 {window} 以上的读数将立即删除。这些日子会保留评分，但在以后的更新后无法重新计算。",
   "@dataKeepShorterBody": {
     "placeholders": {
       "window": {
