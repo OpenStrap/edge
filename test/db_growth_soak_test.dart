@@ -245,8 +245,15 @@ void main() {
   }
 
   void writeReport() {
-    final tables = <String>{for (final s in snaps) ...s.tables.keys}.toList()
-      ..sort((a, b) => snaps.last.tables[b]!.compareTo(snaps.last.tables[a]!));
+    final tables = <String>{for (final s in snaps) ...s.tables.keys}.toList();
+    // A run that failed before its first snapshot still writes the header.
+    if (snaps.isEmpty) {
+      tables.sort();
+    } else {
+      tables.sort(
+        (a, b) => snaps.last.tables[b]!.compareTo(snaps.last.tables[a]!),
+      );
+    }
     final out = File('build/soak/db_growth.csv')..createSync(recursive: true);
     out.writeAsStringSync(
       [
@@ -313,29 +320,34 @@ void main() {
             'SOAK_DAYS must leave a steady-state window after $warmup '
             'warm-up days',
       );
-      for (var i = 2; i < liveDays; i++) {
-        final sw = Stopwatch()..start();
-        await ingest(
-          SyntheticDay(
-            DateTime(first.year, first.month, first.day + i),
-            seed: 1 + i,
-          ),
-        );
-        await finalizeRawDays();
-        await DerivationEngine().run(_profile, heavy: true);
-        await LocalDb.vacuumIfBloated();
-        final s = await snapshot(i, sw.elapsedMilliseconds);
-        snaps.add(s);
-        // ignore: avoid_print
-        print(
-          '[soak] day $i: used ${(s.usedBytes / _mb).toStringAsFixed(1)} MB'
-          ', file ${(s.fileBytes / _mb).toStringAsFixed(1)} MB'
-          ', free ${(s.freeBytes / _mb).toStringAsFixed(1)} MB'
-          ', wal ${(s.walBytes / _mb).toStringAsFixed(1)} MB'
-          ', onehz ${s.onehzRows} rows, ${s.dayMs} ms',
-        );
+      // The report is the artifact a failed run is read from, so it is
+      // written however the loop ends.
+      try {
+        for (var i = 2; i < liveDays; i++) {
+          final sw = Stopwatch()..start();
+          await ingest(
+            SyntheticDay(
+              DateTime(first.year, first.month, first.day + i),
+              seed: 1 + i,
+            ),
+          );
+          await finalizeRawDays();
+          await DerivationEngine().run(_profile, heavy: true);
+          await LocalDb.vacuumIfBloated();
+          final s = await snapshot(i, sw.elapsedMilliseconds);
+          snaps.add(s);
+          // ignore: avoid_print
+          print(
+            '[soak] day $i: used ${(s.usedBytes / _mb).toStringAsFixed(1)} MB'
+            ', file ${(s.fileBytes / _mb).toStringAsFixed(1)} MB'
+            ', free ${(s.freeBytes / _mb).toStringAsFixed(1)} MB'
+            ', wal ${(s.walBytes / _mb).toStringAsFixed(1)} MB'
+            ', onehz ${s.onehzRows} rows, ${s.dayMs} ms',
+          );
+        }
+      } finally {
+        writeReport();
       }
-      writeReport();
 
       final steady = snaps.where((s) => s.day >= warmup).toList();
       final base = steady.first;
