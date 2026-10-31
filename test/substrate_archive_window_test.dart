@@ -41,10 +41,11 @@ void main() {
     late Database db;
     setUpAll(sqfliteFfiInit);
     setUp(() async {
-      db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+      db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath,
+          options: OpenDatabaseOptions(singleInstance: false));
       await db.execute('CREATE TABLE compute_freshness (key TEXT PRIMARY KEY, '
           'payload_json TEXT NOT NULL, updated_at INTEGER NOT NULL)');
-      await db.execute('CREATE TABLE ${SubstrateArchive.table} (day TEXT)');
+      await db.execute('CREATE TABLE ${SubstrateArchive.table} (utc_day INTEGER, day TEXT)');
     });
     tearDown(() => db.close());
 
@@ -61,6 +62,43 @@ void main() {
       await db.insert(SubstrateArchive.table, {'day': '2026-10-01'});
       await SubstrateArchive.keepLegacyWindowOnce(db);
       expect((await SubstrateArchive.readPolicy(db)).keepDays, 90);
+    });
+
+    test('an empty archive with band readings already stored keeps a year',
+        () async {
+      await db.execute('CREATE TABLE decoded_onehz (rec_ts INTEGER)');
+      await db.insert('decoded_onehz', {'rec_ts': 1750000000});
+      await SubstrateArchive.keepLegacyWindowOnce(db);
+      expect((await SubstrateArchive.readPolicy(db)).keepDays, 365);
+    });
+
+    test('a backup from before the setting restores with its year', () async {
+      final backup = await databaseFactoryFfi.openDatabase(
+          inMemoryDatabasePath,
+          options: OpenDatabaseOptions(singleInstance: false));
+      addTearDown(backup.close);
+      await backup.execute('CREATE TABLE compute_freshness (key TEXT PRIMARY '
+          'KEY, payload_json TEXT NOT NULL, updated_at INTEGER NOT NULL)');
+      await backup.execute('CREATE TABLE ${SubstrateArchive.table} (utc_day INTEGER, day TEXT)');
+      // Fresh install: the check already ran and found nothing.
+      await SubstrateArchive.keepLegacyWindowOnce(db);
+      await SubstrateArchive.adoptPolicy(backup, db);
+      expect((await SubstrateArchive.readPolicy(db)).keepDays, 90,
+          reason: 'a backup with no history brings no window');
+      await backup.insert(SubstrateArchive.table, {'day': '2025-11-01'});
+      // A backup of a phone already on this build, with no setting chosen,
+      // was getting the default: nothing to adopt.
+      await backup.insert('compute_freshness', {
+        'key': 'substrate_archive_policy_default_checked',
+        'payload_json': '{}',
+        'updated_at': 0,
+      });
+      await SubstrateArchive.adoptPolicy(backup, db);
+      expect((await SubstrateArchive.readPolicy(db)).keepDays, 90);
+      // One from before this build keeps its year.
+      await backup.delete('compute_freshness');
+      await SubstrateArchive.adoptPolicy(backup, db);
+      expect((await SubstrateArchive.readPolicy(db)).keepDays, 365);
     });
 
     test('a window the user picked is left alone', () async {

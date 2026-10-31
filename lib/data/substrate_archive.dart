@@ -185,27 +185,52 @@ abstract final class SubstrateArchive {
     return out;
   }
 
-  /// Once per install, on the first open of a build whose default is shorter
-  /// than a year: an archive that already has buckets but no stored setting
-  /// was being kept for 365 days, and the new default would delete everything
-  /// older than 90 on the next housekeeping pass, with no confirmation and no
-  /// way back. That archive keeps its year; the user can still shorten it from
-  /// data settings. An empty archive gets the new default.
+  /// The window a database that predates the 90-day default was getting: a
+  /// year. Such a database has no stored setting and already holds history —
+  /// archived buckets, or band readings a later prune would archive — that
+  /// the new default would delete with no confirmation and no way back. Null
+  /// when it does not predate it (a fresh install, or a setting was chosen).
+  static Future<SubstrateArchivePolicy?> legacyWindow(
+      DatabaseExecutor ex) async {
+    Future<bool> any(String sql) async {
+      try {
+        return (await ex.rawQuery(sql)).isNotEmpty;
+      } on DatabaseException catch (e) {
+        if (e.isNoSuchTableError()) return false;
+        rethrow;
+      }
+    }
+
+    // A stored setting, or a database that has already been opened by a
+    // build with the new default (it carries the marker), is not legacy: a
+    // backup of one with no setting was getting the 90 days.
+    if (await any('SELECT 1 FROM compute_freshness '
+        "WHERE key IN ('$policyKey', '$_defaultCheckedKey') LIMIT 1")) {
+      return null;
+    }
+    final hasHistory = await any('SELECT 1 FROM $table LIMIT 1') ||
+        await any('SELECT 1 FROM decoded_onehz LIMIT 1');
+    return hasHistory ? const SubstrateArchivePolicy(365) : null;
+  }
+
+  /// Once per install, on the first open of a build with the 90-day default:
+  /// a database that predates it keeps its year ([legacyWindow]); the user can
+  /// still shorten it from data settings. A fresh one gets the new default.
+  static const String _defaultCheckedKey =
+      'substrate_archive_policy_default_checked';
+
   static Future<void> keepLegacyWindowOnce(Database db) async {
-    const marker = 'substrate_archive_policy_default_checked';
+    const marker = _defaultCheckedKey;
     final done = await db.query('compute_freshness',
         columns: ['key'], where: 'key = ?', whereArgs: [marker], limit: 1);
     if (done.isNotEmpty) return;
     await db.transaction((txn) async {
-      final stored = await txn.query('compute_freshness',
-          columns: ['key'], where: 'key = ?', whereArgs: [policyKey], limit: 1);
-      final hasArchive =
-          (await txn.rawQuery('SELECT 1 FROM $table LIMIT 1')).isNotEmpty;
+      final legacy = await legacyWindow(txn);
       final now = DateTime.now().millisecondsSinceEpoch;
-      if (stored.isEmpty && hasArchive) {
+      if (legacy != null) {
         await txn.insert('compute_freshness', {
           'key': policyKey,
-          'payload_json': const SubstrateArchivePolicy(365).toJson(),
+          'payload_json': legacy.toJson(),
           'updated_at': now,
         });
       }
@@ -266,10 +291,19 @@ abstract final class SubstrateArchive {
       if (e.isNoSuchTableError()) return;
       rethrow;
     }
-    if (theirs.isEmpty) return;
-    final adopted = SubstrateArchivePolicy.fromJson(
-      theirs.first['payload_json'] as String?,
-    );
+    // A backup from before the setting existed has no row; its archive was
+    // being kept for a year, and restoring it under the 90-day default would
+    // drop the older part of what it brings.
+    final SubstrateArchivePolicy adopted;
+    if (theirs.isNotEmpty) {
+      adopted = SubstrateArchivePolicy.fromJson(
+        theirs.first['payload_json'] as String?,
+      );
+    } else {
+      final legacy = await legacyWindow(src);
+      if (legacy == null) return;
+      adopted = legacy;
+    }
     await db.transaction((txn) async {
       final ours = await txn.query(
         'compute_freshness',

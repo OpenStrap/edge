@@ -89,10 +89,14 @@ Future<void> _clear() async {
     'decoded_onehz',
     'decoded_rr',
     'substrate_archive',
-    'compute_freshness',
   ]) {
     await db.delete(t);
   }
+  // Everything but the marker every opened phone database carries: without it
+  // an export here would read as a backup from before the 90-day default.
+  await db.delete('compute_freshness',
+      where: 'key != ?',
+      whereArgs: ['substrate_archive_policy_default_checked']);
   SubstrateArchive.debugCorruptEncode = false;
   SubstrateArchive.debugBeforeBucket = null;
   SubstrateArchive.debugThrowInBucket = null;
