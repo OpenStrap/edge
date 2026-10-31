@@ -180,7 +180,10 @@ class DeriveCoordinator {
       if (heavy && _healthShareConsent()) {
         unawaited(HealthUploader.instance.maybeUpload(consented: true));
       }
-      if (heavy) unawaited(_maybeReclaimDiskSpace());
+      // Awaited, so the scheduler's next job starts only once it is done:
+      // the vacuum holds the derive latch, and a job whose run() found it
+      // held would come back 0 and be marked complete without deriving.
+      if (heavy) await _maybeReclaimDiskSpace();
     } catch (e, st) {
       _log('[derive] post-drain failed: $e');
       // Was silently swallowed before — this is a real pipeline failure
