@@ -1482,6 +1482,7 @@ class AppState extends ChangeNotifier {
       }
       appStatus = null;
       _savedAlarm = null;
+      _armGen++;
 
       // 4 · the in-memory mirrors of what we just deleted. These are plain
       // fields, restored only by the profile load at launch, so leaving them
@@ -4607,6 +4608,12 @@ class AppState extends ChangeNotifier {
   }
   int? _savedAlarm;
 
+  /// Bumped by every arm and every clear. A continuation that resumes after an
+  /// await only touches confirmation state if this still matches the arm it
+  /// started for: an epoch comparison can't tell two arms of the same wake
+  /// time apart, and a newer arm owns the timer and the pending alert.
+  int _armGen = 0;
+
   // ── weekly alarm schedule (replaces a single next-occurrence value) ────────
   // The 7-day schedule lives in `alarm_schedule` (lib/data/db.dart); this cache
   // is always exactly 7 entries (see fillDefaultAlarmSchedule) so the UI can
@@ -4921,6 +4928,7 @@ class AppState extends ChangeNotifier {
   /// [echoed]: the strap's reply already reported this exact wake time, so the
   /// arm is confirmed now; event 56 stays as later corroboration.
   Future<void> _onArmed(DateTime when, int epoch, {bool echoed = false}) async {
+    final gen = ++_armGen;
     _savedAlarm = epoch;
     device.alarmEpoch = epoch; // optimistic display
     final setAtMs = DateTime.now().millisecondsSinceEpoch;
@@ -4929,12 +4937,15 @@ class AppState extends ChangeNotifier {
     _alarmAutoRetried = false; // a fresh arm gets its one retry
     _alarmGraceExtensions = 0;
     final prefs = await SharedPreferences.getInstance();
+    // A newer arm (or a clear) during the await owns what is persisted now.
+    if (_disposed || _armGen != gen) return;
     await prefs.setInt('alarm_epoch', epoch);
     await prefs.setInt('alarm_set_at_ms', setAtMs);
     // Not confirmed yet — event 56 (below, in _handleAlarmEvent) flips this.
     await prefs.setBool('alarm_epoch_confirmed', echoed);
+    if (_disposed || _armGen != gen) return;
     if (echoed) {
-      await _finishEchoConfirmed(prefs, epoch);
+      await _finishEchoConfirmed(prefs, gen);
       return;
     }
     // The alert timers below live in memory only; this lets a relaunch
@@ -4954,13 +4965,13 @@ class AppState extends ChangeNotifier {
   /// state and re-decide the 7pm "no alarm tonight" reminder, which was
   /// scheduled before this arm (event 56 does the same when it lands).
   ///
-  /// [epoch] scopes it to the arm that was echoed: a newer arm that took over
+  /// [gen] scopes it to the arm that was echoed: a newer arm that took over
   /// during the awaits above owns the timer and the pending alert now.
-  Future<void> _finishEchoConfirmed(SharedPreferences prefs, int epoch) async {
-    if (_disposed || _savedAlarm != epoch) return;
+  Future<void> _finishEchoConfirmed(SharedPreferences prefs, int gen) async {
+    if (_disposed || _armGen != gen) return;
     await prefs.remove('alarm_latch_alert');
     await prefs.remove('alarm_pending_until');
-    if (_disposed || _savedAlarm != epoch) return;
+    if (_disposed || _armGen != gen) return;
     _alarmGraceTimer?.cancel();
     unawaited(_ensureRemindersScheduled());
     notifyListeners();
@@ -5041,6 +5052,7 @@ class AppState extends ChangeNotifier {
     _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch);
     var rearmed = false;
     var echoed = false;
+    final gen = _armGen;
     try {
       // gen5 made setAlarm return the armed instant (null = the write never
       // reached the band) where it used to return a bool. Same signal, so the
@@ -5063,14 +5075,14 @@ class AppState extends ChangeNotifier {
     // engine on every fire).
     if (_disposed) return;
     // Re-check staleness after the await for the same reason as above.
-    if (echoed && _savedAlarm == epoch && !_alarm.confirmed) {
+    if (echoed && _armGen == gen && !_alarm.confirmed) {
       // The retry's reply named this wake time: confirmed, no second window.
       _alarm.confirmed = true;
       final prefs = await SharedPreferences.getInstance();
       // A newer arm during the await owns the persisted flag now.
-      if (_disposed || _savedAlarm != epoch) return;
+      if (_disposed || _armGen != gen) return;
       await prefs.setBool('alarm_epoch_confirmed', true);
-      await _finishEchoConfirmed(prefs, epoch);
+      await _finishEchoConfirmed(prefs, gen);
       return;
     }
     if (rearmed && _savedAlarm == epoch && !_alarm.confirmed) {
@@ -5149,6 +5161,7 @@ class AppState extends ChangeNotifier {
       throw Exception("Couldn't reach your strap, so the alarm is still set");
     }
     _savedAlarm = null;
+    _armGen++;
     device.alarmEpoch = null;
     _alarm.disable();
     _alarmGraceTimer?.cancel();
@@ -5254,6 +5267,7 @@ class AppState extends ChangeNotifier {
   /// dedupeKey still resolves after this runs.
   void _clearArmedAlarmState() {
     _savedAlarm = null;
+    _armGen++;
     device.alarmEpoch = null;
     _alarm.disable();
     _alarmGraceTimer?.cancel();
