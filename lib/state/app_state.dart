@@ -4956,10 +4956,12 @@ class AppState extends ChangeNotifier {
     // The alert timers below live in memory only; this lets a relaunch
     // still send the critical alert if the process dies before it goes out.
     await prefs.remove('alarm_pending_until');
+    if (_disposed || _armGen != gen) return;
     await prefs.setStringList('alarm_latch_alert', [
       '$epoch',
       '${alarmLatchAlertAtMs(DateTime.now().millisecondsSinceEpoch, _alarm.graceMs)}',
     ]);
+    if (_disposed || _armGen != gen) return;
     // Nudge the UI once the grace window elapses so an unconfirmed alarm flips to
     // its soft warning even if no event ever arrives.
     _armAlarmGraceTimer(when);
@@ -5026,17 +5028,20 @@ class AppState extends ChangeNotifier {
       // it resumes the old one and warns during the extension.
       final nowMs = DateTime.now().millisecondsSinceEpoch;
       _alarm.set(epoch, nowMs);
+      final gen = _armGen;
+      // A newer arm (even of the same epoch) or a confirmation may land
+      // during any await below; a re-arm restamps `setAtMs`.
+      bool stale() =>
+          _disposed ||
+          _armGen != gen ||
+          _savedAlarm != epoch ||
+          _alarm.confirmed ||
+          _alarm.setAtMs != nowMs;
       unawaited(SharedPreferences.getInstance().then((p) async {
-        // A newer arm (even of the same epoch) or a confirmation may have
-        // landed during the await; a re-arm restamps `setAtMs`.
-        if (_disposed ||
-            _savedAlarm != epoch ||
-            _alarm.confirmed ||
-            _alarm.setAtMs != nowMs) {
-          return;
-        }
+        if (stale()) return;
         await p.setStringList('alarm_latch_alert',
             ['$epoch', '${alarmLatchAlertAtMs(nowMs, _alarm.graceMs)}']);
+        if (stale()) return;
         await p.setStringList(
             'alarm_pending_until', ['$epoch', '${nowMs + _alarm.graceMs}']);
       }));
@@ -5069,6 +5074,9 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       _log('[alarm] auto-retry re-arm failed: $e');
     }
+    // A newer arm, a clear or an adopted headless arm during the write owns
+    // the window, the retry budget and the timer now; this result is stale.
+    if (_disposed || _armGen != gen) return;
     // The write itself never landed, so the one retry was not actually spent —
     // give it back rather than latching this alarm out of any future retry.
     if (!rearmed) {
@@ -5167,13 +5175,14 @@ class AppState extends ChangeNotifier {
       throw Exception("Couldn't reach your strap, so the alarm is still set");
     }
     _savedAlarm = null;
-    _armGen++;
+    final gen = ++_armGen;
     device.alarmEpoch = null;
     _alarm.disable();
     _alarmGraceTimer?.cancel();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('alarm_epoch');
-    await prefs.remove('alarm_epoch_confirmed');
+    // An arm that landed during the await owns the persisted epoch now.
+    if (_armGen == gen) await prefs.remove('alarm_epoch');
+    if (_armGen == gen) await prefs.remove('alarm_epoch_confirmed');
     await LocalDb.clearAlarmSchedule();
     _schedule = fillDefaultAlarmSchedule(const []);
     notifyListeners();
@@ -5218,9 +5227,12 @@ class AppState extends ChangeNotifier {
         // Diagnostic: ALARM_SET (event 56) means the arm LATCHED on the band.
         // Its absence after a SET is the tell that the write never took.
         _log('[alarm] strap CONFIRMED arm — ALARM_SET (event $id) received.');
+        final gen = _armGen;
         unawaited(() async {
           try {
             final prefs = await SharedPreferences.getInstance();
+            // A newer arm during the await is not the one 56 confirmed.
+            if (_armGen != gen) return;
             await prefs.setBool('alarm_epoch_confirmed', true);
           } catch (e) {
             _log('[alarm] persisting confirmation failed: $e');
@@ -5273,14 +5285,17 @@ class AppState extends ChangeNotifier {
   /// dedupeKey still resolves after this runs.
   void _clearArmedAlarmState() {
     _savedAlarm = null;
-    _armGen++;
+    final gen = ++_armGen;
     device.alarmEpoch = null;
     _alarm.disable();
     _alarmGraceTimer?.cancel();
     unawaited(() async {
       try {
         final prefs = await SharedPreferences.getInstance();
+        // An arm that landed during the await owns the persisted epoch now.
+        if (_armGen != gen) return;
         await prefs.remove('alarm_epoch');
+        if (_armGen != gen) return;
         await prefs.remove('alarm_epoch_confirmed');
       } catch (e) {
         _log('[alarm] clearing the persisted epoch failed: $e');
