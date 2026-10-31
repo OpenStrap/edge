@@ -2,6 +2,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/substrate_archive.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   test('defaults to 90 days', () {
@@ -34,5 +35,43 @@ void main() {
     expect(month.keepsLongerThan(year), isFalse);
     expect(month.keepsLongerThan(forever), isFalse);
     expect(year.keepsLongerThan(year), isFalse);
+  });
+
+  group('an archive from before the 90-day default', () {
+    late Database db;
+    setUpAll(sqfliteFfiInit);
+    setUp(() async {
+      db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+      await db.execute('CREATE TABLE compute_freshness (key TEXT PRIMARY KEY, '
+          'payload_json TEXT NOT NULL, updated_at INTEGER NOT NULL)');
+      await db.execute('CREATE TABLE ${SubstrateArchive.table} (day TEXT)');
+    });
+    tearDown(() => db.close());
+
+    test('keeps its year when nothing was ever chosen', () async {
+      await db.insert(SubstrateArchive.table, {'day': '2025-11-01'});
+      await SubstrateArchive.keepLegacyWindowOnce(db);
+      expect((await SubstrateArchive.readPolicy(db)).keepDays, 365);
+    });
+
+    test('a new install gets the default, and the check runs once', () async {
+      await SubstrateArchive.keepLegacyWindowOnce(db);
+      expect((await SubstrateArchive.readPolicy(db)).keepDays, 90);
+      // Archiving starts later on this build: still the default.
+      await db.insert(SubstrateArchive.table, {'day': '2026-10-01'});
+      await SubstrateArchive.keepLegacyWindowOnce(db);
+      expect((await SubstrateArchive.readPolicy(db)).keepDays, 90);
+    });
+
+    test('a window the user picked is left alone', () async {
+      await db.insert(SubstrateArchive.table, {'day': '2025-11-01'});
+      await db.insert('compute_freshness', {
+        'key': SubstrateArchive.policyKey,
+        'payload_json': const SubstrateArchivePolicy(30).toJson(),
+        'updated_at': 0,
+      });
+      await SubstrateArchive.keepLegacyWindowOnce(db);
+      expect((await SubstrateArchive.readPolicy(db)).keepDays, 30);
+    });
   });
 }

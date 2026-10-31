@@ -1342,6 +1342,7 @@ class LocalDb {
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
     await _dropRawStore(db);
+    await SubstrateArchive.keepLegacyWindowOnce(db);
   }
 
   /// Older WHOOP CSV imports filed the export's absolute skin temp (°C) under

@@ -185,6 +185,36 @@ abstract final class SubstrateArchive {
     return out;
   }
 
+  /// Once per install, on the first open of a build whose default is shorter
+  /// than a year: an archive that already has buckets but no stored setting
+  /// was being kept for 365 days, and the new default would delete everything
+  /// older than 90 on the next housekeeping pass, with no confirmation and no
+  /// way back. That archive keeps its year; the user can still shorten it from
+  /// data settings. An empty archive gets the new default.
+  static Future<void> keepLegacyWindowOnce(Database db) async {
+    const marker = 'substrate_archive_policy_default_checked';
+    final done = await db.query('compute_freshness',
+        columns: ['key'], where: 'key = ?', whereArgs: [marker], limit: 1);
+    if (done.isNotEmpty) return;
+    await db.transaction((txn) async {
+      final stored = await txn.query('compute_freshness',
+          columns: ['key'], where: 'key = ?', whereArgs: [policyKey], limit: 1);
+      final hasArchive =
+          (await txn.rawQuery('SELECT 1 FROM $table LIMIT 1')).isNotEmpty;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (stored.isEmpty && hasArchive) {
+        await txn.insert('compute_freshness', {
+          'key': policyKey,
+          'payload_json': const SubstrateArchivePolicy(365).toJson(),
+          'updated_at': now,
+        });
+      }
+      await txn.insert('compute_freshness',
+          {'key': marker, 'payload_json': '{}', 'updated_at': now},
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    });
+  }
+
   /// The policy as stored, on [ex] — inside a transaction when the caller
   /// needs it to agree with what that transaction writes.
   static Future<SubstrateArchivePolicy> readPolicy(DatabaseExecutor ex) async {
