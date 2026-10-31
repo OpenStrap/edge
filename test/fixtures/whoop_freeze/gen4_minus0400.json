@@ -2,7 +2,7 @@
  "day_result": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 117,
+   "algo_version": 116,
    "payload_json": {
     "date": "2026-07-13",
     "day_confidence": 0.6,
@@ -148,11 +148,11 @@
        "kind": "DC"
       },
       "confidence": 0.95,
-      "tier": "RELATIVE",
+      "tier": "HIGH",
       "inputs_used": [
        "rr_cleaned"
       ],
-      "note": "Bauer 2006 PRSA DC; relative to own baseline on one device family only"
+      "note": "Bauer 2006 PRSA DC; needs a long overnight RR record for mortality-grade stability"
      },
      "prsa_ac": {
       "value": {
@@ -161,11 +161,11 @@
        "kind": "AC"
       },
       "confidence": 0.95,
-      "tier": "RELATIVE",
+      "tier": "HIGH",
       "inputs_used": [
        "rr_cleaned"
       ],
-      "note": "Bauer 2006 PRSA AC; relative to own baseline on one device family only"
+      "note": "Bauer 2006 PRSA AC; needs a long overnight RR record for mortality-grade stability"
      },
      "readiness_lnrmssd": {
       "value": {
@@ -175,7 +175,7 @@
        "cv_pct": 1.688921,
        "z": -1.056045,
        "swc": 0.033448,
-       "band": "normal",
+       "band": "suppressed",
        "saturation_flag": false
       },
       "confidence": 0.9,
@@ -24898,11 +24898,11 @@
    "readiness": 27.033995461954163,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "b57127eaba2e220875324219ed002d3801c330506d1303b87a413572f89ec560"
+   "payload_sha256": "8c4970c794a3f8bb5664ac877d4bf0657d85be516c6a692b9855bf54afeb92a8"
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 117,
+   "algo_version": 116,
    "payload_json": {
     "date": "2026-07-14",
     "day_confidence": 0.6,
@@ -25048,11 +25048,11 @@
        "kind": "DC"
       },
       "confidence": 0.95,
-      "tier": "RELATIVE",
+      "tier": "HIGH",
       "inputs_used": [
        "rr_cleaned"
       ],
-      "note": "Bauer 2006 PRSA DC; relative to own baseline on one device family only"
+      "note": "Bauer 2006 PRSA DC; needs a long overnight RR record for mortality-grade stability"
      },
      "prsa_ac": {
       "value": {
@@ -25061,11 +25061,11 @@
        "kind": "AC"
       },
       "confidence": 0.95,
-      "tier": "RELATIVE",
+      "tier": "HIGH",
       "inputs_used": [
        "rr_cleaned"
       ],
-      "note": "Bauer 2006 PRSA AC; relative to own baseline on one device family only"
+      "note": "Bauer 2006 PRSA AC; needs a long overnight RR record for mortality-grade stability"
      },
      "readiness_lnrmssd": {
       "value": {
@@ -49126,7 +49126,7 @@
     "naps": {
      "value": [
       {
-       "start": 1784050203,
+       "start": 1784050199,
        "end": 1784052901,
        "duration_min": 45,
        "in_bed_min": 45,
@@ -49158,7 +49158,7 @@
       },
       {
        "is_main": false,
-       "onset_ts": 1784050203,
+       "onset_ts": 1784050199,
        "wake_ts": 1784052901,
        "duration_min": 45,
        "in_bed_min": 45,
@@ -49591,11 +49591,11 @@
    "readiness": 27.03409387728019,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "3f4838375946c33e26860d81e49abfb0e7fc17b0087cbac28f3bcb1db8c3b89d"
+   "payload_sha256": "e61aa65ce319b6077929d91d99aed2e111db9d82efc10a812a017e422838a3dc"
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 117,
+   "algo_version": 116,
    "payload_json": {
     "date": "2026-07-15",
     "day_confidence": 0.6,
@@ -49741,11 +49741,11 @@
        "kind": "DC"
       },
       "confidence": 0.95,
-      "tier": "RELATIVE",
+      "tier": "HIGH",
       "inputs_used": [
        "rr_cleaned"
       ],
-      "note": "Bauer 2006 PRSA DC; relative to own baseline on one device family only"
+      "note": "Bauer 2006 PRSA DC; needs a long overnight RR record for mortality-grade stability"
      },
      "prsa_ac": {
       "value": {
@@ -49754,11 +49754,11 @@
        "kind": "AC"
       },
       "confidence": 0.95,
-      "tier": "RELATIVE",
+      "tier": "HIGH",
       "inputs_used": [
        "rr_cleaned"
       ],
-      "note": "Bauer 2006 PRSA AC; relative to own baseline on one device family only"
+      "note": "Bauer 2006 PRSA AC; needs a long overnight RR record for mortality-grade stability"
      },
      "readiness_lnrmssd": {
       "value": {
@@ -72717,7 +72717,7 @@
    "readiness": 66.11544177079463,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "eb9d15f24b218b7d4438e5a6504f33efc6a924f513657215fc436bae3d563fb7"
+   "payload_sha256": "1b08d706da4deab1241c94434834c01d27feb0a4bc00857027c25f42f5808375"
   }
  ],
  "metric_series": [
@@ -73355,7 +73355,7 @@
  "metric_series_version": [
   {
    "date": "2026-07-13",
-   "algo_version": 117,
+   "algo_version": 116,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -73363,7 +73363,7 @@
   },
   {
    "date": "2026-07-14",
-   "algo_version": 117,
+   "algo_version": 116,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -73371,7 +73371,7 @@
   },
   {
    "date": "2026-07-15",
-   "algo_version": 117,
+   "algo_version": 116,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -73381,7 +73381,7 @@
  "wake_day_features": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 117,
+   "algo_version": 116,
    "payload_json": {
     "day_id": "2026-07-13",
     "active_min": 90,
@@ -74589,7 +74589,7 @@
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 117,
+   "algo_version": 116,
    "payload_json": {
     "day_id": "2026-07-14",
     "active_min": 240,
@@ -75797,7 +75797,7 @@
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 117,
+   "algo_version": 116,
    "payload_json": {
     "day_id": "2026-07-15",
     "active_min": 40,
@@ -76923,17 +76923,17 @@
    "linked_id": null
   },
   {
-   "id": "nap:1784050203",
+   "id": "nap:1784050199",
    "kind": "nap",
    "day_id": "2026-07-14",
-   "start_ts": 1784050203,
+   "start_ts": 1784050199,
    "end_ts": 1784052901,
-   "detection_start": 1784050203,
+   "detection_start": 1784050199,
    "detection_end": 1784052901,
-   "details_json": "{\"start\":1784050203,\"end\":1784052901,\"duration_min\":45,\"in_bed_min\":45,\"efficiency\":1.0,\"confidence\":0.85}",
+   "details_json": "{\"start\":1784050199,\"end\":1784052901,\"duration_min\":45,\"in_bed_min\":45,\"efficiency\":1.0,\"confidence\":0.85}",
    "status": "confirmed",
    "revision": 0,
-   "linked_id": "2026-07-14:1784050203"
+   "linked_id": "2026-07-14:1784050199"
   },
   {
    "id": "2026-07-15:1784151128",
@@ -76978,10 +76978,10 @@
  "sleep_nap": [
   {
    "day_id": "2026-07-14",
-   "start_ts": 1784050203,
+   "start_ts": 1784050199,
    "end_ts": 1784052901,
    "source": "confirmed",
-   "payload_json": "{\"start\":1784050203,\"end\":1784052901,\"duration_min\":45,\"in_bed_min\":45,\"efficiency\":1.0,\"confidence\":0.85,\"source\":\"confirmed\"}"
+   "payload_json": "{\"start\":1784050199,\"end\":1784052901,\"duration_min\":45,\"in_bed_min\":45,\"efficiency\":1.0,\"confidence\":0.85,\"source\":\"confirmed\"}"
   }
  ],
  "crossday_input": [
