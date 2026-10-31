@@ -30,6 +30,7 @@ import 'package:flutter/foundation.dart'
     show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import 'adapters/_registry.dart';
@@ -40,6 +41,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart'
     show PebbleFrameReassembler;
 
 import 'adapters/pebble.dart';
+import '../sync/reset_gate.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
 
 /// `sync_cursor` names, as the host namespaces the adapter's cursors.
@@ -56,12 +58,8 @@ class PebbleLink {
   static final PebbleLink instance = PebbleLink._();
 
   /// The `device` row for the paired watch, or null.
-  static Future<Map<String, Object?>?> pairedWatchRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kPebble.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedWatchRow() =>
+      pairedRowOf(kPebble.id);
 
   /// Forget a paired Pebble: tear down a live session if this is it, drop the
   /// `device` row. No key to drop — see this file's header.
@@ -70,6 +68,9 @@ class PebbleLink {
       debugPrint('[pebble] refusing to forget the primary band from here.');
       return false;
     }
+    // Before the first await: a sync still reading the row has no
+    // `_deviceId` yet for the check below to match.
+    instance._forgets++;
     if (instance._deviceId == id) {
       await instance.stop();
     }
@@ -89,6 +90,10 @@ class PebbleLink {
   /// `device.id` of the paired watch. Never [LocalDb.kPrimaryDeviceId].
   String? _deviceId;
 
+  /// Bumped by every forget. A sync that saw it move since it started
+  /// does not connect, whatever its `_deviceId` says.
+  int _forgets = 0;
+
   bool _busy = false;
 
   /// How long one connect stays open before this host tears it down on its
@@ -96,7 +101,8 @@ class PebbleLink {
   static const Duration _defaultWindow = Duration(seconds: 60);
 
   /// Connect to the paired watch, drive [kPebbleAdapter] for [window], then
-  /// disconnect. Returns false when nothing is paired or the connect failed.
+  /// disconnect. Returns false when nothing is paired, the connect failed, or
+  /// the watch sent nothing for the whole window ([lastSyncHeard]).
   /// SERIALISED: a second call while one is in flight is a no-op rather than a
   /// second radio session over the same peripheral.
   Future<bool> sync({Duration window = _defaultWindow}) {
@@ -106,6 +112,13 @@ class PebbleLink {
   }
 
   Future<bool> _sync(Duration window) async {
+    // Read before the first await: a "delete everything" that lands while
+    // this sync is parked on the link slot or still connecting must find it
+    // here. The host refuses every write once a reset has run since.
+    final resetGen = ResetGate.generation;
+    final forgets = _forgets;
+    lastSyncHeard = false;
+    lastSyncWriteRefused = false;
     final row = await pairedWatchRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;
@@ -123,6 +136,16 @@ class PebbleLink {
       // kMaxConcurrentSecondaryLinks doc. Connect, drive and disconnect all
       // complete inside this one call, so the simple scoped form is correct.
       return await withSecondaryLinkSlot(() async {
+        // A forget that landed while this sync was parked on the slot has
+        // already stopped it (nulling `_deviceId`) and deleted the row. The
+        // ids captured above would otherwise still connect to the forgotten
+        // device and bank its history under a row that no longer exists.
+        if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
+          return false;
+        }
+        // A forget during the row lookup above found no `_deviceId` to stop.
+        if (_forgets != forgets) return false;
+        BandHost? host;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -142,20 +165,24 @@ class PebbleLink {
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
           }
-          final host = await _makeHost(deviceId,
-              () => DateTime.now().millisecondsSinceEpoch ~/ 1000);
-          _host = host;
+          final h = host = await _makeHost(deviceId,
+              () => DateTime.now().millisecondsSinceEpoch ~/ 1000,
+              resetGeneration: resetGen);
+          _host = h;
           // The adapter's stream has no end of its own — see the header —
           // so the window is what ends this session, not `run()` completing.
           await Future.any([
-            host.run(link),
+            h.run(link),
             Future<void>.delayed(window),
           ]);
-          return true;
         } finally {
           // Drop the link and DISCONNECT before the slot is released.
           await stop();
         }
+        // Read only after [stop]: the note rides the host's vendor-write
+        // chain, which stop drains. A connect alone is not a sync, and nor is
+        // one the watch refused a write in, or whose rows did not all land.
+        return lastSyncHeard && !lastSyncWriteRefused && !host.sessionFailed;
       });
     } catch (e) {
       debugPrint('[pebble] sync failed: $e');
@@ -199,11 +226,20 @@ class PebbleLink {
     );
   }
 
+  /// The watch sent something during the last session ([kPebbleHeardNote]).
+  /// Cleared at the start of every session.
+  bool lastSyncHeard = false;
+
+  /// The watch refused one of the session's protocol writes
+  /// ([kPebbleWriteRefusedNote]). Cleared at the start of every session.
+  bool lastSyncWriteRefused = false;
+
   /// This session's host: the adapter starts from the step totals already
   /// stored for this watch, the newest minute already counted and the recent
   /// sleep periods, so a day's total and a night carry forward across
   /// sessions (the watch never re-sends an ACKed message).
-  Future<BandHost> _makeHost(String deviceId, int Function() now) async {
+  Future<BandHost> _makeHost(String deviceId, int Function() now,
+      {int? resetGeneration}) async {
     final hw = await LocalDb.getCursorInt(_stepsHwItem(deviceId)) ?? 0;
     final prior = <DateTime, int>{};
     if (hw > 0) {
@@ -215,6 +251,7 @@ class PebbleLink {
           prior[DateTime.fromMillisecondsSinceEpoch(ts)] = v.toInt());
     }
     return BandHost(
+      resetGeneration: resetGeneration,
       adapter: PebbleAdapter(
           nowSeconds: now,
           priorSteps: prior,
@@ -223,6 +260,10 @@ class PebbleLink {
               await LocalDb.getCursor(_overlaysItem(deviceId)))),
       deviceId: deviceId,
       onLog: (m) => debugPrint('[pebble] $m'),
+      onNote: (key, _) {
+        if (key == kPebbleHeardNote) lastSyncHeard = true;
+        if (key == kPebbleWriteRefusedNote) lastSyncWriteRefused = true;
+      },
       // An ACK deletes the message on the watch: none goes out before the
       // message's steps and sleep rows landed, or after one failed.
       notesAfterVendorWrites: true,
@@ -241,9 +282,12 @@ class PebbleLink {
     List<List<int>> arrivals, {
     int Function()? nowSeconds,
     List<List<int>> Function(int endpoint, List<int> payload)? reply,
+    bool writeSucceeds = true,
   }) async {
     final now = nowSeconds ?? () => 1800000000;
-    final link = ReplayBandLink();
+    lastSyncHeard = false;
+    lastSyncWriteRefused = false;
+    final link = ReplayBandLink()..writeSucceeds = writeSucceeds;
     final host = await _makeHost(deviceId, now);
     _host = host;
     var finished = false;

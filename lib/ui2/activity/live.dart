@@ -32,6 +32,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../gps/gps_source.dart' show GpsPermissionStatus;
 import '../../l10n/app_localizations.dart';
 import '../../l10n/display_text.dart';
+import '../../l10n/decimal_text.dart';
 import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
 import '../screens/home_screen.dart' show unitsOf;
@@ -987,7 +988,7 @@ List<(String, String)> _commonStats(
   return [
     if (kcal != null) ('$kcal', l?.activityLiveKcalEstUnit ?? 'kcal · est'),
     if (feed.strain != null)
-      (feed.strain!.toStringAsFixed(1), l?.activityLiveStrainUnit ?? 'strain'),
+      (displayFixed(feed.strain!, 1), l?.activityLiveStrainUnit ?? 'strain'),
     if (feed.steps != null) ('${feed.steps}', l?.activityLiveStepsUnit ?? 'steps'),
   ];
 }

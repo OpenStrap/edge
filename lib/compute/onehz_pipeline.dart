@@ -39,7 +39,7 @@ import 'hr_max.dart'
         smoothedMaxHr,
         smoothedMinHr,
         trainingZones;
-import 'profile.dart' show workoutSex;
+import 'profile.dart' show plausibleAgeYears, workoutSex;
 import 'step_cadence.dart' show cadenceSpmForMinutes;
 // Same argument: a pure `DateTime` lookup, no DB / IO / Flutter binding. It is
 // the ONE definition of "the UTC offset in effect at this instant" in the tree,
@@ -347,6 +347,11 @@ class DayBundleInput {
   // ── profile + trailing baseline history ───────────────────────────────────
   final Map<String, dynamic> profile;
   final List<double> lnRmssdHistory;
+
+  /// `yyyy-MM-dd` dates parallel to [lnRmssdHistory]. Without them the Plews
+  /// rolling-7 baseline is the last 7 ROWS, which after a wear gap are nights
+  /// from weeks ago scored as if they were last week.
+  final List<String> lnRmssdDates;
   final List<double> rhrHistory;
   final List<double> respHistory;
 
@@ -428,6 +433,7 @@ class DayBundleInput {
     this.tonightSleepOnsetSec = 0,
     required this.profile,
     this.lnRmssdHistory = const [],
+    this.lnRmssdDates = const [],
     this.rhrHistory = const [],
     this.respHistory = const [],
     this.rmssdHistory = const [],
@@ -461,6 +467,7 @@ class DayBundleInput {
     'tonight_sleep_onset_sec': tonightSleepOnsetSec,
     'profile': profile,
     'ln_rmssd_history': lnRmssdHistory,
+    'ln_rmssd_dates': lnRmssdDates,
     'rhr_history': rhrHistory,
     'resp_history': respHistory,
     'rmssd_history': rmssdHistory,
@@ -513,6 +520,7 @@ class DayBundleInput {
           (m['tonight_sleep_onset_sec'] as num?)?.toInt() ?? 0,
       profile: ((m['profile'] as Map?) ?? const {}).cast<String, dynamic>(),
       lnRmssdHistory: dbls('ln_rmssd_history'),
+      lnRmssdDates: strs('ln_rmssd_dates'),
       rhrHistory: dbls('rhr_history'),
       respHistory: dbls('resp_history'),
       rmssdHistory: dbls('rmssd_history'),
@@ -741,7 +749,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // ── BREATHING-RATE VARIABILITY (per-window RSA over the sleep NN) ──────────
   // Window the cleaned sleep NN into ~30-min bins, take each bin's RSA resp rate,
   // then BRV = dispersion + Theil-Sen trend of those per-window rates.
-  final respWindows = _respPerWindow(nn, nnTimes);
+  final respWindows =
+      respPerWindow(nn, nnTimes, artifactFraction: artifactFraction);
   final brv = respWindows.length >= 3
       ? breathingRateVariability(respWindows)
       : Metric<BrvResult>.absent(
@@ -840,11 +849,31 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // every number that leans on it below is served at half confidence and
   // marked provisional. Always false on a band, so its payload is unchanged.
   final tempProvisional = settledTemp.value?.provisional ?? false;
-  // STEP 2 — z-score today's RAW mean against the RAW-ADC baseline history (NOT
+  // The night's value is the mean of its SETTLED samples whenever the family
+  // has a settle band. The fraction gate below only refuses nights under 0.80;
+  // a night at 0.85 still carries 15% warm-up or off-body samples reading
+  // hundreds of counts low, and the raw mean folds them in — tens of counts
+  // cold against a ~6.5-count between-night SD, which readiness reads as a
+  // cool night and the baseline banks as an outlier. A family with no band
+  // (gen5) has no settled mean and keeps the raw one.
+  final double? skinTempNightly = settledTemp.value?.mean ?? skinTempAdc;
+  // The nightly mean every LATER night is measured against. A night the strap
+  // spent partly warming up (or half off the wrist) reads hundreds of counts
+  // low; readiness already refuses it as tonight's input, but banking it as
+  // `skin_temp_adc` would sit in the next 28 nights' baseline, drag the median
+  // down and roughly double the SD — normal nights then read warm and a real
+  // elevation's skin_temp_z is damped below 2. So an unsettled night neither
+  // enters the series nor gets a z of its own. A null fraction (no settle band
+  // for the family) is unmeasured, not unsettled, and passes as before.
+  final double? skinTempBanked = (skinTempSettledFrac != null &&
+          skinTempSettledFrac < kMinSettledFraction)
+      ? null
+      : skinTempNightly;
+  // STEP 2 — z-score today's nightly mean against the RAW-ADC baseline history (NOT
   // the previously-computed z-scores; that unit mismatch was the bug). Gated on
   // ≥3 prior raw means.
   double? skinTempZ;
-  if (skinTempAdc != null && d.skinTempAdcHistory.length >= 3) {
+  if (skinTempBanked != null && d.skinTempAdcHistory.length >= 3) {
     final base = _mean(d.skinTempAdcHistory)!;
     final sd = _stddev(d.skinTempAdcHistory);
     // Quantum floor matches analytics' tempInput(quantum: 1) guard
@@ -852,7 +881,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     // oscillating between two adjacent ADC counts has a nonzero but
     // sub-quantum SD, which standardizes ordinary quantization noise into
     // an inflated z. Below 1 ADC count of dispersion, abstain instead.
-    if (sd != null && sd >= 1) skinTempZ = (skinTempAdc - base) / sd;
+    if (sd != null && sd >= 1) skinTempZ = (skinTempBanked - base) / sd;
   }
 
   // WHOOP 5 stores skin temperature in real °C (centi-°C in this array), so
@@ -889,12 +918,13 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     // own oriented robust-z internally (consistent with the other inputs, which
     // pass raw values + their raw baselines).
     //
-    // The mean stays RAW — value and baseline have to be the same quantity, and
-    // the stored history is a series of raw nightly means. The settled fraction
-    // is the GATE on using it at all: below 0.80 the driver is refused for this
-    // night, by name, and readiness renormalises over the three that are left.
+    // Value and baseline have to be the same quantity: this is the same
+    // settled nightly mean that is banked as `skin_temp_adc`. The settled
+    // fraction is the GATE on using it at all: below 0.80 the driver is refused
+    // for this night, by name, and readiness renormalises over the three that
+    // are left.
     tempInput(
-      skinTempAdc,
+      skinTempNightly,
       d.skinTempAdcHistory,
       settledFraction: skinTempSettledFrac,
     ),
@@ -961,15 +991,30 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // (`_attachHistory` → `_BaselineHistoryCache.valuesBefore`), which is what
   // makes this single append the correct, non-duplicating one.
   final lnHist = [...d.lnRmssdHistory, ?lnToday];
-  final lnReadiness = lnHist.length >= 4
-      ? readinessLnRmssd(lnHist)
-      : Metric<ReadinessLnRmssd>.absent(
+  // Dated so the rolling 7 is 7 CALENDAR nights: after a wear gap the last 7
+  // rows are weeks old, and scoring tonight against them gave a confident
+  // band against a stale centre instead of abstaining until it refills.
+  // Only when the dates line up with the values; otherwise the rows window.
+  final lnDates = d.lnRmssdDates.length == d.lnRmssdHistory.length
+      ? [...d.lnRmssdDates, if (lnToday != null) d.date]
+      : null;
+  final lnReadiness = lnHist.length < 4
+      ? Metric<ReadinessLnRmssd>.absent(
           tier: Tier.high,
           inputs_used: const ['ln_rmssd_history'],
           // A BASELINE shortfall, so it gets the baseline grammar the UI
           // already turns into "Need N more nights".
           note: needBaselineNote(have: lnHist.length, need: 4),
-        );
+        )
+      // Without tonight's value the last element is the previous night, and
+      // scoring it would store yesterday's band under today.
+      : lnToday == null
+      ? const Metric<ReadinessLnRmssd>.absent(
+          tier: Tier.high,
+          inputs_used: ['ln_rmssd_history', 'sleep_session_rmssd'],
+          note: 'no sleep-session RMSSD tonight, so there is no night to score',
+        )
+      : readinessLnRmssd(lnHist, dates: lnDates);
 
   // ── STRAIN: Banister TRIMP over the WAKE span (per-minute day HR) ──────────
   final prof = d.profile;
@@ -1026,7 +1071,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // `zone_timeline`, so they gate on the set and not on the age estimate.
   final ceilingAbsentNote = hrMax != null
       ? null
-      : age == null
+      // A pre-validation age (a birth year, 0) also yields no ceiling; name
+      // the age, not the strap.
+      : age == null || !plausibleAgeYears(age)
       ? needInputNote('age')
       // The age is known; what measured this HR is not, so there is no ceiling
       // to band it against (analytics' device.dart contract).
@@ -1645,7 +1692,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'resp': baselineBlock(d.respHistory, respToday, Baselines.respCfg),
     'skin_temp': baselineBlock(
       d.skinTempAdcHistory,
-      skinTempAdc,
+      skinTempBanked,
       _skinTempAdcCfg,
     ),
   };
@@ -1754,11 +1801,13 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'ln_rmssd': lnToday,
       'resp_rate': respToday,
       'skin_temp_z': skinTempZ,
-      // RAW nightly skin-temp ADC mean — the personal BASELINE series for
+      // Nightly skin-temp ADC mean (of the settled samples, where the family
+      // has a settle band) — the personal BASELINE series for
       // skin_temp_z. ALWAYS present when there's sleep+temp data (even while z is
       // still null in the ≤3-day bootstrap), so the series fills and z starts
       // computing from ~day 4. This is the series _attachHistory must feed back.
-      'skin_temp_adc': skinTempAdc,
+      // Null on an unsettled night (see `skinTempBanked`).
+      'skin_temp_adc': skinTempBanked,
       // WHOOP 5 only: °C above (+) or below (-) the user's usual night.
       // Key only when present: no new key on every other night.
       if (skinTempDevC != null) 'skin_temp_dev_c': _round(skinTempDevC, 2),
@@ -1862,7 +1911,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
 ///
 /// Any fixed hour would do; 04:00 is the one furthest from a normal bedtime
 /// AND from a normal wake time, so neither series sits near the wrap.
-const int _sleepClockAnchorSec = 4 * 3600;
+///
+/// Public because the cross-day rollup reads `sleep_onset_sec` back to learn
+/// which clock a stored night was LIVED on (crossday_pipeline's
+/// `recordedClockShiftSec`); decoding it with a second copy of this number
+/// is the drift that would quietly put every night an anchor-change off.
+const int kSleepClockAnchorSec = 4 * 3600;
 
 /// A sleep instant's LOCAL clock position, in seconds either side of 04:00 —
 /// negative before, positive after. Null for an absent window (never 0, which
@@ -1883,7 +1937,7 @@ double? sleepClockOffsetSec(int epochSec) {
   if (epochSec <= 0) return null;
   final local = epochSec + tzOffsetSecondsAt(epochSec);
   final secOfDay = ((local % 86400) + 86400) % 86400;
-  var offset = secOfDay - _sleepClockAnchorSec;
+  var offset = secOfDay - kSleepClockAnchorSec;
   if (offset > 43200) offset -= 86400;
   if (offset <= -43200) offset += 86400;
   return offset.toDouble();
@@ -1894,9 +1948,16 @@ double? sleepClockOffsetSec(int epochSec) {
 /// Per-window RSA respiratory rates (br/min) for the BRV estimator. Buckets the
 /// cleaned NN into [windowMs] (~30-min) bins by beat time and runs [rsaRespRate]
 /// on each bin with ≥[minBeats] beats; keeps only resolved windows.
-List<double> _respPerWindow(
+///
+/// [artifactFraction] is the night's share of corrected beats. The night-level
+/// [rsaRespRate] call refuses the breathing rate when that share is above its
+/// gate, because interpolated beats move the RSA peak; the bins are cut from
+/// the same corrected NN, so they carry the same gate. With 0 here, BRV was
+/// published on nights whose breathing rate was withheld as unmeasurable.
+List<double> respPerWindow(
   List<double> nn,
   List<double> nnTimes, {
+  required double artifactFraction,
   double windowMs = 1800000.0,
   int minBeats = 60,
 }) {
@@ -1914,8 +1975,8 @@ List<double> _respPerWindow(
   for (final idx in idxs) {
     final segNn = binsNn[idx]!;
     if (segNn.length < minBeats) continue;
-    // NN is already artifact-corrected upstream → artifactFraction 0.
-    final r = rsaRespRate(segNn, binsTs[idx]!, artifactFraction: 0.0);
+    final r =
+        rsaRespRate(segNn, binsTs[idx]!, artifactFraction: artifactFraction);
     final b = r.present ? r.value!.brpm : null;
     if (b != null) out.add(b);
   }

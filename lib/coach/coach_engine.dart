@@ -18,10 +18,12 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import '../ai/journal_ai.dart' show mergeJournalEntry;
 import '../data/day_label.dart';
 import '../data/db.dart';
 import '../data/local_repository.dart';
 import '../models/payloads.dart' show todayHeadlineOf;
+import '../sync/reset_gate.dart';
 import 'coach_actions.dart';
 import 'coach_chat_completions.dart';
 import 'coach_config.dart';
@@ -167,6 +169,14 @@ class CoachEngine {
   final CoachConfig config;
   final LocalRepository api;
   final String storageKey; // per-user, so accounts don't share a transcript
+
+  /// The data generation this engine started under. A reply still in flight
+  /// when "Delete everything" runs lands after the chat files were swept, and
+  /// saving it would write the deleted conversation back.
+  /// An engine built while a reset is still running (the UI is not blocked
+  /// during one) would otherwise take the new generation and save after the
+  /// sweep; -1 never matches, so it never saves.
+  final int _resetGen = ResetGate.active ? -1 : ResetGate.generation;
   final http.Client _http;
 
   /// Count of [send] calls currently inside their provider call(s). A local
@@ -256,6 +266,11 @@ class CoachEngine {
   /// Max characters of running history resent on each turn.
   static const int kMaxHistoryChars = 120000;
 
+  /// What an over-budget tool result in the current turn is replaced with.
+  static const String _kDroppedToolResult =
+      '(earlier result dropped to fit the conversation size limit — '
+      're-run the query if it is still needed)';
+
   /// Hard ceiling on one serialized provider request body.
   static const int kMaxRequestBytes = 400 * 1024;
 
@@ -272,7 +287,10 @@ class CoachEngine {
   int _historyChars() {
     var n = 0;
     for (final m in _history) {
-      n += jsonEncode(m).length;
+      // Bytes, as the limit says and as the request size is checked: a
+      // character count lets non-ASCII history through the trim and then
+      // over kMaxRequestBytes.
+      n += utf8.encode(jsonEncode(m)).length;
     }
     return n;
   }
@@ -293,6 +311,39 @@ class CoachEngine {
           );
         }
         _history.removeRange(0, nextTurn);
+      }
+      return;
+    }
+    // The current turn starts at the LAST user message and is never dropped:
+    // a tool-heavy turn (a handful of 16k run_sql results, each re-escaped by
+    // jsonEncode) can outgrow the budget by itself, and walking the history
+    // down past the question sent the provider a bare system prompt — the
+    // model then answered "how can I help?" or the provider 400'd on a request
+    // with no user message, and the question was gone from the saved session.
+    if (_history.any((m) => m['role'] == 'user')) {
+      // Whole older turns go first, oldest first. The search from index 1
+      // stops at or before the current question, so it is never removed.
+      while (_historyChars() > kMaxHistoryChars &&
+          _history.lastIndexWhere((m) => m['role'] == 'user') > 0) {
+        _history.removeRange(
+            0, _history.indexWhere((m) => m['role'] == 'user', 1));
+      }
+      // Still over with only the current turn left: replace this turn's
+      // oldest tool results with a stub. The message itself stays so its
+      // tool_call_id still pairs with the assistant turn that requested it.
+      for (var i = 0;
+          i < _history.length && _historyChars() > kMaxHistoryChars;
+          i++) {
+        final m = _history[i];
+        if (m['role'] == 'tool' && m['content'] != _kDroppedToolResult) {
+          _history[i] = {...m, 'content': _kDroppedToolResult};
+        }
+      }
+      if (_historyChars() > kMaxHistoryChars) {
+        throw CoachException(
+          'This turn exceeded the conversation size limit. '
+          'Start a new chat or ask a narrower question.',
+        );
       }
       return;
     }
@@ -319,7 +370,60 @@ class CoachEngine {
   Future<Directory> _dir() => getApplicationDocumentsDirectory();
   Future<File> _sessionFile(String id) async => File('${(await _dir()).path}/coach_s_${storageKey}_$id.json');
   Future<File> _indexFile() async => File('${(await _dir()).path}/coach_idx_$storageKey.json');
-  String _newId() => '${DateTime.now().millisecondsSinceEpoch}';
+  /// Millisecond stamp first so ids still read and sort by time, then a random
+  /// suffix: two screens' engines can start a chat in the same millisecond.
+  String _newId() => '${DateTime.now().millisecondsSinceEpoch}-'
+      '${_idRandom.nextInt(1 << 32).toRadixString(16).padLeft(8, '0')}';
+  static final _idRandom = Random();
+
+  /// Deletes every saved chat for every storage key. The transcripts live as
+  /// files beside the database, not in it, so wiping the database leaves
+  /// them, and the key is the same 'local' after a reset — the next profile
+  /// would reopen the previous one's conversations, tool results included.
+  /// Returns the number of files that could not be deleted.
+  static Future<int> deleteAllSavedSessions() =>
+      _serialFiles(_deleteAllSavedSessions);
+
+  /// One queue for every chat-file write and the reset's sweep. A save that
+  /// had already passed its reset check could otherwise still be writing
+  /// while the sweep listed the folder, and land after it.
+  static Future<void> _filesTail = Future<void>.value();
+
+  /// Chats deleted in this process. Each screen has its own engine, so a
+  /// second screen on the same chat still holds its id; this is what stops
+  /// that engine's next save. Ids are minted fresh per chat and only reopened
+  /// from the saved list, so a deleted one never legitimately comes back.
+  /// Keyed `storageKey/id`, since chats of different accounts sit side by side.
+  static final Set<String> _deletedSessionIds = {};
+
+  /// Test seam: awaited by a save right after its reset check passes, so a
+  /// test can hold a save mid-write while a reset sweeps.
+  @visibleForTesting
+  static Future<void> Function()? debugAfterSaveCheck;
+  static Future<T> _serialFiles<T>(Future<T> Function() body) {
+    final run = _filesTail.then((_) => body());
+    _filesTail = run.then((_) {}, onError: (_) {});
+    return run;
+  }
+
+  static Future<int> _deleteAllSavedSessions() async {
+    _deletedSessionIds.clear();
+    final dir = await getApplicationDocumentsDirectory();
+    if (!await dir.exists()) return 0;
+    var failed = 0;
+    await for (final e in dir.list(followLinks: false)) {
+      if (e is! File) continue;
+      final name = e.uri.pathSegments.last;
+      if (!name.endsWith('.json')) continue;
+      if (!name.startsWith('coach_s_') && !name.startsWith('coach_idx_')) continue;
+      try {
+        await e.delete();
+      } catch (_) {
+        failed++;
+      }
+    }
+    return failed;
+  }
 
   /// All saved sessions for this user, most recent first.
   Future<List<CoachSessionMeta>> listSessions() async {
@@ -379,8 +483,16 @@ class CoachEngine {
   }
 
   /// Persist the current session (caps history, updates the index).
-  Future<void> persist() async {
-    if (transcript.isEmpty) return;
+  Future<void> persist() => _serialFiles(_persist);
+
+  Future<void> _persist() async {
+    // Checked inside the queue: a reset that started while this waited has
+    // swept the files by now, and this must not write the chat back.
+    if (transcript.isEmpty || ResetGate.changedSince(_resetGen)) return;
+    // Deleted from another screen's engine on the same chat: its late save
+    // must not write the file and index entry back.
+    if (_deletedSessionIds.contains('$storageKey/$_sessionId')) return;
+    await debugAfterSaveCheck?.call();
     if (_sessionId.isEmpty) _sessionId = _newId();
     final now = DateTime.now().millisecondsSinceEpoch;
     if (_createdAt == 0) _createdAt = now;
@@ -422,7 +534,11 @@ class CoachEngine {
   }
 
   /// Delete a session (and start fresh if it was the current one).
-  Future<void> deleteSession(String id) async {
+  Future<void> deleteSession(String id) =>
+      _serialFiles(() => _deleteSession(id));
+
+  Future<void> _deleteSession(String id) async {
+    _deletedSessionIds.add('$storageKey/$id');
     try {
       final f = await _sessionFile(id);
       if (await f.exists()) await f.delete();
@@ -858,8 +974,24 @@ class CoachEngine {
             summary: 'Add journal for $journalDate: tags ${args['tags'] ?? []}, note "${args['note'] ?? ''}".',
             args: args,
           ), () async {
-            await api.postJournal(journalDate,
-                ((args['tags'] as List?) ?? const []).map((e) => '$e').toList(), '${args['note'] ?? ''}');
+            // postJournal replaces the day's whole row, so the stored day is
+            // read and merged first — otherwise "log that I had coffee" wipes
+            // every tag and note already logged for that day.
+            Map<String, dynamic>? row;
+            for (final e in await api.getJournal(range: 'all')) {
+              if (e['date'] == journalDate) row = e;
+            }
+            final merged = mergeJournalEntry(
+              existingTags: ((row?['tags'] as List?) ?? const [])
+                  .map((e) => '$e')
+                  .toList(),
+              existingNote: (row?['note'] as String?) ?? '',
+              newTags: ((args['tags'] as List?) ?? const [])
+                  .map((e) => '$e')
+                  .toList(),
+              newNote: '${args['note'] ?? ''}',
+            );
+            await api.postJournal(journalDate, merged.tags, merged.note);
             return 'Journal saved.';
           });
         case 'log_period':

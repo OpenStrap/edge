@@ -434,7 +434,7 @@ List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
   if (r.avgHr != null) ('Heart rate', '${r.avgHr} bpm'),
   // With its unit. A bare "612" on a card is a number nobody can read back.
   if (r.calories != null) ('Calories', '${grouped(r.calories!)} kcal'),
-  if (r.gainM != null) ('Elevation', '+${r.gainM!.round()} m'),
+  if (r.gainM != null) ('Elevation', '+${elevationText(r.gainM!, u)}'),
   if (r.strength.volumeKg != null)
     (
       'Volume',
@@ -459,7 +459,7 @@ List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
               u?.distanceUnit ?? 'km',
               r.gainM == null
                   ? r.activity.name
-                  : '+${r.gainM!.round()} m elevation',
+                  : '+${elevationText(r.gainM!, u)} elevation',
             ),
     Arch.strength =>
       r.strength.volumeKg == null
@@ -489,9 +489,12 @@ List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
 String localizedExportCaption(BuildContext c, ActivityResult r, String text) {
   final l = AppLocalizations.of(c);
   if (text == r.activity.name) return r.activity.displayName(c);
-  final elevation = RegExp(r'^\+(.*?) m elevation$').firstMatch(text);
+  final elevation = RegExp(r'^\+(.*?) (m|ft) elevation$').firstMatch(text);
   if (elevation != null) {
-    return l?.supplementClimbedExport(elevation[1]!) ?? text;
+    return (elevation[2] == 'ft'
+            ? l?.supplementClimbedExportFeet(elevation[1]!)
+            : l?.supplementClimbedExport(elevation[1]!)) ??
+        text;
   }
   final laps = RegExp(r'^(.*?) laps$').firstMatch(text);
   if (laps != null) return l?.supplementLapsExport(laps[1]!) ?? text;
