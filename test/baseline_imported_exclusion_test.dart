@@ -132,6 +132,56 @@ void main() {
         [50, 70, 51]);
   });
 
+  test('the per-row mask agrees with importedDates, served version included',
+      () async {
+    await _measured('2026-07-01', 50);
+    await _imported('2026-07-02', 70);
+    await _imported('2026-07-03', 71, source: null); // pre-v43 import
+    await _measured('2026-07-04', 51, source: null); // pre-v43 band day
+    // Imported first, then re-derived by the band at a higher version: the
+    // superseded imported row stays beside it but no longer makes it foreign.
+    await _imported('2026-07-05', 72);
+    await LocalDb.putDayResult(
+      dayId: '2026-07-05',
+      algoVersion: 2,
+      payloadJson: '{"date":"2026-07-05"}',
+      windowJson: '{}',
+      finalized: true,
+      source: 'band',
+      rhr: 52,
+      series: {'rhr': 52},
+    );
+
+    final imported = await LocalDb.importedDates();
+    expect(imported, {'2026-07-02', '2026-07-03'});
+    final all = await LocalDb.metricSeries('rhr');
+    final expected = [
+      for (final r in all)
+        if (!imported.contains(r['date'])) (r['value'] as num).toDouble(),
+    ];
+    expect(await LocalDb.trailingSeriesValues('rhr', 28), expected);
+    expect(
+        [for (final r in await LocalDb.metricSeries('rhr', measuredOnly: true))
+          (r['value'] as num).toDouble()],
+        expected);
+  });
+
+  test('the baseline read does not scan every stored day', () async {
+    // Home reads two trailing baselines on every load. The imported-day mask
+    // used to build its whole set first, a LIKE over every day bundle, so the
+    // read grew with history (~2 ms at 30 days, ~42 ms at 730).
+    final db = await LocalDb.instance;
+    final plan = await db.rawQuery(
+      'EXPLAIN QUERY PLAN SELECT value FROM metric_series '
+      'WHERE key = ? AND value IS NOT NULL AND ${LocalDb.notImportedRowSql} '
+      'ORDER BY date DESC LIMIT 28',
+      ['rhr'],
+    );
+    final steps = [for (final r in plan) r['detail'] as String];
+    expect(steps.where((d) => d.startsWith('SCAN')), isEmpty,
+        reason: steps.join('\n'));
+  });
+
   test('metricSeries keeps imported days for trends, drops them when asked',
       () async {
     await _measured('2026-06-01', 50);

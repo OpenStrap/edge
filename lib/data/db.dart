@@ -10419,6 +10419,27 @@ class LocalDb {
       '$_servedDayJoin '
       "WHERE r.day_id IS NOT NULL AND r.payload_json LIKE '%\"imported\":true%'";
 
+  /// [_importedDatesSql] as a per-row test on the `metric_series` row being
+  /// read: true when that row's day is NOT imported. Same two questions, same
+  /// served-version rule, but asked only of the rows the query actually walks.
+  /// `date NOT IN (_importedDatesSql)` built the whole imported set first, and
+  /// that set is a LIKE over every stored day bundle — two baseline reads on
+  /// Home went from ~2 ms at 30 days of history to ~42 ms each at 730. With
+  /// the newest-first `(key, date)` index walk and a LIMIT, this touches only
+  /// the days returned (plus any imported ones skipped on the way).
+  @visibleForTesting
+  static const String notImportedRowSql =
+      'metric_series.date IS NOT NULL '
+      'AND NOT EXISTS (SELECT 1 FROM metric_series_version v '
+      'WHERE v.date = metric_series.date AND v.source IS NOT NULL '
+      "AND v.source <> 'band') "
+      'AND NOT EXISTS (SELECT 1 FROM day_result r '
+      'WHERE r.day_id = metric_series.date '
+      'AND r.algo_version = (SELECT MAX(x.algo_version) FROM day_result x '
+      'WHERE x.day_id = metric_series.date '
+      'AND x.algo_version <= $_servedAlgoCeiling) '
+      "AND r.payload_json LIKE '%\"imported\":true%')";
+
   /// Day labels whose stored scalars are ANOTHER vendor's derived numbers.
   ///
   /// THE MASK for every baseline read, and the inverse of [isMeasuredDay]:
@@ -11769,7 +11790,7 @@ class LocalDb {
     return db.query(
       'metric_series',
       where: 'key = ? AND value IS NOT NULL${_validSql(key)}'
-          '${measuredOnly ? ' AND date NOT IN ($_importedDatesSql)' : ''}',
+          '${measuredOnly ? ' AND $notImportedRowSql' : ''}',
       whereArgs: [key],
       orderBy: 'date ASC',
       limit: limit,
@@ -11809,7 +11830,7 @@ class LocalDb {
       'SELECT value FROM metric_series '
       'WHERE key = ? AND value IS NOT NULL '
       '${before != null ? 'AND date < ? ' : ''}'
-      '${measuredOnly ? 'AND date NOT IN ($_importedDatesSql) ' : ''}'
+      '${measuredOnly ? 'AND $notImportedRowSql ' : ''}'
       'ORDER BY date DESC LIMIT ?',
       [key, ?before, n],
     );
