@@ -203,6 +203,25 @@ class RoughNight {
   return (signs: signs, moved: moved, tempMoved: tempMoved);
 }
 
+/// The journal day each [picked] tag is stored on when given as the cause of
+/// the night ending the morning of [day], grouped by that day.
+///
+/// The correlation engine reads a tag dated D against the night that follows
+/// it for behaviour tags (alcohol, a late meal, caffeine...) and against the
+/// night already over for retrospective ones (sick, stress). Writing every
+/// pick on [day] would credit the behaviour to the next night instead of this
+/// one, so each tag goes where the engine will look for it.
+Map<String, List<String>> roughNightTagDays(
+  String day,
+  Iterable<String> picked,
+) {
+  final out = <String, List<String>>{};
+  for (final t in picked) {
+    (out[ana.journalTagDayForNight(day, t) ?? day] ??= []).add(t);
+  }
+  return out;
+}
+
 /// When the last session that ran late into the evening BEFORE [day]'s night
 /// ended, or null. [day]'s night is the one that ended that morning, so it
 /// started the previous evening: only a session that began that previous
@@ -400,7 +419,9 @@ class _RoughNightCardState extends State<RoughNightCard> {
   /// Agreeing writes the tags the user picked onto that night, MERGED into
   /// whatever was already logged.
   ///
-  /// `postJournal` replaces the row's whole tag set, so the stored day is read
+  /// Each tag lands on the day [roughNightTagDays] picks for it — behaviour
+  /// tags on the evening before, so they pair with this night and not the next.
+  /// `postJournal` replaces the row's whole tag set, so each stored day is read
   /// first — the same read-merge the compose screen does. Nothing numeric is
   /// written: the card asked whether, not how much, and a quantity nobody gave
   /// is a fabricated one. "Add how much" leads to the editor that does ask.
@@ -410,19 +431,24 @@ class _RoughNightCardState extends State<RoughNightCard> {
     try {
       final repo = context.read<AppState>().repo;
       if (repo == null) return;
-      Map<String, dynamic>? row;
+      final byDay = roughNightTagDays(widget.night.day, _picked);
+      final rows = <String, Map<String, dynamic>>{};
       for (final e in await repo.getJournal(range: '30d')) {
-        if (e['date'] == widget.night.day) row = e;
+        final d = e['date'];
+        if (d is String && byDay.containsKey(d)) rows[d] = e;
       }
-      final tags = <String>{
-        ...?(row?['tags'] as List?)?.map((t) => t.toString()),
-        ..._picked,
-      };
-      await repo.postJournal(
-        widget.night.day,
-        tags.toList(),
-        (row?['note'] as String?) ?? '',
-      );
+      for (final MapEntry(key: day, value: picked) in byDay.entries) {
+        final row = rows[day];
+        final tags = <String>{
+          ...?(row?['tags'] as List?)?.map((t) => t.toString()),
+          ...picked,
+        };
+        await repo.postJournal(
+          day,
+          tags.toList(),
+          (row?['note'] as String?) ?? '',
+        );
+      }
       _dismiss();
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -565,10 +591,16 @@ class _RoughNightCardState extends State<RoughNightCard> {
     ),
     const SizedBox(height: S.x3),
     // The amounts live in the editor that already asks for them, and the
-    // amount is what the correlation engine actually reads.
+    // amount is what the correlation engine actually reads. Every dose the
+    // card's tags stand for (alcohol units, caffeine, screens) is read against
+    // the night after the day it is logged on, so the editor opens on the
+    // evening before this night.
     Pressable(
       onTap: () => Navigator.of(c).push(
-        MaterialPageRoute<void>(builder: (_) => JournalCompose(date: n.day)),
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              JournalCompose(date: ana.shiftDayLabel(n.day, -1) ?? n.day),
+        ),
       ),
       child: Text(
         l?.roughNightAddHowMuch ?? 'Add how much',

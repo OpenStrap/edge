@@ -176,7 +176,7 @@
   "@profileSetupTitle": {
     "description": "Profile setup screen header."
   },
-  "profileSetupBody": "Four numbers change how your data is scored. Leave any of them blank and only the metrics that need it stay unavailable.",
+  "profileSetupBody": "Sex is the one choice you need to make to continue. Age, height and weight change how your data is scored; leave any of them blank and only the metrics that need it stay unavailable.",
   "@profileSetupBody": {
     "description": "Profile setup intro body."
   },
@@ -3700,6 +3700,10 @@
   "@journalComposeAnythingElseLabel": {
     "description": "Label for the free-text journal note field."
   },
+  "journalComposeTalkItThroughWithAi": "Talk it through with AI",
+  "@journalComposeTalkItThroughWithAi": {
+    "description": "Link above the journal note field that opens an AI chat about the day. Shown only when an AI key is configured."
+  },
   "journalComposeAnythingElseHint": "A line about the day.",
   "@journalComposeAnythingElseHint": {
     "description": "Placeholder hint for the free-text journal note field."
@@ -4095,6 +4099,14 @@
   "@nutritionRemoveBody": {
     "description": "Nutrition screen: confirmation sheet body warning the removal cannot be undone"
   },
+  "nutritionSaveFailed": "Not saved — the meal is still here. Try again.",
+  "@nutritionSaveFailed": {
+    "description": "Log food sheet: snackbar when saving a meal fails; the sheet stays open with the input intact"
+  },
+  "nutritionRemoveFailed": "Not removed — the meal is still there. Try again.",
+  "@nutritionRemoveFailed": {
+    "description": "Log food sheet: snackbar when removing a meal fails after the user confirmed"
+  },
   "nutritionNothingToMeasure": "Nothing to measure {label} against yet",
   "@nutritionNothingToMeasure": {
     "description": "Nutrition Goals tab: title shown when a target has no mean to compare against yet",
@@ -4423,6 +4435,15 @@
   "coachModelHint": "search, or type an id",
   "@coachModelHint": {
     "description": "Coach AI settings: placeholder hint in the model search field"
+  },
+  "coachModelSelected": "Saving model: {model}",
+  "@coachModelSelected": {
+    "description": "Coach AI settings: line under the model field naming the model Save will store when nothing is typed",
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
   },
   "coachModelLabel": "Model",
   "@coachModelLabel": {
@@ -5911,7 +5932,7 @@
   "@cycleFromOneMeasuredGap": {
     "description": "Trailing clause of the prediction footnote when only one cycle gap has been measured."
   },
-  "cyclePastEndOfIt": "{days} days past the end of it · ",
+  "cyclePastEndOfIt": "{days, plural, one{1 day past the end of it} other{{days} days past the end of it}} · ",
   "@cyclePastEndOfIt": {
     "description": "Leading clause of the prediction footnote: the predicted window has already passed.",
     "placeholders": {
@@ -5945,7 +5966,7 @@
       }
     }
   },
-  "cycleLeadDaysLate": "{days} days late · ",
+  "cycleLeadDaysLate": "{days, plural, one{1 day late} other{{days} days late}} · ",
   "@cycleLeadDaysLate": {
     "description": "Leading clause used when the single measured-gap prediction is overdue.",
     "placeholders": {
@@ -5958,7 +5979,7 @@
   "@cycleLeadToday": {
     "description": "Leading clause used when the single measured-gap prediction is due today."
   },
-  "cycleLeadInDays": "in {days} days · ",
+  "cycleLeadInDays": "{days, plural, one{in 1 day} other{in {days} days}} · ",
   "@cycleLeadInDays": {
     "description": "Leading clause used when the single measured-gap prediction is still ahead.",
     "placeholders": {
@@ -6310,6 +6331,10 @@
   "healthWhatLabResults": "lab results",
   "@healthWhatLabResults": {
     "description": "Noun 'lab results' plugged into the read-failure title"
+  },
+  "cycleWhatCycleData": "cycle data",
+  "@cycleWhatCycleData": {
+    "description": "Noun 'cycle data' plugged into the read-failure title on the Cycle tab"
   },
   "healthMeasuresUnit": "measures",
   "@healthMeasuresUnit": {
@@ -7320,6 +7345,24 @@
   "@homeLoadFailedBody": {
     "description": "Body of the card shown when today's data failed to load from the database."
   },
+  "homeDayLoadFailedTitle": "{day} could not be read",
+  "@homeDayLoadFailedTitle": {
+    "description": "Title of the card shown on Home when a past day picked with the day switcher failed to load from the database.",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "Wednesday, 15 October"
+      }
+    }
+  },
+  "wellnessLoadFailedTitle": "This could not be read",
+  "@wellnessLoadFailedTitle": {
+    "description": "Title of the card shown when the Wellness screen or the sleep plan failed to load from the database."
+  },
+  "wellnessLoadFailedBody": "Reading your stored data failed. Nothing was deleted — this is a read that went wrong, not missing data.",
+  "@wellnessLoadFailedBody": {
+    "description": "Body of the card shown when the Wellness screen or the sleep plan failed to load from the database."
+  },
   "homeTryAgain": "Try again",
   "@homeTryAgain": {
     "description": "Button label to retry loading today's data."
@@ -7391,6 +7434,18 @@
         "example": "Saturday, 20 May"
       }
     }
+  },
+  "homeNoDataThisDayTitle": "No data for this day",
+  "@homeNoDataThisDayTitle": {
+    "description": "Today tab, stepped back to a past day: title shown when that day has nothing recorded."
+  },
+  "homeNoDataThisDayBody": "Nothing was recorded on this day.",
+  "@homeNoDataThisDayBody": {
+    "description": "Today tab, stepped back to a past day: body shown when that day has nothing recorded."
+  },
+  "homeSomeDayDataMissingTitle": "Some of this day's data is missing",
+  "@homeSomeDayDataMissingTitle": {
+    "description": "Today tab, stepped back to a past day: one card listing every missing reading and why."
   },
   "homeReadinessNotScoredTitle": "Recovery is not scored today",
   "@homeReadinessNotScoredTitle": {
@@ -8601,6 +8656,10 @@
   "@sleepDetailTemp": {
     "description": "Short label for skin temperature in the scrub readout card."
   },
+  "sleepDetailTempRelative": "Temp (rel.)",
+  "@sleepDetailTempRelative": {
+    "description": "Short label for the scrub readout card's skin-temperature value, which is a relative sensor deviation from that day's median, not degrees. Keep the 'relative' meaning."
+  },
   "sleepDetailNotMeasuredCap": "Not measured",
   "@sleepDetailNotMeasuredCap": {
     "description": "Capitalized, standalone label shown in place of a stage pill when the instant was not recorded."
@@ -8692,6 +8751,15 @@
   "sleepDetailHigherThanUsual": "higher than usual",
   "@sleepDetailHigherThanUsual": {
     "description": "Verdict phrase: sleep efficiency was higher than usual."
+  },
+  "sleepDetailPointsDelta": "{n} percentage points",
+  "@sleepDetailPointsDelta": {
+    "description": "Verdict prefix: how far sleep efficiency was from the usual median, in percentage points; followed by the lower/higher-than-usual phrase.",
+    "placeholders": {
+      "n": {
+        "type": "String"
+      }
+    }
   },
   "sleepDetailFellAsleep": "Fell asleep",
   "@sleepDetailFellAsleep": {
@@ -10092,6 +10160,15 @@
     "description": "Hero caption showing metres climbed on a journey/hike session",
     "placeholders": {
       "m": {
+        "type": "int"
+      }
+    }
+  },
+  "activitySummaryClimbedFt": "+{ft} ft climbed",
+  "@activitySummaryClimbedFt": {
+    "description": "Hero caption showing feet climbed on a journey/hike session, for imperial units",
+    "placeholders": {
+      "ft": {
         "type": "int"
       }
     }
@@ -12748,6 +12825,15 @@
     "description": "Presentation-only text; interpolated values remain unchanged.",
     "placeholders": {
       "m": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementClimbedExportFeet": "+{ft} ft elevation",
+  "@supplementClimbedExportFeet": {
+    "description": "Share poster caption: elevation gained, in feet for imperial units",
+    "placeholders": {
+      "ft": {
         "type": "String"
       }
     }
@@ -15527,7 +15613,7 @@
   "@settingsReportIssueRowTitle": {
     "description": "Settings row that opens the issue report screen."
   },
-  "settingsReportIssueRowSub": "Sends what you choose to the maintainers, encrypted",
+  "settingsReportIssueRowSub": "Sends what you choose to the maintainers; your data is encrypted, the report details are not",
   "@settingsReportIssueRowSub": {
     "description": "Settings row subtitle for Report an issue."
   },
@@ -15846,6 +15932,58 @@
   "napsInFuture": "That nap hasn't finished yet. Log it once you're awake.",
   "@napsInFuture": {
     "description": "Validation error when a manually logged nap ends after the current time."
+  },
+  "journalComposeEntrySaveFailed": "Not saved — your entry is still here. Try again.",
+  "@journalComposeEntrySaveFailed": {
+    "description": "Snackbar shown when saving the day's journal entry fails; the screen stays open with the entry intact."
+  },
+  "journalComposeLoadFailed": "Could not open this day's journal.",
+  "@journalComposeLoadFailed": {
+    "description": "Shown in place of the journal form when reading the day's entry fails."
+  },
+  "journalComposeTryAgain": "Try again",
+  "@journalComposeTryAgain": {
+    "description": "Button that retries loading the journal entry after a failure."
+  },
+  "journalComposeAddToJournal": "Add to journal",
+  "@journalComposeAddToJournal": {
+    "description": "Journal AI chat sheet: primary button that copies the proposed tags and note into the day's entry."
+  },
+  "workoutLoadFailedTitle": "Activity could not be read",
+  "@workoutLoadFailedTitle": {
+    "description": "Title of the card shown on the Activity tab when the sessions failed to load from the database."
+  },
+  "workoutLoadFailedBody": "Your sessions failed to load. Nothing was deleted — this is a read that went wrong, not missing data.",
+  "@workoutLoadFailedBody": {
+    "description": "Body of the card shown on the Activity tab when the sessions failed to load from the database."
+  },
+  "liveHrNoReadingTitle": "No live reading",
+  "liveHrNotPairedWhy": "No band is paired.",
+  "liveHrNotPairedFix": "Pair one from Profile to read live beats.",
+  "liveHrNotConnectedWhy": "Your band is not connected.",
+  "liveHrNotConnectedFix": "Live beats need an open link — the app connects when you open it with the band in range.",
+  "liveHrNoRecentBeatWhy": "No beat in the last {seconds} seconds.",
+  "@liveHrNoRecentBeatWhy": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "liveHrStreamingFix": "The band streams while it is on your wrist and the app is open.",
+  "liveHrTraceCaption": "The last {count} readings — {min}–{max} bpm. Not stored; this is the live stream, not a record of your day.",
+  "@liveHrTraceCaption": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
   },
   "notifRecoveryReadyBody": "Recovery {score}.",
   "@notifRecoveryReadyBody": {
