@@ -59,11 +59,10 @@ const List<int> _kSqliteMagic = [
 @visibleForTesting
 int kNoopBackupPageRows = 20000;
 
-/// Plausible unix seconds. A timestamp outside this range is corrupt or
-/// millisecond-scaled, and letting one into the day walk would march it across
-/// decades one day at a time.
-const int _kMinPlausibleTs = 1000000000; // 2001-09-09
-const int _kMaxPlausibleTs = 4102444800; // 2100-01-01
+/// Plausible unix seconds (shared with the CSV path through [NoopIngest]). A
+/// timestamp outside this range is corrupt or millisecond-scaled, and letting
+/// one into the day walk would march it across decades one day at a time.
+const int _kMinPlausibleTs = kNoopMinPlausibleTs;
 
 /// Every table read, and the columns wanted from it. ONE definition: the probe
 /// and the reads both key off this, so a name can no longer be spelled one way
@@ -298,9 +297,11 @@ class NoopBackupImporter {
       final from = dayStart.millisecondsSinceEpoch ~/ 1000;
       final to = next.millisecondsSinceEpoch ~/ 1000;
 
-      // Order within a day does not matter — [NoopIngest] rebuilds the Substrate
-      // sorted by timestamp — but the DAYS must arrive in ascending order, since
-      // the high-water date is what closes out and derives the previous one.
+      // [NoopIngest] re-sorts by timestamp but keeps rows that share a second in
+      // arrival order, so beats within a second must come in detection order
+      // (the `ts, rowid` order above). The DAYS must also arrive in ascending
+      // order, since the high-water date is what closes out and derives the
+      // previous one.
       await _read(src, tables, columns, ordered, corrupt, 'hrSample', from, to,
           (r) async {
         final ts = _int(r['ts']), v = _int(r['bpm']);
@@ -532,7 +533,7 @@ class NoopBackupImporter {
       try {
         r = await src.rawQuery(
           'SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM $t WHERE ts >= ? AND ts <= ?',
-          [_kMinPlausibleTs, _kMaxPlausibleTs],
+          [_kMinPlausibleTs, noopMaxPlausibleTs()],
         );
       } catch (e) {
         if (!_isCorruptPageError(e)) rethrow;

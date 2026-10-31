@@ -5,16 +5,14 @@
 // second ones possibly fewer, to fit the upload cap); the small, diagnostic
 // tables come whole. The live database is only ever READ.
 //
-// Built entirely inside SQLite (ATTACH the live file read side, INSERT ...
-// SELECT into the new one), so no row passes through Dart. sqflite runs those
-// statements off the UI thread (a native worker on iOS/Android, a helper
-// isolate under sqflite_common_ffi).
+// Built entirely inside SQLite by [attachCopy], so no row passes through Dart.
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../sync/file_log.dart';
+import 'attach_copy.dart';
 import 'day_label.dart';
 import 'db.dart';
 
@@ -142,59 +140,8 @@ Future<String> exportRecentSlice({DateTime? now, int rawDays = kSliceDays}) asyn
       dayLabelOf(DateTime(t.year, t.month, t.day - kSliceDays));
   final dest = p.join((await getTemporaryDirectory()).path,
       'openstrap_slice_${DateTime.now().microsecondsSinceEpoch}.db');
-  await deleteDatabase(dest);
-  final out = await openDatabase(dest, singleInstance: false);
-  try {
-    await out.execute('ATTACH DATABASE ? AS src', [live.path]);
-    final schema = await out.rawQuery(
-        "SELECT type, name, sql FROM src.sqlite_master WHERE sql IS NOT NULL "
-        "AND name NOT LIKE 'sqlite_%' ORDER BY rowid");
-    final have = {
-      for (final r in await out.rawQuery(
-          "SELECT name FROM main.sqlite_master WHERE type = 'table'"))
-        r['name'] as String
-    };
-    // One DEFERRED transaction = one consistent read of the live file, and
-    // only a read lock on it. sqflite's transaction() is BEGIN IMMEDIATE,
-    // which would take the live file's write lock too and stall syncing.
-    await out.execute('BEGIN');
-    for (final r in schema) {
-      if (r['type'] != 'table' || have.contains(r['name'])) continue;
-      final name = r['name'] as String;
-      await out.execute(r['sql'] as String);
-      final where = await _where(out, name, cutoff, rawCutoff, cutoffDay);
-      if (where == null) continue;
-      await out.execute(
-          'INSERT INTO main."$name" SELECT * FROM src."$name"$where');
-    }
-    final seq = await out.rawQuery(
-        "SELECT 1 FROM src.sqlite_master WHERE name = 'sqlite_sequence'");
-    if (seq.isNotEmpty) {
-      await out.execute('DELETE FROM main.sqlite_sequence');
-      await out.execute(
-          'INSERT INTO main.sqlite_sequence SELECT * FROM src.sqlite_sequence');
-    }
-    // Indexes, views and triggers after the rows (a trigger must not fire
-    // on the copy).
-    for (final type in const ['index', 'view', 'trigger']) {
-      for (final r in schema) {
-        if (r['type'] == type) await out.execute(r['sql'] as String);
-      }
-    }
-    final v = await out.rawQuery('PRAGMA src.user_version');
-    await out.execute('PRAGMA user_version = ${v.first.values.first}');
-    await out.execute('COMMIT');
-    await out.execute('DETACH DATABASE src');
-    await out.close();
-  } catch (_) {
-    try {
-      await out.close();
-    } catch (_) {}
-    try {
-      await deleteDatabase(dest);
-    } catch (_) {}
-    rethrow;
-  }
+  await attachCopy(live.path, dest,
+      (db, name) => _where(db, name, cutoff, rawCutoff, cutoffDay));
   return dest;
 }
 

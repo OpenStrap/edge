@@ -3,6 +3,42 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+/// A BUZZ_STRAP that TaskerReceiver queued while the app was dead.
+class PendingTaskerBuzz {
+  final int pattern;
+
+  /// Wall-clock ms when the broadcast arrived; null for a flag queued by a
+  /// build that did not record it.
+  final int? requestedAtMs;
+
+  const PendingTaskerBuzz({required this.pattern, this.requestedAtMs});
+
+  /// How long a queued buzz stays worth delivering. A buzz is a time-bound
+  /// cue (rest timer over, reminder); the queue otherwise waits for any later
+  /// reconnect, and a strap buzzing hours after the request reads as random.
+  static const Duration maxAge = Duration(minutes: 2);
+
+  static PendingTaskerBuzz? fromChannel(Object? raw) {
+    if (raw is! Map) return null;
+    final pattern = raw['pattern'];
+    if (pattern is! int) return null;
+    final at = raw['requestedAtMs'];
+    return PendingTaskerBuzz(
+      pattern: pattern,
+      requestedAtMs: at is int ? at : null,
+    );
+  }
+
+  /// Unknown age counts as stale. So does a request time in the future beyond
+  /// [maxAge], which only happens after the wall clock was moved backwards.
+  bool isFresh(DateTime now) {
+    final at = requestedAtMs;
+    if (at == null) return false;
+    final ageMs = now.millisecondsSinceEpoch - at;
+    return ageMs.abs() <= maxAge.inMilliseconds;
+  }
+}
+
 class TaskerBridge {
   static const _ch = MethodChannel('openstrap/tasker');
 
@@ -35,9 +71,10 @@ class TaskerBridge {
   /// store (its own file, `flutter.`-prefixed keys) — it can never see what
   /// TaskerReceiver persisted, so do not "simplify" this back to
   /// `SharedPreferences.getInstance()`.
-  static Future<int?> peekPendingBuzz() async {
+  static Future<PendingTaskerBuzz?> peekPendingBuzz() async {
     try {
-      return await _ch.invokeMethod<int>('peek_pending_buzz');
+      return PendingTaskerBuzz.fromChannel(
+          await _ch.invokeMethod<Object?>('peek_pending_buzz'));
     } catch (_) {
       return null;
     }

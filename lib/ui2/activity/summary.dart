@@ -22,6 +22,7 @@ import '../../l10n/display_text.dart';
 import '../../state/locale_controller.dart';
 import 'package:intl/intl.dart';
 import '../../l10n/date_text.dart';
+import '../../l10n/decimal_text.dart';
 import 'dart:convert' show utf8;
 import 'dart:typed_data' show Uint8List;
 
@@ -64,8 +65,8 @@ enum Arch { route, strength, interval, flow, laps, journey, match, basic }
 
 const _sports = {
   'Football', 'Basketball', 'Cricket', 'Tennis', 'Badminton', 'Table tennis',
-  'Squash', 'Padel', 'Volleyball', 'Hockey', 'Baseball', 'Rugby', 'Boxing',
-  'Martial arts', 'Wrestling',
+  'Squash', 'Padel', 'Pickleball', 'Volleyball', 'Hockey', 'Baseball',
+  'Rugby', 'Boxing', 'Martial arts', 'Wrestling',
 };
 const _laps = {'Swimming', 'Rowing'};
 const _journey = {
@@ -546,6 +547,11 @@ String grouped(num v) => NumberFormat.decimalPattern(
   LocaleController.displayLanguageCode,
 ).format(v.round());
 
+/// "120 m" / "394 ft" — an elevation in the reader's unit, grouped. Null [u]
+/// (a golden) is metric, which is what the store holds.
+String elevationText(double meters, UnitsController? u) =>
+    '${grouped(u?.elevationValue(meters) ?? meters)} ${u?.elevationUnit ?? 'm'}';
+
 // ── THE SUPPORTING STATS ───────────────────────────────────────────────────
 
 /// The glyph for a stat name.
@@ -605,7 +611,8 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
     case Arch.laps:
       add('Laps', r.lapCount?.toString());
     case Arch.journey:
-      add('Elevation', r.gainM == null ? null : '+${r.gainM!.round()} m');
+      add('Elevation',
+          r.gainM == null ? null : '+${elevationText(r.gainM!, u)}');
     case Arch.interval:
       add('Rounds', r.rounds.isEmpty ? null : '${r.rounds.length}');
     case Arch.flow:
@@ -642,7 +649,7 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
   add('VO2max (est.)',
       r.vo2max == null ? null : '${r.vo2max!.toStringAsFixed(1)} ml/kg/min');
   add('Calories', r.calories == null ? null : '${grouped(r.calories!)} kcal');
-  add('Strain', r.strain?.toStringAsFixed(1));
+  add('Strain', r.strain == null ? null : displayFixed(r.strain!, 1));
   // TS-09 — last, under the measurements, and named 'Your rating' rather than
   // 'RPE' so the row cannot read as something the band found out. It is not on
   // the share card: `shareStats` is its own list and a self-report is not one
@@ -789,6 +796,27 @@ class _ActivitySummaryState extends State<ActivitySummary> {
 
   String get _distanceUnit => _u?.distanceUnit ?? 'km';
 
+  /// The hero caption under a journey's distance. Feet get their own string
+  /// rather than a unit placeholder: several locales spell the metre out
+  /// ("米", "मी", "м") inside the sentence.
+  String _climbed(AppLocalizations? l, double gainM) {
+    final u = _u;
+    if (u != null && u.isImperial) {
+      final ft = u.elevationValue(gainM).round();
+      return l?.activitySummaryClimbedFt(ft) ?? '+$ft ft climbed';
+    }
+    return l?.activitySummaryClimbed(gainM.round()) ??
+        '+${gainM.round()} m climbed';
+  }
+
+  /// An altitude series in the user's elevation unit.
+  List<double> _elevSeries(List<double> m) {
+    final u = _u;
+    return u == null ? m : [for (final v in m) u.elevationValue(v)];
+  }
+
+  String get _elevUnit => _u?.elevationUnit ?? 'm';
+
   // ─────────────────── TS-09 · SESSION RPE ───────────────────
   //
   // Scores the sessions heart rate cannot see — lifting, climbing, anything
@@ -917,8 +945,16 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     // Only true once a pick actually landed — pressing back out of the picker
     // must return to this screen, not fall through and pop it too.
     var picked = false;
+    // A second tap on a row while the first write is still queued behind a
+    // derive or drain transaction would run this closure again. The first
+    // pick pops the picker and then this screen; the second one's pop would
+    // land on the route underneath (the picker is still mounted through its
+    // exit transition), so only one pick may be in flight or land at all.
+    var busy = false;
     await Navigator.of(c).push(MaterialPageRoute(
       builder: (_) => ActivityPicker(onPick: (pc, newActivity) async {
+        if (busy || picked) return;
+        busy = true;
         // The stored key everywhere else uses — `startWorkout(type:
         // a.typeKey)` is the live path's own write. `a.name` here would still
         // resolve through `activityByName`'s normalized lookup, but it would
@@ -930,6 +966,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           // picker open rather than close it over a write that never
           // happened — `onPick` is a `void Function`, so there is no caller
           // to hand this failure back to.
+          busy = false;
           return;
         }
         picked = true;
@@ -1276,8 +1313,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               _distance!.$1.toStringAsFixed(2),
               _distance!.$2,
               arch == Arch.journey && r.gainM != null
-                  ? (l?.activitySummaryClimbed(r.gainM!.round()) ??
-                      '+${r.gainM!.round()} m climbed')
+                  ? _climbed(l, r.gainM!)
                     : a.displayName(context),
               ),
       Arch.strength => r.strength.volumeKg == null
@@ -1526,35 +1562,36 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             ),
           ];
         }
+        final elev = _elevSeries(r.elevationM);
         final peak = r.elevationM.reduce((x, y) => x > y ? x : y);
-        final axis = AxisSpec.of(r.elevationM);
+        final axis = AxisSpec.of(elev);
         return [
           Surface(
             child: Column(children: [
               ChartFrame(
                 title: l?.activitySummaryElevationTitle ?? 'Elevation',
-                unit: 'm',
+                unit: _elevUnit,
                 height: 130,
                 yAxis: axis,
                 xLabels: [
                   l?.activitySummaryStart ?? 'Start',
                   l?.activitySummaryFinish ?? 'Finish',
                 ],
-                series: r.elevationM,
+                series: elev,
                 child: CustomPaint(
                     size: Size.infinite,
-                    painter: Elevation(r.elevationM, p.on(C.green),
+                    painter: Elevation(elev, p.on(C.green),
                         markerInk: p.card, axis: axis)),
               ),
               const SizedBox(height: S.x4),
               InlineMetrics([
                 if (r.gainM != null)
                   (l?.activitySummaryGain ?? 'Gain',
-                      '+${r.gainM!.round()} m', C.green),
+                      '+${elevationText(r.gainM!, _u)}', C.green),
                 if (r.lossM != null)
                   (l?.activitySummaryLoss ?? 'Loss',
-                      '−${r.lossM!.round()} m', C.orange),
-                (l?.activitySummaryPeak ?? 'Peak', '${grouped(peak)} m',
+                      '−${elevationText(r.lossM!, _u)}', C.orange),
+                (l?.activitySummaryPeak ?? 'Peak', elevationText(peak, _u),
                     C.n500),
               ]),
             ]),
@@ -2186,7 +2223,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     final series = <(String, String, Color, List<double?>)>[
       if (r.hr.length > 1) ('Heart rate', 'bpm', C.red, r.hr),
       if (r.elevationM.length > 1)
-        ('Elevation', 'm', C.teal, r.elevationM),
+        ('Elevation', _elevUnit, C.teal, _elevSeries(r.elevationM)),
     ];
     if (series.isEmpty) {
       // Same distinction the overview draws: a session with one minute in it

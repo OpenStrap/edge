@@ -189,6 +189,14 @@ class AlarmScreen extends StatelessWidget {
   Widget build(BuildContext c) {
     final app = c.watch<AppState>();
     final (armedAt, state) = alarmArmOf(app);
+    // setScheduleDay saves the row even when the band never got it (offline,
+    // write failed, strap rejected the arm); surface that as a failure so the
+    // screen doesn't say "sent" while the band still holds the old time.
+    final notOnBand = uiText(c,
+        "Saved, but the band hasn't taken it yet — it's sent again on the next sync");
+    Future<void> onBand(Future<bool> write) async {
+      if (!await write) throw Exception(notOnBand);
+    }
     return AlarmScreenView(
       armedAt: armedAt,
       state: state,
@@ -196,11 +204,11 @@ class AlarmScreen extends StatelessWidget {
       connected: app.isConnected,
       schedule: app.alarmSchedule,
       onToggleDay: (weekday, enabled) =>
-          app.setScheduleDay(weekday: weekday, enabled: enabled),
-      onSetDayTime: (weekday, hour, minute) =>
-          app.setScheduleDay(weekday: weekday, hour: hour, minute: minute),
-      onSetSmartWindow: (weekday, minutes) =>
-          app.setScheduleDay(weekday: weekday, smartWindowMinutes: minutes),
+          onBand(app.setScheduleDay(weekday: weekday, enabled: enabled)),
+      onSetDayTime: (weekday, hour, minute) => onBand(
+          app.setScheduleDay(weekday: weekday, hour: hour, minute: minute)),
+      onSetSmartWindow: (weekday, minutes) => onBand(
+          app.setScheduleDay(weekday: weekday, smartWindowMinutes: minutes)),
       onTest: app.testAlarmBuzz,
       onCancel: app.disableAlarm,
     );
@@ -225,8 +233,8 @@ class AlarmScreenView extends StatelessWidget {
   final List<AlarmScheduleEntry> schedule;
 
   /// All four talk to the band or its schedule and all throw when it is not
-  /// connected — the screen reports the failure rather than pretending it
-  /// worked.
+  /// connected or the band did not take the write — the screen reports the
+  /// failure rather than pretending it worked.
   final Future<void> Function(int weekday, bool enabled)? onToggleDay;
   final Future<void> Function(int weekday, int hour, int minute)?
       onSetDayTime;
@@ -321,8 +329,13 @@ class AlarmScreenView extends StatelessWidget {
                               ? (l?.stateOn ?? 'On')
                               : (l?.stateOff ?? 'Off'),
                           chevron: false,
-                          onTap: () =>
-                              onToggleDay?.call(day.weekday, !day.enabled)),
+                          onTap: () => _run(
+                              c,
+                              onToggleDay == null
+                                  ? null
+                                  : () => onToggleDay!(
+                                      day.weekday, !day.enabled),
+                              null)),
                       if (day.enabled) ...[
                         SetRow(LucideIcons.clock, C.blue,
                             l?.alarmWakeTimeRowTitle ?? 'Wake time',
@@ -418,12 +431,14 @@ class AlarmScreenView extends StatelessWidget {
 
   /// Run a band/schedule write and report what happened. Every one of these
   /// throws when the band is not connected, and silence would read as success.
+  /// A null [ok] reports only a failure (the day toggle's row already shows
+  /// the change).
   static Future<void> _run(
-      BuildContext c, Future<void> Function()? action, String ok) async {
+      BuildContext c, Future<void> Function()? action, String? ok) async {
     if (action == null) return;
     try {
       await action();
-      if (c.mounted) _say(c, ok);
+      if (c.mounted && ok != null) _say(c, ok);
     } catch (e) {
       if (c.mounted) _say(c, '$e'.replaceFirst('Exception: ', ''));
     }

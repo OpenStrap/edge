@@ -78,4 +78,30 @@ void main() {
     expect(all[InputSignal.rrIntervals.name], ['ring-A']);
     expect(all[InputSignal.hr1Hz.name], isNull);
   });
+
+  test('forgetting a device drops its priority rows, other devices keep '
+      'theirs', () async {
+    // A surviving rank for a forgotten id is a phantom candidate: with no
+    // device row the band-day filter cannot drop it, so it takes the band's
+    // windows wherever its old coverage reaches.
+    await LocalDb.setSignalPriority(InputSignal.hr1Hz, ['strap-1', '']);
+    await LocalDb.setSignalPriority(
+      InputSignal.rrIntervals,
+      ['strap-1', 'ring-A', ''],
+    );
+
+    await LocalDb.deleteDevice('strap-1');
+
+    expect(await LocalDb.signalPriority(InputSignal.hr1Hz), ['']);
+    expect(
+      await LocalDb.signalPriority(InputSignal.rrIntervals),
+      ['ring-A', ''],
+    );
+  });
+
+  test('forgetting the primary band keeps the primary slot ranked', () async {
+    await LocalDb.setSignalPriority(InputSignal.hr1Hz, ['', 'ring-A']);
+    await LocalDb.deleteDevice();
+    expect(await LocalDb.signalPriority(InputSignal.hr1Hz), ['', 'ring-A']);
+  });
 }

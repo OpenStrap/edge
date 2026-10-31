@@ -18,8 +18,14 @@ import 'package:notification_listener_service/notification_event.dart';
 import 'package:notification_listener_service/notification_listener_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'notification_prefs.dart';
+
 class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
-  NotificationRelay({required this.buzz, required this.isConnected});
+  NotificationRelay({
+    required this.buzz,
+    required this.isConnected,
+    Future<bool> Function()? quietNow,
+  }) : quietNow = quietNow ?? _appQuietNow;
 
   // The plugin's own MethodChannel. v1.0.0's Dart API doesn't expose the native
   // rebind/health handlers, so we invoke them directly to self-heal when Android
@@ -41,6 +47,18 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Whether the band is currently connected (no point buzzing nothing).
   final bool Function() isConnected;
+
+  /// Whether the app's quiet hours are in force right now. The listener is
+  /// handed every post, including the ones the phone's own Do Not Disturb or
+  /// Bedtime mode silences, so without this a group chat buzzed the wrist all
+  /// night while the band was measuring the sleep it interrupted.
+  final Future<bool> Function() quietNow;
+
+  static Future<bool> _appQuietNow() async {
+    final prefs = await NotificationPrefs.load();
+    final t = DateTime.now();
+    return prefs.inQuietHours(t.hour * 60 + t.minute);
+  }
 
   static const _kEnabled = 'notif_relay_enabled';
   static const _kPackages = 'notif_relay_packages';
@@ -97,6 +115,9 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   // (apps re-post the same notification as it updates), plus a global floor so a
   // burst never machine-guns the strap.
   final Map<String, int> _lastBuzzMs = {};
+  // Bumped when the relay is switched off, so a post already waiting on the
+  // quiet-hours read does not buzz after it.
+  int _offGeneration = 0;
   int _lastAnyBuzzMs = 0;
   static const _perAppCooldownMs = 4000;
   static const _globalFloorMs = 800;
@@ -165,6 +186,7 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> setEnabled(bool on) async {
     if (!supported || on == _enabled) return;
     _enabled = on;
+    if (!on) _offGeneration++;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kEnabled, on);
     _resync();
@@ -284,7 +306,31 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
     noteSeen(pkg, e.appIcon);
     if (!_packages.contains(pkg)) return;
     if (!isConnected()) return;
+    unawaited(_buzzUnlessQuiet(pkg));
+  }
 
+  @visibleForTesting
+  void debugOnNotification(ServiceNotificationEvent e) => _onNotification(e);
+
+  Future<void> _buzzUnlessQuiet(String pkg) async {
+    final offGeneration = _offGeneration;
+    bool quiet;
+    try {
+      quiet = await quietNow();
+    } catch (_) {
+      // A prefs read that fails must not turn the relay off outright.
+      quiet = false;
+    }
+    if (quiet) return;
+    // The user may have switched the relay or this app off, or the strap
+    // dropped, while the read was pending.
+    if (offGeneration != _offGeneration ||
+        !_packages.contains(pkg) ||
+        !isConnected()) {
+      return;
+    }
+    // The cooldown is read and stamped after the await, in one synchronous
+    // step, so two posts racing through the prefs read cannot both pass it.
     final now = DateTime.now().millisecondsSinceEpoch;
     final lastForPkg = _lastBuzzMs[pkg] ?? 0;
     if (now - lastForPkg < _perAppCooldownMs) return;

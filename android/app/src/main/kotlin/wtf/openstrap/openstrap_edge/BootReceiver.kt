@@ -30,7 +30,9 @@ class BootReceiver : BroadcastReceiver() {
 
         if (!KeepAliveWorker.hasPairedDevice(context)) return
         markPendingHeadlessBoot(context)
-        EdgeTrackingService.start(context)
+        // BOOT_COMPLETED is exempt from the background FGS-start restriction;
+        // QUICKBOOT_POWERON is not, so this start can be refused.
+        EdgeTrackingService.startFromBackground(context, "BootReceiver")
     }
 
     private fun markPendingHeadlessBoot(context: Context) {

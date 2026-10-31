@@ -160,7 +160,7 @@
   "@pairingBondRefusedAdviceBody": {
     "description": "Advice card body: bond refused."
   },
-  "pairingBondRefusedAdviceFix": "Open Bluetooth settings",
+  "pairingBondRefusedAdviceFix": "Then come back and tap Try again",
   "@pairingBondRefusedAdviceFix": {
     "description": "Advice card fix: bond refused."
   },
@@ -176,7 +176,7 @@
   "@profileSetupTitle": {
     "description": "Profile setup screen header."
   },
-  "profileSetupBody": "Four numbers change how your data is scored. Leave any of them blank and only the metrics that need it stay unavailable.",
+  "profileSetupBody": "Sex is the one choice you need to make to continue. Age, height and weight change how your data is scored; leave any of them blank and only the metrics that need it stay unavailable.",
   "@profileSetupBody": {
     "description": "Profile setup intro body."
   },
@@ -771,6 +771,10 @@
   "devicesOuraKeyRefused": "The ring rejected the key. Re-pair it to install a key it accepts.",
   "@devicesOuraKeyRefused": {
     "description": "Snackbar: Oura sync failed — the ring explicitly refused the pairing key."
+  },
+  "devicesBandKeyRefused": "The band rejected the key. Re-pair it to install a key it accepts.",
+  "@devicesBandKeyRefused": {
+    "description": "Snackbar: Mi Band sync failed — the band explicitly refused the pairing key."
   },
   "devicesOuraStorageFailed": "The sync could not be saved completely. Please try syncing again.",
   "@devicesOuraStorageFailed": {
@@ -1946,6 +1950,10 @@
   "napsOverlap": "That overlaps a nap already on this day. Remove that one first, rather than counting the same hour twice.",
   "@napsOverlap": {
     "description": "Validation error when a manually logged nap overlaps an existing one."
+  },
+  "napsOverlapsSleep": "That overlaps your main sleep, which already counts that time. Log only the part after you got up, or correct the night instead.",
+  "@napsOverlapsSleep": {
+    "description": "Validation error when a manually logged nap overlaps the main sleep window."
   },
   "napsNotReanalysed": "The day was not re-analysed — another analysis was already running. Your edit is saved and will apply next time.",
   "@napsNotReanalysed": {
@@ -3692,6 +3700,10 @@
   "@journalComposeAnythingElseLabel": {
     "description": "Label for the free-text journal note field."
   },
+  "journalComposeTalkItThroughWithAi": "Talk it through with AI",
+  "@journalComposeTalkItThroughWithAi": {
+    "description": "Link above the journal note field that opens an AI chat about the day. Shown only when an AI key is configured."
+  },
   "journalComposeAnythingElseHint": "A line about the day.",
   "@journalComposeAnythingElseHint": {
     "description": "Placeholder hint for the free-text journal note field."
@@ -3988,9 +4000,9 @@
   "@nutritionLabelBalance": {
     "description": "Nutrition Week tab: all-caps inline metric label for the eaten-minus-burned balance"
   },
-  "nutritionEatenMeanNote": "Eaten is the mean of {days} complete days. Burned is today only.",
+  "nutritionEatenMeanNote": "Eaten and burned are both means over the same {days} complete days.",
   "@nutritionEatenMeanNote": {
-    "description": "Nutrition Week tab: footnote explaining the eaten mean is over N complete days while burned is today only",
+    "description": "Nutrition Week tab: footnote explaining eaten and burned are both means over the same N complete days",
     "placeholders": {
       "days": {
         "type": "int"
@@ -4086,6 +4098,14 @@
   "nutritionRemoveBody": "It leaves the day and every average that counted it. There is no undo.",
   "@nutritionRemoveBody": {
     "description": "Nutrition screen: confirmation sheet body warning the removal cannot be undone"
+  },
+  "nutritionSaveFailed": "Not saved — the meal is still here. Try again.",
+  "@nutritionSaveFailed": {
+    "description": "Log food sheet: snackbar when saving a meal fails; the sheet stays open with the input intact"
+  },
+  "nutritionRemoveFailed": "Not removed — the meal is still there. Try again.",
+  "@nutritionRemoveFailed": {
+    "description": "Log food sheet: snackbar when removing a meal fails after the user confirmed"
   },
   "nutritionNothingToMeasure": "Nothing to measure {label} against yet",
   "@nutritionNothingToMeasure": {
@@ -4415,6 +4435,15 @@
   "coachModelHint": "search, or type an id",
   "@coachModelHint": {
     "description": "Coach AI settings: placeholder hint in the model search field"
+  },
+  "coachModelSelected": "Saving model: {model}",
+  "@coachModelSelected": {
+    "description": "Coach AI settings: line under the model field naming the model Save will store when nothing is typed",
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
   },
   "coachModelLabel": "Model",
   "@coachModelLabel": {
@@ -5903,7 +5932,7 @@
   "@cycleFromOneMeasuredGap": {
     "description": "Trailing clause of the prediction footnote when only one cycle gap has been measured."
   },
-  "cyclePastEndOfIt": "{days} days past the end of it · ",
+  "cyclePastEndOfIt": "{days, plural, one{1 day past the end of it} other{{days} days past the end of it}} · ",
   "@cyclePastEndOfIt": {
     "description": "Leading clause of the prediction footnote: the predicted window has already passed.",
     "placeholders": {
@@ -5937,7 +5966,7 @@
       }
     }
   },
-  "cycleLeadDaysLate": "{days} days late · ",
+  "cycleLeadDaysLate": "{days, plural, one{1 day late} other{{days} days late}} · ",
   "@cycleLeadDaysLate": {
     "description": "Leading clause used when the single measured-gap prediction is overdue.",
     "placeholders": {
@@ -5950,7 +5979,7 @@
   "@cycleLeadToday": {
     "description": "Leading clause used when the single measured-gap prediction is due today."
   },
-  "cycleLeadInDays": "in {days} days · ",
+  "cycleLeadInDays": "{days, plural, one{in 1 day} other{in {days} days}} · ",
   "@cycleLeadInDays": {
     "description": "Leading clause used when the single measured-gap prediction is still ahead.",
     "placeholders": {
@@ -6302,6 +6331,10 @@
   "healthWhatLabResults": "lab results",
   "@healthWhatLabResults": {
     "description": "Noun 'lab results' plugged into the read-failure title"
+  },
+  "cycleWhatCycleData": "cycle data",
+  "@cycleWhatCycleData": {
+    "description": "Noun 'cycle data' plugged into the read-failure title on the Cycle tab"
   },
   "healthMeasuresUnit": "measures",
   "@healthMeasuresUnit": {
@@ -7312,6 +7345,24 @@
   "@homeLoadFailedBody": {
     "description": "Body of the card shown when today's data failed to load from the database."
   },
+  "homeDayLoadFailedTitle": "{day} could not be read",
+  "@homeDayLoadFailedTitle": {
+    "description": "Title of the card shown on Home when a past day picked with the day switcher failed to load from the database.",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "Wednesday, 15 October"
+      }
+    }
+  },
+  "wellnessLoadFailedTitle": "This could not be read",
+  "@wellnessLoadFailedTitle": {
+    "description": "Title of the card shown when the Wellness screen or the sleep plan failed to load from the database."
+  },
+  "wellnessLoadFailedBody": "Reading your stored data failed. Nothing was deleted — this is a read that went wrong, not missing data.",
+  "@wellnessLoadFailedBody": {
+    "description": "Body of the card shown when the Wellness screen or the sleep plan failed to load from the database."
+  },
   "homeTryAgain": "Try again",
   "@homeTryAgain": {
     "description": "Button label to retry loading today's data."
@@ -7383,6 +7434,18 @@
         "example": "Saturday, 20 May"
       }
     }
+  },
+  "homeNoDataThisDayTitle": "No data for this day",
+  "@homeNoDataThisDayTitle": {
+    "description": "Today tab, stepped back to a past day: title shown when that day has nothing recorded."
+  },
+  "homeNoDataThisDayBody": "Nothing was recorded on this day.",
+  "@homeNoDataThisDayBody": {
+    "description": "Today tab, stepped back to a past day: body shown when that day has nothing recorded."
+  },
+  "homeSomeDayDataMissingTitle": "Some of this day's data is missing",
+  "@homeSomeDayDataMissingTitle": {
+    "description": "Today tab, stepped back to a past day: one card listing every missing reading and why."
   },
   "homeReadinessNotScoredTitle": "Recovery is not scored today",
   "@homeReadinessNotScoredTitle": {
@@ -8462,6 +8525,26 @@
     "description": "Help text on the time picker for when the user got up."
   },
   "sleepDetailReanalyseFailed": "The night wasn’t re-analysed; another run was busy or it failed. Your times are saved: open Your data and tap Re-analyze everything.",
+  "sleepDetailWindowUnrecorded": "Your times are saved, but the band wasn’t recording for most of those hours (off your wrist or charging), so there’s no night to score.",
+  "sleepDetailWindowNoSleep": "Your times are saved, but the band’s recordings for those hours show no sleep to score.",
+  "sleepDetailNightUnrecorded": "Your heart rate shows a night’s sleep, but the band recorded too little movement data for most of it, so there’s no night to score.",
+  "@sleepDetailNightUnrecorded": {
+    "description": "Shown on an automatically detected night with no sleep, when heart rate found a night but the band recorded too little movement data across it to stage one."
+  },
+  "@sleepDetailWindowUnrecorded": {
+    "description": "Shown after the user set their own sleep window (e.g. \"I was asleep\") and the band recorded too little of it to stage a night."
+  },
+  "@sleepDetailWindowNoSleep": {
+    "description": "Shown after the user set their own sleep window and the band recorded it, but staging found no sleep in it."
+  },
+  "sleepDetailCorrectionUnavailable": "This night’s detailed recordings are no longer on the phone, so its sleep can’t be corrected now.",
+  "sleepDetailCorrectionEveningPruned": "The evening before this night is no longer on the phone, so only a bedtime after midnight, or Not sleep, can be applied.",
+  "@sleepDetailCorrectionEveningPruned": {
+    "description": "Shown on the oldest night still kept, or after a correction there was refused: the evening part of the night has been pruned, so a bedtime before midnight, confirming the detected times, or reverting to automatic cannot be applied."
+  },
+  "@sleepDetailCorrectionUnavailable": {
+    "description": "Shown instead of the sleep correction buttons, or after one was refused, when the night's raw recordings have been pruned and it can no longer be re-analysed."
+  },
   "@sleepDetailReanalyseFailed": {
     "description": "Fallback error message when re-analysis after a window edit could not be confirmed."
   },
@@ -8573,6 +8656,10 @@
   "@sleepDetailTemp": {
     "description": "Short label for skin temperature in the scrub readout card."
   },
+  "sleepDetailTempRelative": "Temp (rel.)",
+  "@sleepDetailTempRelative": {
+    "description": "Short label for the scrub readout card's skin-temperature value, which is a relative sensor deviation from that day's median, not degrees. Keep the 'relative' meaning."
+  },
   "sleepDetailNotMeasuredCap": "Not measured",
   "@sleepDetailNotMeasuredCap": {
     "description": "Capitalized, standalone label shown in place of a stage pill when the instant was not recorded."
@@ -8664,6 +8751,15 @@
   "sleepDetailHigherThanUsual": "higher than usual",
   "@sleepDetailHigherThanUsual": {
     "description": "Verdict phrase: sleep efficiency was higher than usual."
+  },
+  "sleepDetailPointsDelta": "{n} percentage points",
+  "@sleepDetailPointsDelta": {
+    "description": "Verdict prefix: how far sleep efficiency was from the usual median, in percentage points; followed by the lower/higher-than-usual phrase.",
+    "placeholders": {
+      "n": {
+        "type": "String"
+      }
+    }
   },
   "sleepDetailFellAsleep": "Fell asleep",
   "@sleepDetailFellAsleep": {
@@ -10068,6 +10164,15 @@
       }
     }
   },
+  "activitySummaryClimbedFt": "+{ft} ft climbed",
+  "@activitySummaryClimbedFt": {
+    "description": "Hero caption showing feet climbed on a journey/hike session, for imperial units",
+    "placeholders": {
+      "ft": {
+        "type": "int"
+      }
+    }
+  },
   "activitySummaryLapsCaption": "{n, plural, one{{n} lap} other{{n} laps}}",
   "@activitySummaryLapsCaption": {
     "description": "Hero caption showing lap count on a swim/row session",
@@ -11248,6 +11353,10 @@
   "@settingsResetBackupWarning": {
     "description": "Warning after reset when backup files or folder access could not be removed"
   },
+  "settingsResetPairingKeyWarning": "App data deleted, but a sensor pairing key could not be removed from secure storage. Delete everything again to retry.",
+  "@settingsResetPairingKeyWarning": {
+    "description": "Warning after reset when a sensor pairing key could not be removed from secure storage"
+  },
   "settingsResetBody": "This permanently deletes this app's data on this device:\n\n· every measured day, sleep, workout and route\n· every lab result, meal, medication dose, habit, breathing session and logged set\n· your journal, cycle log and what the app has learned as your usual\n· your profile, every preference and any stored AI key\n· the home-screen widget and every scheduled reminder\n\nExported copies and backups in previous or unavailable folders may remain. Delete those separately.\n\nThe band is unpaired, and it cannot re-send history it has already handed over. Export from Your data first if you want a copy.",
   "@settingsResetBody": {
     "description": "Confirmation dialog body listing exactly what a full reset deletes"
@@ -11380,6 +11489,26 @@
   "settingsDoubleTapRowSub": "What a double-tap on the band does",
   "@settingsDoubleTapRowSub": {
     "description": "Settings row subtitle for the double-tap gesture entry"
+  },
+  "settingsKeepAliveRowTitle": "Keep syncing in the background",
+  "@settingsKeepAliveRowTitle": {
+    "description": "Android settings row title for the battery-optimization exemption"
+  },
+  "settingsKeepAliveRowSub": "So battery saving doesn’t stop the overnight sync",
+  "@settingsKeepAliveRowSub": {
+    "description": "Android settings row subtitle for the battery-optimization exemption"
+  },
+  "settingsKeepAliveAllow": "Allow",
+  "@settingsKeepAliveAllow": {
+    "description": "Value shown on the background-sync row while the exemption has not been granted; tapping asks for it"
+  },
+  "settingsAutostartRowTitle": "Allow auto-start",
+  "@settingsAutostartRowTitle": {
+    "description": "Android settings row title, shown only on phone makers with a separate autostart allowlist"
+  },
+  "settingsAutostartRowSub": "This phone’s maker needs one more setting before the app can keep syncing overnight",
+  "@settingsAutostartRowSub": {
+    "description": "Subtitle for the autostart row; tapping opens the phone maker's own settings screen"
   },
   "settingsTaskerShortcutsRowTitle": "Tasker and Shortcuts",
   "@settingsTaskerShortcutsRowTitle": {
@@ -11860,7 +11989,7 @@
   "@bandStatusReconnectPausedTitle": {
     "description": "BandStatus card title: auto-reconnect paused after repeated bond refusals"
   },
-  "bandStatusReconnectPausedReason": "The band refused the pairing key {n, plural, one{{n} time} other{{n} times}} in a row, so the app stopped retrying to save battery. Nothing reconnects until you act.",
+  "bandStatusReconnectPausedReason": "The band refused the pairing key {n, plural, one{{n} time} other{{n} times}} in a row, so the app stopped retrying to save battery. It will try again on its own in about 30 minutes.",
   "@bandStatusReconnectPausedReason": {
     "description": "BandStatus card body: auto-reconnect paused, with the refusal count",
     "placeholders": {
@@ -11876,6 +12005,10 @@
   "bandStatusRepairNeededReason": "The band rejects this phone’s encryption key, so no data moves. Your recordings are safe on the band; pair it again to continue.",
   "@bandStatusRepairNeededReason": {
     "description": "BandStatus card body: band needs re-pairing"
+  },
+  "bandStatusReconnectPausedFix": "If it pauses again, forget the band in the phone’s Bluetooth settings, then pair it again here",
+  "@bandStatusReconnectPausedFix": {
+    "description": "BandStatus fix action for the reconnect-paused state: re-pair only if the pause trips again after the automatic retry"
   },
   "bandStatusRepairFix": "Forget the band in the phone’s Bluetooth settings, then pair it again here",
   "@bandStatusRepairFix": {
@@ -12692,6 +12825,15 @@
     "description": "Presentation-only text; interpolated values remain unchanged.",
     "placeholders": {
       "m": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementClimbedExportFeet": "+{ft} ft elevation",
+  "@supplementClimbedExportFeet": {
+    "description": "Share poster caption: elevation gained, in feet for imperial units",
+    "placeholders": {
+      "ft": {
         "type": "String"
       }
     }
@@ -15471,7 +15613,7 @@
   "@settingsReportIssueRowTitle": {
     "description": "Settings row that opens the issue report screen."
   },
-  "settingsReportIssueRowSub": "Sends what you choose to the maintainers, encrypted",
+  "settingsReportIssueRowSub": "Sends what you choose to the maintainers; your data is encrypted, the report details are not",
   "@settingsReportIssueRowSub": {
     "description": "Settings row subtitle for Report an issue."
   },
@@ -15607,7 +15749,7 @@
   "@reportDatabaseCovered": {
     "description": "Issue report: line under the 2-week switch while the full database switch is on."
   },
-  "reportStageSlice": "Preparing last 2 weeks\u2026",
+  "reportStageSlice": "Preparing last 2 weeks…",
   "@reportStageSlice": {
     "description": "Report screen: progress text inside the busy button while the 2-week database is built."
   },
@@ -15685,6 +15827,19 @@
   "@reportDeleteFailed": {
     "description": "Issue report: delete failed."
   },
+  "reportDeleteConfirmTitle": "Delete report {id}?",
+  "@reportDeleteConfirmTitle": {
+    "description": "Issue report: confirm before deleting a sent report.",
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "reportDeleteConfirmBody": "It will be removed from the server straight away, and its ID won't open it any more. There's no undo.",
+  "@reportDeleteConfirmBody": {
+    "description": "Issue report: what deleting a sent report does."
+  },
   "reportSaveFailedTitle": "Couldn't share the report",
   "@reportSaveFailedTitle": {
     "description": "Report screen: title of the card shown when building or sharing the local zip failed. Nothing was sent."
@@ -15753,6 +15908,191 @@
     "placeholders": {
       "id": {
         "type": "String"
+      }
+    }
+  },
+  "dataReanalyzeFailed": "Re-analysis failed: {error}",
+  "@dataReanalyzeFailed": {
+    "description": "Re-analyze result: the pass itself failed.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "dataReanalyzeDaysFailed": "{n, plural, one{1 day could not be analyzed. If this keeps happening, please report it.} other{{n} days could not be analyzed. If this keeps happening, please report it.}}",
+  "@dataReanalyzeDaysFailed": {
+    "description": "Re-analyze result: N days could not be derived.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "napsInFuture": "That nap hasn't finished yet. Log it once you're awake.",
+  "@napsInFuture": {
+    "description": "Validation error when a manually logged nap ends after the current time."
+  },
+  "journalComposeEntrySaveFailed": "Not saved — your entry is still here. Try again.",
+  "@journalComposeEntrySaveFailed": {
+    "description": "Snackbar shown when saving the day's journal entry fails; the screen stays open with the entry intact."
+  },
+  "journalComposeLoadFailed": "Could not open this day's journal.",
+  "@journalComposeLoadFailed": {
+    "description": "Shown in place of the journal form when reading the day's entry fails."
+  },
+  "journalComposeTryAgain": "Try again",
+  "@journalComposeTryAgain": {
+    "description": "Button that retries loading the journal entry after a failure."
+  },
+  "journalComposeAddToJournal": "Add to journal",
+  "@journalComposeAddToJournal": {
+    "description": "Journal AI chat sheet: primary button that copies the proposed tags and note into the day's entry."
+  },
+  "workoutLoadFailedTitle": "Activity could not be read",
+  "@workoutLoadFailedTitle": {
+    "description": "Title of the card shown on the Activity tab when the sessions failed to load from the database."
+  },
+  "workoutLoadFailedBody": "Your sessions failed to load. Nothing was deleted — this is a read that went wrong, not missing data.",
+  "@workoutLoadFailedBody": {
+    "description": "Body of the card shown on the Activity tab when the sessions failed to load from the database."
+  },
+  "liveHrNoReadingTitle": "No live reading",
+  "liveHrNotPairedWhy": "No band is paired.",
+  "liveHrNotPairedFix": "Pair one from Profile to read live beats.",
+  "liveHrNotConnectedWhy": "Your band is not connected.",
+  "liveHrNotConnectedFix": "Live beats need an open link — the app connects when you open it with the band in range.",
+  "liveHrNoRecentBeatWhy": "No beat in the last {seconds} seconds.",
+  "@liveHrNoRecentBeatWhy": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "liveHrStreamingFix": "The band streams while it is on your wrist and the app is open.",
+  "liveHrTraceCaption": "The last {count} readings — {min}–{max} bpm. Not stored; this is the live stream, not a record of your day.",
+  "@liveHrTraceCaption": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "notifRecoveryReadyBody": "Recovery {score}.",
+  "@notifRecoveryReadyBody": {
+    "description": "OS notification body when the day's recovery score is ready.",
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  },
+  "notifRecoveryReadySleptBody": "Recovery {score}, slept {hours}h {minutes}m.",
+  "@notifRecoveryReadySleptBody": {
+    "description": "OS notification body when the day's recovery score is ready, with last night's sleep time.",
+    "placeholders": {
+      "score": {
+        "type": "int"
+      },
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "notifStepGoalBody": "You hit about {steps} steps — at or above your {goal} goal.",
+  "@notifStepGoalBody": {
+    "description": "OS notification body when the day's step estimate reaches the goal.",
+    "placeholders": {
+      "steps": {
+        "type": "int"
+      },
+      "goal": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLowBatteryBody": "Your band is at {percent}%. Charge it soon.",
+  "@notifLowBatteryBody": {
+    "description": "OS notification body when the band's battery is low.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "profileImplausibleFields": "Check {fields}: out of range, so nothing was saved.",
+  "@profileImplausibleFields": {
+    "description": "Shown when a typed age, height or weight is outside the believable range.",
+    "placeholders": {
+      "fields": {
+        "type": "String"
+      }
+    }
+  },
+  "notifBatteryForecastBeforeWakeBody": "At {rate}%/h it runs out around {time} — before you wake. Charge it now to keep tonight's sleep.",
+  "@notifBatteryForecastBeforeWakeBody": {
+    "description": "OS notification body when the band is forecast to run flat before the user wakes. rate is the drain in percent per hour, already formatted; time is a clock time, already formatted.",
+    "placeholders": {
+      "rate": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "notifBatteryForecastReserveBody": "At {rate}%/h it runs out around {time}, just after your usual wake time — about {left}% left when you get up. Charge it now to keep tonight's sleep.",
+  "@notifBatteryForecastReserveBody": {
+    "description": "OS notification body when the band is forecast to wake with almost no charge left. rate is the drain in percent per hour, already formatted; time is a clock time, already formatted.",
+    "placeholders": {
+      "rate": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      },
+      "left": {
+        "type": "int"
+      }
+    }
+  },
+  "notifBatteryForecastAfterWakeBody": "At {rate}%/h it runs out around {time}, after your usual wake time.",
+  "@notifBatteryForecastAfterWakeBody": {
+    "description": "OS notification body when the band's battery forecast lasts past the usual wake time. rate is the drain in percent per hour, already formatted; time is a clock time, already formatted.",
+    "placeholders": {
+      "rate": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "notifWindDownBody": "Your bedtime is around {time}. Start slowing down.",
+  "@notifWindDownBody": {
+    "description": "OS notification body for the wind-down reminder. time is a clock time, already formatted.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "notifWorkoutIdleBody": "Nothing above resting effort has been recorded for {minutes} minutes. If the session is over, finish it from the Workout tab.",
+  "@notifWorkoutIdleBody": {
+    "description": "OS notification body when a live workout has shown no effort for a while.",
+    "placeholders": {
+      "minutes": {
+        "type": "int"
       }
     }
   }
