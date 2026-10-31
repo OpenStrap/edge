@@ -86,7 +86,7 @@ void main() {
         latchAtMs = DateTime.now().millisecondsSinceEpoch;
         sleep(const Duration(milliseconds: 5));
         await Future<void>.delayed(const Duration(seconds: 5));
-        return (epoch: 1750000000, disabled: false, failed: false);
+        return (epoch: 1750000000, disabled: false, failed: false, echoed: false);
       }, (sinceMs) async => latchAtMs != null && latchAtMs! >= sinceMs);
       fa.elapse(const Duration(seconds: 40));
     });
@@ -94,5 +94,17 @@ void main() {
       expect(prefs.getInt('alarm_epoch'), 1750000000);
       expect(prefs.getBool('alarm_epoch_confirmed'), isTrue);
     });
+  });
+
+  test('a reply that echoed the wake time confirms without the latch wait',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    await headlessArmAndConfirm(
+      () async => (epoch: 1750000000, disabled: false, failed: false, echoed: true),
+      (sinceMs) async => fail('must not wait for event 56'),
+    );
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getInt('alarm_epoch'), 1750000000);
+    expect(prefs.getBool('alarm_epoch_confirmed'), isTrue);
   });
 }
