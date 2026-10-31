@@ -7481,7 +7481,7 @@ class LocalDb {
   /// old name working — an older build after a rollback, a test fixture —
   /// with the text itself as the key: correct, just without the size saving.
   /// Everything in this build writes through [rawArchiveRow] instead.
-  static Future<void> _ensureRawArchiveView(Database db) async {
+  static Future<void> _ensureRawArchiveView(DatabaseExecutor db) async {
     final legacy = await _objectType(db, _rawArchiveLegacy) == 'table';
     await db.execute('DROP VIEW IF EXISTS raw_archive');
     await db.execute(
@@ -7526,21 +7526,27 @@ class LocalDb {
   /// both until then, so no reader ever sees a frame missing.
   static Future<void> _ensureRawArchiveStore(Database db) async {
     if (await _objectType(db, 'raw_archive') == 'table') {
-      if (await _objectType(db, _rawArchiveLegacy) == 'table') {
-        // Only reachable if a file was hand-assembled with both; fold the
-        // newer table into the aside one rather than lose either.
-        await db.execute(
-          'INSERT OR IGNORE INTO $_rawArchiveLegacy '
-          '(device_id, hex, counter, packet_type, rec_ts, captured_at, reason) '
-          'SELECT device_id, hex, counter, packet_type, rec_ts, captured_at, '
-          'reason FROM raw_archive',
-        );
-        await db.execute('DROP TABLE raw_archive');
-      } else {
-        await db.execute('ALTER TABLE raw_archive RENAME TO $_rawArchiveLegacy');
-      }
-      // Frees the name for [rawArchiveTable]'s index (see there).
-      await db.execute('DROP INDEX IF EXISTS idx_raw_archive_captured');
+      // One transaction: a crash between the rename and the index drop would
+      // leave the frames table without its captured_at index until the
+      // legacy table is gone, because the index name is still taken.
+      await db.transaction((txn) async {
+        if (await _objectType(txn, _rawArchiveLegacy) == 'table') {
+          // Only reachable if a file was hand-assembled with both; fold the
+          // newer table into the aside one rather than lose either.
+          await txn.execute(
+            'INSERT OR IGNORE INTO $_rawArchiveLegacy '
+            '(device_id, hex, counter, packet_type, rec_ts, captured_at, '
+            'reason) SELECT device_id, hex, counter, packet_type, rec_ts, '
+            'captured_at, reason FROM raw_archive',
+          );
+          await txn.execute('DROP TABLE raw_archive');
+        } else {
+          await txn
+              .execute('ALTER TABLE raw_archive RENAME TO $_rawArchiveLegacy');
+        }
+        // Frees the name for [rawArchiveTable]'s index (see there).
+        await txn.execute('DROP INDEX IF EXISTS idx_raw_archive_captured');
+      });
     }
     await _createRawArchiveFrames(db);
     if (await _objectType(db, 'raw_archive') != 'view') {
@@ -7637,10 +7643,11 @@ class LocalDb {
           await txn.execute('DROP TRIGGER IF EXISTS raw_archive_delete');
           await txn.execute('DROP VIEW IF EXISTS raw_archive');
           await txn.execute('DROP TABLE $_rawArchiveLegacy');
+          // Rebuilt in the same transaction: between a commit and a rebuild
+          // outside it there is no raw_archive at all, and a reader on
+          // another isolate fails with "no such table".
+          await _ensureRawArchiveView(txn);
         });
-        if (await _objectType(db, 'raw_archive') != 'view') {
-          await _ensureRawArchiveView(db);
-        }
         return moved;
       }
       final hi = (page.last['_r'] as num).toInt();
