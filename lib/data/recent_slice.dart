@@ -111,6 +111,9 @@ const Map<String, (SliceKeep, String?, String)> kSliceTables = {
   'signal_priority': (SliceKeep.all, null, 'which device feeds which signal'),
   'step_calibration': (SliceKeep.all, null, 'step calibration'),
   'step_calibration_day': (SliceKeep.all, null, 'step calibration days'),
+  'live_step_calibration': (SliceKeep.all, null, 'live step calibration'),
+  'live_step_calibration_run':
+      (SliceKeep.all, null, 'live step calibration runs'),
   'sync_cursor': (SliceKeep.all, null, 'sync position'),
   'alarm_schedule': (SliceKeep.all, null, 'alarm settings'),
   'notifications': (SliceKeep.all, null, 'in-app notifications'),

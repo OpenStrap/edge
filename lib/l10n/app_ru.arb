@@ -7745,5 +7745,93 @@
         "type": "int"
       }
     }
+  },
+  "settingsStepCalibration": "Калибровка шагов",
+  "settingsStepCalibrationSub": "Узнаёт, насколько браслет завышает или занижает ваши шаги, и исправляет это на телефоне. На браслет ничего не записывается, и ничего не покидает устройство",
+  "stepCalTitle": "Калибровка шагов",
+  "stepCalIntro": "Браслет считает шаги по собственному датчику движения, и его погрешность зависит от вас. Эти упражнения её измеряют. Ничего не покидает ваш телефон.",
+  "stepCalSlowTitle": "Медленная ходьба",
+  "stepCalSlowSub": "идите медленно, телефон в кармане",
+  "stepCalSlowGuide": "Идите медленно и ровно, браслет плотно на руке. Сами отсчитайте 100 шагов.",
+  "stepCalBriskTitle": "Быстрая ходьба",
+  "stepCalBriskSub": "идите в обычном темпе",
+  "stepCalBriskGuide": "Идите в обычном темпе. Сами отсчитайте 100 шагов.",
+  "stepCalJogTitle": "Бег трусцой",
+  "stepCalJogSub": "бегите ровно",
+  "stepCalJogGuide": "Бегите ровно. Сами отсчитайте 100 шагов.",
+  "stepCalEverydayTitle": "Дома",
+  "stepCalEverydaySub": "три минуты наводите порядок, телефон в кармане",
+  "stepCalEverydayGuide": "Занимайтесь обычными домашними делами — носите, поднимайте, убирайте — с телефоном в кармане. Три минуты. Не ходите туда-сюда специально.",
+  "stepCalCalibrated": "Откалибровано — {n, plural, one{{n} замер} few{{n} замера} many{{n} замеров} other{{n} замера}}",
+  "@stepCalCalibrated": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "stepCalNotCalibrated": "Ещё не откалибровано",
+  "stepCalBandSeen": "{count, plural, one{шаг по данным браслета} few{шага по данным браслета} many{шагов по данным браслета} other{шага по данным браслета}}",
+  "@stepCalBandSeen": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "stepCalCountYourself": "Считайте шаги сами. Остановитесь на {target}.",
+  "@stepCalCountYourself": {
+    "placeholders": {
+      "target": {
+        "type": "int"
+      }
+    }
+  },
+  "stepCalElapsed": "Продолжайте — это упражнение на время.",
+  "stepCalHowManyCounted": "Сколько шагов вы насчитали?",
+  "stepCalFinish": "Готово",
+  "stepCalCancel": "Отмена",
+  "stepCalKeepWalking": "Пока ничего не записано — начните идти, браслет плотно на руке.",
+  "stepCalKeepMoving": "Пока ничего не записано — держите телефон при себе и продолжайте двигаться.",
+  "stepCalNoSignal": "За это упражнение браслет ничего не записал.",
+  "stepCalNoPhoneAccess": "Для этого упражнения нужен шагомер телефона, а доступ к нему не предоставлен. Он служит эталоном для домашней активности.",
+  "stepCalPhoneNotReady": "Шагомер телефона не ответил. Попробуйте ещё раз через минуту.",
+  "stepCalNoPhone": "Телефон не насчитал ни одного шага. В следующий раз держите его в кармане — он служит эталоном для домашней активности.",
+  "stepCalBandQuiet": "Браслет почти не заметил движения. Проверьте, что он плотно сидит на руке и передаёт данные.",
+  "stepCalTooShort": "Упражнение было слишком коротким для сравнения. Пройдите весь счёт.",
+  "stepCalMismatch": "Браслет насчитал намного больше, чем вы. Он улавливал что-то кроме ходьбы.",
+  "stepCalWrongSource": "В этом упражнении использован не тот эталон.",
+  "stepCalBadData": "Упражнение дало нечитаемые данные датчиков.",
+  "stepCalRatioOutOfRange": "Ваш счёт и счёт браслета слишком расходятся, чтобы их использовать. Повторите упражнение и пройдите весь счёт.",
+  "stepCalCadenceOutOfRange": "Браслет не распознал в этом упражнении ритм ходьбы. Начинайте идти сразу после старта и держите ровный темп.",
+  "stepCalRoutineTooShort": "Упражнение закончилось раньше таймера. Продолжайте, пока он не истечёт.",
+  "stepCalSaveFailed": "Не удалось сохранить калибровку.",
+  "stepCalDoneGait": "Сохранено. Вы насчитали {count, plural, one{{count} шаг} few{{count} шага} many{{count} шагов} other{{count} шага}}, браслет — {band, plural, one{{band} шаг} few{{band} шага} many{{band} шагов} other{{band} шага}}. Теперь этот тип движения корректируется на {pct}%.",
+  "@stepCalDoneGait": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "band": {
+        "type": "int"
+      },
+      "pct": {
+        "type": "int"
+      }
+    }
+  },
+  "stepCalDoneHousehold": "Сохранено. Телефон насчитал {count, plural, one{{count} шаг} few{{count} шага} many{{count} шагов} other{{count} шага}} из {band, plural, one{{band} шага} few{{band} шагов} many{{band} шагов} other{{band} шага}}, которые зафиксировал браслет. Домашняя активность теперь масштабируется с коэффициентом {gain}.",
+  "@stepCalDoneHousehold": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "band": {
+        "type": "int"
+      },
+      "gain": {
+        "type": "String"
+      }
+    }
   }
 }
