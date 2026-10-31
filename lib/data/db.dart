@@ -8447,6 +8447,23 @@ class LocalDb {
     return r.recovered;
   }
 
+  /// Drop an unfinished [redriveArchiveOnce]'s resume point before a VACUUM.
+  /// That position is a [rawArchiveTable] rowid, and the table has no
+  /// INTEGER PRIMARY KEY, so VACUUM is free to renumber it: resuming there
+  /// could skip frames. The replay skips seconds already decoded, so starting
+  /// over from the top only costs time.
+  static Future<void> _resetRedriveResume() async {
+    final row = await computeFreshness(kArchiveRedriveKey);
+    if (row?['payload_json'] case final String j) {
+      final v = jsonDecode(j);
+      if (v is! Map || v['done'] == true || v['after_hex'] == null) return;
+      await putComputeFreshness(
+        kArchiveRedriveKey,
+        jsonEncode({'recovered': v['recovered'] ?? 0}),
+      );
+    }
+  }
+
   /// GATES 4b — replay the archive through the CURRENT decoders, into
   /// `decoded_onehz` / `decoded_rr`. Returns the seconds recovered.
   ///
@@ -10537,6 +10554,7 @@ class LocalDb {
   /// returns a row, which `execute` refuses on iOS's sqflite.
   static Future<void> vacuumAndCheckpoint() async {
     final db = await instance;
+    await _resetRedriveResume();
     await db.execute('VACUUM');
     // VACUUM renumbers every btree root page; see [vacuumIfBloated].
     await CoachDb.close();
@@ -14864,6 +14882,7 @@ class LocalDb {
     final free = await freelistBytes();
     if (free < minFreeBytes) return 0;
     final db = await instance;
+    await _resetRedriveResume();
     await db.execute('VACUUM');
     // VACUUM rewrites the file and renumbers every btree root page. CoachDb
     // caches the root pages of its allow-listed views to decide what a coach

@@ -377,4 +377,25 @@ void main() {
       }
     }, timeout: const Timeout(Duration(minutes: 20)));
   }
+
+
+  test('a VACUUM drops an unfinished replay\'s rowid resume point', () async {
+    await LocalDb.putComputeFreshness(
+      LocalDb.kArchiveRedriveKey,
+      jsonEncode({'recovered': 5, 'after_hex': '42', 'after_device': 'x'}),
+    );
+    await LocalDb.vacuumAndCheckpoint();
+    final state = jsonDecode((await LocalDb.computeFreshness(
+        LocalDb.kArchiveRedriveKey))!['payload_json'] as String) as Map;
+    expect(state, {'recovered': 5});
+
+    // A finished replay stays finished.
+    await LocalDb.putComputeFreshness(
+        LocalDb.kArchiveRedriveKey, jsonEncode({'recovered': 5, 'done': true}));
+    await LocalDb.vacuumAndCheckpoint();
+    final done = jsonDecode((await LocalDb.computeFreshness(
+        LocalDb.kArchiveRedriveKey))!['payload_json'] as String) as Map;
+    expect(done['done'], true);
+    await LocalDb.deleteComputeFreshness(LocalDb.kArchiveRedriveKey);
+  });
 }
