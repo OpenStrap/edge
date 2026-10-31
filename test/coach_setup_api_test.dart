@@ -201,4 +201,60 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('a model id typed over a saved model is the one saved', (
+    tester,
+  ) async {
+    final config = CoachConfig();
+    addTearDown(config.dispose);
+    await config.save(model: 'gpt-4o', apiKey: 'placeholder-key');
+    await _mount(tester, config);
+    // The saved model is visible before anything is typed.
+    await tester.scrollUntilVisible(
+      find.text('Saving model: gpt-4o'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Saving model: gpt-4o'), findsOneWidget);
+
+    await _enter(tester, 'Model', 'gpt-4.1');
+    expect(find.text('Saving model: gpt-4o'), findsNothing);
+    await _save(tester);
+    expect(config.model, 'gpt-4.1');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a hand-edited base URL saves the model typed for it', (
+    tester,
+  ) async {
+    final config = CoachConfig();
+    addTearDown(config.dispose);
+    await config.save(model: 'gpt-4o', apiKey: 'placeholder-key');
+    await _mount(tester, config);
+
+    await _enter(tester, 'Base URL', 'http://192.168.1.20:11434/v1');
+    await _enter(tester, 'Model', 'llama3.1');
+    await _save(tester);
+    expect(config.apiBase, 'http://192.168.1.20:11434/v1');
+    expect(config.model, 'llama3.1');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('saving untouched keeps the saved model', (tester) async {
+    final config = CoachConfig();
+    addTearDown(config.dispose);
+    await config.save(model: 'gpt-4o', apiKey: 'placeholder-key');
+    await _mount(tester, config);
+    // No field was focused, so there is no keyboard for _save to hide, and
+    // nothing has scrolled the lazily built Save button into the tree yet.
+    await tester.scrollUntilVisible(
+      find.text('Save'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(config.model, 'gpt-4o');
+    expect(tester.takeException(), isNull);
+  });
 }

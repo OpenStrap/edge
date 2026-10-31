@@ -322,8 +322,9 @@ void main() {
 
       expect(saved, isNotNull);
       expect(saved!['sex'], 'f');
-      // The three optional fields were left blank, so they are ABSENT — not
-      // zero, and not a default body.
+      // The three optional fields opened blank and stayed blank, so they are
+      // ABSENT — not zero, not a default body, and not a null over a value
+      // that arrived while setup was open.
       expect(saved!.containsKey('age'), isFalse);
       expect(saved!.containsKey('height_cm'), isFalse);
       expect(saved!.containsKey('weight_kg'), isFalse);
@@ -347,6 +348,26 @@ void main() {
       expect(saved!['age'], 34);
       expect(saved!['weight_kg'], 78.4);
       expect(saved!.containsKey('height_cm'), isFalse);
+    });
+
+    testWidgets('clearing a stored value writes null over it', (tester) async {
+      _tallView(tester);
+      Map<String, dynamic>? saved;
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: ProfileSetupView(
+            initial: const {'sex': 'm', 'weight_kg': 78.4, 'age': 34},
+            onSave: (f) async => saved = f),
+      ));
+      await tester.enterText(find.byType(TextField).at(2), '');
+      await tester.pump();
+      await tester.tap(find.text('Continue'));
+      await tester.pump();
+
+      // Merged into the stored profile, a missing key would keep 78.4.
+      expect(saved!.containsKey('weight_kg'), isTrue);
+      expect(saved!['weight_kg'], isNull);
+      expect(saved!['age'], 34);
     });
 
     testWidgets('a number it cannot read stops the save instead of dropping it',
@@ -374,9 +395,9 @@ void main() {
       expect(Typed.of('  ').blank, isTrue);
       expect(Typed.of('  ').bad, isFalse);
       expect(Typed.of('78.4').value, 78.4);
-      // A comma decimal is 1.5 to half of Europe and 15 to the other half, and
-      // a unit suffix is not a number at all. Neither is guessed at.
-      for (final s in ['78 kg', '1,5', '1,200', 'twelve']) {
+      // "1,200" is 1.2 to half of Europe and 1200 to the other half, and a
+      // unit suffix is not a number at all. Neither is guessed at.
+      for (final s in ['78 kg', '1,200', 'twelve']) {
         expect(Typed.of(s).bad, isTrue, reason: s);
         expect(Typed.of(s).value, isNull, reason: s);
       }

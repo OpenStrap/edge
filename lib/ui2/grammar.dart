@@ -31,6 +31,7 @@
 
 import '../l10n/display_text.dart';
 import '../l10n/app_localizations.dart';
+import '../l10n/decimal_text.dart' show parseTypedNumber;
 import '../l10n/presentation_text.dart';
 import 'dart:math' as math;
 
@@ -1789,9 +1790,10 @@ class Consistency extends StatelessWidget {
 /// occasion, and a lab value with its unit on it dropped the whole result —
 /// each of them under a screen that closed as if it had saved.
 ///
-/// Nothing here guesses. "1,5" is 1.5 to half of Europe and 15 to the other
-/// half, so it is [bad] and the user is asked, never averaged into a number
-/// they did not type.
+/// Nothing here guesses. A decimal comma is read only where it cannot be a
+/// thousands separator ("4,5"); "1,200" is 1.2 to half of Europe and 1200 to
+/// the other half, so it is [bad] and the user is asked, never averaged into a
+/// number they did not type. See [parseTypedNumber].
 class Typed {
   const Typed._(this.value, this.bad);
 
@@ -1806,12 +1808,8 @@ class Typed {
   static Typed of(String text) {
     final s = text.trim();
     if (s.isEmpty) return const Typed._(null, false);
-    final v = double.tryParse(s);
-    // tryParse accepts "Infinity"/"-Infinity"/"NaN" and overflows huge
-    // literals ("1e400") to infinity — none of those are a real number.
-    return v == null || !v.isFinite
-        ? const Typed._(null, true)
-        : Typed._(v, false);
+    final v = parseTypedNumber(s);
+    return v == null ? const Typed._(null, true) : Typed._(v, false);
   }
 }
 
@@ -1999,7 +1997,14 @@ class _SubTabsState extends State<SubTabs> {
                   builder: (_) {
                     final off = disabled.contains(i);
                     final on = i == index && !off;
-                    return Pressable(
+                    // The active pill differs from the rest only by fill and
+                    // weight, so without the flag a screen reader read every
+                    // pill as the same plain button and there was no way to
+                    // hear which range or section was showing.
+                    return Semantics(
+                      selected: on,
+                      inMutuallyExclusiveGroup: true,
+                      child: Pressable(
                       key: _keys.putIfAbsent(i, () => GlobalKey()),
                       onTap: off ? null : () => widget.onTap(i),
                       // `Pressable` drops `Semantics(button: true)` when `onTap` is
@@ -2039,6 +2044,7 @@ class _SubTabsState extends State<SubTabs> {
                     fontWeight: on ? FontWeight.w600 : FontWeight.w500,
                   ),
                 ),
+                      ),
                       ),
                     );
                   },

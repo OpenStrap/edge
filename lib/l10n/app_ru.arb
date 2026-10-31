@@ -43,7 +43,7 @@
   "pairingFailedAdviceTitle": "Браслет найден, но подключение не завершилось",
   "pairingFailedAdviceBody": "Обычно помогает повторный поиск с расстояния около метра.",
   "profileSetupTitle": "О вас",
-  "profileSetupBody": "Четыре параметра влияют на расчёт ваших показателей. Если оставить какой-либо из них пустым, недоступными останутся только зависящие от него показатели.",
+  "profileSetupBody": "Чтобы продолжить, нужно указать только пол. Возраст, рост и вес влияют на расчёт ваших показателей; если оставить какой-либо из них пустым, недоступными останутся только зависящие от него показатели.",
   "profileSetupSexHeader": "ПОЛ",
   "profileSetupSexMale": "Мужской",
   "profileSetupSexFemale": "Женский",
@@ -1591,6 +1591,7 @@
   "journalComposeTodaySection": "Сегодня",
   "journalComposeTrackSomethingElse": "Добавить свой показатель",
   "journalComposeAnythingElseLabel": "Что-нибудь ещё",
+  "journalComposeTalkItThroughWithAi": "Обсудить с ИИ",
   "journalComposeAnythingElseHint": "Несколько слов о дне.",
   "journalComposeSavingLabel": "Сохранение",
   "journalComposeHowAreYouFeeling": "Как вы себя чувствуете?",
@@ -1769,6 +1770,8 @@
     }
   },
   "nutritionRemoveBody": "Запись исчезнет из дня и всех средних, где учитывалась. Отменить удаление нельзя.",
+  "nutritionSaveFailed": "Не сохранено — приём пищи остался на экране. Повторите попытку.",
+  "nutritionRemoveFailed": "Не удалено — приём пищи остался на месте. Повторите попытку.",
   "nutritionNothingToMeasure": "Пока не с чем сравнить {label}",
   "@nutritionNothingToMeasure": {
     "placeholders": {
@@ -1956,6 +1959,14 @@
   "coachLocalSub": "В этой сети. Данные не покидают ваш компьютер.",
   "coachMenuSemantic": "Чаты и настройки ИИ",
   "coachModelHint": "найдите или введите идентификатор",
+  "coachModelSelected": "Будет сохранена модель: {model}",
+  "@coachModelSelected": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
   "coachModelLabel": "Модель",
   "coachModelsFound": "{n, plural, one{Найдена {n} модель. Выберите её.} few{Найдено {n} модели. Выберите одну.} many{Найдено {n} моделей. Выберите одну.} other{Найдено {n} модели. Выберите одну.}}",
   "@coachModelsFound": {
@@ -2863,6 +2874,7 @@
   "healthTryAgain": "Повторить",
   "healthWhatVitals": "показатели",
   "healthWhatLabResults": "результаты анализов",
+  "cycleWhatCycleData": "данные цикла",
   "healthMeasuresUnit": "измерения",
   "healthRowRestingHr": "Пульс в покое",
   "healthRowHrv": "ВСР",
@@ -3354,6 +3366,17 @@
   },
   "homeLoadFailedTitle": "Не удалось прочитать сегодняшний день",
   "homeLoadFailedBody": "Сохранённый день не загрузился. Ничего не удалено: это ошибка чтения, а не отсутствие данных.",
+  "homeDayLoadFailedTitle": "Не удалось прочитать {day}",
+  "@homeDayLoadFailedTitle": {
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "Wednesday, 15 October"
+      }
+    }
+  },
+  "wellnessLoadFailedTitle": "Не удалось прочитать",
+  "wellnessLoadFailedBody": "Не удалось прочитать сохранённые данные. Ничего не удалено — это сбой чтения, а не отсутствие данных.",
   "homeTryAgain": "Повторить",
   "homeNothingDerivedTitle": "Ночей с оценкой пока нет",
   "homeNothingDerivedBody": "Наденьте браслет на ночь и откройте приложение утром.",
@@ -3377,6 +3400,9 @@
   "homeProfileSettings": "Профиль и настройки",
   "homeNothingTodayTitle": "За сегодня ничего не записано",
   "homeNothingTodayBody": "Последняя оценённая ночь: {day}. С тех пор данные не поступали.",
+  "homeNoDataThisDayTitle": "Нет данных за этот день",
+  "homeNoDataThisDayBody": "В этот день ничего не было записано.",
+  "homeSomeDayDataMissingTitle": "Часть данных за этот день отсутствует",
   "@homeNothingTodayBody": {
     "placeholders": {
       "day": {
@@ -3980,6 +4006,7 @@
   "sleepDetailHrv": "ВСР",
   "sleepDetailBreathing": "Дыхание",
   "sleepDetailTemp": "Температура",
+  "sleepDetailTempRelative": "Темп. (отн.)",
   "sleepDetailNotMeasuredCap": "Не измерено",
   "sleepDetailNoSignalAtMoment": "В этот момент сигнал не записан.",
   "sleepDetailStageAwake": "Бодрствование",
@@ -4003,6 +4030,14 @@
   "sleepDetailAsleepWhileInBed": "Сон во время нахождения в постели",
   "sleepDetailLowerThanUsual": "ниже обычного",
   "sleepDetailHigherThanUsual": "выше обычного",
+  "sleepDetailPointsDelta": "на {n} п.п.",
+  "@sleepDetailPointsDelta": {
+    "placeholders": {
+      "n": {
+        "type": "String"
+      }
+    }
+  },
   "sleepDetailFellAsleep": "Засыпание",
   "sleepDetailEarlierThanUsual": "раньше обычного",
   "sleepDetailLaterThanUsual": "позже обычного",
@@ -4697,6 +4732,14 @@
   "@activitySummaryClimbed": {
     "placeholders": {
       "m": {
+        "type": "int"
+      }
+    }
+  },
+  "activitySummaryClimbedFt": "Набор высоты: +{ft} фт",
+  "@activitySummaryClimbedFt": {
+    "placeholders": {
+      "ft": {
         "type": "int"
       }
     }
@@ -5857,6 +5900,14 @@
   "@supplementClimbedExport": {
     "placeholders": {
       "m": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementClimbedExportFeet": "+{ft} фт высоты",
+  "@supplementClimbedExportFeet": {
+    "placeholders": {
+      "ft": {
         "type": "String"
       }
     }
@@ -7434,7 +7485,7 @@
   "deviceUseSheetConfirm": "Использовать",
   "deviceUseSheetCancel": "Не сейчас",
   "settingsReportIssueRowTitle": "Сообщить о проблеме",
-  "settingsReportIssueRowSub": "Отправляет выбранное вами разработчикам в зашифрованном виде",
+  "settingsReportIssueRowSub": "Отправляет выбранное вами разработчикам; ваши данные шифруются, сведения о сообщении — нет",
   "reportNavTitle": "Сообщить о проблеме",
   "reportCategoryGroup": "О чём сообщение",
   "reportCategorySync": "Синхронизация",
@@ -7560,6 +7611,40 @@
     }
   },
   "napsInFuture": "Этот дневной сон ещё не закончился. Запишите его, когда проснётесь.",
+  "journalComposeEntrySaveFailed": "Не сохранено — запись осталась на экране. Повторите попытку.",
+  "journalComposeLoadFailed": "Не удалось открыть дневник за этот день.",
+  "journalComposeTryAgain": "Повторить",
+  "journalComposeAddToJournal": "Добавить в дневник",
+  "workoutLoadFailedTitle": "Не удалось прочитать активность",
+  "workoutLoadFailedBody": "Не удалось загрузить ваши тренировки. Ничего не удалено — это ошибка чтения, а не отсутствие данных.",
+  "liveHrNoReadingTitle": "Нет живых данных",
+  "liveHrNotPairedWhy": "Браслет не подключён к приложению.",
+  "liveHrNotPairedFix": "Подключите его в Профиле, чтобы видеть пульс в реальном времени.",
+  "liveHrNotConnectedWhy": "Браслет не на связи.",
+  "liveHrNotConnectedFix": "Для пульса в реальном времени нужно открытое соединение — приложение подключается, когда вы открываете его рядом с браслетом.",
+  "liveHrNoRecentBeatWhy": "Нет ударов за последние {seconds} с.",
+  "@liveHrNoRecentBeatWhy": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "liveHrStreamingFix": "Браслет передаёт данные, пока он на запястье и приложение открыто.",
+  "liveHrTraceCaption": "Последние значения ({count}) — {min}–{max} уд/мин. Не сохраняются: это поток в реальном времени, а не запись вашего дня.",
+  "@liveHrTraceCaption": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
   "notifRecoveryReadyBody": "Восстановление {score}.",
   "@notifRecoveryReadyBody": {
     "placeholders": {

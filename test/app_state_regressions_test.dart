@@ -600,6 +600,50 @@ void main() {
     expect(app.alarmConfirmed, isTrue);
   });
 
+  // ── a changed step goal must reach Home, which re-reads on the revision ────
+  group('updateProfile step goal', () {
+    test('a new step goal bumps the insights revision', () async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      await app.updateProfile({'step_goal': 10000});
+      final before = app.insightsRevision.value;
+
+      await app.updateProfile({'step_goal': 8000});
+
+      expect(app.insightsRevision.value, greaterThan(before));
+      expect(app.user!['step_goal'], 8000);
+    });
+
+    test('an unchanged goal or another field does not', () async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      await app.updateProfile({'step_goal': 8000});
+      final before = app.insightsRevision.value;
+
+      await app.updateProfile({'step_goal': 8000});
+      await app.updateProfile({'weight_kg': 70.0});
+
+      expect(app.insightsRevision.value, before);
+    });
+
+    test('overlapping updates that change then restore the goal both bump',
+        () async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      await app.updateProfile({'step_goal': 8000});
+      final before = app.insightsRevision.value;
+
+      // Both start before either has merged.
+      await Future.wait([
+        app.updateProfile({'step_goal': 10000}),
+        app.updateProfile({'step_goal': 8000}),
+      ]);
+
+      expect(app.user!['step_goal'], 8000);
+      expect(app.insightsRevision.value, before + 2);
+    });
+  });
+
   // ── 10. dispose must release EVERYTHING AppState owns ──────────────────────
   group('dispose', () {
     testWidgets('cancels every owned timer', (t) async {

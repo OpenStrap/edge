@@ -403,6 +403,8 @@ Map<String, Widget> _coachFigureCases() => {
     '![chart](https://example.invalid/hr.png)\n\n'
     '- sleep held at 7 h 12 min\n- strain eased off midweek',
   ),
+  // The band rename sheet's body, outside the dialog route that hosts it.
+  'rename_band_dialog': const RenameBandDialog(current: 'WHOOP 4A1B2C'),
   // The past-chats list, open and while a reply is still coming in (locked:
   // no open, no delete control).
   'coach_chat_list': CoachChatList(

@@ -301,18 +301,38 @@ class _CoachScreenState extends State<CoachScreen> {
     return ok ?? false;
   }
 
+  // Switching or clearing the session while a reply is in flight would hand
+  // the engine's live history and transcript to another chat: `send` keeps
+  // appending its tool calls and answer to them, and the `persist()` in
+  // `_send`'s finally writes them under whichever session is current then,
+  // so the reply lands in the wrong chat and the question is lost.
   void _newChat() {
+    if (_busy) return;
     _engine?.newSession();
     setState(_items.clear);
   }
 
+  // Opening or deleting a chat swaps the engine's open chat, so the composer
+  // stays locked until that is done, the same way the menu does during a send.
+  Future<void> _sessionChange(Future<void> Function() change) async {
+    setState(() => _busy = true);
+    try {
+      await change();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _openSession(String id) async {
-    await _engine?.openSession(id);
+    if (_busy) return;
+    final engine = _engine;
+    if (engine == null) return;
+    await _sessionChange(() => engine.openSession(id));
     if (!mounted) return;
     setState(() {
       _items
         ..clear()
-        ..addAll(_engine?.transcript ?? const []);
+        ..addAll(engine.transcript);
     });
     _scrollDown();
   }
@@ -337,7 +357,9 @@ class _CoachScreenState extends State<CoachScreen> {
     // While a reply is coming in, the open chat stays put: the running send
     // keeps writing into the engine's working chat, so starting, opening or
     // deleting one under it would put the reply's tail in the wrong chat or
-    // save a deleted one back.
+    // save a deleted one back. The sheet doesn't rebuild with this screen, so
+    // the rows read this snapshot and stay disabled until it is reopened, even
+    // if the reply finishes meanwhile. The handlers re-check `_busy` regardless.
     final locked = _busy;
     await showModalBottomSheet<void>(
       context: context,
@@ -403,12 +425,14 @@ class _CoachScreenState extends State<CoachScreen> {
                       sessions: list.take(20).toList(),
                       locked: locked,
                       onOpen: (id) {
+                        if (_busy) return;
                         Navigator.of(sheet).pop();
                         _openSession(id);
                       },
                       onDelete: (id) async {
+                        if (_busy) return;
                         final wasOpen = id == engine.sessionId;
-                        await engine.deleteSession(id);
+                        await _sessionChange(() => engine.deleteSession(id));
                         setSheet(() {});
                         if (wasOpen && mounted) setState(_items.clear);
                       },
@@ -904,7 +928,12 @@ class _CoachSetupState extends State<CoachSetup> {
   late final TextEditingController _search;
   late final TextEditingController _timeout;
   late CoachApi _api;
+  /// The model Save will store when nothing has been typed: the saved one at
+  /// first, then whatever list row was last tapped. Typing in [_search]
+  /// clears it (see [_onSearchChanged]) so a typed id is never silently
+  /// overridden by a selection the form wasn't showing.
   String _model = '';
+  String _lastSearch = '';
   List<String> _models = const [];
   bool _loading = false;
   String? _msg;
@@ -939,11 +968,7 @@ class _CoachSetupState extends State<CoachSetup> {
     _keyOrigin = coachEndpointOrigin(cfg.baseUrl);
     // The base URL decides which preset is lit and whether a key is needed, and
     // the search box filters the list — both are read during build, so both
-    // have to rebuild it.
-    void redraw() {
-      if (mounted) setState(() {});
-    }
-
+    // have to rebuild it (both listeners call setState).
     _base.addListener(_onBaseChanged);
     // Deliberately NOT tracked via a _key listener: an early attempt cleared
     // _pendingKeyDelete as soon as the user typed a replacement, but typing
@@ -952,7 +977,23 @@ class _CoachSetupState extends State<CoachSetup> {
     // already derives "is there a real replacement right now" correctly by
     // checking the trimmed text itself; _pendingKeyDelete only needs to say
     // whether the endpoint changed, not track the field's history.
-    _search.addListener(redraw);
+    _search.addListener(_onSearchChanged);
+  }
+
+  /// The model field is both a filter and a free-text id, and Save prefers
+  /// [_model]. Left set, a saved 'gpt-4o' would win over anything typed, so a
+  /// retyped id (or a local model typed after pointing the base URL at
+  /// Ollama) was dropped while the screen still closed as if it had saved.
+  /// Tapping a row after filtering doesn't touch the text, so that pick
+  /// survives. Only a real text edit counts — the controller also notifies on
+  /// cursor and selection moves.
+  void _onSearchChanged() {
+    final text = _search.text;
+    if (text != _lastSearch) {
+      _lastSearch = text;
+      _model = '';
+    }
+    if (mounted) setState(() {});
   }
 
   /// Clears a carried-over key rather than letting Save silently send it to a
@@ -965,6 +1006,10 @@ class _CoachSetupState extends State<CoachSetup> {
     if (origin != _keyOrigin) {
       _keyOrigin = origin;
       _api = CoachApi.defaultFor(_base.text);
+      // A list fetched from the old endpoint names models the new one may
+      // not serve. The selected model itself stays, shown under the Model
+      // field, so a same-provider URL edit doesn't force retyping it.
+      _models = const [];
       _pendingKeyDelete = true;
       if (_key.text.isNotEmpty) _key.clear();
       _msg = 'The API key was cleared because the endpoint changed.';
@@ -988,9 +1033,12 @@ class _CoachSetupState extends State<CoachSetup> {
       _loading = true;
       _msg = null;
     });
+    // A reply for an endpoint the user has since edited away from would list
+    // models the new one may not serve.
+    final asked = _base.text;
     try {
-      final ids = await CoachEngine.fetchModels(_base.text, _key.text);
-      if (!mounted) return;
+      final ids = await CoachEngine.fetchModels(asked, _key.text);
+      if (!mounted || _base.text != asked) return;
       final l = AppLocalizations.of(context);
       setState(() {
         _models = ids;
@@ -1000,7 +1048,7 @@ class _CoachSetupState extends State<CoachSetup> {
             : (l?.coachModelsFound(ids.length) ?? '${ids.length} models. Tap one.');
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || _base.text != asked) return;
       final l = AppLocalizations.of(context);
       setState(
         () => _msg = e is CoachException
@@ -1235,6 +1283,13 @@ class _CoachSetupState extends State<CoachSetup> {
                     label: l?.coachModelLabel ?? 'Model',
                     hint: l?.coachModelHint ?? 'search, or type an id',
                   ),
+                  if (_model.isNotEmpty) ...[
+                    const SizedBox(height: S.x2),
+                    Text(
+                      l?.coachModelSelected(_model) ?? 'Saving model: $_model',
+                      style: F.cap.copyWith(color: p.ink3),
+                    ),
+                  ],
                   const SizedBox(height: S.x1),
                   Builder(
                     builder: (_) => Padding(

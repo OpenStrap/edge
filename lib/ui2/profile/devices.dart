@@ -2194,17 +2194,59 @@ Future<void> _renameBand(BuildContext c, AppState app, String current) async {
   // Captured before the dialog: `c` is not safe to touch after the await.
   final messenger = ScaffoldMessenger.maybeOf(c);
   final l = AppLocalizations.of(c);
-  final ctl = TextEditingController(text: current);
-  final err = ValueNotifier<String?>(null);
   final name = await showDialog<String>(
     context: c,
-    builder: (d) => AlertDialog(
+    builder: (_) => RenameBandDialog(current: current),
+  );
+  if (name == null) return;
+  try {
+    await app.renameStrap(name);
+    messenger?.showSnackBar(
+        SnackBar(content: Text(l?.devicesRenamedTo(name) ?? 'Renamed to $name')));
+  } catch (e) {
+    // The write goes to the strap, so a dropped link loses it. Say that,
+    // rather than leaving the old name on screen with no explanation.
+    messenger?.showSnackBar(SnackBar(
+        content: Text(l?.devicesCouldNotRename(e.toString()) ??
+            'Could not rename the band: $e')));
+  }
+}
+
+/// The rename sheet owns its controller and error notifier so they are
+/// disposed with the route. `showDialog` completes at pop time, while the exit
+/// transition is still rebuilding the field; disposing them right after the
+/// await threw "used after being disposed" on every Save and Cancel.
+class RenameBandDialog extends StatefulWidget {
+  const RenameBandDialog({super.key, required this.current});
+
+  final String current;
+
+  @override
+  State<RenameBandDialog> createState() => _RenameBandDialogState();
+}
+
+class _RenameBandDialogState extends State<RenameBandDialog> {
+  late final TextEditingController _ctl =
+      TextEditingController(text: widget.current);
+  final ValueNotifier<String?> _err = ValueNotifier<String?>(null);
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    _err.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext d) {
+    final l = AppLocalizations.of(d);
+    return AlertDialog(
       title: Text(l?.devicesNameThisBand ?? 'Name this band'),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         ValueListenableBuilder<String?>(
-          valueListenable: err,
+          valueListenable: _err,
           builder: (_, e, _) => TextField(
-            controller: ctl,
+            controller: _ctl,
             autofocus: true,
             maxLength: 20,
             decoration: InputDecoration(
@@ -2222,11 +2264,11 @@ Future<void> _renameBand(BuildContext c, AppState app, String current) async {
             child: Text(l?.actionCancel ?? 'Cancel')),
         TextButton(
           onPressed: () {
-            final v = ctl.text.trim();
+            final v = _ctl.text.trim();
             if (v.isEmpty) {
-              err.value = l?.devicesGiveItAName ?? 'Give it a name';
+              _err.value = l?.devicesGiveItAName ?? 'Give it a name';
             } else if (cleanDeviceLabel(v) == null) {
-              err.value = l?.devicesNameCharsetError ??
+              _err.value = l?.devicesNameCharsetError ??
                   "Only letters, numbers, space, and ' . _ -";
             } else {
               Navigator.of(d).pop(v);
@@ -2235,21 +2277,7 @@ Future<void> _renameBand(BuildContext c, AppState app, String current) async {
           child: Text(l?.actionSave ?? 'Save'),
         ),
       ],
-    ),
-  );
-  ctl.dispose();
-  err.dispose();
-  if (name == null) return;
-  try {
-    await app.renameStrap(name);
-    messenger?.showSnackBar(
-        SnackBar(content: Text(l?.devicesRenamedTo(name) ?? 'Renamed to $name')));
-  } catch (e) {
-    // The write goes to the strap, so a dropped link loses it. Say that,
-    // rather than leaving the old name on screen with no explanation.
-    messenger?.showSnackBar(SnackBar(
-        content: Text(l?.devicesCouldNotRename(e.toString()) ??
-            'Could not rename the band: $e')));
+    );
   }
 }
 

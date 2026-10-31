@@ -18,6 +18,8 @@ import 'dart:convert';
 import 'dart:isolate';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../compute/derivation_engine.dart';
 import '../compute/findings.dart' show servedReadiness;
 import '../compute/hr_max.dart';
@@ -97,10 +99,38 @@ class LocalRepositoryImpl extends LocalRepository {
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
+  static const _dayBundleMemo = #localRepositoryDayBundleMemo;
+
+  /// Bundle decodes performed by [_bundle], for tests.
+  @visibleForTesting
+  static int bundleDecodes = 0;
+
+  @override
+  Future<T> sharingDayReads<T>(Future<T> Function() body) =>
+      Zone.current[_dayBundleMemo] != null
+          ? body()
+          : runZoned(body, zoneValues: {
+              _dayBundleMemo: <String, Future<Map<String, dynamic>?>>{},
+            });
+
   /// Decode a day_result row's payload bundle (latest algo_version), or null.
-  Future<Map<String, dynamic>?> _bundle(String date) async {
+  ///
+  /// Inside [sharingDayReads] the decoded bundle is shared by every getter for
+  /// that day: a full decode expands every stored curve into per-sample maps,
+  /// and the day switcher used to pay for it three times per tap on the UI
+  /// isolate. Readers only ever read the bundle, which is what makes the
+  /// sharing safe.
+  Future<Map<String, dynamic>?> _bundle(String date) {
+    final memo = Zone.current[_dayBundleMemo]
+        as Map<String, Future<Map<String, dynamic>?>>?;
+    if (memo == null) return _loadBundle(date);
+    return memo[date] ??= _loadBundle(date);
+  }
+
+  Future<Map<String, dynamic>?> _loadBundle(String date) async {
     final row = await LocalDb.dayResult(date);
     if (row == null) return null;
+    bundleDecodes++;
     final b = _decode(row['payload_json']);
     return b == null ? null : withoutWearableEstimates(b);
   }

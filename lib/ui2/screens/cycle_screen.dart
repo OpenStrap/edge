@@ -186,7 +186,12 @@ class CycleData {
 /// screen's own `ListView` the way the other four tabs do.
 class CycleTab extends StatefulWidget {
   final CycleData? data;
-  const CycleTab({super.key, this.data});
+
+  /// Replaces the repository read, so a test can make it throw.
+  @visibleForTesting
+  final Future<CycleData> Function()? loader;
+
+  const CycleTab({super.key, this.data, this.loader});
 
   @override
   State<CycleTab> createState() => _CycleTabState();
@@ -194,6 +199,11 @@ class CycleTab extends StatefulWidget {
 
 class _CycleTabState extends State<CycleTab> with RevisionReload {
   CycleData? _d;
+
+  /// The last read threw. Kept apart from [_d] because an empty `CycleData`
+  /// is `enabled: false`, and rendering that would tell her tracking is off
+  /// and offer to turn it on, when it is on and only the read went wrong.
+  bool _failed = false;
 
   /// The symptom look-back is folded away by default — the chips above it are
   /// what she opened the tab to tap.
@@ -225,10 +235,11 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
   Future<void> _load() async {
     final t = beginRead(#cycle);
     try {
-      final d = await CycleData.load(context.read<AppState>());
-      if (stillNewest(#cycle, t)) setState(() => _d = d);
+      final d = await (widget.loader?.call() ??
+          CycleData.load(context.read<AppState>()));
+      if (stillNewest(#cycle, t)) setState(() => (_d = d, _failed = false));
     } catch (_) {
-      if (stillNewest(#cycle, t)) setState(() => _d = const CycleData());
+      if (stillNewest(#cycle, t)) setState(() => _failed = true);
     }
   }
 
@@ -349,6 +360,22 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final d = _d;
+    if (_failed) {
+      return StatusCard(
+        l == null
+            ? 'Could not read your cycle data'
+            : l.healthCouldNotRead(l.cycleWhatCycleData),
+        l?.healthReadFailedBody ??
+            'The stored rows failed to load. Nothing was deleted — this is a '
+                'read that went wrong.',
+        fix: l?.healthTryAgain ?? 'Try again',
+        icon: LucideIcons.databaseZap,
+        onFix: () {
+          setState(() => _failed = false);
+          _load();
+        },
+      );
+    }
     if (d == null) return const Center(child: CircularProgressIndicator());
 
     if (!d.enabled) {

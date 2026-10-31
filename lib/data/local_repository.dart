@@ -49,6 +49,12 @@ bool rmssdFromSessionEstimator(Object? sessionEnvelope) =>
 /// The local data contract for every insights screen + the AI Coach.
 /// Return types mirror the cloud ApiClient exactly (defensive Map/List blobs).
 abstract class LocalRepository {
+  /// Runs [body] with each stored day it reads fetched and decoded at most
+  /// once. For a caller that reads several per-day getters for the same day
+  /// back to back (the Home day switcher), each of which would otherwise
+  /// decode that day's whole bundle again. The reads inside must not write.
+  Future<T> sharingDayReads<T>(Future<T> Function() body) => body();
+
   Future<int> pendingActivityCount() async => (await pendingActivities()).length;
 
   Future<List<ActivitySuggestion>> pendingActivities() =>
