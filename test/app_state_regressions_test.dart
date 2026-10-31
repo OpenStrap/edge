@@ -4,6 +4,7 @@
 // without touching a single platform plugin, so the logic below can be driven
 // directly. Each group names the bug it guards.
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -30,6 +31,7 @@ import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/activity/live.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
+import 'package:openstrap_edge/sync/sync_policy.dart' show ClockRef;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -395,6 +397,27 @@ void main() {
           app.alarmFiredAt!.millisecondsSinceEpoch ~/ 1000);
     });
 
+    test('the fire time is shown in wall time, not the strap RTC frame',
+        () async {
+      // A strap whose SET_CLOCK never latched runs 40 min behind; the alarm
+      // was armed in its frame, so its event 57 stamp is 40 min "early".
+      SharedPreferences.setMockInitialValues({});
+      await silenceOsPresent();
+      final engine = _DriftedClockEngine(driftSec: 2400);
+      final app = AppState.forTesting(engine: engine);
+      addTearDown(app.dispose);
+      final wallNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+      app.debugHandleAlarmEvent(57, tsSec: wallNow - 2400);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(app.alarmFiredAt, isNotNull);
+      expect(app.alarmFiredAt!.millisecondsSinceEpoch ~/ 1000, wallNow);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      expect(prefs.getInt('alarm_fired_at'), wallNow);
+    });
+
     test('the app-side EXECUTED id (58) is a RUN_ALARM buzz, the arm stays',
         () async {
       // Smart wake / test buzz send RUN_ALARM. Treating its 58 as the slot
@@ -480,6 +503,71 @@ void main() {
       expect(app.alarmConfirmed, isTrue);
     });
 
+    test('a schedule edit reports whether the band actually took it',
+        () async {
+      // The alarm screen used to say "Alarm sent to the band" whenever the
+      // row saved, including when the strap rejected SET_ALARM_TIME or the
+      // link was down, so the band kept the old wake time with no warning.
+      await silenceOsPresent();
+      final rejecting = _RejectingArmEngine();
+      final app = AppState.forTesting(engine: rejecting);
+      addTearDown(app.dispose);
+      expect(await app.setScheduleDay(weekday: 2, enabled: true), isFalse,
+          reason: 'offline: saved, not on the band');
+      app.device.connection = 'connected';
+      expect(await app.setScheduleDay(weekday: 2, hour: 6, minute: 15),
+          isFalse,
+          reason: 'the strap refused the arm');
+      expect(rejecting.attempts, 1);
+      expect(app.alarmSchedule.firstWhere((e) => e.weekday == 2).hour, 6,
+          reason: 'the row is still saved for the next re-arm');
+
+      final engine = _ArmRecordingEngine();
+      final ok = AppState.forTesting(engine: engine);
+      addTearDown(ok.dispose);
+      ok.device.connection = 'connected';
+      expect(await ok.setScheduleDay(weekday: 2, enabled: true), isTrue);
+      expect(engine.armed, hasLength(1));
+      expect(await ok.setScheduleDay(weekday: 2, enabled: true), isTrue,
+          reason: 'already armed for that slot is not a failure');
+      expect(engine.armed, hasLength(1));
+    });
+
+    test('a day saved while cancel-all is on the wire lands after it',
+        () async {
+      await silenceOsPresent();
+      final engine = _HeldDisableEngine();
+      final app = AppState.forTesting(engine: engine);
+      addTearDown(app.dispose);
+      await app.setScheduleDay(weekday: 1, enabled: true); // offline: saved
+      app.device.connection = 'connected';
+
+      // Two overlapping cancels, then a save while both are unanswered.
+      final cancels = [app.disableAlarm(), app.disableAlarm()];
+      await Future<void>.delayed(Duration.zero);
+      final save = app.setScheduleDay(
+          weekday: 3, enabled: true, hour: 6, minute: 0);
+      // Answer the newest disable first: the save must still wait for both.
+      var cancelled = false;
+      unawaited(Future.wait(cancels).then((_) => cancelled = true));
+      // Between answers, give anything let through time to reach the database.
+      for (var i = 0; i < 20 && !cancelled; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        if (engine.anyPending) engine.answerLatest();
+      }
+      expect(cancelled, isTrue);
+      await save;
+
+      final enabled = [
+        for (final r in await LocalDb.alarmScheduleRows())
+          if (r['enabled'] == 1) r['weekday'],
+      ];
+      expect(enabled, [3],
+          reason: 'the cancelled day is gone, the newer save survives');
+      expect(engine.armed, isNotEmpty, reason: 'the saved day is re-armed');
+      expect(engine.armed.last.weekday, DateTime.thursday);
+    });
+
     test('ALARM_SET (event 56) leaves the armed alarm alone', () async {
       SharedPreferences.setMockInitialValues({'alarm_epoch': 1785000000});
       final app = AppState.forTesting();
@@ -546,6 +634,50 @@ void main() {
     app.debugHandleAlarmEvent(56, tsSec: armMs ~/ 1000);
 
     expect(app.alarmConfirmed, isTrue);
+  });
+
+  // ── a changed step goal must reach Home, which re-reads on the revision ────
+  group('updateProfile step goal', () {
+    test('a new step goal bumps the insights revision', () async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      await app.updateProfile({'step_goal': 10000});
+      final before = app.insightsRevision.value;
+
+      await app.updateProfile({'step_goal': 8000});
+
+      expect(app.insightsRevision.value, greaterThan(before));
+      expect(app.user!['step_goal'], 8000);
+    });
+
+    test('an unchanged goal or another field does not', () async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      await app.updateProfile({'step_goal': 8000});
+      final before = app.insightsRevision.value;
+
+      await app.updateProfile({'step_goal': 8000});
+      await app.updateProfile({'weight_kg': 70.0});
+
+      expect(app.insightsRevision.value, before);
+    });
+
+    test('overlapping updates that change then restore the goal both bump',
+        () async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      await app.updateProfile({'step_goal': 8000});
+      final before = app.insightsRevision.value;
+
+      // Both start before either has merged.
+      await Future.wait([
+        app.updateProfile({'step_goal': 10000}),
+        app.updateProfile({'step_goal': 8000}),
+      ]);
+
+      expect(app.user!['step_goal'], 8000);
+      expect(app.insightsRevision.value, before + 2);
+    });
   });
 
   // ── 10. dispose must release EVERYTHING AppState owns ──────────────────────
@@ -1150,10 +1282,56 @@ class _ArmRecordingEngine extends BleEngine {
   _ArmRecordingEngine() : super(onRecord: (_, _) async {}, onState: (_) {});
   final armed = <DateTime>[];
   @override
-  Future<DateTime?> setAlarm(DateTime when,
+  Future<({DateTime? armed, bool echoed})> armAlarm(DateTime when,
       {int index = 0, List<int>? haptics}) async {
     armed.add(when);
-    return when;
+    return (armed: when, echoed: false);
+  }
+}
+
+/// Holds each DISABLE_ALARM reply until the test answers it, and records arms
+/// instead of writing them.
+class _HeldDisableEngine extends BleEngine {
+  _HeldDisableEngine() : super(onRecord: (_, _) async {}, onState: (_) {});
+  final replies = <Completer<bool>>[];
+  final armed = <DateTime>[];
+  @override
+  Future<bool> disableAlarm({int? id}) {
+    final c = Completer<bool>();
+    replies.add(c);
+    return c.future;
+  }
+
+  /// Answers the most recent unanswered disable.
+  void answerLatest() => replies.lastWhere((c) => !c.isCompleted).complete(true);
+  bool get anyPending => replies.any((c) => !c.isCompleted);
+  @override
+  Future<({DateTime? armed, bool echoed})> armAlarm(DateTime when,
+      {int index = 0, List<int>? haptics}) async {
+    armed.add(when);
+    return (armed: when, echoed: false);
+  }
+}
+
+/// A strap whose RTC lags wall time by [driftSec] (GET_CLOCK correlated).
+class _DriftedClockEngine extends BleEngine {
+  _DriftedClockEngine({required int driftSec})
+      : _ref = ClockRef(device: 1785000000, wall: 1785000000 + driftSec),
+        super(onRecord: (_, _) async {}, onState: (_) {});
+  final ClockRef _ref;
+  @override
+  ClockRef? get clockRef => _ref;
+}
+
+/// The strap rejects every SET_ALARM (engine.setAlarm's null result).
+class _RejectingArmEngine extends BleEngine {
+  _RejectingArmEngine() : super(onRecord: (_, _) async {}, onState: (_) {});
+  int attempts = 0;
+  @override
+  Future<({DateTime? armed, bool echoed})> armAlarm(DateTime when,
+      {int index = 0, List<int>? haptics}) async {
+    attempts++;
+    return (armed: null, echoed: false);
   }
 }
 

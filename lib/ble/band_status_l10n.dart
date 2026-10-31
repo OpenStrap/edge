@@ -39,7 +39,7 @@ BandStatus localizedBandStatus(BuildContext c, BandStatus s) {
         s.condition,
         l?.bandStatusReconnectPausedTitle ?? s.title,
         l?.bandStatusReconnectPausedReason(s.bondRefusals ?? 0) ?? s.reason,
-        fix: l?.bandStatusRepairFix ?? s.fix,
+        fix: l?.bandStatusReconnectPausedFix ?? s.fix,
         bondRefusals: s.bondRefusals,
       );
     case BandCondition.repairNeeded:

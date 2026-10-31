@@ -69,8 +69,8 @@ class EdgeApplication : Application() {
         // killed it while a band is paired (START_STICKY backup). Idempotent (KEEP
         // policy). Paired-gated: unconditional scheduling gave even a never-paired
         // install a persisted 15-min periodic wake forever. Pairing (re-)arms it
-        // via EdgeTrackingService.onCreate, and the worker cancels its own chain
-        // if it ever runs unpaired.
+        // via EdgeTrackingService.onCreate, and unpair cancels the chain
+        // (KeepAliveWorker.cancel from the edge_tracking "stop" call).
         if (KeepAliveWorker.hasPairedDevice(this)) {
             KeepAliveWorker.schedule(this)
         }

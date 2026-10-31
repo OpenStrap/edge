@@ -46,6 +46,7 @@ DevicePickerView _view({
   String? busyRemoteId,
   List<({BandEntry entry, String blurb, IconData icon})> categories = const [],
   VoidCallback? onSkip,
+  VoidCallback? onBack,
 }) =>
     DevicePickerView(
       query: TextEditingController(),
@@ -58,6 +59,7 @@ DevicePickerView _view({
       busyRemoteId: busyRemoteId,
       categories: categories,
       onSkip: onSkip,
+      onBack: onBack,
     );
 
 void main() {
@@ -164,6 +166,16 @@ void main() {
     expect(find.text('Skip for now'), findsNothing);
     await _pump(t, _view(onSkip: () {}));
     expect(find.text('Skip for now'), findsOneWidget);
+  });
+
+  testWidgets('the back chevron runs the caller\'s way back', (t) async {
+    // At first run the picker is the gate's root page, so the default
+    // `Navigator.maybePop` has nothing to pop and the chevron was dead.
+    var backs = 0;
+    await _pump(t, _view(onBack: () => backs++));
+    await t.tap(find.byIcon(LucideIcons.chevronLeft));
+    await t.pump();
+    expect(backs, 1);
   });
 
   test('every category the picker lists has a pairing step behind it', () {

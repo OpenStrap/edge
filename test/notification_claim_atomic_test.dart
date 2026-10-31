@@ -39,6 +39,10 @@ NotificationEvent _ev(String dedupeKey) => NotificationEvent(
 /// cutoff uses (day labels are LOCAL everywhere; see data/day_label.dart).
 String _dayOffset(int days) => dayLabelOf(DateTime.now().add(Duration(days: days)));
 
+/// Claims older than the store's retention are pruned on every won claim, so a
+/// fixed calendar date in these keys stops being claimable once it ages out.
+final String _today = _dayOffset(0);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -63,7 +67,7 @@ void main() {
     test('exactly one of two concurrent claimants for the same key wins',
         () async {
       const store = FiredKeyStore();
-      const key = '2026-07-25:readiness';
+      final key = '$_today:readiness';
 
       // No in-isolate lock here — this is the cross-isolate shape.
       final results = await Future.wait([
@@ -79,7 +83,7 @@ void main() {
 
     test('a claim released (present failed) is claimable again', () async {
       const store = FiredKeyStore();
-      const key = '2026-07-25:low_read';
+      final key = '$_today:low_read';
 
       expect(await store.claim(key), isTrue);
       await store.release(key);
@@ -103,7 +107,7 @@ void main() {
     test('a key that fired in degraded mode never fires again once the DB is '
         'back — however many passes run', () async {
       const store = FiredKeyStore();
-      const key = '2026-07-25:low_read';
+      final key = '$_today:low_read';
 
       // The exact on-disk state left by a fallback claim taken while the DB was
       // unusable: the prefs mirror remembers the fire, the claim table doesn't.
@@ -125,7 +129,7 @@ void main() {
 
     test('the claim survives a store instance being thrown away (restart)',
         () async {
-      const key = '2026-07-25:sync_stale';
+      final key = '$_today:sync_stale';
       expect(await const FiredKeyStore().claim(key), isTrue);
       await LocalDb.close(); // simulate a process teardown between passes
       expect(await const FiredKeyStore().claim(key), isFalse);
@@ -148,16 +152,16 @@ void main() {
         return true;
       };
 
-      await center.emit(_ev('2026-07-25:temp'));
+      await center.emit(_ev('$_today:temp'));
       expect(shown, isEmpty);
 
       grant = true;
-      await center.emit(_ev('2026-07-25:temp'));
-      expect(shown, ['2026-07-25:temp']);
+      await center.emit(_ev('$_today:temp'));
+      expect(shown, ['$_today:temp']);
 
       // ...and now it's spent.
-      await center.emit(_ev('2026-07-25:temp'));
-      expect(shown, ['2026-07-25:temp']);
+      await center.emit(_ev('$_today:temp'));
+      expect(shown, ['$_today:temp']);
     });
 
     test('a throwing present does not consume the key', () async {
@@ -169,10 +173,10 @@ void main() {
         return true;
       };
 
-      await center.emit(_ev('2026-07-25:auto_workout')); // swallowed by emit
+      await center.emit(_ev('$_today:auto_workout')); // swallowed by emit
       boom = false;
-      await center.emit(_ev('2026-07-25:auto_workout'));
-      expect(shown, ['2026-07-25:auto_workout']);
+      await center.emit(_ev('$_today:auto_workout'));
+      expect(shown, ['$_today:auto_workout']);
     });
   });
 
@@ -180,17 +184,17 @@ void main() {
     test('keys that already fired under the old shared list do not re-fire',
         () async {
       // Pre-#145 on-disk shape: one shared list of fired keys.
-      const already = '2026-07-25:low_read';
+      final already = '$_today:low_read';
       SharedPreferences.setMockInitialValues({
-        FiredKeyStore.legacyListKey: <String>[already, '2026-07-25:step_goal'],
+        FiredKeyStore.legacyListKey: <String>[already, '$_today:step_goal'],
       });
 
       const store = FiredKeyStore();
       expect(await store.claim(already), isFalse,
           reason: 'upgrading must not re-alert the day\'s already-fired keys');
-      expect(await store.claim('2026-07-25:step_goal'), isFalse);
+      expect(await store.claim('$_today:step_goal'), isFalse);
       // A key that never fired is still free.
-      expect(await store.claim('2026-07-25:recovery_ready'), isTrue);
+      expect(await store.claim('$_today:recovery_ready'), isTrue);
 
       // The legacy list is consumed, not left behind as a dead pref.
       final prefs = await SharedPreferences.getInstance();
@@ -200,12 +204,12 @@ void main() {
 
     test('migration is idempotent across repeated claims', () async {
       SharedPreferences.setMockInitialValues({
-        FiredKeyStore.legacyListKey: <String>['2026-07-25:x'],
+        FiredKeyStore.legacyListKey: <String>['$_today:x'],
       });
       const store = FiredKeyStore();
-      expect(await store.claim('2026-07-25:x'), isFalse);
-      expect(await store.claim('2026-07-25:x'), isFalse);
-      expect(await store.claim('2026-07-25:y'), isTrue);
+      expect(await store.claim('$_today:x'), isFalse);
+      expect(await store.claim('$_today:x'), isFalse);
+      expect(await store.claim('$_today:y'), isTrue);
     });
   });
 
@@ -222,6 +226,27 @@ void main() {
 
       expect(await LocalDb.notifFiredExists(stale), isFalse);
       expect(await LocalDb.notifFiredExists(fresh), isTrue);
+    });
+
+    test('the prefs mirror is pruned too when the DB is healthy', () async {
+      // The mirror is written on every won claim, so without its own prune it
+      // grows by one key per notification for the life of the install.
+      final stale = '${_dayOffset(-(FiredKeyStore.retentionDays + 5))}:low_read';
+      final fresh = '${_dayOffset(-1)}:low_read';
+      SharedPreferences.setMockInitialValues({
+        'notif_fired:$stale': true,
+        'notif_fired:$fresh': true,
+        'notif_fired:alarm_fired:12345': true,
+      });
+
+      expect(await const FiredKeyStore().claim('${_dayOffset(0)}:trigger'),
+          isTrue);
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      expect(prefs.containsKey('notif_fired:$stale'), isFalse);
+      expect(prefs.getBool('notif_fired:$fresh'), isTrue);
+      expect(prefs.getBool('notif_fired:alarm_fired:12345'), isTrue);
     });
 
     test('undated claims (alarm_fired:<epoch>) are never pruned', () async {

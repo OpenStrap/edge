@@ -43,6 +43,12 @@ class SweepSeries {
   /// `getChart`'s `algo_breaks`).
   final List<double> history;
 
+  /// [today] is a running total for a day that has not ended (steps, strain
+  /// read at 13:00). It is a lower bound on the day: a high already reached
+  /// stays true, but "the lowest in N days" is a claim about an afternoon
+  /// still to come, so no low finding is made from it.
+  final bool partial;
+
   const SweepSeries({
     required this.key,
     required this.label,
@@ -50,6 +56,7 @@ class SweepSeries {
     required this.history,
     this.unit = '',
     this.decimals = 0,
+    this.partial = false,
   });
 }
 
@@ -138,6 +145,7 @@ List<SweepFinding> sweepFindings(List<SweepSeries> series) {
     final extreme = h.length >= kSweepMinExtremeHistory &&
         (s.today > sorted.last || s.today < sorted.first);
     if (z.abs() < (extreme ? kSweepExtremeZ : kSweepZ)) continue;
+    if (s.partial && z < 0) continue;
 
     final high = z > 0;
     final usual = 'usually ${_fmt(_percentile(sorted, .1), s)}'
