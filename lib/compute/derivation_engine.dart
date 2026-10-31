@@ -3281,7 +3281,9 @@ class DerivationEngine {
         // the todo set; re-score it here too rather than leave it a pass.
         final rescored =
             await _quietLevelRepass(profile, dataNowSec, scope.rawDays);
-        if (rescored > 0) {
+        // A zone change with no day to derive still moves every past night's
+        // clock: rebuild the rollup, or it keeps the old zone's reading.
+        if (rescored > 0 || await _crossDayZoneStale()) {
           await _refreshBaselines();
           await _runCrossDay(profile);
           await _runNotifications();
@@ -6844,6 +6846,9 @@ class DerivationEngine {
       // one layer up on the output.
       final builtForDay = LocalDb.localDayLabelNow();
       final builtAtEpoch = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      // The zone the inputs were read in: the as-of reader serves this bundle
+      // only in the same zone ([crossDayAsOf]).
+      final zone = crossDayZoneStamp();
       final (bundleJson, dropped) = await _runIsolateCancellable(
         () {
           final bundle =
@@ -6856,7 +6861,8 @@ class DerivationEngine {
                 )
                 ..['algo_version'] = kAlgoVersion
                 ..['built_for_day'] = builtForDay
-                ..['built_at_epoch'] = builtAtEpoch;
+                ..['built_at_epoch'] = builtAtEpoch
+                ..['zone'] = zone;
           // Encode-safety BEFORE jsonEncode, never a try/catch around it: one
           // non-finite leaf must cost that leaf, not the whole artifact.
           final paths = <String>[];
@@ -6935,9 +6941,21 @@ class DerivationEngine {
   /// "Target bedtime 4:00 PM" bug again, until the next rebuild. A mismatch
   /// (or an artifact without the stamp) rebuilds. Name AND offset: a DST change
   /// alone rebuilds too, which is one cheap rebuild twice a year.
-  static String _crossDayZoneStamp() {
+  static String crossDayZoneStamp() {
     final now = DateTime.now();
     return '${now.timeZoneName}|${now.timeZoneOffset.inMinutes}';
+  }
+
+  /// Whether the stored cross-day inputs were read in another zone.
+  Future<bool> _crossDayZoneStale() async {
+    final raw = (await LocalDb.baseline('crossday_input'))?['payload_json'];
+    if (raw is! String || raw.isEmpty) return false;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map && decoded['zone'] != crossDayZoneStamp();
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<List<Map<String, dynamic>>> _crossDayInputDays() async {
@@ -6953,7 +6971,7 @@ class DerivationEngine {
         // today's (§3.3). See [crossDayArtifactUsableToday].
         if (crossDayArtifactUsableToday(decoded, LocalDb.localDayLabelNow()) &&
             (decoded as Map)['review_revision'] == reviewRevision &&
-            decoded['zone'] == _crossDayZoneStamp()) {
+            decoded['zone'] == crossDayZoneStamp()) {
           final rows = decoded['days'] as List;
           return [
             for (final row in rows)
@@ -6979,7 +6997,7 @@ class DerivationEngine {
     final rows = await LocalDb.recentDayResults(_crossDayWindow);
     final today = LocalDb.localDayLabelNow();
     final imported = await LocalDb.importedDates();
-    final zone = _crossDayZoneStamp();
+    final zone = crossDayZoneStamp();
     final (days, json) = await _runIsolateCancellable(() {
       final days = <Map<String, dynamic>>[];
       for (final row in rows.reversed) {
