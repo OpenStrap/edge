@@ -3255,6 +3255,13 @@ class DerivationEngine {
           await _withWearableEdge(await LocalDb.lastDecodedRecTs()) ?? 0;
       if (dataNowSec <= 0) {
         _log('derive: no decoded data');
+        // A restored backup can hold every day and no decoded data. The
+        // rollup is built from stored days, so a zone change still rebuilds
+        // it here; otherwise the reader keeps abstaining on the old zone.
+        if (await _crossDayZoneStale()) {
+          await _refreshBaselines();
+          await _runCrossDay(profile);
+        }
         return 0;
       }
       final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
@@ -6941,14 +6948,32 @@ class DerivationEngine {
   /// "Target bedtime 4:00 PM" bug again, until the next rebuild. A mismatch
   /// (or an artifact without the stamp) rebuilds. Name AND offset: a DST change
   /// alone rebuilds too, which is one cheap rebuild twice a year.
+  ///
+  /// The abbreviation alone collides (Denver and Phoenix are both "MST" in
+  /// winter), so the stamp also carries the zone's offsets mid-January and
+  /// mid-July: two zones that agree on all three keep every night on the same
+  /// clock anyway.
   static String crossDayZoneStamp() {
     final now = DateTime.now();
-    return '${now.timeZoneName}|${now.timeZoneOffset.inMinutes}';
+    int offsetAt(int month) => DateTime.fromMillisecondsSinceEpoch(
+            DateTime.utc(now.year, month, 15, 12).millisecondsSinceEpoch)
+        .timeZoneOffset
+        .inMinutes;
+    return zoneStampOf(now.timeZoneName, now.timeZoneOffset.inMinutes,
+        offsetAt(1), offsetAt(7));
   }
 
-  /// Whether the stored cross-day inputs were read in another zone.
+  @visibleForTesting
+  static String zoneStampOf(
+          String name, int nowOffsetMin, int janOffsetMin, int julOffsetMin) =>
+      '$name|$nowOffsetMin|$janOffsetMin|$julOffsetMin';
+
+  /// Whether the stored cross-day ROLLUP was built in another zone. The
+  /// rollup, not its inputs: [_refreshBaselines] re-stamps the inputs before
+  /// the rollup is written, so a rollup that then timed out would read as
+  /// current on the inputs' stamp and never be retried.
   Future<bool> _crossDayZoneStale() async {
-    final raw = (await LocalDb.baseline('crossday_input'))?['payload_json'];
+    final raw = (await LocalDb.baseline('crossday'))?['payload_json'];
     if (raw is! String || raw.isEmpty) return false;
     try {
       final decoded = jsonDecode(raw);
