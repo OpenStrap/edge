@@ -8983,9 +8983,11 @@ class LocalDb {
   /// THIS rather than writing its own `MAX(algo_version)` — the pattern had
   /// already reappeared at five readers and two views, and the ceiling has to
   /// be on all of them or it is on none of them.
-  static const String _servedDayJoin =
-      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result '
-      'WHERE algo_version <= $_servedAlgoCeiling GROUP BY day_id) m '
+  static const String _servedDayJoin = 'JOIN ($_servedVersions) m $_servedOn';
+  static const String _servedVersions =
+      'SELECT day_id, MAX(algo_version) AS v FROM day_result '
+      'WHERE algo_version <= $_servedAlgoCeiling GROUP BY day_id';
+  static const String _servedOn =
       'ON r.day_id = m.day_id AND r.algo_version = m.v';
 
   /// The result row for one day_id at the highest version this build serves
@@ -9261,13 +9263,19 @@ class LocalDb {
   static Future<List<Map<String, dynamic>>> sleepWindowRows(int limit,
       {String? before}) async {
     final db = await instance;
+    // Stream the served versions newest first from the covering day/version
+    // index. CROSS JOIN keeps that stream outside the row lookup, so SQLite
+    // can stop after N non-skipped days instead of fetching and sorting every
+    // day's row (whose skipped column sits after the large payload).
+    // The limit MUST follow skipped: a newer skip must neither consume a slot
+    // nor fall back to an older non-skipped version of the same day.
     return db.rawQuery(
       'SELECT r.day_id AS day_id, r.window_json AS window_json '
-      'FROM day_result r '
-      '$_servedDayJoin '
+      'FROM ($_servedVersions ORDER BY day_id DESC) m '
+      'CROSS JOIN day_result r $_servedOn '
       'WHERE r.skipped = 0 '
-      '${before == null ? '' : 'AND r.day_id < ? '}'
-      'ORDER BY r.day_id DESC LIMIT ?',
+      '${before == null ? '' : 'AND m.day_id < ? '}'
+      'ORDER BY m.day_id DESC LIMIT ?',
       [?before, limit],
     );
   }
