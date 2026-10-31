@@ -10552,14 +10552,34 @@ class LocalDb {
   /// nothing else in flight); see [vacuumIfBloated] for why this is a one-off
   /// VACUUM and not `auto_vacuum`. The checkpoint is a `rawQuery`: the PRAGMA
   /// returns a row, which `execute` refuses on iOS's sqflite.
-  static Future<void> vacuumAndCheckpoint() async {
+  ///
+  /// True when the WAL was truncated too. A reader still holding a snapshot
+  /// does not make the checkpoint throw: it returns busy = 1 in its first
+  /// column and leaves the WAL as it was, so the row is read, and tried once
+  /// more after a moment.
+  static Future<bool> vacuumAndCheckpoint() async {
     final db = await instance;
     await _resetRedriveResume();
     await db.execute('VACUUM');
     // VACUUM renumbers every btree root page; see [vacuumIfBloated].
     await CoachDb.close();
-    await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+      if (checkpointCompleted(
+          await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)'))) {
+        return true;
+      }
+    }
+    return false;
   }
+
+  /// Whether a `PRAGMA wal_checkpoint` result row says it finished: its first
+  /// column is 1 when the checkpoint was blocked.
+  @visibleForTesting
+  static bool checkpointCompleted(List<Map<String, Object?>> rows) =>
+      rows.isEmpty || rows.first.values.first != 1;
 
   static Future<int> databaseFileBytes() async {
     final dir = await getDatabasesPath();

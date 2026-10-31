@@ -398,4 +398,17 @@ void main() {
     expect(done['done'], true);
     await LocalDb.deleteComputeFreshness(LocalDb.kArchiveRedriveKey);
   });
+
+  test('a blocked WAL checkpoint is not reported as done', () {
+    expect(
+        LocalDb.checkpointCompleted([
+          {'busy': 1, 'log': 40, 'checkpointed': 12},
+        ]),
+        isFalse);
+    expect(
+        LocalDb.checkpointCompleted([
+          {'busy': 0, 'log': 0, 'checkpointed': 0},
+        ]),
+        isTrue);
+  });
 }

@@ -3222,7 +3222,11 @@ class DerivationEngine {
           );
         }
         onStep?.call(CompactStep.vacuum);
-        await LocalDb.vacuumAndCheckpoint();
+        if (!await LocalDb.vacuumAndCheckpoint()) {
+          // The size below is measured on disk, WAL included, so the result
+          // stays honest; the WAL shrinks at the next checkpoint.
+          _log('compact: WAL not truncated, a reader held it');
+        }
         return CompactResult(
           beforeBytes: before,
           afterBytes: await LocalDb.databaseBytesOnDisk(),
