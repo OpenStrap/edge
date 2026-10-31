@@ -300,7 +300,7 @@ void main() {
         'payload_json': '{"mean":51}',
         'updated_at': 1,
       });
-      await db.insert('raw_archive', {
+      await db.insert(LocalDb.rawArchiveView, {
         'hex': 'deadbeef',
         'counter': 7,
         'packet_type': 0x2f,
@@ -375,7 +375,10 @@ void main() {
           reason: 'the old file is parked, never deleted');
 
       for (final t in salvaged) {
-        expect(await db.query(t), hasLength(1), reason: '$t did not come back');
+        // The archive reads back through its view on this layout.
+        final live = t == 'raw_archive' ? LocalDb.rawArchiveView : t;
+        expect(await db.query(live), hasLength(1),
+            reason: '$t did not come back');
         expect(r.salvaged[t], 1, reason: '$t was not reported as recovered');
       }
       // Values, not just counts — a merge that dropped columns would pass a
@@ -404,7 +407,9 @@ void main() {
       final again = await LocalDb.instance;
       expect(LocalDb.lastRebuild, isNull);
       for (final t in salvaged) {
-        expect(await again.query(t), hasLength(1), reason: '$t lost on reopen');
+        final live = t == 'raw_archive' ? LocalDb.rawArchiveView : t;
+        expect(await again.query(live), hasLength(1),
+            reason: '$t lost on reopen');
       }
       await LocalDb.close();
     });

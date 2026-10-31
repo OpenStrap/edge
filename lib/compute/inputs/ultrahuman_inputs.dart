@@ -49,7 +49,7 @@ Future<List<UltrahumanRecord>> ultrahumanRecords(
   final db = await LocalDb.instance;
   final out = <UltrahumanRecord>[];
   for (final r in await db.rawQuery(
-    "SELECT hex FROM raw_archive WHERE device_id = ? "
+    "SELECT hex FROM ${LocalDb.rawArchiveView} WHERE device_id = ? "
     "AND reason = 'ultrahuman_record' AND rec_ts >= ? AND rec_ts <= ? "
     'ORDER BY rec_ts',
     [deviceId, from, to],
