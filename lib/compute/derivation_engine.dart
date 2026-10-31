@@ -7784,7 +7784,7 @@ class DerivationEngine {
       }
       // Substrate archive retention, measured against the data edge like the
       // live prune. Off the commit path; vacuumIfBloated reclaims the pages.
-      final edge = await LocalDb.lastDecodedRecTs();
+      final edge = await LocalDb.substrateArchiveEdge();
       if (edge != null) {
         final evicted = await LocalDb.evictSubstrateArchive(
           await LocalDb.substrateArchivePolicy(),

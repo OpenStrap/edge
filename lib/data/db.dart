@@ -14425,6 +14425,17 @@ class LocalDb {
     int dataNowSec,
   ) async => SubstrateArchive.evict(await instance, policy, dataNowSec);
 
+  /// The data edge the archive window is measured from: the newest band
+  /// reading, or, on a restored database with an archive but no decoded rows
+  /// yet, the archive's own newest reading — without it a shorter window
+  /// would be saved and nothing ever deleted. Null only with neither.
+  static Future<int?> substrateArchiveEdge() async {
+    final band = await lastDecodedRecTs();
+    if (band != null) return band;
+    final newest = (await substrateArchiveStats())['newest_to_ts'];
+    return newest is num ? newest.toInt() : null;
+  }
+
   /// `{buckets, bytes, raw_bytes, oldest_from_ts, newest_to_ts}` of the
   /// substrate archive.
   static Future<Map<String, Object?>> substrateArchiveStats() async =>

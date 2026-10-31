@@ -2577,11 +2577,13 @@ class AppState extends ChangeNotifier {
   /// Set how long pruned raw readings stay in `substrate_archive`. A shorter
   /// window evicts the days it no longer covers right away, behind the derive
   /// latch so a prune that is archiving a bucket finishes first.
+  ///
+  /// The eviction runs on every set, not only on a shortening: it deletes
+  /// nothing past what a longer window keeps, and an eviction that failed
+  /// after the setting was saved is retried by choosing the same window again.
   Future<void> setSubstrateArchiveWindow(SubstrateArchivePolicy next) async {
-    final current = await LocalDb.substrateArchivePolicy();
     await LocalDb.setSubstrateArchivePolicy(next);
-    if (!current.keepsLongerThan(next)) return;
-    final edge = await LocalDb.lastDecodedRecTs();
+    final edge = await LocalDb.substrateArchiveEdge();
     if (edge == null) return;
     final evicted = await DerivationEngine.whileIdle(
         () => LocalDb.evictSubstrateArchive(next, edge));

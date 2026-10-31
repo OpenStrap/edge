@@ -437,6 +437,18 @@ void main() {
     expect(await (await _db()).query('substrate_archive'), isEmpty);
   });
 
+  test('with no decoded rows left, the window is measured from the archive',
+      () async {
+    await _seed();
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
+    final db = await _db();
+    await db.delete('decoded_onehz');
+    expect(await LocalDb.lastDecodedRecTs(), isNull);
+    final newest =
+        (await LocalDb.substrateArchiveStats())['newest_to_ts'] as int;
+    expect(await LocalDb.substrateArchiveEdge(), newest);
+  });
+
   test('evictSubstrateArchive drops buckets older than keepDays; -1 keeps '
       'all; setting the policy to 0 purges', () async {
     await _seed();
