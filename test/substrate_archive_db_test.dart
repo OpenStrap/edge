@@ -89,10 +89,14 @@ Future<void> _clear() async {
     'decoded_onehz',
     'decoded_rr',
     'substrate_archive',
-    'compute_freshness',
   ]) {
     await db.delete(t);
   }
+  // Everything but the marker every opened phone database carries: without it
+  // an export here would read as a backup from before the 90-day default.
+  await db.delete('compute_freshness',
+      where: 'key != ?',
+      whereArgs: ['substrate_archive_policy_default_checked']);
   SubstrateArchive.debugCorruptEncode = false;
   SubstrateArchive.debugBeforeBucket = null;
   SubstrateArchive.debugThrowInBucket = null;
@@ -435,6 +439,18 @@ void main() {
     expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
     expect(await _live('decoded_rr', 'rec_ts < ?', [cutoff]), isEmpty);
     expect(await (await _db()).query('substrate_archive'), isEmpty);
+  });
+
+  test('with no decoded rows left, the window is measured from the archive',
+      () async {
+    await _seed();
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
+    final db = await _db();
+    await db.delete('decoded_onehz');
+    expect(await LocalDb.lastDecodedRecTs(), isNull);
+    final newest =
+        (await LocalDb.substrateArchiveStats())['newest_to_ts'] as int;
+    expect(await LocalDb.substrateArchiveEdge(), newest);
   });
 
   test('evictSubstrateArchive drops buckets older than keepDays; -1 keeps '

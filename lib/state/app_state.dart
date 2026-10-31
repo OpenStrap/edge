@@ -92,6 +92,8 @@ import 'prefs.dart';
 import '../ble/adapters/signals.dart' show InputSignal;
 import '../ui2/profile/devices.dart' show liveSources, rankSources;
 import '../data/db.dart';
+import '../data/disk_space.dart' show freeDiskBytes;
+import '../data/substrate_archive.dart' show SubstrateArchivePolicy;
 import '../data/export_retention.dart' show purgeSharedHealthCopies;
 import '../ecg/ble_ecg_transport.dart';
 import '../ecg/ecg_controller.dart';
@@ -2570,6 +2572,50 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       _log('[derive] wearable re-derive failed: $e');
     }
+  }
+
+  /// Set how long pruned raw readings stay in `substrate_archive`. A shorter
+  /// window evicts the days it no longer covers right away, behind the derive
+  /// latch so a prune that is archiving a bucket finishes first.
+  ///
+  /// The eviction runs on every set, not only on a shortening: it deletes
+  /// nothing past what a longer window keeps, and an eviction that failed
+  /// after the setting was saved is retried by choosing the same window again.
+  Future<void> setSubstrateArchiveWindow(SubstrateArchivePolicy next) async {
+    await LocalDb.setSubstrateArchivePolicy(next);
+    final edge = await LocalDb.substrateArchiveEdge();
+    if (edge == null) return;
+    final evicted = await DerivationEngine.whileIdle(
+        () => LocalDb.evictSubstrateArchive(next, edge));
+    if (evicted > 0) _log('[db] archive window shortened: $evicted bucket(s)');
+  }
+
+  /// The data settings' "Compact database": prune per the retention and
+  /// archive policies, VACUUM, truncate the WAL. Null when it declined to
+  /// start because a sync, an offload or a live session is running — a
+  /// VACUUM holds the write lock for the whole rewrite, and those are the
+  /// writers that must not wait on it. A derive in flight is waited for
+  /// rather than refused (see [DerivationEngine.compactStorage]).
+  Future<CompactResult?> compactDatabase({
+    void Function(CompactStep step)? onStep,
+  }) async {
+    bool writerRunning() =>
+        busy ||
+        syncingNow ||
+        _liveSessionActive ||
+        _deriveScheduler.offloadActive;
+    if (writerRunning()) return null;
+    final result = await _derive.compactStorage(
+      freeDiskBytes: freeDiskBytes,
+      onStep: onStep,
+      busy: writerRunning,
+    );
+    _log('[db] compact: ${result.beforeBytes >> 20} MB -> '
+        '${result.afterBytes >> 20} MB (vacuumed=${result.vacuumed}, '
+        'deferred=${result.deferred})');
+    // Same answer as refusing up front: the prune ran, the VACUUM waits for
+    // the sync to finish.
+    return result.deferred ? null : result;
   }
 
   /// User-initiated "Re-analyze data": force-derive EVERY day that has raw,

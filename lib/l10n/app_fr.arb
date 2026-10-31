@@ -2788,5 +2788,72 @@
   "notifBatteryForecastReserveBody": "À {rate} %/h, il sera vide vers {time}, juste après votre heure de réveil habituelle : il restera environ {left} % au lever. Rechargez-le maintenant pour garder la nuit.",
   "notifBatteryForecastAfterWakeBody": "À {rate} %/h, il sera vide vers {time}, après votre heure de réveil habituelle.",
   "notifWindDownBody": "Vous vous couchez vers {time}. Commencez à ralentir.",
-  "notifWorkoutIdleBody": "Rien au-dessus du repos n'a été enregistré depuis {minutes} minutes. Si la séance est finie, terminez-la depuis l'onglet Entraînement."
+  "notifWorkoutIdleBody": "Rien au-dessus du repos n'a été enregistré depuis {minutes} minutes. Si la séance est finie, terminez-la depuis l'onglet Entraînement.",
+  "dataStorageGroup": "Stockage",
+  "dataKeepHistory": "Conserver les mesures brutes",
+  "dataKeepHistorySub": "Une copie compressée des mesures seconde par seconde de chaque jour, conservée après que l'app les a effacées. Un jour plus ancien garde ses scores mais ne peut pas être recalculé quand le calcul s'améliore",
+  "dataKeepDays": "{days} jours",
+  "@dataKeepDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 an",
+  "dataKeepForever": "Toujours",
+  "dataKeepShorterTitle": "Conserver {window} de mesures brutes ?",
+  "@dataKeepShorterTitle": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "Les mesures de plus de {window} sont supprimées maintenant. Ces jours gardent leurs scores, mais ne pourront pas être recalculés après les prochaines mises à jour.",
+  "@dataKeepShorterBody": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "Supprimer les anciennes mesures",
+  "dataKeepShorterCancel": "Les garder",
+  "dataCompact": "Compacter la base de données",
+  "dataCompactSub": "Efface ce que les réglages ci-dessus ne gardent plus, puis rend l'espace inutilisé au téléphone. Nécessite un espace libre d'environ deux fois la taille de la base",
+  "dataCompactPruning": "Effacement des anciennes données…",
+  "dataCompactVacuuming": "Compactage…",
+  "dataCompactFreed": "{freed} Mo libérés. La base fait maintenant {size} Mo.",
+  "@dataCompactFreed": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "Les anciennes données ont été effacées, mais le compactage nécessite {need} Mo libres et le téléphone en a {free}.",
+  "@dataCompactNoSpace": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "Les anciennes données ont été effacées, mais l'espace libre du téléphone n'a pas pu être lu, donc le fichier n'a pas été compacté.",
+  "dataCompactBusy": "Une synchronisation ou une session est en cours. Réessayez une fois terminée.",
+  "dataSizeMb": "{mb} Mo",
+  "@dataSizeMb": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  }
 }

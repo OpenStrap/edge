@@ -97,7 +97,8 @@ class CoachDb {
     'workout_suggestions', 'workout_route', 'live_coverage',
     'session_score_mask', 'session_sensor',
     // raw / decoded substrate
-    'raw_records', 'raw_archive', 'decoded_onehz', 'decoded_rr', 'samples',
+    'raw_records', 'raw_archive', 'raw_archive_frames', 'raw_archive_legacy',
+    'decoded_onehz', 'decoded_rr', 'samples',
     'events', 'band_events', 'band_battery', 'substrate_archive',
     'device_coverage', 'signal_priority',
     // WHOOP MG ECG. `ecg_reading` is a base table of an allowed view, so the
