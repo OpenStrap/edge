@@ -2172,12 +2172,14 @@ class LocalDb {
       'UPDATE device SET wearing = ?, wearing_set_ts = ? '
       'WHERE id = ? AND wearing_set_ts IS NULL';
 
+  /// [executor] includes adoption in the caller's pairing transaction.
   static Future<int> adoptDeviceWearing(
     int wearing,
     int setTs, [
     String id = kPrimaryDeviceId,
+    DatabaseExecutor? executor,
   ]) async {
-    final db = await instance;
+    final db = executor ?? await instance;
     return db.rawUpdate(_adoptWearingSql, [wearing, setTs, id]);
   }
 
@@ -2811,6 +2813,7 @@ class LocalDb {
     if (n > 0) deviceRowChanged.add(id);
   }
 
+  /// [executor] includes the upsert in the caller's persistence transaction.
   static Future<void> upsertDevice({
     String id = kPrimaryDeviceId,
     String? adapterId,
@@ -2818,8 +2821,9 @@ class LocalDb {
     String? label,
     String? tier,
     bool clearAdapterId = false,
+    DatabaseExecutor? executor,
   }) async {
-    final db = await instance;
+    final db = executor ?? await instance;
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     await db.insert('device', {
       'id': id,

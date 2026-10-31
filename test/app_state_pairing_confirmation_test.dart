@@ -9,8 +9,11 @@ import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/notify/notification_service.dart';
 import 'package:openstrap_edge/sync/band_ownership.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
+// ignore: depend_on_referenced_packages
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'support/app_state_sync_harness.dart';
+import 'support/failing_preferences_store.dart';
 
 const _db = 'app_state_pairing_confirmation.db';
 
@@ -115,6 +118,42 @@ void main() {
       expect(await _history(), before);
     }, paired: false),
   );
+
+  for (final throws in [true, false]) {
+    test(
+      'failed pairing persistence (throws=$throws) cleans up and can retry',
+      syncCase((rig, timers) async {
+        final before = await _history();
+        final store = SharedPreferencesStorePlatform.instance;
+        SharedPreferencesStorePlatform.instance = FailingPreferencesStore(
+          store,
+          key: 'paired_serial',
+          throws: throws,
+        );
+        addTearDown(() => SharedPreferencesStorePlatform.instance = store);
+
+        await expectLater(
+          rig.app.pairWith(BluetoothDevice.fromId(kRemoteId)),
+          throwsStateError,
+        );
+
+        expect(rig.app.isPaired, isFalse);
+        expect(await PairedDevice.load(), isNull);
+        expect(rig.engine.isConnected, isFalse);
+        expect(rig.app.busy, isFalse);
+        expect(BandOwnership.owner, isNull);
+        expect(BandOwnership.foregroundIntent, isFalse);
+        expect(IosBleRestore.foregroundActive, isFalse);
+        expect(timers.activePeriodic(kSuperviseEvery), isEmpty);
+        expect(await _history(), before);
+
+        await rig.app.pairWith(BluetoothDevice.fromId(kRemoteId));
+        expect(rig.app.isPaired, isTrue);
+        expect((await PairedDevice.load())?.remoteId, kRemoteId);
+        expect(await _history(), before);
+      }, paired: false),
+    );
+  }
 
   test(
     'a thrown bootstrap releases ownership and remains retryable',
