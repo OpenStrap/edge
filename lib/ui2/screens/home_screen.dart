@@ -65,7 +65,7 @@ import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
 import '../profile/alarm.dart'
     show AlarmArmState, alarmArmOf, alarmDoor, alarmGlanceCard;
-import '../profile/devices.dart' show formatDayTime;
+import '../profile/devices.dart' show RePair, formatDayTime;
 import '../profile/profile.dart';
 import '../profile/wearable_numbers.dart'
     show WearableCells, kHomeWearableRows;
@@ -134,6 +134,27 @@ VoidCallback? syncOf(BuildContext c) {
   } catch (_) {
     return null;
   }
+}
+
+/// The card Home shows instead of "Sync the band" when no band is paired, or
+/// null when one is (or there is no AppState above us). Onboarding's "Skip for
+/// now" opens the app with nothing paired; a sync then returns at once, the
+/// tap grace held "Connecting to your band" up for 20 s over nothing, and
+/// nothing on Home pointed at pairing.
+Widget? noBandCard(BuildContext c, AppLocalizations? l) {
+  try {
+    if (c.read<AppState>().isPaired) return null;
+  } catch (_) {
+    return null;
+  }
+  return StatusCard(
+    l?.devicesNoBandPaired ?? 'No band is paired',
+    l?.pairingSkipNote ??
+        'The app opens without a band. Nothing is measured until one is paired.',
+    fix: l?.devicesPairABand ?? 'Pair a band',
+    icon: LucideIcons.watch,
+    onFix: () => goto(c, const RePair()),
+  );
 }
 
 /// Whether the database had to be rebuilt to start this launch, or null in a
@@ -910,6 +931,8 @@ class RingTrio extends StatelessWidget {
   }
 }
 
+String _fixed1OrEmpty(Object? v) => v is num ? displayFixed(v, 1) : '';
+
 /// "Updated 8:12 · 2 → 28" off a `todayHeadlineOf` `recovery_update`, or null.
 String? recoveryUpdatedLine(Object? update, AppLocalizations? l) {
   if (update case {
@@ -1042,7 +1065,7 @@ _RingState _ringOf(HomeRingKind k, HomeData d, AppLocalizations? l) {
           ? _gap(k, l?.homeRingStrain ?? 'Strain', LucideIcons.zap, C.purple,
               d.strain, l?.homeRingNoStrain ?? 'No strain', l, unit: 'days')
           : _RingState(k, l?.homeRingStrain ?? 'Strain', LucideIcons.zap, C.purple,
-              value: v.toStringAsFixed(1), sub: l?.homeStrainOf21 ?? 'of 21', frac: v / 21);
+              value: displayFixed(v, 1), sub: l?.homeStrainOf21 ?? 'of 21', frac: v / 21);
     case HomeRingKind.sleep:
       final v = d.sleepMin.value;
       final need = d.sleepNeedMin.value;
@@ -1389,9 +1412,13 @@ class HomeData {
   static Future<HomeData> loadForDay(LocalRepository repo, String date,
       [AppLocalizations? l]) async {
     final profile = await repo.getProfile();
-    final overview = await repo.getDayOverview(date);
-    final strain = await repo.getDayStrain(date);
-    final sleep = await repo.getDaySleepV2(date);
+    // The three getters read the same stored day: decode it once, not three
+    // times per arrow tap.
+    final (overview, strain, sleep) = await repo.sharingDayReads(() async => (
+          await repo.getDayOverview(date),
+          await repo.getDayStrain(date),
+          await repo.getDaySleepV2(date),
+        ));
     final readiness = metricOf(overview['readiness']);
     // Same lookup [load] does for today, for the same reason: the ring's
     // shortfall explanation needs the stored diagnostic, and a day the
@@ -1410,6 +1437,10 @@ class HomeData {
       calories: metricOf(strain['calories']),
       caloriesTotal: metricOf(strain['calories_total']),
       sleepMin: metricOf(sleep['duration_min']),
+      // The learned need `getDaySleepV2` already carries (absent until one is
+      // learned). Left unset, the ring told a user who has a need that there
+      // was "No target yet" on every day but today.
+      sleepNeedMin: metricOf(sleep['need_min']),
       stepGoal: (profile['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal,
     );
   }
@@ -1517,6 +1548,14 @@ class HomeScreen extends StatefulWidget {
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
+
+/// What Home's switcher stores for [day]: null when it is today, so "today"
+/// keeps following the clock. Home lives in the shell's IndexedStack and is
+/// never disposed — a literal today's date stored by "Back to today" turned
+/// into yesterday at midnight, and the tab silently became a past-day view
+/// (no plan, no alarm, pull-to-refresh no longer synced).
+String? homeSwitcherDay(String day, {DateTime? now}) =>
+    day == todayLabel(now) ? null : day;
 
 class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   HomeData? _d;
@@ -1648,9 +1687,14 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// already restricts the arrows to [_days] — so this just re-loads for it.
   void _goDay(String day) {
     setState(() {
-      // Today is "follow today", not a date — see [_day].
-      _day = day == todayLabel(widget.now) ? null : day;
+      _day = homeSwitcherDay(day, now: widget.now);
+      // The day on screen goes with the switch. Kept, it stayed under the new
+      // day's stepper for the whole load with no spinner, and for good if the
+      // load threw: the rings, tiles and greeting date were still the old
+      // day's, and the failure card only renders when there is no day.
+      _d = null;
       _loading = true;
+      _failed = false;
     });
     _load();
   }
@@ -1724,15 +1768,16 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     // install's live pipeline catching up, which has nothing to do with a day
     // the switcher stepped back onto.
     if (pastDay) {
-      return const StatusCard(
-        'No data for this day',
-        'Nothing was recorded on this day.',
+      return StatusCard(
+        l?.homeNoDataThisDayTitle ?? 'No data for this day',
+        l?.homeNoDataThisDayBody ?? 'Nothing was recorded on this day.',
         fix: '',
         icon: LucideIcons.calendarOff,
       );
     }
     final phase = _phaseStatusCard(c, l);
     if (phase != null) return phase;
+    if (noBandCard(c, l) case final noBand?) return noBand;
 
     final sync = syncOf(c);
     return StatusCard(
@@ -1792,7 +1837,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           const Center(child: CircularProgressIndicator())
         else if (_failed)
           StatusCard(
-            l?.homeLoadFailedTitle ?? 'Today could not be read',
+            _day == null
+                ? (l?.homeLoadFailedTitle ?? 'Today could not be read')
+                : (l?.homeDayLoadFailedTitle(prettyDay(_day, l)) ??
+                    '${prettyDay(_day, l)} could not be read'),
             l?.homeLoadFailedBody ??
                 'The stored day failed to load. Nothing was deleted — this is a '
                 'read that went wrong, not missing data.',
@@ -1807,6 +1855,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           Builder(builder: (c) {
             final phase = _phaseStatusCard(c, l);
             if (phase != null) return phase;
+            if (noBandCard(c, l) case final noBand?) return noBand;
             final sync = syncOf(c);
             return StatusCard(
               l?.homeNothingDerivedTitle ?? 'No nights scored yet',
@@ -1816,6 +1865,16 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               onFix: sync == null ? null : () => _tapSync(sync),
             );
           }),
+        // A failed read of a day stepped back onto has no stepper on this
+        // path, so this is the way home.
+        if (_day != null && _day != todayLabel())
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: () => _goDay(todayLabel()),
+              child: Text(l?.homeBackToToday ?? 'Back to today'),
+            ),
+          ),
         if (!_loading && !_failed && widget.data == null) ...[
           const SizedBox(height: S.x3),
           firstWeekCard(c, days: _days.length, strainScored: false),
@@ -1982,8 +2041,12 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             onOpen: (k) => go(
                 c,
                 switch (k) {
-                  HomeRingKind.recovery => const ReadinessDetail(),
-                  HomeRingKind.strain => const DayStrainDetail(),
+                  // A past day's rings open that day's screens: the number
+                  // tapped and the number shown must be the same day's.
+                  HomeRingKind.recovery =>
+                    ReadinessDetail(day: isToday ? null : _day),
+                  HomeRingKind.strain =>
+                    DayStrainDetail(day: isToday ? null : _day),
                   // The night the ring was drawn from, not last night. Today
                   // stays null even after the switcher steps back onto it:
                   // today's ring is the held-over night, and only the default
@@ -2019,7 +2082,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                       (l?.homeReadinessNoReason ?? 'Nothing recorded says why.'),
               fix: l?.homeSeeWhatWasMissing ?? 'See what was missing',
               icon: LucideIcons.batteryCharging,
-              onFix: () => go(c, const ReadinessDetail()),
+              onFix: () =>
+                  go(c, ReadinessDetail(day: isToday ? null : _day)),
             );
           }),
 
@@ -2181,6 +2245,12 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     // was held over from an older night. It cannot be an older night any more
     // — the loader refuses those — so every tile in this row is today's and
     // none of them needs a date.
+    //
+    // On a past day every tile is THAT day's, and the trend screen opens on
+    // today's window — tapping "11,204" landed on today's count. A past day's
+    // tile opens the screen for the day it is showing instead.
+    Widget detail(String key) =>
+        isToday || _day == null ? MetricDetail(key) : metricDayScreen(key, _day!);
 
     // Sleep is a RING now, duration and all — the card here was the same
     // number twice on one screen, and the ring is the one that says what the
@@ -2191,7 +2261,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           '${d.rhr.value!.round()}',
           unit: 'bpm',
           sub: l?.homeRestingSub ?? 'Resting',
-          onTap: () => go(c, const MetricDetail('resting_hr'))),
+          onTap: () => go(c, detail('resting_hr'))),
       // "no sleep was recorded" was stated as fact, unconditionally — and it
       // was rendered directly beside a Sleep card showing that night's
       // duration. Sleep duration and nocturnal RHR are gated separately: a
@@ -2231,7 +2301,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                     '${((d.steps.value! / d.stepGoal) * 100).clamp(0, 999).round()}% of goal',
               ?stepSensorLabel(d.steps, l),
             ].join(' · '),
-      onTap: () => go(c, const MetricDetail('steps')),
+      onTap: () => go(c, detail('steps')),
       trailing: d.steps.value == null || d.stepGoal <= 0
           ? null
           : SizedBox(
@@ -2253,7 +2323,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               ? (l?.homeCaloriesEstimated ?? 'Estimated')
               : (l?.homeCaloriesTotal(thousands(d.caloriesTotal.value)) ??
                   '${thousands(d.caloriesTotal.value)} total'),
-          onTap: () => go(c, const MetricDetail('calories'))),
+          onTap: () => go(c, detail('calories'))),
       // No `why:`. It said "Needs your weight and age" — and the measured run
       // printed that to a profile carrying both, because energy had gone absent
       // for an entirely different reason that the card never asked for.
@@ -2294,7 +2364,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         else if (absent.length > 1) ...[
           const SizedBox(height: S.x3),
           StatusCard(
-            l?.homeSomeDataMissingTitle ?? 'Some of today\'s data is missing',
+            // The glance also renders for a day the switcher stepped back
+            // onto, where "today's" names the wrong day.
+            isToday
+                ? (l?.homeSomeDataMissingTitle ??
+                    'Some of today\'s data is missing')
+                : (l?.homeSomeDayDataMissingTitle ??
+                    'Some of this day\'s data is missing'),
             [
               for (final s in absent)
                 [s.what, s.why, s.fix].where((t) => t.isNotEmpty).join('. '),
@@ -2342,8 +2418,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           C.purple,
           met
               ? (l?.homeStrainTargetMet ?? 'Strain target met')
-              : (l?.homeAimForStrain(aim.toStringAsFixed(1)) ??
-                  'Aim for ${aim.toStringAsFixed(1)} strain'),
+              : (l?.homeAimForStrain(displayFixed(aim, 1)) ??
+                  'Aim for ${displayFixed(aim, 1)} strain'),
           // Built on a wearable's estimated TRIMP: say so.
           [
             l?.homeTraining ?? 'Training',
@@ -2351,8 +2427,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           ].join(' · '),
           met
               ? (l?.actionDone ?? 'Done')
-              : '${(target['low'] as num?)?.toStringAsFixed(1) ?? ''}–'
-                  '${(target['high'] as num?)?.toStringAsFixed(1) ?? ''}',
+              : '${_fixed1OrEmpty(target['low'])}–'
+                  '${_fixed1OrEmpty(target['high'])}',
           met));
     }
 

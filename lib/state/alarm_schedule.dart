@@ -173,6 +173,39 @@ DateTime? nextAlarmOccurrence(List<AlarmScheduleEntry> schedule, DateTime now) {
   return best;
 }
 
+/// The schedule column (0=Mon..6=Sun) a Siri "enable tomorrow's alarm"
+/// request made at [requestedAt] (local time) means.
+///
+/// Normally the next calendar day's. The exception is a request made before
+/// local noon while today's slot is still ahead: asked at 00:40 on a Tuesday
+/// with a 07:00 Tuesday slot, the user is going to bed and the morning they
+/// mean is Tuesday's. Once today's slot time has passed (09:00, already up),
+/// "tomorrow" is the next calendar day again. A fixed hour cut-off gets one of
+/// those two windows wrong; the slot time itself is the boundary. Noon still
+/// bounds it so an evening slot ahead (asked at 15:00 about a 22:00 one) never
+/// reads as "tomorrow". A weekday with no row uses the same default time
+/// [setScheduleDay] would give it.
+int siriTomorrowAlarmWeekday(
+    List<AlarmScheduleEntry> schedule, DateTime requestedAt) {
+  final todayCol = requestedAt.weekday - 1;
+  if (requestedAt.hour < 12) {
+    final today = schedule.firstWhere(
+      (e) => e.weekday == todayCol,
+      orElse: () => AlarmScheduleEntry(
+          weekday: todayCol,
+          hour: defaultAlarmHour,
+          minute: defaultAlarmMinute,
+          enabled: false),
+    );
+    final slot = DateTime(requestedAt.year, requestedAt.month,
+        requestedAt.day, today.hour, today.minute);
+    if (slot.isAfter(requestedAt)) return todayCol;
+  }
+  return DateTime(requestedAt.year, requestedAt.month, requestedAt.day + 1)
+          .weekday -
+      1;
+}
+
 /// The instant to compute the re-arm from right after the alarm armed for
 /// [firedEpoch] (unix sec) fired. The strap fires on its own RTC, which can
 /// run a second or more ahead of the phone (whole-second drift, sub-tolerance
@@ -194,11 +227,14 @@ DateTime alarmRearmFrom(DateTime now, int? firedEpoch) {
 /// Result of [armNextScheduledOccurrence]. [epoch] is the newly-armed unix
 /// instant, or null when nothing changed on the strap (no enabled day and
 /// already unarmed, the target already matches what's armed, or the write
-/// was refused/failed). [disabled] is true only when this call actively sent
+/// was refused/failed). [disabled] is true only when this call delivered
 /// DISABLE_ALARM because the schedule now has nothing enabled but the strap
 /// still held a live arm — the case a caller must clear its own
-/// persisted/optimistic epoch for.
-typedef AlarmArmResult = ({int? epoch, bool disabled});
+/// persisted/optimistic epoch for. [failed] is true when a write was needed
+/// and did not reach the band or the band rejected it: a null [epoch] alone
+/// can't tell "already armed" from "never armed", and a screen that just
+/// changed the schedule must not report the old arm as the new one.
+typedef AlarmArmResult = ({int? epoch, bool disabled, bool failed});
 
 /// Arms [engine] with the next scheduled occurrence, if one exists and it
 /// differs from [currentArmedEpoch] (unix seconds) — the "don't hammer the
@@ -218,15 +254,28 @@ Future<AlarmArmResult> armNextScheduledOccurrence({
     // Nothing enabled. Toggling every weekday off individually (rather than
     // an explicit cancel-all) must not leave the strap holding its last arm
     // forever — nothing else in this flow ever tells the band to give it up.
-    if (currentArmedEpoch == null) return (epoch: null, disabled: false);
-    await engine.disableAlarm();
-    return (epoch: null, disabled: true);
+    if (currentArmedEpoch == null) {
+      return (epoch: null, disabled: false, failed: false);
+    }
+    // Only report the disable once it reached the band: the caller clears
+    // the armed epoch on `disabled`, and with it gone this branch never
+    // runs again, so a failed write would leave the strap armed for good.
+    if (!await engine.disableAlarm()) {
+      return (epoch: null, disabled: false, failed: true);
+    }
+    return (epoch: null, disabled: true, failed: false);
   }
   final epoch = next.millisecondsSinceEpoch ~/ 1000;
-  if (epoch == currentArmedEpoch) return (epoch: null, disabled: false);
+  if (epoch == currentArmedEpoch) {
+    return (epoch: null, disabled: false, failed: false);
+  }
   final armed = await engine.setAlarm(next);
-  if (armed == null) return (epoch: null, disabled: false);
-  return (epoch: armed.millisecondsSinceEpoch ~/ 1000, disabled: false);
+  if (armed == null) return (epoch: null, disabled: false, failed: true);
+  return (
+    epoch: armed.millisecondsSinceEpoch ~/ 1000,
+    disabled: false,
+    failed: false,
+  );
 }
 
 /// The weekday/hour/minute a legacy single-alarm epoch maps onto, for the
@@ -271,6 +320,27 @@ bool alarmArmsTonight(int? armedEpochSec, DateTime now) {
   if (at.isBefore(DateTime(now.year, now.month, now.day, 12))) return false;
   final endOfTonight = DateTime(now.year, now.month, now.day + 1, 12, 0);
   return at.isBefore(endOfTonight);
+}
+
+/// Whether the user's own weekly schedule has a wake alarm due tonight — an
+/// enabled slot whose next occurrence lands in the same "tonight" window
+/// [alarmArmsTonight] uses. False for someone who never set an alarm (every
+/// slot defaults to off) and for a night deliberately left off, e.g. Friday
+/// for a weekdays-only schedule. The 7pm "no alarm set for tonight" check is
+/// only meaningful when this is true: without it, it went off every evening
+/// for everyone who does not use the band alarm at all.
+///
+/// Searched from noon when [now] is earlier, so a still-ahead alarm THIS
+/// morning cannot shadow tomorrow morning's slot.
+bool scheduleExpectsAlarmTonight(
+  List<AlarmScheduleEntry> schedule,
+  DateTime now,
+) {
+  final noon = DateTime(now.year, now.month, now.day, 12);
+  final from = now.isBefore(noon) ? noon : now;
+  final next = nextAlarmOccurrence(schedule, from);
+  if (next == null) return false;
+  return alarmArmsTonight(next.millisecondsSinceEpoch ~/ 1000, now);
 }
 
 /// Whether the latch-failure safety notification should fire for [epoch]: the

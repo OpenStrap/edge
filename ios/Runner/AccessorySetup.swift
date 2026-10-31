@@ -319,8 +319,12 @@ private final class Impl {
     // Sensor services are declared in the same array (Apple requires every criterion to
     // be) but each has a picker of its own — see `showSensorPicker`.
     let sensors = sensorServices
+    // The 16-bit member UUID is in that array only so the gen5 fallback item below
+    // is declared. Building an item from it here too gave the picker two identical
+    // FD4B descriptors, the first labelled with the generic "Band".
     let services = (info["NSAccessorySetupBluetoothServices"] as? [String] ?? [])
       .filter { !sensors.contains($0.uppercased()) }
+      .filter { $0.uppercased() != AccessorySetup.whoopMemberUUID16 }
     let labels = info["OSBandLabels"] as? [String: String] ?? [:]
     var items = services.map { svc in
       makeItem(labels[svc.uppercased()] ?? "Band") {

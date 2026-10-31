@@ -23,7 +23,7 @@
 // the RR beats attached to it — no interpolation, no bucket averaging. That is
 // also the physically honest model: a 60 s band emits fewer records, it does
 // not emit averages of the records it skipped. Per-metric notes below say where
-// a metric's own contract would have justified averaging (none of the twelve
+// a metric's own contract would have justified averaging (none of the eleven
 // declare a mean input; `relative_odi` computes its own AC/DC windows and
 // `cardio_stager` its own epoch means, both from raw samples).
 //
@@ -245,19 +245,6 @@ _Probe _hrZonesProbe(List<_Row> rows) {
   return (t?.total, t == null);
 }
 
-_Probe _loadTrimpProbe(List<_Row> rows) {
-  final valid = [for (final r in rows) if (r.hr > 0) r];
-  final m = trimpStrain(
-    [for (final r in valid) r.hr.toDouble()],
-    [for (final r in valid) r.recTs.toDouble()],
-    // Fixed anchors: the rig compares a metric against ITSELF at 1 Hz, so the
-    // anchors only have to be constant across cadences, not personal.
-    maxHr: 190,
-    restingHr: 50,
-  );
-  return (m.value, !m.present);
-}
-
 _Probe _orientationProbe(List<_Row> rows) {
   final tilts = positionSeries([
     for (final r in rows)
@@ -457,7 +444,6 @@ void main() {
         run('cardioStager.wakePct', '%', n, _cardioStagerProbe(nRows, nBeats));
         run('hrRecovery.dropBpm', 'bpm', n, _hrRecoveryProbe(dRows));
         run('hrZones.totalSec', 's', n, _hrZonesProbe(dRows));
-        run('loadTrimp.strain', '0-100', n, _loadTrimpProbe(dRows));
         run('orientation.epochs', 'n', n, _orientationProbe(nRows));
         run('cycles.n', 'n', n, _cyclesProbe(nBeats, nightA, nightB));
         run('respRate.riiv', 'brpm', n, _riivProbe(nRows));
@@ -498,7 +484,7 @@ void main() {
 
       // NO correctness assertions. Only that the rig produced a full grid —
       // if a probe starts throwing, this is what notices.
-      expect(cells.length, _cadences.length * 12 + 1);
+      expect(cells.length, _cadences.length * 11 + 1);
     }, timeout: const Timeout(Duration(minutes: 10)));
   }
 }
