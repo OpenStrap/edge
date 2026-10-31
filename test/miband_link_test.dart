@@ -76,7 +76,7 @@ void main() {
       nowSeconds: () => _nowSec,
     );
     final db = await LocalDb.instance;
-    final archive = await db.query('raw_archive', orderBy: 'hex');
+    final archive = await db.query(LocalDb.rawArchiveView, orderBy: 'hex');
     expect(archive, hasLength(3));
     expect(
       archive.map((a) => a['reason']).toSet(),

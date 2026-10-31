@@ -7833,5 +7833,72 @@
         "type": "String"
       }
     }
+  },
+  "dataStorageGroup": "Хранилище",
+  "dataKeepHistory": "Хранить исходные показания",
+  "dataKeepHistorySub": "Сжатая копия посекундных показаний за каждый день, которая остаётся после того, как приложение их удалит. Более старые дни сохраняют свои оценки, но их нельзя пересчитать после улучшения расчётов",
+  "dataKeepDays": "{days} дн.",
+  "@dataKeepDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 год",
+  "dataKeepForever": "Всегда",
+  "dataKeepShorterTitle": "Хранить исходные показания за {window}?",
+  "@dataKeepShorterTitle": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "Показания, снятые более чем примерно за {window} до последнего, будут удалены сейчас. Эти дни сохранят свои оценки, но их нельзя будет пересчитать после будущих обновлений.",
+  "@dataKeepShorterBody": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "Удалить старые показания",
+  "dataKeepShorterCancel": "Оставить",
+  "dataCompact": "Сжать базу данных",
+  "dataCompactSub": "Удаляет то, что настройки выше больше не хранят, и возвращает свободное место телефону. Нужно свободное место примерно вдвое больше размера базы",
+  "dataCompactPruning": "Удаление старых данных…",
+  "dataCompactVacuuming": "Сжатие…",
+  "dataCompactFreed": "Освобождено {freed} МБ. Теперь база занимает {size} МБ.",
+  "@dataCompactFreed": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "Старые данные удалены, но для сжатия нужно {need} МБ свободного места, а на телефоне {free} МБ.",
+  "@dataCompactNoSpace": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "Старые данные удалены, но не удалось узнать свободное место на телефоне, поэтому файл не сжат.",
+  "dataCompactBusy": "Идёт синхронизация или активная сессия. Повторите, когда она закончится.",
+  "dataSizeMb": "{mb} МБ",
+  "@dataSizeMb": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
   }
 }
