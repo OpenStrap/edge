@@ -9113,6 +9113,42 @@ class LocalDb {
     return rows.isEmpty ? null : _withDate(rows.first);
   }
 
+  /// The two numbers a re-derive needs to keep a stored night on the clock it
+  /// was lived on: the served row's sleep onset instant (ms) and the
+  /// `sleep_onset_sec` clock it froze. Read with json_extract, so the bundle is
+  /// never decoded on the calling isolate — a re-derive runs this for every
+  /// day. Null when the day has no served row, the row is a skip marker, or
+  /// the payload is malformed.
+  static Future<({num? onsetMs, num? onsetClockSec})?> storedNightClock(
+      String dayId) async {
+    final db = await instance;
+    // Nested CASE: json_extract raises on a malformed document and only CASE
+    // branches are evaluated lazily.
+    final rows = await db.rawQuery(
+      'SELECT '
+      "CASE WHEN json_valid(payload_json) THEN CASE WHEN "
+      "json_type(payload_json, '\$.skipped') = 'true' THEN 1 ELSE 0 END "
+      'ELSE 1 END AS bad, '
+      "CASE WHEN json_valid(payload_json) THEN "
+      "json_extract(payload_json, '\$.sleep.window.value.onset_ms') END "
+      'AS onset_ms, '
+      "CASE WHEN json_valid(payload_json) THEN "
+      "json_extract(payload_json, '\$.scalars.sleep_onset_sec') END "
+      'AS onset_clock, skipped '
+      'FROM day_result WHERE day_id = ? AND algo_version <= ? '
+      'ORDER BY algo_version DESC LIMIT 1',
+      [dayId, _servedAlgoCeiling],
+    );
+    if (rows.isEmpty) return null;
+    final r = rows.first;
+    if (r['bad'] == 1 || (r['skipped'] as num?)?.toInt() == 1) return null;
+    final onset = r['onset_ms'], clock = r['onset_clock'];
+    return (
+      onsetMs: onset is num ? onset : null,
+      onsetClockSec: clock is num ? clock : null,
+    );
+  }
+
   /// The `readiness_absent_diag` diagnostic off [day]'s stored bundle — per
   /// input `{value, baseline_n}` plus the composite's own `note`. Produced on
   /// every day readiness comes back absent; null when [day] is null, has no
