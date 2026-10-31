@@ -3232,8 +3232,8 @@ class DerivationEngine {
         onStep?.call(CompactStep.vacuum);
         if (!await LocalDb.vacuumAndCheckpoint()) {
           // The size below is measured on disk, WAL included, so the result
-          // stays honest; the WAL shrinks at the next checkpoint.
-          _log('compact: WAL not truncated, a reader held it');
+          // stays honest; the next derive's housekeeping truncates it.
+          _log('compact: WAL not truncated yet, a reader held it');
         }
         return CompactResult(
           beforeBytes: before,
@@ -7911,6 +7911,15 @@ class DerivationEngine {
   /// Off the path to a durable commit, and never inside a migration: `onUpgrade`
   /// runs under iOS's CPU watchdog (invariant 11).
   Future<void> _runStorageHousekeeping({bool long = false}) async {
+    // A compaction whose WAL truncation a reader blocked: done now, under the
+    // same latch, instead of leaving the WAL at its full size.
+    if (LocalDb.walTruncatePending) {
+      try {
+        if (await LocalDb.truncateWal()) _log('WAL truncated after compaction');
+      } catch (e) {
+        _log('WAL truncation skipped (will retry): $e');
+      }
+    }
     try {
       // The pre-conversion undecodable archive, moved into the frame store a
       // bounded slice at a time (see LocalDb.migrateLegacyRawArchive). A

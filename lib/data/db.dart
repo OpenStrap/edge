@@ -10567,12 +10567,23 @@ class LocalDb {
       if (attempt > 0) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
       }
-      if (checkpointCompleted(
-          await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)'))) {
-        return true;
-      }
+      if (await truncateWal()) return true;
     }
+    walTruncatePending = true;
     return false;
+  }
+
+  /// Set when a compaction's truncating checkpoint was blocked; the next
+  /// derive's housekeeping tries it again ([truncateWal]).
+  static bool walTruncatePending = false;
+
+  /// One truncating WAL checkpoint. True when it finished (and clears
+  /// [walTruncatePending]); false when a reader blocked it.
+  static Future<bool> truncateWal() async {
+    final done = checkpointCompleted(
+        await (await instance).rawQuery('PRAGMA wal_checkpoint(TRUNCATE)'));
+    if (done) walTruncatePending = false;
+    return done;
   }
 
   /// Whether a `PRAGMA wal_checkpoint` result row says it finished: its first

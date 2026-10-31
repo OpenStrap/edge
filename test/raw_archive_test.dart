@@ -411,4 +411,10 @@ void main() {
         ]),
         isTrue);
   });
+
+  test('a blocked truncation stays pending until one gets through', () async {
+    LocalDb.walTruncatePending = true;
+    expect(await LocalDb.truncateWal(), isTrue);
+    expect(LocalDb.walTruncatePending, isFalse);
+  });
 }
