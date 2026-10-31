@@ -14,6 +14,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../data/export_retention.dart' show pruneSharedReports;
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../support/issue_report.dart';
@@ -149,12 +150,16 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
     try {
       final r = await collectReport(context.read<AppState>(), _draft(),
           onStage: (st) => _setStep(_stageText(l, st)));
+      await pruneSharedReports(r.zip.parent, current: r.zip);
       _setStep(l.reportStageSharing);
       await Share.shareXFiles([XFile(r.zip.path)],
           subject: 'OpenStrap issue report', sharePositionOrigin: origin);
     } catch (e) {
       if (mounted) setState(() => _error = e is ReportSendError ? e.status : -2);
     } finally {
+      // The zip is not deleted here: the share target can still be reading
+      // it after the sheet returns. pruneSharedReports keeps the newest two,
+      // and collectReport sweeps any older than ten minutes on the next run.
       if (mounted) {
         setState(() {
           _busy = false;
@@ -174,6 +179,14 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
     final l = _l(context);
     final messenger = ScaffoldMessenger.of(context);
     if (_busy) return;
+    // The row is the whole tap target and its title is the ID people come
+    // here to copy, while the delete drops the ticket on the server and the
+    // only copy of its delete token, so one stray tap had no way back.
+    final ok = await confirmRemove(context,
+        title: l.reportDeleteConfirmTitle(r.id),
+        body: l.reportDeleteConfirmBody,
+        remove: l.reportDelete);
+    if (!ok || !mounted || _busy) return;
     setState(() => _busy = true);
     try {
       await deleteReport(r);

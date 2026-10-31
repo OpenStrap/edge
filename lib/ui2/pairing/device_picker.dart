@@ -47,7 +47,8 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../onboarding/pairing.dart' show PairingScreen;
 import '../ui2.dart';
-import '../profile/devices.dart' show kPairableSensors, sensorIcon;
+import '../profile/devices.dart'
+    show kPairableSensors, refuseIfSensorCapReached, sensorIcon;
 import '../profile/pair_sensor.dart' show PairSensorScreen;
 import '../profile/profile.dart' show SetRow;
 
@@ -57,13 +58,19 @@ class DevicePickerScreen extends StatefulWidget {
   /// back to, so it needs no separate way out.
   final VoidCallback? onSkip;
 
+  /// Where the back chevron goes when there is no route underneath to pop.
+  /// Set only at first-run onboarding, where the picker is the gate's root
+  /// page; null keeps the default `Navigator.maybePop`.
+  final VoidCallback? onBack;
+
   /// Whether "Watches & bands" is offered at all. False from "add a
   /// sensor": this phone already has its one primary band, and re-pairing
   /// it is a distinct, destructive-feeling action reached from `RePair`,
   /// not something to offer beside a chest strap in the same list.
   final bool includeBand;
 
-  const DevicePickerScreen({super.key, this.onSkip, this.includeBand = true});
+  const DevicePickerScreen(
+      {super.key, this.onSkip, this.onBack, this.includeBand = true});
 
   @override
   State<DevicePickerScreen> createState() => _DevicePickerScreenState();
@@ -156,6 +163,18 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
     // Only the ring's own screen asks for the key it may already hold; a
     // direct pair here would install a new one and steer the user to a reset.
     if (sensor.entry.id == kOura.id) return _openEntry(sensor.entry);
+    // Re-checked on every pair: this screen stays open after one for the
+    // next, so `addSensor`'s check at the door does not bound a visit.
+    // The minted id is the row only `pairNotifySensor` writes; a `pick`
+    // callback mints its own, so it is checked by adapter alone.
+    if (await refuseIfSensorCapReached(context,
+            repairingId: sensor.pick == null
+                ? HrsLink.mintDeviceId(sensor.entry, cand.device.remoteId.str)
+                : null,
+            adapterId: sensor.entry.id) ||
+        !mounted) {
+      return;
+    }
     setState(() {
       _busy = cand.device.remoteId.str;
       _problem = null;
@@ -193,6 +212,12 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
   /// A category or brand row, tapped deliberately rather than found live.
   Future<void> _openEntry(BandEntry entry) async {
     if (entry.isFramed) {
+      // The pushed screen covers this one without disposing it, so this
+      // screen's 15 s scan would keep the scan lock — and "Find my band"
+      // would sit queued behind the rest of it, spinner already running,
+      // before its own scan even starts. Nothing here can show its results.
+      await HrsLink.stopScanIfRunning(this);
+      if (!mounted) return;
       await Navigator.of(context).push(MaterialPageRoute<void>(
         builder: (_) => const PairingScreen(),
       ));
@@ -212,6 +237,18 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'That device cannot be paired from this screen.');
       return;
     }
+    // Re-checked on every tap: this screen stays open after a pair, and the
+    // onboarding and re-pair routes reach it without `addSensor`'s check.
+    // Soft — a sensor that already has a row still opens its own screen, for
+    // its forget / re-pair section. That screen checks each pair exactly.
+    if (await refuseIfSensorCapReached(context,
+            adapterId: sensor.entry.id, anyOfAdapter: true) ||
+        !mounted) {
+      return;
+    }
+    // Same as the framed branch: the sensor's own scan queues behind ours.
+    await HrsLink.stopScanIfRunning(this);
+    if (!mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => PairSensorScreen(
         entry: sensor.entry,
@@ -263,7 +300,12 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
                 uiText(c, e.label),
                 uiText(c, deviceCategoryBlurb(l, e)),
               ) ||
-              _matches(e.label, deviceCategoryBlurb(null, e))))
+              _matches(e.label, deviceCategoryBlurb(null, e)) ||
+              // The one framed row stands for every WHOOP this app pairs, but
+              // its label is gen4's, so "whoop 5" or "mg" matched nothing and
+              // the only way to pair the band vanished from the list.
+              (e.isFramed &&
+                  _matches('${kWhoopGen5.label} WHOOP MG', 'WHOOP5 WHOOPMG'))))
             (
               entry: e,
               blurb: deviceCategoryBlurb(l, e),
@@ -274,6 +316,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       onPickNearby: _pickNearby,
       onOpenEntry: _openEntry,
       onSkip: widget.onSkip,
+      onBack: widget.onBack,
     );
   }
 
@@ -299,6 +342,7 @@ class DevicePickerView extends StatelessWidget {
   final void Function(BandCandidate)? onPickNearby;
   final void Function(BandEntry)? onOpenEntry;
   final VoidCallback? onSkip;
+  final VoidCallback? onBack;
 
   const DevicePickerView({
     super.key,
@@ -315,6 +359,7 @@ class DevicePickerView extends StatelessWidget {
     this.onPickNearby,
     this.onOpenEntry,
     this.onSkip,
+    this.onBack,
   });
 
   @override
@@ -328,7 +373,7 @@ class DevicePickerView extends StatelessWidget {
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar(title),
+            child: NavBar(title, onBack: onBack),
           ),
           Expanded(
             child: ListView(

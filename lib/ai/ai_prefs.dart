@@ -88,6 +88,14 @@ class AiPrefs {
   /// actionable tonight; late enough that the day it sweeps is over.
   static const int eveningBedtimeLeadMin = 60;
 
+  /// Latest the nightly sweep may sit (23:30): still the day it sweeps, with
+  /// time left to generate before the day label rolls over.
+  static const int eveningLatestMin = 23 * 60 + 30;
+
+  /// Hour the briefing picker starts offering the morning briefing (05:00).
+  /// A sweep slot earlier than this would beat it all day.
+  static const int morningFloorMin = 5 * 60;
+
   /// Resolved nightly-sweep time (minutes-from-midnight): an hour before the
   /// sleep coach's recommended bedtime when it has one, else [eveningMin].
   ///
@@ -95,9 +103,23 @@ class AiPrefs {
   /// so a new install genuinely has no bedtime and gets the fallback — that is
   /// the case the fallback exists for, not a fixed default with a bedtime
   /// override bolted on.
+  ///
+  /// The sweep covers today's calendar day and is cached under today's label,
+  /// and the briefing picker treats "evening" as `minOfDay >= slot`. A late
+  /// sleeper's bedtime (01:10, say) would put the slot at 00:10, which reads
+  /// as "evening" from just after midnight, so the morning briefing never
+  /// wins and the sweep runs off an empty day. A slot that would land in the
+  /// small hours is held at [eveningLatestMin] instead. So is a bedtime
+  /// between 00:31 and 00:59: its slot (23:31-23:59) is still "evening", but
+  /// it leaves the sweep minutes or less before the day label rolls over.
+  /// A day sleeper's bedtime (11:00, slot 10:00) is after the morning floor
+  /// and keeps its own slot; moving it to 23:30 would land mid-sleep.
   int resolvedEveningMin({double? bedtimeMinOfDay}) {
     if (bedtimeMinOfDay != null && bedtimeMinOfDay >= 0) {
-      return (bedtimeMinOfDay.round() - eveningBedtimeLeadMin) % 1440;
+      final m = (bedtimeMinOfDay.round() - eveningBedtimeLeadMin) % 1440;
+      return (m < morningFloorMin || m > eveningLatestMin)
+          ? eveningLatestMin
+          : m;
     }
     return eveningMin % 1440;
   }

@@ -98,4 +98,50 @@ void main() {
     expect(find.text('Pair a band'), findsOneWidget);
     expect(find.text('Polar H10'), findsOneWidget);
   });
+
+  group('an open sensor page rereads its row', () {
+    const snapshot = HealthSource(
+      name: 'Colmi R02',
+      kind: 'ring',
+      tier: SourceTier.phone,
+      icon: Icons.circle,
+      connected: true,
+      batteryPct: 40,
+      deviceId: 'colmi-1',
+      family: 'colmi',
+    );
+
+    test('a sync that rewrote the row shows on the page', () {
+      final synced = DateTime(2026, 10, 17, 9, 30);
+      final s = refreshedSensorSource(snapshot, [
+        {'id': 'other', 'battery_pct': 5, 'last_seen': 1},
+        {
+          'id': 'colmi-1',
+          'battery_pct': 88,
+          'last_seen': synced.millisecondsSinceEpoch ~/ 1000,
+        },
+      ]);
+      expect(s.batteryPct, 88);
+      expect(s.lastData, synced);
+      // Not row columns — kept as the page had them.
+      expect(s.connected, isTrue);
+      expect(s.name, 'Colmi R02');
+      expect(s.family, 'colmi');
+    });
+
+    test('a forgotten row leaves the page as it was', () {
+      final s = refreshedSensorSource(snapshot, const []);
+      expect(s.batteryPct, 40);
+    });
+
+    test('the band is never rewritten from a sensor row', () {
+      const band = HealthSource(
+          name: 'WHOOP', kind: 'band', tier: null, icon: Icons.watch,
+          isBand: true, batteryPct: 70);
+      final s = refreshedSensorSource(band, [
+        {'id': '', 'battery_pct': 1, 'last_seen': 1},
+      ]);
+      expect(identical(s, band), isTrue);
+    });
+  });
 }

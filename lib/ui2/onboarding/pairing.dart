@@ -325,7 +325,11 @@ class PairingView extends StatelessWidget {
                 'Forget the band in Bluetooth settings first',
             l?.pairingBondRefusedAdviceBody ??
                 'In the phone’s Bluetooth settings, forget the band, then scan again here. Only the system can clear the old pairing record.',
-            fix: l?.pairingBondRefusedAdviceFix ?? 'Open Bluetooth settings',
+            // Advice, not a link: there is no public way to open the
+            // Bluetooth pane on iOS, and a blue "Open Bluetooth settings" with
+            // nothing behind it was a dead tap on the screen meant to unstick.
+            fix: l?.pairingBondRefusedAdviceFix ??
+                'Then come back and tap Try again',
             icon: LucideIcons.unlink,
           ),
           if (detail.isNotEmpty) ...[

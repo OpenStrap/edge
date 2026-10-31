@@ -517,6 +517,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     super.initState();
     _d = widget.data;
     _v = widget.vitals;
+    _vDays = widget.vitals?.days;
     _l = widget.labs;
     _e = widget.explore;
     if (widget.data != null) {
@@ -579,6 +580,11 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   /// default. Null means "whatever the loader resolves", which is today.
   String? _vDay;
 
+  /// The day list from the last read that worked. Kept when a picked day's
+  /// readings are dropped, so a day that keeps failing can still be stepped
+  /// off.
+  List<String>? _vDays;
+
   Future<void> _loadVitals({bool force = false}) async {
     final repo = repoOf(context);
     if (repo == null || (_v != null && !force)) return;
@@ -587,14 +593,24 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final t = beginRead(#vitals);
     try {
       final v = await VitalsData.load(repo, want: _vDay);
-      if (stillNewest(#vitals, t)) setState(() => (_v = v, _vFailed = false));
+      if (stillNewest(#vitals, t)) {
+        setState(() => (_v = v, _vDays = v.days, _vFailed = false));
+      }
     } catch (_) {
       if (stillNewest(#vitals, t)) setState(() => _vFailed = true);
     }
   }
 
   void _goVitalsDay(String day) {
-    setState(() => _vDay = day);
+    // Stored as null on today, as Home does: Health is kept alive by the shell
+    // and a literal date would pin Vitals to it once the calendar moves on.
+    // The shown readings belong to the old day: drop them, so neither the
+    // load nor a failed read can show them under the new one.
+    setState(() {
+      _vDay = homeSwitcherDay(day);
+      _v = null;
+      _vFailed = false;
+    });
     _loadVitals(force: true);
   }
 
@@ -774,7 +790,11 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         LucideIcons.brain,
         C.purple,
         l?.healthRowStress ?? 'Stress',
-        ofNight((stressBlock is Map ? stressBlock['level']?.toString() : null) ??
+        // The level is analytics' English token; it goes through the same
+        // localized mapping Wellness uses, or a German row read 'elevated'.
+        ofNight((stressBlock is Map && stressBlock['level'] is String
+                ? stressLevelLabel(l, stressBlock['level'] as String)
+                : null) ??
             (l?.healthRowStress ?? 'Stress')),
         stressScore == null ? '' : '${stressScore.round()}',
         // 0–100, and the scale has to be on the row. Wellness has always shown
@@ -1107,15 +1127,21 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final l = AppLocalizations.of(c);
     final v = _v;
     if (v == null) {
-      return _vFailed
-          ? _readFailed(l?.healthWhatVitals ?? 'vitals', () {
-              setState(() => _vFailed = false);
-              _loadVitals();
-            })
-          : const Padding(
-              padding: EdgeInsets.only(top: S.x8),
-              child: Center(child: CircularProgressIndicator()),
-            );
+      final days = _vDays;
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        // Null `_vDay` is today, the newest day in the list.
+        if (days != null && days.isNotEmpty)
+          ...dayNavRow(_vDay ?? days.first, days, _goVitalsDay),
+        _vFailed
+            ? _readFailed(l?.healthWhatVitals ?? 'vitals', () {
+                setState(() => _vFailed = false);
+                _loadVitals();
+              })
+            : const Padding(
+                padding: EdgeInsets.only(top: S.x8),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+      ]);
     }
 
     // WHICH DAY this tab is showing. Every row here used to say "Today" for a
@@ -1507,13 +1533,33 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       ? m.label
       : uiText(context, m.label);
 
+  /// A blank stored unit means the catalogue's (see [LabMarker.judgesUnit]),
+  /// so the row never prints a verdict with no unit beside it.
+  /// The catalogue's decimals belong to its own unit: 5.4 mmol/L of glucose
+  /// at the mg/dL catalogue's 0 decimals would print as 5. A result in another
+  /// unit prints as it was stored.
+  static String _valueOf(LabMarker? m, Map<String, dynamic> r, double v) =>
+      m != null && m.judgesUnit(r['unit'])
+          ? m.format(v)
+          : v == v.roundToDouble()
+          ? v.round().toString()
+          : '$v';
+
+  static String _unitOf(LabMarker? m, Map<String, dynamic> r) {
+    final stored = '${r['unit'] ?? ''}'.trim();
+    return stored.isEmpty ? (m?.unit ?? '') : stored;
+  }
+
   Widget _lab(P p, LabMarker? m, Map<String, dynamic> r, String? sex,
       VoidCallback onRemove) {
     final l = AppLocalizations.of(context);
     final v = (r['value'] as num?)?.toDouble();
-    final unit = (r['unit'] ?? m?.unit ?? '').toString();
-    final range = m?.rangeFor(sex);
-    final inRange = v == null || m == null ? null : m.inRange(v, sex: sex);
+    final unit = _unitOf(m, r);
+    // A result in another unit than the catalogue's gets no verdict at all:
+    // the interval is in the catalogue's unit, not the one printed beside it.
+    final judge = m != null && m.judgesUnit(r['unit']) ? m : null;
+    final range = judge?.rangeFor(sex);
+    final inRange = v == null ? null : judge?.inRange(v, sex: sex);
 
     // The whole row is the control, with the bin as its affordance — the same
     // shape a logged meal takes, and it costs no width, which at 3x text is
@@ -1561,16 +1607,25 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
             ]),
           ),
           const SizedBox(width: S.x2),
-          Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Text(v == null ? '' : (m?.format(v) ?? v.toString()),
+          // Sized to its text like before, but capped: a result in another
+          // unit prints every digit it was stored with, and at large text a
+          // long one would push the row past the screen. It wraps instead.
+          ConstrainedBox(
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width * 0.4),
+            child: Text.rich(
+              TextSpan(children: [
+                TextSpan(
+                    text: v == null ? '' : _valueOf(m, r, v),
                     style: F.n17.copyWith(
                         color: inRange == false ? p.on(C.orange) : p.ink)),
-                const SizedBox(width: 3),
-                Text(unit, style: F.over.copyWith(color: p.ink3)),
+                const TextSpan(text: '\u2009'),
+                TextSpan(text: unit, style: F.over.copyWith(color: p.ink3)),
               ]),
+              textAlign: TextAlign.end,
+              softWrap: true,
+            ),
+          ),
           // This is the user's own blood work in an app that keeps it on their
           // phone; being able to take it back out is the premise, not a setting.
           const SizedBox(width: S.x2),
@@ -1590,7 +1645,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final takenOn = r['taken_on'].toString();
     final label = _markerName(m, marker);
     final v = (r['value'] as num).toDouble();
-    final unit = (r['unit'] ?? m?.unit ?? '').toString();
+    final unit = _unitOf(m, r);
     // The row on screen is the NEWEST draw of its marker, so an earlier one
     // takes its place rather than the marker disappearing — which without
     // being told reads as the delete having failed.
@@ -1603,8 +1658,8 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       context,
       title: loc?.healthRemoveLabelFrom(label, takenOn) ??
           'Remove $label from $takenOn?',
-      body: (loc?.healthRemoveLabBody(m?.format(v) ?? _num(v), unit) ??
-              'The ${m?.format(v) ?? _num(v)} $unit you logged for that draw. '
+      body: (loc?.healthRemoveLabBody(_valueOf(m, r, v), unit) ??
+              'The ${_valueOf(m, r, v)} $unit you logged for that draw. '
                   'It leaves this device and there is no undo.') +
           (older == null
               ? ''

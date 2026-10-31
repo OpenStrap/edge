@@ -193,6 +193,31 @@ List<Map<String, Object?>> routeRowsFrom(Object? payload) {
   return out;
 }
 
+/// The routes from one channel payload worth storing, keyed by workout uuid.
+///
+/// Only uuids in [keep] — the workouts this pass actually stored — get a route.
+/// The Swift side returns the route of EVERY workout in the window, including
+/// ones `workoutsFrom` dropped (over 24 h, ending before they start), our own
+/// exports and tombstoned deletes. A route stored for any of those sits under a
+/// session_id with no `imported_workout` row: never shown, and out of reach of
+/// every delete path, which all start from that row. That is precise location
+/// history kept for a workout the app says it did not import.
+@visibleForTesting
+List<MapEntry<String, List<Map<String, Object?>>>> routesToStore(
+    List<Object?> payload, Set<String> keep) {
+  final out = <MapEntry<String, List<Map<String, Object?>>>>[];
+  for (final entry in payload) {
+    if (entry is! Map) continue;
+    final uuid = entry['uuid'];
+    if (uuid is! String || uuid.isEmpty) continue;
+    if (!keep.contains(uuid)) continue;
+    final rows = routeRowsFrom(entry);
+    if (rows.isEmpty) continue;
+    out.add(MapEntry(uuid, rows));
+  }
+  return out;
+}
+
 /// "RUNNING" → "Running". The health store's own enum name, title-cased and
 /// de-underscored.
 ///
@@ -320,9 +345,11 @@ class HealthWorkoutImporter {
 
   /// Read the window, store the workouts, then fetch each one's route on Apple.
   ///
-  /// Never throws: an empty store, a denied permission and a locked device all
-  /// come back as a zero result, which the caller reports as "nothing to
-  /// import" rather than as a failure.
+  /// An empty store (and, on Apple, a denied read, which HealthKit hands back
+  /// as an empty list) is a zero result. A read that THROWS — a Health Connect
+  /// quota or SecurityException, the provider updating mid-read — propagates:
+  /// swallowing it into the same zero told the user the store held no
+  /// workouts when it was never read at all.
   ///
   /// [prompt] is true only from the manual Import tap: it lets the route
   /// fetch ask for the separate workoutRoute grant. The auto path leaves it
@@ -332,28 +359,22 @@ class HealthWorkoutImporter {
     final start = end.subtract(Duration(
       days: _isApple ? kImportWindowDaysApple : kImportWindowDaysAndroid,
     ));
-    List<ImportedWorkoutRow> rows;
-    final ownSources = <String>{}, ownUuids = <String>{};
+    final List<ImportedWorkoutRow> rows;
+    final ownSources = <String>{};
+    await _health.configure();
+    final points = await _health.getHealthDataFromTypes(
+      types: types,
+      startTime: start,
+      endTime: end,
+    );
+    String? ownApp;
     try {
-      await _health.configure();
-      final points = await _health.getHealthDataFromTypes(
-        types: types,
-        startTime: start,
-        endTime: end,
-      );
-      String? ownApp;
-      try {
-        ownApp = (await PackageInfo.fromPlatform()).packageName;
-      } catch (_) {}
-      rows = workoutsFrom(points, ownApp: ownApp);
-      for (final p in points) {
-        if (p.type != HealthDataType.WORKOUT || !_isOwn(p, ownApp)) continue;
-        ownSources.add(p.sourceName);
-        ownUuids.add(p.uuid);
-      }
-    } catch (e) {
-      debugPrint('[imported_workout] read: $e');
-      return WorkoutImportResult(routesSupported: routesSupported);
+      ownApp = (await PackageInfo.fromPlatform()).packageName;
+    } catch (_) {}
+    rows = workoutsFrom(points, ownApp: ownApp);
+    for (final p in points) {
+      if (p.type != HealthDataType.WORKOUT || !_isOwn(p, ownApp)) continue;
+      ownSources.add(p.sourceName);
     }
     // Imports from before the own-app filter stored one copy of every band
     // session per export pass, each under a uuid the store no longer has, so
@@ -371,8 +392,21 @@ class HealthWorkoutImporter {
         if (!tombstones.contains(r.uuid)) r,
     ];
     await LocalDb.putImportedWorkouts([for (final r in alive) r.toRow()]);
+    // A workout deleted in the health app simply stops coming back, so the
+    // upsert above never removes it. Anything stored in this window that the
+    // read no longer returns goes. Only reached on a read that returned
+    // workouts: a denied HealthKit read is an empty list, and must not wipe
+    // the history.
+    await LocalDb.deleteImportedWorkoutsMissing(
+      start.millisecondsSinceEpoch ~/ 1000,
+      end.millisecondsSinceEpoch ~/ 1000,
+      {
+        for (final p in points)
+          if (p.type == HealthDataType.WORKOUT) p.uuid,
+      },
+    );
     final withRoutes = await _importRoutes(start, end,
-        skip: {...tombstones, ...ownUuids}, prompt: prompt);
+        keep: {for (final r in alive) r.uuid}, prompt: prompt);
     // Re-read: a workout scored or deleted while this pass was in flight, or
     // one an interrupted pass tombstoned without removing, must not stay
     // listed (or keep a route) beside the session that replaced it.
@@ -394,7 +428,7 @@ class HealthWorkoutImporter {
   /// async round trip, and 90 days of running is a lot of them to serialise
   /// across the channel one at a time.
   Future<int> _importRoutes(DateTime start, DateTime end,
-      {Set<String> skip = const {}, bool prompt = false}) async {
+      {required Set<String> keep, bool prompt = false}) async {
     if (!routesSupported) return 0;
     List<Object?> payload;
     try {
@@ -414,14 +448,8 @@ class HealthWorkoutImporter {
       return 0;
     }
     var n = 0;
-    for (final entry in payload) {
-      if (entry is! Map) continue;
-      final uuid = entry['uuid'];
-      if (uuid is! String || uuid.isEmpty) continue;
-      if (skip.contains(uuid)) continue;
-      final rows = routeRowsFrom(entry);
-      if (rows.isEmpty) continue;
-      await LocalDb.appendRoutePoints(uuid, rows);
+    for (final route in routesToStore(payload, keep)) {
+      await LocalDb.appendRoutePoints(route.key, route.value);
       n++;
     }
     return n;

@@ -49,6 +49,24 @@ class KeepAliveWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, para
         }
 
         /**
+         * Drop the periodic watchdog. Called only from the explicit unpair path:
+         * the chain is persisted by WorkManager, so without this it keeps
+         * cold-starting the process every 15 min for the life of the install
+         * after a band is forgotten. doWork deliberately does not self-cancel
+         * on an unpaired prefs read (see there), so the unpair intent is the
+         * one place this is safe. Pairing again re-arms it via
+         * EdgeTrackingService.onCreate.
+         */
+        @JvmStatic
+        fun cancel(context: Context) {
+            try {
+                WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+            } catch (e: Exception) {
+                Log.w(TAG, "cancel failed: $e")
+            }
+        }
+
+        /**
          * Whether Dart has a band paired. Flutter SharedPreferences writes to
          * "FlutterSharedPreferences.xml" with keys prefixed "flutter.".
          * Internal: EdgeApplication and BootReceiver gate on the same check.
@@ -71,7 +89,8 @@ class KeepAliveWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, para
             // prefs read; a false negative here used to cancel the watchdog
             // permanently for a paired user, which is exactly the state the
             // watchdog exists for (fgs dead). One extra no-op wake per 15 min
-            // is the cheap side of that one-way door.
+            // is the cheap side of that one-way door; a real unpair cancels
+            // the chain explicitly via cancel().
             return Result.success()
         }
         if (EdgeTrackingService.running) return Result.success() // healthy

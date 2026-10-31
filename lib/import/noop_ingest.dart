@@ -16,6 +16,7 @@ import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../compute/substrate.dart';
 import '../data/db.dart';
+import '../sync/reset_gate.dart';
 
 /// One contiguous run of the band's cumulative step counter, ready to bank as a
 /// `live_coverage` row: real steps over a known [startSec]..[endSec] window.
@@ -39,6 +40,22 @@ class StepRun {
   int get hashCode => Object.hash(startSec, endSec, steps);
 }
 
+/// Plausible unix seconds. A timestamp outside this range is corrupt, RTC-unset
+/// (the band ships with its clock unset) or milli/microsecond-scaled. One such
+/// row reaching [NoopIngest.offer] either opens a date decades away — every
+/// later real date is then "older" than the high-water date and strands — or
+/// buffers a 1970 sample that stretches the next Substrate past the
+/// 400-day `calendarDays` guard, so the real day silently derives nothing.
+/// A microsecond value overflows `DateTime` outright.
+const int kNoopMinPlausibleTs = 1000000000; // 2001-09-09
+
+/// The upper bound: now, plus two days of clock skew. A fixed far-future bound
+/// let one corrupt 2099 row through, and that row alone set the backup span's
+/// end (every empty day in between was then read) and the ingest's high-water
+/// date (every real row after it stranded).
+int noopMaxPlausibleTs() =>
+    DateTime.now().millisecondsSinceEpoch ~/ 1000 + 2 * 86400;
+
 /// What to do with an incoming row given the import's high-water date.
 /// [advance] closes out the previous date; [buffer] folds the row into the
 /// current rolling window; [late] means its day was already derived + pruned,
@@ -59,6 +76,20 @@ class _Sec {
 /// per-channel setters, then [finish] at end of input.
 class NoopIngest {
   NoopIngest(this._profile, this._engine, {this.onProgress});
+
+  /// A "delete everything" can run while an import carries on in the
+  /// background after its screen is closed. Everything still buffered then
+  /// belongs to the deleted store, so the import stops at its next write
+  /// instead of banking it into the fresh one.
+  final int _resetGen = ResetGate.generation;
+  /// Fixed for the length of one import, so a long run cannot move it.
+  final int _maxTs = noopMaxPlausibleTs();
+
+  void _stopIfReset() {
+    if (ResetGate.changedSince(_resetGen)) {
+      throw StateError('import stopped: the app data was deleted');
+    }
+  }
 
   final Profile _profile;
   final DerivationEngine _engine;
@@ -86,6 +117,10 @@ class NoopIngest {
   /// in, so they are counted rather than silently dropped.
   int lateRows = 0;
 
+  /// Samples whose timestamp fell outside [kNoopMinPlausibleTs]..
+  /// [noopMaxPlausibleTs] and were skipped.
+  int implausibleRows = 0;
+
   /// Dates that arrived AFTER a later date had already opened, so they were
   /// folded in as context but never derived in their own right. Non-empty means
   /// the source was not time-ordered and those days are missing from the
@@ -95,8 +130,14 @@ class NoopIngest {
       Set.unmodifiable(_strandedDates.difference(_derived));
 
   /// Offer a sample at [ts] (epoch seconds). Returns false when the sample is
-  /// too late to use — the caller must then skip it entirely.
+  /// too late to use, or its timestamp is implausible — the caller must then
+  /// skip it entirely.
   Future<bool> offer(int ts) async {
+    _stopIfReset();
+    if (ts < kNoopMinPlausibleTs || ts > _maxTs) {
+      implausibleRows++;
+      return false;
+    }
     final date = localDateLabel(ts);
     switch (decideRow(date, _curDate, _derived)) {
       case RowOrder.advance:
@@ -135,7 +176,12 @@ class NoopIngest {
     return true;
   }
 
-  void hr(int ts, int bpm) => (_secs[ts] ??= _Sec()).hr = bpm;
+  // Same physiological gate as the band decode. A NOOP row is otherwise taken
+  // at face value, so an off-wrist sentinel (255) or a 1 bpm glitch would land
+  // in max HR, strain and the resting-HR window for imported days only. 0 keeps
+  // the second (and its accel / SpO2 context) while saying "no usable HR".
+  void hr(int ts, int bpm) =>
+      (_secs[ts] ??= _Sec()).hr = plausibleHrOrNull(bpm) ?? 0;
 
   void rr(int ts, double ms) {
     // FINITE and positive. `ms <= 0` alone lets NaN through (it fails every
@@ -144,8 +190,13 @@ class NoopIngest {
     // costing a single interval. Both are reachable: a CSV column can spell
     // `NaN`, and a SQLite REAL can hold either outright.
     if (!ms.isFinite || ms <= 0) return;
+    // Then the band path's 250-2400 ms bound: outside it the interval is a
+    // missed or doubled detection, not a rhythm, and one of them is enough to
+    // move RMSSD / SDNN / pNNx for the whole imported night.
+    final rr = plausibleRrOrNull(ms);
+    if (rr == null) return;
     _rrTs.add(ts * 1000.0);
-    _rrMs.add(ms);
+    _rrMs.add(rr);
   }
 
   void gravity(int ts, double? x, double? y, double? z) {
@@ -174,6 +225,7 @@ class NoopIngest {
   /// End of input: derive the last buffered date, bank any steps whose date
   /// never derived, and roll the import's day rollups forward.
   Future<void> finish() async {
+    _stopIfReset();
     final last = _curDate;
     // `_secs` OR the RR buffer: `rr()` is the one channel that creates no
     // per-second entry, so a final date carrying only beats would otherwise be
@@ -182,19 +234,23 @@ class NoopIngest {
       final st = _stepsByDate.remove(last);
       if (st != null) steps += await flushStepCoverage(st, last);
       final sub = _buildSubstrate(_secs, _rrTs, _rrMs);
-      days += await _engine.deriveImportedDays(sub, _profile, {last});
+      days += await _engine.deriveImportedDays(sub, _profile, {last},
+          resetGeneration: _resetGen);
       onProgress?.call(days);
     }
     // A date that carried ONLY a step counter still banks its real count —
     // dropping it would lose steps the band actually measured.
     for (final e in _stepsByDate.entries) {
+      _stopIfReset();
       steps += await flushStepCoverage(e.value, e.key);
     }
     _stepsByDate.clear();
+    _stopIfReset();
     await _engine.finalizeImport(_profile);
   }
 
   Future<void> _deriveAndPrune(String date) async {
+    _stopIfReset();
     // Real steps must be banked BEFORE deriving: the derivation reads them via
     // LocalDb.liveStepsForDay / coverageWindowsOverlapping at derive time.
     final st = _stepsByDate.remove(date);
@@ -203,7 +259,8 @@ class NoopIngest {
     // derive ONLY [date]; the prior evening gives a sleep that started before
     // midnight its context.
     final sub = _buildSubstrate(_secs, _rrTs, _rrMs);
-    days += await _engine.deriveImportedDays(sub, _profile, {date});
+    days += await _engine.deriveImportedDays(sub, _profile, {date},
+        resetGeneration: _resetGen);
     onProgress?.call(days);
     // Keep [date]'s samples as the prior evening for the NEXT date; drop older.
     _secs.removeWhere((ts, _) => localDateLabel(ts) != date);
@@ -290,9 +347,7 @@ class NoopIngest {
       skinTemp[i] = fTemp;
     }
 
-    // RR beats sorted by time.
-    final order = List<int>.generate(rrMs.length, (i) => i)
-      ..sort((a, b) => rrTs[a].compareTo(rrTs[b]));
+    final order = rrOrder(rrTs);
     return Substrate(
       tsSec: tsSec,
       hr: hr,
@@ -307,6 +362,21 @@ class NoopIngest {
       skinContact: ax.map((_) => 0).toList(),
     );
   }
+
+  /// Indices of the buffered RR beats in time order.
+  ///
+  /// NOOP stamps beats with whole seconds, so several beats routinely share one
+  /// timestamp and the sort is mostly ties. Those beats already arrive in the
+  /// order the strap detected them, and that order is the interval series:
+  /// swapping two of them invents successive differences the heart never made
+  /// (RMSSD, pNN50, ectopic rejection, PRSA). `List.sort` is not stable past a
+  /// few dozen elements, so ties fall back to buffer position explicitly.
+  static List<int> rrOrder(List<double> rrTs) =>
+      List<int>.generate(rrTs.length, (i) => i)
+        ..sort((a, b) {
+          final c = rrTs[a].compareTo(rrTs[b]);
+          return c != 0 ? c : a.compareTo(b);
+        });
 
   /// Maximum gap (seconds) between consecutive step-counter samples that is
   /// still treated as one continuous run. Both sources sample every second but

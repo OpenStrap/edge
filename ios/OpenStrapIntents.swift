@@ -61,6 +61,47 @@ enum OpenStrapShared {
   }
   static var noData: String { "I don't have today's numbers yet. Open OpenStrap and sync your band." }
 
+  /// What to say when the phone has today's snapshot but is holding one number
+  /// back, or nil when the number is simply missing and [noData] is right.
+  ///
+  /// The bare ints are -1 for a baseline still calibrating, a provisional score
+  /// still finishing and a night still being worked out, and none of those is
+  /// cleared by a sync — telling someone on night 2 of 4 to sync their band
+  /// sends them round in a circle for days. WidgetService already resolves the
+  /// reason into `overnight_why` and the `ring_<key>_*` strings the widget
+  /// draws, so Siri says the same thing rather than inventing a fourth answer.
+  /// A provisional number is still not spoken: Siri only reads final scores.
+  static func pendingLine(ring key: String, noun: String, heldOver: Bool,
+                          in d: UserDefaults? = defaults()) -> String? {
+    guard let d else { return nil }
+    if heldOver, let why = d.string(forKey: "overnight_why"), !why.isEmpty {
+      return why
+    }
+    guard let state = d.object(forKey: "ring_\(key)_state") as? Int else { return nil }
+    let value = d.string(forKey: "ring_\(key)_value") ?? ""
+    let sub = d.string(forKey: "ring_\(key)_sub") ?? ""
+    let why = d.string(forKey: "ring_\(key)_why") ?? ""
+    switch state {
+    case 1:
+      // State 1 carries either a provisional number or the word for a
+      // baseline still filling, with "2 of 4 nights" under it.
+      if Int(value) != nil { return "\(noun) is still finishing up. Ask again a little later." }
+      return sub.isEmpty
+        ? "\(noun) is still calibrating."
+        : "\(noun) is still calibrating, \(sub) so far."
+    case 2:
+      return why.isEmpty ? nil : "\(noun) isn't scored yet. \(why)"
+    default:
+      return nil
+    }
+  }
+
+  /// [pendingLine] when there is one, otherwise [noData].
+  static func notReady(ring key: String, noun: String, heldOver: Bool) -> String {
+    guard hasData else { return noData }
+    return pendingLine(ring: key, noun: noun, heldOver: heldOver) ?? noData
+  }
+
   /// The snapshot as JSON for [GetNumbersIntent]. Every number is null unless
   /// [hasData]; a -1 sentinel is null too. `date` is the local day of `updated_at`.
   static func numbersJSON() -> String {
@@ -118,7 +159,8 @@ struct RecoveryIntent: AppIntent {
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
     guard OpenStrapShared.hasData, OpenStrapShared.readiness >= 0 else {
-      return .result(dialog: IntentDialog(stringLiteral: OpenStrapShared.noData))
+      return .result(dialog: IntentDialog(stringLiteral: OpenStrapShared.notReady(
+        ring: "recovery", noun: "Readiness", heldOver: true)))
     }
     // "Readiness, out of 100" — the app's own name and unit. It is not a
     // percentage and it is not called Recovery anywhere else in the product.
@@ -137,7 +179,8 @@ struct StrainIntent: AppIntent {
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
     guard OpenStrapShared.hasData, OpenStrapShared.strain >= 0 else {
-      return .result(dialog: IntentDialog(stringLiteral: OpenStrapShared.noData))
+      return .result(dialog: IntentDialog(stringLiteral: OpenStrapShared.notReady(
+        ring: "strain", noun: "Strain", heldOver: false)))
     }
     let s = String(format: "%.1f", OpenStrapShared.strain)
     return .result(dialog: "Today's strain so far is \(s) out of twenty-one.")
@@ -152,7 +195,8 @@ struct SleepIntent: AppIntent {
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
     guard OpenStrapShared.hasData, OpenStrapShared.sleepMin >= 0 else {
-      return .result(dialog: IntentDialog(stringLiteral: OpenStrapShared.noData))
+      return .result(dialog: IntentDialog(stringLiteral: OpenStrapShared.notReady(
+        ring: "sleep", noun: "Sleep", heldOver: true)))
     }
     return .result(dialog: "You slept \(OpenStrapShared.sleepText) last night.")
   }
@@ -219,6 +263,24 @@ struct OpenEdgeAndSyncIntent: AppIntent {
   }
 }
 
+/// Buzzes the band once, e.g. at the end of a rest timer in another app.
+/// Runs in the app process without opening it and only uses a connection the
+/// app already has; it never throws, so a missed buzz doesn't stop the
+/// calling shortcut.
+@available(iOS 16.0, *)
+struct BuzzBandIntent: AppIntent {
+  static var title: LocalizedStringResource = "Buzz Band"
+  static var description = IntentDescription(
+    "Buzz your band once over Edge's existing connection. Nothing happens if Edge isn't connected to the band at that moment.")
+  static var openAppWhenRun = false
+  static var authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
+
+  @MainActor
+  func perform() async throws -> some IntentResult & ReturnsValue<String> {
+    .result(value: await ShortcutSyncBridge.shared.buzz().message)
+  }
+}
+
 /// Flutter consumes the breathing route on launch and resume because opening
 /// the app does not guarantee a fresh process.
 @available(iOS 16.0, *)
@@ -251,17 +313,15 @@ struct EnableTomorrowAlarmIntent: AppIntent {
   static var openAppWhenRun = true
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
-    // "Tomorrow" is fixed HERE, at the moment Siri actually ran this, not
-    // whenever AppState happens to consume the latch — a request made just
-    // before local midnight must still mean the day the user asked for, even
-    // if the app doesn't launch/resume until after midnight has rolled over.
-    // Calendar's `.weekday` is 1=Sun..7=Sat; AlarmScheduleEntry's column
-    // (lib/state/alarm_schedule.dart) is 0=Mon..6=Sun — `(weekday + 5) % 7`
-    // converts one to the other (Mon 2→0 … Sat 7→5, Sun 1→6).
-    let cal = Calendar.current
-    let tomorrow = cal.date(byAdding: .day, value: 1, to: Date()) ?? Date()
-    let column = (cal.component(.weekday, from: tomorrow) + 5) % 7
-    OpenStrapShared.defaults()?.set(column, forKey: "enable_tomorrow_alarm_weekday")
+    // Latch WHEN the request was made, not a weekday. Which slot "tomorrow"
+    // means depends on the schedule: asked at 00:40 on a Tuesday with a
+    // 07:00 Tuesday alarm, it is that morning's; asked at 09:00 after that
+    // alarm has passed, it is Wednesday's. Only the Dart side has the
+    // schedule, so it resolves the weekday (siriTomorrowAlarmWeekday in
+    // lib/state/alarm_schedule.dart) against this instant — not against
+    // whenever the app happens to launch/resume, which may be after midnight.
+    let requestedAt = Int(Date().timeIntervalSince1970)
+    OpenStrapShared.defaults()?.set(requestedAt, forKey: "enable_tomorrow_alarm_requested_at")
     // Same App Group route latch StartBreathingIntent uses, so the user lands
     // on the Alarm screen and can see the toggle actually flipped rather than
     // wondering whether Siri did anything.
@@ -330,5 +390,14 @@ struct OpenStrapShortcuts: AppShortcutsProvider {
       ],
       shortTitle: "Tomorrow's Alarm",
       systemImageName: "alarm")
+
+    AppShortcut(
+      intent: BuzzBandIntent(),
+      phrases: [
+        "Buzz my band with \(.applicationName)",
+        "\(.applicationName) buzz",
+      ],
+      shortTitle: "Buzz Band",
+      systemImageName: "waveform")
   }
 }

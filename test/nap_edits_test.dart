@@ -224,6 +224,19 @@ void main() {
     });
   });
 
+  group('manualNapWindowHasEnded', () {
+    test('accepts a nap that is over', () {
+      expect(manualNapWindowHasEnded(14 * hour, 15 * hour), isTrue);
+      expect(manualNapWindowHasEnded(15 * hour, 15 * hour), isTrue);
+    });
+
+    test('rejects a window that ends after now', () {
+      // The default 14:00-15:00 pickers accepted at 09:30.
+      expect(manualNapWindowHasEnded(15 * hour, 9 * hour + 1800), isFalse);
+      expect(manualNapWindowHasEnded(15 * hour + 1, 15 * hour), isFalse);
+    });
+  });
+
   group('napOverlapsExisting', () {
     final existing = [nap(13 * hour, 14 * hour)];
 

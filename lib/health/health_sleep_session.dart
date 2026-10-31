@@ -251,20 +251,62 @@ HealthSleepStage? healthSleepStageOf(String? stage) {
 
 /// The span a day's SLEEP-type delete has to cover.
 ///
-/// Just [sleepSessionCleanupRange] — the noon-to-noon window around the
+/// [sleepSessionCleanupRange] — the noon-to-noon window around the
 /// night's wake, same as Android. This used to UNION that with the whole
 /// calendar day, and for a night waking after local noon the two windows
 /// concatenated into one contiguous span reaching back into the PREVIOUS
 /// night; the native predicate matches on overlap, so it deleted the whole
 /// previous envelope sample — which is behind `health_export_through` and
 /// never gets rewritten. Irrecoverable deletion is not a cleanup.
-({DateTime start, DateTime end}) sleepCleanupWindow({
+///
+/// With no night it is [noNightCleanupRange], null when that is empty.
+///
+/// Either way it starts after [previousWake] when the day before's night woke
+/// inside the window: a night ending after local noon overlaps this day's
+/// noon-to-noon span, and the overlap delete took its whole in-bed envelope
+/// and last stages with it. That day is behind the export cursor, so nothing
+/// wrote them back. The clamp never reaches past this night's own onset.
+({DateTime start, DateTime end})? sleepCleanupWindow({
   required DateTime dayStart,
-  required DateTime dayEnd,
   HealthSleepSession? night,
+  DateTime? previousWake,
 }) {
-  if (night == null) return (start: dayStart, end: dayEnd);
-  return sleepSessionCleanupRange(night);
+  if (night == null) {
+    return noNightCleanupRange(dayStart: dayStart, previousWake: previousWake);
+  }
+  final range = sleepSessionCleanupRange(night);
+  if (previousWake != null &&
+      !previousWake.isBefore(range.start) &&
+      previousWake.isBefore(night.start)) {
+    return (
+      start: previousWake.add(const Duration(seconds: 1)),
+      end: range.end,
+    );
+  }
+  return range;
+}
+
+/// What a day with no night clears: the noon-to-noon window its night would
+/// have sat in, started after the previous night's wake when that night woke
+/// after noon ([previousWake]). Null when nothing is left to clear.
+///
+/// Not the calendar day. HealthKit's delete matches samples that OVERLAP the
+/// window, and the next day's night usually starts before midnight, so a
+/// [dayStart, dayEnd) sweep deleted that night's in-bed envelope and its
+/// pre-midnight stages. Once the next day is finalized and exported nothing
+/// writes them back. The same goes for the previous night when it woke after
+/// noon, which is what the [previousWake] clamp is for.
+({DateTime start, DateTime end})? noNightCleanupRange({
+  required DateTime dayStart,
+  DateTime? previousWake,
+}) {
+  var from = DateTime(dayStart.year, dayStart.month, dayStart.day - 1, 12);
+  final to = DateTime(dayStart.year, dayStart.month, dayStart.day, 12);
+  if (previousWake != null && !previousWake.isBefore(from)) {
+    from = previousWake.add(const Duration(seconds: 1));
+  }
+  if (!from.isBefore(to)) return null;
+  return (start: from, end: to);
 }
 
 abstract interface class HealthConnectSleepSessionWriter {
@@ -329,13 +371,12 @@ class HealthConnectSleepSessionExporter {
     // is behind the export cursor nothing writes it back. Start after it.
     if (session == null) {
       if (dayStart == null) return true;
-      var from = DateTime(dayStart.year, dayStart.month, dayStart.day - 1, 12);
-      final to = DateTime(dayStart.year, dayStart.month, dayStart.day, 12);
-      if (previousWake != null && !previousWake.isBefore(from)) {
-        from = previousWake.add(const Duration(seconds: 1));
-      }
-      if (!from.isBefore(to)) return true;
-      return writer.clear(from, to);
+      final range = noNightCleanupRange(
+        dayStart: dayStart,
+        previousWake: previousWake,
+      );
+      if (range == null) return true;
+      return writer.clear(range.start, range.end);
     }
     // A window WITH NO STAGES is the same kind of "nothing to write", and has
     // to report the same way. It used to return false, and the caller treats
@@ -426,14 +467,17 @@ class HealthKitSleepSessionExporter {
   Future<bool> replace({
     required Map<String, dynamic> bundle,
     required DateTime dayStart,
-    required DateTime dayEnd,
-  }) {
+    DateTime? previousWake,
+  }) async {
     final session = normalizeHealthSleepSession(bundle);
     final window = sleepCleanupWindow(
       dayStart: dayStart,
-      dayEnd: dayEnd,
       night: session,
+      previousWake: previousWake,
     );
+    // No night and an empty window: nothing to write or delete. The native
+    // side rejects an empty cleanup range as a failure.
+    if (window == null) return true;
     return writer.replace(
       cleanupStart: window.start,
       cleanupEnd: window.end,
