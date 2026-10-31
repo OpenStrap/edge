@@ -4,6 +4,7 @@
 // without touching a single platform plugin, so the logic below can be driven
 // directly. Each group names the bug it guards.
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -530,6 +531,28 @@ void main() {
       expect(await ok.setScheduleDay(weekday: 2, enabled: true), isTrue,
           reason: 'already armed for that slot is not a failure');
       expect(engine.armed, hasLength(1));
+    });
+
+    test('a day saved while cancel-all is on the wire is kept', () async {
+      await silenceOsPresent();
+      final engine = _HeldDisableEngine();
+      final app = AppState.forTesting(engine: engine);
+      addTearDown(app.dispose);
+      app.device.connection = 'connected';
+
+      final cancel = app.disableAlarm();
+      await Future<void>.delayed(Duration.zero);
+      // Saved while the disable write waits on the strap's reply.
+      await app.setScheduleDay(weekday: 3, enabled: true, hour: 6, minute: 0);
+      engine.reply.complete(true);
+      await cancel;
+
+      final rows = await LocalDb.alarmScheduleRows();
+      expect(rows.where((r) => r['weekday'] == 3 && r['enabled'] == 1),
+          hasLength(1),
+          reason: 'the newer save outlives the older cancel');
+      expect(app.alarmSchedule.firstWhere((e) => e.weekday == 3).enabled,
+          isTrue);
     });
 
     test('ALARM_SET (event 56) leaves the armed alarm alone', () async {
@@ -1251,6 +1274,19 @@ class _ArmRecordingEngine extends BleEngine {
     armed.add(when);
     return (armed: when, echoed: false);
   }
+}
+
+/// Holds DISABLE_ALARM's reply until the test completes [reply], and records
+/// arms instead of writing them.
+class _HeldDisableEngine extends BleEngine {
+  _HeldDisableEngine() : super(onRecord: (_, _) async {}, onState: (_) {});
+  final reply = Completer<bool>();
+  @override
+  Future<bool> disableAlarm({int? id}) => reply.future;
+  @override
+  Future<({DateTime? armed, bool echoed})> armAlarm(DateTime when,
+          {int index = 0, List<int>? haptics}) async =>
+      (armed: when, echoed: false);
 }
 
 /// A strap whose RTC lags wall time by [driftSec] (GET_CLOCK correlated).
