@@ -85,6 +85,45 @@ void main() {
         reason: "$twoAgo's 77 is not $yesterday's readiness");
   });
 
+  test("a night marked 'Not sleep' is today's overnight, not a held-over one",
+      () async {
+    final today = todayLabel();
+    final now = DateTime.now();
+    final yesterday =
+        todayLabel(DateTime(now.year, now.month, now.day - 1, 12));
+    await LocalDb.putDayResult(
+      dayId: yesterday,
+      algoVersion: kAlgoVersion,
+      payloadJson: jsonEncode({
+        'scalars': {'readiness': 77},
+        'sleep': {
+          'accounting': {
+            'value': {'tst_sec': 25200},
+          },
+        },
+      }),
+      windowJson: '{}',
+    );
+    // No window and no data edge: before the fix this was held as unsettled
+    // until noon, then skipped for lacking NO_SLEEP_DETECTED.
+    await LocalDb.putDayResult(
+      dayId: today,
+      algoVersion: kAlgoVersion,
+      payloadJson: jsonEncode({
+        'scalars': {'steps': 300},
+        'flags': ['SLEEP_REJECTED'],
+      }),
+      windowJson: '{}',
+    );
+    await LocalDb.refreshComputeFreshness();
+
+    final t = await LocalRepositoryImpl(getProfileMap: () => {}).getToday();
+    final status = t['status'] as Map;
+    expect(status['overnight_day'], today);
+    expect(status['overnight_state'], 'ready');
+    expect(status['showing_prior_overnight'], false);
+  });
+
   test('an import restamps the night getToday reads', () async {
     final today = todayLabel();
     final now = DateTime.now();

@@ -149,6 +149,14 @@ Future<List<BandEvent>> _cutSession(DateTime from, int nowSec,
   return events;
 }
 
+/// The failure note a refused handshake ends on, and nothing else.
+void _expectAuthFailed(List<BandEvent> events, int? status) {
+  expect(events, hasLength(1));
+  final note = events.single as BandNote;
+  expect(note.key, kMiBandAuthFailedNote);
+  expect(note.value, status);
+}
+
 void main() {
   test('declares hrSparse (one stored HR per minute) and the registry '
       'mirrors it', () {
@@ -204,7 +212,7 @@ void main() {
       return const [];
     });
     expect(link.writes, hasLength(1), reason: 'no challenge request either');
-    expect(events, isEmpty);
+    _expectAuthFailed(events, 0x04);
   });
 
   test('silence on the key install is a refusal, not a stall past the timeout',
@@ -214,7 +222,7 @@ void main() {
       (i, v) => const [],
     );
     expect(link.writes, hasLength(1));
-    expect(events, isEmpty);
+    _expectAuthFailed(events, null);
   });
 
   test('a challenge with the wrong status is unusable', () async {
@@ -224,7 +232,7 @@ void main() {
       }
       return const [];
     });
-    expect(events, isEmpty);
+    _expectAuthFailed(events, null);
   });
 
   test('0x04 on the final result means the wrong key or still bound '
@@ -234,7 +242,9 @@ void main() {
       if (v.isNotEmpty && v[0] == 0x03) return [_authResult(0x04)];
       return const [];
     });
-    expect(events, isEmpty);
+    // Named, not silent: a sync that ends here must not read as one that
+    // worked, and 0x04 is what tells the user to re-pair.
+    _expectAuthFailed(events, 0x04);
     // Nothing was ever subscribed past the auth characteristic — a failed
     // handshake never reaches the optional channels.
     expect(link.writes, hasLength(2));

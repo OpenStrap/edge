@@ -13,6 +13,7 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/state/workout_controller.dart';
+import 'package:openstrap_edge/sync/reset_gate.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart' show activityByName;
 import 'package:openstrap_edge/ui2/activity/live.dart' show LiveDraft;
 
@@ -235,6 +236,32 @@ void main() {
       await hold.release();
       await stopping;
       expect((await sessionRow('wc-entry'))!['steps'], greaterThan(0));
+    });
+
+    test('"delete everything" during a stop discards the session instead of '
+        'crashing or saving it into the wiped store', () async {
+      addTearDown(ResetGate.resetForTest);
+      final r = _Rig();
+      r.c.startWorkout(workoutId: 'wc-reset', type: 'walking');
+      await sessionLanded('wc-reset');
+      await until(() => r.c.routeTracker != null && spies.geoListening,
+          what: 'the route tracker to listen');
+      spies.emitFix(51.0, 0.0);
+      await until(() => r.c.routeTracker!.pointCount >= 1);
+      final hold = await DbHold.acquire();
+      addTearDown(hold.release);
+      final stopping = r.c.stopWorkout();
+      await settleMs(200);
+      expect(r.c.activeWorkout, isNotNull, reason: 'still flushing the route');
+      ResetGate.enter();
+      final discarding = r.c.discardForReset();
+      await hold.release();
+      await discarding;
+      await stopping; // returns rather than throwing on the nulled session
+      ResetGate.leave();
+      expect(r.c.activeWorkout, isNull);
+      expect((await sessionRow('wc-reset'))!['status'], isNot('done'),
+          reason: 'the stop must not finalize a session the reset discarded');
     });
 
     test('a gap over 30 s, or a late first frame, makes session steps '

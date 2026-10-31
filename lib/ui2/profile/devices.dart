@@ -65,7 +65,8 @@ import '../../ble/colmi_link.dart' show ColmiLink;
 import '../../ble/coros_link.dart' show CorosLink;
 import '../../ble/garmin_link.dart' show GarminLink;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
-import '../../ble/miband_link.dart' show MiBand234Link, pairMiBand234;
+import '../../ble/miband_link.dart'
+    show MiBand234Link, MiBand234SyncFailure, pairMiBand234;
 import '../../ble/oura_link.dart'
     show OuraLink, OuraSyncCategory, pairOuraRing;
 import '../../ble/pebble_link.dart' show PebbleLink;
@@ -948,6 +949,47 @@ SourceTier? tierNamed(Object? name) {
   return null;
 }
 
+/// Battery percentage a sensor's `device` row holds, or null if never reported.
+double? sensorRowBatteryPct(Map<String, Object?> r) =>
+    (r['battery_pct'] as num?)?.toDouble();
+
+/// Last time a sync committed data (or the pairing, before any).
+DateTime? sensorRowLastData(Map<String, Object?> r) => r['last_seen'] == null
+    ? null
+    : DateTime.fromMillisecondsSinceEpoch((r['last_seen'] as num).toInt() * 1000);
+
+/// [s] with the battery and last-data values its `device` row holds now.
+///
+/// A sensor's page is pushed holding the row as it was when tapped, and a sync
+/// or battery report only rewrites the row. Without this the page kept saying
+/// "3 days ago" right after a manual sync reported "Synced.", which read as a
+/// sync that did nothing. Only the row's own columns are taken: `connected`
+/// and `flagOff` come from elsewhere and stay as the snapshot had them. A row
+/// that is gone (forgotten while the page was open) leaves [s] as it was.
+HealthSource refreshedSensorSource(
+    HealthSource s, List<Map<String, Object?>> rows) {
+  if (s.isBand || s.deviceId == null) return s;
+  final r = rows.where((r) => r['id'] == s.deviceId).firstOrNull;
+  if (r == null) return s;
+  return HealthSource(
+    name: s.name,
+    nameIsFallback: s.nameIsFallback,
+    kind: s.kind,
+    tier: s.tier,
+    icon: s.icon,
+    connected: s.connected,
+    syncing: s.syncing,
+    batteryPct: sensorRowBatteryPct(r),
+    charging: s.charging,
+    batteryPackPct: s.batteryPackPct,
+    lastData: sensorRowLastData(r),
+    isBand: s.isBand,
+    deviceId: s.deviceId,
+    family: s.family,
+    flagOff: s.flagOff,
+  );
+}
+
 /// The sources that actually exist right now. Nothing is listed that cannot
 /// produce a number today — everything else is in [kNotYet], with its reason.
 ///
@@ -1005,12 +1047,8 @@ List<HealthSource> liveSources(AppState app,
           // marks an unrelated paired Oura row as connected just because
           // some sensor happens to be live right now.
           connected: liveAdapterIds.contains(r['adapter_id']),
-          batteryPct: (r['battery_pct'] as num?)?.toDouble(),
-          // Last time a sync committed data (or the pairing, before any).
-          lastData: r['last_seen'] == null
-              ? null
-              : DateTime.fromMillisecondsSinceEpoch(
-                  (r['last_seen'] as num).toInt() * 1000),
+          batteryPct: sensorRowBatteryPct(r),
+          lastData: sensorRowLastData(r),
           isBand: false,
           deviceId: r['id'] as String?,
           family: r['adapter_id'] as String?,
@@ -1226,34 +1264,88 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
   ),
 ];
 
+/// Whether the paired `device` rows already hold as many secondary sensors as
+/// this phone will pair alongside its band — the rows minus the primary one.
+///
+/// PAIRED ROWS, NOT LIVE SLOTS, and deliberately: admission is a question
+/// about the sensors this phone manages, not about who holds a GATT link in
+/// this instant. Live slot state is transient — `OuraLink` holds one only from
+/// connect through `stop()`, `HrsLink` only for a workout — so reading it would
+/// admit or refuse the same pairing depending on the second it was tapped, and
+/// a slot freed a moment later cannot un-refuse anything. The same constant
+/// bounds both because the number is the same number.
+///
+/// A pair that rewrites a row this phone already has is a re-pair (a lost
+/// bond, a reset), not an addition, so it never counts against the cap. Which
+/// row a pair writes depends on the path:
+///
+/// * [repairingId] — the row id the pair will write, when it is known before
+///   the pair runs (`HrsLink.mintDeviceId`, keyed by the peripheral).
+/// * [adapterId] of a single-slot sensor — any existing row of that adapter
+///   is the row the pair rewrites. The ring: `pairOuraRing` reuses the one
+///   ring row it finds. The Mi Band: `pairMiBand234` reuses the row of the
+///   same band, and a different band's successful pair forgets every other
+///   Mi Band row (one Mi Band syncs at a time), so it never nets a row.
+/// * [anyOfAdapter] — a SOFT check before a sensor's own screen opens or a
+///   scan starts, when the peripheral is not known yet. An existing row of
+///   [adapterId] lets the user through to that screen's forget / re-pair
+///   section; the pair itself is checked again, exactly, before it runs.
+///
+/// Anything else (a heart-rate strap pair whose peripheral has no row yet)
+/// adds a row and is counted.
+bool sensorCapReached(Iterable<Map<String, Object?>> deviceRows,
+    {String? repairingId, String? adapterId, bool anyOfAdapter = false}) {
+  // A row with no `remote_id` holds no link — a backup restore brings a
+  // sensor's row across without the old phone's handle — so it cannot take
+  // a slot, and counting it would refuse the very re-pair that replaces it.
+  final secondary = deviceRows
+      .where((r) =>
+          r['id'] != LocalDb.kPrimaryDeviceId &&
+          ((r['remote_id'] as String?) ?? '').isNotEmpty)
+      .toList();
+  final sameAdapterRewrites = adapterId != null &&
+      (anyOfAdapter || adapterId == kOura.id || adapterId == kMiBand234.id);
+  for (final r in secondary) {
+    if (repairingId != null && r['id'] == repairingId) return false;
+    if (sameAdapterRewrites && r['adapter_id'] == adapterId) return false;
+  }
+  return secondary.length >= kMaxConcurrentSecondaryLinks;
+}
+
+/// Shows the sensor-limit sheet and returns true when [sensorCapReached].
+///
+/// Called before EVERY sensor pair, not only on the way into a screen: the
+/// picker and `PairSensorScreen` both stay open after a pair for the next one,
+/// and onboarding and `RePair` open the picker without passing through
+/// [addSensor] at all, so a check at any door alone let one visit pair any
+/// number of sensors. The exact check lives where the pair runs
+/// (`_pickNearby`, `PairSensorScreen._pickDevice`); the ones at doors are
+/// courtesy, so nobody scans for a sensor they cannot keep.
+Future<bool> refuseIfSensorCapReached(BuildContext c,
+    {String? repairingId, String? adapterId, bool anyOfAdapter = false}) async {
+  if (!sensorCapReached(await LocalDb.deviceRows(),
+      repairingId: repairingId,
+      adapterId: adapterId,
+      anyOfAdapter: anyOfAdapter)) {
+    return false;
+  }
+  if (!c.mounted) return true;
+  // DERIVED FROM THE CONSTANT the check uses. Hardcoded, the sentence states a
+  // different rule from the one enforced the moment the cap moves.
+  await showReasonSheet(
+      c,
+      AppLocalizations.of(c)
+              ?.devicesSensorLimit(kMaxConcurrentSecondaryLinks) ??
+          'This phone will pair at most $kMaxConcurrentSecondaryLinks '
+              'sensors alongside your band. Remove one to add another.');
+  return true;
+}
+
 /// Choose which kind of sensor to pair, then hand off to the pairing screen.
 Future<void> addSensor(BuildContext c) async {
-  // Count paired secondary devices (the `device` table minus the primary row).
-  //
-  // PAIRED ROWS, NOT LIVE SLOTS, and deliberately: admission here is a
-  // question about the sensors this phone manages, not about who holds a GATT
-  // link in this instant. Live slot state is transient — `OuraLink` holds one
-  // only from connect through `stop()`, `HrsLink` only for a workout — so
-  // reading it would admit or refuse the same pairing depending on the second
-  // it was tapped, and a slot freed a moment later cannot un-refuse anything.
-  // The same constant bounds both because the number is the same number; the
-  // sentence below states the PAIRING rule, which is the one enforced here.
-  final secondaryCount = (await LocalDb.deviceRows())
-      .where((r) => r['id'] != LocalDb.kPrimaryDeviceId)
-      .length;
-  if (secondaryCount >= kMaxConcurrentSecondaryLinks) {
-    if (!c.mounted) return;
-    // DERIVED FROM THE CONSTANT the check above uses. Hardcoded, the sentence
-    // states a different rule from the one enforced the moment the cap moves.
-    await showReasonSheet(
-        c,
-        AppLocalizations.of(c)
-                ?.devicesSensorLimit(kMaxConcurrentSecondaryLinks) ??
-            'This phone will pair at most $kMaxConcurrentSecondaryLinks '
-                'sensors alongside your band. Remove one to add another.');
-    return;
-  }
-  if (!c.mounted) return;
+  // No cap check here: at the cap the picker still has to open, so a sensor
+  // that already has a row can reach its own screen to re-pair or replace
+  // it. Each sensor and each pair is checked inside.
   // `includeBand: false` — this phone already has its one primary band;
   // re-pairing it is `RePair`'s job, not a row beside a chest strap here.
   await goto(c, const DevicePickerScreen(includeBand: false));
@@ -1795,8 +1887,12 @@ class _DeviceDetailState extends State<DeviceDetail> {
 
   @override
   Widget build(BuildContext c) {
-    final s = widget.s;
-    final app = s.isBand ? c.watch<AppState>() : null;
+    final app = widget.s.isBand ? c.watch<AppState>() : null;
+    // A sensor page listens to its own row only, not every AppState tick.
+    final s = widget.s.isBand
+        ? widget.s
+        : refreshedSensorSource(
+            widget.s, c.select<AppState, List<Map<String, Object?>>>((a) => a.sensors));
     return DeviceDetailView(
       s,
       status: app?.engine.bandStatus,
@@ -1974,11 +2070,19 @@ Future<void> _syncMiband(BuildContext c) async {
       SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
   final ok = await MiBand234Link.instance.sync();
   if (!c.mounted) return;
+  // A rejected key needs a re-pair, which no amount of moving closer fixes.
+  final keyRejected = !ok &&
+      MiBand234Link.instance.lastSyncFailure ==
+          MiBand234SyncFailure.keyRejected;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
         ? (l?.devicesSynced ?? 'Synced.')
-        : 'Could not reach the band. It has to be nearby, and not '
-            'connected to another app.'),
+        : keyRejected
+            ? (l?.devicesBandKeyRefused ??
+                'The band rejected the key. Re-pair it to install a key it '
+                    'accepts.')
+            : 'Could not reach the band. It has to be nearby, and not '
+                'connected to another app.'),
   ));
 }
 
@@ -2090,17 +2194,59 @@ Future<void> _renameBand(BuildContext c, AppState app, String current) async {
   // Captured before the dialog: `c` is not safe to touch after the await.
   final messenger = ScaffoldMessenger.maybeOf(c);
   final l = AppLocalizations.of(c);
-  final ctl = TextEditingController(text: current);
-  final err = ValueNotifier<String?>(null);
   final name = await showDialog<String>(
     context: c,
-    builder: (d) => AlertDialog(
+    builder: (_) => RenameBandDialog(current: current),
+  );
+  if (name == null) return;
+  try {
+    await app.renameStrap(name);
+    messenger?.showSnackBar(
+        SnackBar(content: Text(l?.devicesRenamedTo(name) ?? 'Renamed to $name')));
+  } catch (e) {
+    // The write goes to the strap, so a dropped link loses it. Say that,
+    // rather than leaving the old name on screen with no explanation.
+    messenger?.showSnackBar(SnackBar(
+        content: Text(l?.devicesCouldNotRename(e.toString()) ??
+            'Could not rename the band: $e')));
+  }
+}
+
+/// The rename sheet owns its controller and error notifier so they are
+/// disposed with the route. `showDialog` completes at pop time, while the exit
+/// transition is still rebuilding the field; disposing them right after the
+/// await threw "used after being disposed" on every Save and Cancel.
+class RenameBandDialog extends StatefulWidget {
+  const RenameBandDialog({super.key, required this.current});
+
+  final String current;
+
+  @override
+  State<RenameBandDialog> createState() => _RenameBandDialogState();
+}
+
+class _RenameBandDialogState extends State<RenameBandDialog> {
+  late final TextEditingController _ctl =
+      TextEditingController(text: widget.current);
+  final ValueNotifier<String?> _err = ValueNotifier<String?>(null);
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    _err.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext d) {
+    final l = AppLocalizations.of(d);
+    return AlertDialog(
       title: Text(l?.devicesNameThisBand ?? 'Name this band'),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         ValueListenableBuilder<String?>(
-          valueListenable: err,
+          valueListenable: _err,
           builder: (_, e, _) => TextField(
-            controller: ctl,
+            controller: _ctl,
             autofocus: true,
             maxLength: 20,
             decoration: InputDecoration(
@@ -2118,11 +2264,11 @@ Future<void> _renameBand(BuildContext c, AppState app, String current) async {
             child: Text(l?.actionCancel ?? 'Cancel')),
         TextButton(
           onPressed: () {
-            final v = ctl.text.trim();
+            final v = _ctl.text.trim();
             if (v.isEmpty) {
-              err.value = l?.devicesGiveItAName ?? 'Give it a name';
+              _err.value = l?.devicesGiveItAName ?? 'Give it a name';
             } else if (cleanDeviceLabel(v) == null) {
-              err.value = l?.devicesNameCharsetError ??
+              _err.value = l?.devicesNameCharsetError ??
                   "Only letters, numbers, space, and ' . _ -";
             } else {
               Navigator.of(d).pop(v);
@@ -2131,21 +2277,7 @@ Future<void> _renameBand(BuildContext c, AppState app, String current) async {
           child: Text(l?.actionSave ?? 'Save'),
         ),
       ],
-    ),
-  );
-  ctl.dispose();
-  err.dispose();
-  if (name == null) return;
-  try {
-    await app.renameStrap(name);
-    messenger?.showSnackBar(
-        SnackBar(content: Text(l?.devicesRenamedTo(name) ?? 'Renamed to $name')));
-  } catch (e) {
-    // The write goes to the strap, so a dropped link loses it. Say that,
-    // rather than leaving the old name on screen with no explanation.
-    messenger?.showSnackBar(SnackBar(
-        content: Text(l?.devicesCouldNotRename(e.toString()) ??
-            'Could not rename the band: $e')));
+    );
   }
 }
 

@@ -937,17 +937,17 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "302332bbe74d82b9bd10d08f93f8a058a3108123"
-      resolved-ref: "302332bbe74d82b9bd10d08f93f8a058a3108123"
-      url: "https://github.com/DropTabl/analytics.git"
+      ref: 7e4f73467611aad8279b8b276caed07f5f476469
+      resolved-ref: 7e4f73467611aad8279b8b276caed07f5f476469
+      url: "https://github.com/OpenStrap/analytics.git"
     source: git
     version: "1.0.0"
   openstrap_protocol:
     dependency: "direct main"
     description:
       path: "."
-      ref: "89080bcfac7767b3a871fd3a7d9307f5f30dad26"
-      resolved-ref: "89080bcfac7767b3a871fd3a7d9307f5f30dad26"
+      ref: 89080bcfac7767b3a871fd3a7d9307f5f30dad26
+      resolved-ref: 89080bcfac7767b3a871fd3a7d9307f5f30dad26
       url: "https://github.com/OpenStrap/protocol.git"
     source: git
     version: "1.0.0"

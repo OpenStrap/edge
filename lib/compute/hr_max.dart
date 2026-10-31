@@ -24,6 +24,8 @@ import 'dart:math' as math;
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
+import 'profile.dart' show plausibleAgeYears;
+
 // ── THE app's HR ceiling for zones / TRIMP / calories ────────────────────────
 //
 // There used to be five of these. `220 − age` at local_repository_impl.dart,
@@ -63,7 +65,9 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 /// the band actually MEASURED — is `observedCeilingBpm`, and that one still
 /// refuses for an unknown family, in analytics' `observed_max_hr.dart`.
 double? estimatedMaxHr(num? age, String? deviceFamily) {
-  if (age == null || age <= 0) return null;
+  // An age already stored before the profile forms checked it (a birth year,
+  // a negative) gets no ceiling rather than a negative one.
+  if (age == null || !plausibleAgeYears(age)) return null;
   return 208.0 - 0.7 * age.toDouble();
 }
 

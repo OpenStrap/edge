@@ -128,8 +128,11 @@ private extension View {
 
 private struct PulseHeart: View {
   let size: CGFloat
+  var live: Bool = true
   var body: some View {
-    if #available(iOSApplicationExtension 17.0, *) {
+    if !live {
+      Image(systemName: "heart").font(.system(size: size)).foregroundStyle(Color.inkMuted)
+    } else if #available(iOSApplicationExtension 17.0, *) {
       Image(systemName: "heart.fill").font(.system(size: size))
         .foregroundStyle(Color.heart).symbolEffect(.pulse, options: .repeating)
     } else {
@@ -161,6 +164,26 @@ private func hrText(_ v: Int) -> String { v > 0 ? "\(v)" : "" }
 private func strainText(_ v: Double?) -> String { v.map { String(format: "%.1f", $0) } ?? "" }
 private func kcalText(_ v: Int?) -> String { v.map { "\($0)" } ?? "" }
 
+// The frame to draw. The bridge stamps every push with a stale date a minute
+// out, and the app stops pushing when the band stops reporting HR or the app
+// dies, so a stale frame's bpm and zone are an old reading, not a live one:
+// blank them. Strain and kcal are session tallies, still true as of that frame.
+private func shownState(
+  _ context: ActivityViewContext<OpenStrapWidgetAttributes>
+) -> OpenStrapWidgetAttributes.ContentState {
+  var s = context.state
+  if isStale(context) {
+    s.hr = 0
+    s.zone = 0
+  }
+  return s
+}
+
+private func isStale(_ context: ActivityViewContext<OpenStrapWidgetAttributes>) -> Bool {
+  if #available(iOSApplicationExtension 16.2, *) { return context.isStale }
+  return false
+}
+
 // MARK: - Finish (interactive, iOS 17+)
 
 @available(iOSApplicationExtension 17.0, *)
@@ -180,11 +203,12 @@ struct EndSessionIntent: LiveActivityIntent {
 private struct LockScreenView: View {
   let context: ActivityViewContext<OpenStrapWidgetAttributes>
   var body: some View {
-    let s = context.state
+    let s = shownState(context)
+    let live = !isStale(context)
     VStack(spacing: 12) {
       HStack(alignment: .center) {
         HStack(spacing: 8) {
-          PulseHeart(size: 22)
+          PulseHeart(size: 22, live: live)
           VStack(alignment: .leading, spacing: 0) {
             Text(hrText(s.hr)).font(.system(size: 34, weight: .bold, design: .rounded))
               .foregroundStyle(Color.ink).contentTransition(.numericText())
@@ -199,7 +223,7 @@ private struct LockScreenView: View {
       }
       VStack(alignment: .leading, spacing: 5) {
         HStack {
-          Text(s.zone >= 1 ? "ZONE \(s.zone)" : "WARMING UP")
+          Text(!live ? "NO SIGNAL" : s.zone >= 1 ? "ZONE \(s.zone)" : "WARMING UP")
             .font(.system(size: 10, weight: .bold)).tracking(1).foregroundStyle(zoneColor(s.zone))
           Spacer()
           Text(context.attributes.startedAt, style: .timer)
@@ -229,11 +253,12 @@ struct OpenStrapWidgetLiveActivity: Widget {
       LockScreenView(context: context)
         .activitySystemActionForegroundColor(Color.heartFill)
     } dynamicIsland: { context in
-      let s = context.state
+      let s = shownState(context)
+      let live = !isStale(context)
       return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
           HStack(spacing: 6) {
-            PulseHeart(size: 16)
+            PulseHeart(size: 16, live: live)
             Text(hrText(s.hr)).font(.system(size: 22, weight: .bold, design: .rounded))
               .foregroundStyle(.white).contentTransition(.numericText())
           }
@@ -268,7 +293,7 @@ struct OpenStrapWidgetLiveActivity: Widget {
         }
       } compactLeading: {
         HStack(spacing: 3) {
-          PulseHeart(size: 12)
+          PulseHeart(size: 12, live: live)
           Text(hrText(s.hr)).font(.system(size: 14, weight: .bold, design: .rounded))
         }
       } compactTrailing: {

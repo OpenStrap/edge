@@ -87,6 +87,9 @@ object NativeChannels {
                         result.success(null)
                     }
                     "stop" -> {
+                        // Dart only sends this on unpair, so the watchdog has
+                        // nothing left to keep alive.
+                        KeepAliveWorker.cancel(app)
                         app.stopService(Intent(app, EdgeTrackingService::class.java))
                         result.success(null)
                     }
@@ -211,18 +214,27 @@ object NativeChannels {
                 when (call.method) {
                     "peek_pending_buzz" -> {
                         val pending = prefs.getBoolean(TaskerReceiver.PENDING_BUZZ_KEY, false)
-                        result.success(
-                            if (pending) {
-                                prefs.getInt(TaskerReceiver.PENDING_PATTERN_KEY, TaskerReceiver.DEFAULT_PATTERN)
-                            } else {
-                                null
-                            }
-                        )
+                        if (!pending) {
+                            result.success(null)
+                        } else {
+                            val args = java.util.HashMap<String, Any?>()
+                            args["pattern"] = prefs.getInt(TaskerReceiver.PENDING_PATTERN_KEY, TaskerReceiver.DEFAULT_PATTERN)
+                            // Absent on a flag queued by an older build; Dart
+                            // treats that as stale rather than guessing an age.
+                            args["requestedAtMs"] =
+                                if (prefs.contains(TaskerReceiver.PENDING_AT_KEY)) {
+                                    prefs.getLong(TaskerReceiver.PENDING_AT_KEY, 0L)
+                                } else {
+                                    null
+                                }
+                            result.success(args)
+                        }
                     }
                     "clear_pending_buzz" -> {
                         prefs.edit()
                             .remove(TaskerReceiver.PENDING_BUZZ_KEY)
                             .remove(TaskerReceiver.PENDING_PATTERN_KEY)
+                            .remove(TaskerReceiver.PENDING_AT_KEY)
                             .apply()
                         result.success(null)
                     }

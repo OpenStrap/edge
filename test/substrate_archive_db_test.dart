@@ -1194,6 +1194,94 @@ void main() {
     expect(leftovers(), isEmpty);
   });
 
+  test('VACUUM INTO is gated on SQLite 3.27', () {
+    expect(LocalDb.sqliteHasVacuumInto('3.18.2'), isFalse); // Android 8
+    expect(LocalDb.sqliteHasVacuumInto('3.22.0'), isFalse); // Android 9-10
+    expect(LocalDb.sqliteHasVacuumInto('3.26.0'), isFalse);
+    expect(LocalDb.sqliteHasVacuumInto('3.27.0'), isTrue);
+    expect(LocalDb.sqliteHasVacuumInto('3.28.0'), isTrue); // Android 11
+    expect(LocalDb.sqliteHasVacuumInto('3.45.1'), isTrue);
+  });
+
+  test('the pre-3.27 export copies the same schema and rows as VACUUM INTO',
+      () async {
+    await _seed();
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
+    Future<(Map<String, String>, Map<String, int>, Object?)> shape(
+        String path) async {
+      final db = await databaseFactory.openDatabase(path,
+          options: OpenDatabaseOptions(singleInstance: false));
+      try {
+        final schema = {
+          for (final r in await db.rawQuery(
+              "SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL "
+              "AND name NOT LIKE 'sqlite_%'"))
+            r['name'] as String: r['sql'] as String,
+        };
+        final counts = <String, int>{};
+        for (final r in await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")) {
+          final t = r['name'] as String;
+          counts[t] = (await db.rawQuery('SELECT COUNT(*) AS n FROM "$t"'))
+              .first['n'] as int;
+        }
+        final v = (await db.rawQuery('PRAGMA user_version')).first.values.first;
+        return (schema, counts, v);
+      } finally {
+        await db.close();
+      }
+    }
+
+    final vacuum = await LocalDb.exportCopy();
+    LocalDb.debugForceAttachExport = true;
+    try {
+      final attached = await LocalDb.exportCopy();
+      final stripped =
+          await LocalDb.exportCopy(includeSubstrateArchive: false);
+      final a = await shape(vacuum);
+      final b = await shape(attached);
+      expect(b.$1, a.$1);
+      expect(b.$2, a.$2);
+      expect(b.$3, a.$3);
+      expect(a.$2['substrate_archive'], greaterThan(0));
+      expect(a.$2['decoded_onehz'], greaterThan(0));
+      final c = await shape(stripped);
+      expect(c.$2['substrate_archive'], 0);
+      expect(c.$2['decoded_onehz'], a.$2['decoded_onehz']);
+    } finally {
+      LocalDb.debugForceAttachExport = false;
+    }
+  });
+
+  test('the pre-3.27 export leaves the archive out instead of stripping it',
+      () async {
+    await _seed();
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
+    LocalDb.debugForceAttachExport = true;
+    // The strip-and-VACUUM step must not run on this path at all.
+    LocalDb.debugFailExportStrip = true;
+    try {
+      final path = await LocalDb.exportCopy(includeSubstrateArchive: false);
+      final db = await databaseFactory.openDatabase(path,
+          options: OpenDatabaseOptions(singleInstance: false));
+      try {
+        final n = (await db.rawQuery(
+                'SELECT COUNT(*) AS n FROM ${SubstrateArchive.table}'))
+            .first['n'] as int;
+        expect(n, 0);
+        final rows = (await db.rawQuery(
+                'SELECT COUNT(*) AS n FROM decoded_onehz'))
+            .first['n'] as int;
+        expect(rows, greaterThan(0));
+      } finally {
+        await db.close();
+      }
+    } finally {
+      LocalDb.debugFailExportStrip = false;
+      LocalDb.debugForceAttachExport = false;
+    }
+  });
+
   test('page queries seek on the primary key', () async {
     final db = await _db();
     for (final sql in [

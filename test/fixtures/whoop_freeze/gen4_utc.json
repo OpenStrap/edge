@@ -2,7 +2,7 @@
  "day_result": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 115,
+   "algo_version": 116,
    "payload_json": {
     "date": "2026-07-13",
     "day_confidence": 0.6,
@@ -24902,7 +24902,7 @@
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 115,
+   "algo_version": 116,
    "payload_json": {
     "date": "2026-07-14",
     "day_confidence": 0.6,
@@ -49595,7 +49595,7 @@
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 115,
+   "algo_version": 116,
    "payload_json": {
     "date": "2026-07-15",
     "day_confidence": 0.6,
@@ -73355,7 +73355,7 @@
  "metric_series_version": [
   {
    "date": "2026-07-13",
-   "algo_version": 115,
+   "algo_version": 116,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -73363,7 +73363,7 @@
   },
   {
    "date": "2026-07-14",
-   "algo_version": 115,
+   "algo_version": 116,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -73371,7 +73371,7 @@
   },
   {
    "date": "2026-07-15",
-   "algo_version": 115,
+   "algo_version": 116,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -73381,7 +73381,7 @@
  "wake_day_features": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 115,
+   "algo_version": 116,
    "payload_json": {
     "day_id": "2026-07-13",
     "active_min": 90,
@@ -74589,7 +74589,7 @@
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 115,
+   "algo_version": 116,
    "payload_json": {
     "day_id": "2026-07-14",
     "active_min": 239,
@@ -75797,7 +75797,7 @@
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 115,
+   "algo_version": 116,
    "payload_json": {
     "day_id": "2026-07-15",
     "active_min": 40,
@@ -76992,6 +76992,8 @@
    "readiness": 27.03355259577805,
    "resp_rate": 13.51304972588547,
    "skin_temp_z": 3.8092033860986256,
+   "skin_temp_adc": 30406.000406834824,
+   "skin_temp_family": "gen4",
    "skin_temp_illness_ok": false,
    "trimp": 227.5841832798056,
    "strain": null,
@@ -77203,6 +77205,8 @@
    "readiness": 27.033651010089166,
    "resp_rate": 13.51304972588547,
    "skin_temp_z": 2.581998719140345,
+   "skin_temp_adc": 30406.00025889489,
+   "skin_temp_family": "gen4",
    "skin_temp_illness_ok": false,
    "trimp": 221.15132594116318,
    "strain": null,
@@ -77414,6 +77418,8 @@
    "readiness": 66.11559080104756,
    "resp_rate": 13.51304972588547,
    "skin_temp_z": 2.083305937349391,
+   "skin_temp_adc": 30406.000110954952,
+   "skin_temp_family": "gen4",
    "skin_temp_illness_ok": false,
    "trimp": 218.15549360346512,
    "strain": null,
@@ -77634,12 +77640,7 @@
    "drivers": [],
    "note": "need_baseline:have=2,need=10"
   },
-  "temp_illness": {
-   "date": "2026-07-15",
-   "flag": "normal",
-   "luteal": false,
-   "confidence": 0.0
-  },
+  "temp_illness": null,
   "load": {
    "value": "—",
    "confidence": 0.0,

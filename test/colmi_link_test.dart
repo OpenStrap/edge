@@ -7,6 +7,8 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart' show Guid;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/adapters/gatt_link.dart';
+import 'package:openstrap_edge/ble/ble_state.dart'
+    show acquireSecondaryLinkSlot, releaseSecondaryLinkSlot;
 import 'package:openstrap_edge/ble/colmi_link.dart';
 import 'package:openstrap_edge/ble/hrs_link.dart';
 import 'package:openstrap_edge/data/db.dart';
@@ -136,6 +138,18 @@ void main() {
     expect(ColmiLink.instance.batteryPct, 64);
   });
 
+  test('a ring that answers nothing is a failed sync, not a quiet success',
+      () async {
+    await ColmiLink.instance.ingestForTest(_deviceId, (_, _) => const [],
+        nowSeconds: _nowSec);
+    expect(ColmiLink.instance.lastSyncUnanswered, isTrue);
+  });
+
+  test('a ring that answers only its battery request is listening', () async {
+    await sync();
+    expect(ColmiLink.instance.lastSyncUnanswered, isFalse);
+  });
+
   test('nothing paired means nothing to sync', () async {
     expect(await ColmiLink.pairedRingRow(), isNull);
     expect(await ColmiLink.instance.sync(), isFalse);
@@ -161,6 +175,65 @@ void main() {
     test('a device id nothing paired is a harmless no-op', () async {
       expect(await ColmiLink.forgetRing('colmi-never-paired'), isTrue);
       expect(await ColmiLink.pairedRingRow(), isNull);
+    });
+
+    /// Start a real sync with both secondary slots taken, and wait until it
+    /// has read the row and is parked on the slot.
+    Future<Future<bool>> parkedSync() async {
+      await LocalDb.upsertDevice(
+        id: _deviceId,
+        adapterId: kColmi.id,
+        remoteId: 'AA:BB:CC:DD:EE:FF',
+        label: 'Ring',
+      );
+      expect(await acquireSecondaryLinkSlot(), isTrue);
+      expect(await acquireSecondaryLinkSlot(), isTrue);
+      final pending = ColmiLink.instance.sync();
+      for (var i = 0;
+          i < 500 && ColmiLink.instance.deviceIdForTest != _deviceId;
+          i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+      }
+      expect(ColmiLink.instance.deviceIdForTest, _deviceId);
+      return pending;
+    }
+
+    Future<void> expectNoSlotLeak() async {
+      const wait = Duration(seconds: 2);
+      expect(await acquireSecondaryLinkSlot(timeout: wait), isTrue);
+      expect(await acquireSecondaryLinkSlot(timeout: wait), isTrue,
+          reason: 'a slot was never released');
+      releaseSecondaryLinkSlot();
+      releaseSecondaryLinkSlot();
+    }
+
+    test('forgetting a ring whose sync waits for a slot cancels that sync',
+        () async {
+      final pending = await parkedSync();
+      final before = ColmiLink.instance.connectAttemptsForTest;
+
+      expect(await ColmiLink.forgetRing(_deviceId), isTrue);
+      releaseSecondaryLinkSlot();
+      releaseSecondaryLinkSlot();
+
+      expect(await pending, isFalse);
+      // The parked sync captured the ring's ids before the forget; it must
+      // not take the freed slot to the radio for a device that is gone.
+      expect(ColmiLink.instance.connectAttemptsForTest, before);
+      await expectNoSlotLeak();
+    });
+
+    test('a sync waiting for a slot still runs when nothing was forgotten',
+        () async {
+      final pending = await parkedSync();
+      final before = ColmiLink.instance.connectAttemptsForTest;
+
+      releaseSecondaryLinkSlot();
+      releaseSecondaryLinkSlot();
+
+      expect(await pending, isFalse); // connect() has no plugin under a test
+      expect(ColmiLink.instance.connectAttemptsForTest, before + 1);
+      await expectNoSlotLeak();
     });
   });
 
