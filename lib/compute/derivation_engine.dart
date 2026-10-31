@@ -6821,6 +6821,9 @@ class DerivationEngine {
   Future<bool> _runCrossDay(Profile profile) async {
     try {
       final reviewRevision = await LocalDb.activityReviewRevision();
+      // The zone the inputs are read in, taken BEFORE they are read: a change
+      // during the build must not stamp old-zone shifts with the new zone.
+      final zone = crossDayZoneStamp();
       final days = await _crossDayInputDays();
       if (days.length < 3) {
         _log('crossday: only ${days.length} usable day(s) — skip');
@@ -6853,9 +6856,6 @@ class DerivationEngine {
       // one layer up on the output.
       final builtForDay = LocalDb.localDayLabelNow();
       final builtAtEpoch = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      // The zone the inputs were read in: the as-of reader serves this bundle
-      // only in the same zone ([crossDayAsOf]).
-      final zone = crossDayZoneStamp();
       final (bundleJson, dropped) = await _runIsolateCancellable(
         () {
           final bundle =
@@ -6880,6 +6880,12 @@ class DerivationEngine {
         _crossDayTimeout,
         label: 'crossday',
       );
+      if (crossDayZoneStamp() != zone) {
+        // The zone moved while this was built: drop it; the stale check
+        // rebuilds it on the next pass in the new zone.
+        _log('crossday: zone changed during the build; not stored');
+        return false;
+      }
       if (!await LocalDb.putReviewedBaseline('crossday', bundleJson, reviewRevision)) {
         _log('crossday: newer activity review; leaving its refresh queued');
         return false;
