@@ -88,6 +88,59 @@ Future<String> _snapshot() async {
   });
 }
 
+/// Where two [_snapshot]s first part: the table, the row, and each column
+/// that differs, values cut short.
+String _firstDifference(String a, String b) {
+  String cut(Object? v) {
+    final t = '$v';
+    return t.length <= 400 ? t : '${t.substring(0, 400)}… (${t.length} chars)';
+  }
+
+  final x = jsonDecode(a) as Map<String, dynamic>;
+  final y = jsonDecode(b) as Map<String, dynamic>;
+  for (final table in x.keys) {
+    final rx = x[table] as List, ry = y[table] as List;
+    if (rx.length != ry.length) {
+      return '$table: ${rx.length} rows with the skip, ${ry.length} without';
+    }
+    for (var i = 0; i < rx.length; i++) {
+      final m = rx[i] as Map, n = ry[i] as Map;
+      final cols = {...m.keys, ...n.keys}
+          .where((k) => jsonEncode(m[k]) != jsonEncode(n[k]))
+          .toList();
+      if (cols.isEmpty) continue;
+      final key = m['day_id'] ?? m['date'] ?? m['key'] ?? m['id'] ?? i;
+      return [
+        '$table row $i ($key) differs in ${cols.join(', ')}:',
+        for (final c in cols)
+          if (m[c] is String && n[c] is String)
+            _stringDifference(c as String, m[c] as String, n[c] as String)
+          else ...[
+            '  $c with the skip: ${cut(m[c])}',
+            '  $c without:       ${cut(n[c])}',
+          ],
+      ].join('\n');
+    }
+  }
+  return 'snapshots differ outside the compared tables';
+}
+
+String _stringDifference(String col, String a, String b) {
+  var i = 0;
+  while (i < a.length && i < b.length && a.codeUnitAt(i) == b.codeUnitAt(i)) {
+    i++;
+  }
+  String around(String t) {
+    final from = i < 200 ? 0 : i - 200;
+    final to = i + 200 > t.length ? t.length : i + 200;
+    return t.substring(from, to);
+  }
+
+  return '  $col first differs at char $i\n'
+      '    with the skip: …${around(a)}…\n'
+      '    without:       …${around(b)}…';
+}
+
 void main() {
   setUpAll(() {
     sqfliteFfiInit();
@@ -121,7 +174,10 @@ void main() {
     // The skip actually happened: by the last pass nothing was derived.
     expect(log.last.derived, 0, reason: '$log');
     expect(log.last.unchanged, greaterThan(0), reason: '$log');
-    expect(withSkip, everyDay);
+    // Not expect(withSkip, everyDay): on a mismatch that prints both
+    // multi-megabyte snapshots, and the CI log was cut off right there, so a
+    // failure read as a silent crash. Name the first difference instead.
+    if (withSkip != everyDay) fail(_firstDifference(withSkip, everyDay));
   }, timeout: const Timeout(Duration(minutes: 10)));
 
   test('an override, new data, a profile change and a version bump re-derive',
