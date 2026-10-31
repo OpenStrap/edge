@@ -4678,8 +4678,9 @@ class AppState extends ChangeNotifier {
     bool? enabled,
     int? smartWindowMinutes,
   }) async {
-    final disabling = _disableInFlight;
-    if (disabling != null) await disabling.catchError((Object _) {});
+    for (var d = _disableInFlight; d != null; d = _disableInFlight) {
+      await d;
+    }
     final current = _schedule.firstWhere(
       (e) => e.weekday == weekday,
       orElse: () => AlarmScheduleEntry(
@@ -5176,9 +5177,13 @@ class AppState extends ChangeNotifier {
   /// in `alarm_schedule` can silently re-arm this on the next connect/sync.
   Future<void> disableAlarm() async {
     if (!isConnected) throw Exception('Connect to your strap first');
+    // Cancels run one after another, and [_disableInFlight] is always the
+    // last one queued, so a save waits behind every cancel started before it.
+    final previous = _disableInFlight;
     final done = Completer<void>();
     _disableInFlight = done.future;
     try {
+      if (previous != null) await previous;
       await _disableAlarmNow();
     } finally {
       if (identical(_disableInFlight, done.future)) _disableInFlight = null;

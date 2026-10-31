@@ -542,14 +542,20 @@ void main() {
       await app.setScheduleDay(weekday: 1, enabled: true); // offline: saved
       app.device.connection = 'connected';
 
-      final cancel = app.disableAlarm();
+      // Two overlapping cancels, then a save while both are unanswered.
+      final cancels = [app.disableAlarm(), app.disableAlarm()];
       await Future<void>.delayed(Duration.zero);
-      // Saved while the disable write waits on the strap's reply.
       final save = app.setScheduleDay(
           weekday: 3, enabled: true, hour: 6, minute: 0);
-      await Future<void>.delayed(Duration.zero);
-      engine.reply.complete(true);
-      await cancel;
+      // Answer the newest disable first: the save must still wait for both.
+      var cancelled = false;
+      unawaited(Future.wait(cancels).then((_) => cancelled = true));
+      // Between answers, give anything let through time to reach the database.
+      for (var i = 0; i < 20 && !cancelled; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        if (engine.anyPending) engine.answerLatest();
+      }
+      expect(cancelled, isTrue);
       await save;
 
       final enabled = [
@@ -1283,14 +1289,22 @@ class _ArmRecordingEngine extends BleEngine {
   }
 }
 
-/// Holds DISABLE_ALARM's reply until the test completes [reply], and records
-/// arms instead of writing them.
+/// Holds each DISABLE_ALARM reply until the test answers it, and records arms
+/// instead of writing them.
 class _HeldDisableEngine extends BleEngine {
   _HeldDisableEngine() : super(onRecord: (_, _) async {}, onState: (_) {});
-  final reply = Completer<bool>();
+  final replies = <Completer<bool>>[];
   final armed = <DateTime>[];
   @override
-  Future<bool> disableAlarm({int? id}) => reply.future;
+  Future<bool> disableAlarm({int? id}) {
+    final c = Completer<bool>();
+    replies.add(c);
+    return c.future;
+  }
+
+  /// Answers the most recent unanswered disable.
+  void answerLatest() => replies.lastWhere((c) => !c.isCompleted).complete(true);
+  bool get anyPending => replies.any((c) => !c.isCompleted);
   @override
   Future<({DateTime? armed, bool echoed})> armAlarm(DateTime when,
       {int index = 0, List<int>? haptics}) async {
