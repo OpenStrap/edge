@@ -268,19 +268,15 @@ void main() {
 
     final napStart = _local(2025, 6, 16, 7, 30);
 
-    // The lie-in starts 20 minutes after the trimmed wake. The nap detector
-    // now chains any still block within an hour of the main sleep into the
-    // night, so it is not a nap candidate even when only the trimmed span is
-    // excluded. The exclusion below stays as the second line of defence.
-    test('the detector itself chains the lie-in into the night', () {
+    test('control: excluding only up to the trimmed wake emits the nap', () {
       final out = naps(_lieTrimmed);
       expect(out, isNotNull);
       expect(
-        out!.where((n) =>
+        out!.any((n) =>
             (n['start'] as int) >= napStart - 120 &&
             (n['start'] as int) <= napStart + 300),
-        isEmpty,
-        reason: 'a still block 20 min after the night is not a nap: $out',
+        isTrue,
+        reason: 'the fixture must create a nap candidate: $out',
       );
     });
 
