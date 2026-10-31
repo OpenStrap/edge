@@ -1825,7 +1825,16 @@ import 'vendor_sleep.dart';
 // carries a workout-raised headline; a logged nap over the main sleep is
 // counted once; an implausible stored age is named as the reason strain,
 // calories and zones are absent.
-const int kAlgoVersion = 116;
+// 116 → 117 (#624): the cross-day rollup reads each night's onset/wake/mid-sleep
+// on the clock it was lived on (`clock_shift_sec`, recovered from the stored
+// `sleep_onset_sec`), so after a zone change the Sleep Coach targets, typical
+// wake, chronotype and social jetlag no longer move by the zone difference. A
+// re-derive keeps the stored night's clock. Unchanged for a user who has not
+// changed zone. Edge-only.
+// 117 → 118 (edge-only): a legacy nap snapshot fully inside the corrected
+// main window is no longer counted on top of it; partial overlaps keep their
+// recorded minutes, and a nap the user put back stays theirs.
+const int kAlgoVersion = 118;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -3469,6 +3478,13 @@ class DerivationEngine {
           await _withWearableEdge(await LocalDb.lastDecodedRecTs()) ?? 0;
       if (dataNowSec <= 0) {
         _log('derive: no decoded data');
+        // A restored backup can hold every day and no decoded data. The
+        // rollup is built from stored days, so a zone change still rebuilds
+        // it here; otherwise the reader keeps abstaining on the old zone.
+        if (await _crossDayZoneStale()) {
+          await _refreshBaselines();
+          await _runCrossDay(profile);
+        }
         return 0;
       }
       final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
@@ -3495,7 +3511,9 @@ class DerivationEngine {
         // the todo set; re-score it here too rather than leave it a pass.
         final rescored =
             await _quietLevelRepass(profile, dataNowSec, scope.rawDays);
-        if (rescored > 0) {
+        // A zone change with no day to derive still moves every past night's
+        // clock: rebuild the rollup, or it keeps the old zone's reading.
+        if (rescored > 0 || await _crossDayZoneStale()) {
           await _refreshBaselines();
           await _runCrossDay(profile);
           await _runNotifications();
@@ -6460,6 +6478,32 @@ class DerivationEngine {
       }
     }
 
+    // RE-DERIVING KEEPS THE NIGHT'S OWN CLOCK. The pipeline freezes
+    // `sleep_onset_sec`/`midsleep_sec` with the phone's zone NOW, so re-deriving
+    // a night lived before a trip (re-analyze, a rescan, a version bump) would
+    // overwrite the only record of the zone it was lived in, and the cross-day
+    // rollup would read it on the new clock. Carry the stored row's shift.
+    //
+    // Two numbers off the stored row, extracted in SQLite: decoding the whole
+    // previous bundle here cost a full payload read and curve expansion on
+    // this isolate for every derived day, to learn nothing for anyone who has
+    // not changed zone.
+    final prevClock = await LocalDb.storedNightClock(day.date);
+    if (prevClock != null) {
+      final onsetMs = prevClock.onsetMs;
+      final shift = recordedClockShiftSec(
+        onsetSec: onsetMs == null ? null : (onsetMs / 1000).round(),
+        onsetClockSec: prevClock.onsetClockSec,
+      );
+      final s = bundle['scalars'];
+      if (shift != 0 && s is Map) {
+        for (final k in const ['sleep_onset_sec', 'midsleep_sec']) {
+          final v = shiftRecordedClockSec(s[k] as num?, shift);
+          if (v != null) s[k] = v;
+        }
+      }
+    }
+
     final scalars =
         (bundle['scalars'] as Map?)?.cast<String, dynamic>() ?? const {};
     double? sc(String k) => (scalars[k] as num?)?.toDouble();
@@ -7155,6 +7199,9 @@ class DerivationEngine {
   Future<bool> _runCrossDay(Profile profile) async {
     try {
       final reviewRevision = await LocalDb.activityReviewRevision();
+      // The zone the inputs are read in, taken BEFORE they are read: a change
+      // during the build must not stamp old-zone shifts with the new zone.
+      final zone = crossDayZoneStamp();
       final days = await _crossDayInputDays();
       if (days.length < 3) {
         _log('crossday: only ${days.length} usable day(s) — skip');
@@ -7199,7 +7246,8 @@ class DerivationEngine {
                 )
                 ..['algo_version'] = kAlgoVersion
                 ..['built_for_day'] = builtForDay
-                ..['built_at_epoch'] = builtAtEpoch;
+                ..['built_at_epoch'] = builtAtEpoch
+                ..['zone'] = zone;
           // Encode-safety BEFORE jsonEncode, never a try/catch around it: one
           // non-finite leaf must cost that leaf, not the whole artifact.
           final paths = <String>[];
@@ -7210,6 +7258,12 @@ class DerivationEngine {
         _crossDayTimeout,
         label: 'crossday',
       );
+      if (crossDayZoneStamp() != zone) {
+        // The zone moved while this was built: drop it; the stale check
+        // rebuilds it on the next pass in the new zone.
+        _log('crossday: zone changed during the build; not stored');
+        return false;
+      }
       if (!await LocalDb.putReviewedBaseline('crossday', bundleJson, reviewRevision)) {
         _log('crossday: newer activity review; leaving its refresh queued');
         return false;
@@ -7271,6 +7325,48 @@ class DerivationEngine {
     return out;
   }
 
+  /// The phone zone a `crossday_input` artifact was built in. Its records are
+  /// zone-RELATIVE (`clock_shift_sec` is "this night's clock minus the zone the
+  /// record was built in"), so an artifact built before a flight, served after
+  /// it on the same day, would re-read every past night on the new clock — the
+  /// "Target bedtime 4:00 PM" bug again, until the next rebuild. A mismatch
+  /// (or an artifact without the stamp) rebuilds. Name AND offset: a DST change
+  /// alone rebuilds too, which is one cheap rebuild twice a year.
+  ///
+  /// The abbreviation alone collides (Denver and Phoenix are both "MST" in
+  /// winter), so the stamp also carries the zone's offsets mid-January and
+  /// mid-July: two zones that agree on all three keep every night on the same
+  /// clock anyway.
+  static String crossDayZoneStamp() {
+    final now = DateTime.now();
+    int offsetAt(int month) => DateTime.fromMillisecondsSinceEpoch(
+            DateTime.utc(now.year, month, 15, 12).millisecondsSinceEpoch)
+        .timeZoneOffset
+        .inMinutes;
+    return zoneStampOf(now.timeZoneName, now.timeZoneOffset.inMinutes,
+        offsetAt(1), offsetAt(7));
+  }
+
+  @visibleForTesting
+  static String zoneStampOf(
+          String name, int nowOffsetMin, int janOffsetMin, int julOffsetMin) =>
+      '$name|$nowOffsetMin|$janOffsetMin|$julOffsetMin';
+
+  /// Whether the stored cross-day ROLLUP was built in another zone. The
+  /// rollup, not its inputs: [_refreshBaselines] re-stamps the inputs before
+  /// the rollup is written, so a rollup that then timed out would read as
+  /// current on the inputs' stamp and never be retried.
+  Future<bool> _crossDayZoneStale() async {
+    final raw = (await LocalDb.baseline('crossday'))?['payload_json'];
+    if (raw is! String || raw.isEmpty) return false;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map && decoded['zone'] != crossDayZoneStamp();
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<List<Map<String, dynamic>>> _crossDayInputDays() async {
     final reviewRevision = await LocalDb.activityReviewRevision();
     final artifact = await LocalDb.baseline('crossday_input');
@@ -7283,7 +7379,8 @@ class DerivationEngine {
         // day makes `_todayNum` read yesterday's strain and nap minutes as
         // today's (§3.3). See [crossDayArtifactUsableToday].
         if (crossDayArtifactUsableToday(decoded, LocalDb.localDayLabelNow()) &&
-            (decoded as Map)['review_revision'] == reviewRevision) {
+            (decoded as Map)['review_revision'] == reviewRevision &&
+            decoded['zone'] == crossDayZoneStamp()) {
           final rows = decoded['days'] as List;
           return [
             for (final row in rows)
@@ -7309,6 +7406,7 @@ class DerivationEngine {
     final rows = await LocalDb.recentDayResults(_crossDayWindow);
     final today = LocalDb.localDayLabelNow();
     final imported = await LocalDb.importedDates();
+    final zone = crossDayZoneStamp();
     final (days, json) = await _runIsolateCancellable(() {
       final days = <Map<String, dynamic>>[];
       for (final row in rows.reversed) {
@@ -7332,6 +7430,7 @@ class DerivationEngine {
           'algo_version': kAlgoVersion,
           'built_for_day': today,
           'review_revision': reviewRevision,
+          'zone': zone,
           'days': days,
         })
       );
@@ -7511,6 +7610,10 @@ class DerivationEngine {
     final tstSec = (acctVal?['tst_sec'] as num?)?.toDouble();
     final inBedSec = (acctVal?['in_bed_sec'] as num?)?.toDouble();
     final observedSec = (acctVal?['observed_in_bed_sec'] as num?)?.toDouble();
+    final clockShift = recordedClockShiftSec(
+      onsetSec: onsetMs == null ? null : (onsetMs / 1000).round(),
+      onsetClockSec: sc('sleep_onset_sec'),
+    );
 
     return {
       'date': date,
@@ -7539,6 +7642,17 @@ class DerivationEngine {
       'efficiency': sc('efficiency'),
       'onset_sec': onsetMs == null ? null : (onsetMs / 1000).round(),
       'wake_sec': offsetMs == null ? null : (offsetMs / 1000).round(),
+      // Which clock the night was LIVED on, relative to the phone's zone now.
+      // `onset_sec`/`wake_sec` are absolute instants with no zone attached;
+      // SLP-09's `sleep_onset_sec` scalar froze the onset's LOCAL clock in the
+      // zone the phone was in when the day was derived, and the gap between
+      // the two readings is the zone change. Without it a flight slid every
+      // past wake by the shift and the Sleep Coach printed "Target bedtime
+      // 4:00 PM / Target wake 1:31 AM" after 7 h west.
+      //
+      // Only the shift is written: a night recorded in this zone (the shift
+      // is 0) carries no new key and reads exactly as before.
+      if (clockShift != 0) 'clock_shift_sec': clockShift,
       'tst_min': tstSec == null ? null : (tstSec / 60).round(),
       // Fraction of the night we actually watched — wall-clock in-bed minus the
       // seconds nobody observed, over in-bed. TS-11 drops a morning whose night
@@ -7559,7 +7673,10 @@ class DerivationEngine {
       // does not exist far enough back. `circadianNonparametric` documents HR
       // as an accepted input alongside activity. 24 numbers a day, so the
       // artifact stays small.
-      'hourly_hr': hourlyHrProfile(series?['hr_curve']),
+      // Binned on the clock the day was lived on, like onset and wake: after a
+      // flight the phone's hours are not the hours that day's HR was lived in.
+      'hourly_hr':
+          hourlyHrProfile(series?['hr_curve'], clockShiftSec: clockShift),
     };
   }
 
@@ -7570,7 +7687,11 @@ class DerivationEngine {
   /// it, so a bin is always a mean over genuine readings — never an average of
   /// one stray second, and never an imputed value. Gaps stay null and the
   /// consumer excludes the day; nothing is filled in.
-  static List<double?> hourlyHrProfile(Object? hrCurve, {int minMinutes = 5}) {
+  ///
+  /// [clockShiftSec] moves each sample onto the day's own clock (see
+  /// [recordedClockShiftSec]); 0 bins on the phone's current local hour.
+  static List<double?> hourlyHrProfile(Object? hrCurve,
+      {int minMinutes = 5, int clockShiftSec = 0}) {
     final sums = List<double>.filled(24, 0);
     final counts = List<int>.filled(24, 0);
     if (hrCurve is List) {
@@ -7582,7 +7703,9 @@ class DerivationEngine {
         // LOCAL hour. The day model is local-midnight-to-midnight, so the UTC
         // hour would smear a user's evening into the next bin (and, for a
         // non-integral-offset zone, into the wrong one entirely).
-        final h = DateTime.fromMillisecondsSinceEpoch(t * 1000).hour;
+        final lt = DateTime.fromMillisecondsSinceEpoch(t * 1000);
+        final sod = lt.hour * 3600 + lt.minute * 60 + lt.second;
+        final h = ((sod + clockShiftSec) % 86400) ~/ 3600;
         if (h < 0 || h > 23) continue;
         sums[h] += v;
         counts[h] += 1;

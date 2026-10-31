@@ -6,9 +6,11 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
+import android.hardware.SensorEventListener2
 import android.hardware.SensorManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -52,7 +54,7 @@ import kotlin.math.roundToInt
  * adding a second service: Android 9+ withholds sensor events from background
  * processes, and a foreground service of any type lifts that.
  */
-object PhoneStepCounter : SensorEventListener {
+object PhoneStepCounter : SensorEventListener2 {
     private const val CHANNEL = "openstrap/phone_steps"
     private const val PREFS = "openstrap_steps"
 
@@ -110,6 +112,19 @@ object PhoneStepCounter : SensorEventListener {
                     "stop" -> {
                         stopAndForget(app)
                         result.success(null)
+                    }
+                    // The listener batches for up to 60 s. A three-minute calibration
+                    // routine read without a flush misses up to a third of itself.
+                    // Answers when the flush has COMPLETED (onFlushCompleted, after the
+                    // batched events are delivered), not when it was requested. False
+                    // when it was refused or did not complete within FLUSH_TIMEOUT_MS.
+                    "flush" -> flush(app, result)
+                    // The sensor's own running total as last delivered — exact, unlike
+                    // a range query, which prorates 5-minute bins. Calibration reads it
+                    // at the start and end of a routine (after a flush) and differences.
+                    "rawCount" -> {
+                        val r = prefs(app).getFloat(KEY_LAST_RAW, -1f)
+                        result.success(if (registered && r >= 0f) r.toLong() else null)
                     }
                     "stepsInInterval" -> {
                         val from = call.argument<Number>("fromMs")?.toLong()
@@ -216,6 +231,37 @@ object PhoneStepCounter : SensorEventListener {
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
+    // ── flush ───────────────────────────────────────────────────────────────
+
+    private const val FLUSH_TIMEOUT_MS = 5_000L
+    private val main = Handler(Looper.getMainLooper())
+    private val pendingFlushes = mutableListOf<MethodChannel.Result>()
+
+    private fun flush(ctx: Context, result: MethodChannel.Result) {
+        if (!registered) {
+            result.success(false)
+            return
+        }
+        val sm = ctx.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        pendingFlushes.add(result)
+        if (!sm.flush(this)) {
+            pendingFlushes.remove(result)
+            result.success(false)
+            return
+        }
+        main.postDelayed({
+            if (pendingFlushes.remove(result)) result.success(false)
+        }, FLUSH_TIMEOUT_MS)
+    }
+
+    // Delivered on the listener's thread (main: registered without a handler),
+    // after every batched event, so the totals are current when it fires.
+    override fun onFlushCompleted(sensor: Sensor?) {
+        val done = pendingFlushes.toList()
+        pendingFlushes.clear()
+        done.forEach { it.success(true) }
+    }
 
     override fun onSensorChanged(event: SensorEvent) {
         val ctx = appContext ?: return
