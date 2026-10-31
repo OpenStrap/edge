@@ -18,7 +18,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' show sha1;
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -1234,6 +1234,15 @@ class LocalDb {
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
+        // This phone's own database only: [_repairOpenSchema] also opens
+        // export copies, where it would write a setting the user never chose.
+        // Best effort — a failure must not get the database quarantined; the
+        // next open retries it.
+        try {
+          await SubstrateArchive.keepLegacyWindowOnce(db);
+        } catch (e) {
+          debugPrint('[db] archive window check skipped: $e');
+        }
       },
       version: schemaVersion,
     );
@@ -1342,7 +1351,6 @@ class LocalDb {
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
     await _dropRawStore(db);
-    await SubstrateArchive.keepLegacyWindowOnce(db);
   }
 
   /// Older WHOOP CSV imports filed the export's absolute skin temp (°C) under
