@@ -52,7 +52,7 @@ void main() {
   };
 
   test('every numbered body is translated, in every shipped locale', () {
-    for (final code in ['de', 'es', 'fr', 'hi', 'ru', 'zh']) {
+    for (final code in ['de', 'es', 'fr', 'hi', 'ru', 'th', 'zh']) {
       for (final e in bodies().entries) {
         expect(e.value, isNotEmpty, reason: e.key);
         expect(localizedNotificationText(l(code), e.value),
@@ -86,7 +86,7 @@ void main() {
   });
 
   test('the titles over these bodies are translated too', () {
-    for (final code in ['de', 'es', 'fr', 'hi', 'ru', 'zh']) {
+    for (final code in ['de', 'es', 'fr', 'hi', 'ru', 'th', 'zh']) {
       for (final title in [
         'Charge your strap before bed',
         'Wind down',
