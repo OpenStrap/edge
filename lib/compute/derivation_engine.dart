@@ -7183,6 +7183,10 @@ class DerivationEngine {
     final tstSec = (acctVal?['tst_sec'] as num?)?.toDouble();
     final inBedSec = (acctVal?['in_bed_sec'] as num?)?.toDouble();
     final observedSec = (acctVal?['observed_in_bed_sec'] as num?)?.toDouble();
+    final clockShift = recordedClockShiftSec(
+      onsetSec: onsetMs == null ? null : (onsetMs / 1000).round(),
+      onsetClockSec: sc('sleep_onset_sec'),
+    );
 
     return {
       'date': date,
@@ -7221,11 +7225,7 @@ class DerivationEngine {
       //
       // Only the shift is written: a night recorded in this zone (the shift
       // is 0) carries no new key and reads exactly as before.
-      if (recordedClockShiftSec(
-            onsetSec: onsetMs == null ? null : (onsetMs / 1000).round(),
-            onsetClockSec: sc('sleep_onset_sec'),
-          ) case final shift when shift != 0)
-        'clock_shift_sec': shift,
+      if (clockShift != 0) 'clock_shift_sec': clockShift,
       'tst_min': tstSec == null ? null : (tstSec / 60).round(),
       // Fraction of the night we actually watched — wall-clock in-bed minus the
       // seconds nobody observed, over in-bed. TS-11 drops a morning whose night
@@ -7246,7 +7246,10 @@ class DerivationEngine {
       // does not exist far enough back. `circadianNonparametric` documents HR
       // as an accepted input alongside activity. 24 numbers a day, so the
       // artifact stays small.
-      'hourly_hr': hourlyHrProfile(series?['hr_curve']),
+      // Binned on the clock the day was lived on, like onset and wake: after a
+      // flight the phone's hours are not the hours that day's HR was lived in.
+      'hourly_hr':
+          hourlyHrProfile(series?['hr_curve'], clockShiftSec: clockShift),
     };
   }
 
@@ -7257,7 +7260,11 @@ class DerivationEngine {
   /// it, so a bin is always a mean over genuine readings — never an average of
   /// one stray second, and never an imputed value. Gaps stay null and the
   /// consumer excludes the day; nothing is filled in.
-  static List<double?> hourlyHrProfile(Object? hrCurve, {int minMinutes = 5}) {
+  ///
+  /// [clockShiftSec] moves each sample onto the day's own clock (see
+  /// [recordedClockShiftSec]); 0 bins on the phone's current local hour.
+  static List<double?> hourlyHrProfile(Object? hrCurve,
+      {int minMinutes = 5, int clockShiftSec = 0}) {
     final sums = List<double>.filled(24, 0);
     final counts = List<int>.filled(24, 0);
     if (hrCurve is List) {
@@ -7269,7 +7276,9 @@ class DerivationEngine {
         // LOCAL hour. The day model is local-midnight-to-midnight, so the UTC
         // hour would smear a user's evening into the next bin (and, for a
         // non-integral-offset zone, into the wrong one entirely).
-        final h = DateTime.fromMillisecondsSinceEpoch(t * 1000).hour;
+        final lt = DateTime.fromMillisecondsSinceEpoch(t * 1000);
+        final sod = lt.hour * 3600 + lt.minute * 60 + lt.second;
+        final h = ((sod + clockShiftSec) % 86400) ~/ 3600;
         if (h < 0 || h > 23) continue;
         sums[h] += v;
         counts[h] += 1;

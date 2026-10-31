@@ -252,6 +252,28 @@ void main() {
     }
   });
 
+  test('a day lived at UTC+2 keeps its heart rate in its own hours', () {
+    // One night at UTC+2 plus six minutes of HR at 14:00-14:05 its time. In
+    // any runner zone the record bins that HR at 14, not at the phone's hour.
+    final night = _europe().first;
+    final onsetMs = (((night.payload['sleep'] as Map)['window'] as Map)['value']
+        as Map)['onset_ms'] as int;
+    final afternoon = onsetMs ~/ 1000 + 14 * 3600 + 30 * 60; // 23:30 + 14:30
+    final payload = {
+      ...night.payload,
+      'series': {
+        'hr_curve': [
+          for (var i = 0; i < 6; i++) {'t': afternoon + i * 60, 'v': 70 + i},
+        ],
+      },
+    };
+    final hourly = _records([(row: night.row, payload: payload)])
+        .single['hourly_hr'] as List;
+    expect(hourly[14], closeTo(72.5, 1e-9));
+    expect([for (var h = 0; h < 24; h++) if (h != 14) hourly[h]],
+        everyElement(isNull));
+  });
+
   test('a shifted clock wraps back into ±12 h and null stays null', () {
     expect(shiftRecordedClockSec(43000, 1000), -42400);
     expect(shiftRecordedClockSec(-43000, 86400 - 1000), 42400);
