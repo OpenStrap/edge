@@ -98,6 +98,7 @@ class CoachDb {
     'session_score_mask', 'session_sensor',
     // raw / decoded substrate
     'raw_records', 'raw_archive', 'raw_archive_frames', 'raw_archive_legacy',
+    'raw_archive_view',
     'decoded_onehz', 'decoded_rr', 'samples',
     'events', 'band_events', 'band_battery', 'substrate_archive',
     'device_coverage', 'signal_priority',

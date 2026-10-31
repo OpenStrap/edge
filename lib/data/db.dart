@@ -7421,6 +7421,17 @@ class LocalDb {
   /// into [rawArchiveTable] in pages by [migrateLegacyRawArchive].
   static const String _rawArchiveLegacy = 'raw_archive_legacy';
 
+  /// The view every reader goes through ([_ensureRawArchiveView]). NOT named
+  /// `raw_archive`: an older build opening this file after a rollback runs
+  /// `CREATE TABLE IF NOT EXISTS raw_archive` and then `CREATE INDEX IF NOT
+  /// EXISTS idx_raw_archive_captured ON raw_archive`, and SQLite refuses to
+  /// index a view before it looks at the name, so a view under the old name
+  /// failed that open and got the database quarantined. With the name free,
+  /// the old build makes itself an empty table, the index line is a no-op
+  /// (the name is taken by [rawArchiveTable]'s), and the next open of this
+  /// build folds whatever it wrote back in ([_ensureRawArchiveStore]).
+  static const String rawArchiveView = 'raw_archive_view';
+
   /// The frame as the `raw_archive` view's `hex` column: the stored text for a
   /// frame kept verbatim, else the bytes in lowercase hex — exactly the
   /// string [rawArchiveRow] was handed.
@@ -7492,9 +7503,15 @@ class LocalDb {
   /// Everything in this build writes through [rawArchiveRow] instead.
   static Future<void> _ensureRawArchiveView(DatabaseExecutor db) async {
     final legacy = await _objectType(db, _rawArchiveLegacy) == 'table';
-    await db.execute('DROP VIEW IF EXISTS raw_archive');
+    await db.execute('DROP TRIGGER IF EXISTS raw_archive_insert');
+    await db.execute('DROP TRIGGER IF EXISTS raw_archive_delete');
+    // The view's old name, from a build of this layout before the rename.
+    if (await _objectType(db, 'raw_archive') == 'view') {
+      await db.execute('DROP VIEW raw_archive');
+    }
+    await db.execute('DROP VIEW IF EXISTS $rawArchiveView');
     await db.execute(
-      'CREATE VIEW raw_archive AS '
+      'CREATE VIEW $rawArchiveView AS '
       'SELECT device_id, $_rawArchiveHexSql AS hex, counter, packet_type, '
       'rec_ts, captured_at, reason FROM $rawArchiveTable'
       '${legacy ? ' UNION ALL SELECT device_id, hex, counter, packet_type, '
@@ -7502,7 +7519,7 @@ class LocalDb {
     );
     await db.execute(
       'CREATE TRIGGER IF NOT EXISTS raw_archive_insert '
-      'INSTEAD OF INSERT ON raw_archive BEGIN '
+      'INSTEAD OF INSERT ON $rawArchiveView BEGIN '
       'INSERT OR IGNORE INTO $rawArchiveTable '
       '(device_id, hash, counter, packet_type, rec_ts, captured_at, reason, hex) '
       "VALUES (COALESCE(NEW.device_id, '$kPrimaryDeviceId'), "
@@ -7511,7 +7528,7 @@ class LocalDb {
     );
     await db.execute(
       'CREATE TRIGGER IF NOT EXISTS raw_archive_delete '
-      'INSTEAD OF DELETE ON raw_archive BEGIN '
+      'INSTEAD OF DELETE ON $rawArchiveView BEGIN '
       'DELETE FROM $rawArchiveTable WHERE device_id = OLD.device_id '
       'AND $_rawArchiveHexSql = OLD.hex; '
       '${legacy ? 'DELETE FROM $_rawArchiveLegacy WHERE device_id = '
@@ -7558,12 +7575,13 @@ class LocalDb {
       });
     }
     await _createRawArchiveFrames(db);
-    if (await _objectType(db, 'raw_archive') != 'view') {
+    if (await _objectType(db, rawArchiveView) != 'view' ||
+        await _objectType(db, 'raw_archive') == 'view') {
       await _ensureRawArchiveView(db);
     } else if ((await _objectType(db, _rawArchiveLegacy) == 'table') !=
         (await db.rawQuery(
           "SELECT 1 FROM sqlite_master WHERE type = 'view' "
-          "AND name = 'raw_archive' AND sql LIKE '%$_rawArchiveLegacy%'",
+          "AND name = '$rawArchiveView' AND sql LIKE '%$_rawArchiveLegacy%'",
         ))
             .isNotEmpty) {
       // The view and the legacy table disagree (a restore, a crash between
@@ -7655,7 +7673,7 @@ class LocalDb {
           }
           await txn.execute('DROP TRIGGER IF EXISTS raw_archive_insert');
           await txn.execute('DROP TRIGGER IF EXISTS raw_archive_delete');
-          await txn.execute('DROP VIEW IF EXISTS raw_archive');
+          await txn.execute('DROP VIEW IF EXISTS $rawArchiveView');
           await txn.execute('DROP TABLE $_rawArchiveLegacy');
           // Rebuilt in the same transaction: between a commit and a rebuild
           // outside it there is no raw_archive at all, and a reader on
@@ -8211,8 +8229,11 @@ class LocalDb {
     // Both are cheap and both are required: a DB whose ladder has not created
     // the archive yet (or is mid-ladder) must no-op rather than throw — a throw
     // in here rolls the WHOLE upgrade back and quarantines the database.
-    for (final t in const ['raw_archive', 'decoded_onehz']) {
-      // `raw_archive` is a view over [rawArchiveTable] once converted.
+    // The archive is the `raw_archive` table on the ladder's older layouts,
+    // and [rawArchiveView] over [rawArchiveTable] once converted.
+    final framesLayout = await _objectType(db, rawArchiveView) == 'view';
+    for (final t in [framesLayout ? rawArchiveView : 'raw_archive',
+        'decoded_onehz']) {
       final present = await db.rawQuery(
         "SELECT 1 FROM sqlite_master WHERE type IN ('table', 'view') "
         'AND name=?',
@@ -8225,7 +8246,6 @@ class LocalDb {
     // the same (String, String) slot, marked by [_redriveRowidCursor]; a
     // position from the old hex-ordered pass restarts at the top, which the
     // replay's skip-what-is-decoded rule makes safe.
-    final framesLayout = await _objectType(db, 'raw_archive') == 'view';
     var afterRowid = framesLayout && startDevice == _redriveRowidCursor
         ? int.tryParse(startHex) ?? 0
         : 0;
@@ -8240,7 +8260,7 @@ class LocalDb {
     // rekey (v51): this function runs from the oldV<44 rung too, i.e. BEFORE
     // the v51 rekey, so at that point `raw_archive` is still hex-keyed and the
     // row-value comparison below must fall back to comparing `hex` alone.
-    final preArchiveDeviceKey =
+    final preArchiveDeviceKey = !framesLayout &&
         !(await _columnsOf(db, 'raw_archive')).contains('device_id');
 
     final marks = List.filled(reasons.length, '?').join(',');
@@ -8491,11 +8511,11 @@ class LocalDb {
     final db = await instance;
     final count =
         Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM raw_archive'),
+          await db.rawQuery('SELECT COUNT(*) FROM $rawArchiveView'),
         ) ??
         0;
     final byReason = await db.rawQuery(
-      'SELECT reason, COUNT(*) AS n FROM raw_archive '
+      'SELECT reason, COUNT(*) AS n FROM $rawArchiveView '
       'GROUP BY reason ORDER BY n DESC, reason ASC',
     );
     return {
@@ -9874,7 +9894,7 @@ class LocalDb {
       await add(
         'wearable_archive',
         'SELECT COUNT(*), MAX(captured_at), TOTAL(captured_at), '
-            'TOTAL(LENGTH(hex)) FROM raw_archive WHERE device_id = ?',
+            'TOTAL(LENGTH(hex)) FROM $rawArchiveView WHERE device_id = ?',
         [wearableDeviceId],
       );
     }

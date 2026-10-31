@@ -47,7 +47,7 @@ Future<void> _fresh(String name) async {
 Future<List<Map<String, Object?>>> _viewRows() async =>
     (await LocalDb.instance).rawQuery(
       'SELECT device_id, hex, counter, packet_type, rec_ts, captured_at, '
-      'reason FROM raw_archive ORDER BY device_id, hex',
+      'reason FROM ${LocalDb.rawArchiveView} ORDER BY device_id, hex',
     );
 
 Future<int> _bytes(Database db, List<String> names) async {
@@ -149,11 +149,11 @@ void main() {
   test('plain inserts and deletes on the old name still work', () async {
     await _fresh('raw_frames_compat.db');
     final db = await LocalDb.instance;
-    await db.insert('raw_archive', _legacyRow('', 'beef', 7));
-    await db.insert('raw_archive', _legacyRow('', 'beef', 7),
+    await db.insert(LocalDb.rawArchiveView, _legacyRow('', 'beef', 7));
+    await db.insert(LocalDb.rawArchiveView, _legacyRow('', 'beef', 7),
         conflictAlgorithm: ConflictAlgorithm.ignore);
     expect(await _viewRows(), hasLength(1));
-    await db.delete('raw_archive', where: 'hex = ?', whereArgs: ['beef']);
+    await db.delete(LocalDb.rawArchiveView, where: 'hex = ?', whereArgs: ['beef']);
     expect(await _viewRows(), isEmpty);
   });
 
@@ -205,7 +205,7 @@ void main() {
       isEmpty,
     );
     final view = await db.rawQuery(
-        "SELECT sql FROM sqlite_master WHERE name = 'raw_archive'");
+        "SELECT sql FROM sqlite_master WHERE name = '${LocalDb.rawArchiveView}'");
     expect('${view.single['sql']}', isNot(contains('legacy')));
     final after = await seen();
     // The mid-move duplicate collapsed; counter differs, so compare keys.
@@ -240,6 +240,45 @@ void main() {
     // No time budget: only the offload signal can stop it early.
     expect(await LocalDb.migrateLegacyRawArchive(shouldStop: () => true), 500);
     expect(await LocalDb.migrateLegacyRawArchive(), 700);
+  });
+
+  test('an older build can still open the file, and its frames come back',
+      () async {
+    await _fresh('raw_frames_rollback.db');
+    await LocalDb.close();
+    LocalDb.dbName = 'raw_frames_rollback.db';
+    await LocalDb.archiveRawRecord(_rec(1, _frameHex(1)));
+    await LocalDb.close();
+    // What the build before this layout runs on every open, verbatim. With
+    // a view named raw_archive the index line failed ("views may not be
+    // indexed") and the open with it.
+    final old = await databaseFactory.openDatabase(
+        await _path('raw_frames_rollback.db'));
+    await old.execute('''
+      CREATE TABLE IF NOT EXISTS raw_archive (
+        device_id TEXT NOT NULL DEFAULT '',
+        hex TEXT NOT NULL,
+        counter INTEGER,
+        packet_type INTEGER NOT NULL,
+        rec_ts INTEGER,
+        captured_at INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        PRIMARY KEY (device_id, hex)
+      )
+    ''');
+    await old.execute('CREATE INDEX IF NOT EXISTS idx_raw_archive_captured '
+        'ON raw_archive(captured_at DESC)');
+    // The old build archives a frame of its own.
+    await old.insert('raw_archive', _legacyRow('', _frameHex(2), 2));
+    await old.close();
+
+    // Back on this build: both frames are there.
+    final keys = [
+      for (final r in await (await LocalDb.instance).rawQuery(
+          'SELECT hex FROM ${LocalDb.rawArchiveView} ORDER BY hex'))
+        r['hex'],
+    ];
+    expect(keys, [_frameHex(1), _frameHex(2)]..sort());
   });
 
   test('a backup of the new layout restores every frame', () async {
