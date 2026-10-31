@@ -244,17 +244,26 @@ abstract final class SubstrateArchive {
 
   /// The policy as stored, on [ex] — inside a transaction when the caller
   /// needs it to agree with what that transaction writes.
+  ///
+  /// With no stored setting, a year until [keepLegacyWindowOnce] has run on
+  /// this database: if that check failed before it finished, housekeeping
+  /// reading the 90-day default in the meantime would evict exactly what the
+  /// check is there to keep. The default applies once the check has run.
   static Future<SubstrateArchivePolicy> readPolicy(DatabaseExecutor ex) async {
     final rows = await ex.query(
       'compute_freshness',
-      columns: ['payload_json'],
-      where: 'key = ?',
-      whereArgs: [policyKey],
-      limit: 1,
+      columns: ['key', 'payload_json'],
+      where: 'key IN (?, ?)',
+      whereArgs: [policyKey, _defaultCheckedKey],
     );
-    return SubstrateArchivePolicy.fromJson(
-      rows.isEmpty ? null : rows.first['payload_json'] as String?,
-    );
+    for (final r in rows) {
+      if (r['key'] == policyKey) {
+        return SubstrateArchivePolicy.fromJson(r['payload_json'] as String?);
+      }
+    }
+    return rows.isEmpty
+        ? const SubstrateArchivePolicy(365)
+        : SubstrateArchivePolicy.defaults;
   }
 
   /// Store [policy]; switching to Off purges the archive IN THE SAME

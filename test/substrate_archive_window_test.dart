@@ -102,6 +102,14 @@ void main() {
       expect((await SubstrateArchive.readPolicy(db)).keepDays, 365);
     });
 
+    test('until the one-time check has run, no setting reads as a year',
+        () async {
+      // The check failed (or has not run): nothing may be evicted past 90.
+      expect((await SubstrateArchive.readPolicy(db)).keepDays, 365);
+      await SubstrateArchive.keepLegacyWindowOnce(db); // empty: the default
+      expect((await SubstrateArchive.readPolicy(db)).keepDays, 90);
+    });
+
     test('a window the user picked is left alone', () async {
       await db.insert(SubstrateArchive.table, {'day': '2025-11-01'});
       await db.insert('compute_freshness', {
