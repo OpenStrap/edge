@@ -171,6 +171,10 @@ const activityLibrary = <ActGroup>[
     // are different games, and borrowing either would be a stand-in. The
     // post-session estimate still works from heart rate.
     Activity('Padel', LucideIcons.volleyball, C.yellow, Track.duration, null),
+    // No MET for the same reason: the 2011 compendium predates pickleball as
+    // a listed activity, and paddleball or tennis doubles would be a guess.
+    Activity(
+        'Pickleball', LucideIcons.volleyball, C.green, Track.duration, null),
     Activity('Volleyball', LucideIcons.volleyball, C.orange, Track.duration, 6.0),
     Activity('Hockey', LucideIcons.target, C.blue, Track.duration, 8.0),
     Activity('Baseball', LucideIcons.target, C.red, Track.duration, 5.0),

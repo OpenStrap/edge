@@ -197,6 +197,7 @@ class PhonePedometer {
       final windows = <({int startTs, int endTs, int steps})>[];
       var total = 0;
       var anyRead = false;
+      List<({int startTs, int endTs, int steps})>? banked;
 
       // CALENDAR-AWARE hour walk. `Duration` arithmetic on a local DateTime is
       // ABSOLUTE, so `dayStartLocal.add(Duration(hours: h))` over a fixed 24
@@ -243,9 +244,27 @@ class PhonePedometer {
         // persist a partial one over a good previous sync.
         if (n == null) return null;
         // UNCOVERED, not failed and not zero: the sensor holds no record of
-        // this hour. It banks nothing and it does not count as read, so a day
+        // this hour. It reads nothing new and it does not count as read, so a day
         // that is entirely uncovered still comes back "unknown" below.
-        if (n == intervalNotCovered) continue;
+        if (n == intervalNotCovered) {
+          // KEEP WHAT AN EARLIER SYNC ALREADY BANKED FOR THIS HOUR. An hour
+          // can turn uncovered after the fact: an Android reboot records a gap
+          // from the last sensor delivery, and the native query refuses any
+          // interval touching it even though the bins before the gap still
+          // hold real counts. The replace below is delete-then-insert, so
+          // skipping the hour here would silently erase steps that were
+          // already on the day. Not counted as read: a day whose only content
+          // is carried-over windows is left exactly as it was.
+          banked ??= await LocalDb.phoneCoverageForDay(dayId);
+          final fromSec = from.millisecondsSinceEpoch ~/ 1000;
+          final toSec = to.millisecondsSinceEpoch ~/ 1000;
+          for (final w in banked) {
+            if (w.startTs < fromSec || w.startTs >= toSec) continue;
+            windows.add(w);
+            if (w.steps > 0) total += w.steps;
+          }
+          continue;
+        }
         anyRead = true;
         if (n < 0) continue;
         // A CONFIRMED ZERO is banked too, not just a nonzero count: it is the

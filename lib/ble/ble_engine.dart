@@ -518,6 +518,12 @@ enum _HpsTerminalKind {
   /// task ends through the one abort boundary and the band keeps its
   /// checkpoint for the ordinary sync that follows the reading.
   preempted,
+
+  /// A burst banked nothing durable and its HISTORY_END was refused
+  /// ([TrimAckVerdict.blockedNoDurableProgress]). No result is sent for that
+  /// burst, so without ending the task the band re-offers the marker every
+  /// ~2.5 s indefinitely and the idle watchdog never gets to fire.
+  noDurableProgress,
 }
 
 class _HpsTerminal {
@@ -1945,15 +1951,14 @@ class BleEngine {
 
   /// Age the clock-suspicion start past [ClockPolicy.suspectGraceSeconds].
   ///
-  /// The grace window is 12 real hours off a monotonic stopwatch, so the only
-  /// alternative to a seam here is not covering post-grace behaviour at all —
-  /// and post-grace is precisely where history un-defers onto a strap RTC we
-  /// have just concluded is the fast one.
+  /// The grace window is 12 real hours, aged off the strap/wall/monotonic
+  /// clocks together, so the only alternative to a seam here is not covering
+  /// post-grace behaviour at all — and post-grace is precisely where history
+  /// un-defers onto a strap RTC we have just concluded is the fast one.
   @visibleForTesting
   void debugExpireClockSuspicion() {
-    if (_phoneClockSuspectSince == null) return;
-    _phoneClockSuspectSince =
-        _monotonicSecs() - ClockPolicy.suspectGraceSeconds - 1;
+    if (_phoneClockSuspectElapsed == null) return;
+    _phoneClockSuspectElapsed = ClockPolicy.suspectGraceSeconds + 1.0;
   }
 
   /// Told by AppState on every foreground/background transition. Drives the
@@ -2299,7 +2304,10 @@ class BleEngine {
   bool _bootstrapClockWrite = false;
   // Proactive RTC recheck timestamp for long-lived connections — see
   // kRtcReverifyIntervalSeconds. Every other clock recheck is symptom-driven.
-  DateTime? _lastClockVerifyAt;
+  // _wallSecs(), not the stopwatch: the stopwatch stops while the phone is
+  // suspended, so a mostly-asleep phone would push the re-verify out by days.
+  // A backward wall step is handled by rtcReverifyDue.
+  double? _lastClockVerifyAt;
   int? _sessionOldestUnix; // strap's banked-data window (GET_DATA_RANGE)
   int? _sessionNewestUnix;
   Map<String, dynamic>? _lastPagesBehind;
@@ -2323,21 +2331,38 @@ class BleEngine {
   // history offload is DEFERRED (not drained-and-trimmed) until the clocks agree.
   // See ClockPolicy.phoneClockSuspect and _startHistoricalRefresh.
   bool _phoneClockSuspect = false;
-  /// MONOTONIC seconds ([_monotonicSecs]) at which the suspicion started — not a
-  /// wall `DateTime`. The whole point of this state is that the wall clock is
-  /// not trusted: timing the grace window off `DateTime.now()` lets the very
-  /// jump we are waiting for (the phone stepping forward over NTP, possibly
-  /// still >1 day behind the strap) expire the window instantly and hand back
-  /// permission to drain-and-trim under a clock we still don't trust.
-  double? _phoneClockSuspectSince;
+  /// Real seconds the suspicion had lasted as of the last strap clock read
+  /// (null = not suspect). Aged per read by [ClockPolicy.suspectElapsedStep]
+  /// from the strap/wall/monotonic deltas since [_suspectAnchorStrap] etc.
+  ///
+  /// Not the stopwatch alone: it stops while the phone is suspended, so a
+  /// phone locked on a nightstand stretched the 12 h grace to days with
+  /// history deferred throughout. Not the wall clock alone: it is the clock
+  /// under suspicion, and the very jump we are waiting for (the phone stepping
+  /// forward over NTP, possibly still >1 day behind the strap) would expire the
+  /// window instantly and hand back permission to drain-and-trim.
+  double? _phoneClockSuspectElapsed;
+  int _suspectAnchorStrap = 0;
+  int _suspectAnchorWall = 0;
+  double _suspectAnchorMono = 0;
   bool get historyPausedForClock => _deferForClock;
+
+  /// [_phoneClockSuspectElapsed] plus the monotonic time since that read. The
+  /// stopwatch undercounts across suspend, but only until the next strap read
+  /// re-anchors with the suspend-inclusive step.
+  double _suspectElapsedNow() {
+    final base = _phoneClockSuspectElapsed;
+    if (base == null) return 0.0;
+    final sinceRead = _monotonicSecs() - _suspectAnchorMono;
+    return base + (sinceRead > 0 ? sinceRead : 0.0);
+  }
+
   /// Defer history only while the disagreement is still young. A slow phone
   /// re-syncs over NTP in minutes; one that persists past the grace window is a
   /// strap RTC running fast, and deferring forever would stall sync for good.
   bool get _deferForClock =>
       _phoneClockSuspect &&
-      !ClockPolicy.suspectGraceExpired(
-          _phoneClockSuspectSince, _monotonicSecs());
+      !ClockPolicy.suspectGraceExpired(0.0, _suspectElapsedNow());
   int _clockPausedOffloads = 0; // diagnostics: offloads deferred for this reason
   /// Request/response correlation for every command this engine awaits
   ///. Replaces the two ad-hoc one-shot completers this file used to
@@ -2392,7 +2417,13 @@ class BleEngine {
   // Run-state for a chain of auto-continued offload rounds: how many
   // consecutive rounds banked nothing, and when the chain started.
   final AutoContinueRun _autoContinue = AutoContinueRun();
-  double _lastBackfillAt = 0; // monotonic-ish secs of the last offload trigger
+  // _wallSecs() of the last offload trigger; null = none this connection.
+  // Wall time, not the stopwatch: the stopwatch stops while the phone sleeps,
+  // so after a night locked the morning catch-up and the sync button would
+  // see only the few awake seconds since the stamp and be floored. A backward
+  // wall step (NTP correcting a fast phone) is absorbed by BackfillPolicy
+  // treating a negative elapsed as the floor being spent.
+  double? _lastBackfillAt;
   double? _lastHistoricalSendAt; // last actual SEND_HISTORICAL_DATA wall time
   int _emptyStreak = 0; // consecutive empty offloads (BackfillPolicy backoff)
   // ONE shared per-record gate (plausibility + frontier + drop counter) used by
@@ -2416,6 +2447,10 @@ class BleEngine {
   // said" apart from "we correctly, silently rejected some as implausible
   // (stale-clock block) and never tallied them." See _handleSyncMarker.
   int _burstDroppedAtStart = 0;
+  // Same snapshot for `_recordGate.droppedBelowFloor`: the trim gate needs to
+  // know whether THIS burst's drops were all below the absolute floor, and the
+  // gate's own counters span the whole connection.
+  int _burstDroppedBelowFloorAtStart = 0;
   // Consecutive HISTORY_END refuses where the burst banked nothing durable
   // but the RecordGate dropped samples. After a short streak we re-issue
   // SET_CLOCK and bounce — the usual cause is a bad post-reconnect window
@@ -2429,6 +2464,11 @@ class BleEngine {
   // See NoDurableProgressEscalation for the full derivation.
   final NoDurableProgressEscalation _noDurableProgress =
       NoDurableProgressEscalation();
+  // Bumped on every HISTORY_START that declares one of our bursts, so the
+  // escalation above counts a refused burst once rather than once per
+  // re-offer of its HISTORY_END. Engine-wide, never reset: the count it keys
+  // spans reconnects.
+  int _burstSerial = 0;
   // Band-truth reconciliation: `expectedPacketCount` mismatches are advisory
   // (see the comment at the validation site — treating a single mismatch as
   // fatal was actively harmful and was reverted), but a mismatch that keeps
@@ -3041,7 +3081,7 @@ class BleEngine {
   Future<bool> _finishConnect(_Session session) async {
     try {
       // Fresh clock verification stamp — see kRtcReverifyIntervalSeconds.
-      _lastClockVerifyAt = DateTime.now();
+      _lastClockVerifyAt = _wallSecs();
       // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
       // here — they count consecutive bad cycles across reconnects and self-reset on
       // a healthy disconnect. Empty-sync + stuck are per-connection.
@@ -3051,7 +3091,7 @@ class BleEngine {
       _crcFailuresThisSession = 0;
       _burstMismatchStreak = 0;
       _autoContinue.end();
-      _lastBackfillAt = 0;
+      _lastBackfillAt = null;
       _successfulBursts = 0;
       // _noDurableProgress is deliberately NOT reset here — like _marginalRadio
       // and _postBondLoop above, it counts consecutive bad cycles ACROSS
@@ -3084,6 +3124,7 @@ class BleEngine {
       // banked. The startless HISTORY_END is expected, not hypothetical: the
       // historyEnd branch has its own `history_end_while_not_syncing` terminal.
       _burstDroppedAtStart = 0;
+      _burstDroppedBelowFloorAtStart = 0;
       // Re-seed the counter-regression watch from the durable counter_hw
       // cursor so a reboot is caught even across the reconnect it usually
       // causes, instead of only within a single unbroken connection.
@@ -3842,7 +3883,7 @@ class BleEngine {
       // on the next reading if the phone genuinely is wrong.
       if (_phoneClockSuspect) {
         _phoneClockSuspect = false;
-        _phoneClockSuspectSince = null;
+        _phoneClockSuspectElapsed = null;
         _log('[CLOCK] SET_CLOCK accepted — clearing the phone-clock-suspect '
             'verdict from the pre-correction reading; history may drain.');
       }
@@ -4100,10 +4141,8 @@ class BleEngine {
     // gets an independent periodic GET_CLOCK; the existing clock_epoch
     // response handler does the actual drift comparison + bounded re-issue.
     final lastVerify = _lastClockVerifyAt;
-    if (lastVerify == null ||
-        DateTime.now().difference(lastVerify).inSeconds >=
-            kRtcReverifyIntervalSeconds) {
-      _lastClockVerifyAt = DateTime.now();
+    if (rtcReverifyDue(_wallSecs(), lastVerify)) {
+      _lastClockVerifyAt = _wallSecs();
       _log('[SYNC] Periodic RTC re-verify (long-lived connection).');
       unawaited(getClock());
     }
@@ -5313,9 +5352,12 @@ class BleEngine {
     }
     final entry = _session?.entry ?? kWhoopGen4;
     final band = entry.wire!;
-    final decoded = _maybeAugmentClockEpoch(
+    final decoded = _maybeAugmentAlarmEcho(
       frame,
-      decodeFrame(frame, profile: band),
+      _maybeAugmentClockEpoch(
+        frame,
+        decodeFrame(frame, profile: band),
+      ),
     );
     // Debug-visibility ONLY (never persisted, never gated on): log the strap's
     // own console text (decoded by protocol's `parseConsoleLog`, wired into
@@ -6967,7 +7009,7 @@ class BleEngine {
         // we never stored — the HR-gap / frozen-cursor failure mode after a
         // reconnect with a bad plausibility window. Keep the chunk on the
         // band; after a short streak, re-correlate the clock and bounce.
-        final runRemedy = _noDurableProgress.trimRefused();
+        final runRemedy = _noDurableProgress.trimRefused(burst: _burstSerial);
         _log(
           '[SYNC] HISTORY_END token=$tokenHex has no durable rows but the '
           'plausibility gate dropped samples this burst — NOT ACKing '
@@ -7023,7 +7065,20 @@ class BleEngine {
               }),
             );
           }
+          return;
         }
+        // End the task. Nothing answers this HISTORY_END, so the band would
+        // otherwise re-offer it every ~2.5 s for as long as the link holds:
+        // each re-offer re-armed the idle watchdog (so it never fired), wrote
+        // another ledger row, and kept `_offloadActive` up, pausing battery
+        // polls and the keep-alive hook. The abort trims nothing — the band
+        // keeps the chunk and re-delivers it on the next task, which is the
+        // next burst the escalation counts.
+        await _endHistoryTaskWithAbort(
+          session: session,
+          kind: _HpsTerminalKind.noDurableProgress,
+          reason: 'no_durable_progress',
+        );
         return;
     }
   }
@@ -7120,6 +7175,8 @@ class BleEngine {
       // live traffic from here.
       _historyAwaitingFirstStart = false;
       _burstDroppedAtStart = _recordGate.dropped;
+      _burstDroppedBelowFloorAtStart = _recordGate.droppedBelowFloor;
+      _burstSerial++;
       d?.rearm();
       // The one place a new burst is really declared — the only safe point to
       // clear the discarded-burst poison (see DrainController.beginBurst).
@@ -7184,6 +7241,8 @@ class BleEngine {
       // kGateDroppedReason archives, but that path deliberately skips the
       // burst count for them, so they never entered currentBurstPacketCount.
       final droppedThisBurst = _recordGate.dropped - _burstDroppedAtStart;
+      final droppedBelowFloorThisBurst =
+          _recordGate.droppedBelowFloor - _burstDroppedBelowFloorAtStart;
       // Read before validateBurst, which zeroes the counter on a pass — this is
       // the attempt number, and the slack, the gate actually judged this burst
       // under.
@@ -7337,10 +7396,16 @@ class BleEngine {
       //
       // This only decides whether the band may TRIM. Archives are committed in
       // the same transaction regardless — except on the no-progress path, which
-      // returns before commit precisely because there is nothing to bank.
-      final hadDurableRows = d.bufferedRecords > 0 ||
-          d.bufferedProgressArchives > 0 ||
-          d.bufferedEcgRaw > 0;
+      // returns before commit. A burst whose drops are ALL below the absolute
+      // floor is not that path: those records can never become plausible, so
+      // their archives are committed and the chunk trimmed (#601).
+      //
+      // Both read the whole burst, not just the buffer: a timeout/idle flush
+      // can commit part of it before this END arrives.
+      final hadDurableRows = d.burstHasDurableProgress;
+      // Snapshot: the commit below clears the buffer, and the post-commit
+      // re-gate must judge the same burst.
+      final gateDropArchives = d.burstGateDropArchives;
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
         'expected=${m.expectedPacketCount} '
@@ -7370,6 +7435,8 @@ class BleEngine {
         commitDurable: true,
         hadDurableRows: hadDurableRows,
         droppedThisBurst: droppedThisBurst,
+        droppedBelowFloorThisBurst: droppedBelowFloorThisBurst,
+        gateDropArchives: gateDropArchives,
       );
       if (progressVerdict != TrimAckVerdict.send) {
         await _refuseHistoryEndTrim(
@@ -7405,6 +7472,8 @@ class BleEngine {
         commitDurable: durable,
         hadDurableRows: hadDurableRows,
         droppedThisBurst: droppedThisBurst,
+        droppedBelowFloorThisBurst: droppedBelowFloorThisBurst,
+        gateDropArchives: gateDropArchives,
         // The count gate already refused a short burst (failure result
         // + band re-offer) before this point, so the one-shot shortfall
         // refusal is never spent here.
@@ -7668,8 +7737,11 @@ class BleEngine {
     }
 
     // Stuck-strap: frontier frozen ≥10 min while the strap is >5 min ahead.
+    // Elapsed time on the monotonic clock: a forward wall step (a phone fixing
+    // its clock after a dead-battery reboot) would otherwise read as ten
+    // frozen minutes at once.
     if (_stuckStrap.observe(
-        _sessionNewestUnix, _recordGate.frontierTs, _wallSecs())) {
+        _sessionNewestUnix, _recordGate.frontierTs, _monotonicSecs())) {
       state.strapNeedsReboot = true;
       onState(state);
       _log('[SYNC] stuck-strap tripped — defensive SET_CLOCK.');
@@ -8061,10 +8133,23 @@ class BleEngine {
       // moment a read agrees (the phone almost always self-corrects via NTP).
       final wasSuspect = _phoneClockSuspect;
       _phoneClockSuspect = ClockPolicy.phoneClockSuspect(dev, wall);
+      final mono = _monotonicSecs();
       if (_phoneClockSuspect && !wasSuspect) {
-        _phoneClockSuspectSince = _monotonicSecs();
-      } else if (!_phoneClockSuspect) {
-        _phoneClockSuspectSince = null;
+        _phoneClockSuspectElapsed = 0.0;
+      } else if (_phoneClockSuspect) {
+        _phoneClockSuspectElapsed = (_phoneClockSuspectElapsed ?? 0.0) +
+            ClockPolicy.suspectElapsedStep(
+              strapDelta: (dev - _suspectAnchorStrap).toDouble(),
+              wallDelta: (wall - _suspectAnchorWall).toDouble(),
+              monoDelta: mono - _suspectAnchorMono,
+            );
+      } else {
+        _phoneClockSuspectElapsed = null;
+      }
+      if (_phoneClockSuspect) {
+        _suspectAnchorStrap = dev;
+        _suspectAnchorWall = wall;
+        _suspectAnchorMono = mono;
       }
       // The read gate is released above, on the reply itself, not here.
       //
@@ -8421,6 +8506,18 @@ class BleEngine {
     DateTime when, {
     int index = 0,
     List<int>? haptics,
+  }) async =>
+      (await armAlarm(when, index: index, haptics: haptics)).armed;
+
+  /// [setAlarm], plus whether the reply echoed exactly the wake time we sent
+  /// (strap frame): the strap itself reported what it stored, so the arm is
+  /// confirmed without waiting for event 56. Returned per call, not kept on
+  /// the engine, so an arm that gets no reply can never inherit another
+  /// arm's echo.
+  Future<({DateTime? armed, bool echoed})> armAlarm(
+    DateTime when, {
+    int index = 0,
+    List<int>? haptics,
   }) async {
     final isGen5 = _session?.band.isGen5 ?? false;
     if (isGen5) {
@@ -8465,7 +8562,7 @@ class BleEngine {
       '${isGen5 && payload.length >= 2 ? 'idx=${payload[1]} ' : ''}'
       'write=${out.written ? 'ok' : 'FAILED'}',
     );
-    if (!out.written) return null;
+    if (!out.written) return (armed: null, echoed: false);
     // Worst case here is the awaiter's single 5 s timeout, applied once, with
     // no resend — arming is a user-facing action, not a background poll, and a
     // duplicate SET after a slow-but-successful one would rewrite the strap's
@@ -8475,22 +8572,32 @@ class BleEngine {
       _log('[ALARM] arm UNCONFIRMED — no correlated SET_ALARM_TIME reply. '
           'Treating the write as the arm (the strap may not echo the '
           'originating sequence); verify with getAlarm().');
-      return when;
+      return (armed: when, echoed: false);
     }
     final code = (resp.fields['alarm_status'] as num?)?.toInt();
     final name = resp.fields['alarm_status_name'] as String?;
+    final echo = (resp.fields['alarm_echo_epoch'] as num?)?.toInt();
+    // With an echoed epoch the "status" byte is that epoch's low byte, not a
+    // status: a wake time ending in 0x02..0x04/0x0a/0x0b would read as a
+    // refusal.
     final rejected = resp.failed ||
         resp.unsupported ||
-        (code != null && AlarmStatus.isInputRejection(code));
+        (echo == null && code != null && AlarmStatus.isInputRejection(code));
     if (rejected) {
       _log('[ALARM] arm REJECTED by the strap — result=${resp.status} '
           'alarm_status=$code ($name). NOT recording an alarm: there is '
           'nothing armed on the band.');
-      return null;
+      return (armed: null, echoed: false);
     }
     _log('[ALARM] arm accepted — result=${resp.status} '
         'alarm_status=${code ?? 'absent'} (${name ?? 'no status byte'}).');
-    return when;
+    final armSec = armWhen.millisecondsSinceEpoch ~/ 1000;
+    final echoed = echo == armSec;
+    if (echo != null && !echoed) {
+      _log('[ALARM] strap echoed wake time $echo, sent $armSec — not '
+          'treating the reply as a confirmation.');
+    }
+    return (armed: when, echoed: echoed);
   }
 
   /// Time-only alarm (SET_ALARM_TIME = 0x42), SHORT 7-byte form:
@@ -8526,22 +8633,26 @@ class BleEngine {
   /// WHOOP 5: RUN_ALARM does not buzz on hardware we tested; use the same
   /// Maverick `0x13` short pulse as Find-band. Do NOT STOP_HAPTICS first —
   /// on gen5 that can race and swallow the buzz.
-  Future<void> runAlarm() async {
+  ///
+  /// Returns whether the write reached the band.
+  Future<bool> runAlarm() async {
     if (_session?.band.isGen5 ?? false) {
-      await _send(
+      return _send(
         Cmd.runHapticPatternMaverick,
         AlarmPayloads.gen5MaverickBuzz(),
       );
-      return;
     }
-    await _send(Cmd.runAlarm, AlarmPayloads.runNow);
+    return _send(Cmd.runAlarm, AlarmPayloads.runNow);
   }
 
   /// Cancel the on-device alarm (DISABLE_ALARM = 0x45). gen4 body `[0x01]`
   /// (the earlier `[0x00]` body was ACKed but did not clear the alarm); gen5
   /// needs revision 2 plus the alarm id, defaulting to "all slots" — see
   /// [AlarmPayloads.disableForBand].
-  Future<void> disableAlarm({int? id}) {
+  ///
+  /// Returns whether the write reached the band. Callers must not forget an
+  /// armed alarm on false: the strap still holds it and will buzz.
+  Future<bool> disableAlarm({int? id}) {
     final isGen5 = _session?.band.isGen5 ?? false;
     return _send(
       Cmd.disableAlarm,
@@ -8609,12 +8720,20 @@ class BleEngine {
   }
   Future<void> buzz() => buzzPattern(hapticShortPulse);
 
+  /// [buzz] that reports whether the command reached the strap. `_send` does
+  /// not throw on a failed or timed-out GATT write — it logs and returns
+  /// false — so a caller that tells someone "the band buzzed" (the iOS
+  /// Shortcut) needs this instead of treating "no exception" as delivered.
+  Future<bool> buzzDelivered() => _sendBuzz(hapticShortPulse);
+
   /// Play a haptic buzz. gen5 ("Maverick") has a DIFFERENT buzz opcode and
   /// payload shape than gen4 (`Cmd.runHapticPatternMaverick`, 12-byte body —
   /// see `cmdBuzzGen5Maverick` in protocol/commands.dart) — [pattern] is
   /// honoured only on gen4; a gen5 link always plays the strap's fixed
   /// `[47, 152]` waveform pair (the only Maverick buzz byte-verified so far).
-  Future<void> buzzPattern(int pattern) {
+  Future<void> buzzPattern(int pattern) => _sendBuzz(pattern);
+
+  Future<bool> _sendBuzz(int pattern) {
     if (_session?.band.isGen5 ?? false) {
       return _send(
         Cmd.runHapticPatternMaverick,
@@ -9182,6 +9301,23 @@ class BleEngine {
     );
   }
 
+  /// WHOOP 4's SET_ALARM_TIME reply echoes the wake time it stored:
+  /// `[type][seq][0x42][req seq][result][rev=1][u32 epoch LE][u16]` (seen on
+  /// a real strap, 2026-10-22). Publish it as `alarm_echo_epoch`. The shared
+  /// decoder reads inner[6] — this epoch's low byte — as an "alarm status".
+  /// gen5's reply layout is unverified, so it is left alone.
+  Decoded _maybeAugmentAlarmEcho(Frame frame, Decoded decoded) {
+    if (decoded.kind != 'cmd_response' ||
+        decoded.fields['opcode'] != Cmd.setAlarmTime ||
+        decoded.fields['cmd_status'] != 1 ||
+        (_session?.band.isGen5 ?? false)) {
+      return decoded;
+    }
+    final echo = AlarmConfirmation.replyEchoEpoch(frame.inner);
+    if (echo != null) decoded.fields['alarm_echo_epoch'] = echo;
+    return decoded;
+  }
+
   /// Make sure a GET_CLOCK reply always carries a `clock_epoch` — INCLUDING an
   /// implausible one.
   ///
@@ -9347,6 +9483,33 @@ class DrainController {
   /// been preserved and may be trimmed; a burst we merely distrusted has not.
   int get bufferedProgressArchives =>
       _archives.where((a) => a.reason != kGateDroppedReason).length;
+
+  /// The plausibility drops buffered for the next commit.
+  int get bufferedGateDropArchives =>
+      _archives.where((a) => a.reason == kGateDroppedReason).length;
+
+  // What tokenless commits (awaitComplete's timeout/idle flush, the short-count
+  // refusal) already made durable for the burst still open. Those flushes empty
+  // the buffer mid-burst, so a HISTORY_END judged on the buffer alone saw a
+  // burst that banked nothing: it refused the trim as no-progress (and with
+  // enough refusals bounced the link and raised the clock-lost card) and
+  // reported no trim advance to auto-continue, though the rows were stored.
+  // Counted only once the commit succeeds; cleared by [beginBurst] and by the
+  // token commit that consumes them, so they never carry into another burst.
+  int _burstFlushedDurable = 0;
+  int _burstFlushedGateDrops = 0;
+
+  /// Durable progress this burst: still buffered plus already flushed.
+  bool get burstHasDurableProgress =>
+      _raws.isNotEmpty ||
+      _ecgRaw.isNotEmpty ||
+      bufferedProgressArchives > 0 ||
+      _burstFlushedDurable > 0;
+
+  /// This burst's plausibility-drop archives: still buffered plus already
+  /// flushed (they are durable either way).
+  int get burstGateDropArchives =>
+      bufferedGateDropArchives + _burstFlushedGateDrops;
   int get lastProgressMs => _lastProgressAt.millisecondsSinceEpoch;
 
   /// Min/max real record time (rec_ts) currently buffered for this batch — lets
@@ -9578,6 +9741,8 @@ class DrainController {
     _lastProgressAt = DateTime.now();
     burstStats.reset();
     _burstTallyClosed = false;
+    _burstFlushedDurable = 0;
+    _burstFlushedGateDrops = 0;
   }
 
   /// The band declared a new burst (HISTORY_START) — clear the poison latch.
@@ -9601,6 +9766,8 @@ class DrainController {
   void beginBurst() {
     _trimGuard.beginBurst();
     _burstTallyClosed = false;
+    _burstFlushedDurable = 0;
+    _burstFlushedGateDrops = 0;
   }
 
   /// A genuinely NEW history task has been claimed — called by the engine
@@ -9755,8 +9922,13 @@ class DrainController {
     // cursor and leaves the flag alone: the tail commit used to reset it to
     // false right before _onOffloadFinished read it, so auto-continue never
     // fired. It is cleared per offload in [resetOffloadCounters].
+    // Rows a flush already banked for this burst count too: the END commit
+    // finds an empty buffer whenever a flush got there first.
     if (tokenHex != null) {
-      lastTrimAdvanced = tokenHex != _lastAckedToken && hadDurable;
+      lastTrimAdvanced = tokenHex != _lastAckedToken &&
+          (hadDurable ||
+              _burstFlushedDurable > 0 ||
+              _burstFlushedGateDrops > 0);
       _lastAckedToken = tokenHex;
     }
     _raws.clear();
@@ -9798,6 +9970,14 @@ class DrainController {
           tsMin: lo,
           tsMax: hi,
         );
+        _burstFlushedDurable = 0;
+        _burstFlushedGateDrops = 0;
+      } else {
+        final gateDrops =
+            archives.where((a) => a.reason == kGateDroppedReason).length;
+        _burstFlushedDurable += raws.length + ecgRaw.length +
+            archives.length - gateDrops;
+        _burstFlushedGateDrops += gateDrops;
       }
       return raws.length + archives.length + ecgRaw.length;
     } catch (e) {

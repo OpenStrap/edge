@@ -68,6 +68,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<AppState>().attachCoachConfig(context.read<CoachConfig>());
+      context.read<AppState>().attachLocale(context.read<LocaleController>());
 
       final app = context.read<AppState>();
       if (app.isPaired) app.openSession();
@@ -305,7 +306,8 @@ class _Gate extends StatelessWidget {
           AppRoute.failed => const _InitFailed(),
           AppRoute.welcome => const WelcomeScreen(),
           AppRoute.pairing => DevicePickerScreen(
-              onSkip: () => OnboardingBypass.mark(OnboardingBypass.kPairing)),
+              onSkip: () => OnboardingBypass.mark(OnboardingBypass.kPairing),
+              onBack: () => context.read<AppState>().backToWelcome()),
           AppRoute.profile => ProfileSetupScreen(
               onDone: () => OnboardingBypass.mark(OnboardingBypass.kProfile)),
           AppRoute.shell => const _Shell(),

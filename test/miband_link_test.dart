@@ -14,6 +14,8 @@ import 'package:openstrap_protocol/openstrap_protocol.dart'
     show kHuamiActivityControlChar, kHuamiActivityDataChar;
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/miband_link.dart';
+import 'package:openstrap_edge/compute/inputs/canonical.dart'
+    show activeWearableId;
 import 'package:openstrap_edge/data/db.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -168,6 +170,36 @@ void main() {
     expect(await LocalDb.getCursorInt('miband_since:'), since);
   });
 
+  test('a band that rejects the key is a failed sync that says re-pair, not '
+      'a quiet success', () async {
+    await MiBand234Link.instance.ingestForTest(_deviceId, _key, (i, v) {
+      if (v[0] == 0x02) return [_challengeFrame(_challenge)];
+      if (v.isNotEmpty && v[0] == 0x03) return [_authResult(0x04)];
+      return const [];
+    }, nowSeconds: () => _nowSec);
+    expect(MiBand234Link.instance.lastSyncFailure,
+        MiBand234SyncFailure.keyRejected);
+  });
+
+  test('a band that stops answering mid-handshake is told apart from a '
+      'rejected key', () async {
+    await MiBand234Link.instance.ingestForTest(
+        _deviceId, _key, (i, v) => const [],
+        nowSeconds: () => _nowSec);
+    expect(MiBand234Link.instance.lastSyncFailure,
+        MiBand234SyncFailure.authUnanswered);
+  });
+
+  test('an authenticated session leaves no failure behind', () async {
+    await MiBand234Link.instance.ingestForTest(
+        _deviceId, _key, (i, v) => const [],
+        nowSeconds: () => _nowSec);
+    await MiBand234Link.instance.ingestForTest(
+        _deviceId, _key, _reconnectReply,
+        nowSeconds: () => _nowSec);
+    expect(MiBand234Link.instance.lastSyncFailure, isNull);
+  });
+
   test('nothing paired means nothing to sync', () async {
     expect(await MiBand234Link.pairedRow(), isNull);
     expect(await MiBand234Link.instance.sync(), isFalse);
@@ -196,6 +228,144 @@ void main() {
       final ok = await MiBand234Link.forgetBand('miband234-never-paired');
       expect(ok, isTrue);
       expect(await MiBand234Link.pairedRow(), isNull);
+    });
+  });
+  // A re-pair (say after a factory reset to recover a lost key) used to mint
+  // a fresh id beside the old row: syncs went to the new id while the active
+  // wearable kept naming the old one, and the stale row held a sensor slot.
+  group('re-pair keeps one row', () {
+    test('a re-pair of the same band reuses its row id', () async {
+      expect(miBandReusableDeviceId(const [], 'AA:BB:CC:DD:EE:FF'), isNull);
+      expect(
+        miBandReusableDeviceId([
+          {
+            'id': LocalDb.kPrimaryDeviceId,
+            'adapter_id': kMiBand234.id,
+            'remote_id': 'AA:BB:CC:DD:EE:FF',
+          },
+        ], 'AA:BB:CC:DD:EE:FF'),
+        isNull,
+      );
+      await LocalDb.upsertDevice(
+        id: _deviceId,
+        adapterId: kMiBand234.id,
+        remoteId: 'AA:BB:CC:DD:EE:FF',
+        label: 'Band',
+      );
+      expect(await activeWearableId(), _deviceId);
+      final reused = miBandReusableDeviceId(
+          await LocalDb.deviceRows(), 'AA:BB:CC:DD:EE:FF');
+      expect(reused, _deviceId);
+      await LocalDb.upsertDevice(
+        id: reused!,
+        adapterId: kMiBand234.id,
+        remoteId: 'AA:BB:CC:DD:EE:FF',
+        label: 'Band',
+      );
+      final bands = [
+        for (final r in await LocalDb.deviceRows())
+          if (r['adapter_id'] == kMiBand234.id) r['id'],
+      ];
+      expect(bands, [_deviceId]);
+      expect((await MiBand234Link.pairedRow())!['id'],
+          await activeWearableId());
+    });
+
+    // Pairing stores the new key under the id before the band proves it. A
+    // second band borrowing a working band's id would, on a failure after it
+    // took the key, leave the working band's row pointing at a key it never
+    // had: every later sync would be refused until a factory reset.
+    test('a different band never borrows a paired band\'s id', () async {
+      await LocalDb.upsertDevice(
+        id: _deviceId,
+        adapterId: kMiBand234.id,
+        remoteId: 'AA:BB:CC:DD:EE:FF',
+        label: 'Band',
+      );
+      expect(
+        miBandReusableDeviceId(
+            await LocalDb.deviceRows(), '11:22:33:44:55:66'),
+        isNull,
+      );
+    });
+
+    test('a failed pairing keeps the paired band working', () {
+      // A different band (fresh id): its key is an orphan however far the
+      // attempt got, and the paired band's key was never touched.
+      for (final installed in [false, true]) {
+        for (final prior in [false, true]) {
+          expect(
+            miBandFailedPairKey(
+                reused: false, keyInstalled: installed, hadPriorKey: prior),
+            MiBandFailedPairKey.drop,
+          );
+        }
+      }
+      // The same band, failed before it took the new key: its old key is
+      // still the one it answers to.
+      expect(
+        miBandFailedPairKey(
+            reused: true, keyInstalled: false, hadPriorKey: true),
+        MiBandFailedPairKey.restore,
+      );
+      expect(
+        miBandFailedPairKey(
+            reused: true, keyInstalled: false, hadPriorKey: false),
+        MiBandFailedPairKey.drop,
+      );
+      // The same band, failed after it took the new key: the old one is dead.
+      expect(
+        miBandFailedPairKey(
+            reused: true, keyInstalled: true, hadPriorKey: true),
+        MiBandFailedPairKey.keep,
+      );
+    });
+
+    test('forgetting a band drops its resume cursor', () async {
+      await LocalDb.upsertDevice(
+        id: _deviceId,
+        adapterId: kMiBand234.id,
+        remoteId: 'AA:BB:CC:DD:EE:FF',
+        label: 'Band',
+      );
+      await LocalDb.setCursor('miband_since:$_deviceId', '$_nowSec');
+      await MiBand234Link.forgetBand(_deviceId);
+      expect(await LocalDb.getCursor('miband_since:$_deviceId'), isNull);
+    });
+
+    test('duplicates an older pairing left are found and forgotten', () async {
+      const stale = 'miband234-aaaaaaaa';
+      await LocalDb.upsertDevice(
+        id: stale,
+        adapterId: kMiBand234.id,
+        remoteId: 'AA:BB:CC:DD:EE:FF',
+        label: 'Band',
+      );
+      expect(await activeWearableId(), stale);
+      await LocalDb.upsertDevice(
+        id: _deviceId,
+        adapterId: kMiBand234.id,
+        remoteId: '11:22:33:44:55:66',
+        label: 'Band',
+      );
+      final ids = staleMiBandRowIds(await LocalDb.deviceRows(), _deviceId);
+      expect(ids, [stale]);
+      for (final id in ids) {
+        await MiBand234Link.forgetBand(id);
+      }
+      expect(staleMiBandRowIds(await LocalDb.deviceRows(), _deviceId), isEmpty);
+      expect(await activeWearableId(), _deviceId);
+    });
+
+    test('never names the primary band or another adapter', () {
+      expect(
+        staleMiBandRowIds([
+          {'id': LocalDb.kPrimaryDeviceId, 'adapter_id': kMiBand234.id},
+          {'id': 'oura-1', 'adapter_id': 'oura'},
+          {'id': _deviceId, 'adapter_id': kMiBand234.id},
+        ], _deviceId),
+        isEmpty,
+      );
     });
   });
 }

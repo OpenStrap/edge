@@ -310,9 +310,39 @@ void main() {
         find.text('Removes the source. The readings it already took stay.'),
         findsOneWidget,
       );
+      // One tap only asks. For a ring or a Mi Band the forget deletes a
+      // pairing key nobody else holds, so a stray tap must not reach it.
       await t.tap(find.text('Forget this sensor'));
       await t.pumpAndSettle();
+      expect(forgotten, isEmpty);
+      expect(find.text('Forget Polar H10?'), findsOneWidget);
+      await t.tap(find.text('Keep it paired'));
+      await t.pumpAndSettle();
+      expect(forgotten, isEmpty);
+
+      await t.tap(find.text('Forget this sensor'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Forget it'));
+      await t.pumpAndSettle();
       expect(forgotten, ['ble_hrs-0a1b2c3d']);
+    });
+
+    testWidgets('forget is locked while a pair is in flight', (t) async {
+      final forgotten = <String>[];
+      await _pump(
+        t,
+        PairSensorView(
+          entryLabel: 'Oura ring',
+          paired: (id: 'oura-0a1b2c3d', label: 'Oura Ring Gen3'),
+          candidates: [_cand('AA:BB:CC:DD:EE:01', label: 'Oura Ring Gen3')],
+          busyRemoteId: 'AA:BB:CC:DD:EE:01',
+          onForget: forgotten.add,
+        ),
+      );
+      await t.tap(find.text('Forget this sensor'));
+      await t.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(forgotten, isEmpty);
     });
 
     testWidgets('a failure is a sentence, not a code', (t) async {

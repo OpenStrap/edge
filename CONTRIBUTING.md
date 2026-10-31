@@ -56,7 +56,6 @@ lib/cloud/     optional companion/backend + cloud import clients
 lib/coach/     read-only SQL coach over allow-listed views
 lib/compute/   runs the analytics pipeline, writes results
 lib/data/      local storage + the repository seam the UI reads from
-lib/debug/     debug-mode flags
 lib/ecg/       ECG readings
 lib/gestures/  device action / gesture dispatch
 lib/gps/       GPS route tracking for outdoor activities

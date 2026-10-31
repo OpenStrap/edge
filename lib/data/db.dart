@@ -46,6 +46,7 @@ import '../import/import_container.dart';
 import 'coverage_resolver.dart' show CoverageInterval;
 import 'day_label.dart';
 import 'activity_store.dart';
+import 'attach_copy.dart';
 import '../models/activity_suggestion.dart';
 import '../compute/accepted_naps.dart';
 import '../compute/nap_edits.dart' show NapEditKind;
@@ -53,6 +54,7 @@ import '../compute/vendor_sleep.dart' show VendorEpoch, VendorNight;
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
 import 'step_calibration.dart';
+import '../sync/reset_gate.dart';
 import 'med_store.dart';
 import 'models.dart';
 import 'nutrition_store.dart';
@@ -1866,6 +1868,52 @@ class LocalDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /// Flip one symptom on [date] against what is STORED, inside one
+  /// transaction. The screen used to toggle against its last loaded snapshot
+  /// and hand the whole list to [putCycleSymptoms]; a second chip tapped before
+  /// the reload landed was computed from the same snapshot, and its REPLACE
+  /// wiped the first. It also passed no note, so every tap erased the day's
+  /// note. Returns the list now stored.
+  static Future<List<String>> toggleCycleSymptom(
+    String date,
+    String symptom,
+  ) async {
+    final db = await instance;
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'cycle_symptom',
+        columns: ['symptoms_json', 'note'],
+        where: 'date = ?',
+        whereArgs: [date],
+        limit: 1,
+      );
+      final row = rows.isEmpty ? null : rows.first;
+      final now = <String>[];
+      final raw = row?['symptoms_json'];
+      if (raw is String) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is List) now.addAll(decoded.whereType<String>());
+        } catch (_) {
+          // A corrupt list is treated as empty rather than blocking the tap.
+        }
+      }
+      final note = row?['note'] as String?;
+      now.contains(symptom) ? now.remove(symptom) : now.add(symptom);
+      if (now.isEmpty && (note == null || note.isEmpty)) {
+        await txn.delete('cycle_symptom', where: 'date = ?', whereArgs: [date]);
+      } else {
+        await txn.insert('cycle_symptom', {
+          'date': date,
+          'symptoms_json': jsonEncode(now),
+          'note': note,
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      return now;
+    });
+  }
+
   /// All symptom rows (newest first): {date, symptoms_json, note}.
   static Future<List<Map<String, dynamic>>> cycleSymptoms() async {
     final db = await instance;
@@ -2564,11 +2612,40 @@ class LocalDb {
   /// of the device's that the new ones overlap, so the two never stack. With
   /// [wholeNights] (a band that only ever sends whole nights) the overlapped
   /// stored night goes entire, its epochs outside the new ones included.
+  ///
+  /// With [resetGeneration] (a sensor session's writes) this runs on the
+  /// commit gate and is refused there once a "delete everything" has started
+  /// since, exactly as [commitSyncBatch] is: [wipeAll] is on the same gate, so
+  /// nothing checked before the reset can land after the wipe.
   static Future<void> putVendorSleepEpochs(
     List<VendorEpoch> epochs, {
     required String deviceId,
     required String source,
     bool wholeNights = false,
+    int? resetGeneration,
+  }) {
+    if (resetGeneration == null) {
+      return _putVendorSleepEpochs(epochs,
+          deviceId: deviceId, source: source, wholeNights: wholeNights);
+    }
+    return _withCommitGate(() {
+      _refuseAfterReset(resetGeneration);
+      return _putVendorSleepEpochs(epochs,
+          deviceId: deviceId, source: source, wholeNights: wholeNights);
+    });
+  }
+
+  static void _refuseAfterReset(int resetGeneration) {
+    if (ResetGate.changedSince(resetGeneration)) {
+      throw StateError('data reset in progress');
+    }
+  }
+
+  static Future<void> _putVendorSleepEpochs(
+    List<VendorEpoch> epochs, {
+    required String deviceId,
+    required String source,
+    required bool wholeNights,
   }) async {
     if (epochs.isEmpty) return;
     final sorted = [...epochs]..sort((a, b) => a.startSec.compareTo(b.startSec));
@@ -2971,9 +3048,27 @@ class LocalDb {
   /// Forget one device. The MEASUREMENTS it wrote are untouched — "this
   /// removes the source, not the data", which is what the forget dialog
   /// promises and what `decoded_*` keeping its `device_id` makes possible.
+  ///
+  /// Its `signal_priority` rows go with it, in the same transaction. The
+  /// resolver's band-day filter drops a paired non-derivable device by its
+  /// adapter, and a forgotten id has no row to read an adapter from, so a
+  /// surviving user-set rank would make the forgotten device a candidate
+  /// again: it would own every window its `device_coverage` spans, masking
+  /// the band's HR/RR there while its own rows never load on a band day.
+  /// The primary slot keeps its rows — it is refilled by whichever band
+  /// pairs next and is always a candidate anyway.
   static Future<void> deleteDevice([String id = kPrimaryDeviceId]) async {
     final db = await instance;
-    await db.delete('device', where: 'id = ?', whereArgs: [id]);
+    await db.transaction((txn) async {
+      await txn.delete('device', where: 'id = ?', whereArgs: [id]);
+      if (id != kPrimaryDeviceId) {
+        await txn.delete(
+          'signal_priority',
+          where: 'device_id = ?',
+          whereArgs: [id],
+        );
+      }
+    });
   }
 
   // ── OBSERVATIONS (vendor-computed / typed-in / imported scalars) ───────────
@@ -3055,10 +3150,27 @@ class LocalDb {
   /// There is deliberately NO reader here yet. Nothing writes observations
   /// either: the adapter seam that will is phase 4, and wiring an existing
   /// importer into this table today would move numbers users already see.
+  ///
+  /// [resetGeneration]: as for [putVendorSleepEpochs], on the commit gate.
   static Future<int> putObservations(
     List<Observation> rows, {
     String deviceId = kPrimaryDeviceId,
     Map<String, String> cursors = const {},
+    int? resetGeneration,
+  }) {
+    if (resetGeneration == null) {
+      return _putObservations(rows, deviceId: deviceId, cursors: cursors);
+    }
+    return _withCommitGate(() {
+      _refuseAfterReset(resetGeneration);
+      return _putObservations(rows, deviceId: deviceId, cursors: cursors);
+    });
+  }
+
+  static Future<int> _putObservations(
+    List<Observation> rows, {
+    required String deviceId,
+    required Map<String, String> cursors,
   }) async {
     if (rows.isEmpty && cursors.isEmpty) return 0;
     final db = await instance;
@@ -3264,6 +3376,41 @@ class LocalDb {
         where: 'source IN ($marks)',
         whereArgs: [...sources],
       );
+    });
+  }
+
+  /// Drop every imported workout that starts inside [[startSec], [endSec]]
+  /// but whose uuid is not in [present], AND its route, like
+  /// [deleteImportedWorkout]. Returns how many went.
+  ///
+  /// The window is the one the store was just read over: a uuid it no longer
+  /// returns there was deleted in the health app, and the upsert alone would
+  /// keep listing it (and counting it toward the week) forever. Rows outside
+  /// the window are left alone, since the read says nothing about them.
+  static Future<int> deleteImportedWorkoutsMissing(
+    int startSec,
+    int endSec,
+    Set<String> present,
+  ) async {
+    final db = await instance;
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'imported_workout',
+        columns: ['uuid'],
+        where: 'start_ts >= ? AND start_ts <= ?',
+        whereArgs: [startSec, endSec],
+      );
+      final gone = [
+        for (final r in rows)
+          if (!present.contains(r['uuid'])) r['uuid'] as String,
+      ];
+      for (final u in gone) {
+        await txn.delete('imported_workout',
+            where: 'uuid = ?', whereArgs: [u]);
+        await txn.delete('workout_route',
+            where: 'session_id = ?', whereArgs: [u]);
+      }
+      return gone.length;
     });
   }
 
@@ -3848,6 +3995,27 @@ class LocalDb {
     return (r.first['s'] as num?)?.toInt() ?? 0;
   }
 
+  /// [day]'s banked phone windows, so a re-sync can keep the ones for an hour
+  /// the sensor no longer covers (see `PhonePedometer.syncDay`).
+  static Future<List<({int startTs, int endTs, int steps})>>
+      phoneCoverageForDay(String day) async {
+    final db = await instance;
+    final rows = await db.query(
+      'live_coverage',
+      columns: ['start_ts', 'end_ts', 'steps'],
+      where: 'day = ? AND source = ?',
+      whereArgs: [day, kStepSourcePhone],
+    );
+    return [
+      for (final r in rows)
+        (
+          startTs: (r['start_ts'] as num).toInt(),
+          endTs: (r['end_ts'] as num).toInt(),
+          steps: (r['steps'] as num).toInt(),
+        ),
+    ];
+  }
+
   /// Drop every phone-sourced coverage row (the user turned phone steps off).
   /// Band rows are untouched, so days fall back to the band count.
   static Future<int> clearPhoneCoverage() async {
@@ -4046,6 +4214,14 @@ class LocalDb {
     return v == null ? null : int.tryParse(v);
   }
 
+  /// The primary device's durable record frontier (`rec_ts_hw`), or null when
+  /// no record has been banked. Builds before the commit guard could persist
+  /// '0' from a record-less commit, so a non-positive value reads as unset.
+  static Future<int?> getRecordFrontier() async {
+    final v = await getCursorInt('rec_ts_hw');
+    return (v == null || v <= 0) ? null : v;
+  }
+
   /// Read a cursor int through a specific executor (used inside a transaction so
   /// the read shares the open txn instead of contending on the global handle).
   static Future<int?> _cursorIntVia(DatabaseExecutor ex, String name) async {
@@ -4089,6 +4265,11 @@ class LocalDb {
   /// complete night, so the Today hero + recovery story stop drifting through
   /// the day. Day-tagged so it survives restarts and is ignored on a new day.
   static const String kFrozenHeadlineCursor = 'frozen_headline';
+
+  /// Cursor holding the highest `rec_ts` cutoff the raw prune has applied.
+  /// Only ever raised; the derive engine refuses to re-derive a day whose
+  /// window reaches below it.
+  static const String kDecodedPrunedBeforeCursor = 'decoded_pruned_before';
 
   /// The pinned morning readiness headline (day + value), or null if unset /
   /// unparseable. The `day` must be compared to today's label by the caller — a
@@ -4306,6 +4487,12 @@ class LocalDb {
     // the host supplies it; a signal absent from the map defaults to
     // 2*kBucket (120s) inside [_extendCoverageVia].
     Map<String, int>? coverageToleranceSec,
+    // [ResetGate.generation] when the writing session began. Checked inside
+    // the commit gate, where it cannot be raced: a batch from a session that
+    // started before a "delete everything" is refused even once the reset has
+    // finished and the gate is down again. Null checks only that no reset is
+    // running right now.
+    int? resetGeneration,
   }) =>
       _withCommitGate(() => _commitSyncBatchLocked(
             raws,
@@ -4319,6 +4506,7 @@ class LocalDb {
             deviceFamily: deviceFamily,
             deviceId: deviceId,
             coverageToleranceSec: coverageToleranceSec,
+            resetGeneration: resetGeneration,
           ));
 
   static Future<void> _commitSyncBatchLocked(
@@ -4339,7 +4527,18 @@ class LocalDb {
     // WHICH PHYSICAL DEVICE these rows belong to (see [kPrimaryDeviceId]).
     String deviceId = kPrimaryDeviceId,
     Map<String, int>? coverageToleranceSec,
+    int? resetGeneration,
   }) async {
+    // A batch queued on the gate before "delete everything" started reaches
+    // here only after the wipe ([wipeAll] runs on the same gate). Every
+    // caller re-checks ResetGate before calling, but this one runs LATER than
+    // any of those checks, so it is the one that cannot be raced. Thrown, so
+    // the caller keeps its buffer and never ACKs.
+    if (resetGeneration == null
+        ? ResetGate.active
+        : ResetGate.changedSince(resetGeneration)) {
+      throw StateError('data reset in progress');
+    }
     // NEUTRAL ROWS BELONG TO A NON-PRIMARY DEVICE. "" is the primary band
     // permanently (see kPrimaryDeviceId); a neutral-sample writer is by
     // definition a band with no framed record, which the primary is not.
@@ -4555,8 +4754,16 @@ class LocalDb {
           toleranceSec: coverageToleranceSec,
           deviceFamily: deviceFamily,
         );
-        await setCursor(kCounter, '$maxCounter', txn: txn);
-        await setCursor(kRecTs, '$maxRecTs', txn: txn);
+        // Only a real record moves the frontier. A commit that banked none (a
+        // bare HISTORY_END token, gate-dropped archives) on an install with no
+        // cursor yet would otherwise persist '0', which every `?? fallback`
+        // reader takes as a real frontier at the 1970 epoch.
+        if (maxCounter > 0) {
+          await setCursor(kCounter, '$maxCounter', txn: txn);
+        }
+        if (maxRecTs > 0) {
+          await setCursor(kRecTs, '$maxRecTs', txn: txn);
+        }
         if (trimToken != null) {
           await setCursor(cursorKeyFor('strap_trim', deviceId), trimToken,
               txn: txn);
@@ -9011,7 +9218,9 @@ class LocalDb {
 
   /// `compute_freshness` key marking the raw-free next-night nap cleanup
   /// (compute/nap_overlap_cleanup.dart) as applied. Cleared by an import.
-  static const String kNapNextNightCleanupKey = 'nap_next_night_cleanup_v1';
+  /// v2: the v1 pass skipped every day the readiness backfill had restamped
+  /// at v112+, so installs that already ran it run it once more.
+  static const String kNapNextNightCleanupKey = 'nap_next_night_cleanup_v2';
 
   /// `compute_freshness` key for [bumpUsageCounter]'s local counts.
   static const String kUsageCountersKey = 'usage_counters';
@@ -9077,6 +9286,42 @@ class LocalDb {
     return rows.isEmpty ? null : _withDate(rows.first);
   }
 
+  /// The two numbers a re-derive needs to keep a stored night on the clock it
+  /// was lived on: the served row's sleep onset instant (ms) and the
+  /// `sleep_onset_sec` clock it froze. Read with json_extract, so the bundle is
+  /// never decoded on the calling isolate — a re-derive runs this for every
+  /// day. Null when the day has no served row, the row is a skip marker, or
+  /// the payload is malformed.
+  static Future<({num? onsetMs, num? onsetClockSec})?> storedNightClock(
+      String dayId) async {
+    final db = await instance;
+    // Nested CASE: json_extract raises on a malformed document and only CASE
+    // branches are evaluated lazily.
+    final rows = await db.rawQuery(
+      'SELECT '
+      "CASE WHEN json_valid(payload_json) THEN CASE WHEN "
+      "json_type(payload_json, '\$.skipped') = 'true' THEN 1 ELSE 0 END "
+      'ELSE 1 END AS bad, '
+      "CASE WHEN json_valid(payload_json) THEN "
+      "json_extract(payload_json, '\$.sleep.window.value.onset_ms') END "
+      'AS onset_ms, '
+      "CASE WHEN json_valid(payload_json) THEN "
+      "json_extract(payload_json, '\$.scalars.sleep_onset_sec') END "
+      'AS onset_clock, skipped '
+      'FROM day_result WHERE day_id = ? AND algo_version <= ? '
+      'ORDER BY algo_version DESC LIMIT 1',
+      [dayId, _servedAlgoCeiling],
+    );
+    if (rows.isEmpty) return null;
+    final r = rows.first;
+    if (r['bad'] == 1 || (r['skipped'] as num?)?.toInt() == 1) return null;
+    final onset = r['onset_ms'], clock = r['onset_clock'];
+    return (
+      onsetMs: onset is num ? onset : null,
+      onsetClockSec: clock is num ? clock : null,
+    );
+  }
+
   /// The `readiness_absent_diag` diagnostic off [day]'s stored bundle — per
   /// input `{value, baseline_n}` plus the composite's own `note`. Produced on
   /// every day readiness comes back absent; null when [day] is null, has no
@@ -9140,6 +9385,53 @@ class LocalDb {
     final rows = await db.rawQuery(
       'SELECT r.day_id, r.algo_version, r.computed_at, r.finalized, '
       'r.skipped, r.partial, r.rhr, r.rmssd, r.readiness '
+      'FROM day_result r '
+      '$_servedDayJoin '
+      'ORDER BY r.day_id DESC LIMIT ?',
+      [limit],
+    );
+    return [for (final r in rows) _withDate(r)];
+  }
+
+  /// The N most recent days at their served version, newest day_id first,
+  /// each carrying `day_id`/`date` plus the numeric `scalars.<key>` value for
+  /// every name in [keys] — extracted IN SQLite, so no payload crosses the
+  /// platform channel and nothing is decoded on the calling isolate.
+  ///
+  /// For a caller that wants a handful of scalars across months of days.
+  /// Doing it with [recentDayResults] moves ~88 KB of payload per day and then
+  /// expands every compact curve back into per-sample maps on the UI isolate
+  /// to read three numbers — the same work that, run over 90 bundles, was
+  /// measured as a multi-second main-isolate hang.
+  ///
+  /// Every served day comes back. A day whose payload is malformed, lacks the
+  /// key, or holds a non-number there gets null for that key — what decoding
+  /// the bundle and reading `scalars[key] is num` gave.
+  static Future<List<Map<String, dynamic>>> recentDayScalars(
+    int limit,
+    List<String> keys,
+  ) async {
+    // The names are spliced into the SQL as JSON paths and column aliases.
+    final plain = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+    for (final k in keys) {
+      if (!plain.hasMatch(k)) {
+        throw ArgumentError.value(k, 'keys', 'not a plain scalar name');
+      }
+    }
+    final db = await instance;
+    // Nested CASE rather than AND: json_type/json_extract RAISE on a malformed
+    // document, and SQLite only promises lazy evaluation for CASE branches —
+    // one corrupt bundle must null its own day, not fail the whole read.
+    final cols = [
+      for (final k in keys)
+        'CASE WHEN json_valid(r.payload_json) THEN '
+            "CASE WHEN json_type(r.payload_json, '\$.scalars.$k') "
+            "IN ('integer', 'real') "
+            "THEN json_extract(r.payload_json, '\$.scalars.$k') END "
+            'END AS "$k"',
+    ];
+    final rows = await db.rawQuery(
+      'SELECT r.day_id${cols.isEmpty ? '' : ', ${cols.join(', ')}'} '
       'FROM day_result r '
       '$_servedDayJoin '
       'ORDER BY r.day_id DESC LIMIT ?',
@@ -9317,25 +9609,48 @@ class LocalDb {
   /// Uses `VACUUM INTO` (NOT a raw file copy) so the snapshot is transactionally
   /// consistent — a plain copy of a live SQLite file can produce torn pages
   /// (a corrupt export). VACUUM INTO also defragments, so the file is small.
+  /// SQLite older than 3.27 has no VACUUM INTO (Android 8-10: the framework
+  /// ships 3.18/3.22 and sqflite uses it), so there the copy is built table by
+  /// table through [attachCopy] instead, inside one read transaction.
   ///
   /// [includeSubstrateArchive] false empties `substrate_archive` in the COPY
   /// (never the live database). Automatic backups pass false: they keep five
   /// rotating copies, and the archive is already deflated, so gzip cannot
   /// shrink it — a year of history would cost its full size five times over.
   /// A manual export keeps it, which is the lossless copy the user asked for.
+  ///
+  /// [into] puts the copy somewhere other than the temp root; the manual
+  /// export uses its own folder so it can prune its old copies without
+  /// touching snapshots other features are still working on.
   static Future<String> exportCopy({
     bool includeSubstrateArchive = true,
+    Directory? into,
   }) async {
     final db = await instance;
-    final tmp = await getTemporaryDirectory();
+    final tmp = into ?? await getTemporaryDirectory();
     final stamp = DateTime.now().millisecondsSinceEpoch;
     final dest = p.join(tmp.path, 'openstrap_export_$stamp.db');
     final f = File(dest);
     if (await f.exists()) await f.delete(); // VACUUM INTO requires a fresh path
     Database? copy;
     try {
-      await db.execute('VACUUM INTO ?', [dest]);
-      if (!includeSubstrateArchive) {
+      var archiveCopied = true;
+      if (!debugForceAttachExport && await _vacuumIntoSupported(db)) {
+        await db.execute('VACUUM INTO ?', [dest]);
+      } else {
+        // Leave the archive out at copy time: copying it only to delete it
+        // and VACUUM again needs roughly three times its size in free space,
+        // which fails every backup on a nearly full phone.
+        await attachCopy(
+            db.path,
+            dest,
+            (_, table) async =>
+                !includeSubstrateArchive && table == SubstrateArchive.table
+                    ? null
+                    : '');
+        archiveCopied = includeSubstrateArchive;
+      }
+      if (!includeSubstrateArchive && archiveCopied) {
         copy = await openDatabase(dest, singleInstance: false);
         if (debugFailExportStrip) throw StateError('test: strip failed');
         await copy.delete(SubstrateArchive.table);
@@ -9360,6 +9675,30 @@ class LocalDb {
   /// Test seam: fail [exportCopy] after the copy exists, before it is cleaned.
   @visibleForTesting
   static bool debugFailExportStrip = false;
+
+  /// Test seam: take the pre-3.27 [attachCopy] path even on a newer SQLite.
+  @visibleForTesting
+  static bool debugForceAttachExport = false;
+
+  static bool? _vacuumInto;
+
+  static Future<bool> _vacuumIntoSupported(Database db) async {
+    final cached = _vacuumInto;
+    if (cached != null) return cached;
+    final v = await db.rawQuery('SELECT sqlite_version() AS v');
+    return _vacuumInto = sqliteHasVacuumInto(v.first['v'] as String);
+  }
+
+  /// Whether SQLite [version] ("3.22.0") parses `VACUUM INTO` (3.27.0+).
+  @visibleForTesting
+  static bool sqliteHasVacuumInto(String version) {
+    final parts = [
+      for (final x in version.trim().split('.')) int.tryParse(x) ?? 0,
+    ];
+    final major = parts.isNotEmpty ? parts[0] : 0;
+    final minor = parts.length > 1 ? parts[1] : 0;
+    return major > 3 || (major == 3 && minor >= 27);
+  }
 
   static Future<int> databaseFileBytes() async {
     final dir = await getDatabasesPath();
@@ -9883,9 +10222,14 @@ class LocalDb {
   /// run inside `openDatabase` on iOS's CPU watchdog — not somewhere to be on
   /// the tail of a destructive user action). Views are `type='view'` and are
   /// not matched; the sqlite/Android internal tables are skipped by name.
-  static Future<int> wipeAll() => _withReaderInvalidated(_wipeAll);
+  ///
+  /// Runs on the sync-commit gate, so it cannot interleave with a band batch
+  /// that is mid-commit, and a batch queued behind it sees the reset and
+  /// refuses (see [_commitSyncBatchLocked]).
+  static Future<int> wipeAll() =>
+      _withReaderInvalidated(() => _withCommitGate(_wipeAllLocked));
 
-  static Future<int> _wipeAll() async {
+  static Future<int> _wipeAllLocked() async {
     final db = await instance;
     final rows = await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -10221,6 +10565,35 @@ class LocalDb {
       'substrate_archive',
   ];
 
+  /// Restore tables whose rows the user edits in place, keyed the way the
+  /// app writes them, with the column that says when (null: none — the local
+  /// row wins). `journal_metric` and `strength_set` are keyed by their SET
+  /// (one day's fields, one session's sets), because the app rewrites each
+  /// as a whole and a row-by-row merge splices two versions together.
+  static const Map<String, (List<String>, String?)> _restoreEditedKeys = {
+    'journal': (['date'], 'updated_at'),
+    'journal_metric': (['date'], 'updated_at'),
+    'lab_result': (['marker', 'taken_on'], 'updated_at'),
+    'cycle_symptom': (['date'], 'updated_at'),
+    'sleep_override': (['day_id'], 'created_at'),
+    // A dose slot is re-marked in place (taken, skipped, cleared), so an older
+    // backup would flip a dose logged since back to what it said then.
+    'med_dose': (['med_key', 'date', 'slot_min'], 'updated_at'),
+    // A retimed schedule moves its past doses to the new minute, so the
+    // backup's old schedule would leave every dose logged since at a minute
+    // no slot reads, and bring the old reminder back. No edit stamp: local wins.
+    'med_def': (['key'], null),
+    // Edited in place from the food log; `update` restamps `updated_at`.
+    'food_entry': (['id'], 'updated_at'),
+    // Refit from every admissible finalized day, so an older backup's profile
+    // was fit from fewer days and would scale counter steps by a stale factor
+    // until the next refit.
+    'step_calibration': (['device_family', 'wearing'], 'updated_ts'),
+    'cycle_log': (['date'], null),
+    'sessions': (['id'], null),
+    'strength_set': (['session_id'], null),
+  };
+
   @visibleForTesting
   static List<String> get restoreTablesForTest => _restoreTables;
 
@@ -10418,6 +10791,22 @@ class LocalDb {
               ))
                 '${r['day']}',
           };
+          // sync_cursor is this install's own bookkeeping, so a row it already
+          // has wins. A backup's older copy would otherwise lower the prune edge
+          // (which is only ever raised): the derive engine would then stop
+          // treating a restored day whose rows end at the backup moment as
+          // truncated, and overwrite its finalized full-day result from that
+          // partial substrate. The prune edge takes the higher of the two;
+          // every other key the backup has that this install lacks still comes
+          // across, which is what a restore onto a new phone needs.
+          final localCursors = <String, String?>{
+            if (t == 'sync_cursor')
+              for (final r in await db.query(
+                'sync_cursor',
+                columns: ['name', 'value'],
+              ))
+                '${r['name']}': r['value'] as String?,
+          };
           // sleep_user_profile is an accumulator (one fold per finalized
           // night), so the local-wins rule below would let a few local nights
           // throw away a backup's months. The side that folded more nights
@@ -10428,6 +10817,34 @@ class LocalDb {
                       as String?,
                 ).length
               : 0;
+          // Hand-entered rows the user may have edited since the backup was
+          // taken. A plain REPLACE handed every colliding key back to the
+          // backup's older copy: a rewritten journal note, a corrected lab
+          // value or sleep window, a finished workout turned back into the
+          // 'live' one a mid-workout backup caught. So the newer side keeps
+          // the key; a table with no edit stamp keeps the local row, and a
+          // restore only adds what this install has lost.
+          //
+          // Snapshotted BEFORE the table merges, so a key the backup fills in
+          // on page 1 does not read as "local" on page 2.
+          final edited = _restoreEditedKeys[t];
+          final localEdits = <String, int>{};
+          String editKey(Map<String, Object?> r) =>
+              [for (final c in edited!.$1) '${r[c]}'].join('|');
+          if (edited != null) {
+            final keys = edited.$1.join(', ');
+            final stamp = edited.$2 == null
+                ? '0'
+                : 'MAX(COALESCE(${edited.$2}, 0))';
+            for (final r in await db.rawQuery(
+              'SELECT $keys, $stamp AS f FROM $t GROUP BY $keys',
+            )) {
+              localEdits[editKey(r)] = (r['f'] as num?)?.toInt() ?? 0;
+            }
+          }
+          // Sets already replaced wholesale by a newer backup copy — the
+          // local set is cleared once, on the first row, never per page.
+          final replacedSets = <String>{};
           var copied = 0;
           var page = firstPage;
           // ONE TRANSACTION PER PAGE, not per table. The whole-table transaction
@@ -10531,6 +10948,23 @@ class LocalDb {
                   // A newer local correction has already answered this window.
                   if (local.isNotEmpty) continue;
                 }
+                if (edited != null) {
+                  final key = editKey(row);
+                  final mine = localEdits[key];
+                  if (mine != null) {
+                    final stamp = edited.$2;
+                    final theirs =
+                        stamp == null ? null : (row[stamp] as num?)?.toInt();
+                    if (theirs == null || theirs <= mine) continue;
+                    // The backup's day is newer, and a day's fields are a SET:
+                    // patching it row by row would keep a field the backup's
+                    // version had already removed.
+                    if (t == 'journal_metric' && replacedSets.add(key)) {
+                      batch.delete(t, where: 'date = ?', whereArgs: [row['date']]);
+                      if (++ops >= chunkOps) await flush();
+                    }
+                  }
+                }
                 if (t == 'activity_suggestions') {
                   final local = await txn.query(t, where: 'id = ?', whereArgs: [row['id']], limit: 1);
                   if (local.isNotEmpty && (local.single['status'] != 'pending' ||
@@ -10594,6 +11028,35 @@ class LocalDb {
                     }
                   }
                   continue;
+                }
+                // A SENSOR'S HANDLE IS NOT PORTABLE EITHER, for the same
+                // reason, but its row is: it names the `device_id` its
+                // history carries. So the row comes across WITHOUT the
+                // `remote_id`. Kept verbatim, it would never connect, and
+                // because a sensor's id is minted from that handle
+                // (`HrsLink.mintDeviceId`) re-pairing the same strap here
+                // writes a NEW row instead of overwriting it — two such rows
+                // filled the sensor cap and refused every pair until each was
+                // forgotten by hand. Every link already refuses to arm a row
+                // with no handle, and `sensorCapReached` does not count one.
+                // A row this phone already has is its own live pairing and
+                // stays untouched: replacing it would blank a working handle.
+                if (t == 'device') {
+                  final local = await txn.query('device',
+                      columns: ['id'], where: 'id = ?', whereArgs: [row['id']]);
+                  if (local.isNotEmpty) continue;
+                  row['remote_id'] = null;
+                }
+                if (t == 'sync_cursor') {
+                  final name = '${row['name']}';
+                  if (localCursors.containsKey(name)) {
+                    if (name != kDecodedPrunedBeforeCursor) continue;
+                    final mine = int.tryParse('${localCursors[name]}');
+                    final theirs = int.tryParse('${row['value']}');
+                    if (theirs == null || (mine != null && theirs <= mine)) {
+                      continue;
+                    }
+                  }
                 }
                 if (t == 'day_result') {
                   if (protectedKeys.contains(
@@ -10781,8 +11244,11 @@ class LocalDb {
     // import. Rewind it.
     if ((counts['day_result'] ?? 0) > 0) {
       await putComputeFreshness(kReencodeCursorKey, jsonEncode({}));
-      // Same for the raw-free nap cleanup: imported old days may carry the
-      // next-night nap double count it removes, so it runs again.
+    }
+    // Same for the raw-free nap cleanup: imported old days, or legacy nap
+    // edits recomposed into kept days, may carry the next-night nap double
+    // count it removes, so it runs again.
+    if ((counts['day_result'] ?? 0) > 0 || (counts['sleep_nap'] ?? 0) > 0) {
       await deleteComputeFreshness(kNapNextNightCleanupKey);
     }
     // Last, so it can never be mistaken for a table row count by anything that
@@ -10808,11 +11274,7 @@ class LocalDb {
     final tsRow = (await db.rawQuery(
       'SELECT MIN(rec_ts) AS lo, MAX(rec_ts) AS hi FROM decoded_onehz WHERE rec_ts > 0',
     )).first;
-    final decodedOneHz =
-        Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM decoded_onehz'),
-        ) ??
-        0;
+    final decodedOneHz = count;
     final decodedRr =
         Sqflite.firstIntValue(
           await db.rawQuery('SELECT COUNT(*) FROM decoded_rr'),
@@ -11633,9 +12095,51 @@ class LocalDb {
 
   static String localDayLabelNow() => todayLabel();
 
+  /// `payload_json` of the exact row [recentDayResultsMeta] served for
+  /// [dayId], or null.
+  static Future<Object?> _servedPayloadJson(
+    String dayId,
+    Object? algoVersion,
+  ) async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT payload_json FROM day_result WHERE day_id = ? AND algo_version = ?',
+      [dayId, algoVersion],
+    );
+    return rows.isEmpty ? null : rows.first['payload_json'];
+  }
+
+  /// The three [rawStats] fields freshness reads. [rawStats] also counts
+  /// `samples` and takes MIN(rec_ts) for the diagnostics screen, which a
+  /// derive pass has no use for.
+  static Future<Map<String, dynamic>> _freshnessRawStats() async {
+    final db = await instance;
+    final hi = (await db.rawQuery(
+      'SELECT MAX(rec_ts) AS hi FROM decoded_onehz WHERE rec_ts > 0',
+    )).first['hi'];
+    final oneHz =
+        Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM decoded_onehz'),
+        ) ??
+        0;
+    final rr =
+        Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM decoded_rr'),
+        ) ??
+        0;
+    return {
+      'max_rec_ts': (hi as num?)?.toInt(),
+      'decoded_onehz': oneHz,
+      'decoded_rr': rr,
+    };
+  }
+
   static Future<void> refreshComputeFreshness() async {
-    final raw = await rawStats();
-    final recent = await recentDayResults(30);
+    final raw = await _freshnessRawStats();
+    // Payload-free: this runs at the end of every derive pass, including the
+    // light one after each BLE drain, on the UI isolate. The loop usually
+    // stops after a row or two, so each bundle is fetched only when visited.
+    final recent = await recentDayResultsMeta(30);
     final rolling = await baseline('rolling');
     final cross = await baseline('crossday');
     final today = localDayLabelNow();
@@ -11658,7 +12162,9 @@ class LocalDb {
       if (dayId == null || dayId.isEmpty) continue;
       if (dayId == today && todayRow == null) todayRow = row;
       final decoded =
-          SeriesCodec.decodePayloadJson(row['payload_json']) ??
+          SeriesCodec.decodePayloadJson(
+            await _servedPayloadJson(dayId, row['algo_version']),
+          ) ??
           const <String, dynamic>{};
       if (decoded['skipped'] == true) continue;
       // #448: today's night is not today's overnight until the drain has
@@ -11686,7 +12192,14 @@ class LocalDb {
           nowSec: nowSec,
         )?.wire;
       }
+      final flags = decoded['flags'];
+      // 'Not sleep' is the user's own verdict on the night, so it needs no
+      // settling and is as final an overnight as a detected absence. Without
+      // this a rejected today was never the overnight day: Home held the
+      // previous night over as "still being worked out" for the rest of it.
+      final rejected = flags is List && flags.contains('SLEEP_REJECTED');
       if (dayId == today &&
+          !rejected &&
           !overnightSettled(
             sleepOffsetSec: wakeSec,
             dataEdgeSec: edgeSec,
@@ -11702,9 +12215,9 @@ class LocalDb {
       if (latestOvernightDay == null) {
         final sleep =
             ((decoded['sleep'] as Map?)?['accounting'] as Map?)?['value'];
-        final flags = decoded['flags'];
         final hasSleep = sleep is Map && sleep['tst_sec'] != null;
-        final noSleep = flags is List && flags.contains('NO_SLEEP_DETECTED');
+        final noSleep = rejected ||
+            (flags is List && flags.contains('NO_SLEEP_DETECTED'));
         if (hasSleep || noSleep) {
           latestOvernightDay = dayId;
           latestOvernightComputedAt = (row['computed_at'] as num?)?.toInt();
@@ -11715,9 +12228,14 @@ class LocalDb {
         latestRecoveryDay = dayId;
         latestRecoveryComputedAt = (row['computed_at'] as num?)?.toInt();
       }
+      // Rows run newest day first, so once one is older than today, today has
+      // no row and cannot turn up further down. Waiting for it walked and
+      // decoded all 30 bundles on every pass whenever today was not derived
+      // yet (just after midnight, a held day, a drain that only moved last
+      // night's tail).
       if (latestOvernightDay != null &&
           latestRecoveryDay != null &&
-          todayRow != null) {
+          (todayRow != null || dayId.compareTo(today) < 0)) {
         break;
       }
     }
@@ -12228,6 +12746,15 @@ class LocalDb {
   }) async {
     final db = await instance;
     await db.transaction((tx) async {
+      // A logged nap is credited whole on top of the main night's TST (nap_min,
+      // total asleep, sleep-need credit), so one typed over the end of the
+      // night — the doze after the alarm — counts those minutes twice.
+      if (source == 'manual' &&
+          await ActivityStore.overlapsMainSleep(tx, startTs, endTs)) {
+        throw const ActivityReviewException(
+          'That overlaps your main sleep, which already counts that time.',
+        );
+      }
       String? snapshot;
       if (source == 'rejected') {
         // A pre-upgrade nap may still live only in its retained day result.
@@ -12295,6 +12822,22 @@ class LocalDb {
         await tx.delete('sleep_nap', where: 'day_id = ? AND start_ts = ?', whereArgs: [dayId, startTs]);
       }
     });
+  }
+
+  /// Whether [startTs, endTs) overlaps a main sleep already derived — the
+  /// check [putNapEdit] enforces for a logged nap, readable ahead of the write
+  /// so the entry screen can say why in the user's language.
+  static Future<bool> napOverlapsMainSleep(int startTs, int endTs) async =>
+      ActivityStore.overlapsMainSleep(await instance, startTs, endTs);
+
+  /// Drops [dayId]'s `legacy` nap edits overlapping [startSec, endSec). Logged,
+  /// confirmed and rejected edits are left alone.
+  static Future<int> deleteLegacyNapsOverlapping(
+      String dayId, int startSec, int endSec) async {
+    final db = await instance;
+    return db.delete('sleep_nap',
+        where: "day_id = ? AND source = 'legacy' AND start_ts < ? AND end_ts > ?",
+        whereArgs: [dayId, endSec, startSec]);
   }
 
   static Future<List<Map<String, dynamic>>> napEdits(String dayId) async {
@@ -12487,6 +13030,35 @@ class LocalDb {
     });
   }
 
+  /// Move a session's window. Not `putSession`: the row's type correction,
+  /// RPE and private flag must survive. What was measured over the OLD window
+  /// (the frozen HR trace, average HR, zone minutes) belongs to other seconds,
+  /// so it goes; a re-score fills it again if the new window is still on
+  /// record. Returns the number of rows changed.
+  static Future<int> setSessionWindow(String id, int startTs, int? endTs) async {
+    final db = await instance;
+    return db.transaction((tx) async {
+      final n = await tx.update(
+        'sessions',
+        {
+          'start_ts': startTs,
+          'end_ts': endTs,
+          'trace_json': null,
+          'trace_samples': null,
+          'avg_hr': null,
+          'zone_min_json': null,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (n > 0) {
+        await ActivityStore.supersede(tx, ActivityKind.workout, startTs,
+            endTs ?? DateTime.now().millisecondsSinceEpoch ~/ 1000);
+      }
+      return n;
+    });
+  }
+
   /// Update ONLY a session's derived score columns.
   ///
   /// Deliberately not `putSession`: that is INSERT-OR-REPLACE over the whole
@@ -12526,6 +13098,17 @@ class LocalDb {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  /// Whether a [source] session already starts at [startTs], under any id.
+  static Future<bool> hasSessionStartingAt(String source, int startTs) async {
+    final db = await instance;
+    final rows = await db.query('sessions',
+        columns: ['id'],
+        where: 'source = ? AND start_ts = ?',
+        whereArgs: [source, startTs],
+        limit: 1);
+    return rows.isNotEmpty;
   }
 
   static Future<Map<String, dynamic>?> session(String id) async {
