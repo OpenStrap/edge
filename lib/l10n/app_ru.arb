@@ -2156,8 +2156,6 @@
       }
     }
   },
-  "investigateCvhrNoComparisonYet": "Пока недостаточно прежних ночей, чтобы сравнить с ними недавние циклические изменения пульса.",
-  "@investigateCvhrNoComparisonYet": {},
   "investigateCvhrInsideUsual": "В последних ночах число циклических изменений пульса, которые учитывает проверка, остаётся в диапазоне предшествующих {n} ночей.",
   "@investigateCvhrInsideUsual": {
     "placeholders": {

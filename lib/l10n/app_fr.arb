@@ -1020,7 +1020,6 @@
   "investigateDroppedThin": "{count, plural, one{# nuit exclue pour trop peu d'heures observées} other{# nuits exclues pour trop peu d'heures observées}}",
   "investigateAcrossNOwnNights": "SUR {n} DE VOS PROPRES NUITS",
   "investigateCvhrAboveUsual": "Au cours de vos nuits les plus récentes, le cycle de fréquence cardiaque mesuré par ce dépistage a été plus élevé que sur les {n} nuits qui le composent.",
-  "investigateCvhrNoComparisonYet": "Il n'y a pas encore assez de nuits antérieures pour y comparer votre cycle de fréquence cardiaque récent.",
   "investigateCvhrInsideUsual": "Au cours de vos nuits les plus récentes, le cycle de fréquence cardiaque mesuré par ce dépistage est resté dans la plage des {n} nuits qui le composent.",
   "investigateCvhrExplainer": "C'est un motif dans votre pouls, pas une mesure de votre respiration, et ce n'est un test de rien. Le même cycle provient d'un rythme irrégulier, de l'altitude, ou de toute nuit entrecoupée — et les bêtabloquants, le diabète et les troubles nerveux l'atténuent, si bien qu'une respiration réellement perturbée ne laisse souvent aucune trace ici.",
   "investigateCvhrNotNegativeResult": "Rien ici n'est donc un résultat négatif et rien ici ne blanchit quoi que ce soit, et rien de tout cela ne dit quoi que ce soit sur une nuit en particulier — le compte d'une seule nuit varie pour une dizaine de raisons à lui seul.",

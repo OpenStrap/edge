@@ -1285,17 +1285,6 @@ void main() {
           findsOneWidget);
     });
 
-    testWidgets('too few older nights makes no comparison either way',
-        (t) async {
-      final m = ana.cvhrPersonalDistribution(nights(6, recent: 3));
-      expect(m.value?.aboveOwnUsual, isNull);
-      await pumpI(t, m);
-      expect(find.textContaining("aren't enough earlier nights"),
-          findsOneWidget);
-      expect(find.textContaining('running higher'), findsNothing);
-      expect(find.textContaining('stayed inside'), findsNothing);
-    });
-
     testWidgets('too few nights says so instead of showing a partial one',
         (t) async {
       await pumpI(t, ana.cvhrPersonalDistribution(nights(3)));

@@ -5016,10 +5016,6 @@
       }
     }
   },
-  "investigateCvhrNoComparisonYet": "There aren't enough earlier nights yet to compare your recent heart-rate cycling against.",
-  "@investigateCvhrNoComparisonYet": {
-    "description": "Sentence: too few older nights to say whether recent heart-rate cycling is above or inside the user's usual range"
-  },
   "investigateCvhrInsideUsual": "Over your most recent nights, the heart-rate cycling this screen counts has stayed inside the range of the {n} nights behind it.",
   "@investigateCvhrInsideUsual": {
     "description": "Sentence: recent heart-rate cycling has stayed within the user's own usual range",
