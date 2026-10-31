@@ -533,26 +533,33 @@ void main() {
       expect(engine.armed, hasLength(1));
     });
 
-    test('a day saved while cancel-all is on the wire is kept', () async {
+    test('a day saved while cancel-all is on the wire lands after it',
+        () async {
       await silenceOsPresent();
       final engine = _HeldDisableEngine();
       final app = AppState.forTesting(engine: engine);
       addTearDown(app.dispose);
+      await app.setScheduleDay(weekday: 1, enabled: true); // offline: saved
       app.device.connection = 'connected';
 
       final cancel = app.disableAlarm();
       await Future<void>.delayed(Duration.zero);
       // Saved while the disable write waits on the strap's reply.
-      await app.setScheduleDay(weekday: 3, enabled: true, hour: 6, minute: 0);
+      final save = app.setScheduleDay(
+          weekday: 3, enabled: true, hour: 6, minute: 0);
+      await Future<void>.delayed(Duration.zero);
       engine.reply.complete(true);
       await cancel;
+      await save;
 
-      final rows = await LocalDb.alarmScheduleRows();
-      expect(rows.where((r) => r['weekday'] == 3 && r['enabled'] == 1),
-          hasLength(1),
-          reason: 'the newer save outlives the older cancel');
-      expect(app.alarmSchedule.firstWhere((e) => e.weekday == 3).enabled,
-          isTrue);
+      final enabled = [
+        for (final r in await LocalDb.alarmScheduleRows())
+          if (r['enabled'] == 1) r['weekday'],
+      ];
+      expect(enabled, [3],
+          reason: 'the cancelled day is gone, the newer save survives');
+      expect(engine.armed, isNotEmpty, reason: 'the saved day is re-armed');
+      expect(engine.armed.last.weekday, DateTime.thursday);
     });
 
     test('ALARM_SET (event 56) leaves the armed alarm alone', () async {
@@ -1281,12 +1288,15 @@ class _ArmRecordingEngine extends BleEngine {
 class _HeldDisableEngine extends BleEngine {
   _HeldDisableEngine() : super(onRecord: (_, _) async {}, onState: (_) {});
   final reply = Completer<bool>();
+  final armed = <DateTime>[];
   @override
   Future<bool> disableAlarm({int? id}) => reply.future;
   @override
   Future<({DateTime? armed, bool echoed})> armAlarm(DateTime when,
-          {int index = 0, List<int>? haptics}) async =>
-      (armed: when, echoed: false);
+      {int index = 0, List<int>? haptics}) async {
+    armed.add(when);
+    return (armed: when, echoed: false);
+  }
 }
 
 /// A strap whose RTC lags wall time by [driftSec] (GET_CLOCK correlated).

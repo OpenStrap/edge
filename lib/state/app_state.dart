@@ -4614,9 +4614,10 @@ class AppState extends ChangeNotifier {
   /// time apart, and a newer arm owns the timer and the pending alert.
   int _armGen = 0;
 
-  /// Bumped after every completed `alarm_schedule` save, so a cancel-all that
-  /// started before a save doesn't wipe the row that save just wrote.
-  int _scheduleSaves = 0;
+  /// The cancel-all in progress, if any. Schedule saves wait for it, so a day
+  /// saved while the disable is on the wire lands after the table is cleared
+  /// and is armed, instead of being wiped by it.
+  Future<void>? _disableInFlight;
 
   // ── weekly alarm schedule (replaces a single next-occurrence value) ────────
   // The 7-day schedule lives in `alarm_schedule` (lib/data/db.dart); this cache
@@ -4647,13 +4648,13 @@ class AppState extends ChangeNotifier {
       final rows = await LocalDb.alarmScheduleRows();
       if (rows.isNotEmpty) return;
       final seed = seedEntryFromLegacyEpoch(_savedAlarm!);
+      if (_disableInFlight != null) return; // the cancel clears it anyway
       await LocalDb.setAlarmScheduleDay(
         weekday: seed.weekday,
         hour: seed.hour,
         minute: seed.minute,
         enabled: seed.enabled,
       );
-      _scheduleSaves++;
       await _loadAlarmSchedule();
     } catch (e) {
       _log('[alarm] legacy schedule seed failed: $e');
@@ -4677,6 +4678,8 @@ class AppState extends ChangeNotifier {
     bool? enabled,
     int? smartWindowMinutes,
   }) async {
+    final disabling = _disableInFlight;
+    if (disabling != null) await disabling.catchError((Object _) {});
     final current = _schedule.firstWhere(
       (e) => e.weekday == weekday,
       orElse: () => AlarmScheduleEntry(
@@ -4698,7 +4701,6 @@ class AppState extends ChangeNotifier {
       enabled: next.enabled,
       smartWindowMinutes: next.smartWindowMinutes,
     );
-    _scheduleSaves++;
     await _loadAlarmSchedule();
     notifyListeners();
     // The 7pm "no alarm set for tonight" check keys off the schedule: a night
@@ -5174,10 +5176,20 @@ class AppState extends ChangeNotifier {
   /// in `alarm_schedule` can silently re-arm this on the next connect/sync.
   Future<void> disableAlarm() async {
     if (!isConnected) throw Exception('Connect to your strap first');
+    final done = Completer<void>();
+    _disableInFlight = done.future;
+    try {
+      await _disableAlarmNow();
+    } finally {
+      if (identical(_disableInFlight, done.future)) _disableInFlight = null;
+      done.complete();
+    }
+  }
+
+  Future<void> _disableAlarmNow() async {
     // A timed-out or dropped write leaves the alarm armed on the strap. Keep
     // the schedule and epoch so the app still shows it (and the next sync can
     // retry) instead of reporting a cancel the band never received.
-    final savesBefore = _scheduleSaves;
     if (!await engine.disableAlarm()) {
       throw Exception("Couldn't reach your strap, so the alarm is still set");
     }
@@ -5190,12 +5202,8 @@ class AppState extends ChangeNotifier {
     // An arm that landed during the await owns the persisted epoch now.
     if (_armGen == gen) await prefs.remove('alarm_epoch');
     if (_armGen == gen) await prefs.remove('alarm_epoch_confirmed');
-    // A day saved while the disable was on the wire is a newer choice than
-    // this cancel; keep the table so that day still re-arms.
-    if (_scheduleSaves == savesBefore) {
-      await LocalDb.clearAlarmSchedule();
-      _schedule = fillDefaultAlarmSchedule(const []);
-    }
+    await LocalDb.clearAlarmSchedule();
+    _schedule = fillDefaultAlarmSchedule(const []);
     notifyListeners();
     // Nothing is scheduled now, so the 7pm "no alarm set for tonight" check
     // armed earlier today must go too.
