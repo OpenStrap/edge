@@ -360,7 +360,7 @@ void main() {
         // Opening runs the whole ladder, v44 included.
         final db = await LocalDb.instance;
         final archived = (await db.rawQuery(
-          'SELECT COUNT(*) AS n FROM raw_archive WHERE reason IN '
+          'SELECT COUNT(*) AS n FROM ${LocalDb.rawArchiveView} WHERE reason IN '
           '(${List.filled(LocalDb.redrivableArchiveReasons.length, '?').join(',')})',
           LocalDb.redrivableArchiveReasons,
         )).first['n'];

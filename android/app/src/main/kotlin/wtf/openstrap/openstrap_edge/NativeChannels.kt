@@ -37,6 +37,7 @@ object NativeChannels {
     private const val DEVICE_ACTIONS_CHANNEL = "openstrap/device_actions"
     private const val ANDROID_BG_CHANNEL = "openstrap/android_background"
     private const val BLE_NATIVE_CHANNEL = "openstrap/ble_native"
+    private const val STORAGE_CHANNEL = "openstrap/storage"
     const val TASKER_CHANNEL = "openstrap/tasker"
     const val ACTION_DOUBLE_TAP = "wtf.openstrap.openstrap_edge.DOUBLE_TAP"
     private const val TASKER_TOKEN_KEY = "tasker_auth_token"
@@ -178,6 +179,24 @@ object NativeChannels {
                     }
                     "openOemAutostartSettings" -> {
                         result.success(openOemAutostartSettings(app))
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        // Free space on the volume holding the database, for "Compact database".
+        MethodChannel(engine.dartExecutor.binaryMessenger, STORAGE_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "freeBytes" -> {
+                        val path = call.argument<String>("path") ?: app.filesDir.path
+                        result.success(
+                            try {
+                                android.os.StatFs(path).availableBytes
+                            } catch (e: IllegalArgumentException) {
+                                null
+                            }
+                        )
                     }
                     else -> result.notImplemented()
                 }

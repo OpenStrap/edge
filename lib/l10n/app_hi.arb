@@ -2792,5 +2792,72 @@
   "notifBatteryForecastReserveBody": "{rate}%/घंटा की दर से यह लगभग {time} तक खत्म हो जाएगी, आपके सामान्य जागने के समय के ठीक बाद — उठते समय लगभग {left}% बचेगी। आज रात की नींद बचाने के लिए अभी चार्ज करें।",
   "notifBatteryForecastAfterWakeBody": "{rate}%/घंटा की दर से यह लगभग {time} तक खत्म हो जाएगी, आपके सामान्य जागने के समय के बाद।",
   "notifWindDownBody": "आपके सोने का समय लगभग {time} है। धीमे होना शुरू करें।",
-  "notifWorkoutIdleBody": "{minutes} मिनट से आराम से ऊपर की कोई मेहनत दर्ज नहीं हुई है। अगर सेशन खत्म हो गया है, तो उसे वर्कआउट टैब से खत्म करें।"
+  "notifWorkoutIdleBody": "{minutes} मिनट से आराम से ऊपर की कोई मेहनत दर्ज नहीं हुई है। अगर सेशन खत्म हो गया है, तो उसे वर्कआउट टैब से खत्म करें।",
+  "dataStorageGroup": "स्टोरेज",
+  "dataKeepHistory": "कच्ची रीडिंग रखें",
+  "dataKeepHistorySub": "हर दिन की सेकंड-दर-सेकंड रीडिंग की एक संपीड़ित कॉपी, जो ऐप के उन्हें हटाने के बाद भी रहती है। इससे पुराने दिन अपने स्कोर रखते हैं, पर स्कोरिंग बेहतर होने पर दोबारा नहीं आंके जा सकते",
+  "dataKeepDays": "{days} दिन",
+  "@dataKeepDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 साल",
+  "dataKeepForever": "हमेशा",
+  "dataKeepShorterTitle": "{window} की कच्ची रीडिंग रखें?",
+  "@dataKeepShorterTitle": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "{window} से पुरानी रीडिंग अभी हटा दी जाएंगी। उन दिनों के स्कोर बने रहेंगे, पर आगे के अपडेट के बाद उन्हें दोबारा नहीं आंका जा सकेगा।",
+  "@dataKeepShorterBody": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "पुरानी रीडिंग हटाएं",
+  "dataKeepShorterCancel": "उन्हें रखें",
+  "dataCompact": "डेटाबेस छोटा करें",
+  "dataCompactSub": "ऊपर की सेटिंग जो अब नहीं रखतीं उसे हटाता है, फिर खाली जगह फ़ोन को लौटाता है। डेटाबेस के आकार से लगभग दोगुनी खाली जगह चाहिए",
+  "dataCompactPruning": "पुराना डेटा हटाया जा रहा है…",
+  "dataCompactVacuuming": "छोटा किया जा रहा है…",
+  "dataCompactFreed": "{freed} MB खाली हुआ। डेटाबेस अब {size} MB है।",
+  "@dataCompactFreed": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "पुराना डेटा हटा दिया गया, पर छोटा करने के लिए {need} MB खाली जगह चाहिए और फ़ोन में {free} MB है।",
+  "@dataCompactNoSpace": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "पुराना डेटा हटा दिया गया, पर फ़ोन की खाली जगह पढ़ी नहीं जा सकी, इसलिए फ़ाइल छोटी नहीं की गई।",
+  "dataCompactBusy": "सिंक या कोई सत्र चल रहा है। उसके खत्म होने पर दोबारा कोशिश करें।",
+  "dataSizeMb": "{mb} MB",
+  "@dataSizeMb": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  }
 }

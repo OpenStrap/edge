@@ -98,7 +98,7 @@ Future<ReplayBandLinkResult> _run(List<List<List<int>>> batches) async {
   return ReplayBandLinkResult(
     writes: [for (final w in link.writes) w.$2],
     onehz: await db.query('decoded_onehz', orderBy: 'ts_ms'),
-    archive: await db.query('raw_archive', orderBy: 'captured_at, hex'),
+    archive: await db.query(LocalDb.rawArchiveView, orderBy: 'captured_at, hex'),
   );
 }
 
