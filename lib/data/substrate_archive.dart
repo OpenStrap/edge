@@ -209,7 +209,9 @@ abstract final class SubstrateArchive {
       return null;
     }
     final hasHistory = await any('SELECT 1 FROM $table LIMIT 1') ||
-        await any('SELECT 1 FROM decoded_onehz LIMIT 1');
+        await any('SELECT 1 FROM decoded_onehz LIMIT 1') ||
+        // Beat-only records (no 1 Hz row) are history too.
+        await any('SELECT 1 FROM decoded_rr LIMIT 1');
     return hasHistory ? const SubstrateArchivePolicy(365) : null;
   }
 
