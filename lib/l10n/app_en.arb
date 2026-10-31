@@ -8752,7 +8752,7 @@
   "@sleepDetailHigherThanUsual": {
     "description": "Verdict phrase: sleep efficiency was higher than usual."
   },
-  "sleepDetailPointsDelta": "{n} points",
+  "sleepDetailPointsDelta": "{n} percentage points",
   "@sleepDetailPointsDelta": {
     "description": "Verdict prefix: how far sleep efficiency was from the usual median, in percentage points; followed by the lower/higher-than-usual phrase.",
     "placeholders": {
@@ -12829,6 +12829,15 @@
       }
     }
   },
+  "supplementClimbedExportFeet": "+{ft} ft elevation",
+  "@supplementClimbedExportFeet": {
+    "description": "Share poster caption: elevation gained, in feet for imperial units",
+    "placeholders": {
+      "ft": {
+        "type": "String"
+      }
+    }
+  },
   "supplementLapsExport": "{n} laps",
   "@supplementLapsExport": {
     "description": "Presentation-only text; interpolated values remain unchanged.",
@@ -15604,7 +15613,7 @@
   "@settingsReportIssueRowTitle": {
     "description": "Settings row that opens the issue report screen."
   },
-  "settingsReportIssueRowSub": "Sends what you choose to the maintainers, encrypted",
+  "settingsReportIssueRowSub": "Sends what you choose to the maintainers; your data is encrypted, the report details are not",
   "@settingsReportIssueRowSub": {
     "description": "Settings row subtitle for Report an issue."
   },

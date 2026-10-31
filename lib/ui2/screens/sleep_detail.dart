@@ -146,7 +146,7 @@ String _pct(double v) => '${v.round()}%';
 /// glued in front of the localized lower/higher phrase, so an English unit
 /// here left every other locale reading a half-English verdict.
 String sleepEfficiencyDelta(AppLocalizations? l, double v) =>
-    l?.sleepDetailPointsDelta('${v.round()}') ?? '${v.round()} points';
+    l?.sleepDetailPointsDelta('${v.round()}') ?? '${v.round()} percentage points';
 
 /// A reading with its unit, in the display locale: metric detail prints the
 /// same number through [displayFixed] and a translated unit, so a raw
@@ -488,7 +488,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
               child: Text(sub, style: F.over.copyWith(color: p.ink3)),
             ),
           ...body,
-          if (_d?.isLatestNight ?? _day == null) ...widget.todayFooter,
+          // Not under a read error: `_d` may still be the latest night while
+          // the asked-for one failed.
+          if (!_failed && (_d?.isLatestNight ?? _day == null))
+            ...widget.todayFooter,
           ...widget.footer,
         ],
       ),
@@ -668,7 +671,9 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     if (_failed) {
       // `_d` may still hold the night this screen stepped away from; only its
       // day list is used, so the stepper stays and the day can be walked off.
-      final shown = _day ?? d.day;
+      // A step to the latest night stores null in `_day`, so that night is
+      // named from `latestDay`, not from the night stepped away from.
+      final shown = _day ?? d.latestDay ?? d.day;
       return _frame(c, title, [
         ...dayNavRow(shown, d.days, _goDay),
         const SizedBox(height: S.x2),
@@ -683,7 +688,9 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           fix: l?.homeTryAgain ?? 'Try again',
           icon: LucideIcons.databaseZap,
           onFix: () {
-            setState(() => (_loading = true, _failed = false));
+            // `_d` is the night stepped away from; drawing it under the asked
+            // day while the retry runs would show the wrong readings.
+            setState(() => (_loading = true, _failed = false, _d = null));
             _load();
           },
         ),
@@ -1202,7 +1209,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     if (_day == null && _d?.day == day) _day = day;
     if (mounted) await _load();
     if (!mounted) return;
-    _day = sleepDayAfterOverride(_day, day, _d?.latestDay);
+    // Only a reload that worked says which night is latest now; after a
+    // failed one `_d` is the old result and releasing the pin could make a
+    // retry open another night.
+    if (!_failed) _day = sleepDayAfterOverride(_day, day, _d?.latestDay);
     // EVERY failure below this screen is silent: the forced re-derive catches
     // and logs its own throw, and it returns at its first line when another
     // re-analysis is already running. Both leave the write in the database and

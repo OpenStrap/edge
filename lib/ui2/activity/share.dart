@@ -489,9 +489,12 @@ List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
 String localizedExportCaption(BuildContext c, ActivityResult r, String text) {
   final l = AppLocalizations.of(c);
   if (text == r.activity.name) return r.activity.displayName(c);
-  final elevation = RegExp(r'^\+(.*?) m elevation$').firstMatch(text);
+  final elevation = RegExp(r'^\+(.*?) (m|ft) elevation$').firstMatch(text);
   if (elevation != null) {
-    return l?.supplementClimbedExport(elevation[1]!) ?? text;
+    return (elevation[2] == 'ft'
+            ? l?.supplementClimbedExportFeet(elevation[1]!)
+            : l?.supplementClimbedExport(elevation[1]!)) ??
+        text;
   }
   final laps = RegExp(r'^(.*?) laps$').firstMatch(text);
   if (laps != null) return l?.supplementLapsExport(laps[1]!) ?? text;

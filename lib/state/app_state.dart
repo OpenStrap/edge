@@ -1202,11 +1202,13 @@ class AppState extends ChangeNotifier {
     int? resetGeneration,
   }) async {
     final resetGen = resetGeneration ?? ResetGate.generation;
-    final goalBefore = user?['step_goal'];
     final prefs = await SharedPreferences.getInstance();
     if (ResetGate.changedSince(resetGen)) {
       throw StateError('profile not saved: the app data was reset');
     }
+    // Read right before the merge, after the await: an overlapping update can
+    // change the goal while this one waits.
+    final goalBefore = user?['step_goal'];
     user = {...?user, ...fields};
     await prefs.setString(_kProfile, jsonEncode(user));
     notifyListeners();

@@ -289,10 +289,13 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         .toList();
     if (paths.isEmpty) return; // cancelled — not a failure, say nothing
 
+    // A retry after a partial import keeps what is held: that history has
+    // already landed, so cancelling or failing the retry must not take the
+    // report and Continue away or put "new" on record.
+    final held = _outcome;
     setState(() {
       _busy = true;
       _outcome = null;
-      _holding = false;
     });
     try {
       final outcome = await runImport(app, paths,
@@ -302,10 +305,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       if (!mounted) return;
       setState(() {
         _outcome = outcome;
-        _holding = hold;
+        _holding = _holding || hold;
       });
     } on PassphraseCancelled {
       // Closing the prompt is a decision, not a failure. Say nothing.
+      if (mounted) setState(() => _outcome = held);
     } catch (e) {
       if (mounted) {
         setState(() =>
@@ -677,11 +681,15 @@ class WelcomeView extends StatelessWidget {
             Pill(l?.pillLocalNoCloud ?? 'Local · no cloud', C.green,
                 icon: LucideIcons.shieldCheck),
             const SizedBox(height: S.x8),
-            BigButton(l?.welcomeSetUpMyBand ?? 'Set up my band',
-                icon: LucideIcons.bluetooth,
-                color: C.green,
-                onTap: busy ? null : onNew),
-            const SizedBox(height: S.x3),
+            // With a report to read, the only way on is Continue below it, so
+            // nobody leaves before seeing what was rejected.
+            if (onContinue == null) ...[
+              BigButton(l?.welcomeSetUpMyBand ?? 'Set up my band',
+                  icon: LucideIcons.bluetooth,
+                  color: C.green,
+                  onTap: busy ? null : onNew),
+              const SizedBox(height: S.x3),
+            ],
             // One primary path. Importing first is a real choice but a rarer
             // one, so it is a text link rather than a second button of equal
             // weight beside "Set up my band".

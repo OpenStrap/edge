@@ -5843,7 +5843,7 @@
   "tabNutrition": "Питание",
   "tabWorkout": "Тренировка",
   "tabWellness": "Самочувствие",
-  "activityCatalogueName": "{key, select, kcardio{Кардио} kstrength{Силовые} ksports{Спорт} kathletics{Лёгкая атлетика} koutdoor{На природе} kmindbody{Тело и внимание} keveryday{Повседневные дела} kother{Другое} krunning{Бег} ktrailrunning{Трейлраннинг} kwalking{Ходьба} khiking{Пеший поход} kcycling{Велоспорт} kindoorbike{Велотренажёр} krowing{Гребля} kswimming{Плавание} kelliptical{Эллиптический тренажёр} kstairclimber{Степпер} ktreadmill{Беговая дорожка} kjumprope{Прыжки со скакалкой} kweighttraining{Силовая тренировка} kpowerlifting{Пауэрлифтинг} kbodyweight{С собственным весом} kcalisthenics{Калистеника} kkettlebell{Гиря} kcrossfit{CrossFit} khiit{ВИИТ} kcircuittraining{Круговая тренировка} kfunctional{Функциональная тренировка} kfootball{Футбол} kbasketball{Баскетбол} kcricket{Крикет} ktennis{Теннис} kbadminton{Бадминтон} ktabletennis{Настольный теннис} ksquash{Сквош} kpadel{Падел} kvolleyball{Волейбол} khockey{Хоккей} kbaseball{Бейсбол} krugby{Регби} kgolf{Гольф} kbowling{Боулинг} kboxing{Бокс} kmartialarts{Боевые искусства} kwrestling{Борьба} kclimbing{Скалолазание} ksprinting{Спринт} ktrackintervals{Интервалы на стадионе} kcrosscountry{Кросс} khurdles{Бег с барьерами} klongjump{Прыжки в длину} kshotput{Толкание ядра} kjavelin{Метание копья} kpolevault{Прыжки с шестом} kmountainbiking{Горный велосипед} kkayaking{Каякинг} ksurfing{Сёрфинг} kpaddleboard{Сапбординг} kskiing{Лыжи} ksnowboarding{Сноуборд} kskating{Катание на коньках} kskateboarding{Скейтбординг} khorseriding{Верховая езда} kyoga{Йога} kpilates{Пилатес} kstretching{Растяжка} kmobility{Подвижность суставов} ktaichi{Тайцзи} kbreathwork{Дыхательная практика} kmeditation{Медитация} khousework{Домашние дела} kgardening{Садовые работы} kdogwalking{Прогулка с собакой} kchildcare{Уход за ребёнком} kdiy{Ремонт своими руками} kshopping{Покупки} kstairs{Подъём по лестнице} kgeneralworkout{Общая тренировка} kdancing{Танцы} kintimacy{Интимная близость} kphysiotherapy{Физиотерапия} ksauna{Сауна} kcoldplunge{Погружение в холодную воду} other{{name}}}",
+  "activityCatalogueName": "{key, select, kcardio{Кардио} kstrength{Силовые} ksports{Спорт} kathletics{Лёгкая атлетика} koutdoor{На природе} kmindbody{Тело и внимание} keveryday{Повседневные дела} kother{Другое} krunning{Бег} ktrailrunning{Трейлраннинг} kwalking{Ходьба} khiking{Пеший поход} kcycling{Велоспорт} kindoorbike{Велотренажёр} krowing{Гребля} kswimming{Плавание} kelliptical{Эллиптический тренажёр} kstairclimber{Степпер} ktreadmill{Беговая дорожка} kjumprope{Прыжки со скакалкой} kweighttraining{Силовая тренировка} kpowerlifting{Пауэрлифтинг} kbodyweight{С собственным весом} kcalisthenics{Калистеника} kkettlebell{Гиря} kcrossfit{CrossFit} khiit{ВИИТ} kcircuittraining{Круговая тренировка} kfunctional{Функциональная тренировка} kfootball{Футбол} kbasketball{Баскетбол} kcricket{Крикет} ktennis{Теннис} kbadminton{Бадминтон} ktabletennis{Настольный теннис} ksquash{Сквош} kpadel{Падел} kpickleball{Пиклбол} kvolleyball{Волейбол} khockey{Хоккей} kbaseball{Бейсбол} krugby{Регби} kgolf{Гольф} kbowling{Боулинг} kboxing{Бокс} kmartialarts{Боевые искусства} kwrestling{Борьба} kclimbing{Скалолазание} ksprinting{Спринт} ktrackintervals{Интервалы на стадионе} kcrosscountry{Кросс} khurdles{Бег с барьерами} klongjump{Прыжки в длину} kshotput{Толкание ядра} kjavelin{Метание копья} kpolevault{Прыжки с шестом} kmountainbiking{Горный велосипед} kkayaking{Каякинг} ksurfing{Сёрфинг} kpaddleboard{Сапбординг} kskiing{Лыжи} ksnowboarding{Сноуборд} kskating{Катание на коньках} kskateboarding{Скейтбординг} khorseriding{Верховая езда} kyoga{Йога} kpilates{Пилатес} kstretching{Растяжка} kmobility{Подвижность суставов} ktaichi{Тайцзи} kbreathwork{Дыхательная практика} kmeditation{Медитация} khousework{Домашние дела} kgardening{Садовые работы} kdogwalking{Прогулка с собакой} kchildcare{Уход за ребёнком} kdiy{Ремонт своими руками} kshopping{Покупки} kstairs{Подъём по лестнице} kgeneralworkout{Общая тренировка} kdancing{Танцы} kintimacy{Интимная близость} kphysiotherapy{Физиотерапия} ksauna{Сауна} kcoldplunge{Погружение в холодную воду} other{{name}}}",
   "@activityCatalogueName": {
     "placeholders": {
       "key": {
@@ -5893,6 +5893,7 @@
     }
   },
   "supplementClimbedExport": "+{m} м высоты",
+  "supplementClimbedExportFeet": "+{ft} фт высоты",
   "@supplementClimbedExport": {
     "placeholders": {
       "m": {
@@ -7473,7 +7474,7 @@
   "deviceUseSheetConfirm": "Использовать",
   "deviceUseSheetCancel": "Не сейчас",
   "settingsReportIssueRowTitle": "Сообщить о проблеме",
-  "settingsReportIssueRowSub": "Отправляет выбранное вами разработчикам в зашифрованном виде",
+  "settingsReportIssueRowSub": "Отправляет выбранное вами разработчикам; ваши данные шифруются, сведения о сообщении — нет",
   "reportNavTitle": "Сообщить о проблеме",
   "reportCategoryGroup": "О чём сообщение",
   "reportCategorySync": "Синхронизация",

@@ -322,11 +322,11 @@ void main() {
 
       expect(saved, isNotNull);
       expect(saved!['sex'], 'f');
-      // The three optional fields were left blank, so they are ABSENT — not
+      // The three optional fields were left blank, so they are null — not
       // zero, and not a default body.
-      expect(saved!.containsKey('age'), isFalse);
-      expect(saved!.containsKey('height_cm'), isFalse);
-      expect(saved!.containsKey('weight_kg'), isFalse);
+      expect(saved!['age'], isNull);
+      expect(saved!['height_cm'], isNull);
+      expect(saved!['weight_kg'], isNull);
     });
 
     testWidgets('what is typed is what is written', (tester) async {
@@ -346,7 +346,27 @@ void main() {
       expect(saved!['sex'], 'm');
       expect(saved!['age'], 34);
       expect(saved!['weight_kg'], 78.4);
-      expect(saved!.containsKey('height_cm'), isFalse);
+      expect(saved!['height_cm'], isNull);
+    });
+
+    testWidgets('clearing a stored value writes null over it', (tester) async {
+      _tallView(tester);
+      Map<String, dynamic>? saved;
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: ProfileSetupView(
+            initial: const {'sex': 'm', 'weight_kg': 78.4, 'age': 34},
+            onSave: (f) async => saved = f),
+      ));
+      await tester.enterText(find.byType(TextField).at(2), '');
+      await tester.pump();
+      await tester.tap(find.text('Continue'));
+      await tester.pump();
+
+      // Merged into the stored profile, a missing key would keep 78.4.
+      expect(saved!.containsKey('weight_kg'), isTrue);
+      expect(saved!['weight_kg'], isNull);
+      expect(saved!['age'], 34);
     });
 
     testWidgets('a number it cannot read stops the save instead of dropping it',

@@ -9,10 +9,10 @@ import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 
 void main() {
-  test('english keeps points', () {
+  test('english names percentage points', () {
     final l = lookupAppLocalizations(const Locale('en'));
-    expect(sleepEfficiencyDelta(l, 11.6), '12 points');
-    expect(sleepEfficiencyDelta(null, 11.6), '12 points');
+    expect(sleepEfficiencyDelta(l, 11.6), '12 percentage points');
+    expect(sleepEfficiencyDelta(null, 11.6), '12 percentage points');
   });
 
   for (final code in ['de', 'es', 'ru', 'hi', 'zh']) {

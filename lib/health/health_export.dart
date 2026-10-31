@@ -1761,6 +1761,12 @@ HealthWorkoutActivityType healthActivityForType(
     case 'padel':
     case 'badminton':
       return HealthWorkoutActivityType.TENNIS;
+    case 'pickleball':
+      // iOS has its own type; Health Connect has none, so it files with the
+      // other racquet sports.
+      return ios
+          ? HealthWorkoutActivityType.PICKLEBALL
+          : HealthWorkoutActivityType.TENNIS;
     case 'basketball':
       return HealthWorkoutActivityType.BASKETBALL;
     case 'soccer':

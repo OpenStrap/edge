@@ -26,6 +26,15 @@ class _StalledRepo extends LocalRepository {
   Future<Map<String, dynamic>> getProfile() => profile.future;
 }
 
+/// A repo whose session-history read fails.
+class _BrokenHistoryRepo extends LocalRepository {
+  @override
+  Future<Map<String, dynamic>> getProfile() async => {};
+  @override
+  Future<Map<String, dynamic>> getWorkouts({String range = 'month'}) async =>
+      throw const FormatException('database is locked');
+}
+
 Widget _app(AppState app) => MaterialApp(
       theme: buildTheme(Brightness.light),
       home: MultiProvider(
@@ -68,5 +77,23 @@ void main() {
     await t.pump();
     expect(find.text('No sessions recorded yet'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
+  });
+
+  testWidgets('a failed history read is a retry card, not an empty history',
+      (t) async {
+    t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+    t.view.devicePixelRatio = 3;
+    addTearDown(t.view.reset);
+
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    app.repo = _BrokenHistoryRepo();
+
+    await t.pumpWidget(_app(app));
+    await t.pumpAndSettle();
+    await t.tap(find.text('History'));
+    await t.pumpAndSettle();
+    expect(find.text('No sessions recorded yet'), findsNothing);
+    expect(find.text('Activity could not be read'), findsOneWidget);
   });
 }

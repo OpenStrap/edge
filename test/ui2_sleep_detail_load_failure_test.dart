@@ -128,6 +128,37 @@ void main() {
       // The stepper stays so the day can be walked off.
       expect(find.byType(DayNav), findsOneWidget);
     }, timeout: const Timeout(Duration(seconds: 60)));
+
+    testWidgets(
+        'a failed step back to the latest night names that night, '
+        'with no plan under the error, and retries without the old night',
+        (t) async {
+      final repo = _FlakyRepo(0);
+      await _pump(
+          t,
+          repo,
+          const SleepDetail(
+              day: '2026-05-19', todayFooter: [Text('TONIGHT PLAN')]));
+      expect(t.widget<DayNav>(find.byType(DayNav)).day, '2026-05-19');
+      expect(find.text('TONIGHT PLAN'), findsNothing);
+
+      repo.failures = 1;
+      t.widget<DayNav>(find.byType(DayNav)).onDay('2026-05-22');
+      await t.pump();
+      await _settle(t);
+
+      expect(find.textContaining('could not be read'), findsOneWidget);
+      expect(t.widget<DayNav>(find.byType(DayNav)).day, '2026-05-22');
+      expect(find.text('TONIGHT PLAN'), findsNothing);
+
+      // Hold the retry's read so the frame during it can be inspected.
+      repo.failures = 0;
+      await t.tap(find.text('Try again'));
+      await t.pump();
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      await _settle(t);
+      expect(find.text('No night to show'), findsOneWidget);
+    }, timeout: const Timeout(Duration(seconds: 60)));
   });
 
   group('the day timeline', () {

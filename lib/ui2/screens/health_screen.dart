@@ -596,7 +596,13 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   void _goVitalsDay(String day) {
     // Stored as null on today, as Home does: Health is kept alive by the shell
     // and a literal date would pin Vitals to it once the calendar moves on.
-    setState(() => _vDay = homeSwitcherDay(day));
+    // The shown readings belong to the old day: drop them, so neither the
+    // load nor a failed read can show them under the new one.
+    setState(() {
+      _vDay = homeSwitcherDay(day);
+      _v = null;
+      _vFailed = false;
+    });
     _loadVitals(force: true);
   }
 

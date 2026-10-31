@@ -44,6 +44,16 @@ void main() {
     }
   });
 
+  test('an imported pickleball session is a catalogue sport', () {
+    final key = WhoopImporter.activityTypeKey('Pickleball');
+    expect(activityByName(key)?.name, 'Pickleball');
+    expect(healthActivityForType(key, ios: true),
+        HealthWorkoutActivityType.PICKLEBALL);
+    // Health Connect has no pickleball type.
+    expect(healthActivityForType(key, ios: false),
+        HealthWorkoutActivityType.TENNIS);
+  });
+
   test('rows stored with the raw WHOOP name still map', () {
     // The importer never rewrites a session it already holds, so rows from
     // an earlier import keep the old spelling.

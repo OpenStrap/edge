@@ -625,6 +625,23 @@ void main() {
 
       expect(app.insightsRevision.value, before);
     });
+
+    test('overlapping updates that change then restore the goal both bump',
+        () async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      await app.updateProfile({'step_goal': 8000});
+      final before = app.insightsRevision.value;
+
+      // Both start before either has merged.
+      await Future.wait([
+        app.updateProfile({'step_goal': 10000}),
+        app.updateProfile({'step_goal': 8000}),
+      ]);
+
+      expect(app.user!['step_goal'], 8000);
+      expect(app.insightsRevision.value, before + 2);
+    });
   });
 
   // ── 10. dispose must release EVERYTHING AppState owns ──────────────────────

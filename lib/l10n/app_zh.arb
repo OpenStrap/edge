@@ -2716,7 +2716,7 @@
   "settingsCycleTrackingRowSubHealth": "在“健康”中添加“周期”。关闭后会隐藏，但已记录的内容仍会保留",
   "profileSetupCycleSub": "在“健康”中记录经期。之后可以更改。",
   "settingsReportIssueRowTitle": "报告问题",
-  "settingsReportIssueRowSub": "将你选择的内容加密发送给维护者",
+  "settingsReportIssueRowSub": "将你选择的内容发送给维护者；你的数据会加密，报告详情不会",
   "reportNavTitle": "报告问题",
   "reportCategoryGroup": "问题类型",
   "reportCategorySync": "同步",

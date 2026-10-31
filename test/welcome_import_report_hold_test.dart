@@ -52,6 +52,8 @@ void main() {
     expect(app.route, AppRoute.welcome);
     expect(find.byType(ImportReport), findsOneWidget);
     expect(find.textContaining('Re-analyze everything'), findsOneWidget);
+    // The only way on is Continue, below the report.
+    expect(find.text('Set up my band'), findsNothing);
 
     await tester.scrollUntilVisible(find.text('Continue'), 200);
     await tester.tap(find.text('Continue'));

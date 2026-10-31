@@ -2055,8 +2055,10 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       trimp = List<double?>.filled(7, null);
     }
 
+    // Not caught: a failed read of the session history has to reach the
+    // retry card, not draw as "No sessions recorded yet".
     final past = <_PastWorkout>[];
-    try {
+    {
       final rows = (await repo.getWorkouts(range: 'month'))['workouts'];
       if (rows is List) {
         for (final r in rows) {
@@ -2089,8 +2091,6 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
           ));
         }
       }
-    } catch (_) {
-      // leave `past` as-is
     }
     // Workouts another app recorded, on the SAME window the band's own list
     // uses. The store is read 90 days back (30 on Android) because that is the

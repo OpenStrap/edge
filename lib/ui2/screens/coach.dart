@@ -312,14 +312,27 @@ class _CoachScreenState extends State<CoachScreen> {
     setState(_items.clear);
   }
 
+  // Opening or deleting a chat swaps the engine's open chat, so the composer
+  // stays locked until that is done, the same way the menu does during a send.
+  Future<void> _sessionChange(Future<void> Function() change) async {
+    setState(() => _busy = true);
+    try {
+      await change();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _openSession(String id) async {
     if (_busy) return;
-    await _engine?.openSession(id);
+    final engine = _engine;
+    if (engine == null) return;
+    await _sessionChange(() => engine.openSession(id));
     if (!mounted) return;
     setState(() {
       _items
         ..clear()
-        ..addAll(_engine?.transcript ?? const []);
+        ..addAll(engine.transcript);
     });
     _scrollDown();
   }
@@ -419,7 +432,7 @@ class _CoachScreenState extends State<CoachScreen> {
                       onDelete: (id) async {
                         if (_busy) return;
                         final wasOpen = id == engine.sessionId;
-                        await engine.deleteSession(id);
+                        await _sessionChange(() => engine.deleteSession(id));
                         setSheet(() {});
                         if (wasOpen && mounted) setState(_items.clear);
                       },
@@ -1020,9 +1033,12 @@ class _CoachSetupState extends State<CoachSetup> {
       _loading = true;
       _msg = null;
     });
+    // A reply for an endpoint the user has since edited away from would list
+    // models the new one may not serve.
+    final asked = _base.text;
     try {
-      final ids = await CoachEngine.fetchModels(_base.text, _key.text);
-      if (!mounted) return;
+      final ids = await CoachEngine.fetchModels(asked, _key.text);
+      if (!mounted || _base.text != asked) return;
       final l = AppLocalizations.of(context);
       setState(() {
         _models = ids;
@@ -1032,7 +1048,7 @@ class _CoachSetupState extends State<CoachSetup> {
             : (l?.coachModelsFound(ids.length) ?? '${ids.length} models. Tap one.');
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || _base.text != asked) return;
       final l = AppLocalizations.of(context);
       setState(
         () => _msg = e is CoachException
