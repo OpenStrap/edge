@@ -1414,7 +1414,7 @@ void main() {
       final db = await LocalDb.instance;
 
       for (final t in const [
-        'raw_archive', 'band_events', 'events', 'band_battery',
+        LocalDb.rawArchiveView, 'band_events', 'events', 'band_battery',
       ]) {
         final rows = await db.query(t);
         expect(rows.length, 1, reason: '$t row count must be unchanged');
@@ -1446,7 +1446,7 @@ void main() {
       final db2 = await LocalDb.instance;
       expect(LocalDb.lastRebuild, isNull);
       for (final t in const [
-        'raw_archive', 'band_events', 'events', 'band_battery',
+        LocalDb.rawArchiveView, 'band_events', 'events', 'band_battery',
       ]) {
         expect((await db2.query(t)).length, 1);
       }
@@ -1506,7 +1506,7 @@ void main() {
       expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
       final db = await LocalDb.instance;
 
-      Future<void> archiveAs(String deviceId) => db.insert('raw_archive', {
+      Future<void> archiveAs(String deviceId) => db.insert(LocalDb.rawArchiveView, {
             'device_id': deviceId,
             'hex': 'deadbeef',
             'counter': 1,
@@ -1518,10 +1518,10 @@ void main() {
 
       await archiveAs('');
       await archiveAs('device-b');
-      expect(await db.query('raw_archive'), hasLength(2));
+      expect(await db.query(LocalDb.rawArchiveView), hasLength(2));
 
       await archiveAs(''); // re-flood
-      expect(await db.query('raw_archive'), hasLength(2));
+      expect(await db.query(LocalDb.rawArchiveView), hasLength(2));
     },
   );
 
@@ -1541,7 +1541,7 @@ void main() {
           '01570c500b010c020c0100000000000000000000000000000000000000000000'
           '010053748080000000fcaf98c0000000';
       for (final deviceId in const ['', 'device-b']) {
-        await db.insert('raw_archive', {
+        await db.insert(LocalDb.rawArchiveView, {
           'device_id': deviceId,
           'hex': hex,
           'counter': 21510400,
