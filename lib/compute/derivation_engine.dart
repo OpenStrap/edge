@@ -4065,9 +4065,10 @@ class DerivationEngine {
     // ([PreparedDerivationDay.tonightPending]), or which of the two finished
     // first would decide its stored result for good.
     final nextDayId = localDateLabel(dayEnd);
-    final nextWindow = await LocalDb.sleepWindowJsonFor(nextDayId);
+    final nextSpan =
+        storedWindowSpan(await LocalDb.sleepWindowJsonFor(nextDayId));
     final tonight = tonightSleep(
-      storedWindowSpan(nextWindow),
+      nextSpan,
       dayStartSec: dayStart,
       dayEndSec: dayEnd,
       sleepOffsetSec: candidate.present ? candidate.sleepOffsetSec : 0,
@@ -4078,7 +4079,11 @@ class DerivationEngine {
       sleepSub: sleepSub,
       tonightSleepOnsetSec: tonight?.startSec ?? 0,
       tonightSleepOffsetSec: tonight?.endSec ?? 0,
-      tonightPending: nextWindow == null && _passUnfinished.contains(nextDayId),
+      // No span, not just no row: a stored '{}' is no window either. Not
+      // `tonight == null`: a next night that starts after midnight has a
+      // window but no tonight, and holding on it would hold every such day.
+      tonightPending: (nextSpan == null && _passUnfinished.contains(nextDayId)) ||
+          debugHoldTonight.contains(dayId),
       ownership: ownership,
       priority: priority,
     );
@@ -5612,6 +5617,12 @@ class DerivationEngine {
   /// The days this pass's pool has not finished yet ([_runDayPool]).
   final Set<String> _passUnfinished = {};
 
+  /// Test seam: days prepared as [PreparedDerivationDay.tonightPending]
+  /// whatever the next day's state, so a hold can be exercised without
+  /// racing two workers. Empty in production.
+  @visibleForTesting
+  static Set<String> debugHoldTonight = {};
+
   /// [runWithConcurrency] over [days], tracking which are still unfinished so
   /// a day can tell its next day is mid-derive ([_prepareTargetDay]).
   Future<void> _runDayPool(
@@ -6721,7 +6732,9 @@ class DerivationEngine {
         ],
       );
     }
-    return secondHalfOk;
+    // A held day is not settled either: it must derive again next pass to
+    // read tonight's window, so it may not be recorded as unchanged.
+    return secondHalfOk && !day.tonightPending;
   }
 
   /// Bank one day's (phone steps, counter ticks) pair for the (family,
