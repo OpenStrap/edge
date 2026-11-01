@@ -2796,17 +2796,17 @@ class BleEngine {
         bondRefusals: state.bondRefusals,
       );
 
-  /// Read the adapter state without hanging: `unknown` is the pre-init value and
-  /// never a verdict, so wait past it, but never longer than [_blockerProbe].
+  /// Read past pre-init/resetting states without an unbounded startup await.
   static const Duration _blockerProbe = Duration(seconds: 2);
+
+  Future<String> _readAdapterState() => waitForBleAdapterState(
+    FlutterBluePlus.adapterState.map((s) => s.name),
+    timeout: _blockerProbe,
+  );
 
   Future<BleBlocker?> _detectBlocker() async {
     try {
-      final s = await FlutterBluePlus.adapterState
-          .firstWhere((s) => s != BluetoothAdapterState.unknown)
-          .timeout(_blockerProbe,
-              onTimeout: () => BluetoothAdapterState.unknown);
-      return classifyBleBlocker(adapterState: s.name);
+      return classifyBleBlocker(adapterState: await _readAdapterState());
     } catch (e) {
       return classifyBleBlocker(error: e);
     }
@@ -2819,7 +2819,7 @@ class BleEngine {
     onState(state);
   }
 
-  /// Anything that actually reached the radio proves the stack is usable again.
+  /// Remove a previous blocker once current evidence no longer supports it.
   void _clearBlocker() {
     if (_blocker == null) return;
     _blocker = null;
@@ -2920,6 +2920,23 @@ class BleEngine {
     );
 
     try {
+      // ASK authorizes the accessory before FBP creates its own central. That
+      // central initially reports Unknown even with the radio on. Calling
+      // connect immediately makes Darwin reject it with generic "Bluetooth
+      // must be turned on" text, forcing an unnecessary user retry.
+      final adapter = await _readAdapterState();
+      if (adapter != 'on') {
+        final blocker = classifyBleBlocker(adapterState: adapter);
+        if (blocker != null) {
+          _noteBlocker(blocker);
+        } else {
+          _clearBlocker();
+        }
+        _log('[BLE] connect not started: adapter state is $adapter.');
+        await _failConnect();
+        return false;
+      }
+      _clearBlocker();
       await device.connect(
         timeout: const Duration(seconds: 20),
         autoConnect: false,
