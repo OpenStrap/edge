@@ -937,7 +937,11 @@ class StuckStrapDetector {
   double? _lastAdvanceWall;
 
   bool observe(int? strapNewestTs, int? ourFrontierTs, double now) {
-    if (strapNewestTs == null || ourFrontierTs == null) return false;
+    if (strapNewestTs == null) return false;
+    // Nothing banked yet (fresh pair) is a frontier that has never advanced,
+    // not an unknown one: a band that holds days of data and sends none of it
+    // is the stuck case, and it used to stay invisible forever.
+    ourFrontierTs ??= 0;
     if (_lastFrontierTs == null) {
       _lastFrontierTs = ourFrontierTs;
       _lastAdvanceWall = now;

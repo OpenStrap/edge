@@ -6463,7 +6463,9 @@ class BleEngine {
       kind: _HpsTerminalKind.timeout,
       reason: 'no_history_start',
     );
-    if (!retry || _sessionIsStale(session)) return;
+    if (_sessionIsStale(session)) return;
+    await _observeStuckStrap();
+    if (!retry) return;
     _armHistoricalRetry(session, reason: 'no_history_start');
   }
 
@@ -7724,6 +7726,23 @@ class BleEngine {
   }
 
   // ── post-offload policy: empty-sync, stuck-strap, auto-continue ──────────────
+  /// Stuck-strap: frontier frozen ≥10 min while the strap is >5 min ahead.
+  /// Elapsed time on the monotonic clock: a forward wall step (a phone fixing
+  /// its clock after a dead-battery reboot) would otherwise read as ten
+  /// frozen minutes at once. Checked after a completed offload AND after a
+  /// request the band never answered: a band that accepts SEND_HISTORICAL_DATA
+  /// and then sends nothing never reaches HISTORY_COMPLETE, so checking only
+  /// there left it looping silently with the UI saying "connected".
+  Future<void> _observeStuckStrap() async {
+    if (_stuckStrap.observe(
+        _sessionNewestUnix, _recordGate.frontierTs, _monotonicSecs())) {
+      state.strapNeedsReboot = true;
+      onState(state);
+      _log('[SYNC] stuck-strap tripped — defensive SET_CLOCK.');
+      await setClock();
+    }
+  }
+
   /// Reached from the HISTORY_COMPLETE branch only — a drain that ends any
   /// other way (link down, idle watchdog) records its own terminal and never
   /// gets here. This used to take a `complete` flag that its single call site
@@ -7764,17 +7783,7 @@ class BleEngine {
       _log('[SYNC] empty-sync tripped — strap RTC likely lost.');
     }
 
-    // Stuck-strap: frontier frozen ≥10 min while the strap is >5 min ahead.
-    // Elapsed time on the monotonic clock: a forward wall step (a phone fixing
-    // its clock after a dead-battery reboot) would otherwise read as ten
-    // frozen minutes at once.
-    if (_stuckStrap.observe(
-        _sessionNewestUnix, _recordGate.frontierTs, _monotonicSecs())) {
-      state.strapNeedsReboot = true;
-      onState(state);
-      _log('[SYNC] stuck-strap tripped — defensive SET_CLOCK.');
-      await setClock();
-    }
+    await _observeStuckStrap();
 
     // Auto-continue: re-kick immediately (bypassing the 15-min floor) if the strap
     // still has real backlog and the cursor advanced — but cap per connection.
