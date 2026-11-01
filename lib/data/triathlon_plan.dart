@@ -137,13 +137,17 @@ class TriSegmentPlan {
       };
 
   static TriSegmentPlan? fromJson(Map<String, Object?> j) {
-    final kind = TriSegmentKindX.fromKey(j['kind'] as String?);
+    final rawKind = j['kind'];
+    final kind = TriSegmentKindX.fromKey(rawKind is String ? rawKind : null);
     if (kind == null) return null;
+    final env = j['environment'];
+    final dist = j['planned_distance_m'];
+    final goal = j['goal_sec'];
     return TriSegmentPlan(
       kind: kind,
-      environment: TriEnvironmentX.fromKey(j['environment'] as String?),
-      plannedDistanceM: (j['planned_distance_m'] as num?)?.toDouble(),
-      goalSec: (j['goal_sec'] as num?)?.toInt(),
+      environment: TriEnvironmentX.fromKey(env is String ? env : null),
+      plannedDistanceM: dist is num ? dist.toDouble() : null,
+      goalSec: goal is num ? goal.toInt() : null,
     );
   }
 }
@@ -278,7 +282,8 @@ class TriathlonPlan {
   /// Null when the payload is not a plan this build can read. Callers treat
   /// that as "unknown plan", never as an empty race.
   static TriathlonPlan? fromJson(Map<String, Object?> j) {
-    final v = (j['v'] as num?)?.toInt();
+    final rawV = j['v'];
+    final v = rawV is num ? rawV.toInt() : null;
     if (v == null || v > kTriathlonPlanVersion) return null;
     final preset = j['preset'];
     final raw = j['segments'];

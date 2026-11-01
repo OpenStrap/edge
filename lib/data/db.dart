@@ -10953,20 +10953,29 @@ class LocalDb {
       );
       // Same midnight rule as deleteDays: a race is exported for a day when
       // it starts that day OR one of its segments does, and always whole.
+      // An open segment only overlaps later days while the session is still
+      // live; a FINALIZED race (incl. an abandoned DNF with an open cut
+      // segment) is bounded by COALESCE(session.end_ts, session.start_ts),
+      // so it does not match every later day.
       const triInWindow = '(SELECT id FROM triathlon_session '
           'WHERE start_ts >= ? AND start_ts < ? '
           'UNION SELECT session_id FROM triathlon_segment '
           'WHERE start_ts IS NOT NULL AND start_ts < ? '
-          'AND (end_ts IS NULL OR end_ts > ?))';
+          'AND ( (end_ts IS NOT NULL AND end_ts > ?) '
+          '   OR (end_ts IS NULL AND start_ts < ? '
+          '   AND EXISTS (SELECT 1 FROM triathlon_session s '
+          '        WHERE s.id = triathlon_segment.session_id '
+          '        AND (s.status <> \'finalized\' '
+          '             OR COALESCE(s.end_ts, s.start_ts, 0) > ?)))) )';
       await copyRows(
         'triathlon_session',
         where: 'id IN $triInWindow',
-        whereArgs: [startSec, endSec, endSec, startSec],
+        whereArgs: [startSec, endSec, endSec, startSec, endSec, endSec],
       );
       await copyRows(
         'triathlon_segment',
         where: 'session_id IN $triInWindow',
-        whereArgs: [startSec, endSec, endSec, startSec],
+        whereArgs: [startSec, endSec, endSec, startSec, endSec, endSec],
       );
       await copyRows(
         'live_coverage',
@@ -11167,22 +11176,52 @@ class LocalDb {
         // before the parent statement would empty the very subquery the parent
         // delete is built from, which is how a cross-midnight race used to
         // survive its own deletion.
+        // An open segment only overlaps later days while the session is still
+        // live; a FINALIZED race (incl. an abandoned DNF with an open cut
+        // segment) is bounded by COALESCE(session.end_ts, session.start_ts).
         const triInWindow = '(SELECT id FROM triathlon_session '
             'WHERE start_ts >= ? AND start_ts < ? '
             'UNION SELECT session_id FROM triathlon_segment '
             'WHERE start_ts IS NOT NULL AND start_ts < ? '
-            'AND (end_ts IS NULL OR end_ts > ?))';
+            'AND ( (end_ts IS NOT NULL AND end_ts > ?) '
+            '   OR (end_ts IS NULL AND start_ts < ? '
+            '   AND EXISTS (SELECT 1 FROM triathlon_session s '
+            '        WHERE s.id = triathlon_segment.session_id '
+            '        AND (s.status <> \'finalized\' '
+            '             OR COALESCE(s.end_ts, s.start_ts, 0) > ?)))) )';
         final triIds = <String>[
           for (final r in await txn.query(
             'triathlon_session',
             columns: ['id'],
             where: 'id IN $triInWindow',
-            whereArgs: [startSec, endSec, endSec, startSec],
+            whereArgs: [startSec, endSec, endSec, startSec, endSec, endSec],
           ))
             r['id'] as String,
         ];
         for (final chunk in _sqlVarChunks(triIds)) {
           final marks = List.filled(chunk.length, '?').join(',');
+          // Collect the linked workouts BEFORE the segment rows go: a segment
+          // deleted with its `sessions` row left behind would orphan the
+          // workout's route and splits on a day the user asked to delete.
+          final linked = await txn.query(
+            'triathlon_segment',
+            columns: ['workout_id'],
+            where: 'session_id IN ($marks) AND workout_id IS NOT NULL',
+            whereArgs: chunk,
+          );
+          for (final w in linked) {
+            final wid = w['workout_id'] as String;
+            await txn.delete('workout_route',
+                where: 'session_id = ?', whereArgs: [wid]);
+            await txn.delete('workout_split',
+                where: 'session_id = ?', whereArgs: [wid]);
+            await txn.delete('session_sensor',
+                where: 'session_id = ?', whereArgs: [wid]);
+            await txn.delete('strength_set',
+                where: 'session_id = ?', whereArgs: [wid]);
+            deleted += await txn.delete('sessions',
+                where: 'id = ?', whereArgs: [wid]);
+          }
           deleted += await txn.rawDelete(
             'DELETE FROM triathlon_segment WHERE session_id IN ($marks)',
             chunk,
@@ -11770,6 +11809,19 @@ class LocalDb {
       return {for (final c in info) (c['name'] as String)};
     }
 
+    // A local race is protected from an import when the athlete explicitly
+    // discarded it, or when the local row was edited no earlier than the
+    // imported snapshot (a newer backup may still advance the race). [row] is
+    // the imported triathlon_session row, null for segment rows.
+    bool _triProtected(String id, Map<String, Object?>? row) {
+      if (protectedTriathlons.contains(id)) return true;
+      if (row == null) return false;
+      final local = triLastEdit[id];
+      if (local == null) return false;
+      final theirs = (row['updated_at'] as num?)?.toInt() ?? 0;
+      return local >= theirs;
+    }
+
     final counts = <String, int>{};
     // DISTINCT DAYS ACTUALLY WRITTEN — the number the caller reports as
     // "N days imported".
@@ -11790,20 +11842,24 @@ class LocalDb {
     // get the same protection, or trends and the rolling baselines would be
     // rebuilt from the other export's numbers while day detail serves ours.
     final finalizedDays = <String>{};
-    // A LOCAL race always wins over a snapshot. Restore runs into an empty
-    // table on a new phone, so "local exists" means this device already has a
-    // newer (or deliberately discarded) record and the backup must not
-    // resurrect or rewind it. Segments are protected through the same id set,
-    // because they arrive as separate rows and would otherwise rewrite the
-    // boundaries of a race whose parent was skipped.
+    // A LOCAL race wins over an OLDER snapshot, but a NEWER backup must be
+    // able to advance it (e.g. the final boundaries recorded on another
+    // phone). `discarded` is an explicit local decision and always wins.
+    // Segments follow their parent's verdict, because they arrive as separate
+    // rows and would otherwise rewrite the boundaries of a skipped race.
     final protectedTriathlons = <String>{};
+    final triLastEdit = <String, int>{};
     try {
       for (final r in await db.query(
         'triathlon_session',
-        columns: ['id'],
+        columns: ['id', 'status', 'updated_at'],
         distinct: true,
       )) {
-        protectedTriathlons.add('${r['id']}');
+        final id = '${r['id']}';
+        triLastEdit[id] = (r['updated_at'] as num?)?.toInt() ?? 0;
+        if (r['status'] == 'discarded') {
+          protectedTriathlons.add(id);
+        }
       }
     } on DatabaseException {
       /* table absent in an older build of this file — nothing to protect */
@@ -12535,13 +12591,12 @@ class LocalDb {
                   }
                 }
                 if (t == 'triathlon_session' &&
-                    protectedTriathlons.contains('${row['id']}')) {
-                  continue; // locally finalized — never overwritten by import
+                    _triProtected('${row['id']}', row)) {
+                  continue; // locally discarded, or newer than the snapshot
                 }
                 if (t == 'triathlon_segment' &&
-                    protectedTriathlons.contains('${row['session_id']}')) {
+                    _triProtected('${row['session_id']}', null)) {
                   continue;
-                }
                 }
                 if (t == 'day_result') {
                   if (protectedKeys.contains(

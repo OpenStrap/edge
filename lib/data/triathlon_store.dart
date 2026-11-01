@@ -319,6 +319,10 @@ class TriSession {
       }
     } on FormatException {
       plan = null;
+    } catch (_) {
+      // A persisted payload that is not even a JSON map (or contains
+      // wrong-typed fields) is an unreadable plan, not a crash.
+      plan = null;
     }
     return TriSession(
       id: r['id'] as String,
@@ -336,8 +340,6 @@ class TriSession {
   }
 }
 
-/// Thrown when a write targets a finalized session, or would make segments
-/// overlap. Deliberately loud: a silent no-op here reads as "the race saved".
 /// One boundary derived from the strap's stored taps (see the reconciler).
 ///
 /// Lives in the data layer so storage never has to import a state-layer file:
@@ -356,6 +358,8 @@ class ReconcileBoundary {
   String toString() => 'ReconcileBoundary($kind @$atSec, $taps taps)';
 }
 
+/// Thrown when a write targets a finalized session, or would make segments
+/// overlap. Deliberately loud: a silent no-op here reads as "the race saved".
 class TriathlonWriteError implements Exception {
   TriathlonWriteError(this.message);
   final String message;
@@ -781,6 +785,11 @@ class TriathlonDb {
           'a later segment already started \u2014 the boundary cannot be removed',
         );
       }
+      if (left.workoutId != null || right.workoutId != null) {
+        throw TriathlonWriteError(
+          'a segment is linked to a workout \u2014 unlink it before removing the boundary',
+        );
+      }
       final merged = right.endTs == null
           ? left.copyWith(clearEnd: true, boundarySource: 'manual')
           : left.copyWith(endTs: right.endTs, boundarySource: 'manual');
@@ -910,6 +919,9 @@ class TriathlonDb {
         throw TriathlonWriteError('segment $idx is not in session $sessionId');
       }
       final seg = TriSegment.fromRow(rows.first);
+      if (seg == null) {
+        throw TriathlonWriteError('segment $idx has an unknown kind');
+      }
       if (seg.isTransition) {
         throw TriathlonWriteError(
           'a transition has no workout row to link',
@@ -1259,9 +1271,6 @@ class TriathlonDb {
     }
   }
 
-  /// Neighbours share one instant: the earlier segment's end is the later
-  /// segment's start. Anything else is either a gap or an overlap, and both
-  /// would make the splits stop adding up to the total.
   /// Neighbour rule for a single edit: the previous segment's end must not
   /// lie AFTER this segment's start (overlap), and this segment's end must
   /// not precede the next segment's start. Equal means a direct transition;
