@@ -1645,7 +1645,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   }
 
   void _onHide() {
-    _dayAtHide = todayLabel(widget.now);
+    _dayAtHide = todayLabel(widget.now ?? debugHomeWallClock());
     _hiddenAt = debugHomeWallClock();
     _away
       ..reset()
@@ -1677,7 +1677,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     _away.stop();
     _hiddenAt = null;
     final back = homeReturnsToToday(
-        dayAtHide: _dayAtHide, dayNow: todayLabel(widget.now), away: away);
+        dayAtHide: _dayAtHide,
+        dayNow: todayLabel(widget.now ?? debugHomeWallClock()),
+        away: away);
     _dayAtHide = null;
     // A past day kept after a short absence needs no read here: if its data
     // changes, the database revision reloads it like any other day.

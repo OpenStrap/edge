@@ -205,6 +205,31 @@ void main() {
     expect(find.text('Back to today'), findsOneWidget);
   });
 
+  testWidgets('midnight while away opens on today, however short the trip',
+      (t) async {
+    final clock = _Clock()..now = DateTime(2026, 10, 31, 23, 59);
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    app.repo = _Repo();
+
+    await t.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: ChangeNotifierProvider<AppState>.value(
+        value: app,
+        child: const Scaffold(body: HomeScreen(hour: 9)),
+      ),
+    ));
+    await _settle(t);
+    await t.tap(find.bySemanticsLabel('Previous day'));
+    await _settle(t);
+    expect(find.text('42'), findsOneWidget);
+
+    _background(t, clock, const Duration(minutes: 2));
+    await _settle(t);
+    expect(find.text('70'), findsOneWidget);
+    expect(find.text('Back to today'), findsNothing);
+  });
+
   testWidgets('following today stays on today after any absence', (t) async {
     final clock = _Clock();
     final app = AppState.forTesting();
