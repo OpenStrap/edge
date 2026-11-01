@@ -149,6 +149,22 @@ void main() {
         isTrue);
   });
 
+  test('a phone asleep while away still counts as away', () {
+    // The stopwatch stops while the phone sleeps: an hour locked reads as a
+    // minute on it, and only the wall clock sees the hour.
+    expect(
+        homeAwayFor(
+            wall: const Duration(hours: 1),
+            monotonic: const Duration(minutes: 1)),
+        const Duration(hours: 1));
+    // The wall clock set back while away: the stopwatch still has it.
+    expect(
+        homeAwayFor(
+            wall: const Duration(minutes: -50),
+            monotonic: const Duration(minutes: 40)),
+        const Duration(minutes: 40));
+  });
+
   testWidgets('a quick trip to another app keeps the past day', (t) async {
     debugHomeAwayOverride = const Duration(minutes: 2);
     addTearDown(() => debugHomeAwayOverride = null);

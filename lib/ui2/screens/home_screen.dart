@@ -1574,6 +1574,12 @@ bool homeReturnsToToday({
 }) =>
     dayAtHide == null || dayAtHide != dayNow || away >= kHomeKeepDayAway;
 
+/// How long the app was away, from both clocks Home keeps: the longer one.
+/// The [monotonic] stopwatch stops while the phone sleeps, so a locked
+/// phone reads short on it; the [wall] clock can be set back while away.
+Duration homeAwayFor({required Duration wall, required Duration monotonic}) =>
+    wall > monotonic ? wall : monotonic;
+
 /// Test seam: stands in for the time Home measured the app as away.
 @visibleForTesting
 Duration? debugHomeAwayOverride;
@@ -1596,10 +1602,11 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// See [_onReturnFromBackground].
   AppLifecycleListener? _lifecycle;
 
-  /// Today's label and a running stopwatch, both taken as the app went to
-  /// the background. The stopwatch is monotonic, so a clock change while
-  /// away can't stretch or shrink the absence; the label catches midnight.
+  /// Today's label, the wall time and a running stopwatch, all taken as the
+  /// app went to the background (see [homeAwayFor]). The label catches
+  /// midnight.
   String? _dayAtHide;
+  DateTime? _hiddenAt;
   final Stopwatch _away = Stopwatch();
 
   /// `availableDays()` — newest first — for [DayNav]. Refetched with every
@@ -1639,6 +1646,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
 
   void _onHide() {
     _dayAtHide = todayLabel(widget.now);
+    _hiddenAt = DateTime.now();
     _away
       ..reset()
       ..start();
@@ -1661,8 +1669,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// for good if the read failed, since the error card only shows with no day.
   void _onReturnFromBackground() {
     if (!mounted) return;
-    final away = debugHomeAwayOverride ?? _away.elapsed;
+    final hiddenAt = _hiddenAt;
+    final wall =
+        hiddenAt == null ? Duration.zero : DateTime.now().difference(hiddenAt);
+    final away = debugHomeAwayOverride ??
+        homeAwayFor(wall: wall, monotonic: _away.elapsed);
     _away.stop();
+    _hiddenAt = null;
     final back = homeReturnsToToday(
         dayAtHide: _dayAtHide, dayNow: todayLabel(widget.now), away: away);
     _dayAtHide = null;
