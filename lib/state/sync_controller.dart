@@ -419,7 +419,11 @@ class SyncController {
       // it says nothing about the drain. Wait on the same task again — only
       // its own terminals end it, and the stop rules below judge a task that
       // has.
-      if (!report.complete && engine.offloadActive) {
+      // `ended` first: the claim is released only after the terminal's abort
+      // write, so offloadActive still reads true for a task that is over —
+      // a band that accepts every request and never starts one was asked 20
+      // times per burst, every burst.
+      if (!report.complete && !report.ended && engine.offloadActive) {
         _log('Backfill continuation ${i + 1}/$maxSessions — the history task '
             'is still running; waiting on it again.');
         continue;
@@ -439,6 +443,13 @@ class SyncController {
           'Backfill stop — frontier did not advance and no backlog remains '
           '(strap newest=$strapNewest, frontier=$frontierAfter).',
         );
+        break;
+      }
+      if (!frontierAdvanced && report.records == 0) {
+        // Batches with no records in them (a strap writing no 1 Hz data, e.g.
+        // off-wrist) are not a stale block: there is nothing to drain through.
+        _log('Backfill stop — batches carried no records; frontier stuck '
+            '(strap newest=$strapNewest, frontier=$frontierAfter).');
         break;
       }
       if (!frontierAdvanced) {

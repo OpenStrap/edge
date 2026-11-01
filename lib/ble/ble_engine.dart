@@ -495,7 +495,12 @@ class SyncReport {
   final int records;
   final int batches;
   final bool complete;
-  SyncReport(this.records, this.batches, this.complete);
+
+  /// The awaited task itself hit its terminal (abort boundary) — it is over,
+  /// even if the engine has not released the offload claim yet (the release
+  /// runs after the abort write). A caller must not wait on it again.
+  final bool ended;
+  SyncReport(this.records, this.batches, this.complete, {this.ended = false});
 }
 
 enum _HpsTerminalKind {
@@ -10090,7 +10095,9 @@ class DrainController {
             ' — this offload ended ${complete ? 'complete (a new task claimed '
             'immediately after HISTORY_COMPLETE)' : 'without completing (abort '
             'boundary)'}.');
-        done.complete(report);
+        done.complete(complete
+            ? report
+            : SyncReport(report.records, report.batches, false, ended: true));
         return;
       }
       if (!isLinkUp()) _linkDown = true;
