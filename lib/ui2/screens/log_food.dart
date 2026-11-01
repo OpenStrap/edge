@@ -197,11 +197,23 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
       } else {
         await NutritionDb.put(db, e);
       }
-    } catch (_) {
+    } catch (err) {
+      // Every caller is a fire-and-forget onTap, so a rethrow only reached
+      // the global error log: the sheet sat there unchanged and a locked or
+      // full database looked exactly like a save that worked.
+      debugPrint('log food: save failed: $err');
       _writing = false;
-      rethrow;
+      _sayFailed((l) => l?.nutritionSaveFailed ??
+          'Not saved — the meal is still here. Try again.');
+      return;
     }
     if (mounted) Navigator.of(context).pop(true);
+  }
+
+  void _sayFailed(String Function(AppLocalizations?) text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(text(AppLocalizations.of(context)))));
   }
 
   /// Removing is destructive and there is no undo, so the entry is named back
@@ -216,7 +228,14 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
               'undo.',
     );
     if (!ok) return;
-    await NutritionDb.delete(await LocalDb.instance, e.id);
+    try {
+      await NutritionDb.delete(await LocalDb.instance, e.id);
+    } catch (err) {
+      debugPrint('log food: remove failed: $err');
+      _sayFailed((l) => l?.nutritionRemoveFailed ??
+          'Not removed — the meal is still there. Try again.');
+      return;
+    }
     if (mounted) Navigator.of(context).pop(true);
   }
 

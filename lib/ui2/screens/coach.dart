@@ -28,6 +28,8 @@ import 'package:provider/provider.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../ai/briefing.dart' show currentBriefingPeriod;
+import 'package:url_launcher/url_launcher.dart';
+import '../../coach/coach_chatgpt.dart';
 import '../../coach/coach_config.dart';
 import '../../coach/coach_engine.dart';
 import '../../state/app_state.dart';
@@ -301,18 +303,38 @@ class _CoachScreenState extends State<CoachScreen> {
     return ok ?? false;
   }
 
+  // Switching or clearing the session while a reply is in flight would hand
+  // the engine's live history and transcript to another chat: `send` keeps
+  // appending its tool calls and answer to them, and the `persist()` in
+  // `_send`'s finally writes them under whichever session is current then,
+  // so the reply lands in the wrong chat and the question is lost.
   void _newChat() {
+    if (_busy) return;
     _engine?.newSession();
     setState(_items.clear);
   }
 
+  // Opening or deleting a chat swaps the engine's open chat, so the composer
+  // stays locked until that is done, the same way the menu does during a send.
+  Future<void> _sessionChange(Future<void> Function() change) async {
+    setState(() => _busy = true);
+    try {
+      await change();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _openSession(String id) async {
-    await _engine?.openSession(id);
+    if (_busy) return;
+    final engine = _engine;
+    if (engine == null) return;
+    await _sessionChange(() => engine.openSession(id));
     if (!mounted) return;
     setState(() {
       _items
         ..clear()
-        ..addAll(_engine?.transcript ?? const []);
+        ..addAll(engine.transcript);
     });
     _scrollDown();
   }
@@ -337,7 +359,9 @@ class _CoachScreenState extends State<CoachScreen> {
     // While a reply is coming in, the open chat stays put: the running send
     // keeps writing into the engine's working chat, so starting, opening or
     // deleting one under it would put the reply's tail in the wrong chat or
-    // save a deleted one back.
+    // save a deleted one back. The sheet doesn't rebuild with this screen, so
+    // the rows read this snapshot and stay disabled until it is reopened, even
+    // if the reply finishes meanwhile. The handlers re-check `_busy` regardless.
     final locked = _busy;
     await showModalBottomSheet<void>(
       context: context,
@@ -403,12 +427,14 @@ class _CoachScreenState extends State<CoachScreen> {
                       sessions: list.take(20).toList(),
                       locked: locked,
                       onOpen: (id) {
+                        if (_busy) return;
                         Navigator.of(sheet).pop();
                         _openSession(id);
                       },
                       onDelete: (id) async {
+                        if (_busy) return;
                         final wasOpen = id == engine.sessionId;
-                        await engine.deleteSession(id);
+                        await _sessionChange(() => engine.deleteSession(id));
                         setSheet(() {});
                         if (wasOpen && mounted) setState(_items.clear);
                       },
@@ -437,7 +463,11 @@ class _CoachScreenState extends State<CoachScreen> {
               padding: const EdgeInsets.symmetric(horizontal: S.x4),
               child: NavBar(
                 l?.coachNavTitle ?? 'Coach',
-                sub: cfg.configured ? cfg.model : (l?.coachNotSetUp ?? 'Not set up'),
+                sub: cfg.configured
+                    ? (cfg.usesChatGpt
+                        ? '${cfg.model} · ${uiText(c, 'Using ChatGPT plan')}'
+                        : cfg.model)
+                    : (l?.coachNotSetUp ?? 'Not set up'),
                 trailing: Pressable(
                   semanticLabel: l?.coachMenuSemantic ?? 'Chats and AI settings',
                   onTap: _menu,
@@ -904,7 +934,18 @@ class _CoachSetupState extends State<CoachSetup> {
   late final TextEditingController _search;
   late final TextEditingController _timeout;
   late CoachApi _api;
+
+  /// "ChatGPT" is chosen instead of a base URL + key. Saved by [_save] only;
+  /// signing in alone does not switch how the coach is paid for.
+  late bool _chatgpt;
+  late final ChatGptAuth _chatgptAuth; // for dispose, which must not read context
+  bool _signingIn = false;
+  /// The model Save will store when nothing has been typed: the saved one at
+  /// first, then whatever list row was last tapped. Typing in [_search]
+  /// clears it (see [_onSearchChanged]) so a typed id is never silently
+  /// overridden by a selection the form wasn't showing.
   String _model = '';
+  String _lastSearch = '';
   List<String> _models = const [];
   bool _loading = false;
   String? _msg;
@@ -935,15 +976,13 @@ class _CoachSetupState extends State<CoachSetup> {
     _search = TextEditingController();
     _timeout = TextEditingController(text: cfg.timeoutSeconds.toString());
     _api = cfg.api;
+    _chatgpt = cfg.usesChatGpt;
+    _chatgptAuth = cfg.chatgpt;
     _model = cfg.model;
     _keyOrigin = coachEndpointOrigin(cfg.baseUrl);
     // The base URL decides which preset is lit and whether a key is needed, and
     // the search box filters the list — both are read during build, so both
-    // have to rebuild it.
-    void redraw() {
-      if (mounted) setState(() {});
-    }
-
+    // have to rebuild it (both listeners call setState).
     _base.addListener(_onBaseChanged);
     // Deliberately NOT tracked via a _key listener: an early attempt cleared
     // _pendingKeyDelete as soon as the user typed a replacement, but typing
@@ -952,7 +991,23 @@ class _CoachSetupState extends State<CoachSetup> {
     // already derives "is there a real replacement right now" correctly by
     // checking the trimmed text itself; _pendingKeyDelete only needs to say
     // whether the endpoint changed, not track the field's history.
-    _search.addListener(redraw);
+    _search.addListener(_onSearchChanged);
+  }
+
+  /// The model field is both a filter and a free-text id, and Save prefers
+  /// [_model]. Left set, a saved 'gpt-4o' would win over anything typed, so a
+  /// retyped id (or a local model typed after pointing the base URL at
+  /// Ollama) was dropped while the screen still closed as if it had saved.
+  /// Tapping a row after filtering doesn't touch the text, so that pick
+  /// survives. Only a real text edit counts — the controller also notifies on
+  /// cursor and selection moves.
+  void _onSearchChanged() {
+    final text = _search.text;
+    if (text != _lastSearch) {
+      _lastSearch = text;
+      _model = '';
+    }
+    if (mounted) setState(() {});
   }
 
   /// Clears a carried-over key rather than letting Save silently send it to a
@@ -965,6 +1020,10 @@ class _CoachSetupState extends State<CoachSetup> {
     if (origin != _keyOrigin) {
       _keyOrigin = origin;
       _api = CoachApi.defaultFor(_base.text);
+      // A list fetched from the old endpoint names models the new one may
+      // not serve. The selected model itself stays, shown under the Model
+      // field, so a same-provider URL edit doesn't force retyping it.
+      _models = const [];
       _pendingKeyDelete = true;
       if (_key.text.isNotEmpty) _key.clear();
       _msg = 'The API key was cleared because the endpoint changed.';
@@ -974,6 +1033,7 @@ class _CoachSetupState extends State<CoachSetup> {
 
   @override
   void dispose() {
+    if (_signingIn) _chatgptAuth.cancelSignIn();
     _base.dispose();
     _key.dispose();
     _search.dispose();
@@ -981,16 +1041,25 @@ class _CoachSetupState extends State<CoachSetup> {
     super.dispose();
   }
 
-  bool get _isLocal => isLocalCoachHost(_base.text.trim());
+  bool get _isLocal => !_chatgpt && isLocalCoachHost(_base.text.trim());
 
   Future<void> _fetch() async {
+    final chatgpt = _chatgptAuth;
     setState(() {
       _loading = true;
       _msg = null;
     });
+    // A reply for an endpoint the user has since edited away from would list
+    // models the new one may not serve.
+    final asked = _base.text;
+    // Switching between ChatGPT and a preset need not change the base URL.
+    final askedChatgpt = _chatgpt;
+    bool stale() => _base.text != asked || _chatgpt != askedChatgpt;
     try {
-      final ids = await CoachEngine.fetchModels(_base.text, _key.text);
-      if (!mounted) return;
+      final ids = askedChatgpt
+          ? await chatgpt.listModels()
+          : await CoachEngine.fetchModels(asked, _key.text);
+      if (!mounted || stale()) return;
       final l = AppLocalizations.of(context);
       setState(() {
         _models = ids;
@@ -1000,11 +1069,11 @@ class _CoachSetupState extends State<CoachSetup> {
             : (l?.coachModelsFound(ids.length) ?? '${ids.length} models. Tap one.');
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || stale()) return;
       final l = AppLocalizations.of(context);
       setState(
-        () => _msg = e is CoachException
-            ? e.message
+        () => _msg = e is CoachException || e is ChatGptException
+            ? '$e'
             : (l?.coachEndpointUnreachable('$e') ?? 'Could not reach that endpoint: $e'),
       );
     } finally {
@@ -1027,8 +1096,15 @@ class _CoachSetupState extends State<CoachSetup> {
     // the existing timeout untouched (CoachConfig also rejects <=0) rather
     // than blocking the rest of the save over one bad field.
     final timeoutSeconds = _isLocal ? int.tryParse(_timeout.text.trim()) : null;
+    if (_chatgpt) {
+      // The BYOK fields are left exactly as they were, for switching back.
+      await cfg.save(useChatGpt: true, model: chosen);
+      if (mounted && nav.canPop()) nav.pop();
+      return;
+    }
     try {
       await cfg.save(
+        useChatGpt: false,
         baseUrl: _base.text,
         apiKey: coachApiKeyToSave(
           keyText: _key.text,
@@ -1048,6 +1124,255 @@ class _CoachSetupState extends State<CoachSetup> {
     }
     _pendingKeyDelete = false;
     if (mounted && nav.canPop()) nav.pop();
+  }
+
+  Future<void> _closeBrowser() async {
+    try {
+      if (await supportsCloseForLaunchMode(LaunchMode.inAppBrowserView)) {
+        await closeInAppWebView();
+      }
+    } catch (_) {}
+  }
+
+  /// The redirect lands on a loopback listener inside this app, so the page
+  /// opens in an in-app browser (SFSafariViewController / Custom Tab): with
+  /// the system browser in front, iOS suspends the app and the listener dies.
+  Future<void> _signInChatGpt() async {
+    final chatgpt = _chatgptAuth;
+    if (!await confirmChatGptTerms(context) || !mounted) return;
+    setState(() {
+      _signingIn = true;
+      _msg = null;
+    });
+    try {
+      await chatgpt.signIn(
+        (uri) => launchUrl(uri, mode: LaunchMode.inAppBrowserView),
+      );
+      await _closeBrowser();
+      if (!mounted) return;
+      setState(() {
+        _chatgpt = true;
+        _models = const [];
+        _model = '';
+        if (!chatgpt.sharing) {
+          _msg = uiText(context,
+              'Signed in, but ChatGPT plan usage was not allowed. Continue with ChatGPT again and allow it to use your plan here.');
+        }
+      });
+      if (!chatgpt.sharing) return;
+      if (await chatgpt.takeWelcome() && mounted) await _welcome();
+      if (mounted) await _fetch();
+    } catch (e) {
+      await _closeBrowser();
+      if (mounted) {
+        setState(() => _msg = e is ChatGptException ? e.message : 'ChatGPT sign-in failed: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _signingIn = false);
+    }
+  }
+
+  /// Leaves the coach set to ChatGPT, now not configured, rather than
+  /// quietly falling back to an API key the user may be billed for.
+  Future<void> _signOutChatGpt() async {
+    final revoked = await _chatgptAuth.signOut();
+    if (!mounted) return;
+    setState(() {
+      _models = const [];
+      _msg = revoked
+          ? uiText(context, 'Signed out of ChatGPT.')
+          : uiText(context,
+              'Signed out here, but ChatGPT did not confirm it. You can also disconnect OpenStrap in ChatGPT settings.');
+    });
+  }
+
+  Future<void> _welcome() => showModalBottomSheet<void>(
+        context: context,
+        sheetAnimationStyle: sheetMotion(context),
+        backgroundColor: P.of(context).card,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+        ),
+        builder: (s) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(S.x5),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(uiText(s, 'You’re using your ChatGPT plan'),
+                    style: F.head.copyWith(color: P.of(s).ink)),
+                const SizedBox(height: S.x2),
+                Text(
+                  uiText(s,
+                      'Eligible usage in this app uses your ChatGPT plan. Manage usage in your ChatGPT settings.'),
+                  style: F.cap.copyWith(color: P.of(s).ink2, height: 1.5),
+                ),
+                const SizedBox(height: S.x5),
+                BigButton(
+                  uiText(s, 'Got it'),
+                  color: kCoachAccent,
+                  onTap: () => Navigator.of(s).pop(),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  Widget _presetTile(BuildContext c, P p, _Preset preset) => Padding(
+      padding: const EdgeInsets.only(bottom: S.x2),
+      child: Surface(
+        elevation: 0,
+        color: !_chatgpt &&
+                _base.text.trim() == preset.baseUrl
+            ? p.wash(
+                preset.local ? C.green : kCoachAccent,
+              )
+            : p.card2,
+        onTap: () => setState(() {
+          // BEFORE assigning _base.text: that assignment
+          // fires _onBaseChanged synchronously, which
+          // may set _msg to explain a cleared key —
+          // clearing _msg after it runs would silently
+          // discard that explanation.
+          _msg = null;
+          // A sign-in still out would otherwise land later and switch the
+          // coach back to ChatGPT over this choice.
+          if (_signingIn) _chatgptAuth.cancelSignIn();
+          _chatgpt = false;
+          _base.text = preset.baseUrl;
+          _api = CoachApi.defaultFor(preset.baseUrl);
+          _models = const [];
+          _model = '';
+        }),
+        child: Row(
+          children: [
+            Icon(
+              preset.local
+                  ? LucideIcons.house
+                  : LucideIcons.cloud,
+              size: 17,
+              color: p.on(
+                preset.local ? C.green : kCoachAccent,
+              ),
+            ),
+            const SizedBox(width: S.x3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    preset.label,
+                    style: F.body.copyWith(
+                      color: p.ink,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    preset.sub,
+                    style: F.cap.copyWith(color: p.ink3),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+  Widget _chatGptCard(BuildContext c, P p) {
+    final chatgpt = c.watch<CoachConfig>().chatgpt;
+    final session = chatgpt.session;
+    final sub = session == null
+        ? uiText(c, 'Use your ChatGPT plan')
+        : chatgpt.sharing
+            ? '${uiText(c, 'Using your ChatGPT plan')} · ${session.email}'
+            : '${uiText(c, 'Plan usage not allowed')} · ${session.email}';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: S.x2),
+      child: Surface(
+        elevation: 0,
+        color: _chatgpt ? p.wash(kCoachAccent) : p.card2,
+        onTap: _signingIn
+            ? null
+            : () {
+                // Selected before a sign-in starts too, so its fields (and the
+                // "Cancel sign-in" button) show while the browser is up.
+                setState(() {
+                  _msg = null;
+                  _chatgpt = true;
+                  _models = const [];
+                  _model = '';
+                });
+                if (!chatgpt.sharing) _signInChatGpt();
+              },
+        child: Row(
+          children: [
+            Icon(LucideIcons.sparkles, size: 17, color: p.on(kCoachAccent)),
+            const SizedBox(width: S.x3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('ChatGPT',
+                      style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
+                  Text(sub, style: F.cap.copyWith(color: p.ink3)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _chatGptFields(BuildContext c, P p) {
+    final chatgpt = c.watch<CoachConfig>().chatgpt;
+    return [
+      const SizedBox(height: S.x2),
+      Text(
+        uiText(c,
+            'Complete eligible AI requests in this app with usage included in your ChatGPT plan or credits balance. OpenStrap never charges for this.'),
+        style: F.cap.copyWith(color: p.ink3, height: 1.5),
+      ),
+      const SizedBox(height: S.x4),
+      if (!chatgpt.sharing)
+        BigButton(
+          _signingIn
+              ? uiText(c, 'Cancel sign-in')
+              : uiText(c, 'Continue with ChatGPT'),
+          icon: _signingIn ? LucideIcons.x : LucideIcons.logIn,
+          color: kCoachAccent,
+          soft: _signingIn,
+          onTap: _signingIn ? _chatgptAuth.cancelSignIn : _signInChatGpt,
+        ),
+      if (chatgpt.signedIn) ...[
+        if (!chatgpt.sharing) const SizedBox(height: S.x3),
+        BigButton(
+          uiText(c, 'Manage usage'),
+          icon: LucideIcons.externalLink,
+          color: kCoachAccent,
+          soft: true,
+          onTap: () => launchUrl(Uri.parse(kChatGptUsageUrl),
+              mode: LaunchMode.externalApplication),
+        ),
+        const SizedBox(height: S.x3),
+        BigButton(
+          uiText(c, 'Sign out of ChatGPT'),
+          icon: LucideIcons.logOut,
+          soft: true,
+          onTap: _signOutChatGpt,
+        ),
+      ],
+      const SizedBox(height: S.x3),
+      Text(
+        uiText(c,
+            'Your questions and the rows the coach reads are sent to OpenAI under your ChatGPT account, where your ChatGPT data controls, including model training, may apply. Check them in ChatGPT settings. See exactly what is sent on "What was sent".'),
+        style: F.cap.copyWith(color: p.ink3, height: 1.5),
+      ),
+    ];
   }
 
   @override
@@ -1079,151 +1404,109 @@ class _CoachSetupState extends State<CoachSetup> {
                     l?.coachWhereModelRuns ?? 'Where the model runs',
                     Column(
                       children: [
-                        for (final preset in _presets(c))
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: S.x2),
-                            child: Surface(
-                              elevation: 0,
-                              color: _base.text.trim() == preset.baseUrl
-                                  ? p.wash(
-                                      preset.local ? C.green : kCoachAccent,
-                                    )
-                                  : p.card2,
-                              onTap: () => setState(() {
-                                // BEFORE assigning _base.text: that assignment
-                                // fires _onBaseChanged synchronously, which
-                                // may set _msg to explain a cleared key —
-                                // clearing _msg after it runs would silently
-                                // discard that explanation.
-                                _msg = null;
-                                _base.text = preset.baseUrl;
-                                _api = CoachApi.defaultFor(preset.baseUrl);
-                                _models = const [];
-                                _model = '';
-                              }),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    preset.local
-                                        ? LucideIcons.house
-                                        : LucideIcons.cloud,
-                                    size: 17,
-                                    color: p.on(
-                                      preset.local ? C.green : kCoachAccent,
-                                    ),
-                                  ),
-                                  const SizedBox(width: S.x3),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          preset.label,
-                                          style: F.body.copyWith(
-                                            color: p.ink,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                        Text(
-                                          preset.sub,
-                                          style: F.cap.copyWith(color: p.ink3),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                        // After the local presets: they are the only option
+                        // where the data never leaves the user's control.
+                        for (final preset in _presets(c).where((x) => x.local))
+                          _presetTile(c, p, preset),
+                        _chatGptCard(c, p),
+                        for (final preset in _presets(c).where((x) => !x.local))
+                          _presetTile(c, p, preset),
                       ],
                     ),
                   ),
-                  const SizedBox(height: S.x2),
-                  OsTextField(
-                    controller: _base,
-                    label: l?.coachBaseUrlLabel ?? 'Base URL',
-                    hint: 'http://localhost:11434/v1',
-                  ),
-                  const SizedBox(height: S.x4),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(l?.coachApiFormatLabel ?? 'API',
-                          style: F.over.copyWith(color: p.ink3)),
-                      const SizedBox(height: S.x2),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: S.x3),
-                        decoration: BoxDecoration(
-                          color: p.card,
-                          borderRadius: R.rMd,
-                          border: Border.all(color: p.line),
-                        ),
-                        child: Semantics(
-                          label: l?.coachApiFormatLabel ?? 'API',
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<CoachApi>(
-                              value: _api,
-                              isExpanded: true,
-                              dropdownColor: p.card,
-                              style: F.body.copyWith(color: p.ink),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: CoachApi.responses,
-                                  child: Text('Responses'),
-                                ),
-                                DropdownMenuItem(
-                                  value: CoachApi.chatCompletions,
-                                  child: Text('Chat Completions'),
-                                ),
-                              ],
-                              onChanged: (api) {
-                                if (api != null) setState(() => _api = api);
-                              },
+                  if (_chatgpt)
+                    ..._chatGptFields(c, p)
+                  else ...[
+                    const SizedBox(height: S.x2),
+                    OsTextField(
+                      controller: _base,
+                      label: l?.coachBaseUrlLabel ?? 'Base URL',
+                      hint: 'http://localhost:11434/v1',
+                    ),
+                    const SizedBox(height: S.x4),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(l?.coachApiFormatLabel ?? 'API',
+                            style: F.over.copyWith(color: p.ink3)),
+                        const SizedBox(height: S.x2),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: S.x3),
+                          decoration: BoxDecoration(
+                            color: p.card,
+                            borderRadius: R.rMd,
+                            border: Border.all(color: p.line),
+                          ),
+                          child: Semantics(
+                            label: l?.coachApiFormatLabel ?? 'API',
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<CoachApi>(
+                                value: _api,
+                                isExpanded: true,
+                                dropdownColor: p.card,
+                                style: F.body.copyWith(color: p.ink),
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: CoachApi.responses,
+                                    child: Text('Responses'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: CoachApi.chatCompletions,
+                                    child: Text('Chat Completions'),
+                                  ),
+                                ],
+                                onChanged: (api) {
+                                  if (api != null) setState(() => _api = api);
+                                },
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: S.x2),
-                      Text(
-                        l?.coachApiFormatHelp ??
-                            'Choose the API your endpoint supports. Responses '
-                                'supports OpenAI reasoning with tools.',
-                        style: F.cap.copyWith(color: p.ink3, height: 1.5),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: S.x4),
-                  OsTextField(
-                    controller: _key,
-                    label: _isLocal
-                        ? (l?.coachApiKeyLocalLabel ?? 'API key (not needed locally)')
-                        : (l?.coachApiKeyLabel ?? 'API key'),
-                    hint: 'sk-…',
-                  ),
-                  const SizedBox(height: S.x3),
-                  // The one sentence that decides whether a cloud key is a
-                  // reasonable choice. It is here, next to the field, and not
-                  // in a settings page nobody opens. Private hosts only: a
-                  // 100.64.0.0/10 address needs no key but may not be yours.
-                  Text(
-                    isPrivateCoachHost(_base.text.trim())
-                        ? (l?.coachLocalDataNote ??
-                            'Your questions and the rows the coach reads stay on '
-                                'your own machine.')
-                        : (l?.coachCloudDataNote ??
-                            'Your questions and the rows the coach reads are sent '
-                                'to this endpoint. See exactly what that is on '
-                                '"What was sent".'),
-                    style: F.cap.copyWith(color: p.ink3, height: 1.5),
-                  ),
+                        const SizedBox(height: S.x2),
+                        Text(
+                          l?.coachApiFormatHelp ??
+                              'Choose the API your endpoint supports. Responses '
+                                  'supports OpenAI reasoning with tools.',
+                          style: F.cap.copyWith(color: p.ink3, height: 1.5),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: S.x4),
+                    OsTextField(
+                      controller: _key,
+                      label: _isLocal
+                          ? (l?.coachApiKeyLocalLabel ?? 'API key (not needed locally)')
+                          : (l?.coachApiKeyLabel ?? 'API key'),
+                      hint: 'sk-…',
+                    ),
+                    const SizedBox(height: S.x3),
+                    // The one sentence that decides whether a cloud key is a
+                    // reasonable choice. It is here, next to the field, and not
+                    // in a settings page nobody opens. Private hosts only: a
+                    // 100.64.0.0/10 address needs no key but may not be yours.
+                    Text(
+                      isPrivateCoachHost(_base.text.trim())
+                          ? (l?.coachLocalDataNote ??
+                              'Your questions and the rows the coach reads stay on '
+                                  'your own machine.')
+                          : (l?.coachCloudDataNote ??
+                              'Your questions and the rows the coach reads are sent '
+                                  'to this endpoint. See exactly what that is on '
+                                  '"What was sent".'),
+                      style: F.cap.copyWith(color: p.ink3, height: 1.5),
+                    ),
+                  ],
                   const SizedBox(height: S.x4),
                   BigButton(
                     _loading ? (l?.coachAsking ?? 'Asking…') : (l?.coachListModels ?? 'List models'),
                     icon: LucideIcons.refreshCw,
                     color: kCoachAccent,
                     soft: true,
-                    onTap: _loading ? null : _fetch,
+                    onTap: _loading ||
+                            (_chatgpt &&
+                                !context.watch<CoachConfig>().chatgpt.sharing)
+                        ? null
+                        : _fetch,
                   ),
                   if (_msg != null) ...[
                     const SizedBox(height: S.x3),
@@ -1235,6 +1518,13 @@ class _CoachSetupState extends State<CoachSetup> {
                     label: l?.coachModelLabel ?? 'Model',
                     hint: l?.coachModelHint ?? 'search, or type an id',
                   ),
+                  if (_model.isNotEmpty) ...[
+                    const SizedBox(height: S.x2),
+                    Text(
+                      l?.coachModelSelected(_model) ?? 'Saving model: $_model',
+                      style: F.cap.copyWith(color: p.ink3),
+                    ),
+                  ],
                   const SizedBox(height: S.x1),
                   Builder(
                     builder: (_) => Padding(
@@ -1308,4 +1598,70 @@ class _CoachSetupState extends State<CoachSetup> {
       ),
     );
   }
+}
+
+/// Shown before every ChatGPT sign-in. Signing in puts the coach's requests
+/// under the user's own OpenAI account, so OpenAI's terms and usage policies
+/// apply to them; the sign-in only starts after an explicit Continue.
+/// Returns false when the sheet is cancelled or dismissed.
+Future<bool> confirmChatGptTerms(BuildContext context) async {
+  final ok = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    sheetAnimationStyle: sheetMotion(context),
+    backgroundColor: P.of(context).card,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+    ),
+    builder: (s) => SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(S.x5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(uiText(s, 'Before you sign in'),
+                style: F.head.copyWith(color: P.of(s).ink)),
+            const SizedBox(height: S.x2),
+            Text(
+              uiText(s,
+                  'Signing in uses your own ChatGPT account and plan. Your use of it here is covered by OpenAI’s Terms of Use and Usage Policies, so please read them before you continue.'),
+              style: F.cap.copyWith(color: P.of(s).ink2, height: 1.5),
+            ),
+            const SizedBox(height: S.x4),
+            BigButton(
+              uiText(s, 'OpenAI Terms of Use'),
+              icon: LucideIcons.externalLink,
+              color: kCoachAccent,
+              soft: true,
+              onTap: () => launchUrl(Uri.parse(kOpenAiTermsUrl),
+                  mode: LaunchMode.externalApplication),
+            ),
+            const SizedBox(height: S.x3),
+            BigButton(
+              uiText(s, 'OpenAI Usage Policies'),
+              icon: LucideIcons.externalLink,
+              color: kCoachAccent,
+              soft: true,
+              onTap: () => launchUrl(Uri.parse(kOpenAiUsagePoliciesUrl),
+                  mode: LaunchMode.externalApplication),
+            ),
+            const SizedBox(height: S.x5),
+            BigButton(
+              uiText(s, 'I’ve read them, continue'),
+              color: kCoachAccent,
+              onTap: () => Navigator.of(s).pop(true),
+            ),
+            const SizedBox(height: S.x3),
+            BigButton(
+              uiText(s, 'Cancel'),
+              soft: true,
+              onTap: () => Navigator.of(s).pop(false),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  return ok ?? false;
 }

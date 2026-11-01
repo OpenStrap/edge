@@ -163,6 +163,10 @@ class _LogWorkoutState extends State<LogWorkout> {
   List<SessionSpan> _spans = const [];
   bool _saving = false;
   String? _wrote;
+  // Kept apart from [_wrote]: a refused or failed save must never be drawn
+  // under the "Times updated" / "Workout logged" check, since nothing was
+  // banked.
+  String? _failed;
   ActivitySuggestion? _suggestion;
 
   @override
@@ -285,6 +289,7 @@ class _LogWorkoutState extends State<LogWorkout> {
     setState(() {
       _saving = true;
       _wrote = null;
+      _failed = null;
     });
     try {
       if (_suggestion case final suggestion?) {
@@ -322,7 +327,7 @@ class _LogWorkoutState extends State<LogWorkout> {
           if (!mounted) return;
           setState(() {
             _saving = false;
-            _wrote = l?.logWorkoutImportedHrGone ??
+            _failed = l?.logWorkoutImportedHrGone ??
                 'Heart rate for this workout is no longer stored, so the band '
                     'cannot score it.';
           });
@@ -368,18 +373,18 @@ class _LogWorkoutState extends State<LogWorkout> {
         // reload must not leave the save button permanently busy.
       } finally {
         if (mounted) {
-          setState(() { _saving = false; _wrote = e.message; });
+          setState(() { _saving = false; _failed = e.message; });
         }
       }
     } on ManualWindowException catch (e) {
       if (mounted) {
-        setState(() { _saving = false; _wrote = e.error.message; });
+        setState(() { _saving = false; _failed = e.error.message; });
       }
     } catch (_) {
       if (mounted) {
         setState(() {
           _saving = false;
-          _wrote = l?.logWorkoutCouldNotSave ?? 'Could not save that — try again.';
+          _failed = l?.logWorkoutCouldNotSave ?? 'Could not save that — try again.';
         });
       }
     }
@@ -441,6 +446,11 @@ class _LogWorkoutState extends State<LogWorkout> {
                   StatusCard(
                       l?.logWorkoutWindowInvalidTitle ?? 'That window will not save',
                       bad.message,
+                      icon: LucideIcons.triangleAlert)
+                else if (_failed != null)
+                  StatusCard(
+                      l?.logWorkoutWindowInvalidTitle ?? 'That window will not save',
+                      _failed!,
                       icon: LucideIcons.triangleAlert)
                 else if (_wrote != null)
                   StatusCard(

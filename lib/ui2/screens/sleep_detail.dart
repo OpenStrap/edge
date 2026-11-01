@@ -24,6 +24,7 @@ import '../../compute/vendor_sleep.dart' show vendorStagesReported;
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
+import '../../l10n/decimal_text.dart';
 import '../../state/app_state.dart';
 import '../../state/locale_controller.dart';
 import '../../state/prefs.dart';
@@ -140,7 +141,21 @@ int? _noonOf(String? day) => day == null
 }
 
 String _pct(double v) => '${v.round()}%';
-String _pts(double v) => '${v.round()} points';
+
+/// The efficiency gap in percentage points, in the reader's language. It is
+/// glued in front of the localized lower/higher phrase, so an English unit
+/// here left every other locale reading a half-English verdict.
+String sleepEfficiencyDelta(AppLocalizations? l, double v) =>
+    l?.sleepDetailPointsDelta('${v.round()}') ?? '${v.round()} percentage points';
+
+/// A reading with its unit, in the display locale: metric detail prints the
+/// same number through [displayFixed] and a translated unit, so a raw
+/// "14.2 br/min" here showed a Russian user two different spellings of one
+/// night.
+@visibleForTesting
+String sleepReadingText(AppLocalizations? l, num value, int places,
+        String unit) =>
+    '${displayFixed(value, places)} ${localizedText(l, unit)}';
 
 /// SLP-13 — the three staged figures of a night, as the intervals they are.
 ///
@@ -178,6 +193,14 @@ String _capitalise(String s) =>
 class SleepData {
   final String? day;
 
+  /// The night this screen opens on when nobody asked for one: the night
+  /// `getToday` served (a held-over night before the first sync of the day
+  /// or across a gap), else today. Tonight's plan belongs under this night
+  /// and anything newer, and under nothing older. Comparing [day] against
+  /// the wall-clock date instead hid the plan on the landing view every
+  /// morning a night was held over.
+  final String? latestDay;
+
   /// Every day this install has derived, newest first — what [DayNav] steers
   /// over. Empty in a fixture, which is why a golden shows no stepper.
   final List<String> days;
@@ -206,6 +229,7 @@ class SleepData {
 
   const SleepData({
     this.day,
+    this.latestDay,
     this.days = const [],
     this.night = const {},
     this.timeline = const {},
@@ -224,6 +248,18 @@ class SleepData {
   });
 
   bool get hasNight => night['duration_min'] is num;
+
+  /// Whether tonight's need, debt and bedtime belong under this night. They
+  /// come from today's cross-day rollup whichever night is selected, so on
+  /// an older night they are not that night's numbers. Without [latestDay]
+  /// (a fixture) the calendar decides.
+  bool get isLatestNight {
+    final d = day;
+    if (d == null) return true;
+    final top = latestDay;
+    if (top != null) return d.compareTo(top) >= 0;
+    return (daysBehind(_noonOf(d)) ?? 0) <= 0;
+  }
 
   /// Stage samples for the painter — the segment list resampled onto a fixed
   /// number of columns so a four-hour segment and a four-minute one stay in
@@ -290,12 +326,11 @@ class SleepData {
     // off overnight and the card said "7h 04m" while this screen answered "No
     // night to show" about the same tap.
     final days = await repo.availableDays();
-    final day = pickDay(
-        days,
-        want,
-        heldOverNightOf(today) ??
-            (today['status'] as Map?)?['today_day']?.toString());
-    if (day == null) return SleepData(days: days);
+    final prefer = heldOverNightOf(today) ??
+        (today['status'] as Map?)?['today_day']?.toString();
+    final latest = pickDay(days, null, prefer);
+    final day = pickDay(days, want, prefer);
+    if (day == null) return SleepData(days: days, latestDay: latest);
 
     final night = await repo.getDaySleepV2(day);
     var deviceNights = const <Map<String, Object?>>[];
@@ -339,6 +374,7 @@ class SleepData {
 
     return SleepData(
       day: day,
+      latestDay: latest,
       days: days,
       night: night,
       timeline: timeline,
@@ -359,6 +395,41 @@ class SleepData {
   }
 }
 
+/// What the Sleep stepper stores for [day]: null when it is the newest night
+/// on offer, so the screen keeps following the newest night. The tab lives in
+/// the shell's IndexedStack and is never disposed — stepping back a night and
+/// forward again stored that night's literal date, and the next morning's
+/// sync reloaded onto it, so the tab sat on yesterday's night until the
+/// arrows were touched again.
+@visibleForTesting
+String? sleepStepperDay(String day, String? latestDay) =>
+    day == latestDay ? null : day;
+
+/// What the Sleep screen stores for its night once a correction to [edited]
+/// has re-derived. The edit pins [edited] so the reload can't wander to
+/// another night, but on the tab that pin is never cleared by anything else:
+/// once a newer night arrived the tab stayed on the corrected one and lost
+/// the sleep plan, until the arrows were touched. So the pin is released when
+/// the edited night is still the newest one. A night the user stepped to
+/// meanwhile ([current] != [edited]) is left alone.
+@visibleForTesting
+String? sleepDayAfterOverride(
+        String? current, String edited, String? latestDay) =>
+    current == edited ? sleepStepperDay(edited, latestDay) : current;
+
+/// The scrub card's skin-temperature reading. The timeline value is the
+/// sensor's raw count minus the day's median, already rounded to one decimal:
+/// there is no °C behind it. Printed bare as "-12.40" beside "52 bpm" it read
+/// as a twelve-degree drop, so it carries an explicit sign and no padding
+/// past the precision it actually has, with the display locale's decimal mark
+/// like the readings beside it.
+@visibleForTesting
+String sleepScrubTempDelta(num v) {
+  final s = displayFixed(v.abs(), 1);
+  if ((v.abs() * 10).round() == 0) return '±$s';
+  return v < 0 ? '−$s' : '+$s';
+}
+
 class SleepDetail extends StatefulWidget {
   final SleepData? data;
 
@@ -368,16 +439,22 @@ class SleepDetail extends StatefulWidget {
 
   /// The Sleep tab's root rather than a pushed screen: a tab header with the
   /// profile avatar instead of a back arrow, pull to re-read, and [footer]
-  /// (the sleep plan, alarm and body clock) under the night.
+  /// (alarm and body clock) under the night.
   final bool embedded;
   final List<Widget> footer;
+
+  /// Rendered above [footer], and only while the night on screen is the
+  /// latest one. The sleep plan is advice for tonight; under a night stepped
+  /// back to two weeks ago it read as that night's advice.
+  final List<Widget> todayFooter;
 
   const SleepDetail(
       {super.key,
       this.data,
       this.day,
       this.embedded = false,
-      this.footer = const []});
+      this.footer = const [],
+      this.todayFooter = const []});
 
   @override
   State<SleepDetail> createState() => _SleepDetailState();
@@ -411,6 +488,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
               child: Text(sub, style: F.over.copyWith(color: p.ink3)),
             ),
           ...body,
+          // Not under a read error: `_d` may still be the latest night while
+          // the asked-for one failed.
+          if (!_failed && (_d?.isLatestNight ?? _day == null))
+            ...widget.todayFooter,
           ...widget.footer,
         ],
       ),
@@ -418,8 +499,18 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   }
 
   SleepData? _d;
+
+  /// The last read that worked. A retry drops `_d` so the old night is not
+  /// drawn while it runs; the error view still steps through this one's days.
+  SleepData? _lastGood;
   bool _loading = true;
   String? _day;
+
+  /// The last read threw. Kept apart from "no night": a read that failed
+  /// under a busy database must not tell someone with months of history that
+  /// the band recorded nothing, and on a day step it must not leave the
+  /// previous night drawn under the new date.
+  bool _failed = false;
   bool _saving = false; // an override write + its forced re-derive is in flight
   double? _scrub; // 0..1 across the night
 
@@ -540,15 +631,19 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       if (mounted && gen == _loadGen) {
         setState(() => (
               _d = d,
+              _lastGood = d,
               _rough = rough,
               _correctable = correctable,
               _wholeNightKept = wholeNightKept,
               _confirmable = confirmable,
               _loading = false,
+              _failed = false,
             ));
       }
     } catch (_) {
-      if (mounted && gen == _loadGen) setState(() => _loading = false);
+      if (mounted && gen == _loadGen) {
+        setState(() => (_loading = false, _failed = true));
+      }
     }
   }
 
@@ -556,10 +651,11 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   /// it goes with it.
   void _goDay(String day) {
     setState(() {
-      _day = day;
+      _day = sleepStepperDay(day, (_d ?? _lastGood)?.latestDay);
       _scrub = null;
       _overrideFailed = null;
       _loading = true;
+      _failed = false;
     });
     _load();
   }
@@ -574,6 +670,36 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       return _frame(c, title, const [
         SizedBox(height: S.x8),
         Center(child: CircularProgressIndicator()),
+      ]);
+    }
+
+    if (_failed) {
+      // `_d` may still hold the night this screen stepped away from; only its
+      // day list is used, so the stepper stays and the day can be walked off.
+      // A step to the latest night stores null in `_day`, so that night is
+      // named from `latestDay`, not from the night stepped away from.
+      final nav = _d ?? _lastGood ?? d;
+      final shown = _day ?? nav.latestDay ?? nav.day;
+      return _frame(c, title, [
+        ...dayNavRow(shown, nav.days, _goDay),
+        const SizedBox(height: S.x2),
+        StatusCard(
+          shown == null
+              ? (l?.wellnessLoadFailedTitle ?? 'This could not be read')
+              : (l?.homeDayLoadFailedTitle(prettyDay(shown, l)) ??
+                  '${prettyDay(shown, l)} could not be read'),
+          l?.homeLoadFailedBody ??
+              'The stored day failed to load. Nothing was deleted — this is a '
+                  'read that went wrong, not missing data.',
+          fix: l?.homeTryAgain ?? 'Try again',
+          icon: LucideIcons.databaseZap,
+          onFix: () {
+            // `_d` is the night stepped away from; drawing it under the asked
+            // day while the retry runs would show the wrong readings.
+            setState(() => (_loading = true, _failed = false, _d = null));
+            _load();
+          },
+        ),
       ]);
     }
 
@@ -617,7 +743,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         ] else if (rejected) ...[
           const SizedBox(height: S.x2),
           TextButton(
-            onPressed: _saving ? null : () => _clearWindow(rejectedDay),
+            // `_loading` too: mid-step this is still the previous day's undo.
+            onPressed: _saving || _loading
+                ? null
+                : () => _clearWindow(rejectedDay),
             child: Text(
                 l?.sleepDetailUndoRejection ?? 'Undo — go back to automatic'),
           ),
@@ -664,9 +793,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
 
     // The stepper names the night, so the nav bar does not say it twice. With
     // one night on disk there is no stepper, and then the subtitle is the only
-    // thing that dates the screen.
+    // thing that dates the screen, so it names the day the way the stepper
+    // would rather than printing the raw yyyy-MM-dd key.
     return _frame(c, title,
-        sub: d.days.length < 2 ? (d.day ?? '').toUpperCase() : '', [
+        sub: d.days.length < 2 ? dayNavLabel(d.day, l).toUpperCase() : '', [
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
 
       // ── 1 · THE ANSWER ──
@@ -732,7 +862,12 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           _overnight(c, p, d)),
 
       // ── 7 · ONE TAKEAWAY ──
-      Section(l?.sleepDetailTonightSection ?? 'Tonight', _tonight(c, p, d)),
+      // Tonight's need, debt and bedtime come from today's cross-day rollup
+      // whichever night is selected, so on a past night they are not that
+      // night's numbers. The tab carries the full plan in its footer, and
+      // printing it here too said the same thing twice on one scroll.
+      if (d.isLatestNight && !widget.embedded)
+        Section(l?.sleepDetailTonightSection ?? 'Tonight', _tonight(c, p, d)),
 
       const SizedBox(height: S.x5),
       // The night this screen is steered to, not the newest one. Dropping it
@@ -852,6 +987,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final vendor = source == 'vendor_staged';
 
     final busy = _saving;
+    // Every button below acts on `day`, the night drawn. While a day step is
+    // loading that is still the night the user stepped away from, not the
+    // date the stepper reads, the same reason the naps button waits.
+    final locked = busy || _loading;
     return [
       const SizedBox(height: S.x3),
       Surface(
@@ -907,18 +1046,18 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           Wrap(spacing: S.x2, children: [
             if (fallback && _confirmable)
               TextButton(
-                onPressed: busy ? null : () => _confirmWindow(day),
+                onPressed: locked ? null : () => _confirmWindow(day),
                 child: Text(l?.sleepDetailConfirmTimes ?? 'These times are right'),
               ),
             TextButton(
-              onPressed: busy ? null : () => _editWindow(day, t0, t1),
+              onPressed: locked ? null : () => _editWindow(day, t0, t1),
               child: Text(mine
                   ? (l?.sleepDetailChangeTimes ?? 'Change the times')
                   : (l?.sleepDetailSetTimesMyself ?? 'Set the times myself')),
             ),
             if (mine && _wholeNightKept)
               TextButton(
-                onPressed: busy ? null : () => _clearWindow(day),
+                onPressed: locked ? null : () => _clearWindow(day),
                 child:
                     Text(l?.sleepDetailBackToAutomatic ?? 'Back to automatic'),
               ),
@@ -926,7 +1065,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
             // already have a reject action (sleep_nap source='rejected');
             // a whole-night main-sleep session didn't (edge#248).
             TextButton(
-              onPressed: busy ? null : () => _rejectWindow(day),
+              onPressed: locked ? null : () => _rejectWindow(day),
               child: Text(l?.sleepDetailNotSleep ?? 'Not sleep'),
             ),
           ]),
@@ -1076,6 +1215,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     if (_day == null && _d?.day == day) _day = day;
     if (mounted) await _load();
     if (!mounted) return;
+    // Only a reload that worked says which night is latest now; after a
+    // failed one `_d` is the old result and releasing the pin could make a
+    // retry open another night.
+    if (!_failed) _day = sleepDayAfterOverride(_day, day, _d?.latestDay);
     // EVERY failure below this screen is silent: the forced re-derive catches
     // and logs its own throw, and it returns at its first line when another
     // re-analysis is already running. Both leave the write in the database and
@@ -1404,14 +1547,17 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         : stages[(_scrub! * (stages.length - 1)).round()];
     final items = <(String, String, Color)>[
       if (at('hr') != null)
-        (l?.sleepDetailHeartRate ?? 'Heart rate', '${at('hr')!.round()} bpm', C.red),
+        (l?.sleepDetailHeartRate ?? 'Heart rate',
+            sleepReadingText(l, at('hr')!.round(), 0, 'bpm'), C.red),
       if (at('hrv') != null)
-        (l?.sleepDetailHrv ?? 'HRV', '${at('hrv')!.round()} ms', C.green),
+        (l?.sleepDetailHrv ?? 'HRV',
+            sleepReadingText(l, at('hrv')!.round(), 0, 'ms'), C.green),
       if (at('resp') != null)
         (l?.sleepDetailBreathing ?? 'Breathing',
-            '${at('resp')!.toStringAsFixed(1)} br/min', C.teal),
+            sleepReadingText(l, at('resp')!, 1, 'br/min'), C.teal),
       if (at('skin_temp') != null)
-        (l?.sleepDetailTemp ?? 'Temp', at('skin_temp')!.toStringAsFixed(2), C.orange),
+        (l?.sleepDetailTempRelative ?? 'Temp (rel.)',
+            sleepScrubTempDelta(at('skin_temp')!), C.orange),
     ];
 
     return Padding(
@@ -1759,7 +1905,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         low: l?.sleepDetailLowerThanUsual ?? 'lower than usual',
         high: l?.sleepDetailHigherThanUsual ?? 'higher than usual',
         fmt: _pct,
-        dfmt: _pts,
+        dfmt: (v) => sleepEfficiencyDelta(l, v),
       ));
     }
 
@@ -1918,8 +2064,8 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         vsBase != null) {
       items.add(InsightCard(
         l?.sleepDetailSleepingHrHighTitle ?? 'Sleeping heart rate ran high',
-        l?.sleepDetailSleepingHrHighBody(vsBase.toStringAsFixed(1)) ??
-            '${vsBase.toStringAsFixed(1)} bpm above your usual. Common after alcohol, a late meal, a hard session or an infection starting. A measurement, not a diagnosis.',
+        l?.sleepDetailSleepingHrHighBody(displayFixed(vsBase, 1)) ??
+            '${displayFixed(vsBase, 1)} bpm above your usual. Common after alcohol, a late meal, a hard session or an infection starting. A measurement, not a diagnosis.',
         icon: LucideIcons.heartPulse,
         color: C.red,
       ));
@@ -1988,13 +2134,15 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final summary = <(String, String, Color)>[
       if (noc is Map && noc['sleeping_hr_avg'] != null)
         (loc?.sleepDetailSleepingHr ?? 'SLEEPING HR',
-            '${noc['sleeping_hr_avg']} bpm', C.red),
+            sleepReadingText(loc, noc['sleeping_hr_avg'] as num, 0, 'bpm'),
+            C.red),
       if (noc is Map && noc['sleeping_hr_min'] != null)
-        (loc?.sleepDetailLowest ?? 'LOWEST', '${noc['sleeping_hr_min']} bpm',
+        (loc?.sleepDetailLowest ?? 'LOWEST',
+            sleepReadingText(loc, noc['sleeping_hr_min'] as num, 0, 'bpm'),
             C.blue),
       if (respV != null)
         (loc?.sleepDetailBreathingCaps ?? 'BREATHING',
-            '${respV.toStringAsFixed(1)} br/min', C.teal),
+            sleepReadingText(loc, respV, 1, 'br/min'), C.teal),
     ];
 
     if (all.isEmpty) {

@@ -108,7 +108,7 @@ void main() {
       'efficiency_awakenings': 'ours',
       'sleep_stages': 'estimated',
       'naps': 'estimated',
-      'sleep_debt_need_sri': 'ours',
+      'sleep_debt_need_sri': 'unavailable',
       'resting_hr': 'ours',
       'nadir_dip': 'ours',
       'hrv': 'device',
@@ -141,7 +141,9 @@ void main() {
     expect(v('baselines_load_illness'), closeTo(v('resting_hr'), 3));
     // A minute or two of surplus is the turnover night's: the need averages
     // in its shorter sleep.
-    expect(v('sleep_debt_need_sri'), inInclusiveRange(-0.1, 2));
+    // Four nights hold two weekend nights, and a sleep need is a p75 of at
+    // least three of them, so the debt says what it is waiting for instead.
+    expect(cells['sleep_debt_need_sri']!['reason'], Why.needsThreeNights.name);
     expect(v('circadian'), inInclusiveRange(0, 24));
 
     // The night is ours: staged off the ring's records, not the ring's.
@@ -214,21 +216,19 @@ void main() {
     expect((acct['tst_sec'] as int) + (acct['waso_sec'] as int),
         acct['in_bed_sec']);
     expect(acct['awakenings'], greaterThanOrEqualTo(1));
-    // Sleep need and regularity on the device's epochs: four nights on the
-    // same clock regularise to 100 (less the one turnover's wake epoch), and
-    // with no debt and no nap the need is the habitual night, the stored one
-    // within a quarter hour.
+    // Regularity on the device's epochs: four nights on the same clock
+    // regularise to 100, less the one turnover's wake epoch.
     final xm = await crossDayAsOf(_dayId);
     expect(((xm['regularity'] as Map)['value'] as Map)['sri'],
         inInclusiveRange(97, 100));
-    expect(((xm['sleep_debt'] as Map)['value'] as Map)['debt_hours'],
-        inInclusiveRange(-0.1, 0));
-    expect(
-        ((((xm['sleep_coach'] as Map)['need'] as Map)['value'] as Map)[
-                    'need_sec'] as num) /
-                60 -
-            ((full['scalars'] as Map)['tst_min'] as num),
-        inInclusiveRange(-15, 15));
+    // Two of the four nights are weekend nights, under the three a sleep need
+    // is taken from, so the debt abstains rather than quote one night.
+    expect(((xm['sleep_debt'] as Map)['value'] as Map)['debt_hours'], isNull);
+    // And with no sleep need to anchor it, the coach waits for the same
+    // nights and says so.
+    final need = (xm['sleep_coach'] as Map)['need'] as Map;
+    expect(need['value'], '—');
+    expect(need['note'], startsWith('need_baseline:'));
   }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('with 14 nights behind it, readiness is ours: the partial composite '

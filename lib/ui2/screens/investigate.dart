@@ -21,8 +21,10 @@ import '../../l10n/date_text.dart';
 // "locked" — Beats, Vitals, Sleep, Readiness and every metric drill-down each
 // carry a plain row down to it.
 
+import '../../l10n/decimal_text.dart';
 import '../../l10n/display_text.dart';
 import 'dart:convert' show jsonDecode;
+import 'dart:isolate' show Isolate;
 import 'dart:math' show sqrt;
 
 import 'package:flutter/material.dart';
@@ -37,6 +39,26 @@ import '../ui2.dart';
 import 'day_timeline.dart';
 import 'home_screen.dart';
 import 'metric_detail.dart';
+import 'wellness_screen.dart' show stressLevelLabel;
+
+/// The `stress` block of a day bundle, or empty. Its own values only: no other
+/// block stands in for a missing field.
+Map<String, dynamic> stressBlockOf(Object? bundle) {
+  final blk = bundle is Map ? bundle['stress'] : null;
+  // A plain copy, not a cast view: it is returned across an isolate boundary.
+  return blk is Map ? Map<String, dynamic>.from(blk) : const {};
+}
+
+/// Everything the stress screen reads from a day bundle, in one decode. Plain
+/// maps and scalars only: it is returned across an isolate boundary.
+Map<String, dynamic> _stressFacts(String payload) {
+  final b = jsonDecode(payload);
+  return {
+    'stress': stressBlockOf(b),
+    'imported': b is Map && b['imported'] == true,
+    'source': b is Map ? b['source']?.toString() : null,
+  };
+}
 
 class InvestigateData {
   final String? day;
@@ -87,6 +109,11 @@ class InvestigateData {
   final int? coveragePct;
   final int? windowStart, windowEnd;
   final List<double> series;
+  /// The viewed day's own stress block: `si`, `level`, `score`. Read
+  /// from that day's payload, never `getDayStress`, which serves the latest
+  /// complete day for a today with no bundle yet and substitutes the nightly
+  /// RMSSD for a missing one. Only loaded for the stress key.
+  final Map<String, dynamic> stress;
 
   const InvestigateData({
     this.day,
@@ -106,6 +133,7 @@ class InvestigateData {
     this.windowStart,
     this.windowEnd,
     this.series = const [],
+    this.stress = const {},
   });
 
   static Future<InvestigateData> load(LocalRepository repo, String key,
@@ -137,10 +165,30 @@ class InvestigateData {
     // onto the bundle itself; a day derived here has neither.
     String? importedFrom;
     var steps = const <String, dynamic>{};
+    var stress = const <String, dynamic>{};
     final payload = row?['payload_json'];
+    // The day's own stress block, decoded off the UI isolate: the bundle holds
+    // the 1 Hz curves and is far larger than the few values read from it. The
+    // same decode answers "is this day imported", so the stress key decodes
+    // the bundle once, not twice.
+    final isStress = key == 'stress';
+    if (isStress && payload is String) {
+      // An optional side table: a payload that will not decode is an absent
+      // table, not a screen that fails to load.
+      try {
+        final f = await Isolate.run(() => _stressFacts(payload));
+        stress = (f['stress'] as Map).cast<String, dynamic>();
+        if (f['imported'] == true) {
+          importedFrom = f['source']?.toString() ?? 'an import';
+        }
+      } on FormatException {
+        // fall through with no table
+      }
+    }
     // The `contains` guard is what keeps every other key off the decode; the
     // steps split needs the bundle, so that key pays for it deliberately.
-    if (payload is String &&
+    if (!isStress &&
+        payload is String &&
         (key == 'steps' || payload.contains('"imported"'))) {
       final b = jsonDecode(payload);
       if (b is Map) {
@@ -171,6 +219,7 @@ class InvestigateData {
       windowStart: win is Map ? (win['start'] as num?)?.toInt() : null,
       windowEnd: win is Map ? (win['end'] as num?)?.toInt() : null,
       series: series,
+      stress: stress,
     );
   }
 
@@ -289,6 +338,7 @@ class _InvestigateState extends State<Investigate> {
         const Center(child: CircularProgressIndicator()),
       ] else ...[
           if (hrvish) ..._hrvPanels(c, d) else ..._genericPanels(c, spec, d),
+          if (widget.metricKey == 'stress') ..._stressPanels(c, d),
           if (widget.metricKey == 'resp_rate') ..._restingBreathPanels(d),
           if (widget.metricKey == 'resp_rate') ..._cvhrPanels(d),
           if (widget.metricKey == 'sleep') ..._stagePanels(d),
@@ -890,7 +940,14 @@ class _InvestigateState extends State<Investigate> {
               style: F.over.copyWith(color: p.ink3)),
           const SizedBox(height: S.x3),
           Text(
-            v.aboveOwnUsual
+            // Null while there are too few older nights to compare against:
+            // "stayed inside the range" would describe a range nobody measured.
+            v.aboveOwnUsual == null
+                ? (l?.investigateCvhrNoComparisonYet ??
+                    'There aren\'t enough older nights behind your recent '
+                        'ones yet to say whether the heart-rate cycling this '
+                        'screen counts is running higher than usual.')
+                : v.aboveOwnUsual!
                 ? (l?.investigateCvhrAboveUsual(n) ??
                     'Over your most recent nights, the heart-rate cycling '
                         'this screen counts has been running higher than '
@@ -980,6 +1037,41 @@ class _InvestigateState extends State<Investigate> {
             conf == null
                 ? (l?.investigateNotPublished ?? 'not published')
                 : conf.toStringAsFixed(2)),
+      ]),
+    ];
+  }
+
+  // ── stress: the index behind the score, for the day being viewed ──
+  //
+  // The 0–100 score is a log mapping of the Baevsky index clamped at both ends,
+  // so on its own it cannot say WHY it reads 0. The index and its level are the
+  // unclamped facts. Read from the day bundle, not `metric_series`: the SI is
+  // not a stored series.
+  List<Widget> _stressPanels(BuildContext c, InvestigateData d) {
+    final l = AppLocalizations.of(c);
+    final b = d.stress;
+    // The level and the score are readings of the index; with no index there
+    // is nothing for them to explain.
+    final si = b['si'];
+    if (si is! num || !si.isFinite) return const [];
+    String num2(Object? v, int digits) =>
+        v is num && v.isFinite ? displayFixed(v, digits) : '—';
+    final rawLevel = b['level'];
+    // Only the four bands the labels know. An unknown token is absent, not
+    // an untranslated English word in a localized table.
+    final level = rawLevel is String &&
+            const {'low', 'normal', 'elevated', 'high'}.contains(rawLevel)
+        ? rawLevel
+        : null;
+    return [
+      const SizedBox(height: S.x3),
+      MonoTable(l?.investigateStressIndexTitle ?? 'Stress index', [
+        (l?.investigateStressIndexSi ?? 'Index (SI)', displayFixed(si, 2)),
+        (
+          l?.investigateStressLevel ?? 'Level',
+          level == null ? '—' : stressLevelLabel(l, level) ?? level,
+        ),
+        (l?.investigateStressScore ?? 'Score (0–100)', num2(b['score'], 1)),
       ]),
     ];
   }

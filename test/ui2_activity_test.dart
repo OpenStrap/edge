@@ -428,6 +428,24 @@ void main() {
       expect(hero.$1, grouped(volumeLb));
     });
 
+    test('a climb follows the unit setting: feet next to miles, never a '
+        'bare m that reads as miles', () {
+      final r = ActivityResult(_first(Arch.journey),
+          start: _start,
+          duration: const Duration(hours: 1),
+          distanceKm: 5.02,
+          gainM: 120);
+      final imperial = UnitsController.seed(UnitSystem.imperial);
+      final metric = UnitsController.seed(UnitSystem.metric);
+
+      expect(sessionStats(r, imperial), contains(('Elevation', '+394 ft')));
+      expect(sessionStats(r, metric), contains(('Elevation', '+120 m')));
+      expect(shareStats(r, imperial).firstWhere((s) => s.$1 == 'Elevation').$2,
+          '+394 ft');
+      expect(shareHero(r, imperial).$3, '+394 ft elevation');
+      expect(shareHero(r, metric).$3, '+120 m elevation');
+    });
+
     test('a bodyweight-only session has no volume, not zero volume', () {
       final log = StrengthLog([
         LoggedSet('pull_up', 8, at: _start),
@@ -1010,6 +1028,35 @@ void main() {
         }
       });
     }
+
+    testWidgets('imperial: a hike reads its climb in feet under its miles',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(_frame(
+          ChangeNotifierProvider<UnitsController>.value(
+              value: UnitsController.seed(UnitSystem.imperial),
+              child: ActivitySummary(ActivityResult(_first(Arch.journey),
+                  start: _start,
+                  duration: const Duration(hours: 1),
+                  distanceKm: 5.02,
+                  gainM: 120,
+                  lossM: 30,
+                  elevationM: const [100, 160, 220, 190])),
+          ),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('+394 ft climbed'), findsOneWidget);
+      expect(find.textContaining('m climbed'), findsNothing);
+      expect(find.text('+394 ft'), findsWidgets);
+      expect(find.text('−98 ft'), findsOneWidget);
+      expect(find.text('722 ft'), findsOneWidget);
+    });
 
     // ── MT-08 · heat and cold ────────────────────────────────────────────
     //

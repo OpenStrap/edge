@@ -18,7 +18,7 @@ import '../../ble/adapters/_registry.dart'
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../crossday_pipeline.dart' show buildCrossDayBundle;
-import '../derivation_engine.dart' show kAlgoVersion;
+import '../derivation_engine.dart' show DerivationEngine, kAlgoVersion;
 import '../substrate.dart';
 import '../vendor_sleep.dart';
 import 'colmi_inputs.dart';
@@ -1412,7 +1412,12 @@ Map _decode(Object? raw) => raw is String ? jsonDecode(raw) as Map : const {};
 Future<Map> crossDayAsOf(String date) async {
   final stored = _decode((await LocalDb.baseline('crossday'))?['payload_json']);
   final recent = stored['recent'];
+  // Both artifacts read each night on its lived clock relative to the zone
+  // they were built in; read in another zone they move every night by the
+  // difference, so they are served only in the zone they were built in.
+  final zone = DerivationEngine.crossDayZoneStamp();
   if ((stored['algo_version'] as num?)?.toInt() == kAlgoVersion &&
+      stored['zone'] == zone &&
       recent is List && recent.isNotEmpty && recent.last is Map &&
       (recent.last as Map)['date'] == date) {
     return stored;
@@ -1424,7 +1429,8 @@ Future<Map> crossDayAsOf(String date) async {
     final input = jsonDecode(raw);
     if (input is! Map ||
         (input['algo_version'] as num?)?.toInt() != kAlgoVersion ||
-        input['review_revision'] != reviewRevision) {
+        input['review_revision'] != reviewRevision ||
+        input['zone'] != zone) {
       return const <String, dynamic>{};
     }
     final days = <Map<String, dynamic>>[

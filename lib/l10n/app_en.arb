@@ -176,7 +176,7 @@
   "@profileSetupTitle": {
     "description": "Profile setup screen header."
   },
-  "profileSetupBody": "Four numbers change how your data is scored. Leave any of them blank and only the metrics that need it stay unavailable.",
+  "profileSetupBody": "Sex is the one choice you need to make to continue. Age, height and weight change how your data is scored; leave any of them blank and only the metrics that need it stay unavailable.",
   "@profileSetupBody": {
     "description": "Profile setup intro body."
   },
@@ -3700,6 +3700,10 @@
   "@journalComposeAnythingElseLabel": {
     "description": "Label for the free-text journal note field."
   },
+  "journalComposeTalkItThroughWithAi": "Talk it through with AI",
+  "@journalComposeTalkItThroughWithAi": {
+    "description": "Link above the journal note field that opens an AI chat about the day. Shown only when an AI key is configured."
+  },
   "journalComposeAnythingElseHint": "A line about the day.",
   "@journalComposeAnythingElseHint": {
     "description": "Placeholder hint for the free-text journal note field."
@@ -4095,6 +4099,14 @@
   "@nutritionRemoveBody": {
     "description": "Nutrition screen: confirmation sheet body warning the removal cannot be undone"
   },
+  "nutritionSaveFailed": "Not saved — the meal is still here. Try again.",
+  "@nutritionSaveFailed": {
+    "description": "Log food sheet: snackbar when saving a meal fails; the sheet stays open with the input intact"
+  },
+  "nutritionRemoveFailed": "Not removed — the meal is still there. Try again.",
+  "@nutritionRemoveFailed": {
+    "description": "Log food sheet: snackbar when removing a meal fails after the user confirmed"
+  },
   "nutritionNothingToMeasure": "Nothing to measure {label} against yet",
   "@nutritionNothingToMeasure": {
     "description": "Nutrition Goals tab: title shown when a target has no mean to compare against yet",
@@ -4424,6 +4436,15 @@
   "@coachModelHint": {
     "description": "Coach AI settings: placeholder hint in the model search field"
   },
+  "coachModelSelected": "Saving model: {model}",
+  "@coachModelSelected": {
+    "description": "Coach AI settings: line under the model field naming the model Save will store when nothing is typed",
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
   "coachModelLabel": "Model",
   "@coachModelLabel": {
     "description": "Coach AI settings: text field label for searching or typing a model id"
@@ -4674,6 +4695,22 @@
   "investigateStabilityCv": "Stability (CV)",
   "@investigateStabilityCv": {
     "description": "HRV metric label: coefficient of variation stability"
+  },
+  "investigateStressIndexTitle": "Stress index",
+  "@investigateStressIndexTitle": {
+    "description": "Stress Nerd Stats table title: the Baevsky index behind the score"
+  },
+  "investigateStressIndexSi": "Index (SI)",
+  "@investigateStressIndexSi": {
+    "description": "Stress Nerd Stats row: the Baevsky stress index for the night"
+  },
+  "investigateStressLevel": "Level",
+  "@investigateStressLevel": {
+    "description": "Stress Nerd Stats row: low / normal / elevated / high band of the index"
+  },
+  "investigateStressScore": "Score (0–100)",
+  "@investigateStressScore": {
+    "description": "Stress Nerd Stats row: the 0-100 score derived from the index"
   },
   "investigateFrequencyDomain": "Frequency domain",
   "@investigateFrequencyDomain": {
@@ -4978,6 +5015,10 @@
         "type": "int"
       }
     }
+  },
+  "investigateCvhrNoComparisonYet": "There aren't enough older nights behind your recent ones yet to say whether the heart-rate cycling this screen counts is running higher than usual.",
+  "@investigateCvhrNoComparisonYet": {
+    "description": "Sentence: too few older nights exist yet to compare the recent heart-rate cycling against"
   },
   "investigateCvhrInsideUsual": "Over your most recent nights, the heart-rate cycling this screen counts has stayed inside the range of the {n} nights behind it.",
   "@investigateCvhrInsideUsual": {
@@ -5911,7 +5952,7 @@
   "@cycleFromOneMeasuredGap": {
     "description": "Trailing clause of the prediction footnote when only one cycle gap has been measured."
   },
-  "cyclePastEndOfIt": "{days} days past the end of it · ",
+  "cyclePastEndOfIt": "{days, plural, one{1 day past the end of it} other{{days} days past the end of it}} · ",
   "@cyclePastEndOfIt": {
     "description": "Leading clause of the prediction footnote: the predicted window has already passed.",
     "placeholders": {
@@ -5945,7 +5986,7 @@
       }
     }
   },
-  "cycleLeadDaysLate": "{days} days late · ",
+  "cycleLeadDaysLate": "{days, plural, one{1 day late} other{{days} days late}} · ",
   "@cycleLeadDaysLate": {
     "description": "Leading clause used when the single measured-gap prediction is overdue.",
     "placeholders": {
@@ -5958,7 +5999,7 @@
   "@cycleLeadToday": {
     "description": "Leading clause used when the single measured-gap prediction is due today."
   },
-  "cycleLeadInDays": "in {days} days · ",
+  "cycleLeadInDays": "{days, plural, one{in 1 day} other{in {days} days}} · ",
   "@cycleLeadInDays": {
     "description": "Leading clause used when the single measured-gap prediction is still ahead.",
     "placeholders": {
@@ -6310,6 +6351,10 @@
   "healthWhatLabResults": "lab results",
   "@healthWhatLabResults": {
     "description": "Noun 'lab results' plugged into the read-failure title"
+  },
+  "cycleWhatCycleData": "cycle data",
+  "@cycleWhatCycleData": {
+    "description": "Noun 'cycle data' plugged into the read-failure title on the Cycle tab"
   },
   "healthMeasuresUnit": "measures",
   "@healthMeasuresUnit": {
@@ -7320,6 +7365,24 @@
   "@homeLoadFailedBody": {
     "description": "Body of the card shown when today's data failed to load from the database."
   },
+  "homeDayLoadFailedTitle": "{day} could not be read",
+  "@homeDayLoadFailedTitle": {
+    "description": "Title of the card shown on Home when a past day picked with the day switcher failed to load from the database.",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "Wednesday, 15 October"
+      }
+    }
+  },
+  "wellnessLoadFailedTitle": "This could not be read",
+  "@wellnessLoadFailedTitle": {
+    "description": "Title of the card shown when the Wellness screen or the sleep plan failed to load from the database."
+  },
+  "wellnessLoadFailedBody": "Reading your stored data failed. Nothing was deleted — this is a read that went wrong, not missing data.",
+  "@wellnessLoadFailedBody": {
+    "description": "Body of the card shown when the Wellness screen or the sleep plan failed to load from the database."
+  },
   "homeTryAgain": "Try again",
   "@homeTryAgain": {
     "description": "Button label to retry loading today's data."
@@ -7391,6 +7454,18 @@
         "example": "Saturday, 20 May"
       }
     }
+  },
+  "homeNoDataThisDayTitle": "No data for this day",
+  "@homeNoDataThisDayTitle": {
+    "description": "Today tab, stepped back to a past day: title shown when that day has nothing recorded."
+  },
+  "homeNoDataThisDayBody": "Nothing was recorded on this day.",
+  "@homeNoDataThisDayBody": {
+    "description": "Today tab, stepped back to a past day: body shown when that day has nothing recorded."
+  },
+  "homeSomeDayDataMissingTitle": "Some of this day's data is missing",
+  "@homeSomeDayDataMissingTitle": {
+    "description": "Today tab, stepped back to a past day: one card listing every missing reading and why."
   },
   "homeReadinessNotScoredTitle": "Recovery is not scored today",
   "@homeReadinessNotScoredTitle": {
@@ -8601,6 +8676,10 @@
   "@sleepDetailTemp": {
     "description": "Short label for skin temperature in the scrub readout card."
   },
+  "sleepDetailTempRelative": "Temp (rel.)",
+  "@sleepDetailTempRelative": {
+    "description": "Short label for the scrub readout card's skin-temperature value, which is a relative sensor deviation from that day's median, not degrees. Keep the 'relative' meaning."
+  },
   "sleepDetailNotMeasuredCap": "Not measured",
   "@sleepDetailNotMeasuredCap": {
     "description": "Capitalized, standalone label shown in place of a stage pill when the instant was not recorded."
@@ -8692,6 +8771,15 @@
   "sleepDetailHigherThanUsual": "higher than usual",
   "@sleepDetailHigherThanUsual": {
     "description": "Verdict phrase: sleep efficiency was higher than usual."
+  },
+  "sleepDetailPointsDelta": "{n} percentage points",
+  "@sleepDetailPointsDelta": {
+    "description": "Verdict prefix: how far sleep efficiency was from the usual median, in percentage points; followed by the lower/higher-than-usual phrase.",
+    "placeholders": {
+      "n": {
+        "type": "String"
+      }
+    }
   },
   "sleepDetailFellAsleep": "Fell asleep",
   "@sleepDetailFellAsleep": {
@@ -10096,6 +10184,15 @@
       }
     }
   },
+  "activitySummaryClimbedFt": "+{ft} ft climbed",
+  "@activitySummaryClimbedFt": {
+    "description": "Hero caption showing feet climbed on a journey/hike session, for imperial units",
+    "placeholders": {
+      "ft": {
+        "type": "int"
+      }
+    }
+  },
   "activitySummaryLapsCaption": "{n, plural, one{{n} lap} other{{n} laps}}",
   "@activitySummaryLapsCaption": {
     "description": "Hero caption showing lap count on a swim/row session",
@@ -11279,6 +11376,10 @@
   "settingsResetPairingKeyWarning": "App data deleted, but a sensor pairing key could not be removed from secure storage. Delete everything again to retry.",
   "@settingsResetPairingKeyWarning": {
     "description": "Warning after reset when a sensor pairing key could not be removed from secure storage"
+  },
+  "settingsResetChatGptWarning": "App data deleted, but the ChatGPT sign-in may not be fully removed. Disconnect OpenStrap in ChatGPT settings to make sure its access is revoked. Deleting everything again only retries removing what is left on this device.",
+  "@settingsResetChatGptWarning": {
+    "description": "Warning after reset when the ChatGPT sign-in may not have been revoked or removed from secure storage"
   },
   "settingsResetBody": "This permanently deletes this app's data on this device:\n\n· every measured day, sleep, workout and route\n· every lab result, meal, medication dose, habit, breathing session and logged set\n· your journal, cycle log and what the app has learned as your usual\n· your profile, every preference and any stored AI key\n· the home-screen widget and every scheduled reminder\n\nExported copies and backups in previous or unavailable folders may remain. Delete those separately.\n\nThe band is unpaired, and it cannot re-send history it has already handed over. Export from Your data first if you want a copy.",
   "@settingsResetBody": {
@@ -12748,6 +12849,15 @@
     "description": "Presentation-only text; interpolated values remain unchanged.",
     "placeholders": {
       "m": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementClimbedExportFeet": "+{ft} ft elevation",
+  "@supplementClimbedExportFeet": {
+    "description": "Share poster caption: elevation gained, in feet for imperial units",
+    "placeholders": {
+      "ft": {
         "type": "String"
       }
     }
@@ -14633,7 +14743,7 @@
   "wearableBandDayWhy": "Your band recorded today, so today's numbers come from it, not from this wearable",
   "wearableWhyEstimateHidden": "Only an estimate exists, and estimates are hidden in Settings",
   "wearableWhyNoNight": "No night stored for this day",
-  "wearableWhyNeedsThreeNights": "Needs three nights",
+  "wearableWhyNeedsThreeNights": "Needs three weekend nights",
   "wearableWhyNoNightHr": "No heart rate during the night",
   "wearableWhySkinTempNotDecoded": "Skin temperature is not decoded yet",
   "wearableWhyNeedsBeats": "Needs beat-to-beat intervals",
@@ -15527,7 +15637,7 @@
   "@settingsReportIssueRowTitle": {
     "description": "Settings row that opens the issue report screen."
   },
-  "settingsReportIssueRowSub": "Sends what you choose to the maintainers, encrypted",
+  "settingsReportIssueRowSub": "Sends what you choose to the maintainers; your data is encrypted, the report details are not",
   "@settingsReportIssueRowSub": {
     "description": "Settings row subtitle for Report an issue."
   },
@@ -15847,6 +15957,58 @@
   "@napsInFuture": {
     "description": "Validation error when a manually logged nap ends after the current time."
   },
+  "journalComposeEntrySaveFailed": "Not saved — your entry is still here. Try again.",
+  "@journalComposeEntrySaveFailed": {
+    "description": "Snackbar shown when saving the day's journal entry fails; the screen stays open with the entry intact."
+  },
+  "journalComposeLoadFailed": "Could not open this day's journal.",
+  "@journalComposeLoadFailed": {
+    "description": "Shown in place of the journal form when reading the day's entry fails."
+  },
+  "journalComposeTryAgain": "Try again",
+  "@journalComposeTryAgain": {
+    "description": "Button that retries loading the journal entry after a failure."
+  },
+  "journalComposeAddToJournal": "Add to journal",
+  "@journalComposeAddToJournal": {
+    "description": "Journal AI chat sheet: primary button that copies the proposed tags and note into the day's entry."
+  },
+  "workoutLoadFailedTitle": "Activity could not be read",
+  "@workoutLoadFailedTitle": {
+    "description": "Title of the card shown on the Activity tab when the sessions failed to load from the database."
+  },
+  "workoutLoadFailedBody": "Your sessions failed to load. Nothing was deleted — this is a read that went wrong, not missing data.",
+  "@workoutLoadFailedBody": {
+    "description": "Body of the card shown on the Activity tab when the sessions failed to load from the database."
+  },
+  "liveHrNoReadingTitle": "No live reading",
+  "liveHrNotPairedWhy": "No band is paired.",
+  "liveHrNotPairedFix": "Pair one from Profile to read live beats.",
+  "liveHrNotConnectedWhy": "Your band is not connected.",
+  "liveHrNotConnectedFix": "Live beats need an open link — the app connects when you open it with the band in range.",
+  "liveHrNoRecentBeatWhy": "No beat in the last {seconds} seconds.",
+  "@liveHrNoRecentBeatWhy": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "liveHrStreamingFix": "The band streams while it is on your wrist and the app is open.",
+  "liveHrTraceCaption": "The last {count} readings — {min}–{max} bpm. Not stored; this is the live stream, not a record of your day.",
+  "@liveHrTraceCaption": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
   "notifRecoveryReadyBody": "Recovery {score}.",
   "@notifRecoveryReadyBody": {
     "description": "OS notification body when the day's recovery score is ready.",
@@ -15954,6 +16116,210 @@
     "description": "OS notification body when a live workout has shown no effort for a while.",
     "placeholders": {
       "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsStepCalibration": "Step calibration",
+  "settingsStepCalibrationSub": "Learns how your strap over- or under-counts your own walking, and corrects it on the phone. Nothing is written to the strap and nothing leaves the device",
+  "stepCalTitle": "Step calibration",
+  "stepCalIntro": "Your strap counts steps off its own motion sensor, and how far off it is depends on you. These routines measure that. Nothing leaves your phone.",
+  "stepCalSlowTitle": "Slow walk",
+  "stepCalSlowSub": "walk slowly, phone in your pocket",
+  "stepCalSlowGuide": "Walk slowly and evenly, strap snug. Count 100 steps yourself.",
+  "stepCalBriskTitle": "Brisk walk",
+  "stepCalBriskSub": "walk at your usual pace",
+  "stepCalBriskGuide": "Walk at your normal pace. Count 100 steps yourself.",
+  "stepCalJogTitle": "Jog",
+  "stepCalJogSub": "jog steadily",
+  "stepCalJogGuide": "Jog steadily. Count 100 steps yourself.",
+  "stepCalEverydayTitle": "Around the house",
+  "stepCalEverydaySub": "tidy up for three minutes, phone in pocket",
+  "stepCalEverydayGuide": "Do ordinary things around the house — carry, lift, tidy — with your phone in your pocket. Three minutes. Do not pace deliberately.",
+  "stepCalCalibrated": "Calibrated — counted {n} times",
+  "stepCalNotCalibrated": "Not calibrated yet",
+  "stepCalBandSeen": "{count, plural, one{step the band has seen} other{steps the band has seen}}",
+  "@stepCalBandSeen": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "stepCalCountYourself": "Count your own steps. Stop when you reach {target}.",
+  "stepCalElapsed": "Keep going — this one is timed.",
+  "stepCalHowManyCounted": "How many steps did you count?",
+  "stepCalFinish": "Done",
+  "stepCalCancel": "Cancel",
+  "stepCalKeepWalking": "Nothing recorded yet — start walking with the strap snug.",
+  "stepCalKeepMoving": "Nothing recorded yet — keep the phone on you and keep moving.",
+  "stepCalNoSignal": "The band recorded nothing during that routine.",
+  "stepCalNoPhoneAccess": "This routine needs your phone’s step counter, and access was not granted. That counter is the reference for household movement.",
+  "stepCalPhoneNotReady": "Your phone’s step counter did not answer. Try again in a moment.",
+  "stepCalNoPhone": "Your phone counted no steps while you did that. Keep it in your pocket next time — it is the reference for household movement.",
+  "stepCalBandQuiet": "The band saw almost no movement. It is worth checking the strap is worn snugly and streaming.",
+  "stepCalTooShort": "That routine was too short to measure against. Walk the full count.",
+  "stepCalMismatch": "The band counted far more than you did. Something other than walking was being picked up.",
+  "stepCalWrongSource": "That routine used the wrong reference.",
+  "stepCalBadData": "That routine produced unreadable sensor data.",
+  "stepCalRatioOutOfRange": "Your count and the band’s are too far apart to use. Repeat the routine and walk the full count.",
+  "stepCalCadenceOutOfRange": "The band could not find a walking rhythm in that routine. Start walking right after you press start and keep a steady pace.",
+  "stepCalRoutineTooShort": "That routine ended before the timer finished. Keep going until it completes.",
+  "stepCalSaveFailed": "Could not save that calibration.",
+  "stepCalDoneGait": "Saved. You counted {count} steps and the band saw {band} steps. From now on this kind of walking is corrected by {pct}%.",
+  "stepCalDoneHousehold": "Saved. Your phone counted {count} steps of the {band} steps the band saw. Household movement is now scaled to {gain}.",
+  "@stepCalCalibrated": {
+    "description": "Badge on a category row: how many supervised routines are behind its gain.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "@stepCalCountYourself": {
+    "description": "Instruction during a gait routine. The wearer counts their own steps; the band's live count is shown only as feedback, because a run that ended on the band's own count would always fit exactly 1.0.",
+    "placeholders": {
+      "target": {
+        "type": "int"
+      }
+    }
+  },
+  "@stepCalDoneGait": {
+    "description": "Result of a gait calibration: what the wearer counted, what the band counted, and the percentage correction now applied. Signed, so a reduction reads as -12%.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "band": {
+        "type": "int"
+      },
+      "pct": {
+        "type": "int"
+      }
+    }
+  },
+  "@stepCalDoneHousehold": {
+    "description": "Result of a household calibration: the phone's count (the reference), the band's count, and the resulting scale as a fixed-2 string.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "band": {
+        "type": "int"
+      },
+      "gain": {
+        "type": "String"
+      }
+    }
+  },
+  "dataStorageGroup": "Storage",
+  "@dataStorageGroup": {
+    "description": "Data screen group title: storage settings and compaction."
+  },
+  "dataKeepHistory": "Keep raw readings",
+  "@dataKeepHistory": {
+    "description": "Row title: how long the compressed raw-reading archive is kept."
+  },
+  "dataKeepHistorySub": "A compressed copy of each day's second-by-second readings, kept after the app clears them. A day older than this keeps its scores but can't be re-scored when scoring improves",
+  "@dataKeepHistorySub": {
+    "description": "Row sub for the archive window setting."
+  },
+  "dataKeepDays": "{days} days",
+  "@dataKeepDays": {
+    "description": "Archive window value: a number of days.",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 year",
+  "@dataKeepYear": {
+    "description": "Archive window value: one year."
+  },
+  "dataKeepForever": "Forever",
+  "@dataKeepForever": {
+    "description": "Archive window value: never delete."
+  },
+  "dataKeepShorterTitle": "Keep {window} of raw readings?",
+  "@dataKeepShorterTitle": {
+    "description": "Confirm title when the archive window is shortened.",
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "Readings more than about {window} before your latest one are deleted now. Those days keep their scores, but can't be re-scored after future updates.",
+  "@dataKeepShorterBody": {
+    "description": "Confirm body when the archive window is shortened.",
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "Delete older readings",
+  "@dataKeepShorterConfirm": {
+    "description": "Confirm button: shorten the window and delete older archive."
+  },
+  "dataKeepShorterCancel": "Keep them",
+  "@dataKeepShorterCancel": {
+    "description": "Cancel button: keep the current window."
+  },
+  "dataCompact": "Compact database",
+  "@dataCompact": {
+    "description": "Row title: compact the database file."
+  },
+  "dataCompactSub": "Clears what the settings above no longer keep, then gives the unused space back to the phone. Needs free space of about twice the database's size",
+  "@dataCompactSub": {
+    "description": "Row sub for Compact database."
+  },
+  "dataCompactPruning": "Clearing old data…",
+  "@dataCompactPruning": {
+    "description": "Progress line while old data is cleared before compaction."
+  },
+  "dataCompactVacuuming": "Compacting…",
+  "@dataCompactVacuuming": {
+    "description": "Progress line while the database file is rewritten."
+  },
+  "dataCompactFreed": "Freed {freed} MB. The database is now {size} MB.",
+  "@dataCompactFreed": {
+    "description": "Compaction result: megabytes freed and the new size.",
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "Old data was cleared, but compacting needs {need} MB free and the phone has {free} MB.",
+  "@dataCompactNoSpace": {
+    "description": "Compaction refused: not enough free storage.",
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "Old data was cleared, but the phone's free space couldn't be read, so the file was not compacted.",
+  "@dataCompactUnknownSpace": {
+    "description": "Compaction refused: free storage could not be read."
+  },
+  "dataCompactBusy": "A sync or a live session is running. Try again once it's done.",
+  "@dataCompactBusy": {
+    "description": "Compaction refused: a sync or session is running."
+  },
+  "dataSizeMb": "{mb} MB",
+  "@dataSizeMb": {
+    "description": "A size in megabytes, shown as the row value.",
+    "placeholders": {
+      "mb": {
         "type": "int"
       }
     }
