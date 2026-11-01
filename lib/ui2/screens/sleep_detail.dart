@@ -694,6 +694,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       final nav = _d ?? _lastGood ?? d;
       final shown = _day ?? nav.latestDay ?? nav.day;
       return _frame(c, title, [
+        disclaimer,
         ...dayNavRow(shown, nav.days, _goDay),
         const SizedBox(height: S.x2),
         StatusCard(
