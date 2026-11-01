@@ -8878,6 +8878,7 @@ class BleEngine {
             imuFresh: _imuFresh && !gen5,
             imuDirty: _imuDirty,
             hrDirty: _hrDirty,
+            holdImuOn: _offloadActive && !gen5,
           );
           final generation = _linkGeneration;
           if (step == null) {
@@ -9239,6 +9240,8 @@ class BleEngine {
     // An offload is the one thing that genuinely needs the fast interval; as
     // soon as it ends the link steps back down (issue #200).
     unawaited(_applyLinkPriority());
+    // A gen4 IMU arm held for the drain ([nextLiveStreamStep]) goes out now.
+    if (!active) unawaited(_reconcileLive());
     // This is a CALLER-SUPPLIED hook (UI state plumbing), called synchronously
     // from _enqueueOffloadFrame BEFORE it kicks off _drainOffloadFrames — a
     // throw here must never abort the frame from reaching the drain queue.

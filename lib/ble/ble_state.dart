@@ -2167,16 +2167,24 @@ enum LiveStreamStep {
 /// gen4 bundle can be half-applied). Dirty ALWAYS replays the newest desired
 /// direction before convergence, even when nothing is desired: a dirty OFF
 /// must be cleaned up, unlike a fresh one.
+///
+/// [holdImuOn] — a history offload is running on gen4. Arming the bundle
+/// mid-burst silences the strap: the burst stops, the 60 s idle watchdog
+/// aborts it and the drain restarts. Only the ON is held; the caller
+/// re-runs the reconcile when the offload ends.
 LiveStreamStep? nextLiveStreamStep({
   required LiveStreamIntent applied,
   required LiveStreamIntent desired,
   bool imuFresh = false,
   bool imuDirty = false,
   bool hrDirty = false,
+  bool holdImuOn = false,
 }) {
   final replayImu = imuDirty || (imuFresh && desired.any);
   if (desired.hr && (!applied.hr || hrDirty)) return LiveStreamStep.hrOn;
-  if (desired.imu && (!applied.imu || replayImu)) return LiveStreamStep.imuOn;
+  if (desired.imu && (!applied.imu || replayImu) && !holdImuOn) {
+    return LiveStreamStep.imuOn;
+  }
   if (!desired.imu && (applied.imu || replayImu)) return LiveStreamStep.imuOff;
   if (!desired.hr && (applied.hr || hrDirty)) return LiveStreamStep.hrOff;
   return null;
