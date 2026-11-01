@@ -10,7 +10,6 @@ ScalePresenceWatcher _w({
   required Future<String?> Function() hear,
   required List<String> synced,
   Duration cooldown = const Duration(seconds: 5),
-  bool Function()? bandWaiting,
 }) =>
     ScalePresenceWatcher(
       pairedScales: () async => paired,
@@ -19,7 +18,6 @@ ScalePresenceWatcher _w({
       window: _ms,
       gap: _ms,
       cooldown: cooldown,
-      bandWaiting: bandWaiting,
     );
 
 void main() {
@@ -80,19 +78,46 @@ void main() {
     expect(scans, 1);
   });
 
-  test('a band waiting to reconnect: no scale scan at all', () async {
+  test('a start() while a stopped loop is still draining restarts it',
+      () async {
     var scans = 0;
     final w = _w(
         paired: {'aa:bb': 'miscale_bc'},
         hear: () async {
           scans++;
-          return 'aa:bb';
+          await Future<void>.delayed(const Duration(milliseconds: 40));
+          return null;
         },
-        synced: [],
-        bandWaiting: () => true);
+        synced: []);
     w.start();
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    final stopped = w.stop();
+    w.start(); // the old scan is still in flight
+    await stopped;
+    final before = scans;
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    expect(scans, greaterThan(before));
     await w.stop();
-    expect(scans, 0);
+  });
+
+  test('stop() cancels a pending restart', () async {
+    var scans = 0;
+    final w = _w(
+        paired: {'aa:bb': 'miscale_bc'},
+        hear: () async {
+          scans++;
+          await Future<void>.delayed(const Duration(milliseconds: 40));
+          return null;
+        },
+        synced: []);
+    w.start();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    final stopped = w.stop();
+    w.start();
+    await w.stop();
+    await stopped;
+    final after = scans;
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    expect(scans, after);
   });
 }

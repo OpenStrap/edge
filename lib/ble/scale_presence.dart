@@ -9,8 +9,9 @@
 // `SessionLink.sync()` session, which reads the stored history too, so a
 // missed window costs a delay and never a reading.
 //
-// The scan goes through `withScanLock`, so it queues behind a pairing scan or
-// the primary band's instead of racing it. Nothing here connects: the session
+// The scan goes through `withScanLock`, so it queues behind a pairing scan
+// instead of racing it. The band's own reconnect is an OS `autoConnect`, not a
+// scan, so it is not held up by this. Nothing here connects: the session
 // takes its own secondary-link slot.
 //
 // ponytail: fixed duty cycle and a flat [cooldown] after a hit (so a scale
@@ -36,7 +37,6 @@ class ScalePresenceWatcher {
     Future<Map<String, String>> Function()? pairedScales,
     Future<String?> Function(List<String> remoteIds, Duration window)? hear,
     Future<void> Function(String adapterId)? sync,
-    this.bandWaiting,
     this.window = const Duration(seconds: 8),
     this.gap = const Duration(seconds: 20),
     this.cooldown = const Duration(minutes: 3),
@@ -49,25 +49,33 @@ class ScalePresenceWatcher {
   final Future<void> Function(String) _sync;
   final Duration window, gap, cooldown;
 
-  /// True while a paired band is not connected, i.e. its reconnect scan may be
-  /// queued on the scan lock. The cycle is skipped then, so a scale scan can
-  /// never delay the band.
-  final bool Function()? bandWaiting;
-
   bool _stop = true;
+  bool _restartPending = false;
   Future<void>? _loop;
   Completer<void>? _nap;
 
   /// Start watching; a second call while running does nothing.
   void start() {
-    if (_loop != null) return;
+    if (_loop != null) {
+      // Still draining after a stop(): restart once it has ended, otherwise
+      // the watcher would stay dead for the rest of the process.
+      if (_stop) _restartPending = true;
+      return;
+    }
     _stop = false;
-    _loop = _run().whenComplete(() => _loop = null);
+    _loop = _run().whenComplete(() {
+      _loop = null;
+      if (_restartPending) {
+        _restartPending = false;
+        start();
+      }
+    });
   }
 
   /// Stop after the current cycle; completes once the loop has ended.
   Future<void> stop() async {
     _stop = true;
+    _restartPending = false;
     if (_nap case final n? when !n.isCompleted) n.complete();
     await _loop;
   }
@@ -77,7 +85,7 @@ class ScalePresenceWatcher {
       var wait = gap;
       try {
         final scales = await _paired(); // remote id (lower case) -> adapter id
-        if (scales.isNotEmpty && bandWaiting?.call() != true) {
+        if (scales.isNotEmpty) {
           final hit = await _hear(scales.keys.toList(), window);
           if (hit != null && !_stop) {
             await _sync(scales[hit.toLowerCase()]!);
