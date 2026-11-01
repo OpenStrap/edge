@@ -569,11 +569,9 @@ class AppState extends ChangeNotifier {
     // truth for every network call — announcements, OTA, telemetry, import).
     healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
     phoneStepsEnabled = prefs.getBool(_kPhoneSteps) ?? false;
-    // Steps only exist if a real pedometer measured them, so kick the phone
-    // pull early. This is BEST-EFFORT and establishes no ordering: it is
-    // unawaited, so a derive pass can read `live_coverage` while the sync is
-    // still in flight and that day then derives without phone steps. It
-    // self-heals on the next light pass.
+    // Pull early without delaying launch. syncPhoneSteps queues a fresh light
+    // derive AFTER the sensor rows land, including when an earlier band pass
+    // already finished. The screen must not wait for another BLE drain.
     //
     // ROUTINE window only (2 days, ~48 platform round trips). Each hourly
     // bucket is one platform call, so the 7-day backfill window is up to 168 of
@@ -982,6 +980,7 @@ class AppState extends ChangeNotifier {
     try {
       final day = todayLabel();
       final n = await LocalDb.phoneStepsForDay(day);
+      if (_disposed || !phoneStepsEnabled || ResetGate.active) return;
       if (n != phoneStepsToday || day != _phoneStepsDay) {
         phoneStepsToday = n;
         _phoneStepsDay = day;
@@ -992,19 +991,49 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<int>? _phoneStepsSync;
+  int _phoneStepsSyncDays = 0;
+
   /// Pull the last [days] days of phone step counts into `live_coverage`.
   ///
-  /// Idempotent (delete-then-insert per day, scoped to the phone source), so
-  /// calling it repeatedly — on launch, after a sync, from a background pass —
-  /// can never accumulate. Best-effort; never throws.
+  /// Share overlapping reads so a slower, older sensor walk cannot overwrite a
+  /// newer one. A larger explicit backfill waits for the routine read, then
+  /// runs its full window. Queue derivation after the rows land: screens read
+  /// day_result/metric_series, not phoneStepsToday. Best-effort; never throws.
   Future<int> syncPhoneSteps({
     int days = PhonePedometer.routineSyncDays,
   }) async {
+    if (!phoneStepsEnabled || _disposed || ResetGate.active) return 0;
+    final running = _phoneStepsSync;
+    if (running != null) {
+      if (days <= _phoneStepsSyncDays) return running;
+      await running;
+      return syncPhoneSteps(days: days);
+    }
+    _phoneStepsSyncDays = days;
+    final future = _readPhoneSteps(days);
+    _phoneStepsSync = future;
+    try {
+      return await future;
+    } finally {
+      _phoneStepsSync = null;
+      _phoneStepsSyncDays = 0;
+    }
+  }
+
+  Future<int> _readPhoneSteps(int days) async {
     try {
       final r = await _phonePedometer.syncRecent(days: days);
+      if (!phoneStepsEnabled || _disposed || ResetGate.active) return 0;
       phoneStepsLastSyncedDays = r.daysRead;
       phoneStepsLastTotal = r.totalSteps;
       await _refreshPhoneStepsToday();
+      if (!phoneStepsEnabled || _disposed || ResetGate.active) return 0;
+      if (r.daysRead > 0) {
+        // Use the normal durable queue: capture, workout and background holds
+        // still apply, and a read finishing during derive gets a later pass.
+        _deriveScheduler.markStoredData();
+      }
       notifyListeners();
       return r.daysRead;
     } catch (e) {
