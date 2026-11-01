@@ -2008,6 +2008,14 @@ class AppState extends ChangeNotifier {
   bool _disposed = false;
   ScalePresenceWatcher? _scaleWatcher;
 
+  /// Android: start the scale watcher (idempotent). Also called when the app
+  /// resumes, so a process that was launched headless (boot wake) and opened
+  /// later gets it too.
+  void startScaleWatcher() {
+    if (_disposed || !Platform.isAndroid) return;
+    (_scaleWatcher ??= ScalePresenceWatcher()).start();
+  }
+
   /// Central disposal guard.
   ///
   /// Setting `_disposed` and checking it at each await point only covers the
@@ -3057,9 +3065,7 @@ class AppState extends ChangeNotifier {
     // session, and now for one a background pass took.
     SessionLink.onSessionDone = adoptWeighing;
     // Android: hear a paired scale wake up and sync it without a Devices tap.
-    if (!_background && Platform.isAndroid && !_disposed) {
-      (_scaleWatcher ??= ScalePresenceWatcher()).start();
-    }
+    if (!_background) startScaleWatcher();
     // In the background: its re-derive must not hold the shell's launch.
     unawaited(adoptWeighing().catchError(
         (Object e) => debugPrint('[AppState] adoptWeighing failed: $e')));

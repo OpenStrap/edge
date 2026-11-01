@@ -28,12 +28,19 @@ ScalePresenceWatcher _w({
 void main() {
   test('a hit syncs that scale once, then the cooldown holds it back', () async {
     final synced = <String>[];
+    final first = Completer<void>();
     final w = _w(
         paired: {'aa:bb': 'miscale_bc'},
         hear: () async => 'AA:BB',
-        synced: synced);
+        synced: synced,
+        syncFn: (id) async {
+          synced.add(id);
+          if (!first.isCompleted) first.complete();
+        });
     w.start();
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await first.future.timeout(const Duration(seconds: 2));
+    // Many 10 ms gaps pass; the 5 s cooldown must hold every later hit back.
+    await Future<void>.delayed(const Duration(milliseconds: 150));
     await w.stop();
     expect(synced, ['miscale_bc']);
   });
@@ -103,40 +110,55 @@ void main() {
     expect(scans, greaterThan(1));
   });
 
-  test('a start() while a stopped loop is still draining restarts it',
+  test('a start() while a stopped loop is still draining restarts it, every time',
       () async {
-    var scans = 0;
+    var scans = 0, inFlight = 0, maxInFlight = 0;
+    Completer<void>? entered;
     final w = _w(
         paired: {'aa:bb': 'miscale_bc'},
         hear: () async {
           scans++;
-          await Future<void>.delayed(const Duration(milliseconds: 40));
+          inFlight++;
+          if (inFlight > maxInFlight) maxInFlight = inFlight;
+          if (entered?.isCompleted == false) entered!.complete();
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+          inFlight--;
           return null;
         },
         synced: []);
+    entered = Completer<void>();
     w.start();
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-    final stopped = w.stop();
-    w.start(); // the old scan is still in flight
-    await stopped;
-    final before = scans;
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    expect(scans, greaterThan(before));
+    w.start(); // a second start() while running must not add a second loop
+    await entered.future.timeout(const Duration(seconds: 2));
+    // Two stop/start rounds: a restart flag that is never cleared would show
+    // up as a spurious extra loop on the second round.
+    for (var round = 0; round < 2; round++) {
+      final stopped = w.stop();
+      w.start(); // the old scan is still in flight
+      await stopped;
+      final before = scans;
+      entered = Completer<void>();
+      await entered.future.timeout(const Duration(seconds: 2));
+      expect(scans, greaterThan(before), reason: 'round $round restarted');
+    }
     await w.stop();
+    expect(maxInFlight, 1);
   });
 
   test('stop() cancels a pending restart', () async {
     var scans = 0;
+    final started = Completer<void>();
     final w = _w(
         paired: {'aa:bb': 'miscale_bc'},
         hear: () async {
           scans++;
+          if (!started.isCompleted) started.complete();
           await Future<void>.delayed(const Duration(milliseconds: 40));
           return null;
         },
         synced: []);
     w.start();
-    await Future<void>.delayed(const Duration(milliseconds: 10));
+    await started.future.timeout(const Duration(seconds: 2));
     final stopped = w.stop();
     w.start();
     await w.stop();
