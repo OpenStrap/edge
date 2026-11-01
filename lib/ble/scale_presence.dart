@@ -5,7 +5,7 @@
 // only thing that ever synced it on Android was the Devices-page button: the
 // headless pass runs at boot, not on a schedule. So, while the app process
 // lives (its foreground service keeps it), a short low-power scan filtered to
-// the paired scale's address runs every [gap]; a hit runs the normal
+// the paired scale's address scans for [window] and rests [gap] between scans; a hit runs the normal
 // `SessionLink.sync()` session, which reads the stored history too, so a
 // missed window costs a delay and never a reading.
 //
@@ -40,6 +40,7 @@ class ScalePresenceWatcher {
     this.window = const Duration(seconds: 8),
     this.gap = const Duration(seconds: 20),
     this.cooldown = const Duration(minutes: 3),
+    this.syncTimeout = const Duration(minutes: 2),
   })  : _paired = pairedScales ?? _pairedScales,
         _hear = hear ?? _scan,
         _sync = sync ?? _syncSession;
@@ -47,7 +48,7 @@ class ScalePresenceWatcher {
   final Future<Map<String, String>> Function() _paired;
   final Future<String?> Function(List<String>, Duration) _hear;
   final Future<void> Function(String) _sync;
-  final Duration window, gap, cooldown;
+  final Duration window, gap, cooldown, syncTimeout;
 
   bool _stop = true;
   bool _restartPending = false;
@@ -90,7 +91,7 @@ class ScalePresenceWatcher {
         if (scales.isNotEmpty) {
           final hit = await _hear(scales.keys.toList(), window);
           if (hit != null && !_stop) {
-            await _sync(scales[hit.toLowerCase()]!);
+            await _sync(scales[hit.toLowerCase()]!).timeout(syncTimeout);
             wait = cooldown;
           }
         }
@@ -147,8 +148,10 @@ class ScalePresenceWatcher {
           } on TimeoutException {
             // The stop event was lost: end the scan ourselves before the lock
             // is released, and treat it as a quiet cycle (retry at [gap]).
-            await FlutterBluePlus.stopScan().catchError(
-                (Object e) => debugPrint('[scale-watch] stopScan failed: $e'));
+            await FlutterBluePlus.stopScan()
+                .timeout(const Duration(seconds: 3))
+                .catchError((Object e) =>
+                    debugPrint('[scale-watch] stopScan failed: $e'));
           }
         } finally {
           await sub.cancel();

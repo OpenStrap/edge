@@ -1,5 +1,7 @@
 // The scale watcher: a hit syncs the scale once and then rests; no hit, no
 // paired scale, or a failing scan never syncs and never kills the loop.
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/scale_presence.dart';
 
@@ -10,11 +12,14 @@ ScalePresenceWatcher _w({
   required Future<String?> Function() hear,
   required List<String> synced,
   Duration cooldown = const Duration(seconds: 5),
+  Future<void> Function(String)? syncFn,
+  Duration syncTimeout = const Duration(minutes: 2),
 }) =>
     ScalePresenceWatcher(
       pairedScales: () async => paired,
       hear: (ids, window) => hear(),
-      sync: (id) async => synced.add(id),
+      sync: syncFn ?? (id) async => synced.add(id),
+      syncTimeout: syncTimeout,
       window: _ms,
       gap: _ms,
       cooldown: cooldown,
@@ -71,11 +76,31 @@ void main() {
           throw StateError('bluetooth off');
         },
         synced: [],
-        cooldown: const Duration(seconds: 5));
+        cooldown: const Duration(milliseconds: 60));
     w.start();
-    await Future<void>.delayed(const Duration(milliseconds: 150));
+    await Future<void>.delayed(const Duration(milliseconds: 260));
     await w.stop().timeout(const Duration(seconds: 1));
-    expect(scans, 1);
+    // Retried after the cooldown (so the loop is alive), but not every 10 ms
+    // gap (that would be ~25 scans).
+    expect(scans, inInclusiveRange(2, 8));
+  });
+
+  test('a session that never finishes is abandoned, scanning resumes', () async {
+    var scans = 0;
+    final w = _w(
+        paired: {'aa:bb': 'miscale_bc'},
+        hear: () async {
+          scans++;
+          return 'aa:bb';
+        },
+        synced: [],
+        syncFn: (_) => Completer<void>().future, // hangs forever
+        syncTimeout: const Duration(milliseconds: 30),
+        cooldown: const Duration(milliseconds: 40));
+    w.start();
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    await w.stop().timeout(const Duration(seconds: 1));
+    expect(scans, greaterThan(1));
   });
 
   test('a start() while a stopped loop is still draining restarts it',
