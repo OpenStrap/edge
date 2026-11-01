@@ -716,6 +716,9 @@ class OsTextField extends StatelessWidget {
               maxLines: lines,
               minLines: 1,
               keyboardType: keyboard,
+              // iOS number pads have no return key: tapping anywhere else is
+              // the only way to put the keyboard away.
+              onTapOutside: (_) => FocusScope.of(c).unfocus(),
               style: F.body.copyWith(color: p.ink),
               cursorColor: p.on(C.domMind),
               decoration: InputDecoration(
