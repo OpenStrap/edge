@@ -5352,9 +5352,12 @@ class BleEngine {
     }
     final entry = _session?.entry ?? kWhoopGen4;
     final band = entry.wire!;
-    final decoded = _maybeAugmentClockEpoch(
+    final decoded = _maybeAugmentAlarmEcho(
       frame,
-      decodeFrame(frame, profile: band),
+      _maybeAugmentClockEpoch(
+        frame,
+        decodeFrame(frame, profile: band),
+      ),
     );
     // Debug-visibility ONLY (never persisted, never gated on): log the strap's
     // own console text (decoded by protocol's `parseConsoleLog`, wired into
@@ -7499,7 +7502,10 @@ class BleEngine {
       // band never trimming and re-flooding the same chunk forever. On
       // persistent failure bounce the link — the committed data is safe, and
       // the next session's re-delivery is dedup-safe (rows REPLACE by rec_ts).
-      if (!await _writeAckVerified(ack, session, taskGen: taskGen)) {
+      final ackWatch = clock.stopwatch()..start();
+      final ackWritten = await _writeAckVerified(ack, session, taskGen: taskGen);
+      final ackMs = ackWatch.elapsedMilliseconds;
+      if (!ackWritten) {
         // False for one of three reasons: the writes genuinely exhausted, the
         // session died, or the TASK ended under the retries. Only the first is
         // this continuation's to handle — a stale one must not touch the
@@ -7589,43 +7595,54 @@ class BleEngine {
       // over — records were banked and the band may advance.
       _noDurableProgress.trimAcked();
       d.noteBatchAcked(); // ACKed and KEEP listening
-      await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
-        status: 'acknowledged',
-        ackedAt: DateTime.now().millisecondsSinceEpoch,
-        metaPatch: {
-          'last_batch_token': tokenHex,
-          'last_batch_id': m.batchId,
-          'last_batch_records': d.records,
-          'last_ack_batches': d.batches,
-          'strap_history_oldest_ts': _strapHistoryOldestTs,
-          'strap_history_newest_ts': _strapHistoryNewestTs,
-          // Which WHOOP generation this batch came from — records/sessions
-          // vary hugely in richness by generation (and, for gen5, by whether
-          // the R22 deep-buffer opt-in was sent), so downstream diagnostics
-          // need this without reaching into the transport layer.
-          'band_generation': state.generation,
-        },
-      ));
-      // Same event, but a REAL per-chunk row keyed by the token — closes out
-      // whatever ack_failed history this token accumulated above.
-      await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
-        chunkId: 'batch:$tokenHex',
-        kind: 'historical_batch',
-        status: 'acked',
-        ackedAt: DateTime.now().millisecondsSinceEpoch,
-        metaPatch: {
-          'batch_id': m.batchId,
-          // Cumulative for the connection, not this chunk (kept as it was);
-          // the chunk's own counts and record-time range follow.
-          'records': d.records,
-          if (d.lastChunkStats case final c?) ...{
-            'chunk_rows': c.raws,
-            'chunk_archived': c.archives,
-            'chunk_ts_min': ?c.tsMin,
-            'chunk_ts_max': ?c.tsMax,
+      // Both post-ACK diagnostic rows share one transaction and one commit.
+      final postWatch = clock.stopwatch()..start();
+      await _bestEffortLedgerWrite(
+          () => LocalDb.syncLedgerTransaction((txn) async {
+        await LocalDb.upsertSyncLedgerEntry(
+          txn: txn,
+          status: 'acknowledged',
+          ackedAt: DateTime.now().millisecondsSinceEpoch,
+          metaPatch: {
+            'last_batch_token': tokenHex,
+            'last_batch_id': m.batchId,
+            'last_batch_records': d.records,
+            'last_ack_batches': d.batches,
+            'strap_history_oldest_ts': _strapHistoryOldestTs,
+            'strap_history_newest_ts': _strapHistoryNewestTs,
+            // Which WHOOP generation this batch came from — records/sessions
+            // vary hugely in richness by generation (and, for gen5, by whether
+            // the R22 deep-buffer opt-in was sent), so downstream diagnostics
+            // need this without reaching into the transport layer.
+            'band_generation': state.generation,
           },
-        },
-      ));
+        );
+        // Same event, but a REAL per-chunk row keyed by the token — closes out
+        // whatever ack_failed history this token accumulated above.
+        await LocalDb.upsertSyncLedgerEntry(
+          txn: txn,
+          chunkId: 'batch:$tokenHex',
+          kind: 'historical_batch',
+          status: 'acked',
+          ackedAt: DateTime.now().millisecondsSinceEpoch,
+          metaPatch: {
+            'batch_id': m.batchId,
+            // Cumulative for the connection, not this chunk (kept as it was);
+            // the chunk's own counts and record-time range follow.
+            'records': d.records,
+            if (d.lastChunkStats case final c?) ...{
+              'chunk_rows': c.raws,
+              'chunk_archived': c.archives,
+              'chunk_ts_min': ?c.tsMin,
+              'chunk_ts_max': ?c.tsMax,
+            },
+          },
+        );
+      }));
+      final stats = d.lastChunkStats;
+      _log('[perf] sync chunk records=${stats?.raws ?? 0} '
+          'beats=${stats?.beats ?? 0} commit_ms=${stats?.commitMs ?? 0} '
+          'ack_ms=$ackMs post_ms=${postWatch.elapsedMilliseconds}');
       _noteStored(); // a banked batch → schedule a (debounced) derive
     } else if (m.sub == SyncMeta.historyComplete) {
       final d = _drain;
@@ -8503,6 +8520,18 @@ class BleEngine {
     DateTime when, {
     int index = 0,
     List<int>? haptics,
+  }) async =>
+      (await armAlarm(when, index: index, haptics: haptics)).armed;
+
+  /// [setAlarm], plus whether the reply echoed exactly the wake time we sent
+  /// (strap frame): the strap itself reported what it stored, so the arm is
+  /// confirmed without waiting for event 56. Returned per call, not kept on
+  /// the engine, so an arm that gets no reply can never inherit another
+  /// arm's echo.
+  Future<({DateTime? armed, bool echoed})> armAlarm(
+    DateTime when, {
+    int index = 0,
+    List<int>? haptics,
   }) async {
     final isGen5 = _session?.band.isGen5 ?? false;
     if (isGen5) {
@@ -8547,7 +8576,7 @@ class BleEngine {
       '${isGen5 && payload.length >= 2 ? 'idx=${payload[1]} ' : ''}'
       'write=${out.written ? 'ok' : 'FAILED'}',
     );
-    if (!out.written) return null;
+    if (!out.written) return (armed: null, echoed: false);
     // Worst case here is the awaiter's single 5 s timeout, applied once, with
     // no resend — arming is a user-facing action, not a background poll, and a
     // duplicate SET after a slow-but-successful one would rewrite the strap's
@@ -8557,22 +8586,32 @@ class BleEngine {
       _log('[ALARM] arm UNCONFIRMED — no correlated SET_ALARM_TIME reply. '
           'Treating the write as the arm (the strap may not echo the '
           'originating sequence); verify with getAlarm().');
-      return when;
+      return (armed: when, echoed: false);
     }
     final code = (resp.fields['alarm_status'] as num?)?.toInt();
     final name = resp.fields['alarm_status_name'] as String?;
+    final echo = (resp.fields['alarm_echo_epoch'] as num?)?.toInt();
+    // With an echoed epoch the "status" byte is that epoch's low byte, not a
+    // status: a wake time ending in 0x02..0x04/0x0a/0x0b would read as a
+    // refusal.
     final rejected = resp.failed ||
         resp.unsupported ||
-        (code != null && AlarmStatus.isInputRejection(code));
+        (echo == null && code != null && AlarmStatus.isInputRejection(code));
     if (rejected) {
       _log('[ALARM] arm REJECTED by the strap — result=${resp.status} '
           'alarm_status=$code ($name). NOT recording an alarm: there is '
           'nothing armed on the band.');
-      return null;
+      return (armed: null, echoed: false);
     }
     _log('[ALARM] arm accepted — result=${resp.status} '
         'alarm_status=${code ?? 'absent'} (${name ?? 'no status byte'}).');
-    return when;
+    final armSec = armWhen.millisecondsSinceEpoch ~/ 1000;
+    final echoed = echo == armSec;
+    if (echo != null && !echoed) {
+      _log('[ALARM] strap echoed wake time $echo, sent $armSec — not '
+          'treating the reply as a confirmation.');
+    }
+    return (armed: when, echoed: echoed);
   }
 
   /// Time-only alarm (SET_ALARM_TIME = 0x42), SHORT 7-byte form:
@@ -9276,6 +9315,23 @@ class BleEngine {
     );
   }
 
+  /// WHOOP 4's SET_ALARM_TIME reply echoes the wake time it stored:
+  /// `[type][seq][0x42][req seq][result][rev=1][u32 epoch LE][u16]` (seen on
+  /// a real strap, 2026-10-22). Publish it as `alarm_echo_epoch`. The shared
+  /// decoder reads inner[6] — this epoch's low byte — as an "alarm status".
+  /// gen5's reply layout is unverified, so it is left alone.
+  Decoded _maybeAugmentAlarmEcho(Frame frame, Decoded decoded) {
+    if (decoded.kind != 'cmd_response' ||
+        decoded.fields['opcode'] != Cmd.setAlarmTime ||
+        decoded.fields['cmd_status'] != 1 ||
+        (_session?.band.isGen5 ?? false)) {
+      return decoded;
+    }
+    final echo = AlarmConfirmation.replyEchoEpoch(frame.inner);
+    if (echo != null) decoded.fields['alarm_echo_epoch'] = echo;
+    return decoded;
+  }
+
   /// Make sure a GET_CLOCK reply always carries a `clock_epoch` — INCLUDING an
   /// implausible one.
   ///
@@ -9389,7 +9445,8 @@ class DrainController {
 
   /// What the last token commit banked: rows, archived frames and the range of
   /// record times. Written to that chunk's ledger row when it is ACKed.
-  ({int raws, int archives, int? tsMin, int? tsMax})? lastChunkStats;
+  ({int raws, int archives, int? tsMin, int? tsMax, int beats, int commitMs})?
+      lastChunkStats;
   int recordsThisOffload = 0; // since the last HISTORY_COMPLETE / rearm
   int batches = 0; // total this connection
   // Since the last [startFreshTask] — what [awaitComplete]'s report carries.
@@ -9893,6 +9950,7 @@ class DrainController {
     _samples.clear();
     _archives.clear();
     _ecgRaw.clear();
+    var commitMs = 0;
     try {
       // Defense in depth (constructor already rejects onRecordsBatch-only):
       // never report durable success for buffered content without onCommit.
@@ -9908,15 +9966,19 @@ class DrainController {
             'archives=${archives.length}, token=${tokenHex != null})',
           );
         }
+        final commitWatch = clock.stopwatch()..start();
         await commit(raws, samples, tokenHex,
             archives: archives, ecgRawPackets: ecgRaw);
+        commitMs = commitWatch.elapsedMilliseconds;
       }
       if (tokenHex != null) {
         // What this chunk actually banked, and the record times it carried
         // (#450: a chunk whose times sit far behind the stored edge is a band
         // clock that moved, which the per-chunk ledger row then shows).
         int? lo, hi;
+        var beats = 0;
         for (final x in samples) {
+          beats += x?.rrIntervalsMs.length ?? 0;
           final t = x?.tsEpoch;
           if (t == null || t <= 0) continue;
           if (lo == null || t < lo) lo = t;
@@ -9927,6 +9989,8 @@ class DrainController {
           archives: archives.length,
           tsMin: lo,
           tsMax: hi,
+          beats: beats,
+          commitMs: commitMs,
         );
         _burstFlushedDurable = 0;
         _burstFlushedGateDrops = 0;

@@ -235,7 +235,7 @@ void main() {
       'efficiency_awakenings': 'ours',
       'sleep_stages': 'device',
       'naps': 'unavailable',
-      'sleep_debt_need_sri': 'ours',
+      'sleep_debt_need_sri': 'unavailable',
       'resting_hr': 'ours',
       'nadir_dip': 'ours',
       'hrv': 'ours',
@@ -299,7 +299,9 @@ void main() {
         closeTo(100 * _truth.tstMin / night, 0.5));
     expect((v('sleep_stages') - _truth.deepMin).abs(), lessThanOrEqualTo(1),
         reason: "the ring's deep minutes, at 30-second epochs");
-    expect(v('sleep_debt_need_sri'), inInclusiveRange(0, 2));
+    // Four nights hold two weekend nights, and a sleep need is a p75 of at
+    // least three of them, so the debt says what it is waiting for instead.
+    expect(cells['sleep_debt_need_sri']!['reason'], Why.needsThreeNights.name);
     final xm = await crossDayAsOf(_dayId);
     expect(((xm['regularity'] as Map)['value'] as Map)['sri'], 100);
 

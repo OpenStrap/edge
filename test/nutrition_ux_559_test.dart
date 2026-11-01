@@ -219,4 +219,38 @@ void main() {
     expect(find.text('45 g'), findsOneWidget);
     expect(find.text('75 g to go'), findsOneWidget);
   });
+
+  // A failed write used to be rethrown into a fire-and-forget onTap: it only
+  // reached the global error log, the sheet sat there unchanged, and a save
+  // that never happened looked like one that did.
+  testWidgets('a meal that fails to save says so and keeps the sheet open',
+      (t) async {
+    await _pump(t, const LogFoodSheet(meal: 'lunch'));
+    await t.runAsync(() => db.execute('DROP TABLE food_entry'));
+
+    await t.tap(find.text('I ate lunch'));
+    await _settle(t);
+
+    expect(find.text('Not saved — the meal is still here. Try again.'),
+        findsOneWidget);
+    expect(find.byType(LogFoodSheet), findsOneWidget);
+  });
+
+  testWidgets('a meal that fails to remove says so and keeps the sheet open',
+      (t) async {
+    final e = _e('f1', 'Chocolate bar', kcal: 120);
+    await t.runAsync(() => NutritionDb.put(db, e));
+    await _pump(t, LogFoodSheet(entry: e));
+    await t.runAsync(() => db.execute('DROP TABLE food_entry'));
+
+    await t.ensureVisible(find.text('Remove this entry'));
+    await t.tap(find.text('Remove this entry'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Remove'));
+    await _settle(t);
+
+    expect(find.text('Not removed — the meal is still there. Try again.'),
+        findsOneWidget);
+    expect(find.byType(LogFoodSheet), findsOneWidget);
+  });
 }

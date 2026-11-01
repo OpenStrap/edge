@@ -21,6 +21,7 @@ import '../../coach/coach_config.dart';
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart';
+import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
@@ -51,6 +52,7 @@ class _JournalComposeState extends State<JournalCompose> {
   Map<String, JournalMetricValue> _loadedValues = const {};
   Set<String> _loadedTags = const {};
   bool _loading = true;
+  bool _loadFailed = false;
   bool _saving = false;
 
   @override
@@ -71,9 +73,24 @@ class _JournalComposeState extends State<JournalCompose> {
       setState(() => _loading = false);
       return;
     }
-    final specs = await repo.getJournalFields();
-    final values = await repo.getJournalMetrics(_date);
-    final entries = await repo.getJournal(range: '30d');
+    final List<JournalFieldSpec> specs;
+    final Map<String, JournalMetricValue> values;
+    final List<Map<String, dynamic>> entries;
+    try {
+      specs = await repo.getJournalFields();
+      values = await repo.getJournalMetrics(_date);
+      entries = await repo.getJournal(range: '30d');
+    } catch (_) {
+      // A locked or swapped-out database used to leave the form on its
+      // spinner for good. Say so and offer a retry instead.
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadFailed = true;
+        });
+      }
+      return;
+    }
     Map<String, dynamic>? today;
     for (final e in entries) {
       if (e['date'] == _date) today = e;
@@ -87,6 +104,7 @@ class _JournalComposeState extends State<JournalCompose> {
       _loadedTags = {..._tags};
       _note.text = (today?['note'] as String?) ?? '';
       _loading = false;
+      _loadFailed = false;
     });
   }
 
@@ -207,6 +225,31 @@ class _JournalComposeState extends State<JournalCompose> {
     final repo = context.read<AppState>().repo;
     if (repo == null) return;
     setState(() => _saving = true);
+    try {
+      await _write(repo);
+    } catch (_) {
+      // Any throw here used to escape unhandled and leave Save spinning with
+      // no message. The form keeps the user's edits so a retry writes them;
+      // the retry re-reads the day, so metrics a failed run already wrote are
+      // not doubled.
+      if (!mounted) return;
+      setState(() => _saving = false);
+      final l = AppLocalizations.of(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(l?.journalComposeEntrySaveFailed ??
+                'Not saved — your entry is still here. Try again.')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    // Today's "How was today?" is already armed; a rated day moves it to
+    // tomorrow, and only a re-arm does that.
+    unawaited(context.read<AppState>().refreshAiReminders());
+    Navigator.of(context).pop(true);
+  }
+
+  Future<void> _write(LocalRepository repo) async {
     // Both writes REPLACE the day, and the strap's double-tap (a glass of
     // water, a moment tag) writes the same day while this screen is open.
     // Re-read and lay only this screen's own edits over it, or Save puts the
@@ -232,11 +275,6 @@ class _JournalComposeState extends State<JournalCompose> {
       ..removeAll(_loadedTags.difference(_tags))
       ..addAll(_tags);
     await repo.postJournal(_date, tags.toList(), _note.text.trim());
-    if (!mounted) return;
-    // Today's "How was today?" is already armed; a rated day moves it to
-    // tomorrow, and only a re-arm does that.
-    unawaited(context.read<AppState>().refreshAiReminders());
-    Navigator.of(context).pop(true);
   }
 
   @override
@@ -253,6 +291,35 @@ class _JournalComposeState extends State<JournalCompose> {
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
+                  : _loadFailed
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(S.x6),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              l?.journalComposeLoadFailed ??
+                                  "Could not open this day's journal.",
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: S.x4),
+                            BigButton(
+                              l?.journalComposeTryAgain ?? 'Try again',
+                              icon: LucideIcons.refreshCw,
+                              color: C.domMind,
+                              onTap: () {
+                                setState(() {
+                                  _loading = true;
+                                  _loadFailed = false;
+                                });
+                                _load();
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
                   : ListView(
                       padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x8),
                       children: [
@@ -357,9 +424,8 @@ class _JournalComposeState extends State<JournalCompose> {
                                       size: 16, color: p.on(C.domMind)),
                                   const SizedBox(width: S.x1),
                                   Text(
-                                    // Not localized yet — a new entry point,
-                                    // not a copy pass over the whole screen.
-                                    'Talk it through with AI',
+                                    l?.journalComposeTalkItThroughWithAi ??
+                                        'Talk it through with AI',
                                     style: F.over
                                         .copyWith(color: p.on(C.domMind)),
                                   ),
@@ -1183,6 +1249,8 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
                     const SizedBox(width: S.x2),
                     Pressable(
                       onTap: _busy ? null : () => unawaited(_send()),
+                      semanticLabel:
+                          AppLocalizations.of(c)?.coachSendLabel ?? 'Send',
                       child: Container(
                         width: 44,
                         height: 44,
@@ -1207,7 +1275,8 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x4),
                 child: BigButton(
-                  'Add to journal',
+                  AppLocalizations.of(c)?.journalComposeAddToJournal ??
+                      'Add to journal',
                   icon: LucideIcons.check,
                   color: C.domMind,
                   onTap: last == null

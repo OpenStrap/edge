@@ -142,6 +142,35 @@ void main() {
       expect(find.text('Finishing up'), findsNothing);
     });
 
+    // A withheld rollup empties the breakdown while the headline still scores
+    // off day_result. "Takes about two weeks of nights" is then the wrong
+    // reason, under a number that proves the nights exist.
+    testWidgets('withheld rollup: the breakdown says why, not cold start',
+        (t) async {
+      await pumpDetail(
+          t,
+          const ReadinessData(
+              head: {'recovery_state': 'final', 'recovery': 62},
+              readiness: Metric(value: 62, confidence: .8),
+              insightsStale: {'kind': 'algo_version'}));
+      await t.pumpAndSettle();
+      expect(find.text('No breakdown to show'), findsOneWidget);
+      expect(find.textContaining('changed in the last update'), findsOneWidget);
+      expect(find.text('No breakdown yet'), findsNothing);
+      expect(find.textContaining('two weeks of nights'), findsNothing);
+    });
+
+    testWidgets('no withheld rollup: the cold-start card stays', (t) async {
+      await pumpDetail(
+          t,
+          const ReadinessData(
+              head: {'recovery_state': 'final', 'recovery': 62},
+              readiness: Metric(value: 62, confidence: .8)));
+      await t.pumpAndSettle();
+      expect(find.text('No breakdown yet'), findsOneWidget);
+      expect(find.text('No breakdown to show'), findsNothing);
+    });
+
     test('the shared line (Health reads it too) per state', () {
       expect(recoveryStateLine({'recovery_state': 'night_in_progress'}, null),
           'Sleeping…');

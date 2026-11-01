@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../compute/manual_session.dart'
+    show ManualWindowErrorMessage, ManualWindowException;
 import '../../compute/nap_edits.dart';
 import '../../models/activity_suggestion.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
@@ -77,6 +79,7 @@ class _DetectedActivitiesScreenState extends State<DetectedActivitiesScreen>
     if (_busy) return;
     final repo = repoOf(context);
     if (repo == null) return;
+    final l = AppLocalizations.of(context);
     setState(() => _busy = true);
     String? error;
     try {
@@ -90,8 +93,14 @@ class _DetectedActivitiesScreenState extends State<DetectedActivitiesScreen>
           workoutType: activityByName(s.sport)?.typeKey ?? 'other',
         );
       }
-    } catch (e) {
-      error = e.toString();
+    } on ActivityReviewException catch (e) {
+      error = e.message;
+    } on ManualWindowException catch (e) {
+      // toString() carries the class name; the card shows only the reason.
+      error = e.error.message;
+    } catch (_) {
+      // Anything else (database, health export) has no copy fit for a person.
+      error = l?.logWorkoutCouldNotSave ?? 'Could not save that — try again.';
     }
     if (!mounted) return;
     setState(() => _busy = false);

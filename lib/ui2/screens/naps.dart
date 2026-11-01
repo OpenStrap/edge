@@ -111,6 +111,10 @@ class _NapsScreenState extends State<NapsScreen> {
   bool _busy = false;
   String? _failed;
 
+  /// The last read threw. Shown as a retryable card: uncaught, `_d` stayed
+  /// null and the screen sat on its spinner with no way out.
+  bool _loadFailed = false;
+
   @override
   void initState() {
     super.initState();
@@ -118,18 +122,41 @@ class _NapsScreenState extends State<NapsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+  /// False when a read threw — a busy or locked database is enough. [_edit]
+  /// needs that answer: comparing against a list that was never re-read would
+  /// call a stale screen the engine's verdict.
+  Future<bool> _load() async {
     final repo = repoOf(context);
-    if (repo == null) return;
+    if (repo == null) return true;
     final token = ++_loadToken;
-    final d = await NapsData.load(repo, want: _day);
-    if (mounted && token == _loadToken) setState(() => _d = d);
+    try {
+      final d = await NapsData.load(repo, want: _day);
+      if (mounted && token == _loadToken) {
+        setState(() {
+          _d = d;
+          _loadFailed = false;
+        });
+      }
+      return true;
+    } catch (_) {
+      if (mounted && token == _loadToken) setState(() => _loadFailed = true);
+      return false;
+    }
+  }
+
+  void _retry() {
+    setState(() {
+      _loadFailed = false;
+      _d = null;
+    });
+    _load();
   }
 
   void _goDay(String day) {
     setState(() {
       _day = day;
       _d = null;
+      _loadFailed = false;
     });
     _load();
   }
@@ -159,10 +186,12 @@ class _NapsScreenState extends State<NapsScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-    if (mounted) await _load();
+    final reloaded = mounted && await _load();
     if (!mounted) return;
     final after = _d?.naps.map((n) => n['start']).toList();
-    if (failed != null || '$before' == '$after') {
+    // A reload that threw left `_d` as the pre-edit list, so before == after
+    // says nothing about the edit; the read-failed card covers that case.
+    if (failed != null || (reloaded && '$before' == '$after')) {
       final l = AppLocalizations.of(context);
       setState(() => _failed = failed ??
           l?.napsNotReanalysed ??
@@ -255,6 +284,28 @@ class _NapsScreenState extends State<NapsScreen> {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final d = _d;
+    if (_loadFailed) {
+      return detailScaffold(c, l?.napsTitle ?? 'Naps', [
+        const SizedBox(height: S.x4),
+        StatusCard(
+          l?.wellnessLoadFailedTitle ?? 'This could not be read',
+          l?.wellnessLoadFailedBody ??
+              'Reading your stored data failed. Nothing was deleted — this is '
+                  'a read that went wrong, not missing data.',
+          fix: l?.homeTryAgain ?? 'Try again',
+          icon: LucideIcons.databaseZap,
+          onFix: _retry,
+        ),
+        // An edit can land on disk and then fail its re-read; what the edit
+        // itself said still has to reach the screen.
+        if (_failed != null) ...[
+          const SizedBox(height: S.x3),
+          StatusCard(l?.napsNotAppliedTitle ?? 'That has not been applied',
+              _failed!,
+              icon: LucideIcons.triangleAlert),
+        ],
+      ]);
+    }
     if (d == null) {
       return detailScaffold(c, l?.napsTitle ?? 'Naps', const [
         Padding(

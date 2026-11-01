@@ -125,21 +125,30 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
     super.dispose();
   }
 
-  /// Only what was actually entered. A blank field writes nothing, so the
-  /// dependent metric abstains rather than scoring somebody else's body. The
-  /// fields are typed in the units on their labels and stored in metric.
-  Map<String, dynamic> _fields() => {
-        if (_sex != null) 'sex': _sex,
-        if (Typed.of(_age.text).value case final v?) 'age': v.round(),
-        'height_cm': ?_heightCm(),
-        'weight_kg': ?_weightKg(),
-      };
+  /// Only what was actually entered. A field that opened filled and was
+  /// cleared writes an explicit null: the save merges into the stored
+  /// profile, so leaving it out kept the old value feeding calories and load.
+  /// A field that opened blank and stayed blank writes nothing, so a value
+  /// that arrived meanwhile (a scale weighing in) is not nulled. The fields
+  /// are typed in the units on their labels and stored in metric.
+  Map<String, dynamic> _fields() {
+    final out = <String, dynamic>{if (_sex != null) 'sex': _sex};
+    void put(String key, Object? v) {
+      if (v != null || widget.initial[key] != null) out[key] = v;
+    }
+
+    put('age', Typed.of(_age.text).value?.round());
+    put('height_cm', _heightCm());
+    put('weight_kg', _weightKg());
+    return out;
+  }
 
   /// Continue, unless something typed cannot be read — a typo is not a blank,
   /// and dropping it silently is how a body ends up half-described.
   Future<void> _continue() async {
     final bad = [
-      if (Typed.of(_age.text).bad) 'Age',
+      if (Typed.of(_age.text).bad)
+        AppLocalizations.of(context)?.settingsAgeFieldLabel ?? 'Age',
       if (Typed.of(_height.text).bad) uiText(context, _u.heightLabel),
       if (Typed.of(_weight.text).bad) uiText(context, _u.weightLabel),
     ];
@@ -182,8 +191,10 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
             const SizedBox(height: S.x3),
             Text(
               l?.profileSetupBody ??
-                  'Four numbers change how your data is scored. Leave any of them '
-                      'blank and only the metrics that need it stay unavailable.',
+                  'Sex is the one choice you need to make to continue. Age, '
+                      'height and weight change how your data is scored; leave '
+                      'any of them blank and only the metrics that need it stay '
+                      'unavailable.',
               style: F.body.copyWith(color: p.ink2),
             ),
             const SizedBox(height: S.x6),
@@ -226,6 +237,7 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
               uiText(c, _u.isImperial ? 'in' : 'cm'),
               l?.profileSetupHeightConsequence ??
                     'Without it: stride length, and distance from steps.',
+              decimal: true,
             ),
             _Field(
               _weight,
@@ -233,6 +245,7 @@ class _ProfileSetupViewState extends State<ProfileSetupView> {
               uiText(c, _u.isImperial ? 'lb' : 'kg'),
               l?.profileSetupWeightConsequence ??
                     'Without it: calories and training load.',
+              decimal: true,
             ),
             // Offered to everyone, on by default for a female profile.
             // Changeable any time in Settings; switching it off keeps what
@@ -298,7 +311,12 @@ class _Choice extends StatelessWidget {
 class _Field extends StatelessWidget {
   final TextEditingController controller;
   final String label, unit, consequence;
-  const _Field(this.controller, this.label, this.unit, this.consequence);
+
+  /// Height and weight take a decimal; age does not. A plain number keyboard
+  /// on iOS has no separator key at all, so 72.5 kg could not be typed.
+  final bool decimal;
+  const _Field(this.controller, this.label, this.unit, this.consequence,
+      {this.decimal = false});
 
   @override
   Widget build(BuildContext c) {
@@ -314,7 +332,9 @@ class _Field extends StatelessWidget {
         const SizedBox(height: S.x1),
         TextField(
           controller: controller,
-          keyboardType: TextInputType.number,
+          keyboardType: decimal
+              ? const TextInputType.numberWithOptions(decimal: true)
+              : TextInputType.number,
           style: F.head.copyWith(color: p.ink),
           decoration: InputDecoration(
             hintText: unit,

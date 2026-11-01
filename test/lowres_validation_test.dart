@@ -114,7 +114,7 @@ final Map<String, num? Function(Map day, Map crossDay)> _reference = {
 
 /// The fewest days each banded row must be measured on, per family/method:
 /// today's count less one (24 for the HR rows, 23 on Ultrahuman; readiness
-/// 18, 17 on Ultrahuman; baselines 18; debt 12). A method that starts
+/// 18, 17 on Ultrahuman; baselines 18). A method that starts
 /// abstaining on more days fails here instead of keeping its band on what is
 /// left.
 const Map<String, int> _minDays = {
@@ -125,7 +125,6 @@ const Map<String, int> _minDays = {
   'calories': 22,
   'readiness': 16,
   'baselines_load_illness': 17,
-  'sleep_debt_need_sri': 11,
 };
 
 /// What counts as agreeing with the 1 Hz value, in the row's unit.
