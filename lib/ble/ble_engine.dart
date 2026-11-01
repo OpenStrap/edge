@@ -2987,18 +2987,7 @@ class BleEngine {
           _log('BOND FAILED: $e — encrypted commands will be silently dropped '
               'by the band. Remove the bond in system Bluetooth settings and '
               're-pair.');
-          state.needsRepairGuide = true;
-          state.bondRefusals++;
-          // After a run of consecutive refusals, stop the auto-reconnect loop
-          // (it would otherwise pin the radio + drain the battery on a band that
-          // will never accept the bond) and surface the re-pair guide. A manual
-          // user connect still runs createBond, so a successful re-pair recovers.
-          if (_bondGiveUp.bondRefused()) {
-            state.autoReconnectPaused = true;
-            _log('[RECONNECT] bond-refusal give-up (${_bondGiveUp.consecutive}) '
-                '— pausing auto-reconnect; re-pair required.');
-          }
-          onState(state);
+          _recordBondRefusal();
         }
       }
 
@@ -3068,6 +3057,9 @@ class BleEngine {
       return await _finishConnect(session);
     } catch (e) {
       _log('connect setup failed: $e');
+      if (e is FlutterBluePlusException && isLinkAuthRefusal(e.code)) {
+        _recordBondRefusal();
+      }
       await _failConnect();
       return false;
     }
@@ -3221,6 +3213,9 @@ class BleEngine {
       return ok;
     } catch (e) {
       _log('connect setup failed: $e');
+      if (e is FlutterBluePlusException && isLinkAuthRefusal(e.code)) {
+        _recordBondRefusal();
+      }
       await _failConnect();
       return false;
     }
@@ -3492,19 +3487,7 @@ class BleEngine {
           _log('BOND FAILED: $e — bootstrap stops here (no subscriptions, no '
               'HELLO, no READY). Remove the bond in system Bluetooth settings '
               'and re-pair.');
-          state.needsRepairGuide = true;
-          state.bondRefusals++;
-          // After a run of consecutive refusals, stop the auto-reconnect loop
-          // (it would otherwise pin the radio + drain the battery on a band
-          // that will never accept the bond) and surface the re-pair guide. A
-          // manual user connect still runs the bond, so a successful re-pair
-          // recovers.
-          if (_bondGiveUp.bondRefused()) {
-            state.autoReconnectPaused = true;
-            _log('[RECONNECT] bond-refusal give-up (${_bondGiveUp.consecutive}) '
-                '— pausing auto-reconnect; re-pair required.');
-          }
-          onState(state);
+          _recordBondRefusal();
           await _failConnect();
           return _Gen5ConnectOutcome.failed;
         }
@@ -3544,6 +3527,9 @@ class BleEngine {
         } catch (e) {
           _log('[BOOT gen5] required notification registration failed '
               '($role): $e — connection failed.');
+          if (e is FlutterBluePlusException && isLinkAuthRefusal(e.code)) {
+            _recordBondRefusal();
+          }
           await _failConnect();
           return false;
         }
@@ -3573,6 +3559,9 @@ class BleEngine {
           : _Gen5ConnectOutcome.failed;
     } catch (e) {
       _log('connect setup failed: $e');
+      if (e is FlutterBluePlusException && isLinkAuthRefusal(e.code)) {
+        _recordBondRefusal();
+      }
       await _failConnect();
       return _Gen5ConnectOutcome.failed;
     }
@@ -4790,6 +4779,22 @@ class BleEngine {
     _feedReconnectDetectors(timedOut: timedOut);
   }
 
+  /// One refusal of the phone's encryption key: surface the re-pair guide,
+  /// count it, and after a run of consecutive refusals pause auto-reconnect
+  /// (it would otherwise pin the radio and drain both batteries on a band that
+  /// will never accept the key). A manual connect still runs, so a successful
+  /// re-pair recovers.
+  void _recordBondRefusal() {
+    state.needsRepairGuide = true;
+    state.bondRefusals++;
+    if (_bondGiveUp.bondRefused()) {
+      state.autoReconnectPaused = true;
+      _log('[RECONNECT] bond-refusal give-up (${_bondGiveUp.consecutive}) '
+          '— pausing auto-reconnect; re-pair required.');
+    }
+    onState(state);
+  }
+
   /// A command reply is the direct contradiction of the re-pair guide: the band
   /// decrypted one of our commands and answered it, so encryption is not
   /// blocking traffic and there is nothing to re-pair.
@@ -4811,6 +4816,10 @@ class BleEngine {
     if (!state.needsRepairGuide) return;
     state.needsRepairGuide = false;
     _postBondLoop.reset();
+    // On iOS nothing else ends a refusal streak (there is no explicit bond
+    // step to succeed), so the reply does it here.
+    _bondGiveUp.bondSucceeded();
+    state.bondRefusals = 0;
     onState(state);
     _log('[RECONNECT] band answered a command — clearing the re-pair guide.');
   }

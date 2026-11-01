@@ -226,6 +226,14 @@ class BandStatus {
       condition != BandCondition.disconnected;
 }
 
+/// True when a GATT error [code] means the band will not accept the phone's
+/// encryption key: insufficient authentication (5), authorization (8) or
+/// encryption (15), or an auth failure (137). On iOS there is no explicit bond
+/// step, so a stale or rejected key only ever shows up here, on the first
+/// notification registration.
+bool isLinkAuthRefusal(int? code) =>
+    code == 5 || code == 8 || code == 15 || code == 137;
+
 /// Fold the phone-level blocker and the band's own diagnostic flags into one
 /// state. Pure; [connection] is `DeviceState.connection`.
 ///

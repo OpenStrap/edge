@@ -26,6 +26,8 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'
+    show ErrorPlatform, FlutterBluePlusException;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
@@ -204,6 +206,8 @@ class _Ops implements GattBootstrapOps {
   final bool discoveryFails;
   final bool memfaultPresent;
   final Set<String> failSubscribe;
+  /// What a failed registration throws; a plain exception by default.
+  final Object? subscribeError;
   /// Runs right after a registration succeeds — traffic the band (or another
   /// client's transfer) delivers the moment notifications are on.
   final void Function(String role)? afterSubscribe;
@@ -217,6 +221,7 @@ class _Ops implements GattBootstrapOps {
     this.discoveryFails = false,
     this.memfaultPresent = true,
     this.failSubscribe = const {},
+    this.subscribeError,
     this.afterSubscribe,
   });
 
@@ -258,7 +263,9 @@ class _Ops implements GattBootstrapOps {
   @override
   Future<void> subscribe(String role) async {
     rig.trace.add('sub:$role');
-    if (failSubscribe.contains(role)) throw Exception('CCC write failed');
+    if (failSubscribe.contains(role)) {
+      throw subscribeError ?? Exception('CCC write failed');
+    }
     afterSubscribe?.call(role);
   }
 
@@ -1266,6 +1273,36 @@ void main() {
         expect(rig.ready, isFalse);
         expect(rig.commands, isEmpty, reason: 'no HELLO after a failed CCC');
         expect(rig.logged('required notification registration failed'), isTrue);
+      });
+    });
+
+    test('a registration refused for the phone\'s key is a bond refusal', () {
+      // iOS bonds implicitly, so a stale key only surfaces as an ATT error on
+      // the first registration. Without this the user saw an endless
+      // connect loop and no re-pair guide.
+      fakeAsync((async) {
+        final rig = _Rig()..answerAll();
+        final ops = _Ops(
+          rig,
+          failSubscribe: {'cmd_from'},
+          subscribeError: FlutterBluePlusException(ErrorPlatform.apple,
+              'setNotifyValue', 15, 'Encryption is insufficient.'),
+        );
+        expect(_run(rig, async, ops: ops), isFalse);
+        expect(rig.engine.state.needsRepairGuide, isTrue);
+        expect(rig.engine.state.bondRefusals, 1);
+      });
+    });
+
+    test('a registration failing for any other reason is not', () {
+      fakeAsync((async) {
+        final rig = _Rig()..answerAll();
+        expect(
+          _run(rig, async, ops: _Ops(rig, failSubscribe: {'cmd_from'})),
+          isFalse,
+        );
+        expect(rig.engine.state.needsRepairGuide, isFalse);
+        expect(rig.engine.state.bondRefusals, 0);
       });
     });
 
