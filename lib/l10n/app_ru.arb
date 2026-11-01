@@ -7902,5 +7902,17 @@
         "type": "int"
       }
     }
+  },
+  "sleepDetailMedicalDisclaimer": "Экспериментальный исследовательский алгоритм. Это не медицинское устройство. При нарушениях сна обратитесь к врачу.",
+  "@sleepDetailMedicalDisclaimer": {
+    "description": "Disclaimer shown on the sleep detail screen."
+  },
+  "settingsSleepHmmRowTitle": "Экспериментальное определение стадий сна (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "Исследовательский алгоритм, не медицинское устройство. Выключено по умолчанию; применяется со следующей синхронизации",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }
 }

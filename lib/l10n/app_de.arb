@@ -3470,5 +3470,17 @@
         "type": "int"
       }
     }
+  },
+  "sleepDetailMedicalDisclaimer": "Experimenteller Forschungsalgorithmus. Kein Medizinprodukt. Bei Schlafstörungen einen Arzt konsultieren.",
+  "@sleepDetailMedicalDisclaimer": {
+    "description": "Disclaimer shown on the sleep detail screen."
+  },
+  "settingsSleepHmmRowTitle": "Experimentelles Schlaf-Staging (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "Forschungsalgorithmus, kein Medizinprodukt. Standard aus; gilt ab dem nächsten Sync",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }
 }
