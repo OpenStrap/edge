@@ -2861,5 +2861,17 @@
         "type": "int"
       }
     }
+  },
+  "sleepDetailMedicalDisclaimer": "实验性研究算法。非医疗设备。如有睡眠障碍，请咨询医生。",
+  "@sleepDetailMedicalDisclaimer": {
+    "description": "Disclaimer shown on the sleep detail screen."
+  },
+  "settingsSleepHmmRowTitle": "实验性睡眠分期 (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "研究算法，非医疗设备。默认关闭；下次同步后生效",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }
 }

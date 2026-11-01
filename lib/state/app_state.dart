@@ -309,6 +309,7 @@ class AppState extends ChangeNotifier {
     log: _log,
     background: _background,
     offloadActive: () => _deriveScheduler.offloadActive,
+    useHmmStages: sleepHmmStagesEnabled,
   );
   late final DeriveCoordinator _deriveCoordinator = DeriveCoordinator(
     derive: () => _derive,
@@ -569,6 +570,7 @@ class AppState extends ChangeNotifier {
     // truth for every network call — announcements, OTA, telemetry, import).
     healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
     phoneStepsEnabled = prefs.getBool(_kPhoneSteps) ?? false;
+    sleepHmmStagesEnabled = prefs.getBool(_kSleepHmmStages) ?? false;
     // Steps only exist if a real pedometer measured them, so kick the phone
     // pull early. This is BEST-EFFORT and establishes no ordering: it is
     // unawaited, so a derive pass can read `live_coverage` while the sync is
@@ -791,6 +793,12 @@ class AppState extends ChangeNotifier {
   // switch from callers that never see this class.
   static const String _kHealthSync = kHealthSyncPref;
 
+  /// EXPERIMENTAL, default OFF (PR #628 review): re-stage the sleep window
+  /// with the HMM/Viterbi classifier in the derivation pipeline. Not a medical
+  /// device — the sleep detail screen carries the matching disclaimer.
+  bool sleepHmmStagesEnabled = false;
+  static const String _kSleepHmmStages = 'sleep_hmm_stages';
+
   /// "Apple Health" (iOS) or "Health Connect" (Android).
   String get healthStoreName => HealthExporter.storeName;
   bool get healthIsApple => HealthExporter.isApple;
@@ -817,6 +825,15 @@ class AppState extends ChangeNotifier {
   /// per-app access manually. Re-checks state when they come back.
   Future<void> openHealthConnect() async {
     await _healthExport.openSettings();
+  }
+
+  /// Toggle the experimental HMM sleep staging. Default off; changes take
+  /// effect on the next derivation pass.
+  Future<void> setSleepHmmStages(bool on) async {
+    sleepHmmStagesEnabled = on;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kSleepHmmStages, on);
+    notifyListeners();
   }
 
   /// Toggle continuous export. Enabling requests permission + does a first sync.
@@ -3078,6 +3095,7 @@ class AppState extends ChangeNotifier {
     if (firedSec != null) {
       _alarmFiredAt = DateTime.fromMillisecondsSinceEpoch(firedSec * 1000);
     }
+    _smartWakeFiredForEpoch = alarmPrefs.getInt('smart_wake_fired_epoch');
     // Seed the confirmation machine from what the last session (foreground OR
     // headless — background_sync.dart writes the same two keys) actually
     // learned, so a relaunch doesn't forget a confirmed headless arm and
@@ -4977,6 +4995,10 @@ class AppState extends ChangeNotifier {
   /// The armed epoch (unix sec) a Smart Wake Window early-fire already ran
   /// for, so a re-arm of the SAME occurrence on every 30 s tick does not buzz
   /// the band again on every tick once light sleep is first seen.
+  /// Persisted as `smart_wake_fired_epoch` (loaded in [_init], cleared in
+  /// [_clearArmedAlarmState]) so a process relaunch mid-window — iOS kills
+  /// the app between BG tasks — cannot re-buzz an occurrence that already
+  /// fired.
   int? _smartWakeFiredForEpoch;
 
   /// The journal-derived confounder profile for the current wake window,
@@ -5168,7 +5190,14 @@ class AppState extends ChangeNotifier {
       // Marked fired before the write goes out on purpose: a write that
       // throws must not retry every 30 s for the rest of the window (that
       // would just be repeated buzzing), and the untouched fallback arm
-      // still covers a write that genuinely failed.
+      // still covers a write that genuinely failed. Persisted too, so a
+      // relaunch mid-window does not re-buzz (PR #630 review).
+      unawaited(SharedPreferences.getInstance()
+          .then((p) => p.setInt('smart_wake_fired_epoch', epoch))
+          .catchError((Object e) {
+        _log('[smart-wake] persisting the fired latch failed: $e');
+        return false;
+      }));
       await engine.runAlarm();
       _log('[smart-wake] light sleep detected inside the window — early buzz.');
     } catch (e) {
@@ -5646,6 +5675,7 @@ class AppState extends ChangeNotifier {
         await prefs.remove('alarm_epoch');
         if (_armGen != gen) return;
         await prefs.remove('alarm_epoch_confirmed');
+        await prefs.remove('smart_wake_fired_epoch');
       } catch (e) {
         _log('[alarm] clearing the persisted epoch failed: $e');
       }
