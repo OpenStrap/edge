@@ -33,6 +33,7 @@ import '../coach/coach_db.dart' show CoachDb;
 import '../compute/derivation_engine.dart'
     show
         kAlgoVersion,
+        runCancellableIsolate,
         kOvernightGiveUpSec,
         kPinWakeToleranceSec,
         pinnableNight,
@@ -64,12 +65,20 @@ import 'observation.dart';
 import 'series_codec.dart';
 import 'substrate_archive.dart';
 
+part 'db_input_revisions.dart';
+part 'db_session_ceiling_revisions.dart';
+
 /// The outcome of a database rebuild: why the old file would not open, where it
 /// was parked, and how many rows came back per table.
 typedef DbRebuild = ({
   String cause,
   String quarantinePath,
   Map<String, int> salvaged,
+});
+
+typedef SessionHrReads = ({
+  Map<String, Map<String, num>> stats,
+  Map<String, List<int>> samples,
 });
 
 // ── SUBSTRATE ADMISSION — the one predicate that decides what may become a
@@ -166,7 +175,13 @@ String derivableSourceSql([String col = 'source']) => kDerivableSources.isEmpty
 /// ponytail: on that gap the workout screen and the day disagree; give the
 /// band day the strap's window too (or drop the override there) once the
 /// owner decides whether a strap may fill a band gap.
-List<T> sessionWindowRows<T extends Map<String, Object?>>(List<T> rows) {
+List<T> sessionWindowRows<T extends Map<String, Object?>>(List<T> rows) =>
+    _sessionWindowRowsFor(rows, sensors: LocalDb.sessionSensorSources,
+        wearable: LocalDb.sessionWearableSource);
+
+// Workers receive the flags explicitly; isolate-local statics start empty.
+List<T> _sessionWindowRowsFor<T extends Map<String, Object?>>(
+    List<T> rows, {required Set<String> sensors, required String? wearable}) {
   bool derivable(Object? s) => s == null || kDerivableSources.contains(s);
   List<T> plain() => [
         for (final r in rows)
@@ -177,7 +192,7 @@ List<T> sessionWindowRows<T extends Map<String, Object?>>(List<T> rows) {
   for (final r in rows) {
     final s = r['source'];
     if (s == null) return plain();
-    if (LocalDb.sessionSensorSources.contains(s) && worn(r)) {
+    if (sensors.contains(s) && worn(r)) {
       n[s] = (n[s] ?? 0) + 1;
     }
   }
@@ -195,7 +210,6 @@ List<T> sessionWindowRows<T extends Map<String, Object?>>(List<T> rows) {
     if (lo == null || t < lo) lo = t;
     if (hi == null || t > hi) hi = t;
   }
-  final wearable = LocalDb.sessionWearableSource;
   return [
     for (final r in rows)
       if (r['source'] == owner ||
@@ -479,7 +493,46 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 58;
+  static const int schemaVersion = 60;
+
+  /// In-memory cache identity, advanced after open, wipe or committed import.
+  /// It is local to this isolate; no cache survives a process restart.
+  static int _storeGeneration = 0;
+  static int get storeGeneration => _storeGeneration;
+
+  static void _markStoreReplaced() => _storeGeneration++;
+
+  /// Revisions over every absolute 15-minute bucket intersecting the local
+  /// calendar day. Legacy/missing buckets read zero without a raw-row backfill.
+  /// RR-only days participate, and all devices share these conservative buckets.
+  static Future<({int revisionSum, int revisionMax, int generation})>
+      inputDayFingerprint(String dayId) async {
+    final (lo, hi) = _localDayWindow(dayId);
+    final db = await instance;
+    final generation = storeGeneration;
+    final rows = await db.rawQuery(
+      'SELECT COALESCE(SUM(rev), 0) AS revision_sum, '
+      'COALESCE(MAX(rev), 0) AS revision_max FROM input_rev '
+      'WHERE bucket >= ? AND bucket <= ?',
+      [lo ~/ 900, (hi - 1) ~/ 900],
+    );
+    return (
+      revisionSum: (rows.single['revision_sum'] as num).toInt(),
+      revisionMax: (rows.single['revision_max'] as num).toInt(),
+      generation: generation,
+    );
+  }
+
+  /// Session identity/window writes invalidate ceiling reuse, including an
+  /// identical REPLACE or UPDATE. Derived score writes do not affect it.
+  static Future<int> sessionCeilingRevision() async {
+    final rows = await (await instance).query('session_ceiling_rev');
+    return rows.isEmpty ? 0 : (rows.single['rev'] as num).toInt();
+  }
+
+  @visibleForTesting
+  static Future<void> repairOpenSchemaForTest(Database db) =>
+      _repairOpenSchema(db);
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -540,7 +593,7 @@ class LocalDb {
   static Future<Database> _open() async {
     final dir = await getDatabasesPath();
     final path = p.join(dir, dbName);
-    return openDatabase(
+    final opened = await openDatabase(
       path,
       onConfigure: (db) async {
         // WRITE PERFORMANCE. The default rollback journal (journal_mode=delete)
@@ -1249,6 +1302,16 @@ class LocalDb {
           // A band's own hypnogram (`vendor_staged`). New table only.
           await _createVendorSleepEpoch(db);
         }
+        if (oldV < 59) {
+          // Additive revision counters only: no decoded scan or backfill.
+          // Attach after any earlier rung that rebuilds decoded tables.
+          await _createInputRev(db);
+          await _createSessionCeilingRev(db);
+        }
+        if (oldV < 60) {
+          await _createStoreIdentity(db);
+          await _createDayCheckpoint(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1264,6 +1327,8 @@ class LocalDb {
       },
       version: schemaVersion,
     );
+    _markStoreReplaced();
+    return opened;
   }
 
   static Future<void> _repairOpenSchema(Database db) async {
@@ -1366,11 +1431,75 @@ class LocalDb {
     await _addColumnIfMissing(db, 'device', 'battery_ts', 'INTEGER');
     await _createStepCalibration(db);
     await _ensureLiveStepCalibrationCounterVersion(db);
+    // A decoded-table rebuild above drops its triggers; attach them last.
+    await _createInputRev(db);
+    await _createSessionCeilingRev(db);
+    await _createStoreIdentity(db);
+    await _createDayCheckpoint(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
     await _dropRawStore(db);
   }
+
+  // Stable across opens, unique to this file's current input history. Neither
+  // restore nor salvage imports it: input_rev is local and can repeat on reset.
+  static Future<void> _createStoreIdentity(DatabaseExecutor db) async {
+    await db.execute('CREATE TABLE IF NOT EXISTS store_identity ('
+      'singleton INTEGER PRIMARY KEY CHECK(singleton = 1), id TEXT NOT NULL)');
+    await db.execute('INSERT OR IGNORE INTO store_identity(singleton, id) '
+      'VALUES(1, lower(hex(randomblob(16))))');
+  }
+
+  static Future<String> storeIdentity({DatabaseExecutor? executor}) async =>
+      (await (executor ?? await instance).rawQuery(
+        'SELECT id FROM store_identity WHERE singleton = 1')).single['id'] as String;
+
+  static Future<void> _rotateStoreIdentity(DatabaseExecutor db) async {
+    await db.execute('INSERT OR REPLACE INTO store_identity(singleton, id) '
+      'VALUES(1, lower(hex(randomblob(16))))');
+    await db.delete('day_checkpoint');
+  }
+
+  static Future<void> _createDayCheckpoint(Database db) async {
+    await db.execute('CREATE TABLE IF NOT EXISTS day_checkpoint ('
+      'day_id TEXT NOT NULL, algo_version INTEGER NOT NULL, '
+      'fmt INTEGER NOT NULL, ctx_sig TEXT NOT NULL, cp_rec_ts INTEGER NOT NULL, '
+      'rev_vec BLOB NOT NULL, state BLOB NOT NULL, night_ref TEXT, '
+      'computed_at INTEGER NOT NULL, PRIMARY KEY(day_id, algo_version))');
+  }
+
+  /// Chunk the disposable blob like substrate_archive: a whole night can
+  /// exceed Android's cursor window. A racing replacement fails codec checks.
+  static Future<Map<String, Object?>?> dayCheckpoint(
+      String day, int algorithm, {required int maxBytes}) async {
+    final db = await instance;
+    const where = 'day_id = ? AND algo_version = ?';
+    final rows = await db.rawQuery('SELECT day_id, algo_version, fmt, ctx_sig, '
+      'cp_rec_ts, rev_vec, night_ref, computed_at, length(state) AS state_length '
+      'FROM day_checkpoint WHERE $where', [day, algorithm]);
+    if (rows.isEmpty) return null;
+    final row = Map<String, Object?>.of(rows.single);
+    final length = row.remove('state_length') as int;
+    final bytes = Uint8List(length <= maxBytes ? length : 0);
+    row['state'] = bytes;
+    if (length > maxBytes) return row;
+    for (var off = 0; off < length; off += 128 * 1024) {
+      final parts = await db.rawQuery(
+        'SELECT substr(state, ?, ?) AS part FROM day_checkpoint WHERE $where',
+        [off + 1, 128 * 1024, day, algorithm]);
+      if (parts.isEmpty) return null;
+      final part = parts.single['part'] as Uint8List;
+      if (part.length > length - off) return null;
+      bytes.setRange(off, off + part.length, part);
+    }
+    return row;
+  }
+
+  /// One revision counter per absolute 15-minute input bucket, shared by the
+  /// canonical 1 Hz rows and sparse beats. Triggers cover every write path and
+  /// roll back with the input transaction. No raw rows are read at creation.
+  static Future<void> _createInputRev(Database db) => _ldbCreateInputRev(db);
 
   /// Older WHOOP CSV imports filed the export's absolute skin temp (°C) under
   /// `scalars.skin_temp_z`, which every reader treats as SDs off baseline, so
@@ -5566,6 +5695,10 @@ class LocalDb {
       )
     ''');
   }
+
+  // Schema 59 and every-open repair; no session scan or backfill.
+  static Future<void> _createSessionCeilingRev(Database db) =>
+      _ldbCreateSessionCeilingRev(db);
 
   static Future<void> _createSyncState(DatabaseExecutor db) async {
     await db.execute('''
@@ -11042,6 +11175,9 @@ class LocalDb {
     }
 
     await db.transaction((txn) async {
+      // Scratch prefixes can include an evening owned by another day label.
+      // Clear every copy atomically with deletion so deleted raw stays deleted.
+      await _rotateStoreIdentity(txn);
       // `raw_archive` frames are kept, but a later archive re-drive must not
       // decode them back into a day the user deleted: record the windows.
       final prevRow = await txn.query('compute_freshness',
@@ -11199,7 +11335,9 @@ class LocalDb {
     final db = await instance;
     final rows = await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'table' "
-      "AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata'",
+      "AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata' "
+      // Clear revisions after the decoded/session DELETE triggers have finished.
+      "ORDER BY name IN ('input_rev', 'session_ceiling_rev')",
     );
     var deleted = 0;
     await db.transaction((txn) async {
@@ -11207,7 +11345,9 @@ class LocalDb {
         final t = r['name'];
         if (t is String) deleted += await txn.delete(t);
       }
+      await _rotateStoreIdentity(txn);
     });
+    _markStoreReplaced();
     return deleted;
   }
 
@@ -11588,7 +11728,10 @@ class LocalDb {
   /// file saved mid-move). Every row is rebuilt through [rawArchiveRow], so a
   /// frame already here, or in the backup twice, lands once. Paged on rowid,
   /// like every other table the merge reads. Returns rows offered.
-  static Future<int> _mergeRawArchive(Database src, Database db) async {
+  static Future<int> _mergeRawArchive(Database src, Database db, {
+    required Future<void> Function(Transaction) beforePageCommit,
+    required void Function() onPageCommitted,
+  }) async {
     var copied = 0;
     Future<void> pageFrom(String table, String hexSql) async {
       if (await _objectType(src, table) != 'table') return;
@@ -11607,26 +11750,30 @@ class LocalDb {
         );
         if (page.isEmpty) return;
         after = (page.last['_r'] as num).toInt();
-        final batch = db.batch();
-        for (final r in page) {
-          final hex = r['hex'];
-          if (hex is! String) continue;
-          batch.insert(
-            rawArchiveTable,
-            rawArchiveRow(
-              deviceId: r['device_id'] as String? ?? kPrimaryDeviceId,
-              hex: hex,
-              counter: (r['counter'] as num?)?.toInt(),
-              packetType: (r['packet_type'] as num?)?.toInt() ?? 0,
-              recTs: (r['rec_ts'] as num?)?.toInt(),
-              capturedAt: (r['captured_at'] as num?)?.toInt() ?? 0,
-              reason: r['reason'] as String? ?? 'unknown',
-            ),
-            conflictAlgorithm: ConflictAlgorithm.ignore,
-          );
-          copied++;
-        }
-        await batch.commit(noResult: true);
+        await db.transaction((txn) async {
+          await beforePageCommit(txn);
+          final batch = txn.batch();
+          for (final r in page) {
+            final hex = r['hex'];
+            if (hex is! String) continue;
+            batch.insert(
+              rawArchiveTable,
+              rawArchiveRow(
+                deviceId: r['device_id'] as String? ?? kPrimaryDeviceId,
+                hex: hex,
+                counter: (r['counter'] as num?)?.toInt(),
+                packetType: (r['packet_type'] as num?)?.toInt() ?? 0,
+                recTs: (r['rec_ts'] as num?)?.toInt(),
+                capturedAt: (r['captured_at'] as num?)?.toInt() ?? 0,
+                reason: r['reason'] as String? ?? 'unknown',
+              ),
+              conflictAlgorithm: ConflictAlgorithm.ignore,
+            );
+            copied++;
+          }
+          await batch.commit(noResult: true);
+        });
+        onPageCommitted();
       }
     }
 
@@ -11661,6 +11808,34 @@ class LocalDb {
     String path, {
     List<String>? only,
     bool tolerant = false,
+  }) async {
+    var pageCommitted = false;
+    try {
+      return await _mergeFromDbFileBody(path,
+        only: only,
+        tolerant: tolerant,
+        beforePageCommit: (txn) async {
+          if (!pageCommitted) await _rotateStoreIdentity(txn);
+        },
+        onPageCommitted: () => pageCommitted = true,
+      );
+    } finally {
+      // A later page, source close or follow-up write can fail after a durable
+      // replacement. Invalidate on every such exit, but never on a rolled-back
+      // first page. Keep the flag local so concurrent merges cannot share it.
+      if (pageCommitted) {
+        _markStoreReplaced();
+        await (await instance).delete('day_checkpoint');
+      }
+    }
+  }
+
+  static Future<Map<String, int>> _mergeFromDbFileBody(
+    String path, {
+    List<String>? only,
+    bool tolerant = false,
+    required Future<void> Function(Transaction) beforePageCommit,
+    required void Function() onPageCommitted,
   }) async {
     final db = await instance;
     final src = await openDatabase(path, readOnly: true);
@@ -11934,6 +12109,7 @@ class LocalDb {
         for (final upper in ends) {
           final first = lower == 0;
           await db.transaction((txn) async {
+            await beforePageCommit(txn);
             if (t == 'day_result' && first) {
               // Inside the first chunk's transaction, so a day the engine
               // finalizes while the restore runs is still protected.
@@ -11979,6 +12155,7 @@ class LocalDb {
               await txn.execute('DROP TABLE temp._restore_rr_carried');
             }
           });
+          onPageCommitted();
           lower = upper;
         }
         failed = false;
@@ -12051,7 +12228,9 @@ class LocalDb {
       for (final t in (only ?? tables)) {
         if (t == 'raw_archive') {
           try {
-            counts[t] = await _mergeRawArchive(src, db);
+            counts[t] = await _mergeRawArchive(src, db,
+                beforePageCommit: beforePageCommit,
+                onPageCommitted: onPageCommitted);
           } catch (_) {
             if (!tolerant) rethrow;
             counts[t] = 0;
@@ -12255,6 +12434,9 @@ class LocalDb {
               }
             }
             await db.transaction((txn) async {
+              // Rotate atomically with the first committed page. A killed
+              // process must not leave old scratch valid after partial restore.
+              await beforePageCommit(txn);
               if (t == SubstrateArchive.table) {
                 final r = await SubstrateArchive.restoreRows(
                   txn,
@@ -12562,6 +12744,7 @@ class LocalDb {
               }
               await flush();
             });
+            onPageCommitted();
             // Advance past the last row this page actually delivered. Read the
             // cursor BEFORE dropping the page, and stop on a short page rather
             // than issuing one more query to discover the end.
@@ -14901,13 +15084,38 @@ class LocalDb {
     ];
   }
 
+  @visibleForTesting
+  static bool debugDisableSessionWindowsWorker = false;
+  @visibleForTesting
+  static void Function(String)? debugOnSessionWindowsConstruction;
+
+  // Test forwarding seam for the production combined read.
+  @visibleForTesting
+  static Future<SessionHrReads> sessionHrReadsForTest(int from, int to,
+          {int maxHrCeiling = 0, int minHrFloor = 0}) =>
+      sessionHrReads(from, to,
+          maxHrCeiling: maxHrCeiling, minHrFloor: minHrFloor);
+
+  /// Both HR reads for the workout list. With a sensor enabled, fetch each
+  /// window once and construct its stats and samples together in a worker.
+  static Future<SessionHrReads> sessionHrReads(int from, int to,
+      {int maxHrCeiling = 0, int minHrFloor = 0}) async {
+    if (sessionSensorSources.isEmpty) {
+      return (stats: await _sessionHrStatsSql(from, to, maxHrCeiling, minHrFloor),
+          samples: await _sessionHrSamplesSql(from, to));
+    }
+    return _sessionWindows(from, to, maxHrCeiling, minHrFloor);
+  }
+
   /// Every session in [fromTs, toTs] (epoch SECONDS) with the worn rows of
   /// its window a session read keeps ([sessionWindowRows]), ascending. Only
   /// with a workout sensor flagged on; a session with none is absent, as from
   /// the band-only joins.
-  static Future<Map<String, List<Map<String, Object?>>>> _sessionWindows(
+  static Future<SessionHrReads> _sessionWindows(
     int fromTs,
     int toTs,
+    int maxHrCeiling,
+    int minHrFloor,
   ) async {
     final db = await instance;
     final rows = await db.rawQuery(
@@ -14919,20 +15127,53 @@ class LocalDb {
       'ORDER BY s.id, d.rec_ts ASC',
       [fromTs, toTs],
     );
+    final sensors = {...sessionSensorSources};
+    final wearable = sessionWearableSource;
+    (SessionHrReads, String) construct() => _prepareSessionWindows(
+        rows, sensors, wearable, maxHrCeiling, minHrFloor);
+    final result = debugDisableSessionWindowsWorker
+        ? construct()
+        : await runCancellableIsolate(construct, const Duration(seconds: 30),
+            label: 'session windows');
+    debugOnSessionWindowsConstruction?.call(result.$2);
+    return result.$1;
+  }
+
+  static (SessionHrReads, String) _prepareSessionWindows(
+      List<Map<String, Object?>> rows, Set<String> sensors, String? wearable,
+      int maxHrCeiling, int minHrFloor) {
     final by = <String, List<Map<String, Object?>>>{};
     for (final r in rows) {
       final id = r['id'] as String?;
       if (id != null) (by[id] ??= []).add(r);
     }
-    return {
-      for (final MapEntry(key: id, value: rs) in by.entries)
-        if ([
-          for (final r in sessionWindowRows(rs))
-            if (((r['hr'] as num?) ?? 0) > 0) r,
-        ]
-            case final kept when kept.isNotEmpty)
-          id: kept,
-    };
+    final stats = <String, Map<String, num>>{};
+    final samples = <String, List<int>>{};
+    for (final MapEntry(key: id, value: rs) in by.entries) {
+      final hr = [
+        for (final r in _sessionWindowRowsFor(rs,
+            sensors: sensors, wearable: wearable))
+          if (((r['hr'] as num?) ?? 0) > 0) (r['hr'] as num).toInt(),
+      ];
+      if (hr.isEmpty) continue;
+      samples[id] = hr;
+      final low = [
+        for (final h in hr)
+          if (minHrFloor <= 0 || h >= minHrFloor) h,
+      ];
+      final high = [
+        for (final h in hr)
+          if (maxHrCeiling <= 0 || h <= maxHrCeiling) h,
+      ];
+      stats[id] = <String, num>{
+        'n': hr.length,
+        'avg_hr': hr.fold<int>(0, (a, b) => a + b) / hr.length,
+        'min_hr': low.isEmpty ? 0 : low.reduce((a, b) => a < b ? a : b),
+        'max_hr': high.isEmpty ? 0 : high.reduce((a, b) => a > b ? a : b),
+      };
+    }
+    return ((stats: stats, samples: samples),
+        Isolate.current.debugName ?? 'unnamed');
   }
 
   /// Per-session HR aggregates over the 1 Hz substrate for every session in
@@ -14952,28 +15193,14 @@ class LocalDb {
     int minHrFloor = 0,
   }) async {
     if (sessionSensorSources.isNotEmpty) {
-      return {
-        for (final MapEntry(key: id, value: rs)
-            in (await _sessionWindows(fromTs, toTs)).entries)
-          id: () {
-            final hr = [for (final r in rs) (r['hr'] as num).toInt()];
-            final low = [
-              for (final h in hr)
-                if (minHrFloor <= 0 || h >= minHrFloor) h,
-            ];
-            final high = [
-              for (final h in hr)
-                if (maxHrCeiling <= 0 || h <= maxHrCeiling) h,
-            ];
-            return <String, num>{
-              'n': hr.length,
-              'avg_hr': hr.fold<int>(0, (a, b) => a + b) / hr.length,
-              'min_hr': low.isEmpty ? 0 : low.reduce((a, b) => a < b ? a : b),
-              'max_hr': high.isEmpty ? 0 : high.reduce((a, b) => a > b ? a : b),
-            };
-          }(),
-      };
+      return (await sessionHrReads(fromTs, toTs,
+          maxHrCeiling: maxHrCeiling, minHrFloor: minHrFloor)).stats;
     }
+    return _sessionHrStatsSql(fromTs, toTs, maxHrCeiling, minHrFloor);
+  }
+
+  static Future<Map<String, Map<String, num>>> _sessionHrStatsSql(
+      int fromTs, int toTs, int maxHrCeiling, int minHrFloor) async {
     final db = await instance;
     final ceilClause = maxHrCeiling > 0 ? 'AND d.hr <= $maxHrCeiling ' : '';
     final floorClause = minHrFloor > 0 ? 'AND d.hr >= $minHrFloor ' : '';
@@ -15015,12 +15242,13 @@ class LocalDb {
     int toTs,
   ) async {
     if (sessionSensorSources.isNotEmpty) {
-      return {
-        for (final MapEntry(key: id, value: rs)
-            in (await _sessionWindows(fromTs, toTs)).entries)
-          id: [for (final r in rs) (r['hr'] as num).toInt()],
-      };
+      return (await sessionHrReads(fromTs, toTs)).samples;
     }
+    return _sessionHrSamplesSql(fromTs, toTs);
+  }
+
+  static Future<Map<String, List<int>>> _sessionHrSamplesSql(
+      int fromTs, int toTs) async {
     final db = await instance;
     final rows = await db.rawQuery(
       'SELECT s.id AS id, d.hr AS hr '

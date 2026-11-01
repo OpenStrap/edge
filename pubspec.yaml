@@ -515,7 +515,8 @@ dependencies:
       # analytics main @ 3a7ca34: adds #101 (HRV/readiness/wellness fixes), #100
       # (sleep staging and naps), #97 (stride-periodicity step counter) and #98
       # (a mid-session rest stays inside one workout).
-      ref: 3a7ca34d30233ff11e6c2877083f319a907ccb31
+      # Rebased analytics #99: incremental kernels, RSA v3 and cosinor gate (v120).
+      ref: f8e7d3c478cc59707fde41f3edff7736026573fe
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8
@@ -670,6 +671,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # DB part guards inspect declarations and SQL arguments through the Dart AST.
+  analyzer: ^10.0.1
   test: ^1.25.8
   # no_runtime_font_fetch_test parses pubspec.yaml to assert every family the
   # type scale uses is bundled rather than fetched at runtime.

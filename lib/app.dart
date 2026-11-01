@@ -77,9 +77,15 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   }
 
   @override
+  void didHaveMemoryPressure() {
+    context.read<AppState>().handleMemoryPressure();
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final app = context.read<AppState>();
     if (state == AppLifecycleState.resumed) {
+      app.resumeDerivationRetention();
       // The user may have flipped our notification switch either way in OS
       // Settings while we were backgrounded. Drop the cached authorization
       // decision so the next present/schedule re-reads reality — a denial used

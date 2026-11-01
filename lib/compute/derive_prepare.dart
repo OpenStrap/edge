@@ -6,6 +6,8 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import '../ble/adapters/signals.dart';
 import '../data/coverage_resolver.dart';
 import 'substrate.dart';
+import 'substrate_retention.dart';
+import 'substrate_union.dart';
 import 'vendor_sleep.dart';
 
 class PreparedDerivationDay {
@@ -317,6 +319,9 @@ void derivationPrepareWorker(SendPort mainSendPort) {
   final state = _PrepareAccumulator();
   String? targetDay;
   var mode = 'prepared_day';
+  SubstrateUnionWindow? unionWindow;
+  var loadFrom = 0, loadTo = -1;
+  Map<InputSignal, List<OwnedSpan>> loadOwnership = const {};
   mainSendPort.send(port.sendPort);
 
   void handle(Object? message) {
@@ -347,16 +352,35 @@ void derivationPrepareWorker(SendPort mainSendPort) {
       targetDay = message['target_day']?.toString();
       final cfgMode = message['mode']?.toString();
       if (cfgMode != null && cfgMode.isNotEmpty) mode = cfgMode;
+      state.retain = message['retain'] == true;
+      unionWindow = message['union_window'] as SubstrateUnionWindow?;
+      loadFrom = message['load_from'] as int? ?? 0;
+      loadTo = message['load_to'] as int? ?? -1;
+      loadOwnership = message['ownership'] as Map<InputSignal, List<OwnedSpan>>? ?? const {};
+      return;
+    }
+    if (type == 'seed') {
+      state.seed(message);
       return;
     }
     if (type == 'finish') {
       try {
         final substrate = state.buildSubstrate();
         if (mode == 'substrate') {
+          final extras = state.retainable ? state.retainExtras() : null;
+          final request = unionWindow;
+          final window = request == null || extras == null ? null :
+              cutSubstrateUnion(RetainedSubstrate(version: 0, context: '',
+                revisions: const {}, sub: substrate, extras: extras, cut: loadFrom,
+                from: loadFrom, to: loadTo, ownership: loadOwnership),
+                request.from, request.to, request.ownership,
+                retainMetadata: false)?.sub;
           mainSendPort.send({
             'type': 'result',
             'kind': 'substrate',
             'payload': substrate.toJson(),
+            'retain': ?extras,
+            if (window != null) 'union_window': window.toJson(),
           });
         } else {
           final payload = prepareDerivationPayload(
@@ -408,6 +432,9 @@ PreparedDerivationPayload prepareDerivationPayload(
   SleepWindowOverride? override,
   List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
   List<VendorNight> vendorNights = const [],
+  bool skipUnusedDays = false,
+  ana.CardioRowCache? rowCache,
+  bool recordTargetOnly = false,
 }) {
   if (sub.isEmpty || sub.lastTs == null) {
     return const PreparedDerivationPayload(dataNowSec: 0, days: []);
@@ -415,7 +442,11 @@ PreparedDerivationPayload prepareDerivationPayload(
   final days = <PreparedDerivationDay>[];
   for (final day in calendarDays(
     sub,
+    rowCache: rowCache,
+    recordTargetOnly: recordTargetOnly,
     override: override,
+    targetDay: targetDay,
+    skipUnusedDays: skipUnusedDays,
     priorSleep: priorSleep,
     vendorNights: vendorNights,
   )) {
@@ -470,6 +501,9 @@ SleepSessionCandidate prepareSleepSessionCandidate(
   SleepWindowOverride? override,
   List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
   List<VendorNight> vendorNights = const [],
+  bool skipUnusedDays = false,
+  ana.CardioRowCache? rowCache,
+  bool recordTargetOnly = false,
 }) {
   // An UNCLAIMED device night (our rows saw under half of it) ending today IS
   // the night: above our detection, below the user's word. It never reaches
@@ -513,8 +547,11 @@ SleepSessionCandidate prepareSleepSessionCandidate(
     claimed.add(n);
   }
   final payload = prepareDerivationPayload(sub,
+      rowCache: rowCache,
+      recordTargetOnly: recordTargetOnly,
       targetDay: targetDay,
       override: override,
+      skipUnusedDays: skipUnusedDays,
       priorSleep: priorSleep,
       vendorNights: claimed);
   if (payload.days.isEmpty) return SleepSessionCandidate.absent(targetDay);
@@ -635,10 +672,75 @@ class _PrepareAccumulator {
   /// worker used to hang the whole engine (see [derivationPrepareWorker]).
   static num? _num(Object? v) => v is num ? v : null;
 
+  // Retention is recorded only for decoded loads requested by the engine.
+  bool retain = false;
+  bool _retainBroken = false;
+  bool get retainable => retain && !_retainBroken;
+  final List<int> _rrStart = [];
+  final Map<int, _BucketAcc> _buckets = {};
+  Float64List? _rrTsRaw;
+  final List<List<Object?>> _provenance = [];
+
+  void seed(Map message) {
+    List<int> ints(String k) => message[k] as List<int>;
+    List<double> dbls(String k) => message[k] as List<double>;
+    final ts = ints('ts_sec');
+    final cut = message['cut'] as int;
+    var n = 0;
+    while (n < ts.length && ts[n] < cut) { n++; }
+    final starts = ints('rr_start');
+    final beats = n < ts.length ? starts[n] : dbls('rr_ms').length;
+    void take(List<int> into, String k) => into.addAll(ints(k).getRange(0, n));
+    take(tsSec, 'ts_sec');
+    take(hr, 'hr');
+    take(spo2Red, 'spo2_red');
+    take(spo2Ir, 'spo2_ir');
+    take(skinTemp, 'skin_temp');
+    take(skinContact, 'skin_contact');
+    take(stepCount, 'step_count');
+    take(hrValid, 'hr_valid');
+    take(bandSleepState, 'band_sleep_state');
+    ax.addAll(dbls('ax').getRange(0, n));
+    ay.addAll(dbls('ay').getRange(0, n));
+    az.addAll(dbls('az').getRange(0, n));
+    // Start from the raw axis: buildSubstrate applies the running max once
+    // across the entire rebuilt load, including the prefix/tail seam.
+    rrTsMs.addAll(dbls('rr_ts_raw').getRange(0, beats));
+    rrMs.addAll(dbls('rr_ms').getRange(0, beats));
+    _rrStart.addAll(starts.getRange(0, n));
+    for (final run in (message['provenance'] as List?) ?? const []) {
+      final r = (run as List).cast<Object?>();
+      if ((r[0] as int) >= n) break;
+      _provenance.add(List<Object?>.from(r));
+    }
+    for (final wire in message['meta'] as List) {
+      final m = wire as List;
+      final bucket = m[0] as int;
+      if (bucket >= cut ~/ 900) continue;
+      final acc = _buckets[bucket] = _BucketAcc()
+        ..families.addAll((m[1] as List).cast<String>())
+        ..deviceIds.addAll((m[2] as List).cast<String>())
+        ..skinUnit = m[3] as String?;
+      _families.addAll(acc.families);
+      _deviceIds.addAll(acc.deviceIds);
+      _skinTempUnit ??= acc.skinUnit;
+    }
+  }
+
+  Map<String, Object?> retainExtras() => {
+    'rr_start': Int32List.fromList(_rrStart),
+    'rr_ts_raw': _rrTsRaw!,
+    'provenance': _provenance,
+    'meta': [for (final e in _buckets.entries)
+      [e.key, e.value.families.toList(), e.value.deviceIds.toList(),
+        e.value.skinUnit]],
+  };
+
   void addRawPage(List<String> hexes) {
     if (hexes.isEmpty) return;
     final sub = decodeSubstrate(hexes);
     if (sub.isEmpty) return;
+    _retainBroken = true;
     tsSec.addAll(sub.tsSec);
     hr.addAll(sub.hr);
     rrTsMs.addAll(sub.rrTsMs);
@@ -707,6 +809,20 @@ class _PrepareAccumulator {
       final row = frameByRecTs[recTs];
       _noteFamily(row?['device_family']);
       _noteDeviceId(row?['device_id']);
+      if (retain) {
+        _rrStart.add(rrMs.length);
+        _buckets.putIfAbsent(recTs ~/ 900, _BucketAcc.new).note(row);
+        final family = row?['device_family'];
+        final id = row?['device_id'];
+        final unit = row?['skin_temp_raw'] is num ? 'raw' :
+            (row?['skin_temp_c'] is num ? 'c' : null);
+        final f = family is String && family.isNotEmpty ? family : null;
+        final d = id is String ? id : null;
+        final last = _provenance.isEmpty ? null : _provenance.last;
+        if (last == null || last[1] != f || last[2] != d || last[3] != unit) {
+          _provenance.add([tsSec.length, f, d, unit]);
+        }
+      }
       tsSec.add(recTs);
       // NULL (absent), a beat-only second (no row at all) and an impossible
       // byte all land on the same 0 — the array's one "no usable HR this
@@ -794,6 +910,7 @@ class _PrepareAccumulator {
     // `addRawPage` each place their own beats correctly and then APPEND, so an
     // overlap between the last record of one page and the first of the next is
     // only visible once every page is in. See [monotonizeBeatAxis].
+    if (retainable) _rrTsRaw = Float64List.fromList(rrTsMs);
     monotonizeBeatAxis(rrTsMs);
     // `_skinTempUnitDrops` (see [_skinTempFor]) is structurally 0 today —
     // `derivableSourceSql()` renders `source IS NULL` (db.dart:116), so a
@@ -807,23 +924,41 @@ class _PrepareAccumulator {
     // which M0 must not take; M5 — which is what makes two-device admission
     // reachable for real — turns this into a refusal note on
     // `wellness.skin_temp` instead.
+    List<int> packed(List<int> values) =>
+        retainable ? Int64List.fromList(values) : values;
     return Substrate(
-      tsSec: tsSec,
-      hr: hr,
+      tsSec: packed(tsSec),
+      hr: packed(hr),
       rrTsMs: rrTsMs,
       rrMs: rrMs,
       ax: ax,
       ay: ay,
       az: az,
-      spo2Red: spo2Red,
-      spo2Ir: spo2Ir,
-      skinTemp: skinTemp,
-      skinContact: skinContact,
-      stepCount: stepCount,
-      hrValid: hrValid,
-      bandSleepState: bandSleepState,
+      spo2Red: packed(spo2Red),
+      spo2Ir: packed(spo2Ir),
+      skinTemp: packed(skinTemp),
+      skinContact: packed(skinContact),
+      stepCount: packed(stepCount),
+      hrValid: packed(hrValid),
+      bandSleepState: packed(bandSleepState),
       deviceFamily: deviceFamily,
       deviceIds: _deviceIds,
     );
+  }
+}
+
+class _BucketAcc {
+  final Set<String> families = {};
+  final Set<String> deviceIds = {};
+  String? skinUnit;
+
+  void note(Map<String, dynamic>? row) {
+    if (row == null) return;
+    final family = row['device_family'];
+    if (family is String && family.isNotEmpty) families.add(family);
+    final id = row['device_id'];
+    if (id is String) deviceIds.add(id);
+    skinUnit ??= row['skin_temp_raw'] is num
+        ? 'raw' : (row['skin_temp_c'] is num ? 'c' : null);
   }
 }

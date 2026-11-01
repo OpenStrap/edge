@@ -134,10 +134,10 @@ Future<Map<InputSignal, List<OwnedSpan>>> _expectedOwnership() async {
   for (final sig in const [InputSignal.hr1Hz, InputSignal.rrIntervals]) {
     final raw = await LocalDb.signalPriority(sig);
     out[sig] = resolveOwnership(
-      coverage: await LocalDb.coverageIntervals(sig, unionFrom, unionTo),
+      coverage: await LocalDb.coverageIntervals(sig, unionFrom, unionTo + 1),
       priority: raw.isEmpty ? const [LocalDb.kPrimaryDeviceId] : raw,
       from: unionFrom,
-      to: unionTo,
+      to: unionTo + 1,
       signal: sig,
     );
   }
