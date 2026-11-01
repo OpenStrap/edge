@@ -6,10 +6,12 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common/sqflite_logger.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart' show DrainController;
-import 'package:openstrap_edge/compute/derivation_engine.dart' show kAlgoVersion;
+import 'package:openstrap_edge/compute/derivation_engine.dart' show DerivationEngine, kAlgoVersion;
+import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
@@ -85,6 +87,7 @@ void main() {
     await LocalDb.setForeground(true);
   });
   tearDown(() async {
+    DerivationEngine.debugSecondHalfHook = null;
     LocalDb.debugReaderOpener = null;
     LocalDb.debugBeforeOrphanPinClear = null;
     await LocalDb.setForeground(false);
@@ -225,6 +228,98 @@ void main() {
     sql.clear();
     expect((await repo.getDayOverview('2026-01-11'))['readiness'], 88);
     await readerQueries('day_result', writer);
+  });
+
+  test('derive bookkeeping uses writer despite an older reader snapshot', () async {
+    await _putDay(_day);
+    await LocalDb.putDeriveFingerprint(_day, 'before');
+    final writer = await LocalDb.instance;
+    final reader = await LocalDb.readExecutor();
+    final start = DateTime(2026, 1, 10).millisecondsSinceEpoch ~/ 1000;
+    Future<String?> signature() => LocalDb.dayInputSignature(
+        dayId: _day, prevDayId: '2026-01-09', nextDayId: '2026-01-11',
+        fromSec: start, toSec: start + 3600, wearableDeviceId: null);
+    final before = await signature();
+    expect(before, isNotNull);
+    await reader.execute('BEGIN');
+    try {
+      expect((await reader.query('day_result')).single['readiness'], 61);
+      await _putDay(_day, readiness: 88);
+      await writer.update('day_result', {'finalized': 1});
+      await LocalDb.putDeriveFingerprint(_day, 'after');
+      // Keep a real older WAL snapshot alive while the bookkeeping reads.
+      expect((await reader.query('day_result')).single['readiness'], 61);
+      sql.clear();
+      expect(await signature(), isNot(before));
+      expect(await LocalDb.deriveFingerprint(_day), 'after');
+      expect(await LocalDb.finalizedDayIds(kAlgoVersion), {_day});
+      final reads = sql.where((e) => e.type == SqliteSqlCommandType.query);
+      expect(reads, isNotEmpty);
+      expect(reads.map((e) => e.id), everyElement(idOf(writer)),
+          reason: 'derive decisions must read the state committed on the writer');
+    } finally {
+      await reader.execute('ROLLBACK');
+    }
+  });
+
+  test('an old day waits for the next night before finalizing', () async {
+    SharedPreferences.setMockInitialValues({});
+    final writer = await LocalDb.instance;
+    int sec(DateTime t) => t.millisecondsSinceEpoch ~/ 1000;
+    final evening = sec(DateTime(2026, 1, 10, 18));
+    final onset = sec(DateTime(2026, 1, 10, 23));
+    final wake = sec(DateTime(2026, 1, 11, 7));
+    final edge = sec(DateTime(2026, 1, 14, 12));
+    for (final t in [evening, onset + 1800, wake, edge]) {
+      await writer.insert('decoded_onehz', {
+        'ts_ms': t * 1000, 'rec_ts': t, 'counter': t, 'hr': 60,
+        'ax': 0, 'ay': 0, 'az': 1, 'on_wrist': 1, 'hr_valid': 1,
+        'device_family': 'gen4',
+      });
+    }
+    const profile = Profile(ageYears: 32, weightKg: 72, heightCm: 176, sex: 'm');
+    final engine = DerivationEngine();
+    Future<void> derive() async {
+      expect(await engine.runDays(profile, {_day}, force: false), 1);
+      expect((await LocalDb.dayResult(_day))!['partial'], 0);
+    }
+    await derive();
+    expect((await LocalDb.dayResult(_day))!['finalized'], 0,
+        reason: 'the next day has raw but has not stored its night yet');
+
+    final reader = await LocalDb.readExecutor();
+    await reader.execute('BEGIN');
+    try {
+      expect(await reader.query('day_result', where: 'day_id = ?',
+          whereArgs: ['2026-01-11']), isEmpty);
+      // The next night commits after preparation, before this day's persist.
+      DerivationEngine.debugSecondHalfHook = (_) => LocalDb.putDayResult(
+        dayId: '2026-01-11', algoVersion: kAlgoVersion,
+        payloadJson: '{}',
+        windowJson: jsonEncode({'onset_ms': onset * 1000, 'offset_ms': wake * 1000}),
+      );
+      await derive();
+      expect((await LocalDb.dayResult(_day))!['finalized'], 0,
+          reason: 'this pass did not consume the night that just committed');
+      DerivationEngine.debugSecondHalfHook = null;
+      await derive();
+      expect((await LocalDb.dayResult(_day))!['finalized'], 1,
+          reason: 'a pass using the committed next night may finalize');
+      final bundle = jsonDecode((await LocalDb.dayResult(_day))!['payload_json'] as String);
+      expect(bundle['clinical']['hr_dip']['note'], contains('have day=1, night=0'),
+          reason: 'the 23:30 sample is tonight\'s sleep, not daytime input');
+      expect(await reader.query('day_result', where: 'day_id = ?',
+          whereArgs: ['2026-01-11']), isEmpty,
+          reason: 'derive decisions must use the writer despite this older snapshot');
+      await writer.delete('day_result', where: 'day_id = ?',
+          whereArgs: ['2026-01-11']);
+      await writer.delete('decoded_onehz', where: 'rec_ts = ?', whereArgs: [wake]);
+      expect(await engine.runDays(profile, {_day}, force: true), 1);
+      expect((await LocalDb.dayResult(_day))!['finalized'], 1,
+          reason: 'a gap with no next-day input must not hold finalization');
+    } finally {
+      await reader.execute('ROLLBACK');
+    }
   });
 
   test('rolled-back rows never become visible on the reader', () async {

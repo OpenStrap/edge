@@ -1834,7 +1834,10 @@ import 'vendor_sleep.dart';
 // 117 → 118 (edge-only): a legacy nap snapshot fully inside the corrected
 // main window is no longer counted on top of it; partial overlaps keep their
 // recorded minutes, and a nap the user put back stays theirs.
-const int kAlgoVersion = 118;
+// 118 → 119 (edge-only): an aged day waits to consume the next day's committed
+// sleep window before finalizing, so concurrent backfills cannot lock tonight's
+// sleep into daytime HRV, HR dip and zones depending on worker completion order.
+const int kAlgoVersion = 119;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -4091,6 +4094,35 @@ class DerivationEngine {
     if (next.startSec < dayStartSec || next.startSec >= dayEndSec) return null;
     if (next.startSec < sleepOffsetSec) return null;
     return next;
+  }
+
+  /// A worker may have prepared this day before the next worker stored its
+  /// night. Keep that result recomputable until it consumes the committed
+  /// window; otherwise age alone can permanently lock sleep into daytime.
+  Future<bool> _nextNightReadyForFinalization(PreparedDerivationDay day) async {
+    final dayStart = _localDayLabelToSec(day.date);
+    final dayEnd = _localNextDayLabelToSec(day.date);
+    final nextId = dayLabelOf(DateTime.fromMillisecondsSinceEpoch(dayEnd * 1000));
+    // Derive bookkeeping uses LocalDb's writer, even with a screen WAL reader.
+    final next = await LocalDb.dayResult(nextId);
+    final tonight = tonightSleep(
+      storedWindowSpan(next?['window_json']),
+      dayStartSec: dayStart,
+      dayEndSec: dayEnd,
+      sleepOffsetSec: day.sleepOffsetSec,
+    );
+    if (day.tonightSleepOnsetSec != (tonight?.startSec ?? 0) ||
+        day.tonightSleepOffsetSec != (tonight?.endSec ?? 0)) {
+      return false;
+    }
+    if (next != null &&
+        next['algo_version'] == kAlgoVersion &&
+        next['partial'] == 0 && next['skipped'] == 0) {
+      return true;
+    }
+    // An absent night is only settled when there is no input left to derive.
+    // Include the active wearable, as the normal derivation scope does.
+    return !(await substrateDays()).contains(nextId);
   }
 
   /// Who owns each anchor signal over `[from, to]`, plus the order that
@@ -6420,12 +6452,15 @@ class DerivationEngine {
     // workouts/HRR/wear/curves would never get a chance to be filled in by a
     // later retry.
     final ageFinalized = (day.endSec + _finalizationSec) < dataNowSec;
+    final nextNightReady = forceFinalize || !ageFinalized ||
+        await _nextNightReadyForFinalization(day);
     // A result with NOTHING in it is never finalized — not even by
     // forceFinalize. Locking an all-absent row is what made the destructive
     // re-analyze permanent; leaving it unlocked means a later pass (or a
     // restored/backfilled substrate) can still fill the day in.
     final finalized =
-        !producedNothing && (forceFinalize || (ageFinalized && secondHalfOk));
+        !producedNothing &&
+        (forceFinalize || (ageFinalized && secondHalfOk && nextNightReady));
 
     // A failed/timed-out second half yields a headline-only bundle, and
     // putDayResult replaces the row wholesale — so re-deriving an already
@@ -6461,6 +6496,8 @@ class DerivationEngine {
         }
       }
     }
+
+    if (!nextNightReady) effectiveFinalized = false;
 
     // OWED A STRAIN SCORE ([kQuietRepassKeyPrefix]). Marked conservatively
     // ([_quietRepassOwed]), BEFORE the row, so no interruption can leave an
