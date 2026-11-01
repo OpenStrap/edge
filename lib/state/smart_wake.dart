@@ -308,7 +308,10 @@ double? percentileHr(List<SmartWakeSample> samples, double p) {
     for (final s in samples)
       if (s.hr > 30.0 && s.hr < 200.0) s.hr,
   ];
-  if (valid.isEmpty) return null;
+  // A percentile from a handful of values is one artifact away from a wrong
+  // nightly floor — require a minimum count of VALID HR values (not rows) so a
+  // single corrupted low reading cannot set the baseline (CodeRabbit, #630).
+  if (valid.length < 30) return null;
   valid.sort();
   final idx = (valid.length * p).floor().clamp(0, valid.length - 1);
   return valid[idx];
@@ -350,7 +353,12 @@ bool likelyLightSleep({
   // Alcohol + stress combo: early buzz disabled entirely for this night.
   if (profile.earlyBuzzDisabled) return false;
 
-  if (baseline.length < minBaselineSamples) return false;
+  // The stored-nightly fallback (baselineHrOverride from hr_min_night) must
+  // stay usable when the live 3h window is thin — the movement trend has its
+  // own floor below. Only the in-pipeline median baseline needs the full
+  // baseline list.
+  final bool storedBaseline = baselineHrOverride != null;
+  if (!storedBaseline && baseline.length < minBaselineSamples) return false;
 
   // `recent` may be LONGER than 3 minutes: the caller fetches up to the
   // journal's trend window (5 min on alcohol/workout nights) so the trend
@@ -372,13 +380,16 @@ bool likelyLightSleep({
 
   // Q3: late-window deep-sleep protection — if we're in the last few minutes
   // AND HR is still near baseline, don't buzz. Fallback fires at window end.
-  if (windowEnd != null && now != null && baselineHr != null) {
+  // The veto compares against the NIGHTLY baseline (baseHr), not the
+  // caller-passed [baselineHr] — with the live caller those used to be the same
+  // value, which made protection unable to veto a positive detection.
+  if (windowEnd != null && now != null) {
     if (lateWindowProtectionActive(
       windowEnd: windowEnd,
       now: now,
       protectionMinutes: profile.lateWindowProtectionMinutes,
       currentHr: recentHr,
-      baselineHr: baselineHr,
+      baselineHr: baseHr,
     )) {
       return false;
     }
@@ -391,7 +402,11 @@ bool likelyLightSleep({
   if (recentMotion >= profile.motionCeilingG) return false;
 
   // Q4: personalized movement trend — rising ENMO = turning over / arousal.
-  final enmoMedian3h = _median([for (final s in baseline) enmo(s)]);
+  // With a stored nightly baseline and no live baseline rows there is no
+  // 3h ENMO median; fall back to the fixed floor so the check still runs.
+  final enmoMedian3h = baseline.isNotEmpty
+      ? _median([for (final s in baseline) enmo(s)])
+      : 0.0;
   final trendThreshold = math.max(0.02, enmoMedian3h * 0.5) *
       profile.trendThresholdFactor;
   if (enmoTrendExceeded(recent,

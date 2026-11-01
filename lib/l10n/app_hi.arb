@@ -2870,7 +2870,7 @@
   "@settingsSleepHmmRowTitle": {
     "description": "Title of the experimental HMM sleep staging toggle in Settings."
   },
-  "settingsSleepHmmRowSub": "अनुसंधान एल्गोरिदम। यह मेडिकल उपकरण नहीं है। डिर्टवत पर्दर्श है; पर्योग स्यंक से प्रवता है।",
+  "settingsSleepHmmRowSub": "यह एक शोध एल्गोरिदम है, चित्सा उपकरण नहीं। यह डिफ़ॉल्ट रूप से बंदल है और अबी सिंक से लागूका।",
   "@settingsSleepHmmRowSub": {
     "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }

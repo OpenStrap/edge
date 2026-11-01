@@ -1427,6 +1427,7 @@ class AppState extends ChangeNotifier {
       telemetryConsent = false;
       healthShareConsent = false;
       consentChosen = false;
+      sleepHmmStagesEnabled = false;
       TelemetryService.instance.applyConsent(false);
       HealthUploader.instance.deviceId = null; // maybeUpload bails without one
       deviceId = '';
