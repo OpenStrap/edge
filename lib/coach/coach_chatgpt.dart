@@ -774,18 +774,19 @@ class ChatGptAuth extends ChangeNotifier {
   }
 
   /// Revokes tokens this app holds but will not keep: the refresh token, which
-  /// is what keeps the grant alive, then the access token so it does not stay
+  /// is what keeps the grant alive, and the access token so it does not stay
   /// usable for the rest of its hour. True only when both were confirmed.
   Future<bool> _revokeIssued(
       {required String? refreshToken,
       required String? accessToken,
       required String clientId}) async {
-    var ok = true;
-    if (refreshToken != null) ok = await _revoke(refreshToken, clientId) && ok;
-    if (accessToken != null) {
-      ok = await _revoke(accessToken, clientId, hint: 'access_token') && ok;
-    }
-    return ok;
+    // Both at once, so a dead network costs one request timeout, not two:
+    // sign-out and "Reset all data" wait on this before clearing local state.
+    final results = await Future.wait([
+      if (refreshToken != null) _revoke(refreshToken, clientId),
+      if (accessToken != null) _revoke(accessToken, clientId, hint: 'access_token'),
+    ]);
+    return results.every((ok) => ok);
   }
 
   /// "Reset all data": the session plus the registration and welcome flag.
