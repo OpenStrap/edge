@@ -41,9 +41,9 @@ class ScalePresenceWatcher {
     this.gap = const Duration(seconds: 20),
     this.cooldown = const Duration(minutes: 3),
     this.syncTimeout = const Duration(minutes: 2),
-  })  : _paired = pairedScales ?? _pairedScales,
-        _hear = hear ?? _scan,
-        _sync = sync ?? _syncSession;
+  }) : _paired = pairedScales ?? _pairedScales,
+       _hear = hear ?? _scan,
+       _sync = sync ?? _syncSession;
 
   final Future<Map<String, String>> Function() _paired;
   final Future<String?> Function(List<String>, Duration) _hear;
@@ -107,12 +107,12 @@ class ScalePresenceWatcher {
   }
 
   static Future<Map<String, String>> _pairedScales() async => {
-        for (final r in await LocalDb.deviceRows())
-          if (kAutoSyncAdapters.contains(r['adapter_id']) &&
-              r['id'] != LocalDb.kPrimaryDeviceId &&
-              (r['remote_id'] as String?)?.isNotEmpty == true)
-            (r['remote_id'] as String).toLowerCase(): r['adapter_id'] as String,
-      };
+    for (final r in await LocalDb.deviceRows())
+      if (kAutoSyncAdapters.contains(r['adapter_id']) &&
+          r['id'] != LocalDb.kPrimaryDeviceId &&
+          (r['remote_id'] as String?)?.isNotEmpty == true)
+        (r['remote_id'] as String).toLowerCase(): r['adapter_id'] as String,
+  };
 
   static Future<void> _syncSession(String adapterId) async {
     await SessionLink.forId(adapterId)?.sync();
@@ -127,17 +127,39 @@ class ScalePresenceWatcher {
             final id = r.device.remoteId.str.toLowerCase();
             if (hit == null && want.contains(id)) {
               hit = id;
-              unawaited(FlutterBluePlus.stopScan().catchError(
-                  (Object e) => debugPrint('[scale-watch] stopScan failed: $e')));
+              unawaited(
+                FlutterBluePlus.stopScan().catchError(
+                  (Object e) => debugPrint('[scale-watch] stopScan failed: $e'),
+                ),
+              );
             }
           }
         });
         try {
-          await FlutterBluePlus.startScan(
+          // startScan's own timeout only starts once the platform call has
+          // returned; a hung permission/startup call must not hold the lock.
+          final started = FlutterBluePlus.startScan(
             withRemoteIds: [for (final i in ids) i.toUpperCase()],
             timeout: window,
             androidScanMode: AndroidScanMode.lowPower,
           );
+          try {
+            await started.timeout(const Duration(seconds: 10));
+          } on TimeoutException {
+            // End a scan that starts late, and treat this as a quiet cycle.
+            unawaited(
+              started
+                  .then(
+                    (_) => FlutterBluePlus.stopScan(),
+                    onError: (Object _) {},
+                  )
+                  .catchError(
+                    (Object e) =>
+                        debugPrint('[scale-watch] late stopScan failed: $e'),
+                  ),
+            );
+            return null;
+          }
           // Bounded: a lost scan-stop event must not hold the process-wide
           // scan lock (and with it every other scan) forever.
           try {
@@ -150,8 +172,9 @@ class ScalePresenceWatcher {
             // is released, and treat it as a quiet cycle (retry at [gap]).
             await FlutterBluePlus.stopScan()
                 .timeout(const Duration(seconds: 3))
-                .catchError((Object e) =>
-                    debugPrint('[scale-watch] stopScan failed: $e'));
+                .catchError(
+                  (Object e) => debugPrint('[scale-watch] stopScan failed: $e'),
+                );
           }
         } finally {
           await sub.cancel();
