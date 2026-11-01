@@ -93,6 +93,10 @@ void main() {
     'a failed second half does not carry a finalized row past the hold',
     () async {
       await _seed('derive_tonight_pending_recovery.db');
+      // A cold first pass may legitimately hold the day (the next day's
+      // window can land after it in the same pass), so a second pass is what
+      // guarantees the finalized row this test starts from.
+      await DerivationEngine().run(_profile, heavy: true);
       await DerivationEngine().run(_profile, heavy: true);
       expect(await LocalDb.finalizedDayIds(kAlgoVersion), contains(_held));
 
