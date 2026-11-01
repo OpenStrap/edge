@@ -115,6 +115,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       // a lock screen looking current.
       unawaited(WidgetService.refresh(app.repo));
       if (app.isPaired) app.openSession();
+      app.startScaleWatcher();
     } else if (state == AppLifecycleState.paused) {
       // Backgrounded: hand the band to the iOS restore path so it can wake-and-drain
       // in the background (no-op on Android, where the foreground service holds it).

@@ -44,6 +44,7 @@ import '../ble/live_step_runs.dart';
 import '../ble/ble_state.dart'
     show AlarmConfirmation, AlarmEffect, LiveStreamOwners;
 import '../ble/ios_ble_restore.dart';
+import '../ble/scale_presence.dart' show ScalePresenceWatcher;
 import '../ble/session_link.dart' show SessionLink;
 import '../ble/colmi_link.dart' show ColmiLink;
 import '../ble/coros_link.dart' show CorosLink;
@@ -2005,6 +2006,15 @@ class AppState extends ChangeNotifier {
   /// cancelled there, but an already-suspended `await` cannot be, so every
   /// continuation past an await in this class needs to re-check this.
   bool _disposed = false;
+  ScalePresenceWatcher? _scaleWatcher;
+
+  /// Android: start the scale watcher (idempotent). Also called when the app
+  /// resumes, so a process that was launched headless (boot wake) and opened
+  /// later gets it too.
+  void startScaleWatcher() {
+    if (_disposed || !Platform.isAndroid) return;
+    (_scaleWatcher ??= ScalePresenceWatcher()).start();
+  }
 
   /// Central disposal guard.
   ///
@@ -2023,6 +2033,7 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    unawaited(_scaleWatcher?.stop());
     _deriveCoordinator.cancelActivityReviewRetry();
     if (IosShortcutSync.foregroundSync == syncForShortcut) {
       IosShortcutSync.foregroundSync = null;
@@ -3053,6 +3064,8 @@ class AppState extends ChangeNotifier {
     // A scale's newest weighing becomes the profile's weight: after each
     // session, and now for one a background pass took.
     SessionLink.onSessionDone = adoptWeighing;
+    // Android: hear a paired scale wake up and sync it without a Devices tap.
+    if (!_background) startScaleWatcher();
     // In the background: its re-derive must not hold the shell's launch.
     unawaited(adoptWeighing().catchError(
         (Object e) => debugPrint('[AppState] adoptWeighing failed: $e')));
