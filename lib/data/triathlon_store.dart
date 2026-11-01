@@ -337,8 +337,11 @@ class TriathlonDb {
     if (plan0 == null) throw TriathlonWriteError('a session needs a readable plan');
     final problem = plan0.validate();
     if (problem != null) throw TriathlonWriteError(problem);
-    if (session.isFinalized) {
-      throw TriathlonWriteError('cannot create an already-finalized session');
+    if (session.status != 'armed') {
+      throw TriathlonWriteError('a new session is created armed, not ${session.status}');
+    }
+    if (session.isFinalized || session.startTs != null || session.endTs != null) {
+      throw TriathlonWriteError('create cannot pre-fill session bounds');
     }
     if (session.segments.isNotEmpty &&
         session.segments.length != session.plan!.segments.length) {
@@ -373,6 +376,15 @@ class TriathlonDb {
             seg.environment != p.environment ||
             seg.plannedDistanceM != p.plannedDistanceM || seg.goalSec != p.goalSec) {
           throw TriathlonWriteError('segment $i does not match the plan');
+        }
+        if (seg.startTs != null ||
+            seg.endTs != null ||
+            seg.workoutId != null ||
+            seg.distanceM != null ||
+            seg.distanceSource != null) {
+          throw TriathlonWriteError(
+            'create stores a plan; segment $i already carries history',
+          );
         }
         _checkSegmentShape(seg);
         if (i > 0 && session.segments.isNotEmpty) {
@@ -621,15 +633,18 @@ class TriathlonDb {
       if (right.endTs != null && newTs > right.endTs!) {
         throw TriathlonWriteError('the boundary would follow segment ${idx + 1}');
       }
+      // Provenance follows the actor: a boundary moved by hand is 'manual' on
+      // both rows. Keeping 'gesture' here would claim the band recorded a time
+      // the athlete actually corrected.
       await txn.update(
         'triathlon_segment',
-        left.copyWith(endTs: newTs).toRow(),
+        left.copyWith(endTs: newTs, boundarySource: 'manual').toRow(),
         where: 'session_id = ? AND idx = ?',
         whereArgs: [sessionId, idx],
       );
       await txn.update(
         'triathlon_segment',
-        right.copyWith(startTs: newTs).toRow(),
+        right.copyWith(startTs: newTs, boundarySource: 'manual').toRow(),
         where: 'session_id = ? AND idx = ?',
         whereArgs: [sessionId, idx + 1],
       );
@@ -690,6 +705,15 @@ class TriathlonDb {
       }
       final hasNext = current.idx + 1 < segs.length;
       if (!hasNext) {
+        // Closing the final segment ends the race, so nothing may follow it.
+        if (i != boundaries.length - 1) {
+          throw TriathlonWriteError('boundaries follow the final segment');
+        }
+        if (current.startTs == null || b.atSec < current.startTs!) {
+          throw TriathlonWriteError(
+            'the final segment would end before it started',
+          );
+        }
         await txn.update(
           'triathlon_segment',
           current
@@ -698,6 +722,7 @@ class TriathlonDb {
           where: 'session_id = ? AND idx = ?',
           whereArgs: [sessionId, current.idx],
         );
+        _validateTimeline(await segments(txn, sessionId));
         await _recomputeSessionBounds(txn, sessionId, status: 'finished');
         return;
       }
@@ -722,22 +747,44 @@ class TriathlonDb {
     int idx,
     String workoutId,
   ) async {
+    if (workoutId.trim().isEmpty) {
+      throw TriathlonWriteError('a workout link needs a workout id');
+    }
     await db.transaction((txn) async {
       await _requireWritable(txn, sessionId);
+      final rows = await txn.query(
+        'triathlon_segment',
+        where: 'session_id = ? AND idx = ?',
+        whereArgs: [sessionId, idx],
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        throw TriathlonWriteError('segment $idx is not in session $sessionId');
+      }
+      final seg = TriSegment.fromRow(rows.first);
+      if (seg.isTransition) {
+        throw TriathlonWriteError(
+          'a transition has no workout row to link',
+        );
+      }
       final existing = await txn.query(
         'triathlon_segment',
+        columns: ['session_id', 'idx'],
         where: 'workout_id = ? AND NOT (session_id = ? AND idx = ?)',
         whereArgs: [workoutId, sessionId, idx],
       );
       if (existing.isNotEmpty) {
         throw TriathlonWriteError('workout $workoutId is already linked');
       }
-      await txn.update(
+      final updated = await txn.update(
         'triathlon_segment',
         {'workout_id': workoutId},
         where: 'session_id = ? AND idx = ?',
         whereArgs: [sessionId, idx],
       );
+      if (updated != 1) {
+        throw TriathlonWriteError('workout link matched no segment row');
+      }
       await _touch(txn, sessionId);
     });
   }

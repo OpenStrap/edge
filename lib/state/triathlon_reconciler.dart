@@ -84,6 +84,12 @@ class TriathlonReconciler {
     }
     final plan = session.plan;
     if (plan == null) return const [];
+    // Only a race that is still going may be rebuilt. 'discarded' must stay
+    // discarded (a sync must not resurrect it), and 'finished'/'finalized'
+    // already carry their own boundaries.
+    if (session.status != 'armed' && session.status != 'active') {
+      return const [];
+    }
 
     // The taps to consider: from the first thing this race recorded (a live
     // boundary, or the armed stamp when nothing has started) to now.

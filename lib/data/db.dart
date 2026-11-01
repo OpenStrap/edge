@@ -10956,16 +10956,17 @@ class LocalDb {
       const triInWindow = '(SELECT id FROM triathlon_session '
           'WHERE start_ts >= ? AND start_ts < ? '
           'UNION SELECT session_id FROM triathlon_segment '
-          'WHERE start_ts >= ? AND start_ts < ?)';
+          'WHERE start_ts IS NOT NULL AND start_ts < ? '
+          'AND (end_ts IS NULL OR end_ts > ?))';
       await copyRows(
         'triathlon_session',
         where: 'id IN $triInWindow',
-        whereArgs: [startSec, endSec, startSec, endSec],
+        whereArgs: [startSec, endSec, endSec, startSec],
       );
       await copyRows(
         'triathlon_segment',
         where: 'session_id IN $triInWindow',
-        whereArgs: [startSec, endSec, startSec, endSec],
+        whereArgs: [startSec, endSec, endSec, startSec],
       );
       await copyRows(
         'live_coverage',
@@ -11155,25 +11156,28 @@ class LocalDb {
         // leak on delete) and could delete a race segment whose string id
         // collided with a workout id.
         //
-        // A race that starts before midnight and ends after it belongs to
-        // BOTH days: deleting either day must not leave its rows behind, so a
-        // race is selected when it starts in the window OR when any of its
-        // segments does. The whole race goes — deleting half a race would
-        // leave a record nobody can read.
-        // READ THE IDS FIRST. Deleting the segments first would empty the
-        // subquery the parent delete is built from, so a race selected only
-        // through a segment (the cross-midnight case) survived its own
-        // deletion. Selection and deletion must not share one statement here.
+        // A race belongs to a day when it STARTS that day, or when one of its
+        // segments OVERLAPS it. Overlap is not "starts inside": a segment that
+        // began yesterday and is still open, or ends today, was recorded on
+        // this day too. An open segment has no end, so it overlaps every later
+        // window. Deleting either day takes the WHOLE race — half a race is a
+        // record nobody can read.
+        //
+        // The ids are read first and deleted second: deleting the segments
+        // before the parent statement would empty the very subquery the parent
+        // delete is built from, which is how a cross-midnight race used to
+        // survive its own deletion.
         const triInWindow = '(SELECT id FROM triathlon_session '
             'WHERE start_ts >= ? AND start_ts < ? '
             'UNION SELECT session_id FROM triathlon_segment '
-            'WHERE start_ts >= ? AND start_ts < ?)';
+            'WHERE start_ts IS NOT NULL AND start_ts < ? '
+            'AND (end_ts IS NULL OR end_ts > ?))';
         final triIds = <String>[
           for (final r in await txn.query(
             'triathlon_session',
             columns: ['id'],
             where: 'id IN $triInWindow',
-            whereArgs: [startSec, endSec, startSec, endSec],
+            whereArgs: [startSec, endSec, endSec, startSec],
           ))
             r['id'] as String,
         ];
@@ -11786,10 +11790,12 @@ class LocalDb {
     // get the same protection, or trends and the rolling baselines would be
     // rebuilt from the other export's numbers while day detail serves ours.
     final finalizedDays = <String>{};
-    // Finalized triathlons are this device's own record: a restore must not
-    // overwrite one with an older snapshot of the same race (its segments
-    // arrive separately, so protecting only the parent would still rewrite
-    // the boundaries).
+    // A LOCAL race always wins over a snapshot. Restore runs into an empty
+    // table on a new phone, so "local exists" means this device already has a
+    // newer (or deliberately discarded) record and the backup must not
+    // resurrect or rewind it. Segments are protected through the same id set,
+    // because they arrive as separate rows and would otherwise rewrite the
+    // boundaries of a race whose parent was skipped.
     final protectedTriathlons = <String>{};
     try {
       for (final r in await db.query(

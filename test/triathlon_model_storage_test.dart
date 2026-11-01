@@ -217,7 +217,7 @@ void main() {
         id: 'tri_sprint_bounds',
         kind: 'race',
         preset: 'sprint',
-        status: 'active',
+        status: 'armed',
         plan: plan,
         createdAt: t0,
         updatedAt: t0,
@@ -909,6 +909,304 @@ void main() {
       expect(restored.segments[0].startTs, nowSec - 60);
       expect(restored.segments[1].startTs, nowSec - 30);
       expect(restored.plan?.preset, 'sprint');
+      await File(path).delete();
+      await LocalDb.close();
+    });
+
+
+    test('create only accepts an armed plan without history', () async {
+      final db = await freshDb('tri_create_invariants_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final base = TriSession(
+        id: 'tri_create_bad_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'active',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await expectLater(
+        TriathlonDb.create(db, base),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+
+      // A full plan whose first segment already carries a start: the plan is
+      // fine, the HISTORY is what create must refuse.
+      final history = TriSession(
+        id: 'tri_create_bad_2',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+        segments: [
+          for (var i = 0; i < plan.segments.length; i++)
+            TriSegment(
+              sessionId: 'tri_create_bad_2',
+              idx: i,
+              kind: plan.segments[i].kind,
+              environment: plan.segments[i].environment,
+              plannedDistanceM: plan.segments[i].plannedDistanceM,
+              startTs: i == 0 ? 1000 : null,
+            ),
+        ],
+      );
+      await expectLater(
+        TriathlonDb.create(db, history),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      await LocalDb.close();
+    });
+
+    test('a manual boundary is marked manual on both sides', () async {
+      final db = await freshDb('tri_manual_source_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_manual_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_manual_1',
+        ts: 1000,
+        boundarySource: 'gesture',
+      );
+      await TriathlonDb.transitionSegment(
+        db: db,
+        sessionId: 'tri_manual_1',
+        currentIdx: 0,
+        transitionTs: 1600,
+        boundarySource: 'gesture',
+      );
+      await TriathlonDb.adjustBoundary(
+        db: db,
+        sessionId: 'tri_manual_1',
+        idx: 0,
+        newTs: 1700,
+      );
+      final segs = await TriathlonDb.segments(db, 'tri_manual_1');
+      expect(segs[0].boundarySource, 'manual');
+      expect(segs[1].boundarySource, 'manual');
+      await LocalDb.close();
+    });
+
+    test('linkWorkout refuses a transition and a missing segment', () async {
+      final db = await freshDb('tri_link_guards_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_link_guard_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      // idx 1 is T1: no workout row exists for a transition.
+      await expectLater(
+        TriathlonDb.linkWorkout(db, 'tri_link_guard_1', 1, 'w1'),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      await expectLater(
+        TriathlonDb.linkWorkout(db, 'tri_link_guard_1', 42, 'w2'),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      expect(
+        await db.query('triathlon_segment', where: 'workout_id IS NOT NULL'),
+        isEmpty,
+      );
+      await LocalDb.close();
+    });
+
+    test('a discarded race is never rebuilt by the reconciler', () async {
+      final db = await freshDb('tri_discarded_reconcile_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_discarded_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1_000_000,
+        updatedAt: 1_000_000,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.updateSession(
+        db,
+        TriSession(
+          id: session.id,
+          kind: session.kind,
+          preset: session.preset,
+          status: 'discarded',
+          plan: plan,
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+        ),
+      );
+      for (final o in [0, 1, 2]) {
+        final ts = 1_000_600 + o;
+        await db.insert('band_events', {
+          'device_id': '',
+          'hex': 'dtap_$ts',
+          'event_id': 14,
+          'name': 'DOUBLE_TAP',
+          'ts': ts,
+          'payload_json': '{}',
+          'captured_at': ts * 1000,
+        });
+      }
+      final applied = await TriathlonReconciler(db).reconcile('tri_discarded_1');
+      expect(applied, isEmpty);
+      expect(
+        (await TriathlonDb.byId(db, 'tri_discarded_1'))!.segments[0].startTs,
+        isNull,
+      );
+      await LocalDb.close();
+    });
+
+    test('an open segment from yesterday is deleted with today', () async {
+      final db = await freshDb('tri_open_overlap_test.db');
+      final now = DateTime.now();
+      final midnight = DateTime(now.year, now.month, now.day);
+      final midnightSec = midnight.millisecondsSinceEpoch ~/ 1000;
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_open_overlap_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: (midnightSec - 600) * 1000,
+        updatedAt: (midnightSec - 600) * 1000,
+      );
+      await TriathlonDb.create(db, session);
+      // The swim started yesterday and is STILL OPEN at midnight.
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_open_overlap_1',
+        ts: midnightSec - 300,
+        boundarySource: 'gesture',
+      );
+      await LocalDb.deleteDays({dayLabelOf(now)});
+      expect(await TriathlonDb.byId(db, 'tri_open_overlap_1'), isNull);
+      await LocalDb.close();
+    });
+
+    test('offline boundaries after the final segment are rejected', () async {
+      final db = await freshDb('tri_offline_tail_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_tail_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      const bounds = [
+        ReconcileBoundary(1000, 3, TriSegmentKind.swim),
+        ReconcileBoundary(2000, 3, TriSegmentKind.swim),
+        ReconcileBoundary(2060, 3, TriSegmentKind.t1),
+        ReconcileBoundary(3060, 3, TriSegmentKind.bike),
+        ReconcileBoundary(3120, 3, TriSegmentKind.t2),
+        ReconcileBoundary(4000, 3, TriSegmentKind.run),
+        ReconcileBoundary(4100, 3, TriSegmentKind.run),
+      ];
+      await expectLater(
+        db.transaction((txn) async {
+          await TriathlonDb.applyOfflineBoundariesInTx(
+            txn,
+            sessionId: 'tri_tail_1',
+            boundaries: bounds,
+          );
+        }),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      final segs = await TriathlonDb.segments(db, 'tri_tail_1');
+      expect(segs[4].endTs, isNull, reason: 'the transaction rolled back');
+      await LocalDb.close();
+    });
+
+
+    test('a day export includes a race whose open segment overlaps it',
+        () async {
+      final db = await freshDb('tri_export_overlap_src.db');
+      final now = DateTime.now();
+      final midnight = DateTime(now.year, now.month, now.day);
+      final midnightSec = midnight.millisecondsSinceEpoch ~/ 1000;
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_export_overlap_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: (midnightSec - 600) * 1000,
+        updatedAt: (midnightSec - 600) * 1000,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_export_overlap_1',
+        ts: midnightSec - 300,
+        boundarySource: 'gesture',
+      );
+      final path = await LocalDb.exportDaysDb({dayLabelOf(now)});
+      final exported = await databaseFactory.openDatabase(path,
+          options: OpenDatabaseOptions(readOnly: true));
+      final rows = await exported.query('triathlon_session',
+          where: 'id = ?', whereArgs: ['tri_export_overlap_1']);
+      final segs = await exported.query('triathlon_segment',
+          where: 'session_id = ?', whereArgs: ['tri_export_overlap_1']);
+      expect(rows, hasLength(1));
+      expect(segs, hasLength(5));
+      await exported.close();
       await File(path).delete();
       await LocalDb.close();
     });
