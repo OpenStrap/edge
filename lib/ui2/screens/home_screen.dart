@@ -1557,6 +1557,33 @@ class HomeScreen extends StatefulWidget {
 String? homeSwitcherDay(String day, {DateTime? now}) =>
     day == todayLabel(now) ? null : day;
 
+/// How long the app has to be away before Home gives up the day it was on.
+/// A quick switch to another app and back keeps the place; a longer absence
+/// means the past day is no longer what the user came back for.
+const kHomeKeepDayAway = Duration(minutes: 30);
+
+/// Whether Home drops a past day for today on the way back from the
+/// background: after [kHomeKeepDayAway], or when the calendar day changed
+/// while away (a day stepped back onto on Friday evening is not what Saturday
+/// morning opens on). [dayAtHide] null means the leave was never seen, so
+/// the absence is unknown and today wins.
+bool homeReturnsToToday({
+  required String? dayAtHide,
+  required String dayNow,
+  required Duration away,
+}) =>
+    dayAtHide == null || dayAtHide != dayNow || away >= kHomeKeepDayAway;
+
+/// How long the app was away, from both clocks Home keeps: the longer one.
+/// The [monotonic] stopwatch stops while the phone sleeps, so a locked
+/// phone reads short on it; the [wall] clock can be set back while away.
+Duration homeAwayFor({required Duration wall, required Duration monotonic}) =>
+    wall > monotonic ? wall : monotonic;
+
+/// The wall clock Home reads for an absence; tests move it.
+@visibleForTesting
+DateTime Function() debugHomeWallClock = DateTime.now;
+
 class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   HomeData? _d;
   bool _loading = true;
@@ -1564,7 +1591,23 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// The day requested by the switcher, or null for "today" — the same
   /// null-means-today convention [_load] and [HomeData.load] already used
   /// before there was a switcher.
+  ///
+  /// NEVER today's own label: [_goDay] stores today as null. A dated "today"
+  /// does not move at midnight, so a tap on "Back to today" on Friday evening
+  /// opened Saturday morning on Friday's rings with "Back to today" under
+  /// them.
   String? _day;
+
+  /// Brings Home back to today when the app returns from the background.
+  /// See [_onReturnFromBackground].
+  AppLifecycleListener? _lifecycle;
+
+  /// Today's label, the wall time and a running stopwatch, all taken as the
+  /// app went to the background (see [homeAwayFor]). The label catches
+  /// midnight.
+  String? _dayAtHide;
+  DateTime? _hiddenAt;
+  final Stopwatch _away = Stopwatch();
 
   /// `availableDays()` — newest first — for [DayNav]. Refetched with every
   /// load: cheap, and a switcher stepping onto a day that just finished
@@ -1597,7 +1640,58 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   @override
   void dispose() {
     _syncTapTimer?.cancel();
+    _lifecycle?.dispose();
     super.dispose();
+  }
+
+  void _onHide() {
+    _dayAtHide = todayLabel(widget.now ?? debugHomeWallClock());
+    _hiddenAt = debugHomeWallClock();
+    _away
+      ..reset()
+      ..start();
+  }
+
+  /// COMING BACK LATER MEANS TODAY. Home is kept alive in the tab stack, so a
+  /// day stepped back onto used to survive the app going to the background —
+  /// overnight, too — and the next morning opened on that old day while every
+  /// detail screen behind it opened on today. A quick trip to another app and
+  /// back keeps the day (see [homeReturnsToToday]). `onRestart` fires only on
+  /// the way back from hidden (backgrounded), not for Control Center or a
+  /// permission sheet, which leave the app merely inactive.
+  ///
+  /// It also reloads when the switcher was already on today: a day that rolled
+  /// over while the app was backgrounded moves no database revision, so
+  /// nothing else would re-read it.
+  ///
+  /// A past day on screen is dropped before the read, not after it: kept, its
+  /// rings would sit under today's header while the read runs, and stay there
+  /// for good if the read failed, since the error card only shows with no day.
+  void _onReturnFromBackground() {
+    if (!mounted) return;
+    final hiddenAt = _hiddenAt;
+    final wall = hiddenAt == null
+        ? Duration.zero
+        : debugHomeWallClock().difference(hiddenAt);
+    final away = homeAwayFor(wall: wall, monotonic: _away.elapsed);
+    _away.stop();
+    _hiddenAt = null;
+    final back = homeReturnsToToday(
+        dayAtHide: _dayAtHide,
+        dayNow: todayLabel(widget.now ?? debugHomeWallClock()),
+        away: away);
+    _dayAtHide = null;
+    // A past day kept after a short absence needs no read here: if its data
+    // changes, the database revision reloads it like any other day.
+    if (_day != null && !back) return;
+    setState(() {
+      _day = null;
+      if (_d?.dayId != todayLabel(widget.now)) {
+        _d = null;
+        _loading = true;
+      }
+    });
+    _load();
   }
 
   @override
@@ -1608,6 +1702,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       _loading = false;
       return;
     }
+    _lifecycle = AppLifecycleListener(
+        onHide: _onHide, onRestart: _onReturnFromBackground);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
@@ -1650,7 +1746,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// already restricts the arrows to [_days] — so this just re-loads for it.
   void _goDay(String day) {
     setState(() {
-      _day = homeSwitcherDay(day);
+      _day = homeSwitcherDay(day, now: widget.now);
       // The day on screen goes with the switch. Kept, it stayed under the new
       // day's stepper for the whole load with no spinner, and for good if the
       // load threw: the rings, tiles and greeting date were still the old

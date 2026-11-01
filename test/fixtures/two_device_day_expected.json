@@ -144,11 +144,11 @@
           "kind": "DC"
         },
         "confidence": 0.95,
-        "tier": "HIGH",
+        "tier": "RELATIVE",
         "inputs_used": [
           "rr_cleaned"
         ],
-        "note": "Bauer 2006 PRSA DC; needs a long overnight RR record for mortality-grade stability"
+        "note": "Bauer 2006 PRSA DC; relative to own baseline on one device family only"
       },
       "prsa_ac": {
         "value": {
@@ -157,11 +157,11 @@
           "kind": "AC"
         },
         "confidence": 0.95,
-        "tier": "HIGH",
+        "tier": "RELATIVE",
         "inputs_used": [
           "rr_cleaned"
         ],
-        "note": "Bauer 2006 PRSA AC; needs a long overnight RR record for mortality-grade stability"
+        "note": "Bauer 2006 PRSA AC; relative to own baseline on one device family only"
       },
       "readiness_lnrmssd": {
         "value": "—",
@@ -1344,8 +1344,8 @@
           "depth_quartiles_ms": null,
           "width_quartiles_sec": null
         },
-        "confidence": 0.85,
-        "tier": "HIGH",
+        "confidence": 0.832884,
+        "tier": "ESTIMATE",
         "inputs_used": [
           "rr_cleaned",
           "beat_times"
