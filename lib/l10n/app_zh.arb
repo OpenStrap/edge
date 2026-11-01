@@ -2792,5 +2792,72 @@
   "notifBatteryForecastReserveBody": "按每小时 {rate}% 的耗电速度，电量将在 {time} 左右耗尽，略晚于你平时起床的时间，起床时约剩 {left}%。现在充电，才能记录今晚的睡眠。",
   "notifBatteryForecastAfterWakeBody": "按每小时 {rate}% 的耗电速度，电量将在 {time} 左右耗尽，晚于你平时起床的时间。",
   "notifWindDownBody": "你通常在 {time} 左右就寝。开始放慢节奏吧。",
-  "notifWorkoutIdleBody": "已有 {minutes} 分钟没有记录到高于静息水平的运动。如果训练已结束，请在“锻炼”标签页中结束它。"
+  "notifWorkoutIdleBody": "已有 {minutes} 分钟没有记录到高于静息水平的运动。如果训练已结束，请在“锻炼”标签页中结束它。",
+  "dataStorageGroup": "存储",
+  "dataKeepHistory": "保留原始读数",
+  "dataKeepHistorySub": "每天逐秒读数的压缩副本，在应用清除原始数据后仍会保留。超过此期限的日子保留其评分，但在评分改进后无法重新计算",
+  "dataKeepDays": "{days} 天",
+  "@dataKeepDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 年",
+  "dataKeepForever": "永久",
+  "dataKeepShorterTitle": "保留 {window} 的原始读数？",
+  "@dataKeepShorterTitle": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "比最新读数早约 {window} 以上的读数将立即删除。这些日子会保留评分，但在以后的更新后无法重新计算。",
+  "@dataKeepShorterBody": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "删除较早的读数",
+  "dataKeepShorterCancel": "保留",
+  "dataCompact": "压缩数据库",
+  "dataCompactSub": "清除上面设置不再保留的数据，然后把未使用的空间还给手机。需要约为数据库两倍大小的可用空间",
+  "dataCompactPruning": "正在清除旧数据…",
+  "dataCompactVacuuming": "正在压缩…",
+  "dataCompactFreed": "已释放 {freed} MB。数据库现在为 {size} MB。",
+  "@dataCompactFreed": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "旧数据已清除，但压缩需要 {need} MB 可用空间，手机只有 {free} MB。",
+  "@dataCompactNoSpace": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "旧数据已清除，但无法读取手机的可用空间，因此未压缩文件。",
+  "dataCompactBusy": "正在同步或有进行中的会话。完成后再试。",
+  "dataSizeMb": "{mb} MB",
+  "@dataSizeMb": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  }
 }

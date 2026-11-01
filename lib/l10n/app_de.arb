@@ -2909,5 +2909,72 @@
   "notifBatteryForecastReserveBody": "Bei {rate} %/h ist der Akku gegen {time} leer, kurz nach deiner üblichen Aufstehzeit – beim Aufwachen bleiben etwa {left} %. Lade ihn jetzt, damit die Nacht aufgezeichnet wird.",
   "notifBatteryForecastAfterWakeBody": "Bei {rate} %/h ist der Akku gegen {time} leer, nach deiner üblichen Aufstehzeit.",
   "notifWindDownBody": "Deine Schlafenszeit ist gegen {time}. Fang an, runterzufahren.",
-  "notifWorkoutIdleBody": "Seit {minutes} Minuten wurde nichts über Ruheniveau aufgezeichnet. Wenn die Einheit vorbei ist, beende sie im Tab „Training“."
+  "notifWorkoutIdleBody": "Seit {minutes} Minuten wurde nichts über Ruheniveau aufgezeichnet. Wenn die Einheit vorbei ist, beende sie im Tab „Training“.",
+  "dataStorageGroup": "Speicher",
+  "dataKeepHistory": "Rohmesswerte behalten",
+  "dataKeepHistorySub": "Eine komprimierte Kopie der sekündlichen Messwerte jedes Tages, die bleibt, nachdem die App sie gelöscht hat. Ältere Tage behalten ihre Werte, können aber nach einer verbesserten Auswertung nicht neu berechnet werden",
+  "dataKeepDays": "{days} Tage",
+  "@dataKeepDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 Jahr",
+  "dataKeepForever": "Für immer",
+  "dataKeepShorterTitle": "Rohmesswerte für {window} behalten?",
+  "@dataKeepShorterTitle": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "Messwerte, die mehr als etwa {window} vor deinem letzten Messwert liegen, werden jetzt gelöscht. Diese Tage behalten ihre Werte, können nach künftigen Updates aber nicht neu berechnet werden.",
+  "@dataKeepShorterBody": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "Ältere Messwerte löschen",
+  "dataKeepShorterCancel": "Behalten",
+  "dataCompact": "Datenbank verkleinern",
+  "dataCompactSub": "Löscht, was die Einstellungen oben nicht mehr behalten, und gibt den freien Platz an das Telefon zurück. Braucht etwa doppelt so viel freien Speicher, wie die Datenbank groß ist",
+  "dataCompactPruning": "Alte Daten werden gelöscht…",
+  "dataCompactVacuuming": "Wird verkleinert…",
+  "dataCompactFreed": "{freed} MB freigegeben. Die Datenbank ist jetzt {size} MB groß.",
+  "@dataCompactFreed": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "Alte Daten wurden gelöscht, aber zum Verkleinern sind {need} MB frei nötig und das Telefon hat {free} MB.",
+  "@dataCompactNoSpace": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "Alte Daten wurden gelöscht, aber der freie Speicher des Telefons ließ sich nicht lesen, daher wurde die Datei nicht verkleinert.",
+  "dataCompactBusy": "Eine Synchronisierung oder eine laufende Sitzung ist aktiv. Versuche es danach noch einmal.",
+  "dataSizeMb": "{mb} MB",
+  "@dataSizeMb": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  }
 }

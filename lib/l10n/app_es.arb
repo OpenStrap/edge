@@ -2821,5 +2821,72 @@
   "notifBatteryForecastReserveBody": "A {rate} %/h se agota hacia las {time}, poco después de tu hora habitual de despertar: te quedará alrededor del {left} % al levantarte. Cárgala ahora para no perder el sueño de esta noche.",
   "notifBatteryForecastAfterWakeBody": "A {rate} %/h se agota hacia las {time}, después de tu hora habitual de despertar.",
   "notifWindDownBody": "Te sueles acostar hacia las {time}. Empieza a bajar el ritmo.",
-  "notifWorkoutIdleBody": "No se ha registrado nada por encima del reposo en {minutes} minutos. Si la sesión terminó, finalízala desde la pestaña Entrenamiento."
+  "notifWorkoutIdleBody": "No se ha registrado nada por encima del reposo en {minutes} minutos. Si la sesión terminó, finalízala desde la pestaña Entrenamiento.",
+  "dataStorageGroup": "Almacenamiento",
+  "dataKeepHistory": "Conservar lecturas sin procesar",
+  "dataKeepHistorySub": "Una copia comprimida de las lecturas segundo a segundo de cada día, que se conserva después de que la app las borre. Los días más antiguos mantienen sus puntuaciones, pero no se pueden recalcular cuando mejore el cálculo",
+  "dataKeepDays": "{days} días",
+  "@dataKeepDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 año",
+  "dataKeepForever": "Siempre",
+  "dataKeepShorterTitle": "¿Conservar {window} de lecturas sin procesar?",
+  "@dataKeepShorterTitle": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "Las lecturas de más de unos {window} antes de la última se borran ahora. Esos días mantienen sus puntuaciones, pero no se podrán recalcular tras futuras actualizaciones.",
+  "@dataKeepShorterBody": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "Borrar lecturas antiguas",
+  "dataKeepShorterCancel": "Conservarlas",
+  "dataCompact": "Compactar la base de datos",
+  "dataCompactSub": "Borra lo que los ajustes de arriba ya no conservan y devuelve el espacio libre al teléfono. Necesita un espacio libre de unas dos veces el tamaño de la base de datos",
+  "dataCompactPruning": "Borrando datos antiguos…",
+  "dataCompactVacuuming": "Compactando…",
+  "dataCompactFreed": "Se liberaron {freed} MB. La base de datos ocupa ahora {size} MB.",
+  "@dataCompactFreed": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "Se borraron los datos antiguos, pero compactar necesita {need} MB libres y el teléfono tiene {free} MB.",
+  "@dataCompactNoSpace": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "Se borraron los datos antiguos, pero no se pudo leer el espacio libre del teléfono, así que el archivo no se compactó.",
+  "dataCompactBusy": "Hay una sincronización o una sesión en curso. Inténtalo de nuevo cuando termine.",
+  "dataSizeMb": "{mb} MB",
+  "@dataSizeMb": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  }
 }

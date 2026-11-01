@@ -465,7 +465,7 @@ void main() {
       expect(b3.first['rr_ts_ms'], t3 * 1000);
 
       // Both archived frames survived the restore.
-      final archived = await db.query('raw_archive', orderBy: 'hex ASC');
+      final archived = await db.query(LocalDb.rawArchiveView, orderBy: 'hex ASC');
       expect([for (final a in archived) a['hex']],
           ['deadbeef01', 'deadbeef02'],
           reason: 'raw_archive was missing from the import merge list, so a '

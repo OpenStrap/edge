@@ -16111,5 +16111,209 @@
         "type": "int"
       }
     }
+  },
+  "settingsStepCalibration": "Step calibration",
+  "settingsStepCalibrationSub": "Learns how your strap over- or under-counts your own walking, and corrects it on the phone. Nothing is written to the strap and nothing leaves the device",
+  "stepCalTitle": "Step calibration",
+  "stepCalIntro": "Your strap counts steps off its own motion sensor, and how far off it is depends on you. These routines measure that. Nothing leaves your phone.",
+  "stepCalSlowTitle": "Slow walk",
+  "stepCalSlowSub": "walk slowly, phone in your pocket",
+  "stepCalSlowGuide": "Walk slowly and evenly, strap snug. Count 100 steps yourself.",
+  "stepCalBriskTitle": "Brisk walk",
+  "stepCalBriskSub": "walk at your usual pace",
+  "stepCalBriskGuide": "Walk at your normal pace. Count 100 steps yourself.",
+  "stepCalJogTitle": "Jog",
+  "stepCalJogSub": "jog steadily",
+  "stepCalJogGuide": "Jog steadily. Count 100 steps yourself.",
+  "stepCalEverydayTitle": "Around the house",
+  "stepCalEverydaySub": "tidy up for three minutes, phone in pocket",
+  "stepCalEverydayGuide": "Do ordinary things around the house — carry, lift, tidy — with your phone in your pocket. Three minutes. Do not pace deliberately.",
+  "stepCalCalibrated": "Calibrated — counted {n} times",
+  "stepCalNotCalibrated": "Not calibrated yet",
+  "stepCalBandSeen": "{count, plural, one{step the band has seen} other{steps the band has seen}}",
+  "@stepCalBandSeen": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "stepCalCountYourself": "Count your own steps. Stop when you reach {target}.",
+  "stepCalElapsed": "Keep going — this one is timed.",
+  "stepCalHowManyCounted": "How many steps did you count?",
+  "stepCalFinish": "Done",
+  "stepCalCancel": "Cancel",
+  "stepCalKeepWalking": "Nothing recorded yet — start walking with the strap snug.",
+  "stepCalKeepMoving": "Nothing recorded yet — keep the phone on you and keep moving.",
+  "stepCalNoSignal": "The band recorded nothing during that routine.",
+  "stepCalNoPhoneAccess": "This routine needs your phone’s step counter, and access was not granted. That counter is the reference for household movement.",
+  "stepCalPhoneNotReady": "Your phone’s step counter did not answer. Try again in a moment.",
+  "stepCalNoPhone": "Your phone counted no steps while you did that. Keep it in your pocket next time — it is the reference for household movement.",
+  "stepCalBandQuiet": "The band saw almost no movement. It is worth checking the strap is worn snugly and streaming.",
+  "stepCalTooShort": "That routine was too short to measure against. Walk the full count.",
+  "stepCalMismatch": "The band counted far more than you did. Something other than walking was being picked up.",
+  "stepCalWrongSource": "That routine used the wrong reference.",
+  "stepCalBadData": "That routine produced unreadable sensor data.",
+  "stepCalRatioOutOfRange": "Your count and the band’s are too far apart to use. Repeat the routine and walk the full count.",
+  "stepCalCadenceOutOfRange": "The band could not find a walking rhythm in that routine. Start walking right after you press start and keep a steady pace.",
+  "stepCalRoutineTooShort": "That routine ended before the timer finished. Keep going until it completes.",
+  "stepCalSaveFailed": "Could not save that calibration.",
+  "stepCalDoneGait": "Saved. You counted {count} steps and the band saw {band} steps. From now on this kind of walking is corrected by {pct}%.",
+  "stepCalDoneHousehold": "Saved. Your phone counted {count} steps of the {band} steps the band saw. Household movement is now scaled to {gain}.",
+  "@stepCalCalibrated": {
+    "description": "Badge on a category row: how many supervised routines are behind its gain.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "@stepCalCountYourself": {
+    "description": "Instruction during a gait routine. The wearer counts their own steps; the band's live count is shown only as feedback, because a run that ended on the band's own count would always fit exactly 1.0.",
+    "placeholders": {
+      "target": {
+        "type": "int"
+      }
+    }
+  },
+  "@stepCalDoneGait": {
+    "description": "Result of a gait calibration: what the wearer counted, what the band counted, and the percentage correction now applied. Signed, so a reduction reads as -12%.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "band": {
+        "type": "int"
+      },
+      "pct": {
+        "type": "int"
+      }
+    }
+  },
+  "@stepCalDoneHousehold": {
+    "description": "Result of a household calibration: the phone's count (the reference), the band's count, and the resulting scale as a fixed-2 string.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "band": {
+        "type": "int"
+      },
+      "gain": {
+        "type": "String"
+      }
+    }
+  },
+  "dataStorageGroup": "Storage",
+  "@dataStorageGroup": {
+    "description": "Data screen group title: storage settings and compaction."
+  },
+  "dataKeepHistory": "Keep raw readings",
+  "@dataKeepHistory": {
+    "description": "Row title: how long the compressed raw-reading archive is kept."
+  },
+  "dataKeepHistorySub": "A compressed copy of each day's second-by-second readings, kept after the app clears them. A day older than this keeps its scores but can't be re-scored when scoring improves",
+  "@dataKeepHistorySub": {
+    "description": "Row sub for the archive window setting."
+  },
+  "dataKeepDays": "{days} days",
+  "@dataKeepDays": {
+    "description": "Archive window value: a number of days.",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 year",
+  "@dataKeepYear": {
+    "description": "Archive window value: one year."
+  },
+  "dataKeepForever": "Forever",
+  "@dataKeepForever": {
+    "description": "Archive window value: never delete."
+  },
+  "dataKeepShorterTitle": "Keep {window} of raw readings?",
+  "@dataKeepShorterTitle": {
+    "description": "Confirm title when the archive window is shortened.",
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "Readings more than about {window} before your latest one are deleted now. Those days keep their scores, but can't be re-scored after future updates.",
+  "@dataKeepShorterBody": {
+    "description": "Confirm body when the archive window is shortened.",
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "Delete older readings",
+  "@dataKeepShorterConfirm": {
+    "description": "Confirm button: shorten the window and delete older archive."
+  },
+  "dataKeepShorterCancel": "Keep them",
+  "@dataKeepShorterCancel": {
+    "description": "Cancel button: keep the current window."
+  },
+  "dataCompact": "Compact database",
+  "@dataCompact": {
+    "description": "Row title: compact the database file."
+  },
+  "dataCompactSub": "Clears what the settings above no longer keep, then gives the unused space back to the phone. Needs free space of about twice the database's size",
+  "@dataCompactSub": {
+    "description": "Row sub for Compact database."
+  },
+  "dataCompactPruning": "Clearing old data…",
+  "@dataCompactPruning": {
+    "description": "Progress line while old data is cleared before compaction."
+  },
+  "dataCompactVacuuming": "Compacting…",
+  "@dataCompactVacuuming": {
+    "description": "Progress line while the database file is rewritten."
+  },
+  "dataCompactFreed": "Freed {freed} MB. The database is now {size} MB.",
+  "@dataCompactFreed": {
+    "description": "Compaction result: megabytes freed and the new size.",
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "Old data was cleared, but compacting needs {need} MB free and the phone has {free} MB.",
+  "@dataCompactNoSpace": {
+    "description": "Compaction refused: not enough free storage.",
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "Old data was cleared, but the phone's free space couldn't be read, so the file was not compacted.",
+  "@dataCompactUnknownSpace": {
+    "description": "Compaction refused: free storage could not be read."
+  },
+  "dataCompactBusy": "A sync or a live session is running. Try again once it's done.",
+  "@dataCompactBusy": {
+    "description": "Compaction refused: a sync or session is running."
+  },
+  "dataSizeMb": "{mb} MB",
+  "@dataSizeMb": {
+    "description": "A size in megabytes, shown as the row value.",
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
   }
 }
