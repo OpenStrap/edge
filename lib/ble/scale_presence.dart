@@ -146,18 +146,10 @@ class ScalePresenceWatcher {
           try {
             await started.timeout(const Duration(seconds: 10));
           } on TimeoutException {
-            // End a scan that starts late, and treat this as a quiet cycle.
-            unawaited(
-              started
-                  .then(
-                    (_) => FlutterBluePlus.stopScan(),
-                    onError: (Object _) {},
-                  )
-                  .catchError(
-                    (Object e) =>
-                        debugPrint('[scale-watch] late stopScan failed: $e'),
-                  ),
-            );
+            // Quiet cycle. A scan that still starts late ends by itself after
+            // [window]; stopping it here could kill a scan another caller
+            // started once the lock was released.
+            unawaited(started.then<void>((_) {}, onError: (Object _) {}));
             return null;
           }
           // Bounded: a lost scan-stop event must not hold the process-wide
