@@ -439,7 +439,11 @@ class LocalDb {
 
   static Future<void> close() => _withReaderInvalidated(() async {
     // A cold open may have started before close, even without a screen lease.
-    await _writerOpening;
+    try {
+      await _writerOpening;
+    } catch (_) {
+      // The opener's caller owns the error. Still close any live handle below.
+    }
     final db = _db;
     if (db != null) {
       await db.close();

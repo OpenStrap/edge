@@ -8,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common/sqflite_logger.dart';
+// ignore: implementation_imports
+import 'package:sqflite_common/src/factory.dart' show SqfliteDatabaseFactory;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart' show DrainController;
 import 'package:openstrap_edge/compute/derivation_engine.dart' show DerivationEngine, kAlgoVersion;
@@ -319,6 +321,119 @@ void main() {
           reason: 'a gap with no next-day input must not hold finalization');
     } finally {
       await reader.execute('ROLLBACK');
+    }
+  });
+
+  test('an in-flight next night cannot finalize a day using its old window', () async {
+    SharedPreferences.setMockInitialValues({});
+    final writer = await LocalDb.instance;
+    int sec(DateTime t) => t.millisecondsSinceEpoch ~/ 1000;
+    final evening = sec(DateTime(2026, 1, 10, 18));
+    final oldOnset = sec(DateTime(2026, 1, 10, 23, 59));
+    final newOnset = sec(DateTime(2026, 1, 10, 23, 58));
+    final wake = sec(DateTime(2026, 1, 11, 0, 2));
+    final edge = sec(DateTime(2026, 1, 14, 12));
+    final batch = writer.batch();
+    // A fully observed four-minute manual window keeps this race test small.
+    for (final t in [evening, for (var t = newOnset; t <= wake; t++) t, edge]) {
+      batch.insert('decoded_onehz', {
+        'ts_ms': t * 1000, 'rec_ts': t, 'counter': t, 'hr': 60,
+        'ax': 0, 'ay': 0, 'az': 1, 'on_wrist': 1, 'hr_valid': 1,
+        'device_family': 'gen4',
+      });
+    }
+    await batch.commit(noResult: true);
+    await LocalDb.putDayResult(
+      dayId: '2026-01-11', algoVersion: kAlgoVersion,
+      payloadJson: '{}',
+      windowJson: jsonEncode({'onset_ms': oldOnset * 1000, 'offset_ms': wake * 1000}),
+    );
+    await LocalDb.putSleepOverride(dayId: '2026-01-11',
+        onsetTs: newOnset, offsetTs: wake, source: 'manual');
+    final nextEntered = Completer<void>();
+    final releaseNext = Completer<void>();
+    DerivationEngine.debugSecondHalfHook = (day) async {
+      if (day == '2026-01-11') {
+        nextEntered.complete();
+        await releaseNext.future.timeout(const Duration(seconds: 10));
+      } else {
+        await nextEntered.future.timeout(const Duration(seconds: 10));
+      }
+    };
+    const profile = Profile(ageYears: 32, weightKg: 72, heightCm: 176, sex: 'm');
+    final engine = DerivationEngine();
+    int? finalizedAfterPass;
+    try {
+      expect(await engine.runDays(profile, {_day, '2026-01-11'}, force: false,
+          onDayDone: (day, _, _) {
+            if (day == _day) {
+              // Hold the next worker until this day's write and dependency
+              // check have finished. Read the row after the whole pass below.
+              releaseNext.complete();
+            }
+          }), 2);
+      finalizedAfterPass = (await LocalDb.dayResult(_day))!['finalized'] as int;
+    } finally {
+      if (!releaseNext.isCompleted) releaseNext.complete();
+      DerivationEngine.debugSecondHalfHook = null;
+    }
+    final nextRow = (await LocalDb.dayResult('2026-01-11'))!;
+    expect(nextRow['partial'], 0);
+    expect(jsonDecode(nextRow['window_json'] as String)
+        ['onset_ms'], newOnset * 1000, reason: 'the next worker changed the night');
+    expect(finalizedAfterPass, 0,
+        reason: 'the current day consumed the old 23:59 window, not the new 23:58 window');
+    expect(await engine.runDays(profile, {_day}, force: false), 1);
+    final row = (await LocalDb.dayResult(_day))!;
+    expect(row['finalized'], 1, reason: 'a stable next night must allow eventual finalization');
+    final bundle = jsonDecode(row['payload_json'] as String);
+    expect(bundle['clinical']['hr_dip']['note'], contains('have day=1, night=0'),
+        reason: 'the 23:58 samples must now be excluded from daytime input');
+  });
+
+  test('close absorbs a failed writer open and still closes later handles', () async {
+    final workingFactory = databaseFactory;
+    final failing = _GatedPathFactory(workingFactory, fail: true);
+    databaseFactory = failing;
+    final opening = LocalDb.instance.then<Object?>((_) => null,
+        onError: (Object e, StackTrace s) => e);
+    await failing.entered.future.timeout(_wait);
+    final closing = LocalDb.close().then<Object?>((_) => null,
+        onError: (Object e, StackTrace s) => e);
+    // Let close reach the pending opener before failing it.
+    await Future<void>.delayed(Duration.zero);
+    failing.release.complete();
+    try {
+      expect(await opening.timeout(_wait), isA<StateError>());
+      expect(await closing.timeout(_wait), isNull,
+          reason: 'the opener owns its failure; cleanup must finish');
+    } finally {
+      databaseFactory = workingFactory;
+    }
+    final writer = await LocalDb.instance;
+    final reader = await LocalDb.readExecutor();
+    await LocalDb.close().timeout(_wait);
+    expect(writer.isOpen, isFalse, reason: 'successful handles must still close');
+    expect(reader.isOpen, isFalse);
+    final reopened = await LocalDb.readExecutor().timeout(_wait);
+    expect(reopened.isOpen, isTrue, reason: 'a failed open must not leave the read barrier held');
+  });
+
+  test('close waits for a successful in-flight writer open and closes it', () async {
+    final workingFactory = databaseFactory;
+    final delayed = _GatedPathFactory(workingFactory, fail: false);
+    databaseFactory = delayed;
+    final opening = LocalDb.instance;
+    await delayed.entered.future.timeout(_wait);
+    final closing = LocalDb.close();
+    await Future<void>.delayed(Duration.zero);
+    delayed.release.complete();
+    try {
+      final writer = await opening.timeout(_wait);
+      await closing.timeout(_wait);
+      expect(writer.isOpen, isFalse, reason: 'close must wait for and close the new handle');
+    } finally {
+      databaseFactory = workingFactory;
     }
   });
 
@@ -708,3 +823,23 @@ class _CloseThrows implements Database {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+
+class _GatedPathFactory implements SqfliteDatabaseFactory {
+  _GatedPathFactory(this.delegate, {required this.fail});
+  final DatabaseFactory delegate;
+  final bool fail;
+  final entered = Completer<void>();
+  final release = Completer<void>();
+  @override
+  Future<String> getDatabasesPath() async {
+    if (!entered.isCompleted) entered.complete();
+    await release.future;
+    if (fail) throw StateError('simulated writer open failure');
+    return delegate.getDatabasesPath();
+  }
+  @override
+  Future<Database> openDatabase(String path, {OpenDatabaseOptions? options}) =>
+      delegate.openDatabase(path, options: options);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
