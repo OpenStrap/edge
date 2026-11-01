@@ -706,7 +706,7 @@ class ChatGptAuth extends ChangeNotifier {
     return next.accessToken;
   }
 
-  /// Revokes the refresh token and forgets the session. Returns false when
+  /// Revokes the refresh and access tokens and forgets the session. Returns false when
   /// revocation could not be confirmed; the tokens are cleared regardless, and
   /// the user can still disconnect the app in ChatGPT settings.
   Future<bool> signOut() async {
@@ -725,7 +725,10 @@ class ChatGptAuth extends ChangeNotifier {
     final clientId = prefs.getString(_kClientId);
     final token = s?.refreshToken;
     final revoked = rotated ??
-        (token == null || (clientId != null && await _revoke(token, clientId)));
+        (s == null ||
+            (clientId != null &&
+                await _revokeIssued(
+                    refreshToken: token, accessToken: s.accessToken, clientId: clientId)));
     // Signed out either way. If the delete fails the item may linger, but the
     // marker is cleared and [load] fails closed on a record without it, so it
     // is never restored (it is deleted then); the credential is not guaranteed
@@ -799,7 +802,9 @@ class ChatGptAuth extends ChangeNotifier {
     final rotated = await _rotationOf(refreshing);
     final token = s?.refreshToken;
     final clientId = (await SharedPreferences.getInstance()).getString(_kClientId);
-    if (rotated == null && token != null && clientId != null) await _revoke(token, clientId);
+    if (rotated == null && s != null && clientId != null) {
+      await _revokeIssued(refreshToken: token, accessToken: s.accessToken, clientId: clientId);
+    }
     await _serialized(() async {
       try {
         await _secure.delete(key: _kSession, iOptions: _apple, mOptions: _macos);

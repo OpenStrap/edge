@@ -792,7 +792,7 @@ void main() {
           expiresAt: DateTime.now().add(const Duration(hours: 1))));
       await auth.signOut();
       // The reset revoked the rotated tokens; the sign-out revoked only its own.
-      expect(revoked, ['rt-2', 'at-2', 'rt-new']);
+      expect(revoked, ['rt-2', 'at-2', 'rt-new', 'at-new']);
     });
 
     test('a refresh that lands after a new sign-in is revoked, not left for its sign-out', () async {
@@ -840,7 +840,7 @@ void main() {
       expect(auth.session!.refreshToken, 'rt-new-2');
       revoked.clear();
       await auth.signOut();
-      expect(revoked, ['rt-new-2'], reason: "the sign-out revokes the current session's token");
+      expect(revoked, ['rt-new-2', 'at-new-2'], reason: "the sign-out revokes the current session's tokens");
       expect(refreshed, ['rt-1', 'rt-new']);
     });
 
@@ -914,7 +914,7 @@ void main() {
         expect(await auth.takeWelcome(), isFalse);
         await auth.forgetAll();
         final prefs = await SharedPreferences.getInstance();
-        expect(revoked, ['rt-1']);
+        expect(revoked, ['rt-1', 'at-1']);
         expect(auth.signedIn, isFalse);
         expect(keychain, isEmpty);
         expect(prefs.getKeys().where((k) => k.startsWith('coach_chatgpt_')), isEmpty);
