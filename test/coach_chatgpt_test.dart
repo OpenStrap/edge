@@ -912,7 +912,8 @@ void main() {
         await auth.debugSetSession(_session());
         expect(await auth.takeWelcome(), isTrue);
         expect(await auth.takeWelcome(), isFalse);
-        await auth.forgetAll();
+        expect(await auth.forgetAll(), status == 200,
+            reason: 'reset reports a revocation it could not confirm');
         final prefs = await SharedPreferences.getInstance();
         expect(revoked, ['rt-1', 'at-1']);
         expect(auth.signedIn, isFalse);

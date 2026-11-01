@@ -792,7 +792,9 @@ class ChatGptAuth extends ChangeNotifier {
   /// "Reset all data": the session plus the registration and welcome flag.
   /// The session is revoked first, best effort, while the registration to
   /// revoke it with is still here.
-  Future<void> forgetAll() async {
+  /// Returns false when a session may outlive the reset: revocation was not
+  /// confirmed, or the keychain item could not be deleted.
+  Future<bool> forgetAll() async {
     _generation++;
     cancelSignIn();
     final s = _session;
@@ -803,19 +805,25 @@ class ChatGptAuth extends ChangeNotifier {
     final rotated = await _rotationOf(refreshing);
     final token = s?.refreshToken;
     final clientId = (await SharedPreferences.getInstance()).getString(_kClientId);
-    if (rotated == null && s != null && clientId != null) {
-      await _revokeIssued(refreshToken: token, accessToken: s.accessToken, clientId: clientId);
-    }
+    final revoked = rotated ??
+        (s == null ||
+            (clientId != null &&
+                await _revokeIssued(
+                    refreshToken: token, accessToken: s.accessToken, clientId: clientId)));
+    var deleted = true;
     await _serialized(() async {
       try {
         await _secure.delete(key: _kSession, iOptions: _apple, mOptions: _macos);
-      } catch (_) {}
+      } catch (_) {
+        deleted = false;
+      }
       final prefs = await SharedPreferences.getInstance();
       for (final k in [_kClientId, _kHostId, _kPresent, _kWelcomed]) {
         await prefs.remove(k);
       }
     });
     notifyListeners();
+    return revoked && deleted;
   }
 
   /// True exactly once, on the first sign-in that has plan usage.

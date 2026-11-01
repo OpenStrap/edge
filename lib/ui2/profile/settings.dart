@@ -527,6 +527,9 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
   );
   if (ok != true || !c.mounted) return;
   final messenger = ScaffoldMessenger.of(c);
+  // Read while [c] is still mounted: the reset pops this screen.
+  final chatGptLeft = uiText(c,
+      'App data deleted, but ChatGPT did not confirm the sign-in was revoked. You can also disconnect OpenStrap in ChatGPT settings.');
   String? backupCleanupError;
   try {
     backupCleanupError = await app.resetAllData();
@@ -547,6 +550,11 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
       content: Text(l?.settingsResetBackupWarning ??
           'App data deleted. Backup cleanup was incomplete. '
               'Some files or folder access may remain.'),
+    ));
+  }
+  if (app.resetLeftChatGpt && messenger.mounted) {
+    messenger.showSnackBar(SnackBar(
+      content: Text(chatGptLeft),
     ));
   }
   if (app.resetLeftPairingKeys && messenger.mounted) {
