@@ -7596,7 +7596,6 @@
       }
     }
   },
-<<<<<<< HEAD
   "dataReanalyzeFailed": "Повторный анализ не удался: {error}",
   "@dataReanalyzeFailed": {
     "placeholders": {
@@ -7903,8 +7902,6 @@
         "type": "int"
       }
     }
-  }
-=======
+  },
   "sleepDetailMedicalDisclaimer": "Экспериментальный исследовательский алгоритм. Не медицинское изделие. При нарушениях сна обратитесь к врачу."
->>>>>>> 85cffc2d (fix the sleep disclaimer build error and its contrast)
 }
