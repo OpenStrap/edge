@@ -49,6 +49,15 @@ Future<void> _freshDb(String name) async {
   }
 }
 
+// The fixture starts at 18:00 on the previous date. That short first day
+// finalizes on its first derive, while its daytime summaries read the NEXT
+// day's sleep window. Bank that real window before either parity run so the
+// foreground worker order cannot decide whether the first day's evening is
+// excluded as tonight's sleep. Every stored output is still compared below.
+Future<void> _primeFirstNight() async {
+  expect(await DerivationEngine().runDays(_profile, {'2026-07-13'}), 1);
+}
+
 Future<({int derived, int unchanged})> _pass({Profile profile = _profile}) async {
   final e = DerivationEngine();
   final n = await e.run(profile, heavy: true);
@@ -160,6 +169,7 @@ void main() {
       () async {
     const passes = 5;
     await _freshDb('unchanged_skip_on.db');
+    await _primeFirstNight();
     final log = <({int derived, int unchanged})>[];
     for (var i = 0; i < passes; i++) {
       log.add(await _pass());
@@ -167,6 +177,7 @@ void main() {
     final withSkip = await _snapshot();
 
     await _freshDb('unchanged_skip_off.db');
+    await _primeFirstNight();
     DerivationEngine.debugDeriveEveryDay = true;
     for (var i = 0; i < passes; i++) {
       final r = await _pass();

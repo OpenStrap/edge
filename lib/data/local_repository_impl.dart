@@ -2405,7 +2405,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // "no data" (avg_hr == 0) even when the window is full of worn HR.
     try {
       final age = _profileAge();
-      final stats = await LocalDb.sessionHrStats(
+      final (:stats, samples: rawBySession) = await LocalDb.sessionHrReads(
         fromTs,
         nowSec,
         maxHrCeiling: hrCeilingForAge(age),
@@ -2414,10 +2414,6 @@ class LocalRepositoryImpl extends LocalRepository {
       // Spike-suppressed max/min per session (issue #127): smooth the raw 1 Hz
       // over one batched join so the list agrees with getWorkout's on-read
       // recompute.
-      final rawBySession = await LocalDb.sessionHrSamplesBySession(
-        fromTs,
-        nowSec,
-      );
       for (final w in workouts) {
         final s = stats[w['id']];
         final raw = rawBySession[w['id']];

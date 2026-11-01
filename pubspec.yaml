@@ -670,6 +670,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # DB part guards inspect declarations and SQL arguments through the Dart AST.
+  analyzer: ^10.0.1
   test: ^1.25.8
   # no_runtime_font_fetch_test parses pubspec.yaml to assert every family the
   # type scale uses is bundled rather than fetched at runtime.
