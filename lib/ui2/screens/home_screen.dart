@@ -1580,9 +1580,9 @@ bool homeReturnsToToday({
 Duration homeAwayFor({required Duration wall, required Duration monotonic}) =>
     wall > monotonic ? wall : monotonic;
 
-/// Test seam: stands in for the time Home measured the app as away.
+/// The wall clock Home reads for an absence; tests move it.
 @visibleForTesting
-Duration? debugHomeAwayOverride;
+DateTime Function() debugHomeWallClock = DateTime.now;
 
 class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   HomeData? _d;
@@ -1646,7 +1646,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
 
   void _onHide() {
     _dayAtHide = todayLabel(widget.now);
-    _hiddenAt = DateTime.now();
+    _hiddenAt = debugHomeWallClock();
     _away
       ..reset()
       ..start();
@@ -1670,10 +1670,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   void _onReturnFromBackground() {
     if (!mounted) return;
     final hiddenAt = _hiddenAt;
-    final wall =
-        hiddenAt == null ? Duration.zero : DateTime.now().difference(hiddenAt);
-    final away = debugHomeAwayOverride ??
-        homeAwayFor(wall: wall, monotonic: _away.elapsed);
+    final wall = hiddenAt == null
+        ? Duration.zero
+        : debugHomeWallClock().difference(hiddenAt);
+    final away = homeAwayFor(wall: wall, monotonic: _away.elapsed);
     _away.stop();
     _hiddenAt = null;
     final back = homeReturnsToToday(

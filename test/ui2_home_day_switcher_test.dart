@@ -77,6 +77,31 @@ void _lifecycle(WidgetTester t, List<AppLifecycleState> states) {
   }
 }
 
+/// The wall clock Home reads, frozen until a test moves it.
+class _Clock {
+  DateTime now = DateTime(2026, 10, 31, 12);
+  _Clock() {
+    debugHomeWallClock = () => now;
+    addTearDown(() => debugHomeWallClock = DateTime.now);
+  }
+}
+
+/// Send the app to the background, let [away] pass on [clock], and bring it
+/// back, through the transitions the engine reports.
+void _background(WidgetTester t, _Clock clock, Duration away) {
+  _lifecycle(t, const [
+    AppLifecycleState.inactive,
+    AppLifecycleState.hidden,
+    AppLifecycleState.paused,
+  ]);
+  clock.now = clock.now.add(away);
+  _lifecycle(t, const [
+    AppLifecycleState.hidden,
+    AppLifecycleState.inactive,
+    AppLifecycleState.resumed,
+  ]);
+}
+
 void main() {
   testWidgets('stepping to the previous day loads and shows ITS numbers',
       (t) async {
@@ -114,15 +139,6 @@ void main() {
     await _settle(t);
     expect(find.text('70'), findsOneWidget);
   });
-
-  const background = [
-    AppLifecycleState.inactive,
-    AppLifecycleState.hidden,
-    AppLifecycleState.paused,
-    AppLifecycleState.hidden,
-    AppLifecycleState.inactive,
-    AppLifecycleState.resumed,
-  ];
 
   test('a past day is kept only for a short absence on the same day', () {
     const day = '2026-10-31';
@@ -166,8 +182,7 @@ void main() {
   });
 
   testWidgets('a quick trip to another app keeps the past day', (t) async {
-    debugHomeAwayOverride = const Duration(minutes: 2);
-    addTearDown(() => debugHomeAwayOverride = null);
+    final clock = _Clock();
     final app = AppState.forTesting();
     addTearDown(app.dispose);
     app.repo = _Repo();
@@ -184,15 +199,14 @@ void main() {
     await _settle(t);
     expect(find.text('42'), findsOneWidget);
 
-    _lifecycle(t, background);
+    _background(t, clock, const Duration(minutes: 2));
     await _settle(t);
     expect(find.text('42'), findsOneWidget);
     expect(find.text('Back to today'), findsOneWidget);
   });
 
   testWidgets('following today stays on today after any absence', (t) async {
-    debugHomeAwayOverride = const Duration(minutes: 2);
-    addTearDown(() => debugHomeAwayOverride = null);
+    final clock = _Clock();
     final app = AppState.forTesting();
     addTearDown(app.dispose);
     app.repo = _Repo();
@@ -207,7 +221,7 @@ void main() {
     await _settle(t);
     expect(find.text('70'), findsOneWidget);
 
-    _lifecycle(t, background);
+    _background(t, clock, const Duration(minutes: 2));
     await _settle(t);
     expect(find.text('70'), findsOneWidget);
     expect(find.text('Back to today'), findsNothing);
@@ -217,8 +231,7 @@ void main() {
     // Home lives on in the tab stack, so a day stepped back onto used to
     // survive a night in the background: Saturday morning opened on Friday's
     // rings with "Back to today" under them.
-    debugHomeAwayOverride = kHomeKeepDayAway;
-    addTearDown(() => debugHomeAwayOverride = null);
+    final clock = _Clock();
     final app = AppState.forTesting();
     addTearDown(app.dispose);
     app.repo = _Repo();
@@ -240,15 +253,8 @@ void main() {
     await _settle(t);
     expect(find.text('42'), findsOneWidget);
 
-    // Backgrounded and reopened: today, and no "Back to today".
-    _lifecycle(t, const [
-      AppLifecycleState.inactive,
-      AppLifecycleState.hidden,
-      AppLifecycleState.paused,
-      AppLifecycleState.hidden,
-      AppLifecycleState.inactive,
-      AppLifecycleState.resumed,
-    ]);
+    // Away for half an hour: today, and no "Back to today".
+    _background(t, clock, kHomeKeepDayAway);
     await _settle(t);
     expect(find.text('70'), findsOneWidget);
     expect(find.text('42'), findsNothing);
@@ -276,16 +282,8 @@ void main() {
     expect(find.text('42'), findsOneWidget);
 
     repo.failToday = true;
-    debugHomeAwayOverride = const Duration(hours: 8);
-    addTearDown(() => debugHomeAwayOverride = null);
-    _lifecycle(t, const [
-      AppLifecycleState.inactive,
-      AppLifecycleState.hidden,
-      AppLifecycleState.paused,
-      AppLifecycleState.hidden,
-      AppLifecycleState.inactive,
-      AppLifecycleState.resumed,
-    ]);
+    final clock = _Clock();
+    _background(t, clock, const Duration(hours: 8));
     await t.pump();
     expect(find.text('42'), findsNothing);
     await _settle(t);
