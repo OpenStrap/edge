@@ -572,5 +572,12 @@ void main() {
       ];
       expect(percentileHr(samples, 0.10), 48.0);
     });
+
+    test('fewer than 30 valid HR values → null (no single-artifact baseline)', () {
+      // 29 valid values: a percentile from this is one artifact away from a
+      // wrong floor, so it must refuse and let the caller fall back.
+      expect(percentileHr(still(48, 29), 0.10), isNull);
+      expect(percentileHr(still(48, 30), 0.10), 48.0);
+    });
   });
 }

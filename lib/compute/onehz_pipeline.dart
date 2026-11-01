@@ -547,13 +547,34 @@ class DayBundleInput {
         for (final r in (m['step_spans'] as List? ?? const []))
           [for (final v in (r as List)) (v as num).toInt()],
       ],
-      useHmmStages: m['use_hmm_stages'] as bool? ?? false,
     );
   }
 
   /// Copy with replaced per-second stage labels — used by the experimental
-  /// HMM re-staging path in [deriveDayBundle].
-  DayBundleInput withHypnoStages(List<String> stages) => DayBundleInput(
+  /// HMM re-staging path in [deriveDayBundle]. The stage-second totals in
+  /// [sleepJson] are recomputed from [stages] so the stored hypnogram and the
+  /// displayed totals always describe the same night.
+  DayBundleInput withHypnoStages(List<String> stages) {
+    var light = 0, deep = 0, rem = 0, wake = 0;
+    for (final s in stages) {
+      switch (s) {
+        case 'light': light++;
+        case 'deep': deep++;
+        case 'rem': rem++;
+        case 'wake': wake++;
+      }
+    }
+    final nrem = light + deep;
+    final tst = nrem + rem;
+    final json = {...sleepJson};
+    if (json.containsKey('tst_sec')) json['tst_sec'] = tst;
+    if (json.containsKey('waso_sec')) json['waso_sec'] = wake;
+    if (json.containsKey('nrem_sec')) json['nrem_sec'] = nrem;
+    if (json.containsKey('light_sec')) json['light_sec'] = light;
+    if (json.containsKey('deep_sec')) json['deep_sec'] = deep;
+    if (json.containsKey('rem_sec')) json['rem_sec'] = rem;
+    if (json.containsKey('wake_sec')) json['wake_sec'] = wake;
+    return DayBundleInput(
     date: date,
     dayTsSec: dayTsSec,
     dayHr: dayHr,
@@ -564,13 +585,14 @@ class DayBundleInput {
     sleepRrTsMs: sleepRrTsMs,
     sleepRrMs: sleepRrMs,
     sleepSkinTemp: sleepSkinTemp,
-    sleepJson: sleepJson,
+    sleepJson: json,
     hypnoStages: stages,
     sleepOnsetSec: sleepOnsetSec,
     sleepOffsetSec: sleepOffsetSec,
     tonightSleepOnsetSec: tonightSleepOnsetSec,
     profile: profile,
     lnRmssdHistory: lnRmssdHistory,
+    lnRmssdDates: lnRmssdDates,
     rhrHistory: rhrHistory,
     respHistory: respHistory,
     rmssdHistory: rmssdHistory,
@@ -598,22 +620,36 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // EXPERIMENTAL HMM re-staging (default OFF — PR #628 review): when the
   // input opts in, per-second labels are re-derived from the sleep-window
   // HR/RR substrate by the Viterbi classifier instead of the coordinator's
-  // heuristic labels. Only applied when the decode covers the full window,
+  // heuristic labels. RR intervals are windowed into per-second RMSSD via
+  // the same cleaned-NN helpers the pipeline itself uses; the decode is only
+  // applied when it covers the full window and has usable observations,
   // otherwise the shipped labels stay.
   if (d.useHmmStages &&
       d.hypnoStages.isNotEmpty &&
       d.sleepTsSec.isNotEmpty &&
       d.sleepTsSec.length == d.hypnoStages.length) {
+    final corrected = correctRr(d.sleepRrMs, rrTsMs: d.sleepRrTsMs);
+    final nnTimes = corrected.nnTimesMs;
+    // Per-second RMSSD: 60 s trailing window of cleaned NN intervals,
+    // stamped at the window's last beat second. Missing coverage -> 0
+    // (scored as neutral/unusable by the classifier).
+    final rmssdPerSec = _rmssdPerSecond(
+      corrected.nn,
+      nnTimes,
+      d.sleepTsSec,
+      windowSec: 60,
+    );
     final epochs = <Map<String, dynamic>>[
       for (var i = 0; i < d.sleepTsSec.length; i++)
         {
+          'ts': d.sleepTsSec[i],
           'hr': i < d.sleepHr.length ? d.sleepHr[i] : 0,
-          'rmssd': i < d.sleepRrMs.length ? d.sleepRrMs[i] : 0.0,
+          'rmssd': rmssdPerSec[i],
           'motion_artifact': false,
         },
     ];
     final hmmStages = _classifySleepStagesHMM(epochs);
-    if (hmmStages.length == d.hypnoStages.length) {
+    if (hmmStages != null && hmmStages.length == d.hypnoStages.length) {
       d = d.withHypnoStages(hmmStages);
     }
   }
@@ -2419,13 +2455,69 @@ int? _medianGapSec(List<int> tsSec, {int minGapSec = 1}) {
   return gaps.isEmpty ? null : gaps[gaps.length ~/ 2];
 }
 
-List<String> _classifySleepStagesHMM(List<Map<String, dynamic>> epochData) {
+/// Per-second RMSSD over the sleep window: for each second in [tsSec], the
+/// RMSSD of cleaned NN intervals whose beat-end falls within the trailing
+/// [windowSec] seconds. Seconds with no beat coverage get 0.0 (the HMM
+/// treats that as an unusable observation, never as a measurement).
+List<double> _rmssdPerSecond(
+  List<double> nn,
+  List<double> nnTimesMs,
+  List<int> tsSec, {
+  required int windowSec,
+}) {
+  final out = List<double>.filled(tsSec.length, 0.0);
+  if (nn.isEmpty || nnTimesMs.isEmpty || tsSec.isEmpty) return out;
+  final t0 = nnTimesMs.first;
+  var lo = 0;
+  var hi = 0;
+  for (var i = 0; i < tsSec.length; i++) {
+    final secMs = tsSec[i] * 1000.0;
+    while (lo < nn.length && nnTimesMs[lo] - t0 < secMs - windowSec * 1000) {
+      lo++;
+    }
+    while (hi < nn.length && nnTimesMs[hi] - t0 <= secMs) {
+      hi++;
+    }
+    if (hi - lo < 2) continue;
+    final window = nn.sublist(lo, hi);
+    var sumSq = 0.0;
+    var sumSq = 0.0;
+    for (var k = 1; k < window.length; k++) {
+      final d = window[k] - window[k - 1];
+      sumSq += d * d;
+    }
+    out[i] = math.sqrt(sumSq / (window.length - 1));
+  }
+  return out;
+}
+
+/// EXPERIMENTAL HMM/Viterbi re-staging (gated by [DayBundleInput.useHmmStages]).
+///
+/// [epochData] is per-second sleep-window records with `ts` (epoch sec), `hr`,
+/// and `rmssd` (already windowed/cleaned, see [deriveDayBundle]). Returns
+/// per-second stage labels, or null when the night has too few usable
+/// observations to stage honestly — the caller then keeps the supplied labels.
+List<String>? _classifySleepStagesHMM(List<Map<String, dynamic>> epochData) {
+  if (epochData.isEmpty) return null;
   final analyzer = SleepStageAnalyzer();
-  final first120m = epochData.take(240).toList();
+  // Baseline from the first 120 minutes BY ELAPSED TIME, not the first 240
+  // rows — per-second rows at 1 Hz would otherwise cover only ~4 minutes.
+  final t0 = (epochData.first['ts'] as num?)?.toDouble() ?? 0.0;
+  final first120m = epochData
+      .where((e) => ((e['ts'] as num?)?.toDouble() ?? 0.0) - t0 <= 120 * 60)
+      .toList();
   analyzer.computeBaseline(first120m);
+  // An unmeasured night must not decode as wake: with no usable observation
+  // every state ties and wake's self-transition wins. Bail out instead.
+  final usable = epochData.where((e) {
+    final hr = (e['hr'] as num?)?.toDouble() ?? 0.0;
+    final rmssd = (e['rmssd'] as num?)?.toDouble() ?? 0.0;
+    return hr > 30.0 && hr < 200.0 && rmssd > 0.0 && rmssd < 500.0;
+  }).length;
+  if (usable < 30) return null;
   final states = analyzer.viterbiDecode(epochData.map((e) => {
     ...e,
-    "isContactLost": (e["motion_artifact"] == true)
+    'isContactLost': (e['motion_artifact'] == true),
   }).toList());
   return states.map((s) {
     switch (s) {
