@@ -249,14 +249,14 @@ void main() {
     /// records every revocation.
     ChatGptAuth pendingExchange(Completer<void> gate, Completer<void> arrived,
             List<(String, String, String)> revoked, Uri Function() authorize,
-            {bool signed = true}) =>
+            {bool signed = true, int revokeStatus = 200}) =>
         ChatGptAuth(client: MockClient((req) async {
           final oidc = _oidc(req);
           if (oidc != null) return oidc;
           if (req.url.path.endsWith('/revoke')) {
             revoked.add((req.bodyFields['token']!, req.bodyFields['token_type_hint']!,
                 req.bodyFields['client_id']!));
-            return http.Response('', 200);
+            return http.Response('', revokeStatus);
           }
           arrived.complete();
           await gate.future;
@@ -294,8 +294,11 @@ void main() {
             }),
             throwsA(isA<ChatGptException>()));
         await arrived.future;
-        await end(auth);
+        // A reset waits for the exchange it interrupted, so it is not awaited
+        // before the exchange is let through.
+        final ended = end(auth);
         gate.complete();
+        await ended;
         await signIn;
         expect(auth.signedIn, isFalse);
         expect(keychain, isEmpty);
@@ -303,6 +306,55 @@ void main() {
         expect(revoked, issued);
       });
     }
+
+    for (final status in [200, 500]) {
+      test('a reset reports whether an interrupted code exchange revoked its tokens '
+          '(revoke $status)', () async {
+        final gate = Completer<void>(), arrived = Completer<void>();
+        final revoked = <(String, String, String)>[];
+        late Uri first;
+        auth = pendingExchange(gate, arrived, revoked, () => first, revokeStatus: status);
+        final signIn = expectLater(
+            auth.signIn((u) {
+              first = u;
+              return browser(u, clientId: 'oaiapp_1');
+            }),
+            throwsA(isA<ChatGptException>()));
+        await arrived.future;
+        final reset = auth.forgetAll();
+        gate.complete();
+        expect(await reset, status == 200);
+        await signIn;
+        expect(revoked, issued);
+      });
+    }
+
+    test('a reset before the stored session has loaded still revokes it', () async {
+      SharedPreferences.setMockInitialValues(
+          {'coach_chatgpt_client_id': 'oaiapp_1', 'coach_chatgpt_present': true});
+      keychain['coach_chatgpt_session'] = jsonEncode(_session().toJson());
+      final revoked = <String>[];
+      final auth = ChatGptAuth(client: MockClient((req) async {
+        revoked.add(req.bodyFields['token']!);
+        return http.Response('', 200);
+      }));
+      expect(auth.signedIn, isFalse, reason: 'load has not run');
+      expect(await auth.forgetAll(), isTrue);
+      expect(revoked, ['rt-1', 'at-1']);
+      expect(keychain, isEmpty);
+    });
+
+    test('a reset that cannot read the stored session does not call it revoked', () async {
+      SharedPreferences.setMockInitialValues(
+          {'coach_chatgpt_client_id': 'oaiapp_1', 'coach_chatgpt_present': true});
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'read') throw PlatformException(code: 'locked');
+        return null;
+      });
+      final auth = ChatGptAuth(client: MockClient((_) async => fail('nothing to revoke with')));
+      expect(await auth.forgetAll(), isFalse);
+    });
 
     test('a sign-in does not start while a reset is running', () async {
       ResetGate.enter();

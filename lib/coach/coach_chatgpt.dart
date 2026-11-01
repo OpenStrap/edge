@@ -338,6 +338,12 @@ class ChatGptAuth extends ChangeNotifier {
   ChatGptSession? _session;
   bool _unreadable = false;
   HttpServer? _pending;
+
+  /// A code exchange that is out: completes with whether every token it was
+  /// issued is either stored or confirmed revoked. [forgetAll] waits on it so
+  /// a reset cannot report a clean wipe while a late exchange still holds
+  /// tokens it failed to revoke.
+  Future<bool>? _exchanging;
   Future<String>? _refreshing;
 
   /// The [_generation] [_refreshing] was started under. A session that came
@@ -489,6 +495,7 @@ class ChatGptAuth extends ChangeNotifier {
     await prefs.setString(_kHostId, hostId);
     final savedClientId = prefs.getString(_kClientId);
     final server = _pending = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    Completer<bool>? exchanged;
     try {
       final redirectUri = 'http://127.0.0.1:${server.port}/auth/callback';
       final state = _random(), nonce = _random(), verifier = _random();
@@ -525,6 +532,8 @@ class ChatGptAuth extends ChangeNotifier {
       }
       // Saved BEFORE the exchange, so a retry after a failed one reuses it.
       await prefs.setString(_kClientId, clientId);
+      exchanged = Completer<bool>();
+      _exchanging = exchanged.future;
       final Map<String, dynamic> t;
       try {
         t = await _token({
@@ -562,14 +571,17 @@ class ChatGptAuth extends ChangeNotifier {
           attempt: attempt,
         );
       } catch (_) {
-        await _revokeIssued(
+        exchanged.complete(await _revokeIssued(
           refreshToken: t['refresh_token'] is String ? t['refresh_token'] as String : null,
           accessToken: t['access_token'] as String, // [_token] checked it
           clientId: clientId,
-        );
+        ));
         rethrow;
       }
     } finally {
+      // Stored, or no tokens were issued: nothing is left behind.
+      if (exchanged != null && !exchanged.isCompleted) exchanged.complete(true);
+      if (exchanged != null && identical(_exchanging, exchanged.future)) _exchanging = null;
       if (identical(_pending, server)) _pending = null;
       await server.close(force: true);
     }
@@ -797,19 +809,38 @@ class ChatGptAuth extends ChangeNotifier {
   Future<bool> forgetAll() async {
     _generation++;
     cancelSignIn();
-    final s = _session;
+    final exchanging = _exchanging;
+    var s = _session;
     final refreshing = _refreshing;
     _session = null;
     _unreadable = false;
     // As in [signOut]: an in-flight refresh revokes its own rotated tokens.
     final rotated = await _rotationOf(refreshing);
+    final prefs = await SharedPreferences.getInstance();
+    final clientId = prefs.getString(_kClientId);
+    // [load] runs in the background at startup, so nothing in memory need not
+    // mean nothing stored: read the keychain before deleting it, and do not
+    // call a session revoked when it could not be read.
+    var unreadable = false;
+    if (s == null && rotated == null) {
+      try {
+        final raw = await _secure.read(key: _kSession, iOptions: _apple, mOptions: _macos);
+        if (raw != null && raw.isNotEmpty) {
+          s = ChatGptSession.fromJson(jsonDecode(raw) as Map);
+        }
+      } catch (_) {
+        unreadable = prefs.getBool(_kPresent) ?? false;
+      }
+    }
     final token = s?.refreshToken;
-    final clientId = (await SharedPreferences.getInstance()).getString(_kClientId);
-    final revoked = rotated ??
-        (s == null ||
-            (clientId != null &&
-                await _revokeIssued(
-                    refreshToken: token, accessToken: s.accessToken, clientId: clientId)));
+    final revoked = !unreadable &&
+        (rotated ??
+            (s == null ||
+                (clientId != null &&
+                    await _revokeIssued(
+                        refreshToken: token, accessToken: s.accessToken, clientId: clientId))));
+    // A sign-in whose code exchange was out revokes what it was issued itself.
+    final exchangeClean = exchanging == null || await exchanging;
     var deleted = true;
     await _serialized(() async {
       try {
@@ -823,7 +854,7 @@ class ChatGptAuth extends ChangeNotifier {
       }
     });
     notifyListeners();
-    return revoked && deleted;
+    return revoked && exchangeClean && deleted;
   }
 
   /// True exactly once, on the first sign-in that has plan usage.
