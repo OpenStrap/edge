@@ -23,7 +23,7 @@
 /// measured on fewer days than today, and when a band here has nothing
 /// measured behind it. A cell with no entry shows no confidence text.
 final Map<String, num> kMethodBand = {
-  for (final (family, hr, rest) in const [
+  for (final (family, hr, _) in const [
     ('garmin', 'hr_1min', 'device_stages'),
     ('pebble', 'hr_1min', 'device_stages'),
     ('miband234', 'hr_1min', 'device_stages'),
@@ -44,8 +44,10 @@ final Map<String, num> kMethodBand = {
     if (family != 'colmi') '$family/calories/$hr': hr == 'hr_1min' ? 10 : 5,
     // 0.42 / 2.27 points.
     '$family/readiness/rhr_only_partial': hr == 'hr_1min' ? 1 : 3,
-    // 0.03 / 0.06 h, off the nights the row is served from.
-    '$family/sleep_debt_need_sri/$rest': 0.1,
+    // No sleep-debt band: the debt is a p75 of at least three weekend nights,
+    // and the validation subjects are four days long (two weekend nights), so
+    // nothing behind a band would be measured. The 0.03 / 0.06 h it used to
+    // quote came from the one- or two-night p75 that no longer serves.
   },
   // 26.25 min against the synthetic truth, over 24 nights: our HR-led
   // window over 5-min HR (1-min profiles 10.35, for scale). The error is in

@@ -2156,6 +2156,7 @@
       }
     }
   },
+  "investigateCvhrNoComparisonYet": "Пока слишком мало более ранних ночей, чтобы сказать, стало ли циклических изменений пульса, которые учитывает проверка, больше обычного.",
   "investigateCvhrInsideUsual": "В последних ночах число циклических изменений пульса, которые учитывает проверка, остаётся в диапазоне предшествующих {n} ночей.",
   "@investigateCvhrInsideUsual": {
     "placeholders": {
@@ -6941,7 +6942,7 @@
   "wearableWhyNeedsRhrBaseline": "Нужен ваш обычный пульс в покое",
   "wearableWhyNeedsStrap": "Нужен сеанс с нагрудным датчиком",
   "wearableWhyNeedsThreeDaysHr": "Нужен пульс за три дня",
-  "wearableWhyNeedsThreeNights": "Нужны три ночи",
+  "wearableWhyNeedsThreeNights": "Нужны три ночи выходных",
   "wearableWhyNeedsThreeNightsTemp": "Нужна температура кожи за три ночи",
   "wearableWhyNeverBeats": "Нужны интервалы между ударами; устройство {device} их не даёт",
   "wearableWhyNeverResp": "Устройство {device} не даёт частоту дыхания",

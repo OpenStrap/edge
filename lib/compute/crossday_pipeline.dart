@@ -398,10 +398,16 @@ Map<String, dynamic> buildCrossDayBundle(
       osdH == null ? null : (osdH.clamp(7.0, 9.5)) * 3600.0;
   final debtSec =
       (sleepDebt.present ? (sleepDebt.value!.debtHours ?? 0.0) : 0.0) * 3600.0;
-  const noOsd = ana.Metric<ana.SleepNeed>.absent(
+  // The debt's own count when it is the one waiting: it needs three weekend
+  // nights before it takes a p75, and "need=1" would promise the coach after
+  // the first.
+  final debtWaiting = sleepDebt.note;
+  final noOsd = ana.Metric<ana.SleepNeed>.absent(
     tier: ana.Tier.estimate,
-    inputs_used: ['osd_hours'],
-    note: 'need_baseline:have=0,need=1',
+    inputs_used: const ['osd_hours'],
+    note: debtWaiting != null && debtWaiting.startsWith('need_baseline:')
+        ? debtWaiting
+        : 'need_baseline:have=0,need=1',
   );
   ana.Metric<ana.SleepNeed> needAt({
     required double dayStrain,
