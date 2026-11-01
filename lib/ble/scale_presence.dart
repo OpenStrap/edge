@@ -78,12 +78,9 @@ class ScalePresenceWatcher {
       try {
         final scales = await _paired(); // remote id (lower case) -> adapter id
         if (scales.isNotEmpty && bandWaiting?.call() != true) {
-          debugPrint('[scale-watch] scanning for ${scales.length} scale(s)');
           final hit = await _hear(scales.keys.toList(), window);
-          debugPrint('[scale-watch] scan done, hit=$hit');
           if (hit != null && !_stop) {
             await _sync(scales[hit.toLowerCase()]!);
-            debugPrint('[scale-watch] sync done');
             wait = cooldown;
           }
         }
