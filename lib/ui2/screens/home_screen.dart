@@ -1557,6 +1557,27 @@ class HomeScreen extends StatefulWidget {
 String? homeSwitcherDay(String day, {DateTime? now}) =>
     day == todayLabel(now) ? null : day;
 
+/// How long the app has to be away before Home gives up the day it was on.
+/// A quick switch to another app and back keeps the place; a longer absence
+/// means the past day is no longer what the user came back for.
+const kHomeKeepDayAway = Duration(minutes: 30);
+
+/// Whether Home drops a past day for today on the way back from the
+/// background: after [kHomeKeepDayAway], or when the calendar day changed
+/// while away (a day stepped back onto on Friday evening is not what Saturday
+/// morning opens on). [dayAtHide] null means the leave was never seen, so
+/// the absence is unknown and today wins.
+bool homeReturnsToToday({
+  required String? dayAtHide,
+  required String dayNow,
+  required Duration away,
+}) =>
+    dayAtHide == null || dayAtHide != dayNow || away >= kHomeKeepDayAway;
+
+/// Test seam: stands in for the time Home measured the app as away.
+@visibleForTesting
+Duration? debugHomeAwayOverride;
+
 class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   HomeData? _d;
   bool _loading = true;
@@ -1571,9 +1592,15 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// them.
   String? _day;
 
-  /// Brings Home back to today whenever the app returns from the background.
+  /// Brings Home back to today when the app returns from the background.
   /// See [_onReturnFromBackground].
   AppLifecycleListener? _lifecycle;
+
+  /// Today's label and a running stopwatch, both taken as the app went to
+  /// the background. The stopwatch is monotonic, so a clock change while
+  /// away can't stretch or shrink the absence; the label catches midnight.
+  String? _dayAtHide;
+  final Stopwatch _away = Stopwatch();
 
   /// `availableDays()` — newest first — for [DayNav]. Refetched with every
   /// load: cheap, and a switcher stepping onto a day that just finished
@@ -1610,11 +1637,19 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     super.dispose();
   }
 
-  /// OPENING THE APP MEANS TODAY. Home is kept alive in the tab stack, so a
+  void _onHide() {
+    _dayAtHide = todayLabel(widget.now);
+    _away
+      ..reset()
+      ..start();
+  }
+
+  /// COMING BACK LATER MEANS TODAY. Home is kept alive in the tab stack, so a
   /// day stepped back onto used to survive the app going to the background —
   /// overnight, too — and the next morning opened on that old day while every
-  /// detail screen behind it opened on today. `onRestart` fires only on the
-  /// way back from hidden (backgrounded), not for Control Center or a
+  /// detail screen behind it opened on today. A quick trip to another app and
+  /// back keeps the day (see [homeReturnsToToday]). `onRestart` fires only on
+  /// the way back from hidden (backgrounded), not for Control Center or a
   /// permission sheet, which leave the app merely inactive.
   ///
   /// It also reloads when the switcher was already on today: a day that rolled
@@ -1626,6 +1661,14 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// for good if the read failed, since the error card only shows with no day.
   void _onReturnFromBackground() {
     if (!mounted) return;
+    final away = debugHomeAwayOverride ?? _away.elapsed;
+    _away.stop();
+    final back = homeReturnsToToday(
+        dayAtHide: _dayAtHide, dayNow: todayLabel(widget.now), away: away);
+    _dayAtHide = null;
+    // A past day kept after a short absence needs no read here: if its data
+    // changes, the database revision reloads it like any other day.
+    if (_day != null && !back) return;
     setState(() {
       _day = null;
       if (_d?.dayId != todayLabel(widget.now)) {
@@ -1644,7 +1687,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       _loading = false;
       return;
     }
-    _lifecycle = AppLifecycleListener(onRestart: _onReturnFromBackground);
+    _lifecycle = AppLifecycleListener(
+        onHide: _onHide, onRestart: _onReturnFromBackground);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 

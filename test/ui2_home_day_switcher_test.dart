@@ -115,10 +115,94 @@ void main() {
     expect(find.text('70'), findsOneWidget);
   });
 
-  testWidgets('coming back from the background opens on today', (t) async {
+  const background = [
+    AppLifecycleState.inactive,
+    AppLifecycleState.hidden,
+    AppLifecycleState.paused,
+    AppLifecycleState.hidden,
+    AppLifecycleState.inactive,
+    AppLifecycleState.resumed,
+  ];
+
+  test('a past day is kept only for a short absence on the same day', () {
+    const day = '2026-10-31';
+    expect(
+        homeReturnsToToday(
+            dayAtHide: day, dayNow: day, away: const Duration(minutes: 5)),
+        isFalse);
+    expect(
+        homeReturnsToToday(
+            dayAtHide: day, dayNow: day, away: const Duration(minutes: 29)),
+        isFalse);
+    expect(
+        homeReturnsToToday(dayAtHide: day, dayNow: day, away: kHomeKeepDayAway),
+        isTrue);
+    // Midnight while away: today, however short the trip.
+    expect(
+        homeReturnsToToday(
+            dayAtHide: day,
+            dayNow: '2026-11-01',
+            away: const Duration(minutes: 2)),
+        isTrue);
+    // The leave was never seen: the absence is unknown.
+    expect(homeReturnsToToday(dayAtHide: null, dayNow: day, away: Duration.zero),
+        isTrue);
+  });
+
+  testWidgets('a quick trip to another app keeps the past day', (t) async {
+    debugHomeAwayOverride = const Duration(minutes: 2);
+    addTearDown(() => debugHomeAwayOverride = null);
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    app.repo = _Repo();
+
+    await t.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: ChangeNotifierProvider<AppState>.value(
+        value: app,
+        child: const Scaffold(body: HomeScreen(hour: 9)),
+      ),
+    ));
+    await _settle(t);
+    await t.tap(find.bySemanticsLabel('Previous day'));
+    await _settle(t);
+    expect(find.text('42'), findsOneWidget);
+
+    _lifecycle(t, background);
+    await _settle(t);
+    expect(find.text('42'), findsOneWidget);
+    expect(find.text('Back to today'), findsOneWidget);
+  });
+
+  testWidgets('following today stays on today after any absence', (t) async {
+    debugHomeAwayOverride = const Duration(minutes: 2);
+    addTearDown(() => debugHomeAwayOverride = null);
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    app.repo = _Repo();
+
+    await t.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: ChangeNotifierProvider<AppState>.value(
+        value: app,
+        child: const Scaffold(body: HomeScreen(hour: 9)),
+      ),
+    ));
+    await _settle(t);
+    expect(find.text('70'), findsOneWidget);
+
+    _lifecycle(t, background);
+    await _settle(t);
+    expect(find.text('70'), findsOneWidget);
+    expect(find.text('Back to today'), findsNothing);
+  });
+
+  testWidgets('coming back after a long absence opens on today', (t) async {
     // Home lives on in the tab stack, so a day stepped back onto used to
     // survive a night in the background: Saturday morning opened on Friday's
     // rings with "Back to today" under them.
+    debugHomeAwayOverride = kHomeKeepDayAway;
+    addTearDown(() => debugHomeAwayOverride = null);
     final app = AppState.forTesting();
     addTearDown(app.dispose);
     app.repo = _Repo();
@@ -176,6 +260,8 @@ void main() {
     expect(find.text('42'), findsOneWidget);
 
     repo.failToday = true;
+    debugHomeAwayOverride = const Duration(hours: 8);
+    addTearDown(() => debugHomeAwayOverride = null);
     _lifecycle(t, const [
       AppLifecycleState.inactive,
       AppLifecycleState.hidden,
