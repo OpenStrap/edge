@@ -116,7 +116,8 @@ class ScalePresenceWatcher {
             final id = r.device.remoteId.str.toLowerCase();
             if (hit == null && want.contains(id)) {
               hit = id;
-              unawaited(FlutterBluePlus.stopScan());
+              unawaited(FlutterBluePlus.stopScan().catchError(
+                  (Object e) => debugPrint('[scale-watch] stopScan failed: $e')));
             }
           }
         });
@@ -126,7 +127,12 @@ class ScalePresenceWatcher {
             timeout: window,
             androidScanMode: AndroidScanMode.lowPower,
           );
-          await FlutterBluePlus.isScanning.where((on) => !on).first;
+          // Bounded: a lost scan-stop event must not hold the process-wide
+          // scan lock (and with it every other scan) forever.
+          await FlutterBluePlus.isScanning
+              .where((on) => !on)
+              .first
+              .timeout(window + const Duration(seconds: 5));
         } finally {
           await sub.cancel();
         }
