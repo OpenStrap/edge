@@ -1,9 +1,11 @@
-# AI Coach — bring your own key
+# AI Coach — your own model, or your ChatGPT plan
 
 The AI features in OpenStrap Edge (the Coach chat, the morning and evening
 briefings, and the pre-sleep journal) are all powered by a model **you**
-provide. There's no OpenStrap AI service: you paste in an API key for any
-OpenAI-compatible provider and the app talks to that provider directly.
+provide. There's no OpenStrap AI service. There are two ways to set it up:
+paste in an API key for any OpenAI-compatible provider, or
+[sign in with your ChatGPT plan](#use-your-chatgpt-plan). Either way the app
+talks to that provider directly.
 
 Your key is stored in the device keychain/keystore and is only ever sent to
 the base URL you configure — never to OpenStrap.
@@ -20,6 +22,11 @@ If you pay for ChatGPT Plus or Pro, you can skip the API key: open
 **AI Coach → settings**, tap **ChatGPT** and sign in. Eligible coach, briefing and journal requests then use
 the usage included in your ChatGPT plan instead of API billing. Tap **List
 models** and pick one, then **Save**.
+
+Before the sign-in starts, the app links OpenAI's
+[Terms of Use](https://openai.com/policies/terms-of-use/) and
+[Usage Policies](https://openai.com/policies/usage-policies/). They apply to
+your use of ChatGPT here, so read them before you continue.
 
 - This uses OpenAI's official
   [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source)

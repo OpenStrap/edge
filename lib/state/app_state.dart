@@ -1454,7 +1454,11 @@ class AppState extends ChangeNotifier {
         _log('[reset] widget clear failed: $e');
       }
       try {
-        await coachConfig?.save(apiKey: ''); // deletes the keychain entry
+        await coachConfig?.save(
+          apiKey: '', // deletes the keychain entry
+          useChatGpt: false,
+          model: '',
+        );
       } catch (e) {
         _log('[reset] keychain clear failed: $e');
       }
