@@ -5017,6 +5017,9 @@
     }
   },
   "investigateCvhrNoComparisonYet": "ยังมีคืนก่อนหน้าไม่มากพอที่จะบอกได้ว่าการแกว่งของอัตราการเต้นหัวใจที่หน้านี้นับอยู่สูงกว่าปกติหรือไม่",
+  "@investigateCvhrNoComparisonYet": {
+    "description": "Sentence: too few older nights exist yet to compare the recent heart-rate cycling against"
+  },
   "investigateCvhrInsideUsual": "ในคืนล่าสุด ๆ รอบการเปลี่ยนแปลงอัตราการเต้นหัวใจที่การคัดกรองนี้นับได้ยังอยู่ในช่วงของ {n} คืนก่อนหน้า",
   "@investigateCvhrInsideUsual": {
     "description": "Sentence: recent heart-rate cycling has stayed within the user's own usual range",
@@ -11375,6 +11378,9 @@
     "description": "Warning after reset when a sensor pairing key could not be removed from secure storage"
   },
   "settingsResetChatGptWarning": "ลบข้อมูลแอปแล้ว แต่การลงชื่อเข้าใช้ ChatGPT อาจยังไม่ถูกลบออกทั้งหมด ให้ยกเลิกการเชื่อมต่อ OpenStrap ในการตั้งค่า ChatGPT เพื่อให้แน่ใจว่าสิทธิ์การเข้าถึงถูกเพิกถอนแล้ว การลบทั้งหมดอีกครั้งจะลองลบเฉพาะสิ่งที่ยังเหลืออยู่ในอุปกรณ์นี้เท่านั้น",
+  "@settingsResetChatGptWarning": {
+    "description": "Warning after reset when the ChatGPT sign-in may not have been revoked or removed from secure storage"
+  },
   "settingsResetBody": "จะลบข้อมูลของแอปนี้บนอุปกรณ์นี้อย่างถาวร:\n\n· ทุกวันที่วัด การนอน การออกกำลังกาย และเส้นทาง\n· ผลแล็บ มื้ออาหาร ยาที่ใช้ นิสัย การฝึกหายใจ และเซ็ตที่บันทึกทั้งหมด\n· บันทึกประจำวัน รอบเดือน และช่วงปกติที่แอปเรียนรู้\n· โปรไฟล์ การตั้งค่าทั้งหมด และคีย์ AI ที่เก็บไว้\n· วิดเจ็ตหน้าจอหลักและการเตือนตามกำหนดทั้งหมด\n\nสำเนาที่ส่งออกและข้อมูลสำรองในโฟลเดอร์เก่าหรือโฟลเดอร์ที่เข้าถึงไม่ได้อาจยังอยู่ โปรดลบแยกต่างหาก\n\nจะยกเลิกการจับคู่สายรัด และสายรัดส่งประวัติที่ส่งให้แล้วซ้ำไม่ได้ ส่งออกจาก “ข้อมูลของคุณ” ก่อนหากต้องการเก็บสำเนา",
   "@settingsResetBody": {
     "description": "Confirmation dialog body listing exactly what a full reset deletes"
@@ -16131,9 +16137,32 @@
   "stepCalEverydaySub": "เก็บของในบ้านสามนาที โดยใส่โทรศัพท์ไว้ในกระเป๋า",
   "stepCalEverydayGuide": "ทำกิจวัตรทั่วไปในบ้าน เช่น ถือของ ยกของ เก็บของ โดยใส่โทรศัพท์ไว้ในกระเป๋า สามนาที ไม่ต้องตั้งใจเดินไปมา",
   "stepCalCalibrated": "ปรับเทียบแล้ว — วัดไป {n} ครั้ง",
+  "@stepCalCalibrated": {
+    "description": "Badge on a category row: how many supervised routines are behind its gain.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "stepCalNotCalibrated": "ยังไม่ได้ปรับเทียบ",
   "stepCalBandSeen": "{count, plural, other{ก้าวที่สายรัดตรวจพบ}}",
+  "@stepCalBandSeen": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "stepCalCountYourself": "นับก้าวด้วยตัวเอง หยุดเมื่อถึง {target} ก้าว",
+  "@stepCalCountYourself": {
+    "description": "Instruction during a gait routine. The wearer counts their own steps; the band's live count is shown only as feedback, because a run that ended on the band's own count would always fit exactly 1.0.",
+    "placeholders": {
+      "target": {
+        "type": "int"
+      }
+    }
+  },
   "stepCalElapsed": "ทำต่อไป — ขั้นตอนนี้จับเวลา",
   "stepCalHowManyCounted": "คุณนับได้กี่ก้าว?",
   "stepCalFinish": "เสร็จสิ้น",
@@ -16154,24 +16183,145 @@
   "stepCalRoutineTooShort": "ขั้นตอนนั้นจบก่อนหมดเวลา ทำต่อไปจนกว่าจะเสร็จ",
   "stepCalSaveFailed": "บันทึกการปรับเทียบนั้นไม่ได้",
   "stepCalDoneGait": "บันทึกแล้ว คุณนับได้ {count} ก้าว และสายรัดตรวจพบ {band} ก้าว ต่อจากนี้การเดินแบบนี้จะถูกแก้ไข {pct}%",
+  "@stepCalDoneGait": {
+    "description": "Result of a gait calibration: what the wearer counted, what the band counted, and the percentage correction now applied. Signed, so a reduction reads as -12%.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "band": {
+        "type": "int"
+      },
+      "pct": {
+        "type": "int"
+      }
+    }
+  },
   "stepCalDoneHousehold": "บันทึกแล้ว โทรศัพท์ของคุณนับได้ {count} ก้าว จาก {band} ก้าวที่สายรัดตรวจพบ การเคลื่อนไหวในบ้านจะถูกปรับสเกลเป็น {gain}",
+  "@stepCalDoneHousehold": {
+    "description": "Result of a household calibration: the phone's count (the reference), the band's count, and the resulting scale as a fixed-2 string.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "band": {
+        "type": "int"
+      },
+      "gain": {
+        "type": "String"
+      }
+    }
+  },
   "dataStorageGroup": "พื้นที่จัดเก็บ",
+  "@dataStorageGroup": {
+    "description": "Data screen group title: storage settings and compaction."
+  },
   "dataKeepHistory": "เก็บค่าที่อ่านได้ดิบ",
+  "@dataKeepHistory": {
+    "description": "Row title: how long the compressed raw-reading archive is kept."
+  },
   "dataKeepHistorySub": "สำเนาแบบบีบอัดของค่าที่อ่านได้รายวินาทีในแต่ละวัน ซึ่งเก็บไว้หลังจากแอปล้างข้อมูลแล้ว วันที่เก่ากว่านี้ยังคงมีคะแนนอยู่ แต่จะคำนวณคะแนนใหม่ไม่ได้เมื่อการให้คะแนนได้รับการปรับปรุง",
+  "@dataKeepHistorySub": {
+    "description": "Row sub for the archive window setting."
+  },
   "dataKeepDays": "{days} วัน",
+  "@dataKeepDays": {
+    "description": "Archive window value: a number of days.",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
   "dataKeepYear": "1 ปี",
+  "@dataKeepYear": {
+    "description": "Archive window value: one year."
+  },
   "dataKeepForever": "ตลอดไป",
+  "@dataKeepForever": {
+    "description": "Archive window value: never delete."
+  },
   "dataKeepShorterTitle": "เก็บค่าที่อ่านได้ดิบไว้ {window}?",
+  "@dataKeepShorterTitle": {
+    "description": "Confirm title when the archive window is shortened.",
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
   "dataKeepShorterBody": "ค่าที่อ่านได้ที่เก่ากว่าค่าล่าสุดประมาณ {window} จะถูกลบตอนนี้ วันเหล่านั้นยังคงมีคะแนนอยู่ แต่จะคำนวณคะแนนใหม่ไม่ได้หลังการอัปเดตในอนาคต",
+  "@dataKeepShorterBody": {
+    "description": "Confirm body when the archive window is shortened.",
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
   "dataKeepShorterConfirm": "ลบค่าที่อ่านได้ที่เก่ากว่า",
+  "@dataKeepShorterConfirm": {
+    "description": "Confirm button: shorten the window and delete older archive."
+  },
   "dataKeepShorterCancel": "เก็บไว้",
+  "@dataKeepShorterCancel": {
+    "description": "Cancel button: keep the current window."
+  },
   "dataCompact": "บีบอัดฐานข้อมูล",
+  "@dataCompact": {
+    "description": "Row title: compact the database file."
+  },
   "dataCompactSub": "ล้างข้อมูลที่การตั้งค่าด้านบนไม่ได้เก็บไว้แล้ว จากนั้นคืนพื้นที่ที่ไม่ได้ใช้ให้โทรศัพท์ ต้องมีพื้นที่ว่างประมาณสองเท่าของขนาดฐานข้อมูล",
+  "@dataCompactSub": {
+    "description": "Row sub for Compact database."
+  },
   "dataCompactPruning": "กำลังล้างข้อมูลเก่า…",
+  "@dataCompactPruning": {
+    "description": "Progress line while old data is cleared before compaction."
+  },
   "dataCompactVacuuming": "กำลังบีบอัด…",
+  "@dataCompactVacuuming": {
+    "description": "Progress line while the database file is rewritten."
+  },
   "dataCompactFreed": "คืนพื้นที่ได้ {freed} MB ตอนนี้ฐานข้อมูลมีขนาด {size} MB",
+  "@dataCompactFreed": {
+    "description": "Compaction result: megabytes freed and the new size.",
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
   "dataCompactNoSpace": "ล้างข้อมูลเก่าแล้ว แต่การบีบอัดต้องมีพื้นที่ว่าง {need} MB และโทรศัพท์มีอยู่ {free} MB",
+  "@dataCompactNoSpace": {
+    "description": "Compaction refused: not enough free storage.",
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
   "dataCompactUnknownSpace": "ล้างข้อมูลเก่าแล้ว แต่อ่านพื้นที่ว่างของโทรศัพท์ไม่ได้ จึงไม่ได้บีบอัดไฟล์",
+  "@dataCompactUnknownSpace": {
+    "description": "Compaction refused: free storage could not be read."
+  },
   "dataCompactBusy": "กำลังซิงค์หรือมีเซสชันสดทำงานอยู่ ลองอีกครั้งเมื่อเสร็จแล้ว",
-  "dataSizeMb": "{mb} MB"
+  "@dataCompactBusy": {
+    "description": "Compaction refused: a sync or session is running."
+  },
+  "dataSizeMb": "{mb} MB",
+  "@dataSizeMb": {
+    "description": "A size in megabytes, shown as the row value.",
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  }
 }
