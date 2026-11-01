@@ -1834,11 +1834,20 @@ import 'vendor_sleep.dart';
 // 117 → 118 (edge-only): a legacy nap snapshot fully inside the corrected
 // main window is no longer counted on top of it; partial overlaps keep their
 // recorded minutes, and a nap the user put back stays theirs.
-// 118 → 119 (edge-only): an aged day waits to consume the next day's committed
-// sleep window before finalizing, so concurrent backfills cannot lock tonight's
-// sleep into daytime HRV, HR dip and zones depending on worker completion order.
-// The check runs again after the pass's day workers join, so an in-flight
-// replacement of an existing complete window cannot lock the predecessor either.
+// 118 → 119: analytics main @ 3a7ca34 (#100, #101, #97, #98). Nights: a night
+// split by a long awakening keeps both halves, its early-morning end is no
+// longer dropped or booked as a nap, recording gaps are not counted as sleep or
+// bridged by sleep cycles, a night still running at midnight is not scored
+// half-finished, and immobility is measured in seconds whatever the cadence;
+// cardiopulmonary coupling is gone. Scores: readiness and nightly HRV/stress
+// are steadier across gaps and less confident on a short history; the illness
+// watch no longer flags an unusually good night and carries across a short
+// gap; the CVHR screen's confidence scales with analysed hours and its
+// "running higher" verdict is null until 6 older nights exist within 30 days;
+// sleep need/debt, vo2max and the strain target abstain on thin data; the
+// temperature rhythm and alertness forecast use local time. Steps: the live
+// pedometer counts from stride periodicity. Workouts: a 5-15 min rest with HR
+// still raised stays inside one suggested workout.
 const int kAlgoVersion = 119;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
@@ -2025,7 +2034,8 @@ const int kAlgoVersion = 119;
 // REPIN @ 77fe373: analytics main, #95 merge (readiness autonomic
 // merge + spread calibration + capped re-centring + robust lnRMSSD
 // centre), for v112.
-const String kAnalyticsPin = '77fe373eb819fda235f80610e898a4bc20a7a249';
+// REPIN @ 3a7ca34: analytics main, #101 + #100 + #97 + #98, for v119.
+const String kAnalyticsPin = '3a7ca34d30233ff11e6c2877083f319a907ccb31';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both
@@ -2511,13 +2521,6 @@ class _DeriveScope {
 /// One (date, value) sample of a baseline series.
 typedef _DatedValue = ({String date, double value});
 
-typedef _NextNightDependency = ({
-  String date,
-  int sleepOffsetSec,
-  int tonightSleepOnsetSec,
-  int tonightSleepOffsetSec,
-});
-
 class _BaselineHistoryCache {
   _BaselineHistoryCache(this._series, [this._families = const {}])
       : _prefixMax = {
@@ -2657,13 +2660,6 @@ class _BaselineHistoryCache {
   /// into the sweep path. A sweep now reads ONE frozen snapshot, and each day
   /// derives its own window from it by date.
   final Map<String, List<_DatedValue>> _series;
-
-  // Eligible rows stay unlocked until all day workers have finished writing.
-  // Retain only the dependency and stored row, not the day's 1 Hz arrays.
-  final _finalizations = <String, ({
-    _NextNightDependency dependency,
-    Map<String, dynamic> row,
-  })>{};
 
   /// Load the rolling baseline window that feeds the readiness/illness
   /// computations. This ALWAYS rebuilds from `metric_series` — the canonical
@@ -3700,12 +3696,11 @@ class DerivationEngine {
         onDayDone?.call(dayId, completed, orderedDays.length);
       }
 
-      await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
+      await _runDayPool(orderedDays, processDay);
       // BEFORE the prune below: a day still owed a strain score is re-scored
       // while its raw exists (and the prune holds it if this fails).
       _diag['stage'] = 'quiet_repass';
       done += await _quietLevelRepass(profile, dataNowSec, scope.rawDays);
-      await _finishDayFinalizations(history);
 
       lastRunUnchangedDays = unchanged;
       if (unchanged > 0) {
@@ -3948,9 +3943,8 @@ class DerivationEngine {
         onDayDone?.call(dayId, completed, orderedDays.length);
       }
 
-      await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
+      await _runDayPool(orderedDays, processDay);
       done += await _quietLevelRepass(profile, dataNowSec);
-      await _finishDayFinalizations(history);
       // A SELECTED re-analyze that happens to cover the whole raw history, with
       // every day resolved, is a full restage by any other name — it re-derived
       // every day under the current timezone, so it clears the travel hold too.
@@ -4081,9 +4075,15 @@ class DerivationEngine {
     }
     // Tonight's sleep is the NEXT day's main sleep; it is only known once
     // that day has derived, and this day keeps re-deriving until it
-    // finalizes, so it converges on the following pass.
+    // finalizes, so it converges on the following pass. A day that would
+    // finalize in the same pass its next day is still deriving is held back
+    // ([PreparedDerivationDay.tonightPending]), or which of the two finished
+    // first would decide its stored result for good.
+    final nextDayId = localDateLabel(dayEnd);
+    final nextSpan =
+        storedWindowSpan(await LocalDb.sleepWindowJsonFor(nextDayId));
     final tonight = tonightSleep(
-      storedWindowSpan(await LocalDb.sleepWindowJsonFor(localDateLabel(dayEnd))),
+      nextSpan,
       dayStartSec: dayStart,
       dayEndSec: dayEnd,
       sleepOffsetSec: candidate.present ? candidate.sleepOffsetSec : 0,
@@ -4094,6 +4094,11 @@ class DerivationEngine {
       sleepSub: sleepSub,
       tonightSleepOnsetSec: tonight?.startSec ?? 0,
       tonightSleepOffsetSec: tonight?.endSec ?? 0,
+      // No span, not just no row: a stored '{}' is no window either. Not
+      // `tonight == null`: a next night that starts after midnight has a
+      // window but no tonight, and holding on it would hold every such day.
+      tonightPending: (nextSpan == null && _passUnfinished.contains(nextDayId)) ||
+          debugHoldTonight.contains(dayId),
       ownership: ownership,
       priority: priority,
     );
@@ -4112,53 +4117,6 @@ class DerivationEngine {
     if (next.startSec < dayStartSec || next.startSec >= dayEndSec) return null;
     if (next.startSec < sleepOffsetSec) return null;
     return next;
-  }
-
-  /// A worker may have prepared this day before the next worker stored its
-  /// night. Keep that result recomputable until it consumes the committed
-  /// window; otherwise age alone can permanently lock sleep into daytime.
-  Future<bool> _nextNightReadyForFinalization(_NextNightDependency day) async {
-    final dayStart = _localDayLabelToSec(day.date);
-    final dayEnd = _localNextDayLabelToSec(day.date);
-    final nextId = dayLabelOf(DateTime.fromMillisecondsSinceEpoch(dayEnd * 1000));
-    // Derive bookkeeping uses LocalDb's writer, even with a screen WAL reader.
-    final next = await LocalDb.dayResult(nextId);
-    final tonight = tonightSleep(
-      storedWindowSpan(next?['window_json']),
-      dayStartSec: dayStart,
-      dayEndSec: dayEnd,
-      sleepOffsetSec: day.sleepOffsetSec,
-    );
-    if (day.tonightSleepOnsetSec != (tonight?.startSec ?? 0) ||
-        day.tonightSleepOffsetSec != (tonight?.endSec ?? 0)) {
-      return false;
-    }
-    if (next != null &&
-        next['algo_version'] == kAlgoVersion &&
-        next['partial'] == 0 && next['skipped'] == 0) {
-      return true;
-    }
-    // An absent night is only settled when there is no input left to derive.
-    // Include the active wearable, as the normal derivation scope does.
-    return !(await substrateDays()).contains(nextId);
-  }
-
-  /// Run only after the day workers and any quiet-level repass have joined.
-  /// A later write of the same day must not inherit an earlier eligibility.
-  Future<void> _finishDayFinalizations(_BaselineHistoryCache history) async {
-    final db = await LocalDb.instance;
-    for (final entry in history._finalizations.entries) {
-      final pending = entry.value;
-      if (!await _nextNightReadyForFinalization(pending.dependency)) continue;
-      await db.update('day_result', {'finalized': 1},
-        where: 'day_id = ? AND algo_version = ? AND computed_at = ? '
-            'AND payload_json = ? AND window_json = ? '
-            'AND partial = 0 AND skipped = 0 AND finalized = 0',
-        whereArgs: [entry.key, kAlgoVersion, pending.row['computed_at'],
-          pending.row['payload_json'], pending.row['window_json']],
-      );
-    }
-    history._finalizations.clear();
   }
 
   /// Who owns each anchor signal over `[from, to]`, plus the order that
@@ -5315,7 +5273,7 @@ class DerivationEngine {
       )..sort((a, b) => b.compareTo(a)); // newest first, like the sweep
       if (days.isEmpty) return 0;
       _log('derive: re-scoring ${days.length} day(s) owed a quiet level');
-      await runWithConcurrency(days, _deriveConcurrency, (dayId) async {
+      await _runDayPool(days, (dayId) async {
         try {
           await debugQuietRepassHook?.call(dayId);
           final prepared = await _prepareTargetDay(dayId);
@@ -5327,7 +5285,6 @@ class DerivationEngine {
           _log('quiet repass day $dayId FAILED (kept owed, raw held): $e');
         }
       });
-      await _finishDayFinalizations(after);
     } catch (e) {
       _log('quiet repass failed (days kept owed, raw held): $e');
     }
@@ -5463,8 +5420,7 @@ class DerivationEngine {
         onDayDone?.call(dayId, completed, orderedDays.length);
       }
 
-      await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
-      await _finishDayFinalizations(history);
+      await _runDayPool(orderedDays, processDay);
 
       if (orderedDays.isNotEmpty) {
         await _refreshBaselines();
@@ -5673,6 +5629,33 @@ class DerivationEngine {
   /// real wall-clock speedup from the device's other cores — in the FOREGROUND.
   /// A headless background slot has no spare cores to soak up, so it takes one
   /// lane; [DerivePacing] owns that decision and explains it.
+  /// The days this pass's pool has not finished yet ([_runDayPool]).
+  final Set<String> _passUnfinished = {};
+
+  /// Test seam: days prepared as [PreparedDerivationDay.tonightPending]
+  /// whatever the next day's state, so a hold can be exercised without
+  /// racing two workers. Empty in production.
+  @visibleForTesting
+  static Set<String> debugHoldTonight = {};
+
+  /// [runWithConcurrency] over [days], tracking which are still unfinished so
+  /// a day can tell its next day is mid-derive ([_prepareTargetDay]).
+  Future<void> _runDayPool(
+      List<String> days, Future<void> Function(String dayId) body) async {
+    _passUnfinished.addAll(days);
+    try {
+      await runWithConcurrency(days, _deriveConcurrency, (dayId) async {
+        try {
+          await body(dayId);
+        } finally {
+          _passUnfinished.remove(dayId);
+        }
+      });
+    } finally {
+      _passUnfinished.removeAll(days);
+    }
+  }
+
   int get _deriveConcurrency {
     try {
       return _pacing.concurrency(Platform.numberOfProcessors);
@@ -6490,21 +6473,13 @@ class DerivationEngine {
     // workouts/HRR/wear/curves would never get a chance to be filled in by a
     // later retry.
     final ageFinalized = (day.endSec + _finalizationSec) < dataNowSec;
-    final nextNightDependency = (
-      date: day.date,
-      sleepOffsetSec: day.sleepOffsetSec,
-      tonightSleepOnsetSec: day.tonightSleepOnsetSec,
-      tonightSleepOffsetSec: day.tonightSleepOffsetSec,
-    );
-    final nextNightReady = forceFinalize || !ageFinalized ||
-        await _nextNightReadyForFinalization(nextNightDependency);
     // A result with NOTHING in it is never finalized — not even by
     // forceFinalize. Locking an all-absent row is what made the destructive
     // re-analyze permanent; leaving it unlocked means a later pass (or a
     // restored/backfilled substrate) can still fill the day in.
-    final finalized =
-        !producedNothing &&
-        (forceFinalize || (ageFinalized && secondHalfOk && nextNightReady));
+    final finalized = !producedNothing &&
+        (forceFinalize ||
+            (ageFinalized && secondHalfOk && !day.tonightPending));
 
     // A failed/timed-out second half yields a headline-only bundle, and
     // putDayResult replaces the row wholesale — so re-deriving an already
@@ -6533,15 +6508,16 @@ class DerivationEngine {
             finalizedByAge: finalized,
           );
           effectivePartial = outcome.partial;
-          effectiveFinalized = outcome.finalized;
+          // The tonight hold applies here too: carrying a finalized row
+          // forward would otherwise lock a day the hold kept open.
+          effectiveFinalized =
+              outcome.finalized && (forceFinalize || !day.tonightPending);
           _log('derive ${day.date}: second half failed — carried the previous '
               "result's detail blocks forward (v$prevVersion -> v$kAlgoVersion, "
               'partial=$effectivePartial)');
         }
       }
     }
-
-    if (!nextNightReady) effectiveFinalized = false;
 
     // OWED A STRAIN SCORE ([kQuietRepassKeyPrefix]). Marked conservatively
     // ([_quietRepassOwed]), BEFORE the row, so no interruption can leave an
@@ -6605,7 +6581,6 @@ class DerivationEngine {
         : null;
     final strapNight = ring != null &&
         await ouraStrapOwnsNight(ring, day.sleepJson['window']);
-    final deferFinalization = !forceFinalize && ageFinalized && effectiveFinalized;
     await LocalDb.putDayResult(
       dayId: day.date,
       algoVersion: kAlgoVersion,
@@ -6617,7 +6592,7 @@ class DerivationEngine {
       windowJson: jsonEncode(
         ((day.sleepJson['window'] as Map?) ?? const {}).cast<String, dynamic>(),
       ),
-      finalized: effectiveFinalized && !deferFinalization,
+      finalized: effectiveFinalized,
       partial: effectivePartial,
       rhr: sc('rhr'),
       rmssd: sc('rmssd'),
@@ -6749,15 +6724,6 @@ class DerivationEngine {
         'hr_ceiling_bpm': sc('hr_ceiling_bpm'),
       },
     );
-    if (deferFinalization) {
-      final stored = await LocalDb.dayResult(day.date);
-      if (stored != null) {
-        history._finalizations[day.date] = (
-          dependency: nextNightDependency,
-          row: stored,
-        );
-      }
-    }
     // AFTER the row: retired only once the row that proves it is durable.
     if (quietSettled) await LocalDb.deleteComputeFreshness(quietKey);
     // NOTE: the sweep's `history` snapshot is deliberately NOT updated here.
@@ -6784,7 +6750,9 @@ class DerivationEngine {
         ],
       );
     }
-    return secondHalfOk;
+    // A held day is not settled either: it must derive again next pass to
+    // read tonight's window, so it may not be recorded as unchanged.
+    return secondHalfOk && !day.tonightPending;
   }
 
   /// Bank one day's (phone steps, counter ticks) pair for the (family,
