@@ -66,7 +66,10 @@ Future<String> _snapshot() async {
               if (!e.key.endsWith('_at') && e.key != 'updated_ts')
                 e.key: e.value is String
                     ? (e.value as String).replaceAll(
-                        RegExp(r'"(updated|built)[A-Za-z_]*":\s*\d+'), '')
+                        // Numbers and dates: built_for_day is the wall-clock
+                        // day, so two halves either side of midnight differ.
+                        RegExp(r'"(updated|built)[A-Za-z_]*":\s*(\d+|"[^"]*")'),
+                        '')
                     : e.value,
           },
       ];
