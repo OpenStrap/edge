@@ -238,15 +238,15 @@ void main() {
         seg1.copyWith(startTs: 1900, endTs: 1960, boundarySource: 'gesture'),
       );
 
-      // Attempting to start T2 at 2000 (gap after T1's 1960) throws.
+      // A gap after T1's 1960 is a PAUSE and is legal now: T2 may start at
+      // 2000 (40 s later).
       final seg2 = (await TriathlonDb.segments(db, 'tri_sprint_bounds'))[2];
-      await expectLater(
-        TriathlonDb.saveSegment(
-          db,
-          seg2.copyWith(startTs: 2000, endTs: 3000, boundarySource: 'gesture'),
-        ),
-        throwsA(isA<TriathlonWriteError>()),
+      await TriathlonDb.saveSegment(
+        db,
+        seg2.copyWith(startTs: 2000, endTs: 3000, boundarySource: 'gesture'),
       );
+      final read = (await TriathlonDb.byId(db, 'tri_sprint_bounds'))!;
+      expect(read.pauseSec, 40);
       await LocalDb.close();
     });
 
@@ -526,6 +526,12 @@ void main() {
           boundarySource: 'gesture',
         ),
         throwsA(isA<TriathlonWriteError>()),
+      );
+      // But the next segment MAY start later than the previous end: a pause.
+      await TriathlonDb.saveSegment(
+        db,
+        (await TriathlonDb.segments(db, 'tri_move_1'))[1]
+            .copyWith(startTs: 2000),
       );
       segs = await TriathlonDb.segments(db, 'tri_move_1');
       expect(segs[0].endTs, 1700);
@@ -1208,6 +1214,189 @@ void main() {
       expect(segs, hasLength(5));
       await exported.close();
       await File(path).delete();
+      await LocalDb.close();
+    });
+
+
+    test('a pause between segments is legal and reported separately',
+        () async {
+      final db = await freshDb('tri_pause_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_pause_1',
+        kind: 'training',
+        preset: 'training',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_pause_1',
+        ts: 1000,
+        boundarySource: 'gesture',
+      );
+      // Swim ends at 2000; T1 only starts at 5600 -> 3600 s pause.
+      await TriathlonDb.transitionSegment(
+        db: db,
+        sessionId: 'tri_pause_1',
+        currentIdx: 0,
+        transitionTs: 2000,
+        boundarySource: 'gesture',
+      );
+      // Simulate the pause by moving the T1 start later (manual correction).
+      await TriathlonDb.saveSegment(
+        db,
+        (await TriathlonDb.segments(db, 'tri_pause_1'))[1]
+            .copyWith(startTs: 5600, endTs: 5660),
+      );
+      final read = (await TriathlonDb.byId(db, 'tri_pause_1'))!;
+      expect(read.movingSec, 660 + 60); // swim 1000s + t1 60s
+      expect(read.totalSec, 5660 - 1000);
+      expect(read.pauseSec, (5660 - 1000) - (1000 + 60));
+      await LocalDb.close();
+    });
+
+    test('an overlap between segments is refused', () async {
+      final db = await freshDb('tri_overlap_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_overlap_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_overlap_1',
+        ts: 1000,
+        boundarySource: 'gesture',
+      );
+      await TriathlonDb.transitionSegment(
+        db: db,
+        sessionId: 'tri_overlap_1',
+        currentIdx: 0,
+        transitionTs: 2000,
+        boundarySource: 'gesture',
+      );
+      // Try to move the swim end AFTER the T1 start: overlap, must fail.
+      await expectLater(
+        TriathlonDb.saveSegment(
+          db,
+          (await TriathlonDb.segments(db, 'tri_overlap_1'))[0]
+              .copyWith(endTs: 2100),
+        ),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      await LocalDb.close();
+    });
+
+    test('a DNF (abandoned mid-race) finalizes with an open cut segment',
+        () async {
+      final db = await freshDb('tri_dnf_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_dnf_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_dnf_1',
+        ts: 1000,
+        boundarySource: 'gesture',
+      );
+      await TriathlonDb.transitionSegment(
+        db: db,
+        sessionId: 'tri_dnf_1',
+        currentIdx: 0,
+        transitionTs: 2000,
+        boundarySource: 'gesture',
+      );
+      // Athlete quits during T1: T1 stays open, bike/run untouched.
+      await TriathlonDb.updateSession(
+        db,
+        TriSession(
+          id: session.id,
+          kind: session.kind,
+          preset: session.preset,
+          status: 'abandoned',
+          plan: plan,
+          createdAt: 1,
+          updatedAt: 1,
+        ),
+      );
+      await TriathlonDb.finalize(db, 'tri_dnf_1');
+      final fin = (await TriathlonDb.byId(db, 'tri_dnf_1'))!;
+      expect(fin.isFinalized, isTrue);
+      expect(fin.status, 'finalized');
+      expect(fin.segments[1].endTs, isNull, reason: 'open segment stays open');
+      expect(fin.segments[1].durationSec, isNull, reason: 'no invented time');
+      expect(fin.segments[2].startTs, isNull);
+      expect(fin.movingSec, 1000); // only the swim was measured
+      await LocalDb.close();
+    });
+
+    test('finalizing a never-started session is refused', () async {
+      final db = await freshDb('tri_dnf_empty_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_dnf_empty_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      await TriathlonDb.updateSession(
+        db,
+        TriSession(
+          id: session.id,
+          kind: session.kind,
+          preset: session.preset,
+          status: 'abandoned',
+          plan: plan,
+          createdAt: 1,
+          updatedAt: 1,
+        ),
+      );
+      await expectLater(
+        TriathlonDb.finalize(db, 'tri_dnf_empty_1'),
+        throwsA(isA<TriathlonWriteError>()),
+      );
       await LocalDb.close();
     });
 

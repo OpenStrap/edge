@@ -260,6 +260,42 @@ class TriSession {
 
   bool get isFinalized => finalizedAt != null;
 
+  /// 'armed' | 'active' | 'finished' | 'abandoned' | 'discarded' | 'finalized'.
+  static const statuses = {
+    'armed',
+    'active',
+    'finished',
+    'abandoned',
+    'discarded',
+    'finalized',
+  };
+
+  /// Sum of closed segment durations = time actually in a discipline.
+  /// Null when no segment is closed yet — a pause or an open tail is never
+  /// billed as training.
+  int? get movingSec {
+    final closed = [
+      for (final s in segments)
+        if (s.startTs != null && s.endTs != null) s.endTs! - s.startTs!,
+    ];
+    return closed.isEmpty ? null : closed.reduce((a, b) => a + b);
+  }
+
+  /// Total wall-clock time of the session (start to last end). INCLUDES any
+  /// pauses between segments — that is the difference from [movingSec].
+  int? get totalSec {
+    if (startTs == null || endTs == null) return null;
+    return endTs! - startTs!;
+  }
+
+  /// Pauses between segments, in seconds. Always >= 0.
+  int? get pauseSec {
+    final t = totalSec;
+    final m = movingSec;
+    if (t == null || m == null) return null;
+    return t - m;
+  }
+
   Map<String, Object?> toRow() => {
         'id': id,
         'kind': kind,
@@ -801,7 +837,7 @@ class TriathlonDb {
       if (session.isFinalized || session.status == 'finalized') {
         throw TriathlonWriteError('use finalize to finalize a session');
       }
-      const writable = {'armed', 'active', 'discarded'};
+      const writable = {'armed', 'active', 'discarded', 'abandoned'};
       if (!writable.contains(session.status)) {
         throw TriathlonWriteError(
           'status ${session.status} is set by start/finish/finalize, not here',
@@ -837,14 +873,44 @@ class TriathlonDb {
         limit: 1,
       );
       if (rows.isEmpty) throw TriathlonWriteError('no such session: $id');
-      if (rows.first['status'] != 'finished') {
-        throw TriathlonWriteError('only a finished session can be finalized');
+      final status = rows.first['status'] as String;
+      if (status != 'finished' && status != 'abandoned') {
+        throw TriathlonWriteError(
+          'only a finished or abandoned session can be finalized',
+        );
       }
       final segs = await segments(txn, id);
       if (segs.isEmpty) throw TriathlonWriteError('nothing to finalize');
-      for (final s in segs) {
-        if (s.startTs == null || s.endTs == null) {
-          throw TriathlonWriteError('segment ${s.idx} is still open');
+      if (status == 'finished') {
+        for (final s in segs) {
+          if (s.startTs == null || s.endTs == null) {
+            throw TriathlonWriteError('segment ${s.idx} is still open');
+          }
+        }
+      } else {
+        // ABANDONED (DNF): exactly one segment may be open — the discipline
+        // the athlete stopped in. Its duration stays null; nothing is
+        // invented. Every segment before it must be closed, every segment
+        // after it must be untouched, and at least one segment must have
+        // started (otherwise this is a discard, not a race).
+        final open = segs.where((s) => s.isOpen).toList();
+        final started = segs.where((s) => s.startTs != null).length;
+        if (started == 0) {
+          throw TriathlonWriteError(
+            'nothing started — discard the session instead of finalizing',
+          );
+        }
+        if (open.length > 1) {
+          throw TriathlonWriteError('more than one open segment');
+        }
+        if (open.isNotEmpty) {
+          final cut = open.single;
+          if (segs.where((s) => s.idx < cut.idx && s.endTs == null).isNotEmpty) {
+            throw TriathlonWriteError('an earlier segment is still open');
+          }
+          if (segs.where((s) => s.idx > cut.idx && s.startTs != null).isNotEmpty) {
+            throw TriathlonWriteError('a later segment already started');
+          }
         }
       }
       _validateTimeline(segs);
@@ -893,15 +959,17 @@ class TriathlonDb {
   /// THE timeline rule, applied to the whole session and not just the row
   /// that changed.
   ///
-  /// Started segments form a PREFIX: segment 3 cannot have a start while
-  /// segment 0 is still a plan row. Boundaries are contiguous and monotonic,
-  /// and at most one segment is open (started, not ended). Checking only the
-  /// edited row let a caller time segment 3 while 0 was open, which no later
-  /// operation can repair.
+  /// Started segments form a PREFIX (segment 3 cannot start while segment 0
+  /// is still a plan row), boundaries are MONOTONIC, and no two segments
+  /// OVERLAP. A gap between one segment's end and the next one's start is a
+  /// PAUSE, not a gap in the data: a workout can be interrupted for hours
+  /// between disciplines, and a missed transition tap looks exactly like
+  /// that. The session then reports total and moving time separately, so a
+  /// pause is never silently billed as training time.
   static void _validateTimeline(List<TriSegment> segs) {
-    int? prevEnd;
     var seenUnstarted = false;
     var open = 0;
+    int? prevEnd;
     for (final s in segs) {
       final started = s.startTs != null;
       final ended = s.endTs != null;
@@ -917,22 +985,24 @@ class TriathlonDb {
           'segment ${s.idx} starts while an earlier segment never did',
         );
       }
-      if (prevEnd != null && s.startTs != prevEnd) {
-        throw TriathlonWriteError(
-          'segment ${s.idx} does not start where its predecessor ended',
-        );
+      if (ended && s.endTs! < s.startTs!) {
+        throw TriathlonWriteError('segment ${s.idx} ends before it starts');
+      }
+      if (prevEnd != null) {
+        if (s.startTs! < prevEnd) {
+          throw TriathlonWriteError(
+            'segment ${s.idx} overlaps its predecessor',
+          );
+        }
+        // s.startTs == prevEnd is a direct transition; > is a pause. Both legal.
       }
       if (ended) {
-        if (s.endTs! < s.startTs!) {
-          throw TriathlonWriteError('segment ${s.idx} ends before it starts');
-        }
         prevEnd = s.endTs;
       } else {
         open++;
         if (open > 1) {
           throw TriathlonWriteError('more than one segment is open');
         }
-        // An open segment cannot have a started successor.
         for (final later in segs) {
           if (later.idx > s.idx && later.startTs != null) {
             throw TriathlonWriteError(
@@ -1080,22 +1150,25 @@ class TriathlonDb {
   /// Neighbours share one instant: the earlier segment's end is the later
   /// segment's start. Anything else is either a gap or an overlap, and both
   /// would make the splits stop adding up to the total.
+  /// Neighbour rule for a single edit: the previous segment's end must not
+  /// lie AFTER this segment's start (overlap), and this segment's end must
+  /// not precede the next segment's start. Equal means a direct transition;
+  /// a gap means a pause. Both are legal now.
   static void _checkNeighbour(TriSegment changed, TriSegment other) {
     if (other.idx == changed.idx - 1) {
-      // [other] is the previous segment.
       if (other.endTs != null &&
           changed.startTs != null &&
-          other.endTs != changed.startTs) {
+          other.endTs! > changed.startTs!) {
         throw TriathlonWriteError(
-          'segment ${changed.idx} does not start where ${other.idx} ended',
+          'segment ${changed.idx} starts before ${other.idx} ended',
         );
       }
     } else if (other.idx == changed.idx + 1) {
       if (changed.endTs != null &&
           other.startTs != null &&
-          changed.endTs != other.startTs) {
+          changed.endTs! > other.startTs!) {
         throw TriathlonWriteError(
-          'segment ${other.idx} does not start where ${changed.idx} ended',
+          'segment ${other.idx} starts before ${changed.idx} ended',
         );
       }
     }
