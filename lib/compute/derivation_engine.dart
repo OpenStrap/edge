@@ -3100,7 +3100,8 @@ class DerivationEngine {
   /// EXPERIMENTAL (PR #628 review), default false: re-stage the sleep window
   /// with the HMM/Viterbi classifier inside [deriveDayBundle]. Forwarded to
   /// every [DayBundleInput] this engine builds, so foreground and headless
-  /// derives agree.
+  /// derives agree. Read from `sleep_hmm_stages` in SharedPreferences by the
+  /// AppState-owned engine.
   final bool useHmmStages;
 
   /// True while a band offload is draining. The scheduler never STARTS a
@@ -3362,6 +3363,7 @@ class DerivationEngine {
       ..sort();
     final head = [
       'v${debugFingerprintAlgoVersion ?? kAlgoVersion}',
+      'hmm=$useHmmStages',
       dataNowSec,
       // The edges a day is aged against (band and wearable; see
       // [_agingEdgeFor]), from the pass's own memo.

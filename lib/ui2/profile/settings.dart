@@ -251,11 +251,11 @@ class _MoreSettingsState extends State<MoreSettings>
       },
       onToggleCycleTracking: () =>
           app.setCycleTrackingEnabled(!app.cycleTrackingEnabled),
-      onToggleSleepHmm: () =>
-          app.setSleepHmmStages(!app.sleepHmmStagesEnabled),
       onTogglePhoneSteps: () => app.phoneStepsEnabled
           ? app.disablePhoneSteps()
           : app.requestPhoneSteps(),
+      onToggleSleepHmm: () =>
+          app.setSleepHmmStages(!app.sleepHmmStagesEnabled),
       onToggleTelemetry: () => app.setTelemetryConsent(!app.telemetryConsent),
       onToggleBarcodeLookup: () => _toggleBarcode(c),
       onToggleHealthShare: () => _toggleHealthShare(c, app),

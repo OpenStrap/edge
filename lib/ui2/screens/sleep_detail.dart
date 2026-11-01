@@ -665,6 +665,11 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final d = _d ?? const SleepData();
     final l = AppLocalizations.of(c);
     final p = P.of(c);
+    final title = l?.sleepDetailNavTitle ?? 'Sleep';
+    // Persistent, not load-only (PR #628 review): the experimental /
+    // not-a-medical-device notice stays on screen for the whole visit.
+    // Theme tokens (wash/on + caption) for contrast — raw amber-on-white
+    // measured ~1.7-2.5:1.
     final disclaimer = Container(
       padding: const EdgeInsets.all(8),
       color: p.wash(C.orange),
@@ -675,7 +680,6 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         textAlign: TextAlign.center,
       ),
     );
-    final title = l?.sleepDetailNavTitle ?? 'Sleep';
 
     if (_loading && _d == null) {
       return _frame(c, title, [
@@ -801,6 +805,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       ]);
     }
 
+    final p = P.of(c);
     final n = d.night;
     final unusual = _unusual(c, p, d, n);
 
