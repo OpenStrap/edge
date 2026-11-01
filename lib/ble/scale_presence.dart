@@ -72,7 +72,9 @@ class ScalePresenceWatcher {
     });
   }
 
-  /// Stop after the current cycle; completes once the loop has ended.
+  /// Stop after the current cycle; completes once that loop has ended. A
+  /// start() made while it drains begins a new loop afterwards, which this
+  /// future does not wait for.
   Future<void> stop() async {
     _stop = true;
     _restartPending = false;
@@ -137,10 +139,17 @@ class ScalePresenceWatcher {
           );
           // Bounded: a lost scan-stop event must not hold the process-wide
           // scan lock (and with it every other scan) forever.
-          await FlutterBluePlus.isScanning
-              .where((on) => !on)
-              .first
-              .timeout(window + const Duration(seconds: 5));
+          try {
+            await FlutterBluePlus.isScanning
+                .where((on) => !on)
+                .first
+                .timeout(window + const Duration(seconds: 5));
+          } on TimeoutException {
+            // The stop event was lost: end the scan ourselves before the lock
+            // is released, and treat it as a quiet cycle (retry at [gap]).
+            await FlutterBluePlus.stopScan().catchError(
+                (Object e) => debugPrint('[scale-watch] stopScan failed: $e'));
+          }
         } finally {
           await sub.cancel();
         }
