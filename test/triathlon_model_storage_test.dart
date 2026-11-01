@@ -1014,6 +1014,133 @@ void main() {
       await LocalDb.close();
     });
 
+    test('adjustStart corrects a false start and refuses a started race',
+        () async {
+      final db = await freshDb('tri_adjust_start_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_adjstart_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      // False triple-tap in the pen starts the race at the wrong time.
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_adjstart_1',
+        ts: 1000,
+        boundarySource: 'gesture',
+      );
+      // Not yet transitioned: the start is still correctable.
+      await TriathlonDb.adjustStart(
+        db: db,
+        sessionId: 'tri_adjstart_1',
+        newTs: 1500,
+      );
+      var segs = await TriathlonDb.segments(db, 'tri_adjstart_1');
+      expect(segs[0].startTs, 1500);
+      expect(segs[0].boundarySource, 'manual');
+      expect(segs[1].startTs, isNull);
+      var read = await TriathlonDb.byId(db, 'tri_adjstart_1');
+      expect(read!.startTs, 1500);
+      expect(read.status, 'active');
+
+      // Once a segment has ENDED, the start is history and cannot move.
+      await TriathlonDb.transitionSegment(
+        db: db,
+        sessionId: 'tri_adjstart_1',
+        currentIdx: 0,
+        transitionTs: 2000,
+        boundarySource: 'gesture',
+      );
+      await expectLater(
+        TriathlonDb.adjustStart(
+          db: db,
+          sessionId: 'tri_adjstart_1',
+          newTs: 1600,
+        ),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      segs = await TriathlonDb.segments(db, 'tri_adjstart_1');
+      expect(segs[0].startTs, 1500);
+      await LocalDb.close();
+    });
+
+    test('removeBoundary merges a false split and refuses a started tail',
+        () async {
+      final db = await freshDb('tri_remove_boundary_test.db');
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final session = TriSession(
+        id: 'tri_rmb_1',
+        kind: 'race',
+        preset: 'sprint',
+        status: 'armed',
+        plan: plan,
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await TriathlonDb.create(db, session);
+      // swim 1000->1600, t1 1600->1700, bike 1700->3100, t2 3100->open.
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_rmb_1',
+        ts: 1000,
+        boundarySource: 'gesture',
+      );
+      await TriathlonDb.transitionSegment(
+        db: db,
+        sessionId: 'tri_rmb_1',
+        currentIdx: 0,
+        transitionTs: 1600,
+        boundarySource: 'gesture',
+      );
+      await TriathlonDb.transitionSegment(
+        db: db,
+        sessionId: 'tri_rmb_1',
+        currentIdx: 1,
+        transitionTs: 1700,
+        boundarySource: 'gesture',
+      );
+      // A later segment started: boundary 1 (t1) cannot be removed anymore.
+      await TriathlonDb.transitionSegment(
+        db: db,
+        sessionId: 'tri_rmb_1',
+        currentIdx: 2,
+        transitionTs: 3100,
+        boundarySource: 'gesture',
+      );
+      await expectLater(
+        TriathlonDb.removeBoundary(db: db, sessionId: 'tri_rmb_1', idx: 1),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      // Boundary 2 (bike->t2) is the live edge: removing it merges t2 into
+      // the bike segment; t2 was just opened so the merge re-opens the bike.
+      await TriathlonDb.removeBoundary(db: db, sessionId: 'tri_rmb_1', idx: 2);
+      final segs = await TriathlonDb.segments(db, 'tri_rmb_1');
+      expect(segs[2].startTs, 1700);
+      expect(segs[2].endTs, isNull);
+      expect(segs[2].boundarySource, 'manual');
+      expect(segs[3].startTs, isNull);
+      expect(segs[3].endTs, isNull);
+      // The merged session is still a valid timeline: one open segment.
+      expect(segs.where((s) => s.isOpen).length, 1);
+      await LocalDb.close();
+    });
+
     test('linkWorkout refuses a transition and a missing segment', () async {
       final db = await freshDb('tri_link_guards_test.db');
       final plan = TriathlonPlan.race(

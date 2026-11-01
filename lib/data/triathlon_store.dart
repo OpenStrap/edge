@@ -639,6 +639,61 @@ class TriathlonDb {
     });
   }
 
+  /// Moves the race start: clears every boundary of the not-yet-finalized
+  /// session and restarts segment 0 at [newTs].
+  ///
+  /// A false triple-tap in the start pen starts the race wrongly, and because
+  /// the session may only start once, no existing write can heal that. This
+  /// is the explicit correction path: it is only legal while NO segment has
+  /// ended yet (a race with closed splits keeps its history), and the new
+  /// start is stamped 'manual'.
+  static Future<void> adjustStart({
+    required Database db,
+    required String sessionId,
+    required int newTs,
+  }) async {
+    if (newTs <= 0) {
+      throw TriathlonWriteError('a start needs a real timestamp');
+    }
+    await db.transaction((txn) async {
+      await _requireWritable(txn, sessionId);
+      final segs = await segments(txn, sessionId);
+      if (segs.isEmpty) throw TriathlonWriteError('the plan has no segments');
+      if (segs.any((s) => s.endTs != null)) {
+        throw TriathlonWriteError(
+          'a segment already ended \u2014 the start can no longer be moved',
+        );
+      }
+      if (segs.any((s) => s.workoutId != null)) {
+        throw TriathlonWriteError(
+          'a segment is linked to a workout \u2014 unlink it before moving the start',
+        );
+      }
+      for (var i = 0; i < segs.length; i++) {
+        final cleared = segs[i].copyWith(
+          clearStart: true,
+          clearEnd: true,
+          boundarySource: i == 0 ? 'manual' : segs[i].boundarySource,
+        );
+        await txn.update(
+          'triathlon_segment',
+          cleared.toRow(),
+          where: 'session_id = ? AND idx = ?',
+          whereArgs: [sessionId, i],
+        );
+      }
+      final first = (await segments(txn, sessionId)).first;
+      await txn.update(
+        'triathlon_segment',
+        first.copyWith(startTs: newTs, boundarySource: 'manual').toRow(),
+        where: 'session_id = ? AND idx = 0',
+        whereArgs: [sessionId],
+      );
+      _validateTimeline(await segments(txn, sessionId));
+      await _recomputeSessionBounds(txn, sessionId, status: 'active');
+    });
+  }
+
   /// Atomically moves a boundary shared by segment [idx] and [idx + 1].
   ///
   /// Separate [saveSegment] calls cannot do this: as soon as both sides have
@@ -681,6 +736,63 @@ class TriathlonDb {
       await txn.update(
         'triathlon_segment',
         right.copyWith(startTs: newTs, boundarySource: 'manual').toRow(),
+        where: 'session_id = ? AND idx = ?',
+        whereArgs: [sessionId, idx + 1],
+      );
+      _validateTimeline(await segments(txn, sessionId));
+      await _recomputeSessionBounds(txn, sessionId);
+    });
+  }
+
+  /// Removes the boundary after segment [idx]: segments [idx] and [idx + 1]
+  /// merge into one, the successor's boundaries are cleared, and the merged
+  /// segment keeps the earlier start and the later end. Both rows must have
+  /// started, and the boundary is stamped 'manual' on the survivor.
+  ///
+  /// This is the correction for a false triple-tap mid-race that split one
+  /// discipline in two: [adjustBoundary] can only move a boundary, not delete
+  /// one, and after [finalize] the record is immutable by design.
+  static Future<void> removeBoundary({
+    required Database db,
+    required String sessionId,
+    required int idx,
+  }) async {
+    await db.transaction((txn) async {
+      await _requireWritable(txn, sessionId);
+      final segs = await segments(txn, sessionId);
+      if (idx < 0 || idx + 1 >= segs.length) {
+        throw TriathlonWriteError('there is no boundary after segment $idx');
+      }
+      final left = segs.firstWhere((s) => s.idx == idx);
+      final right = segs.firstWhere((s) => s.idx == idx + 1);
+      if (left.startTs == null || right.startTs == null) {
+        throw TriathlonWriteError(
+          'segments $idx and ${idx + 1} have not both started',
+        );
+      }
+      if (left.endTs != null && left.endTs != right.startTs) {
+        throw TriathlonWriteError('segments $idx and ${idx + 1} do not meet');
+      }
+      // Merging is only meaningful while the successor is the newest started
+      // segment: clearing its start would break the started-prefix rule the
+      // moment any later segment has already begun.
+      if (segs.any((s) => s.idx > idx + 1 && s.startTs != null)) {
+        throw TriathlonWriteError(
+          'a later segment already started \u2014 the boundary cannot be removed',
+        );
+      }
+      final merged = right.endTs == null
+          ? left.copyWith(clearEnd: true, boundarySource: 'manual')
+          : left.copyWith(endTs: right.endTs, boundarySource: 'manual');
+      await txn.update(
+        'triathlon_segment',
+        merged.toRow(),
+        where: 'session_id = ? AND idx = ?',
+        whereArgs: [sessionId, idx],
+      );
+      await txn.update(
+        'triathlon_segment',
+        right.copyWith(clearStart: true, clearEnd: true).toRow(),
         where: 'session_id = ? AND idx = ?',
         whereArgs: [sessionId, idx + 1],
       );
