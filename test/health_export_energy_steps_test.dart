@@ -42,4 +42,22 @@ void main() {
     await run('2026-08-03');
     expect(deletes, hasLength(1), reason: 'one-shot');
   });
+
+  test('only strap counter steps are exported', () {
+    const span = {'start_ts': 1000, 'end_ts': 4600, 'steps': 30};
+    final out = healthStepSpans({
+      'steps': {
+        'source': 'strap_counter',
+        'spans': [span, {'start_ts': 5000, 'end_ts': 5000, 'steps': 3}],
+      },
+    });
+    expect(out, hasLength(1));
+    expect(out.single.steps, 30);
+    expect(out.single.start.millisecondsSinceEpoch, 1000000);
+    // The phone already writes its own steps to the store.
+    for (final source in ['phone', 'strap', 'mixed', null]) {
+      expect(healthStepSpans({'steps': {'source': source, 'spans': [span]}}),
+          isEmpty);
+    }
+  });
 }

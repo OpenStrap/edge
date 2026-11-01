@@ -188,6 +188,35 @@ num? healthHrvExportValue(Map<String, dynamic> b, {required bool apple}) {
   return index is num ? index : null;
 }
 
+/// The step samples to write for a day: the strap's on-chip counter spans,
+/// and only when that counter is the day's answer (`source: strap_counter`).
+/// Any day the phone counted gets nothing, because the phone already writes
+/// its own steps to the store and ours would double them.
+@visibleForTesting
+List<({DateTime start, DateTime end, int steps})> healthStepSpans(
+  Map<String, dynamic> b,
+) {
+  final steps = b['steps'];
+  if (steps is! Map || steps['source'] != 'strap_counter') return const [];
+  final spans = steps['spans'];
+  if (spans is! List) return const [];
+  return [
+    for (final s in spans)
+      if (s is Map &&
+          s['start_ts'] is int &&
+          s['end_ts'] is int &&
+          s['steps'] is int &&
+          (s['steps'] as int) > 0 &&
+          (s['end_ts'] as int) > (s['start_ts'] as int))
+        (
+          start: DateTime.fromMillisecondsSinceEpoch(
+              (s['start_ts'] as int) * 1000),
+          end: DateTime.fromMillisecondsSinceEpoch((s['end_ts'] as int) * 1000),
+          steps: s['steps'] as int,
+        ),
+  ];
+}
+
 /// Cursor for the one-shot Apple Health sleep rewrite. Bump when the writer
 /// changes enough that nights already sitting in HealthKit should be replaced
 /// (plugin Core/in-bed misses, leftover 11pm fragments). Does not bump
@@ -565,11 +594,9 @@ class HealthExporter {
     HealthDataType.HEART_RATE,
     HealthDataType.ACTIVE_ENERGY_BURNED,
     HealthDataType.BASAL_ENERGY_BURNED,
-    // STEPS is requested for DELETE SCOPE ONLY — nothing writes steps any
-    // more (see the block further down for why). We still need the write
-    // permission to purge the fabricated step samples earlier versions put
-    // into Apple Health / Health Connect, which is why WRITE_STEPS stays in
-    // the Android manifest. That purge is a ONE-SHOT migration and does not
+    // STEPS: only strap-counter days are written ([healthStepSpans]); the
+    // permission also covers the purge of the fabricated step samples
+    // earlier versions put into Apple Health / Health Connect. That purge is a ONE-SHOT migration and does not
     // belong in the per-day rewrite loop — see [_purgeLegacyStepsIfNeeded]
     // and [_rewriteTypes].
     HealthDataType.STEPS,
@@ -589,8 +616,8 @@ class HealthExporter {
   ///   * `healthDeleteTypes` (platform-aware) drops sleep on both stores and
   ///     HEART_RATE on Android, because the native sleep replace writers and
   ///     the minute-HR batch own their own cleanup there.
-  ///   * STEPS is then removed on top, because NOTHING writes steps any more.
-  ///     Deleting a type we never write would run on every re-export of the
+  ///   * STEPS is then removed on top: only strap-counter days write steps,
+  ///     and [_exportDay] clears those itself. Deleting a type we don't write would run on every re-export of the
   ///     not-yet-finalized tail forever, and — since a false `delete()` flips
   ///     `success` — could permanently stall a day's export cursor. The
   ///     historical fabricated samples are handled once by
@@ -1411,7 +1438,33 @@ class HealthExporter {
       }
     }
 
-    // STEPS ARE DELIBERATELY NOT EXPORTED.
+    // Steps: only the strap's on-chip counter spans (see [healthStepSpans]).
+    // Delete-then-write over our own samples, and only on days we write, so a
+    // phone-counted day never runs a delete for a type nothing writes.
+    final stepSpans = healthStepSpans(b);
+    if (stepSpans.isNotEmpty) {
+      if (!await _deleteOwnSamples(HealthDataType.STEPS, dayStart, dayEnd)) {
+        success = false;
+      } else {
+        for (final s in stepSpans) {
+          try {
+            final wrote = await _health.writeHealthData(
+              value: s.steps.toDouble(),
+              type: HealthDataType.STEPS,
+              startTime: s.start,
+              endTime: s.end,
+              unit: HealthDataUnit.COUNT,
+            );
+            if (!wrote) success = false;
+          } catch (e) {
+            debugPrint('[health] write steps: $e');
+            success = false;
+          }
+        }
+      }
+    }
+
+    // NO OTHER STEPS ARE EXPORTED.
     //
     // We used to write `scalars.steps` here as a plain HealthDataType.STEPS
     // sample. Two reasons that had to stop:
