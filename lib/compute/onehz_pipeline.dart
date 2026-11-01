@@ -1,4 +1,4 @@
-import "sleep_pipeline_hmm.dart";
+import 'sleep_pipeline_hmm.dart';
 // onehz_pipeline.dart — the PURE, isolate-safe per-day analytics pipeline (V2).
 //
 // `deriveDayBundle` is a top-level function with NO DB / IO / Flutter binding
@@ -416,6 +416,13 @@ class DayBundleInput {
   /// meaningful on a FORCED window — see `sol_sec` below.
   final String sleepSource;
 
+  /// EXPERIMENTAL, default OFF (PR #628 review): when true, the per-second
+  /// stage labels are re-derived by the HMM/Viterbi classifier
+  /// (`sleep_pipeline_hmm.dart`) from the sleep-window HR/RR substrate instead
+  /// of using the coordinator-supplied [hypnoStages]. Off by default so the
+  /// shipped heuristic stays the source of truth until the HMM is validated.
+  final bool useHmmStages;
+
   const DayBundleInput({
     required this.date,
     required this.dayTsSec,
@@ -447,6 +454,7 @@ class DayBundleInput {
     this.deviceFamily,
     this.sleepSource = 'auto',
     this.stepSpans = const [],
+    this.useHmmStages = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -480,6 +488,7 @@ class DayBundleInput {
     'day_flags': dayFlags,
     'device_family': deviceFamily,
     'sleep_source': sleepSource,
+    'use_hmm_stages': useHmmStages,
   };
 
   static DayBundleInput fromJson(Map<String, dynamic> m) {
@@ -533,12 +542,49 @@ class DayBundleInput {
       dayFlags: strs('day_flags'),
       deviceFamily: m['device_family'] as String?,
       sleepSource: m['sleep_source'] as String? ?? 'auto',
+      useHmmStages: m['use_hmm_stages'] as bool? ?? false,
       stepSpans: [
         for (final r in (m['step_spans'] as List? ?? const []))
           [for (final v in (r as List)) (v as num).toInt()],
       ],
+      useHmmStages: m['use_hmm_stages'] as bool? ?? false,
     );
   }
+
+  /// Copy with replaced per-second stage labels — used by the experimental
+  /// HMM re-staging path in [deriveDayBundle].
+  DayBundleInput withHypnoStages(List<String> stages) => DayBundleInput(
+    date: date,
+    dayTsSec: dayTsSec,
+    dayHr: dayHr,
+    dayRrTsMs: dayRrTsMs,
+    dayRrMs: dayRrMs,
+    sleepTsSec: sleepTsSec,
+    sleepHr: sleepHr,
+    sleepRrTsMs: sleepRrTsMs,
+    sleepRrMs: sleepRrMs,
+    sleepSkinTemp: sleepSkinTemp,
+    sleepJson: sleepJson,
+    hypnoStages: stages,
+    sleepOnsetSec: sleepOnsetSec,
+    sleepOffsetSec: sleepOffsetSec,
+    tonightSleepOnsetSec: tonightSleepOnsetSec,
+    profile: profile,
+    lnRmssdHistory: lnRmssdHistory,
+    rhrHistory: rhrHistory,
+    respHistory: respHistory,
+    rmssdHistory: rmssdHistory,
+    skinTempAdcHistory: skinTempAdcHistory,
+    quietHrrHistory: quietHrrHistory,
+    readinessZHistory: readinessZHistory,
+    observedHrCeilingBpm: observedHrCeilingBpm,
+    dayConfidence: dayConfidence,
+    dayFlags: dayFlags,
+    stepSpans: stepSpans,
+    deviceFamily: deviceFamily,
+    sleepSource: sleepSource,
+    useHmmStages: useHmmStages,
+  );
 }
 
 /// THE ISOLATE ENTRY POINT.
@@ -547,7 +593,30 @@ class DayBundleInput {
 /// full derived bundle). Call directly + synchronously in tests, or via
 /// `Isolate.run(() => deriveDayBundle(input))` in production.
 Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
-  final d = DayBundleInput.fromJson(inputJson);
+  var d = DayBundleInput.fromJson(inputJson);
+
+  // EXPERIMENTAL HMM re-staging (default OFF — PR #628 review): when the
+  // input opts in, per-second labels are re-derived from the sleep-window
+  // HR/RR substrate by the Viterbi classifier instead of the coordinator's
+  // heuristic labels. Only applied when the decode covers the full window,
+  // otherwise the shipped labels stay.
+  if (d.useHmmStages &&
+      d.hypnoStages.isNotEmpty &&
+      d.sleepTsSec.isNotEmpty &&
+      d.sleepTsSec.length == d.hypnoStages.length) {
+    final epochs = <Map<String, dynamic>>[
+      for (var i = 0; i < d.sleepTsSec.length; i++)
+        {
+          'hr': i < d.sleepHr.length ? d.sleepHr[i] : 0,
+          'rmssd': i < d.sleepRrMs.length ? d.sleepRrMs[i] : 0.0,
+          'motion_artifact': false,
+        },
+    ];
+    final hmmStages = _classifySleepStagesHMM(epochs);
+    if (hmmStages.length == d.hypnoStages.length) {
+      d = d.withHypnoStages(hmmStages);
+    }
+  }
 
   // ── HR over the DAY (for the curve, strain zones, dip day-side) ───────────
   final dayHr = [for (final h in d.dayHr) h.toDouble()];
