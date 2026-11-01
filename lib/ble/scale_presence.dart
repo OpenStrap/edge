@@ -37,17 +37,20 @@ class ScalePresenceWatcher {
     Future<Map<String, String>> Function()? pairedScales,
     Future<String?> Function(List<String> remoteIds, Duration window)? hear,
     Future<void> Function(String adapterId)? sync,
+    Future<void> Function(String adapterId)? abort,
     this.window = const Duration(seconds: 8),
     this.gap = const Duration(seconds: 20),
     this.cooldown = const Duration(minutes: 3),
     this.syncTimeout = const Duration(minutes: 2),
   }) : _paired = pairedScales ?? _pairedScales,
        _hear = hear ?? _scan,
-       _sync = sync ?? _syncSession;
+       _sync = sync ?? _syncSession,
+       _abort = abort ?? _abortSession;
 
   final Future<Map<String, String>> Function() _paired;
   final Future<String?> Function(List<String>, Duration) _hear;
   final Future<void> Function(String) _sync;
+  final Future<void> Function(String) _abort;
   final Duration window, gap, cooldown, syncTimeout;
 
   bool _stop = true;
@@ -91,7 +94,19 @@ class ScalePresenceWatcher {
         if (scales.isNotEmpty) {
           final hit = await _hear(scales.keys.toList(), window);
           if (hit != null && !_stop) {
-            await _sync(scales[hit.toLowerCase()]!).timeout(syncTimeout);
+            final adapterId = scales[hit.toLowerCase()]!;
+            await _sync(adapterId).timeout(
+              syncTimeout,
+              onTimeout: () {
+                // The timeout only stops the wait; end the session too, so a
+                // queued sync cannot connect after the watcher gave up on it.
+                unawaited(
+                  _abort(adapterId).catchError(
+                    (Object e) => debugPrint('[scale-watch] abort failed: $e'),
+                  ),
+                );
+              },
+            );
             wait = cooldown;
           }
         }
@@ -116,6 +131,10 @@ class ScalePresenceWatcher {
 
   static Future<void> _syncSession(String adapterId) async {
     await SessionLink.forId(adapterId)?.sync();
+  }
+
+  static Future<void> _abortSession(String adapterId) async {
+    await SessionLink.forId(adapterId)?.stop();
   }
 
   static Future<String?> _scan(List<String> ids, Duration window) =>
