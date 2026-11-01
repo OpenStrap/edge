@@ -6493,7 +6493,10 @@ class DerivationEngine {
             finalizedByAge: finalized,
           );
           effectivePartial = outcome.partial;
-          effectiveFinalized = outcome.finalized;
+          // The tonight hold applies here too: carrying a finalized row
+          // forward would otherwise lock a day the hold kept open.
+          effectiveFinalized =
+              outcome.finalized && (forceFinalize || !day.tonightPending);
           _log('derive ${day.date}: second half failed — carried the previous '
               "result's detail blocks forward (v$prevVersion -> v$kAlgoVersion, "
               'partial=$effectivePartial)');

@@ -22,6 +22,31 @@ final _days = [
 ];
 const _held = '2026-07-12';
 
+Future<void> _seed(String name) async {
+  SharedPreferences.setMockInitialValues({});
+  await LocalDb.close();
+  LocalDb.dbName = name;
+  await databaseFactory.deleteDatabase(
+    p.join(await databaseFactory.getDatabasesPath(), name),
+  );
+  var committed = 0;
+  for (final d in _days) {
+    for (final (raws, samples) in d.primaryBatches()) {
+      final keep = [
+        for (var j = 0; j < raws.length; j++)
+          if (raws[j].recTs! > committed) j,
+      ];
+      if (keep.isEmpty) continue;
+      await LocalDb.commitSyncBatch(
+        [for (final j in keep) raws[j]],
+        [for (final j in keep) samples[j]],
+        deviceFamily: 'gen4',
+      );
+      committed = raws[keep.last].recTs!;
+    }
+  }
+}
+
 void main() {
   setUpAll(() {
     sqfliteFfiInit();
@@ -30,48 +55,60 @@ void main() {
 
   tearDown(() async {
     DerivationEngine.debugHoldTonight = {};
+    DerivationEngine.debugSecondHalfHook = null;
     await LocalDb.close();
   });
 
-  test('a held day is neither finalized nor fingerprinted, then settles',
-      () async {
-    const name = 'derive_tonight_pending.db';
-    SharedPreferences.setMockInitialValues({});
-    await LocalDb.close();
-    LocalDb.dbName = name;
-    await databaseFactory
-        .deleteDatabase(p.join(await databaseFactory.getDatabasesPath(), name));
-    var committed = 0;
-    for (final d in _days) {
-      for (final (raws, samples) in d.primaryBatches()) {
-        final keep = [
-          for (var j = 0; j < raws.length; j++)
-            if (raws[j].recTs! > committed) j,
-        ];
-        if (keep.isEmpty) continue;
-        await LocalDb.commitSyncBatch(
-          [for (final j in keep) raws[j]],
-          [for (final j in keep) samples[j]],
-          deviceFamily: 'gen4',
+  test(
+    'a held day is neither finalized nor fingerprinted, then settles',
+    () async {
+      await _seed('derive_tonight_pending.db');
+
+      // Two held passes: the second derives from unchanged inputs, which is
+      // where a fingerprint would be recorded and the day skipped for good.
+      DerivationEngine.debugHoldTonight = {_held};
+      for (var i = 0; i < 2; i++) {
+        await DerivationEngine().run(_profile, heavy: true);
+        expect(await LocalDb.dayResult(_held), isNotNull);
+        expect(
+          await LocalDb.finalizedDayIds(kAlgoVersion),
+          isNot(contains(_held)),
+          reason: 'held pass $i',
         );
-        committed = raws[keep.last].recTs!;
+        expect(
+          await LocalDb.deriveFingerprint(_held),
+          isNull,
+          reason: 'held pass $i',
+        );
       }
-    }
 
-    // Two held passes: the second derives from unchanged inputs, which is
-    // where a fingerprint would be recorded and the day skipped for good.
-    DerivationEngine.debugHoldTonight = {_held};
-    for (var i = 0; i < 2; i++) {
+      DerivationEngine.debugHoldTonight = {};
       await DerivationEngine().run(_profile, heavy: true);
-      expect(await LocalDb.dayResult(_held), isNotNull);
-      expect(await LocalDb.finalizedDayIds(kAlgoVersion), isNot(contains(_held)),
-          reason: 'held pass $i');
-      expect(await LocalDb.deriveFingerprint(_held), isNull,
-          reason: 'held pass $i');
-    }
+      expect(await LocalDb.finalizedDayIds(kAlgoVersion), contains(_held));
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
 
-    DerivationEngine.debugHoldTonight = {};
-    await DerivationEngine().run(_profile, heavy: true);
-    expect(await LocalDb.finalizedDayIds(kAlgoVersion), contains(_held));
-  }, timeout: const Timeout(Duration(minutes: 5)));
+  test(
+    'a failed second half does not carry a finalized row past the hold',
+    () async {
+      await _seed('derive_tonight_pending_recovery.db');
+      await DerivationEngine().run(_profile, heavy: true);
+      expect(await LocalDb.finalizedDayIds(kAlgoVersion), contains(_held));
+
+      // Re-derived (forced) while held, with its second half failing: the
+      // recovery path carries the complete finalized row forward, and must not
+      // carry the lock with it.
+      DerivationEngine.debugHoldTonight = {_held};
+      DerivationEngine.debugSecondHalfHook = (day) async {
+        if (day == _held) throw StateError('second half down');
+      };
+      await DerivationEngine().runDays(_profile, {_held}, force: true);
+      expect(
+        await LocalDb.finalizedDayIds(kAlgoVersion),
+        isNot(contains(_held)),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
 }
