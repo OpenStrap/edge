@@ -1345,6 +1345,10 @@ class AppState extends ChangeNotifier {
   /// confirmation would otherwise read as a clean wipe.
   bool resetLeftPairingKeys = false;
 
+  /// Set by [resetAllData] when the ChatGPT sign-in may outlive it: OpenAI did
+  /// not confirm the revocation, or the keychain item could not be deleted.
+  bool resetLeftChatGpt = false;
+
   /// "Delete everything", and mean it.
   ///
   /// The old reset walked `availableDays()` — the non-skipped DERIVED days —
@@ -1454,9 +1458,19 @@ class AppState extends ChangeNotifier {
         _log('[reset] widget clear failed: $e');
       }
       try {
-        await coachConfig?.save(apiKey: ''); // deletes the keychain entry
+        await coachConfig?.save(
+          apiKey: '', // deletes the keychain entry
+          useChatGpt: false,
+          model: '',
+        );
       } catch (e) {
         _log('[reset] keychain clear failed: $e');
+      }
+      try {
+        resetLeftChatGpt = !(await coachConfig?.chatgpt.forgetAll() ?? true);
+      } catch (e) {
+        resetLeftChatGpt = true;
+        _log('[reset] ChatGPT sign-in clear failed: $e');
       }
       // Coach chats are files, not rows, so wipeAll does not reach them.
       try {

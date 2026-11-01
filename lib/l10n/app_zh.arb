@@ -2185,6 +2185,7 @@
   "settingsResetTitle": "删除全部数据？",
   "settingsResetBackupWarning": "应用数据已删除。备份清理未完成，部分文件或文件夹访问权限可能仍然保留。",
   "settingsResetPairingKeyWarning": "应用数据已删除，但某个传感器的配对密钥无法从安全存储中移除。请再次删除全部以重试。",
+  "settingsResetChatGptWarning": "应用数据已删除，但 ChatGPT 登录可能未完全移除。请在 ChatGPT 设置中断开 OpenStrap，以确保其访问权限已撤销。再次删除全部只会重试清除此设备上剩余的内容。",
   "settingsResetBody": "此操作将永久删除此设备上本应用的数据：\n\n· 每一天的测量数据、睡眠、锻炼和路线\n· 每一项化验结果、饮食、用药剂量、习惯、呼吸训练和记录的组数\n· 你的日记、周期记录和滚动基线\n· 你的个人资料、所有偏好设置以及保存的任何 AI 密钥\n· 主屏幕小组件和所有已安排的提醒\n\n导出的副本以及旧文件夹或无法访问的文件夹中的备份可能仍然保留。请单独删除这些文件。\n\n手环会解除配对，并且无法重新发送已经交出的历史数据。如果需要保留副本，请先在“你的数据”中导出。",
   "settingsResetKeepData": "保留我的数据",
   "settingsResetDeleteEverything": "删除全部",
