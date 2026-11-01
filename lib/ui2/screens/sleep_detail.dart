@@ -693,6 +693,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       final nav = _d ?? _lastGood ?? d;
       final shown = _day ?? nav.latestDay ?? nav.day;
       return _frame(c, title, [
+        disclaimer,
         ...dayNavRow(shown, nav.days, _goDay),
         const SizedBox(height: S.x2),
         StatusCard(
@@ -723,6 +724,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       final rejected =
           (d.night['sleep_source'] as String?) == 'rejected' && rejectedDay != null;
       return _frame(c, title, [
+        disclaimer,
         ...dayNavRow(_day ?? d.day, d.days, _goDay),
         const SizedBox(height: S.x2),
         // A day CAN be in `availableDays` and still hold no night — the band
@@ -808,6 +810,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     // would rather than printing the raw yyyy-MM-dd key.
     return _frame(c, title,
         sub: d.days.length < 2 ? dayNavLabel(d.day, l).toUpperCase() : '', [
+      disclaimer,
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
 
       // ── 1 · THE ANSWER ──

@@ -3470,5 +3470,13 @@
         "type": "int"
       }
     }
+  },
+  "settingsSleepHmmRowTitle": "Experimentelles Schlaf-Staging (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "Forschungsalgorithmus, kein Medizinprodukt. Standard aus; gilt ab dem nächsten Sync",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }
 }

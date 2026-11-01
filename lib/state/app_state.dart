@@ -309,6 +309,7 @@ class AppState extends ChangeNotifier {
     log: _log,
     background: _background,
     offloadActive: () => _deriveScheduler.offloadActive,
+    useHmmStages: sleepHmmStagesEnabled,
   );
   late final DeriveCoordinator _deriveCoordinator = DeriveCoordinator(
     derive: () => _derive,
@@ -568,6 +569,7 @@ class AppState extends ChangeNotifier {
     // The companion-URL override is loaded in _initCompanion (single source of
     // truth for every network call — announcements, OTA, telemetry, import).
     healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
+    sleepHmmStagesEnabled = prefs.getBool(_kSleepHmmStages) ?? false;
     phoneStepsEnabled = prefs.getBool(_kPhoneSteps) ?? false;
     // Steps only exist if a real pedometer measured them, so kick the phone
     // pull early. This is BEST-EFFORT and establishes no ordering: it is
@@ -791,6 +793,12 @@ class AppState extends ChangeNotifier {
   // switch from callers that never see this class.
   static const String _kHealthSync = kHealthSyncPref;
 
+  /// EXPERIMENTAL, default OFF (PR #628 review): re-stage the sleep window
+  /// with the HMM/Viterbi classifier in the derivation pipeline. Not a medical
+  /// device — the sleep detail screen carries the matching disclaimer.
+  bool sleepHmmStagesEnabled = false;
+  static const String _kSleepHmmStages = 'sleep_hmm_stages';
+
   /// "Apple Health" (iOS) or "Health Connect" (Android).
   String get healthStoreName => HealthExporter.storeName;
   bool get healthIsApple => HealthExporter.isApple;
@@ -820,6 +828,15 @@ class AppState extends ChangeNotifier {
   }
 
   /// Toggle continuous export. Enabling requests permission + does a first sync.
+  /// Toggle the experimental HMM sleep staging. Default off; changes take
+  /// effect on the next derivation pass.
+  Future<void> setSleepHmmStages(bool on) async {
+    sleepHmmStagesEnabled = on;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kSleepHmmStages, on);
+    notifyListeners();
+  }
+
   Future<void> setHealthSync(bool on) async {
     healthSyncEnabled = on;
     final prefs = await SharedPreferences.getInstance();

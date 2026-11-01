@@ -215,6 +215,7 @@ class _MoreSettingsState extends State<MoreSettings>
       onRequestBackgroundExempt: app.requestIgnoreBatteryOptimizations,
       onOpenOemAutostart: app.openOemAutostartSettings,
       phoneSteps: app.phoneStepsEnabled,
+      sleepHmm: app.sleepHmmStagesEnabled,
       telemetry: app.telemetryConsent,
       barcodeLookup: _barcode,
       // Shown when the build has the feature OR when this install already
@@ -250,6 +251,8 @@ class _MoreSettingsState extends State<MoreSettings>
       },
       onToggleCycleTracking: () =>
           app.setCycleTrackingEnabled(!app.cycleTrackingEnabled),
+      onToggleSleepHmm: () =>
+          app.setSleepHmmStages(!app.sleepHmmStagesEnabled),
       onTogglePhoneSteps: () => app.phoneStepsEnabled
           ? app.disablePhoneSteps()
           : app.requestPhoneSteps(),
@@ -573,6 +576,9 @@ class MoreSettingsView extends StatelessWidget {
   final ClockFormat clockFormat;
   final bool phoneSteps, telemetry, barcodeLookup, cycleTracking;
 
+  /// EXPERIMENTAL HMM sleep staging (PR #628 review) — off by default.
+  final bool sleepHmm;
+
   /// The live-workout HR-zone-crossing haptic. Off by default; [zoneAlertZone]
   /// (1..5) is only meaningful — and only drawn — while this is on.
   final bool zoneAlertEnabled;
@@ -634,6 +640,7 @@ class MoreSettingsView extends StatelessWidget {
       onCycleAppearance,
       onCycleClockFormat,
       onTogglePhoneSteps,
+      onToggleSleepHmm,
       onToggleTelemetry,
       onToggleBarcodeLookup,
       onToggleCycleTracking,
@@ -656,6 +663,7 @@ class MoreSettingsView extends StatelessWidget {
     this.onRequestBackgroundExempt,
     this.onOpenOemAutostart,
     this.phoneSteps = false,
+    this.sleepHmm = false,
     this.healthSync = false,
     this.healthState = HealthLinkState.unknown,
     this.healthStore = 'Apple Health',
@@ -684,6 +692,7 @@ class MoreSettingsView extends StatelessWidget {
     this.onCycleAppearance,
     this.onCycleClockFormat,
     this.onTogglePhoneSteps,
+    this.onToggleSleepHmm,
     this.onToggleTelemetry,
     this.onToggleBarcodeLookup,
     this.onToggleCycleTracking,
@@ -787,6 +796,15 @@ class MoreSettingsView extends StatelessWidget {
                           'What may interrupt you, quiet hours, and off '
                               'switches for all of them',
                       onTap: onNotifications),
+                  SetRow(LucideIcons.moonStar, C.indigo,
+                      l?.settingsSleepHmmRowTitle ??
+                          'Experimental sleep staging (HMM)',
+                      sub: l?.settingsSleepHmmRowSub ??
+                          'Research algorithm, not a medical device. Off by '
+                              'default; applies from the next sync',
+                      value: sleepHmm ? on : off,
+                      chevron: false,
+                      onTap: onToggleSleepHmm),
                   SetRow(LucideIcons.ruler, C.blue,
                       l?.settingsUnitsRowTitle ?? 'Units',
                       value: units, onTap: onCycleUnits),

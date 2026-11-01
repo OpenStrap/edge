@@ -2861,5 +2861,13 @@
         "type": "int"
       }
     }
+  },
+  "settingsSleepHmmRowTitle": "प्रायोगिक sleep staging (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "अनुसंधान एल्गोरिदम। यह मेडिकल उपकरण नहीं है। डिर्टवत पर्योग स्यंक से प्रवता है।",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }
 }

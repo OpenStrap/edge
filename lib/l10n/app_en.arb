@@ -16327,5 +16327,13 @@
   "sleepDetailMedicalDisclaimer": "Experimental research algorithm. Not a medical device. Consult a physician for sleep disorders.",
   "@sleepDetailMedicalDisclaimer": {
     "description": "Disclaimer shown on the sleep detail screen."
+  },
+  "settingsSleepHmmRowTitle": "Experimental sleep staging (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "Research algorithm, not a medical device. Off by default; applies from the next sync",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }
 }

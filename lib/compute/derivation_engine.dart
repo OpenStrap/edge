@@ -3089,8 +3089,19 @@ class CompactResult {
 }
 
 class DerivationEngine {
-  DerivationEngine({this.log, this.background = false, this.offloadActive});
+  DerivationEngine({
+    this.log,
+    this.background = false,
+    this.offloadActive,
+    this.useHmmStages = false,
+  });
   final void Function(String)? log;
+
+  /// EXPERIMENTAL (PR #628 review), default false: re-stage the sleep window
+  /// with the HMM/Viterbi classifier inside [deriveDayBundle]. Forwarded to
+  /// every [DayBundleInput] this engine builds, so foreground and headless
+  /// derives agree.
+  final bool useHmmStages;
 
   /// True while a band offload is draining. The scheduler never STARTS a
   /// derive during one, but one can start mid-pass; the raw prune checks this
@@ -5926,6 +5937,7 @@ class DerivationEngine {
       // guess — sleep-onset latency only means what people think it means on a
       // forced window.
       sleepSource: day.sleepSource,
+      useHmmStages: useHmmStages,
     );
     final withHistory = _attachHistory(input, history);
 
