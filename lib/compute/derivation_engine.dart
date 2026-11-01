@@ -1834,7 +1834,21 @@ import 'vendor_sleep.dart';
 // 117 → 118 (edge-only): a legacy nap snapshot fully inside the corrected
 // main window is no longer counted on top of it; partial overlaps keep their
 // recorded minutes, and a nap the user put back stays theirs.
-const int kAlgoVersion = 118;
+// 118 → 119: analytics main @ 3a7ca34 (#100, #101, #97, #98). Nights: a night
+// split by a long awakening keeps both halves, its early-morning end is no
+// longer dropped or booked as a nap, recording gaps are not counted as sleep or
+// bridged by sleep cycles, a night still running at midnight is not scored
+// half-finished, and immobility is measured in seconds whatever the cadence;
+// cardiopulmonary coupling is gone. Scores: readiness and nightly HRV/stress
+// are steadier across gaps and less confident on a short history; the illness
+// watch no longer flags an unusually good night and carries across a short
+// gap; the CVHR screen's confidence scales with analysed hours and its
+// "running higher" verdict is null until 6 older nights exist within 30 days;
+// sleep need/debt, vo2max and the strain target abstain on thin data; the
+// temperature rhythm and alertness forecast use local time. Steps: the live
+// pedometer counts from stride periodicity. Workouts: a 5-15 min rest with HR
+// still raised stays inside one suggested workout.
+const int kAlgoVersion = 119;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -2020,7 +2034,8 @@ const int kAlgoVersion = 118;
 // REPIN @ 77fe373: analytics main, #95 merge (readiness autonomic
 // merge + spread calibration + capped re-centring + robust lnRMSSD
 // centre), for v112.
-const String kAnalyticsPin = '77fe373eb819fda235f80610e898a4bc20a7a249';
+// REPIN @ 3a7ca34: analytics main, #101 + #100 + #97 + #98, for v119.
+const String kAnalyticsPin = '3a7ca34d30233ff11e6c2877083f319a907ccb31';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both

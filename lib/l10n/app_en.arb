@@ -5016,6 +5016,10 @@
       }
     }
   },
+  "investigateCvhrNoComparisonYet": "There aren't enough older nights behind your recent ones yet to say whether the heart-rate cycling this screen counts is running higher than usual.",
+  "@investigateCvhrNoComparisonYet": {
+    "description": "Sentence: too few older nights exist yet to compare the recent heart-rate cycling against"
+  },
   "investigateCvhrInsideUsual": "Over your most recent nights, the heart-rate cycling this screen counts has stayed inside the range of the {n} nights behind it.",
   "@investigateCvhrInsideUsual": {
     "description": "Sentence: recent heart-rate cycling has stayed within the user's own usual range",
@@ -14735,7 +14739,7 @@
   "wearableBandDayWhy": "Your band recorded today, so today's numbers come from it, not from this wearable",
   "wearableWhyEstimateHidden": "Only an estimate exists, and estimates are hidden in Settings",
   "wearableWhyNoNight": "No night stored for this day",
-  "wearableWhyNeedsThreeNights": "Needs three nights",
+  "wearableWhyNeedsThreeNights": "Needs three weekend nights",
   "wearableWhyNoNightHr": "No heart rate during the night",
   "wearableWhySkinTempNotDecoded": "Skin temperature is not decoded yet",
   "wearableWhyNeedsBeats": "Needs beat-to-beat intervals",
