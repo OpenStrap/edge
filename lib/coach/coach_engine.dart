@@ -26,6 +26,7 @@ import '../models/payloads.dart' show todayHeadlineOf;
 import '../sync/reset_gate.dart';
 import 'coach_actions.dart';
 import 'coach_chat_completions.dart';
+import 'coach_chatgpt.dart';
 import 'coach_config.dart';
 import 'coach_db.dart';
 import 'coach_prompt.dart';
@@ -802,11 +803,19 @@ class CoachEngine {
     final model = body['model'] as String? ?? '';
     final api = config.api;
     final apiBase = config.apiBase;
+    final chatgpt = config.usesChatGpt;
+    // Replayed reasoning is tied to who paid for it, so a ChatGPT-plan turn
+    // never replays an API-key turn's output on the same base, or another
+    // account's, or vice versa.
+    final replayBase = chatgpt
+        ? '$apiBase#chatgpt:${config.chatgpt.session?.sub ?? ''}'
+        : apiBase;
     try {
       body = switch (api) {
-        CoachApi.responses => CoachResponses.request(body, apiBase: apiBase),
+        CoachApi.responses => CoachResponses.request(body, apiBase: replayBase),
         CoachApi.chatCompletions => CoachChatCompletions.request(body),
       };
+      if (chatgpt) body = chatGptRequest(body);
       // Recent Claude models reject sampling params with a 400, on Anthropic's
       // own endpoint and through any pass-through provider alike. Strip them for
       // exactly those model versions; older Claude models and every other
@@ -830,24 +839,32 @@ class CoachEngine {
           'time range, or start a new chat.',
         );
       }
+      final bearer = chatgpt
+          ? await config.chatgpt.accessToken()
+          : (config.hasKey ? config.apiKey : null);
       final resp = await c
           .post(
             Uri.parse('$apiBase/${api.endpoint}'),
             headers: {
-              if (config.hasKey) 'Authorization': 'Bearer ${config.apiKey}',
+              if (bearer != null) 'Authorization': 'Bearer $bearer',
               'content-type': 'application/json',
             },
             body: payload,
           )
           .timeout(config.requestTimeout);
       if (resp.statusCode != 200) {
-        throw CoachException(
-          'Provider error (${resp.statusCode}): ${_briefErr(resp.body)}',
-        );
+        throw CoachException(chatgpt
+            ? chatGptHttpError(resp.statusCode, utf8.decode(resp.bodyBytes))
+            : 'Provider error (${resp.statusCode}): ${_briefErr(resp.body)}');
       }
       final Object? j;
       try {
-        j = jsonDecode(utf8.decode(resp.bodyBytes));
+        // The plan route only streams; the buffered body is its SSE events.
+        j = chatgpt
+            ? chatGptCompletedResponse(utf8.decode(resp.bodyBytes))
+            : jsonDecode(utf8.decode(resp.bodyBytes));
+      } on ChatGptException {
+        rethrow;
       } catch (_) {
         throw CoachException(
           'Provider returned a non-JSON response. Check the API base URL — '
@@ -857,11 +874,13 @@ class CoachEngine {
       if (j is! Map) throw CoachException('Unexpected response from provider.');
       return switch (api) {
         CoachApi.responses => CoachResponses.reply(
-            j.cast<String, dynamic>(), model, apiBase: apiBase),
+            j.cast<String, dynamic>(), model, apiBase: replayBase),
         CoachApi.chatCompletions => CoachChatCompletions.reply(
             j.cast<String, dynamic>()),
       };
     } on FormatException catch (e) {
+      throw CoachException(e.message);
+    } on ChatGptException catch (e) {
       throw CoachException(e.message);
     } finally {
       if (client == null) c.close();

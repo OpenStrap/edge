@@ -192,9 +192,11 @@ void main() {
     // computed with a hole right at the boundary.
     test('a hypnogram segment crossing local midnight is not dropped from the '
         'SRI grid', () {
-      // Local 23:30 → 00:30 the next day, expressed as epoch seconds.
+      // Local 23:30 → 04:30 the next day, expressed as epoch seconds. Five
+      // hours, so adjacent nights share more than the 240 observed minutes
+      // the SRI needs before it scores a pair at all.
       final onset = DateTime(2024, 3, 4, 23, 30).millisecondsSinceEpoch ~/ 1000;
-      final wake = DateTime(2024, 3, 5, 0, 30).millisecondsSinceEpoch ~/ 1000;
+      final wake = DateTime(2024, 3, 5, 4, 30).millisecondsSinceEpoch ~/ 1000;
 
       List<Map<String, dynamic>> nights({required bool crossMidnight}) => [
             for (var i = 0; i < 14; i++)
@@ -202,11 +204,14 @@ void main() {
                 'date': '2024-03-${(4 + i).toString().padLeft(2, '0')}',
                 'onset_sec': onset + i * 86400,
                 'wake_sec': wake + i * 86400,
-                'tst_min': 60,
+                'tst_min': 300,
                 'hypnogram': [
                   {
-                    'start': onset + i * 86400,
-                    'end': (crossMidnight ? wake : onset + 1800) + i * 86400,
+                    // The control ends at onset instead: the same five hours,
+                    // all before midnight.
+                    'start':
+                        (crossMidnight ? onset : onset - 5 * 3600) + i * 86400,
+                    'end': (crossMidnight ? wake : onset) + i * 86400,
                     'stage': 'nrem',
                   },
                 ],

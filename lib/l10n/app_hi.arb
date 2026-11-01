@@ -947,6 +947,10 @@
   "investigateLnRmssd": "ln RMSSD",
   "investigateBaselineRmssd": "आपका बेसलाइन RMSSD",
   "investigateStabilityCv": "स्थिरता (CV)",
+  "investigateStressIndexTitle": "तनाव सूचकांक",
+  "investigateStressIndexSi": "सूचकांक (SI)",
+  "investigateStressLevel": "स्तर",
+  "investigateStressScore": "स्कोर (0–100)",
   "investigateFrequencyDomain": "फ़्रीक्वेंसी डोमेन",
   "investigateUlfPower": "ULF पावर",
   "investigateVlfPower": "VLF पावर",
@@ -1016,6 +1020,7 @@
   "investigateDroppedThin": "बहुत कम प्रेक्षित घंटों के कारण {count} रातें बाहर रखी गईं",
   "investigateAcrossNOwnNights": "आपकी अपनी {n} रातों में",
   "investigateCvhrAboveUsual": "आपकी हाल की रातों में, इस स्क्रीन द्वारा गिनी गई हृदय-गति साइकलिंग इसके पीछे की {n} रातों के मुक़ाबले अधिक रही है।",
+  "investigateCvhrNoComparisonYet": "आपकी हाल की रातों के पीछे अभी इतनी पुरानी रातें नहीं हैं कि कहा जा सके कि इस स्क्रीन द्वारा गिनी गई हृदय-गति साइकलिंग सामान्य से अधिक चल रही है या नहीं।",
   "investigateCvhrInsideUsual": "आपकी हाल की रातों में, इस स्क्रीन द्वारा गिनी गई हृदय-गति साइकलिंग इसके पीछे की {n} रातों की सीमा के भीतर बनी रही है।",
   "investigateCvhrExplainer": "यह आपकी पल्स में एक पैटर्न है, आपकी श्वास का माप नहीं, और यह किसी चीज़ की जाँच नहीं है। यही साइकलिंग अनियमित लय, ऊँचाई पर होने, या किसी भी टूटी हुई रात से आती है — और बीटा-ब्लॉकर्स, डायबिटीज़ और नर्व की स्थितियाँ इसे कम कर देती हैं, इसलिए वास्तव में बिगड़ी हुई श्वास अक्सर यहाँ कोई निशान नहीं छोड़ती।",
   "investigateCvhrNotNegativeResult": "इसलिए यहाँ कुछ भी नकारात्मक परिणाम नहीं है और यहाँ कुछ भी किसी चीज़ को साफ़ नहीं करता, और इनमें से कोई भी किसी एक रात के बारे में कुछ नहीं कहता — एक अकेली रात की गिनती अपने आप दर्जनों कारणों से बदलती है।",
@@ -2180,6 +2185,7 @@
   "settingsResetTitle": "सब कुछ मिटा दें?",
   "settingsResetBackupWarning": "ऐप का डेटा मिटा दिया गया। बैकअप की सफ़ाई पूरी नहीं हुई। कुछ फ़ाइलें या फ़ोल्डर तक पहुंच की अनुमति रह सकती है।",
   "settingsResetPairingKeyWarning": "ऐप का डेटा मिटा दिया गया, लेकिन किसी सेंसर की पेयरिंग कुंजी सुरक्षित स्टोरेज से नहीं हटाई जा सकी। फिर से कोशिश करने के लिए सब कुछ दोबारा मिटाएँ।",
+  "settingsResetChatGptWarning": "ऐप का डेटा मिटा दिया गया, लेकिन ChatGPT साइन-इन शायद पूरी तरह नहीं हटा। पहुँच पक्का रद्द करने के लिए ChatGPT सेटिंग्स में OpenStrap को डिस्कनेक्ट करें। सब कुछ दोबारा मिटाने से सिर्फ़ इस डिवाइस पर बचा हिस्सा हटाने की फिर कोशिश होती है।",
   "settingsResetBody": "यह इस डिवाइस पर इस ऐप का डेटा स्थायी रूप से मिटा देता है:\n\n· हर मापा गया दिन, नींद, वर्कआउट और रूट\n· हर लैब परिणाम, भोजन, दवा की खुराक, आदत, श्वास सत्र और लॉग किया गया सेट\n· आपकी डायरी, चक्र लॉग और चलती बेसलाइन\n· आपकी प्रोफ़ाइल, हर प्राथमिकता और कोई भी सहेजी गई AI कुंजी\n· होम-स्क्रीन विजेट और हर शेड्यूल किया गया रिमाइंडर\n\nएक्सपोर्ट की गई प्रतियां और पुराने या उपलब्ध न होने वाले फ़ोल्डरों में बैकअप रह सकते हैं। उन्हें अलग से मिटाएं।\n\nबैंड की जोड़ी हटा दी जाती है, और वह पहले से भेजा गया इतिहास दोबारा नहीं भेज सकता। यदि आपको एक प्रति चाहिए तो पहले 'आपका डेटा' से एक्सपोर्ट करें।",
   "settingsResetKeepData": "मेरा डेटा रखें",
   "settingsResetDeleteEverything": "सब कुछ मिटाएँ",
@@ -2546,7 +2552,7 @@
   "wearableBandDayWhy": "आज आपके बैंड ने रिकॉर्ड किया, इसलिए आज के आँकड़े उसी से हैं, इस वियरेबल से नहीं",
   "wearableWhyEstimateHidden": "केवल एक अनुमान है, और सेटिंग्स में अनुमान छिपे हैं",
   "wearableWhyNoNight": "इस दिन के लिए कोई रात सहेजी नहीं गई",
-  "wearableWhyNeedsThreeNights": "तीन रातें चाहिए",
+  "wearableWhyNeedsThreeNights": "सप्ताहांत की तीन रातें चाहिए",
   "wearableWhyNoNightHr": "रात में कोई हृदय गति नहीं",
   "wearableWhySkinTempNotDecoded": "त्वचा का तापमान अभी डिकोड नहीं होता",
   "wearableWhyNeedsBeats": "धड़कन-दर-धड़कन अंतराल चाहिए",
@@ -2788,5 +2794,72 @@
   "notifBatteryForecastReserveBody": "{rate}%/घंटा की दर से यह लगभग {time} तक खत्म हो जाएगी, आपके सामान्य जागने के समय के ठीक बाद — उठते समय लगभग {left}% बचेगी। आज रात की नींद बचाने के लिए अभी चार्ज करें।",
   "notifBatteryForecastAfterWakeBody": "{rate}%/घंटा की दर से यह लगभग {time} तक खत्म हो जाएगी, आपके सामान्य जागने के समय के बाद।",
   "notifWindDownBody": "आपके सोने का समय लगभग {time} है। धीमे होना शुरू करें।",
-  "notifWorkoutIdleBody": "{minutes} मिनट से आराम से ऊपर की कोई मेहनत दर्ज नहीं हुई है। अगर सेशन खत्म हो गया है, तो उसे वर्कआउट टैब से खत्म करें।"
+  "notifWorkoutIdleBody": "{minutes} मिनट से आराम से ऊपर की कोई मेहनत दर्ज नहीं हुई है। अगर सेशन खत्म हो गया है, तो उसे वर्कआउट टैब से खत्म करें।",
+  "dataStorageGroup": "स्टोरेज",
+  "dataKeepHistory": "कच्ची रीडिंग रखें",
+  "dataKeepHistorySub": "हर दिन की सेकंड-दर-सेकंड रीडिंग की एक संपीड़ित कॉपी, जो ऐप के उन्हें हटाने के बाद भी रहती है। इससे पुराने दिन अपने स्कोर रखते हैं, पर स्कोरिंग बेहतर होने पर दोबारा नहीं आंके जा सकते",
+  "dataKeepDays": "{days} दिन",
+  "@dataKeepDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 साल",
+  "dataKeepForever": "हमेशा",
+  "dataKeepShorterTitle": "{window} की कच्ची रीडिंग रखें?",
+  "@dataKeepShorterTitle": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "आपकी आख़िरी रीडिंग से लगभग {window} से ज़्यादा पहले की रीडिंग अभी हटा दी जाएंगी। उन दिनों के स्कोर बने रहेंगे, पर आगे के अपडेट के बाद उन्हें दोबारा नहीं आंका जा सकेगा।",
+  "@dataKeepShorterBody": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "पुरानी रीडिंग हटाएं",
+  "dataKeepShorterCancel": "उन्हें रखें",
+  "dataCompact": "डेटाबेस छोटा करें",
+  "dataCompactSub": "ऊपर की सेटिंग जो अब नहीं रखतीं उसे हटाता है, फिर खाली जगह फ़ोन को लौटाता है। डेटाबेस के आकार से लगभग दोगुनी खाली जगह चाहिए",
+  "dataCompactPruning": "पुराना डेटा हटाया जा रहा है…",
+  "dataCompactVacuuming": "छोटा किया जा रहा है…",
+  "dataCompactFreed": "{freed} MB खाली हुआ। डेटाबेस अब {size} MB है।",
+  "@dataCompactFreed": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "पुराना डेटा हटा दिया गया, पर छोटा करने के लिए {need} MB खाली जगह चाहिए और फ़ोन में {free} MB है।",
+  "@dataCompactNoSpace": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "पुराना डेटा हटा दिया गया, पर फ़ोन की खाली जगह पढ़ी नहीं जा सकी, इसलिए फ़ाइल छोटी नहीं की गई।",
+  "dataCompactBusy": "सिंक या कोई सत्र चल रहा है। उसके खत्म होने पर दोबारा कोशिश करें।",
+  "dataSizeMb": "{mb} MB",
+  "@dataSizeMb": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  }
 }
