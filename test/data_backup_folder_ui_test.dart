@@ -118,6 +118,9 @@ void main() {
       await t.tap(find.text('Backup folder'));
       await t.pumpAndSettle();
       expect(app.backupFolder?.name, 'Backups');
+      // The result card sits under the last group, past the fold.
+      await t.scrollUntilVisible(find.textContaining('No folder picker'), 200,
+          scrollable: find.byType(Scrollable).first);
       expect(find.textContaining('No folder picker'), findsOneWidget);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.android),

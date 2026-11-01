@@ -57,6 +57,8 @@ void main() {
       onGallery: () => opened = true,
     )));
     expect(find.text('Developer'), findsOneWidget);
+    await tester.ensureVisible(find.text('Component gallery'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Component gallery'));
     expect(opened, isTrue);
   });
