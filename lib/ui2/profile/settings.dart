@@ -553,7 +553,8 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
     messenger.showSnackBar(SnackBar(
       content: Text(l?.settingsResetChatGptWarning ??
           'App data deleted, but the ChatGPT sign-in may not be fully removed. '
-              'Delete everything again to retry, or disconnect OpenStrap in ChatGPT settings.'),
+              'Disconnect OpenStrap in ChatGPT settings to make sure its access is revoked. '
+              'Deleting everything again only retries removing what is left on this device.'),
     ));
   }
   if (app.resetLeftPairingKeys && messenger.mounted) {

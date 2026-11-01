@@ -329,6 +329,13 @@ void main() {
       });
     }
 
+    test('a sign-in cancelled before its listener is up never opens the browser', () async {
+      auth = ChatGptAuth(client: MockClient((_) async => fail('no network')));
+      final signIn = auth.signIn((_) async => fail('the browser must not open'));
+      auth.cancelSignIn();
+      await expectLater(signIn, throwsA(isA<ChatGptException>()));
+    });
+
     test('a reset before the stored session has loaded still revokes it', () async {
       SharedPreferences.setMockInitialValues(
           {'coach_chatgpt_client_id': 'oaiapp_1', 'coach_chatgpt_present': true});

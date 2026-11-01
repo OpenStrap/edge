@@ -497,6 +497,9 @@ class ChatGptAuth extends ChangeNotifier {
     final server = _pending = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     Completer<bool>? exchanged;
     try {
+      // Cancelled while the listener was binding: [cancelSignIn] had no
+      // server to close yet, so this attempt would open the browser anyway.
+      if (attempt != _attempt) throw ChatGptException('Sign-in was cancelled.');
       final redirectUri = 'http://127.0.0.1:${server.port}/auth/callback';
       final state = _random(), nonce = _random(), verifier = _random();
       final uri = chatGptAuthorizeUri(
@@ -530,10 +533,15 @@ class ChatGptAuth extends ChangeNotifier {
       if (clientId == null || q['code'] == null) {
         throw ChatGptException('ChatGPT sign-in returned no code.');
       }
-      // Saved BEFORE the exchange, so a retry after a failed one reuses it.
-      await prefs.setString(_kClientId, clientId);
+      // Registered before the first await from here on, so a reset that
+      // starts while the client id is being written still waits for this
+      // exchange (and deletes the client id only after it).
       exchanged = Completer<bool>();
       _exchanging = exchanged.future;
+      // Saved BEFORE the exchange, so a retry after a failed one reuses it.
+      await prefs.setString(_kClientId, clientId);
+      if (generation != _generation) throw ChatGptException('Signed out.');
+      if (attempt != _attempt) throw ChatGptException('Sign-in was cancelled.');
       final Map<String, dynamic> t;
       try {
         t = await _token({

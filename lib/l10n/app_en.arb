@@ -11373,7 +11373,7 @@
   "@settingsResetPairingKeyWarning": {
     "description": "Warning after reset when a sensor pairing key could not be removed from secure storage"
   },
-  "settingsResetChatGptWarning": "App data deleted, but the ChatGPT sign-in may not be fully removed. Delete everything again to retry, or disconnect OpenStrap in ChatGPT settings.",
+  "settingsResetChatGptWarning": "App data deleted, but the ChatGPT sign-in may not be fully removed. Disconnect OpenStrap in ChatGPT settings to make sure its access is revoked. Deleting everything again only retries removing what is left on this device.",
   "@settingsResetChatGptWarning": {
     "description": "Warning after reset when the ChatGPT sign-in may not have been revoked or removed from secure storage"
   },

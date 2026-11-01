@@ -2196,7 +2196,7 @@
   "settingsResetTitle": "¿Eliminar todo?",
   "settingsResetBackupWarning": "Datos de la app eliminados. La limpieza de las copias de seguridad no se completó. Pueden quedar archivos o permisos de acceso a carpetas.",
   "settingsResetPairingKeyWarning": "Datos de la app eliminados, pero no se pudo quitar una clave de vinculación de un sensor del almacenamiento seguro. Vuelve a eliminar todo para reintentarlo.",
-  "settingsResetChatGptWarning": "Datos de la app eliminados, pero puede que el inicio de sesión de ChatGPT no se haya quitado del todo. Vuelve a eliminar todo para reintentarlo o desconecta OpenStrap en los ajustes de ChatGPT.",
+  "settingsResetChatGptWarning": "Datos de la app eliminados, pero puede que el inicio de sesión de ChatGPT no se haya quitado del todo. Desconecta OpenStrap en los ajustes de ChatGPT para asegurarte de que su acceso queda revocado. Volver a eliminar todo solo reintenta quitar lo que quede en este dispositivo.",
   "settingsResetBody": "Esto elimina permanentemente los datos de esta app en este dispositivo:\n\n· cada día medido, sueño, entrenamiento y ruta\n· cada resultado de laboratorio, comida, dosis de medicación, hábito, sesión de respiración y serie registrada\n· tu diario, registro de ciclo y líneas base continuas\n· tu perfil, cada preferencia y cualquier clave de IA guardada\n· el widget de pantalla de inicio y cada recordatorio programado\n\nLas copias exportadas y los backups en carpetas anteriores o no disponibles pueden permanecer. Elimínalos por separado.\n\nEl band queda desvinculado, y no puede reenviar el historial que ya entregó. Exporta desde Tus datos primero si quieres una copia.",
   "settingsResetKeepData": "Conservar mis datos",
   "settingsResetDeleteEverything": "Eliminar todo",
