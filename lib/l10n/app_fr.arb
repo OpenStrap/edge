@@ -1020,6 +1020,7 @@
   "investigateDroppedThin": "{count, plural, one{# nuit exclue pour trop peu d'heures observées} other{# nuits exclues pour trop peu d'heures observées}}",
   "investigateAcrossNOwnNights": "SUR {n} DE VOS PROPRES NUITS",
   "investigateCvhrAboveUsual": "Au cours de vos nuits les plus récentes, le cycle de fréquence cardiaque mesuré par ce dépistage a été plus élevé que sur les {n} nuits qui le composent.",
+  "investigateCvhrNoComparisonYet": "Il n'y a pas encore assez de nuits plus anciennes derrière vos nuits récentes pour dire si le cycle de fréquence cardiaque mesuré par ce dépistage est plus élevé que d'habitude.",
   "investigateCvhrInsideUsual": "Au cours de vos nuits les plus récentes, le cycle de fréquence cardiaque mesuré par ce dépistage est resté dans la plage des {n} nuits qui le composent.",
   "investigateCvhrExplainer": "C'est un motif dans votre pouls, pas une mesure de votre respiration, et ce n'est un test de rien. Le même cycle provient d'un rythme irrégulier, de l'altitude, ou de toute nuit entrecoupée — et les bêtabloquants, le diabète et les troubles nerveux l'atténuent, si bien qu'une respiration réellement perturbée ne laisse souvent aucune trace ici.",
   "investigateCvhrNotNegativeResult": "Rien ici n'est donc un résultat négatif et rien ici ne blanchit quoi que ce soit, et rien de tout cela ne dit quoi que ce soit sur une nuit en particulier — le compte d'une seule nuit varie pour une dizaine de raisons à lui seul.",
@@ -2184,6 +2185,7 @@
   "settingsResetTitle": "Tout supprimer ?",
   "settingsResetBackupWarning": "Données de l’application supprimées. Le nettoyage des sauvegardes est incomplet. Certains fichiers ou droits d’accès aux dossiers peuvent rester.",
   "settingsResetPairingKeyWarning": "Données de l’application supprimées, mais une clé d’appairage d’un capteur n’a pas pu être retirée du stockage sécurisé. Supprimez tout à nouveau pour réessayer.",
+  "settingsResetChatGptWarning": "Données de l’application supprimées, mais la connexion ChatGPT n’a peut-être pas été entièrement retirée. Déconnectez OpenStrap dans les paramètres de ChatGPT pour vous assurer que son accès est révoqué. Tout supprimer à nouveau ne fait que réessayer d’effacer ce qui reste sur cet appareil.",
   "settingsResetBody": "Ceci supprime définitivement les données de cette application sur cet appareil :\n\n· chaque jour mesuré, sommeil, séance et itinéraire\n· chaque résultat de labo, repas, dose de médicament, habitude, séance de respiration et série enregistrée\n· votre journal, suivi de cycle et lignes de base glissantes\n· votre profil, chaque préférence et toute clé IA stockée\n· le widget d’écran d’accueil et chaque rappel programmé\n\nLes copies exportées et les sauvegardes dans des dossiers précédents ou indisponibles peuvent rester. Supprimez-les séparément.\n\nLe bracelet est dissocié et ne peut pas renvoyer l’historique déjà transmis. Exportez depuis Vos données d’abord si vous voulez une copie.",
   "settingsResetKeepData": "Conserver mes données",
   "settingsResetDeleteEverything": "Tout supprimer",
@@ -2550,7 +2552,7 @@
   "wearableBandDayWhy": "Votre bracelet a enregistré aujourd'hui, donc les chiffres du jour viennent de lui, pas de ce wearable",
   "wearableWhyEstimateHidden": "Il n'existe qu'une estimation, et les estimations sont masquées dans les Réglages",
   "wearableWhyNoNight": "Aucune nuit enregistrée pour ce jour",
-  "wearableWhyNeedsThreeNights": "Nécessite trois nuits",
+  "wearableWhyNeedsThreeNights": "Nécessite trois nuits de week-end",
   "wearableWhyNoNightHr": "Pas de fréquence cardiaque pendant la nuit",
   "wearableWhySkinTempNotDecoded": "La température cutanée n'est pas encore décodée",
   "wearableWhyNeedsBeats": "Nécessite les intervalles battement à battement",
@@ -2792,5 +2794,72 @@
   "notifBatteryForecastReserveBody": "À {rate} %/h, il sera vide vers {time}, juste après votre heure de réveil habituelle : il restera environ {left} % au lever. Rechargez-le maintenant pour garder la nuit.",
   "notifBatteryForecastAfterWakeBody": "À {rate} %/h, il sera vide vers {time}, après votre heure de réveil habituelle.",
   "notifWindDownBody": "Vous vous couchez vers {time}. Commencez à ralentir.",
-  "notifWorkoutIdleBody": "Rien au-dessus du repos n'a été enregistré depuis {minutes} minutes. Si la séance est finie, terminez-la depuis l'onglet Entraînement."
+  "notifWorkoutIdleBody": "Rien au-dessus du repos n'a été enregistré depuis {minutes} minutes. Si la séance est finie, terminez-la depuis l'onglet Entraînement.",
+  "dataStorageGroup": "Stockage",
+  "dataKeepHistory": "Conserver les mesures brutes",
+  "dataKeepHistorySub": "Une copie compressée des mesures seconde par seconde de chaque jour, conservée après que l'app les a effacées. Un jour plus ancien garde ses scores mais ne peut pas être recalculé quand le calcul s'améliore",
+  "dataKeepDays": "{days} jours",
+  "@dataKeepDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 an",
+  "dataKeepForever": "Toujours",
+  "dataKeepShorterTitle": "Conserver {window} de mesures brutes ?",
+  "@dataKeepShorterTitle": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "Les mesures de plus d'environ {window} avant la dernière sont supprimées maintenant. Ces jours gardent leurs scores, mais ne pourront pas être recalculés après les prochaines mises à jour.",
+  "@dataKeepShorterBody": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "Supprimer les anciennes mesures",
+  "dataKeepShorterCancel": "Les garder",
+  "dataCompact": "Compacter la base de données",
+  "dataCompactSub": "Efface ce que les réglages ci-dessus ne gardent plus, puis rend l'espace inutilisé au téléphone. Nécessite un espace libre d'environ deux fois la taille de la base",
+  "dataCompactPruning": "Effacement des anciennes données…",
+  "dataCompactVacuuming": "Compactage…",
+  "dataCompactFreed": "{freed} Mo libérés. La base fait maintenant {size} Mo.",
+  "@dataCompactFreed": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "Les anciennes données ont été effacées, mais le compactage nécessite {need} Mo libres et le téléphone en a {free}.",
+  "@dataCompactNoSpace": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "Les anciennes données ont été effacées, mais l'espace libre du téléphone n'a pas pu être lu, donc le fichier n'a pas été compacté.",
+  "dataCompactBusy": "Une synchronisation ou une session est en cours. Réessayez une fois terminée.",
+  "dataSizeMb": "{mb} Mo",
+  "@dataSizeMb": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  }
 }

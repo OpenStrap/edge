@@ -152,7 +152,7 @@ void main() {
     final db = await LocalDb.instance;
     expect((await db.query('decoded_onehz')).length, 4,
         reason: 're-reading today re-banks the same seconds, not duplicates');
-    final archive = await db.query('raw_archive');
+    final archive = await db.query(LocalDb.rawArchiveView);
     expect(archive.length, 4, reason: 'raw_archive is keyed on the bytes');
   });
 
@@ -161,7 +161,7 @@ void main() {
     await UltrahumanLink.instance.ingestForTest(_deviceId, _ring(first),
         nowSeconds: () => _sec(_today.add(const Duration(hours: 12))));
     final db = await LocalDb.instance;
-    final archive = await db.query('raw_archive', orderBy: 'counter');
+    final archive = await db.query(LocalDb.rawArchiveView, orderBy: 'counter');
     expect(archive.map((r) => r['counter']), [1, 2, 3]);
   });
 
