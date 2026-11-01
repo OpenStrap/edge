@@ -1139,6 +1139,7 @@ class _CoachSetupState extends State<CoachSetup> {
   /// the system browser in front, iOS suspends the app and the listener dies.
   Future<void> _signInChatGpt() async {
     final chatgpt = _chatgptAuth;
+    if (!await confirmChatGptTerms(context) || !mounted) return;
     setState(() {
       _signingIn = true;
       _msg = null;
@@ -1597,4 +1598,70 @@ class _CoachSetupState extends State<CoachSetup> {
       ),
     );
   }
+}
+
+/// Shown before every ChatGPT sign-in. Signing in puts the coach's requests
+/// under the user's own OpenAI account, so OpenAI's terms and usage policies
+/// apply to them; the sign-in only starts after an explicit Continue.
+/// Returns false when the sheet is cancelled or dismissed.
+Future<bool> confirmChatGptTerms(BuildContext context) async {
+  final ok = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    sheetAnimationStyle: sheetMotion(context),
+    backgroundColor: P.of(context).card,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+    ),
+    builder: (s) => SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(S.x5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(uiText(s, 'Before you sign in'),
+                style: F.head.copyWith(color: P.of(s).ink)),
+            const SizedBox(height: S.x2),
+            Text(
+              uiText(s,
+                  'Signing in uses your own ChatGPT account and plan. Your use of it here is covered by OpenAI’s Terms of Use and Usage Policies, so please read them before you continue.'),
+              style: F.cap.copyWith(color: P.of(s).ink2, height: 1.5),
+            ),
+            const SizedBox(height: S.x4),
+            BigButton(
+              uiText(s, 'OpenAI Terms of Use'),
+              icon: LucideIcons.externalLink,
+              color: kCoachAccent,
+              soft: true,
+              onTap: () => launchUrl(Uri.parse(kOpenAiTermsUrl),
+                  mode: LaunchMode.externalApplication),
+            ),
+            const SizedBox(height: S.x3),
+            BigButton(
+              uiText(s, 'OpenAI Usage Policies'),
+              icon: LucideIcons.externalLink,
+              color: kCoachAccent,
+              soft: true,
+              onTap: () => launchUrl(Uri.parse(kOpenAiUsagePoliciesUrl),
+                  mode: LaunchMode.externalApplication),
+            ),
+            const SizedBox(height: S.x5),
+            BigButton(
+              uiText(s, 'I’ve read them, continue'),
+              color: kCoachAccent,
+              onTap: () => Navigator.of(s).pop(true),
+            ),
+            const SizedBox(height: S.x3),
+            BigButton(
+              uiText(s, 'Cancel'),
+              soft: true,
+              onTap: () => Navigator.of(s).pop(false),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  return ok ?? false;
 }

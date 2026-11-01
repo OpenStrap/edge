@@ -27,6 +27,8 @@ const kChatGptIssuer = 'https://auth.openai.com';
 /// Both the OAuth `resource` and the Responses API base requests go to.
 const kChatGptApiBase = 'https://api.openai.com/v1';
 const kChatGptUsageUrl = 'https://chatgpt.com/settings/usage';
+const kOpenAiTermsUrl = 'https://openai.com/policies/terms-of-use/';
+const kOpenAiUsagePoliciesUrl = 'https://openai.com/policies/usage-policies/';
 const kChatGptPlanScope = 'chatgpt.tokens.use.direct';
 
 // ponytail: endpoints copied from $kChatGptIssuer/.well-known/openid-configuration
