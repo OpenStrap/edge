@@ -42,7 +42,7 @@ import '../ble/hrs_link.dart';
 import '../ble/polar_pmd_link.dart';
 import '../ble/live_step_runs.dart';
 import '../ble/ble_state.dart'
-    show AlarmConfirmation, AlarmEffect, LiveStreamOwners;
+    show AlarmConfirmation, AlarmEffect, BleUnavailableException, LiveStreamOwners;
 import '../ble/ios_ble_restore.dart';
 import '../ble/session_link.dart' show SessionLink;
 import '../ble/colmi_link.dart' show ColmiLink;
@@ -4500,7 +4500,8 @@ class AppState extends ChangeNotifier {
     // structurally blank for everyone who paired once, and every per-family
     // metric abstains for a reason that is our bookkeeping, not the band's.
     // Change-gated: this handler fires ~1 Hz during live HR.
-    if (s.generation != null && s.generation != _lastSeenGeneration) {
+    if (!_pairingInProgress &&
+        s.generation != null && s.generation != _lastSeenGeneration) {
       _lastSeenGeneration = s.generation;
       unawaited(LocalDb.upsertDevice(adapterId: s.generation));
     }
@@ -4623,8 +4624,8 @@ class AppState extends ChangeNotifier {
   Future<bool> accessorySetupSupported() => AccessorySetup.isSupported();
 
   /// iOS 18+ pairing: show the ASK picker, persist the provisioned band by its
-  /// CoreBluetooth UUID (== flutter_blue_plus remoteId), then open the session. Throws
-  /// if the user cancels or no accessory is provisioned. The picker is skipped (returns
+  /// CoreBluetooth UUID (== flutter_blue_plus remoteId) AFTER a working bootstrap,
+  /// then open the session. Throws if setup fails. The picker is skipped (returns
   /// the known id) if a WHOOP is already provisioned via ASK.
   Future<void> pairViaAccessorySetup({String? serial}) async {
     final remoteId = await AccessorySetup.showPicker();
@@ -4640,20 +4641,40 @@ class AppState extends ChangeNotifier {
     await _persistPaired(d.remoteId.str, serial);
   }
 
+  bool _pairingInProgress = false;
+
   Future<void> _persistPaired(String remoteId, String? serial) async {
-    // Which band this is, if the link has already said. Passed HERE and not at
-    // the two call sites (`pairWith`, `pairViaAccessorySetup`) so neither can
-    // forget it — and COALESCE'd inside `upsertDevice`, so a null leaves
-    // whatever the row already knows.
-    //
-    // It is null on a FIRST pair, always: `DeviceState.generation` is only set
-    // at service discovery and pairing runs before any session exists. That is
-    // why `_onEngineState` stamps it too — this line alone would leave
-    // `device.adapter_id` blank on every install that pairs once and never
-    // re-pairs.
-    await PairedDevice.save(remoteId, serial ?? device.serial,
-        generation: device.generation);
-    paired = await PairedDevice.load();
+    if (_pairingInProgress) throw Exception('Pairing is already in progress.');
+    final existing = paired;
+    if (existing != null) {
+      if (existing.remoteId != remoteId) {
+        throw Exception('Forget the current band before pairing another.');
+      }
+      await openSession();
+      if (!engine.isConnected) throw Exception('Connection setup did not complete.');
+      return;
+    }
+    _pairingInProgress = true;
+    try {
+      final confirmed = await _sync.connectForPairing(
+        PairedDevice(remoteId, serial),
+        confirm: () async {
+          // Only READY proves we can talk to this band. Until then neither
+          // the persisted record nor isPaired may advance onboarding. Save
+          // the identity THIS bootstrap discovered, not a stale device hint.
+          await PairedDevice.save(remoteId, serial ?? device.serial,
+              generation: device.generation);
+          paired = await PairedDevice.load();
+        },
+      );
+      if (!confirmed) {
+        final blocker = engine.bluetoothBlocker;
+        if (blocker != null) throw BleUnavailableException(blocker);
+        throw Exception('Connection setup did not complete.');
+      }
+    } finally {
+      _pairingInProgress = false;
+    }
     // Now that there's a band to alert about, ask for notification permission
     // (a natural moment; battery/charging alerts depend on it). Best-effort.
     unawaited(NotificationService.instance.ensurePermission());

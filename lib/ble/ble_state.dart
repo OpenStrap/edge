@@ -105,6 +105,34 @@ class BleUnavailableException implements Exception {
   String toString() => 'BleUnavailableException(${blocker.name})';
 }
 
+/// Wait past the adapter's initial/transition states before issuing a radio
+/// command. A deadline or an ended stream leaves the state unknown; neither
+/// proves that Bluetooth is off. State names keep this independent of FBP.
+Future<String> waitForBleAdapterState(
+  Stream<String> states, {
+  required Duration timeout,
+}) async {
+  final result = Completer<String>();
+  final sub = states.listen((state) {
+    if (state != 'unknown' && state != 'turningOn' && !result.isCompleted) {
+      result.complete(state);
+    }
+  }, onError: (Object error, StackTrace stack) {
+    if (!result.isCompleted) result.completeError(error, stack);
+  }, onDone: () {
+    if (!result.isCompleted) result.complete('unknown');
+  });
+  final deadline = Timer(timeout, () {
+    if (!result.isCompleted) result.complete('unknown');
+  });
+  try {
+    return await result.future;
+  } finally {
+    deadline.cancel();
+    await sub.cancel();
+  }
+}
+
 /// Map an adapter-state name and/or a thrown transport error onto a blocker.
 /// Returns null when neither says the stack is unusable — i.e. the failure is
 /// about the band, not the phone.
@@ -124,6 +152,15 @@ BleBlocker? classifyBleBlocker({String? adapterState, Object? error}) {
   }
   if (error == null) return null;
   final s = error.toString().toLowerCase();
+  // FBP's Darwin plugin uses "bluetooth must be turned on" for EVERY
+  // CBManager state other than PoweredOn, including its initial Unknown.
+  // Prefer the native state it includes over that generic wording.
+  if (s.contains('cbmanagerstateunknown') ||
+      s.contains('cbmanagerstateresetting') ||
+      s.contains('cbmanagerstatepoweredon')) {
+    return null;
+  }
+  if (s.contains('cbmanagerstateunsupported')) return BleBlocker.unsupported;
   if (s.contains('unauthorized') ||
       s.contains('permission') ||
       s.contains('not authorized') ||
