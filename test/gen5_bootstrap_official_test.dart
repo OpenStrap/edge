@@ -145,6 +145,11 @@ class _Rig {
     // carries no requestConnectionPriority (doc 06 found none in the official
     // data path); the post-READY offload transition still may.
     engine.debugOnPriorityRequest = () => trace.add('link_priority');
+    relink(armDrains: armDrains);
+  }
+
+  /// A fresh fake link (a reconnect after a failed connect tore it down).
+  void relink({bool armDrains = true}) {
     engine.debugInstallFakeLink(
       band: BandProfile.gen5,
       armDrains: armDrains,
@@ -1291,6 +1296,24 @@ void main() {
         expect(_run(rig, async, ops: ops), isFalse);
         expect(rig.engine.state.needsRepairGuide, isTrue);
         expect(rig.engine.state.bondRefusals, 1);
+      });
+    });
+
+    test('an existing bond refused at registration keeps its streak across '
+        'reconnects', () {
+      fakeAsync((async) {
+        final rig = _Rig()..answerAll();
+        _Ops refused() => _Ops(
+              rig,
+              alreadyBonded: true,
+              failSubscribe: {'cmd_from'},
+              subscribeError: FlutterBluePlusException(ErrorPlatform.android,
+                  'setNotifyValue', 5, 'GATT_INSUFFICIENT_AUTHENTICATION'),
+            );
+        expect(_run(rig, async, ops: refused()), isFalse);
+        rig.relink();
+        expect(_run(rig, async, ops: refused()), isFalse);
+        expect(rig.engine.state.bondRefusals, 2);
       });
     });
 

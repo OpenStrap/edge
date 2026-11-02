@@ -2982,11 +2982,10 @@ class BleEngine {
         try {
           await device.createBond();
           _log('Bonded (or already bonded).');
-          // A clean bond clears the refusal streak + any give-up latch, so a
-          // later run of refusals can trip the pause again, and un-pauses the
-          // auto-reconnect loop.
-          _bondGiveUp.bondSucceeded();
-          state.bondRefusals = 0;
+          // Un-pause auto-reconnect, but leave the refusal streak: an
+          // existing bond the band rejects at notification registration
+          // "succeeds" here on every reconnect. Only a command reply
+          // ([_clearRepairGuideOnCommandReply]) proves the key works.
           state.autoReconnectPaused = false;
         } catch (e) {
           // A failed bond is NOT benign: the strap gates every command behind
@@ -3487,11 +3486,10 @@ class BleEngine {
             await gatt.createBond();
             _log('Bonded.');
           }
-          // A clean bond clears the refusal streak + any give-up latch, so a
-          // later run of refusals can trip the pause again, and un-pauses the
-          // auto-reconnect loop.
-          _bondGiveUp.bondSucceeded();
-          state.bondRefusals = 0;
+          // Un-pause auto-reconnect, but leave the refusal streak: an
+          // existing bond the band rejects at notification registration
+          // "succeeds" here on every reconnect. Only a command reply
+          // ([_clearRepairGuideOnCommandReply]) proves the key works.
           state.autoReconnectPaused = false;
         } catch (e) {
           _log('BOND FAILED: $e — bootstrap stops here (no subscriptions, no '
@@ -4826,8 +4824,8 @@ class BleEngine {
     if (!state.needsRepairGuide) return;
     state.needsRepairGuide = false;
     _postBondLoop.reset();
-    // On iOS nothing else ends a refusal streak (there is no explicit bond
-    // step to succeed), so the reply does it here.
+    // The one place a refusal streak ends: a bond can "succeed" (or already
+    // exist) and still be refused at registration, a reply can't.
     _bondGiveUp.bondSucceeded();
     state.bondRefusals = 0;
     onState(state);
