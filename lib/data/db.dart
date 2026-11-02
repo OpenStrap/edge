@@ -11856,7 +11856,7 @@ class LocalDb {
     // discarded it, or when the local row was edited no earlier than the
     // imported snapshot (a newer backup may still advance the race). [row] is
     // the imported hyrox_session row, null for segment rows.
-    bool _hyroxProtected(String id, Map<String, Object?>? row) {
+    bool isHyroxProtected(String id, Map<String, Object?>? row) {
       if (protectedHyrox.contains(id)) return true;
       if (row == null) return false;
       final local = hyroxLastEdit[id];
@@ -12591,11 +12591,11 @@ class LocalDb {
                   }
                 }
                 if (t == 'hyrox_session' &&
-                    _hyroxProtected('${row['id']}', row)) {
+                    isHyroxProtected('${row['id']}', row)) {
                   continue; // locally discarded, or newer than the snapshot
                 }
                 if (t == 'hyrox_segment' &&
-                    _hyroxProtected('${row['session_id']}', null)) {
+                    isHyroxProtected('${row['session_id']}', null)) {
                   continue;
                 }
                 if (t == 'day_result') {

@@ -1259,8 +1259,8 @@ class HyroxDb {
       'start_ts': start,
       'end_ts': end,
       'updated_at': DateTime.now().millisecondsSinceEpoch,
-      if (status != null) 'status': status,
     };
+    if (status != null) row['status'] = status;
     await db.update(
       'hyrox_session',
       row,
