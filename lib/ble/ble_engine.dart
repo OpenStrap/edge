@@ -3003,11 +3003,10 @@ class BleEngine {
         try {
           await device.createBond();
           _log('Bonded (or already bonded).');
-          // Un-pause auto-reconnect, but leave the refusal streak: an
+          // Leave the refusal streak and any auto-reconnect pause alone: an
           // existing bond the band rejects at notification registration
           // "succeeds" here on every reconnect. Only a command reply
           // ([_clearRepairGuideOnCommandReply]) proves the key works.
-          state.autoReconnectPaused = false;
         } catch (e) {
           // A failed bond is NOT benign: the strap gates every command behind
           // encryption, so downstream GATT ops will fail confusingly (writes
@@ -3514,11 +3513,10 @@ class BleEngine {
             await gatt.createBond();
             _log('Bonded.');
           }
-          // Un-pause auto-reconnect, but leave the refusal streak: an
+          // Leave the refusal streak and any auto-reconnect pause alone: an
           // existing bond the band rejects at notification registration
           // "succeeds" here on every reconnect. Only a command reply
           // ([_clearRepairGuideOnCommandReply]) proves the key works.
-          state.autoReconnectPaused = false;
         } catch (e) {
           _log('BOND FAILED: $e — bootstrap stops here (no subscriptions, no '
               'HELLO, no READY). Remove the bond in system Bluetooth settings '
@@ -4855,6 +4853,7 @@ class BleEngine {
     // The one place a refusal streak ends: a bond can "succeed" (or already
     // exist) and still be refused at registration, a reply can't.
     _bondGiveUp.bondSucceeded();
+    state.autoReconnectPaused = false;
     state.bondRefusals = 0;
     onState(state);
     _log('[RECONNECT] band answered a command — clearing the re-pair guide.');

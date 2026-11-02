@@ -1317,6 +1317,29 @@ void main() {
       });
     });
 
+    test('an existing bond succeeding does not lift a give-up pause', () {
+      // After give-up the streak no longer records refusals, so a bond
+      // "success" clearing the pause re-armed auto-reconnect for good.
+      fakeAsync((async) {
+        final rig = _Rig()..answerAll();
+        _Ops refused() => _Ops(
+              rig,
+              alreadyBonded: true,
+              failSubscribe: {'cmd_from'},
+              subscribeError: FlutterBluePlusException(ErrorPlatform.android,
+                  'setNotifyValue', 5, 'GATT_INSUFFICIENT_AUTHENTICATION'),
+            );
+        for (var i = 0; i < 5; i++) {
+          if (i > 0) rig.relink();
+          expect(_run(rig, async, ops: refused()), isFalse);
+        }
+        expect(rig.engine.state.autoReconnectPaused, isTrue);
+        rig.relink();
+        expect(_run(rig, async, ops: refused()), isFalse);
+        expect(rig.engine.state.autoReconnectPaused, isTrue);
+      });
+    });
+
     test('a registration failing for any other reason is not', () {
       fakeAsync((async) {
         final rig = _Rig()..answerAll();
