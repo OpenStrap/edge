@@ -273,30 +273,36 @@ const kHealthStepsPrefixPurgeCursor = 'health_steps_prefix_purged';
 /// [cursor]. The per-day purge only runs for days exportAll still exports, and
 /// days already behind the cursor are never exported again, so on a store that
 /// never had its cursor cleared those samples would stay forever.
-Future<void> purgeLegacyStepsBehindCursor({
+///
+/// Returns whether the purge is done. Until it is, nothing may write steps:
+/// a purge that finishes later, behind an advanced cursor, deletes those and
+/// nothing rewrites them. [deleteSteps] answers "is the range clear", already
+/// read per platform (see [healthDeleteClearedRange]).
+Future<bool> purgeLegacyStepsBehindCursor({
   required String cursor,
   required Future<String?> Function(String name) getCursor,
   required Future<void> Function(String name, String value) setCursor,
   required Future<bool> Function(DateTime start, DateTime end) deleteSteps,
 }) async {
   if ((await getCursor(kHealthStepsPrefixPurgeCursor) ?? '').isNotEmpty) {
-    return;
+    return true;
   }
   // An empty cursor (first export, or a reset) still has to finish the purge
-  // now, before this pass writes strap-counter steps: run later, behind the
-  // advanced cursor, it would delete those and nothing would rewrite them.
-  final d = cursor.isEmpty ? DateTime.now() : DateTime.tryParse(cursor);
-  if (d == null) return;
+  // now, before this pass writes strap-counter steps.
+  final d = DateTime.tryParse(cursor) ?? DateTime.now();
   try {
     // HealthKit and Health Connect only delete this app's own samples.
-    await deleteSteps(
+    final cleared = await deleteSteps(
       DateTime.fromMillisecondsSinceEpoch(0),
       DateTime(d.year, d.month, d.day + 1),
     );
+    if (!cleared) return false;
     await setCursor(
         kHealthStepsPrefixPurgeCursor, cursor.isEmpty ? 'initial' : cursor);
+    return true;
   } catch (e) {
     debugPrint('[health] purge legacy steps behind $cursor: $e');
+    return false;
   }
 }
 
@@ -490,6 +496,41 @@ class HealthExporter {
   /// Cleared at the start of every [_workoutLock] hold.
   bool _storeHung = false;
 
+  /// Native deletes still running, and since when. [Future.timeout] doesn't
+  /// cancel the plugin call, so a delete that timed out can still land after
+  /// a later pass wrote into its range and take those samples with it.
+  int _deletesInFlight = 0;
+  DateTime? _deletesInFlightSince;
+
+  // ponytail: a hung native call may never call back, so the hold is capped;
+  // a delete landing after the cap can still remove a newer sample.
+  static const _kInFlightDeleteHold = Duration(minutes: 30);
+
+  /// The [_storeHung] a new lock hold starts with: hung while a timed-out
+  /// delete may still land.
+  bool get _deleteStillPending {
+    final since = _deletesInFlightSince;
+    return since != null &&
+        DateTime.now().difference(since) < _kInFlightDeleteHold;
+  }
+
+  Future<bool> _nativeDelete(
+    HealthDataType type,
+    DateTime start,
+    DateTime end,
+  ) {
+    final f = _health.delete(type: type, startTime: start, endTime: end);
+    if (_deletesInFlight++ == 0) _deletesInFlightSince = DateTime.now();
+    f.whenComplete(() {
+      if (--_deletesInFlight == 0) _deletesInFlightSince = null;
+    }).ignore();
+    return f.timeout(_deleteTimeout);
+  }
+
+  /// Set when the legacy steps prefix purge hasn't finished: step writes wait
+  /// for it (see [purgeLegacyStepsBehindCursor]).
+  bool _stepWritesHeld = false;
+
   HealthExporter({
     HealthConnectHeartRateWriter? androidHeartRate,
     @visibleForTesting Duration deleteTimeout = const Duration(seconds: 30),
@@ -565,7 +606,7 @@ class HealthExporter {
       await shared._ensureConfigured();
       if (await shared._androidUnavailable() != null) return;
       await shared._workoutLock.run(() {
-        shared._storeHung = false;
+        shared._storeHung = shared._deleteStillPending;
         return shared._deleteOwnSamples(
           HealthDataType.WORKOUT,
           DateTime.fromMillisecondsSinceEpoch(startTs * 1000),
@@ -653,13 +694,7 @@ class HealthExporter {
     if (through.isNotEmpty && date.compareTo(through) <= 0) return;
     if (_storeHung) return;
     try {
-      await _health
-          .delete(
-            type: HealthDataType.STEPS,
-            startTime: dayStart,
-            endTime: dayEnd,
-          )
-          .timeout(_deleteTimeout);
+      await _nativeDelete(HealthDataType.STEPS, dayStart, dayEnd);
       _stepsPurgedThrough = date;
       await LocalDb.setCursor(_kStepsPurgeCursor, date);
     } catch (e) {
@@ -683,9 +718,7 @@ class HealthExporter {
     if (_storeHung) return false;
     try {
       return healthDeleteClearedRange(
-        deleted: await _health
-            .delete(type: type, startTime: start, endTime: end)
-            .timeout(_deleteTimeout),
+        deleted: await _nativeDelete(type, start, end),
         ios: isApple,
       );
     } catch (e) {
@@ -858,7 +891,7 @@ class HealthExporter {
     await _ensureConfigured();
     if (await _androidUnavailable() != null) return 0; // HC missing/outdated
     return _workoutLock.run(() async {
-    _storeHung = false;
+    _storeHung = _deleteStillPending;
     try {
       await ensureHealthSleepExportEpoch(
         getCursor: LocalDb.getCursor,
@@ -872,21 +905,19 @@ class HealthExporter {
         await LocalDb.setCursor(_kRetryCursor, '');
       }
       final cursor = await LocalDb.getCursor('health_export_through') ?? '';
-      await purgeLegacyStepsBehindCursor(
+      _stepWritesHeld = !await purgeLegacyStepsBehindCursor(
         cursor: cursor,
         getCursor: LocalDb.getCursor,
         setCursor: (name, value) => LocalDb.setCursor(name, value),
         // Bounded like every other delete: a locked store ends the pass
         // here instead of hanging it.
         deleteSteps: (start, end) async {
+          if (_storeHung) return false;
           try {
-            return await _health
-                .delete(
-                  type: HealthDataType.STEPS,
-                  startTime: start,
-                  endTime: end,
-                )
-                .timeout(_deleteTimeout);
+            return healthDeleteClearedRange(
+              deleted: await _nativeDelete(HealthDataType.STEPS, start, end),
+              ios: isApple,
+            );
           } on TimeoutException {
             _storeHung = true;
             rethrow;
@@ -1461,12 +1492,15 @@ class HealthExporter {
         stepsMap is Map &&
         stepsMap['band_measured'] != null) {
       // A counter day the counter lost (a not-yet-final day it won on an
-      // earlier pass) must not keep the samples written then. Best effort:
-      // nothing is written here, so a failed delete doesn't hold the cursor.
-      await _deleteOwnSamples(HealthDataType.STEPS, dayStart, dayEnd);
+      // earlier pass) must not keep the samples written then. A failed clear
+      // fails the day, so the next pass tries again.
+      if (!await _deleteOwnSamples(HealthDataType.STEPS, dayStart, dayEnd)) {
+        success = false;
+      }
     }
     if (stepSpans.isNotEmpty) {
-      if (!await _deleteOwnSamples(HealthDataType.STEPS, dayStart, dayEnd)) {
+      if (_stepWritesHeld ||
+          !await _deleteOwnSamples(HealthDataType.STEPS, dayStart, dayEnd)) {
         success = false;
       } else {
         for (final s in stepSpans) {
@@ -1623,7 +1657,7 @@ class HealthExporter {
     final en = (session['end_ts'] as num?)?.toInt();
     if (st == null || en == null || en <= st) return false;
     return _workoutLock.run(() async {
-    _storeHung = false;
+    _storeHung = _deleteStillPending;
     try {
       await _ensureConfigured();
       if (await _androidUnavailable() != null) return false;

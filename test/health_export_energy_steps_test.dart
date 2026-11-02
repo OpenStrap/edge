@@ -64,6 +64,28 @@ void main() {
     expect(deletes, hasLength(1));
   });
 
+  test('a purge the store did not confirm is retried, not marked done',
+      () async {
+    final stored = <String, String>{};
+    var attempts = 0;
+    Future<bool> run(Future<bool> Function() answer) =>
+        purgeLegacyStepsBehindCursor(
+          cursor: '2026-08-01',
+          getCursor: (name) async => stored[name],
+          setCursor: (name, value) async => stored[name] = value,
+          deleteSteps: (s, e) {
+            attempts++;
+            return answer();
+          },
+        );
+    expect(await run(() async => false), isFalse);
+    expect(await run(() async => throw StateError('store')), isFalse);
+    expect(stored, isEmpty, reason: 'no marker, so step writes stay held');
+    expect(await run(() async => true), isTrue);
+    expect(await run(() async => true), isTrue);
+    expect(attempts, 3, reason: 'done once confirmed');
+  });
+
   test('only strap counter steps are exported', () {
     const span = {'start_ts': 1000, 'end_ts': 4600, 'steps': 30};
     final out = healthStepSpans({
