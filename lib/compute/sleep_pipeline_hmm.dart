@@ -16,6 +16,8 @@ import 'dart:math';
 
 enum SleepState { wake, nremLight, nremDeep, rem }
 
+// The transition table and the emission sigmoid centres/scales below are
+// hand-set ESTIMATES (per 30 s epoch), not fitted to or validated against PSG.
 class HMMConfig {
   static const states = [
     SleepState.wake,

@@ -607,6 +607,7 @@ class DayBundleInput {
     sleepSource: sleepSource,
     useHmmStages: useHmmStages,
   );
+  }
 }
 
 /// THE ISOLATE ENTRY POINT.
@@ -629,7 +630,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       d.sleepTsSec.isNotEmpty &&
       d.sleepTsSec.length == d.hypnoStages.length) {
     final corrected = correctRr(d.sleepRrMs, rrTsMs: d.sleepRrTsMs);
-    final nnTimes = corrected.nnTimesMs;
+    // nnTimesMs is relative to the start of the first input beat; put it back
+    // on the epoch so it lines up with sleepTsSec.
+    final rrEpoch0 = d.sleepRrTsMs.isEmpty || d.sleepRrMs.isEmpty
+        ? 0.0
+        : d.sleepRrTsMs.first.toDouble() - d.sleepRrMs.first;
+    final nnTimes = [for (final t in corrected.nnTimesMs) t + rrEpoch0];
     // Per-second RMSSD: 60 s trailing window of cleaned NN intervals,
     // stamped at the window's last beat second. Missing coverage -> 0
     // (scored as neutral/unusable by the classifier).
@@ -650,7 +656,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     ];
     final hmmStages = _classifySleepStagesHMM(epochs);
     if (hmmStages != null && hmmStages.length == d.hypnoStages.length) {
-      d = d.withHypnoStages(hmmStages);
+      // A second the band did not watch stays unobserved; the decoder only
+      // relabels seconds that were actually measured.
+      d = d.withHypnoStages([
+        for (var i = 0; i < hmmStages.length; i++)
+          d.hypnoStages[i] == 'unobserved' ? 'unobserved' : hmmStages[i],
+      ]);
     }
   }
 
@@ -2372,9 +2383,7 @@ List<Map<String, dynamic>> _hypnogramSegments(DayBundleInput d) {
 
 /// Whether a 4-class label is SLEEP. `unobserved` is not a stage and not wake —
 /// it is a second the band did not watch, and it belongs to neither side.
-  // Whether a 4-class label is SLEEP. `unobserved` is not a stage and not wake —
-  // it is a second the band did not watch, and it belongs to neither side.
-  bool _isSleepStage(String s) => s == 'light' || s == 'deep' || s == 'rem' || s == 'nrem';
+bool _isSleepStage(String s) => s == 'light' || s == 'deep' || s == 'rem';
 
 /// Sustained-awakening threshold. A CHOICE, not physiology: the 3-15 s cortical
 /// arousals PSG counts are invisible to a 1 Hz wrist, so anything shorter than
@@ -2467,20 +2476,18 @@ List<double> _rmssdPerSecond(
 }) {
   final out = List<double>.filled(tsSec.length, 0.0);
   if (nn.isEmpty || nnTimesMs.isEmpty || tsSec.isEmpty) return out;
-  final t0 = nnTimesMs.first;
   var lo = 0;
   var hi = 0;
   for (var i = 0; i < tsSec.length; i++) {
     final secMs = tsSec[i] * 1000.0;
-    while (lo < nn.length && nnTimesMs[lo] - t0 < secMs - windowSec * 1000) {
+    while (lo < nn.length && nnTimesMs[lo] < secMs - windowSec * 1000) {
       lo++;
     }
-    while (hi < nn.length && nnTimesMs[hi] - t0 <= secMs) {
+    while (hi < nn.length && nnTimesMs[hi] <= secMs) {
       hi++;
     }
     if (hi - lo < 2) continue;
     final window = nn.sublist(lo, hi);
-    var sumSq = 0.0;
     var sumSq = 0.0;
     for (var k = 1; k < window.length; k++) {
       final d = window[k] - window[k - 1];
@@ -2515,16 +2522,44 @@ List<String>? _classifySleepStagesHMM(List<Map<String, dynamic>> epochData) {
     return hr > 30.0 && hr < 200.0 && rmssd > 0.0 && rmssd < 500.0;
   }).length;
   if (usable < 30) return null;
-  final states = analyzer.viterbiDecode(epochData.map((e) => {
-    ...e,
-    'isContactLost': (e['motion_artifact'] == true),
-  }).toList());
-  return states.map((s) {
-    switch (s) {
-      case SleepState.wake: return 'wake';
-      case SleepState.nremLight: return 'light';
-      case SleepState.nremDeep: return 'deep';
-      case SleepState.rem: return 'rem';
+  // The transition table is per 30 s scoring epoch (AASM epoch length), so
+  // decode 30 s epochs, not 1 Hz rows: per row, wake's 0.90 self-transition
+  // would mean a ~10 s mean dwell. Each epoch averages its plausible HR and
+  // RMSSD; an epoch with none gets 0 (the neutral emission).
+  final epochOf = [
+    for (final e in epochData)
+      ((((e['ts'] as num?)?.toDouble() ?? t0) - t0) ~/ 30).toInt(),
+  ];
+  final epochs = <Map<String, dynamic>>[];
+  final idx = <int, int>{};
+  for (var i = 0; i < epochData.length; i++) {
+    final k = idx.putIfAbsent(epochOf[i], () {
+      epochs.add({'hr': 0.0, 'rmssd': 0.0, 'nh': 0, 'nr': 0});
+      return epochs.length - 1;
+    });
+    final hr = (epochData[i]['hr'] as num?)?.toDouble() ?? 0.0;
+    final rmssd = (epochData[i]['rmssd'] as num?)?.toDouble() ?? 0.0;
+    final ep = epochs[k];
+    if (hr > 30.0 && hr < 200.0) {
+      ep['hr'] = (ep['hr'] as double) + hr;
+      ep['nh'] = (ep['nh'] as int) + 1;
     }
-  }).toList();
+    if (rmssd > 0.0 && rmssd < 500.0) {
+      ep['rmssd'] = (ep['rmssd'] as double) + rmssd;
+      ep['nr'] = (ep['nr'] as int) + 1;
+    }
+  }
+  for (final ep in epochs) {
+    final nh = ep['nh'] as int, nr = ep['nr'] as int;
+    ep['hr'] = nh == 0 ? 0.0 : (ep['hr'] as double) / nh;
+    ep['rmssd'] = nr == 0 ? 0.0 : (ep['rmssd'] as double) / nr;
+  }
+  final states = analyzer.viterbiDecode(epochs);
+  String label(SleepState s) => switch (s) {
+        SleepState.wake => 'wake',
+        SleepState.nremLight => 'light',
+        SleepState.nremDeep => 'deep',
+        SleepState.rem => 'rem',
+      };
+  return [for (var i = 0; i < epochData.length; i++) label(states[idx[epochOf[i]]!])];
 }
