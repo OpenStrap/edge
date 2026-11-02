@@ -2273,6 +2273,7 @@ class BleEngine {
   final ChunkFailureLedger _chunkFailures = ChunkFailureLedger();
   EmptySyncTracker _emptySync = EmptySyncTracker();
   StuckStrapDetector _stuckStrap = StuckStrapDetector();
+  String? _stuckStrapBand;
   // Detector 1b: sustained frame corruption (CRC8/CRC32 failures) — an
   // independent failure axis from marginal-radio, which only ever sees
   // timeouts. Per-connection like empty-sync/stuck-strap: a new link starts
@@ -2462,7 +2463,7 @@ class BleEngine {
   // that would otherwise loop empty drop-ACKs (or, after the refuse guard,
   // re-deliver forever without ever correcting the clock).
   //
-  // NOT reset per connection (unlike _emptySync / _stuckStrap). The remedy IS
+  // NOT reset per connection (unlike _emptySync). The remedy IS
   // a reconnect, so a per-connection reset made the escalation unreachable:
   // the idle watchdog tears the session down after a refuse-only burst, the
   // next connect zeroed the count, and the loop ran forever at streak 1.
@@ -3085,9 +3086,16 @@ class BleEngine {
       _lastClockVerifyAt = _wallSecs();
       // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
       // here — they count consecutive bad cycles across reconnects and self-reset on
-      // a healthy disconnect. Empty-sync + stuck are per-connection.
+      // a healthy disconnect. Empty-sync is per-connection. Stuck is per band:
+      // the liveness fuse reconnects a silent link every ~2 min, so a
+      // per-connection reset never let its 10 min observation finish. A real
+      // frontier advance resets it on its own.
       _emptySync = EmptySyncTracker();
-      _stuckStrap = StuckStrapDetector();
+      final bandId = session.device.remoteId.str;
+      if (bandId != _stuckStrapBand) {
+        _stuckStrap = StuckStrapDetector();
+        _stuckStrapBand = bandId;
+      }
       _frameCorruption = FrameCorruptionDetector();
       _crcFailuresThisSession = 0;
       _burstMismatchStreak = 0;
