@@ -2277,6 +2277,9 @@ class BleEngine {
   EmptySyncTracker _emptySync = EmptySyncTracker();
   StuckStrapDetector _stuckStrap = StuckStrapDetector();
   String? _stuckStrapBand;
+  // When the link last went down (monotonic). A band out of range for longer
+  // than a retry reconnect wasn't being asked, so that time isn't "stuck".
+  double? _linkDownAt;
   // Detector 1b: sustained frame corruption (CRC8/CRC32 failures) — an
   // independent failure axis from marginal-radio, which only ever sees
   // timeouts. Per-connection like empty-sync/stuck-strap: a new link starts
@@ -3108,10 +3111,14 @@ class BleEngine {
       // a healthy disconnect. Empty-sync is per-connection. Stuck is per band:
       // the liveness fuse reconnects a silent link every ~2 min, so a
       // per-connection reset never let its 10 min observation finish. A real
-      // frontier advance resets it on its own.
+      // frontier advance resets it on its own, and so does a long time offline
+      // (the band wasn't being asked then).
       _emptySync = EmptySyncTracker();
       final bandId = session.device.remoteId.str;
-      if (bandId != _stuckStrapBand) {
+      final down = _linkDownAt;
+      if (bandId != _stuckStrapBand ||
+          (down != null &&
+              _monotonicSecs() - down > kStuckOfflineResetSeconds)) {
         _stuckStrap = StuckStrapDetector();
         _stuckStrapBand = bandId;
       }
@@ -4723,6 +4730,7 @@ class BleEngine {
     }
     final wasIntentional = session.intentionalClose;
     session.connected = false;
+    _linkDownAt = _monotonicSecs();
     // A drain in flight must complete (with linkDown) immediately, not run out
     // its full budget.
     if (_offloadActive) {
@@ -9153,6 +9161,7 @@ class BleEngine {
     final session = _session;
     if (session == null) return;
     session.intentionalClose = intentional;
+    _linkDownAt = _monotonicSecs();
     // SYNCHRONOUSLY, before any await: see `_Session.closing`. Ingress freezes
     // here — the receive guards drop anything for a closing session, and the
     // notification subscriptions are cancelled before anything is awaited —

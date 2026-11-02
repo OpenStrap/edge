@@ -108,6 +108,11 @@ const int kForeignHistoryStallSeconds = 60;
 // no fuse) and what to poll to provoke it. [isLinkStale] already has the right
 // shape — one bar per traffic mode — it just cannot know a second band's modes.
 const int kLivenessFuseSeconds = 120; // no data for >fuse ⇒ bounce the link
+
+/// Offline longer than this between sessions restarts the stuck-strap window:
+/// a liveness bounce reconnects within seconds, a band out of range for
+/// longer wasn't being asked for history.
+const int kStuckOfflineResetSeconds = 300;
 // Every existing RTC recheck is symptom-triggered (drift detected on the ONE
 // GET_CLOCK read at connect, or a defensive SET_CLOCK on StuckStrapDetector
 // tripping). A connection that stays open for many hours (iOS's
