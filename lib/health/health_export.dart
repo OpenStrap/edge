@@ -496,34 +496,36 @@ class HealthExporter {
   /// Cleared at the start of every [_workoutLock] hold.
   bool _storeHung = false;
 
-  /// Native deletes still running, and since when. [Future.timeout] doesn't
-  /// cancel the plugin call, so a delete that timed out can still land after
-  /// a later pass wrote into its range and take those samples with it.
-  int _deletesInFlight = 0;
-  DateTime? _deletesInFlightSince;
+  /// Native deletes still running. [Future.timeout] doesn't cancel the
+  /// plugin call, so a delete that timed out can still land after a later
+  /// pass wrote into its range and take those samples with it.
+  final _pendingDeletes =
+      <({HealthDataType type, DateTime start, DateTime end, DateTime since})>[];
 
   // ponytail: a hung native call may never call back, so the hold is capped;
   // a delete landing after the cap can still remove a newer sample.
-  static const _kInFlightDeleteHold = Duration(minutes: 30);
+  static const _kPendingDeleteHold = Duration(minutes: 30);
 
-  /// The [_storeHung] a new lock hold starts with: hung while a timed-out
-  /// delete may still land.
-  bool get _deleteStillPending {
-    final since = _deletesInFlightSince;
-    return since != null &&
-        DateTime.now().difference(since) < _kInFlightDeleteHold;
-  }
-
+  /// Every native delete goes through here. One that overlaps a delete of the
+  /// same type still running reads as a busy store (a timeout): nothing gets
+  /// written into that range and the pass ends without spending an attempt.
   Future<bool> _nativeDelete(
     HealthDataType type,
     DateTime start,
     DateTime end,
   ) {
+    final now = DateTime.now();
+    _pendingDeletes
+        .removeWhere((d) => now.difference(d.since) >= _kPendingDeleteHold);
+    if (_pendingDeletes.any((d) =>
+        d.type == type && d.start.isBefore(end) && start.isBefore(d.end))) {
+      return Future.error(
+          TimeoutException('an earlier ${type.name} delete is still running'));
+    }
+    final entry = (type: type, start: start, end: end, since: now);
+    _pendingDeletes.add(entry);
     final f = _health.delete(type: type, startTime: start, endTime: end);
-    if (_deletesInFlight++ == 0) _deletesInFlightSince = DateTime.now();
-    f.whenComplete(() {
-      if (--_deletesInFlight == 0) _deletesInFlightSince = null;
-    }).ignore();
+    f.whenComplete(() => _pendingDeletes.remove(entry)).ignore();
     return f.timeout(_deleteTimeout);
   }
 
@@ -606,7 +608,7 @@ class HealthExporter {
       await shared._ensureConfigured();
       if (await shared._androidUnavailable() != null) return;
       await shared._workoutLock.run(() {
-        shared._storeHung = shared._deleteStillPending;
+        shared._storeHung = false;
         return shared._deleteOwnSamples(
           HealthDataType.WORKOUT,
           DateTime.fromMillisecondsSinceEpoch(startTs * 1000),
@@ -891,7 +893,7 @@ class HealthExporter {
     await _ensureConfigured();
     if (await _androidUnavailable() != null) return 0; // HC missing/outdated
     return _workoutLock.run(() async {
-    _storeHung = _deleteStillPending;
+    _storeHung = false;
     try {
       await ensureHealthSleepExportEpoch(
         getCursor: LocalDb.getCursor,
@@ -1657,7 +1659,7 @@ class HealthExporter {
     final en = (session['end_ts'] as num?)?.toInt();
     if (st == null || en == null || en <= st) return false;
     return _workoutLock.run(() async {
-    _storeHung = _deleteStillPending;
+    _storeHung = false;
     try {
       await _ensureConfigured();
       if (await _androidUnavailable() != null) return false;
