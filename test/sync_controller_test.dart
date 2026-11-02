@@ -70,6 +70,8 @@ class _Engine implements BleEngine {
   @override
   bool get historyStuckThisSession => false;
   @override
+  int get historyGateDrops => 0;
+  @override
   int? get strapHistoryNewestTs => newestTs;
   @override
   DateTime? get lastRxAt => null;

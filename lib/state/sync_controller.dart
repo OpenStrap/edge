@@ -368,6 +368,7 @@ class SyncController {
       // not mistake that for a stuck drain (spin-guard/backlogRemains below
       // read frontierAfter too).
       final frontierBefore = await LocalDb.getCursorInt('rec_ts_hw');
+      final dropsBefore = engine.historyGateDrops;
       if (kickFirst || i > 0) {
         await engine.requestHistorySync();
       }
@@ -445,9 +446,13 @@ class SyncController {
         );
         break;
       }
-      if (!frontierAdvanced && report.records == 0) {
+      if (!frontierAdvanced &&
+          report.records == 0 &&
+          engine.historyGateDrops == dropsBefore) {
         // Batches with no records in them (a strap writing no 1 Hz data, e.g.
         // off-wrist) are not a stale block: there is nothing to drain through.
+        // Gate drops are: a frozen-clock block's records are rejected below the
+        // frontier and never counted, but the trim still walks past them.
         _log('Backfill stop — batches carried no records; frontier stuck '
             '(strap newest=$strapNewest, frontier=$frontierAfter).');
         break;

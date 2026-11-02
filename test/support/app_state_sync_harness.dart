@@ -212,6 +212,9 @@ class SyncFakeEngine extends BleEngine {
   @override
   bool get historyStuckThisSession => stuck;
   bool offloading = false;
+  int gateDrops = 0;
+  @override
+  int get historyGateDrops => gateDrops;
   @override
   bool get offloadActive => offloading;
   @override

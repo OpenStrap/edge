@@ -2643,6 +2643,11 @@ class BleEngine {
   /// again. The raw latch stays visible in diagnostics as `history_stuck`.
   bool get historyStuckThisSession => _session?.historyStuckActive ?? false;
 
+  /// Historical records RecordGate has rejected so far (monotonic). A burst
+  /// whose batches carried no counted records but raised this was walking a
+  /// stale-timestamp block, not an empty flash.
+  int get historyGateDrops => _recordGate.dropped;
+
   Map<String, dynamic> get offloadSnapshot => {
     'active': _offloadActive,
     'queued_frames': _offloadFrames.length,
