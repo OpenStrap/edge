@@ -160,7 +160,11 @@ void main() {
     expect(opens, hasLength(2));
     expect(reader.path, writer.path);
     final files = await reader.rawQuery('PRAGMA database_list');
-    expect(files.firstWhere((r) => r['name'] == 'main')['file'], writer.path);
+    // Resolve both: macOS temp dirs sit behind the /var -> /private/var link.
+    expect(
+        File(files.firstWhere((r) => r['name'] == 'main')['file'] as String)
+            .resolveSymbolicLinksSync(),
+        File(writer.path).resolveSymbolicLinksSync());
     final option = opens.last.options!;
     expect(option.singleInstance, isFalse);
     expect(option.readOnly, isFalse, reason: 'WAL may need to create -shm');
