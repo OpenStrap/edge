@@ -5083,6 +5083,16 @@ class AppState extends ChangeNotifier {
   /// Smart Wake Window's periodic check, run from [BleEngine.onKeepAlive] —
   /// the engine's existing 30 s keep-alive tick, not a new timer.
   ///
+  /// DATA PATH for the 3h baseline: while the smart-wake plan is enabled, the
+  /// band is programmed (applyHighFreqWakeWindow, extended lease from
+  /// preSyncAt = targetWake − 135 min) to send HIGH_FREQ_SYNC_PROMPT every
+  /// 61 s; each prompt event triggers a one-shot historical offload
+  /// (EventId.highFreqSyncPrompt → _startHistoricalRefresh, floored at 90 s
+  /// by BackfillPolicy so the 61 s prompts coalesce with the 15-min periodic
+  /// backfill instead of doubling up). That backfill is what fills
+  /// decoded_onehz with the last ~3h of nocturnal data the baseline query
+  /// reads. Detection itself still only runs inside the actual window.
+  ///
   /// SAFETY: this method can only ever cause an EARLY extra buzz
   /// (`engine.runAlarm()`, RUN_ALARM — haptics only, it does not touch
   /// SET_ALARM). It never calls `setAlarm`, `disableAlarm`, or anything else
@@ -5127,13 +5137,11 @@ class AppState extends ChangeNotifier {
       );
 
       // Q2: 10th-percentile nightly HR baseline over the last ~3h (primary),
-      // with layered fallback to yesterday's hr_min_night (#628, schema 60)
-      // and finally the shipped 90-min median.
+      // falling back to the shipped 90-min median.
       //
-      // The 3h window needs the preSyncAt backfill (committed a7430f20) to
-      // have data when the band was offline earlier in the night. Without
-      // it, the query returns fewer rows and percentileHr may return null
-      // or a less representative value — the fallback chain handles both.
+      // The 3h window needs the preSyncAt backfill to have data when the band
+      // was offline earlier in the night. Without it, the query returns fewer
+      // rows and percentileHr returns null — the median fallback handles that.
       final baselineWindowStart = now.subtract(const Duration(hours: 3));
       final baselineWindowEnd = now.subtract(const Duration(minutes: 3));
       final baselineRows = await LocalDb.onehzHrAccelBetween(
@@ -5145,27 +5153,16 @@ class AppState extends ChangeNotifier {
       ];
 
       // Primary: 10th percentile of last 3h (the person's own deep-sleep
-      // HR floor — F6: HR is lowest in deep sleep).
+      // HR floor — F6: HR is lowest in deep sleep). Relies on the preSyncAt
+      // backfill (band prompts every 61 s from 45 min before the window, each
+      // prompt triggers a historical offload — see applyHighFreqWakeWindow /
+      // EventId.highFreqSyncPrompt in ble_engine.dart).
       double? baselineHr = percentileHr(baselineSamples, 0.10);
 
-      // Secondary: yesterday's hr_min_night from day_result (#628, schema 60).
-      // Same person, similar physiology — better than nothing when the 3h
-      // window is thin (first night, pre-sync failure).
-      if (baselineHr == null) {
-        try {
-          final yesterday = dayLabelOf(now.subtract(const Duration(days: 1)));
-          final dayRow = await LocalDb.dayResult(yesterday);
-          final hrMinNight = (dayRow?['hr_min_night'] as num?)?.toDouble();
-          if (hrMinNight != null && hrMinNight > 30 && hrMinNight < 200) {
-            baselineHr = hrMinNight;
-          }
-        } catch (_) {
-          // day_result read failed — fall through to tertiary.
-        }
-      }
-
-      // Tertiary: 90-min median (shipped v1 behavior — never worse than
-      // before this feature).
+      // Fallback: 90-min median (shipped v1 behavior — never worse than
+      // before this feature). Deliberately NO stored hr_min_night read here:
+      // nothing writes that column (PR #628 dropped it), so reading it would
+      // always yield null — a dead fallback that only pretends to exist.
       final recentSamples = [
         for (final r in recentRows) SmartWakeSample.fromRow(r),
       ];

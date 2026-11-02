@@ -298,7 +298,7 @@ bool lateWindowProtectionActive({
 ///
 /// Used for the nightly deep-sleep HR baseline (Q2): the 10th percentile
 /// of the last ~3h captures the person's own lowest nocturnal HR — their
-/// deep-sleep level — matching #628's `hr_min_night` methodology.
+/// deep-sleep level.
 ///
 /// F6 (HR lower in deep sleep; Trinder 2001, Cajochen 1994, Berlad 1993,
 /// Tsai 2022 — confidence A) grounds the direction; the 10th-percentile
@@ -353,12 +353,11 @@ bool likelyLightSleep({
   // Alcohol + stress combo: early buzz disabled entirely for this night.
   if (profile.earlyBuzzDisabled) return false;
 
-  // The stored-nightly fallback (baselineHrOverride from hr_min_night) must
-  // stay usable when the live 3h window is thin — the movement trend has its
-  // own floor below. Only the in-pipeline median baseline needs the full
-  // baseline list.
-  final bool storedBaseline = baselineHrOverride != null;
-  if (!storedBaseline && baseline.length < minBaselineSamples) return false;
+  // The caller may pass a baseline computed from a wider window via
+  // [baselineHrOverride]; the in-pipeline median still needs the full list.
+  if (baselineHrOverride == null && baseline.length < minBaselineSamples) {
+    return false;
+  }
 
   // `recent` may be LONGER than 3 minutes: the caller fetches up to the
   // journal's trend window (5 min on alcohol/workout nights) so the trend
