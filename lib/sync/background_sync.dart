@@ -94,7 +94,9 @@ Future<void> headlessArmAndConfirm(Future<AlarmArmResult> Function() arm,
     await prefs.remove('alarm_epoch');
     await prefs.remove('alarm_epoch_confirmed');
   } else if (result.epoch != null) {
-    final confirmed = await awaitAlarmLatch(() => latchedSince(armedAtMs));
+    // The strap's own reply already named this wake time: no wait needed.
+    final confirmed = result.echoed ||
+        await awaitAlarmLatch(() => latchedSince(armedAtMs));
     await prefs.setInt('alarm_epoch', result.epoch!);
     await prefs.setInt('alarm_set_at_ms', armedAtMs);
     await prefs.setBool('alarm_epoch_confirmed', confirmed);

@@ -940,7 +940,14 @@ class _InvestigateState extends State<Investigate> {
               style: F.over.copyWith(color: p.ink3)),
           const SizedBox(height: S.x3),
           Text(
-            v.aboveOwnUsual
+            // Null while there are too few older nights to compare against:
+            // "stayed inside the range" would describe a range nobody measured.
+            v.aboveOwnUsual == null
+                ? (l?.investigateCvhrNoComparisonYet ??
+                    'There aren\'t enough older nights behind your recent '
+                        'ones yet to say whether the heart-rate cycling this '
+                        'screen counts is running higher than usual.')
+                : v.aboveOwnUsual!
                 ? (l?.investigateCvhrAboveUsual(n) ??
                     'Over your most recent nights, the heart-rate cycling '
                         'this screen counts has been running higher than '

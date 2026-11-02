@@ -5,7 +5,31 @@ import 'nap_edits.dart';
 void composeAcceptedNaps(Map<String, dynamic> bundle, List<NapEdit> edits) {
   final old = bundle['naps'] as Map?;
   if (old == null && edits.isEmpty) return;
-  final accepted = applyNapEdits(const [], edits);
+  final sleep = bundle['sleep'];
+  final metric = sleep is Map ? sleep['window'] : null;
+  final window = metric is Map ? metric['value'] : null;
+  final onset = window is Map ? window['onset_ms'] : null;
+  final offset = window is Map ? window['offset_ms'] : null;
+  final hasMainWindow =
+      onset is num &&
+      offset is num &&
+      onset.isFinite &&
+      offset.isFinite &&
+      offset > onset;
+  // A corrected main window can absorb an older detector's nap snapshot.
+  // Suppress only fully contained snapshots, retaining the stored entry for
+  // a later correction. Partial overlaps keep their recorded duration: the
+  // snapshot has no stages to apportion sleep inside/outside the main window.
+  // Manual/confirmed decisions still win.
+  final accepted = applyNapEdits(const [], edits)
+      .where(
+        (nap) =>
+            nap['source'] != 'legacy' ||
+            !hasMainWindow ||
+            (nap['start'] as num) * 1000 < onset ||
+            (nap['end'] as num) * 1000 > offset,
+      )
+      .toList();
   // Whether the detector judged the day, persisted so a later compose cannot
   // turn an unjudged day into a measured zero once its logged naps are gone.
   // Rows from before the flag: an unjudged day only carried a value when the

@@ -344,5 +344,11 @@
         </intent>
         <!-- Health Connect app discovery (for install/status checks). -->
         <package android:name="com.google.android.apps.healthdata" />
+        <!-- Lets url_launcher find a Custom Tabs browser for the "Sign in with
+             ChatGPT" page (LaunchMode.inAppBrowserView); without it Android 11+
+             falls back to a WebView. -->
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
     </queries>
 </manifest>

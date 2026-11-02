@@ -108,9 +108,13 @@ void main() {
     );
 
     test(
-      'a NaN sentinel would NOT have fixed it — comparisons against NaN are '
-      'false, so the "angle changed" test never trips',
+      'a NaN axis reads as an unmeasured second, not as stillness',
       () {
+        // This used to document that a NaN sentinel failed OPEN: comparisons
+        // against NaN are false, so the "angle changed" test never tripped and
+        // a night of NaN scored >95% immobile. The detector now treats an
+        // angle change it cannot compute as a gap, so NaN samples abstain like
+        // absent ones.
         const n = 8 * 3600;
         final base = 1750000000000.0;
         final nan = <ana.AccelSample>[
@@ -118,13 +122,9 @@ void main() {
             ana.AccelSample(
                 base + i * 1000, double.nan, double.nan, double.nan),
         ];
-        final immobile =
-            ana.vanHeesSleepWindow(nan).value!.immobile.where((b) => b).length;
-        expect(
-          immobile,
-          greaterThan((n * 0.95).round()),
-          reason: 'NaN fails OPEN here; documented so nobody "fixes" it that way',
-        );
+        final m = ana.vanHeesSleepWindow(nan);
+        expect(m.present, isFalse,
+            reason: 'a night of NaN gravity is not a still night');
       },
     );
   });

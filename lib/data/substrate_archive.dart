@@ -39,9 +39,33 @@ import 'substrate_archive_codec.dart';
 class SubstrateArchivePolicy {
   const SubstrateArchivePolicy(this.keepDays);
 
-  /// One year. Chosen before a measurement on real exports; revisit with the
-  /// bytes/day the size probe reports (see substrate_archive_size_probe_test).
-  static const SubstrateArchivePolicy defaults = SubstrateArchivePolicy(365);
+  /// Ninety days. The archive costs ~1.6 MB per UTC day of WHOOP substrate,
+  /// so a year was ~600 MB on disk for history nothing re-derives from yet.
+  /// What the window gives up: a day older than it has no substrate left
+  /// anywhere, so a future algorithm change can never re-score it — it keeps
+  /// the score of the version that derived it. Users who want that history
+  /// kept pick a longer window ([choices]).
+  static const SubstrateArchivePolicy defaults = SubstrateArchivePolicy(90);
+
+  /// The windows the data settings offer, shortest first; -1 is forever.
+  static const List<int> choices = [30, 90, 365, -1];
+
+  /// The setting after this one in [choices], wrapping to the shortest. A
+  /// stored value that is not a choice (0 = off, or a hand-set count) moves
+  /// to the first longer choice.
+  SubstrateArchivePolicy get next {
+    int rank(int d) => d < 0 ? 1 << 30 : d;
+    for (final d in choices) {
+      if (rank(d) > rank(keepDays)) return SubstrateArchivePolicy(d);
+    }
+    return SubstrateArchivePolicy(choices.first);
+  }
+
+  /// Whether switching to [other] deletes archived days this one keeps.
+  bool keepsLongerThan(SubstrateArchivePolicy other) {
+    int rank(int d) => d < 0 ? 1 << 30 : d;
+    return other.enabled && rank(other.keepDays) < rank(keepDays);
+  }
 
   /// 0 = off (and purged), -1 = forever, otherwise days behind the data edge.
   final int keepDays;
@@ -161,19 +185,85 @@ abstract final class SubstrateArchive {
     return out;
   }
 
+  /// The window a database that predates the 90-day default was getting: a
+  /// year. Such a database has no stored setting and already holds history —
+  /// archived buckets, or band readings a later prune would archive — that
+  /// the new default would delete with no confirmation and no way back. Null
+  /// when it does not predate it (a fresh install, or a setting was chosen).
+  static Future<SubstrateArchivePolicy?> legacyWindow(
+      DatabaseExecutor ex) async {
+    Future<bool> any(String sql) async {
+      try {
+        return (await ex.rawQuery(sql)).isNotEmpty;
+      } on DatabaseException catch (e) {
+        if (e.isNoSuchTableError()) return false;
+        rethrow;
+      }
+    }
+
+    // A stored setting, or a database that has already been opened by a
+    // build with the new default (it carries the marker), is not legacy: a
+    // backup of one with no setting was getting the 90 days.
+    if (await any('SELECT 1 FROM compute_freshness '
+        "WHERE key IN ('$policyKey', '$_defaultCheckedKey') LIMIT 1")) {
+      return null;
+    }
+    final hasHistory = await any('SELECT 1 FROM $table LIMIT 1') ||
+        await any('SELECT 1 FROM decoded_onehz LIMIT 1') ||
+        // Beat-only records (no 1 Hz row) are history too.
+        await any('SELECT 1 FROM decoded_rr LIMIT 1');
+    return hasHistory ? const SubstrateArchivePolicy(365) : null;
+  }
+
+  /// Once per install, on the first open of a build with the 90-day default:
+  /// a database that predates it keeps its year ([legacyWindow]); the user can
+  /// still shorten it from data settings. A fresh one gets the new default.
+  static const String _defaultCheckedKey =
+      'substrate_archive_policy_default_checked';
+
+  static Future<void> keepLegacyWindowOnce(Database db) async {
+    const marker = _defaultCheckedKey;
+    final done = await db.query('compute_freshness',
+        columns: ['key'], where: 'key = ?', whereArgs: [marker], limit: 1);
+    if (done.isNotEmpty) return;
+    await db.transaction((txn) async {
+      final legacy = await legacyWindow(txn);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (legacy != null) {
+        await txn.insert('compute_freshness', {
+          'key': policyKey,
+          'payload_json': legacy.toJson(),
+          'updated_at': now,
+        });
+      }
+      await txn.insert('compute_freshness',
+          {'key': marker, 'payload_json': '{}', 'updated_at': now},
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    });
+  }
+
   /// The policy as stored, on [ex] — inside a transaction when the caller
   /// needs it to agree with what that transaction writes.
+  ///
+  /// With no stored setting, a year until [keepLegacyWindowOnce] has run on
+  /// this database: if that check failed before it finished, housekeeping
+  /// reading the 90-day default in the meantime would evict exactly what the
+  /// check is there to keep. The default applies once the check has run.
   static Future<SubstrateArchivePolicy> readPolicy(DatabaseExecutor ex) async {
     final rows = await ex.query(
       'compute_freshness',
-      columns: ['payload_json'],
-      where: 'key = ?',
-      whereArgs: [policyKey],
-      limit: 1,
+      columns: ['key', 'payload_json'],
+      where: 'key IN (?, ?)',
+      whereArgs: [policyKey, _defaultCheckedKey],
     );
-    return SubstrateArchivePolicy.fromJson(
-      rows.isEmpty ? null : rows.first['payload_json'] as String?,
-    );
+    for (final r in rows) {
+      if (r['key'] == policyKey) {
+        return SubstrateArchivePolicy.fromJson(r['payload_json'] as String?);
+      }
+    }
+    return rows.isEmpty
+        ? const SubstrateArchivePolicy(365)
+        : SubstrateArchivePolicy.defaults;
   }
 
   /// Store [policy]; switching to Off purges the archive IN THE SAME
@@ -194,7 +284,8 @@ abstract final class SubstrateArchive {
   /// keep.
   ///
   /// Never adopted over local history. A local policy row always wins, and so
-  /// does a local archive under the implicit default: that history was kept
+  /// does a local archive or any live decoded reading under the implicit
+  /// default: that history was kept
   /// on this phone, and importing some other backup's "Off" must not be what
   /// deletes it (a restore only ever ADDS history). Checked and written in one
   /// transaction, so an archive cannot appear between the two.
@@ -212,10 +303,19 @@ abstract final class SubstrateArchive {
       if (e.isNoSuchTableError()) return;
       rethrow;
     }
-    if (theirs.isEmpty) return;
-    final adopted = SubstrateArchivePolicy.fromJson(
-      theirs.first['payload_json'] as String?,
-    );
+    // A backup from before the setting existed has no row; its archive was
+    // being kept for a year, and restoring it under the 90-day default would
+    // drop the older part of what it brings.
+    final SubstrateArchivePolicy adopted;
+    if (theirs.isNotEmpty) {
+      adopted = SubstrateArchivePolicy.fromJson(
+        theirs.first['payload_json'] as String?,
+      );
+    } else {
+      final legacy = await legacyWindow(src);
+      if (legacy == null) return;
+      adopted = legacy;
+    }
     await db.transaction((txn) async {
       final ours = await txn.query(
         'compute_freshness',
@@ -227,6 +327,14 @@ abstract final class SubstrateArchive {
       if (ours.isNotEmpty) return;
       final anyLocal = await txn.query(table, columns: ['utc_day'], limit: 1);
       if (anyLocal.isNotEmpty) return;
+      // Live readings are local history too, the part the next prune moves
+      // into the archive: under an adopted "Off" that prune deletes them
+      // without archiving, and a shorter window drops the older ones.
+      for (final live in const ['decoded_onehz', 'decoded_rr']) {
+        if ((await txn.rawQuery('SELECT 1 FROM $live LIMIT 1')).isNotEmpty) {
+          return;
+        }
+      }
       await txn.insert('compute_freshness', {
         'key': policyKey,
         'payload_json': adopted.toJson(),

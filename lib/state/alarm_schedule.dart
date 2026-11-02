@@ -233,8 +233,14 @@ DateTime alarmRearmFrom(DateTime now, int? firedEpoch) {
 /// persisted/optimistic epoch for. [failed] is true when a write was needed
 /// and did not reach the band or the band rejected it: a null [epoch] alone
 /// can't tell "already armed" from "never armed", and a screen that just
-/// changed the schedule must not report the old arm as the new one.
-typedef AlarmArmResult = ({int? epoch, bool disabled, bool failed});
+/// changed the schedule must not report the old arm as the new one. [echoed]
+/// is true when the strap's reply already named the exact wake time sent.
+typedef AlarmArmResult = ({
+  int? epoch,
+  bool disabled,
+  bool failed,
+  bool echoed
+});
 
 /// Arms [engine] with the next scheduled occurrence, if one exists and it
 /// differs from [currentArmedEpoch] (unix seconds) — the "don't hammer the
@@ -255,26 +261,30 @@ Future<AlarmArmResult> armNextScheduledOccurrence({
     // an explicit cancel-all) must not leave the strap holding its last arm
     // forever — nothing else in this flow ever tells the band to give it up.
     if (currentArmedEpoch == null) {
-      return (epoch: null, disabled: false, failed: false);
+      return (epoch: null, disabled: false, failed: false, echoed: false);
     }
     // Only report the disable once it reached the band: the caller clears
     // the armed epoch on `disabled`, and with it gone this branch never
     // runs again, so a failed write would leave the strap armed for good.
     if (!await engine.disableAlarm()) {
-      return (epoch: null, disabled: false, failed: true);
+      return (epoch: null, disabled: false, failed: true, echoed: false);
     }
-    return (epoch: null, disabled: true, failed: false);
+    return (epoch: null, disabled: true, failed: false, echoed: false);
   }
   final epoch = next.millisecondsSinceEpoch ~/ 1000;
   if (epoch == currentArmedEpoch) {
-    return (epoch: null, disabled: false, failed: false);
+    return (epoch: null, disabled: false, failed: false, echoed: false);
   }
-  final armed = await engine.setAlarm(next);
-  if (armed == null) return (epoch: null, disabled: false, failed: true);
+  final r = await engine.armAlarm(next);
+  final armed = r.armed;
+  if (armed == null) {
+    return (epoch: null, disabled: false, failed: true, echoed: false);
+  }
   return (
     epoch: armed.millisecondsSinceEpoch ~/ 1000,
     disabled: false,
     failed: false,
+    echoed: r.echoed,
   );
 }
 

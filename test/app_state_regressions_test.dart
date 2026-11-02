@@ -4,6 +4,7 @@
 // without touching a single platform plugin, so the logic below can be driven
 // directly. Each group names the bug it guards.
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -530,6 +531,41 @@ void main() {
       expect(await ok.setScheduleDay(weekday: 2, enabled: true), isTrue,
           reason: 'already armed for that slot is not a failure');
       expect(engine.armed, hasLength(1));
+    });
+
+    test('a day saved while cancel-all is on the wire lands after it',
+        () async {
+      await silenceOsPresent();
+      final engine = _HeldDisableEngine();
+      final app = AppState.forTesting(engine: engine);
+      addTearDown(app.dispose);
+      await app.setScheduleDay(weekday: 1, enabled: true); // offline: saved
+      app.device.connection = 'connected';
+
+      // Two overlapping cancels, then a save while both are unanswered.
+      final cancels = [app.disableAlarm(), app.disableAlarm()];
+      await Future<void>.delayed(Duration.zero);
+      final save = app.setScheduleDay(
+          weekday: 3, enabled: true, hour: 6, minute: 0);
+      // Answer the newest disable first: the save must still wait for both.
+      var cancelled = false;
+      unawaited(Future.wait(cancels).then((_) => cancelled = true));
+      // Between answers, give anything let through time to reach the database.
+      for (var i = 0; i < 20 && !cancelled; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        if (engine.anyPending) engine.answerLatest();
+      }
+      expect(cancelled, isTrue);
+      await save;
+
+      final enabled = [
+        for (final r in await LocalDb.alarmScheduleRows())
+          if (r['enabled'] == 1) r['weekday'],
+      ];
+      expect(enabled, [3],
+          reason: 'the cancelled day is gone, the newer save survives');
+      expect(engine.armed, isNotEmpty, reason: 'the saved day is re-armed');
+      expect(engine.armed.last.weekday, DateTime.thursday);
     });
 
     test('ALARM_SET (event 56) leaves the armed alarm alone', () async {
@@ -1246,10 +1282,34 @@ class _ArmRecordingEngine extends BleEngine {
   _ArmRecordingEngine() : super(onRecord: (_, _) async {}, onState: (_) {});
   final armed = <DateTime>[];
   @override
-  Future<DateTime?> setAlarm(DateTime when,
+  Future<({DateTime? armed, bool echoed})> armAlarm(DateTime when,
       {int index = 0, List<int>? haptics}) async {
     armed.add(when);
-    return when;
+    return (armed: when, echoed: false);
+  }
+}
+
+/// Holds each DISABLE_ALARM reply until the test answers it, and records arms
+/// instead of writing them.
+class _HeldDisableEngine extends BleEngine {
+  _HeldDisableEngine() : super(onRecord: (_, _) async {}, onState: (_) {});
+  final replies = <Completer<bool>>[];
+  final armed = <DateTime>[];
+  @override
+  Future<bool> disableAlarm({int? id}) {
+    final c = Completer<bool>();
+    replies.add(c);
+    return c.future;
+  }
+
+  /// Answers the most recent unanswered disable.
+  void answerLatest() => replies.lastWhere((c) => !c.isCompleted).complete(true);
+  bool get anyPending => replies.any((c) => !c.isCompleted);
+  @override
+  Future<({DateTime? armed, bool echoed})> armAlarm(DateTime when,
+      {int index = 0, List<int>? haptics}) async {
+    armed.add(when);
+    return (armed: when, echoed: false);
   }
 }
 
@@ -1268,10 +1328,10 @@ class _RejectingArmEngine extends BleEngine {
   _RejectingArmEngine() : super(onRecord: (_, _) async {}, onState: (_) {});
   int attempts = 0;
   @override
-  Future<DateTime?> setAlarm(DateTime when,
+  Future<({DateTime? armed, bool echoed})> armAlarm(DateTime when,
       {int index = 0, List<int>? haptics}) async {
     attempts++;
-    return null;
+    return (armed: null, echoed: false);
   }
 }
 

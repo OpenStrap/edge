@@ -89,10 +89,14 @@ Future<void> _clear() async {
     'decoded_onehz',
     'decoded_rr',
     'substrate_archive',
-    'compute_freshness',
   ]) {
     await db.delete(t);
   }
+  // Everything but the marker every opened phone database carries: without it
+  // an export here would read as a backup from before the 90-day default.
+  await db.delete('compute_freshness',
+      where: 'key != ?',
+      whereArgs: ['substrate_archive_policy_default_checked']);
   SubstrateArchive.debugCorruptEncode = false;
   SubstrateArchive.debugBeforeBucket = null;
   SubstrateArchive.debugThrowInBucket = null;
@@ -435,6 +439,18 @@ void main() {
     expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
     expect(await _live('decoded_rr', 'rec_ts < ?', [cutoff]), isEmpty);
     expect(await (await _db()).query('substrate_archive'), isEmpty);
+  });
+
+  test('with no decoded rows left, the window is measured from the archive',
+      () async {
+    await _seed();
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
+    final db = await _db();
+    await db.delete('decoded_onehz');
+    expect(await LocalDb.lastDecodedRecTs(), isNull);
+    final newest =
+        (await LocalDb.substrateArchiveStats())['newest_to_ts'] as int;
+    expect(await LocalDb.substrateArchiveEdge(), newest);
   });
 
   test('evictSubstrateArchive drops buckets older than keepDays; -1 keeps '
@@ -1000,13 +1016,15 @@ void main() {
       await LocalDb.pruneDecodedBeforeRecTs(cutoff);
       final snapshot = await LocalDb.exportCopy();
       final db = await _db();
-      // A fresh phone: no policy row and no archive of its own.
+      // A fresh phone: no policy row, no archive and no readings of its own.
       await db.delete(
         'compute_freshness',
         where: 'key = ?',
         whereArgs: [SubstrateArchive.policyKey],
       );
       await db.delete('substrate_archive');
+      await db.delete('decoded_onehz');
+      await db.delete('decoded_rr');
       await LocalDb.importFromDbFile(snapshot);
       expect(
         await LocalDb.substrateArchivePolicy(),
@@ -1021,6 +1039,31 @@ void main() {
         const SubstrateArchivePolicy(30),
       );
     });
+  });
+
+  test('a backup\'s Off policy is not adopted over live readings with no '
+      'archive yet', () async {
+    await _seed();
+    await LocalDb.setSubstrateArchivePolicy(const SubstrateArchivePolicy(0));
+    final offBackup = await LocalDb.exportCopy();
+    final db = await _db();
+    // This phone: readings, no archive yet, no stored setting.
+    await db.delete('compute_freshness',
+        where: 'key = ?', whereArgs: [SubstrateArchive.policyKey]);
+    await db.delete('substrate_archive');
+    final live = (await db.query('decoded_onehz')).length;
+    expect(live, greaterThan(0));
+
+    await LocalDb.importFromDbFile(offBackup);
+    expect(
+      await db.query('compute_freshness',
+          where: 'key = ?', whereArgs: [SubstrateArchive.policyKey]),
+      isEmpty,
+    );
+    // The next prune archives them instead of deleting them outright.
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff);
+    expect(await db.query('substrate_archive'), isNotEmpty);
+    await File(offBackup).delete();
   });
 
   test('a backup\'s Off policy never deletes this phone\'s archive; on a '
@@ -1053,8 +1096,11 @@ void main() {
       isEmpty,
     );
 
-    // A fresh phone adopts it — and then takes no archive rows in.
+    // A fresh phone (no archive, no readings) adopts it — and then takes no
+    // archive rows in.
     await db.delete('substrate_archive');
+    await db.delete('decoded_onehz');
+    await db.delete('decoded_rr');
     await LocalDb.importFromDbFile(offBackup);
     expect(
       await LocalDb.substrateArchivePolicy(),

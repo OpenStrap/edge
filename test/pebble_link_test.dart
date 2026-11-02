@@ -51,7 +51,7 @@ void main() {
       nowSeconds: () => ts + 3600,
     );
     final db = await LocalDb.instance;
-    expect((await db.query('raw_archive')).length, greaterThanOrEqualTo(1));
+    expect((await db.query(LocalDb.rawArchiveView)).length, greaterThanOrEqualTo(1));
     final hr = await db.query('decoded_onehz');
     expect(hr.single['hr'], 61);
     expect(hr.single['source'], 'pebble');

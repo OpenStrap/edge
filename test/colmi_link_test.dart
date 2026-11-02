@@ -123,7 +123,7 @@ void main() {
   test('every reply is banked verbatim, never re-drivable', () async {
     await sync();
     final db = await LocalDb.instance;
-    final archive = await db.query('raw_archive');
+    final archive = await db.query(LocalDb.rawArchiveView);
     final reasons = archive.map((a) => a['reason']).toSet();
     expect(reasons,
         containsAll(['colmi_cmd_0x03', 'colmi_cmd_0x15', 'colmi_big_0x27']));

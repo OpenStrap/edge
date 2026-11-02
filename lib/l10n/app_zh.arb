@@ -1020,6 +1020,7 @@
   "investigateDroppedThin": "因观测时长过短而排除 {count} 晚",
   "investigateAcrossNOwnNights": "基于你自己的 {n} 个夜晚",
   "investigateCvhrAboveUsual": "在你最近的几个夜晚中，本项筛查所计的心率周期水平高于其背后 {n} 个夜晚的整体水平。",
+  "investigateCvhrNoComparisonYet": "你最近几个夜晚之前的历史夜晚还不够多，暂时无法判断本项筛查所计的心率周期是否比平时更高。",
   "investigateCvhrInsideUsual": "在你最近的几个夜晚中，本项筛查所计的心率周期水平一直保持在其背后 {n} 个夜晚的范围之内。",
   "investigateCvhrExplainer": "这是脉搏中的一种模式，不是对呼吸的测量，也不是任何疾病的检测。同样的周期性变化可能来自心律不齐、身处高海拔，或任何断续的夜晚——而 β 受体阻滞剂、糖尿病和神经系统疾病会削弱这种信号，因此真正的呼吸紊乱往往在这里完全不留痕迹。",
   "investigateCvhrNotNegativeResult": "所以这里的一切都不构成阴性结果，也不能排除任何情况，其中任何一项都不能说明某一个具体夜晚的情况——单单一个夜晚的计数本身就会因十几种原因而波动。",
@@ -2184,6 +2185,7 @@
   "settingsResetTitle": "删除全部数据？",
   "settingsResetBackupWarning": "应用数据已删除。备份清理未完成，部分文件或文件夹访问权限可能仍然保留。",
   "settingsResetPairingKeyWarning": "应用数据已删除，但某个传感器的配对密钥无法从安全存储中移除。请再次删除全部以重试。",
+  "settingsResetChatGptWarning": "应用数据已删除，但 ChatGPT 登录可能未完全移除。请在 ChatGPT 设置中断开 OpenStrap，以确保其访问权限已撤销。再次删除全部只会重试清除此设备上剩余的内容。",
   "settingsResetBody": "此操作将永久删除此设备上本应用的数据：\n\n· 每一天的测量数据、睡眠、锻炼和路线\n· 每一项化验结果、饮食、用药剂量、习惯、呼吸训练和记录的组数\n· 你的日记、周期记录和滚动基线\n· 你的个人资料、所有偏好设置以及保存的任何 AI 密钥\n· 主屏幕小组件和所有已安排的提醒\n\n导出的副本以及旧文件夹或无法访问的文件夹中的备份可能仍然保留。请单独删除这些文件。\n\n手环会解除配对，并且无法重新发送已经交出的历史数据。如果需要保留副本，请先在“你的数据”中导出。",
   "settingsResetKeepData": "保留我的数据",
   "settingsResetDeleteEverything": "删除全部",
@@ -2550,7 +2552,7 @@
   "wearableBandDayWhy": "你的手环今天有记录，所以今天的数值来自手环，而不是此可穿戴设备",
   "wearableWhyEstimateHidden": "只有估算值，而估算值已在设置中隐藏",
   "wearableWhyNoNight": "这一天没有保存的夜间记录",
-  "wearableWhyNeedsThreeNights": "需要三个晚上",
+  "wearableWhyNeedsThreeNights": "需要三个周末夜晚",
   "wearableWhyNoNightHr": "夜间没有心率",
   "wearableWhySkinTempNotDecoded": "皮肤温度尚未解码",
   "wearableWhyNeedsBeats": "需要逐搏间期",
@@ -2792,5 +2794,72 @@
   "notifBatteryForecastReserveBody": "按每小时 {rate}% 的耗电速度，电量将在 {time} 左右耗尽，略晚于你平时起床的时间，起床时约剩 {left}%。现在充电，才能记录今晚的睡眠。",
   "notifBatteryForecastAfterWakeBody": "按每小时 {rate}% 的耗电速度，电量将在 {time} 左右耗尽，晚于你平时起床的时间。",
   "notifWindDownBody": "你通常在 {time} 左右就寝。开始放慢节奏吧。",
-  "notifWorkoutIdleBody": "已有 {minutes} 分钟没有记录到高于静息水平的运动。如果训练已结束，请在“锻炼”标签页中结束它。"
+  "notifWorkoutIdleBody": "已有 {minutes} 分钟没有记录到高于静息水平的运动。如果训练已结束，请在“锻炼”标签页中结束它。",
+  "dataStorageGroup": "存储",
+  "dataKeepHistory": "保留原始读数",
+  "dataKeepHistorySub": "每天逐秒读数的压缩副本，在应用清除原始数据后仍会保留。超过此期限的日子保留其评分，但在评分改进后无法重新计算",
+  "dataKeepDays": "{days} 天",
+  "@dataKeepDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "dataKeepYear": "1 年",
+  "dataKeepForever": "永久",
+  "dataKeepShorterTitle": "保留 {window} 的原始读数？",
+  "@dataKeepShorterTitle": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterBody": "比最新读数早约 {window} 以上的读数将立即删除。这些日子会保留评分，但在以后的更新后无法重新计算。",
+  "@dataKeepShorterBody": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
+  "dataKeepShorterConfirm": "删除较早的读数",
+  "dataKeepShorterCancel": "保留",
+  "dataCompact": "压缩数据库",
+  "dataCompactSub": "清除上面设置不再保留的数据，然后把未使用的空间还给手机。需要约为数据库两倍大小的可用空间",
+  "dataCompactPruning": "正在清除旧数据…",
+  "dataCompactVacuuming": "正在压缩…",
+  "dataCompactFreed": "已释放 {freed} MB。数据库现在为 {size} MB。",
+  "@dataCompactFreed": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactNoSpace": "旧数据已清除，但压缩需要 {need} MB 可用空间，手机只有 {free} MB。",
+  "@dataCompactNoSpace": {
+    "placeholders": {
+      "need": {
+        "type": "int"
+      },
+      "free": {
+        "type": "int"
+      }
+    }
+  },
+  "dataCompactUnknownSpace": "旧数据已清除，但无法读取手机的可用空间，因此未压缩文件。",
+  "dataCompactBusy": "正在同步或有进行中的会话。完成后再试。",
+  "dataSizeMb": "{mb} MB",
+  "@dataSizeMb": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  }
 }

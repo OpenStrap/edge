@@ -376,7 +376,7 @@ void main() {
     // 600 rows at 1-in-60 ⇒ counters 0, 60, … 540.
     expect(
       await _count(
-        "SELECT COUNT(*) FROM raw_archive WHERE reason = 'undecodable_rec_v20' "
+        "SELECT COUNT(*) FROM ${LocalDb.rawArchiveView} WHERE reason = 'undecodable_rec_v20' "
         'AND captured_at < ?',
         [cutoffSec * 1000],
       ),
@@ -384,13 +384,13 @@ void main() {
     );
     expect(
       await _count(
-        "SELECT COUNT(*) FROM raw_archive WHERE reason = 'undecodable_rec_v25'",
+        "SELECT COUNT(*) FROM ${LocalDb.rawArchiveView} WHERE reason = 'undecodable_rec_v25'",
       ),
       1,
     );
     expect(
       await _count(
-        "SELECT COUNT(*) FROM raw_archive WHERE reason = 'undecodable_rec_v20' "
+        "SELECT COUNT(*) FROM ${LocalDb.rawArchiveView} WHERE reason = 'undecodable_rec_v20' "
         'AND captured_at >= ?',
         [cutoffSec * 1000],
       ),
@@ -398,7 +398,7 @@ void main() {
     );
     // Idempotent: running it again takes nothing more.
     await LocalDb.pruneDecodedBeforeRecTs(cutoffSec);
-    expect(await _count('SELECT COUNT(*) FROM raw_archive'), 12);
+    expect(await _count('SELECT COUNT(*) FROM ${LocalDb.rawArchiveView}'), 12);
   });
 
   test('prune cursor only moves forward', () async {
@@ -557,15 +557,15 @@ void main() {
         expect(await _count('SELECT COUNT(*) FROM metric_series_version'),
             derived);
 
-        final before = await _count('SELECT COUNT(*) FROM raw_archive');
+        final before = await _count('SELECT COUNT(*) FROM ${LocalDb.rawArchiveView}');
         final byReason = await db.rawQuery(
-          'SELECT reason, COUNT(*) AS n FROM raw_archive GROUP BY reason',
+          'SELECT reason, COUNT(*) AS n FROM ${LocalDb.rawArchiveView} GROUP BY reason',
         );
         // Thin at "now", so the whole export is behind the retention edge.
         final thinned = await LocalDb.thinRawArchiveBefore(
           DateTime.now().millisecondsSinceEpoch,
         );
-        final after = await _count('SELECT COUNT(*) FROM raw_archive');
+        final after = await _count('SELECT COUNT(*) FROM ${LocalDb.rawArchiveView}');
         // ignore: avoid_print
         print('[v42] ${p.basename(src)} archive $before → $after '
             '(-$thinned) by_reason=$byReason');
@@ -575,7 +575,7 @@ void main() {
           if (r['reason'] == 'undecodable_rec_v20') continue;
           expect(
             await _count(
-              'SELECT COUNT(*) FROM raw_archive WHERE reason = ?',
+              'SELECT COUNT(*) FROM ${LocalDb.rawArchiveView} WHERE reason = ?',
               [r['reason']],
             ),
             r['n'],

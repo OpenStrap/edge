@@ -410,6 +410,8 @@ void main() {
             400,
             scrollable: find.byType(Scrollable).first,
           );
+          await t.ensureVisible(find.text(en.coachListModels));
+          await t.pumpAndSettle();
           await t.tap(find.text(en.coachListModels));
           await t.pumpAndSettle();
           const raw =

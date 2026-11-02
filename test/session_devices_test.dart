@@ -72,7 +72,7 @@ void main() {
         [('body_temp', 36.5), ('body_temp', 36.52)].reversed.toList());
     expect(rows.first['ts_ms'], morning.millisecondsSinceEpoch);
     expect(rows.every((r) => r['attribution'] == kThermometer.label), isTrue);
-    final archive = await (await LocalDb.instance).query('raw_archive');
+    final archive = await (await LocalDb.instance).query(LocalDb.rawArchiveView);
     expect(archive.length, 3, reason: 'every indication is banked');
   });
 

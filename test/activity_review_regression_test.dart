@@ -528,7 +528,7 @@ void main() {
       expect(restored['confidence'], 0.7);
       expect(
         restored['source'],
-        source == 'confirmed' ? 'confirmed' : 'legacy',
+        'confirmed',
       );
       expect(await store.pending(), isEmpty);
       expect(await db.query('decoded_onehz'), isEmpty);
@@ -557,7 +557,7 @@ void main() {
       (await LocalDb.dayResult(day))!['payload_json'] as String,
     );
     final restored = (bundle['naps']['value'] as List).single as Map;
-    expect(restored['source'], 'legacy');
+    expect(restored['source'], 'confirmed');
     expect(restored['start'], start);
     expect(bundle['scalars']['nap_min'], 30);
   });

@@ -95,6 +95,10 @@ import CoreMotion
     if let registrar = registry.registrar(forPlugin: "ConfigBridge") {
       ConfigBridge.register(messenger: registrar.messenger())
     }
+    // Free space on the volume holding the database, for "Compact database".
+    if let registrar = registry.registrar(forPlugin: "StorageBridge") {
+      StorageBridge.register(messenger: registrar.messenger())
+    }
     // The phone's OWN step count (CMPedometer), not HealthKit's multi-writer
     // aggregate. See lib/health/phone_pedometer.dart.
     if let registrar = registry.registrar(forPlugin: "PedometerBridge") {
@@ -119,6 +123,38 @@ import CoreMotion
       // (heavy processing + light sync-only refresh).
       BackgroundTaskManager.schedule()
       BackgroundTaskManager.scheduleRefresh()
+    }
+  }
+}
+
+enum StorageBridge {
+  private static let channelName = "openstrap/storage"
+
+  static func register(messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
+    channel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "freeBytes":
+        // Bytes a write can actually use. The "important usage" figure counts
+        // purgeable space iOS frees on demand, which is what a VACUUM sees.
+        let path = (call.arguments as? [String: Any])?["path"] as? String
+          ?? NSHomeDirectory()
+        let url = URL(fileURLWithPath: path)
+        do {
+          let values = try url.resourceValues(
+            forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+          if let bytes = values.volumeAvailableCapacityForImportantUsage {
+            result(NSNumber(value: bytes))
+            return
+          }
+          let attrs = try FileManager.default.attributesOfFileSystem(forPath: path)
+          result(attrs[.systemFreeSize] as? NSNumber)
+        } catch {
+          result(nil)
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
     }
   }
 }
