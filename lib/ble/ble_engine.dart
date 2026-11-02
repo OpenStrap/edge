@@ -1904,6 +1904,9 @@ class BleEngine {
   @visibleForTesting
   void debugIngestHistoricalFrame(Frame frame) => _ingestHistoricalFrame(frame);
 
+  @visibleForTesting
+  void debugSetOffloadActive(bool active) => _setOffloadActive(active);
+
   /// Feed one inbound control frame through the real immediate-receive path
   /// (decode → event handling → state absorb).
   ///
@@ -9056,8 +9059,13 @@ class BleEngine {
     // old methods judged it; a toggle's own correlated reply is not awaited.
     // Correlating 0x03/0x6A replies (`_sendAwaited`) is the upgrade once the
     // strap's reply behaviour for these toggles is confirmed on hardware.
+    // A gen4 history claim can land during the arm's gaps: the rest of the
+    // bundle must not go out mid-offload ([nextLiveStreamStep] holdImuOn).
+    // Failed marks it dirty, so the replay runs when the offload ends.
+    final holdable = step == LiveStreamStep.imuOn && !session.band.isGen5;
     var ok = true;
     for (final op in ops) {
+      if (holdable && _offloadActive) return _LiveWrite.failed;
       if (!await op()) ok = false;
       if (_liveStale(session, generation)) return _LiveWrite.stale;
     }
