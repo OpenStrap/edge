@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/state/hyrox_reconciler.dart';
 import 'package:openstrap_edge/data/db.dart';
@@ -14,10 +15,31 @@ import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/hyrox_plan.dart';
 import 'package:openstrap_edge/data/hyrox_store.dart';
 
+// exportDaysDb resolves the temp dir through path_provider, which needs a
+// platform channel — fake it, same pattern as db_paged_import_export_test.
+class _FakePathProvider extends PathProviderPlatform {
+  _FakePathProvider(this.root);
+  final String root;
+  @override
+  Future<String?> getTemporaryPath() async => root;
+  @override
+  Future<String?> getApplicationSupportPath() async => root;
+  @override
+  Future<String?> getApplicationDocumentsPath() async => root;
+  @override
+  Future<String?> getApplicationCachePath() async => root;
+  @override
+  Future<String?> getLibraryPath() async => root;
+  @override
+  Future<String?> getDownloadsPath() async => root;
+}
+
 void main() {
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    final tmp = await Directory.systemTemp.createTemp('openstrap_hyrox_');
+    PathProviderPlatform.instance = _FakePathProvider(tmp.path);
   });
 
   tearDownAll(() async {
