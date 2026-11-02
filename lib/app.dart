@@ -128,6 +128,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       // a lock screen looking current.
       unawaited(WidgetService.refresh(app.repo));
       if (app.isPaired) app.openSession();
+      app.startScaleWatcher();
     } else if (state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
