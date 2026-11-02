@@ -43,6 +43,27 @@ void main() {
     expect(deletes, hasLength(1), reason: 'one-shot');
   });
 
+  test('a first export with no cursor finishes the purge before it writes',
+      () async {
+    final stored = <String, String>{};
+    final deletes = <(DateTime, DateTime)>[];
+    Future<void> run(String cursor) => purgeLegacyStepsBehindCursor(
+      cursor: cursor,
+      getCursor: (name) async => stored[name],
+      setCursor: (name, value) async => stored[name] = value,
+      deleteSteps: (s, e) async {
+        deletes.add((s, e));
+        return true;
+      },
+    );
+    await run('');
+    expect(deletes, hasLength(1));
+    expect(deletes.single.$2.isAfter(DateTime.now()), isTrue);
+    // The next pass, cursor advanced over freshly written steps: no purge.
+    await run('2026-08-03');
+    expect(deletes, hasLength(1));
+  });
+
   test('only strap counter steps are exported', () {
     const span = {'start_ts': 1000, 'end_ts': 4600, 'steps': 30};
     final out = healthStepSpans({

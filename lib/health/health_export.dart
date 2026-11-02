@@ -279,11 +279,13 @@ Future<void> purgeLegacyStepsBehindCursor({
   required Future<void> Function(String name, String value) setCursor,
   required Future<bool> Function(DateTime start, DateTime end) deleteSteps,
 }) async {
-  if (cursor.isEmpty) return;
   if ((await getCursor(kHealthStepsPrefixPurgeCursor) ?? '').isNotEmpty) {
     return;
   }
-  final d = DateTime.tryParse(cursor);
+  // An empty cursor (first export, or a reset) still has to finish the purge
+  // now, before this pass writes strap-counter steps: run later, behind the
+  // advanced cursor, it would delete those and nothing would rewrite them.
+  final d = cursor.isEmpty ? DateTime.now() : DateTime.tryParse(cursor);
   if (d == null) return;
   try {
     // HealthKit and Health Connect only delete this app's own samples.
@@ -291,7 +293,8 @@ Future<void> purgeLegacyStepsBehindCursor({
       DateTime.fromMillisecondsSinceEpoch(0),
       DateTime(d.year, d.month, d.day + 1),
     );
-    await setCursor(kHealthStepsPrefixPurgeCursor, cursor);
+    await setCursor(
+        kHealthStepsPrefixPurgeCursor, cursor.isEmpty ? 'initial' : cursor);
   } catch (e) {
     debugPrint('[health] purge legacy steps behind $cursor: $e');
   }
@@ -873,11 +876,22 @@ class HealthExporter {
         cursor: cursor,
         getCursor: LocalDb.getCursor,
         setCursor: (name, value) => LocalDb.setCursor(name, value),
-        deleteSteps: (start, end) => _health.delete(
-          type: HealthDataType.STEPS,
-          startTime: start,
-          endTime: end,
-        ),
+        // Bounded like every other delete: a locked store ends the pass
+        // here instead of hanging it.
+        deleteSteps: (start, end) async {
+          try {
+            return await _health
+                .delete(
+                  type: HealthDataType.STEPS,
+                  startTime: start,
+                  endTime: end,
+                )
+                .timeout(_deleteTimeout);
+          } on TimeoutException {
+            _storeHung = true;
+            rethrow;
+          }
+        },
       );
       final retryState = await _loadRetryState();
       var retryStateDirty = false;
@@ -1442,6 +1456,15 @@ class HealthExporter {
     // Delete-then-write over our own samples, and only on days we write, so a
     // phone-counted day never runs a delete for a type nothing writes.
     final stepSpans = healthStepSpans(b);
+    final stepsMap = b['steps'];
+    if (stepSpans.isEmpty &&
+        stepsMap is Map &&
+        stepsMap['band_measured'] != null) {
+      // A counter day the counter lost (a not-yet-final day it won on an
+      // earlier pass) must not keep the samples written then. Best effort:
+      // nothing is written here, so a failed delete doesn't hold the cursor.
+      await _deleteOwnSamples(HealthDataType.STEPS, dayStart, dayEnd);
+    }
     if (stepSpans.isNotEmpty) {
       if (!await _deleteOwnSamples(HealthDataType.STEPS, dayStart, dayEnd)) {
         success = false;
