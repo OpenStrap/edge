@@ -1365,6 +1365,7 @@ class LocalDb {
     await _addColumnIfMissing(db, 'device', 'battery_pct', 'INTEGER');
     await _addColumnIfMissing(db, 'device', 'battery_ts', 'INTEGER');
     await _createStepCalibration(db);
+    await _ensureLiveStepCalibrationCounterVersion(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
@@ -2170,9 +2171,44 @@ class LocalDb {
         -- indistinguishable from a real still reading.
         p2p_g          REAL,
         confidence     REAL,
+        -- `kLiveStepCounterVersion` that produced raw_steps. NULL = a row
+        -- banked before runs were tagged, i.e. the original counter.
+        counter_version INTEGER,
         PRIMARY KEY (category, run_ts)
       )
     ''');
+  }
+
+  /// Tag column for calibration runs, and drop the runs and profiles the
+  /// current step counter did not produce.
+  ///
+  /// On the every-open repair path rather than behind a schema version: the
+  /// column is additive, and the clear has to run again after a restore, which
+  /// can merge an older backup's untagged runs back in. Both tables hold a
+  /// handful of rows, so this is cheap.
+  ///
+  /// Cleared rather than kept-and-ignored because a stale run is not evidence
+  /// for anything this build computes, and leaving it would make the
+  /// calibration screen count routines that no longer contribute to the fit.
+  static Future<void> _ensureLiveStepCalibrationCounterVersion(
+    Database db,
+  ) async {
+    await _addColumnIfMissing(
+      db,
+      'live_step_calibration_run',
+      'counter_version',
+      'INTEGER',
+    );
+    await db.delete(
+      'live_step_calibration_run',
+      where: 'counter_version IS NULL OR counter_version != ?',
+      whereArgs: [kLiveStepCounterVersion],
+    );
+    await db.delete(
+      'live_step_calibration',
+      where: 'version IS NULL OR version != ?',
+      whereArgs: [kLiveStepGainVersion],
+    );
   }
 
   /// Idempotent by key. NULL reference_steps = the phone did not cover the day.
@@ -2311,8 +2347,13 @@ class LocalDb {
     DatabaseExecutor? exec,
   }) async {
     final db = exec ?? await instance;
+    // Only runs the CURRENT counter scored. The open-time clear removes the
+    // rest, but a restore can merge untagged rows in after that ran, and a
+    // refit in between must not read them. See [kLiveStepCounterVersion].
     final rows = await db.query(
       'live_step_calibration_run',
+      where: 'counter_version = ?',
+      whereArgs: [kLiveStepCounterVersion],
       orderBy: 'run_ts DESC',
     );
     final out = <StepCalibrationRun>[];
@@ -2373,6 +2414,7 @@ class LocalDb {
         'cadence_spm': r.cadenceSpm,
         'p2p_g': r.peakToPeakG,
         'confidence': r.confidence,
+        'counter_version': kLiveStepCounterVersion,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -9977,13 +10019,19 @@ class LocalDb {
   static Future<List<Map<String, dynamic>>> sleepWindowRows(int limit,
       {String? before}) async {
     final db = await instance;
+    // Stream the served versions newest first from the covering day/version
+    // index. CROSS JOIN keeps that stream outside the row lookup, so SQLite
+    // can stop after N non-skipped days instead of fetching and sorting every
+    // day's row (whose skipped column sits after the large payload).
+    // The limit MUST follow skipped: a newer skip must neither consume a slot
+    // nor fall back to an older non-skipped version of the same day.
     return db.rawQuery(
       'SELECT r.day_id AS day_id, r.window_json AS window_json '
-      'FROM day_result r '
-      '$_servedDayJoin '
+      'FROM ($_servedVersions ORDER BY day_id DESC) m '
+      'CROSS JOIN day_result r $_servedOn '
       'WHERE r.skipped = 0 '
-      '${before == null ? '' : 'AND r.day_id < ? '}'
-      'ORDER BY r.day_id DESC LIMIT ?',
+      '${before == null ? '' : 'AND m.day_id < ? '}'
+      'ORDER BY m.day_id DESC LIMIT ?',
       [?before, limit],
     );
   }

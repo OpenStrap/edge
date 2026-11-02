@@ -179,7 +179,25 @@ const double kEverydayGainMax = 1.0;
 /// misread. Distinct namespace from `kStepCalibrationVersion` in
 /// `lib/data/step_calibration.dart` (the band counter's factor) — two different
 /// models must never be able to overwrite each other's stored value.
-const int kLiveStepGainVersion = 100;
+///
+/// 101: moved with [kLiveStepCounterVersion] 2. A profile fitted from runs the
+/// old counter scored describes that counter's residual, not this one's.
+const int kLiveStepGainVersion = 101;
+
+/// Which `pedometer()` produced a run's `rawSteps`. Bump whenever analytics
+/// changes the counter's output.
+///
+/// A gain is `truth / raw`, so it is only meaningful for the counter that
+/// produced `raw`. When the counter changes, every stored run's `rawSteps` is a
+/// count this build no longer makes, and refitting from those rows would apply
+/// the old counter's correction to the new counter's steps. Stored runs carry
+/// this tag, and a run with any other tag (or none, from before tagging
+/// existed) is not evidence: it is ignored on read and cleared on open, so the
+/// wearer recalibrates against the counter they actually have.
+///
+///   1 — the original autocorrelation counter (implied by an untagged row).
+///   2 — analytics' rewritten counter (dead-zone + run gate, scored on OxWalk).
+const int kLiveStepCounterVersion = 2;
 
 /// Cadence search window for a GAIT category band, as a fraction of the fitted
 /// centre. Wide enough to absorb stride variation inside one category, narrow
