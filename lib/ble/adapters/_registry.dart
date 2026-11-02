@@ -979,8 +979,8 @@ bool _looksLikeThermometer(String lowercaseName) =>
 /// OS-level service filter does not match, so it is also named there
 /// ([BandEntry.scanServiceData]).
 ///
-/// EXPERIMENTAL (ASSUMPTIONS R6). Weight becomes a `weight` observation and
-/// impedance a vendor observation. With its developer flag on (default off)
+/// Verified on a physical Mi Body Composition Scale 2 (XMTZC05HM). Weight
+/// becomes a `weight` observation and impedance a vendor observation. With its developer flag on (default off)
 /// the newest weight within 10% of the profile's becomes it
 /// (`newestWeighing`); impedance
 /// stays a measurement only.

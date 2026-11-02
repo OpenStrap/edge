@@ -268,6 +268,49 @@ void main() {
   setUp(() => deriveDbSetUp(_db));
   tearDown(() => deriveDbTearDown(_db));
 
+  group('first pairing verification', () {
+    final candidate = PairedDevice(kRemoteId, kSerial, generation: 'gen5');
+
+    test('a failed bootstrap never confirms or starts reconnecting',
+        _rigCase((r, timers) async {
+      r.engine.connectScript.add(false);
+      var confirmations = 0;
+      expect(await r.c.connectForPairing(candidate, confirm: () async {
+        confirmations++;
+      }), isFalse);
+      expect(confirmations, 0);
+      expect(r.c.busy, isFalse);
+      expect(BandOwnership.owner, isNull);
+      expect(BandOwnership.foregroundIntent, isFalse);
+      expect(timers.live, isEmpty);
+    }, paired: false));
+
+    test('a failed save disconnects the unconfirmed link and clears busy',
+        _rigCase((r, timers) async {
+      final error = StateError('save failed');
+      await expectLater(r.c.connectForPairing(candidate, confirm: () async {
+        throw error;
+      }), throwsA(same(error)));
+      expect(r.engine.isConnected, isFalse);
+      expect(r.c.busy, isFalse);
+      expect(BandOwnership.owner, isNull);
+      expect(BandOwnership.foregroundIntent, isFalse);
+      expect(timers.live, isEmpty);
+    }, paired: false));
+
+    test('a busy session is not mistaken for a successful pairing',
+        _rigCase((r, timers) async {
+      r.c.busy = true;
+      var confirmations = 0;
+      expect(await r.c.connectForPairing(candidate, confirm: () async {
+        confirmations++;
+      }), isFalse);
+      expect(confirmations, 0);
+      expect(r.trace, isEmpty);
+      expect(r.c.busy, isTrue, reason: 'the existing operation owns the flag');
+    }, paired: false));
+  });
+
   group('openSession and the busy early return', () {
     test('the foreground flip lands before the busy return, with the nudge',
         _rigCase((r, timers) async {

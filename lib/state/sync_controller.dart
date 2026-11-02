@@ -494,6 +494,66 @@ class SyncController {
     }
   }
 
+  /// Verify a first pairing before the host saves it. A picker grant is only
+  /// permission to reach a peripheral; the engine must complete its bootstrap
+  /// (including the required subscriptions and gen5 HELLO) before [confirm].
+  /// No reconnect loop is started for an unconfirmed band. On failure retain
+  /// its ASK grant so Retry can use it, but retire native restore intent.
+  Future<bool> connectForPairing(
+    PairedDevice candidate, {
+    required Future<void> Function() confirm,
+  }) async {
+    if (busy || _reconnecting || paired != null || _isDisposed || ResetGate.active) {
+      return false;
+    }
+    final generation = _reconnectGeneration;
+    final resetGeneration = ResetGate.generation;
+    bool current() => !_isDisposed &&
+        generation == _reconnectGeneration &&
+        !ResetGate.changedSince(resetGeneration);
+    var confirmed = false;
+    _setBusy(true);
+    BandOwnership.markForegroundIntent(true);
+    IosBleRestore.foregroundActive = true;
+    try {
+      background = false;
+      engine.setBackground(false);
+      _scheduler.setBackground(false);
+      await _ensureForegroundLease();
+      await IosBleRestore.setOwnsBand(true);
+      if (!current()) return false;
+      _log('===== PAIRING VERIFICATION =====');
+      final ready = await engine.connectToRemoteId(candidate.remoteId,
+          generationHint: candidate.generation);
+      if (!ready || !engine.isConnected || !current()) {
+        _log('Pairing: bootstrap did not complete; pairing not confirmed.');
+        return false;
+      }
+      await confirm();
+      if (!current() || paired?.remoteId != candidate.remoteId) return false;
+      confirmed = true;
+      return true;
+    } finally {
+      try {
+        if (!confirmed) {
+          // No unpair/removeAccessory here: removing an ASK grant also
+          // removes the system bond. A failed setup must remain retryable.
+          try {
+            await engine.disconnect();
+          } catch (e) {
+            _log('Pairing cleanup: disconnect failed: $e');
+          }
+          await IosBleRestore.disarmOne(candidate.remoteId);
+          IosBleRestore.foregroundActive = false;
+          BandOwnership.markForegroundIntent(false);
+          _releaseForegroundLease();
+        }
+      } finally {
+        _setBusy(false);
+      }
+    }
+  }
+
   Future<void> openSession({bool foreground = true}) async {
     if (paired == null) return;
     // Returning to the foreground with the connection still alive (kept during
