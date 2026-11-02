@@ -177,9 +177,11 @@ class HyroxSegmentPlan {
       };
 
   static HyroxSegmentPlan? fromJson(Map<String, Object?> j) {
-    final kind = HyroxSegmentKindX.fromKey(j['kind'] is String ? j['kind'] : null);
+    final rawKind = j['kind'];
+    final rawStation = j['station'];
+    final kind = HyroxSegmentKindX.fromKey(rawKind is String ? rawKind : null);
     final station =
-        HyroxStationX.fromKey(j['station'] is String ? j['station'] : null);
+        HyroxStationX.fromKey(rawStation is String ? rawStation : null);
     if (kind == null || station == null) return null;
     final dist = j['planned_distance_m'];
     final reps = j['planned_reps'];

@@ -11800,19 +11800,6 @@ class LocalDb {
       'metric_method',
     };
 
-    // A local race is protected from an import when the athlete explicitly
-    // discarded it, or when the local row was edited no earlier than the
-    // imported snapshot (a newer backup may still advance the race). [row] is
-    // the imported hyrox_session row, null for segment rows.
-    bool _hyroxProtected(String id, Map<String, Object?>? row) {
-      if (protectedHyrox.contains(id)) return true;
-      if (row == null) return false;
-      final local = hyroxLastEdit[id];
-      if (local == null) return false;
-      final theirs = (row['updated_at'] as num?)?.toInt() ?? 0;
-      return local >= theirs;
-    }
-
     // Columns this app's schema actually has, per table — so a row from a NEWER
     // export carrying extra columns this build doesn't know about is filtered
     // down (dropped) instead of throwing "no such column". A column the source
@@ -11864,6 +11851,18 @@ class LocalDb {
       }
     } on DatabaseException {
       /* table absent in an older build of this file — nothing to protect */
+    }
+    // A local race is protected from an import when the athlete explicitly
+    // discarded it, or when the local row was edited no earlier than the
+    // imported snapshot (a newer backup may still advance the race). [row] is
+    // the imported hyrox_session row, null for segment rows.
+    bool _hyroxProtected(String id, Map<String, Object?>? row) {
+      if (protectedHyrox.contains(id)) return true;
+      if (row == null) return false;
+      final local = hyroxLastEdit[id];
+      if (local == null) return false;
+      final theirs = (row['updated_at'] as num?)?.toInt() ?? 0;
+      return local >= theirs;
     }
     var archiveSkipped = 0;
     int? archiveEdgeSec;

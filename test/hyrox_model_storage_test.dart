@@ -559,7 +559,6 @@ void main() {
         HyroxDb.saveSegment(
           db,
           (await HyroxDb.segments(db, 'hx_planimm_1'))[0].copyWith(
-            station: HyroxStation.wallBalls,
             plannedReps: 999,
           ),
         ),
