@@ -15,7 +15,11 @@ import 'package:openstrap_edge/data/step_calibration.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+// ignore: depend_on_referenced_packages
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'support/failing_preferences_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -54,6 +58,160 @@ void main() {
     expect(p!.remoteId, 'AA:BB:CC:DD:EE:FF');
     expect(p.serial, '5AG0000001');
     expect(p.generation, 'gen5');
+  });
+
+  for (final throws in [true, false]) {
+    for (final key in [
+      'paired_remote_id',
+      'paired_serial',
+      'paired_generation',
+      LocalDb.kPendingWornOnPref,
+    ]) {
+      test(
+        'failed mirror $key (throws=$throws) leaves no new pairing',
+        () async {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setStringList(LocalDb.kPendingWornOnPref, [
+            '',
+            '${Wearing.bicep}',
+            '1786000000',
+          ]);
+          final before = {
+            for (final key in prefs.getKeys()) key: prefs.get(key),
+          };
+          final store = SharedPreferencesStorePlatform.instance;
+          SharedPreferencesStorePlatform.instance = FailingPreferencesStore(
+            store,
+            key: key,
+            throws: throws,
+          );
+          addTearDown(() => SharedPreferencesStorePlatform.instance = store);
+
+          await expectLater(
+            PairedDevice.save('NEW-UUID', 'NEW001', generation: 'gen5'),
+            throwsStateError,
+          );
+
+          expect(await LocalDb.deviceRow(), isNull);
+          expect(await PairedDevice.load(), isNull);
+          expect({
+            for (final key in prefs.getKeys()) key: prefs.get(key),
+          }, before);
+          await prefs.reload();
+          expect({
+            for (final key in prefs.getKeys()) key: prefs.get(key),
+          }, before);
+          expect(
+            await PairedDevice.load(),
+            isNull,
+            reason: 'the partial mirror must not heal a failed pairing',
+          );
+
+          await PairedDevice.save('NEW-UUID', 'NEW001', generation: 'gen5');
+          expect((await PairedDevice.load())?.remoteId, 'NEW-UUID');
+          expect(await LocalDb.deviceWearingRaw(), Wearing.bicep);
+        },
+      );
+    }
+
+    for (final key in [
+      'paired_remote_id',
+      'paired_serial',
+      'paired_generation',
+    ]) {
+      test(
+        'failed replacement $key (throws=$throws) preserves the old band',
+        () async {
+          await PairedDevice.save('OLD-UUID', 'OLD001', generation: 'gen4');
+          await LocalDb.setDeviceWearing(Wearing.bicep);
+          final row = await LocalDb.deviceRow();
+          final prefs = await SharedPreferences.getInstance();
+          final mirror = {
+            for (final key in prefs.getKeys()) key: prefs.get(key),
+          };
+          final store = SharedPreferencesStorePlatform.instance;
+          SharedPreferencesStorePlatform.instance = FailingPreferencesStore(
+            store,
+            key: key,
+            throws: throws,
+          );
+          addTearDown(() => SharedPreferencesStorePlatform.instance = store);
+
+          // null fields exercise failed removals of the old serial/generation,
+          // not just failed setString calls.
+          await expectLater(
+            PairedDevice.save('NEW-UUID', null),
+            throwsStateError,
+          );
+
+          expect(await LocalDb.deviceRow(), row);
+          expect((await PairedDevice.load())?.remoteId, 'OLD-UUID');
+          await prefs.reload();
+          expect({
+            for (final key in prefs.getKeys()) key: prefs.get(key),
+          }, mirror);
+          // The recovery mirror must also name the OLD band after a rebuild.
+          await LocalDb.deleteDevice();
+          final recovered = await PairedDevice.load();
+          expect(recovered?.remoteId, 'OLD-UUID');
+          expect(recovered?.serial, 'OLD001');
+          expect(recovered?.generation, 'gen4');
+        },
+      );
+    }
+  }
+
+  test(
+    'a failed save cannot roll back a queued forget and new pairing',
+    () async {
+      final store = SharedPreferencesStorePlatform.instance;
+      SharedPreferencesStorePlatform.instance = FailingPreferencesStore(
+        store,
+        key: 'paired_serial',
+      );
+      addTearDown(() => SharedPreferencesStorePlatform.instance = store);
+
+      final failed = expectLater(
+        PairedDevice.save('FAILED-UUID', 'FAILED001', generation: 'gen4'),
+        throwsStateError,
+      );
+      final forget = PairedDevice.clear();
+      final repair = PairedDevice.save(
+        'NEW-UUID',
+        'NEW001',
+        generation: 'gen5',
+      );
+      await Future.wait([failed, forget, repair]);
+
+      final paired = await PairedDevice.load();
+      expect(paired?.remoteId, 'NEW-UUID');
+      expect(paired?.serial, 'NEW001');
+      expect(paired?.generation, 'gen5');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      expect(prefs.getString('paired_remote_id'), 'NEW-UUID');
+    },
+  );
+
+  test('a failed database update rolls back the initial insert', () async {
+    final db = await LocalDb.instance;
+    await db.execute(
+      'CREATE TEMP TRIGGER refuse_pairing_update '
+      'BEFORE UPDATE ON device BEGIN '
+      "SELECT RAISE(ABORT, 'cannot update pairing'); END",
+    );
+    addTearDown(() => db.execute('DROP TRIGGER refuse_pairing_update'));
+
+    await expectLater(
+      PairedDevice.save('NEW-UUID', 'NEW001', generation: 'gen5'),
+      throwsA(isA<DatabaseException>()),
+    );
+
+    expect(await LocalDb.deviceRow(), isNull);
+    expect(await PairedDevice.load(), isNull);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    expect(prefs.getString('paired_remote_id'), isNull);
   });
 
   test(
