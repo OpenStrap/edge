@@ -836,6 +836,14 @@ class HyroxDb {
           'a segment is linked to a workout — unlink it before removing the boundary',
         );
       }
+      // Merging into the final segment when it is already CLOSED would leave
+      // the session 'finished' with an unstarted last segment — no write could
+      // ever progress or finalize it again. Move the boundary instead.
+      if (right.idx == segs.length - 1 && right.endTs != null) {
+        throw HyroxWriteError(
+          'the final segment is closed — move the boundary instead of removing it',
+        );
+      }
       final merged = right.endTs == null
           ? left.copyWith(clearEnd: true, boundarySource: 'manual')
           : left.copyWith(endTs: right.endTs, boundarySource: 'manual');

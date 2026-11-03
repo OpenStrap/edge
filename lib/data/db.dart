@@ -497,6 +497,28 @@ class LocalDb {
   /// `decoded_onehz` is 86 400 counters. Same reason `commitSyncBatch` chunks.
   static const int _maxSqlVars = 500;
 
+  /// HYROX day-window predicate, shared by day export and day delete so the
+  /// two paths cannot drift apart. A race belongs to a day when it STARTS that
+  /// day, or when one of its segments STARTS that day or OVERLAPS it. The
+  /// segment-start branch matters for a finalized DNF whose open cut segment
+  /// starts on the later day: its session start and closed-segment ends are
+  /// all on the earlier day, so without it the race would survive a privacy
+  /// delete of the later day. An open segment only overlaps later days while
+  /// the session is still live; a FINALIZED race (incl. an abandoned DNF) is
+  /// bounded by COALESCE(session.end_ts, session.start_ts) for the open branch.
+  /// Args: [startSec, endSec, endSec, startSec, startSec, endSec, endSec].
+  static const String _hyroxInWindowSql = '(SELECT id FROM hyrox_session '
+      'WHERE start_ts >= ? AND start_ts < ? '
+      'UNION SELECT session_id FROM hyrox_segment '
+      'WHERE start_ts IS NOT NULL AND start_ts < ? '
+      'AND ( start_ts >= ? '
+      '   OR (end_ts IS NOT NULL AND end_ts > ?) '
+      '   OR (end_ts IS NULL AND start_ts < ? '
+      '   AND EXISTS (SELECT 1 FROM hyrox_session s '
+      '        WHERE s.id = hyrox_segment.session_id '
+      '        AND (s.status <> \'finalized\' '
+      '             OR COALESCE(s.end_ts, s.start_ts, 0) > ?)))) )';
+
   /// THE PRIMARY BAND'S `device_id`, and it is reserved permanently.
   ///
   /// Not a migration default — a standing rule, load-bearing twice over:
@@ -10952,31 +10974,18 @@ class LocalDb {
         where: 'start_ts >= ? AND start_ts < ?',
         whereArgs: [startSec, endSec],
       );
-      // Same midnight rule as deleteDays: a race is exported for a day when
-      // it starts that day OR one of its segments does, and always whole.
-      // An open segment only overlaps later days while the session is still
-      // live; a FINALIZED race (incl. an abandoned DNF with an open cut
-      // segment) is bounded by COALESCE(session.end_ts, session.start_ts),
-      // so it does not match every later day.
-      const hyroxInWindow = '(SELECT id FROM hyrox_session '
-          'WHERE start_ts >= ? AND start_ts < ? '
-          'UNION SELECT session_id FROM hyrox_segment '
-          'WHERE start_ts IS NOT NULL AND start_ts < ? '
-          'AND ( (end_ts IS NOT NULL AND end_ts > ?) '
-          '   OR (end_ts IS NULL AND start_ts < ? '
-          '   AND EXISTS (SELECT 1 FROM hyrox_session s '
-          '        WHERE s.id = hyrox_segment.session_id '
-          '        AND (s.status <> \'finalized\' '
-          '             OR COALESCE(s.end_ts, s.start_ts, 0) > ?)))) )';
+      // Same midnight rule as deleteDays (shared predicate _hyroxInWindowSql):
+      // a race is exported for a day when it starts that day OR one of its
+      // segments starts that day or overlaps it, and always whole.
       await copyRows(
         'hyrox_session',
-        where: 'id IN $hyroxInWindow',
-        whereArgs: [startSec, endSec, endSec, startSec, endSec, endSec],
+        where: 'id IN $_hyroxInWindowSql',
+        whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, endSec],
       );
       await copyRows(
         'hyrox_segment',
-        where: 'session_id IN $hyroxInWindow',
-        whereArgs: [startSec, endSec, endSec, startSec, endSec, endSec],
+        where: 'session_id IN $_hyroxInWindowSql',
+        whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, endSec],
       );
       await copyRows(
         'live_coverage',
@@ -11180,22 +11189,14 @@ class LocalDb {
         // An open segment only overlaps later days while the session is still
         // live; a FINALIZED race (incl. an abandoned DNF with an open cut
         // segment) is bounded by COALESCE(session.end_ts, session.start_ts).
-        const hyroxInWindow = '(SELECT id FROM hyrox_session '
-            'WHERE start_ts >= ? AND start_ts < ? '
-            'UNION SELECT session_id FROM hyrox_segment '
-            'WHERE start_ts IS NOT NULL AND start_ts < ? '
-            'AND ( (end_ts IS NOT NULL AND end_ts > ?) '
-            '   OR (end_ts IS NULL AND start_ts < ? '
-            '   AND EXISTS (SELECT 1 FROM hyrox_session s '
-            '        WHERE s.id = hyrox_segment.session_id '
-            '        AND (s.status <> \'finalized\' '
-            '             OR COALESCE(s.end_ts, s.start_ts, 0) > ?)))) )';
+        // The predicate is the shared _hyroxInWindowSql so export and delete
+        // cannot drift apart.
         final hyroxIds = <String>[
           for (final r in await txn.query(
             'hyrox_session',
             columns: ['id'],
-            where: 'id IN $hyroxInWindow',
-            whereArgs: [startSec, endSec, endSec, startSec, endSec, endSec],
+            where: 'id IN $_hyroxInWindowSql',
+            whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, endSec],
           ))
             r['id'] as String,
         ];
@@ -11837,6 +11838,12 @@ class LocalDb {
     // rows and would otherwise rewrite the boundaries of a skipped race.
     final protectedHyrox = <String>{};
     final hyroxLastEdit = <String, int>{};
+    // Session ids whose imported hyrox_session row the merge skipped (locally
+    // discarded or newer). Their segment rows must be skipped too: segments
+    // follow their parent's verdict, and hyrox_session is merged before
+    // hyrox_segment in _restoreTables, so the set is complete before the
+    // segment pass starts.
+    final skippedHyrox = <String>{};
     try {
       for (final r in await db.query(
         'hyrox_session',
@@ -12592,11 +12599,13 @@ class LocalDb {
                 }
                 if (t == 'hyrox_session' &&
                     isHyroxProtected('${row['id']}', row)) {
+                  skippedHyrox.add('${row['id']}');
                   continue; // locally discarded, or newer than the snapshot
                 }
                 if (t == 'hyrox_segment' &&
-                    isHyroxProtected('${row['session_id']}', null)) {
-                  continue;
+                    (isHyroxProtected('${row['session_id']}', null) ||
+                        skippedHyrox.contains('${row['session_id']}'))) {
+                  continue; // parent skipped — the segments follow its verdict
                 }
                 if (t == 'day_result') {
                   if (protectedKeys.contains(

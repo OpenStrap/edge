@@ -1037,5 +1037,160 @@ void main() {
       );
       await LocalDb.close();
     });
+
+    // CodeRabbit follow-up: a finalized DNF whose open cut segment STARTS on
+    // the later day must still be caught by that day's window (the segment
+    // start branch), both on delete and on export.
+    test('a DNF cut segment starting after midnight is deleted with the '
+        'second day', () async {
+      final db = await freshDb('hx_dnf_midnight_test.db');
+      final now = DateTime.now();
+      final midnight = DateTime(now.year, now.month, now.day);
+      final midnightSec = midnight.millisecondsSinceEpoch ~/ 1000;
+      await HyroxDb.create(db, armedSession('hx_dnf_mid_1',
+          createdAt: (midnightSec - 3600) * 1000));
+      // Round 1 runs yesterday and closes yesterday; round 2 (the cut) STARTS
+      // today and stays open; the race is abandoned + finalized.
+      await HyroxDb.startSegment(
+        db: db, sessionId: 'hx_dnf_mid_1', ts: midnightSec - 3000,
+        boundarySource: 'gesture');
+      await HyroxDb.transitionSegment(
+        db: db, sessionId: 'hx_dnf_mid_1', currentIdx: 0,
+        transitionTs: midnightSec - 600, boundarySource: 'gesture');
+      await HyroxDb.transitionSegment(
+        db: db, sessionId: 'hx_dnf_mid_1', currentIdx: 1,
+        transitionTs: midnightSec + 60, boundarySource: 'gesture');
+      final current = (await HyroxDb.byId(db, 'hx_dnf_mid_1'))!;
+      await HyroxDb.updateSession(
+        db,
+        HyroxSession(
+          id: current.id, kind: current.kind, preset: current.preset,
+          status: 'abandoned', plan: current.plan,
+          createdAt: current.createdAt, updatedAt: current.updatedAt,
+        ),
+      );
+      await HyroxDb.finalize(db, 'hx_dnf_mid_1');
+
+      await LocalDb.deleteDays({dayLabelOf(now)});
+      expect(await HyroxDb.byId(db, 'hx_dnf_mid_1'), isNull,
+          reason: 'the cut segment starts today, so the race belongs to today');
+      expect(
+        await db.query('hyrox_segment',
+            where: 'session_id = ?', whereArgs: ['hx_dnf_mid_1']),
+        isEmpty,
+      );
+      await LocalDb.close();
+    });
+
+    test('a DNF cut segment starting after midnight is included in the '
+        'second day export', () async {
+      final db = await freshDb('hx_dnf_midnight_export_test.db');
+      final now = DateTime.now();
+      final midnight = DateTime(now.year, now.month, now.day);
+      final midnightSec = midnight.millisecondsSinceEpoch ~/ 1000;
+      await HyroxDb.create(db, armedSession('hx_dnf_mid_exp_1',
+          createdAt: (midnightSec - 3600) * 1000));
+      await HyroxDb.startSegment(
+        db: db, sessionId: 'hx_dnf_mid_exp_1', ts: midnightSec - 3000,
+        boundarySource: 'gesture');
+      await HyroxDb.transitionSegment(
+        db: db, sessionId: 'hx_dnf_mid_exp_1', currentIdx: 0,
+        transitionTs: midnightSec - 600, boundarySource: 'gesture');
+      await HyroxDb.transitionSegment(
+        db: db, sessionId: 'hx_dnf_mid_exp_1', currentIdx: 1,
+        transitionTs: midnightSec + 60, boundarySource: 'gesture');
+      final current = (await HyroxDb.byId(db, 'hx_dnf_mid_exp_1'))!;
+      await HyroxDb.updateSession(
+        db,
+        HyroxSession(
+          id: current.id, kind: current.kind, preset: current.preset,
+          status: 'abandoned', plan: current.plan,
+          createdAt: current.createdAt, updatedAt: current.updatedAt,
+        ),
+      );
+      await HyroxDb.finalize(db, 'hx_dnf_mid_exp_1');
+
+      final path = await LocalDb.exportDaysDb({dayLabelOf(now)});
+      final exported = await databaseFactory.openDatabase(path,
+          options: OpenDatabaseOptions(readOnly: true));
+      final rows = await exported.query('hyrox_session',
+          where: 'id = ?', whereArgs: ['hx_dnf_mid_exp_1']);
+      final segs = await exported.query('hyrox_segment',
+          where: 'session_id = ?', whereArgs: ['hx_dnf_mid_exp_1']);
+      expect(rows, hasLength(1),
+          reason: 'the cut segment starts today, so the race exports with today');
+      expect(segs, hasLength(8));
+      await exported.close();
+      await File(path).delete();
+      await LocalDb.close();
+    });
+
+    // CodeRabbit follow-up: re-importing an OLDER snapshot must not overwrite
+    // the segments of a locally newer session whose parent row was skipped.
+    test('restore keeps segments of a locally newer (skipped) session',
+        () async {
+      final db = await freshDb('hx_restore_src.db');
+      final now = DateTime.now();
+      final nowSec = now.millisecondsSinceEpoch ~/ 1000;
+      await HyroxDb.create(
+          db, armedSession('hx_restore_1', createdAt: nowSec * 1000));
+      await HyroxDb.startSegment(
+        db: db, sessionId: 'hx_restore_1', ts: nowSec - 120,
+        boundarySource: 'gesture');
+      final path = await LocalDb.exportDaysDb({dayLabelOf(now)});
+      await LocalDb.close();
+
+      // Destination: import the snapshot, then advance the race locally so
+      // the local row is newer than the snapshot.
+      LocalDb.dbName = 'hx_restore_dest.db';
+      final dir = await databaseFactory.getDatabasesPath();
+      await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+      final dest = await LocalDb.instance;
+      await LocalDb.importFromDbFile(path);
+      await HyroxDb.transitionSegment(
+        db: dest, sessionId: 'hx_restore_1', currentIdx: 0,
+        transitionTs: nowSec - 60, boundarySource: 'gesture');
+      final before = await HyroxDb.segments(dest, 'hx_restore_1');
+      expect(before[0].endTs, nowSec - 60);
+      expect(before[1].startTs, nowSec - 60);
+
+      // Re-import the same (older) snapshot: the parent is skipped because
+      // the local row is newer, and its segments must follow that verdict.
+      await LocalDb.importFromDbFile(path);
+      final after = await HyroxDb.segments(dest, 'hx_restore_1');
+      expect(after[0].endTs, nowSec - 60,
+          reason: 'segment rows must not be overwritten by the older snapshot');
+      expect(after[1].startTs, nowSec - 60);
+      await File(path).delete();
+      await LocalDb.close();
+    });
+
+    // CodeRabbit follow-up: removeBoundary must refuse to merge into the final
+    // segment when that segment is already closed (finished race).
+    test('removeBoundary refuses to merge into a closed final segment',
+        () async {
+      final db = await freshDb('hx_rmb_final_test.db');
+      await HyroxDb.create(db, armedSession('hx_rmbf_1'));
+      await HyroxDb.startSegment(
+        db: db, sessionId: 'hx_rmbf_1', ts: 1000, boundarySource: 'gesture');
+      for (var i = 0; i < 7; i++) {
+        await HyroxDb.transitionSegment(
+          db: db, sessionId: 'hx_rmbf_1', currentIdx: i,
+          transitionTs: 2000 + i * 600, boundarySource: 'gesture');
+      }
+      await HyroxDb.finishSegment(
+        db: db, sessionId: 'hx_rmbf_1', ts: 2000 + 7 * 600 + 600,
+        boundarySource: 'gesture');
+      // The race is finished: boundary 6 (round 7 -> final round 8) must not
+      // be removable, because that would clear the closed final segment.
+      await expectLater(
+        HyroxDb.removeBoundary(db: db, sessionId: 'hx_rmbf_1', idx: 6),
+        throwsA(isA<HyroxWriteError>()),
+      );
+      final segs = await HyroxDb.segments(db, 'hx_rmbf_1');
+      expect(segs[7].startTs, isNotNull);
+      expect(segs[7].endTs, isNotNull);
+      await LocalDb.close();
+    });
   });
 }
