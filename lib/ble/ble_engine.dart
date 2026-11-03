@@ -3923,26 +3923,6 @@ class BleEngine {
     return resp != null;
   }
 
-  /// The ONE service-discovery and characteristic-validation path.
-  ///
-  /// BOTH connect routes come here — `_FbpGattOps.discoverAndValidate` on the
-  /// official gen5 order, and `_doConnect`'s legacy order, which a discovered
-  /// gen4 falls back to. They used to be two transcriptions of this, and they
-  /// had already drifted: only the gen5 copy resolved Memfault, and only the
-  /// legacy copy matched on `str128` and on [BandEntry.requiredCharacteristics].
-  /// Which service pins the band and which characteristics are required is one
-  /// decision, so it is one function.
-  ///
-  /// Returns null — having logged which half failed — when the peripheral
-  /// exposes no known framed service, or is missing a required characteristic.
-  /// Both callers treat that as a failed connect.
-  ///
-  /// It does NOT touch the session itself — pinning stays at the caller. Note
-  /// that `_FbpGattOps.discoverAndValidate` pins IMMEDIATELY, before
-  /// `_connectGen5Official` reads the outcome, so a `notGen5` device is briefly
-  /// pinned to what discovery actually found. That is harmless and deliberate:
-  /// what it pins is the TRUE band, and the legacy route it falls back to
-  /// re-discovers and re-pins the same entry before using it.
   /// Last GATT table logged; an identical table on reconnect is not re-logged.
   String? _lastGattTable;
 
@@ -3972,6 +3952,26 @@ class BleEngine {
     _log('[GATT] ${services.length} services: $table');
   }
 
+  /// The ONE service-discovery and characteristic-validation path.
+  ///
+  /// BOTH connect routes come here — `_FbpGattOps.discoverAndValidate` on the
+  /// official gen5 order, and `_doConnect`'s legacy order, which a discovered
+  /// gen4 falls back to. They used to be two transcriptions of this, and they
+  /// had already drifted: only the gen5 copy resolved Memfault, and only the
+  /// legacy copy matched on `str128` and on [BandEntry.requiredCharacteristics].
+  /// Which service pins the band and which characteristics are required is one
+  /// decision, so it is one function.
+  ///
+  /// Returns null — having logged which half failed — when the peripheral
+  /// exposes no known framed service, or is missing a required characteristic.
+  /// Both callers treat that as a failed connect.
+  ///
+  /// It does NOT touch the session itself — pinning stays at the caller. Note
+  /// that `_FbpGattOps.discoverAndValidate` pins IMMEDIATELY, before
+  /// `_connectGen5Official` reads the outcome, so a `notGen5` device is briefly
+  /// pinned to what discovery actually found. That is harmless and deliberate:
+  /// what it pins is the TRUE band, and the legacy route it falls back to
+  /// re-discovers and re-pins the same entry before using it.
   Future<_DiscoveredBand?> _discoverBand(BluetoothDevice device) async {
     final services =
         await device.discoverServices().timeout(_serviceDiscoveryTimeout);
