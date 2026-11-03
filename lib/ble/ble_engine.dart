@@ -8929,7 +8929,9 @@ class BleEngine {
           );
           final generation = _linkGeneration;
           if (step == null) {
-            if (_liveReassert) {
+            // The reassert re-sends the gen4 IMU bundle too; hold it (flag
+            // stays set) while a drain runs, the offload end re-runs this.
+            if (_liveReassert && !(_offloadActive && !gen5)) {
               _liveReassert = false;
               await _reassertLive(session, generation);
             }
