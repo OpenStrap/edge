@@ -533,6 +533,10 @@ class HealthExporter {
   /// for it (see [purgeLegacyStepsBehindCursor]).
   bool _stepWritesHeld = false;
 
+  /// Set by [_exportDay] when the day failed only because its steps were held
+  /// behind the purge: exportAll keeps it pending without spending an attempt.
+  bool _dayHeldForPurge = false;
+
   HealthExporter({
     HealthConnectHeartRateWriter? androidHeartRate,
     @visibleForTesting Duration deleteTimeout = const Duration(seconds: 30),
@@ -1102,6 +1106,7 @@ class HealthExporter {
             // Not due for retry yet — don't hammer the health store on every
             // drain/derive pass; counts as "not done" for the cursor below.
           } else {
+            _dayHeldForPurge = false;
             ok = await _exportDay(
               date,
               bundle,
@@ -1122,10 +1127,11 @@ class HealthExporter {
                 retryState[date] = {'ok_ms': nowMs};
                 retryStateDirty = true;
               }
-            } else if (_storeHung) {
-              // Store timed out (locked phone): transient, not a failed
-              // export. Leave the day pending without spending an attempt,
-              // or locked background passes burn the cap and give it up.
+            } else if (_storeHung || _dayHeldForPurge) {
+              // Store timed out (locked phone), or the day's steps are waiting
+              // on the legacy purge: transient, not a failed export. Leave the
+              // day pending without spending an attempt, or the cap gives it
+              // up and the cursor skips its steps for good.
               debugPrint('[health] day $date not exported, store unavailable');
             } else {
               final nextAttempts = attempts + 1;
@@ -1314,11 +1320,9 @@ class HealthExporter {
     //
     // A type whose delete did NOT clear the window must not be re-written on
     // top of the survivor — that is how a retry turns one stale sample into
-    // two, then three. Only WORKOUT is tracked, because a duplicated workout
-    // is the one that shows up as a second entry in the user's activity list
-    // (and is the type `exportWorkout` re-writes out-of-band too); the scalar
-    // types below still write unconditionally, so an uncleared RHR/HRV window
-    // can still double until the next successful delete replaces both.
+    // two, then three, or how a delete still running from an earlier pass
+    // lands after the write and takes the new sample with it. Every type that
+    // didn't clear skips its write this pass and the day stays pending.
     //
     // This day-wide WORKOUT delete runs before the per-session loop below
     // skips any end_ts_fabricated row (see _writeOneWorkout) — that is safe
@@ -1330,12 +1334,14 @@ class HealthExporter {
     // row, that invariant breaks and this delete would need to become
     // per-session instead of day-wide.
     var workoutCleared = true;
+    final uncleared = <HealthDataType>{};
     for (final t in _rewriteTypes) {
       final from = t == HealthDataType.HEART_RATE ? hrFrom : dayStart;
       if (from == null) continue;
       if (await _deleteOwnSamples(t, from, dayEnd)) continue;
       debugPrint('[health] delete ${t.name} did not clear the day');
       success = false;
+      uncleared.add(t);
       if (t == HealthDataType.WORKOUT) workoutCleared = false;
     }
 
@@ -1358,6 +1364,7 @@ class HealthExporter {
       DateTime t,
     ) async {
       if (v == null || v <= 0) return; // absent input, not a failure
+      if (uncleared.contains(type)) return; // day already failed above
       try {
         final wrote = await _health.writeHealthData(
           value: v.toDouble(),
@@ -1411,7 +1418,9 @@ class HealthExporter {
     // them vanish from the day instead of preventing a double count.
     final cal = sc('calories')?.toDouble() ?? 0.0;
 
-    if (cal > 0 && bucketCount > 0) {
+    if (cal > 0 &&
+        bucketCount > 0 &&
+        !uncleared.contains(HealthDataType.ACTIVE_ENERGY_BURNED)) {
       final calPerHour = cal / bucketCount;
       for (int i = 0; i < bucketCount; i++) {
         try {
@@ -1439,7 +1448,8 @@ class HealthExporter {
     if (calTotal != null &&
         rawCal != null &&
         calTotal > rawCal &&
-        bucketCount > 0) {
+        bucketCount > 0 &&
+        !uncleared.contains(HealthDataType.BASAL_ENERGY_BURNED)) {
       final basal = (calTotal - rawCal).toDouble();
       final basalPerHour = basal / bucketCount;
       for (int i = 0; i < bucketCount; i++) {
@@ -1501,8 +1511,11 @@ class HealthExporter {
       }
     }
     if (stepSpans.isNotEmpty) {
-      if (_stepWritesHeld ||
-          !await _deleteOwnSamples(HealthDataType.STEPS, dayStart, dayEnd)) {
+      if (_stepWritesHeld) {
+        success = false;
+        _dayHeldForPurge = true;
+      } else if (!await _deleteOwnSamples(
+          HealthDataType.STEPS, dayStart, dayEnd)) {
         success = false;
       } else {
         for (final s in stepSpans) {
