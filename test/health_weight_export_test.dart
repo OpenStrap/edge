@@ -192,6 +192,20 @@ void main() {
       expect(requests, 1);
     });
 
+    test('a request that throws leaves the ask unspent and skips', () async {
+      var asked = false;
+      expect(
+        await weightWritePermitted(
+          check: () async => false,
+          request: () async => throw StateError('no activity'),
+          asked: () async => asked,
+          markAsked: () async => asked = true,
+        ),
+        isFalse,
+      );
+      expect(asked, isFalse);
+    });
+
     test('granted after the request => true', () async {
       var granted = false;
       expect(

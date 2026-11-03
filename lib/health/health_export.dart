@@ -673,11 +673,10 @@ class HealthExporter {
   /// WEIGHT write permission, for the weight export only. Existing users were
   /// authorized before WEIGHT joined [_types] and are never re-prompted by
   /// [request], so a plain attempt would no-op forever. HealthKit hides write
-  /// auth (check unknown => proceed); on Health Connect the grant is checked
-  /// and asked for at most once per install. The per-day pass keeps its
+  /// auth, so the one-time request runs there too (idempotent; shows the sheet
+  /// only for undetermined types); asked for at most once per install. The per-day pass keeps its
   /// attempt-everything behaviour (see below).
   Future<bool> _weightWriteAllowed() async {
-    if (isApple) return true;
     final types = [HealthDataType.WEIGHT];
     const access = [HealthDataAccess.WRITE];
     final prefs = await SharedPreferences.getInstance();
@@ -1144,6 +1143,7 @@ class HealthExporter {
       if (!_storeHung) {
         await exportScaleWeighings(
           reset: reset,
+          forceRetry: forceRetry,
           stopped: () => _storeHung,
           permitted: _weightWriteAllowed,
           deleteOwn: (a, b) => _deleteOwnSamples(HealthDataType.WEIGHT, a, b),

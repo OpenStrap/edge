@@ -172,8 +172,9 @@ Future<bool> weightWritePermitted({
   try {
     if (await check()) return true;
     if (!await asked()) {
-      await markAsked();
       await request();
+      // Only after the request ran: a throw/timeout leaves the ask unspent.
+      await markAsked();
     }
     // Health Connect's hasPermissions(WRITE) is unreliable (null/false after a
     // grant), so never block on it once we've asked: attempt the write and let
@@ -195,6 +196,7 @@ Future<int> exportScaleWeighings({
   Future<bool> Function()? permitted,
   bool Function()? stopped,
   bool reset = false,
+  bool forceRetry = false,
   Future<List<Map<String, Object?>>> Function()? loadDevices,
   Future<bool> Function(String adapterId)? isEnabled,
   Future<Map<int, num>> Function(String deviceId)? loadWeights,
@@ -220,6 +222,9 @@ Future<int> exportScaleWeighings({
           categoryOf(adapter) != DeviceCategory.healthMeasurement ||
           !await (isEnabled ?? wearableEnabled)(adapter)) {
         continue;
+      }
+      if (forceRetry && !reset) {
+        await prefs.remove(healthWeightAttemptsKey(id));
       }
       final exported = _decodeSet(prefs.getString(healthWeightExportedKey(id)));
       final attempts = _decodeAttempts(
