@@ -31,6 +31,7 @@ import '../data/db.dart';
 import '../data/series_codec.dart';
 import 'health_heart_rate_batch.dart';
 import 'health_sleep_session.dart';
+import 'health_weight_export.dart';
 
 /// What we can do with the health store right now.
 enum HealthLinkState {
@@ -576,6 +577,10 @@ class HealthExporter {
     for (final t in _sleepHealthTypes)
       if (t != _foreignSleepEnvelope(isApple)) t,
     HealthDataType.WORKOUT,
+    // Scale weighings (health_weight_export.dart). Authorization scope only:
+    // deliberately NOT in healthDeleteTypes / _rewriteTypes, because the
+    // per-day pass would delete weights it has no day_result to rewrite.
+    HealthDataType.WEIGHT,
   ];
 
   /// The types the per-day delete-then-write pass touches.
@@ -663,6 +668,38 @@ class HealthExporter {
       debugPrint('[health] delete ${type.name}: $e');
       return false;
     }
+  }
+
+  /// WEIGHT write permission, for the weight export only. Existing users were
+  /// authorized before WEIGHT joined [_types] and are never re-prompted by
+  /// [request], so a plain attempt would no-op forever. HealthKit hides write
+  /// auth (check unknown => proceed); on Health Connect the grant is checked
+  /// and asked for at most once per install. The per-day pass keeps its
+  /// attempt-everything behaviour (see below).
+  Future<bool> _weightWriteAllowed() async {
+    if (isApple) return true;
+    final types = [HealthDataType.WEIGHT];
+    const access = [HealthDataAccess.WRITE];
+    final prefs = await SharedPreferences.getInstance();
+    return weightWritePermitted(
+      check: () async =>
+          await _health
+              .hasPermissions(types, permissions: access)
+              .timeout(_deleteTimeout) ==
+          true,
+      request: () async {
+        try {
+          await _health
+              .requestAuthorization(types, permissions: access)
+              .timeout(_deleteTimeout);
+        } catch (e) {
+          if (e is TimeoutException) _storeHung = true;
+          rethrow;
+        }
+      },
+      asked: () async => prefs.getBool(kHealthWeightPermAskedPref) == true,
+      markAsked: () => prefs.setBool(kHealthWeightPermAskedPref, true),
+    );
   }
 
   // We do NOT gate on a write-permission check: HealthKit hides write-auth by
@@ -1103,7 +1140,34 @@ class HealthExporter {
         return done;
       };
 
-      return exportPriorityOrBulk();
+      final days = await exportPriorityOrBulk();
+      if (!_storeHung) {
+        await exportScaleWeighings(
+          reset: reset,
+          stopped: () => _storeHung,
+          permitted: _weightWriteAllowed,
+          deleteOwn: (a, b) => _deleteOwnSamples(HealthDataType.WEIGHT, a, b),
+          write: (kg, at) async {
+            if (_storeHung) return false;
+            try {
+              return await _health
+                  .writeHealthData(
+                    value: kg,
+                    type: HealthDataType.WEIGHT,
+                    startTime: at,
+                    endTime: at,
+                    unit: HealthDataUnit.KILOGRAM,
+                  )
+                  .timeout(_deleteTimeout);
+            } catch (e) {
+              if (e is TimeoutException) _storeHung = true;
+              debugPrint('[health] write WEIGHT: $e');
+              return false;
+            }
+          },
+        );
+      }
+      return days;
     } catch (e) {
       debugPrint('[health] exportAll: $e');
       return 0;
