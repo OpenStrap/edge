@@ -162,7 +162,7 @@ Future<int> writeWeighings({
 
 /// Whether WEIGHT can be written. [check] reads the grant (null = unknown),
 /// [request] asks for it. Asks at most once per install ([kHealthWeightPermAskedPref]);
-/// not granted afterwards => false, and the caller skips without recording.
+/// after that the write is always attempted (failures are bounded by attempts).
 Future<bool> weightWritePermitted({
   required Future<bool> Function() check,
   required Future<void> Function() request,
@@ -171,10 +171,14 @@ Future<bool> weightWritePermitted({
 }) async {
   try {
     if (await check()) return true;
-    if (await asked()) return false;
-    await markAsked();
-    await request();
-    return await check();
+    if (!await asked()) {
+      await markAsked();
+      await request();
+    }
+    // Health Connect's hasPermissions(WRITE) is unreliable (null/false after a
+    // grant), so never block on it once we've asked: attempt the write and let
+    // the bounded per-weighing attempts absorb a real denial.
+    return true;
   } catch (e) {
     debugPrint('[health] weight permission: $e');
     return false;

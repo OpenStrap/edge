@@ -186,8 +186,9 @@ void main() {
         asked: () async => asked,
         markAsked: () async => asked = true,
       );
-      expect(await go(), isFalse);
-      expect(await go(), isFalse);
+      // hasPermissions is unreliable: never block the write after asking once.
+      expect(await go(), isTrue);
+      expect(await go(), isTrue);
       expect(requests, 1);
     });
 
