@@ -682,6 +682,8 @@ class _Session {
   /// First-START retries this session ([kHistoryNoStartRetriesPerSession]).
   /// Reset by an accepted HISTORY_START.
   int noStartRetries = 0;
+  /// Inbound notification tally + the post-request capture window (logs only).
+  final NotifyDiag rx = NotifyDiag();
   /// Banks the foreign buffer once another client's transfer goes quiet
   /// ([BleEngine._flushForeignBuffer]); re-armed per drained batch with a
   /// foreign record in it.
@@ -3921,6 +3923,35 @@ class BleEngine {
     return resp != null;
   }
 
+  /// Last GATT table logged; an identical table on reconnect is not re-logged.
+  String? _lastGattTable;
+
+  /// Every discovered service and characteristic with its properties
+  /// (r=read w=write W=write-no-response n=notify i=indicate), so a report
+  /// shows what the band exposes next to what we subscribed to.
+  void _logGattTable(List<BluetoothService> services) {
+    String props(CharacteristicProperties p) => [
+          if (p.read) 'r',
+          if (p.write) 'w',
+          if (p.writeWithoutResponse) 'W',
+          if (p.notify) 'n',
+          if (p.indicate) 'i',
+        ].join();
+    final table = [
+      for (final s in services)
+        '${s.uuid.str128}{${[
+          for (final c in s.characteristics)
+            '${c.uuid.str128}:${props(c.properties)}',
+        ].join(' ')}}',
+    ].join(' ');
+    if (table == _lastGattTable) {
+      _log('[GATT] ${services.length} services (same table as last connect).');
+      return;
+    }
+    _lastGattTable = table;
+    _log('[GATT] ${services.length} services: $table');
+  }
+
   /// The ONE service-discovery and characteristic-validation path.
   ///
   /// BOTH connect routes come here — `_FbpGattOps.discoverAndValidate` on the
@@ -3944,6 +3975,7 @@ class BleEngine {
   Future<_DiscoveredBand?> _discoverBand(BluetoothDevice device) async {
     final services =
         await device.discoverServices().timeout(_serviceDiscoveryTimeout);
+    _logGattTable(services);
     // Pin the band from whichever registered service the peripheral exposes.
     // This drives the frame header/CRC, command envelope, ACK, and record
     // decode for the session.
@@ -4585,6 +4617,8 @@ class BleEngine {
     String role,
   ) async {
     await c.setNotifyValue(true).timeout(_notifySetupTimeout);
+    _log('[GATT] subscribed $role ${c.uuid.str128} '
+        'isNotifying=${c.isNotifying}');
     session.subs.add(
       c.onValueReceived.listen((chunk) => _onChunk(session, role, chunk)),
     );
@@ -4596,6 +4630,7 @@ class BleEngine {
     // tearing down: ingress is frozen from the first line of the teardown.
     if (_session != session || !session.connected || session.closing) return;
     _lastRx = DateTime.now();
+    session.rx.chunk(role, chunk);
     // A malformed/corrupt chunk (framer bug on an unusual firmware
     // revision) must not become an uncaught async error that silently
     // stops this characteristic's whole notification stream — degrade
@@ -4603,6 +4638,12 @@ class BleEngine {
     // failure path in this file.
     try {
     for (final frame in session.asm[role]!.feed(chunk)) {
+      session.rx.frame(
+        role,
+        frame.decodable
+            ? '0x${frame.packetType.toRadixString(16)}'
+            : (frame.valid ? 'rev?' : 'crc'),
+      );
       if (frame.decodable) {
         _onFrame(role, frame, session);
       } else if (frame.valid) {
@@ -4690,9 +4731,12 @@ class BleEngine {
     BluetoothCharacteristic c,
   ) async {
     await c.setNotifyValue(true).timeout(_notifySetupTimeout);
+    _log('[GATT] subscribed memfault ${c.uuid.str128} '
+        'isNotifying=${c.isNotifying}');
     session.subs.add(
       c.onValueReceived.listen((chunk) {
         if (_session != session || !session.connected) return;
+        session.rx.chunk('memfault', chunk);
         _onMemfaultChunk(chunk);
       }),
     );
@@ -6144,6 +6188,9 @@ class BleEngine {
             'layout these offsets read (body ${h.rawHex.length ~/ 2}B) — '
             'serial, battery, charge and wrist state are NOT published or '
             'logged; the connection continues.');
+        _log('[HELLO gen5] rev${h.helloRevision} '
+            'fw=${(h.helloRevision == 3 ? gen5HelloRev3Firmware(h.rawHex) : null) ?? '?'} '
+            'body=${h.rawHex}');
       }
     }
     if (d.kind == 'realtime_hr') {
@@ -6442,6 +6489,7 @@ class BleEngine {
     if (_sessionIsStale(session) || _historyTaskGen != taskGen) return;
     // The band can answer before the write future resolves.
     if (_historyTaskAnsweredGen == taskGen) return;
+    session.rx.openWindow();
     session.firstStartWatchdog = Timer(
       const Duration(seconds: kHistoryFirstStartTimeoutSeconds),
       () {
@@ -6474,6 +6522,7 @@ class BleEngine {
     }
     _historyTaskAnsweredGen = _historyTaskGen;
     session.cancelFirstStartWatchdog();
+    session.rx.closeWindow();
   }
 
   /// The band never answered this task's SEND_HISTORICAL_DATA. End the task
@@ -6493,6 +6542,9 @@ class BleEngine {
     _log('[SYNC] no answer to SEND_HISTORICAL_DATA within '
         '${kHistoryFirstStartTimeoutSeconds}s — ending the request with one '
         'abort${retry ? '; one retry after settle' : '; no further retry this session'}.');
+    _log('[DIAG] inbound since SEND_HISTORICAL_DATA: '
+        '${session.rx.closeWindow()} | session rx ${session.rx.totals()} '
+        'crc=$_crcFailuresThisSession revRejects=$_frameRevRejectsTotal');
     session.historicalRetry?.cancel();
     // The terminal owns everything else: historyTaskEnded latch, generation
     // bump, waiter release, abort write, offload release in its finally.
