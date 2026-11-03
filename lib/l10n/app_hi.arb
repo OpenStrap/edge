@@ -2861,5 +2861,13 @@
         "type": "int"
       }
     }
+  },
+  "settingsSleepHmmRowTitle": "प्रायोगिक नींद चरण विश्लेषण (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "यह एक शोध एल्गोरिदम है, चिकित्सा उपकरण नहीं। यह डिफ़ॉल्ट रूप से बंद है और अगली सिंक से लागू होगा।",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }
 }

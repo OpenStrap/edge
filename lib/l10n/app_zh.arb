@@ -2861,5 +2861,13 @@
         "type": "int"
       }
     }
+  },
+  "settingsSleepHmmRowTitle": "实验性睡眠分期 (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "研究算法，非医疗设备。默认关闭；下次同步后生效",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }
 }
