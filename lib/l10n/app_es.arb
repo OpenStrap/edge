@@ -774,7 +774,7 @@
   "journalComposeNotEnoughEntriesTitle": "No hay suficientes registros para una tendencia",
   "journalComposeNotEnoughEntriesBody": "La línea es un promedio de siete días con lo que introdujiste, así que hacen falta al menos dos días. No se rellena nada entre ellos.",
   "journalComposeSevenDayTrend": "Tendencia de siete días",
-  "journalComposeTrendFootnote": "Introducido por ti. Los días sin registro quedan vacíos.",
+  "journalComposeTrendFootnote": "Introducido por ti o por tu báscula. Los días sin registro quedan vacíos.",
   "journalComposeWeightTrendExplainer": "Introducido por ti o por tu báscula — la banda no mide el peso. Lo que se dibuja es un promedio de siete días, porque una báscula puede variar uno o dos kilos solo por agua y comida, y las lecturas sin procesar mostrarían eso como algo que le sucede a tu cuerpo. {count, plural, one{Se registró {count} día.} other{Se registraron {count} días.}}",
   "nutritionTabToday": "Hoy",
   "nutritionTabWeek": "Semana",

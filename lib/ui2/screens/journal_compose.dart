@@ -18,6 +18,7 @@ import 'package:provider/provider.dart';
 
 import '../../ai/journal_ai.dart';
 import '../../coach/coach_config.dart';
+import '../../compute/inputs/measurement_inputs.dart' show weighingChain, weighings;
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart';
@@ -917,6 +918,47 @@ class _WeightRow extends StatelessWidget {
   }
 }
 
+/// Per-day weight for the trend: the journal's [manual] value and the scale
+/// [scaled] weighings (see `weighings`: flag-on, in band), bucketed by LOCAL
+/// day, the day's latest weighing standing for it. When a day has both, the
+/// later one wins: the journal's time of day against the weighing's, and a
+/// journal value with no time loses to the scale. Days with neither are absent.
+/// Scale weighings dated after [nowMs] (a band clock set ahead) are dropped.
+@visibleForTesting
+Map<String, double> weightByDay(
+  Map<String, Map<String, JournalMetricValue>> manual,
+  List<({double kg, int atMs})> scaled, {
+  int? nowMs,
+}) {
+  final until = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+  bool ok(double v) => v.isFinite && v > 0;
+  final out = <String, double>{};
+  for (final e in manual.entries) {
+    final v = e.value['weight_kg'];
+    if (v != null && ok(v.value)) out[e.key] = v.value;
+  }
+  // A scale weighs whoever steps on it, and banding against TODAY's profile
+  // weight would drop a long loss's old readings. So chain instead (see
+  // weighingChain): off-band weighings are someone else's unless they persist.
+  final chain = weighingChain(
+    scaled.where((w) => ok(w.kg) && w.atMs <= until),
+  );
+  final at = <String, int>{};
+  for (final w in chain) {
+    final t = DateTime.fromMillisecondsSinceEpoch(w.atMs);
+    final day = dayLabelOf(t);
+    if (at[day] != null && at[day]! >= w.atMs) continue;
+    final m = t.hour * 60 + t.minute;
+    final jm = manual[day]?['weight_kg']?.atMinuteOfDay;
+    if (out.containsKey(day) && !at.containsKey(day) && jm != null && jm > m) {
+      continue;
+    }
+    at[day] = w.atMs;
+    out[day] = w.kg;
+  }
+  return out;
+}
+
 /// The trend, and only the trend.
 ///
 /// One line, no headline number, no delta, no arrow, no target and no colour
@@ -948,18 +990,18 @@ class _WeightTrendState extends State<_WeightTrend> {
         DateTime(now.year, now.month, now.day - (kWeightTrendDays - 1)),
       );
       final rows = await LocalDb.journalMetricsByDay(sinceDaysEpoch: since);
+      // Its own guard: a failing scale read must not blank the manual trend.
+      var scale = const <({double kg, int atMs})>[];
+      try {
+        scale = await weighings(
+          fromMs: DateTime.parse(since).millisecondsSinceEpoch,
+        );
+      } catch (e) {
+        debugPrint('weight trend: scale read failed: $e');
+      }
       if (!mounted) return;
       setState(() {
-        _byDay = {
-          for (final e in rows.entries)
-            // The `when` does real work — a non-finite or non-positive weight
-            // is not a weight — and the null-aware element form has nowhere to
-            // put a guard.
-            // ignore: use_null_aware_elements
-            if (e.value['weight_kg']?.value case final v?
-                when v.isFinite && v > 0)
-              e.key: v,
-        };
+        _byDay = weightByDay(rows, scale);
         _loading = false;
       });
     } catch (_) {

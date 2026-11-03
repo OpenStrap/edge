@@ -3846,7 +3846,7 @@
   "@journalComposeSevenDayTrend": {
     "description": "Title of the weight trend chart."
   },
-  "journalComposeTrendFootnote": "Entered by you. Days with no entry are left empty.",
+  "journalComposeTrendFootnote": "Entered by you or your scale. Days with no entry are left empty.",
   "@journalComposeTrendFootnote": {
     "description": "Footnote under the weight trend chart."
   },
