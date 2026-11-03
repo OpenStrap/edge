@@ -33,6 +33,7 @@ class ReportIssueScreen extends StatefulWidget {
 class _ReportIssueScreenState extends State<ReportIssueScreen> {
   final _title = TextEditingController();
   final _body = TextEditingController();
+  final _contact = TextEditingController();
   ReportCategory _category = ReportCategory.other;
   String? _shot;
   bool _db = false; // OFF by default: 2 weeks of the user's health record
@@ -54,6 +55,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
   void dispose() {
     _title.dispose();
     _body.dispose();
+    _contact.dispose();
     super.dispose();
   }
 
@@ -66,6 +68,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
         category: _category,
         title: _title.text.trim(),
         description: _body.text.trim(),
+        contact: _contact.text.trim(),
         screenshotPath: _shot,
         includeDatabase: _db,
         fullDatabase: _full,
@@ -285,6 +288,8 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
                 _field(c, _body, l.reportDescriptionLabel,
                     l.reportDescriptionHint,
                     lines: 4, max: 4000),
+                _field(c, _contact, l.reportContactLabel, l.reportContactHint,
+                    max: 200),
                 settingsGroup(c, l.reportAttachGroup, [
                   SetRow(LucideIcons.image, C.blue,
                       _shot == null

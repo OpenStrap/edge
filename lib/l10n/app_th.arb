@@ -15689,6 +15689,8 @@
   "@reportDescriptionHint": {
     "description": "Issue report: description field hint."
   },
+  "reportContactLabel": "ช่องทางติดต่อ (ไม่บังคับ)",
+  "reportContactHint": "อีเมลหรือ Discord หากต้องการให้ตอบกลับ",
   "reportAttachGroup": "ไฟล์แนบ",
   "@reportAttachGroup": {
     "description": "Issue report: heading over screenshot and database options."
