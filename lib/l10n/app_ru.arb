@@ -7500,6 +7500,8 @@
   "reportTitleHint": "Одной строкой: что пошло не так",
   "reportDescriptionLabel": "Что произошло",
   "reportDescriptionHint": "Что вы делали, чего ожидали и что увидели",
+  "reportContactLabel": "Контакт (необязательно)",
+  "reportContactHint": "Email или Discord, если хотите получить ответ",
   "reportAttachGroup": "Вложения",
   "reportScreenshotRow": "Добавить снимок экрана",
   "reportScreenshotRemove": "Убрать снимок экрана",

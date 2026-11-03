@@ -15689,6 +15689,14 @@
   "@reportDescriptionHint": {
     "description": "Issue report: description field hint."
   },
+  "reportContactLabel": "Contact (optional)",
+  "@reportContactLabel": {
+    "description": "Issue report: optional contact field label."
+  },
+  "reportContactHint": "Email or Discord, only if you want a reply",
+  "@reportContactHint": {
+    "description": "Issue report: optional contact field hint. Only shared so the developer can reply."
+  },
   "reportAttachGroup": "Attachments",
   "@reportAttachGroup": {
     "description": "Issue report: heading over screenshot and database options."
