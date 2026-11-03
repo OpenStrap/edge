@@ -2081,7 +2081,10 @@ const String kAnalyticsPin = '3a7ca34d30233ff11e6c2877083f319a907ccb31';
 // main merge commit. Re-pointed at that branch's Huami gap fix (minutes()
 // empty after a counter gap); NO kAlgoVersion bump: the adapter already
 // decoded only gap-free transfers, so no output changes.
-const String kProtocolPin = '89080bcfac7767b3a871fd3a7d9307f5f30dad26';
+// REPIN: protocol main @ b4fde6a (#81 Mi scale 7-byte history count, on top
+// of #82 decoder hardening). NO kAlgoVersion bump: decode runs at ingest, so a
+// bump re-derives nothing differently; WHOOP output unchanged (freeze goldens).
+const String kProtocolPin = 'b4fde6ab5589e53154b808f8b2bbb4d01d9c15b5';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
