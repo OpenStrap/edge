@@ -495,7 +495,12 @@ class SyncReport {
   final int records;
   final int batches;
   final bool complete;
-  SyncReport(this.records, this.batches, this.complete);
+
+  /// The awaited task itself hit its terminal (abort boundary) — it is over,
+  /// even if the engine has not released the offload claim yet (the release
+  /// runs after the abort write). A caller must not wait on it again.
+  final bool ended;
+  SyncReport(this.records, this.batches, this.complete, {this.ended = false});
 }
 
 enum _HpsTerminalKind {
@@ -1899,6 +1904,9 @@ class BleEngine {
   @visibleForTesting
   void debugIngestHistoricalFrame(Frame frame) => _ingestHistoricalFrame(frame);
 
+  @visibleForTesting
+  void debugSetOffloadActive(bool active) => _setOffloadActive(active);
+
   /// Feed one inbound control frame through the real immediate-receive path
   /// (decode → event handling → state absorb).
   ///
@@ -2268,6 +2276,10 @@ class BleEngine {
   final ChunkFailureLedger _chunkFailures = ChunkFailureLedger();
   EmptySyncTracker _emptySync = EmptySyncTracker();
   StuckStrapDetector _stuckStrap = StuckStrapDetector();
+  String? _stuckStrapBand;
+  // When the link last went down (monotonic). A band out of range for longer
+  // than a retry reconnect wasn't being asked, so that time isn't "stuck".
+  double? _linkDownAt;
   // Detector 1b: sustained frame corruption (CRC8/CRC32 failures) — an
   // independent failure axis from marginal-radio, which only ever sees
   // timeouts. Per-connection like empty-sync/stuck-strap: a new link starts
@@ -2457,7 +2469,7 @@ class BleEngine {
   // that would otherwise loop empty drop-ACKs (or, after the refuse guard,
   // re-deliver forever without ever correcting the clock).
   //
-  // NOT reset per connection (unlike _emptySync / _stuckStrap). The remedy IS
+  // NOT reset per connection (unlike _emptySync). The remedy IS
   // a reconnect, so a per-connection reset made the escalation unreachable:
   // the idle watchdog tears the session down after a refuse-only burst, the
   // next connect zeroed the count, and the loop ran forever at streak 1.
@@ -2637,6 +2649,11 @@ class BleEngine {
   /// refusal, so it has to go false when the engine starts accepting triggers
   /// again. The raw latch stays visible in diagnostics as `history_stuck`.
   bool get historyStuckThisSession => _session?.historyStuckActive ?? false;
+
+  /// Historical records RecordGate has rejected so far (monotonic). A burst
+  /// whose batches carried no counted records but raised this was walking a
+  /// stale-timestamp block, not an empty flash.
+  int get historyGateDrops => _recordGate.dropped;
 
   Map<String, dynamic> get offloadSnapshot => {
     'active': _offloadActive,
@@ -2989,12 +3006,10 @@ class BleEngine {
         try {
           await device.createBond();
           _log('Bonded (or already bonded).');
-          // A clean bond clears the refusal streak + any give-up latch, so a
-          // later run of refusals can trip the pause again, and un-pauses the
-          // auto-reconnect loop.
-          _bondGiveUp.bondSucceeded();
-          state.bondRefusals = 0;
-          state.autoReconnectPaused = false;
+          // Leave the refusal streak and any auto-reconnect pause alone: an
+          // existing bond the band rejects at notification registration
+          // "succeeds" here on every reconnect. Only a command reply
+          // ([_clearRepairGuideOnCommandReply]) proves the key works.
         } catch (e) {
           // A failed bond is NOT benign: the strap gates every command behind
           // encryption, so downstream GATT ops will fail confusingly (writes
@@ -3004,18 +3019,7 @@ class BleEngine {
           _log('BOND FAILED: $e — encrypted commands will be silently dropped '
               'by the band. Remove the bond in system Bluetooth settings and '
               're-pair.');
-          state.needsRepairGuide = true;
-          state.bondRefusals++;
-          // After a run of consecutive refusals, stop the auto-reconnect loop
-          // (it would otherwise pin the radio + drain the battery on a band that
-          // will never accept the bond) and surface the re-pair guide. A manual
-          // user connect still runs createBond, so a successful re-pair recovers.
-          if (_bondGiveUp.bondRefused()) {
-            state.autoReconnectPaused = true;
-            _log('[RECONNECT] bond-refusal give-up (${_bondGiveUp.consecutive}) '
-                '— pausing auto-reconnect; re-pair required.');
-          }
-          onState(state);
+          _recordBondRefusal();
         }
       }
 
@@ -3085,6 +3089,9 @@ class BleEngine {
       return await _finishConnect(session);
     } catch (e) {
       _log('connect setup failed: $e');
+      if (e is FlutterBluePlusException && isLinkAuthRefusal(e.code)) {
+        _recordBondRefusal();
+      }
       await _failConnect();
       return false;
     }
@@ -3101,9 +3108,20 @@ class BleEngine {
       _lastClockVerifyAt = _wallSecs();
       // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
       // here — they count consecutive bad cycles across reconnects and self-reset on
-      // a healthy disconnect. Empty-sync + stuck are per-connection.
+      // a healthy disconnect. Empty-sync is per-connection. Stuck is per band:
+      // the liveness fuse reconnects a silent link every ~2 min, so a
+      // per-connection reset never let its 10 min observation finish. A real
+      // frontier advance resets it on its own, and so does a long time offline
+      // (the band wasn't being asked then).
       _emptySync = EmptySyncTracker();
-      _stuckStrap = StuckStrapDetector();
+      final bandId = session.device.remoteId.str;
+      final down = _linkDownAt;
+      if (bandId != _stuckStrapBand ||
+          (down != null &&
+              _monotonicSecs() - down > kStuckOfflineResetSeconds)) {
+        _stuckStrap = StuckStrapDetector();
+        _stuckStrapBand = bandId;
+      }
       _frameCorruption = FrameCorruptionDetector();
       _crcFailuresThisSession = 0;
       _burstMismatchStreak = 0;
@@ -3238,6 +3256,9 @@ class BleEngine {
       return ok;
     } catch (e) {
       _log('connect setup failed: $e');
+      if (e is FlutterBluePlusException && isLinkAuthRefusal(e.code)) {
+        _recordBondRefusal();
+      }
       await _failConnect();
       return false;
     }
@@ -3499,29 +3520,15 @@ class BleEngine {
             await gatt.createBond();
             _log('Bonded.');
           }
-          // A clean bond clears the refusal streak + any give-up latch, so a
-          // later run of refusals can trip the pause again, and un-pauses the
-          // auto-reconnect loop.
-          _bondGiveUp.bondSucceeded();
-          state.bondRefusals = 0;
-          state.autoReconnectPaused = false;
+          // Leave the refusal streak and any auto-reconnect pause alone: an
+          // existing bond the band rejects at notification registration
+          // "succeeds" here on every reconnect. Only a command reply
+          // ([_clearRepairGuideOnCommandReply]) proves the key works.
         } catch (e) {
           _log('BOND FAILED: $e — bootstrap stops here (no subscriptions, no '
               'HELLO, no READY). Remove the bond in system Bluetooth settings '
               'and re-pair.');
-          state.needsRepairGuide = true;
-          state.bondRefusals++;
-          // After a run of consecutive refusals, stop the auto-reconnect loop
-          // (it would otherwise pin the radio + drain the battery on a band
-          // that will never accept the bond) and surface the re-pair guide. A
-          // manual user connect still runs the bond, so a successful re-pair
-          // recovers.
-          if (_bondGiveUp.bondRefused()) {
-            state.autoReconnectPaused = true;
-            _log('[RECONNECT] bond-refusal give-up (${_bondGiveUp.consecutive}) '
-                '— pausing auto-reconnect; re-pair required.');
-          }
-          onState(state);
+          _recordBondRefusal();
           await _failConnect();
           return _Gen5ConnectOutcome.failed;
         }
@@ -3561,6 +3568,9 @@ class BleEngine {
         } catch (e) {
           _log('[BOOT gen5] required notification registration failed '
               '($role): $e — connection failed.');
+          if (e is FlutterBluePlusException && isLinkAuthRefusal(e.code)) {
+            _recordBondRefusal();
+          }
           await _failConnect();
           return false;
         }
@@ -3590,6 +3600,9 @@ class BleEngine {
           : _Gen5ConnectOutcome.failed;
     } catch (e) {
       _log('connect setup failed: $e');
+      if (e is FlutterBluePlusException && isLinkAuthRefusal(e.code)) {
+        _recordBondRefusal();
+      }
       await _failConnect();
       return _Gen5ConnectOutcome.failed;
     }
@@ -4717,6 +4730,7 @@ class BleEngine {
     }
     final wasIntentional = session.intentionalClose;
     session.connected = false;
+    _linkDownAt = _monotonicSecs();
     // A drain in flight must complete (with linkDown) immediately, not run out
     // its full budget.
     if (_offloadActive) {
@@ -4807,6 +4821,22 @@ class BleEngine {
     _feedReconnectDetectors(timedOut: timedOut);
   }
 
+  /// One refusal of the phone's encryption key: surface the re-pair guide,
+  /// count it, and after a run of consecutive refusals pause auto-reconnect
+  /// (it would otherwise pin the radio and drain both batteries on a band that
+  /// will never accept the key). A manual connect still runs, so a successful
+  /// re-pair recovers.
+  void _recordBondRefusal() {
+    state.needsRepairGuide = true;
+    state.bondRefusals++;
+    if (_bondGiveUp.bondRefused()) {
+      state.autoReconnectPaused = true;
+      _log('[RECONNECT] bond-refusal give-up (${_bondGiveUp.consecutive}) '
+          '— pausing auto-reconnect; re-pair required.');
+    }
+    onState(state);
+  }
+
   /// A command reply is the direct contradiction of the re-pair guide: the band
   /// decrypted one of our commands and answered it, so encryption is not
   /// blocking traffic and there is nothing to re-pair.
@@ -4828,6 +4858,11 @@ class BleEngine {
     if (!state.needsRepairGuide) return;
     state.needsRepairGuide = false;
     _postBondLoop.reset();
+    // The one place a refusal streak ends: a bond can "succeed" (or already
+    // exist) and still be refused at registration, a reply can't.
+    _bondGiveUp.bondSucceeded();
+    state.autoReconnectPaused = false;
+    state.bondRefusals = 0;
     onState(state);
     _log('[RECONNECT] band answered a command — clearing the re-pair guide.');
   }
@@ -6466,7 +6501,9 @@ class BleEngine {
       kind: _HpsTerminalKind.timeout,
       reason: 'no_history_start',
     );
-    if (!retry || _sessionIsStale(session)) return;
+    if (_sessionIsStale(session)) return;
+    await _observeStuckStrap();
+    if (!retry) return;
     _armHistoricalRetry(session, reason: 'no_history_start');
   }
 
@@ -7727,6 +7764,23 @@ class BleEngine {
   }
 
   // ── post-offload policy: empty-sync, stuck-strap, auto-continue ──────────────
+  /// Stuck-strap: frontier frozen ≥10 min while the strap is >5 min ahead.
+  /// Elapsed time on the monotonic clock: a forward wall step (a phone fixing
+  /// its clock after a dead-battery reboot) would otherwise read as ten
+  /// frozen minutes at once. Checked after a completed offload AND after a
+  /// request the band never answered: a band that accepts SEND_HISTORICAL_DATA
+  /// and then sends nothing never reaches HISTORY_COMPLETE, so checking only
+  /// there left it looping silently with the UI saying "connected".
+  Future<void> _observeStuckStrap() async {
+    if (_stuckStrap.observe(
+        _sessionNewestUnix, _recordGate.frontierTs, _monotonicSecs())) {
+      state.strapNeedsReboot = true;
+      onState(state);
+      _log('[SYNC] stuck-strap tripped — defensive SET_CLOCK.');
+      await setClock();
+    }
+  }
+
   /// Reached from the HISTORY_COMPLETE branch only — a drain that ends any
   /// other way (link down, idle watchdog) records its own terminal and never
   /// gets here. This used to take a `complete` flag that its single call site
@@ -7767,17 +7821,7 @@ class BleEngine {
       _log('[SYNC] empty-sync tripped — strap RTC likely lost.');
     }
 
-    // Stuck-strap: frontier frozen ≥10 min while the strap is >5 min ahead.
-    // Elapsed time on the monotonic clock: a forward wall step (a phone fixing
-    // its clock after a dead-battery reboot) would otherwise read as ten
-    // frozen minutes at once.
-    if (_stuckStrap.observe(
-        _sessionNewestUnix, _recordGate.frontierTs, _monotonicSecs())) {
-      state.strapNeedsReboot = true;
-      onState(state);
-      _log('[SYNC] stuck-strap tripped — defensive SET_CLOCK.');
-      await setClock();
-    }
+    await _observeStuckStrap();
 
     // Auto-continue: re-kick immediately (bypassing the 15-min floor) if the strap
     // still has real backlog and the cursor advanced — but cap per connection.
@@ -8881,10 +8925,13 @@ class BleEngine {
             imuFresh: _imuFresh && !gen5,
             imuDirty: _imuDirty,
             hrDirty: _hrDirty,
+            holdImuOn: _offloadActive && !gen5,
           );
           final generation = _linkGeneration;
           if (step == null) {
-            if (_liveReassert) {
+            // The reassert re-sends the gen4 IMU bundle too; hold it (flag
+            // stays set) while a drain runs, the offload end re-runs this.
+            if (_liveReassert && !(_offloadActive && !gen5)) {
               _liveReassert = false;
               await _reassertLive(session, generation);
             }
@@ -9038,8 +9085,13 @@ class BleEngine {
     // old methods judged it; a toggle's own correlated reply is not awaited.
     // Correlating 0x03/0x6A replies (`_sendAwaited`) is the upgrade once the
     // strap's reply behaviour for these toggles is confirmed on hardware.
+    // A gen4 history claim can land during the arm's gaps: the rest of the
+    // bundle must not go out mid-offload ([nextLiveStreamStep] holdImuOn).
+    // Failed marks it dirty, so the replay runs when the offload ends.
+    final holdable = step == LiveStreamStep.imuOn && !session.band.isGen5;
     var ok = true;
     for (final op in ops) {
+      if (holdable && _offloadActive) return _LiveWrite.failed;
       if (!await op()) ok = false;
       if (_liveStale(session, generation)) return _LiveWrite.stale;
     }
@@ -9111,6 +9163,7 @@ class BleEngine {
     final session = _session;
     if (session == null) return;
     session.intentionalClose = intentional;
+    _linkDownAt = _monotonicSecs();
     // SYNCHRONOUSLY, before any await: see `_Session.closing`. Ingress freezes
     // here — the receive guards drop anything for a closing session, and the
     // notification subscriptions are cancelled before anything is awaited —
@@ -9242,6 +9295,8 @@ class BleEngine {
     // An offload is the one thing that genuinely needs the fast interval; as
     // soon as it ends the link steps back down (issue #200).
     unawaited(_applyLinkPriority());
+    // A gen4 IMU arm held for the drain ([nextLiveStreamStep]) goes out now.
+    if (!active) unawaited(_reconcileLive());
     // This is a CALLER-SUPPLIED hook (UI state plumbing), called synchronously
     // from _enqueueOffloadFrame BEFORE it kicks off _drainOffloadFrames — a
     // throw here must never abort the frame from reaching the drain queue.
@@ -10098,7 +10153,9 @@ class DrainController {
             ' — this offload ended ${complete ? 'complete (a new task claimed '
             'immediately after HISTORY_COMPLETE)' : 'without completing (abort '
             'boundary)'}.');
-        done.complete(report);
+        done.complete(complete
+            ? report
+            : SyncReport(report.records, report.batches, false, ended: true));
         return;
       }
       if (!isLinkUp()) _linkDown = true;

@@ -263,6 +263,14 @@ class BandStatus {
       condition != BandCondition.disconnected;
 }
 
+/// True when a GATT error [code] means the band will not accept the phone's
+/// encryption key: insufficient authentication (5), authorization (8) or
+/// encryption (15), or an auth failure (137). On iOS there is no explicit bond
+/// step, so a stale or rejected key only ever shows up here, on the first
+/// notification registration.
+bool isLinkAuthRefusal(int? code) =>
+    code == 5 || code == 8 || code == 15 || code == 137;
+
 /// Fold the phone-level blocker and the band's own diagnostic flags into one
 /// state. Pure; [connection] is `DeviceState.connection`.
 ///
@@ -2196,16 +2204,24 @@ enum LiveStreamStep {
 /// gen4 bundle can be half-applied). Dirty ALWAYS replays the newest desired
 /// direction before convergence, even when nothing is desired: a dirty OFF
 /// must be cleaned up, unlike a fresh one.
+///
+/// [holdImuOn] — a history offload is running on gen4. Arming the bundle
+/// mid-burst silences the strap: the burst stops, the 60 s idle watchdog
+/// aborts it and the drain restarts. Only the ON is held; the caller
+/// re-runs the reconcile when the offload ends.
 LiveStreamStep? nextLiveStreamStep({
   required LiveStreamIntent applied,
   required LiveStreamIntent desired,
   bool imuFresh = false,
   bool imuDirty = false,
   bool hrDirty = false,
+  bool holdImuOn = false,
 }) {
   final replayImu = imuDirty || (imuFresh && desired.any);
   if (desired.hr && (!applied.hr || hrDirty)) return LiveStreamStep.hrOn;
-  if (desired.imu && (!applied.imu || replayImu)) return LiveStreamStep.imuOn;
+  if (desired.imu && (!applied.imu || replayImu) && !holdImuOn) {
+    return LiveStreamStep.imuOn;
+  }
   if (!desired.imu && (applied.imu || replayImu)) return LiveStreamStep.imuOff;
   if (!desired.hr && (applied.hr || hrDirty)) return LiveStreamStep.hrOff;
   return null;

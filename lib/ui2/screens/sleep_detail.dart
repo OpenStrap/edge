@@ -2230,7 +2230,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     // unlabelled lines on three invisible axes was the least readable chart
     // in the app.
     void lane(List<(int, double)> raw, String label, String unit, Color col,
-        {String Function(double) format = axisInt}) {
+        {String Function(double) format = axisInt, bool range = true}) {
       if (raw.isEmpty || cols == 0) return;
       final g = grid(raw);
       final present = <double>[for (final v in g) ?v];
@@ -2245,7 +2245,11 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         if (v < lo) lo = v;
         if (v > hi) hi = v;
       }
-      legend.add(('$label ${format(lo)}–${format(hi)} ${uiText(c, unit)}', col));
+      legend.add((
+          range
+              ? '$label ${format(lo)}–${format(hi)} ${uiText(c, unit)}'
+              : '$label (${uiText(c, unit)})',
+          col));
       axes.add(AxisSpec.of(present, ticks: 2, format: format));
       units.add(unit);
     }
@@ -2257,9 +2261,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     lane(hrv, loc?.sleepDetailHrv ?? 'HRV', 'ms', p.on(C.green));
     lane(resp, loc?.sleepDetailBreathing ?? 'Breathing', 'br/min', p.on(C.teal));
     // Skin temperature is ADC-relative — a deviation, never a °C. The unit
-    // says so rather than implying a thermometer.
+    // says so rather than implying a thermometer. No low–high: sensor counts
+    // like "-206.6–68.2" read as impossible temperatures.
     lane(temp, loc?.sleepDetailSkinTemp ?? 'Skin temp', 'rel', p.on(C.orange),
-        format: axisFixed);
+        format: axisFixed, range: false);
 
     if (series.isEmpty) {
       return summary.isEmpty

@@ -976,4 +976,13 @@ void main() {
       expect(w.isLive(101), isFalse);
     });
   });
+
+  test('isLinkAuthRefusal: only the key-refusal GATT codes', () {
+    for (final c in [5, 8, 15, 137]) {
+      expect(isLinkAuthRefusal(c), isTrue, reason: '$c');
+    }
+    for (final c in [null, 0, 6, 14, 133]) {
+      expect(isLinkAuthRefusal(c), isFalse, reason: '$c');
+    }
+  });
 }
