@@ -67,6 +67,58 @@ void main() {
       expect(out.map((w) => w.atMs), [1000, 3000, 4000]);
     });
 
+    test('guest seed 20 kg then user weights: re-seeds on the user run', () {
+      final out = exportableWeighings({
+        1000: 20.0,
+        2000: 70.0,
+        3000: 71.0,
+        4000: 70.0,
+      });
+      // The seed itself stays in the chain (mirrors weighingChain).
+      expect(out.map((w) => w.atMs), [1000, 2000, 3000, 4000]);
+    });
+
+    test('lasting >10% step re-seeds retroactively', () {
+      final out = exportableWeighings({
+        1000: 90.0,
+        2000: 79.0,
+        3000: 79.0,
+        4000: 80.0,
+        5000: 80.0,
+      });
+      expect(out.map((w) => w.atMs), [1000, 2000, 3000, 4000, 5000]);
+    });
+
+    test('lone outlier amid the chain is dropped', () {
+      final out = exportableWeighings({
+        1000: 70.0,
+        2000: 120.0,
+        3000: 71.0,
+      });
+      expect(out.map((w) => w.atMs), [1000, 3000]);
+    });
+
+    test('two-outlier run (<3) is dropped', () {
+      final out = exportableWeighings({
+        1000: 70.0,
+        2000: 120.0,
+        3000: 121.0,
+        4000: 71.0,
+      });
+      expect(out.map((w) => w.atMs), [1000, 4000]);
+    });
+
+    test('three mutually unrelated outliers do not re-seed', () {
+      final out = exportableWeighings({
+        1000: 70.0,
+        2000: 120.0,
+        3000: 40.0,
+        4000: 200.0,
+        5000: 71.0,
+      });
+      expect(out.map((w) => w.atMs), [1000, 5000]);
+    });
+
     test('exported ones are filtered but still anchor the chain', () {
       final out = exportableWeighings({
         1000: 70.0,

@@ -20,7 +20,8 @@
 // HOUSEHOLD SCALES. A scale carries no user, so [exportableWeighings] runs a
 // CHAINED band (kWeighingBand, see measurement_inputs.dart) before anything is
 // exported: the first weighing seeds, any weighing more than the band away from
-// the previous ACCEPTED one is dropped. Health samples cannot be recalled, so
+// the previous ACCEPTED one is dropped, unless 3 consecutive rejects are near
+// each other (then the run is accepted and re-seeds the chain). Health samples cannot be recalled, so
 // this is stricter than reading the newest weighing.
 //
 // NO ECHO LOOP. `health_profile_import.dart` reads WEIGHT from the store into
@@ -72,7 +73,8 @@ typedef Weighing = ({int atMs, double kg});
 /// [raw] (ts_ms -> kg) as exportable weighings, ascending, minus [exported].
 /// Skips non-finite and out-of-bounds values, then applies the chained
 /// household band over ALL plausible weighings (so the chain does not depend
-/// on what was exported before). Never substitutes a value.
+/// on what was exported before), re-seeding after 3 consecutive mutually-near
+/// rejects so a guest seed or a lasting weight change recovers. Never substitutes a value.
 @visibleForTesting
 List<Weighing> exportableWeighings(
   Map<int, num> raw, {
@@ -84,15 +86,31 @@ List<Weighing> exportableWeighings(
           e.value >= kWeightMinKg &&
           e.value <= kWeightMaxKg)
         (atMs: e.key, kg: e.value.toDouble()),
-  ]..sort((a, b) => a.atMs.compareTo(b.atMs));
-  final out = <Weighing>[];
-  double? prev;
+  ]..sort((a, b) {
+      final c = a.atMs.compareTo(b.atMs);
+      return c != 0 ? c : a.kg.compareTo(b.kg);
+    });
+  // Chained band with RE-SEED: a run of 3 consecutive rejected weighings, each
+  // near the previous run member, is accepted retroactively and its last
+  // member becomes the anchor (mirrors weighingChain in measurement_inputs).
+  final chain = <Weighing>[];
+  var run = <Weighing>[];
   for (final w in sorted) {
-    if (!nearWeight(w.kg, prev)) continue;
-    prev = w.kg;
-    if (!exported.contains(w.atMs)) out.add(w);
+    if (chain.isEmpty || nearWeight(w.kg, chain.last.kg)) {
+      chain.add(w);
+      run = [];
+      continue;
+    }
+    run = run.isNotEmpty && nearWeight(w.kg, run.last.kg) ? [...run, w] : [w];
+    if (run.length >= 3) {
+      chain.addAll(run);
+      run = [];
+    }
   }
-  return out;
+  return [
+    for (final w in chain)
+      if (!exported.contains(w.atMs)) w,
+  ];
 }
 
 Set<int> _decodeSet(String? s) {
