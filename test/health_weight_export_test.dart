@@ -351,6 +351,16 @@ void main() {
       expect(await f.run(), 5);
       expect(await f.run(), 0);
     });
+
+    test('a reset is not capped: every weighing gets delete-then-write', () async {
+      final f = _Fx()
+        ..weights = {
+          for (var i = 0; i < kMaxWeighingsPerRun + 5; i++)
+            10000 + i * 1000: 70,
+        };
+      expect(await f.run(), kMaxWeighingsPerRun);
+      expect(await f.run(reset: true), kMaxWeighingsPerRun + 5);
+    });
   });
 
   group('delete safety', () {

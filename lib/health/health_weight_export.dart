@@ -314,7 +314,9 @@ Future<int> exportScaleWeighings({
     var permOk = true;
     var grantEvaluated = false;
     var grantTransitioned = false;
-    var budget = kMaxWeighingsPerRun;
+    // A reset re-sends with delete-then-write; a cap would leave the rest to
+    // later plain writes that stack duplicates on the samples still in Health.
+    var budget = reset ? 1 << 30 : kMaxWeighingsPerRun;
     var syncOff = false;
     for (final d in devices) {
       if (syncOff || budget <= 0) break;
