@@ -41,7 +41,8 @@ Map<String, double> _byDay(
   Map<String, Map<String, JournalMetricValue>> manual,
   List<({double kg, int atMs})> scaled, {
   int? nowMs,
-}) => weightByDay(manual, scaled, nowMs: nowMs ?? _ms(30, 0));
+  int fromMs = 0,
+}) => weightByDay(manual, scaled, nowMs: nowMs ?? _ms(30, 0), fromMs: fromMs);
 
 ({double kg, int atMs}) _w(double kg, int atMs) => (kg: kg, atMs: atMs);
 
@@ -159,6 +160,21 @@ void main() {
         _w(71, _ms(5, 7)),
       ]);
       expect(out, {'2026-10-01': 70.0, '2026-10-05': 71.0});
+    });
+
+    test('readings before the window anchor the chain; only the window plots',
+        () {
+      final ws = [
+        _w(70, _ms(1, 7)),
+        _w(70, _ms(2, 7)),
+        _w(30, _ms(5, 7)),
+        _w(71, _ms(6, 7)),
+      ];
+      // The window opens on the 4th: the 30 kg reading is judged against the
+      // earlier 70 kg history, not allowed to seed a chain of its own.
+      expect(_byDay({}, ws, fromMs: _ms(4, 0)), {'2026-10-06': 71.0});
+      // Moving the window start must not change a day that is still inside it.
+      expect(_byDay({}, ws, fromMs: _ms(5, 0)), {'2026-10-06': 71.0});
     });
 
     test('weighings dated after now are dropped', () {

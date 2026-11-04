@@ -924,11 +924,15 @@ class _WeightRow extends StatelessWidget {
 /// later one wins: the journal's time of day against the weighing's, and a
 /// journal value with no time loses to the scale. Days with neither are absent.
 /// Scale weighings dated after [nowMs] (a band clock set ahead) are dropped.
+/// The chain runs over every weighing in [scaled]; only those at or after
+/// [fromMs] are plotted, so the window's start does not decide which readings
+/// anchor the chain (and the same data charts the same on every day).
 @visibleForTesting
 Map<String, double> weightByDay(
   Map<String, Map<String, JournalMetricValue>> manual,
   List<({double kg, int atMs})> scaled, {
   int? nowMs,
+  int fromMs = 0,
 }) {
   final until = nowMs ?? DateTime.now().millisecondsSinceEpoch;
   bool ok(double v) => v.isFinite && v > 0;
@@ -945,6 +949,7 @@ Map<String, double> weightByDay(
   );
   final at = <String, int>{};
   for (final w in chain) {
+    if (w.atMs < fromMs) continue;
     final t = DateTime.fromMillisecondsSinceEpoch(w.atMs);
     final day = dayLabelOf(t);
     if (at[day] != null && at[day]! >= w.atMs) continue;
@@ -996,17 +1001,17 @@ class _WeightTrendState extends State<_WeightTrend> {
       // Its own guard: a failing scale read must not blank the manual trend.
       var scale = const <({double kg, int atMs})>[];
       try {
-        scale = await weighings(
-          // Local midnight, matching the local-day buckets below; parsing the
-          // label would read it as UTC midnight.
-          fromMs: start.millisecondsSinceEpoch,
-        );
+        // All history, not just the window: the chain's anchor must not
+        // depend on where the window starts (see weightByDay).
+        scale = await weighings();
       } catch (e) {
         debugPrint('weight trend: scale read failed: $e');
       }
       if (!mounted) return;
       setState(() {
-        _byDay = weightByDay(rows, scale);
+        // Local midnight, matching the local-day buckets; parsing the label
+        // would read it as UTC midnight.
+        _byDay = weightByDay(rows, scale, fromMs: start.millisecondsSinceEpoch);
         _loading = false;
       });
     } catch (_) {
