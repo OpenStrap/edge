@@ -11,11 +11,15 @@
 // IDEMPOTENCE. Per device, a persisted SET of already-exported ts_ms (newest
 // ~2000) decides what is sent: every eligible weighing not in the set goes out
 // on each run, so a late-arriving OLDER weighing (history sync, backfill, clock
-// correction) is not skipped the way a high-water cursor would skip it. Each
-// send is delete-our-own-sample-at-that-instant, then write, so a lost set (or
-// `reset`) re-sends without stacking duplicates. A failed weighing is skipped
-// (later ones still go out) and retried on later runs, at most
-// [kMaxWeightAttempts] times.
+// correction) is not skipped the way a high-water cursor would skip it. A
+// normal send is a plain write: a weighing not in the set has no sample of ours
+// to replace, and a failed replacement must never cost a sample that was
+// exported earlier. Only a `reset` re-send deletes our own sample at that
+// instant first (so it does not stack duplicates), and never when another
+// weighing (any scale) sits inside the match window, since the delete is by
+// type + time range and would take that sample too. A failed weighing is
+// skipped (later ones still go out) and retried on later runs, at most
+// [kMaxWeightAttempts] times. At most [kMaxWeighingsPerRun] per call.
 //
 // HOUSEHOLD SCALES. A scale carries no user, so [exportableWeighings] runs a
 // CHAINED band (kWeighingBand, see measurement_inputs.dart) before anything is
@@ -57,6 +61,14 @@ String healthWeightCursorName(String deviceId) =>
 /// Set once WEIGHT write permission has been requested on this install.
 const String kHealthWeightPermAskedPref = 'health_weight_perm_asked';
 
+/// Last observed WEIGHT grant (true/false) so a not-granted -> granted
+/// transition can clear the per-weighing attempt caps.
+const String kHealthWeightGrantSeenPref = 'health_weight_grant_seen';
+
+/// Most weighings processed per [exportScaleWeighings] call; the rest stay
+/// pending for the next drain so a big replay cannot hold the export lock long.
+const int kMaxWeighingsPerRun = 200;
+
 /// Bound on the exported set per device (newest kept).
 const int kMaxExportedWeighings = 2000;
 
@@ -80,16 +92,17 @@ List<Weighing> exportableWeighings(
   Map<int, num> raw, {
   Set<int> exported = const {},
 }) {
-  final sorted = <Weighing>[
-    for (final e in raw.entries)
-      if (e.value.isFinite &&
-          e.value >= kWeightMinKg &&
-          e.value <= kWeightMaxKg)
-        (atMs: e.key, kg: e.value.toDouble()),
-  ]..sort((a, b) {
-      final c = a.atMs.compareTo(b.atMs);
-      return c != 0 ? c : a.kg.compareTo(b.kg);
-    });
+  final sorted =
+      <Weighing>[
+        for (final e in raw.entries)
+          if (e.value.isFinite &&
+              e.value >= kWeightMinKg &&
+              e.value <= kWeightMaxKg)
+            (atMs: e.key, kg: e.value.toDouble()),
+      ]..sort((a, b) {
+        final c = a.atMs.compareTo(b.atMs);
+        return c != 0 ? c : a.kg.compareTo(b.kg);
+      });
   // Chained band with RE-SEED: a run of 3 consecutive rejected weighings, each
   // near the previous run member, is accepted retroactively and its last
   // member becomes the anchor (mirrors weighingChain in measurement_inputs).
@@ -140,11 +153,14 @@ List<int> _bounded(Set<int> s) {
       : l;
 }
 
-/// Replace-write [weighings] (ascending). A failed weighing is skipped and its
+/// Write [weighings] (ascending). A failed weighing is skipped and its
 /// attempt counted; later ones still go. Weighings already at
 /// [kMaxWeightAttempts] are not tried. Persists via [save] after each change.
 /// [stopped] (store hung) ends the run without counting the failure that
-/// tripped it. Returns how many were written.
+/// tripped it. [mayContinue] is asked before EACH weighing; false ends the run
+/// (opt-out mid-drain). With [resend] our own sample at the instant is deleted
+/// first, unless [deleteSafe] says another sample shares the window.
+/// Returns how many were written.
 Future<int> writeWeighings({
   required List<Weighing> weighings,
   required Set<int> exported,
@@ -153,17 +169,24 @@ Future<int> writeWeighings({
   required Future<bool> Function(DateTime start, DateTime end) deleteOwn,
   required Future<bool> Function(double kg, DateTime at) write,
   bool Function()? stopped,
+  Future<bool> Function()? mayContinue,
+  bool resend = false,
+  bool Function(int atMs)? deleteSafe,
 }) async {
   var written = 0;
   for (final w in weighings) {
     if (stopped?.call() ?? false) break;
+    if (mayContinue != null && !await mayContinue()) break;
     if ((attempts[w.atMs] ?? 0) >= kMaxWeightAttempts) continue;
     final at = DateTime.fromMillisecondsSinceEpoch(w.atMs);
-    // A delete that cannot clear the instant must not be written on top of.
-    var ok = await deleteOwn(
-      at.subtract(kHealthWeightMatchWindow),
-      at.add(kHealthWeightMatchWindow),
-    );
+    var ok = true;
+    if (resend && (deleteSafe?.call(w.atMs) ?? true)) {
+      // A delete that cannot clear the instant must not be written on top of.
+      ok = await deleteOwn(
+        at.subtract(kHealthWeightMatchWindow),
+        at.add(kHealthWeightMatchWindow),
+      );
+    }
     if (ok) ok = await write(w.kg, at);
     if (ok) {
       written++;
@@ -178,9 +201,10 @@ Future<int> writeWeighings({
   return written;
 }
 
-/// Whether WEIGHT can be written. [check] reads the grant (null = unknown),
-/// [request] asks for it. Asks at most once per install ([kHealthWeightPermAskedPref]);
-/// after that the write is always attempted (failures are bounded by attempts).
+/// Whether WEIGHT can be written. [check] reads the grant (a throw or timeout
+/// means UNKNOWN, and the write is still attempted), [request] asks for it.
+/// Asks at most once per install ([kHealthWeightPermAskedPref]); after that the
+/// write is always attempted (failures are bounded by attempts).
 Future<bool> weightWritePermitted({
   required Future<bool> Function() check,
   required Future<void> Function() request,
@@ -188,7 +212,13 @@ Future<bool> weightWritePermitted({
   required Future<void> Function() markAsked,
 }) async {
   try {
-    if (await check()) return true;
+    var granted = false;
+    try {
+      granted = await check();
+    } catch (e) {
+      debugPrint('[health] weight permission check (unknown): $e');
+    }
+    if (granted) return true;
     if (!await asked()) {
       await request();
       // Only after the request ran: a throw/timeout leaves the ask unspent.
@@ -204,14 +234,26 @@ Future<bool> weightWritePermitted({
   }
 }
 
+class _ScaleDevice {
+  _ScaleDevice(this.id, this.adapter, this.raw);
+  final String id;
+  final String adapter;
+  final Map<int, num> raw;
+}
+
 /// Export every flagged-on scale's pending weighings. Best-effort; never
 /// throws. [reset] clears the exported sets (re-sends everything,
 /// idempotently). [permitted] is consulted lazily, only when something is
-/// pending. The loaders default to [LocalDb]; tests inject their own.
+/// pending. [syncEnabled] / [isEnabled] are re-checked before every weighing
+/// (opt-out mid-drain). [weightGranted] (null = unknown) feeds the grant
+/// transition that clears the attempt caps. The loaders default to [LocalDb];
+/// tests inject their own.
 Future<int> exportScaleWeighings({
   required Future<bool> Function(DateTime start, DateTime end) deleteOwn,
   required Future<bool> Function(double kg, DateTime at) write,
   Future<bool> Function()? permitted,
+  Future<bool?> Function()? weightGranted,
+  Future<bool> Function()? syncEnabled,
   bool Function()? stopped,
   bool reset = false,
   bool forceRetry = false,
@@ -223,68 +265,139 @@ Future<int> exportScaleWeighings({
   var total = 0;
   try {
     final prefs = await SharedPreferences.getInstance();
-    var permChecked = false;
-    var permOk = true;
+    final enabledFn = isEnabled ?? wearableEnabled;
+    final devices = <_ScaleDevice>[];
     for (final row in await (loadDevices ?? LocalDb.deviceRows)()) {
       final adapter = row['adapter_id'] as String?;
       final id = row['id'] as String?;
       if (id == null) continue;
-      if (reset) {
-        await prefs.remove(healthWeightExportedKey(id));
-        await prefs.remove(healthWeightAttemptsKey(id));
-        await (deleteCursor ?? LocalDb.deleteCursor)(
-          healthWeightCursorName(id),
+      try {
+        if (reset) {
+          await prefs.remove(healthWeightExportedKey(id));
+          await prefs.remove(healthWeightAttemptsKey(id));
+          await (deleteCursor ?? LocalDb.deleteCursor)(
+            healthWeightCursorName(id),
+          );
+        }
+        if (adapter == null ||
+            categoryOf(adapter) != DeviceCategory.healthMeasurement ||
+            !await enabledFn(adapter)) {
+          continue;
+        }
+        if (forceRetry && !reset) {
+          await prefs.remove(healthWeightAttemptsKey(id));
+        }
+        final raw =
+            await (loadWeights ??
+                (d) => LocalDb.deviceObservationValues(d, 'weight'))(id);
+        devices.add(_ScaleDevice(id, adapter, raw));
+      } catch (e) {
+        debugPrint('[health] weighings load $id: $e');
+      }
+    }
+
+    // Every scale's instants: a delete by time range must not take another
+    // weighing's sample with it.
+    bool deleteSafeFor(String id, int atMs) {
+      for (final d in devices) {
+        for (final ts in d.raw.keys) {
+          if (d.id == id && ts == atMs) continue;
+          if ((ts - atMs).abs() <= kHealthWeightMatchWindow.inMilliseconds) {
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+
+    var permChecked = false;
+    var permOk = true;
+    var grantEvaluated = false;
+    var grantTransitioned = false;
+    var budget = kMaxWeighingsPerRun;
+    var syncOff = false;
+    for (final d in devices) {
+      if (syncOff || budget <= 0) break;
+      try {
+        final id = d.id;
+        final exported = _decodeSet(
+          prefs.getString(healthWeightExportedKey(id)),
         );
-      }
-      if (adapter == null ||
-          categoryOf(adapter) != DeviceCategory.healthMeasurement ||
-          !await (isEnabled ?? wearableEnabled)(adapter)) {
-        continue;
-      }
-      if (forceRetry && !reset) {
-        await prefs.remove(healthWeightAttemptsKey(id));
-      }
-      final exported = _decodeSet(prefs.getString(healthWeightExportedKey(id)));
-      final attempts = _decodeAttempts(
-        prefs.getString(healthWeightAttemptsKey(id)),
-      );
-      final raw = await (loadWeights ??
-          (d) => LocalDb.deviceObservationValues(d, 'weight'))(id);
-      // A full set means older entries were trimmed: do not resurrect them.
-      final floor = exported.length >= kMaxExportedWeighings
-          ? exported.reduce((a, b) => a < b ? a : b)
-          : 0;
-      final pending = [
-        for (final w in exportableWeighings(raw, exported: exported))
-          if (w.atMs >= floor && (attempts[w.atMs] ?? 0) < kMaxWeightAttempts)
-            w,
-      ];
-      if (pending.isEmpty) continue;
-      if (!permChecked) {
-        permChecked = true;
-        permOk = permitted == null || await permitted();
-      }
-      if (!permOk) continue;
-      total += await writeWeighings(
-        weighings: pending,
-        exported: exported,
-        attempts: attempts,
-        save: () async {
+        final attempts = _decodeAttempts(
+          prefs.getString(healthWeightAttemptsKey(id)),
+        );
+        Future<void> save() async {
           await prefs.setString(
             healthWeightExportedKey(id),
             jsonEncode(_bounded(exported)),
           );
           await prefs.setString(
             healthWeightAttemptsKey(id),
-            jsonEncode({
-              for (final e in attempts.entries) '${e.key}': e.value,
-            }),
+            jsonEncode({for (final e in attempts.entries) '${e.key}': e.value}),
           );
-        },
-        deleteOwn: deleteOwn,
-        write: write,
-        stopped: stopped,
-      );
+        }
+
+        // Attempt entries for weighings that no longer exist are dead weight.
+        final before = attempts.length;
+        attempts.removeWhere((ts, _) => !d.raw.containsKey(ts));
+        var attemptsDirty = attempts.length != before;
+        // Not-granted/unknown -> granted: capped weighings get a fresh chance.
+        if (attempts.isNotEmpty && weightGranted != null) {
+          if (!grantEvaluated) {
+            grantEvaluated = true;
+            final now = await weightGranted() == true;
+            final seen = prefs.getBool(kHealthWeightGrantSeenPref) == true;
+            grantTransitioned = now && !seen;
+            if (now != seen) {
+              await prefs.setBool(kHealthWeightGrantSeenPref, now);
+            }
+          }
+          if (grantTransitioned) {
+            attempts.clear();
+            attemptsDirty = true;
+          }
+        }
+        if (attemptsDirty) await save();
+
+        // A full set means older entries were trimmed: do not resurrect them
+        // (a failed one still under the cap is pending, not trimmed).
+        final floor = exported.length >= kMaxExportedWeighings
+            ? exported.reduce((a, b) => a < b ? a : b)
+            : 0;
+        final pending = [
+          for (final w in exportableWeighings(d.raw, exported: exported))
+            if ((attempts[w.atMs] ?? 0) < kMaxWeightAttempts &&
+                (w.atMs >= floor || attempts.containsKey(w.atMs)))
+              w,
+        ].take(budget).toList();
+        if (pending.isEmpty) continue;
+        budget -= pending.length;
+        if (!permChecked) {
+          permChecked = true;
+          permOk = permitted == null || await permitted();
+        }
+        if (!permOk) continue;
+        total += await writeWeighings(
+          weighings: pending,
+          exported: exported,
+          attempts: attempts,
+          save: save,
+          deleteOwn: deleteOwn,
+          write: write,
+          stopped: stopped,
+          resend: reset,
+          deleteSafe: (ts) => deleteSafeFor(id, ts),
+          mayContinue: () async {
+            if (syncEnabled != null && !await syncEnabled()) {
+              syncOff = true;
+              return false;
+            }
+            return await enabledFn(d.adapter);
+          },
+        );
+      } catch (e) {
+        debugPrint('[health] weighings export ${d.id}: $e');
+      }
     }
   } catch (e) {
     debugPrint('[health] exportScaleWeighings: $e');

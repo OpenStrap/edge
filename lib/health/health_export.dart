@@ -701,6 +701,21 @@ class HealthExporter {
     );
   }
 
+  /// Current WEIGHT grant for the cap-reset transition; null = unknown.
+  Future<bool?> _weightGranted() async {
+    try {
+      return await _health
+          .hasPermissions(
+            [HealthDataType.WEIGHT],
+            permissions: [HealthDataAccess.WRITE],
+          )
+          .timeout(_deleteTimeout);
+    } catch (e) {
+      debugPrint('[health] weight grant read: $e');
+      return null;
+    }
+  }
+
   // We do NOT gate on a write-permission check: HealthKit hides write-auth by
   // design, and Health Connect's hasPermissions(WRITE) frequently returns
   // null/false even after the user grants everything — which would leave the UI
@@ -758,6 +773,11 @@ class HealthExporter {
       await _health.requestAuthorization(
         _types,
         permissions: _types.map((_) => HealthDataAccess.WRITE).toList(),
+      );
+      // WEIGHT is in _types: the scale path need not ask a second time.
+      await (await SharedPreferences.getInstance()).setBool(
+        kHealthWeightPermAskedPref,
+        true,
       );
     } catch (e) {
       debugPrint('[health] requestAuthorization: $e');
@@ -865,6 +885,7 @@ class HealthExporter {
     if (await _androidUnavailable() != null) return 0; // HC missing/outdated
     return _workoutLock.run(() async {
     _storeHung = false;
+    var days = 0;
     try {
       await ensureHealthSleepExportEpoch(
         getCursor: LocalDb.getCursor,
@@ -1139,13 +1160,22 @@ class HealthExporter {
         return done;
       };
 
-      final days = await exportPriorityOrBulk();
+      days = await exportPriorityOrBulk();
+    } catch (e) {
+      // Weighings do not depend on the day results: log and carry on.
+      debugPrint('[health] exportAll: $e');
+    }
+    try {
       if (!_storeHung) {
         await exportScaleWeighings(
           reset: reset,
           forceRetry: forceRetry,
           stopped: () => _storeHung,
           permitted: _weightWriteAllowed,
+          weightGranted: _weightGranted,
+          syncEnabled: () async =>
+              (await SharedPreferences.getInstance()).getBool(kHealthSyncPref) ==
+              true,
           deleteOwn: (a, b) => _deleteOwnSamples(HealthDataType.WEIGHT, a, b),
           write: (kg, at) async {
             if (_storeHung) return false;
@@ -1167,11 +1197,10 @@ class HealthExporter {
           },
         );
       }
-      return days;
     } catch (e) {
-      debugPrint('[health] exportAll: $e');
-      return 0;
+      debugPrint('[health] exportAll weighings: $e');
     }
+    return days;
     });
   }
 
