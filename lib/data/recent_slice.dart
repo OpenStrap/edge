@@ -96,6 +96,8 @@ const Map<String, (SliceKeep, String?, String)> kSliceTables = {
   'activity_review_days': (SliceKeep.all, null, 'activity review state'),
   'activity_review_meta': (SliceKeep.all, null, 'activity review state'),
   'breathing_session': (SliceKeep.all, null, 'breathing sessions'),
+  'triathlon_session': (SliceKeep.all, null, 'triathlon sessions'),
+  'triathlon_segment': (SliceKeep.all, null, 'triathlon segments'),
   'exercise_def': (SliceKeep.all, null, 'exercise list'),
   // What the user logs: small.
   'journal': (SliceKeep.all, null, 'journal'),
