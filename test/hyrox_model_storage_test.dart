@@ -790,7 +790,7 @@ void main() {
               HyroxSegment(
                 sessionId: 'hx_ci_3', idx: 0,
                 kind: HyroxSegmentKind.hyroxRound, station: HyroxStation.skierg,
-                roundIndex: 1, plannedDistanceM: 1000, plannedCal: 50,
+                roundIndex: 1, plannedDistanceM: 1000,
                 startTs: 100,
               ),
               for (var i = 1; i < 8; i++)
