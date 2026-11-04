@@ -35,8 +35,9 @@ import 'package:sqflite/sqflite.dart';
 
 import 'hyrox_plan.dart';
 
-/// schemaVersion 61. Parent before child on every create. (Rung 60 belongs to
-/// the triathlon storage PR; this feature takes the next free rung.)
+/// schemaVersion 62. Parent before child on every create. (Rung 60 belongs to
+/// the triathlon storage PR; rung 61 created these tables, rung 62 adds the
+/// reconcile-exclusion column.)
 Future<void> createHyroxTables(DatabaseExecutor db) async {
   await db.execute('''
     CREATE TABLE IF NOT EXISTS hyrox_session (
@@ -50,7 +51,8 @@ Future<void> createHyroxTables(DatabaseExecutor db) async {
       note TEXT NOT NULL DEFAULT '',
       finalized_at INTEGER,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      excluded_taps_json TEXT NOT NULL DEFAULT '[]'
     )
   ''');
   await db.execute(
@@ -504,6 +506,31 @@ class HyroxDb {
     return [for (final r in rows) HyroxSegment.fromRow(r)].whereType<HyroxSegment>().toList();
   }
 
+  /// Strict variant for WRITERS: segments() silently drops rows an older
+  /// build cannot parse, which would make a writer rewrite the wrong rows.
+  /// A write path must see the whole stored timeline or refuse.
+  static Future<List<HyroxSegment>> segmentsStrict(
+      DatabaseExecutor db, String id) async {
+    final rows = await db.query(
+      'hyrox_segment',
+      where: 'session_id = ?',
+      whereArgs: [id],
+      orderBy: 'idx ASC',
+    );
+    final out = <HyroxSegment>[];
+    for (final r in rows) {
+      final seg = HyroxSegment.fromRow(r);
+      if (seg == null) {
+        throw HyroxWriteError(
+          'segment row idx=${r['idx']} of session $id is unreadable; '
+          'refusing to write on a partial timeline',
+        );
+      }
+      out.add(seg);
+    }
+    return out;
+  }
+
   static Future<HyroxSession> _withSegments(DatabaseExecutor db, HyroxSession s) async {
     final segs = await segments(db, s.id);
     return HyroxSession(
@@ -568,7 +595,7 @@ class HyroxDb {
     _checkSegmentShape(segment);
     await db.transaction((txn) async {
       await _requireWritable(txn, segment.sessionId);
-      final existing = await segments(txn, segment.sessionId);
+      final existing = await segmentsStrict(txn, segment.sessionId);
       final matching = existing.where((s) => s.idx == segment.idx).toList();
       if (matching.isEmpty) {
         throw HyroxWriteError('segment ${segment.idx} is not in the plan');
@@ -599,7 +626,7 @@ class HyroxDb {
         where: 'session_id = ? AND idx = ?',
         whereArgs: [segment.sessionId, segment.idx],
       );
-      _validateTimeline(await segments(txn, segment.sessionId));
+      _validateTimeline(await segmentsStrict(txn, segment.sessionId));
       await _recomputeSessionBounds(txn, segment.sessionId);
     });
   }
@@ -618,7 +645,7 @@ class HyroxDb {
     _checkBoundarySource(boundarySource);
     await db.transaction((txn) async {
       await _requireWritable(txn, sessionId);
-      final segs = await segments(txn, sessionId);
+      final segs = await segmentsStrict(txn, sessionId);
       if (segs.isEmpty) throw HyroxWriteError('the plan has no segments');
       if (segs.any((s) => s.startTs != null || s.endTs != null)) {
         throw HyroxWriteError('the session has already started');
@@ -631,7 +658,7 @@ class HyroxDb {
         where: 'session_id = ? AND idx = 0',
         whereArgs: [sessionId],
       );
-      _validateTimeline(await segments(txn, sessionId));
+      _validateTimeline(await segmentsStrict(txn, sessionId));
       await _recomputeSessionBounds(txn, sessionId, status: 'active');
     });
   }
@@ -676,7 +703,7 @@ class HyroxDb {
     _checkBoundarySource(boundarySource);
     await db.transaction((txn) async {
       await _requireWritable(txn, sessionId);
-      final segs = await segments(txn, sessionId);
+      final segs = await segmentsStrict(txn, sessionId);
       final open = segs.where((s) => s.isOpen).toList();
       if (open.length != 1) {
         throw HyroxWriteError('exactly one segment must be open to finish');
@@ -697,7 +724,7 @@ class HyroxDb {
         where: 'session_id = ? AND idx = ?',
         whereArgs: [sessionId, last.idx],
       );
-      _validateTimeline(await segments(txn, sessionId));
+      _validateTimeline(await segmentsStrict(txn, sessionId));
       await _recomputeSessionBounds(txn, sessionId, status: 'finished');
     });
   }
@@ -720,7 +747,7 @@ class HyroxDb {
     }
     await db.transaction((txn) async {
       await _requireWritable(txn, sessionId);
-      final segs = await segments(txn, sessionId);
+      final segs = await segmentsStrict(txn, sessionId);
       if (segs.isEmpty) throw HyroxWriteError('the plan has no segments');
       if (segs.any((s) => s.endTs != null)) {
         throw HyroxWriteError(
@@ -742,17 +769,17 @@ class HyroxDb {
           'hyrox_segment',
           cleared.toRow(),
           where: 'session_id = ? AND idx = ?',
-          whereArgs: [sessionId, i],
+          whereArgs: [sessionId, segs[i].idx],
         );
       }
-      final first = (await segments(txn, sessionId)).first;
+      final first = (await segmentsStrict(txn, sessionId)).first;
       await txn.update(
         'hyrox_segment',
         first.copyWith(startTs: newTs, boundarySource: 'manual').toRow(),
         where: 'session_id = ? AND idx = 0',
         whereArgs: [sessionId],
       );
-      _validateTimeline(await segments(txn, sessionId));
+      _validateTimeline(await segmentsStrict(txn, sessionId));
       await _recomputeSessionBounds(txn, sessionId, status: 'active');
     });
   }
@@ -770,7 +797,7 @@ class HyroxDb {
   }) async {
     await db.transaction((txn) async {
       await _requireWritable(txn, sessionId);
-      final segs = await segments(txn, sessionId);
+      final segs = await segmentsStrict(txn, sessionId);
       if (idx < 0 || idx + 1 >= segs.length) {
         throw HyroxWriteError('there is no boundary after segment $idx');
       }
@@ -802,7 +829,7 @@ class HyroxDb {
         where: 'session_id = ? AND idx = ?',
         whereArgs: [sessionId, idx + 1],
       );
-      _validateTimeline(await segments(txn, sessionId));
+      _validateTimeline(await segmentsStrict(txn, sessionId));
       await _recomputeSessionBounds(txn, sessionId);
     });
   }
@@ -822,7 +849,7 @@ class HyroxDb {
   }) async {
     await db.transaction((txn) async {
       await _requireWritable(txn, sessionId);
-      final segs = await segments(txn, sessionId);
+      final segs = await segmentsStrict(txn, sessionId);
       if (idx < 0 || idx + 1 >= segs.length) {
         throw HyroxWriteError('there is no boundary after segment $idx');
       }
@@ -872,7 +899,10 @@ class HyroxDb {
         where: 'session_id = ? AND idx = ?',
         whereArgs: [sessionId, idx + 1],
       );
-      _validateTimeline(await segments(txn, sessionId));
+      // Persist the removed boundary anchor so a later reconcile does not
+      // re-derive the same boundary from the still-present band taps.
+      await _addExcludedTap(txn, sessionId, right.startTs!);
+      _validateTimeline(await segmentsStrict(txn, sessionId));
       await _recomputeSessionBounds(txn, sessionId);
     });
   }
@@ -893,11 +923,11 @@ class HyroxDb {
   }) async {
     if (boundaries.isEmpty) return;
     await _requireWritable(txn, sessionId);
-    var segs = await segments(txn, sessionId);
+    var segs = await segmentsStrict(txn, sessionId);
     if (segs.isEmpty) throw HyroxWriteError('the plan has no segments');
     for (var i = 0; i < boundaries.length; i++) {
       final b = boundaries[i];
-      segs = await segments(txn, sessionId);
+      segs = await segmentsStrict(txn, sessionId);
       final open = segs.where((s) => s.isOpen).toList();
       if (open.isEmpty) {
         // Nothing running: this boundary STARTS the race, and only as the
@@ -915,7 +945,7 @@ class HyroxDb {
           where: 'session_id = ? AND idx = 0',
           whereArgs: [sessionId],
         );
-        _validateTimeline(segs = await segments(txn, sessionId));
+        _validateTimeline(segs = await segmentsStrict(txn, sessionId));
         await _recomputeSessionBounds(txn, sessionId, status: 'active');
         continue;
       }
@@ -945,7 +975,7 @@ class HyroxDb {
           where: 'session_id = ? AND idx = ?',
           whereArgs: [sessionId, current.idx],
         );
-        _validateTimeline(await segments(txn, sessionId));
+        _validateTimeline(await segmentsStrict(txn, sessionId));
         await _recomputeSessionBounds(txn, sessionId, status: 'finished');
         return;
       }
@@ -959,7 +989,7 @@ class HyroxDb {
     }
     // A chain that never reached the last segment leaves it running; the
     // session bounds are still correct for what is known.
-    _validateTimeline(await segments(txn, sessionId));
+    _validateTimeline(await segmentsStrict(txn, sessionId));
     await _recomputeSessionBounds(txn, sessionId);
   }
 
@@ -1009,6 +1039,84 @@ class HyroxDb {
       );
       if (updated != 1) {
         throw HyroxWriteError('workout link matched no segment row');
+      }
+      await _touch(txn, sessionId);
+    });
+  }
+
+  /// Tap-cluster anchors the athlete manually removed via removeBoundary;
+  /// reconcile must never re-derive them. Stored as a JSON int list on the
+  /// session row (rung 62 column).
+  static Future<List<int>> excludedTaps(DatabaseExecutor db, String id) async {
+    final rows = await db.query(
+      'hyrox_session',
+      columns: ['excluded_taps_json'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return const [];
+    final raw = rows.first['excluded_taps_json'];
+    if (raw is! String || raw.isEmpty) return const [];
+    final decoded = jsonDecode(raw);
+    return decoded is List ? [for (final v in decoded) (v as num).toInt()] : const [];
+  }
+
+  static Future<void> _addExcludedTap(
+      DatabaseExecutor db, String id, int tapSec) async {
+    final cur = await excludedTaps(db, id);
+    if (cur.contains(tapSec)) return;
+    final next = [...cur, tapSec]..sort();
+    await db.update(
+      'hyrox_session',
+      {'excluded_taps_json': jsonEncode(next), 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Clear a workout link. Only allowed when no OTHER segment references the
+  /// same workout (the sessions row itself is left alone — deleting workout
+  /// data is the athlete's call from the workouts screen, not ours).
+  static Future<void> unlinkWorkout(
+    Database db,
+    String sessionId,
+    int idx,
+  ) async {
+    await db.transaction((txn) async {
+      await _requireWritable(txn, sessionId);
+      final rows = await txn.query(
+        'hyrox_segment',
+        where: 'session_id = ? AND idx = ?',
+        whereArgs: [sessionId, idx],
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        throw HyroxWriteError('segment $idx is not in session $sessionId');
+      }
+      final seg = HyroxSegment.fromRow(rows.first);
+      if (seg == null || seg.workoutId == null) {
+        throw HyroxWriteError('segment $idx has no workout link to clear');
+      }
+      final others = await txn.query(
+        'hyrox_segment',
+        columns: ['session_id', 'idx'],
+        where: 'workout_id = ? AND NOT (session_id = ? AND idx = ?)',
+        whereArgs: [seg.workoutId, sessionId, idx],
+      );
+      if (others.isNotEmpty) {
+        throw HyroxWriteError(
+          'workout ${seg.workoutId} is still referenced by another segment',
+        );
+      }
+      final updated = await txn.update(
+        'hyrox_segment',
+        {'workout_id': null},
+        where: 'session_id = ? AND idx = ?',
+        whereArgs: [sessionId, idx],
+      );
+      if (updated != 1) {
+        throw HyroxWriteError('unlink matched no segment row');
       }
       await _touch(txn, sessionId);
     });
@@ -1068,7 +1176,7 @@ class HyroxDb {
           'only a finished or abandoned session can be finalized',
         );
       }
-      final segs = await segments(txn, id);
+      final segs = await segmentsStrict(txn, id);
       if (segs.isEmpty) throw HyroxWriteError('nothing to finalize');
       if (status == 'finished') {
         for (final s in segs) {
@@ -1222,7 +1330,7 @@ class HyroxDb {
     required String boundarySource,
   }) async {
     await _requireWritable(txn, sessionId);
-    final segs = await segments(txn, sessionId);
+    final segs = await segmentsStrict(txn, sessionId);
     final current = segs.where((s) => s.idx == currentIdx).toList();
     final next = segs.where((s) => s.idx == currentIdx + 1).toList();
     if (current.isEmpty || next.isEmpty) {
@@ -1251,7 +1359,7 @@ class HyroxDb {
       where: 'session_id = ? AND idx = ?',
       whereArgs: [sessionId, currentIdx + 1],
     );
-    _validateTimeline(await segments(txn, sessionId));
+    _validateTimeline(await segmentsStrict(txn, sessionId));
     await _recomputeSessionBounds(txn, sessionId);
   }
 

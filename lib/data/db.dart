@@ -664,7 +664,7 @@ class LocalDb {
   // than collide with them. The ladder is a sequence of `oldV < N` checks, so
   // an unused rung costs nothing: a device upgrading from 58 runs this step,
   // and whichever PR lands second renumbers.
-  static const int schemaVersion = 61;
+  static const int schemaVersion = 62;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -1464,6 +1464,13 @@ class LocalDb {
           // HYROX: parent session + per-round boundaries. New tables only,
           // no backfill — there is no older data to move.
           await createHyroxTables(db);
+        }
+        if (oldV < 62) {
+          // HYROX: reconcile-exclusion list for manually removed boundaries.
+          await db.execute(
+            "ALTER TABLE hyrox_session ADD COLUMN "
+            "excluded_taps_json TEXT NOT NULL DEFAULT '[]'",
+          );
         }
       },
       onOpen: (db) async {
@@ -12810,7 +12817,9 @@ class LocalDb {
                   // backup does not carry. Delete them so the restored race
                   // shows exactly the backup's segments. Skipped (protected)
                   // sessions never reach here, so their segments stay protected.
-                  await db.delete(
+                  // MUST run on the transaction (txn), not db — calling db.*
+                  // inside db.transaction deadlocks.
+                  await txn.delete(
                     'hyrox_segment',
                     where: 'session_id = ?',
                     whereArgs: ['${row['id']}'],

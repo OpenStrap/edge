@@ -134,10 +134,11 @@ class HyroxReconciler {
         ],
         orderBy: 'ts ASC',
       );
+      final excluded = (await HyroxDb.excludedTaps(txn, sessionId)).toSet();
       final taps = [
         for (final r in rows)
           if (((r['ts'] as num?) ?? 0).toInt() > 0) (r['ts'] as num).toInt(),
-      ];
+      ].where((t) => !excluded.contains(t)).toList();
       if (taps.isEmpty) {
         applied = const [];
         return;
