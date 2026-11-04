@@ -986,15 +986,20 @@ class _WeightTrendState extends State<_WeightTrend> {
       // Day arithmetic, not a subtracted duration: a DST day is 23 or 25 hours
       // long and `now - 180 days` lands on the wrong calendar date across one.
       final now = DateTime.now();
-      final since = dayLabelOf(
-        DateTime(now.year, now.month, now.day - (kWeightTrendDays - 1)),
+      final start = DateTime(
+        now.year,
+        now.month,
+        now.day - (kWeightTrendDays - 1),
       );
+      final since = dayLabelOf(start);
       final rows = await LocalDb.journalMetricsByDay(sinceDaysEpoch: since);
       // Its own guard: a failing scale read must not blank the manual trend.
       var scale = const <({double kg, int atMs})>[];
       try {
         scale = await weighings(
-          fromMs: DateTime.parse(since).millisecondsSinceEpoch,
+          // Local midnight, matching the local-day buckets below; parsing the
+          // label would read it as UTC midnight.
+          fromMs: start.millisecondsSinceEpoch,
         );
       } catch (e) {
         debugPrint('weight trend: scale read failed: $e');
@@ -1064,7 +1069,7 @@ class _WeightTrendState extends State<_WeightTrend> {
           yAxis: axis,
           xLabels: [days.first, days.last],
           footnote: l?.journalComposeTrendFootnote ??
-              'Entered by you. Days with no entry are left empty.',
+              'Entered by you or your scale. Days with no entry are left empty.',
           series: vals,
           empty: axis == null ? const NoData() : null,
           child: axis == null

@@ -66,8 +66,12 @@ List<({double kg, int atMs})> weighingChain(
 Future<List<({double kg, int atMs})>> weighings({
   num? near,
   int fromMs = 0,
-}) async {
-  final out = <({double kg, int atMs})>[];
+}) => _eachWeighing(near: near, fromMs: fromMs).toList();
+
+Stream<({double kg, int atMs})> _eachWeighing({
+  num? near,
+  int fromMs = 0,
+}) async* {
   for (final row in await LocalDb.deviceRows()) {
     final adapter = row['adapter_id'] as String?;
     if (adapter == null ||
@@ -79,16 +83,16 @@ Future<List<({double kg, int atMs})>> weighings({
         row['id'] as String, 'weight',
         fromMs: fromMs);
     for (final MapEntry(key: at, value: kg) in w.entries) {
-      if (nearWeight(kg, near)) out.add((kg: kg.toDouble(), atMs: at));
+      if (nearWeight(kg, near)) yield (kg: kg.toDouble(), atMs: at);
     }
   }
-  return out;
 }
 
-/// The newest of [weighings], or null.
+/// The newest of [weighings], or null. A running maximum: the whole history
+/// is never held at once.
 Future<({double kg, int atMs})?> newestWeighing({num? near}) async {
   ({double kg, int atMs})? newest;
-  for (final w in await weighings(near: near)) {
+  await for (final w in _eachWeighing(near: near)) {
     if (newest == null || w.atMs > newest.atMs) newest = w;
   }
   return newest;

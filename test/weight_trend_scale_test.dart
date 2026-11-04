@@ -35,6 +35,14 @@ class _FakePathProvider extends PathProviderPlatform {
 int _ms(int d, int h, [int m = 0]) =>
     DateTime(2026, 10, d, h, m).millisecondsSinceEpoch;
 
+/// `weightByDay` with a fixed clock after every fixture reading, so the
+/// future-dated filter never depends on the date the tests run.
+Map<String, double> _byDay(
+  Map<String, Map<String, JournalMetricValue>> manual,
+  List<({double kg, int atMs})> scaled, {
+  int? nowMs,
+}) => weightByDay(manual, scaled, nowMs: nowMs ?? _ms(30, 0));
+
 ({double kg, int atMs}) _w(double kg, int atMs) => (kg: kg, atMs: atMs);
 
 Map<String, Map<String, JournalMetricValue>> _j(
@@ -48,34 +56,34 @@ Map<String, Map<String, JournalMetricValue>> _j(
 void main() {
   group('weightByDay', () {
     test('scale-only day', () {
-      expect(weightByDay({}, [_w(80, _ms(3, 7))]), {'2026-10-03': 80.0});
+      expect(_byDay({}, [_w(80, _ms(3, 7))]), {'2026-10-03': 80.0});
     });
 
     test('manual-only day', () {
-      expect(weightByDay(_j('2026-10-03', 79.5), []), {'2026-10-03': 79.5});
+      expect(_byDay(_j('2026-10-03', 79.5), []), {'2026-10-03': 79.5});
     });
 
     test('no data stays absent', () {
-      expect(weightByDay({}, []), isEmpty);
+      expect(_byDay({}, []), isEmpty);
     });
 
     test('latest weighing of the day stands for it', () {
-      expect(weightByDay({}, [_w(81, _ms(3, 20)), _w(80, _ms(3, 7))]), {
+      expect(_byDay({}, [_w(81, _ms(3, 20)), _w(80, _ms(3, 7))]), {
         '2026-10-03': 81.0,
       });
     });
 
     test('both on one day: the later one wins', () {
       // Scale at 07:00 (420), journal at 21:00 (1260): journal is later.
-      expect(weightByDay(_j('2026-10-03', 79, 1260), [_w(80, _ms(3, 7))]), {
+      expect(_byDay(_j('2026-10-03', 79, 1260), [_w(80, _ms(3, 7))]), {
         '2026-10-03': 79.0,
       });
       // Journal at 06:00, scale at 07:00: scale is later.
-      expect(weightByDay(_j('2026-10-03', 79, 360), [_w(80, _ms(3, 7))]), {
+      expect(_byDay(_j('2026-10-03', 79, 360), [_w(80, _ms(3, 7))]), {
         '2026-10-03': 80.0,
       });
       // Journal without a time: the scale wins.
-      expect(weightByDay(_j('2026-10-03', 79), [_w(80, _ms(3, 7))]), {
+      expect(_byDay(_j('2026-10-03', 79), [_w(80, _ms(3, 7))]), {
         '2026-10-03': 80.0,
       });
     });
@@ -85,11 +93,11 @@ void main() {
         for (var i = 0; i < 16; i++)
           _w(95.0 - i, _ms(1, 7) + i * 86400000),
       ];
-      expect(weightByDay({}, ws).length, 16);
+      expect(_byDay({}, ws).length, 16);
     });
 
     test('a household outlier amid ~80 kg is dropped', () {
-      final out = weightByDay({}, [
+      final out = _byDay({}, [
         _w(80, _ms(3, 7)),
         _w(120, _ms(4, 7)),
         _w(79.5, _ms(5, 7)),
@@ -98,7 +106,7 @@ void main() {
     });
 
     test('a guest seeding the chain does not lock the user out', () {
-      final out = weightByDay({}, [
+      final out = _byDay({}, [
         _w(20, _ms(1, 7)),
         _w(70, _ms(2, 7)),
         _w(71, _ms(3, 7)),
@@ -110,7 +118,7 @@ void main() {
     });
 
     test('a lasting step in weight re-seeds after three weighings', () {
-      final out = weightByDay({}, [
+      final out = _byDay({}, [
         _w(90, _ms(1, 7)),
         _w(79, _ms(2, 7)),
         _w(79, _ms(3, 7)),
@@ -127,13 +135,13 @@ void main() {
     });
 
     test('a lone outlier or a two-weighing run stays dropped', () {
-      final lone = weightByDay({}, [
+      final lone = _byDay({}, [
         _w(70, _ms(1, 7)),
         _w(120, _ms(2, 7)),
         _w(71, _ms(3, 7)),
       ]);
       expect(lone, {'2026-10-01': 70.0, '2026-10-03': 71.0});
-      final two = weightByDay({}, [
+      final two = _byDay({}, [
         _w(70, _ms(1, 7)),
         _w(120, _ms(2, 7)),
         _w(121, _ms(3, 7)),
@@ -143,7 +151,7 @@ void main() {
     });
 
     test('three unrelated outliers do not re-seed', () {
-      final out = weightByDay({}, [
+      final out = _byDay({}, [
         _w(70, _ms(1, 7)),
         _w(120, _ms(2, 7)),
         _w(40, _ms(3, 7)),
@@ -154,7 +162,7 @@ void main() {
     });
 
     test('weighings dated after now are dropped', () {
-      final out = weightByDay(
+      final out = _byDay(
         {},
         [_w(80, _ms(3, 7)), _w(80, _ms(9, 7))],
         nowMs: _ms(5, 7),
@@ -163,7 +171,7 @@ void main() {
     });
 
     test('buckets by local day near midnight', () {
-      final out = weightByDay({}, [
+      final out = _byDay({}, [
         _w(80, DateTime(2026, 10, 3, 23, 59).millisecondsSinceEpoch),
         _w(81, DateTime(2026, 10, 4, 0, 1).millisecondsSinceEpoch),
       ]);
