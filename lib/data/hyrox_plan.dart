@@ -302,7 +302,7 @@ class HyroxPlan {
   static HyroxPlan? fromJson(Map<String, Object?> j) {
     final rawV = j['v'];
     final v = rawV is num ? rawV.toInt() : null;
-    if (v == null || v > kHyroxPlanVersion) return null;
+    if (v == null || v < 1 || v > kHyroxPlanVersion) return null;
     final preset = j['preset'];
     final raw = j['segments'];
     if (preset is! String || raw is! List) return null;

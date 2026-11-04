@@ -81,65 +81,82 @@ class HyroxReconciler {
   /// report it instead of silently doing nothing.
   Future<List<ReconcileBoundary>> reconcile(
     String sessionId, {
-    String deviceId = '',
+    required String deviceId,
   }) async {
-    final session = await HyroxDb.byId(db, sessionId);
-    if (session == null) return const [];
-    if (session.isFinalized) {
-      throw HyroxWriteError('session $sessionId is finalized');
-    }
-    final plan = session.plan;
-    if (plan == null) return const [];
-    // Only a race that is still going may be rebuilt. 'discarded' must stay
-    // discarded (a sync must not resurrect it), and 'finished'/'finalized'
-    // already carry their own boundaries.
-    if (session.status != 'armed' && session.status != 'active') {
-      return const [];
-    }
-
-    // The taps to consider: from the first thing this race recorded (a live
-    // boundary, or the armed stamp when nothing has started) to now.
-    final alreadyStarted =
-        session.segments.where((s) => s.startTs != null).toList();
-    final since = alreadyStarted.isEmpty
-        ? session.createdAt ~/ 1000
-        : alreadyStarted.map((s) => s.startTs!).reduce((a, b) => a > b ? a : b);
-    final until = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-
-    final rows = await db.query(
-      'band_events',
-      columns: ['ts'],
-      where: 'event_id = ? AND device_id = ? AND ts >= ? AND ts <= ?',
-      whereArgs: [
-        kHyroxDoubleTapEventId,
-        deviceId,
-        since - kClockDriftToleranceSec,
-        until + kClockDriftToleranceSec,
-      ],
-      orderBy: 'ts ASC',
-    );
-    final taps = [
-      for (final r in rows)
-        if (((r['ts'] as num?) ?? 0).toInt() > 0) (r['ts'] as num).toInt(),
-    ];
-    if (taps.isEmpty) return const [];
-
-    final boundaries = deriveBoundaries(
-      taps: taps,
-      segments: session.segments,
-      plan: plan,
-      sessionCreatedAtSec: session.createdAt ~/ 1000,
-    );
-    if (boundaries.isEmpty) return const [];
-
+    // Read the session, the taps and apply the boundaries in ONE transaction,
+    // so the decision is made against the same snapshot it is applied to.
+    late final List<ReconcileBoundary> applied;
     await db.transaction((txn) async {
+      final session = await HyroxDb.byId(txn, sessionId);
+      if (session == null) {
+        applied = const [];
+        return;
+      }
+      if (session.isFinalized) {
+        throw HyroxWriteError('session $sessionId is finalized');
+      }
+      final plan = session.plan;
+      if (plan == null) {
+        applied = const [];
+        return;
+      }
+      // Only a race that is still going may be rebuilt. 'discarded' must stay
+      // discarded (a sync must not resurrect it), and 'finished'/'finalized'
+      // already carry their own boundaries.
+      if (session.status != 'armed' && session.status != 'active') {
+        applied = const [];
+        return;
+      }
+
+      // The taps to consider: from the first thing this race recorded (a live
+      // boundary, or the armed stamp when nothing has started) to now.
+      final alreadyStarted =
+          session.segments.where((s) => s.startTs != null).toList();
+      final since = alreadyStarted.isEmpty
+          ? session.createdAt ~/ 1000
+          : alreadyStarted.map((s) => s.startTs!).reduce((a, b) => a > b ? a : b);
+      final until = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+      final rows = await txn.query(
+        'band_events',
+        columns: ['ts'],
+        where: 'event_id = ? AND device_id = ? AND ts >= ? AND ts <= ?',
+        whereArgs: [
+          kHyroxDoubleTapEventId,
+          deviceId,
+          since - kClockDriftToleranceSec,
+          until + kClockDriftToleranceSec,
+        ],
+        orderBy: 'ts ASC',
+      );
+      final taps = [
+        for (final r in rows)
+          if (((r['ts'] as num?) ?? 0).toInt() > 0) (r['ts'] as num).toInt(),
+      ];
+      if (taps.isEmpty) {
+        applied = const [];
+        return;
+      }
+
+      final boundaries = deriveBoundaries(
+        taps: taps,
+        segments: session.segments,
+        plan: plan,
+        sessionCreatedAtSec: session.createdAt ~/ 1000,
+      );
+      if (boundaries.isEmpty) {
+        applied = const [];
+        return;
+      }
+
       await HyroxDb.applyOfflineBoundariesInTx(
         txn,
         sessionId: sessionId,
         boundaries: boundaries,
       );
+      applied = boundaries;
     });
-    return boundaries;
+    return applied;
   }
 }
 

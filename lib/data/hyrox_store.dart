@@ -414,6 +414,12 @@ class HyroxDb {
     if (plan0 == null) throw HyroxWriteError('a session needs a readable plan');
     final problem = plan0.validate();
     if (problem != null) throw HyroxWriteError(problem);
+    if (session.preset != plan0.preset) {
+      throw HyroxWriteError(
+        'session preset ${session.preset} does not match the plan preset '
+        '${plan0.preset}',
+      );
+    }
     if (session.status != 'armed') {
       throw HyroxWriteError('a new session is created armed, not ${session.status}');
     }
@@ -477,7 +483,7 @@ class HyroxDb {
     });
   }
 
-  static Future<HyroxSession?> byId(Database db, String id) async {
+  static Future<HyroxSession?> byId(DatabaseExecutor db, String id) async {
     final rows = await db.query(
       'hyrox_session',
       where: 'id = ?',
@@ -498,7 +504,7 @@ class HyroxDb {
     return [for (final r in rows) HyroxSegment.fromRow(r)].whereType<HyroxSegment>().toList();
   }
 
-  static Future<HyroxSession> _withSegments(Database db, HyroxSession s) async {
+  static Future<HyroxSession> _withSegments(DatabaseExecutor db, HyroxSession s) async {
     final segs = await segments(db, s.id);
     return HyroxSession(
       id: s.id,

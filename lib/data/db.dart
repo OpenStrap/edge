@@ -503,21 +503,25 @@ class LocalDb {
   /// segment-start branch matters for a finalized DNF whose open cut segment
   /// starts on the later day: its session start and closed-segment ends are
   /// all on the earlier day, so without it the race would survive a privacy
-  /// delete of the later day. An open segment only overlaps later days while
-  /// the session is still live; a FINALIZED race (incl. an abandoned DNF) is
-  /// bounded by COALESCE(session.end_ts, session.start_ts) for the open branch.
-  /// Args: [startSec, endSec, endSec, startSec, startSec, endSec, endSec].
+  /// delete of the later day. An open segment of a LIVE session only overlaps
+  /// the window while the session was written at or after the window start
+  /// (updated_at is epoch MILLISECONDS, window bounds are seconds); a
+  /// FINALIZED race (incl. an abandoned DNF) keeps the end-time bound
+  /// COALESCE(session.end_ts, session.start_ts) for the open branch.
+  /// Args: [startSec, endSec, endSec, startSec, startSec, endSec, startSec].
   static const String _hyroxInWindowSql = '(SELECT id FROM hyrox_session '
       'WHERE start_ts >= ? AND start_ts < ? '
       'UNION SELECT session_id FROM hyrox_segment '
       'WHERE start_ts IS NOT NULL AND start_ts < ? '
       'AND ( start_ts >= ? '
       '   OR (end_ts IS NOT NULL AND end_ts > ?) '
-      '   OR (end_ts IS NULL AND start_ts < ? '
+      '   OR (end_ts IS NULL '
       '   AND EXISTS (SELECT 1 FROM hyrox_session s '
       '        WHERE s.id = hyrox_segment.session_id '
-      '        AND (s.status <> \'finalized\' '
-      '             OR COALESCE(s.end_ts, s.start_ts, 0) > ?)))) )';
+      '        AND ( (s.status = \'finalized\' '
+      '               AND COALESCE(s.end_ts, s.start_ts, 0) > ?) '
+      '             OR (s.status <> \'finalized\' '
+      '               AND s.updated_at >= ? * 1000))))) )';
 
   /// THE PRIMARY BAND'S `device_id`, and it is reserved permanently.
   ///
@@ -10980,12 +10984,12 @@ class LocalDb {
       await copyRows(
         'hyrox_session',
         where: 'id IN $_hyroxInWindowSql',
-        whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, endSec],
+        whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, startSec],
       );
       await copyRows(
         'hyrox_segment',
         where: 'session_id IN $_hyroxInWindowSql',
-        whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, endSec],
+        whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, startSec],
       );
       await copyRows(
         'live_coverage',
@@ -11196,7 +11200,7 @@ class LocalDb {
             'hyrox_session',
             columns: ['id'],
             where: 'id IN $_hyroxInWindowSql',
-            whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, endSec],
+            whereArgs: [startSec, endSec, endSec, startSec, startSec, endSec, startSec],
           ))
             r['id'] as String,
         ];

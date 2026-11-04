@@ -201,6 +201,8 @@ void main() {
 
       expect(HyroxPlan.fromJson({'v': 99, 'preset': 'hyrox', 'segments': []}),
           isNull);
+      expect(HyroxPlan.fromJson({'v': 0, 'preset': 'hyrox', 'segments': []}),
+          isNull, reason: 'versions below 1 are refused too');
       expect(HyroxPlan.fromJson({'v': 1, 'preset': 42, 'segments': []}), isNull);
       expect(
         HyroxPlan.fromJson({
@@ -405,7 +407,7 @@ void main() {
       await taps(t0 + 1300, [0, 2, 4]); // accepted: closes round 2
 
       final reconciler = HyroxReconciler(db);
-      final applied = await reconciler.reconcile('hx_posthoc_1');
+      final applied = await reconciler.reconcile('hx_posthoc_1', deviceId: '');
 
       expect(applied, hasLength(3));
       final segs = await HyroxDb.segments(db, 'hx_posthoc_1');
@@ -421,7 +423,7 @@ void main() {
       expect(read.status, 'active');
 
       // Idempotent: the same log a second time adds nothing.
-      final again = await reconciler.reconcile('hx_posthoc_1');
+      final again = await reconciler.reconcile('hx_posthoc_1', deviceId: '');
       expect(again, isEmpty);
       await LocalDb.close();
     });
@@ -453,7 +455,7 @@ void main() {
       // A round cannot be over, so it must be ignored.
       await taps(t0 + 660);
 
-      final applied = await HyroxReconciler(db).reconcile('hx_floor_1');
+      final applied = await HyroxReconciler(db).reconcile('hx_floor_1', deviceId: '');
       expect(applied, hasLength(1));
       final segs = await HyroxDb.segments(db, 'hx_floor_1');
       expect(segs[0].startTs, t0 + 600);
@@ -491,7 +493,7 @@ void main() {
           'captured_at': ts * 1000,
         });
       }
-      final applied = await HyroxReconciler(db).reconcile('hx_disc_1');
+      final applied = await HyroxReconciler(db).reconcile('hx_disc_1', deviceId: '');
       expect(applied, isEmpty);
       expect((await HyroxDb.byId(db, 'hx_disc_1'))!.status, 'discarded');
       await LocalDb.close();
@@ -809,6 +811,18 @@ void main() {
       await HyroxDb.create(db, armedSession('hx_ci_4'));
       await expectLater(
         HyroxDb.create(db, armedSession('hx_ci_4')),
+        throwsA(isA<HyroxWriteError>()),
+      );
+      // Session preset must match the frozen plan's preset.
+      await expectLater(
+        HyroxDb.create(
+          db,
+          HyroxSession(
+            id: 'hx_ci_5', kind: 'race', preset: 'hyrox_doubles',
+            status: 'armed', plan: HyroxPlan.race('hyrox'),
+            createdAt: 1, updatedAt: 1,
+          ),
+        ),
         throwsA(isA<HyroxWriteError>()),
       );
       await LocalDb.close();
