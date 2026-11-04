@@ -464,6 +464,69 @@ void main() {
       await LocalDb.close();
     });
 
+    test('a discarded session rejects every write path', () async {
+      final db = await freshDb('hx_discarded_writes_test.db');
+      await HyroxDb.create(db, armedSession('hx_disc_w_1'));
+      final current = (await HyroxDb.byId(db, 'hx_disc_w_1'))!;
+      await HyroxDb.updateSession(
+        db,
+        HyroxSession(
+          id: current.id, kind: current.kind, preset: current.preset,
+          status: 'discarded', plan: current.plan,
+          createdAt: current.createdAt, updatedAt: current.updatedAt,
+        ),
+      );
+      await expectLater(
+        HyroxDb.startSegment(
+            db: db, sessionId: 'hx_disc_w_1', ts: 2000,
+            boundarySource: 'gesture'),
+        throwsA(isA<HyroxWriteError>()),
+      );
+      await expectLater(
+        HyroxDb.transitionSegment(
+            db: db, sessionId: 'hx_disc_w_1', currentIdx: 0,
+            transitionTs: 3000, boundarySource: 'gesture'),
+        throwsA(isA<HyroxWriteError>()),
+      );
+      await expectLater(
+        HyroxDb.adjustStart(db: db, sessionId: 'hx_disc_w_1', newTs: 2500),
+        throwsA(isA<HyroxWriteError>()),
+      );
+      await expectLater(
+        HyroxDb.updateSession(
+          db,
+          HyroxSession(
+            id: current.id, kind: current.kind, preset: current.preset,
+            status: 'active', plan: current.plan,
+            createdAt: current.createdAt, updatedAt: current.updatedAt,
+          ),
+        ),
+        throwsA(isA<HyroxWriteError>()),
+      );
+      expect((await HyroxDb.byId(db, 'hx_disc_w_1'))!.status, 'discarded');
+      await LocalDb.close();
+    });
+
+    test('saveSegment cannot change the workout link', () async {
+      final db = await freshDb('hx_link_imm_test.db');
+      await HyroxDb.create(db, armedSession('hx_linkimm_1'));
+      await HyroxDb.startSegment(
+          db: db, sessionId: 'hx_linkimm_1', ts: 1000,
+          boundarySource: 'gesture');
+      await HyroxDb.linkWorkout(db, 'hx_linkimm_1', 0, 'w1');
+      await expectLater(
+        HyroxDb.saveSegment(
+          db,
+          (await HyroxDb.segments(db, 'hx_linkimm_1'))[0]
+              .copyWith(workoutId: 'w2'),
+        ),
+        throwsA(isA<HyroxWriteError>()),
+      );
+      final segs = await HyroxDb.segments(db, 'hx_linkimm_1');
+      expect(segs[0].workoutId, 'w1');
+      await LocalDb.close();
+    });
+
     test('a discarded race is never rebuilt by the reconciler', () async {
       final db = await freshDb('hx_discarded_test.db');
       final t0 = 1_000_000;
