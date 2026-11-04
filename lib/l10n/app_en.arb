@@ -68,11 +68,11 @@
   "@pairingSkipNote": {
     "description": "Note under the skip button."
   },
-  "pairingIdleTitle": "Wake the band and hold it close",
+  "pairingIdleTitle": "Put your band in pairing mode",
   "@pairingIdleTitle": {
     "description": "Pairing state title: idle."
   },
-  "pairingIdleBody": "Take the band off the charger, put it on your wrist and keep the phone within arm’s reach.",
+  "pairingIdleBody": "Take the band off your wrist and tap the top firmly until it flashes blue. Keep your phone nearby.",
   "@pairingIdleBody": {
     "description": "Pairing state body: idle."
   },
@@ -168,7 +168,7 @@
   "@pairingFailedAdviceTitle": {
     "description": "Advice card title: failed."
   },
-  "pairingFailedAdviceBody": "Scanning again from a metre away normally works.",
+  "pairingFailedAdviceBody": "Put the band in pairing mode (flashing blue), then tap Try again.",
   "@pairingFailedAdviceBody": {
     "description": "Advice card body: failed."
   },
@@ -15688,6 +15688,14 @@
   "reportDescriptionHint": "What you did, what you expected, what you saw",
   "@reportDescriptionHint": {
     "description": "Issue report: description field hint."
+  },
+  "reportContactLabel": "Contact (optional)",
+  "@reportContactLabel": {
+    "description": "Issue report: optional contact field label."
+  },
+  "reportContactHint": "Email or Discord, only if you want a reply",
+  "@reportContactHint": {
+    "description": "Issue report: optional contact field hint. Only shared so the developer can reply."
   },
   "reportAttachGroup": "Attachments",
   "@reportAttachGroup": {
