@@ -117,17 +117,20 @@ bool _isFixedRacePreset(String preset) =>
     preset == 'hyrox' || preset == 'hyrox_doubles';
 
 /// Planned targets per station for the fixed race: (distance m, reps, cal).
-/// SkiErg and rowing are 1000 m OR 50 cal — configurable by the athlete, so
-/// both targets may be present and the UI picks which to show; farmers carry
-/// is 2×40 m = 80 m; wall balls are rep-based (100 reps, ball weight is a
-/// gym-setup detail, not stored).
+/// Matches the official HYROX rulebook (Singles/Doubles/Relay 26/27): every
+/// round is a 1000 m run followed by one station — SkiErg 1000 m, sled push
+/// 4×12.5 m = 50 m, sled pull 50 m, burpee broad jumps 80 m, rowing 1000 m,
+/// farmers carry 200 m, sandbag lunges 100 m, wall balls 100 reps. Loads
+/// (sled/kettlebell/sandbag/ball weights) vary by division and are a gym-setup
+/// detail, not stored. `planned_cal` exists only for free-form training plans
+/// that target calories instead of metres on an erg.
 const Map<HyroxStation, (double?, int?, int?)> kHyroxStationTargets = {
-  HyroxStation.skierg: (1000, null, 50),
+  HyroxStation.skierg: (1000, null, null),
   HyroxStation.sledPush: (50, null, null),
   HyroxStation.sledPull: (50, null, null),
   HyroxStation.burpeeBroadJump: (80, null, null),
-  HyroxStation.rowing: (1000, null, 50),
-  HyroxStation.farmersCarry: (80, null, null),
+  HyroxStation.rowing: (1000, null, null),
+  HyroxStation.farmersCarry: (200, null, null),
   HyroxStation.sandbagLunges: (100, null, null),
   HyroxStation.wallBalls: (null, 100, null),
 };

@@ -55,12 +55,12 @@ void main() {
       expect(plan.segments[0].station, HyroxStation.skierg);
       expect(plan.segments[0].roundIndex, 1);
       expect(plan.segments[0].plannedDistanceM, 1000.0);
-      expect(plan.segments[0].plannedCal, 50);
+      expect(plan.segments[0].plannedCal, isNull); // official target is 1000 m
       expect(plan.segments[1].station, HyroxStation.sledPush);
       expect(plan.segments[1].plannedDistanceM, 50.0);
       expect(plan.segments[4].station, HyroxStation.rowing);
       expect(plan.segments[5].station, HyroxStation.farmersCarry);
-      expect(plan.segments[5].plannedDistanceM, 80.0); // 2x40 m
+      expect(plan.segments[5].plannedDistanceM, 200.0); // farmers carry 200 m
       expect(plan.segments[6].station, HyroxStation.sandbagLunges);
       expect(plan.segments[7].station, HyroxStation.wallBalls);
       expect(plan.segments[7].roundIndex, 8);
@@ -174,7 +174,7 @@ void main() {
       expect(roundTrip.segments[7].station, HyroxStation.wallBalls);
       expect(roundTrip.segments[7].plannedReps, 100);
       expect(roundTrip.segments[7].goalSec, 600);
-      expect(roundTrip.segments[0].plannedCal, 50);
+      expect(roundTrip.segments[0].plannedCal, isNull);
     });
 
     test('wrong-typed fields parse to null without throwing; newer v refused',
