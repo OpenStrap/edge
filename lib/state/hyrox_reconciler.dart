@@ -68,6 +68,11 @@ const Map<HyroxStation, int> kMinSegmentSec = {
   HyroxStation.wallBalls: 240,
 };
 
+/// Floor for free-form training/custom plans: the race floors above assume a
+/// full round (1 km run + station); a drill may be much shorter. 30 s still
+/// rejects an accidental tap.
+const int kTrainingFloorSec = 30;
+
 class HyroxReconciler {
   const HyroxReconciler(this.db);
 
@@ -232,7 +237,17 @@ List<ReconcileBoundary> deriveBoundaries({
     }
     if (openIdx < 0) break; // the race is already fully marked
     final current = plan.segments[openIdx];
-    final minSec = kMinSegmentSec[current.station] ?? 0;
+    // Full-round floors only apply to the fixed race presets. A free-form
+    // training drill (single station, short piece) may legitimately end before
+    // the race floor — use a small training floor so an accidental touch still
+    // cannot close a drill.
+    final minSec = plan.isTraining
+        ? (kMinSegmentSec[current.station] != null
+            ? (kMinSegmentSec[current.station]! < kTrainingFloorSec
+                ? kMinSegmentSec[current.station]!
+                : kTrainingFloorSec)
+            : kTrainingFloorSec)
+        : (kMinSegmentSec[current.station] ?? 0);
     final currentStart = localStarts[openIdx];
     if (currentStart != null && at - currentStart < minSec) continue;
 

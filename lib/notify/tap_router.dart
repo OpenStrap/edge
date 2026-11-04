@@ -157,6 +157,7 @@ const Map<String, int> _screenRoutes = {
   kRouteProfile: 0,
   kRouteRecap: 2, // Heart, i.e. Health — domainForRoute decides anyway
   kRouteAlarm: 0,
+  kRouteHyrox: 4, // Workouts/Activity tab
 };
 
 TapTarget resolveTapRoute(String route) {

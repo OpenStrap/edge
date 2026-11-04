@@ -583,6 +583,13 @@ class HyroxDb {
           segment.goalSec != original.goalSec) {
         throw HyroxWriteError('the planned segment is immutable');
       }
+      // The workout link is set ONLY through linkWorkout, which enforces the
+      // no-duplicate rule — saveSegment must not replace, duplicate or clear it.
+      if (segment.workoutId != original.workoutId) {
+        throw HyroxWriteError(
+          'the workout link is managed by linkWorkout, not saveSegment',
+        );
+      }
       for (final other in existing) {
         if (other.idx != segment.idx) _checkNeighbour(segment, other);
       }
@@ -1286,7 +1293,7 @@ class HyroxDb {
   static Future<void> _requireWritable(DatabaseExecutor db, String id) async {
     final rows = await db.query(
       'hyrox_session',
-      columns: ['finalized_at'],
+      columns: ['finalized_at', 'status'],
       where: 'id = ?',
       whereArgs: [id],
       limit: 1,
@@ -1294,6 +1301,12 @@ class HyroxDb {
     if (rows.isEmpty) throw HyroxWriteError('no such session: $id');
     if (rows.first['finalized_at'] != null) {
       throw HyroxWriteError('session $id is finalized and immutable');
+    }
+    // A discarded session is a terminal local decision: no write may revive
+    // or mutate it. (Unfinalized `abandoned` stays writable on purpose —
+    // `finalize` explicitly accepts it.)
+    if (rows.first['status'] == 'discarded') {
+      throw HyroxWriteError('session $id is discarded and cannot be modified');
     }
   }
 

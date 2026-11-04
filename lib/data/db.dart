@@ -12046,12 +12046,15 @@ class LocalDb {
     try {
       for (final r in await db.query(
         'hyrox_session',
-        columns: ['id', 'status', 'updated_at'],
+        columns: ['id', 'status', 'updated_at', 'finalized_at'],
         distinct: true,
       )) {
         final id = '${r['id']}';
         hyroxLastEdit[id] = (r['updated_at'] as num?)?.toInt() ?? 0;
-        if (r['status'] == 'discarded') {
+        // Finalization is one-way: a finalized local race is a record and is
+        // never replaced by an import, not even a newer backup's unfinalized
+        // copy. Discarded is an explicit local decision and always wins too.
+        if (r['status'] == 'discarded' || r['finalized_at'] != null) {
           protectedHyrox.add(id);
         }
       }
@@ -12799,7 +12802,19 @@ class LocalDb {
                 if (t == 'hyrox_session' &&
                     isHyroxProtected('${row['id']}', row)) {
                   skippedHyrox.add('${row['id']}');
-                  continue; // locally discarded, or newer than the snapshot
+                  continue; // locally discarded/finalized, or newer than the snapshot
+                }
+                if (t == 'hyrox_session') {
+                  // The session pass runs before the segment pass and FKs are
+                  // off: a replaced parent would keep local segment rows the
+                  // backup does not carry. Delete them so the restored race
+                  // shows exactly the backup's segments. Skipped (protected)
+                  // sessions never reach here, so their segments stay protected.
+                  await db.delete(
+                    'hyrox_segment',
+                    where: 'session_id = ?',
+                    whereArgs: ['${row['id']}'],
+                  );
                 }
                 if (t == 'hyrox_segment' &&
                     (isHyroxProtected('${row['session_id']}', null) ||
