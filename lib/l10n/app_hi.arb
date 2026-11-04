@@ -2861,5 +2861,17 @@
         "type": "int"
       }
     }
+  },
+  "sleepDetailMedicalDisclaimer": "प्रायोगिक अनुसंधान एल्गोरिदम। यह मेडिकल उपकरण नहीं है। नींद स्थ्प है। उपने स्वप्न की समस्या विक्रार के कारण किसी पर कोनसल्ट करें।",
+  "@sleepDetailMedicalDisclaimer": {
+    "description": "Disclaimer shown on the sleep detail screen."
+  },
+  "settingsSleepHmmRowTitle": "प्रायोगिक sleep staging (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "यह एक शोध एल्गोरिदम है, चित्सा उपकरण नहीं। यह डिफ़ॉल्ट रूप से बंदल है और अबी सिंक से लागूका।",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }
 }

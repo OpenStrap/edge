@@ -664,11 +664,27 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   Widget build(BuildContext c) {
     final d = _d ?? const SleepData();
     final l = AppLocalizations.of(c);
+    final p = P.of(c);
     final title = l?.sleepDetailNavTitle ?? 'Sleep';
+    // Persistent, not load-only (PR #628 review): the experimental /
+    // not-a-medical-device notice stays on screen for the whole visit.
+    // Theme tokens (wash/on + caption) for contrast — raw amber-on-white
+    // measured ~1.7-2.5:1.
+    final disclaimer = Container(
+      padding: const EdgeInsets.all(8),
+      color: p.wash(C.orange),
+      child: Text(
+        l?.sleepDetailMedicalDisclaimer ??
+            'Experimental research algorithm. Not a medical device. Consult a physician for sleep disorders.',
+        style: F.cap.copyWith(color: p.on(C.orange)),
+        textAlign: TextAlign.center,
+      ),
+    );
 
     if (_loading && _d == null) {
-      return _frame(c, title, const [
-        SizedBox(height: S.x8),
+      return _frame(c, title, [
+        disclaimer,
+        const SizedBox(height: S.x8),
         Center(child: CircularProgressIndicator()),
       ]);
     }
@@ -681,6 +697,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       final nav = _d ?? _lastGood ?? d;
       final shown = _day ?? nav.latestDay ?? nav.day;
       return _frame(c, title, [
+        disclaimer,
         ...dayNavRow(shown, nav.days, _goDay),
         const SizedBox(height: S.x2),
         StatusCard(
@@ -711,6 +728,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       final rejected =
           (d.night['sleep_source'] as String?) == 'rejected' && rejectedDay != null;
       return _frame(c, title, [
+        disclaimer,
         ...dayNavRow(_day ?? d.day, d.days, _goDay),
         const SizedBox(height: S.x2),
         // A day CAN be in `availableDays` and still hold no night — the band
@@ -797,6 +815,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     // would rather than printing the raw yyyy-MM-dd key.
     return _frame(c, title,
         sub: d.days.length < 2 ? dayNavLabel(d.day, l).toUpperCase() : '', [
+      disclaimer,
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
 
       // ── 1 · THE ANSWER ──

@@ -19,16 +19,37 @@ void main() {
     expect(plan.targetWake, DateTime(2026, 6, 29, 7, 30));
   });
 
-  test('disables outside the wake window', () {
+  test('disables outside the extended pre-sync lease (before preSyncAt)', () {
     final rows = [
       rowForWake(DateTime(2026, 6, 28, 7, 30)),
       rowForWake(DateTime(2026, 6, 27, 7, 29)),
       rowForWake(DateTime(2026, 6, 26, 7, 31)),
     ];
+    // 04:00 is before preSyncAt (05:15 = 07:30 − 135min) → disabled.
     final now = DateTime(2026, 6, 29, 4, 0);
     final plan = HighFreqWakeWindow.planFromRows(rows, now);
     expect(plan.shouldEnable, isFalse);
     expect(plan.targetWake, DateTime(2026, 6, 29, 7, 30));
+  });
+
+  test('enables during the pre-sync lead (between preSyncAt and window start)',
+      () {
+    // 05:45 is after preSyncAt (05:15) but before the 90-min window start
+    // (06:00). The band prompt lease is active (data backfill), but the
+    // smart-wake DETECTION still only runs inside the actual window.
+    final rows = [
+      rowForWake(DateTime(2026, 6, 28, 7, 30)),
+      rowForWake(DateTime(2026, 6, 27, 7, 29)),
+      rowForWake(DateTime(2026, 6, 26, 7, 31)),
+    ];
+    final now = DateTime(2026, 6, 29, 5, 45);
+    final plan = HighFreqWakeWindow.planFromRows(rows, now);
+    expect(plan.shouldEnable, isTrue);
+    expect(plan.source, 'habitual_wake');
+    expect(plan.targetWake, DateTime(2026, 6, 29, 7, 30));
+    // preSyncAt is set and effectiveLease covers the full 135 min.
+    expect(plan.preSyncAt, DateTime(2026, 6, 29, 5, 15));
+    expect(plan.effectiveLease, const Duration(minutes: 135));
   });
 
   test('requires enough sleep history', () {
