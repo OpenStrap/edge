@@ -437,14 +437,18 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
       // Water is a journal field logged beside food, and food is a section of
       // Activity.
       kRouteWater => ShellDomain.activity,
-      // The movement/sedentary nudges, recovery-ready and step-goal notes,
-      // and the detected-activity reviews: all about what is on Today.
+      // The movement/sedentary nudges, recovery-ready and step-goal notes:
+      // all about what is on Today.
       kRouteMovement ||
       kRouteRecovery ||
       kRouteSteps ||
-      kRouteDetectedActivities ||
       kRouteWorkoutSuggestion =>
         ShellDomain.today,
+      // The detected-activity reviews (naps and workouts alike). The
+      // suggestion cards they are about live on the Activity tab, so the
+      // pushed review sits over Activity — the tap lands where the content
+      // is, not on Home (issue #113's promise, extended to naps).
+      kRouteDetectedActivities => ShellDomain.activity,
       // The forgotten-workout nudge. Activity is the destination itself — the
       // live session bar with its finish control is pinned to the shell there
       // — so screenForRoute stays null for it.
@@ -519,12 +523,10 @@ class _ShellState extends State<_Shell> {
   late ShellDomain _domain = restoredShellTab();
 
   /// AppShell owns its own selection and takes only an `initial`, so a
-  /// programmatic jump re-keys it.
-  // ponytail: re-keying rebuilds the tab stack, so a deep link loses the
-  // scroll position of whatever tab was open. Deep links are rare and arrive
-  // from outside the app; give AppShell an external controller if that ever
-  // stops being true.
-  int _rev = 0;
+  /// programmatic jump drives it through this notifier instead of re-keying:
+  /// recreating AppShell would rebuild the tab stack and lose every visited
+  /// tab's state (scroll position included) on a notification deep link.
+  late final ValueNotifier<ShellDomain> _selection;
 
   AppState? _app;
 
@@ -534,6 +536,7 @@ class _ShellState extends State<_Shell> {
     // A tapped notification asks for a tab via AppState.navRequest. Jump there,
     // then clear the request so it isn't replayed on rebuild.
     _app = context.read<AppState>();
+    _selection = ValueNotifier(_domain);
     _app!.navRequest.addListener(_consumeSoon);
     _app!.screenRequest.addListener(_consumeSoon);
     // Cold launch from a tapped notification: the route may already be set
@@ -591,11 +594,10 @@ class _ShellState extends State<_Shell> {
 
   void _go(ShellDomain d) {
     if (d == _domain) return;
-    setState(() {
-      _domain = d;
-      _rev++;
-    });
+    setState(() => _domain = d);
     Prefs.setInt(Prefs.shellTabV2, d.index);
+    // AppShell follows this without being recreated, so tab state survives.
+    _selection.value = d;
   }
 
   @override
@@ -611,12 +613,16 @@ class _ShellState extends State<_Shell> {
     // AppState tick.
     final live = context.select<AppState, bool>((a) => a.activeWorkout != null);
     return AppShell(
-      key: ValueKey(_rev),
       initial: _domain,
+      selection: _selection,
       banner: live ? const _LiveSessionBar() : null,
       onSelect: (d) {
         _domain = d;
         Prefs.setInt(Prefs.shellTabV2, d.index);
+        // Manual tab changes (and Back) must update the notifier too:
+        // otherwise it goes stale and a later _go to that stale value fires
+        // no change event, so AppShell would not follow the deep link.
+        _selection.value = d;
       },
       builder: (c, d) => switch (d) {
         ShellDomain.today => const HomeScreen(),
