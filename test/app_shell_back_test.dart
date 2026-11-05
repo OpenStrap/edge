@@ -282,6 +282,39 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('screen Activity'), findsOneWidget);
   });
+
+  testWidgets('a deferred selection is discarded when the notifier moves on', (
+    tester,
+  ) async {
+    final notified = <ShellDomain>[];
+    Widget shell(ValueNotifier<ShellDomain> s) => MaterialApp(
+          theme: buildTheme(
+            Brightness.light,
+          ).copyWith(platform: TargetPlatform.android),
+          home: AppShell(
+            initial: ShellDomain.today,
+            selection: s,
+            onSelect: notified.add,
+            builder: (_, domain) => _TestTab(domain: domain),
+          ),
+        );
+    final first = ValueNotifier<ShellDomain>(ShellDomain.today);
+    final second = ValueNotifier<ShellDomain>(ShellDomain.activity);
+    await tester.pumpWidget(shell(first));
+    await tester.pumpAndSettle();
+
+    // didUpdateWidget schedules the deferred onSelect for Activity; moving
+    // the notifier to Health before the frame ends must win, and the stale
+    // Activity callback must be discarded (onSelect writes back to the
+    // notifier in the real shell, which would flip the tab back).
+    await tester.pumpWidget(shell(second));
+    second.value = ShellDomain.health;
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(find.text('screen Health'), findsOneWidget);
+    expect(notified, isNot(contains(ShellDomain.activity)));
+    expect(notified, contains(ShellDomain.health));
+  });
 }
 
 class _TestTab extends StatefulWidget {

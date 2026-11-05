@@ -120,7 +120,12 @@ class _AppShellState extends State<AppShell> {
         final d = s.value;
         _select(d, notify: false);
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) widget.onSelect?.call(d);
+          // Discard the callback if the shell was unmounted, the notifier
+          // was swapped, or the selection moved on since scheduling —
+          // reporting the stale domain would write it back via onSelect.
+          if (mounted && widget.selection == s && s.value == d) {
+            widget.onSelect?.call(d);
+          }
         });
       }
     }
