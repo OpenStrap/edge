@@ -56,6 +56,7 @@ import 'package:provider/provider.dart';
 
 import '../../ble/accessory_setup.dart';
 import '../../ble/adapters/_registry.dart';
+import '../../ble/band_identity.dart' show PairOutcome;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
@@ -71,6 +72,12 @@ import 'wearable_numbers.dart' show WearableUnlocks;
 
 /// A sensor this phone already has a `device` row for.
 typedef PairedSensor = ({String id, String? label});
+
+/// Until the pairing screens ask about a band, a band is a failure here: the
+/// pair refused it and nothing was saved.
+String? _failureOf(PairOutcome o) => o.isBand != null
+    ? 'That device is a ${o.isBand!.label}, not a sensor. Nothing was saved.'
+    : o.error;
 
 class PairSensorScreen extends StatefulWidget {
   /// Which band to look for. Its `service` is the scan filter and its
@@ -320,11 +327,11 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
           ? await widget.onPickedWithKey!(device, typedKey)
           : widget.onPicked != null
           ? await widget.onPicked!(device)
-          : await HrsLink.pairNotifySensor(
+          : _failureOf(await HrsLink.pairNotifySensor(
               widget.entry,
               device,
               label: label,
-            );
+            ));
     } catch (e) {
       failure = l?.pairSensorCouldNotPair(e.toString()) ??
           'Could not pair that device: $e';

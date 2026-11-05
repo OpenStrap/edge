@@ -38,6 +38,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart';
+import '../../ble/band_identity.dart' show PairOutcome;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
@@ -51,6 +52,12 @@ import '../profile/devices.dart'
     show kPairableSensors, refuseIfSensorCapReached, sensorIcon;
 import '../profile/pair_sensor.dart' show PairSensorScreen;
 import '../profile/profile.dart' show SetRow;
+
+/// Until the pairing screens ask about a band, a band is a failure here: the
+/// pair refused it and nothing was saved.
+String? _failureOf(PairOutcome o) => o.isBand != null
+    ? 'That device is a ${o.isBand!.label}, not a sensor. Nothing was saved.'
+    : o.error;
 
 class DevicePickerScreen extends StatefulWidget {
   /// Walk past pairing entirely. Non-null only at true first-run onboarding
@@ -195,8 +202,8 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
     try {
       failure = sensor.pick != null
           ? await sensor.pick!(cand.device)
-          : await HrsLink.pairNotifySensor(sensor.entry, cand.device,
-              label: cand.label);
+          : _failureOf(await HrsLink.pairNotifySensor(sensor.entry, cand.device,
+              label: cand.label));
     } catch (e) {
       failure = l?.pairSensorCouldNotPair(e.toString()) ?? 'Could not pair that device: $e';
     }
