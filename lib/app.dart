@@ -437,14 +437,18 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
       // Water is a journal field logged beside food, and food is a section of
       // Activity.
       kRouteWater => ShellDomain.activity,
-      // The movement/sedentary nudges, recovery-ready and step-goal notes,
-      // and the detected-activity reviews: all about what is on Today.
+      // The movement/sedentary nudges, recovery-ready and step-goal notes:
+      // all about what is on Today.
       kRouteMovement ||
       kRouteRecovery ||
       kRouteSteps ||
-      kRouteDetectedActivities ||
       kRouteWorkoutSuggestion =>
         ShellDomain.today,
+      // The detected-activity reviews (naps and workouts alike). The
+      // suggestion cards they are about live on the Activity tab, so the
+      // pushed review sits over Activity — the tap lands where the content
+      // is, not on Home (issue #113's promise, extended to naps).
+      kRouteDetectedActivities => ShellDomain.activity,
       // The forgotten-workout nudge. Activity is the destination itself — the
       // live session bar with its finish control is pinned to the shell there
       // — so screenForRoute stays null for it.

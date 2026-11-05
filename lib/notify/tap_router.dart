@@ -134,8 +134,9 @@ const Map<String, int> _tabRoutes = {
 };
 
 // Sub-screen routes → the shell tab they sit on top of. Most briefing/journal
-// deep links live over Today (0), and so do the detected-workout and
-// detected-activity reviews: Home is where they are surfaced and land on close.
+// deep links live over Today (0). The detected-activity reviews keep base 0
+// here (the payload's own base) but land on the Activity domain — app.dart's
+// `domainForRoute` decides whenever a screen route is present.
 //
 // /profile and /recap were BOTH being emitted with neither table knowing them,
 // so resolveTapRoute fell through to Today and every band-battery alert landed
