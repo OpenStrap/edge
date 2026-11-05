@@ -71,12 +71,19 @@ class AppShell extends StatefulWidget {
   /// belongs inside the domain.
   final Widget? banner;
 
+  /// External selection control. When provided, the shell follows changes to
+  /// it and switches tabs WITHOUT being recreated, so a programmatic jump
+  /// (a notification deep link) keeps every visited tab's state — scroll
+  /// position included — alive in the [IndexedStack].
+  final ValueNotifier<ShellDomain>? selection;
+
   const AppShell({
     super.key,
     required this.builder,
     this.initial = ShellDomain.today,
     this.onSelect,
     this.banner,
+    this.selection,
   });
 
   @override
@@ -92,6 +99,23 @@ class _AppShellState extends State<AppShell> {
   late final List<ShellDomain> _history = [
     if (widget.initial != ShellDomain.today) ShellDomain.today,
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    widget.selection?.addListener(_followSelection);
+  }
+
+  @override
+  void dispose() {
+    widget.selection?.removeListener(_followSelection);
+    super.dispose();
+  }
+
+  void _followSelection() {
+    final d = widget.selection!.value;
+    if (d != _current) _select(d);
+  }
 
   void _select(ShellDomain d) {
     setState(() {

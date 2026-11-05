@@ -16,10 +16,11 @@ const String kRouteBreathing = '/breathing';
 /// that still needs a scroll to find the control is a different promise.
 const String kRouteWater = '/water';
 
-/// "Did you work out?" auto-detect notification. Lands on the Workouts tab and
-/// pushes a focused review of the detected activity (log or adjust) — the plain
-/// `/workouts` route only selected the tab, leaving the suggestion buried in the
-/// history list (issue #113).
+/// "Did you work out?" / "Did you nap?" auto-detect notification. Lands on the
+/// Activity tab (the old Workouts tab) and pushes a focused review of the
+/// detected activity (log or adjust) — the plain `/workouts` route only
+/// selected the tab, leaving the suggestion buried in the history list
+/// (issue #113).
 ///
 /// Carries the bout it is about as `?id=<workout_suggestions.id>` — see
 /// [workoutSuggestionRoute]. The bare path still resolves (older payloads, and

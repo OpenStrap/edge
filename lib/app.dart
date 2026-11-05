@@ -523,12 +523,10 @@ class _ShellState extends State<_Shell> {
   late ShellDomain _domain = restoredShellTab();
 
   /// AppShell owns its own selection and takes only an `initial`, so a
-  /// programmatic jump re-keys it.
-  // ponytail: re-keying rebuilds the tab stack, so a deep link loses the
-  // scroll position of whatever tab was open. Deep links are rare and arrive
-  // from outside the app; give AppShell an external controller if that ever
-  // stops being true.
-  int _rev = 0;
+  /// programmatic jump drives it through this notifier instead of re-keying:
+  /// recreating AppShell would rebuild the tab stack and lose every visited
+  /// tab's state (scroll position included) on a notification deep link.
+  late final ValueNotifier<ShellDomain> _selection;
 
   AppState? _app;
 
@@ -538,6 +536,7 @@ class _ShellState extends State<_Shell> {
     // A tapped notification asks for a tab via AppState.navRequest. Jump there,
     // then clear the request so it isn't replayed on rebuild.
     _app = context.read<AppState>();
+    _selection = ValueNotifier(_domain);
     _app!.navRequest.addListener(_consumeSoon);
     _app!.screenRequest.addListener(_consumeSoon);
     // Cold launch from a tapped notification: the route may already be set
@@ -595,11 +594,10 @@ class _ShellState extends State<_Shell> {
 
   void _go(ShellDomain d) {
     if (d == _domain) return;
-    setState(() {
-      _domain = d;
-      _rev++;
-    });
+    setState(() => _domain = d);
     Prefs.setInt(Prefs.shellTabV2, d.index);
+    // AppShell follows this without being recreated, so tab state survives.
+    _selection.value = d;
   }
 
   @override
@@ -615,8 +613,8 @@ class _ShellState extends State<_Shell> {
     // AppState tick.
     final live = context.select<AppState, bool>((a) => a.activeWorkout != null);
     return AppShell(
-      key: ValueKey(_rev),
       initial: _domain,
+      selection: _selection,
       banner: live ? const _LiveSessionBar() : null,
       onSelect: (d) {
         _domain = d;

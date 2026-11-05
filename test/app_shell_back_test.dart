@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/app_shell.dart';
@@ -204,6 +205,43 @@ void main() {
     await back(tester);
     expect(find.text('Today count 1'), findsOneWidget);
   });
+
+  testWidgets(
+    'an external selection switch keeps visited tab state alive',
+    (tester) async {
+      // A notification deep link drives AppShell through `selection` rather
+      // than a re-key: recreating the shell would wipe the IndexedStack state.
+      final selection = ValueNotifier<ShellDomain>(ShellDomain.today);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(
+            Brightness.light,
+          ).copyWith(platform: TargetPlatform.android),
+          home: AppShell(
+            initial: ShellDomain.today,
+            selection: selection,
+            builder: (_, domain) => _TestTab(domain: domain),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('increment Today'));
+      await tester.pump();
+
+      selection.value = ShellDomain.activity;
+      await tester.pumpAndSettle();
+      expect(find.text('screen Activity'), findsOneWidget);
+      await tester.tap(find.text('increment Activity'));
+      await tester.pump();
+
+      selection.value = ShellDomain.today;
+      await tester.pumpAndSettle();
+      expect(find.text('Today count 1'), findsOneWidget);
+      selection.value = ShellDomain.activity;
+      await tester.pumpAndSettle();
+      expect(find.text('Activity count 1'), findsOneWidget);
+    },
+  );
 }
 
 class _TestTab extends StatefulWidget {
