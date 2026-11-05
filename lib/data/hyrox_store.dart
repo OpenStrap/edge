@@ -518,15 +518,35 @@ class HyroxDb {
       orderBy: 'idx ASC',
     );
     final out = <HyroxSegment>[];
-    for (final r in rows) {
-      final seg = HyroxSegment.fromRow(r);
-      if (seg == null) {
+    for (var i = 0; i < rows.length; i++) {
+      final seg = HyroxSegment.fromRow(rows[i]);
+      if (seg == null || seg.idx != i) {
         throw HyroxWriteError(
-          'segment row idx=${r['idx']} of session $id is unreadable; '
-          'refusing to write on a partial timeline',
+          'segment row idx=${rows[i]['idx']} of session $id is unreadable '
+          'or the stored timeline is incomplete; refusing to write on a '
+          'partial timeline',
         );
       }
       out.add(seg);
+    }
+    // Completeness against the frozen plan: a missing row would make a
+    // writer treat the last present row as the final round.
+    final sess = await db.query(
+      'hyrox_session',
+      columns: ['plan_json'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (sess.isNotEmpty) {
+      final plan = HyroxPlan.fromJson(
+          jsonDecode('${sess.first['plan_json']}') as Map<String, dynamic>? ?? const {});
+      if (plan != null && out.length != plan.segments.length) {
+        throw HyroxWriteError(
+          'session $id stores ${out.length} of ${plan.segments.length} planned '
+          'segments; refusing to write on a partial timeline',
+        );
+      }
     }
     return out;
   }

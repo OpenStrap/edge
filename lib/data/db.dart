@@ -1467,10 +1467,17 @@ class LocalDb {
         }
         if (oldV < 62) {
           // HYROX: reconcile-exclusion list for manually removed boundaries.
-          await db.execute(
-            "ALTER TABLE hyrox_session ADD COLUMN "
-            "excluded_taps_json TEXT NOT NULL DEFAULT '[]'",
-          );
+          // Rung 61's createHyroxTables already carries the column for fresh
+          // installs, so only add it when it is genuinely missing — a duplicate
+          // ALTER would abort the upgrade and quarantine the database.
+          final cols = await db.rawQuery('PRAGMA table_info(hyrox_session)');
+          final hasCol = cols.any((c) => c['name'] == 'excluded_taps_json');
+          if (!hasCol) {
+            await db.execute(
+              "ALTER TABLE hyrox_session ADD COLUMN "
+              "excluded_taps_json TEXT NOT NULL DEFAULT '[]'",
+            );
+          }
         }
       },
       onOpen: (db) async {
