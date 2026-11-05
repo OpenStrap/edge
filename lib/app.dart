@@ -619,6 +619,10 @@ class _ShellState extends State<_Shell> {
       onSelect: (d) {
         _domain = d;
         Prefs.setInt(Prefs.shellTabV2, d.index);
+        // Manual tab changes (and Back) must update the notifier too:
+        // otherwise it goes stale and a later _go to that stale value fires
+        // no change event, so AppShell would not follow the deep link.
+        _selection.value = d;
       },
       builder: (c, d) => switch (d) {
         ShellDomain.today => const HomeScreen(),
