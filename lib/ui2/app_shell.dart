@@ -112,8 +112,17 @@ class _AppShellState extends State<AppShell> {
     if (widget.selection != oldWidget.selection) {
       oldWidget.selection?.removeListener(_followSelection);
       widget.selection?.addListener(_followSelection);
-      // Reconcile with the new notifier's current value.
-      _followSelection();
+      // Reconcile with the new notifier's current value. didUpdateWidget
+      // runs during the build phase, so the onSelect callback is deferred
+      // to after the frame — it may setState on the parent.
+      final s = widget.selection;
+      if (s != null && s.value != _current) {
+        final d = s.value;
+        _select(d, notify: false);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) widget.onSelect?.call(d);
+        });
+      }
     }
   }
 
@@ -124,11 +133,12 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _followSelection() {
-    final d = widget.selection!.value;
-    if (d != _current) _select(d);
+    final s = widget.selection;
+    if (s == null) return;
+    if (s.value != _current) _select(s.value);
   }
 
-  void _select(ShellDomain d) {
+  void _select(ShellDomain d, {bool notify = true}) {
     setState(() {
       // Each tab at most once, most recent last, so switching back and forth
       // between two tabs does not add a Back press per switch. Today stays in
@@ -147,7 +157,7 @@ class _AppShellState extends State<AppShell> {
       _current = d;
       _built.add(d);
     });
-    widget.onSelect?.call(d);
+    if (notify) widget.onSelect?.call(d);
   }
 
   void _back() {

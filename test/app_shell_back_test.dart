@@ -246,13 +246,15 @@ void main() {
   testWidgets('swapping the selection notifier re-syncs to its current value', (
     tester,
   ) async {
-    Widget shell(ValueNotifier<ShellDomain> s) => MaterialApp(
+    final notified = <ShellDomain>[];
+    Widget shell(ValueNotifier<ShellDomain>? s) => MaterialApp(
           theme: buildTheme(
             Brightness.light,
           ).copyWith(platform: TargetPlatform.android),
           home: AppShell(
             initial: ShellDomain.today,
             selection: s,
+            onSelect: notified.add,
             builder: (_, domain) => _TestTab(domain: domain),
           ),
         );
@@ -263,13 +265,20 @@ void main() {
     expect(find.text('screen Today'), findsOneWidget);
 
     // Same element position, new notifier instance: didUpdateWidget must
-    // move the listener and reconcile to the new value.
+    // move the listener and reconcile to the new value, delivering onSelect
+    // after the frame rather than during the build.
     await tester.pumpWidget(shell(second));
     await tester.pumpAndSettle();
     expect(find.text('screen Activity'), findsOneWidget);
+    expect(notified, [ShellDomain.activity]);
 
     // The old notifier must no longer drive the shell.
     first.value = ShellDomain.health;
+    await tester.pumpAndSettle();
+    expect(find.text('screen Activity'), findsOneWidget);
+
+    // Removing the notifier entirely must not throw.
+    await tester.pumpWidget(shell(null));
     await tester.pumpAndSettle();
     expect(find.text('screen Activity'), findsOneWidget);
   });
