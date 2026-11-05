@@ -107,6 +107,17 @@ class _AppShellState extends State<AppShell> {
   }
 
   @override
+  void didUpdateWidget(covariant AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selection != oldWidget.selection) {
+      oldWidget.selection?.removeListener(_followSelection);
+      widget.selection?.addListener(_followSelection);
+      // Reconcile with the new notifier's current value.
+      _followSelection();
+    }
+  }
+
+  @override
   void dispose() {
     widget.selection?.removeListener(_followSelection);
     super.dispose();

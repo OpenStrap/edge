@@ -242,6 +242,37 @@ void main() {
       expect(find.text('Activity count 1'), findsOneWidget);
     },
   );
+
+  testWidgets('swapping the selection notifier re-syncs to its current value', (
+    tester,
+  ) async {
+    Widget shell(ValueNotifier<ShellDomain> s) => MaterialApp(
+          theme: buildTheme(
+            Brightness.light,
+          ).copyWith(platform: TargetPlatform.android),
+          home: AppShell(
+            initial: ShellDomain.today,
+            selection: s,
+            builder: (_, domain) => _TestTab(domain: domain),
+          ),
+        );
+    final first = ValueNotifier<ShellDomain>(ShellDomain.today);
+    final second = ValueNotifier<ShellDomain>(ShellDomain.activity);
+    await tester.pumpWidget(shell(first));
+    await tester.pumpAndSettle();
+    expect(find.text('screen Today'), findsOneWidget);
+
+    // Same element position, new notifier instance: didUpdateWidget must
+    // move the listener and reconcile to the new value.
+    await tester.pumpWidget(shell(second));
+    await tester.pumpAndSettle();
+    expect(find.text('screen Activity'), findsOneWidget);
+
+    // The old notifier must no longer drive the shell.
+    first.value = ShellDomain.health;
+    await tester.pumpAndSettle();
+    expect(find.text('screen Activity'), findsOneWidget);
+  });
 }
 
 class _TestTab extends StatefulWidget {
