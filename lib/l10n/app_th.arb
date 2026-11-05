@@ -655,14 +655,6 @@
       }
     }
   },
-  "devicesAddASensor": "เพิ่มเซ็นเซอร์",
-  "@devicesAddASensor": {
-    "description": "Row/sheet title: add a sensor."
-  },
-  "devicesAddASensorSub": "สายคาดวัดหัวใจหรือแหวน ใช้ร่วมกับสายรัด",
-  "@devicesAddASensorSub": {
-    "description": "Row sub."
-  },
   "devicesWhichSourceWins": "ลำดับความสำคัญของแหล่งข้อมูล",
   "@devicesWhichSourceWins": {
     "description": "Row title: opens the per-signal priority editor."
@@ -682,18 +674,6 @@
   "devicesNoBandPaired": "ยังไม่ได้จับคู่สายรัด",
   "@devicesNoBandPaired": {
     "description": "Status card title."
-  },
-  "devicesNothingMeasuringYet": "ยังไม่มีอุปกรณ์กำลังวัด",
-  "@devicesNothingMeasuringYet": {
-    "description": "Status card title."
-  },
-  "devicesPhoneCountingBody": "โทรศัพท์นับได้เฉพาะก้าว จะยังไม่แสดงอัตราการเต้นหัวใจ การนอน การฟื้นตัว และอุณหภูมิจนกว่าจะจับคู่สายรัด",
-  "@devicesPhoneCountingBody": {
-    "description": "Status card body: phone only."
-  },
-  "devicesNothingMeasuringBody": "ยังไม่ได้จับคู่สายรัดและไม่มีข้อมูลก้าวจากโทรศัพท์ แอปจึงยังไม่แสดงค่าต่าง ๆ แทนการประมาณขึ้นมา",
-  "@devicesNothingMeasuringBody": {
-    "description": "Status card body: nothing measuring."
   },
   "devicesPairABand": "จับคู่สายรัด",
   "@devicesPairABand": {
@@ -16526,15 +16506,6 @@
   "@pairCardBandBody": {
     "description": "Body of the Your band card in Settings."
   },
-  "pairAlreadyHaveBand": "คุณจับคู่สายรัดไว้แล้ว: {name} ยกเลิกการจับคู่ก่อนเพื่อเปลี่ยนไปใช้สายรัดอื่น",
-  "@pairAlreadyHaveBand": {
-    "description": "Shown in My sources when a band is already paired. {name} is the band’s name.",
-    "placeholders": {
-      "name": {
-        "type": "String"
-      }
-    }
-  },
   "pairUnpairBand": "ยกเลิกการจับคู่สายรัด",
   "@pairUnpairBand": {
     "description": "Red outline button that starts forgetting the paired band (a confirm dialog follows)."
@@ -16736,6 +16707,10 @@
   "pairSetUpTitle": "ตั้งค่า",
   "@pairSetUpTitle": {
     "description": "Top bar title of the first-run pairing screen."
+  },
+  "pairReplaceUnpairFailed": "ยกเลิกการจับคู่สายรัดของคุณไม่สำเร็จ จึงยังไม่ได้จับคู่สายรัดใหม่ ลองอีกครั้ง",
+  "@pairReplaceUnpairFailed": {
+    "description": "Shown when unpairing the old band failed during “Unpair (your band) and pair this one”; nothing else ran."
   },
   "capReasonUnconfirmed": "หากอุปกรณ์นี้ส่งข้อมูลนี้ ยังไม่ได้ยืนยัน",
   "@capReasonUnconfirmed": {

@@ -7,6 +7,7 @@ import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/band_identity.dart';
 import 'package:openstrap_edge/ble/hrs_link.dart';
 import 'package:openstrap_edge/sync/paired_device.dart' show kBandSourceTier;
+import 'package:openstrap_edge/ui2/pairing/add_device_flow.dart' show addDeviceScanEntries;
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 BandEntry? _id(List<String> svc, [String? name]) =>
@@ -124,6 +125,30 @@ void main() {
           platformName: '',
           rssi: -55,
         );
+
+    test('(G3 r1 S4) the Add a device scan covers the framed WHOOP entries: a WHOOP-only advertisement is a candidate', () {
+      // WHY: a WHOOP that advertises only its own band service matched no
+      // sensor entry and was dropped, so the band could never be discovered
+      // from "Add a device".
+      final entries = addDeviceScanEntries();
+      expect(entries.map((e) => e.id), containsAll(['gen4', 'gen5', 'ble_hrs', 'oura']));
+      expect(entries.map((e) => e.id).toSet().length, kBandRegistry.length);
+      // (A by-name entry makes the OS filter empty: every advertisement is heard.)
+      final filter = HrsLink.scanServiceFilter(entries);
+      expect(filter.isEmpty || filter.contains(Guid(kWhoopGen5.service)), isTrue);
+      final c = HrsLink.candidateFromAd(
+        entries: entries,
+        device: BluetoothDevice.fromId('AA:BB:CC:DD:EE:21'),
+        serviceUuids: [Guid(kWhoopGen5.service)],
+        advName: 'WHOOP 5A1B',
+        platformName: '',
+        rssi: -50,
+      );
+      expect(c, isNotNull);
+      expect(c!.entryId, 'gen5');
+      // Control: the same advertisement against the sensor list alone is dropped.
+      expect(cand([kWhoopGen5.service], 'WHOOP 5A1B'), isNull);
+    });
 
     test('a WHOOP advertising 0x180D is a ble_hrs hit flagged alsoBand=gen4', () {
       // WHY: the picker needs both facts: it matched the HR scan AND is a band.

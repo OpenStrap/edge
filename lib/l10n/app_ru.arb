@@ -241,16 +241,11 @@
       }
     }
   },
-  "devicesAddASensor": "Добавить датчик",
-  "devicesAddASensorSub": "Нагрудный датчик пульса или кольцо — вместе с браслетом",
   "devicesWhichSourceWins": "Приоритет источников",
   "devicesWhichSourceWinsSub": "Какой источник использовать, когда два устройства измеряют одно и то же",
   "devicesResetToDefault": "Вернуть порядок по умолчанию",
   "devicesMySources": "Мои источники",
   "devicesNoBandPaired": "Браслет не подключён",
-  "devicesNothingMeasuringYet": "Пока ничего не измеряется",
-  "devicesPhoneCountingBody": "Телефон считает только шаги. Пульс, сон, восстановление и температура недоступны, пока не подключён браслет.",
-  "devicesNothingMeasuringBody": "Браслет не подключён и шаги с телефона не поступают, поэтому приложение не будет оценивать показатели приблизительно.",
   "devicesPairABand": "Подключить браслет",
   "devicesLive": "СЕЙЧАС",
   "devicesQualityLadder": "КАЧЕСТВО ИСТОЧНИКОВ",
@@ -7978,14 +7973,6 @@
   "pairGoBack": "Назад",
   "pairSectionTitle": "Подключить устройство",
   "pairCardBandBody": "Только WHOOP 4.0 или WHOOP 5.0/MG. Сон, восстановление и нагрузка круглые сутки.",
-  "pairAlreadyHaveBand": "У вас уже подключён браслет: {name}. Сначала отключите его, чтобы перейти на другой.",
-  "@pairAlreadyHaveBand": {
-    "placeholders": {
-      "name": {
-        "type": "String"
-      }
-    }
-  },
   "pairUnpairBand": "Отключить браслет",
   "pairAddDeviceSub": "Кольца, часы и нагрудные пульсометры",
   "pairAddDeviceSubtitle": "У каждого устройства указано, для чего оно подходит: на каждый день или только для тренировок.",
@@ -8071,6 +8058,7 @@
   "pairTroubleDiscordSub": "Сообщество OpenStrap",
   "pairWhoopRowLine": "Сон, восстановление, нагрузка, пульс и многое другое",
   "pairSetUpTitle": "Настройка",
+  "pairReplaceUnpairFailed": "Не удалось отключить ваш браслет, поэтому новый не подключён. Попробуйте ещё раз.",
   "capReasonUnconfirmed": "Если устройство это передаёт, не подтверждено",
   "pairModeTitle": "Переведите в режим сопряжения",
   "pairModeNotConfirmed": "Пока не подтверждено",

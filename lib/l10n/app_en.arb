@@ -655,14 +655,6 @@
       }
     }
   },
-  "devicesAddASensor": "Add a sensor",
-  "@devicesAddASensor": {
-    "description": "Row/sheet title: add a sensor."
-  },
-  "devicesAddASensorSub": "A heart-rate strap or a ring, alongside the band",
-  "@devicesAddASensorSub": {
-    "description": "Row sub."
-  },
   "devicesWhichSourceWins": "Which source wins",
   "@devicesWhichSourceWins": {
     "description": "Row title: opens the per-signal priority editor."
@@ -682,18 +674,6 @@
   "devicesNoBandPaired": "No band is paired",
   "@devicesNoBandPaired": {
     "description": "Status card title."
-  },
-  "devicesNothingMeasuringYet": "Nothing is measuring yet",
-  "@devicesNothingMeasuringYet": {
-    "description": "Status card title."
-  },
-  "devicesPhoneCountingBody": "The phone counts steps and nothing else. Heart rate, sleep, recovery and temperature all abstain until a band is paired.",
-  "@devicesPhoneCountingBody": {
-    "description": "Status card body: phone only."
-  },
-  "devicesNothingMeasuringBody": "No band is paired and no phone steps are arriving, so every metric in the app will abstain rather than estimate.",
-  "@devicesNothingMeasuringBody": {
-    "description": "Status card body: nothing measuring."
   },
   "devicesPairABand": "Pair a band",
   "@devicesPairABand": {
@@ -16532,15 +16512,6 @@
   "@pairCardBandBody": {
     "description": "Body of the Your band card in Settings."
   },
-  "pairAlreadyHaveBand": "You already have a band paired: {name}. Unpair it first to switch to another band.",
-  "@pairAlreadyHaveBand": {
-    "description": "Shown in My sources when a band is already paired. {name} is the band’s name.",
-    "placeholders": {
-      "name": {
-        "type": "String"
-      }
-    }
-  },
   "pairUnpairBand": "Unpair band",
   "@pairUnpairBand": {
     "description": "Red outline button that starts forgetting the paired band (a confirm dialog follows)."
@@ -16742,6 +16713,10 @@
   "pairSetUpTitle": "Set up",
   "@pairSetUpTitle": {
     "description": "Top bar title of the first-run pairing screen."
+  },
+  "pairReplaceUnpairFailed": "Could not unpair your band, so the new one was not paired. Try again.",
+  "@pairReplaceUnpairFailed": {
+    "description": "Shown when unpairing the old band failed during “Unpair (your band) and pair this one”; nothing else ran."
   },
   "capReasonUnconfirmed": "If this device sends it, not confirmed",
   "@capReasonUnconfirmed": {
