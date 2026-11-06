@@ -97,15 +97,21 @@ the confidence level stated.
    metrics there), labeled as a device estimate, same labeling discipline as
    `vendor_staged`.
    - NO user-facing display on either generation until the validation
-     workstream lands: gen5 byte 82 stays raw/logged until its encoding
-     (bit-7 flag) is pinned and correlated against a reference device; gen4
-     byte 5 stays diagnostic/raw in logs, never user-facing, until
-     ground-truth validated.
+     workstream lands: gen5 byte 82 stays raw until its encoding (bit-7 flag)
+     is pinned and validated against a reference device; gen4 byte 5 stays
+     diagnostic, never user-facing, until ground-truth validated.
+   - Diagnostics stay RAM-ONLY, never in `_log`/FileLog: FileLog writes to
+     Android external storage (`lib/sync/file_log.dart`), so a timestamped
+     candidate/sleep line there is readable by other apps (CWE-532).
    - Respect invariants: live streams RAM-only (inv. 14), never fabricate a
      metric (inv. 3), bump `kAlgoVersion` when any output changes (inv. 4).
 4. **Validation workstream** (prerequisite for ANY user-facing SpO2 value,
-   both generations): captures against a reference oximeter, byte-82 encoding
-   pin-down, UUID discrepancy resolution.
+   both generations): paired measurements against a reference oximeter over
+   at least 10 nights / 30 paired samples; the display gate opens only when
+   accuracy criteria are met — MAE <= 2 pp AND |mean bias| <= 1 pp AND
+   Bland-Altman 95% limits of agreement within +/-4 pp. Correlation
+   (Pearson/Spearman) is reported separately and is NEVER treated as proof of
+   accuracy. Plus: byte-82 encoding pin-down, UUID discrepancy resolution.
 
 ## Out of scope
 
