@@ -96,13 +96,16 @@ the confidence level stated.
    `OpenStrap/analytics` (a metric, not signal wiring — AGENTS.md assigns
    metrics there), labeled as a device estimate, same labeling discipline as
    `vendor_staged`.
-   - Gen4 byte 5 stays diagnostic/raw in logs, never user-facing, until
+   - NO user-facing display on either generation until the validation
+     workstream lands: gen5 byte 82 stays raw/logged until its encoding
+     (bit-7 flag) is pinned and correlated against a reference device; gen4
+     byte 5 stays diagnostic/raw in logs, never user-facing, until
      ground-truth validated.
    - Respect invariants: live streams RAM-only (inv. 14), never fabricate a
      metric (inv. 3), bump `kAlgoVersion` when any output changes (inv. 4).
-4. **Validation workstream** (prerequisite for any user-facing 4.0 value):
-   captures against a reference oximeter, byte-82 encoding pin-down, UUID
-   discrepancy resolution.
+4. **Validation workstream** (prerequisite for ANY user-facing SpO2 value,
+   both generations): captures against a reference oximeter, byte-82 encoding
+   pin-down, UUID discrepancy resolution.
 
 ## Out of scope
 
