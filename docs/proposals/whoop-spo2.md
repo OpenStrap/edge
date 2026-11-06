@@ -111,7 +111,12 @@ the confidence level stated.
    accuracy criteria are met — MAE <= 2 pp AND |mean bias| <= 1 pp AND
    Bland-Altman 95% limits of agreement within +/-4 pp. Correlation
    (Pearson/Spearman) is reported separately and is NEVER treated as proof of
-   accuracy. Plus: byte-82 encoding pin-down, UUID discrepancy resolution.
+   accuracy. Burst-level pairs are NOT sufficient: the gate must also compare
+   the actual NIGHTLY OUTPUT (our aggregation over the band-declared sleep
+   window, burst weighting included) against the reference aggregated over the
+   same night, because burst-level agreement can pass while the nightly
+   calculation uses the wrong window or weights. Plus: byte-82 encoding
+   pin-down, UUID discrepancy resolution.
 
 ## Out of scope
 
