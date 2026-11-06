@@ -45,7 +45,7 @@ the confidence level stated.
   RAM-only, never persisted. A live SpO2 could therefore only ever be an
   ephemeral display value, never a day metric.
 
-### WHOOP 5.0 / MG — community cross-validated, sleep-only
+### WHOOP 5.0 / MG — community-reported app agreement, sleep-only
 
 - v18 historical records carry the strap's own computed SpO2 % at frame-abs
   byte 82 (= `inner[74]`), which our `protocol` already exposes as
@@ -87,13 +87,15 @@ the confidence level stated.
      CRC flag only** — no percentage publishing. Resolve the characteristic
      UUID discrepancy from real captures first.
    - Tests from real frames; extend parity fixtures where applicable.
-2. **whoop-rs** — mirror the decoders in `whoop-protocol` (live 96-byte packet,
+2. **whoop-rs** — DEFERRED: current scope is `protocol` + `edge` only. When
+   picked up: mirror the decoders in `whoop-protocol` (live 96-byte packet,
    v18 byte 82 interpretation), expose raw values via `whoop-ffi`; keep the
    existing `spo2_pct` v18 and `spo2_from_paired` paths unchanged.
-3. **edge** — user-facing only the validated-shape path:
-   - Wire `InputSignal.deviceSpo2` for gen5/5.0/MG as a nightly mean over the
-     sleep bursts (per-burst median, flag values dropped), labeled as a device
-     estimate — same labeling discipline as `vendor_staged`.
+3. **edge** — pass through the band-reported `deviceSpo2` samples for
+   gen5/5.0/MG; the per-burst medians and the nightly mean are computed in
+   `OpenStrap/analytics` (a metric, not signal wiring — AGENTS.md assigns
+   metrics there), labeled as a device estimate, same labeling discipline as
+   `vendor_staged`.
    - Gen4 byte 5 stays diagnostic/raw in logs, never user-facing, until
      ground-truth validated.
    - Respect invariants: live streams RAM-only (inv. 14), never fabricate a
