@@ -115,8 +115,12 @@ the confidence level stated.
    the actual NIGHTLY OUTPUT (our aggregation over the band-declared sleep
    window, burst weighting included) against the reference aggregated over the
    same night, because burst-level agreement can pass while the nightly
-   calculation uses the wrong window or weights. Plus: byte-82 encoding
-   pin-down, UUID discrepancy resolution.
+   calculation uses the wrong window or weights. Gen4 has NO nightly SpO2
+   output — its byte 5 is a live-stream byte only — so any Gen4 display gate
+   must instead use time-aligned LIVE reference measurements (same accuracy
+   thresholds: MAE <= 2 pp, |bias| <= 1 pp, 95% LoA within +/-4 pp), never the
+   nightly gate. Plus: byte-82 encoding pin-down, UUID discrepancy
+   resolution.
 
 ## Out of scope
 
