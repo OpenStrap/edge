@@ -5782,15 +5782,10 @@ class BleEngine {
       // about a vessel: beat-detection quality, motion-artifact rejection,
       // corroborating the band's own RR intervals. build those, not a number.
       sample = decodeGen5HistoricalSample(frame.inner);
-      // Diagnostic only: the gen5 SpO2 candidate byte is raw and unvalidated
-      // (nonzero only inside band-declared sleep bursts), so it is logged,
-      // never stored or displayed as a percentage.
-      final spo2Cand = sample?.spo2CandidateRaw ?? 0;
-      if (spo2Cand != 0) {
-        _log('[SPO2] gen5 candidate raw=$spo2Cand ts=${sample?.tsEpoch} '
-            'counter=${sample?.counter} sleep=${sample?.bandSleepState} '
-            '(not a validated %)');
-      }
+      // The gen5 SpO2 candidate byte stays IN MEMORY ONLY (Sample.spo2CandidateRaw):
+      // raw and unvalidated, never stored, never displayed as a percentage, and
+      // NEVER written to _log — FileLog lives in Android external storage, so a
+      // timestamped candidate/sleep line there would be readable by other apps.
     } else if (recType != Record.r25 &&
         kKnownRecordVersions.contains(recType)) {
       // Every gen4 layout version protocol has a field map for — not just
