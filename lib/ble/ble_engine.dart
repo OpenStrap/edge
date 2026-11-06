@@ -5782,10 +5782,12 @@ class BleEngine {
       // about a vessel: beat-detection quality, motion-artifact rejection,
       // corroborating the band's own RR intervals. build those, not a number.
       sample = decodeGen5HistoricalSample(frame.inner);
-      // The gen5 SpO2 candidate byte stays IN MEMORY ONLY (Sample.spo2CandidateRaw):
-      // raw and unvalidated, never stored, never displayed as a percentage, and
-      // NEVER written to _log — FileLog lives in Android external storage, so a
-      // timestamped candidate/sleep line there would be readable by other apps.
+      // The gen5 SpO2 candidate byte is never written to _log — FileLog lives in
+      // Android external storage, so a timestamped candidate/sleep line there
+      // would be readable by other apps (CWE-532). It is not persisted as a
+      // decoded column either; only whole UNDECODABLE frames reach raw_archive,
+      // which can contain the byte (kept for the commit-before-ACK invariant).
+      // In-memory carrier: Sample.spo2CandidateRaw — raw, never a percentage.
     } else if (recType != Record.r25 &&
         kKnownRecordVersions.contains(recType)) {
       // Every gen4 layout version protocol has a field map for — not just
