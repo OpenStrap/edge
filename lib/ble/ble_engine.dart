@@ -5787,7 +5787,9 @@ class BleEngine {
       // never stored or displayed as a percentage.
       final spo2Cand = sample?.spo2CandidateRaw ?? 0;
       if (spo2Cand != 0) {
-        _log('[SPO2] gen5 candidate raw=$spo2Cand sleep=${sample?.bandSleepState} (not a validated %)');
+        _log('[SPO2] gen5 candidate raw=$spo2Cand ts=${sample?.tsEpoch} '
+            'counter=${sample?.counter} sleep=${sample?.bandSleepState} '
+            '(not a validated %)');
       }
     } else if (recType != Record.r25 &&
         kKnownRecordVersions.contains(recType)) {
