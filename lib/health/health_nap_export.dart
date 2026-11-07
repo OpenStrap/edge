@@ -57,12 +57,18 @@ class MethodChannelHealthKitNapWriter implements HealthKitNapWriter {
 
   final MethodChannel channel;
   Future<void> _pending = Future<void>.value();
+  // Monotonic per-call sequence. A native call that outlives its 30 s timeout
+  // can still land later; the native side drops nap calls whose seq is not
+  // newer than the last one it applied, so a late replaceNap can never
+  // overwrite a newer deleteNapRange for the same window.
+  int _seq = 0;
 
   @override
   Future<bool> replaceNap({required DateTime start, required DateTime end}) =>
       _invoke('replaceNap', {
         'startTime': start.millisecondsSinceEpoch,
         'endTime': end.millisecondsSinceEpoch,
+        'seq': ++_seq,
       });
 
   @override
@@ -70,6 +76,7 @@ class MethodChannelHealthKitNapWriter implements HealthKitNapWriter {
       _invoke('deleteNapRange', {
         'startTime': start.millisecondsSinceEpoch,
         'endTime': end.millisecondsSinceEpoch,
+        'seq': ++_seq,
       });
 
   Future<bool> _invoke(String method, Map<String, Object?> args) {
@@ -119,12 +126,14 @@ class HealthNapExporter {
     bool? isApple,
     Future<bool> Function()? healthSyncEnabled,
     Future<Map<String, dynamic>?> Function(String dayId, int startTs)? napRow,
+    Future<List<Map<String, dynamic>>> Function(String dayId)? dayNapRows,
     Future<bool> Function(int startTs, int endTs)? overlapsMainSleep,
   }) : _writer = writer ?? MethodChannelHealthKitNapWriter(),
        isApple = isApple ?? HealthExporter.isApple,
        _healthSyncEnabled =
            healthSyncEnabled ?? _defaultHealthSyncEnabled,
        _napRow = napRow ?? _defaultNapRow,
+       _dayNapRows = dayNapRows ?? LocalDb.napEdits,
        _overlapsMainSleep =
            overlapsMainSleep ?? _defaultOverlapsMainSleep;
 
@@ -133,6 +142,7 @@ class HealthNapExporter {
   final Future<bool> Function() _healthSyncEnabled;
   final Future<Map<String, dynamic>?> Function(String dayId, int startTs)
       _napRow;
+  final Future<List<Map<String, dynamic>>> Function(String dayId) _dayNapRows;
   final Future<bool> Function(int startTs, int endTs) _overlapsMainSleep;
 
   /// Process-wide exporter; call sites use the static wrappers below.
@@ -184,6 +194,11 @@ class HealthNapExporter {
       if (!await _healthSyncEnabled()) return false;
       final row = await _napRow(dayId, startTs);
       final source = row?['source'];
+      // The stored row is the source of truth: a caller passing a stale
+      // endTs (e.g. before an edit landed) must not export a window the row
+      // no longer holds.
+      final storedEnd = row?['end_ts'];
+      if (storedEnd is! num || storedEnd.toInt() != endTs) return false;
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       if (!napWindowExportable(
         source: source is String ? source : null,
@@ -203,6 +218,47 @@ class HealthNapExporter {
       );
     } catch (e) {
       debugPrint('[health] exportNap $dayId $startTs-$endTs: $e');
+      return false;
+    }
+  }
+
+  /// Export every exportable nap of [dayId]. Called from the per-day health
+  /// export AFTER the main-sleep replace: that replace's noon-to-noon
+  /// cleanup window also covers the wake day's afternoon, so it deletes OUR
+  /// nap samples there — re-writing them on every pass keeps them in the
+  /// store. Rows that are not exportable (pending/rejected/legacy, overlap
+  /// with main sleep) are skipped silently; false means an attempted write
+  /// failed. On Android or with the sync switch off this is a no-op `true`.
+  Future<bool> exportDayNaps(String dayId) async {
+    try {
+      if (!isApple) return true;
+      if (!await _healthSyncEnabled()) return true;
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      var ok = true;
+      for (final row in await _dayNapRows(dayId)) {
+        final startTs = row['start_ts'];
+        final endTs = row['end_ts'];
+        final source = row['source'];
+        if (startTs is! num || endTs is! num) continue;
+        final s = startTs.toInt(), e = endTs.toInt();
+        if (!napWindowExportable(
+          source: source is String ? source : null,
+          startTs: s,
+          endTs: e,
+          nowSec: nowSec,
+        )) {
+          continue;
+        }
+        if (await _overlapsMainSleep(s, e)) continue;
+        final written = await _writer.replaceNap(
+          start: DateTime.fromMillisecondsSinceEpoch(s * 1000),
+          end: DateTime.fromMillisecondsSinceEpoch(e * 1000),
+        );
+        if (!written) ok = false;
+      }
+      return ok;
+    } catch (e) {
+      debugPrint('[health] exportDayNaps $dayId: $e');
       return false;
     }
   }

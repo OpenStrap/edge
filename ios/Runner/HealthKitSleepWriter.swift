@@ -15,6 +15,11 @@ enum HealthKitSleepWriter {
   private static let channelName = "openstrap/healthkit_sleep"
   private static let store = HKHealthStore()
   private static let queue = DispatchQueue(label: "wtf.openstrap.healthkit.sleep")
+  // Nap calls carry a monotonic `seq` from Dart. A native call that outlives
+  // its Dart-side timeout can still land later; dropping any nap call whose
+  // seq is not newer than the last applied one keeps a late replaceNap from
+  // overwriting a newer deleteNapRange for the same window. Guarded by queue.
+  private static var lastNapSeq = 0
 
   static func register(messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
@@ -54,6 +59,7 @@ enum HealthKitSleepWriter {
   // window itself, NOT the noon-to-noon night window — it must never touch
   // the exported main sleep.
   private static func replaceNap(_ args: [String: Any], completion: @escaping (Bool) -> Void) {
+    guard staleNapCallDropped(args, completion: completion) else { return }
     guard HKHealthStore.isHealthDataAvailable() else {
       completion(true) // iPad / simulator: no store, not an export failure
       return
@@ -81,6 +87,7 @@ enum HealthKitSleepWriter {
   // A nap removed/rejected in Edge: delete OUR sleepAnalysis samples
   // overlapping the window so the export does not outlive the decision.
   private static func deleteRange(_ args: [String: Any], completion: @escaping (Bool) -> Void) {
+    guard staleNapCallDropped(args, completion: completion) else { return }
     guard HKHealthStore.isHealthDataAvailable() else {
       completion(true)
       return
@@ -93,6 +100,18 @@ enum HealthKitSleepWriter {
       return
     }
     deleteAndSave(samples: [], type: sleepType, cleanupStart: start, cleanupEnd: end, completion: completion)
+  }
+
+  // Runs on `queue`. Returns true when the call is stale and was dropped
+  // (completed with false — a dropped call never claims success).
+  private static func staleNapCallDropped(_ args: [String: Any], completion: @escaping (Bool) -> Void) -> Bool {
+    let seq = (args["seq"] as? NSNumber)?.intValue ?? 0
+    if seq <= lastNapSeq {
+      completion(false)
+      return true
+    }
+    lastNapSeq = seq
+    return false
   }
 
   private static func deleteAndSave(

@@ -31,6 +31,7 @@ HealthNapExporter exporter({
   bool isApple = true,
   bool healthSync = true,
   Map<String, dynamic>? row,
+  List<Map<String, dynamic>>? dayRows,
   bool overlaps = false,
 }) =>
     HealthNapExporter(
@@ -38,6 +39,7 @@ HealthNapExporter exporter({
       isApple: isApple,
       healthSyncEnabled: () async => healthSync,
       napRow: (dayId, startTs) async => row,
+      dayNapRows: (dayId) async => dayRows ?? (row == null ? [] : [row]),
       overlapsMainSleep: (s, e) async => overlaps,
     );
 
@@ -156,6 +158,16 @@ void main() {
       }
     });
 
+    test('a caller endTs that differs from the stored row is rejected', () async {
+      final writer = FakeNapWriter();
+      final ok = await exporter(
+        writer: writer,
+        row: {'source': 'confirmed', 'start_ts': start, 'end_ts': end + 600},
+      ).exportNap(dayId: '2026-08-03', startTs: start, endTs: end);
+      expect(ok, isFalse);
+      expect(writer.calls, isEmpty);
+    });
+
     test('a nap overlapping the main sleep is not exported', () async {
       final writer = FakeNapWriter();
       final ok = await exporter(
@@ -242,6 +254,73 @@ void main() {
         isFalse,
       );
       expect(writer.calls, isEmpty);
+    });
+  });
+
+  group('HealthNapExporter.exportDayNaps', () {
+    final confirmed = {
+      'source': 'confirmed',
+      'start_ts': start,
+      'end_ts': end,
+    };
+    final rejected = {
+      'source': 'rejected',
+      'start_ts': start + 7200,
+      'end_ts': start + 7200 + 1800,
+    };
+
+    test('writes only the exportable rows of the day', () async {
+      final writer = FakeNapWriter();
+      final ok = await exporter(writer: writer, dayRows: [confirmed, rejected])
+          .exportDayNaps('2026-08-03');
+      expect(ok, isTrue);
+      expect(
+        writer.calls.where((c) => c.method == 'replaceNap'),
+        hasLength(1),
+      );
+    });
+
+    test('a failed attempted write reports false', () async {
+      final writer = FakeNapWriter()..nextResult = false;
+      final ok = await exporter(writer: writer, dayRows: [confirmed])
+          .exportDayNaps('2026-08-03');
+      expect(ok, isFalse);
+    });
+
+    test('rows overlapping the main sleep are skipped, not failed', () async {
+      final writer = FakeNapWriter();
+      final ok = await exporter(
+        writer: writer,
+        dayRows: [confirmed],
+        overlaps: true,
+      ).exportDayNaps('2026-08-03');
+      expect(ok, isTrue);
+      expect(writer.calls, isEmpty);
+    });
+
+    test('Android and switch-off are no-ops, not failures', () async {
+      final android = FakeNapWriter();
+      expect(
+        await exporter(writer: android, isApple: false, dayRows: [confirmed])
+            .exportDayNaps('2026-08-03'),
+        isTrue,
+      );
+      final off = FakeNapWriter();
+      expect(
+        await exporter(writer: off, healthSync: false, dayRows: [confirmed])
+            .exportDayNaps('2026-08-03'),
+        isTrue,
+      );
+      expect(android.calls, isEmpty);
+      expect(off.calls, isEmpty);
+    });
+
+    test('a store error during the day pass reports false, never throws',
+        () async {
+      final writer = FakeNapWriter()..throwOnCall = true;
+      final ok = await exporter(writer: writer, dayRows: [confirmed])
+          .exportDayNaps('2026-08-03');
+      expect(ok, isFalse);
     });
   });
 }

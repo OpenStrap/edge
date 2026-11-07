@@ -214,7 +214,10 @@ class _NapsScreenState extends State<NapsScreen> {
               dayId: day, startTs: start, endTs: end, source: 'rejected');
         }
         // The window is no longer a confirmed nap (deleted, or replaced by a
-        // rejection), so its Apple Health samples go too.
+        // rejection), so its Apple Health samples go too. Best-effort on
+        // purpose: a failed delete returns false and is only logged — the
+        // next per-day export re-writes the day's remaining naps, and a
+        // stale sample here is harmless (it is the app's own window).
         await HealthNapExporter.deleteExportedNap(startTs: start, endTs: end);
       });
 

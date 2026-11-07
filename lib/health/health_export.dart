@@ -30,6 +30,7 @@ import '../data/day_label.dart';
 import '../data/db.dart';
 import '../data/series_codec.dart';
 import 'health_heart_rate_batch.dart';
+import 'health_nap_export.dart';
 import 'health_sleep_session.dart';
 
 /// What we can do with the health store right now.
@@ -1257,6 +1258,15 @@ class HealthExporter {
         }
       } catch (e) {
         debugPrint('[health] write Apple sleep session: $e');
+        success = false;
+      }
+      // The sleep replace's noon-to-noon cleanup window covers the wake day's
+      // afternoon too, so it deletes OUR nap samples there. Re-write this
+      // day's confirmed naps after it on every pass (delete-then-write, so
+      // idempotent) — otherwise the next re-derive of a non-finalized day
+      // would silently remove a nap the user confirmed.
+      if (!await HealthNapExporter.shared.exportDayNaps(date)) {
+        debugPrint('[health] write Apple naps returned false');
         success = false;
       }
     }
