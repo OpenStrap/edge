@@ -44,10 +44,12 @@ HealthNapExporter exporter({
     );
 
 void main() {
-  const nowSec = 1785700000;
-  // A 30 min afternoon nap window.
-  const start = 1785680000;
-  const end = start + 1800;
+  // Derived from the real clock: exportNap validates "not in the future"
+  // against DateTime.now(), so fixed timestamps would rot.
+  final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  // A 30 min nap window that ended an hour ago.
+  final start = nowSec - 7200;
+  final end = start + 1800;
 
   group('napWindowExportable', () {
     test('confirmed and manual naps inside the bounds are exportable', () {
