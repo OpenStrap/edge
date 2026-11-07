@@ -852,6 +852,35 @@ void main() {
     });
   });
 
+  testWidgets('(CR 4500501772) a name-only WHOOP found on connect keeps its unknown model', (t) async {
+    // WHY: the connect can only confirm what the name said (gen4 is the
+    // name-matched entry); a WHOOP 5 heard by name must not enter the band
+    // flow as a WHOOP 4.
+    final calls = _Calls();
+    final byName = (
+      device: BluetoothDevice.fromId('AA:00:00:00:00:44'),
+      label: 'WHOOP 4C0FFEE',
+      rssi: -60,
+      entryId: 'ble_hrs',
+      alsoBand: (entry: kWhoopGen4, modelCertain: false),
+    );
+    await pumpPair(
+        t,
+        Builder(
+            builder: (c) => Scaffold(
+                body: TextButton(
+                    onPressed: () => calls.flow(hasMain: false).afterConnect(
+                        c, byName, kBleHrs, PairOutcome.band(kWhoopGen4)),
+                    child: const Text('go')))),
+        size: const Size(412, 2000));
+    await t.tap(find.text('go'));
+    await t.pumpAndSettle();
+    expect(find.textContaining('WHOOP 4.'), findsNothing, reason: 'no model named');
+    await t.tap(find.text('Pair it as my band'));
+    await t.pumpAndSettle();
+    expect(calls.openedWith, [('AA:00:00:00:00:44', false)]);
+  });
+
   group('G3 r1 S3: the handoff to the main-band flow', () {
     final whoopOnly = _cand('gen5', label: 'WHOOP 5A1B');
 

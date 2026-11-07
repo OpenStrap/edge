@@ -208,18 +208,25 @@ class AddDeviceFlow {
     if (found != null) {
       // The connect showed it is a band. Nothing was saved; ask again with
       // that in hand, and re-run only on an explicit yes.
+      // A band the connect named only from the WHOOP name keeps the name's
+      // uncertain model; a different band than the name said is from GATT.
+      final modelKnown = cand.alsoBand?.modelCertain != false ||
+          cand.alsoBand?.entry.id != found.id;
       if (!c.mounted) return _r(AddDeviceOutcome.cancelled);
       final choice = await showBandFoundSheet(c,
           band: found,
           hasMainBand: io.hasMainBand,
           mainBandName: io.mainBandName,
           afterConnect: true,
+          modelKnown: modelKnown,
           deviceName: cand.label);
       if (choice == null) return _r(AddDeviceOutcome.cancelled);
       if (!c.mounted) return _r(AddDeviceOutcome.cancelled);
-      if (choice == BandSheetChoice.replaceBand) return _replace(c, found, cand);
+      if (choice == BandSheetChoice.replaceBand) {
+        return _replace(c, found, cand, modelKnown: modelKnown);
+      }
       if (choice == BandSheetChoice.asBand || _ownScreen.contains(found.id)) {
-        return _handoff(found, cand);
+        return _handoff(found, cand, modelKnown: modelKnown);
       }
       if (!c.mounted) return _r(AddDeviceOutcome.cancelled);
       return _pair(c, cand, entry,
