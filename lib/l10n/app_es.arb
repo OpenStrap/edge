@@ -2890,5 +2890,19 @@
         "type": "int"
       }
     }
+  },
+  "welcomeCoachKeyReentry": "Tu clave de API del asistente permanece en el almacenamiento seguro y no se incluyó en la copia. Vuelve a introducirla en los ajustes de IA para usar el asistente en este teléfono.",
+  "welcomeSettingsSkipped": "{n, plural, =1{1 ajuste de la copia no se pudo leer y se omitió} other{{n} ajustes de la copia no se pudieron leer y se omitieron}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "welcomeSettingsSkippedBody": "Esos conservan los valores de este teléfono.",
+  "welcomeCoachChatGptReentry": "Tu sesión de ChatGPT permanece en el almacenamiento seguro y no se incluyó en la copia. Vuelve a iniciar sesión en los ajustes de IA para usar el asistente en este teléfono.",
+  "welcomeCoachServerReentry": "La dirección de tu servidor personalizado del asistente no se incluyó en la copia, porque una dirección puede contener una clave. Vuelve a introducirla en los ajustes de IA.",
+  "welcomeSettingsRestored": "{n} ajustes restaurados",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
   }
 }

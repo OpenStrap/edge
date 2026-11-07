@@ -16331,5 +16331,19 @@
         "type": "int"
       }
     }
+  },
+  "welcomeCoachKeyReentry": "Your coach API key stays in secure storage and was not backed up. Enter it again in AI settings to use the coach on this phone.",
+  "welcomeSettingsSkipped": "{n, plural, =1{1 setting in the backup could not be read and was skipped} other{{n} settings in the backup could not be read and were skipped}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "welcomeSettingsSkippedBody": "Those keep this phone's values.",
+  "welcomeCoachChatGptReentry": "Your ChatGPT sign-in stays in secure storage and was not backed up. Sign in again in AI settings to use the coach on this phone.",
+  "welcomeCoachServerReentry": "Your custom coach server address was not backed up, because an address can hold a key. Enter it again in AI settings.",
+  "welcomeSettingsRestored": "{n} settings restored",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
   }
 }

@@ -2861,5 +2861,19 @@
         "type": "int"
       }
     }
+  },
+  "welcomeCoachKeyReentry": "आपके कोच की API कुंजी सुरक्षित स्टोरेज में रहती है और बैकअप में शामिल नहीं की गई। इस फ़ोन पर कोच इस्तेमाल करने के लिए इसे AI सेटिंग में फिर से दर्ज करें।",
+  "welcomeSettingsSkipped": "{n, plural, =1{बैकअप की 1 सेटिंग पढ़ी नहीं जा सकी और छोड़ दी गई} other{बैकअप की {n} सेटिंग्स पढ़ी नहीं जा सकीं और छोड़ दी गईं}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "welcomeSettingsSkippedBody": "उनके लिए इस फ़ोन के मान बने रहेंगे।",
+  "welcomeCoachChatGptReentry": "आपका ChatGPT साइन-इन सुरक्षित स्टोरेज में रहता है और बैकअप में शामिल नहीं किया गया। इस फ़ोन पर कोच इस्तेमाल करने के लिए AI सेटिंग में फिर से साइन इन करें।",
+  "welcomeCoachServerReentry": "आपका कस्टम कोच सर्वर पता बैकअप नहीं हुआ, क्योंकि पते में कुंजी हो सकती है। इसे AI सेटिंग्स में फिर से दर्ज करें।",
+  "welcomeSettingsRestored": "{n} सेटिंग बहाल हुईं",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
   }
 }

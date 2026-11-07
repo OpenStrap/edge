@@ -48,6 +48,7 @@ import 'coverage_resolver.dart' show CoverageInterval;
 import 'day_label.dart';
 import 'activity_store.dart';
 import 'attach_copy.dart';
+import 'backup_extras.dart';
 import '../models/activity_suggestion.dart';
 import '../compute/accepted_naps.dart';
 import '../compute/nap_edits.dart' show NapEditKind;
@@ -292,6 +293,8 @@ class LocalDb {
     'cycle_symptom',
     'sleep_override',
     'sleep_nap',
+    // The alarm schedule the user chose; a rebuild re-arms it like a restore.
+    'alarm_schedule',
     // A ring's own hypnogram. Nothing here can re-derive it.
     'vendor_sleep_epoch',
     'workout_suggestions',
@@ -10727,11 +10730,15 @@ class LocalDb {
   /// shrink it — a year of history would cost its full size five times over.
   /// A manual export keeps it, which is the lossless copy the user asked for.
   ///
+  /// [includePrefs] carries settings in export-only tables. Telemetry and
+  /// support exports pass false to keep settings and key signals private.
+  ///
   /// [into] puts the copy somewhere other than the temp root; the manual
   /// export uses its own folder so it can prune its old copies without
   /// touching snapshots other features are still working on.
   static Future<String> exportCopy({
     bool includeSubstrateArchive = true,
+    bool includePrefs = true,
     Directory? into,
   }) async {
     final db = await instance;
@@ -10766,6 +10773,7 @@ class LocalDb {
         await copy.close();
         copy = null;
       }
+      if (includePrefs) await writeBackupPrefs(dest);
     } catch (_) {
       // The caller never learns the path of a failed copy, so nobody else
       // could ever delete it: a full copy of the database left in temp.
@@ -11601,12 +11609,12 @@ class LocalDb {
   /// renames on the way through is exactly the situation a restore has to
   /// survive. Plain `.db` files (older backups, and `exportCopy` output) take
   /// the same path they always did.
-  static Future<Map<String, int>> importFromDbFile(String path) async {
+  static Future<ImportSummary> importFromDbFile(String path) async {
     if (!await File(path).exists()) {
       throw const FileSystemException('Backup file not found');
     }
     if (await sniffFile(path) != ImportContainer.gzip) {
-      return _mergeFromDbFile(path);
+      return _restoreFromDbFile(path);
     }
     final work = await Directory.systemTemp.createTemp('openstrap_restore_');
     try {
@@ -11617,7 +11625,7 @@ class LocalDb {
           'That file unpacked to something that is not an OpenStrap database.',
         );
       }
-      return await _mergeFromDbFile(inflated);
+      return await _restoreFromDbFile(inflated);
     } finally {
       // The inflated copy is a full second copy of the database, so it goes
       // whether the import worked or not.
@@ -11627,6 +11635,56 @@ class LocalDb {
         /* the OS reclaims the temp dir eventually */
       }
     }
+  }
+
+  /// Startup defaults alone do not establish an install. Setup, a successful
+  /// prior restore, or hand-entered/history rows do, even without a band.
+  static const _kSettingsImported = 'backup_settings_imported';
+
+  static Future<bool> _backupPrefsFreshInstall(Database db) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    if (prefs.getBool('onboard.completed') == true ||
+        prefs.containsKey('onboarding_choice') ||
+        prefs.containsKey('local_profile_json') ||
+        await getCursor(_kSettingsImported) != null) {
+      return false;
+    }
+    final candidates = {
+      ..._restoreEditedKeys.keys,
+      'decoded_onehz', 'decoded_rr', 'samples', 'day_result', 'observation',
+      'sessions', 'journal', 'substrate_archive', 'raw_archive',
+      'imported_workout', 'imported_measurement', 'lab_result', 'food_entry',
+      'med_dose', 'strength_set', 'cycle_log', 'breathing_session', 'sleep_nap',
+    };
+    // Some stores, including raw_archive, are created lazily.
+    final tables = {for (final row in await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")) row['name']};
+    final probes = [for (final table in candidates)
+        if (tables.contains(table)) 'EXISTS(SELECT 1 FROM $table)'];
+    if (probes.isEmpty) return true;
+    return (await db.rawQuery('SELECT ${probes.join(' OR ')} AS populated'))
+        .single['populated'] == 0;
+  }
+
+  static Future<ImportSummary> _restoreFromDbFile(String path) async {
+    final db = await instance;
+    // Old database-only backups need no preference store. Inspect the copy
+    // before merge, which can make a new phone look established.
+    final src = await openDatabase(path, readOnly: true, singleInstance: false);
+    final bool hasSettings;
+    try {
+      hasSettings = await _objectType(src, 'backup_prefs') == 'table';
+    } finally {
+      await src.close();
+    }
+    final fresh = hasSettings && await _backupPrefsFreshInstall(db);
+    final counts = await _mergeFromDbFile(path);
+    final summary = await restoreBackupPrefs(path, counts, freshInstall: fresh);
+    // Persist only after settings restore succeeds, including a settings-only
+    // backup without an onboarding choice. A later restore keeps local edits.
+    if (hasSettings) await setCursor(_kSettingsImported, '1');
+    return summary;
   }
 
   /// Merge every table [tables] names from the database file at [path] into
@@ -11646,6 +11704,7 @@ class LocalDb {
       // banked. They were also simply MISSING here until now — nutrition,
       // medication, strength sets, symptoms and routes did not survive a
       // backup/restore round trip at all, the same omission `wipeAll` documents.
+      'alarm_schedule',
       'journal',
       'journal_metric',
       'journal_field_def',
@@ -11748,6 +11807,8 @@ class LocalDb {
   /// (one day's fields, one session's sets), because the app rewrites each
   /// as a whole and a row-by-row merge splices two versions together.
   static const Map<String, (List<String>, String?)> _restoreEditedKeys = {
+    // Keep configured weekdays; a restore fills only absent schedule slots.
+    'alarm_schedule': (['weekday'], null),
     'journal': (['date'], 'updated_at'),
     'journal_metric': (['date'], 'updated_at'),
     'lab_result': (['marker', 'taken_on'], 'updated_at'),
@@ -12622,6 +12683,8 @@ class LocalDb {
                 }
                 if (t == 'sync_cursor') {
                   final name = '${row['name']}';
+                  // Only a successful restore on THIS install establishes it.
+                  if (name == _kSettingsImported) continue;
                   if (localCursors.containsKey(name)) {
                     if (name != kDecodedPrunedBeforeCursor) continue;
                     final mine = int.tryParse('${localCursors[name]}');

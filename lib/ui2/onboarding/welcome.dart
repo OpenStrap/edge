@@ -77,6 +77,11 @@ class ImportOutcome {
   /// re-importing corrects the (marker, date) rows it names.
   final int labRows;
 
+  final int prefsRestored;
+  /// Settings rows the backup held but could not be read; skipped.
+  final int prefsRefused;
+  final List<String> needsReentry;
+
   /// Journal or lab CSV lines that were REJECTED, never clamped — "line 12:
   /// note is 40122 characters". Shown up to a cap, because a validation the
   /// user cannot see is a silent drop.
@@ -103,6 +108,9 @@ class ImportOutcome {
     this.archiveBucketsRestored = 0,
     this.journalRows = 0,
     this.labRows = 0,
+    this.prefsRestored = 0,
+    this.prefsRefused = 0,
+    this.needsReentry = const [],
     this.rejectedRows = const [],
     this.error,
     this.rollupError,
@@ -120,6 +128,8 @@ class ImportOutcome {
   /// the gate waits for them instead of moving on to pairing.
   bool get needsReading =>
       lostSomething ||
+      needsReentry.isNotEmpty ||
+      prefsRefused > 0 ||
       rejectedRows.isNotEmpty ||
       readError != null ||
       rollupError != null;
@@ -132,7 +142,8 @@ class ImportOutcome {
       skippedDays == 0 &&
       journalRows == 0 &&
       labRows == 0 &&
-      archiveBucketsRestored == 0;
+      archiveBucketsRestored == 0 &&
+      prefsRestored == 0;
 }
 
 /// Raised when an encrypted backup was picked and the user closed the
@@ -365,7 +376,8 @@ Future<ImportOutcome> runImport(
   final sources = <String>[];
   var days = 0, workouts = 0, skipped = 0, late = 0, stranded = 0;
   var journalRows = 0;
-  var labRows = 0;
+  var labRows = 0, prefsRestored = 0, prefsRefused = 0;
+  final needsReentry = <String>{};
   final corruptTables = <String>{};
   var archiveSkipped = 0, archiveRestored = 0;
   final rejected = <String>[];
@@ -434,6 +446,9 @@ Future<ImportOutcome> runImport(
       rollupError ??= app.importRollupError;
       archiveSkipped += app.lastImportArchiveSkipped;
       archiveRestored += app.lastImportArchiveRestored;
+      prefsRestored += app.lastImportPrefsRestored;
+      prefsRefused += app.lastImportPrefsRefused;
+      needsReentry.addAll(app.lastImportNeedsReentry);
     }
   } finally {
     // The decrypted copy is the whole health record in plaintext. It exists
@@ -557,6 +572,9 @@ Future<ImportOutcome> runImport(
     archiveBucketsRestored: archiveRestored,
     journalRows: journalRows,
     labRows: labRows,
+    prefsRestored: prefsRestored,
+    prefsRefused: prefsRefused,
+    needsReentry: needsReentry.toList(),
     rejectedRows: rejected,
     rollupError: rollupError,
     // A file that would not decrypt is reported the same way a file that would
@@ -744,6 +762,40 @@ class ImportReport extends StatelessWidget {
   final ImportOutcome o;
   const ImportReport(this.o, {super.key});
 
+  Widget _prefsSkipped(ImportOutcome o, AppLocalizations? l) => StatusCard(
+    l?.welcomeSettingsSkipped(o.prefsRefused) ??
+        '${o.prefsRefused} setting${o.prefsRefused == 1 ? ' in the backup could not be read and was' : 's in the backup could not be read and were'} skipped',
+    l?.welcomeSettingsSkippedBody ??
+        'Those keep this phone\'s values.',
+    icon: LucideIcons.fileWarning,
+  );
+
+  Widget _keyReentry(AppLocalizations? l, List<String> keys) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    if (keys.contains('coach_api_key')) StatusCard(
+      l?.coachApiKeyLabel ?? 'API key',
+      l?.welcomeCoachKeyReentry ??
+          'Your coach API key stays in secure storage and was not backed up. '
+              'Enter it again in AI settings to use the coach on this phone.',
+      icon: LucideIcons.keyRound,
+    ),
+    if (keys.length > 1) const SizedBox(height: S.x3),
+    if (keys.contains('coach_base_url')) StatusCard(
+      l?.coachBaseUrlLabel ?? 'Base URL',
+      l?.welcomeCoachServerReentry ??
+          'Your custom coach server address was not backed up, because an '
+              'address can hold a key. Enter it again in AI settings.',
+      icon: LucideIcons.keyRound,
+    ),
+    if (keys.contains('coach_chatgpt')) StatusCard(
+      'ChatGPT',
+      l?.welcomeCoachChatGptReentry ??
+          'Your ChatGPT sign-in stays in secure storage and was not backed up. '
+              'Sign in again in AI settings to use the coach on this phone.',
+      icon: LucideIcons.keyRound,
+    ),
+  ]);
+
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
@@ -778,11 +830,13 @@ class ImportReport extends StatelessWidget {
       // can still have skipped archive buckets it could not read. That is the
       // one part of the answer the user can act on, so it is not swallowed
       // by the empty case.
-      if (o.archiveBucketsSkipped == 0) return nothing;
+      if (o.archiveBucketsSkipped == 0 && o.needsReentry.isEmpty && o.prefsRefused == 0) return nothing;
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         nothing,
         const SizedBox(height: S.x3),
-        StatusCard(
+        if (o.needsReentry.isNotEmpty) _keyReentry(l, o.needsReentry),
+        if (o.prefsRefused > 0) _prefsSkipped(o, l),
+        if (o.archiveBucketsSkipped > 0) StatusCard(
           l?.welcomePartOfFileNotUsedTitle ??
               'Part of that file could not be used',
           _archiveSkipped(o, l),
@@ -825,11 +879,15 @@ class ImportReport extends StatelessWidget {
                 '${o.archiveBucketsRestored} day'
                 '${o.archiveBucketsRestored == 1 ? '' : 's'}'
         : null;
-    final headline = [days, journal, labs, workouts, skipped, archive].firstWhere((c) => c != null)!;
+    final settings = o.prefsRestored > 0
+        ? l?.welcomeSettingsRestored(o.prefsRestored) ??
+            '${o.prefsRestored} settings restored'
+        : null;
+    final headline = [days, journal, labs, workouts, skipped, archive, settings].firstWhere((c) => c != null)!;
     // journal is NEVER folded in here — when it isn't the headline, days > 0
     // means it gets its own "N journal days REPLACED" line below instead (a
     // different fact: a journal CSV always replaces, on any day it names).
-    final also = [labs, workouts, skipped, archive].whereType<String>().where((c) => c != headline).toList();
+    final also = [labs, workouts, skipped, archive, settings].whereType<String>().where((c) => c != headline).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Surface(
         child: Row(children: [
@@ -850,6 +908,14 @@ class ImportReport extends StatelessWidget {
           ),
         ]),
       ),
+      if (o.needsReentry.isNotEmpty) ...[
+        const SizedBox(height: S.x3),
+        _keyReentry(l, o.needsReentry),
+      ],
+      if (o.prefsRefused > 0) ...[
+        const SizedBox(height: S.x3),
+        _prefsSkipped(o, l),
+      ],
       // REJECTED, never clamped. A row outside its declared range is not
       // salvageable by trimming it — that would store a value the user never
       // wrote — so it is refused by line number and the other 300 land.

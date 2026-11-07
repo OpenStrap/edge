@@ -72,6 +72,7 @@ import '../compute/inputs/measurement_inputs.dart'
         profileWithWeighing,
         profileWithoutStaleWeighing;
 import '../compute/profile.dart';
+import '../data/backup_extras.dart';
 import '../data/day_label.dart';
 import '../data/journal_fields.dart'
     show JournalMetricValue, kJournalFieldsByKey;
@@ -555,7 +556,7 @@ class AppState extends ChangeNotifier {
   String? _onboardChoice;
   String? get onboardChoice => _onboardChoice;
 
-  Future<void> _loadProfile() async {
+  Future<void> _loadProfile({bool loadOnboardChoice = true}) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_kProfile);
     if (raw != null) {
@@ -565,7 +566,7 @@ class AppState extends ChangeNotifier {
         /* ignore corrupt blob */
       }
     }
-    _onboardChoice = prefs.getString(_kOnboard);
+    if (loadOnboardChoice) _onboardChoice = prefs.getString(_kOnboard);
     // The companion-URL override is loaded in _initCompanion (single source of
     // truth for every network call — announcements, OTA, telemetry, import).
     healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
@@ -730,7 +731,41 @@ class AppState extends ChangeNotifier {
   /// Days of stored raw history the last backup import added or filled in.
   int lastImportArchiveRestored = 0;
 
+  List<String> lastImportNeedsReentry = const [];
+  int lastImportPrefsRestored = 0;
+  int lastImportPrefsRefused = 0;
+
+  /// Settings an import wrote take effect now, without a restart.
+  Future<void> _adoptRestoredSettings(ImportSummary counts) async {
+    lastImportNeedsReentry = counts.needsReentry;
+    lastImportPrefsRestored = counts.keysWritten.length;
+    lastImportPrefsRefused = counts.refusedPrefs.length;
+    if (counts.keysWritten.isEmpty) return;
+    await Prefs.reload();
+    // Keep the active import on its report until Continue is chosen.
+    await _loadProfile(loadOnboardChoice: false);
+    final prefs = await SharedPreferences.getInstance();
+    CompanionClient.overrideUrl = prefs.getString(_kCompanionUrl);
+    await gestureSettings.bootstrap();
+    await notificationRelay.reloadFromPrefs();
+    _deviceAlerts.refreshThreshold();
+    await armWaterReminder();
+    // Restored reminder choices take effect now; the coach and locale
+    // listeners only fire when those change.
+    unawaited(_ensureRemindersScheduled());
+    try {
+      await coachConfig?.load(trusted: true)
+          .timeout(const Duration(seconds: 6));
+    } catch (e) {
+      _log('[import] coach settings reload failed: $e');
+    }
+    settingsRestoredSignal.value++;
+  }
+
   Future<int> importEdgeBackup(String path) async {
+    lastImportNeedsReentry = const [];
+    lastImportPrefsRestored = 0;
+    lastImportPrefsRefused = 0;
     importRollupError = null;
     lastImportArchiveSkipped = 0;
     lastImportArchiveRestored = 0;
@@ -741,12 +776,17 @@ class AppState extends ChangeNotifier {
     // Invalidated however the import ends: it commits page by page, so a later
     // page that throws can still leave merged calibration runs behind, and the
     // refit can fail after a clean import. The cache holds runs, not profiles.
-    final Map<String, int> counts;
+    final ImportSummary counts;
     try {
       counts = await LocalDb.importFromDbFile(path);
+      await _adoptRestoredSettings(counts);
       await LocalDb.refitAllLiveStepGains();
     } finally {
       invalidateLiveStepCalibration();
+      // Table rows can arrive without settings, including from older backups.
+      // Reload even after a partial merge, then use normal arm/dedupe handling.
+      await _loadAlarmSchedule();
+      if (isConnected) await _armNextAlarmOccurrence();
     }
     // An import can MERGE calibration rows (`live_step_calibration`) in from the
     // backup without this process knowing, and the cached fit is the only thing

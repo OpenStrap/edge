@@ -3472,5 +3472,19 @@
         "type": "int"
       }
     }
+  },
+  "welcomeCoachKeyReentry": "Dein API-Schlüssel für den Coach bleibt im sicheren Speicher und wurde nicht gesichert. Gib ihn in den KI-Einstellungen erneut ein, um den Coach auf diesem Telefon zu nutzen.",
+  "welcomeSettingsSkipped": "{n, plural, =1{1 Einstellung in der Sicherung war nicht lesbar und wurde übersprungen} other{{n} Einstellungen in der Sicherung waren nicht lesbar und wurden übersprungen}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "welcomeSettingsSkippedBody": "Dafür bleiben die Werte dieses Telefons.",
+  "welcomeCoachChatGptReentry": "Deine ChatGPT-Anmeldung bleibt im sicheren Speicher und wurde nicht gesichert. Melde dich in den KI-Einstellungen erneut an, um den Coach auf diesem Telefon zu nutzen.",
+  "welcomeCoachServerReentry": "Deine eigene Coach-Serveradresse wurde nicht gesichert, weil eine Adresse einen Schlüssel enthalten kann. Gib sie in den KI-Einstellungen erneut ein.",
+  "welcomeSettingsRestored": "{n} Einstellungen wiederhergestellt",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
   }
 }
