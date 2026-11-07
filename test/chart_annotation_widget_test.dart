@@ -557,7 +557,7 @@ void main() {
                   value: value,
                   onChanged: set,
                   label: 'Resting heart rate',
-                  describe: (v) => '',
+                  describe: (v) => 'day ${(v * 6).round() + 1}',
                   step: 1 / 6,
                   child: RepaintBoundary(
                     key: plotKey,
