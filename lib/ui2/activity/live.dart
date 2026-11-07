@@ -1838,7 +1838,7 @@ class _LiveStrengthState extends State<LiveStrength> {
           void submit() {
             final text = ctrl.text.trim();
             if (text.isEmpty) {
-              setDialogState(() => errorText = 'Enter a value');
+              setDialogState(() => errorText = uiText(c, 'Enter a value'));
               return;
             }
             if (text == currentText) {
@@ -1847,13 +1847,13 @@ class _LiveStrengthState extends State<LiveStrength> {
             }
             final parsed = _parseWeightInput(text, u);
             if (parsed == null) {
-              setDialogState(() => errorText = 'Invalid number');
+              setDialogState(() => errorText = uiText(c, 'Invalid number'));
               return;
             }
             if (parsed < 0 || parsed > 500) {
               setDialogState(() => errorText = imperial
-                  ? 'Must be 0–1100 lb'
-                  : 'Must be 0–500 kg');
+                  ? uiText(c, 'Must be 0–1100 lb')
+                  : uiText(c, 'Must be 0–500 kg'));
               return;
             }
             Navigator.of(dc).pop(parsed);
@@ -1950,7 +1950,7 @@ class _LiveStrengthState extends State<LiveStrength> {
             final val = ctrl.text.trim();
             final n = int.tryParse(val);
             if (n == null || n < 1 || n > 200) {
-              setDialogState(() => errorText = 'Must be 1–200 reps');
+              setDialogState(() => errorText = uiText(c, 'Must be 1–200 reps'));
               return;
             }
             Navigator.of(dc).pop(n);
@@ -2084,9 +2084,10 @@ class _LiveStrengthState extends State<LiveStrength> {
   /// context) shows metric untouched.
   String _fmt(double d, [UnitsController? u]) {
     final v = u != null ? u.weightValue(d) : d;
-    if (v == v.roundToDouble()) return v.round().toString();
     final s = v.toStringAsFixed(2);
-    return s.endsWith('0') ? v.toStringAsFixed(1) : s;
+    final r = double.parse(s);
+    if (r == r.roundToDouble()) return r.round().toString();
+    return s.endsWith('0') ? r.toStringAsFixed(1) : s;
   }
 }
 
