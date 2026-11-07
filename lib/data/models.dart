@@ -152,6 +152,17 @@ class Sample {
   /// (analytics `band_offset.dart`) — never to create, extend or stage one.
   final int? bandSleepState;
 
+  /// The gen5 v18 SpO2 candidate byte (protocol `spo2CandidateRaw`,
+  /// inner[74]) — GEN5/MG ONLY, raw and unvalidated.
+  ///
+  /// Zero in ~99% of records, nonzero only during band-declared sleep
+  /// (community-observed bursts of 30 s every 1,200 s), encoding not fully
+  /// pinned (values above 128 decompose as 128 + flag). Carried as the raw
+  /// byte for capture correlation; NEVER displayed or stored as a
+  /// percentage — see `Spo2Data` in `models/payloads.dart` for the refusal.
+  /// Not persisted (no column); diagnostic/log use only.
+  final int? spo2CandidateRaw;
+
   Sample({
     required this.tsEpoch,
     required this.counter,
@@ -177,6 +188,7 @@ class Sample {
     this.dynAccelG,
     this.tsSubsec,
     this.bandSleepState,
+    this.spo2CandidateRaw,
   });
 
   /// Copy with an overridden [tsEpoch] — used by the clock-offset salvage path
@@ -208,6 +220,7 @@ class Sample {
     dynAccelG: dynAccelG,
     tsSubsec: tsSubsec,
     bandSleepState: bandSleepState,
+    spo2CandidateRaw: spo2CandidateRaw,
   );
 
   bool get hasDecodedOneHz =>
