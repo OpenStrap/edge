@@ -30,7 +30,6 @@
 // a missing store, a denied permission or a failed write reads as false.
 
 import 'dart:async';
-import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
