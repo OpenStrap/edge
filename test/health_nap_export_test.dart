@@ -10,6 +10,7 @@ class FakeNapWriter implements HealthKitNapWriter {
   final calls = <({String method, DateTime start, DateTime end})>[];
   bool nextResult = true;
   bool throwOnCall = false;
+  int throwOnCallNumber = 0; // 1-based; 0 = never
 
   @override
   Future<bool> replaceNap({required DateTime start, required DateTime end}) =>
@@ -21,7 +22,10 @@ class FakeNapWriter implements HealthKitNapWriter {
 
   Future<bool> _record(String method, DateTime start, DateTime end) async {
     calls.add((method: method, start: start, end: end));
-    if (throwOnCall) throw Exception('store error');
+    final n = calls.length;
+    if (throwOnCall || (throwOnCallNumber > 0 && n == throwOnCallNumber)) {
+      throw Exception('store error');
+    }
     return nextResult;
   }
 }
@@ -323,6 +327,22 @@ void main() {
       final ok = await exporter(writer: writer, dayRows: [confirmed])
           .exportDayNaps('2026-08-03');
       expect(ok, isFalse);
+    });
+
+    test('one failing row does not skip the remaining naps', () async {
+      final second = {
+        'source': 'manual',
+        'start_ts': start + 7200,
+        'end_ts': start + 7200 + 1800,
+      };
+      final writer = FakeNapWriter()..throwOnCallNumber = 1;
+      final ok = await exporter(writer: writer, dayRows: [confirmed, second])
+          .exportDayNaps('2026-08-03');
+      expect(ok, isFalse);
+      expect(
+        writer.calls.where((c) => c.method == 'replaceNap'),
+        hasLength(2),
+      );
     });
   });
 }

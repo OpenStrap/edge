@@ -59,7 +59,7 @@ enum HealthKitSleepWriter {
   // window itself, NOT the noon-to-noon night window — it must never touch
   // the exported main sleep.
   private static func replaceNap(_ args: [String: Any], completion: @escaping (Bool) -> Void) {
-    guard staleNapCallDropped(args, completion: completion) else { return }
+    if staleNapCallDropped(args, completion: completion) { return }
     guard HKHealthStore.isHealthDataAvailable() else {
       completion(true) // iPad / simulator: no store, not an export failure
       return
@@ -87,7 +87,7 @@ enum HealthKitSleepWriter {
   // A nap removed/rejected in Edge: delete OUR sleepAnalysis samples
   // overlapping the window so the export does not outlive the decision.
   private static func deleteRange(_ args: [String: Any], completion: @escaping (Bool) -> Void) {
-    guard staleNapCallDropped(args, completion: completion) else { return }
+    if staleNapCallDropped(args, completion: completion) { return }
     guard HKHealthStore.isHealthDataAvailable() else {
       completion(true)
       return

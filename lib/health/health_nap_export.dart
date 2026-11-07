@@ -249,12 +249,21 @@ class HealthNapExporter {
         )) {
           continue;
         }
-        if (await _overlapsMainSleep(s, e)) continue;
-        final written = await _writer.replaceNap(
-          start: DateTime.fromMillisecondsSinceEpoch(s * 1000),
-          end: DateTime.fromMillisecondsSinceEpoch(e * 1000),
-        );
-        if (!written) ok = false;
+        // Per-row isolation: one throwing row (overlap lookup, store error)
+        // must not skip the remaining naps — the main-sleep replace above
+        // may already have deleted their Health samples, and a day that
+        // gives up retries would leave them missing.
+        try {
+          if (await _overlapsMainSleep(s, e)) continue;
+          final written = await _writer.replaceNap(
+            start: DateTime.fromMillisecondsSinceEpoch(s * 1000),
+            end: DateTime.fromMillisecondsSinceEpoch(e * 1000),
+          );
+          if (!written) ok = false;
+        } catch (rowError) {
+          debugPrint('[health] exportDayNaps $dayId row $s-$e: $rowError');
+          ok = false;
+        }
       }
       return ok;
     } catch (e) {
