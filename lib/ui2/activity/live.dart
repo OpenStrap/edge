@@ -1694,22 +1694,48 @@ class _LiveStrengthState extends State<LiveStrength> {
             l?.activityLiveWeightLabel ?? 'WEIGHT',
             bodyweight ? (l?.activityLiveBwAbbrev ?? 'BW') : _fmt(kg, u),
             bodyweight ? '' : (u?.weightUnit ?? 'kg'),
-            () => setState(() => kg = (kg - stepKg).clamp(0, 500).toDouble()),
-            () => setState(() => kg = kg + stepKg)),
+            () => setState(() => kg = _step(kg, -stepKg, u)),
+            () => setState(() => kg = _step(kg, stepKg, u)),
+            onTapValue: () => _editWeight(c, u)),
         const SizedBox(height: S.x3),
-        Pressable(
-          onTap: () => setState(() => bodyweight = !bodyweight),
-          child: Text(
-              bodyweight
-                  ? (l?.activityLiveBodyweightExcludedNote ??
-                      'Bodyweight — left out of volume')
-                  : (l?.activityLiveLogAsBodyweight ?? 'Log as bodyweight'),
-              style: F.cap.copyWith(color: p.on(C.purple))),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (!bodyweight) ...[
+              Pressable(
+                onTap: () => _editWeight(c, u),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(LucideIcons.pencil, size: 13, color: p.on(C.purple)),
+                  const SizedBox(width: S.x1),
+                  Text(uiText(c, 'Custom weight'),
+                      style: F.cap.copyWith(color: p.on(C.purple))),
+                ]),
+              ),
+              const SizedBox(width: S.x3),
+              Text('·', style: F.cap.copyWith(color: p.ink3)),
+              const SizedBox(width: S.x3),
+            ],
+            Pressable(
+              onTap: () => setState(() => bodyweight = !bodyweight),
+              child: Text(
+                  bodyweight
+                      ? (l?.activityLiveBodyweightExcludedNote ??
+                          'Bodyweight — left out of volume')
+                      : (l?.activityLiveLogAsBodyweight ?? 'Log as bodyweight'),
+                  style: F.cap.copyWith(color: p.on(C.purple))),
+            ),
+          ],
         ),
         const SizedBox(height: S.x5),
-        _stepper(c, p, l?.activityLiveRepsLabel ?? 'REPS', '$reps', '',
-            () => setState(() => reps = (reps - 1).clamp(1, 100)),
-            () => setState(() => reps = reps + 1)),
+        _stepper(
+            c,
+            p,
+            l?.activityLiveRepsLabel ?? 'REPS',
+            '$reps',
+            '',
+            () => setState(() => reps = (reps - 1).clamp(1, 200)),
+            () => setState(() => reps = (reps + 1).clamp(1, 200)),
+            onTapValue: () => _editReps(c)),
         const SizedBox(height: S.x5),
         Align(
             alignment: Alignment.centerLeft,
@@ -1785,8 +1811,213 @@ class _LiveStrengthState extends State<LiveStrength> {
       ]);
   }
 
+  static double _step(double val, double delta, UnitsController? u) {
+    if (u != null && u.isImperial) {
+      final currentLb = u.weightValue(val);
+      final stepLb = delta > 0 ? 5.0 : -5.0;
+      final nextLb = (currentLb + stepLb).clamp(0.0, 1100.0);
+      return u.weightToKg('$nextLb') ?? (val + delta).clamp(0.0, 500.0);
+    }
+    final next = (val + delta).clamp(0.0, 500.0);
+    return double.parse(next.toStringAsFixed(2));
+  }
+
+  Future<void> _editWeight(BuildContext c, UnitsController? u) async {
+    final imperial = u?.isImperial ?? false;
+    final currentText = bodyweight ? '' : _fmt(kg, u);
+    final ctrl = TextEditingController(text: currentText);
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final unitLabel = u?.weightUnit ?? 'kg';
+    String? errorText;
+
+    final picked = await showDialog<double>(
+      context: c,
+      builder: (dc) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          void submit() {
+            final text = ctrl.text.trim();
+            if (text.isEmpty) {
+              setDialogState(() => errorText = uiText(c, 'Enter a value'));
+              return;
+            }
+            if (text == currentText) {
+              Navigator.of(dc).pop(kg);
+              return;
+            }
+            final parsed = _parseWeightInput(text, u);
+            if (parsed == null) {
+              setDialogState(() => errorText = uiText(c, 'Invalid number'));
+              return;
+            }
+            if (parsed < 0 || parsed > 500) {
+              setDialogState(() => errorText = imperial
+                  ? uiText(c, 'Must be 0–1100 lb')
+                  : uiText(c, 'Must be 0–500 kg'));
+              return;
+            }
+            Navigator.of(dc).pop(parsed);
+          }
+
+          return AlertDialog(
+            backgroundColor: p.card,
+            title: Text(
+              l?.activityLiveWeightLabel ?? 'Weight',
+              style: F.head.copyWith(color: p.ink),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  style: F.body.copyWith(color: p.ink),
+                  cursorColor: p.on(C.purple),
+                  decoration: InputDecoration(
+                    labelText:
+                        '${l?.activityLiveWeightLabel ?? 'Weight'} ($unitLabel)',
+                    labelStyle: F.over.copyWith(color: p.ink3),
+                    hintText: imperial ? '135' : '60',
+                    hintStyle: F.body.copyWith(color: p.ink3),
+                    suffixText: unitLabel,
+                    suffixStyle: F.body.copyWith(color: p.ink3),
+                    errorText: errorText,
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: p.line),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: p.on(C.purple)),
+                    ),
+                  ),
+                  onSubmitted: (_) => submit(),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dc).pop(),
+                child: Text(
+                  l?.actionCancel ?? 'Cancel',
+                  style: F.body.copyWith(color: p.ink2),
+                ),
+              ),
+              TextButton(
+                onPressed: submit,
+                child: Text(
+                  l?.actionDone ?? 'Done',
+                  style: F.body.copyWith(
+                    color: p.on(C.purple),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    ctrl.dispose();
+    if (!mounted || picked == null) return;
+    setState(() {
+      kg = picked;
+      bodyweight = false;
+    });
+  }
+
+  double? _parseWeightInput(String text, UnitsController? u) {
+    final s = text.trim();
+    if (s.isEmpty) return null;
+    if (u != null) {
+      return u.weightToKg(s);
+    }
+    return parseTypedNumber(s);
+  }
+
+  Future<void> _editReps(BuildContext c) async {
+    final ctrl = TextEditingController(text: '$reps');
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    String? errorText;
+
+    final picked = await showDialog<int>(
+      context: c,
+      builder: (dc) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          void submit() {
+            final val = ctrl.text.trim();
+            final n = int.tryParse(val);
+            if (n == null || n < 1 || n > 200) {
+              setDialogState(() => errorText = uiText(c, 'Must be 1–200 reps'));
+              return;
+            }
+            Navigator.of(dc).pop(n);
+          }
+
+          return AlertDialog(
+            backgroundColor: p.card,
+            title: Text(
+              l?.activityLiveRepsLabel ?? 'Reps',
+              style: F.head.copyWith(color: p.ink),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  style: F.body.copyWith(color: p.ink),
+                  cursorColor: p.on(C.purple),
+                  decoration: InputDecoration(
+                    labelText: l?.activityLiveRepsLabel ?? 'Reps',
+                    labelStyle: F.over.copyWith(color: p.ink3),
+                    errorText: errorText,
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: p.line),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: p.on(C.purple)),
+                    ),
+                  ),
+                  onSubmitted: (_) => submit(),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dc).pop(),
+                child: Text(
+                  l?.actionCancel ?? 'Cancel',
+                  style: F.body.copyWith(color: p.ink2),
+                ),
+              ),
+              TextButton(
+                onPressed: submit,
+                child: Text(
+                  l?.actionDone ?? 'Done',
+                  style: F.body.copyWith(
+                    color: p.on(C.purple),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    ctrl.dispose();
+    if (!mounted || picked == null) return;
+    setState(() => reps = picked);
+  }
+
   Widget _stepper(BuildContext c, P p, String label, String value,
-          String unit, VoidCallback minus, VoidCallback plus) {
+          String unit, VoidCallback minus, VoidCallback plus,
+          {VoidCallback? onTapValue}) {
     final l = AppLocalizations.of(c);
     return Column(children: [
         Text(label, style: F.over.copyWith(color: p.ink3)),
@@ -1794,7 +2025,18 @@ class _LiveStrengthState extends State<LiveStrength> {
         Row(children: [
           counterButton(p, LucideIcons.minus, p.ink,
               l?.activityLiveDecrease(label) ?? '$label down', minus),
-          Expanded(child: bigNum(p, value, unit)),
+          Expanded(
+            child: onTapValue == null
+                ? bigNum(p, value, unit)
+                : Pressable(
+                    semanticLabel: label,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      onTapValue();
+                    },
+                    child: bigNum(p, value, unit),
+                  ),
+          ),
           counterButton(p, LucideIcons.plus, p.ink,
               l?.activityLiveIncrease(label) ?? '$label up', plus),
         ]),
@@ -1840,9 +2082,13 @@ class _LiveStrengthState extends State<LiveStrength> {
   /// [d] is always in kg (storage unit); [u] converts + rounds for display
   /// the same way its edit-field does. Null [u] (a golden, or no unit
   /// context) shows metric untouched.
-  String _fmt(double d, [UnitsController? u]) =>
-      u?.weightField(d) ??
-      (d == d.roundToDouble() ? d.round().toString() : d.toStringAsFixed(1));
+  String _fmt(double d, [UnitsController? u]) {
+    final v = u != null ? u.weightValue(d) : d;
+    final s = v.toStringAsFixed(2);
+    final r = double.parse(s);
+    if (r == r.roundToDouble()) return r.round().toString();
+    return s.endsWith('0') ? r.toStringAsFixed(1) : s;
+  }
 }
 
 // ══════════════ SWIMMING — laps are counted, not measured ══════════════

@@ -1892,6 +1892,36 @@ void main() {
       expect(StrengthLog(sets).volumeKg, 40 * 8);
     });
 
+    testWidgets('custom weight and reps entry updates set values',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final activity = activityByName('weight_training')!;
+      LiveDraft.begin(activity);
+      LiveDraft.current!.put('exercise_plan', ['bench_press']);
+
+      var sets = <LoggedSet>[];
+      await tester.pumpWidget(_frame(
+          LiveStrength(activity, onSets: (s) => sets = s),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('40'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), '47.5');
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      expect(sets.single.loadKg, 47.5);
+    });
+
     testWidgets('a session that failed to save says so and can retry',
         (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
