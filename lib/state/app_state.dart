@@ -734,6 +734,29 @@ class AppState extends ChangeNotifier {
   List<String> lastImportNeedsReentry = const [];
   int lastImportPrefsRestored = 0;
 
+  /// Settings an import wrote take effect now, without a restart.
+  Future<void> _adoptRestoredSettings(ImportSummary counts) async {
+    lastImportNeedsReentry = counts.needsReentry;
+    lastImportPrefsRestored = counts.keysWritten.length;
+    if (counts.keysWritten.isEmpty) return;
+    await Prefs.reload();
+    // Keep the active import on its report until Continue is chosen.
+    await _loadProfile(loadOnboardChoice: false);
+    final prefs = await SharedPreferences.getInstance();
+    CompanionClient.overrideUrl = prefs.getString(_kCompanionUrl);
+    await gestureSettings.bootstrap();
+    await notificationRelay.reloadFromPrefs();
+    _deviceAlerts.refreshThreshold();
+    await armWaterReminder();
+    try {
+      await coachConfig?.load(trusted: true)
+          .timeout(const Duration(seconds: 6));
+    } catch (e) {
+      _log('[import] coach settings reload failed: $e');
+    }
+    settingsRestoredSignal.value++;
+  }
+
   Future<int> importEdgeBackup(String path) async {
     lastImportNeedsReentry = const [];
     lastImportPrefsRestored = 0;
@@ -750,26 +773,7 @@ class AppState extends ChangeNotifier {
     final ImportSummary counts;
     try {
       counts = await LocalDb.importFromDbFile(path);
-      lastImportNeedsReentry = counts.needsReentry;
-      lastImportPrefsRestored = counts.keysWritten.length;
-      if (counts.keysWritten.isNotEmpty) {
-        await Prefs.reload();
-        // Keep the active import on its report until Continue is chosen.
-        await _loadProfile(loadOnboardChoice: false);
-        final prefs = await SharedPreferences.getInstance();
-        CompanionClient.overrideUrl = prefs.getString(_kCompanionUrl);
-        await gestureSettings.bootstrap();
-        await notificationRelay.reloadFromPrefs();
-        _deviceAlerts.refreshThreshold();
-        await armWaterReminder();
-        try {
-          await coachConfig?.load(trusted: true)
-              .timeout(const Duration(seconds: 6));
-        } catch (e) {
-          _log('[import] coach settings reload failed: $e');
-        }
-        settingsRestoredSignal.value++;
-      }
+      await _adoptRestoredSettings(counts);
       await LocalDb.refitAllLiveStepGains();
     } finally {
       invalidateLiveStepCalibration();
