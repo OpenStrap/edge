@@ -16338,7 +16338,7 @@
     "description": "Import report: settings rows in the backup that could not be read",
     "placeholders": {"n": {"type": "int"}}
   },
-  "welcomeSettingsSkippedBody": "Those keep this phone's values. Everything else in the backup was restored.",
+  "welcomeSettingsSkippedBody": "Those keep this phone's values.",
   "welcomeCoachChatGptReentry": "Your ChatGPT sign-in stays in secure storage and was not backed up. Sign in again in AI settings to use the coach on this phone.",
   "welcomeCoachServerReentry": "Your custom coach server address was not backed up, because an address can hold a key. Enter it again in AI settings.",
   "welcomeSettingsRestored": "{n} settings restored",

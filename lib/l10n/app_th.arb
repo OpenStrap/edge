@@ -16332,7 +16332,7 @@
     "description": "Import report: settings rows in the backup that could not be read",
     "placeholders": {"n": {"type": "int"}}
   },
-  "welcomeSettingsSkippedBody": "รายการเหล่านั้นใช้ค่าของโทรศัพท์เครื่องนี้ต่อ ส่วนอื่นทั้งหมดในข้อมูลสำรองกู้คืนแล้ว",
+  "welcomeSettingsSkippedBody": "รายการเหล่านั้นใช้ค่าของโทรศัพท์เครื่องนี้ต่อ",
   "welcomeCoachChatGptReentry": "ข้อมูลการลงชื่อเข้าใช้ ChatGPT ยังอยู่ในพื้นที่จัดเก็บที่ปลอดภัยและไม่ได้รวมอยู่ในข้อมูลสำรอง โปรดลงชื่อเข้าใช้อีกครั้งในการตั้งค่า AI เพื่อใช้โค้ชบนโทรศัพท์เครื่องนี้",
   "welcomeCoachServerReentry": "ที่อยู่เซิร์ฟเวอร์โค้ชที่คุณกำหนดเองไม่ได้ถูกสำรองไว้ เพราะที่อยู่อาจมีคีย์อยู่ด้วย ป้อนอีกครั้งในการตั้งค่า AI",
   "welcomeSettingsRestored": "กู้คืนการตั้งค่าแล้ว {n} รายการ",

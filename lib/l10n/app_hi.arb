@@ -2868,7 +2868,7 @@
     "description": "Import report: settings rows in the backup that could not be read",
     "placeholders": {"n": {"type": "int"}}
   },
-  "welcomeSettingsSkippedBody": "उनके लिए इस फ़ोन के मान बने रहेंगे। बैकअप का बाकी सब बहाल हो गया।",
+  "welcomeSettingsSkippedBody": "उनके लिए इस फ़ोन के मान बने रहेंगे।",
   "welcomeCoachChatGptReentry": "आपका ChatGPT साइन-इन सुरक्षित स्टोरेज में रहता है और बैकअप में शामिल नहीं किया गया। इस फ़ोन पर कोच इस्तेमाल करने के लिए AI सेटिंग में फिर से साइन इन करें।",
   "welcomeCoachServerReentry": "आपका कस्टम कोच सर्वर पता बैकअप नहीं हुआ, क्योंकि पते में कुंजी हो सकती है। इसे AI सेटिंग्स में फिर से दर्ज करें।",
   "welcomeSettingsRestored": "{n} सेटिंग बहाल हुईं",

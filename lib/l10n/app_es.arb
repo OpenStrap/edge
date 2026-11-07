@@ -2897,7 +2897,7 @@
     "description": "Import report: settings rows in the backup that could not be read",
     "placeholders": {"n": {"type": "int"}}
   },
-  "welcomeSettingsSkippedBody": "Esos conservan los valores de este teléfono. Todo lo demás de la copia se restauró.",
+  "welcomeSettingsSkippedBody": "Esos conservan los valores de este teléfono.",
   "welcomeCoachChatGptReentry": "Tu sesión de ChatGPT permanece en el almacenamiento seguro y no se incluyó en la copia. Vuelve a iniciar sesión en los ajustes de IA para usar el asistente en este teléfono.",
   "welcomeCoachServerReentry": "La dirección de tu servidor personalizado del asistente no se incluyó en la copia, porque una dirección puede contener una clave. Vuelve a introducirla en los ajustes de IA.",
   "welcomeSettingsRestored": "{n} ajustes restaurados",

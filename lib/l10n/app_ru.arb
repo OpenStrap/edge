@@ -7911,7 +7911,7 @@
     "description": "Import report: settings rows in the backup that could not be read",
     "placeholders": {"n": {"type": "int"}}
   },
-  "welcomeSettingsSkippedBody": "Для них остаются значения этого телефона. Всё остальное из резервной копии восстановлено.",
+  "welcomeSettingsSkippedBody": "Для них остаются значения этого телефона.",
   "welcomeCoachChatGptReentry": "Данные входа в ChatGPT остаются в защищённом хранилище и не включены в резервную копию. Войдите снова в настройках ИИ, чтобы пользоваться тренером на этом телефоне.",
   "welcomeCoachServerReentry": "Адрес вашего собственного сервера коуча не сохранён в резервной копии, потому что адрес может содержать ключ. Введите его снова в настройках ИИ.",
   "welcomeSettingsRestored": "Восстановлено настроек: {n}",

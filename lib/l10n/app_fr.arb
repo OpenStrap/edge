@@ -2868,7 +2868,7 @@
     "description": "Import report: settings rows in the backup that could not be read",
     "placeholders": {"n": {"type": "int"}}
   },
-  "welcomeSettingsSkippedBody": "Ils gardent les valeurs de ce téléphone. Tout le reste de la sauvegarde a été restauré.",
+  "welcomeSettingsSkippedBody": "Ils gardent les valeurs de ce téléphone.",
   "welcomeCoachChatGptReentry": "Votre connexion à ChatGPT reste dans le stockage sécurisé et n’a pas été sauvegardée. Connectez-vous à nouveau dans les réglages de l’IA pour utiliser le coach sur ce téléphone.",
   "welcomeCoachServerReentry": "L’adresse de votre serveur de coach personnalisé n’a pas été sauvegardée, car une adresse peut contenir une clé. Saisissez-la à nouveau dans les réglages de l’IA.",
   "welcomeSettingsRestored": "{n} réglages restaurés",

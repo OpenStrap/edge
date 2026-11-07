@@ -766,7 +766,7 @@ class ImportReport extends StatelessWidget {
     l?.welcomeSettingsSkipped(o.prefsRefused) ??
         '${o.prefsRefused} setting${o.prefsRefused == 1 ? ' in the backup could not be read and was' : 's in the backup could not be read and were'} skipped',
     l?.welcomeSettingsSkippedBody ??
-        'Those keep this phone\'s values. Everything else in the backup was restored.',
+        'Those keep this phone\'s values.',
     icon: LucideIcons.fileWarning,
   );
 
