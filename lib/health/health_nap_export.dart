@@ -170,7 +170,7 @@ class HealthNapExporter {
     final release = Completer<void>();
     _lockTail = release.future;
     return prev
-        .then((_) => runZonedGuarded(op, zoneValues: {_napHealthLockKey: true}))
+        .then((_) => runZoned(op, zoneValues: {_napHealthLockKey: true}))
         .whenComplete(release.complete);
   }
 
