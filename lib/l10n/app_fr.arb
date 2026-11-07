@@ -2861,5 +2861,11 @@
         "type": "int"
       }
     }
+  },
+  "welcomeCoachKeyReentry": "Votre clé API du coach reste dans le stockage sécurisé et n’a pas été sauvegardée. Saisissez-la à nouveau dans les réglages de l’IA pour utiliser le coach sur ce téléphone.",
+  "welcomeSettingsRestored": "{n} réglages restaurés",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
   }
 }

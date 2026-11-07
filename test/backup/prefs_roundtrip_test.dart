@@ -76,6 +76,21 @@ void main() {
     expect(got['gesture_double_tap']!.$1, 'string');
   });
 
+  test('native string lists survive export and restore', () async {
+    await env.wipe();
+    // Method-channel decoding returns List<Object?>, even though every item
+    // is a string. SharedPreferences.getStringList accepts this native shape.
+    await setPrefs({'selected_sensors': <Object?>['one', 'two']});
+    final sp = await SharedPreferences.getInstance();
+    expect(sp.getStringList('selected_sensors'), ['one', 'two']);
+    final path = await LocalDb.exportCopy();
+    expect((await exportedPrefs(path))!['selected_sensors'],
+        ('stringList', '["one","two"]'));
+    await env.wipe();
+    await LocalDb.importFromDbFile(path);
+    expect((await allPrefs())['selected_sensors'], ['one', 'two']);
+  });
+
   test('the live database never gains backup_* tables', () async {
     await env.wipe();
     await setPrefs(Map.of(_settings));

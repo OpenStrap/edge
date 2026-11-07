@@ -1,15 +1,32 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
+import 'package:notification_listener_service/notification_event.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/auto_backup.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/state/prefs.dart';
+import 'package:openstrap_edge/notify/notification_relay.dart';
 import 'package:openstrap_edge/theme/theme_controller.dart';
+import 'package:openstrap_edge/support/issue_report.dart';
+import 'package:openstrap_edge/ui2/onboarding/welcome.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'backup_support.dart';
+
+// Only the platform availability/permission is faked; settings and the pending
+// notification run through the real relay.
+class _AndroidRelay extends NotificationRelay {
+  _AndroidRelay({required super.buzz, required super.quietNow})
+      : super(isConnected: () => true);
+  @override
+  bool get supported => true;
+  @override
+  Future<bool> refreshPermission() async => false;
+}
 
 void main() {
   late BackupEnv env;
@@ -30,18 +47,30 @@ void main() {
   test('an export for telemetry or support carries no settings or key signals', () async {
     await env.wipe();
     await setPrefs({'theme_choice': 'dark', 'coach_api_key_present': true});
-    final String path;
-    try {
-      path = await Function.apply(LocalDb.exportCopy, [], {#includePrefs: false});
-    } on NoSuchMethodError {
-      fail('exportCopy must allow telemetry/support to omit preferences');
-    }
+    final path = await LocalDb.exportCopy(includePrefs: false);
     final tables = await tablesOf(path);
     expect(tables.where((t) => t.startsWith('backup_')), isEmpty);
-    for (final file in ['lib/telemetry/health_uploader.dart', 'lib/support/issue_report.dart']) {
-      expect(File(file).readAsStringSync(), contains('includePrefs: false'),
-          reason: '$file must use the private export mode');
-    }
+    // The uploader is compile-time gated and requires battery/Wi-Fi plugins.
+    expect(File('lib/telemetry/health_uploader.dart').readAsStringSync(),
+        contains('includePrefs: false'));
+  });
+
+  test('a full support report contains no backup settings or key signals', () async {
+    await env.wipe();
+    await setPrefs({'theme_choice': 'dark', 'coach_api_key_present': true});
+    final personal = await LocalDb.exportCopy();
+    expect((await exportedPrefs(personal))!['theme_choice'], ('string', 'dark'));
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    final report = await collectReport(app, const ReportDraft(
+      category: ReportCategory.sync, title: 'Sync', description: 'Details',
+      fullDatabase: true,
+    ));
+    final zip = ZipDecoder().decodeBytes(await report.zip.readAsBytes());
+    final payload = zip.files.singleWhere((f) => f.name == 'database.db.gz');
+    final db = File('${env.root.path}/support.db');
+    await db.writeAsBytes(gzip.decode(payload.content as List<int>));
+    expect((await tablesOf(db.path)).where((t) => t.startsWith('backup_')), isEmpty);
   });
 
   test('older backups with no extras still import', () async {
@@ -75,6 +104,52 @@ void main() {
     expect(Prefs.getInt('ui.recap_range', 0), 2);
   });
 
+  test('the import report receives settings counts and coach re-entry', () async {
+    await env.wipe();
+    await setPrefs({'coach_model': 'm', 'coach_api_key_present': true,
+      'onboarding_choice': 'existing'});
+    final path = await LocalDb.exportCopy();
+    await env.wipe();
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    app.initialized = true;
+    final result = await runImport(app, [path]);
+    expect(app.route, AppRoute.welcome,
+        reason: 'restored onboarding prefs must not hide the import report');
+    expect(await settleOnboardImport(app, result), isTrue);
+    expect(result.needsReentry, ['coach_api_key']);
+    expect(result.prefsRestored, 2);
+    expect(result.nothingLanded, isFalse);
+    expect(result.needsReading, isTrue);
+    await app.completeImportOnboard();
+    expect(app.route, AppRoute.pairing);
+  });
+
+  test('relay reload adopts imported apps and cancels a pending buzz', () async {
+    await env.wipe();
+    var buzzes = 0;
+    final quiet = Completer<bool>();
+    final relay = _AndroidRelay(buzz: () async { buzzes++; },
+        quietNow: () => quiet.future);
+    addTearDown(relay.dispose);
+    relay.packages.add('com.chat');
+    relay.debugOnNotification(ServiceNotificationEvent(
+      id: 1, title: '', content: '', packageName: 'com.chat',
+      canReply: false, haveExtraPicture: false, hasRemoved: false,
+      onGoing: false, timestamp: 0,
+      appIcon: null, extrasPicture: null, largeIcon: null,
+    ));
+    await setPrefs({'notif_relay_enabled': false,
+      'notif_relay_packages': <String>['com.chat', 'com.mail']});
+    await relay.reloadFromPrefs();
+    expect(relay.enabled, isFalse);
+    expect(relay.packages, {'com.chat', 'com.mail'});
+    expect(relay.seenPackages, ['com.chat', 'com.mail']);
+    quiet.complete(false);
+    await Future<void>.value();
+    expect(buzzes, 0);
+  });
+
   test('a live theme reload adopts the imported choice without rewriting it', () async {
     await env.wipe();
     await setPrefs({'theme_choice': 'dark'});
@@ -83,11 +158,7 @@ void main() {
     final theme = ThemeController.seed(AppThemeChoice.light, Brightness.light);
     addTearDown(theme.dispose);
     await LocalDb.importFromDbFile(path);
-    try {
-      await (theme as dynamic).reloadFromPrefs();
-    } on NoSuchMethodError {
-      fail('the live theme must be reloadable after importing settings');
-    }
+    await theme.reloadFromPrefs();
     expect(theme.choice, AppThemeChoice.dark);
     expect(theme.effective, Brightness.dark);
     expect((await allPrefs())['theme_choice'], 'dark');

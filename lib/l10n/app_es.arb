@@ -2890,5 +2890,11 @@
         "type": "int"
       }
     }
+  },
+  "welcomeCoachKeyReentry": "Tu clave de API del asistente permanece en el almacenamiento seguro y no se incluyó en la copia. Vuelve a introducirla en los ajustes de IA para usar el asistente en este teléfono.",
+  "welcomeSettingsRestored": "{n} ajustes restaurados",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
   }
 }

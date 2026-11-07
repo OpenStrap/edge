@@ -7904,5 +7904,11 @@
         "type": "int"
       }
     }
+  },
+  "welcomeCoachKeyReentry": "API-ключ тренера остаётся в защищённом хранилище и не включён в резервную копию. Введите его снова в настройках ИИ, чтобы пользоваться тренером на этом телефоне.",
+  "welcomeSettingsRestored": "Восстановлено настроек: {n}",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
   }
 }

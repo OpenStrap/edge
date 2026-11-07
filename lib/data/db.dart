@@ -48,6 +48,7 @@ import 'coverage_resolver.dart' show CoverageInterval;
 import 'day_label.dart';
 import 'activity_store.dart';
 import 'attach_copy.dart';
+import 'backup_extras.dart';
 import '../models/activity_suggestion.dart';
 import '../compute/accepted_naps.dart';
 import '../compute/nap_edits.dart' show NapEditKind;
@@ -10727,11 +10728,15 @@ class LocalDb {
   /// shrink it — a year of history would cost its full size five times over.
   /// A manual export keeps it, which is the lossless copy the user asked for.
   ///
+  /// [includePrefs] carries settings in export-only tables. Telemetry and
+  /// support exports pass false to keep settings and key signals private.
+  ///
   /// [into] puts the copy somewhere other than the temp root; the manual
   /// export uses its own folder so it can prune its old copies without
   /// touching snapshots other features are still working on.
   static Future<String> exportCopy({
     bool includeSubstrateArchive = true,
+    bool includePrefs = true,
     Directory? into,
   }) async {
     final db = await instance;
@@ -10766,6 +10771,7 @@ class LocalDb {
         await copy.close();
         copy = null;
       }
+      if (includePrefs) await writeBackupPrefs(dest);
     } catch (_) {
       // The caller never learns the path of a failed copy, so nobody else
       // could ever delete it: a full copy of the database left in temp.
@@ -11601,12 +11607,12 @@ class LocalDb {
   /// renames on the way through is exactly the situation a restore has to
   /// survive. Plain `.db` files (older backups, and `exportCopy` output) take
   /// the same path they always did.
-  static Future<Map<String, int>> importFromDbFile(String path) async {
+  static Future<ImportSummary> importFromDbFile(String path) async {
     if (!await File(path).exists()) {
       throw const FileSystemException('Backup file not found');
     }
     if (await sniffFile(path) != ImportContainer.gzip) {
-      return _mergeFromDbFile(path);
+      return _restoreFromDbFile(path);
     }
     final work = await Directory.systemTemp.createTemp('openstrap_restore_');
     try {
@@ -11617,7 +11623,7 @@ class LocalDb {
           'That file unpacked to something that is not an OpenStrap database.',
         );
       }
-      return await _mergeFromDbFile(inflated);
+      return await _restoreFromDbFile(inflated);
     } finally {
       // The inflated copy is a full second copy of the database, so it goes
       // whether the import worked or not.
@@ -11627,6 +11633,33 @@ class LocalDb {
         /* the OS reclaims the temp dir eventually */
       }
     }
+  }
+
+  /// An empty ledger may still hold onboarding defaults. Existing history or
+  /// hand-entered data makes this an established install, even without a band.
+  static Future<bool> _backupPrefsFreshInstall(Database db) async {
+    const candidates = [
+      'decoded_onehz', 'decoded_rr', 'samples', 'day_result', 'observation',
+      'sessions', 'journal', 'substrate_archive', 'raw_archive',
+      'imported_workout', 'imported_measurement', 'lab_result', 'food_entry',
+      'med_dose', 'strength_set', 'cycle_log', 'breathing_session', 'sleep_nap',
+    ];
+    // Some stores, including raw_archive, are created lazily.
+    final tables = {for (final row in await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")) row['name']};
+    final probes = [for (final table in candidates)
+        if (tables.contains(table)) 'EXISTS(SELECT 1 FROM $table)'];
+    if (probes.isEmpty) return true;
+    return (await db.rawQuery('SELECT ${probes.join(' OR ')} AS populated'))
+        .single['populated'] == 0;
+  }
+
+  static Future<ImportSummary> _restoreFromDbFile(String path) async {
+    final db = await instance;
+    // Decide before imported rows make a new phone look established.
+    final fresh = await _backupPrefsFreshInstall(db);
+    final counts = await _mergeFromDbFile(path);
+    return restoreBackupPrefs(path, counts, freshInstall: fresh);
   }
 
   /// Merge every table [tables] names from the database file at [path] into

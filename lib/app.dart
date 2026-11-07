@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'ai/briefing.dart' show BriefingPeriod;
 import 'coach/coach_config.dart';
 import 'data/db.dart';
+import 'data/backup_extras.dart' show settingsRestoredSignal;
 import 'l10n/app_localizations.dart';
 import 'notify/notification_service.dart';
 import 'notify/tap_router.dart';
@@ -14,6 +15,7 @@ import 'state/app_state.dart';
 import 'state/clock_format.dart';
 import 'state/locale_controller.dart';
 import 'state/prefs.dart';
+import 'state/units_controller.dart';
 import 'telemetry/telemetry_service.dart';
 import 'theme/theme_controller.dart';
 import 'theme/theme_switcher.dart';
@@ -61,6 +63,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    settingsRestoredSignal.addListener(_onSettingsRestored);
     unawaited(LocalDb.setForeground(
         screenReadsForeground(WidgetsBinding.instance.lifecycleState)));
     // Hand the BYOK provider config to AppState (briefing generation + the
@@ -75,8 +78,17 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
     });
   }
 
+  void _onSettingsRestored() {
+    if (!mounted) return;
+    unawaited(context.read<ThemeController>().reloadFromPrefs());
+    unawaited(context.read<LocaleController>().reloadFromPrefs());
+    unawaited(context.read<UnitsController>().reloadFromPrefs());
+    unawaited(context.read<ClockFormatController>().reloadFromPrefs());
+  }
+
   @override
   void dispose() {
+    settingsRestoredSignal.removeListener(_onSettingsRestored);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

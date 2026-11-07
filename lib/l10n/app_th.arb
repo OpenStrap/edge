@@ -16325,5 +16325,11 @@
         "type": "int"
       }
     }
+  },
+  "welcomeCoachKeyReentry": "คีย์ API ของโค้ชยังอยู่ในพื้นที่จัดเก็บที่ปลอดภัยและไม่ได้รวมอยู่ในข้อมูลสำรอง โปรดป้อนคีย์อีกครั้งในการตั้งค่า AI เพื่อใช้โค้ชบนโทรศัพท์เครื่องนี้",
+  "welcomeSettingsRestored": "กู้คืนการตั้งค่าแล้ว {n} รายการ",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
   }
 }

@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/backup_extras.dart';
 
 class _FakePaths extends PathProviderPlatform {
   _FakePaths(this.tmp, this.docs);
@@ -125,17 +126,11 @@ void expectNoSecretIn(String path, Iterable<String> secrets) {
   }
 }
 
-// Read the policy as source so the red tests compile before it exists.
-Map<String, String> policyMap(String name) {
-  final f = File('lib/data/backup_extras.dart');
-  expect(f.existsSync(), isTrue, reason: 'the backup needs a settings policy');
-  final block = RegExp(name + r' = \{([\s\S]*?)\n\};')
-      .firstMatch(f.readAsStringSync());
-  expect(block, isNotNull, reason: name);
-  final entries = RegExp(r"'([^']+)': ([\s\S]*?)(?=\n  '[^']+':|$)");
-  return {for (final m in entries.allMatches(block!.group(1)!))
-    m.group(1)!: m.group(2)!.trim()};
-}
+Map<String, String> policyMap(String name) => switch (name) {
+  'kPrefsNotBackedUp' => kPrefsNotBackedUp,
+  'kSecretsNotBackedUp' => kSecretsNotBackedUp,
+  _ => throw ArgumentError.value(name),
+};
 
 Future<bool> isFreshInstall() async {
   final db = await LocalDb.instance;
@@ -144,7 +139,5 @@ Future<bool> isFreshInstall() async {
   return rows.first['a'] == 0 && rows.first['b'] == 0;
 }
 
-Matcher needsReentry(List<String> expected) => predicate((dynamic result) {
-  try { return equals(expected).matches(result.needsReentry, {}); }
-  on NoSuchMethodError { return false; }
-}, 'import result with needsReentry $expected');
+Matcher needsReentry(List<String> expected) => isA<ImportSummary>()
+    .having((r) => r.needsReentry, 'needsReentry', expected);

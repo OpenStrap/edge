@@ -2,6 +2,7 @@
 // gaps the audit found: backup.cadence swept up by a prefix, consent state half
 // restored, and a coach key lost without a word.
 
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -39,6 +40,18 @@ void main() {
     expect(now.containsKey('backup.last_error'), isFalse);
   });
 
+  test('hand-entered history also preserves the device settings', () async {
+    await wipeAll();
+    await setPrefs({'theme_choice': 'dark', 'backup.cadence': 'weekly'});
+    final path = await LocalDb.exportCopy();
+    await wipeAll();
+    final db = await LocalDb.instance;
+    await db.insert('journal', {'date': '2026-09-21', 'updated_at': 1});
+    await setPrefs({'theme_choice': 'light'});
+    await LocalDb.importFromDbFile(path);
+    expect(await allPrefs(), {'theme_choice': 'light', 'backup.cadence': 'weekly'});
+  });
+
   test('consent is asked again as a whole: no half-restored consent state',
       () async {
     await wipeAll();
@@ -71,6 +84,40 @@ void main() {
     expect(now.containsKey('coach_api_key_present'), isFalse,
         reason: 'the marker would claim a key this phone does not hold');
     expect(result, needsReentry(['coach_api_key']));
+  });
+
+  test('ChatGPT credentials and phone registration stay on the phone', () async {
+    await wipeAll();
+    FlutterSecureStorage.setMockInitialValues({'coach_chatgpt_session': 'SECRET-SESSION'});
+    await setPrefs({
+      'coach_use_chatgpt': true,
+      'coach_chatgpt_present': true,
+      'coach_chatgpt_client_id': 'client-old',
+      'coach_chatgpt_host_id': 'host-old',
+      'coach_chatgpt_welcomed': true,
+    });
+    final path = await LocalDb.exportCopy();
+    expect((await exportedPrefs(path))!.keys, ['coach_use_chatgpt']);
+    expectNoSecretIn(path, ['SECRET-SESSION', 'client-old', 'host-old']);
+    await wipeAll();
+    await LocalDb.importFromDbFile(path);
+    expect(await allPrefs(), {'coach_use_chatgpt': true});
+  });
+
+  test('a foreign backup cannot restore consent or a keychain marker', () async {
+    await wipeAll();
+    await setPrefs({'theme_choice': 'dark'});
+    final path = await LocalDb.exportCopy();
+    final copy = await databaseFactoryFfi.openDatabase(path,
+        options: OpenDatabaseOptions(singleInstance: false));
+    for (final key in ['consent_chosen', 'consent_telemetry',
+        'consent_health_data', 'coach_api_key_present']) {
+      await copy.insert('backup_prefs', {'key': key, 'type': 'bool', 'value': 'true'});
+    }
+    await copy.close();
+    await wipeAll();
+    await LocalDb.importFromDbFile(path);
+    expect(await allPrefs(), {'theme_choice': 'dark'});
   });
 
   test('no re-entry is reported when the key is already on this phone or never set',
