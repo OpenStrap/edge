@@ -465,7 +465,7 @@ class ActivityStore {
     } else {
       if (!manualNapWindowIsValid(startTs, endTs)) {
         throw const ActivityReviewException(
-          'A nap must last between 5 minutes and 6 hours.',
+          'A nap must last between 5 minutes and 3 hours.',
         );
       }
       if (await _overlapsSleep(tx, startTs, endTs)) {

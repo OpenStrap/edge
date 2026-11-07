@@ -342,6 +342,21 @@ void main() {
       expect(ok, isFalse);
     });
 
+    test('synchronized is reentrant: a health call inside a wrapped DB edit '
+        'does not deadlock', () async {
+      final writer = FakeNapWriter();
+      final e = exporter(
+        writer: writer,
+        row: {'source': 'confirmed', 'start_ts': start, 'end_ts': end},
+      );
+      final ok = await e.synchronized(() async {
+        // Simulates a call site wrapping DB edit + health call together.
+        return e.exportNap(dayId: '2026-08-03', startTs: start, endTs: end);
+      });
+      expect(ok, isTrue);
+      expect(writer.calls, hasLength(1));
+    });
+
     test('one failing row does not skip the remaining naps', () async {
       final second = {
         'source': 'manual',

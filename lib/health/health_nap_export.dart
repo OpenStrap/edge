@@ -30,6 +30,7 @@
 // a missing store, a denied permission or a failed write reads as false.
 
 import 'dart:async';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -120,6 +121,11 @@ bool napOverlapsWindowMs(int startTs, int endTs, num? onsetMs, num? offsetMs) {
   return startTs * 1000 < offsetMs && endTs * 1000 > onsetMs;
 }
 
+/// Zone key marking "inside [HealthNapExporter.synchronized]" — makes the
+/// nap lock reentrant so a call site can wrap a DB edit and a health call in
+/// one critical section without deadlocking on the inner health call.
+const _napHealthLockKey = #healthNapHealthLock;
+
 class HealthNapExporter {
   HealthNapExporter({
     HealthKitNapWriter? writer,
@@ -147,6 +153,26 @@ class HealthNapExporter {
 
   /// Process-wide exporter; call sites use the static wrappers below.
   static final HealthNapExporter shared = HealthNapExporter();
+
+  Future<void> _lockTail = Future<void>.value();
+
+  /// Serializes nap DB edits + Health writes against [exportDayNaps]'s
+  /// read-and-write pass. Without this, a remove/reject that lands while a
+  /// daily export has already read the row (but not yet written) lets the
+  /// export write the just-removed nap back into HealthKit after the
+  /// delete. With the lock, either order is safe: the export re-reads the
+  /// rows inside the critical section, so a row deleted first is skipped.
+  /// Reentrant via [_napHealthLockKey]; leaf lock — never acquires another
+  /// lock while held, so it cannot deadlock against exportAll's workout lock.
+  Future<T> synchronized<T>(Future<T> Function() op) {
+    if (Zone.current[_napHealthLockKey] == true) return op();
+    final prev = _lockTail;
+    final release = Completer<void>();
+    _lockTail = release.future;
+    return prev
+        .then((_) => runZonedGuarded(op, zoneValues: {_napHealthLockKey: true}))
+        .whenComplete(release.complete);
+  }
 
   /// Export the nap stored at ([dayId], [startTs]) — its [endTs] is read from
   /// the row. Used after "put back" restores a rejected nap to 'confirmed'.
@@ -187,7 +213,7 @@ class HealthNapExporter {
     required String dayId,
     required int startTs,
     required int endTs,
-  }) async {
+  }) => synchronized(() async {
     try {
       // Health Connect has no nap export yet; never claim one happened.
       if (!isApple) return false;
@@ -220,7 +246,7 @@ class HealthNapExporter {
       debugPrint('[health] exportNap $dayId $startTs-$endTs: $e');
       return false;
     }
-  }
+  });
 
   /// Export every exportable nap of [dayId]. Called from the per-day health
   /// export AFTER the main-sleep replace: that replace's noon-to-noon
@@ -229,7 +255,7 @@ class HealthNapExporter {
   /// store. Rows that are not exportable (pending/rejected/legacy, overlap
   /// with main sleep) are skipped silently; false means an attempted write
   /// failed. On Android or with the sync switch off this is a no-op `true`.
-  Future<bool> exportDayNaps(String dayId) async {
+  Future<bool> exportDayNaps(String dayId) => synchronized(() async {
     try {
       if (!isApple) return true;
       if (!await _healthSyncEnabled()) return true;
@@ -270,12 +296,12 @@ class HealthNapExporter {
       debugPrint('[health] exportDayNaps $dayId: $e');
       return false;
     }
-  }
+  });
 
   Future<bool> deleteNapWindow({
     required int startTs,
     required int endTs,
-  }) async {
+  }) => synchronized(() async {
     try {
       if (!isApple) return false;
       if (!await _healthSyncEnabled()) return false;
@@ -288,7 +314,7 @@ class HealthNapExporter {
       debugPrint('[health] deleteNapWindow $startTs-$endTs: $e');
       return false;
     }
-  }
+  });
 
   static Future<bool> _defaultHealthSyncEnabled() async {
     final prefs = await SharedPreferences.getInstance();

@@ -1943,9 +1943,9 @@
   "@napsWokeUpHelp": {
     "description": "Time picker helper text for logging when a manual nap ended."
   },
-  "napsInvalidWindow": "A nap is between 5 minutes and 6 hours. Anything longer is a sleep, and it belongs in the night where the stages can be read.",
+  "napsInvalidWindow": "A nap is between 5 minutes and 3 hours. Anything longer is a sleep, and it belongs in the night where the stages can be read.",
   "@napsInvalidWindow": {
-    "description": "Validation error when a manually logged nap window is outside 5 minutes to 6 hours."
+    "description": "Validation error when a manually logged nap window is outside 5 minutes to 3 hours."
   },
   "napsOverlap": "That overlaps a nap already on this day. Remove that one first, rather than counting the same hour twice.",
   "@napsOverlap": {
@@ -12737,7 +12737,7 @@
   "activityStart": "Start",
   "activityEnd": "End",
   "activityCheckTimes": "Check the times",
-  "activityNapWindow": "Choose a past window between 5 minutes and 6 hours.",
+  "activityNapWindow": "Choose a past window between 5 minutes and 3 hours.",
   "activityEditNap": "Edit nap",
   "activityEditWorkout": "Edit workout",
   "activityNapAlerts": "Detected naps",

@@ -1943,9 +1943,9 @@
   "@napsWokeUpHelp": {
     "description": "Time picker helper text for logging when a manual nap ended."
   },
-  "napsInvalidWindow": "การงีบต้องยาว 5 นาทีถึง 6 ชั่วโมง หากนานกว่านั้นถือเป็นการนอนหลักและควรอยู่ในคืนนั้นเพื่ออ่านระยะการนอน",
+  "napsInvalidWindow": "การงีบต้องยาว 5 นาทีถึง 3 ชั่วโมง หากนานกว่านั้นถือเป็นการนอนหลักและควรอยู่ในคืนนั้นเพื่ออ่านระยะการนอน",
   "@napsInvalidWindow": {
-    "description": "Validation error when a manually logged nap window is outside 5 minutes to 6 hours."
+    "description": "Validation error when a manually logged nap window is outside 5 minutes to 3 hours."
   },
   "napsOverlap": "เวลาทับซ้อนกับการงีบที่มีอยู่ในวันนี้ โปรดลบรายการเดิมก่อนเพื่อไม่นับชั่วโมงซ้ำ",
   "@napsOverlap": {
@@ -12737,7 +12737,7 @@
   "activityStart": "เริ่ม",
   "activityEnd": "จบ",
   "activityCheckTimes": "ตรวจสอบเวลา",
-  "activityNapWindow": "เลือกช่วงเวลาที่ผ่านมา ความยาว 5 นาทีถึง 6 ชั่วโมง",
+  "activityNapWindow": "เลือกช่วงเวลาที่ผ่านมา ความยาว 5 นาทีถึง 3 ชั่วโมง",
   "activityEditNap": "แก้ไขการงีบ",
   "activityEditWorkout": "แก้ไขการออกกำลังกาย",
   "activityNapAlerts": "การงีบที่ตรวจพบ",
