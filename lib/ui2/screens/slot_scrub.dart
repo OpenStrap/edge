@@ -23,6 +23,7 @@ class SlotScrub extends StatefulWidget {
     required this.color,
     required this.format,
     required this.builder,
+    this.dayWord,
   });
 
   /// One slot per calendar day, oldest first, the last slot on [anchor].
@@ -46,6 +47,10 @@ class SlotScrub extends StatefulWidget {
   /// A recorded value as the panel and the slider say it.
   final String Function(double v) format;
 
+  /// The caller's own word for a slot (HRV calls its last slot "Last night"),
+  /// or null to use the day name. The panel and the slider both use it.
+  final String? Function(int slot)? dayWord;
+
   /// [scrub] wraps the painted plot; [panel] goes under the chart; [pick] is
   /// the touched slot (null at rest) for a painter that highlights it.
   final Widget Function(BuildContext context, int? pick,
@@ -67,6 +72,8 @@ class _SlotScrubState extends State<SlotScrub> {
   double _at(int i) => widget.bars ? (i + .5) / _n : i / (_n - 1);
 
   String _day(BuildContext c, int slot) {
+    final word = widget.dayWord?.call(slot);
+    if (word != null) return word;
     final a = widget.anchor;
     return dayNavLabel(
         dayLabelOf(DateTime(a.year, a.month, a.day - (_n - 1 - slot))),
@@ -83,8 +90,10 @@ class _SlotScrubState extends State<SlotScrub> {
     }
     final shown = _pick ?? latest;
     final v = s[shown];
+    // No slot has a value: LATEST would name a day with no reading.
+    final none = _pick == null && v == null;
     final panel = ChartPanel(
-      time: _day(c, shown),
+      time: none ? null : _day(c, shown),
       timeSpan: [for (var i = 0; i < _n; i++) _day(c, i)],
       scrubbed: _pick != null,
       color: widget.color,

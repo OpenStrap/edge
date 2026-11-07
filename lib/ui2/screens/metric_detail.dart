@@ -765,6 +765,8 @@ class _MetricDetailState extends State<MetricDetail> {
   /// What has been read for the chip, by "from..to", and the reads in flight.
   final Map<String, List<ChartAnnotation>> _journalRead = {};
   final Set<String> _journalReading = {};
+  // Bumped by [_load]: a read that started before it is dropped.
+  int _journalGen = 0;
 
   /// The device selected on the pill row, or null for the merged view. A
   /// window change clears it the same way it clears [_pick] — a device
@@ -868,6 +870,8 @@ class _MetricDetailState extends State<MetricDetail> {
     // not at each call site — one guard where every caller already routes.
     if (!mounted) return;
     _journalRead.clear();
+    _journalGen++;
+    _journalReading.clear();
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted) setState(() => _loading = false);
@@ -1238,7 +1242,9 @@ class _MetricDetailState extends State<MetricDetail> {
       }
     }
 
+    final gen = _journalGen;
     read().then((items) {
+      if (gen != _journalGen) return;
       _journalReading.remove(key);
       if (mounted) setState(() => _journalRead[key] = items);
     });
@@ -1739,7 +1745,9 @@ class _MetricDetailState extends State<MetricDetail> {
     return Padding(
       padding: const EdgeInsets.only(top: S.x3),
       child: ChartPanel(
-        note: who,
+        // Scrubbed onto a no-value day the slider names no device, so the
+        // panel does not either: the screen shows what the slider says.
+        note: _pick != null && v == null ? '' : who,
         reserveNote: multi,
         time: dayNavLabel(day, l),
         timeSpan: [

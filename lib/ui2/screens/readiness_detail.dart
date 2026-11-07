@@ -492,7 +492,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
           }
 
           return ChartPanel(
-            time: dayName(i),
+            time: pick == null && v == null ? null : dayName(i),
             timeSpan: [for (var k = 0; k < win.length; k++) dayName(k)],
             scrubbed: pick != null,
             color: p.on(C.green),

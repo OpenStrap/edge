@@ -102,6 +102,16 @@ void main() {
       expect(line.x, moreOrLessEquals(lane.width * 3.5 / 6, epsilon: .5));
     });
 
+    testWidgets('are spoken once, not "Algorithm version, Algorithm version"',
+        (t) async {
+      final h = t.ensureSemantics();
+      await _open(t);
+      expect(find.bySemanticsLabel('Algorithm version'), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp('Algorithm version, Algorithm')),
+          findsNothing);
+      h.dispose();
+    });
+
     testWidgets('the footnote calls them dashed, not dotted, in English',
         (t) async {
       await _open(t);

@@ -58,6 +58,7 @@ void main() {
     bars: false,
     scrubbed: _nights - 1 - _scrubbedBack,
     gap: _nights - 1 - _gapBack,
+    lastWord: 'last night',
     valueAt: (slot) => '^${(80 - (_nights - 1 - slot))}ms',
   );
   defineSurfaceLaws(rig);

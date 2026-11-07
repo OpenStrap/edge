@@ -8,11 +8,15 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 
 import 'support/scrub_surface_laws.dart';
 
-Widget _chart(DateTime anchor) => scaledApp(
+Widget _chart(DateTime anchor,
+        {List<double?> series = const [10, 20, 30],
+        String? Function(int)? dayWord}) =>
+    scaledApp(
       1,
       Scaffold(
         body: SlotScrub(
-          series: const [10, 20, 30],
+          series: series,
+          dayWord: dayWord,
           anchor: anchor,
           bars: true,
           label: 'Load',
@@ -61,5 +65,25 @@ void main() {
     await t.pumpWidget(_chart(DateTime(n.year, n.month, n.day)));
     await t.pumpAndSettle();
     expect(_caption(t), 'LATEST · Today');
+  });
+
+  testWidgets('no slot has a value: the caption names no day', (t) async {
+    final n = DateTime.now();
+    await t.pumpWidget(_chart(DateTime(n.year, n.month, n.day),
+        series: const [null, null, null]));
+    await t.pumpAndSettle();
+    expect(_caption(t), isNot(contains(RegExp('Today|Yesterday|[0-9]'))),
+        reason: 'LATEST must not name a day with no reading: "${_caption(t)}"');
+  });
+
+  testWidgets('a day word replaces the day name in the panel and the slider',
+      (t) async {
+    final n = DateTime.now();
+    await t.pumpWidget(_chart(DateTime(n.year, n.month, n.day),
+        dayWord: (i) => i == 2 ? 'Last night' : null));
+    await t.pumpAndSettle();
+    expect(_caption(t), 'LATEST · Last night');
+    expect(t.widget<Scrubber>(find.byType(Scrubber)).describe(0.95),
+        'Last night, 30 points');
   });
 }

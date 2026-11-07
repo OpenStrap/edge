@@ -1615,7 +1615,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
 
   /// The panel under a night chart: at rest the stage and every signal at wake
   /// (LATEST), while scrubbing the same at that instant (SELECTED). Both
-  /// charts share one instant, so both panels read the same thing.
+  /// charts share one scrub fraction; each panel reads its own chart's instant.
   ///
   /// The stage comes from the night's timestamped boundaries ([n], so a
   /// device's own staging reads its own night); each signal is its nearest

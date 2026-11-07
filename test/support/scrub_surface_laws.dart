@@ -65,8 +65,11 @@ List<String> spoken(WidgetTester t) {
 
 /// Whether [caption] names [back] days ago, as the chart words it: 'today',
 /// 'yesterday', or the weekday and the day of the month.
-bool namesDay(String caption, int back) {
+bool namesDay(String caption, int back, {String? lastWord}) {
   final c = caption.toLowerCase();
+  if (back == 0 && lastWord != null && c.contains(lastWord.toLowerCase())) {
+    return true;
+  }
   final n = DateTime.now();
   final d = DateTime(n.year, n.month, n.day - back);
   const wd = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -87,6 +90,7 @@ class SurfaceRig {
     required this.scrubbed,
     required this.gap,
     required this.valueAt,
+    this.lastWord,
   });
 
   final String name;
@@ -111,6 +115,9 @@ class SurfaceRig {
   /// The panel's value for [slot] with all whitespace removed, as a pattern.
   /// Slot `slots - 1` is the one the panel shows at rest.
   final String Function(int slot) valueAt;
+
+  /// A chart that words its newest slot its own way (HRV: "Last night").
+  final String? lastWord;
 
   int dayBack(int slot) => slots - 1 - slot;
 
@@ -170,7 +177,7 @@ void defineSurfaceLaws(SurfaceRig r) {
         await _ready(t, r, scale);
         final cap = _caption(t);
         expect(cap.toLowerCase(), startsWith('latest'));
-        expect(namesDay(cap, 0), isTrue, reason: 'caption "$cap" names no day');
+        expect(namesDay(cap, 0, lastWord: r.lastWord), isTrue, reason: 'caption "$cap" names no day');
         expect(_value(t), matches(r.valueAt(r.slots - 1)));
         expect(t.widget<Scrubber>(r.plot()).value, isNull,
             reason: 'nothing is selected before a touch');
@@ -265,7 +272,7 @@ void defineSurfaceLaws(SurfaceRig r) {
       expect(latest.evaluate(), hasLength(1),
           reason: '${r.name}: the resting reading has no owner (or two)');
       final said = latest.evaluate().single.label;
-      expect(namesDay(said, 0), isTrue, reason: '"$said" names no day');
+      expect(namesDay(said, 0, lastWord: r.lastWord), isTrue, reason: '"$said" names no day');
       expect(said.replaceAll(RegExp(r'\s+'), ''),
           contains(RegExp(r.valueAt(r.slots - 1)
               .replaceAll(RegExp(r'^\^|\$$'), ''))),

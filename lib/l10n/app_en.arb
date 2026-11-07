@@ -5682,7 +5682,7 @@
   },
   "chartPanelSevenDayAvg": "7-day avg",
   "@chartPanelSevenDayAvg": {
-    "description": "Metric-detail panel stat: the average of the last 7 days up to the shown day."
+    "description": "Metric-detail panel stat: the last 7 days up to today, the same figure whichever day is shown."
   },
   "chartPanelVsAvg": "vs avg",
   "@chartPanelVsAvg": {

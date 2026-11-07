@@ -820,8 +820,11 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
 
       final l = AppLocalizations.of(context);
       final byId = {for (final a in set.items) a.id: a};
-      String said(ChartAnnotation a) =>
-          '${annotationKindName(l, a.kind)}, ${a.label}';
+      // A label that is only the kind's name (a version mark) is said once.
+      String said(ChartAnnotation a) {
+        final kind = annotationKindName(l, a.kind);
+        return a.label == kind ? kind : '$kind, ${a.label}';
+      }
       // Too crowded for even a "+n": still spoken, never dropped.
       final unplaced = [
         for (final id in layout.unplaced)
@@ -884,10 +887,12 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
           ),
         for (final i in layout.items) ...[
           // The tap target is 44 pt (Pressable) around a 24 pt icon: it
-          // overhangs the icon's box rather than pushing the lane apart.
+          // overhangs the icon's box rather than pushing the lane apart. It
+          // ends at the seam with the plot (the overhang is all above the icon,
+          // into the label row), so a drag that starts under an icon scrubs.
           Positioned(
             left: i.iconLeft - _overhang,
-            top: labelH - _overhang,
+            top: header - _tap,
             child: Pressable(
               onTap: () => step(i),
               semanticLabel: said(byId[i.id]!),
@@ -900,7 +905,7 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
           if (i.more > 0)
             Positioned(
               left: i.iconLeft + i.iconWidth - (_tap - i.badgeWidth) / 2,
-              top: labelH - _overhang,
+              top: header - _tap,
               child: Pressable(
                 onTap: () => step(i),
                 // The members the icon does not show, so stepping is

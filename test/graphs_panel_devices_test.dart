@@ -26,12 +26,13 @@ String _day(int back) {
       '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 }
 
-MetricData _data({required bool multi}) {
+MetricData _data({required bool multi, int? gap}) {
   final n = DateTime.now();
   return MetricData(
     daysAvailable: 10,
     series: [
       for (var back = 9; back >= 0; back--)
+        if (back != gap)
         (
           t: DateTime(n.year, n.month, n.day - back, 12)
                   .millisecondsSinceEpoch ~/
@@ -51,7 +52,7 @@ MetricData _data({required bool multi}) {
   );
 }
 
-Future<void> _open(WidgetTester t, {required bool multi}) async {
+Future<void> _open(WidgetTester t, {required bool multi, int? gap}) async {
   t.view.physicalSize = const Size(390 * 3, 1800 * 3);
   t.view.devicePixelRatio = 3;
   addTearDown(t.view.reset);
@@ -60,7 +61,7 @@ Future<void> _open(WidgetTester t, {required bool multi}) async {
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     theme: buildTheme(Brightness.light),
-    home: Scaffold(body: MetricDetail('resting_hr', data: _data(multi: multi))),
+    home: Scaffold(body: MetricDetail('resting_hr', data: _data(multi: multi, gap: gap))),
   ));
   await t.pumpAndSettle();
   await t.tap(find.text('7 days'));
@@ -118,6 +119,14 @@ void main() {
     await _scrubBack(t, _bare);
     expect(_note(t), '');
     expect(t.getRect(find.byKey(_panelKey)), withNote);
+  });
+
+  testWidgets('a day with coverage but no value shows no device line, as the '
+      'slider says', (t) async {
+    await _open(t, multi: true, gap: 2);
+    await _scrubBack(t, 2);
+    expect(_note(t), '', reason: 'the slider names no device for a no-value day');
+    expect(find.text('Band + Ring'), findsNothing);
   });
 
   testWidgets('single device: no line and no reserved space', (t) async {

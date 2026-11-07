@@ -699,6 +699,33 @@ void main() {
       expect(lines.top, lessThanOrEqualTo(plot.top + .5));
     });
 
+    testWidgets('a horizontal drag that starts just under an icon scrubs: the '
+        'icon\'s tap target stops at the plot', (t) async {
+      final set = const AnnotationSet(items: [
+        ChartAnnotation(
+            id: 'water',
+            kind: AnnotationKind.water,
+            at: 3,
+            label: 'Drank water'),
+        ChartAnnotation(
+            id: 'run',
+            kind: AnnotationKind.workout,
+            at: 5,
+            label: 'Evening run'),
+      ], domainStart: 0, domainEnd: 6);
+      await pumpFrame(t, const [], aset: set);
+      final plot = _rect(t, find.byKey(plotKey));
+      final icon = _rect(t, find.byKey(ChartAnnotationLane.iconKey('water')));
+      expect(icon.bottom, lessThanOrEqualTo(plot.top + .5));
+      final from = Offset(icon.center.dx, plot.top + 3);
+      final g = await t.startGesture(from);
+      await g.moveBy(Offset(plot.width * 2 / 6, 0));
+      await g.up();
+      await t.pump();
+      expect(_icon(t, 'run').bold, isTrue,
+          reason: 'the drag reached the scrubber');
+    });
+
     testWidgets('scrubbing onto an item bolds it and shows its label',
         (t) async {
       // Seven slots, domain = slot index.

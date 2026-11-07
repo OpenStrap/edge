@@ -1285,7 +1285,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     ]);
   }
 
-  /// The HRV preview inside the deep-dive card. Framed like every other chart:
+  /// The HRV preview. Framed like every other chart:
   /// what it is, what it is measured in, what the heights mean, and how far
   /// back it reaches — all read off the series actually drawn.
   Widget _hrvPreview(BuildContext c, HealthData d) {
@@ -1309,6 +1309,9 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       label: heading,
       color: p.on(C.green),
       format: (v) => '${v.round()} ms',
+      // The axis calls the last slot "Last night"; so do the panel and slider.
+      dayWord: (i) =>
+          i == win.length - 1 ? (l?.healthSubLastNight ?? 'Last night') : null,
       builder: (c, pick, scrub, panel) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
