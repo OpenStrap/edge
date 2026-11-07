@@ -28,6 +28,7 @@ import 'advanced.dart';
 import 'day_steps.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
+import 'journal_annotations.dart' show loadAnnotations;
 import 'journal_compose.dart' show OsTextField;
 import '../profile/devices.dart'
     show
@@ -705,10 +706,11 @@ class MetricDetail extends StatefulWidget {
   final MetricData? data;
 
   /// Reads the journal annotations behind the hero's "Journal marks" chip for
-  /// the local days from..to. RED STUB: accepted, not used.
+  /// the local days from..to ([loadAnnotations] when null). Injectable so tests
+  /// open no database; a failing loader leaves the chart without them.
   final AnnotationLoader? annotationLoader;
 
-  /// The "Journal marks" chip. RED STUB: nothing carries it yet.
+  /// The hero's "Journal marks" chip (off by default).
   static const journalToggleKey = ValueKey('metric-journal-toggle');
 
   const MetricDetail(this.metricKey,
@@ -754,6 +756,15 @@ class _MetricDetailState extends State<MetricDetail> {
   /// Null until they touch the chart. A window change clears it: slot 12 of a
   /// 30-day window is not slot 12 of a year.
   int? _pick;
+
+  /// The hero's journal marks chip. OFF by default and not remembered: the
+  /// algorithm-version marks are provenance and always on, journal marks are
+  /// opt-in detail. Nothing is read while it is off.
+  bool _journalMarks = false;
+
+  /// What has been read for the chip, by "from..to", and the reads in flight.
+  final Map<String, List<ChartAnnotation>> _journalRead = {};
+  final Set<String> _journalReading = {};
 
   /// The device selected on the pill row, or null for the merged view. A
   /// window change clears it the same way it clears [_pick] — a device
@@ -856,6 +867,7 @@ class _MetricDetailState extends State<MetricDetail> {
     // modal sheet the user can dismiss by leaving the screen. Guarded here and
     // not at each call site — one guard where every caller already routes.
     if (!mounted) return;
+    _journalRead.clear();
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted) setState(() => _loading = false);
@@ -1211,6 +1223,56 @@ class _MetricDetailState extends State<MetricDetail> {
     }
   }
 
+  /// Reads the journal marks for [from]..[to] once, when the chip is on. A
+  /// failure is an empty list (a smaller claim, not a wrong one).
+  void _readJournal(String from, String to) {
+    final key = '$from..$to';
+    if (_journalRead.containsKey(key) || !_journalReading.add(key)) return;
+    final load = widget.annotationLoader ??
+        ((a, b) => loadAnnotations(a, b, l: AppLocalizations.of(context)));
+    Future<List<ChartAnnotation>> read() async {
+      try {
+        return await load(from, to);
+      } catch (_) {
+        return const <ChartAnnotation>[];
+      }
+    }
+
+    read().then((items) {
+      _journalReading.remove(key);
+      if (mounted) setState(() => _journalRead[key] = items);
+    });
+  }
+
+  Widget _journalChip(BuildContext c, MetricSpec spec) {
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final on = _journalMarks;
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Semantics(
+        key: MetricDetail.journalToggleKey,
+        selected: on,
+        button: true,
+        child: Pressable(
+          onTap: () => setState(() => _journalMarks = !on),
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x2),
+            decoration: BoxDecoration(
+                color: on ? p.wash(spec.color) : null,
+                border: on ? null : Border.all(color: p.line),
+                borderRadius: R.rPill),
+            child: Text(l?.metricDetailJournalMarksToggle ?? 'Journal marks',
+                style: F.cap.copyWith(
+                    color: on ? p.on(spec.color) : p.ink2,
+                    fontWeight: FontWeight.w600)),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _hero(BuildContext c, MetricSpec spec, List<ChartPoint> all,
       List<double?> series, List<double> vals, int win,
       List<ChartPoint> wear, List<int> algoBreaks, MetricData d) {
@@ -1334,7 +1396,9 @@ class _MetricDetailState extends State<MetricDetail> {
         // one-day window is a single point — and a single point drawn on an
         // axis is a shape pretending to be a trend. "Your normal range" below
         // is the context that actually helps here.
-        if (win > 1) const SizedBox(height: S.x5),
+        if (win > 1) const SizedBox(height: S.x4),
+        if (win > 1) _journalChip(c, spec),
+        if (win > 1) const SizedBox(height: S.x2),
         if (win > 1)
         Builder(builder: (c) {
           // One axis, shared by the labels and the curve. `min` unit metrics
@@ -1356,13 +1420,28 @@ class _MetricDetailState extends State<MetricDetail> {
           // boundary is between two slots, not on one — half a slot left of it.
           // A break at slot 0 is dropped: there is nothing before it in this
           // window to be incomparable with.
-          final marks = <double>[
-            if (series.length > 1)
-              for (final t in algoBreaks)
-                if (daysBehind(t) case final b?
-                    when b >= 0 && b < series.length && series.length - 1 - b > 0)
-                  (series.length - 1 - b - .5) / (series.length - 1),
+          final marks = algoBreakAnnotations(
+            breakDaysBehind: [for (final t in algoBreaks) ?daysBehind(t)],
+            seriesLength: series.length,
+            label: l?.investigateAlgoVersionLabel ?? 'Algorithm version',
+          );
+          // Journal marks, only while the chip is on, on their local day's slot.
+          final dayLabels = [
+            for (var i = 0; i < series.length; i++)
+              _dayOfSlot(i, series.length),
           ];
+          var journal = const <ChartAnnotation>[];
+          if (_journalMarks && dayLabels.length > 1) {
+            final from = dayLabels.first, to = dayLabels.last;
+            final read = _journalRead['$from..$to'];
+            if (read == null) {
+              WidgetsBinding.instance
+                  .addPostFrameCallback((_) => _readJournal(from, to));
+            } else {
+              journal = dailyAnnotations(read, dayLabels);
+            }
+          }
+          final shown = [...marks, ...journal];
                 final dim = _dimMask(d, series.length);
                 return ChartFrame(
                   title: uiText(context, spec.title),
@@ -1371,7 +1450,15 @@ class _MetricDetailState extends State<MetricDetail> {
                   yAxis: axis,
                   band: band,
                   bandColor: p.wash(spec.color),
-                  xMarks: marks,
+                  // Icon + dashed line through the shared annotation layout.
+                  annotations: shown.isEmpty
+                      ? null
+                      : AnnotationSet(
+                          items: shown,
+                          domainStart: 0,
+                          domainEnd: (series.length - 1).toDouble()),
+                  annotationCursor:
+                      _pick == null ? null : _slotAt01(_pick!, series.length),
                   // The mark's only screen-reader form, and the only thing that can
                   // say what it is. Deliberately flat: a version change is
                   // provenance, not an event that happened to the user.
@@ -1381,10 +1468,10 @@ class _MetricDetailState extends State<MetricDetail> {
                     : null)
                 : (l?.metricDetailAlgoBreakFootnote(marks.length) ??
                     (marks.length == 1
-                        ? 'The dotted line is a change in how these days were '
+                        ? 'The dashed line is a change in how these days were '
                             'computed. Readings either side of it came from '
                             'different versions.'
-                        : 'The dotted lines are changes in how these days were '
+                        : 'The dashed lines are changes in how these days were '
                             'computed. Readings either side of one came from '
                             'different versions.')),
             // The window IS the span now: `series` has one slot per calendar
