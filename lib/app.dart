@@ -80,10 +80,27 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
 
   void _onSettingsRestored() {
     if (!mounted) return;
-    unawaited(context.read<ThemeController>().reloadFromPrefs());
-    unawaited(context.read<LocaleController>().reloadFromPrefs());
-    unawaited(context.read<UnitsController>().reloadFromPrefs());
-    unawaited(context.read<ClockFormatController>().reloadFromPrefs());
+    unawaited(_reloadRestoredSetting('theme_choice',
+        context.read<ThemeController>().reloadFromPrefs));
+    unawaited(_reloadRestoredSetting('locale_override',
+        context.read<LocaleController>().reloadFromPrefs));
+    unawaited(_reloadRestoredSetting('units_system',
+        context.read<UnitsController>().reloadFromPrefs));
+    unawaited(_reloadRestoredSetting('clock_format',
+        context.read<ClockFormatController>().reloadFromPrefs));
+  }
+
+  Future<void> _reloadRestoredSetting(
+      String key, Future<void> Function() reload) async {
+    try {
+      await reload();
+    } catch (error, stack) {
+      // Controllers parse before replacing their value, so a malformed pref
+      // leaves the current/default choice active while other reloads continue.
+      debugPrint('[import] $key reload failed: $error');
+      TelemetryService.instance.recordNonFatal(error, stack,
+          reason: 'restored $key reload failed');
+    }
   }
 
   @override

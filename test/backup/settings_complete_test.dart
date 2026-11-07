@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/state/prefs.dart';
+import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/ui2/activity/live.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/state/alarm_schedule.dart';
@@ -42,6 +43,139 @@ void main() {
     await env.wipe();
     FlutterSecureStorage.setMockInitialValues({});
   }
+
+  for (final withPrefs in [false, true]) {
+    test('AppState reloads and arms an imported weekday with prefs=$withPrefs',
+        () async {
+      await wipeAll();
+      final now = DateTime.now();
+      final tomorrow = DateTime(now.year, now.month, now.day + 1, 7, 15);
+      final weekday = tomorrow.weekday - 1;
+      await LocalDb.setAlarmScheduleDay(weekday: weekday, hour: 7, minute: 15,
+          enabled: true, smartWindowMinutes: 20);
+      if (withPrefs) await setPrefs({'theme_choice': 'dark'});
+      final path = await LocalDb.exportCopy();
+      if (!withPrefs) {
+        final copy = await databaseFactoryFfi.openDatabase(path,
+            options: OpenDatabaseOptions(singleInstance: false));
+        await copy.execute('DROP TABLE backup_prefs');
+        await copy.execute('DROP TABLE backup_secrets');
+        await copy.close();
+      }
+      await wipeAll();
+      final engine = BleEngine(onRecord: (_, _) async {}, onState: (_) {});
+      final writes = <int>[];
+      engine.debugInstallFakeLink(band: proto.BandProfile.gen4,
+          onWrite: (bytes) async {
+        final inner = proto.parseFrame(bytes, profile: proto.BandProfile.gen4)!.inner;
+        if (inner[2] == proto.Cmd.setAlarmTime) {
+          writes.add(inner[2]);
+          final reply = proto.buildFrame([
+            0x24, 0x94, proto.Cmd.setAlarmTime, inner[1], 0x01,
+            proto.AlarmStatus.validInputPattern,
+          ], profile: proto.BandProfile.gen4);
+          engine.debugProcessImmediateFrame(
+              proto.parseFrame(reply, profile: proto.BandProfile.gen4)!);
+        }
+        return true;
+      });
+      final app = AppState.forTesting(engine: engine);
+      addTearDown(app.dispose);
+      app.device.connection = 'connected';
+      expect(app.alarmSchedule[weekday].enabled, isFalse);
+      await app.importEdgeBackup(path);
+      expect(app.alarmSchedule[weekday], AlarmScheduleEntry(weekday: weekday,
+          hour: 7, minute: 15, smartWindowMinutes: 20));
+      expect(writes, [proto.Cmd.setAlarmTime]);
+      expect(app.alarmEpoch, tomorrow.millisecondsSinceEpoch ~/ 1000);
+      expect((await allPrefs())['alarm_epoch'], tomorrow.millisecondsSinceEpoch ~/ 1000);
+      // A repeated import goes through normal arm deduplication.
+      await app.importEdgeBackup(path);
+      expect(writes, [proto.Cmd.setAlarmTime]);
+    });
+  }
+
+  test('a DB-only alarm restore establishes settings before a later import',
+      () async {
+    await wipeAll();
+    await setPrefs({'theme_choice': 'dark', 'backup.cadence': 'weekly'});
+    final settings = await LocalDb.exportCopy();
+    await wipeAll();
+    await LocalDb.setAlarmScheduleDay(weekday: 2, hour: 7, minute: 15, enabled: true);
+    final old = await LocalDb.exportCopy();
+    final copy = await databaseFactoryFfi.openDatabase(old,
+        options: OpenDatabaseOptions(singleInstance: false));
+    await copy.execute('DROP TABLE backup_prefs');
+    await copy.execute('DROP TABLE backup_secrets');
+    await copy.close();
+    await wipeAll();
+    await LocalDb.importFromDbFile(old);
+    expect(await LocalDb.alarmScheduleRows(), hasLength(1));
+    await setPrefs({'theme_choice': 'light'});
+    final result = await LocalDb.importFromDbFile(settings);
+    expect((await allPrefs())['theme_choice'], 'light');
+    expect((await allPrefs())['backup.cadence'], 'weekly');
+    expect(result.keysWritten, {'backup.cadence'});
+  });
+
+  for (final entry in <String, Map<String, Object>>{
+    'journal_metric': {'date': '2026-09-21', 'field': 'water', 'value': 250, 'updated_at': 1},
+    'cycle_symptom': {'date': '2026-09-21', 'symptoms_json': '["cramps"]', 'updated_at': 1},
+    'sleep_override': {'day_id': '2026-09-21', 'onset_ts': 1790000000,
+      'offset_ts': 1790028800, 'source': 'manual', 'created_at': 1},
+    'step_calibration': {'device_family': 'whoop', 'wearing': 0, 'factor': 1.1,
+      'n_days': 3, 'version': 1, 'updated_ts': 1},
+    'med_def': {'key': 'vitamin', 'label': 'Vitamin', 'schedule_json': '[480]',
+      'created_at': 1},
+  }.entries) {
+    test('${entry.key} alone protects existing settings from import', () async {
+      await wipeAll();
+      await setPrefs({'theme_choice': 'dark', 'backup.cadence': 'weekly'});
+      final path = await LocalDb.exportCopy();
+      await wipeAll();
+      await (await LocalDb.instance).insert(entry.key, entry.value);
+      await setPrefs({'theme_choice': 'light'});
+      final result = await LocalDb.importFromDbFile(path);
+      expect((await allPrefs())['theme_choice'], 'light');
+      expect(result.keysWritten, {'backup.cadence'});
+    });
+  }
+
+  for (final blank in ['', '   ']) {
+    test('a blank coach server needs re-entry: "$blank"', () async {
+      await wipeAll();
+      await setPrefs({'coach_base_url': 'https://old.example.net/v1'});
+      final path = await LocalDb.exportCopy();
+      await wipeAll();
+      await setPrefs({'coach_base_url': blank});
+      final result = await LocalDb.importFromDbFile(path);
+      expect(result.needsReentry, ['coach_base_url']);
+      expect((await allPrefs())['coach_base_url'], blank);
+    });
+  }
+
+  test('ChatGPT exports only presence and requests sign-in on a new phone',
+      () async {
+    await wipeAll();
+    FlutterSecureStorage.setMockInitialValues({'coach_chatgpt_session': 'SECRET-SESSION'});
+    await setPrefs({'coach_chatgpt_present': true, 'coach_use_chatgpt': true});
+    final path = await LocalDb.exportCopy();
+    final copy = await databaseFactoryFfi.openDatabase(path,
+        options: OpenDatabaseOptions(readOnly: true, singleInstance: false));
+    final markers = await copy.query('backup_secrets');
+    await copy.close();
+    expect(markers, [{'key': 'coach_chatgpt'}]);
+    expect((await exportedPrefs(path))!.keys, ['coach_use_chatgpt']);
+    expectNoSecretIn(path, ['SECRET-SESSION']);
+    await wipeAll();
+    expect((await LocalDb.importFromDbFile(path)).needsReentry, ['coach_chatgpt']);
+    expect(await allPrefs(), {'coach_use_chatgpt': true});
+    await setPrefs({'coach_chatgpt_present': true});
+    expect((await LocalDb.importFromDbFile(path)).needsReentry, isEmpty);
+    await wipeAll();
+    final never = await LocalDb.exportCopy();
+    expect((await LocalDb.importFromDbFile(never)).needsReentry, isEmpty);
+  });
 
   test('the auto-backup cadence the owner chose comes back; device state stays',
       () async {
@@ -114,7 +248,7 @@ void main() {
     expect(second.keysWritten, {'backup.cadence'});
   });
 
-  test('a failed restore cannot inherit another install successful-import marker',
+  test('a backup without settings cannot hand this phone its import marker',
       () async {
     await wipeAll();
     await setPrefs({'theme_choice': 'dark'});
@@ -124,15 +258,31 @@ void main() {
     final path = await LocalDb.exportCopy(); // contains the source's import marker
     final copy = await databaseFactoryFfi.openDatabase(path,
         options: OpenDatabaseOptions(singleInstance: false));
-    await copy.delete('backup_prefs');
-    await copy.insert('backup_prefs',
-        {'key': 'theme_choice', 'type': 'bool', 'value': 'invalid'});
+    await copy.execute('DROP TABLE backup_prefs');
     await copy.close();
     await wipeAll();
-    await setPrefs({'theme_choice': 'system'});
-    await expectLater(LocalDb.importFromDbFile(path), throwsFormatException);
+    await LocalDb.importFromDbFile(path);
     expect(await LocalDb.getCursor('backup_settings_imported'), isNull,
-        reason: 'this phone has not successfully restored settings');
+        reason: 'this phone has not restored settings');
+  });
+
+  test('a malformed setting is skipped and counted; the rest still come back',
+      () async {
+    await wipeAll();
+    await setPrefs({'theme_choice': 'dark', 'backup.cadence': 'weekly'});
+    final path = await LocalDb.exportCopy();
+    final copy = await databaseFactoryFfi.openDatabase(path,
+        options: OpenDatabaseOptions(singleInstance: false));
+    await copy.update('backup_prefs', {'type': 'bool', 'value': 'invalid'},
+        where: 'key = ?', whereArgs: ['theme_choice']);
+    await copy.close();
+    await wipeAll();
+    final result = await LocalDb.importFromDbFile(path);
+    final now = await allPrefs();
+    expect(now.containsKey('theme_choice'), isFalse);
+    expect(now['backup.cadence'], 'weekly');
+    expect(result.refusedPrefs, ['theme_choice']);
+    expect(result.keysWritten, contains('backup.cadence'));
   });
 
   test('a restored schedule writes its next alarm to the new band', () async {

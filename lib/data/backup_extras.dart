@@ -36,6 +36,8 @@ const Map<String, String> kPrefsNotBackedUp = {
   'live.session_draft': 'unfinished workout entries, including private sessions, stay local',
   'live_session_checkpoint': 'write-ahead step recovery for this phone; replay could duplicate steps',
   'telemetry_outbox': 'queued diagnostics belong to this install and its consent',
+  'device_alerts.low_armed': 'low-battery latch belongs to the old band; '
+      'the new band must establish its own battery state',
   'alarm_epoch': 'arm belongs to the old band; the restored schedule must arm again',
   'alarm_epoch_confirmed': 'confirmation belongs to an arm on the old band',
   'alarm_set_at_ms': 'confirmation replay floor for the old band arm',
@@ -66,12 +68,15 @@ class ImportSummary extends MapView<String, int> {
     this.keysWritten = const {},
     this.needsReentry = const [],
     this.unreadableSecrets = const [],
+    this.refusedPrefs = const [],
   });
 
   final Set<String> keysWritten;
   final List<String> needsReentry;
   /// Read failed or timed out; absence is unknown. A later import retries it.
   final List<String> unreadableSecrets;
+  /// Rows in the backup that could not be read; skipped, the rest restored.
+  final List<String> refusedPrefs;
 }
 
 bool _backedUp(String key) => !kPrefsNotBackedUp.containsKey(key);
@@ -106,6 +111,9 @@ Future<void> writeBackupPrefs(String path) async {
       await tx.execute('CREATE TABLE backup_secrets (key TEXT PRIMARY KEY)');
       if (prefs.get('coach_api_key_present') == true) {
         await tx.insert('backup_secrets', {'key': 'coach_api_key'});
+      }
+      if (prefs.get('coach_chatgpt_present') == true) {
+        await tx.insert('backup_secrets', {'key': 'coach_chatgpt'});
       }
       final server = prefs.get('coach_base_url');
       if (server is String && server.isNotEmpty && server != CoachConfig.defaultBaseUrl) {
@@ -152,6 +160,7 @@ Future<ImportSummary> restoreBackupPrefs(String path, Map<String, int> counts, {
   final src = await openDatabase(path, readOnly: true, singleInstance: false);
   try {
     final written = <String>{};
+    final refused = <String>[];
     if (await _hasTable(src, 'backup_prefs')) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();
@@ -160,11 +169,17 @@ Future<ImportSummary> restoreBackupPrefs(String path, Map<String, int> counts, {
         if (!_backedUp(key) || (!freshInstall && prefs.containsKey(key))) {
           continue;
         }
-        // Bad rows fail visibly; storage refusing a write must not be
-        // reported as a successful settings restore.
-        if (!await _write(prefs, key, '${row['type']}', '${row['value']}')) {
-          throw StateError('Could not restore preference $key');
+        // A malformed row is skipped and reported, so one bad value cannot
+        // block every setting after it. Storage refusing a write is a real
+        // failure and must not be reported as a successful restore.
+        final bool ok;
+        try {
+          ok = await _write(prefs, key, '${row['type']}', '${row['value']}');
+        } on FormatException {
+          refused.add(key);
+          continue;
         }
+        if (!ok) throw StateError('Could not restore preference $key');
         written.add(key);
       }
     }
@@ -184,12 +199,20 @@ Future<ImportSummary> restoreBackupPrefs(String path, Map<String, int> counts, {
     if (await _hasTable(src, 'backup_secrets') &&
         (await src.query('backup_secrets', where: 'key = ?',
             whereArgs: ['coach_base_url'])).isNotEmpty &&
-        !(await SharedPreferences.getInstance()).containsKey('coach_base_url')) {
+        ((await SharedPreferences.getInstance()).getString('coach_base_url')
+            ?.trim().isEmpty ?? true)) {
       needs.add('coach_base_url');
+    }
+    if (await _hasTable(src, 'backup_secrets') &&
+        (await src.query('backup_secrets', where: 'key = ?',
+            whereArgs: ['coach_chatgpt'])).isNotEmpty &&
+        (await SharedPreferences.getInstance()).get('coach_chatgpt_present') != true) {
+      needs.add('coach_chatgpt');
     }
     return ImportSummary(counts,
         keysWritten: Set.unmodifiable(written), needsReentry: List.unmodifiable(needs),
-        unreadableSecrets: List.unmodifiable(unreadable));
+        unreadableSecrets: List.unmodifiable(unreadable),
+        refusedPrefs: List.unmodifiable(refused));
   } finally {
     await src.close();
   }

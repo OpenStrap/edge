@@ -78,6 +78,8 @@ class ImportOutcome {
   final int labRows;
 
   final int prefsRestored;
+  /// Settings rows the backup held but could not be read; skipped.
+  final int prefsRefused;
   final List<String> needsReentry;
 
   /// Journal or lab CSV lines that were REJECTED, never clamped — "line 12:
@@ -107,6 +109,7 @@ class ImportOutcome {
     this.journalRows = 0,
     this.labRows = 0,
     this.prefsRestored = 0,
+    this.prefsRefused = 0,
     this.needsReentry = const [],
     this.rejectedRows = const [],
     this.error,
@@ -126,6 +129,7 @@ class ImportOutcome {
   bool get needsReading =>
       lostSomething ||
       needsReentry.isNotEmpty ||
+      prefsRefused > 0 ||
       rejectedRows.isNotEmpty ||
       readError != null ||
       rollupError != null;
@@ -372,7 +376,7 @@ Future<ImportOutcome> runImport(
   final sources = <String>[];
   var days = 0, workouts = 0, skipped = 0, late = 0, stranded = 0;
   var journalRows = 0;
-  var labRows = 0, prefsRestored = 0;
+  var labRows = 0, prefsRestored = 0, prefsRefused = 0;
   final needsReentry = <String>{};
   final corruptTables = <String>{};
   var archiveSkipped = 0, archiveRestored = 0;
@@ -443,6 +447,7 @@ Future<ImportOutcome> runImport(
       archiveSkipped += app.lastImportArchiveSkipped;
       archiveRestored += app.lastImportArchiveRestored;
       prefsRestored += app.lastImportPrefsRestored;
+      prefsRefused += app.lastImportPrefsRefused;
       needsReentry.addAll(app.lastImportNeedsReentry);
     }
   } finally {
@@ -568,6 +573,7 @@ Future<ImportOutcome> runImport(
     journalRows: journalRows,
     labRows: labRows,
     prefsRestored: prefsRestored,
+    prefsRefused: prefsRefused,
     needsReentry: needsReentry.toList(),
     rejectedRows: rejected,
     rollupError: rollupError,
@@ -756,6 +762,14 @@ class ImportReport extends StatelessWidget {
   final ImportOutcome o;
   const ImportReport(this.o, {super.key});
 
+  Widget _prefsSkipped(ImportOutcome o, AppLocalizations? l) => StatusCard(
+    l?.welcomeSettingsSkipped(o.prefsRefused) ??
+        '${o.prefsRefused} setting${o.prefsRefused == 1 ? ' in the backup could not be read and was' : 's in the backup could not be read and were'} skipped',
+    l?.welcomeSettingsSkippedBody ??
+        'Those keep this phone\'s values. Everything else in the backup was restored.',
+    icon: LucideIcons.fileWarning,
+  );
+
   Widget _keyReentry(AppLocalizations? l, List<String> keys) =>
       Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
     if (keys.contains('coach_api_key')) StatusCard(
@@ -771,6 +785,13 @@ class ImportReport extends StatelessWidget {
       l?.welcomeCoachServerReentry ??
           'Your custom coach server address was not backed up, because an '
               'address can hold a key. Enter it again in AI settings.',
+      icon: LucideIcons.keyRound,
+    ),
+    if (keys.contains('coach_chatgpt')) StatusCard(
+      'ChatGPT',
+      l?.welcomeCoachChatGptReentry ??
+          'Your ChatGPT sign-in stays in secure storage and was not backed up. '
+              'Sign in again in AI settings to use the coach on this phone.',
       icon: LucideIcons.keyRound,
     ),
   ]);
@@ -809,11 +830,12 @@ class ImportReport extends StatelessWidget {
       // can still have skipped archive buckets it could not read. That is the
       // one part of the answer the user can act on, so it is not swallowed
       // by the empty case.
-      if (o.archiveBucketsSkipped == 0 && o.needsReentry.isEmpty) return nothing;
+      if (o.archiveBucketsSkipped == 0 && o.needsReentry.isEmpty && o.prefsRefused == 0) return nothing;
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         nothing,
         const SizedBox(height: S.x3),
         if (o.needsReentry.isNotEmpty) _keyReentry(l, o.needsReentry),
+        if (o.prefsRefused > 0) _prefsSkipped(o, l),
         if (o.archiveBucketsSkipped > 0) StatusCard(
           l?.welcomePartOfFileNotUsedTitle ??
               'Part of that file could not be used',
@@ -889,6 +911,10 @@ class ImportReport extends StatelessWidget {
       if (o.needsReentry.isNotEmpty) ...[
         const SizedBox(height: S.x3),
         _keyReentry(l, o.needsReentry),
+      ],
+      if (o.prefsRefused > 0) ...[
+        const SizedBox(height: S.x3),
+        _prefsSkipped(o, l),
       ],
       // REJECTED, never clamped. A row outside its declared range is not
       // salvageable by trimming it — that would store a value the user never

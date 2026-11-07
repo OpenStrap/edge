@@ -11650,12 +11650,13 @@ class LocalDb {
         await getCursor(_kSettingsImported) != null) {
       return false;
     }
-    const candidates = [
+    final candidates = {
+      ..._restoreEditedKeys.keys,
       'decoded_onehz', 'decoded_rr', 'samples', 'day_result', 'observation',
       'sessions', 'journal', 'substrate_archive', 'raw_archive',
       'imported_workout', 'imported_measurement', 'lab_result', 'food_entry',
       'med_dose', 'strength_set', 'cycle_log', 'breathing_session', 'sleep_nap',
-    ];
+    };
     // Some stores, including raw_archive, are created lazily.
     final tables = {for (final row in await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table'")) row['name']};

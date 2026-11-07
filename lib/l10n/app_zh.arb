@@ -2863,6 +2863,13 @@
     }
   },
   "welcomeCoachKeyReentry": "教练的 API 密钥保留在安全存储中，未包含在备份内。请在 AI 设置中重新输入，以便在此手机上使用教练。",
+  "welcomeSettingsSkipped": "{n, plural, other{备份中有 {n} 项设置无法读取，已跳过}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "welcomeSettingsSkippedBody": "这些设置保留本机的值。备份中的其他内容都已恢复。",
+  "welcomeCoachChatGptReentry": "你的 ChatGPT 登录信息保留在安全存储中，未包含在备份内。请在 AI 设置中重新登录，以便在此手机上使用教练。",
   "welcomeCoachServerReentry": "你的自定义教练服务器地址没有备份，因为地址中可能包含密钥。请在 AI 设置中重新输入。",
   "welcomeSettingsRestored": "已恢复 {n} 项设置",
   "@welcomeSettingsRestored": {

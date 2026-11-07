@@ -733,11 +733,13 @@ class AppState extends ChangeNotifier {
 
   List<String> lastImportNeedsReentry = const [];
   int lastImportPrefsRestored = 0;
+  int lastImportPrefsRefused = 0;
 
   /// Settings an import wrote take effect now, without a restart.
   Future<void> _adoptRestoredSettings(ImportSummary counts) async {
     lastImportNeedsReentry = counts.needsReentry;
     lastImportPrefsRestored = counts.keysWritten.length;
+    lastImportPrefsRefused = counts.refusedPrefs.length;
     if (counts.keysWritten.isEmpty) return;
     await Prefs.reload();
     // Keep the active import on its report until Continue is chosen.
@@ -748,6 +750,9 @@ class AppState extends ChangeNotifier {
     await notificationRelay.reloadFromPrefs();
     _deviceAlerts.refreshThreshold();
     await armWaterReminder();
+    // Restored reminder choices take effect now; the coach and locale
+    // listeners only fire when those change.
+    unawaited(_ensureRemindersScheduled());
     try {
       await coachConfig?.load(trusted: true)
           .timeout(const Duration(seconds: 6));
@@ -760,6 +765,7 @@ class AppState extends ChangeNotifier {
   Future<int> importEdgeBackup(String path) async {
     lastImportNeedsReentry = const [];
     lastImportPrefsRestored = 0;
+    lastImportPrefsRefused = 0;
     importRollupError = null;
     lastImportArchiveSkipped = 0;
     lastImportArchiveRestored = 0;
@@ -777,6 +783,10 @@ class AppState extends ChangeNotifier {
       await LocalDb.refitAllLiveStepGains();
     } finally {
       invalidateLiveStepCalibration();
+      // Table rows can arrive without settings, including from older backups.
+      // Reload even after a partial merge, then use normal arm/dedupe handling.
+      await _loadAlarmSchedule();
+      if (isConnected) await _armNextAlarmOccurrence();
     }
     // An import can MERGE calibration rows (`live_step_calibration`) in from the
     // backup without this process knowing, and the cached fit is the only thing

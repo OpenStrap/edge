@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -72,6 +74,91 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('a wrong-typed clock setting is logged without an unhandled error',
+      (tester) async {
+    late String path;
+    await tester.runAsync(() async {
+      await env.wipe();
+      FlutterSecureStorage.setMockInitialValues({});
+      await setPrefs({'theme_choice': 'dark', 'locale_override': 'es',
+        'units_system': 'imperial', 'clock_format': true,
+        'local_profile_json': '{"name":"Restored"}'});
+      path = await LocalDb.exportCopy();
+      await env.wipe();
+    });
+    final app = AppState.forTesting();
+    final theme = ThemeController.seed(AppThemeChoice.light, Brightness.light);
+    final locale = LocaleController.seed(null);
+    final units = UnitsController.seed(UnitSystem.metric);
+    final clock = ClockFormatController.seed(ClockFormat.h24);
+    final coach = CoachConfig();
+    addTearDown(() {
+      app.dispose();
+      coach.dispose();
+      theme.dispose();
+      locale.dispose();
+      units.dispose();
+      clock.dispose();
+    });
+    await tester.pumpWidget(MultiProvider(providers: [
+      ChangeNotifierProvider<AppState>.value(value: app),
+      ChangeNotifierProvider<CoachConfig>.value(value: coach),
+      ChangeNotifierProvider<ThemeController>.value(value: theme),
+      ChangeNotifierProvider<LocaleController>.value(value: locale),
+      ChangeNotifierProvider<UnitsController>.value(value: units),
+      ChangeNotifierProvider<ClockFormatController>.value(value: clock),
+    ], child: const OpenStrapApp()));
+    // The existing overlay creates its fade controller lazily in run().
+    // Initialise it while mounted so the app root can be disposed in this test.
+    themeSwitchKey.currentState!.run(() {});
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    final errors = <Object>[];
+    final logs = <String>[];
+    final previousPrint = debugPrint;
+    debugPrint = (message, {wrapWidth}) {
+      if (message != null) logs.add(message);
+    };
+    addTearDown(() => debugPrint = previousPrint);
+    await tester.runAsync(() async {
+      final completed = Completer<void>();
+      runZonedGuarded(() async {
+        try {
+          await app.importEdgeBackup(path);
+        } finally {
+          completed.complete();
+        }
+      }, (error, stack) => errors.add(error));
+      await completed.future;
+    });
+    debugPrint = previousPrint;
+    await tester.pump();
+    expect(errors, isEmpty, reason: 'controller reload failures must be caught');
+    expect(logs, contains(contains('clock_format reload failed')));
+    expect(app.user?['name'], 'Restored');
+    expect(theme.choice, AppThemeChoice.dark);
+    expect(locale.code, 'es');
+    expect(units.system, UnitSystem.imperial);
+    expect(clock.format, ClockFormat.h24);
+    final material = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(material.locale, const Locale('es'));
+    expect(material.themeMode, ThemeMode.dark);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  for (final prefs in [0, 2]) {
+    testWidgets('ChatGPT sign-in notice is visible with $prefs restored settings',
+        (tester) async {
+      final result = ImportOutcome(source: 'OpenStrap backup',
+          prefsRestored: prefs, needsReentry: const ['coach_chatgpt']);
+      expect(result.needsReading, isTrue);
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(body: ImportReport(result))));
+      expect(find.textContaining('Sign in again in AI settings'), findsOneWidget);
+      expect(find.textContaining('Enter it again in AI settings'), findsNothing);
+    });
+  }
+
   for (final prefs in [0, 2]) {
     testWidgets('coach re-entry is visible with $prefs restored settings', (tester) async {
       final result = ImportOutcome(source: 'OpenStrap backup',
@@ -86,4 +173,14 @@ void main() {
       }
     });
   }
+
+  testWidgets('skipped settings are reported, not hidden', (tester) async {
+    final result = ImportOutcome(source: 'OpenStrap backup',
+        prefsRestored: 5, prefsRefused: 1);
+    expect(result.needsReading, isTrue);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ImportReport(result))));
+    expect(find.textContaining('1 setting in the backup could not be read'),
+        findsOneWidget);
+  });
 }

@@ -40,7 +40,7 @@ const _mustTravel = {
   'health_workout_import_deleted', 'phone_steps_healthstore_purged',
   'whoop_import_deleted_workouts', 'issue_reports_sent',
   'device_alerts.last_charge_event_ts', 'device_alerts.last_charge_wall_sec',
-  'device_alerts.charge_shown_day', 'device_alerts.low_armed',
+  'device_alerts.charge_shown_day',
   // One concrete member of each dynamic family below.
   'notif_fired:2026-09-21:low_read',
   'notif_osid:health:2026-09-21:low_read', 'notif_osslot:health:0',
@@ -54,6 +54,7 @@ const _mustTravel = {
 };
 
 const _mustStay = {
+  'device_alerts.low_armed',
   'install_device_id', 'paired_remote_id', 'paired_serial', 'paired_generation',
   'paired_worn_on', 'ble.ask_add_pending',
   'consent_telemetry', 'consent_health_data', 'consent_chosen',
