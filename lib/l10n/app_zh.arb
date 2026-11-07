@@ -1139,6 +1139,8 @@
   "chartPanelSevenDayAvg": "7 天平均",
   "chartPanelVsAvg": "与平均相比",
   "metricDetailNoRecordLabel": "无记录",
+  "chartAnnotationKindMoment": "时刻",
+  "chartAnnotationKindSymptom": "症状",
   "metricDetailLowest": "最低",
   "metricDetailTypical": "典型",
   "metricDetailHighest": "最高",

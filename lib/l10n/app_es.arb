@@ -1139,6 +1139,8 @@
   "chartPanelSevenDayAvg": "Media de 7 días",
   "chartPanelVsAvg": "vs. media",
   "metricDetailNoRecordLabel": "Sin registro",
+  "chartAnnotationKindMoment": "Momento",
+  "chartAnnotationKindSymptom": "Síntoma",
   "metricDetailLowest": "Mínimo",
   "metricDetailTypical": "Típico",
   "metricDetailHighest": "Máximo",

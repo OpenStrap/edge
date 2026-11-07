@@ -1139,6 +1139,8 @@
   "chartPanelSevenDayAvg": "7 दिन का औसत",
   "chartPanelVsAvg": "औसत से अंतर",
   "metricDetailNoRecordLabel": "कोई रिकॉर्ड नहीं",
+  "chartAnnotationKindMoment": "पल",
+  "chartAnnotationKindSymptom": "लक्षण",
   "metricDetailLowest": "न्यूनतम",
   "metricDetailTypical": "सामान्य",
   "metricDetailHighest": "अधिकतम",

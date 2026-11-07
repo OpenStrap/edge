@@ -11,6 +11,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 /// A test that reads the one item a layout should hold must FAIL ON AN
@@ -504,18 +505,124 @@ void main() {
   });
 
   group('semantics', () {
-    testWidgets('the lane says what is marked, flat, for a screen reader',
+    // Real actions, driven through the semantics tree the way a screen reader
+    // drives them. A substring in one aggregate label proved nothing about
+    // reaching or activating anything.
+    testWidgets('each icon is its own focusable button labelled "kind, label"',
         (t) async {
       final h = t.ensureSemantics();
       await _pumpLane(t, [
         _pt('a', 60, label: 'Drank water'),
         _range('w', 120, 200, kind: AnnotationKind.workout),
+        _pt('n', 250, kind: AnnotationKind.nap),
       ]);
-      final label =
-          t.getSemantics(find.byKey(ChartAnnotationLane.laneKey)).label;
-      expect(label, contains('Drank water'));
-      expect(label, contains('L-w'));
+      for (final label in ['Moment, Drank water', 'Workout, L-w', 'Nap, L-n']) {
+        final node = find.semantics.byLabel(label);
+        expect(node, findsOneWidget, reason: label);
+        expect(
+            node.evaluate().single,
+            containsSemantics(
+                isButton: true,
+                hasTapAction: true,
+                hasEnabledState: false));
+      }
+      expect(t.getSemantics(find.byKey(ChartAnnotationLane.laneKey)).label,
+          isEmpty,
+          reason: 'no flat list standing in for the controls');
       h.dispose();
+    });
+
+    testWidgets('the "+n" button steps through a cluster by semantics action, '
+        'and the icon then says the member it stepped to', (t) async {
+      final h = t.ensureSemantics();
+      await _pumpLane(t, [
+        _pt('a', 100, kind: AnnotationKind.workout),
+        _pt('b', 105, kind: AnnotationKind.nap),
+        _pt('c', 110),
+      ]);
+      final more = find.semantics.byLabel(RegExp(r'^\+2'));
+      expect(more, findsOneWidget);
+      expect(more.evaluate().single,
+          containsSemantics(isButton: true, hasTapAction: true));
+      expect(more.evaluate().single.label,
+          '+2, Nap, L-b, Moment, L-c',
+          reason: 'the members the icon does not show are heard too');
+      expect(find.semantics.byLabel('Workout, L-a'), findsOneWidget);
+      t.semantics.tap(more); // reveals the shown member
+      await t.pump();
+      t.semantics.tap(find.semantics.byLabel(RegExp(r'^\+2')));
+      await t.pump();
+      expect(find.semantics.byLabel('Nap, L-b'), findsOneWidget);
+      expect(find.semantics.byLabel('Workout, L-a'), findsNothing);
+      // Tapping the icon itself steps the same way.
+      t.semantics.tap(find.semantics.byLabel('Nap, L-b'));
+      await t.pump();
+      expect(find.semantics.byLabel('Moment, L-c'), findsOneWidget);
+      h.dispose();
+    });
+
+    testWidgets('the static label and the badge text add no second reading',
+        (t) async {
+      final h = t.ensureSemantics();
+      await _pumpLane(t, [
+        _pt('a', 100),
+        _pt('b', 105),
+      ], cursorPx: 100);
+      expect(find.byKey(ChartAnnotationLane.labelKey), findsOneWidget);
+      expect(find.semantics.byLabel(RegExp('L-a')), findsOneWidget,
+          reason: 'spoken once, by the icon');
+      expect(find.semantics.byLabel(RegExp(r'^\+1')), findsOneWidget);
+      h.dispose();
+    });
+
+    testWidgets('an item that cannot have an icon is still spoken',
+        (t) async {
+      final h = t.ensureSemantics();
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 60,
+              child: ChartAnnotationLane(
+                set: AnnotationSet(items: [
+                  _range('a', 0, 10),
+                  _range('b', 20, 30, kind: AnnotationKind.nap),
+                  _range('c', 40, 50, kind: AnnotationKind.review),
+                ], domainStart: 0, domainEnd: 100),
+                cursor: null,
+                plotHeight: _plotH,
+              ),
+            ),
+          ),
+        ),
+      ));
+      await t.pump();
+      expect(find.byType(AnnotationIcon), findsNWidgets(2),
+          reason: 'premise: one item got no icon');
+      // Two icons, and the lane's own node for the item with none: each item
+      // is spoken exactly once.
+      expect(
+          [
+            for (final n in find.semantics.byLabel(RegExp('L-')).evaluate())
+              n.label
+          ]..sort(),
+          ['Nap, L-b', 'Review, L-c', 'Workout, L-a']);
+      h.dispose();
+    });
+
+    test('every kind has a spoken word; the localized ones differ from English',
+        () {
+      final es = lookupAppLocalizations(const Locale('es'));
+      for (final k in AnnotationKind.values) {
+        expect(annotationKindName(null, k), isNotEmpty);
+        expect(annotationKindName(es, k), isNotEmpty);
+      }
+      expect(annotationKindName(es, AnnotationKind.moment), 'Momento');
+      expect(annotationKindName(es, AnnotationKind.symptom), 'Síntoma');
+      expect(annotationKindName(es, AnnotationKind.workout),
+          isNot(annotationKindName(null, AnnotationKind.workout)));
     });
   });
 

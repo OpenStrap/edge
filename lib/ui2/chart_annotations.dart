@@ -32,6 +32,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../data/day_label.dart' show dayLabelOf;
+import '../l10n/app_localizations.dart';
 import 'grammar.dart' show Pressable;
 import 'theme.dart';
 
@@ -71,6 +72,25 @@ IconData annotationIcon(AnnotationKind k) => switch (k) {
       AnnotationKind.review => LucideIcons.clipboardCheck,
       AnnotationKind.journal => LucideIcons.notebookPen,
       AnnotationKind.algoVersion => LucideIcons.gitCommitVertical,
+    };
+
+/// The word a screen reader says for [k], before the item's own label:
+/// "Workout, Evening run". Existing strings where the app already names the
+/// thing; two new ones for a moment and a symptom.
+String annotationKindName(AppLocalizations? l, AnnotationKind k) =>
+    switch (k) {
+      AnnotationKind.water ||
+      AnnotationKind.assumedWater =>
+        l?.nutritionWaterLabel ?? 'Water',
+      AnnotationKind.moment => l?.chartAnnotationKindMoment ?? 'Moment',
+      AnnotationKind.symptom => l?.chartAnnotationKindSymptom ?? 'Symptom',
+      AnnotationKind.workout => l?.dayTimelineWorkout ?? 'Workout',
+      AnnotationKind.nap => l?.dayTimelineNap ?? 'Nap',
+      AnnotationKind.mainSleep => l?.dayTimelineAsleep ?? 'Asleep',
+      AnnotationKind.review => l?.activityReview ?? 'Review',
+      AnnotationKind.journal => l?.journalComposeTitle ?? 'Journal',
+      AnnotationKind.algoVersion =>
+        l?.investigateAlgoVersionLabel ?? 'Algorithm version',
     };
 
 /// The pigment for [k]. Unique per kind; a range's shade is this at low alpha.
@@ -816,12 +836,13 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
             strokeWidth: s.focused ? 2 : 1));
       }
 
+      final l = AppLocalizations.of(context);
       final byId = {for (final a in set.items) a.id: a};
-      final said = [
-        for (final id in [
-          for (final i in layout.items) ...i.memberIds,
-          ...layout.unplaced,
-        ])
+      String said(ChartAnnotation a) =>
+          '${annotationKindName(l, a.kind)}, ${a.label}';
+      // Too crowded for even a "+n": still spoken, never dropped.
+      final unplaced = [
+        for (final id in layout.unplaced)
           if (byId[id] != null) byId[id]!,
       ]..sort(_byTime);
 
@@ -862,7 +883,9 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
             right: 0,
             top: 0,
             height: labelH,
-            child: IgnorePointer(
+            // Spoken by the icon it labels.
+            child: ExcludeSemantics(
+              child: IgnorePointer(
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
@@ -875,6 +898,7 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
                 ),
               ),
             ),
+            ),
           ),
         for (final i in layout.items) ...[
           // The tap target is 44 pt (Pressable) around a 24 pt icon: it
@@ -884,6 +908,7 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
             top: labelH - _overhang,
             child: Pressable(
               onTap: () => step(i),
+              semanticLabel: said(byId[i.id]!),
               child: AnnotationIcon(
                   key: ChartAnnotationLane.iconKey(i.id),
                   kind: i.kind,
@@ -896,7 +921,15 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
               top: labelH - _overhang,
               child: Pressable(
                 onTap: () => step(i),
-                child: SizedBox(
+                // The members the icon does not show, so stepping is
+                // something a screen reader can both hear and do.
+                semanticLabel: [
+                  '+${i.more}',
+                  for (final id in i.memberIds)
+                    if (id != i.id && byId[id] != null) said(byId[id]!),
+                ].join(', '),
+                child: ExcludeSemantics(
+                  child: SizedBox(
                   width: i.badgeWidth,
                   height: ChartAnnotationLane.iconSize,
                   child: Align(
@@ -919,6 +952,7 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
                     ),
                   ),
                 ),
+                ),
               ),
             ),
         ],
@@ -928,8 +962,8 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
         key: ChartAnnotationLane.boundaryKey,
         child: Semantics(
           container: true,
-          excludeSemantics: true,
-          label: said.isEmpty ? null : said.map((a) => a.label).join(', '),
+          explicitChildNodes: true,
+          label: unplaced.isEmpty ? null : unplaced.map(said).join('; '),
           child: SizedBox(
             key: ChartAnnotationLane.laneKey,
             height: header + widget.plotHeight,

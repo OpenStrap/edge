@@ -1139,6 +1139,8 @@
   "chartPanelSevenDayAvg": "Moy. sur 7 jours",
   "chartPanelVsAvg": "vs moy.",
   "metricDetailNoRecordLabel": "Aucun enregistrement",
+  "chartAnnotationKindMoment": "Moment",
+  "chartAnnotationKindSymptom": "Symptôme",
   "metricDetailLowest": "Minimum",
   "metricDetailTypical": "Typique",
   "metricDetailHighest": "Maximum",
