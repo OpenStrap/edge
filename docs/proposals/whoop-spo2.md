@@ -128,9 +128,9 @@ the confidence level stated.
    be representative (FDA oximeter guidance explicitly calls out skin
    pigmentation); accuracy is assessed per range/group, and a degenerate
    constant estimate (all reference samples ~97%) must NOT open the gate.
-   Gen4 has NO nightly SpO2
-   output — its byte 5 is a live-stream byte only — so any Gen4 display gate
-   must instead use time-aligned LIVE reference measurements (same accuracy
+   Gen4 has NO nightly SpO2 output — its byte 5 is a live-stream byte only —
+   so any Gen4 display gate must instead use time-aligned LIVE reference
+   measurements (same accuracy
    thresholds: MAE <= 2 pp, |bias| <= 1 pp, 95% LoA within +/-4 pp), never the
    nightly gate. Plus: byte-82 encoding pin-down, UUID discrepancy
    resolution.
