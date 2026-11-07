@@ -304,10 +304,13 @@ class ChartPanelCell {
 /// series with nothing there reads a dash — never a neighbour's value, never an
 /// interpolation.
 ///
-/// The slider ([Scrubber.describe]) speaks the selected instant once, so the
-/// caption and the cells are excluded from semantics. What the slider does not
-/// say is spoken here: each of [stats] as one `label value` node, and [onOpen]
-/// as an `Open <day>` button.
+/// One semantic owner at a time. While a finger is on the chart the slider
+/// ([Scrubber.describe]) speaks the whole selected reading, so the caption and
+/// the cells are excluded. At rest the slider has nothing selected, so the
+/// panel speaks the LATEST reading itself: the caption and every cell as one
+/// `LATEST · <day>, label value, …` node. Either way each shown value is
+/// spoken once. What the slider does not say is spoken here always: each of
+/// [stats] as one `label value` node, and [onOpen] as an `Open <day>` button.
 class ChartPanel extends StatelessWidget {
   /// The caption's time: a day or a clock time. Null reads a dash.
   final String? time;
@@ -376,7 +379,11 @@ class ChartPanel extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ExcludeSemantics(child: _caption(c, p)),
+          Semantics(
+            container: !scrubbed,
+            label: scrubbed ? null : _reading(c),
+            child: ExcludeSemantics(child: _caption(c, p)),
+          ),
           const SizedBox(height: S.x1),
           _equal(c, [
             for (final x in cells)
@@ -412,6 +419,16 @@ class ChartPanel extends StatelessWidget {
             constraints: const BoxConstraints(minHeight: S.tap), child: panel),
       ),
     );
+  }
+
+  /// The resting reading as one sentence: the caption, then each cell.
+  String _reading(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    final none = l?.metricDetailNoRecordLabel ?? 'No record';
+    return [
+      '${l?.chartPanelLatest ?? 'LATEST'} · ${time ?? absent}',
+      for (final x in cells) '${x.label} ${x.value ?? none}',
+    ].join(', ');
   }
 
   Widget _caption(BuildContext c, P p) {

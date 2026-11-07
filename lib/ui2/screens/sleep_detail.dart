@@ -1346,7 +1346,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
               clockOfTs(t0 + (t1 - t0) ~/ 2),
             clockOfTs(t1),
           ],
-          child: _labelledHypnogram(c, p, stages, n, lane, totals),
+          child: _labelledHypnogram(c, p, d, stages, n, lane, totals),
         ),
         _scrubPanel(c, p, d, n),
         if (device != null) ..._deviceStaging(c, p, device),
@@ -1480,7 +1480,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   /// and the 44 pt tap rule does not apply to a continuous readout. What DOES
   /// apply is that the readout has to exist without a pointer — [Scrubber]
   /// carries the slider role and speaks [describe] at each step.
-  Widget _hypnogram(BuildContext c, P p, List<SleepStage?> stages,
+  Widget _hypnogram(BuildContext c, P p, SleepData d, List<SleepStage?> stages,
           Map<String, dynamic> n, double height) =>
       Scrubber(
         value: _scrub,
@@ -1506,7 +1506,13 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           final stageName = st == null
               ? (l?.sleepDetailNotMeasured ?? 'not measured')
               : _stageName(c, st);
-          return l?.sleepDetailScrubAt(at, stageName) ?? '$at, $stageName';
+          final base =
+              l?.sleepDetailScrubAt(at, stageName) ?? '$at, $stageName';
+          // The panel under this chart is silent while a finger is on it, so
+          // the slider speaks the whole reading, signals included.
+          return (t0 == null || t1 == null || t1 <= t0)
+              ? base
+              : _scrubSays(c, p, d, base, t0 + ((t1 - t0) * v).round());
         },
         child: SizedBox(
           height: height,
@@ -1538,21 +1544,11 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         ),
       );
 
-  /// The panel under a night chart: at rest the stage and every signal at wake
-  /// (LATEST), while scrubbing the same at that instant (SELECTED). Both
-  /// charts share one instant, so both panels read the same thing.
-  ///
-  /// The stage comes from the night's timestamped boundaries ([n], so a
-  /// device's own staging reads its own night); each signal is its nearest
-  /// reading within 15 minutes or a dash — never a neighbour further away.
-  Widget _scrubPanel(BuildContext c, P p, SleepData d, Map<String, dynamic> n) {
+  /// The night's signals at second [t]: the cells the panel lists under the
+  /// stage, and what the slider speaks, from one place.
+  List<ChartPanelCell> _signalCells(
+      BuildContext c, P p, SleepData d, int t) {
     final l = AppLocalizations.of(c);
-    final t0 = (n['onset_ts'] as num?)?.toInt();
-    final t1 = (n['wake_ts'] as num?)?.toInt();
-    if (t0 == null || t1 == null || t1 <= t0) return const SizedBox.shrink();
-    final scrubbed = _scrub != null;
-    final t = scrubbed ? t0 + ((t1 - t0) * _scrub!).round() : t1;
-
     num? at(String key) {
       final list = d.timeline[key];
       if (list is! List) return null;
@@ -1578,11 +1574,6 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           list.any((e) => e is Map && e['t'] is num && e['v'] is num);
     }
 
-    final (known, stage) = SleepData.stageAt(n, t);
-    final pigment = stage == null ? null : Hypnogram.pigment[stage];
-    final stageInk = pigment == null ? null : p.on(pigment);
-    String sentence(String s) =>
-        s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
     String? reading(String key, int places, String unit) {
       final v = at(key);
       return v == null
@@ -1590,14 +1581,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           : sleepReadingText(l, places == 0 ? v.round() : v, places, unit);
     }
 
-    final cells = <ChartPanelCell>[
-      if (known)
-        ChartPanelCell(sentence(l?.sleepDetailUnitStage ?? 'stage'),
-            color: stageInk,
-            value: stage == null
-                ? (l?.sleepDetailNotMeasuredCap ?? 'Not measured')
-                : _stageName(c, stage),
-            valueColor: stageInk ?? p.ink2),
+    return [
       if (recorded('hr'))
         ChartPanelCell(l?.sleepDetailHeartRate ?? 'Heart rate',
             color: p.on(C.red), value: reading('hr', 0, 'bpm')),
@@ -1613,6 +1597,51 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
             value: at('skin_temp') == null
                 ? null
                 : sleepScrubTempDelta(at('skin_temp')!)),
+    ];
+  }
+
+  /// [base] (the time and stage) with every signal at second [t] after it:
+  /// the whole reading the panel shows, for the slider to speak while the
+  /// panel is silent.
+  String _scrubSays(BuildContext c, P p, SleepData d, String base, int t) {
+    final l = AppLocalizations.of(c);
+    final none = l?.metricDetailNoRecordLabel ?? 'No record';
+    return [
+      base,
+      for (final x in _signalCells(c, p, d, t))
+        '${x.label} ${x.value ?? none}',
+    ].join(', ');
+  }
+
+  /// The panel under a night chart: at rest the stage and every signal at wake
+  /// (LATEST), while scrubbing the same at that instant (SELECTED). Both
+  /// charts share one instant, so both panels read the same thing.
+  ///
+  /// The stage comes from the night's timestamped boundaries ([n], so a
+  /// device's own staging reads its own night); each signal is its nearest
+  /// reading within 15 minutes or a dash — never a neighbour further away.
+  Widget _scrubPanel(BuildContext c, P p, SleepData d, Map<String, dynamic> n) {
+    final l = AppLocalizations.of(c);
+    final t0 = (n['onset_ts'] as num?)?.toInt();
+    final t1 = (n['wake_ts'] as num?)?.toInt();
+    if (t0 == null || t1 == null || t1 <= t0) return const SizedBox.shrink();
+    final scrubbed = _scrub != null;
+    final t = scrubbed ? t0 + ((t1 - t0) * _scrub!).round() : t1;
+
+    final (known, stage) = SleepData.stageAt(n, t);
+    final pigment = stage == null ? null : Hypnogram.pigment[stage];
+    final stageInk = pigment == null ? null : p.on(pigment);
+    String sentence(String s) =>
+        s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+    final cells = <ChartPanelCell>[
+      if (known)
+        ChartPanelCell(sentence(l?.sleepDetailUnitStage ?? 'stage'),
+            color: stageInk,
+            value: stage == null
+                ? (l?.sleepDetailNotMeasuredCap ?? 'Not measured')
+                : _stageName(c, stage),
+            valueColor: stageInk ?? p.ink2),
+      ..._signalCells(c, p, d, t),
     ];
     if (cells.isEmpty) return const SizedBox.shrink();
     return Padding(
@@ -1652,8 +1681,8 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   /// Stages table under the chart carries the same figures.
   static const _nameShare = .3, _minPlotShare = .55;
 
-  Widget _labelledHypnogram(BuildContext c, P p, List<SleepStage?> stages,
-      Map<String, dynamic> n, double lane, Map<SleepStage, String> totals) {
+  Widget _labelledHypnogram(BuildContext c, P p, SleepData d,
+      List<SleepStage?> stages, Map<String, dynamic> n, double lane, Map<SleepStage, String> totals) {
     final l = AppLocalizations.of(c);
     final ink = Hypnogram.cols(p);
     final scaler = MediaQuery.textScalerOf(c);
@@ -1717,7 +1746,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         // Spoken by the totals column, or by the scrubber's own readout.
         ExcludeSemantics(child: column(name, nameW, coloured: true)),
         const SizedBox(width: S.x2),
-        Expanded(child: _hypnogram(c, p, stages, n, lane * 4)),
+        Expanded(child: _hypnogram(c, p, d, stages, n, lane * 4)),
         if (withTotals) ...[
           const SizedBox(width: S.x2),
           Semantics(
@@ -2343,8 +2372,21 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
                   value: _scrub,
                   onChanged: (v) => setState(() => _scrub = v),
                   label: loc?.sleepDetailThroughTheNight ?? 'Through the night',
-                  describe: (v) => clockOfTs(
-                      t0 + ((t1 - t0) * v).round()),
+                  describe: (v) {
+                    final t = t0 + ((t1 - t0) * v).round();
+                    final (_, stage) = SleepData.stageAt(n, t);
+                    final l = AppLocalizations.of(c);
+                    final name = stage == null
+                        ? (l?.sleepDetailNotMeasured ?? 'not measured')
+                        : _stageName(c, stage);
+                    return _scrubSays(
+                        c,
+                        p,
+                        d,
+                        l?.sleepDetailScrubAt(clockOfTs(t), name) ??
+                            '${clockOfTs(t)}, $name',
+                        t);
+                  },
                   child: CustomPaint(
                       size: Size.infinite,
                       painter: NightStack(series, colors,

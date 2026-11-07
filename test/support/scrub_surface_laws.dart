@@ -255,6 +255,27 @@ void defineSurfaceLaws(SurfaceRig r) {
       expect(t.takeException(), isNull);
     });
 
+    testWidgets('spoken once at rest: with nothing selected the panel speaks '
+        'the LATEST day and value, and the slider repeats neither', (t) async {
+      final h = t.ensureSemantics();
+      await _ready(t, r, 1);
+      await t.ensureVisible(r.plot());
+      await t.pumpAndSettle();
+      final latest = find.semantics.byLabel(RegExp(r'^LATEST'));
+      expect(latest.evaluate(), hasLength(1),
+          reason: '${r.name}: the resting reading has no owner (or two)');
+      final said = latest.evaluate().single.label;
+      expect(namesDay(said, 0), isTrue, reason: '"$said" names no day');
+      expect(said.replaceAll(RegExp(r'\s+'), ''),
+          contains(RegExp(r.valueAt(r.slots - 1)
+              .replaceAll(RegExp(r'^\^|\$$'), ''))),
+          reason: 'the value shown at rest is spoken');
+      expect(t.widget<Scrubber>(r.plot()).value, isNull);
+      expect(t.getSemantics(r.plot()).value, 'Nothing selected',
+          reason: 'the slider owns nothing at rest; the panel owns the reading');
+      h.dispose();
+    });
+
     testWidgets('spoken once: the slider says the selected day and value; '
         'the panel does not repeat it', (t) async {
       final h = t.ensureSemantics();

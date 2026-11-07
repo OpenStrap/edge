@@ -293,6 +293,29 @@ void main() {
       h.dispose();
     });
 
+    testWidgets('at rest the panel speaks the LATEST day and value once; '
+        'selecting hands the reading to the slider', (t) async {
+      final h = t.ensureSemantics();
+      await _openRhr(t);
+      final latest = find.semantics.byLabel(RegExp(r'^LATEST'));
+      final said = latest.evaluate().single.label;
+      expect(said, startsWith('LATEST · Today, '));
+      expect(said, contains('50 bpm'));
+      expect(
+          t.getSemantics(find.byWidgetPredicate(
+              (w) => w is Scrubber && w.label == 'Resting heart rate')).value,
+          'Nothing selected');
+      await _scrubBack(t, _scrubbedBack);
+      expect(latest, findsNothing);
+      expect(find.semantics.byLabel(RegExp(r'^SELECTED')), findsNothing);
+      expect(
+          t.getSemantics(find.byWidgetPredicate(
+              (w) => w is Scrubber && w.label == 'Resting heart rate')).value,
+          contains('53 bpm'),
+          reason: 'the slider says the selected day and value');
+      h.dispose();
+    });
+
     testWidgets('a day with a value offers "Open <day>" of at least 48 dp; a '
         'day without one offers nothing to open', (t) async {
       final h = t.ensureSemantics();
@@ -477,7 +500,11 @@ void main() {
         }
         final s = t.widget<Scrubber>(plot('Hypnogram'));
         final spoken = stage == 'Not measured' ? 'not measured' : stage;
-        expect(s.describe(seconds / 28800), '$time, $spoken');
+        // The slider speaks the whole reading the panel is showing: the stage
+        // and every signal at that second, a missing one as 'No record'.
+        final hr = seconds >= 28000 ? '66 bpm' : 'No record';
+        expect(s.describe(seconds / 28800),
+            '$time, $spoken, Heart rate $hr, HRV No record, Breathing No record');
       }
     });
 
@@ -519,19 +546,72 @@ void main() {
       }
     });
 
-    testWidgets('spoken once: the slider says the selected time and stage; '
-        'the panels add no second announcement', (t) async {
+    /// Labels and values a screen reader reads as the node itself (not the
+    /// neighbouring-step values a slider also carries).
+    List<String> said(WidgetTester t) {
+      final out = <String>[];
+      void walk(SemanticsNode n) {
+        final d = n.getSemanticsData();
+        for (final x in [d.label, d.value]) {
+          if (x.isNotEmpty) out.add(x);
+        }
+        n.visitChildren((c) {
+          walk(c);
+          return true;
+        });
+      }
+
+      walk(t.binding.renderViews.first.owner!.semanticsOwner!.rootSemanticsNode!);
+      return out;
+    }
+
+    int times(WidgetTester t, String what) => said(t)
+        .map((s) => what.allMatches(s).length)
+        .fold(0, (a, b) => a + b);
+
+    // Two charts, two panels, each showing the same instant: each chart's
+    // reading is spoken by exactly one owner, so every displayed value is
+    // spoken twice on the page and never twice for one chart.
+    testWidgets('at rest the panel speaks LATEST once per chart: the stage '
+        'and every signal, a missing one as No record', (t) async {
       final h = t.ensureSemantics();
       await pump(t);
-      expect(find.byKey(_panelKey), findsNWidgets(2),
-          reason: 'there must be a panel for the slider NOT to repeat');
+      final readings = find.semantics.byLabel(RegExp(r'^LATEST'));
+      expect(readings.evaluate(), hasLength(2), reason: 'one per panel');
+      for (final n in readings.evaluate()) {
+        expect(n.label,
+            'LATEST · 07:00, Stage Awake, Heart rate 66 bpm, '
+            'HRV No record, Breathing No record');
+      }
+      for (final value in ['Stage Awake', '66 bpm', 'HRV No record', 'Breathing No record']) {
+        expect(times(t, value), 2, reason: '$value: once per panel');
+      }
+      h.dispose();
+    });
+
+    testWidgets('selected, the slider speaks the whole reading once per chart '
+        'and the panel is silent', (t) async {
+      final h = t.ensureSemantics();
+      await pump(t);
       await scrub(t, 'Hypnogram', .25);
-      final s = t.widget<Scrubber>(plot('Hypnogram'));
-      final said = s.describe(s.value!);
-      expect(said, '01:00, Deep sleep');
-      expect(_times(t, said), 1);
+      const full = '01:00, Deep sleep, Heart rate 54 bpm, HRV 42 ms, '
+          'Breathing No record';
+      for (final label in ['Hypnogram', 'Through the night']) {
+        final node = find.semantics.byLabel(label).evaluate().single;
+        expect(node.value, full, reason: '$label slider');
+      }
+      for (final value in ['Deep sleep', '54 bpm', '42 ms', 'Breathing No record']) {
+        expect(times(t, value), 2, reason: '$value: once per slider');
+      }
       expect(find.bySemanticsLabel(RegExp(r'^(LATEST|SELECTED)', caseSensitive: false)),
-          findsNothing);
+          findsNothing,
+          reason: 'the panel caption and cells are not a second announcement');
+      // Letting go is not possible here (a tap selects), but a second
+      // selection moves the one reading rather than adding another.
+      await scrub(t, 'Through the night', .5);
+      expect(find.semantics.byLabel('Hypnogram').evaluate().single.value,
+          '03:00, not measured, Heart rate 58 bpm, HRV No record, '
+          'Breathing 17.5 br/min');
       h.dispose();
     });
   });
