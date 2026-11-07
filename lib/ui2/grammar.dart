@@ -336,6 +336,15 @@ class ChartPanel extends StatelessWidget {
   final VoidCallback? onOpen;
   final String? openLabel;
 
+  /// An optional small line under the cells (which devices fed the shown day).
+  /// Never spoken on its own: at rest it ends the resting reading; while
+  /// scrubbed the slider owns it.
+  final String? note;
+
+  /// Keep the note's line height even when [note] is empty, so the panel does
+  /// not change size between days with and without one.
+  final bool reserveNote;
+
   const ChartPanel({
     super.key,
     required this.time,
@@ -346,11 +355,14 @@ class ChartPanel extends StatelessWidget {
     this.timeSpan = const [],
     this.onOpen,
     this.openLabel,
+    this.note,
+    this.reserveNote = false,
   });
 
   static const panelKey = ValueKey('chart-panel');
   static const captionKey = ValueKey('chart-panel-caption');
   static const valueKey = ValueKey('chart-panel-value');
+  static const noteKey = ValueKey('chart-panel-note');
   static const absent = '—';
 
   /// The tallest caption of a span, per (span, width, style, scale, direction,
@@ -403,6 +415,18 @@ class ChartPanel extends StatelessWidget {
                 ),
             ]),
           ],
+          if (reserveNote || (note ?? '').isNotEmpty) ...[
+            const SizedBox(height: S.x1),
+            ExcludeSemantics(
+              child: Text(
+                (note ?? '').isEmpty ? ' ' : note!,
+                key: noteKey,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: F.over.copyWith(color: p.ink3),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -425,10 +449,11 @@ class ChartPanel extends StatelessWidget {
   String _reading(BuildContext c) {
     final l = AppLocalizations.of(c);
     final none = l?.metricDetailNoRecordLabel ?? 'No record';
-    return [
+    final reading = [
       '${l?.chartPanelLatest ?? 'LATEST'} · ${time ?? absent}',
       for (final x in cells) '${x.label} ${x.value ?? none}',
     ].join(', ');
+    return (note ?? '').isEmpty ? reading : '$reading · $note';
   }
 
   Widget _caption(BuildContext c, P p) {

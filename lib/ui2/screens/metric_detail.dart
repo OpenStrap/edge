@@ -1732,9 +1732,15 @@ class _MetricDetailState extends State<MetricDetail> {
       final zero = shown == _fmt(spec, 0);
       versus = '${zero ? shown : signed(diff, shown)}$u';
     }
+    // The same gate and rule as `_slotSays`: a day with no attribution names
+    // none, and a single-device window reserves nothing.
+    final multi = _labelSources(d);
+    final who = multi ? _contributors(_labelsFor(day, d.coverage, d.sources)) : '';
     return Padding(
       padding: const EdgeInsets.only(top: S.x3),
       child: ChartPanel(
+        note: who,
+        reserveNote: multi,
         time: dayNavLabel(day, l),
         timeSpan: [
           for (var k = 0; k < len; k++) dayNavLabel(_dayOfSlot(k, len), l),
