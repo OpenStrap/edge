@@ -10269,7 +10269,13 @@ class DerivationEngine {
             'confidence': nap.confidence,
           },
       ];
-      candidates?.addAll(detected.where((n) => !napEdits.any((e) =>
+      // A nap longer than kMaxNapSec (3 h) is a sleep, not a nap — drop it
+      // before it can reach the suggestions, `nap_min`, sleep need or the
+      // timeline. Manual entries are already capped at entry time by
+      // manualNapWindowIsValid, which shares the same constant. The merge
+      // input below stays as-is; only the detected list is capped.
+      final capped = dropOversizedNaps(detected);
+      candidates?.addAll(capped.where((n) => !napEdits.any((e) =>
         e.overlaps(n['start'] as int, n['end'] as int))));
       final merged = applyNapEdits(const [], napEdits);
 
