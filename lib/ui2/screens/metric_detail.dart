@@ -701,7 +701,16 @@ Widget metricDayScreen(String key, String day) => switch (key) {
 class MetricDetail extends StatefulWidget {
   final String metricKey;
   final MetricData? data;
-  const MetricDetail(this.metricKey, {super.key, this.data});
+
+  /// Reads the journal annotations behind the hero's "Journal marks" chip for
+  /// the local days from..to. RED STUB: accepted, not used.
+  final AnnotationLoader? annotationLoader;
+
+  /// The "Journal marks" chip. RED STUB: nothing carries it yet.
+  static const journalToggleKey = ValueKey('metric-journal-toggle');
+
+  const MetricDetail(this.metricKey,
+      {super.key, this.data, this.annotationLoader});
 
   @override
   State<MetricDetail> createState() => _MetricDetailState();

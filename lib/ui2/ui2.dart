@@ -6,6 +6,7 @@
 // should import its parts individually.
 
 export 'app_shell.dart';
+export 'chart_annotations.dart';
 export 'charts.dart';
 export 'community_links.dart';
 export 'grammar.dart';

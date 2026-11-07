@@ -41,6 +41,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../data/journal_fields.dart' show formatMinuteOfDay;
 import '../models/metric.dart';
+import 'chart_annotations.dart' show AnnotationSet;
 import 'charts.dart';
 import 'scroll_hint.dart';
 import 'theme.dart';
@@ -2268,6 +2269,13 @@ class ChartFrame extends StatelessWidget {
   /// The band's ink. Defaults to a wash of the muted ink.
   final Color? bandColor;
 
+  /// Icon + dashed-line marks over the plot. RED STUB: accepted, not drawn.
+  final AnnotationSet? annotations;
+
+  /// Where the finger is, 0..1 across the plot, so the nearest annotation can
+  /// be the focused one. RED STUB: accepted, not used.
+  final double? annotationCursor;
+
   const ChartFrame({
     super.key,
     required this.title,
@@ -2283,6 +2291,8 @@ class ChartFrame extends StatelessWidget {
     this.xMarks = const [],
     this.band,
     this.bandColor,
+    this.annotations,
+    this.annotationCursor,
   });
 
   /// Width and height of [s] as it will actually be laid out — including the
