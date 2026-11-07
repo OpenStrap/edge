@@ -5668,6 +5668,22 @@
       }
     }
   },
+  "chartPanelLatest": "LATEST",
+  "@chartPanelLatest": {
+    "description": "Caption prefix on the panel under a chart when nothing is selected: the newest reading. Shown upper-case where the script has case. It is not a judgement such as best."
+  },
+  "chartPanelSelected": "SELECTED",
+  "@chartPanelSelected": {
+    "description": "Caption prefix on the panel under a chart while a finger is on the chart: the reading the finger is on."
+  },
+  "chartPanelSevenDayAvg": "7-day avg",
+  "@chartPanelSevenDayAvg": {
+    "description": "Metric-detail panel stat: the average of the last 7 days up to the shown day."
+  },
+  "chartPanelVsAvg": "vs avg",
+  "@chartPanelVsAvg": {
+    "description": "Metric-detail panel stat: the shown value minus that 7-day average."
+  },
   "metricDetailNoRecordLabel": "No record",
   "@metricDetailNoRecordLabel": {
     "description": "Value text shown in the touched-day row when that day has no record."

@@ -2507,6 +2507,10 @@
       }
     }
   },
+  "chartPanelLatest": "ПОСЛЕДНЕЕ",
+  "chartPanelSelected": "ВЫБРАНО",
+  "chartPanelSevenDayAvg": "Среднее за 7 дн.",
+  "chartPanelVsAvg": "от среднего",
   "metricDetailNoRecordLabel": "Нет записи",
   "metricDetailLowest": "Наименьшее",
   "metricDetailTypical": "Обычное",
