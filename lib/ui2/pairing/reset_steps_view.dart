@@ -132,8 +132,7 @@ class ResetStepsView extends StatelessWidget {
 /// heading and link, under each model in "Trouble connecting?"). From the
 /// entry's researched steps (ResetSteps):
 ///  - specific: its numbered steps;
-///  - unverified: the general steps, marked "Not confirmed yet", and the
-///    maker's page;
+///  - unverified: the general steps and the maker's page;
 ///  - noOfficialSite: one line saying there is no maker's page.
 /// Always open, so nothing shifts.
 class PairingModeSection extends StatelessWidget {
@@ -162,10 +161,6 @@ class PairingModeSection extends StatelessWidget {
     final kind = r?.kind ?? ResetKind.noOfficialSite;
     final url = kind == ResetKind.unverified ? r?.officialUrl : null;
     final keys = resetStepKeysFor(entry);
-    final unconfirmed = kind == ResetKind.unverified
-        ? Pill(l.pairModeNotConfirmed, C.orange,
-            key: ValueKey('pairing-mode-unconfirmed-${entry.id}'))
-        : null;
     return Column(
       key: ValueKey('pairing-mode-${entry.id}'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -173,18 +168,8 @@ class PairingModeSection extends StatelessWidget {
         if (heading)
           Padding(
             padding: const EdgeInsets.only(bottom: S.x2),
-            child: Wrap(
-              spacing: S.x2,
-              runSpacing: S.x1,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Text(l.pairModeTitle, style: F.head.copyWith(color: p.ink)),
-                ?unconfirmed,
-              ],
-            ),
-          )
-        else if (unconfirmed != null)
-          Align(alignment: AlignmentDirectional.centerStart, child: unconfirmed),
+            child: Text(l.pairModeTitle, style: F.head.copyWith(color: p.ink)),
+          ),
         if (kind == ResetKind.noOfficialSite)
           Text(l.pairModeNoSite,
               key: ValueKey('pairing-mode-no-site-${entry.id}'),

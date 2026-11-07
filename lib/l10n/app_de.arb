@@ -3559,6 +3559,5 @@
   "pairReplaceUnpairFailed": "Dein Band ließ sich nicht trennen, daher wurde das neue nicht gekoppelt. Versuche es erneut.",
   "capReasonUnconfirmed": "Falls das Gerät es sendet, nicht bestätigt",
   "pairModeTitle": "In den Kopplungsmodus versetzen",
-  "pairModeNotConfirmed": "Noch nicht bestätigt",
   "pairModeNoSite": "Ein generisches Gerät ohne einzelnen Hersteller, daher gibt es keine Herstelleranleitung."
 }

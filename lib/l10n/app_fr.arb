@@ -2948,6 +2948,5 @@
   "pairReplaceUnpairFailed": "Impossible de dissocier votre bracelet, le nouveau n’a donc pas été associé. Réessayez.",
   "capReasonUnconfirmed": "Si cet appareil l’envoie, non confirmé",
   "pairModeTitle": "Mettez-le en mode association",
-  "pairModeNotConfirmed": "Pas encore confirmé",
   "pairModeNoSite": "Un appareil générique sans fabricant unique : il n’y a donc pas d’étapes du fabricant."
 }

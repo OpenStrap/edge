@@ -2948,6 +2948,5 @@
   "pairReplaceUnpairFailed": "无法取消配对你的手环，因此没有配对新手环。请重试。",
   "capReasonUnconfirmed": "如果此设备发送该数据，尚未确认",
   "pairModeTitle": "让它进入配对模式",
-  "pairModeNotConfirmed": "尚未确认",
   "pairModeNoSite": "这是没有单一厂商的通用设备，因此没有厂商步骤可循。"
 }

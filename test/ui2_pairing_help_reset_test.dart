@@ -208,21 +208,20 @@ void main() {
                 child: PairingModeSection(entry: e, openLink: links ?? _Links()))),
         size: const Size(412, 1000));
 
-    testWidgets('specific (WHOOP 5): its own numbered steps, no "not confirmed", no link', (t) async {
+    testWidgets('specific (WHOOP 5): its own numbered steps, no link', (t) async {
       await section(t, kWhoopGen5);
       expect(find.text('Put it in pairing mode'), findsOneWidget);
       for (var i = 1; i <= 4; i++) {
         expect(find.byKey(ValueKey('pairing-mode-step-gen5-$i')), findsOneWidget);
       }
       expect(find.textContaining('tap the top firmly'), findsOneWidget);
-      expect(find.text('Not confirmed yet'), findsNothing);
       expect(find.byKey(const ValueKey('pairing-mode-link-gen5')), findsNothing);
     });
 
-    testWidgets('unverified (Oura): the general steps, "Not confirmed yet", and the maker page', (t) async {
+    testWidgets('unverified (Oura): the general steps and the maker page, no badge', (t) async {
       final links = _Links();
       await section(t, kOura, links: links);
-      expect(find.text('Not confirmed yet'), findsOneWidget);
+      expect(find.text('Not confirmed yet'), findsNothing);
       expect(find.byKey(const ValueKey('pairing-mode-step-oura-3')), findsOneWidget);
       await t.tap(find.byKey(const ValueKey('pairing-mode-link-oura')));
       await t.pumpAndSettle();
@@ -233,7 +232,6 @@ void main() {
       await section(t, kBleHrs);
       expect(find.byKey(const ValueKey('pairing-mode-no-site-ble_hrs')), findsOneWidget);
       expect(find.byKey(const ValueKey('pairing-mode-step-ble_hrs-1')), findsNothing);
-      expect(find.text('Not confirmed yet'), findsNothing);
     });
 
     testWidgets('the first-run card shows WHOOP 4 and WHOOP 5 steps with no tap', (t) async {
@@ -244,9 +242,7 @@ void main() {
                   child: TroubleConnectingCard(entries: [kWhoopGen4, kWhoopGen5]))),
           size: const Size(412, 1600));
       expect(find.byKey(const ValueKey('pairing-mode-step-gen4-1')), findsOneWidget);
-      expect(find.byKey(const ValueKey('pairing-mode-unconfirmed-gen4')), findsOneWidget);
       expect(find.byKey(const ValueKey('pairing-mode-step-gen5-4')), findsOneWidget);
-      expect(find.byKey(const ValueKey('pairing-mode-unconfirmed-gen5')), findsNothing);
       // Each model's steps sit under its own link.
       final link5 = t.getTopLeft(find.byKey(const ValueKey('trouble-link-gen5'))).dy;
       expect(t.getTopLeft(find.byKey(const ValueKey('pairing-mode-step-gen4-1'))).dy,

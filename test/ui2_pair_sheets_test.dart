@@ -176,7 +176,7 @@ void main() {
     testWidgets('a ring and a strap get their own pairing-mode section', (t) async {
       await open(t, kOura, hasMain: false);
       expect(find.byKey(const ValueKey('pairing-mode-oura')), findsOneWidget);
-      expect(find.text('Not confirmed yet'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pairing-mode-step-oura-1')), findsOneWidget);
     });
 
     testWidgets('the table: every day sends sleep, workouts only does not; no dashes', (t) async {

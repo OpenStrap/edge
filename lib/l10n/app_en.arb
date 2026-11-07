@@ -16726,10 +16726,6 @@
   "@pairModeTitle": {
     "description": "Heading of the pairing-mode steps on a device sheet."
   },
-  "pairModeNotConfirmed": "Not confirmed yet",
-  "@pairModeNotConfirmed": {
-    "description": "Marks general pairing steps nobody has checked for this device yet."
-  },
   "pairModeNoSite": "A generic device with no single maker, so there are no maker’s steps to follow.",
   "@pairModeNoSite": {
     "description": "Shown instead of steps for a generic device with no maker’s page."

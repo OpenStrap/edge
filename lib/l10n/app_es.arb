@@ -2977,6 +2977,5 @@
   "pairReplaceUnpairFailed": "No se pudo desemparejar tu pulsera, así que no se emparejó la nueva. Inténtalo de nuevo.",
   "capReasonUnconfirmed": "Si este dispositivo lo envía, sin confirmar",
   "pairModeTitle": "Ponlo en modo de emparejamiento",
-  "pairModeNotConfirmed": "Aún sin confirmar",
   "pairModeNoSite": "Un dispositivo genérico sin un único fabricante, así que no hay pasos del fabricante."
 }
