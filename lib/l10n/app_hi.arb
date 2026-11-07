@@ -2885,7 +2885,7 @@
   "pairAddDevice": "डिवाइस जोड़ें",
   "pairBandNotSensor": "यह डिवाइस {label} है, यानी एक बैंड, साधारण सेंसर नहीं। कुछ भी सहेजा नहीं गया।",
   "pairKindAll": "सभी",
-  "pairKindStrap": "स्ट्रैप",
+  "pairKindStrap": "चेस्ट स्ट्रैप और आर्मबैंड",
   "pairKindRing": "रिंग",
   "pairKindWatch": "घड़ियाँ",
   "pairResetTitleBand": "आपका बैंड कहीं और पेयर है",
@@ -2933,7 +2933,7 @@
   "pairWearableLead": "यह आपके दिनों को नींद, रिकवरी और हृदय गति से भर सकता है।",
   "pairWearableNote": "आपके WHOOP के बिना वाले दिनों को भरता है। प्रायोगिक है, इसलिए इसे डिवाइस में चालू करें।",
   "pairWearableCardNote": "आपके WHOOP के बिना वाले दिनों को भरता है। प्रायोगिक है, इसलिए इसे नीचे चालू करें।",
-  "pairStrapLead": "यह वर्कआउट के दौरान हृदय गति जोड़ता है। यह नींद, रिकवरी या शारीरिक परिश्रम रिकॉर्ड नहीं करता।",
+  "pairStrapLead": "यह वर्कआउट के दौरान हृदय गति जोड़ता है। यह नींद, रिकवरी या दैनिक शारीरिक परिश्रम रिकॉर्ड नहीं करता।",
   "pairStrapNote": "दोनों के लिए “वर्कआउट के दौरान इस्तेमाल करें” चालू होना चाहिए।",
   "pairDeviceNamed": "{name} पेयर करें",
   "pairUseForWorkouts": "इसे केवल वर्कआउट के लिए इस्तेमाल करें",
@@ -2948,5 +2948,32 @@
   "pairReplaceUnpairFailed": "आपका बैंड अनपेयर नहीं हो सका, इसलिए नया बैंड पेयर नहीं किया गया। फिर से कोशिश करें।",
   "capReasonUnconfirmed": "अगर यह डिवाइस इसे भेजता है, पुष्टि नहीं हुई",
   "pairModeTitle": "इसे पेयरिंग मोड में डालें",
-  "pairModeNoSite": "यह किसी एक निर्माता का नहीं, एक सामान्य डिवाइस है, इसलिए निर्माता के कोई चरण नहीं हैं।"
+  "pairModeNoSite": "यह किसी एक निर्माता का नहीं, एक सामान्य डिवाइस है, इसलिए निर्माता के कोई चरण नहीं हैं।",
+  "pairOuraExistingKeyGuidance": "क्या आप पहले से Oura ऐप इस्तेमाल करते हैं? रिंग को उस ऐप में पेयर रहने दें और उसकी मौजूदा कुंजी से पेयर करें। नीचे दिए रीसेट के चरण छोड़ दें। केवल नई कुंजी चाहिए तो ही रीसेट करें।",
+  "pairWearableLeadPebble": "Pebble 2 आपके दिनों को नींद, रिकवरी और हृदय गति से भर सकता है। Pebble 2 SE नींद और कदम रिकॉर्ड करता है, लेकिन उसमें हृदय गति सेंसर नहीं है और वह आराम की हृदय गति से रिकवरी का अनुमान नहीं लगा सकता।",
+  "slotColumnReason": "{column}: {reason}",
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

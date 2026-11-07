@@ -2914,7 +2914,7 @@
   "pairAddDevice": "Añadir un dispositivo",
   "pairBandNotSensor": "Ese dispositivo es una pulsera {label}, no un sensor sencillo. No se guardó nada.",
   "pairKindAll": "Todos",
-  "pairKindStrap": "Bandas",
+  "pairKindStrap": "Bandas de pecho y brazo",
   "pairKindRing": "Anillos",
   "pairKindWatch": "Relojes",
   "pairResetTitleBand": "Tu pulsera está emparejada en otro sitio",
@@ -2962,7 +2962,7 @@
   "pairWearableLead": "Puede completar tus días con sueño, recuperación y frecuencia cardiaca.",
   "pairWearableNote": "Completa los días sin tu WHOOP. Es experimental, así que actívalo en Dispositivos.",
   "pairWearableCardNote": "Completa los días sin tu WHOOP. Es experimental, así que actívalo abajo.",
-  "pairStrapLead": "Añade la frecuencia cardiaca mientras entrenas. No registra sueño, recuperación ni esfuerzo.",
+  "pairStrapLead": "Añade la frecuencia cardiaca mientras entrenas. No registra sueño, recuperación ni esfuerzo diario.",
   "pairStrapNote": "Ambos necesitan «Usar durante los entrenamientos» activado.",
   "pairDeviceNamed": "Emparejar {name}",
   "pairUseForWorkouts": "Usarla solo para entrenamientos",
@@ -2977,5 +2977,32 @@
   "pairReplaceUnpairFailed": "No se pudo desemparejar tu pulsera, así que no se emparejó la nueva. Inténtalo de nuevo.",
   "capReasonUnconfirmed": "Si este dispositivo lo envía, sin confirmar",
   "pairModeTitle": "Ponlo en modo de emparejamiento",
-  "pairModeNoSite": "Un dispositivo genérico sin un único fabricante, así que no hay pasos del fabricante."
+  "pairModeNoSite": "Un dispositivo genérico sin un único fabricante, así que no hay pasos del fabricante.",
+  "pairOuraExistingKeyGuidance": "¿Ya usas la app de Oura? Mantén el anillo en esa app y emparéjalo con la clave que ya tiene. Omite los pasos de restablecimiento de abajo. Restablécelo solo si quieres una clave nueva.",
+  "pairWearableLeadPebble": "Pebble 2 puede completar tus días con sueño, recuperación y frecuencia cardiaca. Pebble 2 SE registra sueño y pasos, pero no tiene sensor de frecuencia cardiaca y no puede estimar la recuperación a partir del pulso en reposo.",
+  "slotColumnReason": "{column}: {reason}",
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

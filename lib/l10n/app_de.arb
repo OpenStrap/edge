@@ -3496,7 +3496,7 @@
   "pairAddDevice": "Gerät hinzufügen",
   "pairBandNotSensor": "Dieses Gerät ist ein {label}, also ein Band und kein einfacher Sensor. Es wurde nichts gespeichert.",
   "pairKindAll": "Alle",
-  "pairKindStrap": "Gurte",
+  "pairKindStrap": "Brustgurte & Armsensoren",
   "pairKindRing": "Ringe",
   "pairKindWatch": "Uhren",
   "pairResetTitleBand": "Dein Band ist woanders gekoppelt",
@@ -3544,7 +3544,7 @@
   "pairWearableLead": "Es kann deine Tage mit Schlaf, Erholung und Herzfrequenz füllen.",
   "pairWearableNote": "Füllt Tage ohne dein WHOOP. Experimentell, also schalte es unter Geräte ein.",
   "pairWearableCardNote": "Füllt Tage ohne dein WHOOP. Experimentell, also schalte es unten ein.",
-  "pairStrapLead": "Es liefert Herzfrequenz beim Training. Schlaf, Erholung und Belastung zeichnet es nicht auf.",
+  "pairStrapLead": "Es liefert Herzfrequenz beim Training. Schlaf, Erholung und tägliche Belastung zeichnet es nicht auf.",
   "pairStrapNote": "Für beides muss „Beim Training nutzen“ an sein.",
   "pairDeviceNamed": "{name} koppeln",
   "pairUseForWorkouts": "Nur fürs Training nutzen",
@@ -3559,5 +3559,32 @@
   "pairReplaceUnpairFailed": "Dein Band ließ sich nicht trennen, daher wurde das neue nicht gekoppelt. Versuche es erneut.",
   "capReasonUnconfirmed": "Falls das Gerät es sendet, nicht bestätigt",
   "pairModeTitle": "In den Kopplungsmodus versetzen",
-  "pairModeNoSite": "Ein generisches Gerät ohne einzelnen Hersteller, daher gibt es keine Herstelleranleitung."
+  "pairModeNoSite": "Ein generisches Gerät ohne einzelnen Hersteller, daher gibt es keine Herstelleranleitung.",
+  "pairOuraExistingKeyGuidance": "Nutzt du schon die Oura-App? Lass den Ring in der App gekoppelt und kopple ihn mit seinem vorhandenen Schlüssel. Überspringe die Schritte zum Zurücksetzen unten. Setze ihn nur zurück, wenn du einen neuen Schlüssel möchtest.",
+  "pairWearableLeadPebble": "Pebble 2 kann deine Tage mit Schlaf, Erholung und Herzfrequenz füllen. Pebble 2 SE zeichnet Schlaf und Schritte auf, hat aber keinen Herzfrequenzsensor und kann die Erholung nicht aus dem Ruhepuls schätzen.",
+  "slotColumnReason": "{column}: {reason}",
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

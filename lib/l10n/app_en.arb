@@ -16429,7 +16429,7 @@
   "@pairKindAll": {
     "description": "Filter pill that shows every device in the list."
   },
-  "pairKindStrap": "Straps",
+  "pairKindStrap": "Chest straps & armbands",
   "@pairKindStrap": {
     "description": "Filter pill: heart-rate straps and armbands."
   },
@@ -16656,7 +16656,7 @@
   "@pairWearableCardNote": {
     "description": "Note under a ring’s or watch’s table on its device page; the switch is below it."
   },
-  "pairStrapLead": "It adds heart rate while you work out. It does not record sleep, recovery or strain.",
+  "pairStrapLead": "It adds heart rate while you work out. It does not record sleep, recovery or daily strain.",
   "@pairStrapLead": {
     "description": "Sheet lead for a heart-rate strap or sensor."
   },
@@ -16729,5 +16729,40 @@
   "pairModeNoSite": "A generic device with no single maker, so there are no maker’s steps to follow.",
   "@pairModeNoSite": {
     "description": "Shown instead of steps for a generic device with no maker’s page."
+  },
+  "pairOuraExistingKeyGuidance": "Already use the Oura app? Keep the ring in that app and pair with its existing key. Skip the reset steps below. Only reset it if you want a new key.",
+  "@pairOuraExistingKeyGuidance": {
+    "description": "Before any Oura reset steps: existing-key users keep the ring paired in Oura and skip resets; reset only for a new key."
+  },
+  "pairWearableLeadPebble": "Pebble 2 can fill your days with sleep, recovery and heart rate. Pebble 2 SE records sleep and steps, but has no heart-rate sensor and cannot estimate recovery from resting heart rate.",
+  "@pairWearableLeadPebble": {
+    "description": "Pebble-family pairing lead: Pebble 2 has heart rate; Pebble 2 SE has no heart-rate sensor and no recovery estimate from resting heart rate."
+  },
+  "slotColumnReason": "{column}: {reason}",
+  "@slotColumnReason": {
+    "description": "Capability caption naming the column it applies to.",
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotCapabilityStatus": {
+    "description": "Accessible table result with capability, column and sends status.",
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
   }
 }

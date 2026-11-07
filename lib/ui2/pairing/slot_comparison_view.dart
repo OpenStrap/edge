@@ -89,23 +89,31 @@ class SlotTable extends StatelessWidget {
         );
     Widget row(SlotRow r) {
       final k = r.capability.name;
-      // The caption of whichever column carries one, every day's first.
-      String? reasonOf(CapabilityStatus? s) =>
-          s == null ? null : capabilityReason(l, s);
-      final reason = reasonOf(r.everyDay) ?? reasonOf(r.workouts);
+      final reasons = <String>[];
+      for (final (slot, status) in [
+        (DeviceSlot.everyDay, r.everyDay),
+        (DeviceSlot.workoutsOnly, r.workouts),
+      ]) {
+        final reason = status == null ? null : capabilityReason(l, status);
+        if (reason != null) {
+          reasons.add(l.slotColumnReason(slotLabel(l, slot), reason));
+        }
+      }
       return line(
         key: ValueKey('slot-row-$k'),
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(capabilityLabel(l, r.capability),
               style: F.body.copyWith(color: p.ink)),
-          if (reason != null)
+          for (final reason in reasons)
             Padding(
               padding: const EdgeInsets.only(top: 2),
               child: Text(reason, style: F.cap.copyWith(color: p.ink3)),
             ),
         ]),
-        SlotMark(r.everyDay != null, key: ValueKey('slot-everyDay-$k')),
-        SlotMark(r.workouts != null, key: ValueKey('slot-workoutsOnly-$k')),
+        SlotMark(r.everyDay != null, capability: r.capability,
+            slot: DeviceSlot.everyDay, key: ValueKey('slot-everyDay-$k')),
+        SlotMark(r.workouts != null, capability: r.capability,
+            slot: DeviceSlot.workoutsOnly, key: ValueKey('slot-workoutsOnly-$k')),
       );
     }
 
@@ -127,17 +135,21 @@ class SlotTable extends StatelessWidget {
 }
 
 /// A check on a green tint where the column sends the row, a muted cross where
-/// it does not. Said as "Sends" / "Doesn’t send" to a screen reader.
+/// it does not. Announces the capability, column and status to a screen reader.
 class SlotMark extends StatelessWidget {
   final bool sends;
-  const SlotMark(this.sends, {super.key});
+  final DeviceCapability capability;
+  final DeviceSlot slot;
+  const SlotMark(this.sends,
+      {super.key, required this.capability, required this.slot});
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final l = pairL10n(c);
     return Semantics(
-      label: sends ? l.slotSendsHeading : l.slotDoesntSendHeading,
+      label: l.slotCapabilityStatus(capabilityLabel(l, capability),
+          slotLabel(l, slot), sends ? l.slotSendsHeading : l.slotDoesntSendHeading),
       excludeSemantics: true,
       child: sends
           ? Container(

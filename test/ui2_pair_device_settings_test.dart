@@ -278,7 +278,7 @@ void main() {
               ]));
       await pumpPair(t, harness(), size: const Size(412, 1400));
       expect(find.text('Rings'), findsOneWidget);
-      expect(find.text('Straps'), findsOneWidget);
+      expect(find.text('Chest straps & armbands'), findsOneWidget);
       await t.tap(find.text('Rings'));
       await t.pumpAndSettle();
       expect(kind.value, PairFilter.rings);

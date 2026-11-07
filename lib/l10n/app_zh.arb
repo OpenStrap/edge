@@ -2885,7 +2885,7 @@
   "pairAddDevice": "添加设备",
   "pairBandNotSensor": "这台设备是 {label}，是手环，不是普通传感器。没有保存任何内容。",
   "pairKindAll": "全部",
-  "pairKindStrap": "心率带",
+  "pairKindStrap": "胸带和臂带",
   "pairKindRing": "戒指",
   "pairKindWatch": "手表",
   "pairResetTitleBand": "你的手环已和别处配对",
@@ -2933,7 +2933,7 @@
   "pairWearableLead": "它可以为你的每一天补上睡眠、恢复和心率。",
   "pairWearableNote": "填补没有 WHOOP 数据的日子。这是实验功能，请在“设备”中开启。",
   "pairWearableCardNote": "填补没有 WHOOP 数据的日子。这是实验功能，请在下方开启。",
-  "pairStrapLead": "它在你运动时提供心率，不记录睡眠、恢复或负荷。",
+  "pairStrapLead": "它在你运动时提供心率，不记录睡眠、恢复或每日负荷。",
   "pairStrapNote": "两项都需要开启“在锻炼时使用”。",
   "pairDeviceNamed": "配对 {name}",
   "pairUseForWorkouts": "仅在运动时使用",
@@ -2948,5 +2948,32 @@
   "pairReplaceUnpairFailed": "无法取消配对你的手环，因此没有配对新手环。请重试。",
   "capReasonUnconfirmed": "如果此设备发送该数据，尚未确认",
   "pairModeTitle": "让它进入配对模式",
-  "pairModeNoSite": "这是没有单一厂商的通用设备，因此没有厂商步骤可循。"
+  "pairModeNoSite": "这是没有单一厂商的通用设备，因此没有厂商步骤可循。",
+  "pairOuraExistingKeyGuidance": "已经在用 Oura 应用？请保留戒指在该应用中的配对，并使用戒指现有的密钥配对。跳过下面的重置步骤。只有想使用新密钥时才重置戒指。",
+  "pairWearableLeadPebble": "Pebble 2 可以为你的每一天补上睡眠、恢复和心率。Pebble 2 SE 记录睡眠和步数，但没有心率传感器，无法根据静息心率估算恢复。",
+  "slotColumnReason": "{column}：{reason}",
+  "slotCapabilityStatus": "{capability}，{column}：{status}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

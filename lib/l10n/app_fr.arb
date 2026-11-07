@@ -2885,7 +2885,7 @@
   "pairAddDevice": "Ajouter un appareil",
   "pairBandNotSensor": "Cet appareil est un {label}, c’est-à-dire un bracelet, pas un simple capteur. Rien n’a été enregistré.",
   "pairKindAll": "Tous",
-  "pairKindStrap": "Ceintures",
+  "pairKindStrap": "Ceintures et brassards",
   "pairKindRing": "Bagues",
   "pairKindWatch": "Montres",
   "pairResetTitleBand": "Votre bracelet est associé ailleurs",
@@ -2933,7 +2933,7 @@
   "pairWearableLead": "Il peut compléter vos journées avec le sommeil, la récupération et la fréquence cardiaque.",
   "pairWearableNote": "Complète les jours sans votre WHOOP. Expérimental : activez-le dans Appareils.",
   "pairWearableCardNote": "Complète les jours sans votre WHOOP. Expérimental : activez-le ci-dessous.",
-  "pairStrapLead": "Il ajoute la fréquence cardiaque pendant l’entraînement. Il n’enregistre ni le sommeil, ni la récupération, ni l’effort.",
+  "pairStrapLead": "Il ajoute la fréquence cardiaque pendant l’entraînement. Il n’enregistre ni le sommeil, ni la récupération, ni l’effort quotidien.",
   "pairStrapNote": "Les deux nécessitent « Utiliser pendant les entraînements » activé.",
   "pairDeviceNamed": "Associer {name}",
   "pairUseForWorkouts": "L’utiliser seulement pour les entraînements",
@@ -2948,5 +2948,32 @@
   "pairReplaceUnpairFailed": "Impossible de dissocier votre bracelet, le nouveau n’a donc pas été associé. Réessayez.",
   "capReasonUnconfirmed": "Si cet appareil l’envoie, non confirmé",
   "pairModeTitle": "Mettez-le en mode association",
-  "pairModeNoSite": "Un appareil générique sans fabricant unique : il n’y a donc pas d’étapes du fabricant."
+  "pairModeNoSite": "Un appareil générique sans fabricant unique : il n’y a donc pas d’étapes du fabricant.",
+  "pairOuraExistingKeyGuidance": "Vous utilisez déjà l’application Oura ? Gardez l’anneau associé dans cette application et associez-le avec sa clé actuelle. Passez les étapes de réinitialisation ci-dessous. Réinitialisez-le uniquement si vous voulez une nouvelle clé.",
+  "pairWearableLeadPebble": "Pebble 2 peut compléter vos journées avec le sommeil, la récupération et la fréquence cardiaque. Pebble 2 SE enregistre le sommeil et les pas, mais n’a pas de capteur cardiaque et ne peut pas estimer la récupération à partir du pouls au repos.",
+  "slotColumnReason": "{column} : {reason}",
+  "slotCapabilityStatus": "{capability}, {column} : {status}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

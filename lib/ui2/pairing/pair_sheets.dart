@@ -64,7 +64,9 @@ Future<BandSheetChoice?> showBandFoundSheet(
         lead: afterConnect
             ? l.pairIdentifiedBody(label)
             : wearable
-                ? l.pairWearableLead
+                ? band.id == kPebble.id
+                    ? l.pairWearableLeadPebble
+                    : l.pairWearableLead
                 : null,
         comparison: cmp,
         focus: cmp.slot,

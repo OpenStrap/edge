@@ -7935,7 +7935,7 @@
     }
   },
   "pairKindAll": "Все",
-  "pairKindStrap": "Ремни",
+  "pairKindStrap": "Нагрудные и плечевые датчики",
   "pairKindRing": "Кольца",
   "pairKindWatch": "Часы",
   "pairResetTitleBand": "Ваш браслет подключён к другому устройству",
@@ -7973,7 +7973,7 @@
   "pairGoBack": "Назад",
   "pairSectionTitle": "Подключить устройство",
   "pairCardBandBody": "Только WHOOP 4.0 или WHOOP 5.0/MG. Сон, восстановление и нагрузка круглые сутки.",
-  "pairUnpairBand": "Отключить браслет",
+  "pairUnpairBand": "Удалить сопряжение с браслетом",
   "pairAddDeviceSub": "Кольца, часы и нагрудные пульсометры",
   "pairAddDeviceSubtitle": "У каждого устройства указано, для чего оно подходит: на каждый день или только для тренировок.",
   "pairBandFoundBody": "Каждый день он даёт гораздо больше, чем только на тренировках. Что выберете?",
@@ -8010,7 +8010,7 @@
       }
     }
   },
-  "pairReplaceBand": "Отключить {name} и подключить этот",
+  "pairReplaceBand": "Удалить сопряжение с {name} и сопрячь этот браслет",
   "@pairReplaceBand": {
     "placeholders": {
       "name": {
@@ -8018,7 +8018,7 @@
       }
     }
   },
-  "pairReplaceConfirmTitle": "Отключить {name} и подключить вместо него этот браслет?",
+  "pairReplaceConfirmTitle": "Удалить сопряжение с {name} и выполнить сопряжение с этим браслетом?",
   "@pairReplaceConfirmTitle": {
     "placeholders": {
       "name": {
@@ -8027,12 +8027,12 @@
     }
   },
   "pairReplaceConfirmBody": "Ваши данные сохранятся.",
-  "pairReplaceConfirmYes": "Отключить и подключить",
+  "pairReplaceConfirmYes": "Удалить сопряжение и сопрячь",
   "pairCurrentBandFallback": "ваш браслет",
   "pairWearableLead": "Он может заполнять ваши дни данными о сне, восстановлении и пульсе.",
   "pairWearableNote": "Заполняет дни без вашего WHOOP. Экспериментально, поэтому включите это в разделе «Устройства».",
   "pairWearableCardNote": "Заполняет дни без вашего WHOOP. Экспериментально, поэтому включите это ниже.",
-  "pairStrapLead": "Он добавляет пульс во время тренировки. Сон, восстановление и нагрузку он не записывает.",
+  "pairStrapLead": "Он добавляет пульс во время тренировки. Сон, восстановление и дневную нагрузку он не записывает.",
   "pairStrapNote": "Для обоих нужно включить «Использовать во время тренировок».",
   "pairDeviceNamed": "Подключить {name}",
   "@pairDeviceNamed": {
@@ -8058,8 +8058,35 @@
   "pairTroubleDiscordSub": "Сообщество OpenStrap",
   "pairWhoopRowLine": "Сон, восстановление, нагрузка, пульс и многое другое",
   "pairSetUpTitle": "Настройка",
-  "pairReplaceUnpairFailed": "Не удалось отключить ваш браслет, поэтому новый не подключён. Попробуйте ещё раз.",
+  "pairReplaceUnpairFailed": "Не удалось удалить сопряжение с вашим браслетом, поэтому новый не сопряжён. Попробуйте ещё раз.",
   "capReasonUnconfirmed": "Если устройство это передаёт, не подтверждено",
   "pairModeTitle": "Переведите в режим сопряжения",
-  "pairModeNoSite": "Это универсальное устройство без единого производителя, поэтому инструкции производителя нет."
+  "pairModeNoSite": "Это универсальное устройство без единого производителя, поэтому инструкции производителя нет.",
+  "pairOuraExistingKeyGuidance": "Уже пользуетесь приложением Oura? Оставьте кольцо сопряжённым в этом приложении и выполните сопряжение с его текущим ключом. Пропустите шаги сброса ниже. Сбрасывайте кольцо только для получения нового ключа.",
+  "pairWearableLeadPebble": "Pebble 2 может заполнять ваши дни данными о сне, восстановлении и пульсе. Pebble 2 SE записывает сон и шаги, но не имеет датчика пульса и не может оценить восстановление по пульсу в покое.",
+  "slotColumnReason": "{column}: {reason}",
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

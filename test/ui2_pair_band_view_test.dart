@@ -112,7 +112,7 @@ void main() {
       for (final k in ['All', 'WHOOP', 'Rings', 'Watches']) {
         expect(find.text(k), findsOneWidget, reason: k);
       }
-      expect(find.text('Straps'), findsNothing);
+      expect(find.text('Chest straps & armbands'), findsNothing);
       expect(find.text('Bands'), findsNothing);
       expect(find.text('Scales'), findsNothing);
       await t.tap(find.text('Rings'));

@@ -181,11 +181,11 @@ void main() {
 
     testWidgets('the table: every day sends sleep, workouts only does not; no dashes', (t) async {
       await open(t, kWhoopGen5, hasMain: false);
-      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-sleep'))).label, 'Sends');
-      expect(t.getSemantics(find.byKey(const ValueKey('slot-workoutsOnly-sleep'))).label, 'Doesn’t send');
-      expect(t.getSemantics(find.byKey(const ValueKey('slot-workoutsOnly-workoutHeartRate'))).label, 'Sends');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-sleep'))).label, 'Sleep, Every day: Sends');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-workoutsOnly-sleep'))).label, 'Sleep, Workouts only: Doesn’t send');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-workoutsOnly-workoutHeartRate'))).label, 'Heart rate during workouts, Workouts only: Sends');
       expect(find.byIcon(LucideIcons.minus), findsNothing);
-      expect(find.text('If this device sends it, not confirmed'), findsOneWidget);
+      expect(find.text('Workouts only: If this device sends it, not confirmed'), findsOneWidget);
       expect(find.text('Blood oxygen'), findsNothing);
     });
 
@@ -272,12 +272,12 @@ void main() {
       await open(t, kOura, hasMain: false);
       expect(find.text('This is a ring'), findsOneWidget);
       expect(find.text('It can fill your days with sleep, recovery and heart rate.'), findsOneWidget);
-      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-sleep'))).label, 'Sends');
-      expect(t.getSemantics(find.byKey(const ValueKey('slot-workoutsOnly-sleep'))).label, 'Doesn’t send');
-      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-strain'))).label, 'Doesn’t send');
-      expect(find.text('From the ring’s own sleep stages'), findsOneWidget);
-      expect(find.text('Estimated for the first 14 nights'), findsOneWidget);
-      expect(find.text('After a few nights'), findsOneWidget);
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-sleep'))).label, 'Sleep, Every day: Sends');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-workoutsOnly-sleep'))).label, 'Sleep, Workouts only: Doesn’t send');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-strain'))).label, 'Strain, Every day: Doesn’t send');
+      expect(find.text('Every day: From the ring’s own sleep stages'), findsOneWidget);
+      expect(find.text('Every day: Estimated for the first 14 nights'), findsOneWidget);
+      expect(find.text('Every day: After a few nights'), findsOneWidget);
       expect(find.text('Fills days without your WHOOP. Experimental, so switch it on in Devices.'), findsOneWidget);
       expect(find.text('Pair Oura Ring'), findsOneWidget);
       expect(find.text('Pair it as my band'), findsNothing);
@@ -327,14 +327,14 @@ void main() {
     testWidgets('a heart-rate strap: workouts only, the switch note, and Pair', (t) async {
       await open(t, kBleHrs, (_) {});
       expect(find.text('This is a heart-rate strap'), findsOneWidget);
-      expect(find.text('It adds heart rate while you work out. It does not record sleep, recovery or strain.'), findsOneWidget);
+      expect(find.text('It adds heart rate while you work out. It does not record sleep, recovery or daily strain.'), findsOneWidget);
       expect(find.text('Both need “Use during workouts” on.'), findsOneWidget);
-      expect(find.text('If this device sends it, not confirmed'), findsOneWidget);
+      expect(find.text('Workouts only: If this device sends it, not confirmed'), findsOneWidget);
       expect(find.text('Pair Bluetooth heart rate sensor'), findsOneWidget);
       expect(find.text('Go back'), findsOneWidget);
-      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-sleep'))).label, 'Doesn’t send');
-      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-workoutHeartRate'))).label, 'Doesn’t send');
-      expect(t.getSemantics(find.byKey(const ValueKey('slot-workoutsOnly-workoutHeartRate'))).label, 'Sends');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-sleep'))).label, 'Sleep, Every day: Doesn’t send');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-workoutHeartRate'))).label, 'Heart rate during workouts, Every day: Doesn’t send');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-workoutsOnly-workoutHeartRate'))).label, 'Heart rate during workouts, Workouts only: Sends');
     });
 
     testWidgets('a generic strap says there are no maker’s steps', (t) async {

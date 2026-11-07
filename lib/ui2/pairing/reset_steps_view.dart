@@ -70,6 +70,7 @@ class ResetStepsView extends StatelessWidget {
     return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (entry.id == kOura.id) const _OuraKeyGuidance(),
           if (general) ...[
             // The orange note says so loudly for an unchecked device; a device
             // with no maker site gets the same sentence, muted.
@@ -165,6 +166,7 @@ class PairingModeSection extends StatelessWidget {
       key: ValueKey('pairing-mode-${entry.id}'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (entry.id == kOura.id) const _OuraKeyGuidance(),
         if (heading)
           Padding(
             padding: const EdgeInsets.only(bottom: S.x2),
@@ -200,4 +202,15 @@ class PairingModeSection extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Keep the existing-key path safe wherever Oura's reset steps are shown.
+class _OuraKeyGuidance extends StatelessWidget {
+  const _OuraKeyGuidance();
+
+  @override
+  Widget build(BuildContext c) => Padding(
+      padding: const EdgeInsets.only(bottom: S.x3),
+      child: Text(pairL10n(c).pairOuraExistingKeyGuidance,
+          style: F.body.copyWith(color: P.of(c).ink)));
 }

@@ -61,7 +61,7 @@ void main() {
               selection: selection ?? ValueNotifier<PairFilter?>(selected)),
         );
 
-    testWidgets('All, WHOOP, Rings, Watches, Straps in that order, whatever order the entries arrive in',
+    testWidgets('all five filters keep reading order when the strap label wraps',
         (t) async {
       await pumpPair(
           t,
@@ -72,12 +72,18 @@ void main() {
             DeviceKind.strap,
           ]),
           size: const Size(600, 800));
-      final xs = [
-        for (final k in ['All', 'WHOOP', 'Rings', 'Watches', 'Straps'])
-          t.getTopLeft(find.text(k)).dx,
+      // The fuller strap label can wrap to the next line. Pin reading order
+      // in both dimensions, so wrapping does not masquerade as reordering.
+      final positions = [
+        for (final k in ['All', 'WHOOP', 'Rings', 'Watches', 'Chest straps & armbands'])
+          t.getTopLeft(find.text(k)),
       ];
-      expect(xs, [...xs]..sort());
-      expect(xs.toSet().length, 5);
+      final readingOrder = [...positions]..sort((a, b) {
+        final row = a.dy.compareTo(b.dy);
+        return row == 0 ? a.dx.compareTo(b.dx) : row;
+      });
+      expect(positions, readingOrder);
+      expect(positions.toSet().length, 5);
     });
 
     testWidgets('only the groups that have entries get a pill', (t) async {
@@ -86,7 +92,7 @@ void main() {
       expect(find.text('WHOOP'), findsOneWidget);
       expect(find.text('Rings'), findsOneWidget);
       expect(find.text('Watches'), findsNothing);
-      expect(find.text('Straps'), findsNothing);
+      expect(find.text('Chest straps & armbands'), findsNothing);
     });
 
     testWidgets('a Mi Band (DeviceKind.band) is under Watches, not a pill of its own',
@@ -317,36 +323,36 @@ void main() {
       }
     });
 
-    testWidgets('marks say Sends or Doesn’t send to a screen reader', (t) async {
+    testWidgets('marks name the capability, column and sends status to a screen reader', (t) async {
       await pumpPair(t, table(slotComparisonFor(kWhoopGen5)));
-      expect(t.getSemantics(_mark('everyDay', DeviceCapability.sleep)).label, 'Sends');
-      expect(t.getSemantics(_mark('workoutsOnly', DeviceCapability.sleep)).label, 'Doesn’t send');
+      expect(t.getSemantics(_mark('everyDay', DeviceCapability.sleep)).label, 'Sleep, Every day: Sends');
+      expect(t.getSemantics(_mark('workoutsOnly', DeviceCapability.sleep)).label, 'Sleep, Workouts only: Doesn’t send');
     });
 
     testWidgets('a conditional capability shows its caption under the label', (t) async {
       await pumpPair(t, table(slotComparisonFor(kWhoopGen5)));
-      expect(find.text('After a few nights'), findsOneWidget);
+      expect(find.text('Every day: After a few nights'), findsOneWidget);
       // Read as a workout sensor, a WHOOP's beat timing is conditional too.
-      expect(find.text('If this device sends it, not confirmed'), findsOneWidget);
+      expect(find.text('Workouts only: If this device sends it, not confirmed'), findsOneWidget);
       // WHOOP 5 counts steps natively: no live-session caption.
-      expect(find.text('During live sessions'), findsNothing);
+      expect(find.text('Every day: During live sessions'), findsNothing);
       // The caption sits under its label, in the same row.
       final row = find.byKey(const ValueKey('slot-row-skinTemperature'));
       expect(find.descendant(of: row, matching: find.text('Skin temperature')), findsOneWidget);
-      expect(find.descendant(of: row, matching: find.text('After a few nights')), findsOneWidget);
-      expect(t.getTopLeft(find.text('After a few nights')).dy,
+      expect(find.descendant(of: row, matching: find.text('Every day: After a few nights')), findsOneWidget);
+      expect(t.getTopLeft(find.text('Every day: After a few nights')).dy,
           greaterThan(t.getTopLeft(find.text('Skin temperature')).dy));
     });
 
     testWidgets('a strap says its beat timing is only if it sends it', (t) async {
       await pumpPair(t, table(slotComparisonFor(kBleHrs)));
-      expect(find.text('If this device sends it, not confirmed'), findsOneWidget);
+      expect(find.text('Workouts only: If this device sends it, not confirmed'), findsOneWidget);
     });
 
     testWidgets('a ring’s captions: its own sleep stages and the first 14 nights', (t) async {
       await pumpPair(t, table(slotComparisonFor(kOura)));
-      expect(find.text('From the ring’s own sleep stages'), findsOneWidget);
-      expect(find.text('Estimated for the first 14 nights'), findsOneWidget);
+      expect(find.text('Every day: From the ring’s own sleep stages'), findsOneWidget);
+      expect(find.text('Every day: Estimated for the first 14 nights'), findsOneWidget);
     });
 
     testWidgets('a vendor-reported value says so instead of looking native', (t) async {
@@ -361,7 +367,7 @@ void main() {
                                 CapabilityStatus(CapabilityKind.vendorReported)
                           }, doesNotSend: {}),
                           workoutsOnly: SlotSide(sends: {}, doesNotSend: {DeviceCapability.sleep}))))));
-      expect(find.text('The device’s own reading'), findsOneWidget);
+      expect(find.text('Every day: The device’s own reading'), findsOneWidget);
     });
 
     testWidgets('focus washes only that column', (t) async {

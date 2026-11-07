@@ -2555,15 +2555,18 @@ class DeviceDetailView extends StatelessWidget {
                             chevron: false),
                         Divider(color: p.line, height: 1),
                       ],
-                      SetRow(LucideIcons.database, C.teal,
-                          l?.devicesWhatItDoes ?? 'What it does',
-                          sub: s.tier == null
-                              ? (l?.devicesWhatItDoesStored ??
-                                  'Everything it sends is saved under its name. Scores from it are experimental and off until it’s been checked against the hardware.')
-                              : (l?.devicesWhatItDoesBeats ??
-                                  'Heartbeat timing is saved under its name, during workouts and a few minutes after. Scoring workouts from it is experimental and off for now.'),
-                          chevron: false),
-                      Divider(color: p.line, height: 1),
+                      // The every-day card above already describes wearables.
+                      if (slotDeviceOf(s)?.slot != DeviceSlot.everyDay) ...[
+                        SetRow(LucideIcons.database, C.teal,
+                            l?.devicesWhatItDoes ?? 'What it does',
+                            sub: s.tier == null
+                                ? (l?.devicesWhatItDoesStored ??
+                                    'Everything it sends is saved under its name. Scores from it are experimental and off until it’s been checked against the hardware.')
+                                : (l?.devicesWhatItDoesBeats ??
+                                    'Heartbeat timing is saved under its name, during workouts and a few minutes after. Scoring workouts from it is experimental and off for now.'),
+                            chevron: false),
+                        Divider(color: p.line, height: 1),
+                      ],
                       SetRow(LucideIcons.refreshCw, C.purple,
                           l?.devicesLastData ?? 'Last data',
                           value: last == null ? '' : formatDayTime(last, l),

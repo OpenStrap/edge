@@ -110,7 +110,7 @@ void main() {
 
     testWidgets('a strap’s beat timing is conditional on the strap', (t) async {
       await pumpPair(t, _card(kBleHrs, DeviceSlot.workoutsOnly), size: const Size(412, 1100));
-      expect(find.text('If this device sends it, not confirmed'), findsOneWidget);
+      expect(find.text('Workouts only: If this device sends it, not confirmed'), findsOneWidget);
     });
 
     testWidgets('a ring: Every day chip, Workouts only faded, the orange experimental note', (t) async {

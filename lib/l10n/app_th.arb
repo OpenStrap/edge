@@ -16423,7 +16423,7 @@
   "@pairKindAll": {
     "description": "Filter pill that shows every device in the list."
   },
-  "pairKindStrap": "สายคาดอก",
+  "pairKindStrap": "สายคาดอกและสายรัดต้นแขน",
   "@pairKindStrap": {
     "description": "Filter pill: heart-rate straps and armbands."
   },
@@ -16650,7 +16650,7 @@
   "@pairWearableCardNote": {
     "description": "Note under a ring’s or watch’s table on its device page; the switch is below it."
   },
-  "pairStrapLead": "เพิ่มอัตราการเต้นของหัวใจขณะออกกำลังกาย ไม่บันทึกการนอน การฟื้นตัว หรือความหนัก",
+  "pairStrapLead": "เพิ่มอัตราการเต้นของหัวใจขณะออกกำลังกาย ไม่บันทึกการนอน การฟื้นตัว หรือความหนักรายวัน",
   "@pairStrapLead": {
     "description": "Sheet lead for a heart-rate strap or sensor."
   },
@@ -16723,5 +16723,32 @@
   "pairModeNoSite": "อุปกรณ์ทั่วไปที่ไม่มีผู้ผลิตรายเดียว จึงไม่มีขั้นตอนจากผู้ผลิต",
   "@pairModeNoSite": {
     "description": "Shown instead of steps for a generic device with no maker’s page."
+  },
+  "pairOuraExistingKeyGuidance": "ใช้แอป Oura อยู่แล้วใช่ไหม คงการจับคู่แหวนในแอปนั้นไว้ แล้วจับคู่ด้วยคีย์เดิมของแหวน ข้ามขั้นตอนรีเซ็ตด้านล่าง รีเซ็ตเฉพาะเมื่อต้องการคีย์ใหม่เท่านั้น",
+  "pairWearableLeadPebble": "Pebble 2 เติมข้อมูลการนอน การฟื้นตัว และอัตราการเต้นของหัวใจให้แต่ละวันได้ Pebble 2 SE บันทึกการนอนและจำนวนก้าว แต่ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ จึงประเมินการฟื้นตัวจากอัตราการเต้นของหัวใจขณะพักไม่ได้",
+  "slotColumnReason": "{column}: {reason}",
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
   }
 }
