@@ -29,6 +29,7 @@ import '../ui2.dart';
 import 'advanced.dart';
 import 'ecg.dart' show EcgEntryCard, pairedIsMaverickOf;
 import 'findings_log.dart';
+import 'slot_scrub.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'metric_detail.dart';
@@ -1263,9 +1264,14 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               'ms',
               l?.healthTimeFrequencyNonLinear ?? 'Time, frequency and non-linear',
               C.green,
-              preview: _hrvPreview(c, d),
               onTap: () => go(c, const Investigate('hrv'))),
         ),
+      // The chart is its own card, outside the deep dive's tap target: a touch
+      // on it reads a night, and only the card above opens Investigate.
+      if (rmssd != null) ...[
+        const SizedBox(height: S.x3),
+        Surface(child: _hrvPreview(c, d)),
+      ],
 
       // The research charts, all behind one door.
       const SizedBox(height: S.x3),
@@ -1294,26 +1300,44 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final axis = AxisSpec.of(have, ticks: 2);
     final p = P.of(c);
     final l = AppLocalizations.of(c);
-    return ChartFrame(
-      title: l?.healthRmssdOfLastNights(have.length, days) ??
-          'HRV, ${have.length} of the last $days nights',
-      unit: 'ms',
-      height: 48,
-      yAxis: axis,
-      xLabels: have.length < 2
-          ? const []
-          : [
-              l?.healthNightsAgo(days - 1) ?? '${days - 1} nights ago',
-              l?.healthSubLastNight ?? 'Last night',
-            ],
-      empty: have.length < 2
-          ? NoData(
-              message: l?.healthOneNightNotTrend ?? 'One night is not a trend yet')
-          : null,
+    final heading = l?.healthHeartRateVariability ?? 'Heart rate variability';
+    return SlotScrub(
       series: win,
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: LineChart(win, p.on(C.green), t: animate(c, 1), axis: axis),
+      bars: false,
+      label: heading,
+      color: p.on(C.green),
+      format: (v) => '${v.round()} ms',
+      builder: (c, pick, scrub, panel) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ChartFrame(
+            title: l?.healthRmssdOfLastNights(have.length, days) ??
+                'HRV, ${have.length} of the last $days nights',
+            unit: 'ms',
+            height: 48,
+            yAxis: axis,
+            xLabels: have.length < 2
+                ? const []
+                : [
+                    l?.healthNightsAgo(days - 1) ?? '${days - 1} nights ago',
+                    l?.healthSubLastNight ?? 'Last night',
+                  ],
+            empty: have.length < 2
+                ? NoData(
+                    message: l?.healthOneNightNotTrend ??
+                        'One night is not a trend yet')
+                : null,
+            series: win,
+            child: scrub(CustomPaint(
+              size: Size.infinite,
+              painter: LineChart(win, p.on(C.green),
+                  t: animate(c, 1),
+                  axis: axis,
+                  selectedX: pick == null ? null : pick / (win.length - 1)),
+            )),
+          ),
+          if (have.length >= 2) ...[const SizedBox(height: S.x3), panel],
+        ],
       ),
     );
   }

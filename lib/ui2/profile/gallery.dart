@@ -46,6 +46,7 @@ import '../../compute/findings.dart';
 import '../../models/metric.dart';
 import '../../models/activity_suggestion.dart';
 import '../screens/detected_activities.dart';
+import '../screens/slot_scrub.dart';
 import '../activity/catalogue.dart';
 import '../activity/live.dart';
 import '../activity/picker.dart' show ActivityPicker, ActivityRow;
@@ -943,6 +944,36 @@ Map<String, Widget> extraCases() => {
               ],
             ),
           ]),
+        );
+      }),
+      // A day-per-slot chart with its scroll-first scrubber and panel: bars,
+      // one empty day (a dash when touched), LATEST at rest.
+      'slot_scrub': Builder(builder: (c) {
+        final p = P.of(c);
+        final series = <double?>[30, 55, null, 70, 40, 65, 80];
+        return Surface(
+          child: SlotScrub(
+            series: series,
+            bars: true,
+            label: 'Heart effort by day',
+            color: p.on(C.purple),
+            format: (v) => '${v.round()} points',
+            builder: (c, pick, scrub, panel) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: 88,
+                  child: scrub(CustomPaint(
+                    size: Size.infinite,
+                    painter: Bars(series, p.on(C.purple),
+                        highlight: pick ?? -1),
+                  )),
+                ),
+                const SizedBox(height: S.x3),
+                panel,
+              ],
+            ),
+          ),
         );
       }),
       // Icons and dashed lines over a plot, in a lane above it; the lane alone

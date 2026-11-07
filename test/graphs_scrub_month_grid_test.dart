@@ -120,8 +120,10 @@ void main() {
               .first)
           .position;
       final before = page.pixels;
-      await t.timedDrag(
-          strip, const Offset(10, -120), const Duration(milliseconds: 350));
+      // The strip is 800 wide in a 390 viewport: touch inside the viewport.
+      final box = t.getRect(strip);
+      await t.timedDragFrom(Offset(100, box.center.dy),
+          const Offset(10, -120), const Duration(milliseconds: 350));
       await t.pumpAndSettle();
       expect(page.pixels - before, greaterThan(40));
       expect(t.widget<Scrubber>(strip).value, isNull);
@@ -150,7 +152,7 @@ void main() {
               .first)
           .position;
       final pageBefore = page.pixels;
-      await t.drag(find.text('Today'), const Offset(-120, 4));
+      await t.drag(find.text('29 days ago'), const Offset(-120, 4));
       await t.pumpAndSettle();
       expect(side.pixels, greaterThan(40));
       expect(page.pixels, closeTo(pageBefore, 1));

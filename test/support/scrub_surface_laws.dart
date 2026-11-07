@@ -179,6 +179,8 @@ void defineSurfaceLaws(SurfaceRig r) {
       testWidgets('a tap selects: SELECTED, that day, its value; the panel '
           'keeps its rect (x$scale)', (t) async {
         await _ready(t, r, scale);
+        await t.ensureVisible(r.plot());
+        await t.pumpAndSettle();
         final rect = t.getRect(find.byKey(panelKey));
         await _tapSlot(t, r, r.scrubbed);
         expect(find.byKey(panelKey), findsOneWidget);
@@ -195,6 +197,8 @@ void defineSurfaceLaws(SurfaceRig r) {
       testWidgets('a day with no reading is a dash, and the panel still '
           'does not move (x$scale)', (t) async {
         await _ready(t, r, scale);
+        await t.ensureVisible(r.plot());
+        await t.pumpAndSettle();
         final rect = t.getRect(find.byKey(panelKey));
         await _tapSlot(t, r, r.gap);
         final cap = _caption(t);
