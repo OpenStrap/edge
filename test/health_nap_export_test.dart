@@ -4,6 +4,8 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:openstrap_edge/compute/nap_edits.dart'
+    show kMaxNapSec, kMinManualNapSec;
 import 'package:openstrap_edge/health/health_nap_export.dart';
 
 class FakeNapWriter implements HealthKitNapWriter {
@@ -76,12 +78,15 @@ void main() {
       }
     });
 
-    test('windows outside 5 min - 6 h are not exportable', () {
+    test('windows outside the shared nap bounds are not exportable', () {
+      // The export honors the same 5 min - kMaxNapSec (3 h) bounds as entry:
+      // anything longer is a sleep, not a nap, and must not reach HealthKit
+      // as one.
       expect(
         napWindowExportable(
             source: 'confirmed',
             startTs: start,
-            endTs: start + 4 * 60,
+            endTs: start + kMinManualNapSec - 60,
             nowSec: nowSec),
         isFalse,
       );
@@ -89,7 +94,15 @@ void main() {
         napWindowExportable(
             source: 'confirmed',
             startTs: start,
-            endTs: start + 6 * 3600 + 60,
+            endTs: start + kMaxNapSec,
+            nowSec: nowSec),
+        isTrue,
+      );
+      expect(
+        napWindowExportable(
+            source: 'confirmed',
+            startTs: start,
+            endTs: start + kMaxNapSec + 1,
             nowSec: nowSec),
         isFalse,
       );
