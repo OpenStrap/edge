@@ -706,7 +706,9 @@ class ChartAnnotationLane extends StatefulWidget {
 
   /// Everything above the plot at 1x text: the label row, then the icon row.
   /// Use [headerFor] wherever the text scale is known.
-  static const double header = labelHeight + iconSize;
+  /// Never less than a full tap box, which ends at the plot seam.
+  static const double header =
+      labelHeight + iconSize > _tap ? labelHeight + iconSize : _tap;
 
   /// The style of the static label. One place, so the row is sized from the
   /// very style it draws with.
@@ -732,7 +734,7 @@ class ChartAnnotationLane extends StatefulWidget {
   /// This is what pushes the plot down, so the dashed lines and icons stay on it.
   static double headerFor(TextScaler scaler,
           [TextDirection direction = TextDirection.ltr]) =>
-      labelRowHeight(scaler, direction) + iconSize;
+      math.max(_tap, labelRowHeight(scaler, direction) + iconSize);
 
   static const laneKey = ValueKey('annotation-lane');
   static const linesKey = ValueKey('annotation-lines');
@@ -766,7 +768,8 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
     final set = widget.set;
     final labelH = ChartAnnotationLane.labelRowHeight(
         MediaQuery.textScalerOf(context), Directionality.of(context));
-    final header = labelH + ChartAnnotationLane.iconSize;
+    final header = ChartAnnotationLane.headerFor(
+        MediaQuery.textScalerOf(context), Directionality.of(context));
     return LayoutBuilder(builder: (context, box) {
       final width = box.maxWidth.isFinite ? box.maxWidth : 0.0;
       final scale = AnnotationScale(
@@ -896,10 +899,14 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
             child: Pressable(
               onTap: () => step(i),
               semanticLabel: said(byId[i.id]!),
-              child: AnnotationIcon(
-                  key: ChartAnnotationLane.iconKey(i.id),
-                  kind: i.kind,
-                  bold: i.focused),
+              // The icon sits at the bottom of the box, on the seam row.
+              child: Padding(
+                padding: const EdgeInsets.only(top: _overhang * 2),
+                child: AnnotationIcon(
+                    key: ChartAnnotationLane.iconKey(i.id),
+                    kind: i.kind,
+                    bold: i.focused),
+              ),
             ),
           ),
           if (i.more > 0)
@@ -915,7 +922,9 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
                   for (final id in i.memberIds)
                     if (id != i.id && byId[id] != null) said(byId[id]!),
                 ].join(', '),
-                child: ExcludeSemantics(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: _overhang * 2),
+                  child: ExcludeSemantics(
                   child: SizedBox(
                   width: i.badgeWidth,
                   height: ChartAnnotationLane.iconSize,
@@ -938,6 +947,7 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
                       ),
                     ),
                   ),
+                ),
                 ),
                 ),
               ),

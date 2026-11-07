@@ -726,6 +726,36 @@ void main() {
           reason: 'the drag reached the scrubber');
     });
 
+    testWidgets('every icon and +n box is at least 44 tall and ends at the '
+        'plot', (t) async {
+      final set = const AnnotationSet(items: [
+        ChartAnnotation(
+            id: 'water', kind: AnnotationKind.water, at: 3, label: 'Drank'),
+        ChartAnnotation(
+            id: 'm1', kind: AnnotationKind.moment, at: 1, label: 'One'),
+        ChartAnnotation(
+            id: 'm2', kind: AnnotationKind.moment, at: 1.02, label: 'Two'),
+        ChartAnnotation(
+            id: 'm3', kind: AnnotationKind.symptom, at: 1.04, label: 'Three'),
+      ], domainStart: 0, domainEnd: 6);
+      final h = t.ensureSemantics();
+      await pumpFrame(t, const [], aset: set);
+      final plot = _rect(t, find.byKey(plotKey));
+      final boxes = find.descendant(
+          of: find.byKey(ChartAnnotationLane.laneKey),
+          matching: find.byType(Pressable));
+      expect(boxes.evaluate().length, greaterThanOrEqualTo(3),
+          reason: 'icons plus a +n cluster');
+      for (final b in boxes.evaluate()) {
+        final r = t.getRect(find.byWidget(b.widget));
+        expect(r.height, greaterThanOrEqualTo(44));
+        expect(r.bottom, lessThanOrEqualTo(plot.top + .5));
+        final sem = t.getSemantics(find.byWidget(b.widget));
+        expect(sem.rect.height, greaterThanOrEqualTo(44));
+      }
+      h.dispose();
+    });
+
     testWidgets('scrubbing onto an item bolds it and shows its label',
         (t) async {
       // Seven slots, domain = slot index.
