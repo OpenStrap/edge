@@ -35,6 +35,7 @@ import '../l10n/decimal_text.dart' show parseTypedNumber;
 import '../l10n/presentation_text.dart';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -178,6 +179,8 @@ class Scrubber extends StatelessWidget {
     // either direction places the cursor rather than doing nothing.
     final up = ((v ?? -step) + step).clamp(0.0, 1.0);
     final down = ((v ?? 1 + step) - step).clamp(0.0, 1.0);
+    // A local function so the heavy-work guard can follow the callback.
+    void end() => onEnd?.call();
     return Semantics(
       label: label,
       slider: true,
@@ -202,24 +205,78 @@ class Scrubber extends StatelessWidget {
               behavior: HitTestBehavior.opaque,
               onLongPressStart: (e) => set(e.localPosition),
               onLongPressMoveUpdate: (e) => set(e.localPosition),
-              onLongPressEnd: (_) => onEnd?.call(),
-              onLongPressCancel: () => onEnd?.call(),
+              onLongPressEnd: (_) => end(),
+              onLongPressCancel: end,
               child: child,
             );
           }
-          return Listener(
-            // Opaque, like Pressable. A `Listener` defers to its child by
-            // default, so the strip was only touchable where the painter
-            // happened to claim a hit — which is a coincidence, not a target.
+          // Decide dominance before accepting the arena: a diagonal move can
+          // cross horizontal slop while still belonging to the page scroll.
+          // Raw recognizers don't inherit the device's touch slop the way
+          // GestureDetector does, so hand it over explicitly.
+          final gs = MediaQuery.maybeGestureSettingsOf(c);
+          return RawGestureDetector(
             behavior: HitTestBehavior.opaque,
-            onPointerDown: (e) => set(e.localPosition),
-            onPointerMove: (e) => set(e.localPosition),
+            gestures: {
+              TapGestureRecognizer: GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+                () => TapGestureRecognizer(),
+                (r) => r
+                  ..gestureSettings = gs
+                  ..onTapUp = (e) => set(e.localPosition),
+              ),
+              _ScrubDragRecognizer: GestureRecognizerFactoryWithHandlers<_ScrubDragRecognizer>(
+                () => _ScrubDragRecognizer(),
+                (r) {
+                  r.gestureSettings = gs;
+                  r.dragStartBehavior = DragStartBehavior.down;
+                  r.onlyAcceptDragOnThreshold = true;
+                  r.onStart = (e) => set(e.localPosition);
+                  r.onUpdate = (e) => set(e.localPosition);
+                  r.onEnd = (_) => end();
+                  r.onCancel = end;
+                },
+              ),
+              LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+                () => LongPressGestureRecognizer(),
+                (r) {
+                  r.gestureSettings = gs;
+                  r.onLongPressStart = (e) => set(e.localPosition);
+                  r.onLongPressMoveUpdate = (e) => set(e.localPosition);
+                  r.onLongPressEnd = (_) => end();
+                  r.onLongPressCancel = end;
+                },
+              ),
+            },
             child: child,
           );
         },
       ),
     );
   }
+}
+
+/// Owns the pending pointer displacement; Flutter owns the drag after intent
+/// is accepted. A long press uses its separate recognizer and stays free-axis.
+class _ScrubDragRecognizer extends HorizontalDragGestureRecognizer {
+  Offset _pending = Offset.zero;
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    _pending = Offset.zero;
+    super.addAllowedPointer(event);
+  }
+
+  @override
+  void handleEvent(PointerEvent event) {
+    if (event is PointerMoveEvent) _pending += event.delta;
+    if (event is PointerPanZoomUpdateEvent) _pending = event.pan;
+    super.handleEvent(event);
+  }
+
+  @override
+  bool hasSufficientGlobalDistanceToAccept(PointerDeviceKind kind, double? slop) =>
+      super.hasSufficientGlobalDistanceToAccept(kind, slop) &&
+      _pending.dx.abs() > 1.5 * _pending.dy.abs();
 }
 
 /// The base card surface. Elevation, not outline.
