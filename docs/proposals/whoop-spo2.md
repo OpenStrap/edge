@@ -42,8 +42,11 @@ the confidence level stated.
   EVENTS (`whoop-client/src/uuids.rs`). One mapping is off by one; must be
   resolved against our own captures before any wiring.
 - Constraint from edge AGENTS.md invariant 14: live high-rate streams are
-  RAM-only, never persisted. A live SpO2 could therefore only ever be an
-  ephemeral display value, never a day metric.
+  RAM-only, never persisted. That rules out persisting the stream, NOT a
+  day metric: an in-memory aggregate over a validated sleep window can still
+  produce a nightly value without persisting anything. Whether Gen4 ever gets
+  a nightly metric is decided by validation + coverage, not by invariant 14
+  alone.
 
 ### WHOOP 5.0 / MG — community-reported app agreement, sleep-only
 
@@ -57,11 +60,15 @@ the confidence level stated.
 - Validation against the vendor app (noop#73): nightly means 93.4–96.7 vs
   WHOOP's own 93.1–96.5 over the same weeks (period means 94.4 vs 94.8). No
   night had both readings, so this stays an estimate, not a validation.
-- Offline derivation of SpO2 from raw PPG is physically not possible on 5.0
-  (26 time-multiplexed optical channels; red/IR never sampled simultaneously).
-  The byte-82 device value is the only usable source.
-- Encoding not fully pinned: values above 128 decompose as `128 + flag`, bit 7
-  looks like a status flag. This is why `spo2Candidate` is deprecated.
+- No usable offline derivation from raw PPG on 5.0: time multiplexing alone
+  would NOT make SpO2 impossible (pulse oximeters alternate red/IR), but the
+  decoded Gen5 data has no identified red/IR channel pair and the optical
+  channel bursts are widely separated in time — so no derivation path is
+  available from what we can decode. The byte-82 device value is the only
+  usable source.
+- Encoding not fully pinned: values above 128 appear to decompose as
+  `128 + value` with bit 7 acting as a flag/status bit. This is why
+  `spo2Candidate` is deprecated.
 
 ## Self-critical assessment
 
@@ -115,7 +122,13 @@ the confidence level stated.
    the actual NIGHTLY OUTPUT (our aggregation over the band-declared sleep
    window, burst weighting included) against the reference aggregated over the
    same night, because burst-level agreement can pass while the nightly
-   calculation uses the wrong window or weights. Gen4 has NO nightly SpO2
+   calculation uses the wrong window or weights. COVERAGE REQUIREMENT (else a
+   constant estimate passes by construction): reference samples must span the
+   saturation range (e.g. stratified bins across 85–100%) and participants must
+   be representative (FDA oximeter guidance explicitly calls out skin
+   pigmentation); accuracy is assessed per range/group, and a degenerate
+   constant estimate (all reference samples ~97%) must NOT open the gate.
+   Gen4 has NO nightly SpO2
    output — its byte 5 is a live-stream byte only — so any Gen4 display gate
    must instead use time-aligned LIVE reference measurements (same accuracy
    thresholds: MAE <= 2 pp, |bias| <= 1 pp, 95% LoA within +/-4 pp), never the
