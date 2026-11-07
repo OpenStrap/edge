@@ -11635,9 +11635,19 @@ class LocalDb {
     }
   }
 
-  /// An empty ledger may still hold onboarding defaults. Existing history or
-  /// hand-entered data makes this an established install, even without a band.
+  /// Startup defaults alone do not establish an install. Setup, a successful
+  /// prior restore, or hand-entered/history rows do, even without a band.
+  static const _kSettingsImported = 'backup_settings_imported';
+
   static Future<bool> _backupPrefsFreshInstall(Database db) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    if (prefs.getBool('onboard.completed') == true ||
+        prefs.containsKey('onboarding_choice') ||
+        prefs.containsKey('local_profile_json') ||
+        await getCursor(_kSettingsImported) != null) {
+      return false;
+    }
     const candidates = [
       'decoded_onehz', 'decoded_rr', 'samples', 'day_result', 'observation',
       'sessions', 'journal', 'substrate_archive', 'raw_archive',
@@ -11656,10 +11666,22 @@ class LocalDb {
 
   static Future<ImportSummary> _restoreFromDbFile(String path) async {
     final db = await instance;
-    // Decide before imported rows make a new phone look established.
-    final fresh = await _backupPrefsFreshInstall(db);
+    // Old database-only backups need no preference store. Inspect the copy
+    // before merge, which can make a new phone look established.
+    final src = await openDatabase(path, readOnly: true, singleInstance: false);
+    final bool hasSettings;
+    try {
+      hasSettings = await _objectType(src, 'backup_prefs') == 'table';
+    } finally {
+      await src.close();
+    }
+    final fresh = hasSettings && await _backupPrefsFreshInstall(db);
     final counts = await _mergeFromDbFile(path);
-    return restoreBackupPrefs(path, counts, freshInstall: fresh);
+    final summary = await restoreBackupPrefs(path, counts, freshInstall: fresh);
+    // Persist only after settings restore succeeds, including a settings-only
+    // backup without an onboarding choice. A later restore keeps local edits.
+    if (hasSettings) await setCursor(_kSettingsImported, '1');
+    return summary;
   }
 
   /// Merge every table [tables] names from the database file at [path] into
@@ -11679,6 +11701,7 @@ class LocalDb {
       // banked. They were also simply MISSING here until now — nutrition,
       // medication, strength sets, symptoms and routes did not survive a
       // backup/restore round trip at all, the same omission `wipeAll` documents.
+      'alarm_schedule',
       'journal',
       'journal_metric',
       'journal_field_def',
@@ -11781,6 +11804,8 @@ class LocalDb {
   /// (one day's fields, one session's sets), because the app rewrites each
   /// as a whole and a row-by-row merge splices two versions together.
   static const Map<String, (List<String>, String?)> _restoreEditedKeys = {
+    // Keep configured weekdays; a restore fills only absent schedule slots.
+    'alarm_schedule': (['weekday'], null),
     'journal': (['date'], 'updated_at'),
     'journal_metric': (['date'], 'updated_at'),
     'lab_result': (['marker', 'taken_on'], 'updated_at'),
@@ -12655,6 +12680,8 @@ class LocalDb {
                 }
                 if (t == 'sync_cursor') {
                   final name = '${row['name']}';
+                  // Only a successful restore on THIS install establishes it.
+                  if (name == _kSettingsImported) continue;
                   if (localCursors.containsKey(name)) {
                     if (name != kDecodedPrunedBeforeCursor) continue;
                     final mine = int.tryParse('${localCursors[name]}');

@@ -11,6 +11,9 @@ import 'package:sqflite/sqflite.dart';
 const Map<String, String> kPrefsNotBackedUp = {
   'install_device_id': 'identifies this install; a restore must not clone it',
   'paired_remote_id': 'BLE address bonded to this phone; pair again',
+  'paired_serial': 'identity mirror of the band paired to this phone',
+  'paired_generation': 'hardware generation of the band paired to this phone',
+  'paired_worn_on': 'wearing mirror includes a BLE handle; the device-row merge restores the choice',
   'consent_telemetry': 'consent is asked again on each install',
   'consent_health_data': 'consent is asked again on each install',
   'consent_chosen': 'the consent question is asked again as a whole',
@@ -26,6 +29,16 @@ const Map<String, String> kPrefsNotBackedUp = {
   'backup.last_run_ms': 'status of this install\'s automatic backup',
   'backup.last_error': 'status of this install\'s automatic backup',
   'ble.ask_add_pending': 'transient pairing prompt pending on this phone',
+  'live.session_draft': 'unfinished workout entries, including private sessions, stay local',
+  'live_session_checkpoint': 'write-ahead step recovery for this phone; replay could duplicate steps',
+  'telemetry_outbox': 'queued diagnostics belong to this install and its consent',
+  'alarm_epoch': 'arm belongs to the old band; the restored schedule must arm again',
+  'alarm_epoch_confirmed': 'confirmation belongs to an arm on the old band',
+  'alarm_set_at_ms': 'confirmation replay floor for the old band arm',
+  'alarm_pending_until': 'pending confirmation window for the old band arm',
+  'alarm_latch_alert': 'pending latch alert for the old band arm',
+  'alarm_probe_pending': 'legacy pending hardware probe; never resume on another band',
+  'alarm_fired_at': 'last fire event from the old band, not the chosen schedule',
   'health_upload_last_ts': 'upload cursor for this installation',
 };
 
@@ -48,10 +61,13 @@ class ImportSummary extends MapView<String, int> {
   ImportSummary(super.map, {
     this.keysWritten = const {},
     this.needsReentry = const [],
+    this.unreadableSecrets = const [],
   });
 
   final Set<String> keysWritten;
   final List<String> needsReentry;
+  /// Read failed or timed out; absence is unknown. A later import retries it.
+  final List<String> unreadableSecrets;
 }
 
 bool _backedUp(String key) => !kPrefsNotBackedUp.containsKey(key);
@@ -145,18 +161,21 @@ Future<ImportSummary> restoreBackupPrefs(String path, Map<String, int> counts, {
       }
     }
     final needs = <String>[];
+    final unreadable = <String>[];
     if (await _hasTable(src, 'backup_secrets') &&
         (await src.query('backup_secrets', where: 'key = ?',
             whereArgs: ['coach_api_key'])).isNotEmpty) {
-      String? key;
       try {
-        key = await const FlutterSecureStorage().read(key: 'coach_api_key')
+        final key = await const FlutterSecureStorage().read(key: 'coach_api_key')
             .timeout(const Duration(seconds: 6));
-      } catch (_) {/* unreadable also needs the owner's attention */}
-      if (key == null || key.isEmpty) needs.add('coach_api_key');
+        if (key == null || key.isEmpty) needs.add('coach_api_key');
+      } catch (_) {
+        unreadable.add('coach_api_key');
+      }
     }
     return ImportSummary(counts,
-        keysWritten: Set.unmodifiable(written), needsReentry: List.unmodifiable(needs));
+        keysWritten: Set.unmodifiable(written), needsReentry: List.unmodifiable(needs),
+        unreadableSecrets: List.unmodifiable(unreadable));
   } finally {
     await src.close();
   }
