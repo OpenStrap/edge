@@ -285,6 +285,20 @@ void main() {
     expect(result.keysWritten, contains('backup.cadence'));
   });
 
+  test('a live setting of the wrong type is refused and reported, not counted',
+      () async {
+    await wipeAll();
+    await setPrefs({'clock_format': true, 'backup.cadence': 'weekly'});
+    final path = await LocalDb.exportCopy();
+    await wipeAll();
+    final result = await LocalDb.importFromDbFile(path);
+    final now = await allPrefs();
+    expect(now.containsKey('clock_format'), isFalse);
+    expect(result.refusedPrefs, ['clock_format']);
+    expect(result.keysWritten, isNot(contains('clock_format')));
+    expect(now['backup.cadence'], 'weekly');
+  });
+
   test('a restored schedule writes its next alarm to the new band', () async {
     await wipeAll();
     final now = DateTime(2026, 10, 20, 22);

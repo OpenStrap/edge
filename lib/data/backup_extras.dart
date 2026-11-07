@@ -79,6 +79,16 @@ class ImportSummary extends MapView<String, int> {
   final List<String> refusedPrefs;
 }
 
+/// Settings the app reloads live right after an import, with the stored type
+/// each controller reads. A row of another type is refused, not written: the
+/// controller could not use it, so counting it as restored would be false.
+const Map<String, String> _kLivePrefTypes = {
+  'theme_choice': 'string',
+  'locale_override': 'string',
+  'units_system': 'string',
+  'clock_format': 'string',
+};
+
 bool _backedUp(String key) => !kPrefsNotBackedUp.containsKey(key);
 
 (String, String)? _encode(Object? value) => switch (value) {
@@ -172,6 +182,11 @@ Future<ImportSummary> restoreBackupPrefs(String path, Map<String, int> counts, {
         // A malformed row is skipped and reported, so one bad value cannot
         // block every setting after it. Storage refusing a write is a real
         // failure and must not be reported as a successful restore.
+        final want = _kLivePrefTypes[key];
+        if (want != null && row['type'] != want) {
+          refused.add(key);
+          continue;
+        }
         final bool ok;
         try {
           ok = await _write(prefs, key, '${row['type']}', '${row['value']}');

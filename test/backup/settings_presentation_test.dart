@@ -74,7 +74,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('a wrong-typed clock setting is logged without an unhandled error',
+  testWidgets('a wrong-typed clock setting is refused; the other settings still apply',
       (tester) async {
     late String path;
     await tester.runAsync(() async {
@@ -134,12 +134,15 @@ void main() {
     debugPrint = previousPrint;
     await tester.pump();
     expect(errors, isEmpty, reason: 'controller reload failures must be caught');
-    expect(logs, contains(contains('clock_format reload failed')));
+    expect(logs, isNot(contains(contains('clock_format reload failed'))),
+        reason: 'the wrong-typed row is refused before it is written');
+    expect(app.lastImportPrefsRefused, 1);
     expect(app.user?['name'], 'Restored');
     expect(theme.choice, AppThemeChoice.dark);
     expect(locale.code, 'es');
     expect(units.system, UnitSystem.imperial);
-    expect(clock.format, ClockFormat.h24);
+    // Nothing was written for the clock, so it reads the stored state: unset.
+    expect(clock.format, ClockFormat.system);
     final material = tester.widget<MaterialApp>(find.byType(MaterialApp));
     expect(material.locale, const Locale('es'));
     expect(material.themeMode, ThemeMode.dark);
