@@ -2948,6 +2948,7 @@
   "pairReplaceUnpairFailed": "Impossible de dissocier votre bracelet, le nouveau n’a donc pas été associé. Réessayez.",
   "capReasonUnconfirmed": "Si cet appareil l’envoie, non confirmé",
   "capReasonPebble2Only": "Pebble 2 uniquement. La 2 SE n’a pas de capteur de fréquence cardiaque.",
+  "capReasonPebble2OnlyEstimated": "Pebble 2 uniquement, et c’est une estimation, pas une mesure directe. La 2 SE n’a pas de capteur de fréquence cardiaque.",
   "pairModeTitle": "Mettez-le en mode association",
   "pairModeNoSite": "Un appareil générique sans fabricant unique : il n’y a donc pas d’étapes du fabricant.",
   "pairOuraExistingKeyGuidance": "Vous utilisez déjà l’application Oura ? Gardez l’anneau associé dans cette application et associez-le avec sa clé actuelle. Passez les étapes de réinitialisation ci-dessous. Réinitialisez-le uniquement si vous voulez une nouvelle clé.",

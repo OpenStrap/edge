@@ -63,9 +63,13 @@ void main() {
 
   testWidgets('Pebble HR captions qualify every affected row and its accessible mark', (t) async {
     await _openBand(t, kPebble);
-    const reason = 'Pebble 2 only. The 2 SE has no heart-rate sensor.';
-    for (final cap in [DeviceCapability.recovery, DeviceCapability.strain,
-        DeviceCapability.heartRate]) {
+    const only = 'Pebble 2 only. The 2 SE has no heart-rate sensor.';
+    for (final (cap, reason) in [
+      (DeviceCapability.recovery, 'Pebble 2 only, and an estimate, not a '
+          'direct reading. The 2 SE has no heart-rate sensor.'),
+      (DeviceCapability.strain, only),
+      (DeviceCapability.heartRate, only),
+    ]) {
       final row = find.byKey(ValueKey('slot-row-${cap.name}'));
       expect(find.descendant(of: row, matching: find.text('Every day: $reason')),
           findsOneWidget, reason: '${cap.name} must exclude SE');
@@ -193,26 +197,35 @@ void main() {
       expect(capabilityReason(l, const CapabilityStatus(CapabilityKind.conditional,
           reasonKey: 'capReasonPebble2Only')), entry.value.$1, reason: entry.key);
       expect(l.pairWearableLeadPebble, endsWith(entry.value.$2), reason: entry.key);
+      // Recovery is also an estimate on Pebble 2: its caption keeps both.
+      final both = capabilityReason(l, const CapabilityStatus(
+          CapabilityKind.conditional, reasonKey: kReasonPebble2OnlyEstimated))!;
+      expect(both.toLowerCase(), contains(l.capReasonEstimated.toLowerCase()),
+          reason: entry.key);
+      expect(both, contains('2 SE'), reason: entry.key);
     }
   });
 
   for (final locale in AppLocalizations.supportedLocales) {
     testWidgets('Pebble conditions render and are announced in $locale at 2x text', (t) async {
       final l = lookupAppLocalizations(locale);
-      final reason = capabilityReason(l, const CapabilityStatus(
-          CapabilityKind.conditional, reasonKey: kReasonPebble2Only))!;
+      String reason(String key) => capabilityReason(l,
+          CapabilityStatus(CapabilityKind.conditional, reasonKey: key))!;
       await pumpPair(t, Scaffold(body: SingleChildScrollView(
           child: SlotTable(comparison: slotComparisonFor(kPebble)))),
           locale: locale, textScale: 2, size: const Size(360, 900));
-      for (final cap in [DeviceCapability.recovery, DeviceCapability.strain,
-          DeviceCapability.heartRate]) {
+      for (final (cap, key) in [
+        (DeviceCapability.recovery, kReasonPebble2OnlyEstimated),
+        (DeviceCapability.strain, kReasonPebble2Only),
+        (DeviceCapability.heartRate, kReasonPebble2Only),
+      ]) {
         final row = find.byKey(ValueKey('slot-row-${cap.name}'));
         expect(find.descendant(of: row, matching: find.text(
-            l.slotColumnReason(l.slotEveryDay, reason))), findsOneWidget);
+            l.slotColumnReason(l.slotEveryDay, reason(key)))), findsOneWidget);
         final mark = find.byKey(ValueKey('slot-everyDay-${cap.name}'));
         await t.ensureVisible(mark);
         await t.pumpAndSettle();
-        expect(t.getSemantics(mark).label, contains(reason));
+        expect(t.getSemantics(mark).label, contains(reason(key)));
       }
       expect(t.takeException(), isNull);
     });

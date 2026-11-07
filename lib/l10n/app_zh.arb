@@ -2948,6 +2948,7 @@
   "pairReplaceUnpairFailed": "无法取消配对你的手环，因此没有配对新手环。请重试。",
   "capReasonUnconfirmed": "如果此设备发送该数据，尚未确认",
   "capReasonPebble2Only": "仅限 Pebble 2。2 SE 没有心率传感器。",
+  "capReasonPebble2OnlyEstimated": "仅限 Pebble 2，且是估算值，不是直接测量。2 SE 没有心率传感器。",
   "pairModeTitle": "让它进入配对模式",
   "pairModeNoSite": "这是没有单一厂商的通用设备，因此没有厂商步骤可循。",
   "pairOuraExistingKeyGuidance": "已经在用 Oura 应用？请保留戒指在该应用中的配对，并使用戒指现有的密钥配对。跳过下面的重置步骤。只有想使用新密钥时才重置戒指。",

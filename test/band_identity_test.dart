@@ -639,6 +639,19 @@ void _pairing() {
       expect(refused.writes, isEmpty);
     });
 
+    test('(CR 4500472602) a band missing the measurement characteristic is still a band outcome', () async {
+      // WHY: the band cross-check needs only the discovered services. Run
+      // after the characteristic check, a WHOOP without the measurement
+      // characteristic got "does not expose the data" instead of the band
+      // choice this flow exists to offer.
+      final p = _Pairing();
+      final out = await p.run(
+          kBleHrs, () async => [_svc(_hr), _svc(kWhoopGen5.service)]);
+      expect(out.isBand?.id, 'gen5');
+      expect(out.error, isNull);
+      expect(p.writes, isEmpty);
+    });
+
     test('a strap missing its measurement characteristic fails, zero writes', () async {
       // WHY: a row pointing at a device that cannot answer is a sensor that appears paired and never beats.
       final p = _Pairing();

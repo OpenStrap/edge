@@ -1436,9 +1436,10 @@ bool _hasCharacteristic(List<DiscoveredService> services, String required) {
 /// has connected: discovery, persistence and the two device writes/reads come
 /// through [io] so no Bluetooth is needed.
 ///
-/// Order: discover (a throw gives a failed outcome), required characteristics,
-/// Garmin multi-link check, own-identity check (Coros, Polar PPI), band
-/// cross-check, bond trigger, THEN persist. Nothing is written or persisted on
+/// Order: discover (a throw gives a failed outcome), band cross-check
+/// (it needs only the services, so a band missing a characteristic still
+/// gets the band choice), required characteristics, Garmin multi-link check,
+/// own-identity check (Coros, Polar PPI), bond trigger, THEN persist. Nothing is written or persisted on
 /// any refusal.
 ///
 /// The band cross-check: the band is whatever GATT shows
@@ -1461,6 +1462,15 @@ Future<PairOutcome> pairNotifyDevice({
   } catch (_) {
     return const PairOutcome.failed('That sensor disconnected before it '
         'could be set up. Nothing was saved.');
+  }
+  final band = bandIdentityFromGatt([for (final s in services) s.uuid]) ??
+      earlierBand?.entry;
+  final confirmedBand = band != null && band.id != entry.id;
+  if (confirmedBand) {
+    final ok = confirmation != null &&
+        confirmation.remoteId == remoteId &&
+        confirmation.bandEntryId == band.id;
+    if (!ok) return PairOutcome.band(band);
   }
   final missing = [
     for (final u in entry.requiredCharacteristics)
@@ -1491,15 +1501,6 @@ Future<PairOutcome> pairNotifyDevice({
     pmdFeatures: entry.id == kPolarPmd.id ? await io.readPmdFeatures() : null,
   );
   if (refusal != null) return PairOutcome.failed(refusal);
-  final band = bandIdentityFromGatt([for (final s in services) s.uuid]) ??
-      earlierBand?.entry;
-  final confirmedBand = band != null && band.id != entry.id;
-  if (confirmedBand) {
-    final ok = confirmation != null &&
-        confirmation.remoteId == remoteId &&
-        confirmation.bandEntryId == band.id;
-    if (!ok) return PairOutcome.band(band);
-  }
   if (entry.bondTriggerCharacteristic != null && !await io.triggerBond()) {
     return const PairOutcome.failed('That device did not accept Bluetooth '
         'pairing. Nothing was saved.');

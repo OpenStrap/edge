@@ -151,8 +151,12 @@ void main() {
       expect(d.keys.toSet(), {C.sleep, C.recovery, C.strain, C.heartRate, C.steps});
       for (final c in [C.recovery, C.strain, C.heartRate]) {
         expect(d[c]?.kind, K.conditional, reason: 'SE has no HR sensor: $c');
-        expect(d[c]?.reasonKey, 'capReasonPebble2Only', reason: '$c');
       }
+      expect(d[C.strain]?.reasonKey, 'capReasonPebble2Only');
+      expect(d[C.heartRate]?.reasonKey, 'capReasonPebble2Only');
+      // WHY (CR 4500472602): Pebble 2's recovery is an estimate; the
+      // Pebble 2 only caption must not drop that.
+      expect(d[C.recovery]?.reasonKey, 'capReasonPebble2OnlyEstimated');
       expect(d[C.sleep]?.reasonKey, kReasonOwnStages);
       expect(d[C.steps]?.kind, K.vendorReported);
       expect(cmp.workoutsOnly.sends, isEmpty);

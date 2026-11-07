@@ -3559,6 +3559,7 @@
   "pairReplaceUnpairFailed": "Dein Band ließ sich nicht trennen, daher wurde das neue nicht gekoppelt. Versuche es erneut.",
   "capReasonUnconfirmed": "Falls das Gerät es sendet, nicht bestätigt",
   "capReasonPebble2Only": "Nur Pebble 2. Die 2 SE hat keinen Herzfrequenzsensor.",
+  "capReasonPebble2OnlyEstimated": "Nur Pebble 2, und eine Schätzung, keine direkte Messung. Die 2 SE hat keinen Herzfrequenzsensor.",
   "pairModeTitle": "In den Kopplungsmodus versetzen",
   "pairModeNoSite": "Ein generisches Gerät ohne einzelnen Hersteller, daher gibt es keine Herstelleranleitung.",
   "pairOuraExistingKeyGuidance": "Nutzt du schon die Oura-App? Lass den Ring in der App gekoppelt und kopple ihn mit seinem vorhandenen Schlüssel. Überspringe die Schritte zum Zurücksetzen unten. Setze ihn nur zurück, wenn du einen neuen Schlüssel möchtest.",

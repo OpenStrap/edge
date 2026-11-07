@@ -151,6 +151,9 @@ const String kReasonUnconfirmed = 'capReasonUnconfirmed';
 /// Pebble 2 SE has no HR sensor; only Pebble 2 can supply HR-based rows.
 const String kReasonPebble2Only = 'capReasonPebble2Only';
 
+/// [kReasonPebble2Only] on a row that is also an estimate on Pebble 2.
+const String kReasonPebble2OnlyEstimated = 'capReasonPebble2OnlyEstimated';
+
 /// l10n key of each capability's user-facing name.
 const Map<DeviceCapability, String> kCapabilityLabelKey = <DeviceCapability, String>{
   DeviceCapability.sleep: 'capLabelSleep',
@@ -287,7 +290,11 @@ Map<DeviceCapability, _Claim> _columnClaims(BandEntry e) {
         const {DeviceCapability.recovery, DeviceCapability.strain,
           DeviceCapability.heartRate}.contains(m.key);
     out[m.key] = (
-      status: pebbleHr ? _when(kReasonPebble2Only) : status,
+      status: !pebbleHr
+          ? status
+          : _when(status.reasonKey == kReasonEstimated
+              ? kReasonPebble2OnlyEstimated
+              : kReasonPebble2Only),
       trace: pebbleHr
           ? (rule: 'Pebble 2 HR required for ${m.value}; SE has no HR sensor',
               source: 'lib/compute/inputs/pebble_inputs.dart')

@@ -16726,6 +16726,10 @@
   "@capReasonPebble2Only": {
     "description": "Caption under the heart rate, strain and recovery rows for Pebble: the shared Pebble entry covers the 2 SE, which has no heart-rate sensor."
   },
+  "capReasonPebble2OnlyEstimated": "Pebble 2 only, and an estimate, not a direct reading. The 2 SE has no heart-rate sensor.",
+  "@capReasonPebble2OnlyEstimated": {
+    "description": "Caption under Pebble's recovery row: Pebble 2 only (the 2 SE has no heart-rate sensor), and recovery is an estimate."
+  },
   "pairModeTitle": "Put it in pairing mode",
   "@pairModeTitle": {
     "description": "Heading of the pairing-mode steps on a device sheet."

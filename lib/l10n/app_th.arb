@@ -16714,6 +16714,7 @@
   },
   "capReasonUnconfirmed": "หากอุปกรณ์นี้ส่งข้อมูลนี้ ยังไม่ได้ยืนยัน",
   "capReasonPebble2Only": "เฉพาะ Pebble 2 รุ่น 2 SE ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ",
+  "capReasonPebble2OnlyEstimated": "เฉพาะ Pebble 2 และเป็นค่าประมาณ ไม่ใช่ค่าที่วัดได้โดยตรง รุ่น 2 SE ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ",
   "@capReasonUnconfirmed": {
     "description": "Caption under a row the device may or may not send; nobody has confirmed it does."
   },
