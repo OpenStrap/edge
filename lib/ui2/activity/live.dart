@@ -1694,8 +1694,8 @@ class _LiveStrengthState extends State<LiveStrength> {
             l?.activityLiveWeightLabel ?? 'WEIGHT',
             bodyweight ? (l?.activityLiveBwAbbrev ?? 'BW') : _fmt(kg, u),
             bodyweight ? '' : (u?.weightUnit ?? 'kg'),
-            () => setState(() => kg = _step(kg, -stepKg)),
-            () => setState(() => kg = _step(kg, stepKg)),
+            () => setState(() => kg = _step(kg, -stepKg, u)),
+            () => setState(() => kg = _step(kg, stepKg, u)),
             onTapValue: () => _editWeight(c, u)),
         const SizedBox(height: S.x3),
         Row(
@@ -1707,7 +1707,7 @@ class _LiveStrengthState extends State<LiveStrength> {
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   Icon(LucideIcons.pencil, size: 13, color: p.on(C.purple)),
                   const SizedBox(width: S.x1),
-                  Text('Custom weight',
+                  Text(uiText(c, 'Custom weight'),
                       style: F.cap.copyWith(color: p.on(C.purple))),
                 ]),
               ),
@@ -1727,9 +1727,14 @@ class _LiveStrengthState extends State<LiveStrength> {
           ],
         ),
         const SizedBox(height: S.x5),
-        _stepper(c, p, l?.activityLiveRepsLabel ?? 'REPS', '$reps', '',
-            () => setState(() => reps = (reps - 1).clamp(1, 100)),
-            () => setState(() => reps = reps + 1),
+        _stepper(
+            c,
+            p,
+            l?.activityLiveRepsLabel ?? 'REPS',
+            '$reps',
+            '',
+            () => setState(() => reps = (reps - 1).clamp(1, 200)),
+            () => setState(() => reps = (reps + 1).clamp(1, 200)),
             onTapValue: () => _editReps(c)),
         const SizedBox(height: S.x5),
         Align(
@@ -1806,9 +1811,15 @@ class _LiveStrengthState extends State<LiveStrength> {
       ]);
   }
 
-  static double _step(double val, double delta) {
+  static double _step(double val, double delta, UnitsController? u) {
+    if (u != null && u.isImperial) {
+      final currentLb = u.weightValue(val);
+      final stepLb = delta > 0 ? 5.0 : -5.0;
+      final nextLb = (currentLb + stepLb).clamp(0.0, 1100.0);
+      return u.weightToKg('$nextLb') ?? (val + delta).clamp(0.0, 500.0);
+    }
     final next = (val + delta).clamp(0.0, 500.0);
-    return (next * 100).roundToDouble() / 100.0;
+    return double.parse(next.toStringAsFixed(2));
   }
 
   Future<void> _editWeight(BuildContext c, UnitsController? u) async {
@@ -1818,78 +1829,100 @@ class _LiveStrengthState extends State<LiveStrength> {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final unitLabel = u?.weightUnit ?? 'kg';
+    String? errorText;
 
     final picked = await showDialog<double>(
       context: c,
-      builder: (dc) => AlertDialog(
-        backgroundColor: p.card,
-        title: Text(
-          l?.activityLiveWeightLabel ?? 'Weight',
-          style: F.head.copyWith(color: p.ink),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: ctrl,
-              autofocus: true,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              style: F.body.copyWith(color: p.ink),
-              cursorColor: p.on(C.purple),
-              decoration: InputDecoration(
-                labelText:
-                    '${l?.activityLiveWeightLabel ?? 'Weight'} ($unitLabel)',
-                labelStyle: F.over.copyWith(color: p.ink3),
-                hintText: imperial ? '135' : '60',
-                hintStyle: F.body.copyWith(color: p.ink3),
-                suffixText: unitLabel,
-                suffixStyle: F.body.copyWith(color: p.ink3),
-                enabledBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: p.line),
+      builder: (dc) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          void submit() {
+            final text = ctrl.text.trim();
+            if (text.isEmpty) {
+              setDialogState(() => errorText = 'Enter a value');
+              return;
+            }
+            if (text == currentText) {
+              Navigator.of(dc).pop(kg);
+              return;
+            }
+            final parsed = _parseWeightInput(text, u);
+            if (parsed == null) {
+              setDialogState(() => errorText = 'Invalid number');
+              return;
+            }
+            if (parsed < 0 || parsed > 500) {
+              setDialogState(() => errorText = imperial
+                  ? 'Must be 0–1100 lb'
+                  : 'Must be 0–500 kg');
+              return;
+            }
+            Navigator.of(dc).pop(parsed);
+          }
+
+          return AlertDialog(
+            backgroundColor: p.card,
+            title: Text(
+              l?.activityLiveWeightLabel ?? 'Weight',
+              style: F.head.copyWith(color: p.ink),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  style: F.body.copyWith(color: p.ink),
+                  cursorColor: p.on(C.purple),
+                  decoration: InputDecoration(
+                    labelText:
+                        '${l?.activityLiveWeightLabel ?? 'Weight'} ($unitLabel)',
+                    labelStyle: F.over.copyWith(color: p.ink3),
+                    hintText: imperial ? '135' : '60',
+                    hintStyle: F.body.copyWith(color: p.ink3),
+                    suffixText: unitLabel,
+                    suffixStyle: F.body.copyWith(color: p.ink3),
+                    errorText: errorText,
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: p.line),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: p.on(C.purple)),
+                    ),
+                  ),
+                  onSubmitted: (_) => submit(),
                 ),
-                focusedBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: p.on(C.purple)),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dc).pop(),
+                child: Text(
+                  l?.actionCancel ?? 'Cancel',
+                  style: F.body.copyWith(color: p.ink2),
                 ),
               ),
-              onSubmitted: (val) {
-                final parsed = _parseWeightInput(val, u);
-                if (parsed != null) Navigator.of(dc).pop(parsed);
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dc).pop(),
-            child: Text(
-              l?.actionCancel ?? 'Cancel',
-              style: F.body.copyWith(color: p.ink2),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              final parsed = _parseWeightInput(ctrl.text, u);
-              if (parsed != null) {
-                Navigator.of(dc).pop(parsed);
-              }
-            },
-            child: Text(
-              l?.actionDone ?? 'Done',
-              style: F.body.copyWith(
-                color: p.on(C.purple),
-                fontWeight: FontWeight.w600,
+              TextButton(
+                onPressed: submit,
+                child: Text(
+                  l?.actionDone ?? 'Done',
+                  style: F.body.copyWith(
+                    color: p.on(C.purple),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
     ctrl.dispose();
     if (!mounted || picked == null) return;
     setState(() {
-      kg = picked.clamp(0, 500).toDouble();
+      kg = picked;
       bodyweight = false;
     });
   }
@@ -1907,69 +1940,79 @@ class _LiveStrengthState extends State<LiveStrength> {
     final ctrl = TextEditingController(text: '$reps');
     final p = P.of(c);
     final l = AppLocalizations.of(c);
+    String? errorText;
 
     final picked = await showDialog<int>(
       context: c,
-      builder: (dc) => AlertDialog(
-        backgroundColor: p.card,
-        title: Text(
-          l?.activityLiveRepsLabel ?? 'Reps',
-          style: F.head.copyWith(color: p.ink),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: ctrl,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              style: F.body.copyWith(color: p.ink),
-              cursorColor: p.on(C.purple),
-              decoration: InputDecoration(
-                labelText: l?.activityLiveRepsLabel ?? 'Reps',
-                labelStyle: F.over.copyWith(color: p.ink3),
-                enabledBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: p.line),
+      builder: (dc) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          void submit() {
+            final val = ctrl.text.trim();
+            final n = int.tryParse(val);
+            if (n == null || n < 1 || n > 200) {
+              setDialogState(() => errorText = 'Must be 1–200 reps');
+              return;
+            }
+            Navigator.of(dc).pop(n);
+          }
+
+          return AlertDialog(
+            backgroundColor: p.card,
+            title: Text(
+              l?.activityLiveRepsLabel ?? 'Reps',
+              style: F.head.copyWith(color: p.ink),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  style: F.body.copyWith(color: p.ink),
+                  cursorColor: p.on(C.purple),
+                  decoration: InputDecoration(
+                    labelText: l?.activityLiveRepsLabel ?? 'Reps',
+                    labelStyle: F.over.copyWith(color: p.ink3),
+                    errorText: errorText,
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: p.line),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: p.on(C.purple)),
+                    ),
+                  ),
+                  onSubmitted: (_) => submit(),
                 ),
-                focusedBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: p.on(C.purple)),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dc).pop(),
+                child: Text(
+                  l?.actionCancel ?? 'Cancel',
+                  style: F.body.copyWith(color: p.ink2),
                 ),
               ),
-              onSubmitted: (val) {
-                final n = int.tryParse(val.trim());
-                if (n != null && n > 0) Navigator.of(dc).pop(n);
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dc).pop(),
-            child: Text(
-              l?.actionCancel ?? 'Cancel',
-              style: F.body.copyWith(color: p.ink2),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              final n = int.tryParse(ctrl.text.trim());
-              if (n != null && n > 0) Navigator.of(dc).pop(n);
-            },
-            child: Text(
-              l?.actionDone ?? 'Done',
-              style: F.body.copyWith(
-                color: p.on(C.purple),
-                fontWeight: FontWeight.w600,
+              TextButton(
+                onPressed: submit,
+                child: Text(
+                  l?.actionDone ?? 'Done',
+                  style: F.body.copyWith(
+                    color: p.on(C.purple),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
     ctrl.dispose();
     if (!mounted || picked == null) return;
-    setState(() => reps = picked.clamp(1, 200));
+    setState(() => reps = picked);
   }
 
   Widget _stepper(BuildContext c, P p, String label, String value,
@@ -1986,7 +2029,7 @@ class _LiveStrengthState extends State<LiveStrength> {
             child: onTapValue == null
                 ? bigNum(p, value, unit)
                 : Pressable(
-                    semanticLabel: 'Set $label',
+                    semanticLabel: label,
                     onTap: () {
                       HapticFeedback.selectionClick();
                       onTapValue();
@@ -2040,19 +2083,10 @@ class _LiveStrengthState extends State<LiveStrength> {
   /// the same way its edit-field does. Null [u] (a golden, or no unit
   /// context) shows metric untouched.
   String _fmt(double d, [UnitsController? u]) {
-    if (u != null && u.isImperial) {
-      return u.weightField(d);
-    }
     final v = u != null ? u.weightValue(d) : d;
     if (v == v.roundToDouble()) return v.round().toString();
-    final fixed1 = double.parse(v.toStringAsFixed(1));
-    if ((v - fixed1).abs() < 1e-4) return v.toStringAsFixed(1);
-    final fixed2 = double.parse(v.toStringAsFixed(2));
-    if ((v - fixed2).abs() < 1e-4) {
-      final s = v.toStringAsFixed(2);
-      return s.endsWith('0') ? v.toStringAsFixed(1) : s;
-    }
-    return v.toStringAsFixed(1);
+    final s = v.toStringAsFixed(2);
+    return s.endsWith('0') ? v.toStringAsFixed(1) : s;
   }
 }
 
