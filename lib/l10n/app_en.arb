@@ -655,14 +655,6 @@
       }
     }
   },
-  "devicesAddASensor": "Add a sensor",
-  "@devicesAddASensor": {
-    "description": "Row/sheet title: add a sensor."
-  },
-  "devicesAddASensorSub": "A heart-rate strap or a ring, alongside the band",
-  "@devicesAddASensorSub": {
-    "description": "Row sub."
-  },
   "devicesWhichSourceWins": "Which source wins",
   "@devicesWhichSourceWins": {
     "description": "Row title: opens the per-signal priority editor."
@@ -682,18 +674,6 @@
   "devicesNoBandPaired": "No band is paired",
   "@devicesNoBandPaired": {
     "description": "Status card title."
-  },
-  "devicesNothingMeasuringYet": "Nothing is measuring yet",
-  "@devicesNothingMeasuringYet": {
-    "description": "Status card title."
-  },
-  "devicesPhoneCountingBody": "The phone counts steps and nothing else. Heart rate, sleep, recovery and temperature all abstain until a band is paired.",
-  "@devicesPhoneCountingBody": {
-    "description": "Status card body: phone only."
-  },
-  "devicesNothingMeasuringBody": "No band is paired and no phone steps are arriving, so every metric in the app will abstain rather than estimate.",
-  "@devicesNothingMeasuringBody": {
-    "description": "Status card body: nothing measuring."
   },
   "devicesPairABand": "Pair a band",
   "@devicesPairABand": {
@@ -16329,6 +16309,467 @@
     "placeholders": {
       "mb": {
         "type": "int"
+      }
+    }
+  },
+  "pairResetWhoop5Step1": "Take the band off your wrist and wait for the green lights to go out.",
+  "@pairResetWhoop5Step1": {
+    "description": "Reset help for WHOOP 5.0 / MG, step 1."
+  },
+  "pairResetWhoop5Step2": "Hold the band by its sides and tap the top firmly with two fingers until only blue flashes. If blue and white show together, keep tapping until only blue is left.",
+  "@pairResetWhoop5Step2": {
+    "description": "Reset help for WHOOP 5.0 / MG, step 2: the tap procedure."
+  },
+  "pairResetWhoop5Step3": "If the WHOOP app is on this phone, force-quit it.",
+  "@pairResetWhoop5Step3": {
+    "description": "Reset help for WHOOP 5.0 / MG, step 3."
+  },
+  "pairResetWhoop5Step4": "Come back here and try again.",
+  "@pairResetWhoop5Step4": {
+    "description": "Reset help for WHOOP 5.0 / MG, step 4."
+  },
+  "pairResetGenericStep1": "Open the maker’s app and remove this device from it.",
+  "@pairResetGenericStep1": {
+    "description": "General reset help for a device, step 1."
+  },
+  "pairResetGenericStep2": "In your phone’s Bluetooth settings, find the device and choose Forget.",
+  "@pairResetGenericStep2": {
+    "description": "General reset help for a device, step 2."
+  },
+  "pairResetGenericStep3": "Restart the device, hold it close to this phone and try again.",
+  "@pairResetGenericStep3": {
+    "description": "General reset help for a device, step 3."
+  },
+  "pairResetGenericNote": "These are general tips. We haven’t checked the exact steps for this device yet.",
+  "@pairResetGenericNote": {
+    "description": "Shown above the general reset steps for a device whose own steps have not been checked yet."
+  },
+  "pairResetOfficialLink": "Open the maker’s help page",
+  "@pairResetOfficialLink": {
+    "description": "Link text opening the maker’s own help page in the browser."
+  },
+  "capLabelSleep": "Sleep",
+  "@capLabelSleep": {
+    "description": "Name of a thing a device sends: sleep."
+  },
+  "capLabelRecovery": "Recovery",
+  "@capLabelRecovery": {
+    "description": "Name of a thing a device sends: the morning recovery score."
+  },
+  "capLabelStrain": "Strain",
+  "@capLabelStrain": {
+    "description": "Name of a thing a device sends: strain."
+  },
+  "capLabelHrv": "Heart-rate variability",
+  "@capLabelHrv": {
+    "description": "Name of a thing a device sends: heart-rate variability."
+  },
+  "capLabelSkinTemperature": "Skin temperature",
+  "@capLabelSkinTemperature": {
+    "description": "Name of a thing a device sends: skin temperature."
+  },
+  "capLabelBloodOxygen": "Blood oxygen",
+  "@capLabelBloodOxygen": {
+    "description": "Name of a thing a device sends: blood oxygen (only a device’s own reading)."
+  },
+  "capLabelWorkoutHeartRate": "Heart rate during workouts",
+  "@capLabelWorkoutHeartRate": {
+    "description": "Table row: heart rate during a workout."
+  },
+  "capLabelWorkoutBeatToBeat": "Beat-to-beat timing during workouts",
+  "@capLabelWorkoutBeatToBeat": {
+    "description": "Table row: beat-to-beat timing during a workout."
+  },
+  "capLabelSteps": "Steps",
+  "@capLabelSteps": {
+    "description": "Name of a thing a device sends: steps."
+  },
+  "capReasonSkinTempNights": "After a few nights",
+  "@capReasonSkinTempNights": {
+    "description": "Caption under Skin temperature: it needs a few nights first."
+  },
+  "capReasonEstimated": "An estimate, not a direct reading",
+  "@capReasonEstimated": {
+    "description": "Why a value is conditional: it is an estimate, not a direct reading."
+  },
+  "capReasonEarly": "Early estimate; it firms up over the first weeks",
+  "@capReasonEarly": {
+    "description": "Why a value is conditional: it is an early estimate that firms up over the first weeks."
+  },
+  "capVendorReported": "The device’s own reading",
+  "@capVendorReported": {
+    "description": "Tag on a value that is the device’s own reading, not calculated by this app."
+  },
+  "slotSendsHeading": "Sends",
+  "@slotSendsHeading": {
+    "description": "Heading above the list of what a device sends."
+  },
+  "slotDoesntSendHeading": "Doesn’t send",
+  "@slotDoesntSendHeading": {
+    "description": "Heading above the list of what a secondary sensor does not send."
+  },
+  "pairMainBandWhoopOnly": "Main band: WHOOP 4.0 or WHOOP 5.0/MG only. Other devices can be added as additional devices.",
+  "@pairMainBandWhoopOnly": {
+    "description": "Plain statement on the pairing screens: only WHOOP can be the main band; other devices are added as additional devices."
+  },
+  "pairAddDevice": "Add a device",
+  "@pairAddDevice": {
+    "description": "Label of the button that starts adding a device (band or sensor is decided after the scan)."
+  },
+  "pairBandNotSensor": "That device is a {label}, a band, not a plain sensor. Nothing was saved.",
+  "@pairBandNotSensor": {
+    "description": "Shown when a device picked as a plain sensor turns out to be a band. Nothing was saved. {label} is the band’s name.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "pairKindAll": "All",
+  "@pairKindAll": {
+    "description": "Filter pill that shows every device in the list."
+  },
+  "pairKindStrap": "Chest straps & armbands",
+  "@pairKindStrap": {
+    "description": "Filter pill: heart-rate straps and armbands."
+  },
+  "pairKindRing": "Rings",
+  "@pairKindRing": {
+    "description": "Filter pill for smart rings."
+  },
+  "pairKindWatch": "Watches",
+  "@pairKindWatch": {
+    "description": "Filter pill for watches."
+  },
+  "pairResetTitleBand": "Your band is paired somewhere else",
+  "@pairResetTitleBand": {
+    "description": "Title of the screen shown when pairing a band did not finish: it is probably still paired with another phone or app."
+  },
+  "pairResetTitleRing": "Your ring is paired somewhere else",
+  "@pairResetTitleRing": {
+    "description": "Same screen as the band title, for a ring."
+  },
+  "pairResetBody": "We couldn’t finish pairing {name}. It is probably still connected to another phone or app.",
+  "@pairResetBody": {
+    "description": "Body under the pairing-did-not-finish title. {name} is the device’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairResetHeading": "To reset it",
+  "@pairResetHeading": {
+    "description": "Heading above the numbered reset steps."
+  },
+  "pairResetWhoopTakeover": "Pairing here disconnects it from the WHOOP app.",
+  "@pairResetWhoopTakeover": {
+    "description": "Shown for WHOOP devices: a WHOOP keeps one connection, so pairing here takes it from the WHOOP app."
+  },
+  "pairResetOfficialSub": "{host} · opens in your browser",
+  "@pairResetOfficialSub": {
+    "description": "Second line of the maker’s-help-page row. {host} is the website’s host name.",
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "pairLinkOpenFailed": "Could not open the link. The address is {url}",
+  "@pairLinkOpenFailed": {
+    "description": "Snackbar when a help link could not be opened. {url} is the address, so the user can open it by hand.",
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "pairPickDifferentBand": "Pick a different band",
+  "@pairPickDifferentBand": {
+    "description": "Button that goes back to the list of bands."
+  },
+  "pairBandTitle": "Pair your band",
+  "@pairBandTitle": {
+    "description": "Title of the first-run list of bands."
+  },
+  "pairBandSubtitle": "Pick the one you wear. We will look for it nearby.",
+  "@pairBandSubtitle": {
+    "description": "Subtitle of the first-run list of bands."
+  },
+  "pairStrapOnlyLink": "I only have a heart-rate strap",
+  "@pairStrapOnlyLink": {
+    "description": "Text link under the band list for someone with only a heart-rate strap."
+  },
+  "pairGoBack": "Go back",
+  "@pairGoBack": {
+    "description": "Link that closes a confirm sheet without pairing."
+  },
+  "pairSectionTitle": "Pair a device",
+  "@pairSectionTitle": {
+    "description": "Heading of the section in My sources that holds pairing."
+  },
+  "pairCardBandBody": "WHOOP 4.0 or WHOOP 5.0/MG only. Sleep, recovery and strain, around the clock.",
+  "@pairCardBandBody": {
+    "description": "Body of the Your band card in Settings."
+  },
+  "pairUnpairBand": "Unpair band",
+  "@pairUnpairBand": {
+    "description": "Red outline button that starts forgetting the paired band (a confirm dialog follows)."
+  },
+  "pairAddDeviceSub": "Rings, watches and heart-rate straps",
+  "@pairAddDeviceSub": {
+    "description": "Line under the Add a device row in Settings."
+  },
+  "pairAddDeviceSubtitle": "Each device shows where it fits: every day, or workouts only.",
+  "@pairAddDeviceSubtitle": {
+    "description": "Lead of the Add a device screen."
+  },
+  "pairBandFoundBody": "It does much more every day than during workouts only. Which do you want?",
+  "@pairBandFoundBody": {
+    "description": "WHOOP sheet lead when no band is paired yet."
+  },
+  "pairBandFoundBodyHasBand": "You already have a band. Only one can be your band at a time.",
+  "@pairBandFoundBodyHasBand": {
+    "description": "WHOOP sheet lead when a band is already paired."
+  },
+  "pairIdentifiedBody": "It looked like a heart-rate strap, but when we connected it identified itself as {label}. Nothing was saved.",
+  "@pairIdentifiedBody": {
+    "description": "Body of the sheet shown when a device picked as a sensor identifies itself as a band after connecting. Nothing was saved.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "pairAsMyBand": "Pair it as my band",
+  "@pairAsMyBand": {
+    "description": "Button that pairs the device as the user’s main band."
+  },
+  "pairSecondaryPaired": "Paired for workouts only.",
+  "@pairSecondaryPaired": {
+    "description": "Shown after a device is paired for workouts only."
+  },
+  "capLabelHeartRate": "Heart rate and resting heart rate",
+  "@capLabelHeartRate": {
+    "description": "Table row: heart rate and resting heart rate, as one capability."
+  },
+  "capLabelRespiration": "Respiration",
+  "@capLabelRespiration": {
+    "description": "Table row: breathing rate."
+  },
+  "capReasonFirstNights": "Estimated for the first 14 nights",
+  "@capReasonFirstNights": {
+    "description": "Caption under Recovery for a ring or watch: its recovery is an estimate until 14 nights of baseline."
+  },
+  "capReasonOwnStagesRing": "From the ring’s own sleep stages",
+  "@capReasonOwnStagesRing": {
+    "description": "Caption under Sleep for a ring: the sleep stages are the ring’s own."
+  },
+  "capReasonOwnStages": "From the device’s own sleep stages",
+  "@capReasonOwnStages": {
+    "description": "Caption under Sleep for a watch or fitness band: the sleep stages are the device’s own."
+  },
+  "capReasonLiveSessions": "During live sessions",
+  "@capReasonLiveSessions": {
+    "description": "Caption under Steps for WHOOP 4: it counts steps only while the app has a live connection."
+  },
+  "slotEveryDay": "Every day",
+  "@slotEveryDay": {
+    "description": "Column and chip: the device is used every day (the main band, or the ring/watch that fills days)."
+  },
+  "slotWorkoutsOnly": "Workouts only",
+  "@slotWorkoutsOnly": {
+    "description": "Column and chip: the device is used only during workouts."
+  },
+  "pairThisIsWhoop": "This is a WHOOP band",
+  "@pairThisIsWhoop": {
+    "description": "Sheet title for a WHOOP found by the scan."
+  },
+  "pairThisIsRing": "This is a ring",
+  "@pairThisIsRing": {
+    "description": "Sheet title for a ring."
+  },
+  "pairThisIsWatch": "This is a watch",
+  "@pairThisIsWatch": {
+    "description": "Sheet title for a watch."
+  },
+  "pairThisIsFitnessBand": "This is a fitness band",
+  "@pairThisIsFitnessBand": {
+    "description": "Sheet title for a fitness band (Mi Band)."
+  },
+  "pairThisIsStrap": "This is a heart-rate strap",
+  "@pairThisIsStrap": {
+    "description": "Sheet title for a heart-rate chest strap."
+  },
+  "pairThisIsSensor": "This is a heart-rate sensor",
+  "@pairThisIsSensor": {
+    "description": "Sheet title for a heart-rate armband or other heart-rate sensor."
+  },
+  "pairBandNow": "Your band now: {name}. Your data stays when you switch.",
+  "@pairBandNow": {
+    "description": "Note under the table when a band is already paired. {name} is that band’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceBand": "Unpair {name} and pair this one",
+  "@pairReplaceBand": {
+    "description": "Main button when a band is already paired: unpair it and pair the tapped one. {name} is the paired band’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceConfirmTitle": "Unpair {name} and pair this band instead?",
+  "@pairReplaceConfirmTitle": {
+    "description": "Confirm dialog before replacing the band. {name} is the paired band’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceConfirmBody": "Your data stays.",
+  "@pairReplaceConfirmBody": {
+    "description": "Confirm dialog body: replacing the band keeps the data."
+  },
+  "pairReplaceConfirmYes": "Unpair and pair",
+  "@pairReplaceConfirmYes": {
+    "description": "Confirm dialog button: unpair the old band and pair the new one."
+  },
+  "pairCurrentBandFallback": "your band",
+  "@pairCurrentBandFallback": {
+    "description": "Stands in for the paired band’s name when it has none, inside a sentence."
+  },
+  "pairWearableLead": "It can fill your days with sleep, recovery and heart rate.",
+  "@pairWearableLead": {
+    "description": "Sheet lead for a ring or watch."
+  },
+  "pairWearableNote": "Fills days without your WHOOP. Experimental, so switch it on in Devices.",
+  "@pairWearableNote": {
+    "description": "Note under a ring’s or watch’s table on the pairing sheet. “Devices” is the device list in Settings."
+  },
+  "pairWearableCardNote": "Fills days without your WHOOP. Experimental, so switch it on below.",
+  "@pairWearableCardNote": {
+    "description": "Note under a ring’s or watch’s table on its device page; the switch is below it."
+  },
+  "pairStrapLead": "It adds heart rate while you work out. It does not record sleep, recovery or daily strain.",
+  "@pairStrapLead": {
+    "description": "Sheet lead for a heart-rate strap or sensor."
+  },
+  "pairStrapNote": "Both need “Use during workouts” on.",
+  "@pairStrapNote": {
+    "description": "Note under a strap’s table: both workout rows need the switch. Quotes deviceUseWorkoutsTitle."
+  },
+  "pairDeviceNamed": "Pair {name}",
+  "@pairDeviceNamed": {
+    "description": "Main button on a ring’s, watch’s or strap’s sheet. {name} is the device.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairUseForWorkouts": "Use it for workouts only",
+  "@pairUseForWorkouts": {
+    "description": "Text link on a WHOOP sheet: keep it for workouts only, not as the main band."
+  },
+  "pairWhatItSends": "What it sends",
+  "@pairWhatItSends": {
+    "description": "Heading above the table on a device page."
+  },
+  "pairTroubleTitle": "Trouble connecting?",
+  "@pairTroubleTitle": {
+    "description": "Heading of the always-open help card on the pairing screen."
+  },
+  "pairTroubleBody": "Put the band in pairing mode, then try again. Still stuck? Ask us.",
+  "@pairTroubleBody": {
+    "description": "Body of the help card."
+  },
+  "pairTroubleModeLink": "{device} pairing mode",
+  "@pairTroubleModeLink": {
+    "description": "Link to the maker’s page on putting {device} in pairing mode.",
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "pairTroubleDiscord": "Ask on Discord",
+  "@pairTroubleDiscord": {
+    "description": "Link to the project’s Discord."
+  },
+  "pairTroubleDiscordSub": "The OpenStrap community",
+  "@pairTroubleDiscordSub": {
+    "description": "Line under the Discord link."
+  },
+  "pairWhoopRowLine": "Sleep, recovery, strain, heart rate and more",
+  "@pairWhoopRowLine": {
+    "description": "Line under each WHOOP on the first-run list."
+  },
+  "pairSetUpTitle": "Set up",
+  "@pairSetUpTitle": {
+    "description": "Top bar title of the first-run pairing screen."
+  },
+  "pairReplaceUnpairFailed": "Could not unpair your band, so the new one was not paired. Try again.",
+  "@pairReplaceUnpairFailed": {
+    "description": "Shown when unpairing the old band failed during “Unpair (your band) and pair this one”; nothing else ran."
+  },
+  "capReasonUnconfirmed": "If this device sends it, not confirmed",
+  "@capReasonUnconfirmed": {
+    "description": "Caption under a row the device may or may not send; nobody has confirmed it does."
+  },
+  "capReasonPebble2Only": "Pebble 2 only. The 2 SE has no heart-rate sensor.",
+  "@capReasonPebble2Only": {
+    "description": "Caption under the heart rate, strain and recovery rows for Pebble: the shared Pebble entry covers the 2 SE, which has no heart-rate sensor."
+  },
+  "capReasonPebble2OnlyEstimated": "Pebble 2 only, and an estimate, not a direct reading. The 2 SE has no heart-rate sensor.",
+  "@capReasonPebble2OnlyEstimated": {
+    "description": "Caption under Pebble's recovery row: Pebble 2 only (the 2 SE has no heart-rate sensor), and recovery is an estimate."
+  },
+  "pairModeTitle": "Put it in pairing mode",
+  "@pairModeTitle": {
+    "description": "Heading of the pairing-mode steps on a device sheet."
+  },
+  "pairModeNoSite": "A generic device with no single maker, so there are no maker’s steps to follow.",
+  "@pairModeNoSite": {
+    "description": "Shown instead of steps for a generic device with no maker’s page."
+  },
+  "pairOuraExistingKeyGuidance": "Already use the Oura app? Keep the ring in that app and pair with its existing key. Skip the reset steps below. Only reset it if you want a new key.",
+  "@pairOuraExistingKeyGuidance": {
+    "description": "Before any Oura reset steps: existing-key users keep the ring paired in Oura and skip resets; reset only for a new key."
+  },
+  "pairWearableLeadPebble": "Pebble 2 can fill your days with sleep, recovery and heart rate. Pebble 2 SE shows the watch’s own sleep and steps. It has no heart-rate sensor, so this app cannot calculate daily strain or estimate recovery from it.",
+  "@pairWearableLeadPebble": {
+    "description": "Pebble-family pairing lead: SE shows the watch’s own sleep and steps; no HR sensor means no app-calculated daily strain or recovery estimate from the SE alone."
+  },
+  "slotColumnReason": "{column}: {reason}",
+  "@slotColumnReason": {
+    "description": "Capability caption naming the column it applies to.",
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotCapabilityStatus": {
+    "description": "Accessible table result with capability, column and sends status.",
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
       }
     }
   }

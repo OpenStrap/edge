@@ -241,16 +241,11 @@
       }
     }
   },
-  "devicesAddASensor": "Добавить датчик",
-  "devicesAddASensorSub": "Нагрудный датчик пульса или кольцо — вместе с браслетом",
   "devicesWhichSourceWins": "Приоритет источников",
   "devicesWhichSourceWinsSub": "Какой источник использовать, когда два устройства измеряют одно и то же",
   "devicesResetToDefault": "Вернуть порядок по умолчанию",
   "devicesMySources": "Мои источники",
   "devicesNoBandPaired": "Браслет не подключён",
-  "devicesNothingMeasuringYet": "Пока ничего не измеряется",
-  "devicesPhoneCountingBody": "Телефон считает только шаги. Пульс, сон, восстановление и температура недоступны, пока не подключён браслет.",
-  "devicesNothingMeasuringBody": "Браслет не подключён и шаги с телефона не поступают, поэтому приложение не будет оценивать показатели приблизительно.",
   "devicesPairABand": "Подключить браслет",
   "devicesLive": "СЕЙЧАС",
   "devicesQualityLadder": "КАЧЕСТВО ИСТОЧНИКОВ",
@@ -7902,6 +7897,197 @@
     "placeholders": {
       "mb": {
         "type": "int"
+      }
+    }
+  },
+  "pairResetWhoop5Step1": "Снимите браслет с руки и подождите, пока погаснут зелёные огоньки.",
+  "pairResetWhoop5Step2": "Держите браслет за боковые стороны и сильно постукивайте двумя пальцами по верхней части, пока не будет мигать только синий. Если горят синий и белый вместе, продолжайте стучать, пока не останется только синий.",
+  "pairResetWhoop5Step3": "Если приложение WHOOP установлено на этом телефоне, принудительно закройте его.",
+  "pairResetWhoop5Step4": "Вернитесь сюда и попробуйте ещё раз.",
+  "pairResetGenericStep1": "Откройте приложение производителя и удалите из него это устройство.",
+  "pairResetGenericStep2": "В настройках Bluetooth телефона найдите устройство и выберите «Забыть».",
+  "pairResetGenericStep3": "Перезапустите устройство, поднесите его ближе к этому телефону и попробуйте ещё раз.",
+  "pairResetGenericNote": "Это общие советы. Точные шаги для этого устройства мы пока не проверяли.",
+  "pairResetOfficialLink": "Открыть страницу помощи производителя",
+  "capLabelSleep": "Сон",
+  "capLabelRecovery": "Восстановление",
+  "capLabelStrain": "Нагрузка",
+  "capLabelHrv": "Вариабельность пульса",
+  "capLabelSkinTemperature": "Температура кожи",
+  "capLabelBloodOxygen": "Кислород в крови",
+  "capLabelWorkoutHeartRate": "Пульс во время тренировок",
+  "capLabelWorkoutBeatToBeat": "Интервалы между ударами во время тренировок",
+  "capLabelSteps": "Шаги",
+  "capReasonSkinTempNights": "Через несколько ночей",
+  "capReasonEstimated": "Оценка, а не прямое измерение",
+  "capReasonEarly": "Предварительная оценка; за первые недели она становится точнее",
+  "capVendorReported": "Собственное измерение устройства",
+  "slotSendsHeading": "Передаёт",
+  "slotDoesntSendHeading": "Не передаёт",
+  "pairMainBandWhoopOnly": "Основной браслет: только WHOOP 4.0 или WHOOP 5.0/MG. Другие устройства можно добавить как дополнительные.",
+  "pairAddDevice": "Добавить устройство",
+  "pairBandNotSensor": "Это устройство — {label}, то есть браслет, а не простой датчик. Ничего не сохранено.",
+  "@pairBandNotSensor": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "pairKindAll": "Все",
+  "pairKindStrap": "Нагрудные и плечевые датчики",
+  "pairKindRing": "Кольца",
+  "pairKindWatch": "Часы",
+  "pairResetTitleBand": "Ваш браслет подключён к другому устройству",
+  "pairResetTitleRing": "Ваше кольцо подключено к другому устройству",
+  "pairResetBody": "Не удалось завершить подключение {name}. Скорее всего, устройство всё ещё подключено к другому телефону или приложению.",
+  "@pairResetBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairResetHeading": "Как сбросить",
+  "pairResetWhoopTakeover": "Подключение здесь отключает его от приложения WHOOP.",
+  "pairResetOfficialSub": "{host} · откроется в браузере",
+  "@pairResetOfficialSub": {
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "pairLinkOpenFailed": "Не удалось открыть ссылку. Адрес: {url}",
+  "@pairLinkOpenFailed": {
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "pairPickDifferentBand": "Выбрать другой браслет",
+  "pairBandTitle": "Подключите браслет",
+  "pairBandSubtitle": "Выберите то, что вы носите. Мы поищем его поблизости.",
+  "pairStrapOnlyLink": "У меня только пульсовой ремень",
+  "pairGoBack": "Назад",
+  "pairSectionTitle": "Подключить устройство",
+  "pairCardBandBody": "Только WHOOP 4.0 или WHOOP 5.0/MG. Сон, восстановление и нагрузка круглые сутки.",
+  "pairUnpairBand": "Удалить сопряжение с браслетом",
+  "pairAddDeviceSub": "Кольца, часы и нагрудные пульсометры",
+  "pairAddDeviceSubtitle": "У каждого устройства указано, для чего оно подходит: на каждый день или только для тренировок.",
+  "pairBandFoundBody": "Каждый день он даёт гораздо больше, чем только на тренировках. Что выберете?",
+  "pairBandFoundBodyHasBand": "У вас уже есть браслет. Основным может быть только один.",
+  "pairIdentifiedBody": "Выглядело как пульсовой ремень, но при подключении устройство назвалось {label}. Ничего не сохранено.",
+  "@pairIdentifiedBody": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "pairAsMyBand": "Подключить как мой браслет",
+  "pairSecondaryPaired": "Подключено только для тренировок.",
+  "capLabelHeartRate": "Пульс и пульс в покое",
+  "capLabelRespiration": "Дыхание",
+  "capReasonFirstNights": "Первые 14 ночей — оценка",
+  "capReasonOwnStagesRing": "По фазам сна самого кольца",
+  "capReasonOwnStages": "По фазам сна самого устройства",
+  "capReasonLiveSessions": "Во время сеансов в реальном времени",
+  "slotEveryDay": "Каждый день",
+  "slotWorkoutsOnly": "Только тренировки",
+  "pairThisIsWhoop": "Это браслет WHOOP",
+  "pairThisIsRing": "Это кольцо",
+  "pairThisIsWatch": "Это часы",
+  "pairThisIsFitnessBand": "Это фитнес-браслет",
+  "pairThisIsStrap": "Это нагрудный пульсометр",
+  "pairThisIsSensor": "Это датчик пульса",
+  "pairBandNow": "Сейчас ваш браслет: {name}. При замене данные сохраняются.",
+  "@pairBandNow": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceBand": "Удалить сопряжение с {name} и сопрячь этот браслет",
+  "@pairReplaceBand": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceConfirmTitle": "Удалить сопряжение с {name} и выполнить сопряжение с этим браслетом?",
+  "@pairReplaceConfirmTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceConfirmBody": "Ваши данные сохранятся.",
+  "pairReplaceConfirmYes": "Удалить сопряжение и сопрячь",
+  "pairCurrentBandFallback": "ваш браслет",
+  "pairWearableLead": "Он может заполнять ваши дни данными о сне, восстановлении и пульсе.",
+  "pairWearableNote": "Заполняет дни без вашего WHOOP. Экспериментально, поэтому включите это в разделе «Устройства».",
+  "pairWearableCardNote": "Заполняет дни без вашего WHOOP. Экспериментально, поэтому включите это ниже.",
+  "pairStrapLead": "Он добавляет пульс во время тренировки. Сон, восстановление и дневную нагрузку он не записывает.",
+  "pairStrapNote": "Для обоих нужно включить «Использовать во время тренировок».",
+  "pairDeviceNamed": "Подключить {name}",
+  "@pairDeviceNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairUseForWorkouts": "Использовать только для тренировок",
+  "pairWhatItSends": "Что передаёт",
+  "pairTroubleTitle": "Не получается подключить?",
+  "pairTroubleBody": "Переведите браслет в режим сопряжения и попробуйте снова. Не помогло? Спросите нас.",
+  "pairTroubleModeLink": "Режим сопряжения {device}",
+  "@pairTroubleModeLink": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "pairTroubleDiscord": "Спросить в Discord",
+  "pairTroubleDiscordSub": "Сообщество OpenStrap",
+  "pairWhoopRowLine": "Сон, восстановление, нагрузка, пульс и многое другое",
+  "pairSetUpTitle": "Настройка",
+  "pairReplaceUnpairFailed": "Не удалось удалить сопряжение с вашим браслетом, поэтому новый не сопряжён. Попробуйте ещё раз.",
+  "capReasonUnconfirmed": "Если устройство это передаёт, не подтверждено",
+  "capReasonPebble2Only": "Только Pebble 2. У 2 SE нет датчика пульса.",
+  "capReasonPebble2OnlyEstimated": "Только Pebble 2, и это оценка, а не прямое измерение. У 2 SE нет датчика пульса.",
+  "pairModeTitle": "Переведите в режим сопряжения",
+  "pairModeNoSite": "Это универсальное устройство без единого производителя, поэтому инструкции производителя нет.",
+  "pairOuraExistingKeyGuidance": "Уже пользуетесь приложением Oura? Оставьте кольцо сопряжённым в этом приложении и выполните сопряжение с его текущим ключом. Пропустите шаги сброса ниже. Сбрасывайте кольцо только для получения нового ключа.",
+  "pairWearableLeadPebble": "Pebble 2 может заполнять ваши дни данными о сне, восстановлении и пульсе. Pebble 2 SE показывает сон и шаги по данным самих часов. У него нет датчика пульса, поэтому приложение не может рассчитать дневную нагрузку или оценить восстановление по его данным.",
+  "slotColumnReason": "{column}: {reason}",
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
       }
     }
   }

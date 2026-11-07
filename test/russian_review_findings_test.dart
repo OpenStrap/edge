@@ -327,7 +327,7 @@ void main() {
   );
 
   testWidgets('category search accepts original and Russian blurb', (t) async {
-    await t.pumpWidget(page(const DevicePickerScreen()));
+    await t.pumpWidget(page(const DevicePickerScreen(includeBand: false)));
     await t.pumpAndSettle();
     final entry = kBleHrs;
     for (final query in [
