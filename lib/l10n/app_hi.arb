@@ -2863,6 +2863,7 @@
     }
   },
   "welcomeCoachKeyReentry": "आपके कोच की API कुंजी सुरक्षित स्टोरेज में रहती है और बैकअप में शामिल नहीं की गई। इस फ़ोन पर कोच इस्तेमाल करने के लिए इसे AI सेटिंग में फिर से दर्ज करें।",
+  "welcomeCoachServerReentry": "आपका कस्टम कोच सर्वर पता बैकअप नहीं हुआ, क्योंकि पते में कुंजी हो सकती है। इसे AI सेटिंग्स में फिर से दर्ज करें।",
   "welcomeSettingsRestored": "{n} सेटिंग बहाल हुईं",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",

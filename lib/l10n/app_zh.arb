@@ -2863,6 +2863,7 @@
     }
   },
   "welcomeCoachKeyReentry": "教练的 API 密钥保留在安全存储中，未包含在备份内。请在 AI 设置中重新输入，以便在此手机上使用教练。",
+  "welcomeCoachServerReentry": "你的自定义教练服务器地址没有备份，因为地址中可能包含密钥。请在 AI 设置中重新输入。",
   "welcomeSettingsRestored": "已恢复 {n} 项设置",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",

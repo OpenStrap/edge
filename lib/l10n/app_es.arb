@@ -2892,6 +2892,7 @@
     }
   },
   "welcomeCoachKeyReentry": "Tu clave de API del asistente permanece en el almacenamiento seguro y no se incluyó en la copia. Vuelve a introducirla en los ajustes de IA para usar el asistente en este teléfono.",
+  "welcomeCoachServerReentry": "La dirección de tu servidor personalizado del asistente no se incluyó en la copia, porque una dirección puede contener una clave. Vuelve a introducirla en los ajustes de IA.",
   "welcomeSettingsRestored": "{n} ajustes restaurados",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",

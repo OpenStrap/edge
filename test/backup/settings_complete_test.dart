@@ -273,6 +273,43 @@ void main() {
     expect(result, needsReentry(['coach_api_key']));
   });
 
+  test('a custom coach server does not travel and is reported for re-entry',
+      () async {
+    await wipeAll();
+    const server = 'https://llm.example.net/v1?key=sk-IN-THE-URL';
+    await setPrefs({'coach_base_url': server, 'coach_model': 'm'});
+    await env.seedData();
+    final path = await LocalDb.exportCopy();
+    expectNoSecretIn(path, ['sk-IN-THE-URL', 'llm.example.net']);
+
+    await wipeAll();
+    final result = await LocalDb.importFromDbFile(path);
+    final now = await allPrefs();
+    expect(now['coach_model'], 'm');
+    expect(now.containsKey('coach_base_url'), isFalse);
+    expect(result.needsReentry, ['coach_base_url']);
+  });
+
+  test('the default coach server asks for nothing after import', () async {
+    await wipeAll();
+    await setPrefs({'coach_base_url': 'https://api.openai.com/v1'});
+    final path = await LocalDb.exportCopy();
+    await wipeAll();
+    final result = await LocalDb.importFromDbFile(path);
+    expect(result.needsReentry, isEmpty);
+  });
+
+  test('a server already set on this phone is not asked for again', () async {
+    await wipeAll();
+    await setPrefs({'coach_base_url': 'https://old.example.net/v1'});
+    final path = await LocalDb.exportCopy();
+    await wipeAll();
+    await setPrefs({'coach_base_url': 'https://new.example.net/v1'});
+    final result = await LocalDb.importFromDbFile(path);
+    expect((await allPrefs())['coach_base_url'], 'https://new.example.net/v1');
+    expect(result.needsReentry, isEmpty);
+  });
+
   test('an unreadable coach key is not reported as missing, and can be retried',
       () async {
     await wipeAll();

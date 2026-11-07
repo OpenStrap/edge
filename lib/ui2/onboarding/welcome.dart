@@ -756,13 +756,24 @@ class ImportReport extends StatelessWidget {
   final ImportOutcome o;
   const ImportReport(this.o, {super.key});
 
-  Widget _keyReentry(AppLocalizations? l) => StatusCard(
-    l?.coachApiKeyLabel ?? 'API key',
-    l?.welcomeCoachKeyReentry ??
-        'Your coach API key stays in secure storage and was not backed up. '
-            'Enter it again in AI settings to use the coach on this phone.',
-    icon: LucideIcons.keyRound,
-  );
+  Widget _keyReentry(AppLocalizations? l, List<String> keys) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    if (keys.contains('coach_api_key')) StatusCard(
+      l?.coachApiKeyLabel ?? 'API key',
+      l?.welcomeCoachKeyReentry ??
+          'Your coach API key stays in secure storage and was not backed up. '
+              'Enter it again in AI settings to use the coach on this phone.',
+      icon: LucideIcons.keyRound,
+    ),
+    if (keys.length > 1) const SizedBox(height: S.x3),
+    if (keys.contains('coach_base_url')) StatusCard(
+      l?.coachBaseUrlLabel ?? 'Base URL',
+      l?.welcomeCoachServerReentry ??
+          'Your custom coach server address was not backed up, because an '
+              'address can hold a key. Enter it again in AI settings.',
+      icon: LucideIcons.keyRound,
+    ),
+  ]);
 
   @override
   Widget build(BuildContext c) {
@@ -802,7 +813,7 @@ class ImportReport extends StatelessWidget {
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         nothing,
         const SizedBox(height: S.x3),
-        if (o.needsReentry.isNotEmpty) _keyReentry(l),
+        if (o.needsReentry.isNotEmpty) _keyReentry(l, o.needsReentry),
         if (o.archiveBucketsSkipped > 0) StatusCard(
           l?.welcomePartOfFileNotUsedTitle ??
               'Part of that file could not be used',
@@ -877,7 +888,7 @@ class ImportReport extends StatelessWidget {
       ),
       if (o.needsReentry.isNotEmpty) ...[
         const SizedBox(height: S.x3),
-        _keyReentry(l),
+        _keyReentry(l, o.needsReentry),
       ],
       // REJECTED, never clamped. A row outside its declared range is not
       // salvageable by trimming it — that would store a value the user never

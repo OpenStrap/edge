@@ -7906,6 +7906,7 @@
     }
   },
   "welcomeCoachKeyReentry": "API-ключ тренера остаётся в защищённом хранилище и не включён в резервную копию. Введите его снова в настройках ИИ, чтобы пользоваться тренером на этом телефоне.",
+  "welcomeCoachServerReentry": "Адрес вашего собственного сервера коуча не сохранён в резервной копии, потому что адрес может содержать ключ. Введите его снова в настройках ИИ.",
   "welcomeSettingsRestored": "Восстановлено настроек: {n}",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",

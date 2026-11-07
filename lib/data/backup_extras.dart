@@ -8,6 +8,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../coach/coach_config.dart' show CoachConfig;
+
 const Map<String, String> kPrefsNotBackedUp = {
   'install_device_id': 'identifies this install; a restore must not clone it',
   'paired_remote_id': 'BLE address bonded to this phone; pair again',
@@ -25,6 +27,8 @@ const Map<String, String> kPrefsNotBackedUp = {
       'a new sign-in registers its own client',
   'coach_chatgpt_host_id': 'identifies this phone to the sign-in service',
   'coach_chatgpt_welcomed': 'the new sign-in must show its welcome on this phone',
+  'coach_base_url': 'a custom server address can carry an access key; '
+      'a non-default one is reported for re-entry',
   'backup.folder': 'storage-access URI permission belongs to this phone',
   'backup.last_run_ms': 'status of this install\'s automatic backup',
   'backup.last_error': 'status of this install\'s automatic backup',
@@ -103,6 +107,10 @@ Future<void> writeBackupPrefs(String path) async {
       if (prefs.get('coach_api_key_present') == true) {
         await tx.insert('backup_secrets', {'key': 'coach_api_key'});
       }
+      final server = prefs.get('coach_base_url');
+      if (server is String && server.isNotEmpty && server != CoachConfig.defaultBaseUrl) {
+        await tx.insert('backup_secrets', {'key': 'coach_base_url'});
+      }
     });
   } finally {
     await copy.close();
@@ -172,6 +180,12 @@ Future<ImportSummary> restoreBackupPrefs(String path, Map<String, int> counts, {
       } catch (_) {
         unreadable.add('coach_api_key');
       }
+    }
+    if (await _hasTable(src, 'backup_secrets') &&
+        (await src.query('backup_secrets', where: 'key = ?',
+            whereArgs: ['coach_base_url'])).isNotEmpty &&
+        !(await SharedPreferences.getInstance()).containsKey('coach_base_url')) {
+      needs.add('coach_base_url');
     }
     return ImportSummary(counts,
         keysWritten: Set.unmodifiable(written), needsReentry: List.unmodifiable(needs),

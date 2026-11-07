@@ -3474,6 +3474,7 @@
     }
   },
   "welcomeCoachKeyReentry": "Dein API-Schlüssel für den Coach bleibt im sicheren Speicher und wurde nicht gesichert. Gib ihn in den KI-Einstellungen erneut ein, um den Coach auf diesem Telefon zu nutzen.",
+  "welcomeCoachServerReentry": "Deine eigene Coach-Serveradresse wurde nicht gesichert, weil eine Adresse einen Schlüssel enthalten kann. Gib sie in den KI-Einstellungen erneut ein.",
   "welcomeSettingsRestored": "{n} Einstellungen wiederhergestellt",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",

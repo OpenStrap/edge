@@ -16333,6 +16333,7 @@
     }
   },
   "welcomeCoachKeyReentry": "Your coach API key stays in secure storage and was not backed up. Enter it again in AI settings to use the coach on this phone.",
+  "welcomeCoachServerReentry": "Your custom coach server address was not backed up, because an address can hold a key. Enter it again in AI settings.",
   "welcomeSettingsRestored": "{n} settings restored",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",
