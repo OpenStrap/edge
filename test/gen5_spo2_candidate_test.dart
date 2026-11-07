@@ -38,4 +38,18 @@ void main() {
     final s = decodeGen5HistoricalSample(v18Inner(spo2Candidate: 128 + 97));
     expect(s!.spo2CandidateRaw, 128 + 97);
   });
+
+  // copyWith must carry the candidate along — a regression that drops
+  // spo2CandidateRaw from copyWith would silently lose it on every copy.
+  test('copyWith preserves a nonzero spo2CandidateRaw', () {
+    final s = decodeGen5HistoricalSample(v18Inner(spo2Candidate: 97))!;
+    expect(s.copyWith(heartRate: 60).spo2CandidateRaw, 97);
+  });
+
+  test('copyWith preserves an explicitly cleared (null) spo2CandidateRaw', () {
+    final s = decodeGen5HistoricalSample(v18Inner(spo2Candidate: 97))!;
+    final cleared = s.copyWith(spo2CandidateRaw: null);
+    expect(cleared.spo2CandidateRaw, isNull);
+    expect(cleared.copyWith(heartRate: 55).spo2CandidateRaw, isNull);
+  });
 }
