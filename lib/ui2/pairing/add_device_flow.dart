@@ -37,9 +37,11 @@ typedef AddDeviceResult = ({AddDeviceOutcome outcome, String? message});
 AddDeviceResult _r(AddDeviceOutcome o, [String? message]) =>
     (outcome: o, message: message);
 
-/// Entries that cannot be paired from a list tap: the ring asks for its key on
-/// its own screen, so every choice for it ends in the band flow.
-const Set<String> _ownScreen = {'oura'};
+/// Entries that cannot be paired from a list tap: their pairing installs a key
+/// on their own screen (the Oura ring asks for it, a Mi Band gets one), so
+/// every choice for them ends in the band flow. A plain save would leave a row
+/// sync cannot use. ui2_pair_sheets_test checks every keyed sensor is here.
+const Set<String> _ownScreen = {'oura', 'miband234'};
 
 /// What the "Add a device" scan listens for: every registry entry, the framed
 /// WHOOP bands included, so a WHOOP that advertises only its own band service

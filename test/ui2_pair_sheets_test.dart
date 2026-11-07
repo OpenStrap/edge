@@ -11,6 +11,7 @@ import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/band_identity.dart';
 import 'package:openstrap_edge/ble/hrs_link.dart' show BandCandidate;
 import 'package:openstrap_edge/ui2/pairing/add_device_flow.dart';
+import 'package:openstrap_edge/ui2/profile/devices.dart' show kPairableSensors;
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/pairing/device_picker.dart' show DevicePickerView;
 import 'package:openstrap_edge/ui2/pairing/pair_text.dart' show PairFilter;
@@ -937,6 +938,32 @@ void main() {
     await t.pumpAndSettle();
     expect(calls.pairs.map((p) => p.$1), ['colmi']);
   });
+
+  for (final sensor in kPairableSensors.where((s) => s.pick != null)) {
+    testWidgets('(CR 4500569334) ${sensor.entry.id} found on connect goes to its own screen, never a plain save', (t) async {
+      // WHY: its pairing installs a key (its `pick`). A plain notify pair
+      // would save a row sync cannot use.
+      final calls = _Calls([const PairOutcome.saved()]);
+      await pumpPair(
+          t,
+          Builder(
+              builder: (c) => Scaffold(
+                  body: TextButton(
+                      onPressed: () => calls.flow(hasMain: true).afterConnect(
+                          c, _cand('ble_hrs'), kBleHrs,
+                          PairOutcome.band(sensor.entry)),
+                      child: const Text('go')))),
+          size: const Size(412, 2000));
+      await t.tap(find.text('go'));
+      await t.pumpAndSettle();
+      final pair = find.textContaining('Pair ').last;
+      await t.ensureVisible(pair);
+      await t.tap(pair);
+      await t.pumpAndSettle();
+      expect(calls.pairs, isEmpty);
+      expect(calls.opened, [sensor.entry.id]);
+    });
+  }
 
   group('G3 r1 S3: the handoff to the main-band flow', () {
     final whoopOnly = _cand('gen5', label: 'WHOOP 5A1B');
