@@ -16722,6 +16722,10 @@
   "@capReasonUnconfirmed": {
     "description": "Caption under a row the device may or may not send; nobody has confirmed it does."
   },
+  "capReasonPebble2Only": "Pebble 2 only. The 2 SE has no heart-rate sensor.",
+  "@capReasonPebble2Only": {
+    "description": "Caption under the heart rate, strain and recovery rows for Pebble: the shared Pebble entry covers the 2 SE, which has no heart-rate sensor."
+  },
   "pairModeTitle": "Put it in pairing mode",
   "@pairModeTitle": {
     "description": "Heading of the pairing-mode steps on a device sheet."
@@ -16734,9 +16738,9 @@
   "@pairOuraExistingKeyGuidance": {
     "description": "Before any Oura reset steps: existing-key users keep the ring paired in Oura and skip resets; reset only for a new key."
   },
-  "pairWearableLeadPebble": "Pebble 2 can fill your days with sleep, recovery and heart rate. Pebble 2 SE records sleep and steps, but has no heart-rate sensor and cannot estimate recovery from resting heart rate.",
+  "pairWearableLeadPebble": "Pebble 2 can fill your days with sleep, recovery and heart rate. Pebble 2 SE shows the watch’s own sleep and steps. It has no heart-rate sensor, so this app cannot calculate daily strain or estimate recovery from it.",
   "@pairWearableLeadPebble": {
-    "description": "Pebble-family pairing lead: Pebble 2 has heart rate; Pebble 2 SE has no heart-rate sensor and no recovery estimate from resting heart rate."
+    "description": "Pebble-family pairing lead: SE shows the watch’s own sleep and steps; no HR sensor means no app-calculated daily strain or recovery estimate from the SE alone."
   },
   "slotColumnReason": "{column}: {reason}",
   "@slotColumnReason": {

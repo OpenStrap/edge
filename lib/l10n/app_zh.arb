@@ -2947,10 +2947,11 @@
   "pairSetUpTitle": "设置",
   "pairReplaceUnpairFailed": "无法取消配对你的手环，因此没有配对新手环。请重试。",
   "capReasonUnconfirmed": "如果此设备发送该数据，尚未确认",
+  "capReasonPebble2Only": "仅限 Pebble 2。2 SE 没有心率传感器。",
   "pairModeTitle": "让它进入配对模式",
   "pairModeNoSite": "这是没有单一厂商的通用设备，因此没有厂商步骤可循。",
   "pairOuraExistingKeyGuidance": "已经在用 Oura 应用？请保留戒指在该应用中的配对，并使用戒指现有的密钥配对。跳过下面的重置步骤。只有想使用新密钥时才重置戒指。",
-  "pairWearableLeadPebble": "Pebble 2 可以为你的每一天补上睡眠、恢复和心率。Pebble 2 SE 记录睡眠和步数，但没有心率传感器，无法根据静息心率估算恢复。",
+  "pairWearableLeadPebble": "Pebble 2 可以为你的每一天补上睡眠、恢复和心率。Pebble 2 SE 显示手表自身记录的睡眠和步数。它没有心率传感器，因此本应用无法根据它的数据计算每日身体负荷或估算恢复。",
   "slotColumnReason": "{column}：{reason}",
   "slotCapabilityStatus": "{capability}，{column}：{status}",
   "@slotColumnReason": {

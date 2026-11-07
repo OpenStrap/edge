@@ -272,7 +272,7 @@ void main() {
       await open(t, kOura, hasMain: false);
       expect(find.text('This is a ring'), findsOneWidget);
       expect(find.text('It can fill your days with sleep, recovery and heart rate.'), findsOneWidget);
-      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-sleep'))).label, 'Sleep, Every day: Sends');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-sleep'))).label, 'Sleep, Every day: Sends. From the ring’s own sleep stages');
       expect(t.getSemantics(find.byKey(const ValueKey('slot-workoutsOnly-sleep'))).label, 'Sleep, Workouts only: Doesn’t send');
       expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-strain'))).label, 'Strain, Every day: Doesn’t send');
       expect(find.text('Every day: From the ring’s own sleep stages'), findsOneWidget);

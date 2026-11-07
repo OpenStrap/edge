@@ -42,6 +42,7 @@ String? capabilityReason(AppLocalizations l, CapabilityStatus s) =>
         kReasonOwnStages => l.capReasonOwnStages,
         kReasonLiveSessions => l.capReasonLiveSessions,
         kReasonUnconfirmed => l.capReasonUnconfirmed,
+        kReasonPebble2Only => l.capReasonPebble2Only,
         _ => null,
       },
     };

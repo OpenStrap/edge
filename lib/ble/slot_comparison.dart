@@ -148,6 +148,9 @@ const String kReasonLiveSessions = 'capReasonLiveSessions';
 /// device people use and send it (Polar's PPI stream) carries no caption.
 const String kReasonUnconfirmed = 'capReasonUnconfirmed';
 
+/// Pebble 2 SE has no HR sensor; only Pebble 2 can supply HR-based rows.
+const String kReasonPebble2Only = 'capReasonPebble2Only';
+
 /// l10n key of each capability's user-facing name.
 const Map<DeviceCapability, String> kCapabilityLabelKey = <DeviceCapability, String>{
   DeviceCapability.sleep: 'capLabelSleep',
@@ -277,9 +280,18 @@ Map<DeviceCapability, _Claim> _columnClaims(BandEntry e) {
         _ => status,
       };
     }
+    // The shared Pebble entry covers the 2 SE too. It still serves the
+    // watch's reported sleep and steps without HR (dayCells), but cannot
+    // derive resting HR, strain or the resting-HR recovery estimate.
+    final pebbleHr = e.id == kPebble.id &&
+        const {DeviceCapability.recovery, DeviceCapability.strain,
+          DeviceCapability.heartRate}.contains(m.key);
     out[m.key] = (
-      status: status,
-      trace: (rule: 'metric x device column row ${m.value}', source: _canonical),
+      status: pebbleHr ? _when(kReasonPebble2Only) : status,
+      trace: pebbleHr
+          ? (rule: 'Pebble 2 HR required for ${m.value}; SE has no HR sensor',
+              source: 'lib/compute/inputs/pebble_inputs.dart')
+          : (rule: 'metric x device column row ${m.value}', source: _canonical),
     );
   }
   return out;

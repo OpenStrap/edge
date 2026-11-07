@@ -15,7 +15,7 @@ import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'support/pair_ui_support.dart';
 
 const _ouraKey = 'Already use the Oura app? Keep the ring in that app and pair with its existing key. Skip the reset steps below. Only reset it if you want a new key.';
-const _pebbleLead = 'Pebble 2 can fill your days with sleep, recovery and heart rate. Pebble 2 SE records sleep and steps, but has no heart-rate sensor and cannot estimate recovery from resting heart rate.';
+const _pebbleLead = 'Pebble 2 can fill your days with sleep, recovery and heart rate. Pebble 2 SE shows the watch’s own sleep and steps. It has no heart-rate sensor, so this app cannot calculate daily strain or estimate recovery from it.';
 const _strapLead = 'It adds heart rate while you work out. It does not record sleep, recovery or daily strain.';
 
 Future<void> _openBand(WidgetTester t, BandEntry entry) async {
@@ -59,6 +59,26 @@ void main() {
     await _openBand(t, kPebble);
     expect(find.text(_pebbleLead), findsOneWidget);
     expect(find.text('It can fill your days with sleep, recovery and heart rate.'), findsNothing);
+  });
+
+  testWidgets('Pebble HR captions qualify every affected row and its accessible mark', (t) async {
+    await _openBand(t, kPebble);
+    const reason = 'Pebble 2 only. The 2 SE has no heart-rate sensor.';
+    for (final cap in [DeviceCapability.recovery, DeviceCapability.strain,
+        DeviceCapability.heartRate]) {
+      final row = find.byKey(ValueKey('slot-row-${cap.name}'));
+      expect(find.descendant(of: row, matching: find.text('Every day: $reason')),
+          findsOneWidget, reason: '${cap.name} must exclude SE');
+      final l = lookupAppLocalizations(const Locale('en'));
+      expect(t.getSemantics(find.byKey(ValueKey('slot-everyDay-${cap.name}'))).label,
+          '${capabilityLabel(l, cap)}, Every day: Sends. $reason');
+    }
+    final sleep = find.byKey(const ValueKey('slot-row-sleep'));
+    expect(find.descendant(of: sleep, matching: find.text(
+        'Every day: From the device’s own sleep stages')), findsOneWidget);
+    final steps = find.byKey(const ValueKey('slot-row-steps'));
+    expect(find.descendant(of: steps, matching: find.text(
+        'Every day: The device’s own reading')), findsOneWidget);
   });
 
   testWidgets('strap lead excludes daily strain precisely', (t) async {
@@ -121,7 +141,7 @@ void main() {
       ('slot-everyDay-sleep', 'Sleep, Every day: Sends'),
       ('slot-workoutsOnly-sleep', 'Sleep, Workouts only: Doesn’t send'),
       ('slot-everyDay-workoutBeatToBeat', 'Beat-to-beat timing during workouts, Every day: Sends'),
-      ('slot-workoutsOnly-workoutBeatToBeat', 'Beat-to-beat timing during workouts, Workouts only: Sends'),
+      ('slot-workoutsOnly-workoutBeatToBeat', 'Beat-to-beat timing during workouts, Workouts only: Sends. If this device sends it, not confirmed'),
     ]) {
       expect(t.getSemantics(find.byKey(ValueKey(key))).label, label, reason: key);
     }
@@ -146,6 +166,57 @@ void main() {
         deviceId: 'ble_hrs-test', family: 'ble_hrs')), size: const Size(412, 2400));
     expect(find.text(l.devicesWhatItDoesBeats), findsOneWidget);
   });
+
+  test('every Pebble locale names the SE limits and watch-reported readings', () {
+    const copy = {
+      'en': ('Pebble 2 only. The 2 SE has no heart-rate sensor.',
+        'Pebble 2 SE shows the watch’s own sleep and steps. It has no heart-rate sensor, so this app cannot calculate daily strain or estimate recovery from it.'),
+      'de': ('Nur Pebble 2. Die 2 SE hat keinen Herzfrequenzsensor.',
+        'Pebble 2 SE zeigt die eigenen Schlaf- und Schrittdaten der Uhr. Sie hat keinen Herzfrequenzsensor, daher kann diese App daraus weder die tägliche Belastung berechnen noch die Erholung schätzen.'),
+      'es': ('Solo Pebble 2. El 2 SE no tiene sensor de frecuencia cardiaca.',
+        'Pebble 2 SE muestra el sueño y los pasos registrados por el propio reloj. No tiene sensor de frecuencia cardiaca, por lo que esta app no puede calcular la carga diaria ni estimar la recuperación a partir de sus datos.'),
+      'fr': ('Pebble 2 uniquement. La 2 SE n’a pas de capteur de fréquence cardiaque.',
+        'Pebble 2 SE affiche le sommeil et les pas enregistrés par la montre. Elle n’a pas de capteur de fréquence cardiaque, donc cette app ne peut pas calculer la charge quotidienne ni estimer la récupération à partir de ses données.'),
+      'hi': ('केवल Pebble 2। 2 SE में हृदय गति सेंसर नहीं है।',
+        'Pebble 2 SE घड़ी की अपनी नींद और कदमों की रीडिंग दिखाता है। उसमें हृदय गति सेंसर नहीं है, इसलिए यह ऐप उसके डेटा से रोज़ का शारीरिक भार नहीं निकाल सकता और न ही रिकवरी का अनुमान लगा सकता है।'),
+      'ru': ('Только Pebble 2. У 2 SE нет датчика пульса.',
+        'Pebble 2 SE показывает сон и шаги по данным самих часов. У него нет датчика пульса, поэтому приложение не может рассчитать дневную нагрузку или оценить восстановление по его данным.'),
+      'th': ('เฉพาะ Pebble 2 รุ่น 2 SE ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ',
+        'Pebble 2 SE แสดงข้อมูลการนอนและจำนวนก้าวที่นาฬิกาบันทึกเอง รุ่นนี้ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ แอปจึงคำนวณภาระร่างกายรายวันหรือประเมินการฟื้นตัวจากข้อมูลของรุ่นนี้ไม่ได้'),
+      'zh': ('仅限 Pebble 2。2 SE 没有心率传感器。',
+        'Pebble 2 SE 显示手表自身记录的睡眠和步数。它没有心率传感器，因此本应用无法根据它的数据计算每日身体负荷或估算恢复。'),
+    };
+    expect(AppLocalizations.supportedLocales.map((l) => l.languageCode).toSet(),
+        copy.keys.toSet());
+    for (final entry in copy.entries) {
+      final l = lookupAppLocalizations(Locale(entry.key));
+      expect(capabilityReason(l, const CapabilityStatus(CapabilityKind.conditional,
+          reasonKey: 'capReasonPebble2Only')), entry.value.$1, reason: entry.key);
+      expect(l.pairWearableLeadPebble, endsWith(entry.value.$2), reason: entry.key);
+    }
+  });
+
+  for (final locale in AppLocalizations.supportedLocales) {
+    testWidgets('Pebble conditions render and are announced in $locale at 2x text', (t) async {
+      final l = lookupAppLocalizations(locale);
+      final reason = capabilityReason(l, const CapabilityStatus(
+          CapabilityKind.conditional, reasonKey: kReasonPebble2Only))!;
+      await pumpPair(t, Scaffold(body: SingleChildScrollView(
+          child: SlotTable(comparison: slotComparisonFor(kPebble)))),
+          locale: locale, textScale: 2, size: const Size(360, 900));
+      for (final cap in [DeviceCapability.recovery, DeviceCapability.strain,
+          DeviceCapability.heartRate]) {
+        final row = find.byKey(ValueKey('slot-row-${cap.name}'));
+        expect(find.descendant(of: row, matching: find.text(
+            l.slotColumnReason(l.slotEveryDay, reason))), findsOneWidget);
+        final mark = find.byKey(ValueKey('slot-everyDay-${cap.name}'));
+        await t.ensureVisible(mark);
+        await t.pumpAndSettle();
+        expect(t.getSemantics(mark).label, contains(reason));
+      }
+      expect(t.takeException(), isNull);
+    });
+  }
 
   test('every conditional mark in every locale has its caption', () {
     // A check whose condition has no caption would claim more than the device

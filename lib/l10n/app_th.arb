@@ -16713,6 +16713,7 @@
     "description": "Shown when unpairing the old band failed during “Unpair (your band) and pair this one”; nothing else ran."
   },
   "capReasonUnconfirmed": "หากอุปกรณ์นี้ส่งข้อมูลนี้ ยังไม่ได้ยืนยัน",
+  "capReasonPebble2Only": "เฉพาะ Pebble 2 รุ่น 2 SE ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ",
   "@capReasonUnconfirmed": {
     "description": "Caption under a row the device may or may not send; nobody has confirmed it does."
   },
@@ -16725,7 +16726,7 @@
     "description": "Shown instead of steps for a generic device with no maker’s page."
   },
   "pairOuraExistingKeyGuidance": "ใช้แอป Oura อยู่แล้วใช่ไหม คงการจับคู่แหวนในแอปนั้นไว้ แล้วจับคู่ด้วยคีย์เดิมของแหวน ข้ามขั้นตอนรีเซ็ตด้านล่าง รีเซ็ตเฉพาะเมื่อต้องการคีย์ใหม่เท่านั้น",
-  "pairWearableLeadPebble": "Pebble 2 เติมข้อมูลการนอน การฟื้นตัว และอัตราการเต้นของหัวใจให้แต่ละวันได้ Pebble 2 SE บันทึกการนอนและจำนวนก้าว แต่ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ จึงประเมินการฟื้นตัวจากอัตราการเต้นของหัวใจขณะพักไม่ได้",
+  "pairWearableLeadPebble": "Pebble 2 เติมข้อมูลการนอน การฟื้นตัว และอัตราการเต้นของหัวใจให้แต่ละวันได้ Pebble 2 SE แสดงข้อมูลการนอนและจำนวนก้าวที่นาฬิกาบันทึกเอง รุ่นนี้ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ แอปจึงคำนวณภาระร่างกายรายวันหรือประเมินการฟื้นตัวจากข้อมูลของรุ่นนี้ไม่ได้",
   "slotColumnReason": "{column}: {reason}",
   "slotCapabilityStatus": "{capability}, {column}: {status}",
   "@slotColumnReason": {

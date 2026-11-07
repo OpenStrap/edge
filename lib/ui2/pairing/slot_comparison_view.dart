@@ -111,9 +111,11 @@ class SlotTable extends StatelessWidget {
             ),
         ]),
         SlotMark(r.everyDay != null, capability: r.capability,
-            slot: DeviceSlot.everyDay, key: ValueKey('slot-everyDay-$k')),
+            slot: DeviceSlot.everyDay, reason: r.everyDay?.kind == CapabilityKind.conditional
+                ? capabilityReason(l, r.everyDay!) : null, key: ValueKey('slot-everyDay-$k')),
         SlotMark(r.workouts != null, capability: r.capability,
-            slot: DeviceSlot.workoutsOnly, key: ValueKey('slot-workoutsOnly-$k')),
+            slot: DeviceSlot.workoutsOnly, reason: r.workouts?.kind == CapabilityKind.conditional
+                ? capabilityReason(l, r.workouts!) : null, key: ValueKey('slot-workoutsOnly-$k')),
       );
     }
 
@@ -140,16 +142,18 @@ class SlotMark extends StatelessWidget {
   final bool sends;
   final DeviceCapability capability;
   final DeviceSlot slot;
+  final String? reason;
   const SlotMark(this.sends,
-      {super.key, required this.capability, required this.slot});
+      {super.key, required this.capability, required this.slot, this.reason});
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final l = pairL10n(c);
+    final status = sends ? l.slotSendsHeading : l.slotDoesntSendHeading;
     return Semantics(
       label: l.slotCapabilityStatus(capabilityLabel(l, capability),
-          slotLabel(l, slot), sends ? l.slotSendsHeading : l.slotDoesntSendHeading),
+          slotLabel(l, slot), reason == null ? status : '$status. $reason'),
       excludeSemantics: true,
       child: sends
           ? Container(

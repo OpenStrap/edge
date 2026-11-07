@@ -280,7 +280,8 @@ const _notComponents = {
   // gallery cell is too narrow for the slot table and the sheets, and the
   // sheets open over a route.
   'SlotTable', 'SlotMark', 'PairNote', 'CategoryFilterPills',
-  'TroubleConnectingCard', 'ResetStepsView', 'PairBandView',
+  'TroubleConnectingCard', 'ResetStepsView', 'PairingModeSection',
+  'PairBandView',
   'PairChoiceSheet', 'PairStepRow', 'TextLinkButton', 'ChoiceRow',
   'DeviceSlotCard',
   // tabs and drill-downs

@@ -145,6 +145,19 @@ void main() {
       }
     });
 
+    test('Pebble HR rows are Pebble 2 only; SE keeps reported sleep and steps', () {
+      final cmp = slotComparisonFor(kPebble);
+      final d = cmp.everyDay.sends;
+      expect(d.keys.toSet(), {C.sleep, C.recovery, C.strain, C.heartRate, C.steps});
+      for (final c in [C.recovery, C.strain, C.heartRate]) {
+        expect(d[c]?.kind, K.conditional, reason: 'SE has no HR sensor: $c');
+        expect(d[c]?.reasonKey, 'capReasonPebble2Only', reason: '$c');
+      }
+      expect(d[C.sleep]?.reasonKey, kReasonOwnStages);
+      expect(d[C.steps]?.kind, K.vendorReported);
+      expect(cmp.workoutsOnly.sends, isEmpty);
+    });
+
     test('hand-read anchors: Garmin', () {
       // garmin_inputs.dart: HRV the watch's own unless a strap gave beats,
       // readiness an estimate without a strap, strain ours, no skin temp.
