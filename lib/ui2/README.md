@@ -408,10 +408,12 @@ Five rules:
 2. **`xLabels` must describe the range actually drawn.** A hardcoded
    `['30 days ago', '15', 'Today']` under a seven-day window is worse than no
    labels. With three labels they mark the start, middle and end of the data.
-3. **`xMarks` is provenance, never a measurement.** A mark says the days
-   either side of it were not produced the same way — a release boundary, read
-   off `getChart`'s `algo_breaks`. It draws dotted, in `p.ink3`, above the
-   curve, and it does not take taps. **A mark without a `footnote` is a line
+3. **An algorithm-version mark is provenance, never a measurement.** A mark
+   says the days either side of it were not produced the same way — a release
+   boundary, read off `getChart`'s `algo_breaks`. Pass it to
+   `ChartFrame.annotations` as an `AnnotationKind.algoVersion` annotation
+   (`algoBreakAnnotations`): a neutral icon in the lane above the plot and a
+   DASHED line. `xMarks` (dotted) remains for charts with no lane. **A mark without a `footnote` is a line
    nobody can read**: the footnote is the mark's only screen-reader form and
    the only thing that can say what it is. Keep the wording flat — a version
    change is provenance, not something that happened to the user.
@@ -435,6 +437,20 @@ themselves** rather than collide when the plot is too short for the requested
 tick count at the user's text scale — the axis min/max never change, so the
 curve keeps the scale that was pinned. At >1.3× text the unit moves under the
 title instead of truncating it.
+
+### Annotations — `chart_annotations.dart`
+
+`ChartFrame.annotations` (an `AnnotationSet`) draws an icon per mark in a lane
+above the plot, each with a dashed line down to it; a range shades in its
+kind's colour. Icons never overlap: close marks collapse to one icon with a
+"+n" that steps on tap. The lane needs no strings of its own; the caller's
+`label` is spoken as "kind, label". Metric detail uses two sources:
+
+- algorithm-version marks, always on (provenance);
+- a "Journal marks" chip, OFF by default, that reads nothing until it is turned
+  on, then draws the window's workouts, timed meals and timed journal fields on
+  their local day (`loadAnnotations`, built on `dayMoments`). A failed read
+  draws nothing. The chip's semantics carry its selected state.
 
 ---
 

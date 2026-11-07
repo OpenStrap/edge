@@ -5551,6 +5551,7 @@
       }
     }
   },
+  "metricDetailJournalMarksToggle": "เครื่องหมายบันทึกประจำวัน",
   "metricDetailDaysAgoLabel": "{n, plural, other{{n} วันที่แล้ว}}",
   "@metricDetailDaysAgoLabel": {
     "description": "Left x-axis label on the trend chart, naming how many days ago the leftmost point is.",
