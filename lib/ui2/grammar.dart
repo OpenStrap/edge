@@ -279,6 +279,286 @@ class _ScrubDragRecognizer extends HorizontalDragGestureRecognizer {
       _pending.dx.abs() > 1.5 * _pending.dy.abs();
 }
 
+/// One cell of a [ChartPanel]: a label and what the series reads at the shown
+/// instant. A null [value] reads a dash — nothing was recorded there, and the
+/// panel never fills it from a neighbour.
+@immutable
+class ChartPanelCell {
+  final String label;
+
+  /// The series colour: the swatch beside the label.
+  final Color? color;
+  final String? value;
+
+  /// The value's own ink; the plain ink when null.
+  final Color? valueColor;
+  const ChartPanelCell(this.label, {this.color, this.value, this.valueColor});
+}
+
+/// ── CHART PANEL ── what a chart reads at one instant, always on screen ────
+///
+/// An inset box under the chart that is there at rest (`LATEST · <day>`, the
+/// newest reading) and while a finger is on the chart (`SELECTED · <day>`), so
+/// the chart never changes height under the thumb and nothing is readable only
+/// while it is held. Every series is listed with its value at that instant; a
+/// series with nothing there reads a dash — never a neighbour's value, never an
+/// interpolation.
+///
+/// The slider ([Scrubber.describe]) speaks the selected instant once, so the
+/// caption and the cells are excluded from semantics. What the slider does not
+/// say is spoken here: each of [stats] as one `label value` node, and [onOpen]
+/// as an `Open <day>` button.
+class ChartPanel extends StatelessWidget {
+  /// The caption's time: a day or a clock time. Null reads a dash.
+  final String? time;
+
+  /// A finger is on the chart: SELECTED, with a border and caption in [color].
+  final bool scrubbed;
+
+  /// The series colour for the caption and the border while [scrubbed].
+  final Color color;
+
+  /// The series read at [time]. A single cell is drawn large.
+  final List<ChartPanelCell> cells;
+
+  /// Summary figures of that one series (a 7-day average), spoken `label value`.
+  final List<ChartPanelCell> stats;
+
+  /// Every [time] the panel can show. The caption reserves the height of the
+  /// tallest of them, so a scrub never reflows the panel.
+  final List<String> timeSpan;
+
+  /// Opens the shown day; null on a day with no value, and then the panel
+  /// offers nothing to press.
+  final VoidCallback? onOpen;
+  final String? openLabel;
+
+  const ChartPanel({
+    super.key,
+    required this.time,
+    required this.scrubbed,
+    required this.color,
+    required this.cells,
+    this.stats = const [],
+    this.timeSpan = const [],
+    this.onOpen,
+    this.openLabel,
+  });
+
+  static const panelKey = ValueKey('chart-panel');
+  static const captionKey = ValueKey('chart-panel-caption');
+  static const valueKey = ValueKey('chart-panel-value');
+  static const absent = '—';
+
+  /// The tallest caption of a span, per (span, width, style, scale, direction,
+  /// strings): measured once, not on every pointer move.
+  static final _captionHeights = <Object, double>{};
+
+  static const _border = 1.5;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final big = cells.length == 1;
+    // Container counts the border as padding; take it off so a scrub moves
+    // nothing inside the panel.
+    final inset = scrubbed ? _border : 0.0;
+    final panel = Container(
+      key: panelKey,
+      decoration: BoxDecoration(
+        color: p.card2,
+        borderRadius: R.rMd,
+        border: scrubbed ? Border.all(color: color, width: _border) : null,
+      ),
+      padding: EdgeInsets.symmetric(
+          horizontal: S.x3 - inset, vertical: S.x2 - inset),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ExcludeSemantics(child: _caption(c, p)),
+          const SizedBox(height: S.x1),
+          _equal(c, [
+            for (final x in cells)
+              ExcludeSemantics(child: _cell(c, p, x, big: big)),
+          ]),
+          if (stats.isNotEmpty) ...[
+            const SizedBox(height: S.x2),
+            _equal(c, [
+              for (final x in stats)
+                KeyedSubtree(
+                  key: ValueKey('chart-panel-stat:${x.label}'),
+                  child: Semantics(
+                    container: true,
+                    label: x.value == null ? null : '${x.label} ${x.value}',
+                    child: ExcludeSemantics(child: _cell(c, p, x)),
+                  ),
+                ),
+            ]),
+          ],
+        ],
+      ),
+    );
+    if (onOpen == null) return panel;
+    return Semantics(
+      container: true,
+      button: true,
+      label: openLabel,
+      onTap: onOpen,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onOpen,
+        child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: S.tap), child: panel),
+      ),
+    );
+  }
+
+  Widget _caption(BuildContext c, P p) {
+    final l = AppLocalizations.of(c);
+    final latest = l?.chartPanelLatest ?? 'LATEST';
+    final selected = l?.chartPanelSelected ?? 'SELECTED';
+    final measure = F.over.copyWith(fontWeight: FontWeight.w700);
+    final style = measure.copyWith(color: scrubbed ? color : p.ink2);
+    final scaler = MediaQuery.textScalerOf(c);
+    final dir = Directionality.of(c);
+    final now = time ?? absent;
+    return LayoutBuilder(builder: (_, box) {
+      double tallest(Iterable<String> times) {
+        var h = 0.0;
+        for (final mode in [latest, selected]) {
+          for (final at in times) {
+            final tp = TextPainter(
+              text: TextSpan(text: '$mode · $at', style: measure),
+              textDirection: dir,
+              textScaler: scaler,
+            )..layout(maxWidth: box.maxWidth);
+            h = math.max(h, tp.height);
+            tp.dispose();
+          }
+        }
+        return h;
+      }
+
+      final key = (
+        measure, scaler, box.maxWidth, dir, '$latest|$selected',
+        Object.hashAll(timeSpan), timeSpan.length
+      );
+      var height = _captionHeights[key];
+      if (height == null) {
+        height = tallest(timeSpan);
+        if (_captionHeights.length > 64) _captionHeights.clear();
+        _captionHeights[key] = height;
+      }
+      // A caption the span does not hold is measured alone.
+      if (!timeSpan.contains(now)) height = math.max(height, tallest([now]));
+      return ConstrainedBox(
+        constraints: BoxConstraints(minHeight: height),
+        child: Text('${scrubbed ? selected : latest} · $now',
+            key: captionKey, style: style),
+      );
+    });
+  }
+
+  /// Equal-width cells: one row when they fit, wrapped when they do not.
+  Widget _equal(BuildContext c, List<Widget> items) {
+    final scale = math.max(1.0, MediaQuery.textScalerOf(c).scale(1));
+    const gap = S.x3;
+    final minW = 92.0 * scale;
+    return LayoutBuilder(builder: (_, box) {
+      final w = box.maxWidth;
+      final cols = w.isFinite
+          ? ((w + gap) / (minW + gap)).floor().clamp(1, items.length)
+          : items.length;
+      final cellW = w.isFinite ? ((w - gap * (cols - 1)) / cols) - .01 : minW;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var r = 0; r * cols < items.length; r++) ...[
+            if (r > 0) const SizedBox(height: S.x2),
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var k = 0; k < cols; k++) ...[
+                    if (k > 0) const SizedBox(width: gap),
+                    SizedBox(
+                        width: cellW,
+                        child: r * cols + k < items.length
+                            ? items[r * cols + k]
+                            : null),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ],
+      );
+    });
+  }
+
+  Widget _cell(BuildContext c, P p, ChartPanelCell cell, {bool big = false}) {
+    final present = cell.value != null;
+    final style = (big ? F.n34 : F.cap).copyWith(
+        color: present ? (cell.valueColor ?? p.ink) : p.ink3,
+        fontWeight: big ? FontWeight.w700 : FontWeight.w600,
+        fontFeatures: const [FontFeature.tabularFigures()]);
+    // A dash is as tall as a number, so a gap does not shorten the panel.
+    final tp = TextPainter(
+      text: TextSpan(text: absent, style: style),
+      textDirection: Directionality.of(c),
+      textScaler: MediaQuery.textScalerOf(c),
+    )..layout();
+    final height = tp.height;
+    tp.dispose();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (cell.color != null) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 2.5),
+              child: Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: cell.color,
+                  border: Border.all(color: p.line, width: .5),
+                ),
+              ),
+            ),
+            const SizedBox(width: S.x1),
+          ],
+          // A label is a constant, so it wraps rather than clipping.
+          Expanded(
+            child: Text(cell.label,
+                style: F.over.copyWith(
+                    color: p.ink3, fontWeight: FontWeight.w600)),
+          ),
+        ]),
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: height),
+            child: Row(key: big ? valueKey : null, children: [
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(cell.value ?? absent, maxLines: 1, style: style),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// The base card surface. Elevation, not outline.
 class Surface extends StatelessWidget {
   final Widget child;

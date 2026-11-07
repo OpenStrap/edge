@@ -134,7 +134,14 @@ void main() {
           (w) => w is Scrubber && w.label == 'Recovery');
       await t.tapAt(t.getBottomRight(strip) - const Offset(1, 1));
       await t.pumpAndSettle();
-      expect(find.textContaining('· 20 · Rest today'), findsOneWidget);
+      // The panel under the chart replaced the pop-in line: the touched day
+      // (the last bar is today) and its score and band.
+      final panel = find.byKey(const ValueKey('chart-panel'));
+      expect(find.descendant(of: panel, matching: find.text('SELECTED · Today')),
+          findsOneWidget);
+      expect(
+          find.descendant(of: panel, matching: find.text('20 · Rest today')),
+          findsOneWidget);
     });
 
     testWidgets('under two weeks there is no band, and one line says why',

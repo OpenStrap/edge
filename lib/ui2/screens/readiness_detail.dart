@@ -472,12 +472,38 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
                 ),
               ),
       ),
-      if (pick != null) ...[
-        const SizedBox(height: S.x2),
-        ExcludeSemantics(
-          child: Text(says(pick),
-              style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-        ),
+      // Always there: the newest scored day at rest, the touched one while a
+      // finger is on the chart. The slider speaks the selection; the panel is
+      // the same reading in print.
+      if (win.length >= 2) ...[
+        const SizedBox(height: S.x3),
+        Builder(builder: (c) {
+          var latest = win.length - 1;
+          while (latest > 0 && win[latest] == null) {
+            latest--;
+          }
+          final i = pick ?? latest;
+          final v = win[i];
+          final band = v == null ? null : readinessBand(v, l);
+          String dayName(int k) {
+            final day =
+                dayLabelOf(DateTime(n.year, n.month, n.day - (win.length - 1 - k)));
+            return dayNavLabel(day, l);
+          }
+
+          return ChartPanel(
+            time: dayName(i),
+            timeSpan: [for (var k = 0; k < win.length; k++) dayName(k)],
+            scrubbed: pick != null,
+            color: p.on(C.green),
+            cells: [
+              ChartPanelCell(l?.readinessDetailTitle ?? 'Recovery',
+                  color: band == null ? null : p.on(band.color),
+                  value: v == null ? null : '${v.round()} · ${band!.label}',
+                  valueColor: band == null ? null : p.on(band.color)),
+            ],
+          );
+        }),
       ],
     ]);
   }

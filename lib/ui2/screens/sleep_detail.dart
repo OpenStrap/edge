@@ -289,6 +289,25 @@ class SleepData {
     ];
   }
 
+  /// The stage at second [t], read from the night's own timestamped
+  /// boundaries rather than from the 240-column resample [stagesOf] draws, so a
+  /// one-second step across a boundary changes the stage. `known` is false when
+  /// the night carries no staging at all; a stretch the band did not observe is
+  /// known, with a null stage.
+  static (bool, SleepStage?) stageAt(Map<String, Object?> night, int t) {
+    final pts = night['hypnogram'];
+    if (pts is! List) return (false, null);
+    final ts = <int>[], st = <SleepStage?>[];
+    for (final e in pts) {
+      if (e is Map && e['t'] is num) {
+        ts.add((e['t'] as num).round());
+        st.add(_stageOf(e['stage']));
+      }
+    }
+    if (ts.length < 2) return (false, null);
+    return (true, st[_indexAt(ts, t)]);
+  }
+
   static int _indexAt(List<int> ts, int t) {
     var lo = 0;
     for (var i = 0; i < ts.length; i++) {
@@ -829,10 +848,8 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       ],
       if (_deviceNight(d) case final dn?)
         _night(c, p, d, dn, device: dn)
-      else ...[
+      else
         _night(c, p, d, n),
-        if (_scrub != null) _scrubCard(c, p, d),
-      ],
 
       // ── 2b · WHOSE WINDOW IS THIS ──
       ...?_windowCard(c, p, d, n),
@@ -1331,6 +1348,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           ],
           child: _labelledHypnogram(c, p, stages, n, lane, totals),
         ),
+        _scrubPanel(c, p, d, n),
         if (device != null) ..._deviceStaging(c, p, device),
         // Not our staging: say whose it is, wherever it is drawn.
         if (device == null && n['sleep_source'] == 'vendor_staged') ...[
@@ -1472,13 +1490,19 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           final l = AppLocalizations.of(c);
           final t0 = (n['onset_ts'] as num?)?.toInt();
           final t1 = (n['wake_ts'] as num?)?.toInt();
-          final st = stages.isEmpty
-              ? null
-              : stages[(v * (stages.length - 1)).round().clamp(0, stages.length - 1)];
           final at = (t0 == null || t1 == null || t1 <= t0)
               ? (l?.sleepDetailPercentThroughNight((v * 100).round()) ??
                   '${(v * 100).round()}% through the night')
               : clockOfTs(t0 + ((t1 - t0) * v).round());
+          // The same boundaries the panel reads, at the same second.
+          final st = (t0 == null || t1 == null || t1 <= t0)
+              ? (stages.isEmpty
+                  ? null
+                  : stages[(v * (stages.length - 1))
+                      .round()
+                      .clamp(0, stages.length - 1)])
+              : SleepData.stageAt(n, t0 + ((t1 - t0) * v).round())
+                  .$2;
           final stageName = st == null
               ? (l?.sleepDetailNotMeasured ?? 'not measured')
               : _stageName(c, st);
@@ -1514,15 +1538,20 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         ),
       );
 
-  /// What every signal read at the scrubbed instant. Each line abstains on its
-  /// own — a night with no respiration series still shows heart rate.
-  Widget _scrubCard(BuildContext c, P p, SleepData d) {
+  /// The panel under a night chart: at rest the stage and every signal at wake
+  /// (LATEST), while scrubbing the same at that instant (SELECTED). Both
+  /// charts share one instant, so both panels read the same thing.
+  ///
+  /// The stage comes from the night's timestamped boundaries ([n], so a
+  /// device's own staging reads its own night); each signal is its nearest
+  /// reading within 15 minutes or a dash — never a neighbour further away.
+  Widget _scrubPanel(BuildContext c, P p, SleepData d, Map<String, dynamic> n) {
     final l = AppLocalizations.of(c);
-    final n = d.night;
     final t0 = (n['onset_ts'] as num?)?.toInt();
     final t1 = (n['wake_ts'] as num?)?.toInt();
     if (t0 == null || t1 == null || t1 <= t0) return const SizedBox.shrink();
-    final t = t0 + ((t1 - t0) * _scrub!).round();
+    final scrubbed = _scrub != null;
+    final t = scrubbed ? t0 + ((t1 - t0) * _scrub!).round() : t1;
 
     num? at(String key) {
       final list = d.timeline[key];
@@ -1541,52 +1570,64 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       return bestGap > 900 ? null : best;
     }
 
-    final stages = d.stages;
-    final stage = stages.isEmpty
-        ? null
-        : stages[(_scrub! * (stages.length - 1)).round()];
-    final items = <(String, String, Color)>[
-      if (at('hr') != null)
-        (l?.sleepDetailHeartRate ?? 'Heart rate',
-            sleepReadingText(l, at('hr')!.round(), 0, 'bpm'), C.red),
-      if (at('hrv') != null)
-        (l?.sleepDetailHrv ?? 'HRV',
-            sleepReadingText(l, at('hrv')!.round(), 0, 'ms'), C.green),
-      if (at('resp') != null)
-        (l?.sleepDetailBreathing ?? 'Breathing',
-            sleepReadingText(l, at('resp')!, 1, 'br/min'), C.teal),
-      if (at('skin_temp') != null)
-        (l?.sleepDetailTempRelative ?? 'Temp (rel.)',
-            sleepScrubTempDelta(at('skin_temp')!), C.orange),
-    ];
+    // A signal gets a cell when the night recorded it at all; then a moment
+    // without it reads a dash rather than the cell disappearing.
+    bool recorded(String key) {
+      final list = d.timeline[key];
+      return list is List &&
+          list.any((e) => e is Map && e['t'] is num && e['v'] is num);
+    }
 
+    final (known, stage) = SleepData.stageAt(n, t);
+    final pigment = stage == null ? null : Hypnogram.pigment[stage];
+    final stageInk = pigment == null ? null : p.on(pigment);
+    String sentence(String s) =>
+        s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+    String? reading(String key, int places, String unit) {
+      final v = at(key);
+      return v == null
+          ? null
+          : sleepReadingText(l, places == 0 ? v.round() : v, places, unit);
+    }
+
+    final cells = <ChartPanelCell>[
+      if (known)
+        ChartPanelCell(sentence(l?.sleepDetailUnitStage ?? 'stage'),
+            color: stageInk,
+            value: stage == null
+                ? (l?.sleepDetailNotMeasuredCap ?? 'Not measured')
+                : _stageName(c, stage),
+            valueColor: stageInk ?? p.ink2),
+      if (recorded('hr'))
+        ChartPanelCell(l?.sleepDetailHeartRate ?? 'Heart rate',
+            color: p.on(C.red), value: reading('hr', 0, 'bpm')),
+      if (recorded('hrv'))
+        ChartPanelCell(l?.sleepDetailHrv ?? 'HRV',
+            color: p.on(C.green), value: reading('hrv', 0, 'ms')),
+      if (recorded('resp'))
+        ChartPanelCell(l?.sleepDetailBreathing ?? 'Breathing',
+            color: p.on(C.teal), value: reading('resp', 1, 'br/min')),
+      if (recorded('skin_temp'))
+        ChartPanelCell(l?.sleepDetailTempRelative ?? 'Temp (rel.)',
+            color: p.on(C.orange),
+            value: at('skin_temp') == null
+                ? null
+                : sleepScrubTempDelta(at('skin_temp')!)),
+    ];
+    if (cells.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: S.x3),
-      child: Surface(
-        color: p.card2,
-        elevation: 0,
-        child: Column(children: [
-          Row(children: [
-            Text(clockOfTs(t),
-                style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-            const Spacer(),
-            if (stage != null)
-              Pill(_stageName(c, stage), Hypnogram.pigment[stage] ?? C.blue)
-            else if (stages.isNotEmpty)
-              // Not a stage, so not a Pill: this instant has no colour because
-              // the band was not recording it.
-              Text(l?.sleepDetailNotMeasuredCap ?? 'Not measured',
-                  style: F.cap.copyWith(color: p.ink3)),
-          ]),
-          if (items.isEmpty) ...[
-            const SizedBox(height: S.x3),
-            Text(l?.sleepDetailNoSignalAtMoment ?? 'No signal recorded at this moment.',
-                style: F.cap.copyWith(color: p.ink3)),
-          ] else ...[
-            const SizedBox(height: S.x4),
-            InlineMetrics(items),
-          ],
-        ]),
+      child: ChartPanel(
+        time: clockOfTs(t),
+        // Every half hour and the wake itself: the caption reserves the
+        // tallest of these, so a scrub never reflows the panel.
+        timeSpan: [
+          for (var s = t0; s < t1; s += 1800) clockOfTs(s),
+          clockOfTs(t1),
+        ],
+        scrubbed: scrubbed,
+        color: stageInk ?? p.ink2,
+        cells: cells,
       ),
     );
   }
@@ -2313,7 +2354,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
                   size: Size.infinite,
                   painter: NightStack(series, colors, axes: axes)),
         ),
-        if (linked && _scrub != null) _scrubCard(c, p, d),
+        if (linked) _scrubPanel(c, p, d, n),
       ]),
     );
   }
