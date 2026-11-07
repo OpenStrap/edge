@@ -25,3 +25,5 @@ reviews:
     # and they are the least likely place for a shipped bug. Re-include them
     # for a PR that is mostly test work.
     - "!test/**"
+  auto_review:
+    drafts: true
