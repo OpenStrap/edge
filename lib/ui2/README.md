@@ -121,6 +121,47 @@ that did not exist.
 `Scrubber` is the only drag: it carries the slider role, so increase/decrease
 reach it without a pointer, and `describe` is what those steps say out loud.
 
+### ChartPanel — what a chart reads, always on screen
+
+```dart
+ChartPanel({required String? time, required bool scrubbed, required Color color,
+            required List<ChartPanelCell> cells, List<ChartPanelCell> stats = const [],
+            List<String> timeSpan = const [], VoidCallback? onOpen, String? openLabel})
+ChartPanelCell(String label, {Color? color, String? value, Color? valueColor})
+```
+
+Put it under a chart that has a `Scrubber`, in the same card. It is there at
+rest and while a finger is on the chart, so the chart never changes height under
+the thumb and nothing is readable only while it is held. There is no pop-in.
+
+- **Caption.** `LATEST · <time>` at rest (the newest reading, or on a night the
+  stage at wake), `SELECTED · <time>` while scrubbing. Neither is a judgement.
+  While scrubbing the caption and a 1.5 pt border take the series colour
+  (`p.on(...)`, so they clear 4.5:1 on `card2`); at rest there is no border.
+- **Box.** `card2` fill, `R.rMd`, no shadow, inset in the chart's card. Its rect
+  is the same at rest, scrubbing, on a gap and at any text size. The caption
+  reserves the height of the tallest of `timeSpan` (every time the panel can
+  show), measured once per span, width, scale and locale, so a day name that
+  wraps in one language cannot move the panel.
+- **Cells.** One per series, each its label and the value at that instant.
+  A series with nothing there reads `—`: never a neighbour's value, never an
+  interpolation. One cell is drawn large; several are equal width, one row when
+  they fit and wrapped when they do not.
+- **Stats.** Summary figures of the one series (`7-day avg`, `vs avg` on metric
+  detail), spoken as one `label value` node. A stat with no value is a dash and
+  is not spoken.
+- **Spoken once.** The `Scrubber` says the selected instant; the caption and the
+  cells are excluded from semantics so it is not said twice. `Scrubber.describe`
+  and the panel must read the same thing at every position.
+- **Open the day.** `onOpen` makes the whole panel an `Open <day>` button of at
+  least 48 dp. Pass it only for a day with a value: an action is a promise, and
+  an empty day has no screen behind it.
+
+The caller owns the reading. Metric detail, readiness and the two sleep charts
+each build the cells from the series the painter draws; the sleep charts read
+the stage from the night's timestamped boundaries (not the resample the painter
+draws) and a signal from its nearest sample within 15 minutes, else a dash.
+
 ### Layout primitives
 
 ```dart

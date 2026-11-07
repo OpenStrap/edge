@@ -900,6 +900,93 @@ Map<String, Widget> extraCases() => {
           ),
         );
       }),
+      // The panel under a chart: at rest (LATEST), then while a finger is on
+      // the chart (SELECTED), the second with a day that has no reading.
+      'chart_panel': Builder(builder: (c) {
+        final p = P.of(c);
+        return Surface(
+          child: Column(children: [
+            ChartPanel(
+              time: 'Today',
+              timeSpan: const ['Today', 'Wednesday, 28 September'],
+              scrubbed: false,
+              color: p.on(C.red),
+              cells: [
+                ChartPanelCell('Resting heart rate',
+                    color: p.on(C.red), value: '52 bpm'),
+              ],
+              stats: const [
+                ChartPanelCell('7-day avg', value: '54 bpm'),
+                ChartPanelCell('vs avg', value: '−2 bpm'),
+              ],
+              onOpen: () {},
+              openLabel: 'Open Today',
+            ),
+            const SizedBox(height: S.x3),
+            ChartPanel(
+              time: 'Wednesday, 28 September',
+              timeSpan: const ['Today', 'Wednesday, 28 September'],
+              scrubbed: true,
+              color: p.on(C.red),
+              cells: [
+                ChartPanelCell('Resting heart rate', color: p.on(C.red)),
+              ],
+              stats: const [
+                ChartPanelCell('7-day avg', value: '54 bpm'),
+                ChartPanelCell('vs avg'),
+              ],
+            ),
+          ]),
+        );
+      }),
+      // Icons and dashed lines over a plot, in a lane above it; the lane alone
+      // below, and every kind of icon.
+      'chart_annotations': Builder(builder: (c) {
+        final p = P.of(c);
+        const set = AnnotationSet(
+          domainStart: 0,
+          domainEnd: 6,
+          items: [
+            ChartAnnotation(
+                id: 'w', kind: AnnotationKind.workout, at: 1, label: 'Run'),
+            ChartAnnotation(
+                id: 'n',
+                kind: AnnotationKind.nap,
+                at: 3,
+                until: 4,
+                label: 'Nap'),
+            ChartAnnotation(
+                id: 'm', kind: AnnotationKind.moment, at: 5, label: 'Meal'),
+          ],
+        );
+        return Surface(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Wrap(spacing: S.x2, children: [
+              for (final k in AnnotationKind.values)
+                AnnotationIcon(kind: k, bold: k == AnnotationKind.workout),
+            ]),
+            const SizedBox(height: S.x3),
+            ChartFrame(
+              title: 'Resting heart rate',
+              unit: 'bpm',
+              height: 96,
+              annotations: set,
+              annotationCursor: .5,
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: LineChart(
+                    const [54, 53, 55, 52, 53, 51, 52], p.on(C.red)),
+              ),
+            ),
+            const SizedBox(height: S.x3),
+            SizedBox(
+              height: ChartAnnotationLane.header + 40,
+              child: const ChartAnnotationLane(
+                  set: set, cursor: null, plotHeight: 40),
+            ),
+          ]),
+        );
+      }),
       'chart_ring': Builder(builder: (c) {
         final p = P.of(c);
         return Surface(
