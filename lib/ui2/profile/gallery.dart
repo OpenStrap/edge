@@ -954,6 +954,7 @@ Map<String, Widget> extraCases() => {
         return Surface(
           child: SlotScrub(
             series: series,
+            anchor: DateTime.now(),
             bars: true,
             label: 'Heart effort by day',
             color: p.on(C.purple),

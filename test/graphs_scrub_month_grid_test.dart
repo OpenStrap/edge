@@ -35,6 +35,7 @@ GridRow _row(String key, {int history = 40}) => GridRow(
       have: kGridDays - 1,
       historyDays: history,
       ranged: true,
+      anchor: DateTime.now(),
     );
 
 /// A page with room to scroll above and below the grid.
@@ -97,6 +98,7 @@ void main() {
       have: 3,
       historyDays: 3,
       ranged: false,
+      anchor: DateTime.now(),
     );
     await t.pumpWidget(scaledApp(1, _page([waiting, _row('readiness')])));
     await t.pumpAndSettle();

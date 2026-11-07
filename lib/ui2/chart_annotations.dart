@@ -497,24 +497,6 @@ String? pickAnnotationFocus({
   return best.a.id;
 }
 
-/// Steps the focus [delta] places through every annotation in layout order
-/// (icons left to right, a cluster's members oldest to newest). Clamped at the
-/// ends; an unknown [current] counts as no focus. From no focus a positive
-/// [delta] lands on the first stop and a negative one on the last. A [delta] of
-/// 0 is not a step: from no focus it returns the LAST stop (current behaviour,
-/// not a promise; callers step by +1 or -1).
-String? stepAnnotationFocus(
-  AnnotationLayout layout,
-  String? current,
-  int delta,
-) {
-  final seq = [for (final i in layout.items) ...i.memberIds];
-  if (seq.isEmpty) return null;
-  final at = current == null ? -1 : seq.indexOf(current);
-  final base = at >= 0 ? at : (delta > 0 ? -1 : seq.length);
-  return seq[(base + delta).clamp(0, seq.length - 1)];
-}
-
 // ── sources ─────────────────────────────────────────────────────────────────
 
 /// An algorithm-version change as annotations, in the daily slot domain

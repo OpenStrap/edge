@@ -609,47 +609,4 @@ void main() {
       });
     }
   });
-
-  group('stepping the focus', () {
-    final pts = [
-      _pt('a', 100), _pt('b', 105), _pt('c', 110), // one icon
-      _pt('d', 200), // alone
-    ];
-    late AnnotationLayout l;
-    setUp(() => l = _lay(pts));
-
-    test('from nothing: forward is the first, back is the last', () {
-      expect(stepAnnotationFocus(l, null, 1), 'a');
-      expect(stepAnnotationFocus(l, null, -1), 'd');
-    });
-
-    test('walks a cluster oldest to newest, then on to the next icon', () {
-      var f = stepAnnotationFocus(l, null, 1);
-      final seen = <String?>[f];
-      for (var i = 0; i < 3; i++) {
-        f = stepAnnotationFocus(l, f, 1);
-        seen.add(f);
-      }
-      expect(seen, ['a', 'b', 'c', 'd']);
-      f = stepAnnotationFocus(l, 'd', -1);
-      expect(f, 'c');
-    });
-
-    test('clamps at both ends', () {
-      expect(stepAnnotationFocus(l, 'd', 1), 'd');
-      expect(stepAnnotationFocus(l, 'a', -1), 'a');
-    });
-
-    test('an unknown current counts as none; an empty chart steps to nothing',
-        () {
-      expect(stepAnnotationFocus(l, 'ghost', 1), 'a');
-      expect(stepAnnotationFocus(_lay(const []), null, 1), isNull);
-    });
-
-    test('a range is one stop', () {
-      final r = _lay([_pt('a', 50), _range('w', 100, 200), _pt('z', 250)]);
-      expect(stepAnnotationFocus(r, 'a', 1), 'w');
-      expect(stepAnnotationFocus(r, 'w', 1), 'z');
-    });
-  });
 }

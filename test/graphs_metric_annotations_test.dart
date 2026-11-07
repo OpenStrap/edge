@@ -161,9 +161,14 @@ void main() {
     });
 
     testWidgets('a failed read draws nothing and does not throw', (t) async {
-      await _open(t, loader: (_, _) async => const <ChartAnnotation>[]);
+      var asked = 0;
+      await _open(t, loader: (_, _) async {
+        asked++;
+        throw StateError('the store cannot be read');
+      });
       await t.tap(_chip);
       await t.pumpAndSettle();
+      expect(asked, 1, reason: 'the loader really was asked, and it threw');
       expect(t.takeException(), isNull);
       expect(_icon('jw'), findsNothing);
       expect(_icon(_algoId), findsOneWidget);

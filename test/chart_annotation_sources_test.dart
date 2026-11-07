@@ -11,8 +11,12 @@
 // the day arithmetic below is built from calendar fields (DateTime(y, m, d,
 // h, m)) exactly as production does — never from a day start plus 86400.
 
+import 'dart:io' show Platform;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/chart_annotations.dart';
+
+import 'support/process_tz.dart';
 
 /// A test that reads the one item a layout should hold must FAIL ON AN
 /// ASSERTION when the layout is empty, not die with a StateError.
@@ -252,5 +256,100 @@ void main() {
       expect(a.length, 1);
       expect(a.one.at, 3.0);
     });
+  });
+
+  // ── across both DST transitions, in a zone that has them ──────────────────
+  //
+  // America/New_York: 2026-03-08 springs forward (a 23 h day), 2026-11-01 falls
+  // back (a 25 h day). The expected slots are literal; the timestamps are
+  // literal UTC seconds, so nothing here is computed the way production does.
+  // A UTC-placed day, or a day that is start + 86400, puts at least one of
+  // these on the wrong slot.
+  group('dailyAnnotations on the local day across DST (New York)', () {
+    final originalTz = Platform.environment['TZ'];
+    setUpAll(() => setProcessTz('America/New_York'));
+    tearDownAll(() => setProcessTz(originalTz));
+
+    test('the fixture timezone actually applied (guards the group)', () {
+      expect(DateTime(2026, 3, 8).timeZoneOffset, const Duration(hours: -5),
+          reason: 'setenv(TZ)+tzset() did not re-home the local calendar; '
+              'the assertions below would be vacuous');
+      expect(DateTime(2026, 3, 9).timeZoneOffset, const Duration(hours: -4));
+    }, skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null);
+
+    const spring = [
+      '2026-03-06',
+      '2026-03-07',
+      '2026-03-08',
+      '2026-03-09',
+      '2026-03-10',
+    ];
+    const fall = [
+      '2026-10-30',
+      '2026-10-31',
+      '2026-11-01',
+      '2026-11-02',
+      '2026-11-03',
+    ];
+
+    Map<String, double> slots(List<String> days, Map<String, int> at) => {
+          for (final a in dailyAnnotations([
+            for (final e in at.entries) _timed(e.key, e.value),
+          ], days))
+            a.id: a.at,
+        };
+
+    test('spring forward: the 23 h day ends at its own midnight', () {
+      expect(
+        slots(spring, {
+          // 23:59:59 EST on 03-07, then 00:00:00 EST on 03-08.
+          'last-of-07': 1772945999,
+          'first-of-08': 1772946000,
+          // 23:59:59 EDT on 03-08 (the 23 h day), then 00:00:00 EDT on 03-09.
+          'last-of-08': 1773028799,
+          'first-of-09': 1773028800,
+        }),
+        {
+          'last-of-07': 1.0,
+          'first-of-08': 2.0,
+          'last-of-08': 2.0,
+          'first-of-09': 3.0,
+        },
+      );
+    }, skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null);
+
+    test('fall back: the 25 h day keeps its extra hour', () {
+      expect(
+        slots(fall, {
+          // 23:59:59 EDT on 10-31, then 00:00:00 EDT on 11-01.
+          'last-of-31': 1793505599,
+          'first-of-01': 1793505600,
+          // 01:30 EDT and the repeated 01:30 EST: both 11-01.
+          'first-130': 1793511000,
+          'second-130': 1793514600,
+          // 23:59:59 EST on 11-01 (25 h after its start), then 00:00:00 EST.
+          'last-of-01': 1793595599,
+          'first-of-02': 1793595600,
+        }),
+        {
+          'last-of-31': 1.0,
+          'first-of-01': 2.0,
+          'first-130': 2.0,
+          'second-130': 2.0,
+          'last-of-01': 2.0,
+          'first-of-02': 3.0,
+        },
+      );
+    }, skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null);
+
+    test('a range over the fall-back day spans its first to its last day', () {
+      final a = dailyAnnotations([
+        // 22:00 EDT on 10-31 to 00:30 EST on 11-02.
+        _timed('trip', 1793498400,
+            until: 1793595600 + 1800, kind: AnnotationKind.review),
+      ], fall);
+      expect(a.one.at, 1.0);
+      expect(a.one.until, 3.0);
+    }, skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null);
   });
 }

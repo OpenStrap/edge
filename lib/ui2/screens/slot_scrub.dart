@@ -3,7 +3,7 @@
 //
 // Used by the Health HRV line, the two Workout bar charts and the month-grid
 // strips, which all share the same shape: `series` has one slot per calendar
-// day, the last slot is today, a null slot is a day with nothing recorded. The
+// day, the last slot is the caller's anchor day, a null slot is a day with nothing recorded. The
 // panel reads LATEST on the newest recorded day and SELECTED on the touched
 // one; a null day reads a dash, never a neighbour.
 import 'package:flutter/material.dart';
@@ -17,6 +17,7 @@ class SlotScrub extends StatefulWidget {
   const SlotScrub({
     super.key,
     required this.series,
+    required this.anchor,
     required this.bars,
     required this.label,
     required this.color,
@@ -24,8 +25,13 @@ class SlotScrub extends StatefulWidget {
     required this.builder,
   });
 
-  /// One slot per calendar day, oldest first, today last.
+  /// One slot per calendar day, oldest first, the last slot on [anchor].
   final List<double?> series;
+
+  /// The calendar day of the last slot: the day the series was built for, not
+  /// the day it is touched. A chart left open across midnight keeps labelling
+  /// its data with the days the data is from.
+  final DateTime anchor;
 
   /// Bars sit in the middle of their slot (`(i + .5) / n`); a line has its
   /// points on the ends (`i / (n - 1)`).
@@ -61,9 +67,9 @@ class _SlotScrubState extends State<SlotScrub> {
   double _at(int i) => widget.bars ? (i + .5) / _n : i / (_n - 1);
 
   String _day(BuildContext c, int slot) {
-    final now = DateTime.now();
+    final a = widget.anchor;
     return dayNavLabel(
-        dayLabelOf(DateTime(now.year, now.month, now.day - (_n - 1 - slot))),
+        dayLabelOf(DateTime(a.year, a.month, a.day - (_n - 1 - slot))),
         AppLocalizations.of(c));
   }
 

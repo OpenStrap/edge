@@ -1295,6 +1295,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     // used to be the newest thirty STORED nights, which after a sync gap could
     // span two months while both axis labels — counted off the array — claimed
     // it spanned thirty. Nights with no record are holes, not joined across.
+    final end = DateTime.now();
     final win = denseDays(pts, days);
     final have = [for (final v in win) ?v];
     final axis = AxisSpec.of(have, ticks: 2);
@@ -1303,6 +1304,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final heading = l?.healthHeartRateVariability ?? 'Heart rate variability';
     return SlotScrub(
       series: win,
+      anchor: end,
       bars: false,
       label: heading,
       color: p.on(C.green),

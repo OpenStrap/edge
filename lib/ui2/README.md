@@ -150,9 +150,15 @@ the thumb and nothing is readable only while it is held. There is no pop-in.
 - **Stats.** Summary figures of the one series (`7-day avg`, `vs avg` on metric
   detail), spoken as one `label value` node. A stat with no value is a dash and
   is not spoken.
-- **Spoken once.** The `Scrubber` says the selected instant; the caption and the
-  cells are excluded from semantics so it is not said twice. `Scrubber.describe`
-  and the panel must read the same thing at every position.
+- **Spoken once, by one owner at a time.** While a finger is on the chart the
+  `Scrubber` speaks the whole selected reading (`describe` carries every value
+  the panel shows, a missing one as "No record") and the panel's caption and
+  cells are excluded. At rest nothing is selected, so the panel speaks the
+  `LATEST · <day>, label value, …` reading itself, as one node, and the slider
+  says only "Nothing selected". `Scrubber.describe` and the panel must read the
+  same thing at every position. A screen with two panels for one instant (the
+  sleep night) speaks each chart's reading once, so each value is heard once per
+  chart.
 - **Open the day.** `onOpen` makes the whole panel an `Open <day>` button of at
   least 48 dp. Pass it only for a day with a value: an action is a promise, and
   an empty day has no screen behind it.
@@ -443,8 +449,12 @@ title instead of truncating it.
 `ChartFrame.annotations` (an `AnnotationSet`) draws an icon per mark in a lane
 above the plot, each with a dashed line down to it; a range shades in its
 kind's colour. Icons never overlap: close marks collapse to one icon with a
-"+n" that steps on tap. The lane needs no strings of its own; the caller's
-`label` is spoken as "kind, label". Metric detail uses two sources:
+"+n" that steps on tap. For a screen reader every icon is a button labelled
+"kind, label" (`annotationKindName` gives the localized kind; the caller's
+`label` is the rest), the "+n" button steps the cluster and names the members
+the icon does not show, and a mark too crowded for any icon is spoken by the
+lane. Dashed lines, shading and the static label are not spoken. Metric detail
+uses two sources:
 
 - algorithm-version marks, always on (provenance);
 - a "Journal marks" chip, OFF by default, that reads nothing until it is turned

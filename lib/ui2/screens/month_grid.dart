@@ -54,10 +54,14 @@ class GridRow {
     required this.have,
     required this.historyDays,
     required this.ranged,
+    required this.anchor,
   });
 
   final MetricSpec spec;
   final String key;
+
+  /// The calendar day of the last cell: the day the row was built.
+  final DateTime anchor;
 
   /// Per day, oldest first: where the day sat against the usual range, or null
   /// for a day with no value or a row with no range.
@@ -89,6 +93,7 @@ List<Side?> sideCells(List<double?> window, UsualRange? band) => [
 
 /// Build one domain's row from its stored points.
 GridRow gridRow(String key, List<ChartPoint> points) {
+  final anchor = DateTime.now();
   final window = denseDays(points, kGridDays);
   final history = [for (final p in points) p.v];
   final band = usualRangeFor(key, history, null);
@@ -99,6 +104,7 @@ GridRow gridRow(String key, List<ChartPoint> points) {
     have: window.where((v) => v != null).length,
     historyDays: history.length,
     ranged: band != null,
+    anchor: anchor,
   );
 }
 
@@ -257,6 +263,7 @@ class MonthGrid extends StatelessWidget {
                     child: SlotScrub(
                       key: ValueKey('grid-scrub:${r.key}'),
                       series: [for (final s in r.cells) s?.index.toDouble()],
+                      anchor: r.anchor,
                       bars: true,
                       label: uiText(c, r.spec.title),
                       color: p.on(r.spec.color),

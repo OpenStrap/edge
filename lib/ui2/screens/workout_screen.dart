@@ -301,6 +301,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     return Surface(
       child: SlotScrub(
         series: d.tonnage7,
+        anchor: end,
         bars: true,
         label: title,
         color: p.on(C.orange),
@@ -411,6 +412,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             final unit = loc?.workoutTrimpUnit ?? 'points';
             return SlotScrub(
               series: d.trimp7,
+              anchor: end,
               bars: true,
               label: title,
               color: p.on(C.purple),

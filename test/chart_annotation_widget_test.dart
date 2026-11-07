@@ -4,7 +4,8 @@
 // pins what a person sees: an icon and a DASHED line per item, bold on the
 // focused one, ONE label that stays where it is while the finger moves, a
 // shaded area per range in the colour of its kind, a "+n" after a crowd's one
-// icon — and that the plot's RepaintBoundary (AGENTS.md §4.11) is untouched.
+// icon — and that a plot in its own RepaintBoundary (AGENTS.md §4.11) is not
+// repainted by the lane.
 //
 // Domain 0..300 over a 300 px lane, so one unit is one pixel. Fixed numbers
 // only; nothing reads the clock.
@@ -521,7 +522,7 @@ void main() {
         expect(node, findsOneWidget, reason: label);
         expect(
             node.evaluate().single,
-            containsSemantics(
+            isSemantics(
                 isButton: true,
                 hasTapAction: true,
                 hasEnabledState: false));
@@ -543,7 +544,7 @@ void main() {
       final more = find.semantics.byLabel(RegExp(r'^\+2'));
       expect(more, findsOneWidget);
       expect(more.evaluate().single,
-          containsSemantics(isButton: true, hasTapAction: true));
+          isSemantics(isButton: true, hasTapAction: true));
       expect(more.evaluate().single.label,
           '+2, Nap, L-b, Moment, L-c',
           reason: 'the members the icon does not show are heard too');
@@ -726,7 +727,12 @@ void main() {
       expect(_label(t).data, 'Drank water');
     });
 
-    testWidgets('scrubbing repaints the lane and never the plot', (t) async {
+    // A component check: this test supplies the plot's own RepaintBoundary and
+    // a painter that never asks to repaint. It shows the lane does not drag a
+    // plot that sits in its own boundary into a repaint. It says nothing about
+    // SleepDetail's plots, whose painters are rebuilt while scrubbing.
+    testWidgets('scrubbing repaints the lane and not a plot in its own '
+        'boundary', (t) async {
       await pumpFrame(t, [_pt('a', 60), _pt('b', 200)]);
       expect(find.byKey(ChartAnnotationLane.laneKey), findsOneWidget,
           reason: 'the frame must draw the annotations it was given');
@@ -740,8 +746,8 @@ void main() {
       await g.up();
       await t.pump();
       expect(painter.paints, before,
-          reason: 'the plot sits inside its RepaintBoundary (section 4.11); '
-              'focus changes must not repaint it');
+          reason: 'a plot inside its own RepaintBoundary (section 4.11) is '
+              'not repainted by focus changes in the lane');
       expect(find.byKey(plotKey), findsOneWidget);
     });
 
