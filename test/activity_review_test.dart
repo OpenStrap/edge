@@ -677,21 +677,24 @@ void main() {
     () async {
       tz_data.initializeTimeZones();
       final rome = tz.getLocation('Europe/Rome');
-      final a = tz.TZDateTime(rome, 2025, 10, 26, 1, 30);
-      final b = tz.TZDateTime(rome, 2025, 10, 26, 3, 30);
+      // The detected bout is 2 h (00:30 -> 02:30 across the fold); the edit
+      // pulls the start 1 h further back, crossing midnight, and stays within
+      // the 3 h nap cap: 3 h exactly.
+      final a = tz.TZDateTime(rome, 2025, 10, 26, 0, 30);
+      final b = tz.TZDateTime(rome, 2025, 10, 26, 2, 30);
       final st = a.millisecondsSinceEpoch ~/ 1000,
           en = b.millisecondsSinceEpoch ~/ 1000;
-      expect(en - st, 3 * 3600); // repeated hour is real elapsed sleep time
+      expect(en - st, 2 * 3600); // repeated hour is real elapsed sleep time
       await db.update('activity_review_meta', {'activated_at': st - 86400});
       final proposal = (await store.reconcile(ActivityKind.nap, [
-        {'start': st, 'end': en, 'duration_min': 150},
+        {'start': st, 'end': en, 'duration_min': 120},
       ])).single;
-      await repo.confirmActivity(proposal, startTs: st - 2 * 3600, endTs: en);
+      await repo.confirmActivity(proposal, startTs: st - 3600, endTs: en);
       final label = dayLabelOf(
-        DateTime.fromMillisecondsSinceEpoch((st - 2 * 3600) * 1000),
+        DateTime.fromMillisecondsSinceEpoch((st - 3600) * 1000),
       );
       final row = (await LocalDb.napEdits(label)).single;
-      expect((row['end_ts'] as int) - (row['start_ts'] as int), 5 * 3600);
+      expect((row['end_ts'] as int) - (row['start_ts'] as int), 3 * 3600);
       // both the detected and the edited start's local day get revised; they
       // are two days only where the host zone puts midnight between them
       final days = (await db.query('activity_review_days'))

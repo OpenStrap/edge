@@ -81,28 +81,28 @@ void main() {
     test('windows outside the shared nap bounds are not exportable', () {
       // The export honors the same 5 min - kMaxNapSec (3 h) bounds as entry:
       // anything longer is a sleep, not a nap, and must not reach HealthKit
-      // as one.
+      // as one. The window starts far enough in the past that even the 3 h
+      // bound ends before nowSec.
+      final s0 = nowSec - 5 * 3600;
       expect(
         napWindowExportable(
             source: 'confirmed',
-            startTs: start,
-            endTs: start + kMinManualNapSec - 60,
+            startTs: s0,
+            endTs: s0 + kMinManualNapSec - 60,
             nowSec: nowSec),
         isFalse,
       );
       expect(
         napWindowExportable(
-            source: 'confirmed',
-            startTs: start,
-            endTs: start + kMaxNapSec,
+            source: 'confirmed', startTs: s0, endTs: s0 + kMaxNapSec,
             nowSec: nowSec),
         isTrue,
       );
       expect(
         napWindowExportable(
             source: 'confirmed',
-            startTs: start,
-            endTs: start + kMaxNapSec + 1,
+            startTs: s0,
+            endTs: s0 + kMaxNapSec + 1,
             nowSec: nowSec),
         isFalse,
       );
@@ -360,8 +360,8 @@ void main() {
     test('one failing row does not skip the remaining naps', () async {
       final second = {
         'source': 'manual',
-        'start_ts': start + 7200,
-        'end_ts': start + 7200 + 1800,
+        'start_ts': start + 3600,
+        'end_ts': start + 5400, // ends in the past
       };
       final writer = FakeNapWriter()..throwOnCallNumber = 1;
       final ok = await exporter(writer: writer, dayRows: [confirmed, second])
