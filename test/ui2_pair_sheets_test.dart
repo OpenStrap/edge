@@ -870,7 +870,8 @@ void main() {
             builder: (c) => Scaffold(
                 body: TextButton(
                     onPressed: () => calls.flow(hasMain: false).afterConnect(
-                        c, byName, kBleHrs, PairOutcome.band(kWhoopGen4)),
+                        c, byName, kBleHrs,
+                        const PairOutcome.band(kWhoopGen4, modelCertain: false)),
                     child: const Text('go')))),
         size: const Size(412, 2000));
     await t.tap(find.text('go'));
@@ -879,6 +880,62 @@ void main() {
     await t.tap(find.text('Pair it as my band'));
     await t.pumpAndSettle();
     expect(calls.openedWith, [('AA:00:00:00:00:44', false)]);
+  });
+
+  testWidgets('(CR 4500539072) a model GATT confirmed is named, even when the name guessed it', (t) async {
+    final calls = _Calls();
+    final byName = (
+      device: BluetoothDevice.fromId('AA:00:00:00:00:45'),
+      label: 'WHOOP 4C0FFEE',
+      rssi: -60,
+      entryId: 'ble_hrs',
+      alsoBand: (entry: kWhoopGen4, modelCertain: false),
+    );
+    await pumpPair(
+        t,
+        Builder(
+            builder: (c) => Scaffold(
+                body: TextButton(
+                    onPressed: () => calls.flow(hasMain: false).afterConnect(
+                        c, byName, kBleHrs, const PairOutcome.band(kWhoopGen4)),
+                    child: const Text('go')))),
+        size: const Size(412, 2000));
+    await t.tap(find.text('go'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Pair it as my band'));
+    await t.pumpAndSettle();
+    expect(calls.openedWith, [('AA:00:00:00:00:45', true)]);
+  });
+
+  testWidgets('(CR 4500539075) a ring found on connect pairs under its own entry', (t) async {
+    // WHY: kept under ble_hrs, a Colmi would be a workout-only strap with no
+    // ring history sync (and fail outright without 0x2A37).
+    final calls = _Calls([const PairOutcome.saved()]);
+    await pumpPair(
+        t,
+        Builder(
+            builder: (c) => Scaffold(
+                body: TextButton(
+                    onPressed: () => calls.flow(hasMain: true).afterConnect(
+                        c, _cand('ble_hrs', label: 'R02_1A2B'), kBleHrs,
+                        const PairOutcome.band(kColmi)),
+                    child: const Text('go')))),
+        size: const Size(412, 2000));
+    await t.tap(find.text('go'));
+    await t.pumpAndSettle();
+    await t.ensureVisible(find.text('Pair Colmi ring'));
+    await t.tap(find.text('Pair Colmi ring'));
+    await t.pumpAndSettle();
+    expect(calls.pairs.map((p) => p.$1), ['colmi']);
+  });
+
+  testWidgets('(CR 4500539075) a ring heard as a heart-rate sensor pairs under its own entry from the list', (t) async {
+    final calls = _Calls();
+    await _tap(t, calls, _cand('ble_hrs', label: 'R02_1A2B', alsoBand: kColmi));
+    await t.ensureVisible(find.text('Pair Colmi ring'));
+    await t.tap(find.text('Pair Colmi ring'));
+    await t.pumpAndSettle();
+    expect(calls.pairs.map((p) => p.$1), ['colmi']);
   });
 
   group('G3 r1 S3: the handoff to the main-band flow', () {

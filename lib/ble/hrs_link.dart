@@ -1463,14 +1463,17 @@ Future<PairOutcome> pairNotifyDevice({
     return const PairOutcome.failed('That sensor disconnected before it '
         'could be set up. Nothing was saved.');
   }
-  final band = bandIdentityFromGatt([for (final s in services) s.uuid]) ??
-      earlierBand?.entry;
+  final gattBand = bandIdentityFromGatt([for (final s in services) s.uuid]);
+  final band = gattBand ?? earlierBand?.entry;
   final confirmedBand = band != null && band.id != entry.id;
   if (confirmedBand) {
     final ok = confirmation != null &&
         confirmation.remoteId == remoteId &&
         confirmation.bandEntryId == band.id;
-    if (!ok) return PairOutcome.band(band);
+    if (!ok) {
+      return PairOutcome.band(band,
+          modelCertain: gattBand != null || earlierBand?.modelCertain != false);
+    }
   }
   final missing = [
     for (final u in entry.requiredCharacteristics)

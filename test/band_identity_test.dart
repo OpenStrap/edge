@@ -652,6 +652,21 @@ void _pairing() {
       expect(p.writes, isEmpty);
     });
 
+    test('(CR 4500539072) a band outcome says whether its model is certain', () async {
+      // WHY: the flow must not guess certainty from whether the entry changed.
+      // GATT proves the model; a name match alone does not.
+      final byName = (entry: kWhoopGen4, modelCertain: false);
+      final proven = await _Pairing().run(kBleHrs,
+          () async => [..._strap(), _svc(kWhoopGen4.service)],
+          earlierBand: byName);
+      expect(proven.isBand?.id, 'gen4');
+      expect(proven.modelCertain, isTrue, reason: 'GATT showed the gen4 service');
+      final nameOnly = await _Pairing().run(kBleHrs, () async => _strap(),
+          earlierBand: byName);
+      expect(nameOnly.isBand?.id, 'gen4');
+      expect(nameOnly.modelCertain, isFalse, reason: 'only the name said WHOOP');
+    });
+
     test('a strap missing its measurement characteristic fails, zero writes', () async {
       // WHY: a row pointing at a device that cannot answer is a sensor that appears paired and never beats.
       final p = _Pairing();

@@ -111,10 +111,15 @@ class PairOutcome {
 
   /// Non-null on a plain failure (nothing was saved).
   final String? error;
-  const PairOutcome._(this.isBand, this.error);
+
+  /// With [isBand]: false when only the device's name said which band it is
+  /// (a WHOOP name cannot tell 4 from 5); true when GATT showed it.
+  final bool modelCertain;
+  const PairOutcome._(this.isBand, this.error, {this.modelCertain = true});
   const PairOutcome.saved() : this._(null, null);
   const PairOutcome.failed(String message) : this._(null, message);
-  const PairOutcome.band(BandEntry entry) : this._(entry, null);
+  const PairOutcome.band(BandEntry entry, {bool modelCertain = true})
+      : this._(entry, null, modelCertain: modelCertain);
   bool get saved => isBand == null && error == null;
 }
 

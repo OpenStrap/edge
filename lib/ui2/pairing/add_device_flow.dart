@@ -129,8 +129,14 @@ class AddDeviceFlow {
       if (choice == BandSheetChoice.asBand || _ownScreen.contains(band.id)) {
         return _handoff(band, cand, modelKnown: modelKnown);
       }
-      // A WHOOP kept as a secondary sensor is paired as a heart-rate sensor.
-      return _pair(c, cand, entry.isFramed ? kBleHrs : entry,
+      // A WHOOP kept as a secondary sensor is paired as a heart-rate sensor;
+      // a ring or a watch pairs under its own entry.
+      final pairAs = !band.canBeMainDevice
+          ? band
+          : entry.isFramed
+              ? kBleHrs
+              : entry;
+      return _pair(c, cand, pairAs,
           confirmation: PairConfirmation(
               remoteId: cand.device.remoteId.str, bandEntryId: band.id));
     }
@@ -208,10 +214,8 @@ class AddDeviceFlow {
     if (found != null) {
       // The connect showed it is a band. Nothing was saved; ask again with
       // that in hand, and re-run only on an explicit yes.
-      // A band the connect named only from the WHOOP name keeps the name's
-      // uncertain model; a different band than the name said is from GATT.
-      final modelKnown = cand.alsoBand?.modelCertain != false ||
-          cand.alsoBand?.entry.id != found.id;
+      // A WHOOP named only by its name keeps the name's uncertain model.
+      final modelKnown = outcome.modelCertain;
       if (!c.mounted) return _r(AddDeviceOutcome.cancelled);
       final choice = await showBandFoundSheet(c,
           band: found,
@@ -229,7 +233,8 @@ class AddDeviceFlow {
         return _handoff(found, cand, modelKnown: modelKnown);
       }
       if (!c.mounted) return _r(AddDeviceOutcome.cancelled);
-      return _pair(c, cand, entry,
+      // A ring or a watch pairs under its own entry, never as a plain sensor.
+      return _pair(c, cand, found.canBeMainDevice ? entry : found,
           confirmation: PairConfirmation(
               remoteId: cand.device.remoteId.str, bandEntryId: found.id));
     }
