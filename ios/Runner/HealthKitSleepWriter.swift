@@ -90,10 +90,12 @@ enum HealthKitSleepWriter {
 
   // A nap removed/rejected in Edge: delete OUR sleepAnalysis samples
   // overlapping the window so the export does not outlive the decision.
-  // [protectStartTime/protectEndTime] (optional, epoch ms) mark the current
-  // main-sleep window: if the night shifted onto a previously exported nap,
-  // samples overlapping that window are kept — deleting them would remove
-  // the user's night from Apple Health.
+  // `protectWindows` (list of {startMs, endMs}) marks the CURRENT main-sleep
+  // windows: if a night shifted onto a previously exported nap, samples
+  // overlapping any of those windows are kept — deleting them would remove
+  // the user's night from Apple Health. Each window is protected separately;
+  // a union span would also cover a nap lying BETWEEN two nights and the
+  // delete would silently keep everything.
   private static func deleteRange(_ args: [String: Any], completion: @escaping (Bool) -> Void) {
     guard let seq = napSeq(args) else {
       completion(false)
@@ -111,10 +113,16 @@ enum HealthKitSleepWriter {
       completion(false)
       return
     }
-    let protectStart = dateMs(args["protectStartTime"])
-    let protectEnd = dateMs(args["protectEndTime"])
+    var protect: [(Date, Date)] = []
+    for raw in (args["protectWindows"] as? [Any] ?? []) {
+      if let m = raw as? [String: Any],
+         let ps = dateMs(m["startMs"]),
+         let pe = dateMs(m["endMs"]), ps < pe {
+        protect.append((ps, pe))
+      }
+    }
     deleteRange(samples: [], type: sleepType, start: start, end: end,
-                protectStart: protectStart, protectEnd: protectEnd, seq: seq, completion: completion)
+                protect: protect, seq: seq, completion: completion)
   }
 
   private static func napSeq(_ args: [String: Any]) -> Int? {
@@ -176,8 +184,7 @@ enum HealthKitSleepWriter {
     type: HKCategoryType,
     start: Date,
     end: Date,
-    protectStart: Date?,
-    protectEnd: Date?,
+    protect: [(Date, Date)],
     seq: Int,
     completion: @escaping (Bool) -> Void
   ) {
@@ -185,7 +192,7 @@ enum HealthKitSleepWriter {
     let sourcePred = HKQuery.predicateForObjects(from: HKSource.default())
     let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [datePred, sourcePred])
     let query = HKSampleQuery(sampleType: type, predicate: pred, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, results, error in
-      guard let samples = results as? [HKCategorySample], error == nil else {
+      guard let found = results as? [HKCategorySample], error == nil else {
         completion(false)
         return
       }
@@ -193,12 +200,9 @@ enum HealthKitSleepWriter {
         completion(false) // superseded while the query was in flight
         return
       }
-      // Samples overlapping the protected main-sleep window are kept.
-      let doomed = samples.filter { s in
-        if let ps = protectStart, let pe = protectEnd {
-          return !(s.startDate < pe && s.endDate > ps)
-        }
-        return true
+      // Samples overlapping ANY protected main-sleep window are kept.
+      let doomed = found.filter { s in
+        !protect.contains { ps, pe in s.startDate < pe && s.endDate > ps }
       }
       guard !doomed.isEmpty else {
         completion(true)

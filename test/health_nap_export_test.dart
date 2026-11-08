@@ -2,6 +2,8 @@
 // overlapping the derived main sleep; delete-then-write makes repeated
 // exports idempotent; removing a nap deletes its Health window.
 
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:openstrap_edge/compute/nap_edits.dart'
@@ -9,26 +11,25 @@ import 'package:openstrap_edge/compute/nap_edits.dart'
 import 'package:openstrap_edge/health/health_nap_export.dart';
 
 class FakeNapWriter implements HealthKitNapWriter {
-  final calls = <({String method, DateTime start, DateTime end, int? protectStartMs, int? protectEndMs})>[];
+  final calls = <({String method, DateTime start, DateTime end, List<Map<String, int>> protect})>[];
   bool nextResult = true;
   bool throwOnCall = false;
   int throwOnCallNumber = 0; // 1-based; 0 = never
 
   @override
   Future<bool> replaceNap({required DateTime start, required DateTime end}) =>
-      _record('replaceNap', start, end, null, null);
+      _record('replaceNap', start, end, const []);
 
   @override
   Future<bool> deleteRange({
     required DateTime start,
     required DateTime end,
-    int? protectStartMs,
-    int? protectEndMs,
+    List<Map<String, int>> protectWindows = const [],
   }) =>
-      _record('deleteNapRange', start, end, protectStartMs, protectEndMs);
+      _record('deleteNapRange', start, end, protectWindows);
 
-  Future<bool> _record(String method, DateTime start, DateTime end, int? ps, int? pe) async {
-    calls.add((method: method, start: start, end: end, protectStartMs: ps, protectEndMs: pe));
+  Future<bool> _record(String method, DateTime start, DateTime end, List<Map<String, int>> protect) async {
+    calls.add((method: method, start: start, end: end, protect: protect));
     final n = calls.length;
     if (throwOnCall || (throwOnCallNumber > 0 && n == throwOnCallNumber)) {
       throw Exception('store error');
@@ -449,7 +450,7 @@ void main() {
       expect(cursors['health_nap_pending_deletes'], '[]');
     });
 
-    test('delete passes the protected main-sleep window to the writer',
+    test('delete passes each protected main-sleep window to the writer',
         () async {
       final writer = FakeNapWriter();
       final e = HealthNapExporter(
@@ -460,6 +461,7 @@ void main() {
         dayNapRows: (d) async => const [],
         overlapsMainSleep: (s, e) async => false,
         mainSleepWindows: (s, e) async => [
+          (onsetMs: (start - 86400) * 1000, offsetMs: (start - 80000) * 1000),
           (onsetMs: (start + 7200) * 1000, offsetMs: (start + 7200 + 8 * 3600) * 1000),
         ],
         getCursor: (n) async => null,
@@ -468,8 +470,67 @@ void main() {
       expect(await e.deleteNapWindow(startTs: start, endTs: end), isTrue);
       final call = writer.calls.single;
       expect(call.method, 'deleteNapRange');
-      expect(call.protectStartMs, (start + 7200) * 1000);
-      expect(call.protectEndMs, (start + 7200 + 8 * 3600) * 1000);
+      expect(call.protect, hasLength(2));
+      expect(call.protect[1]['startMs'], (start + 7200) * 1000);
+    });
+
+    test('a pending delete is dropped when the nap was restored (re-confirmed)',
+        () async {
+      final cursors = <String, String>{
+        'health_nap_pending_deletes':
+            '[{"dayId":"2026-08-03","startTs":$start,"endTs":$end}]',
+      };
+      final writer = FakeNapWriter();
+      final e = exporter(
+        writer: writer,
+        cursors: cursors,
+        row: {'source': 'confirmed', 'start_ts': start, 'end_ts': end},
+      );
+      await e.exportDayNaps('2026-08-03');
+      // Restored nap: the pending delete must NOT be replayed.
+      expect(
+        writer.calls.where((c) => c.method == 'deleteNapRange'),
+        isEmpty,
+      );
+      expect(cursors['health_nap_pending_deletes'], '[]');
+    });
+
+    test('a pending export of another day is retried; an obsolete one dropped',
+        () async {
+      final otherDay = '2026-08-01';
+      final cursors = <String, String>{
+        'health_nap_pending_exports': jsonEncode([
+          {'dayId': otherDay, 'startTs': start, 'endTs': end},
+          {'dayId': '2026-08-02', 'startTs': start + 100, 'endTs': end + 100},
+        ]),
+      };
+      final writer = FakeNapWriter();
+      // The other-day row is still confirmed and unchanged -> retried.
+      // The second entry's row no longer matches -> dropped, never written.
+      final e = HealthNapExporter(
+        writer: writer,
+        isApple: true,
+        healthSyncEnabled: () async => true,
+        napRow: (d, s) async => d == otherDay
+            ? {'source': 'confirmed', 'start_ts': s, 'end_ts': end}
+            : null,
+        dayNapRows: (d) async => const [],
+        overlapsMainSleep: (s, e) async => false,
+        mainSleepWindows: (s, e) async => const [],
+        getCursor: (n) async => cursors[n],
+        setCursor: (n, v) async {
+          cursors[n] = v;
+        },
+      );
+      final ok = await e.exportDayNaps('2026-08-03');
+      expect(ok, isTrue);
+      expect(
+        writer.calls.where((c) => c.method == 'replaceNap'),
+        hasLength(1),
+      );
+      final remaining = jsonDecode(cursors['health_nap_pending_exports']!);
+      expect(remaining, hasLength(1));
+      expect(remaining.single['dayId'], '2026-08-02');
     });
 
     test('exportNapRowAt returns false instead of throwing when the row read fails',

@@ -221,7 +221,8 @@ class _NapsScreenState extends State<NapsScreen> {
         // purpose: a failed delete returns false and is only logged — the
         // next per-day export re-writes the day's remaining naps, and a
         // stale sample here is harmless (it is the app's own window).
-        await HealthNapExporter.deleteExportedNap(startTs: start, endTs: end);
+        await HealthNapExporter.deleteExportedNap(
+            startTs: start, endTs: end, dayId: day);
         });
       });
 

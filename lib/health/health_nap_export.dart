@@ -55,13 +55,12 @@ abstract interface class HealthKitNapWriter {
   Future<bool> replaceNap({required DateTime start, required DateTime end});
 
   /// Delete our own sleepAnalysis samples overlapping [start, end), except
-  /// those overlapping [protectStartMs, protectEndMs) (the current main-sleep
-  /// window in epoch ms, when known).
+  /// those overlapping any window in [protectWindows] (the current main-sleep
+  /// windows as {'startMs', 'endMs'} maps, epoch ms).
   Future<bool> deleteRange({
     required DateTime start,
     required DateTime end,
-    int? protectStartMs,
-    int? protectEndMs,
+    List<Map<String, int>> protectWindows = const [],
   });
 }
 
@@ -90,14 +89,12 @@ class MethodChannelHealthKitNapWriter implements HealthKitNapWriter {
   Future<bool> deleteRange({
     required DateTime start,
     required DateTime end,
-    int? protectStartMs,
-    int? protectEndMs,
+    List<Map<String, int>> protectWindows = const [],
   }) =>
       _invoke('deleteNapRange', {
         'startTime': start.millisecondsSinceEpoch,
         'endTime': end.millisecondsSinceEpoch,
-        if (protectStartMs != null) 'protectStartTime': protectStartMs,
-        if (protectEndMs != null) 'protectEndTime': protectEndMs,
+        'protectWindows': protectWindows,
         'seq': ++_seq,
       });
 
@@ -257,7 +254,9 @@ class HealthNapExporter {
   static Future<bool> deleteExportedNap({
     required int startTs,
     required int endTs,
-  }) => shared.deleteNapWindow(startTs: startTs, endTs: endTs);
+    String? dayId,
+  }) =>
+      shared.deleteNapWindow(startTs: startTs, endTs: endTs, dayId: dayId);
 
   Future<bool> exportNap({
     required String dayId,
@@ -353,13 +352,35 @@ class HealthNapExporter {
         if (startTs is! num || endTs is! num) continue;
         consider(startTs.toInt(), endTs.toInt(), source is String ? source : null);
       }
-      // Retry previously failed exports of THIS day (failed writes on days
-      // behind the export cursor would otherwise never be retried).
+      // Retry previously failed exports of ANY day (failed writes on days
+      // behind the export cursor would otherwise never be retried). Each
+      // queued entry is revalidated against the CURRENT row before writing:
+      // if the nap was since removed/rejected or its window changed, the
+      // entry is obsolete and dropped instead of recreating it in Health.
       for (final p in await _pendingList(_kPendingNapExports)) {
-        if (p['dayId'] != dayId) continue;
+        final pDay = p['dayId'];
         final s = p['startTs'], e = p['endTs'];
-        if (s is! num || e is! num) continue;
-        consider(s.toInt(), e.toInt(), 'confirmed');
+        if (pDay is! String || s is! num || e is! num) {
+          await _removePendingEntry(_kPendingNapExports, p); // drop malformed
+          continue;
+        }
+        Map<String, dynamic>? current;
+        try {
+          current = await _napRow(pDay, s.toInt());
+        } catch (_) {
+          continue; // DB down — keep the entry for a later pass
+        }
+        final source = current?['source'];
+        final storedEnd = current?['end_ts'];
+        final stillValid =
+            (source == 'confirmed' || source == 'manual') &&
+            storedEnd is num &&
+            storedEnd.toInt() == e.toInt();
+        if (!stillValid) {
+          await _removePending(_kPendingNapExports, pDay, s.toInt());
+          continue;
+        }
+        consider(s.toInt(), e.toInt(), source as String);
       }
 
       var ok = true;
@@ -404,41 +425,39 @@ class HealthNapExporter {
   Future<bool> deleteNapWindow({
     required int startTs,
     required int endTs,
+    String? dayId,
   }) => synchronized(() async {
     try {
       if (!isApple) return false;
       if (!await _healthSyncEnabled()) return false;
       if (endTs <= startTs) return false;
-      // Protect the current main-sleep window: if the night shifted onto a
-      // previously exported nap, its samples must survive the nap delete.
-      int? protectStartMs, protectEndMs;
-      try {
-        final windows = await _mainSleepWindows(startTs, endTs);
-        if (windows.isNotEmpty) {
-          protectStartMs = windows.map((w) => w.onsetMs).reduce((a, b) => a < b ? a : b);
-          protectEndMs = windows.map((w) => w.offsetMs).reduce((a, b) => a > b ? a : b);
-        }
-      } catch (e) {
-        debugPrint('[health] nap protect-window lookup: $e');
-      }
+      // Protect EACH current main-sleep window separately: if a night
+      // shifted onto a previously exported nap, its samples must survive the
+      // nap delete. A failed lookup must NOT proceed unprotected — it
+      // propagates to the outer catch, which queues the delete for retry.
+      final windows = await _mainSleepWindows(startTs, endTs);
+      final protect = [
+        for (final w in windows) {'startMs': w.onsetMs, 'endMs': w.offsetMs},
+      ];
       final deleted = await _writer.deleteRange(
         start: DateTime.fromMillisecondsSinceEpoch(startTs * 1000),
         end: DateTime.fromMillisecondsSinceEpoch(endTs * 1000),
-        protectStartMs: protectStartMs,
-        protectEndMs: protectEndMs,
+        protectWindows: protect,
       );
       if (!deleted) {
         await _recordPending(_kPendingNapDeletes, {
+          'dayId': dayId,
           'startTs': startTs,
           'endTs': endTs,
         });
       } else {
-        await _removePending(_kPendingNapDeletes, null, startTs);
+        await _removePending(_kPendingNapDeletes, dayId, startTs);
       }
       return deleted;
     } catch (e) {
       debugPrint('[health] deleteNapWindow $startTs-$endTs: $e');
       await _recordPending(_kPendingNapDeletes, {
+        'dayId': dayId,
         'startTs': startTs,
         'endTs': endTs,
       });
@@ -447,31 +466,46 @@ class HealthNapExporter {
   });
 
   /// Retry every pending nap delete (a failed delete leaves the removed
-  /// nap's samples in Apple Health). Successful ones are dropped from the
-  /// cursor list.
+  /// nap's samples in Apple Health). Before replaying, each entry is
+  /// reconciled with the CURRENT row: if the nap was restored ("put back")
+  /// and is confirmed again, the pending delete is dropped — replaying it
+  /// would remove the restored nap from Apple Health. A failed protection
+  /// lookup keeps the entry (never delete unprotected). Successful deletes
+  /// are dropped from the cursor list.
   Future<void> _retryPendingDeletes() async {
     final pending = await _pendingList(_kPendingNapDeletes);
     if (pending.isEmpty) return;
     for (final p in pending) {
       final s = p['startTs'], e = p['endTs'];
       if (s is! num || e is! num || e <= s) continue;
+      final dayId = p['dayId'];
       try {
-        int? protectStartMs, protectEndMs;
-        final windows = await _mainSleepWindows(s.toInt(), e.toInt());
-        if (windows.isNotEmpty) {
-          protectStartMs = windows.map((w) => w.onsetMs).reduce((a, b) => a < b ? a : b);
-          protectEndMs = windows.map((w) => w.offsetMs).reduce((a, b) => a > b ? a : b);
+        if (dayId is String) {
+          final row = await _napRow(dayId, s.toInt());
+          final source = row?['source'];
+          final storedEnd = row?['end_ts'];
+          if ((source == 'confirmed' || source == 'manual') &&
+              storedEnd is num &&
+              storedEnd.toInt() == e.toInt()) {
+            // Restored after the failed delete — the pending delete is stale.
+            await _removePending(_kPendingNapDeletes, dayId, s.toInt());
+            continue;
+          }
         }
+        final windows = await _mainSleepWindows(s.toInt(), e.toInt());
+        final protect = [
+          for (final w in windows) {'startMs': w.onsetMs, 'endMs': w.offsetMs},
+        ];
         if (await _writer.deleteRange(
           start: DateTime.fromMillisecondsSinceEpoch(s.toInt() * 1000),
           end: DateTime.fromMillisecondsSinceEpoch(e.toInt() * 1000),
-          protectStartMs: protectStartMs,
-          protectEndMs: protectEndMs,
+          protectWindows: protect,
         )) {
-          await _removePending(_kPendingNapDeletes, null, s.toInt());
+          await _removePending(_kPendingNapDeletes, dayId is String ? dayId : null, s.toInt());
         }
-      } catch (e) {
-        debugPrint('[health] retry pending nap delete $s-$e: $e');
+      } catch (err) {
+        // Lookup or store failure: keep the entry for a later pass.
+        debugPrint('[health] retry pending nap delete $s-$e: $err');
       }
     }
   }
@@ -502,6 +536,16 @@ class HealthNapExporter {
       }
     } catch (e) {
       debugPrint('[health] record pending nap op: $e');
+    }
+  }
+
+  Future<void> _removePendingEntry(String key, Map<String, dynamic> entry) async {
+    try {
+      final list = await _pendingList(key);
+      list.removeWhere((e) => e['startTs'] == entry['startTs'] && e['endTs'] == entry['endTs']);
+      await _setCursor(key, jsonEncode(list));
+    } catch (e) {
+      debugPrint('[health] remove pending nap entry: $e');
     }
   }
 

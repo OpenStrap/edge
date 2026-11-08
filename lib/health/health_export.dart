@@ -1270,8 +1270,11 @@ class HealthExporter {
         DateTime(dayStart.year, dayStart.month, dayStart.day - 1),
       );
       try {
-        if (!await HealthNapExporter.shared.exportDayNaps(date) ||
-            !await HealthNapExporter.shared.exportDayNaps(prevDate)) {
+        // Both days independently: a failure on one must not skip the other —
+        // the cleanup may already have deleted that day's nap samples.
+        final todayOk = await HealthNapExporter.shared.exportDayNaps(date);
+        final prevOk = await HealthNapExporter.shared.exportDayNaps(prevDate);
+        if (!todayOk || !prevOk) {
           debugPrint('[health] write Apple naps returned false');
           success = false;
         }
