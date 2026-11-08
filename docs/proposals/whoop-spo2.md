@@ -75,8 +75,10 @@ the confidence level stated.
 - "Matches the WHOOP app" is agreement, not validation; only a reference
   oximeter (or PSG-grade device) validates. We state this explicitly, following
   the precedent in `vendor-staged-sleep.md`.
-- The gen4 byte-5 claim is single-source and contradicted by the sleep-only
-  measurement reports; we treat it as unverified.
+- The gen4 byte-5 claim is single-source; the sleep-only measurement reports
+  do NOT contradict it (a realtime packet can carry SpO2 only during sleep,
+  which is consistent with the claim). It stays unverified because it has one
+  source and no ground-truth validation.
 - No project anywhere publishes a live (daytime) SpO2 for any WHOOP
   generation. The realistic product surface is a nightly sleep SpO2 for
   5/MG, plus at most a raw/diagnostic byte for gen4.
@@ -94,8 +96,9 @@ the confidence level stated.
      CRC flag only** — no percentage publishing. Resolve the characteristic
      UUID discrepancy from real captures first.
    - Tests from real frames; extend parity fixtures where applicable.
-2. **whoop-rs** — DEFERRED: current scope is `protocol` + `edge` only. When
-   picked up: mirror the decoders in `whoop-protocol` (live 96-byte packet,
+2. **whoop-rs** — DEFERRED. Current scope is `protocol` + `edge` + `analytics`
+   (analytics owns the nightly metric, see step 3); only whoop-rs is out of
+   scope for now. When picked up: mirror the decoders in `whoop-protocol` (live 96-byte packet,
    v18 byte 82 interpretation), expose raw values via `whoop-ffi`; keep the
    existing `spo2_pct` v18 and `spo2_from_paired` paths unchanged.
 3. **edge** — pass through the band-reported `deviceSpo2` samples for
@@ -107,9 +110,12 @@ the confidence level stated.
      workstream lands: gen5 byte 82 stays raw until its encoding (bit-7 flag)
      is pinned and validated against a reference device; gen4 byte 5 stays
      diagnostic, never user-facing, until ground-truth validated.
-   - Diagnostics stay RAM-ONLY, never in `_log`/FileLog: FileLog writes to
-     Android external storage (`lib/sync/file_log.dart`), so a timestamped
-     candidate/sleep line there is readable by other apps (CWE-532).
+   - Diagnostics stay RAM-ONLY, never in `_log`/FileLog. FileLog persists to
+     Android external storage (`lib/sync/file_log.dart`): on Android ≤10 other
+     apps with storage permission can read it (CWE-532), and on 11+ the
+     app-specific dir is no longer cross-app readable — but the data would
+     still be PERSISTED, which is the primary reason health diagnostics stay
+     in RAM.
    - Respect invariants: live streams RAM-only (inv. 14), never fabricate a
      metric (inv. 3), bump `kAlgoVersion` when any output changes (inv. 4).
 4. **Validation workstream** (prerequisite for ANY user-facing SpO2 value,
@@ -129,9 +135,19 @@ the confidence level stated.
    pigmentation); accuracy is assessed per range/group, and a degenerate
    constant estimate (all reference samples ~97%) must NOT open the gate.
    BURST COVERAGE: the reference must provide time-aligned readings for EVERY
-   burst used in the nightly aggregate, and both aggregates must use the SAME
-   weights — sparse reference samples can match the nightly device output while
-   missing errors during most of the night. Gen4 has NO nightly SpO2 output —
+   burst used in the nightly aggregate — sparse reference samples can match the
+   nightly device output while missing errors during most of the night — and
+   MINIMUM SLEEP-WINDOW COVERAGE must be defined with an independent check for
+   omitted bursts before approving a nightly estimate (data loss leaving only a
+   few bursts must not pass the gate). WINDOW MEMBERSHIP: included/excluded
+   bursts are checked independently against the band-declared sleep boundaries,
+   and the reference aggregate is constructed from the correct window — two
+   aggregates sharing the same WRONG window can match each other. WEIGHTS: the
+   expected burst weights are defined independently and the implementation is
+   checked against them; the reference aggregate must NOT copy the device's
+   weights (e.g. bursts of 90/90/99 with weights 1/1/8 yield 97.2 instead of
+   the equal-weight mean 93 — a weighting defect the copied weights would
+   conceal). Gen4 has NO nightly SpO2 output —
    its byte 5 is a live-stream byte only — so any Gen4 display gate must
    instead use time-aligned LIVE reference measurements (same accuracy
    thresholds: MAE <= 2 pp, |bias| <= 1 pp, 95% LoA within +/-4 pp), never the
