@@ -1867,6 +1867,7 @@
   "activityPickerNoMatchBody": "活动库收录了约七十项已公布能耗数据的活动，请选择最接近的一项。",
   "activityPickerQuickStart": "快速开始",
   "activityPickerRecent": "最近使用",
+  "activityPickerMostDone": "最常用",
   "activityPickerCalorieEstimatesTitle": "卡路里数值为估算值",
   "activityPickerMetValue": "{met} MET",
   "activityPickerKcalPer30": "{kcal} 千卡 / 30 分钟",

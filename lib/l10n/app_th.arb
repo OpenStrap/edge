@@ -9635,6 +9635,7 @@
   "@activityPickerRecent": {
     "description": "Section heading over the recent-activities row"
   },
+  "activityPickerMostDone": "ใช้บ่อยที่สุด",
   "activityPickerCalorieEstimatesTitle": "ตัวเลขแคลอรีเป็นค่าประมาณ",
   "@activityPickerCalorieEstimatesTitle": {
     "description": "Status card title explaining that calorie figures are estimates"

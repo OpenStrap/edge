@@ -4469,6 +4469,7 @@
   "activityPickerNoMatchBody": "В каталоге около семидесяти активностей с опубликованными энергозатратами. Выберите ближайшую.",
   "activityPickerQuickStart": "БЫСТРЫЙ СТАРТ",
   "activityPickerRecent": "НЕДАВНИЕ",
+  "activityPickerMostDone": "ЧАЩЕ ВСЕГО",
   "activityPickerCalorieEstimatesTitle": "Калории — оценочные значения",
   "activityPickerMetValue": "{met}× от покоя",
   "@activityPickerMetValue": {

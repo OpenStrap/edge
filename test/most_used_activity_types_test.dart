@@ -81,7 +81,9 @@ void main() {
 
     final rows =
         await LocalDb.mostUsedActivityTypes(sinceTs: _t0 - 90 * 86400, limit: 2);
-    expect([for (final r in rows) r['type']], ['running', 'yoga']);
+    // Both types have n=1 inside the window, so the tiebreaker decides:
+    // yoga was used more recently than running.
+    expect([for (final r in rows) r['type']], ['yoga', 'running']);
     expect(rows.first['n'], 1,
         reason: 'the 200-day-old run is outside the window');
   });

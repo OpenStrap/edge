@@ -1867,6 +1867,7 @@
   "activityPickerNoMatchBody": "कैटलॉग में प्रकाशित ऊर्जा खर्च वाली लगभग सत्तर गतिविधियाँ शामिल हैं। सबसे नज़दीकी गतिविधि चुनें।",
   "activityPickerQuickStart": "क्विक स्टार्ट",
   "activityPickerRecent": "हाल की",
+  "activityPickerMostDone": "सबसे अधिक उपयोग की गईं",
   "activityPickerCalorieEstimatesTitle": "कैलोरी आंकड़े अनुमानित हैं",
   "activityPickerMetValue": "{met} MET",
   "activityPickerKcalPer30": "{kcal} kcal / 30 मिनट",
