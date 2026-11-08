@@ -1874,6 +1874,7 @@ class _LiveStrengthState extends State<LiveStrength> {
         logged.remove(targetSet);
       } else {
         final idx = logged.indexOf(targetSet);
+        final isLatest = idx >= 0 && idx == logged.length - 1;
         if (idx >= 0) {
           logged[idx] = targetSet.copyWith(
             loadKg: res.loadKg,
@@ -1881,7 +1882,7 @@ class _LiveStrengthState extends State<LiveStrength> {
             reps: res.reps,
           );
         }
-        if (targetSet == logged.lastOrNull) {
+        if (isLatest) {
           if (res.loadKg != null) {
             kg = res.loadKg!;
             bodyweight = false;
@@ -1896,6 +1897,7 @@ class _LiveStrengthState extends State<LiveStrength> {
   }
 
   static double _step(double val, double delta, UnitsController? u) {
+    if (delta == 0) return val;
     if (u != null && u.isImperial) {
       final currentLb = u.weightValue(val);
       final stepLb = delta > 0 ? 5.0 : -5.0;

@@ -2365,7 +2365,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   for (var i = 0;
                       i < r.strength.forExercise(key).length;
                       i++) ...[
-                    _setRow(p, i + 1, r.strength.forExercise(key)[i]),
+                    _setRow(
+                        p, i + 1, r.strength.forExercise(key)[i], key, i),
                     if (i < r.strength.forExercise(key).length - 1)
                       Divider(color: p.line, height: 1),
                   ],
@@ -2507,7 +2508,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     }
   }
 
-  Future<void> _editSet(LoggedSet s, int n) async {
+  Future<void> _editSet(LoggedSet s, int n,
+      [String? exerciseKey, int? setIndexInExercise]) async {
     final res = await showEditSetDialog(
       context,
       set: s,
@@ -2516,17 +2518,25 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     );
     if (!mounted || res == null) return;
     final updated = List<LoggedSet>.of(r.strength.sets);
-    final idx = updated.indexWhere((x) =>
-        identical(x, s) ||
-        (x.at == s.at &&
-            x.exerciseKey == s.exerciseKey &&
-            x.reps == s.reps &&
-            x.loadKg == s.loadKg));
+    var idx = -1;
+    if (exerciseKey != null && setIndexInExercise != null) {
+      var count = 0;
+      for (var j = 0; j < updated.length; j++) {
+        if (updated[j].exerciseKey == exerciseKey) {
+          if (count == setIndexInExercise) {
+            idx = j;
+            break;
+          }
+          count++;
+        }
+      }
+    }
+    if (idx < 0) idx = updated.indexOf(s);
     if (idx < 0) return;
     if (res.deleted) {
       updated.removeAt(idx);
     } else {
-      updated[idx] = s.copyWith(
+      updated[idx] = updated[idx].copyWith(
         loadKg: res.loadKg,
         clearLoadKg: res.loadKg == null,
         reps: res.reps,
@@ -2542,15 +2552,22 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           strengthSetsToRows(updated),
         );
       } catch (_) {
-        // Ignored; local state already updated
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(uiText(context, 'Failed to save changes')),
+            ),
+          );
+        }
       }
     }
   }
 
-  Widget _setRow(P p, int n, LoggedSet s) {
+  Widget _setRow(P p, int n, LoggedSet s,
+      [String? exerciseKey, int? setIndexInExercise]) {
     final l = AppLocalizations.of(context);
     return Pressable(
-      onTap: () => _editSet(s, n),
+      onTap: () => _editSet(s, n, exerciseKey, setIndexInExercise),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x3),
         child: Row(children: [

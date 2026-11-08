@@ -1698,6 +1698,19 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   return out;
 }
 
+String _parseNote(Object? val) {
+  if (val == null) return '';
+  if (val is String) return val;
+  if (val is List<int>) {
+    try {
+      return String.fromCharCodes(val);
+    } catch (_) {
+      return '';
+    }
+  }
+  return '$val';
+}
+
 /// `strength_set` rows → the log the summary renders. `load_kg` stays null
 /// when it was null: a bodyweight set is not a zero-kilo set.
 StrengthLog _logFrom(List<Map<String, Object?>> rows) => StrengthLog([
@@ -1709,7 +1722,7 @@ StrengthLog _logFrom(List<Map<String, Object?>> rows) => StrengthLog([
           rpe: (r['rpe'] as num?)?.toInt(),
           restSec: (r['rest_sec'] as num?)?.toInt(),
           holdSec: (r['hold_sec'] as num?)?.toInt(),
-          note: (r['note'] as String?) ?? '',
+          note: _parseNote(r['note']),
           at: DateTime.fromMillisecondsSinceEpoch(
               ((r['at_ts'] as num?)?.toInt() ?? 0) * 1000),
         ),
