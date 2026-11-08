@@ -2030,6 +2030,52 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('retry save synchronizes edited strength sets',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      final initialSets = [
+        LoggedSet('bench_press', 8, loadKg: 50.0, at: DateTime.now()),
+      ];
+      final draft = _result(Arch.strength).copyWith(
+        strength: StrengthLog(initialSets),
+      );
+
+      ActivityResult? savedResult;
+      await tester.pumpWidget(_frame(
+          ActivitySummary(draft, weightKg: 75.0, onRetrySave: () async {
+            savedResult = draft.copyWith(sessionId: 'sess-saved-1');
+            return savedResult!;
+          }),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('This session is not saved yet'), findsOneWidget);
+
+      await tester.tap(find.text('Splits'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('50 kg × 8'));
+      await tester.pumpAndSettle();
+
+      final textFields = find.byType(TextField);
+      await tester.enterText(textFields.first, '55');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Overview'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Try again'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('This session is not saved yet'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('the picker lists every activity and searches by name',
         (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 1400 * 3);

@@ -1421,7 +1421,23 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     setState(() => _saving = true);
     var ok = false;
     try {
-      await widget.onRetrySave!();
+      final saved = await widget.onRetrySave!();
+      if (saved.sessionId != null) {
+        try {
+          await LocalDb.replaceStrengthSets(
+            saved.sessionId!,
+            strengthSetsToRows(r.strength.sets),
+          );
+        } catch (_) {}
+      }
+      if (mounted) {
+        setState(() {
+          _rated = saved.copyWith(
+            rpe: _rated?.rpe ?? saved.rpe,
+            strength: r.strength,
+          );
+        });
+      }
       ok = true;
     } catch (_) {
       ok = false;
@@ -2616,9 +2632,30 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         );
       } catch (_) {
         if (mounted) {
+          final l = AppLocalizations.of(context);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(uiText(context, 'Failed to save changes')),
+              action: SnackBarAction(
+                label: l?.reportSaveRetry ?? 'Try again',
+                onPressed: () async {
+                  try {
+                    await LocalDb.replaceStrengthSets(
+                      sid,
+                      strengthSetsToRows(updated),
+                    );
+                  } catch (_) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content:
+                              Text(uiText(context, 'Failed to save changes')),
+                        ),
+                      );
+                    }
+                  }
+                },
+              ),
             ),
           );
         }
