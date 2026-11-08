@@ -9,21 +9,26 @@ import 'package:openstrap_edge/compute/nap_edits.dart'
 import 'package:openstrap_edge/health/health_nap_export.dart';
 
 class FakeNapWriter implements HealthKitNapWriter {
-  final calls = <({String method, DateTime start, DateTime end})>[];
+  final calls = <({String method, DateTime start, DateTime end, int? protectStartMs, int? protectEndMs})>[];
   bool nextResult = true;
   bool throwOnCall = false;
   int throwOnCallNumber = 0; // 1-based; 0 = never
 
   @override
   Future<bool> replaceNap({required DateTime start, required DateTime end}) =>
-      _record('replaceNap', start, end);
+      _record('replaceNap', start, end, null, null);
 
   @override
-  Future<bool> deleteRange({required DateTime start, required DateTime end}) =>
-      _record('deleteNapRange', start, end);
+  Future<bool> deleteRange({
+    required DateTime start,
+    required DateTime end,
+    int? protectStartMs,
+    int? protectEndMs,
+  }) =>
+      _record('deleteNapRange', start, end, protectStartMs, protectEndMs);
 
-  Future<bool> _record(String method, DateTime start, DateTime end) async {
-    calls.add((method: method, start: start, end: end));
+  Future<bool> _record(String method, DateTime start, DateTime end, int? ps, int? pe) async {
+    calls.add((method: method, start: start, end: end, protectStartMs: ps, protectEndMs: pe));
     final n = calls.length;
     if (throwOnCall || (throwOnCallNumber > 0 && n == throwOnCallNumber)) {
       throw Exception('store error');
@@ -39,15 +44,27 @@ HealthNapExporter exporter({
   Map<String, dynamic>? row,
   List<Map<String, dynamic>>? dayRows,
   bool overlaps = false,
-}) =>
-    HealthNapExporter(
-      writer: writer,
-      isApple: isApple,
-      healthSyncEnabled: () async => healthSync,
-      napRow: (dayId, startTs) async => row,
-      dayNapRows: (dayId) async => dayRows ?? (row == null ? [] : [row]),
-      overlapsMainSleep: (s, e) async => overlaps,
-    );
+  Map<String, String>? cursors,
+  bool throwOnNapRow = false,
+}) {
+  final store = cursors ?? <String, String>{};
+  return HealthNapExporter(
+    writer: writer,
+    isApple: isApple,
+    healthSyncEnabled: () async => healthSync,
+    napRow: (dayId, startTs) async {
+      if (throwOnNapRow) throw Exception('db down');
+      return row;
+    },
+    dayNapRows: (dayId) async => dayRows ?? (row == null ? [] : [row]),
+    overlapsMainSleep: (s, e) async => overlaps,
+    mainSleepWindows: (s, e) async => const [],
+    getCursor: (name) async => store[name],
+    setCursor: (name, value) async {
+      store[name] = value;
+    },
+  );
+}
 
 void main() {
   // Derived from the real clock: exportNap validates "not in the future"
@@ -371,6 +388,96 @@ void main() {
         writer.calls.where((c) => c.method == 'replaceNap'),
         hasLength(2),
       );
+    });
+
+    test('overlapping nap rows do not erase each other — first wins', () async {
+      final overlap = {
+        'source': 'manual',
+        'start_ts': start + 600,
+        'end_ts': start + 2400,
+      };
+      final writer = FakeNapWriter();
+      final ok = await exporter(writer: writer, dayRows: [confirmed, overlap])
+          .exportDayNaps('2026-08-03');
+      expect(ok, isTrue);
+      expect(
+        writer.calls.where((c) => c.method == 'replaceNap'),
+        hasLength(1),
+      );
+    });
+
+    test('a failed export is queued for retry and retried on the next pass',
+        () async {
+      final cursors = <String, String>{};
+      final writer = FakeNapWriter()..nextResult = false;
+      final e = exporter(
+        writer: writer,
+        row: {'source': 'confirmed', 'start_ts': start, 'end_ts': end},
+        cursors: cursors,
+      );
+      expect(
+        await e.exportNap(dayId: '2026-08-03', startTs: start, endTs: end),
+        isFalse,
+      );
+      expect(cursors['health_nap_pending_exports'], contains('"startTs":$start'));
+      // Next day pass: writer now succeeds, retry is attempted and cleared.
+      writer.nextResult = true;
+      final ok = await e.exportDayNaps('2026-08-03');
+      expect(ok, isTrue);
+      expect(
+        writer.calls.where((c) => c.method == 'replaceNap'),
+        hasLength(1),
+      );
+      expect(cursors['health_nap_pending_exports'], '[]');
+    });
+
+    test('a failed delete is queued and retried by the day pass', () async {
+      final cursors = <String, String>{};
+      final writer = FakeNapWriter()..nextResult = false;
+      final e = exporter(writer: writer, cursors: cursors);
+      expect(
+        await e.deleteNapWindow(startTs: start, endTs: end),
+        isFalse,
+      );
+      expect(cursors['health_nap_pending_deletes'], contains('"startTs":$start'));
+      writer.nextResult = true;
+      await e.exportDayNaps('2026-08-03');
+      expect(
+        writer.calls.where((c) => c.method == 'deleteNapRange'),
+        hasLength(1),
+      );
+      expect(cursors['health_nap_pending_deletes'], '[]');
+    });
+
+    test('delete passes the protected main-sleep window to the writer',
+        () async {
+      final writer = FakeNapWriter();
+      final e = HealthNapExporter(
+        writer: writer,
+        isApple: true,
+        healthSyncEnabled: () async => true,
+        napRow: (d, s) async => null,
+        dayNapRows: (d) async => const [],
+        overlapsMainSleep: (s, e) async => false,
+        mainSleepWindows: (s, e) async => [
+          (onsetMs: (start + 7200) * 1000, offsetMs: (start + 7200 + 8 * 3600) * 1000),
+        ],
+        getCursor: (n) async => null,
+        setCursor: (n, v) async {},
+      );
+      expect(await e.deleteNapWindow(startTs: start, endTs: end), isTrue);
+      final call = writer.calls.single;
+      expect(call.method, 'deleteNapRange');
+      expect(call.protectStartMs, (start + 7200) * 1000);
+      expect(call.protectEndMs, (start + 7200 + 8 * 3600) * 1000);
+    });
+
+    test('exportNapRowAt returns false instead of throwing when the row read fails',
+        () async {
+      final writer = FakeNapWriter();
+      final e = exporter(writer: writer, throwOnNapRow: true);
+      expect(await e.exportNapRowAt(dayId: '2026-08-03', startTs: start), isFalse);
+      expect(writer.calls, isEmpty);
     });
   });
 }

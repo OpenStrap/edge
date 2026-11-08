@@ -1261,12 +1261,25 @@ class HealthExporter {
         success = false;
       }
       // The sleep replace's noon-to-noon cleanup window covers the wake day's
-      // afternoon too, so it deletes OUR nap samples there. Re-write this
-      // day's confirmed naps after it on every pass (delete-then-write, so
-      // idempotent) — otherwise the next re-derive of a non-finalized day
-      // would silently remove a nap the user confirmed.
-      if (!await HealthNapExporter.shared.exportDayNaps(date)) {
-        debugPrint('[health] write Apple naps returned false');
+      // afternoon AND can reach into the previous calendar day, so it deletes
+      // OUR nap samples there. Re-write the confirmed naps of BOTH days after
+      // it on every pass (delete-then-write, so idempotent) — otherwise the
+      // next re-derive of a non-finalized day would silently remove a nap the
+      // user confirmed.
+      final prevDate = dayLabelOf(
+        DateTime(dayStart.year, dayStart.month, dayStart.day - 1),
+      );
+      try {
+        if (!await HealthNapExporter.shared.exportDayNaps(date) ||
+            !await HealthNapExporter.shared.exportDayNaps(prevDate)) {
+          debugPrint('[health] write Apple naps returned false');
+          success = false;
+        }
+      } on TimeoutException {
+        // A hung nap write means the store is busy/locked — same handling as
+        // the other native deletes: stop the pass instead of burning the
+        // day's retry budget (and holding the lock) for 30 s per nap.
+        _storeHung = true;
         success = false;
       }
     }

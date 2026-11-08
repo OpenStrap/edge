@@ -16,20 +16,28 @@
 //
 // Only rows with source 'confirmed' or 'manual' are ever exported; 'pending'
 // detections and 'rejected' windows are not. The window is re-validated at
-// export time (bounds, not in the future, and NOT overlapping the derived
-// main sleep of the surrounding nights — the same check the confirm path
-// enforces, repeated here so a stale row or a shifted night can never push
-// night-sleep minutes into Health as a nap).
+// export time (shared 5 min – kMaxNapSec (3 h) bounds, not in the future, and
+// NOT overlapping the derived main sleep of the surrounding nights — the
+// same check the confirm path enforces, repeated here so a stale row or a
+// shifted night can never push night-sleep minutes into Health as a nap).
 //
 // Idempotency: the native writer deletes THIS APP's own sleepAnalysis samples
 // overlapping the nap window before writing, so repeated exports never
-// duplicate. Removing/rejecting a nap in Edge deletes the same window.
+// duplicate. Removing/rejecting a nap in Edge deletes the same window, while
+// samples overlapping the current main-sleep window are protected (the
+// night may have shifted onto a previously exported nap).
+//
+// Failed exports/deletes are persisted (cursors `health_nap_pending_exports`
+// / `health_nap_pending_deletes`) and retried by the per-day export pass, so
+// a confirmed nap does not stay missing from Apple Health just because one
+// write failed on a day behind the export cursor.
 //
 // iOS only for now — Health Connect (Android) has no nap export yet; on
 // Android every method returns false and writes nothing. Nothing here throws:
 // a missing store, a denied permission or a failed write reads as false.
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -46,8 +54,15 @@ abstract interface class HealthKitNapWriter {
   /// one inBed + one asleepUnspecified sample over [start, end).
   Future<bool> replaceNap({required DateTime start, required DateTime end});
 
-  /// Delete our own sleepAnalysis samples overlapping [start, end).
-  Future<bool> deleteRange({required DateTime start, required DateTime end});
+  /// Delete our own sleepAnalysis samples overlapping [start, end), except
+  /// those overlapping [protectStartMs, protectEndMs) (the current main-sleep
+  /// window in epoch ms, when known).
+  Future<bool> deleteRange({
+    required DateTime start,
+    required DateTime end,
+    int? protectStartMs,
+    int? protectEndMs,
+  });
 }
 
 class MethodChannelHealthKitNapWriter implements HealthKitNapWriter {
@@ -59,8 +74,8 @@ class MethodChannelHealthKitNapWriter implements HealthKitNapWriter {
   Future<void> _pending = Future<void>.value();
   // Monotonic per-call sequence. A native call that outlives its 30 s timeout
   // can still land later; the native side drops nap calls whose seq is not
-  // newer than the last one it applied, so a late replaceNap can never
-  // overwrite a newer deleteNapRange for the same window.
+  // newer than the last one it applied AND re-checks the seq before saving,
+  // so a late replaceNap can never overwrite a newer deleteNapRange.
   int _seq = 0;
 
   @override
@@ -72,10 +87,17 @@ class MethodChannelHealthKitNapWriter implements HealthKitNapWriter {
       });
 
   @override
-  Future<bool> deleteRange({required DateTime start, required DateTime end}) =>
+  Future<bool> deleteRange({
+    required DateTime start,
+    required DateTime end,
+    int? protectStartMs,
+    int? protectEndMs,
+  }) =>
       _invoke('deleteNapRange', {
         'startTime': start.millisecondsSinceEpoch,
         'endTime': end.millisecondsSinceEpoch,
+        if (protectStartMs != null) 'protectStartTime': protectStartMs,
+        if (protectEndMs != null) 'protectEndTime': protectEndMs,
         'seq': ++_seq,
       });
 
@@ -100,7 +122,8 @@ class MethodChannelHealthKitNapWriter implements HealthKitNapWriter {
 }
 
 /// Whether a `sleep_nap` row may be exported: only a confirmed or manually
-/// logged nap inside the 5 min – 6 h window that has already ended.
+/// logged nap inside the shared 5 min – kMaxNapSec (3 h) window that has
+/// already ended.
 @visibleForTesting
 bool napWindowExportable({
   required String? source,
@@ -125,6 +148,11 @@ bool napOverlapsWindowMs(int startTs, int endTs, num? onsetMs, num? offsetMs) {
 /// one critical section without deadlocking on the inner health call.
 const _napHealthLockKey = #healthNapHealthLock;
 
+/// Retry cursors (JSON lists in the sync_cursor table) for failed nap
+/// exports / deletes — retried by the per-day export pass.
+const _kPendingNapExports = 'health_nap_pending_exports';
+const _kPendingNapDeletes = 'health_nap_pending_deletes';
+
 class HealthNapExporter {
   HealthNapExporter({
     HealthKitNapWriter? writer,
@@ -133,14 +161,19 @@ class HealthNapExporter {
     Future<Map<String, dynamic>?> Function(String dayId, int startTs)? napRow,
     Future<List<Map<String, dynamic>>> Function(String dayId)? dayNapRows,
     Future<bool> Function(int startTs, int endTs)? overlapsMainSleep,
+    Future<List<({int onsetMs, int offsetMs})>> Function(int, int)?
+        mainSleepWindows,
+    Future<String?> Function(String name)? getCursor,
+    Future<void> Function(String name, String value)? setCursor,
   }) : _writer = writer ?? MethodChannelHealthKitNapWriter(),
        isApple = isApple ?? HealthExporter.isApple,
-       _healthSyncEnabled =
-           healthSyncEnabled ?? _defaultHealthSyncEnabled,
+       _healthSyncEnabled = healthSyncEnabled ?? _defaultHealthSyncEnabled,
        _napRow = napRow ?? _defaultNapRow,
        _dayNapRows = dayNapRows ?? LocalDb.napEdits,
-       _overlapsMainSleep =
-           overlapsMainSleep ?? _defaultOverlapsMainSleep;
+       _overlapsMainSleep = overlapsMainSleep ?? _defaultOverlapsMainSleep,
+       _mainSleepWindows = mainSleepWindows ?? _defaultMainSleepWindows,
+       _getCursor = getCursor ?? LocalDb.getCursor,
+       _setCursor = setCursor ?? LocalDb.setCursor;
 
   final HealthKitNapWriter _writer;
   final bool isApple;
@@ -149,6 +182,10 @@ class HealthNapExporter {
       _napRow;
   final Future<List<Map<String, dynamic>>> Function(String dayId) _dayNapRows;
   final Future<bool> Function(int startTs, int endTs) _overlapsMainSleep;
+  final Future<List<({int onsetMs, int offsetMs})>> Function(int, int)
+      _mainSleepWindows;
+  final Future<String?> Function(String name) _getCursor;
+  final Future<void> Function(String name, String value) _setCursor;
 
   /// Process-wide exporter; call sites use the static wrappers below.
   static final HealthNapExporter shared = HealthNapExporter();
@@ -179,21 +216,34 @@ class HealthNapExporter {
   static Future<bool> exportNapRow({
     required String dayId,
     required int startTs,
+  }) => shared.exportNapRowAt(dayId: dayId, startTs: startTs);
+
+  /// Instance-level [exportNapRow] — a failing row read returns false
+  /// instead of throwing into the caller (e.g. the restore flow).
+  Future<bool> exportNapRowAt({
+    required String dayId,
+    required int startTs,
   }) async {
-    final row = await shared._napRow(dayId, startTs);
-    final endTs = row?['end_ts'];
-    if (endTs is! num) return false;
-    return shared.exportNap(
-      dayId: dayId,
-      startTs: startTs,
-      endTs: endTs.toInt(),
-    );
+    try {
+      final row = await _napRow(dayId, startTs);
+      final endTs = row?['end_ts'];
+      if (endTs is! num) return false;
+      return await exportNap(
+        dayId: dayId,
+        startTs: startTs,
+        endTs: endTs.toInt(),
+      );
+    } catch (e) {
+      debugPrint('[health] exportNapRow $dayId $startTs: $e');
+      return false;
+    }
   }
 
   /// Export a confirmed/manual nap window to Apple Health. Re-reads the row
   /// and re-checks the main-sleep overlap at export time. Never throws;
   /// false when nothing was written (switch off, Android, not confirmed,
-  /// overlap, store error).
+  /// overlap, store error). A failed write is queued for retry by the
+  /// per-day export pass.
   static Future<bool> exportConfirmedNap({
     required String dayId,
     required int startTs,
@@ -201,8 +251,9 @@ class HealthNapExporter {
   }) => shared.exportNap(dayId: dayId, startTs: startTs, endTs: endTs);
 
   /// Remove a previously exported nap window from Apple Health (the nap was
-  /// deleted or rejected in Edge). Never throws; false when nothing was
-  /// deleted.
+  /// deleted or rejected in Edge). Samples overlapping the current main
+  /// sleep are protected. Never throws; false when nothing was deleted. A
+  /// failed delete is queued for retry.
   static Future<bool> deleteExportedNap({
     required int startTs,
     required int endTs,
@@ -237,57 +288,110 @@ class HealthNapExporter {
       // overlap the main sleep, but re-check here so a stale row or a night
       // that moved since can never be written as a nap.
       if (await _overlapsMainSleep(startTs, endTs)) return false;
-      return await _writer.replaceNap(
+      final written = await _writer.replaceNap(
         start: DateTime.fromMillisecondsSinceEpoch(startTs * 1000),
         end: DateTime.fromMillisecondsSinceEpoch(endTs * 1000),
       );
+      if (!written) {
+        await _recordPending(_kPendingNapExports, {
+          'dayId': dayId,
+          'startTs': startTs,
+          'endTs': endTs,
+        });
+      } else {
+        await _removePending(_kPendingNapExports, dayId, startTs);
+      }
+      return written;
     } catch (e) {
       debugPrint('[health] exportNap $dayId $startTs-$endTs: $e');
+      await _recordPending(_kPendingNapExports, {
+        'dayId': dayId,
+        'startTs': startTs,
+        'endTs': endTs,
+      });
       return false;
     }
   });
 
-  /// Export every exportable nap of [dayId]. Called from the per-day health
-  /// export AFTER the main-sleep replace: that replace's noon-to-noon
-  /// cleanup window also covers the wake day's afternoon, so it deletes OUR
-  /// nap samples there — re-writing them on every pass keeps them in the
-  /// store. Rows that are not exportable (pending/rejected/legacy, overlap
-  /// with main sleep) are skipped silently; false means an attempted write
-  /// failed. On Android or with the sync switch off this is a no-op `true`.
+  /// Export every exportable nap of [dayId] plus any pending retries for
+  /// that day, and first retries all pending deletes. Called from the
+  /// per-day health export AFTER the main-sleep replace: that replace's
+  /// noon-to-noon cleanup window also covers the wake day's afternoon, so it
+  /// deletes OUR nap samples there — re-writing them on every pass keeps
+  /// them in the store. Rows that are not exportable (pending/rejected,
+  /// overlap with main sleep or with another nap exported in this pass) are
+  /// skipped silently; false means an attempted write failed. On Android or
+  /// with the sync switch off this is a no-op `true`.
   Future<bool> exportDayNaps(String dayId) => synchronized(() async {
     try {
       if (!isApple) return true;
       if (!await _healthSyncEnabled()) return true;
+      await _retryPendingDeletes();
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      var ok = true;
+      final accepted = <({int s, int e})>[];
+      bool overlapsAccepted(int s, int e) =>
+          accepted.any((w) => s < w.e && e > w.s);
+      void consider(int s, int e, String? source) {
+        if (!napWindowExportable(
+          source: source,
+          startTs: s,
+          endTs: e,
+          nowSec: nowSec,
+        )) {
+          return;
+        }
+        // Two overlapping nap rows must not erase each other's samples:
+        // the first one written in this pass wins.
+        if (overlapsAccepted(s, e)) return;
+        accepted.add((s: s, e: e));
+      }
+
       for (final row in await _dayNapRows(dayId)) {
         final startTs = row['start_ts'];
         final endTs = row['end_ts'];
         final source = row['source'];
         if (startTs is! num || endTs is! num) continue;
-        final s = startTs.toInt(), e = endTs.toInt();
-        if (!napWindowExportable(
-          source: source is String ? source : null,
-          startTs: s,
-          endTs: e,
-          nowSec: nowSec,
-        )) {
-          continue;
-        }
+        consider(startTs.toInt(), endTs.toInt(), source is String ? source : null);
+      }
+      // Retry previously failed exports of THIS day (failed writes on days
+      // behind the export cursor would otherwise never be retried).
+      for (final p in await _pendingList(_kPendingNapExports)) {
+        if (p['dayId'] != dayId) continue;
+        final s = p['startTs'], e = p['endTs'];
+        if (s is! num || e is! num) continue;
+        consider(s.toInt(), e.toInt(), 'confirmed');
+      }
+
+      var ok = true;
+      for (final w in accepted) {
         // Per-row isolation: one throwing row (overlap lookup, store error)
         // must not skip the remaining naps — the main-sleep replace above
         // may already have deleted their Health samples, and a day that
         // gives up retries would leave them missing.
         try {
-          if (await _overlapsMainSleep(s, e)) continue;
+          if (await _overlapsMainSleep(w.s, w.e)) continue;
           final written = await _writer.replaceNap(
-            start: DateTime.fromMillisecondsSinceEpoch(s * 1000),
-            end: DateTime.fromMillisecondsSinceEpoch(e * 1000),
+            start: DateTime.fromMillisecondsSinceEpoch(w.s * 1000),
+            end: DateTime.fromMillisecondsSinceEpoch(w.e * 1000),
           );
-          if (!written) ok = false;
+          if (!written) {
+            ok = false;
+            await _recordPending(_kPendingNapExports, {
+              'dayId': dayId,
+              'startTs': w.s,
+              'endTs': w.e,
+            });
+          } else {
+            await _removePending(_kPendingNapExports, dayId, w.s);
+          }
         } catch (rowError) {
-          debugPrint('[health] exportDayNaps $dayId row $s-$e: $rowError');
+          debugPrint('[health] exportDayNaps $dayId row ${w.s}-${w.e}: $rowError');
           ok = false;
+          await _recordPending(_kPendingNapExports, {
+            'dayId': dayId,
+            'startTs': w.s,
+            'endTs': w.e,
+          });
         }
       }
       return ok;
@@ -305,15 +409,115 @@ class HealthNapExporter {
       if (!isApple) return false;
       if (!await _healthSyncEnabled()) return false;
       if (endTs <= startTs) return false;
-      return await _writer.deleteRange(
+      // Protect the current main-sleep window: if the night shifted onto a
+      // previously exported nap, its samples must survive the nap delete.
+      int? protectStartMs, protectEndMs;
+      try {
+        final windows = await _mainSleepWindows(startTs, endTs);
+        if (windows.isNotEmpty) {
+          protectStartMs = windows.map((w) => w.onsetMs).reduce((a, b) => a < b ? a : b);
+          protectEndMs = windows.map((w) => w.offsetMs).reduce((a, b) => a > b ? a : b);
+        }
+      } catch (e) {
+        debugPrint('[health] nap protect-window lookup: $e');
+      }
+      final deleted = await _writer.deleteRange(
         start: DateTime.fromMillisecondsSinceEpoch(startTs * 1000),
         end: DateTime.fromMillisecondsSinceEpoch(endTs * 1000),
+        protectStartMs: protectStartMs,
+        protectEndMs: protectEndMs,
       );
+      if (!deleted) {
+        await _recordPending(_kPendingNapDeletes, {
+          'startTs': startTs,
+          'endTs': endTs,
+        });
+      } else {
+        await _removePending(_kPendingNapDeletes, null, startTs);
+      }
+      return deleted;
     } catch (e) {
       debugPrint('[health] deleteNapWindow $startTs-$endTs: $e');
+      await _recordPending(_kPendingNapDeletes, {
+        'startTs': startTs,
+        'endTs': endTs,
+      });
       return false;
     }
   });
+
+  /// Retry every pending nap delete (a failed delete leaves the removed
+  /// nap's samples in Apple Health). Successful ones are dropped from the
+  /// cursor list.
+  Future<void> _retryPendingDeletes() async {
+    final pending = await _pendingList(_kPendingNapDeletes);
+    if (pending.isEmpty) return;
+    for (final p in pending) {
+      final s = p['startTs'], e = p['endTs'];
+      if (s is! num || e is! num || e <= s) continue;
+      try {
+        int? protectStartMs, protectEndMs;
+        final windows = await _mainSleepWindows(s.toInt(), e.toInt());
+        if (windows.isNotEmpty) {
+          protectStartMs = windows.map((w) => w.onsetMs).reduce((a, b) => a < b ? a : b);
+          protectEndMs = windows.map((w) => w.offsetMs).reduce((a, b) => a > b ? a : b);
+        }
+        if (await _writer.deleteRange(
+          start: DateTime.fromMillisecondsSinceEpoch(s.toInt() * 1000),
+          end: DateTime.fromMillisecondsSinceEpoch(e.toInt() * 1000),
+          protectStartMs: protectStartMs,
+          protectEndMs: protectEndMs,
+        )) {
+          await _removePending(_kPendingNapDeletes, null, s.toInt());
+        }
+      } catch (e) {
+        debugPrint('[health] retry pending nap delete $s-$e: $e');
+      }
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _pendingList(String key) async {
+    final raw = await _getCursor(key);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return [];
+      return [
+        for (final e in decoded)
+          if (e is Map) Map<String, dynamic>.from(e),
+      ];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _recordPending(String key, Map<String, dynamic> entry) async {
+    try {
+      final list = await _pendingList(key);
+      final dup = list.any((e) =>
+          e['startTs'] == entry['startTs'] && e['endTs'] == entry['endTs']);
+      if (!dup) {
+        list.add(entry);
+        await _setCursor(key, jsonEncode(list));
+      }
+    } catch (e) {
+      debugPrint('[health] record pending nap op: $e');
+    }
+  }
+
+  Future<void> _removePending(String key, String? dayId, int startTs) async {
+    try {
+      final list = await _pendingList(key);
+      final kept = list.where((e) {
+        if (e['startTs'] != startTs) return true;
+        if (dayId != null && e['dayId'] != dayId) return true;
+        return false;
+      }).toList();
+      await _setCursor(key, jsonEncode(kept));
+    } catch (e) {
+      debugPrint('[health] remove pending nap op: $e');
+    }
+  }
 
   static Future<bool> _defaultHealthSyncEnabled() async {
     final prefs = await SharedPreferences.getInstance();
@@ -333,6 +537,15 @@ class HealthNapExporter {
     return rows.isEmpty ? null : rows.single;
   }
 
+  static Future<List<Map<String, dynamic>>> _defaultDayNapRows(String dayId) =>
+      LocalDb.napEdits(dayId);
+
   static Future<bool> _defaultOverlapsMainSleep(int startTs, int endTs) async =>
       ActivityStore.overlapsMainSleep(await LocalDb.instance, startTs, endTs);
+
+  static Future<List<({int onsetMs, int offsetMs})>> _defaultMainSleepWindows(
+    int startTs,
+    int endTs,
+  ) async =>
+      ActivityStore.mainSleepWindowsAround(await LocalDb.instance, startTs, endTs);
 }

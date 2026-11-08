@@ -59,7 +59,11 @@ enum HealthKitSleepWriter {
   // window itself, NOT the noon-to-noon night window — it must never touch
   // the exported main sleep.
   private static func replaceNap(_ args: [String: Any], completion: @escaping (Bool) -> Void) {
-    if staleNapCallDropped(args, completion: completion) { return }
+    guard let seq = napSeq(args) else {
+      completion(false)
+      return
+    }
+    if staleNapCallDropped(seq, completion: completion) { return }
     guard HKHealthStore.isHealthDataAvailable() else {
       completion(true) // iPad / simulator: no store, not an export failure
       return
@@ -81,13 +85,21 @@ enum HealthKitSleepWriter {
       HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.inBed.rawValue, start: start, end: end),
       HKCategorySample(type: sleepType, value: asleepValue.rawValue, start: start, end: end),
     ]
-    deleteAndSave(samples: samples, type: sleepType, cleanupStart: start, cleanupEnd: end, completion: completion)
+    deleteAndSave(samples: samples, type: sleepType, cleanupStart: start, cleanupEnd: end, seq: napSeq(args), completion: completion)
   }
 
   // A nap removed/rejected in Edge: delete OUR sleepAnalysis samples
   // overlapping the window so the export does not outlive the decision.
+  // [protectStartTime/protectEndTime] (optional, epoch ms) mark the current
+  // main-sleep window: if the night shifted onto a previously exported nap,
+  // samples overlapping that window are kept — deleting them would remove
+  // the user's night from Apple Health.
   private static func deleteRange(_ args: [String: Any], completion: @escaping (Bool) -> Void) {
-    if staleNapCallDropped(args, completion: completion) { return }
+    guard let seq = napSeq(args) else {
+      completion(false)
+      return
+    }
+    if staleNapCallDropped(seq, completion: completion) { return }
     guard HKHealthStore.isHealthDataAvailable() else {
       completion(true)
       return
@@ -99,13 +111,19 @@ enum HealthKitSleepWriter {
       completion(false)
       return
     }
-    deleteAndSave(samples: [], type: sleepType, cleanupStart: start, cleanupEnd: end, completion: completion)
+    let protectStart = dateMs(args["protectStartTime"])
+    let protectEnd = dateMs(args["protectEndTime"])
+    deleteRange(samples: [], type: sleepType, start: start, end: end,
+                protectStart: protectStart, protectEnd: protectEnd, seq: seq, completion: completion)
+  }
+
+  private static func napSeq(_ args: [String: Any]) -> Int? {
+    (args["seq"] as? NSNumber)?.intValue
   }
 
   // Runs on `queue`. Returns true when the call is stale and was dropped
   // (completed with false — a dropped call never claims success).
-  private static func staleNapCallDropped(_ args: [String: Any], completion: @escaping (Bool) -> Void) -> Bool {
-    let seq = (args["seq"] as? NSNumber)?.intValue ?? 0
+  private static func staleNapCallDropped(_ seq: Int, completion: @escaping (Bool) -> Void) -> Bool {
     if seq <= lastNapSeq {
       completion(false)
       return true
@@ -114,11 +132,17 @@ enum HealthKitSleepWriter {
     return false
   }
 
+  // Delete-then-save. [seq] (nap calls only) is re-checked in the delete's
+  // completion callback: a newer nap call that started while this delete was
+  // in flight has already bumped lastNapSeq, so this call must NOT save its
+  // samples afterwards — otherwise a removed nap reappears after the newer
+  // deletion. Nil seq (replaceSleepSession) skips the re-check.
   private static func deleteAndSave(
     samples: [HKCategorySample],
     type: HKCategoryType,
     cleanupStart: Date,
     cleanupEnd: Date,
+    seq: Int?,
     completion: @escaping (Bool) -> Void
   ) {
     let datePred = HKQuery.predicateForSamples(withStart: cleanupStart, end: cleanupEnd, options: [])
@@ -129,6 +153,10 @@ enum HealthKitSleepWriter {
         completion(false)
         return
       }
+      if let seq, seq != lastNapSeq {
+        completion(false) // superseded while the delete was in flight
+        return
+      }
       guard !samples.isEmpty else {
         completion(true)
         return
@@ -137,6 +165,50 @@ enum HealthKitSleepWriter {
         completion(success && error == nil)
       }
     }
+  }
+
+  // Delete OUR sleepAnalysis samples overlapping [start, end), except those
+  // overlapping [protectStart, protectEnd) (the current main-sleep window) —
+  // a night that shifted onto a previously exported nap must not be deleted
+  // with it. The seq re-check happens before the delete lands.
+  private static func deleteRange(
+    samples: [HKCategorySample],
+    type: HKCategoryType,
+    start: Date,
+    end: Date,
+    protectStart: Date?,
+    protectEnd: Date?,
+    seq: Int,
+    completion: @escaping (Bool) -> Void
+  ) {
+    let datePred = HKQuery.predicateForSamples(withStart: start, end: end, options: [])
+    let sourcePred = HKQuery.predicateForObjects(from: HKSource.default())
+    let pred = NSCompoundPredicate(andPredicateWithSubpredicates: [datePred, sourcePred])
+    let query = HKSampleQuery(sampleType: type, predicate: pred, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, results, error in
+      guard let samples = results as? [HKCategorySample], error == nil else {
+        completion(false)
+        return
+      }
+      if seq != lastNapSeq {
+        completion(false) // superseded while the query was in flight
+        return
+      }
+      // Samples overlapping the protected main-sleep window are kept.
+      let doomed = samples.filter { s in
+        if let ps = protectStart, let pe = protectEnd {
+          return !(s.startDate < pe && s.endDate > ps)
+        }
+        return true
+      }
+      guard !doomed.isEmpty else {
+        completion(true)
+        return
+      }
+      store.delete(doomed) { success, error in
+        completion(success && error == nil)
+      }
+    }
+    store.execute(query)
   }
 
   private static func replace(_ args: [String: Any], completion: @escaping (Bool) -> Void) {
@@ -168,6 +240,7 @@ enum HealthKitSleepWriter {
       type: sleepType,
       cleanupStart: cleanupStart,
       cleanupEnd: cleanupEnd,
+      seq: nil, // sleep sessions carry no seq — unchanged behavior
       completion: completion
     )
   }
