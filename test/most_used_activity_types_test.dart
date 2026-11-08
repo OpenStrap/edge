@@ -53,6 +53,19 @@ void main() {
     expect(rows.first['last_ts'], _t0 - 8 * 86400);
   });
 
+  test('stored names group by their normalized catalogue key', () async {
+    // 'Running', 'running' and 'RUNNING' are one activity to activityByName,
+    // so they must count as one here too — not three separate types.
+    await _session('a1', 'Running', _t0 - 10 * 86400);
+    await _session('a2', 'running', _t0 - 9 * 86400);
+    await _session('a3', 'RUNNING', _t0 - 8 * 86400);
+    await _session('b1', 'cycling', _t0 - 5 * 86400);
+
+    final rows = await LocalDb.mostUsedActivityTypes();
+    expect([for (final r in rows) r['type']], ['running', 'cycling']);
+    expect(rows.first['n'], 3);
+  });
+
   test('a tie on count falls back to the most recently used', () async {
     await _session('a1', 'running', _t0 - 10 * 86400);
     await _session('b1', 'cycling', _t0 - 3 * 86400);

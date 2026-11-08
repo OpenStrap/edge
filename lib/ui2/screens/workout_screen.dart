@@ -31,6 +31,7 @@ import '../../models/metric.dart';
 import '../../state/app_state.dart';
 import '../../state/clock_format.dart' show formatClockOf;
 import '../../state/units_controller.dart';
+import '../../telemetry/telemetry_service.dart';
 import '../activity/catalogue.dart';
 import '../activity/day_strain.dart';
 import '../activity/live.dart';
@@ -2202,14 +2203,21 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       final since90 =
           end.subtract(Motion.tick * 86400 * 90).millisecondsSinceEpoch ~/
               1000;
-      for (final r
-          in await LocalDb.mostUsedActivityTypes(sinceTs: since90, limit: 6)) {
+      // Fetch more than the six the row shows: unknown stored types are
+      // dropped below, and a SQL-side LIMIT 6 could hand back six of those
+      // and leave the picker on quickStart despite usable history.
+      for (final r in await LocalDb.mostUsedActivityTypes(
+          sinceTs: since90, limit: 24)) {
         final a = activityByName(r['type'] as String?);
-        if (a != null) mostUsed.add(a);
+        if (a == null) continue;
+        mostUsed.add(a);
+        if (mostUsed.length == 6) break;
       }
-    } catch (_) {
-      // An unreadable table must not take the screen down — the picker falls
-      // back to quickStart under its own heading.
+    } catch (e, st) {
+      // An unreadable table must not take the screen down — record it, then
+      // fall back to quickStart under its own heading.
+      TelemetryService.instance
+          .recordNonFatal(e, st, reason: 'most_used_activities_failed');
     }
 
     // The live screen has to have previous/best in hand before the first set;

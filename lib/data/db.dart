@@ -14800,13 +14800,18 @@ class LocalDb {
     ), executor: db);
   }
 
-  /// The `type` values of the most-used finished sessions, most-used first —
-  /// rows of `{'type', 'n', 'last_ts'}` for the activity picker's quick row.
-  /// [sinceTs] bounds the window (the picker passes 90 days so a seasonal
-  /// sport does not stay pinned at the top forever); null counts all history.
-  /// Live sessions never count, and `last_ts` breaks ties so a newly started
-  /// sport does not sink below an old habit. Unknown types are the caller's to
-  /// drop: the catalogue resolves what it knows via `activityByName`.
+  /// The most-used finished sessions' activity keys, most-used first — rows
+  /// of `{'type', 'n', 'last_ts'}` for the activity picker's quick row.
+  /// `type` comes back NORMALIZED exactly the way [activityByName] resolves
+  /// it (`lower(replace(type, ' ', '_'))`, the same rule as `Activity.typeKey`),
+  /// so 'Running' and 'running' count as one activity and can never rank an
+  /// activity low or show it twice. [sinceTs] bounds the window (the picker
+  /// passes 90 days so a seasonal sport does not stay pinned at the top
+  /// forever); null counts all history. Live sessions never count, and
+  /// `last_ts` breaks ties so a newly started sport does not sink below an
+  /// old habit. [limit] caps the ranked rows returned — a caller that drops
+  /// unresolvable types itself should fetch more than it displays, or six
+  /// unknown types could crowd out every known one before the limit.
   static Future<List<Map<String, dynamic>>> mostUsedActivityTypes({
     int? sinceTs,
     int limit = 6,
@@ -14820,8 +14825,10 @@ class LocalDb {
     }
     args.add(limit);
     return db.rawQuery(
-      'SELECT type, COUNT(*) AS n, MAX(start_ts) AS last_ts FROM sessions '
-      'WHERE $where GROUP BY type ORDER BY n DESC, last_ts DESC LIMIT ?',
+      "SELECT lower(replace(type, ' ', '_')) AS type, COUNT(*) AS n, "
+      'MAX(start_ts) AS last_ts FROM sessions '
+      'WHERE $where GROUP BY lower(replace(type, \' \', \'_\')) '
+      'ORDER BY n DESC, last_ts DESC LIMIT ?',
       args,
     );
   }
