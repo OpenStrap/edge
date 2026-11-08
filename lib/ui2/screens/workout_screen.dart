@@ -13,6 +13,7 @@ import '../../l10n/display_text.dart';
 // fixes it.
 
 import 'dart:async' show unawaited;
+import 'dart:convert' show utf8;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -1703,7 +1704,7 @@ String _parseNote(Object? val) {
   if (val is String) return val;
   if (val is List<int>) {
     try {
-      return String.fromCharCodes(val);
+      return utf8.decode(val, allowMalformed: true);
     } catch (_) {
       return '';
     }

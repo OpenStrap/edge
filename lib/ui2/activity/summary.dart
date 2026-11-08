@@ -247,10 +247,20 @@ List<Map<String, Object?>> strengthSetsToRows(List<LoggedSet> sets) {
 class EditSetResult {
   final double? loadKg;
   final int reps;
+  final int? rpe;
   final bool deleted;
 
-  const EditSetResult({this.loadKg, required this.reps, this.deleted = false});
-  const EditSetResult.delete() : loadKg = null, reps = 0, deleted = true;
+  const EditSetResult({
+    this.loadKg,
+    required this.reps,
+    this.rpe,
+    this.deleted = false,
+  });
+  const EditSetResult.delete()
+      : loadKg = null,
+        reps = 0,
+        rpe = null,
+        deleted = true;
 }
 
 String formatStrengthWeight(double v, [UnitsController? u]) {
@@ -281,6 +291,7 @@ Future<EditSetResult?> showEditSetDialog(
       set.loadKg != null ? formatStrengthWeight(set.loadKg!, units) : '';
   final weightCtrl = TextEditingController(text: initialWeightText);
   final repsCtrl = TextEditingController(text: '${set.reps}');
+  int? selectedRpe = set.rpe;
   String? weightError;
   String? repsError;
 
@@ -333,6 +344,7 @@ Future<EditSetResult?> showEditSetDialog(
           Navigator.of(dc).pop(EditSetResult(
             loadKg: isBodyweight ? null : parsedKg,
             reps: parsedReps,
+            rpe: selectedRpe,
           ));
         }
 
@@ -423,6 +435,55 @@ Future<EditSetResult?> showEditSetDialog(
                     ),
                   ),
                   onSubmitted: (_) => submit(),
+                ),
+                const SizedBox(height: S.x4),
+                Row(
+                  children: [
+                    Text(
+                      l?.activityLiveEffortRpeHeader ?? 'EFFORT (RPE)',
+                      style: F.over.copyWith(color: p.ink3),
+                    ),
+                    const Spacer(),
+                    if (selectedRpe != null)
+                      Pressable(
+                        onTap: () => setDialogState(() => selectedRpe = null),
+                        child: Text(
+                          l?.journalComposeClear ?? 'Clear',
+                          style: F.cap.copyWith(color: p.ink3),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: S.x2),
+                Row(
+                  children: List.generate(5, (i) {
+                    final v = i + 6;
+                    final on = selectedRpe == v;
+                    const cols = [C.green, C.teal, C.blue, C.orange, C.red];
+                    return Expanded(
+                      child: Pressable(
+                        semanticLabel: 'RPE $v',
+                        onTap: () => setDialogState(() {
+                          selectedRpe = selectedRpe == v ? null : v;
+                        }),
+                        child: Container(
+                          margin: EdgeInsets.only(right: i == 4 ? 0 : S.x2),
+                          height: 38,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: on ? p.fill(cols[i]) : p.wash(cols[i]),
+                            borderRadius: R.rMd,
+                          ),
+                          child: Text(
+                            '$v',
+                            style: F.head.copyWith(
+                              color: on ? p.inkOnFill : p.on(cols[i]),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
                 ),
               ],
             ),
@@ -2540,6 +2601,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         loadKg: res.loadKg,
         clearLoadKg: res.loadKg == null,
         reps: res.reps,
+        rpe: res.rpe,
+        clearRpe: res.rpe == null,
       );
     }
     setState(() => _rated = r.copyWith(strength: StrengthLog(updated)));

@@ -1989,11 +1989,14 @@ void main() {
       final textFields = find.byType(TextField);
       await tester.enterText(textFields.first, '57.5');
       await tester.enterText(textFields.last, '9');
+      await tester.tap(find.bySemanticsLabel('RPE 8'));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
       expect(find.text('57.5 kg × 9'), findsOneWidget);
+      expect(find.text('RPE 8'), findsOneWidget);
     });
 
     testWidgets('a session that failed to save says so and can retry',

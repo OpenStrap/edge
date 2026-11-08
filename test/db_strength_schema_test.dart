@@ -286,6 +286,8 @@ void main() {
         'set_index': 1,
         'reps': 12,
         'load_kg': 65.0,
+        'rpe': 9,
+        'note': 'Good set 💪',
         'at_ts': 1770000000,
       },
     ]);
@@ -294,5 +296,7 @@ void main() {
     expect(sets, hasLength(1));
     expect(sets[0]['reps'], 12);
     expect(sets[0]['load_kg'], 65.0);
+    expect(sets[0]['rpe'], 9);
+    expect(sets[0]['note'], 'Good set 💪');
   });
 }

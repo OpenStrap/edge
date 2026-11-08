@@ -1880,6 +1880,8 @@ class _LiveStrengthState extends State<LiveStrength> {
             loadKg: res.loadKg,
             clearLoadKg: res.loadKg == null,
             reps: res.reps,
+            rpe: res.rpe,
+            clearRpe: res.rpe == null,
           );
         }
         if (isLatest) {
@@ -1890,6 +1892,9 @@ class _LiveStrengthState extends State<LiveStrength> {
             bodyweight = true;
           }
           reps = res.reps;
+          if (res.rpe != null) {
+            rpe = res.rpe!;
+          }
         }
       }
     });
