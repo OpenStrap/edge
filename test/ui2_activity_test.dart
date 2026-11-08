@@ -1788,6 +1788,10 @@ void main() {
 
       expect(find.text('QUICK START'), findsOneWidget);
       expect(find.text('MOST DONE'), findsNothing);
+      // The heading alone proves nothing — the fallback row must actually
+      // show the quick-start tiles, not render empty under the heading.
+      expect(find.text('Running'), findsOneWidget,
+          reason: 'quickStart[0] is Running; its tile must be on screen');
       expect(tester.takeException(), isNull);
     });
 

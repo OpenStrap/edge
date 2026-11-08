@@ -14810,15 +14810,23 @@ class LocalDb {
   /// forever); null counts all history. Live sessions never count, and
   /// `last_ts` breaks ties so a newly started sport does not sink below an
   /// old habit. [limit] caps the ranked rows returned — a caller that drops
-  /// unresolvable types itself should fetch more than it displays, or six
+  /// unresolvable types itself should fetch more than it displays, or
   /// unknown types could crowd out every known one before the limit.
+  /// [toTs] bounds the window from above (defaults to now) so a future-dated
+  /// row (clock skew) cannot inflate a count. Only sessions this app started
+  /// count: scored imports (`scored_import`) and WHOOP exports (`whoop`) also
+  /// live in `sessions`, and the quick row's tiles START a session, so
+  /// someone else's recording must not outrank what this user does here.
   static Future<List<Map<String, dynamic>>> mostUsedActivityTypes({
     int? sinceTs,
+    int? toTs,
     int limit = 6,
   }) async {
     final db = await instance;
     final args = <Object?>[];
-    var where = "status = 'done' AND type IS NOT NULL AND type <> ''";
+    var where = "status = 'done' AND type IS NOT NULL AND type <> '' "
+        "AND source NOT IN ('scored_import', 'whoop') AND start_ts <= ?";
+    args.add(toTs ?? DateTime.now().millisecondsSinceEpoch ~/ 1000);
     if (sinceTs != null) {
       where += ' AND start_ts >= ?';
       args.add(sinceTs);

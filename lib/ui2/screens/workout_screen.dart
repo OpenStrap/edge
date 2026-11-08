@@ -2203,11 +2203,11 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       final since90 =
           now.subtract(Motion.tick * 86400 * 90).millisecondsSinceEpoch ~/
               1000;
-      // Fetch more than the six the row shows: unknown stored types are
-      // dropped below, and a SQL-side LIMIT 6 could hand back six of those
+      // Fetch far more than the six the row shows: unknown stored types are
+      // dropped below, and a small SQL-side LIMIT could hand back only those
       // and leave the picker on quickStart despite usable history.
       for (final r in await LocalDb.mostUsedActivityTypes(
-          sinceTs: since90, limit: 24)) {
+          sinceTs: since90, limit: 200)) {
         final a = activityByName(r['type'] as String?);
         if (a == null) continue;
         mostUsed.add(a);
