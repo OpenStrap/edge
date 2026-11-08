@@ -677,11 +677,11 @@ void main() {
     () async {
       tz_data.initializeTimeZones();
       final rome = tz.getLocation('Europe/Rome');
-      // The detected bout is 2 h (00:30 -> 02:30 across the fold); the edit
-      // pulls the start 1 h further back, crossing midnight, and stays within
-      // the 3 h nap cap: 3 h exactly.
+      // The detected bout is 2 h elapsed (00:30 -> 01:30 across the repeated
+      // hour: 1 h wall, 2 h real); the edit pulls the start 1 h further back,
+      // crossing midnight, and stays within the 3 h nap cap: 3 h exactly.
       final a = tz.TZDateTime(rome, 2025, 10, 26, 0, 30);
-      final b = tz.TZDateTime(rome, 2025, 10, 26, 2, 30);
+      final b = tz.TZDateTime(rome, 2025, 10, 26, 1, 30);
       final st = a.millisecondsSinceEpoch ~/ 1000,
           en = b.millisecondsSinceEpoch ~/ 1000;
       expect(en - st, 2 * 3600); // repeated hour is real elapsed sleep time
