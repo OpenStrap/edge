@@ -1621,43 +1621,49 @@ class _LiveStrengthState extends State<LiveStrength> {
           pad: const EdgeInsets.symmetric(horizontal: S.x4),
           child: Column(children: [
             for (var i = 0; i < setsHere.length; i++) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: S.x3),
-                child: Row(children: [
-                  Container(
-                    width: 24,
-                    height: 24,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                        color: p.wash(C.purple), borderRadius: R.rSm),
-                    child: Text('${i + 1}',
-                        style: F.over.copyWith(color: p.on(C.purple))),
-                  ),
-                  const SizedBox(width: S.x3),
-                  Expanded(
-                    child: Text(
+              Pressable(
+                onTap: () => _editLoggedSet(c, setsHere[i], u, setNumber: i + 1),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: S.x3),
+                  child: Row(children: [
+                    Container(
+                      width: 24,
+                      height: 24,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                          color: p.wash(C.purple), borderRadius: R.rSm),
+                      child: Text('${i + 1}',
+                          style: F.over.copyWith(color: p.on(C.purple))),
+                    ),
+                    const SizedBox(width: S.x3),
+                    Expanded(
+                      child: Text(
                         setsHere[i].loadKg == null
                             ? (l?.activityLiveRepsBodyweightRow(
                                     setsHere[i].reps) ??
                                 '${setsHere[i].reps} reps · bodyweight')
-                                : '${_fmt(setsHere[i].loadKg!, u)} '
-                                      '${uiText(c, u?.weightUnit ?? 'kg')} × '
-                                      '${setsHere[i].reps}',
-                            style: F.body.copyWith(color: p.ink),
-                          ),
-                        ),
-                  if (setsHere[i].rpe != null)
-                    Text('RPE ${setsHere[i].rpe}',
-                        style: F.cap.copyWith(color: p.ink3)),
-                        if (setsHere[i].volume != null) ...[
-                          const SizedBox(width: S.x3),
-                          Text(
-                            '${grouped(u?.weightValue(setsHere[i].volume!) ?? setsHere[i].volume!)} '
-                            '${uiText(c, u?.weightUnit ?? 'kg')}',
+                            : '${_fmt(setsHere[i].loadKg!, u)} '
+                                '${uiText(c, u?.weightUnit ?? 'kg')} × '
+                                '${setsHere[i].reps}',
+                        style: F.body.copyWith(color: p.ink),
+                      ),
+                    ),
+                    if (setsHere[i].rpe != null)
+                      Text('RPE ${setsHere[i].rpe}',
+                          style: F.cap.copyWith(color: p.ink3)),
+                    if (setsHere[i].volume != null) ...[
+                      const SizedBox(width: S.x3),
+                      Text(
+                        '${grouped(u?.weightValue(setsHere[i].volume!) ?? setsHere[i].volume!)} '
+                        '${uiText(c, u?.weightUnit ?? 'kg')}',
                         style: F.cap.copyWith(
-                            color: p.ink2, fontWeight: FontWeight.w600)),
-                  ],
-                ]),
+                            color: p.ink2, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                    const SizedBox(width: S.x2),
+                    Icon(LucideIcons.pencil, size: 13, color: p.ink3),
+                  ]),
+                ),
               ),
               if (i < setsHere.length - 1) Divider(color: p.line, height: 1),
             ],
@@ -1787,28 +1793,102 @@ class _LiveStrengthState extends State<LiveStrength> {
             Column(mainAxisSize: MainAxisSize.min, children: [
               Text(clock(restLeft.value), style: F.n34.copyWith(color: p.ink)),
               if (logged.isNotEmpty)
-                Text(
-                    logged.last.loadKg == null
-                        ? (l?.activityLiveRepsLoggedBodyweight(
-                                logged.last.reps) ??
-                            '${logged.last.reps} reps logged')
-                          : (u?.isImperial == true
-                                ? (l?.presentationWeightRepsLogged(
-                                        _fmt(logged.last.loadKg!, u),
-                                        uiText(c, u!.weightUnit),
-                                        logged.last.reps,
-                                      ) ??
-                                      '${_fmt(logged.last.loadKg!, u)} ${u!.weightUnit} × ${logged.last.reps} logged')
-                                : (l?.activityLiveWeightRepsLogged(
-                                    _fmt(logged.last.loadKg!),
-                                    logged.last.reps) ??
-                                '${_fmt(logged.last.loadKg!)} kg × '
-                                    '${logged.last.reps} logged')),
-                    style: F.cap.copyWith(color: p.ink3)),
+                Pressable(
+                  onTap: () => _editLoggedSet(c, logged.last, u,
+                      setNumber: setsHere.length),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: S.x2, vertical: S.x1),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            logged.last.loadKg == null
+                                ? (l?.activityLiveRepsLoggedBodyweight(
+                                        logged.last.reps) ??
+                                    '${logged.last.reps} reps logged')
+                                : (u?.isImperial == true
+                                    ? (l?.presentationWeightRepsLogged(
+                                            _fmt(logged.last.loadKg!, u),
+                                            uiText(c, u!.weightUnit),
+                                            logged.last.reps,
+                                          ) ??
+                                        '${_fmt(logged.last.loadKg!, u)} ${u!.weightUnit} × ${logged.last.reps} logged')
+                                    : (l?.activityLiveWeightRepsLogged(
+                                            _fmt(logged.last.loadKg!),
+                                            logged.last.reps) ??
+                                        '${_fmt(logged.last.loadKg!)} kg × '
+                                            '${logged.last.reps} logged')),
+                            style: F.cap.copyWith(color: p.ink3),
+                          ),
+                        ),
+                        const SizedBox(width: S.x1),
+                        Icon(LucideIcons.pencil, size: 12, color: p.on(C.teal)),
+                      ],
+                    ),
+                  ),
+                ),
             ]),
           ]),
         ),
+        const SizedBox(height: S.x3),
+        if (logged.isNotEmpty)
+          Pressable(
+            onTap: () => _editLoggedSet(c, logged.last, u,
+                setNumber: setsHere.length),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(LucideIcons.pencil, size: 13, color: p.on(C.teal)),
+                const SizedBox(width: S.x1),
+                Text(
+                  uiText(c, 'Edit set'),
+                  style: F.cap.copyWith(
+                    color: p.on(C.teal),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
       ]);
+  }
+
+  Future<void> _editLoggedSet(
+      BuildContext c, LoggedSet targetSet, UnitsController? u,
+      {int setNumber = 1}) async {
+    final res = await showEditSetDialog(
+      c,
+      set: targetSet,
+      setIndex: setNumber,
+      units: u,
+    );
+    if (!mounted || res == null) return;
+    setState(() {
+      if (res.deleted) {
+        logged.remove(targetSet);
+      } else {
+        final idx = logged.indexOf(targetSet);
+        if (idx >= 0) {
+          logged[idx] = targetSet.copyWith(
+            loadKg: res.loadKg,
+            clearLoadKg: res.loadKg == null,
+            reps: res.reps,
+          );
+        }
+        if (targetSet == logged.lastOrNull) {
+          if (res.loadKg != null) {
+            kg = res.loadKg!;
+            bodyweight = false;
+          } else {
+            bodyweight = true;
+          }
+          reps = res.reps;
+        }
+      }
+    });
+    _persist();
   }
 
   static double _step(double val, double delta, UnitsController? u) {

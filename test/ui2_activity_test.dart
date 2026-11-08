@@ -1922,6 +1922,80 @@ void main() {
       expect(sets.single.loadKg, 47.5);
     });
 
+    testWidgets('editing a logged set during rest updates the set and draft',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final activity = activityByName('weight_training')!;
+      LiveDraft.begin(activity);
+      LiveDraft.current!.put('exercise_plan', ['bench_press']);
+
+      var sets = <LoggedSet>[];
+      await tester.pumpWidget(_frame(
+          LiveStrength(activity, onSets: (s) => sets = s),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      expect(sets.length, 1);
+      expect(sets.single.loadKg, 40.0);
+      expect(sets.single.reps, 8);
+
+      await tester.tap(find.text('Edit set'));
+      await tester.pumpAndSettle();
+
+      final textFields = find.byType(TextField);
+      await tester.enterText(textFields.first, '55');
+      await tester.enterText(textFields.last, '10');
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(sets.single.loadKg, 55.0);
+      expect(sets.single.reps, 10);
+    });
+
+    testWidgets('editing a set in ActivitySummary updates strength log',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      final initialSets = [
+        LoggedSet('bench_press', 8, loadKg: 50.0, at: DateTime.now()),
+      ];
+      final r = _result(Arch.strength).copyWith(
+        strength: StrengthLog(initialSets),
+      );
+
+      await tester.pumpWidget(_frame(
+        ActivitySummary(r, weightKg: 75.0),
+        Brightness.light,
+        1.0,
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Splits'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('50 kg × 8'));
+      await tester.pumpAndSettle();
+
+      final textFields = find.byType(TextField);
+      await tester.enterText(textFields.first, '57.5');
+      await tester.enterText(textFields.last, '9');
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('57.5 kg × 9'), findsOneWidget);
+    });
+
     testWidgets('a session that failed to save says so and can retry',
         (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
