@@ -1749,6 +1749,48 @@ void main() {
           reason: 'the open group, and only the open group');
     });
 
+    testWidgets('the quick row shows the most-used activities, most-used first',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      // `_frame` carries no localizations, so the English fallbacks are what
+      // these headings assert.
+      final mostUsed = [
+        activityByName('running')!,
+        activityByName('weight_training')!,
+      ];
+      await tester.pumpWidget(_frame(
+          ActivityPicker(weightKg: 72.4, mostUsed: mostUsed),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('MOST DONE'), findsOneWidget);
+      expect(find.text('QUICK START'), findsNothing);
+      final running = tester.getTopLeft(find.text('Running').first);
+      final weights = tester.getTopLeft(find.text('Weight training').first);
+      expect(running.dx < weights.dx, isTrue,
+          reason: 'the row is left to right, most-used first');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('with no history the row falls back to QUICK START',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+          _frame(const ActivityPicker(weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('QUICK START'), findsOneWidget);
+      expect(find.text('MOST DONE'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a location denial is named on the live screen',
         (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);

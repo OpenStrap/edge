@@ -1940,6 +1940,7 @@
   "activityPickerNoMatchBody": "Der Katalog umfasst etwa siebzig Aktivitäten mit veröffentlichtem Energieverbrauch. Wähle die, die am besten passt.",
   "activityPickerQuickStart": "SCHNELLSTART",
   "activityPickerRecent": "ZULETZT",
+  "activityPickerMostDone": "HÄUFIG GENUTZT",
   "activityPickerCalorieEstimatesTitle": "Kalorienwerte sind Schätzungen",
   "activityPickerMetValue": "{met} MET",
   "activityPickerKcalPer30": "{kcal} kcal pro 30 Min.",

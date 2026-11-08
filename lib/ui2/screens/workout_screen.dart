@@ -154,7 +154,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   void _openPicker(BuildContext c, _WorkoutData d) =>
       Navigator.of(c).push(MaterialPageRoute(
           builder: (_) => ActivityPicker(
-              weightKg: d.weightKg, host: _host(d), recent: d.recent)));
+              weightKg: d.weightKg, host: _host(d), mostUsed: d.mostUsed)));
 
   ActivityHost _host(_WorkoutData d) =>
       activityHost(context.read<AppState>(), history: d.setHistory);
@@ -1943,8 +1943,9 @@ class _WorkoutData {
   final double? weekLoad;
   final int? workoutsTracked;
 
-  /// The activities this user actually started, most recent first, deduped.
-  final List<Activity> recent;
+  /// The activities this user does most, most-used first — the picker's quick
+  /// row, counted over the last 90 days (see [_load]).
+  final List<Activity> mostUsed;
 
   /// Previous and best set per exercise, from this user's own log.
   final Map<String, SetHistory> setHistory;
@@ -1985,7 +1986,7 @@ class _WorkoutData {
     this.weekImported = 0,
     this.weekLoad,
     this.workoutsTracked,
-    this.recent = const [],
+    this.mostUsed = const [],
     this.setHistory = const {},
     this.overreach,
     this.morningAfter = const [],
@@ -2187,19 +2188,28 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
         .where((w) => w.strain != null)
         .fold<double?>(null, (a, w) => (a ?? 0) + w.strain!);
 
-    // Real recency, deduped, newest first — six tiles like the constant it
-    // replaces, so the picker's row is the same shape either way.
+    // The picker's quick row: the MOST-USED activities, not the most recent
+    // ones — hunting for an unusual activity is what the search and the
+    // collapsed groups are for. Counted over the last 90 days so a seasonal
+    // sport does not stay pinned at the top forever; newest use breaks ties.
     //
-    // Band sessions only. These tiles START a session, and most imported types
-    // land on the generic fallback activity — a row of "Workout" tiles that
-    // begin a five-MET nothing is worse than the six real ones.
-    final recent = <Activity>[];
-    for (final w in past) {
-      if (w.importedFrom != null) continue;
-      if (!recent.any((x) => x.name == w.activity.name)) {
-        recent.add(w.activity);
+    // Band sessions only (`sessions` table), same reason the tiles used to
+    // skip imports: these tiles START a session, and most imported types land
+    // on the generic fallback activity — a row of "Workout" tiles that begin a
+    // five-MET nothing is worse than the six real ones.
+    final mostUsed = <Activity>[];
+    try {
+      final since90 =
+          end.subtract(Motion.tick * 86400 * 90).millisecondsSinceEpoch ~/
+              1000;
+      for (final r
+          in await LocalDb.mostUsedActivityTypes(sinceTs: since90, limit: 6)) {
+        final a = activityByName(r['type'] as String?);
+        if (a != null) mostUsed.add(a);
       }
-      if (recent.length == 6) break;
+    } catch (_) {
+      // An unreadable table must not take the screen down — the picker falls
+      // back to quickStart under its own heading.
     }
 
     // The live screen has to have previous/best in hand before the first set;
@@ -2224,7 +2234,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       weekImported: thisWeek.where((w) => w.importedFrom != null).length,
       weekLoad: weekLoad,
       workoutsTracked: tracked,
-      recent: recent,
+      mostUsed: mostUsed,
       setHistory: history,
       overreach: overreach,
       morningAfter: morningAfter,

@@ -9635,6 +9635,10 @@
   "@activityPickerRecent": {
     "description": "Section heading over the recent-activities row"
   },
+  "activityPickerMostDone": "MOST DONE",
+  "@activityPickerMostDone": {
+    "description": "Section heading over the most-used-activities row"
+  },
   "activityPickerCalorieEstimatesTitle": "Calorie figures are estimates",
   "@activityPickerCalorieEstimatesTitle": {
     "description": "Status card title explaining that calorie figures are estimates"

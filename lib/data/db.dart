@@ -14800,6 +14800,32 @@ class LocalDb {
     ), executor: db);
   }
 
+  /// The `type` values of the most-used finished sessions, most-used first —
+  /// rows of `{'type', 'n', 'last_ts'}` for the activity picker's quick row.
+  /// [sinceTs] bounds the window (the picker passes 90 days so a seasonal
+  /// sport does not stay pinned at the top forever); null counts all history.
+  /// Live sessions never count, and `last_ts` breaks ties so a newly started
+  /// sport does not sink below an old habit. Unknown types are the caller's to
+  /// drop: the catalogue resolves what it knows via `activityByName`.
+  static Future<List<Map<String, dynamic>>> mostUsedActivityTypes({
+    int? sinceTs,
+    int limit = 6,
+  }) async {
+    final db = await instance;
+    final args = <Object?>[];
+    var where = "status = 'done' AND type IS NOT NULL AND type <> ''";
+    if (sinceTs != null) {
+      where += ' AND start_ts >= ?';
+      args.add(sinceTs);
+    }
+    args.add(limit);
+    return db.rawQuery(
+      'SELECT type, COUNT(*) AS n, MAX(start_ts) AS last_ts FROM sessions '
+      'WHERE $where GROUP BY type ORDER BY n DESC, last_ts DESC LIMIT ?',
+      args,
+    );
+  }
+
   /// What a session's sensor scored: served empty, not stored empty.
   static const List<String> _sensorScoreColumns = [
     'calories',
