@@ -121,10 +121,17 @@ class LoggedSet {
   final double? loadKg;
   final int? rpe;
   final int? restSec;
+  final int? holdSec;
+  final String note;
   final DateTime at;
 
   const LoggedSet(this.exerciseKey, this.reps,
-      {this.loadKg, this.rpe, this.restSec, required this.at});
+      {this.loadKg,
+      this.rpe,
+      this.restSec,
+      this.holdSec,
+      this.note = '',
+      required this.at});
 
   LoggedSet copyWith({
     String? exerciseKey,
@@ -134,6 +141,8 @@ class LoggedSet {
     int? rpe,
     bool clearRpe = false,
     int? restSec,
+    int? holdSec,
+    String? note,
     DateTime? at,
   }) =>
       LoggedSet(
@@ -142,6 +151,8 @@ class LoggedSet {
         loadKg: clearLoadKg ? null : (loadKg ?? this.loadKg),
         rpe: clearRpe ? null : (rpe ?? this.rpe),
         restSec: restSec ?? this.restSec,
+        holdSec: holdSec ?? this.holdSec,
+        note: note ?? this.note,
         at: at ?? this.at,
       );
 
@@ -226,6 +237,8 @@ List<Map<String, Object?>> strengthSetsToRows(List<LoggedSet> sets) {
         'load_kg': s.loadKg,
         'rpe': s.rpe,
         'rest_sec': s.restSec,
+        'hold_sec': s.holdSec,
+        'note': s.note,
         'at_ts': s.at.millisecondsSinceEpoch ~/ 1000,
       },
   ];
@@ -264,9 +277,9 @@ Future<EditSetResult?> showEditSetDialog(
   final unitLabel = units?.weightUnit ?? 'kg';
 
   var isBodyweight = set.loadKg == null;
-  final weightCtrl = TextEditingController(
-    text: set.loadKg != null ? formatStrengthWeight(set.loadKg!, units) : '',
-  );
+  final initialWeightText =
+      set.loadKg != null ? formatStrengthWeight(set.loadKg!, units) : '';
+  final weightCtrl = TextEditingController(text: initialWeightText);
   final repsCtrl = TextEditingController(text: '${set.reps}');
   String? weightError;
   String? repsError;
@@ -289,9 +302,13 @@ Future<EditSetResult?> showEditSetDialog(
                   () => weightError = uiText(context, 'Enter a value'));
               return;
             }
-            parsedKg = units != null
-                ? units.weightToKg(wText)
-                : parseTypedNumber(wText);
+            if (set.loadKg != null && wText == initialWeightText) {
+              parsedKg = set.loadKg;
+            } else {
+              parsedKg = units != null
+                  ? units.weightToKg(wText)
+                  : parseTypedNumber(wText);
+            }
             if (parsedKg == null) {
               setDialogState(
                   () => weightError = uiText(context, 'Invalid number'));
@@ -411,7 +428,11 @@ Future<EditSetResult?> showEditSetDialog(
             ),
           ),
           actions: [
-            Row(
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: S.x2,
+              runSpacing: S.x2,
               children: [
                 Pressable(
                   onTap: () async {
@@ -468,23 +489,27 @@ Future<EditSetResult?> showEditSetDialog(
                     ),
                   ),
                 ),
-                const Spacer(),
-                TextButton(
-                  onPressed: () => Navigator.of(dc).pop(),
-                  child: Text(
-                    l?.actionCancel ?? 'Cancel',
-                    style: F.body.copyWith(color: p.ink2),
-                  ),
-                ),
-                TextButton(
-                  onPressed: submit,
-                  child: Text(
-                    l?.actionSave ?? 'Save',
-                    style: F.body.copyWith(
-                      color: p.on(C.purple),
-                      fontWeight: FontWeight.w600,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dc).pop(),
+                      child: Text(
+                        l?.actionCancel ?? 'Cancel',
+                        style: F.body.copyWith(color: p.ink2),
+                      ),
                     ),
-                  ),
+                    TextButton(
+                      onPressed: submit,
+                      child: Text(
+                        l?.actionSave ?? 'Save',
+                        style: F.body.copyWith(
+                          color: p.on(C.purple),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

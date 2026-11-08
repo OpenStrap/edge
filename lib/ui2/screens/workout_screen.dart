@@ -1708,6 +1708,8 @@ StrengthLog _logFrom(List<Map<String, Object?>> rows) => StrengthLog([
           loadKg: (r['load_kg'] as num?)?.toDouble(),
           rpe: (r['rpe'] as num?)?.toInt(),
           restSec: (r['rest_sec'] as num?)?.toInt(),
+          holdSec: (r['hold_sec'] as num?)?.toInt(),
+          note: (r['note'] as String?) ?? '',
           at: DateTime.fromMillisecondsSinceEpoch(
               ((r['at_ts'] as num?)?.toInt() ?? 0) * 1000),
         ),

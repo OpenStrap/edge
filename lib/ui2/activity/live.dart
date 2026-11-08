@@ -1237,6 +1237,8 @@ class _LiveStrengthState extends State<LiveStrength> {
           loadKg: (e['kg'] as num?)?.toDouble(),
           rpe: (e['rpe'] as num?)?.toInt(),
           restSec: (e['rest'] as num?)?.toInt(),
+          holdSec: (e['hold'] as num?)?.toInt(),
+          note: (e['note'] as String?) ?? '',
           at: DateTime.fromMillisecondsSinceEpoch(
               (e['at'] as num?)?.toInt() ?? 0),
         ));
@@ -1265,6 +1267,8 @@ class _LiveStrengthState extends State<LiveStrength> {
           'kg': s.loadKg,
           'rpe': s.rpe,
           'rest': s.restSec,
+          'hold': s.holdSec,
+          'note': s.note,
           'at': s.at.millisecondsSinceEpoch,
         },
     ]);
