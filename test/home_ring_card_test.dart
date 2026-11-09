@@ -175,6 +175,43 @@ class _Repo extends LocalRepository {
   Future<Map<String, dynamic>> getProfile() async => const {};
 }
 
+const _thaiFontEnv = 'EDGE_TEST_THAI_FONT';
+
+/// A Thai-capable TrueType face for measuring Thai text, or null. The repo
+/// ships none (Manrope has no Thai), so look at an explicit override, then at
+/// what fontconfig lists for Thai, then at the usual FreeFont install paths.
+File? _thaiFontFile() {
+  final candidates = <String>[
+    ?Platform.environment[_thaiFontEnv],
+  ];
+  try {
+    final r = Process.runSync('fc-list', [':lang=th', 'file']);
+    if (r.exitCode == 0) {
+      for (final line in (r.stdout as String).split('\n')) {
+        final f = line.split(':').first.trim();
+        if (RegExp(r'\.(ttf|otf)$', caseSensitive: false).hasMatch(f)) {
+          candidates.add(f);
+        }
+      }
+    }
+  } on ProcessException {
+    // no fontconfig
+  }
+  candidates.addAll([
+    '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
+    '/run/current-system/sw/share/X11/fonts/FreeSans.ttf', // NixOS
+    '/usr/share/fonts/truetype/noto/NotoSansThai-Regular.ttf',
+  ]);
+  // Prefer a sans face: the app's text is sans.
+  candidates.sort((a, b) =>
+      (b.contains('Sans') ? 1 : 0) - (a.contains('Sans') ? 1 : 0));
+  for (final c in candidates) {
+    final f = File(c);
+    if (f.existsSync()) return f;
+  }
+  return null;
+}
+
 void main() {
   // ── 0. what "pressing" means (pure) ───────────────────────────────────────
   group('pressingRings', () {
@@ -513,6 +550,15 @@ void main() {
         }
         await loader.load();
       }
+      // Manrope has no Thai glyphs. Without a Thai face every Thai word is an
+      // unbreakable one-em block and the line bound below means nothing.
+      final thai = _thaiFontFile();
+      if (thai != null) {
+        final loader = FontLoader('ThaiTestFace')
+          ..addFont(thai.readAsBytes().then(
+              (bytes) => ByteData.sublistView(Uint8List.fromList(bytes))));
+        await loader.load();
+      }
     });
 
     // A scored night against the 8 h default: 442 of 480 min is 92%.
@@ -537,11 +583,12 @@ void main() {
         expect(para.didExceedMaxLines, isFalse,
             reason: '$lang caption is cut by its line limit');
         // Three lines is the reserved caption height; more would shift the card.
-        // Thai has no glyphs in the shipped test font, so its words measure as
-        // unbreakable one-em blocks, wider than any real Thai face: the line
-        // bound is meaningless there, and the caption must at least print its
-        // tightest wording whole (checked above: no line-limit cut).
-        if (lang == 'th') return;
+        if (lang == 'th' && _thaiFontFile() == null) {
+          markTestSkipped('no Thai-capable font found (set $_thaiFontEnv, or '
+              'install FreeFont/Noto Sans Thai): the Thai three-line bound is '
+              'NOT measured on this machine');
+          return;
+        }
         final fs = para.text.style?.fontSize ?? 12;
         expect(para.size.height / (fs * 1.3 * 1.5), lessThanOrEqualTo(3.01));
       });

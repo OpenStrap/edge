@@ -7393,7 +7393,7 @@
       }
     }
   },
-  "homeSleepPctDefaultTight": "{pct}% ของเป้าหมายเริ่มต้น {target}",
+  "homeSleepPctDefaultTight": "{pct}% ของ {target} เริ่มต้น",
   "@homeSleepPctDefaultTight": {
     "description": "Tightest sleep caption when the target is the default: still names the target as the default.",
     "placeholders": {
