@@ -972,8 +972,3 @@ class _ChartAnnotationLaneState extends State<ChartAnnotationLane> {
     });
   }
 }
-
-/// Reads the annotations for the local days [from]..[to] inclusive
-/// ('YYYY-MM-DD'), in epoch seconds. Failure is an empty list, never null.
-typedef AnnotationLoader = Future<List<ChartAnnotation>> Function(
-    String from, String to);

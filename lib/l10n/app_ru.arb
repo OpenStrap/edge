@@ -2409,7 +2409,6 @@
       }
     }
   },
-  "metricDetailJournalMarksToggle": "Отметки дневника",
   "metricDetailDaysAgoLabel": "{n, plural, one{{n} день назад} few{{n} дня назад} many{{n} дней назад} other{{n} дня назад}}",
   "@metricDetailDaysAgoLabel": {
     "placeholders": {

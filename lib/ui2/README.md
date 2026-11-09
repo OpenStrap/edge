@@ -414,15 +414,15 @@ Five rules:
 2. **`xLabels` must describe the range actually drawn.** A hardcoded
    `['30 days ago', '15', 'Today']` under a seven-day window is worse than no
    labels. With three labels they mark the start, middle and end of the data.
-3. **An algorithm-version mark is provenance, never a measurement.** A mark
-   says the days either side of it were not produced the same way — a release
-   boundary, read off `getChart`'s `algo_breaks`. Pass it to
-   `ChartFrame.annotations` as an `AnnotationKind.algoVersion` annotation
-   (`algoBreakAnnotations`): a neutral icon in the lane above the plot and a
-   DASHED line. `xMarks` (dotted) remains for charts with no lane. **A mark without a `footnote` is a line
+3. **`xMarks` is provenance, never a measurement.** A mark says the days
+   either side of it were not produced the same way — a release boundary, read
+   off `getChart`'s `algo_breaks`. It draws dotted, in `p.ink3`, above the
+   curve, and it does not take taps. **A mark without a `footnote` is a line
    nobody can read**: the footnote is the mark's only screen-reader form and
    the only thing that can say what it is. Keep the wording flat — a version
-   change is provenance, not something that happened to the user.
+   change is provenance, not something that happened to the user. Multi-day
+   charts (metric detail) use `xMarks` and draw no annotation lane;
+   `algoBreakAnnotations` is the same mark for a chart that does have one.
 4. **More than one colour means a `legend`.** Use the painters' own, never
    retyped: `Hypnogram.legend(p, l)`, `IntervalLadder.legend` (instance).
    The swatch is the mark's *solved* colour, so the key and the plot can never
@@ -453,14 +453,12 @@ kind's colour. Icons never overlap: close marks collapse to one icon with a
 "kind, label" (`annotationKindName` gives the localized kind; the caller's
 `label` is the rest), the "+n" button steps the cluster and names the members
 the icon does not show, and a mark too crowded for any icon is spoken by the
-lane. Dashed lines, shading and the static label are not spoken. Metric detail
-uses two sources:
+lane. Dashed lines, shading and the static label are not spoken.
 
-- algorithm-version marks, always on (provenance);
-- a "Journal marks" chip, OFF by default, that reads nothing until it is turned
-  on, then draws the window's workouts, timed meals and timed journal fields on
-  their local day (`loadAnnotations`, built on `dayMoments`). A failed read
-  draws nothing. The chip's semantics carry its selected state.
+Multi-day graphs (metric detail) draw no annotations: marks spread over weeks
+say little and can mislead, so metric detail has no lane and no toggle. Its
+algorithm-version breaks stay the dotted `xMarks` lines. The lane is for
+single-day graphs.
 
 ---
 

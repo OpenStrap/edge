@@ -1126,7 +1126,6 @@
   "metricDetailDailyAverage": "日均值 · {win} 天中的 {count} 天",
   "metricDetailLatestReading": "最新 {value} {unit} · {asOf}",
   "metricDetailAlgoBreakFootnote": "{n, plural, other{虚线标记了这些天计算方式发生变化的位置。线两侧的读数来自不同版本。}}",
-  "metricDetailJournalMarksToggle": "日志标记",
   "metricDetailDaysAgoLabel": "{n, plural, other{{n} 天前}}",
   "metricDetailWornChartTitle": "佩戴",
   "metricDetailHoursADayUnit": "小时/天",

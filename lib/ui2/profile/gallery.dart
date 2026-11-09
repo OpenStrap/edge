@@ -467,14 +467,8 @@ Map<String, Widget> _chartCases() {
           unit: 'score',
           yAxis: AxisSpec.of(rhr, floor: 40),
           xLabels: const ['30 Jul', '14 Aug', 'Today'],
-          annotations: AnnotationSet(
-              items: algoBreakAnnotations(
-                  breakDaysBehind: const [13],
-                  seriesLength: 30,
-                  label: 'Algorithm version'),
-              domainStart: 0,
-              domainEnd: 29),
-          footnote: 'The dashed line is a change in how these days were '
+          xMarks: const [.55],
+          footnote: 'The dotted line is a change in how these days were '
               'computed. Readings either side of it came from different '
               'versions.',
           series: rhr,

@@ -62,7 +62,6 @@ class Moment {
     this.color,
     this.until,
     this.detail = '',
-    this.annotationKind,
   });
 
   /// Epoch seconds. The ONLY sort key — nothing on this page is ranked.
@@ -80,10 +79,6 @@ class Moment {
   /// not on. Those render in muted ink, because a colour is a claim that the
   /// row belongs to a domain and none of them do.
   final Color? color;
-
-  /// The chart annotation this moment becomes on a daily chart, or null when
-  /// it is not one (the journal marks only draw what the user did or logged).
-  final AnnotationKind? annotationKind;
 }
 
 /// Something that was logged for this day and carries no time of day. Kept
@@ -199,7 +194,6 @@ List<Moment> dayMoments({
       detail: bits.join(' · '),
       icon: act?.icon ?? LucideIcons.dumbbell,
       color: act?.color ?? C.orange,
-      annotationKind: AnnotationKind.workout,
     ));
   }
 
@@ -280,7 +274,6 @@ List<Moment> dayMoments({
         ].join(' · '),
         icon: LucideIcons.utensils,
         color: C.domFood,
-        annotationKind: AnnotationKind.journal,
       ),
     );
   }
@@ -326,7 +319,6 @@ List<Moment> dayMoments({
             '${l?.dayTimelineLastAt(clockOfTs(at)) ?? 'last at ${clockOfTs(at)}'}',
         icon: LucideIcons.notebookPen,
         color: C.domMind,
-        annotationKind: AnnotationKind.journal,
       ),
     );
   });

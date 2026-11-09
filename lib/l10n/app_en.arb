@@ -5542,7 +5542,7 @@
       }
     }
   },
-  "metricDetailAlgoBreakFootnote": "{n, plural, one{The dashed line is a change in how these days were computed. Readings either side of it came from different versions.} other{The dashed lines are changes in how these days were computed. Readings either side of one came from different versions.}}",
+  "metricDetailAlgoBreakFootnote": "{n, plural, one{The dotted line is a change in how these days were computed. Readings either side of it came from different versions.} other{The dotted lines are changes in how these days were computed. Readings either side of one came from different versions.}}",
   "@metricDetailAlgoBreakFootnote": {
     "description": "Chart footnote explaining the dotted vertical line(s) marking an algorithm-version change.",
     "placeholders": {
@@ -5550,10 +5550,6 @@
         "type": "int"
       }
     }
-  },
-  "metricDetailJournalMarksToggle": "Journal marks",
-  "@metricDetailJournalMarksToggle": {
-    "description": "Chip on a metric chart that shows or hides the user's own journal items (workouts, meals, timed journal fields) as marks on the days they happened. Off by default. Screen readers also announce whether it is selected."
   },
   "metricDetailDaysAgoLabel": "{n, plural, one{{n} day ago} other{{n} days ago}}",
   "@metricDetailDaysAgoLabel": {
