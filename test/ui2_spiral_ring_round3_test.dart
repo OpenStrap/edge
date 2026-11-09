@@ -116,33 +116,43 @@ void main() {
         const g = SpiralGeometry(20);
         final d = await _raster(
             Ring(v, _green, _none, stroke: 20, background: _bg), 200);
-        // Points that are inside the band or its end caps, 3 px clear of the
-        // edges: every one must be fully opaque and match its horizontal
-        // neighbours (a crack is a lighter or more transparent hairline).
+        // Probes chosen from the geometry alone (never from what was drawn):
+        // along the tangent at offset `a` px and radially at `dr` px from the
+        // cap centre. Behind the join (a <= 0 at the start, a <= 0 at the end)
+        // is band; ahead of it only the disc covers, so it counts as interior
+        // within 6.5 px of the centre. Every such pixel must be fully opaque and
+        // match its horizontal neighbours (a crack is a lighter or more
+        // transparent hairline).
         final end = v % 1;
-        final probes = <(double, double)>[
-          for (var k = -6; k <= 6; k++) (k / 200, 90.0), // start cap region
-          for (var k = -6; k <= 6; k++)
-            (end + k / 200, g.radiusAt(v, 90).toDouble()), // end cap region
-        ];
-        for (final (u, r) in probes) {
-          for (var dr = -6.0; dr <= 6; dr += 1) {
-            final rr = r + dr;
-            if (v > 1 && u > .5 && u < end - .5) continue;
-            final c = _at(d, 200, u, rr);
-            if (c[3] < 255) {
-              // Allowed only outside the painted shape (track is transparent).
-              continue;
-            }
-            final x = (100 + rr * sin(2 * pi * u)).floor();
-            final y = (100 - rr * cos(2 * pi * u)).floor();
-            for (final nx in [x - 1, x + 1]) {
-              final i = (y * 200 + nx) * 4;
-              if (d.getUint8(i + 3) < 255) continue; // shape boundary
-              for (var ch = 0; ch < 3; ch++) {
-                expect((d.getUint8(i + ch) - c[ch]).abs(), lessThan(40),
-                    reason: 'crack at u=$u r=$rr ch=$ch');
+        const half = 10.0, reach = 6.5;
+        final probes = <(double, double)>[];
+        void region(double centreU, double radius, {required bool bandBehind}) {
+          for (var a = -7.0; a <= 7; a += 1) {
+            for (var dr = -6.0; dr <= 6; dr += 1) {
+              final behind = bandBehind ? a <= 0 : a >= 0;
+              final inDisc = sqrt(a * a + dr * dr) <= reach;
+              if ((behind && dr.abs() <= half - 3) || inDisc) {
+                probes.add((centreU + a / (2 * pi * radius), radius + dr));
               }
+            }
+          }
+        }
+
+        region(0, 90, bandBehind: false); // start cap; the band runs ahead
+        region(end, g.radiusAt(v, 90).toDouble(), bandBehind: true);
+        expect(probes.length, greaterThan(100));
+        for (final (u, rr) in probes) {
+          final c = _at(d, 200, u, rr);
+          expect(c[3], 255, reason: 'transparent join pixel at u=$u r=$rr');
+          final x = (100 + rr * sin(2 * pi * u)).floor();
+          final y = (100 - rr * cos(2 * pi * u)).floor();
+          for (final nx in [x - 1, x + 1]) {
+            final i = (y * 200 + nx) * 4;
+            expect(d.getUint8(i + 3), 255,
+                reason: 'transparent neighbour of u=$u r=$rr');
+            for (var ch = 0; ch < 3; ch++) {
+              expect((d.getUint8(i + ch) - c[ch]).abs(), lessThan(40),
+                  reason: 'crack at u=$u r=$rr ch=$ch');
             }
           }
         }
