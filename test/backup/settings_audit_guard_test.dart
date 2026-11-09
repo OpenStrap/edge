@@ -3,6 +3,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/data/backup_extras.dart' show expectedPrefType;
 import 'package:openstrap_edge/data/db.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -179,7 +180,16 @@ void main() {
 
   test('device and transient keys never travel, including foreign backups', () async {
     await env.wipe();
-    await setPrefs({for (final key in {..._mustTravel, ..._mustStay}) key: 'audit value'});
+    // Typed as the app reads them: restore refuses a row of another type.
+    await setPrefs({
+      for (final key in {..._mustTravel, ..._mustStay}) key: switch (expectedPrefType(key)) {
+        'bool' => true,
+        'int' => 1,
+        'double' => 1.5,
+        'stringList' => <String>['audit value'],
+        _ => 'audit value',
+      },
+    });
     final path = await LocalDb.exportCopy();
     final prefs = (await exportedPrefs(path))!;
     for (final key in _mustStay) {

@@ -79,15 +79,116 @@ class ImportSummary extends MapView<String, int> {
   final List<String> refusedPrefs;
 }
 
-/// Settings the app reloads live right after an import, with the stored type
-/// each controller reads. A row of another type is refused, not written: the
-/// controller could not use it, so counting it as restored would be false.
-const Map<String, String> _kLivePrefTypes = {
-  'theme_choice': 'string',
-  'locale_override': 'string',
-  'units_system': 'string',
+/// The stored type of each backed-up key the app reads with a typed getter.
+/// A row of another type is refused, not written: the getter throws on a cast
+/// mismatch (int vs double included), on every launch after the restore. A
+/// backed-up key missing here is written as-is; the guard test keeps this
+/// table complete. Keys in [kPrefsNotBackedUp] need no entry.
+const Map<String, String> kPrefTypes = {
+  'ai.journal_done_day': 'string',
+  'ai_evening_enabled': 'bool',
+  'ai_evening_min': 'int',
+  'ai_journal_enabled': 'bool',
+  'ai_journal_min': 'int',
+  'ai_morning_enabled': 'bool',
+  'ai_morning_min': 'int',
+  'backup.cadence': 'string',
+  'band.strap_name': 'string',
   'clock_format': 'string',
+  'coach_api': 'string',
+  'coach_model': 'string',
+  'coach_timeout_seconds': 'int',
+  'coach_use_chatgpt': 'bool',
+  'companion_url': 'string',
+  'cycle_tracking_enabled': 'bool',
+  'dev.mode': 'bool',
+  'device_alerts.charge_shown_day': 'int',
+  'device_alerts.last_charge_event_ts': 'int',
+  'device_alerts.last_charge_wall_sec': 'int',
+  'gesture_double_tap': 'string',
+  'health_auto_import_last_ms': 'int',
+  'health_auto_import_workouts': 'bool',
+  'health_import_profile_at': 'int',
+  'health_import_workouts_at': 'int',
+  'health_sync': 'bool',
+  'health_workout_import_deleted': 'stringList',
+  'issue_reports_sent': 'string',
+  'last_inactivity_ms': 'int',
+  'last_recovery_notif_day': 'string',
+  'last_staleness_notified_ms': 'int',
+  'last_stepgoal_day': 'string',
+  'local_profile_json': 'string',
+  'locale_override': 'string',
+  'notif_alarm_latch_failed': 'bool',
+  'notif_alarm_night_check': 'bool',
+  'notif_auto_detect': 'bool',
+  'notif_battery_pct': 'int',
+  'notif_checkin': 'bool',
+  'notif_critical_override': 'bool',
+  'notif_device': 'bool',
+  'notif_fired_keys': 'stringList',
+  'notif_health': 'bool',
+  'notif_meds': 'bool',
+  'notif_movement': 'bool',
+  'notif_nap_detect': 'bool',
+  'notif_quiet_enabled': 'bool',
+  'notif_quiet_end': 'int',
+  'notif_quiet_start': 'int',
+  'notif_recovery': 'bool',
+  'notif_relay_enabled': 'bool',
+  'notif_relay_packages': 'stringList',
+  'notif_relay_seen': 'stringList',
+  'notif_reminders': 'bool',
+  'notif_stepgoal': 'bool',
+  'notif_water': 'bool',
+  'notif_water_interval': 'int',
+  'notif_winddown': 'bool',
+  'nutrition.barcode_lookup': 'bool',
+  'onboard.completed': 'bool',
+  'onboard.saw_profile_setup': 'bool',
+  'onboard.skipped_pairing': 'bool',
+  'onboarding_choice': 'string',
+  'phone_steps': 'bool',
+  'phone_steps_healthstore_purged': 'bool',
+  'rough_night.ask': 'string',
+  'rough_night.dismissed': 'string',
+  'share.map_tiles': 'bool',
+  'theme_choice': 'string',
+  'ui.shell_tab': 'int',
+  'ui.shell_tab.v2': 'int',
+  'ui.wearable_show_estimates': 'bool',
+  'ui.wearable_side_by_side': 'bool',
+  'units_system': 'string',
+  'update_checks_enabled': 'bool',
+  'whoop_import_deleted_workouts': 'stringList',
+  'workout.rpe_skips': 'int',
+  'workout.zone_alert_enabled': 'bool',
+  'workout.zone_alert_target_zone': 'int',
 };
+
+/// Dated or per-item key families: (prefix, suffix, stored type).
+const List<(String, String, String)> kPrefTypeFamilies = [
+  ('ai.briefing.', '', 'string'),
+  ('ecg.guard.', '', 'bool'),
+  ('ecg.wrist.', '', 'string'),
+  ('ecg.maverick.', '', 'bool'),
+  ('notif_fired:', '', 'bool'),
+  ('notif_osid:', '', 'int'),
+  ('notif_osslot:', '', 'string'),
+  ('notif_osnext:', '', 'int'),
+  ('nudge.', '.dismissed', 'bool'),
+  ('nudge.', '.last_shown_ms', 'int'),
+];
+
+/// The stored type the app reads [key] with, or null when it is not known.
+String? expectedPrefType(String key) {
+  final exact = kPrefTypes[key];
+  if (exact != null) return exact;
+  for (final (prefix, suffix, type) in kPrefTypeFamilies) {
+    if (key.startsWith(prefix) && key.endsWith(suffix)) return type;
+  }
+  return null;
+}
 
 bool _backedUp(String key) => !kPrefsNotBackedUp.containsKey(key);
 
@@ -164,6 +265,13 @@ Future<bool> _write(SharedPreferences prefs, String key,
   }
 }
 
+/// This phone has no server of its own: unset, blank, or the default saved
+/// explicitly. Either way the user would silently stay on the default.
+bool _needsServerReentry(String? saved) {
+  final v = saved?.trim() ?? '';
+  return v.isEmpty || v == CoachConfig.defaultBaseUrl;
+}
+
 Future<ImportSummary> restoreBackupPrefs(String path, Map<String, int> counts, {
   required bool freshInstall,
 }) async {
@@ -182,7 +290,7 @@ Future<ImportSummary> restoreBackupPrefs(String path, Map<String, int> counts, {
         // A malformed row is skipped and reported, so one bad value cannot
         // block every setting after it. Storage refusing a write is a real
         // failure and must not be reported as a successful restore.
-        final want = _kLivePrefTypes[key];
+        final want = expectedPrefType(key);
         if (want != null && row['type'] != want) {
           refused.add(key);
           continue;
@@ -214,8 +322,8 @@ Future<ImportSummary> restoreBackupPrefs(String path, Map<String, int> counts, {
     if (await _hasTable(src, 'backup_secrets') &&
         (await src.query('backup_secrets', where: 'key = ?',
             whereArgs: ['coach_base_url'])).isNotEmpty &&
-        ((await SharedPreferences.getInstance()).getString('coach_base_url')
-            ?.trim().isEmpty ?? true)) {
+        _needsServerReentry((await SharedPreferences.getInstance())
+            .getString('coach_base_url'))) {
       needs.add('coach_base_url');
     }
     if (await _hasTable(src, 'backup_secrets') &&
