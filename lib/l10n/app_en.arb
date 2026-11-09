@@ -1,5 +1,17 @@
 {
   "@@locale": "en",
+  "whoopFirmwareWarningTitle": "WHOOP users: do not reconnect to the WHOOP app",
+  "@whoopFirmwareWarningTitle": {
+    "description": "Prominent WHOOP firmware warning shared by connection and pairing screens."
+  },
+  "whoopFirmwareWarningAction": "If you want to keep using OpenStrap or another open-source app, do not connect your band to the official WHOOP app again. It can install firmware updates automatically. Uninstall or disable the WHOOP app to prevent it from updating your band.",
+  "@whoopFirmwareWarningAction": {
+    "description": "Prominent WHOOP firmware warning shared by connection and pairing screens."
+  },
+  "whoopFirmwareWarningDetails": "Reports on WHOOP 5.0 / MG firmware 50.43.1.0 and 50.43.2.0 describe blocked data access. Bluetooth may still connect. OpenStrap cannot issue the WHOOP-signed membership token needed to unlock affected bands.",
+  "@whoopFirmwareWarningDetails": {
+    "description": "Prominent WHOOP firmware warning shared by connection and pairing screens."
+  },
   "appTitle": "OpenStrap",
   "@appTitle": {
     "description": "App name shown in the OS task switcher / MaterialApp title."
