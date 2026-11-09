@@ -2013,7 +2013,30 @@ class HomeData {
   }
 
   static Future<HomeData> load(LocalRepository repo, [AppLocalizations? l]) async {
-    final today = await repo.getToday();
+    // getToday and the night's stage read decode the same stored day bundle:
+    // read both in one scope, so the UI isolate decodes it once per reload.
+    final (today, stages) = await repo.sharingDayReads(() async {
+      final t = await repo.getToday();
+      final sl = t['sleep'];
+      final night = (overnightMetric(
+                      t, sl is Map ? sl['duration_min'] : null, l)
+                  .value ==
+              null)
+          ? null
+          // Stage totals of TODAY'S OWN night only: a held-over night is
+          // refused by overnightMetric, and its stages must not turn up under
+          // today's ring.
+          : ((t['status'] as Map?)?['overnight_day'] ??
+                  (t['status'] as Map?)?['today_day'])
+              ?.toString();
+      SleepStageMin? st;
+      if (night != null) {
+        try {
+          st = sleepStagesOf(await repo.getDaySleepV2(night));
+        } catch (_) {}
+      }
+      return (t, st);
+    });
     final cd = await repo.getInsights();
     final profile = await repo.getProfile();
 
@@ -2031,23 +2054,7 @@ class HomeData {
 
     final heldOver = heldOverNightOf(today);
 
-    final status = today['status'] as Map?;
     final sleepMin = overnightMetric(today, s('duration_min'), l);
-    // Stage totals of TODAY'S OWN night only: a held-over night is refused
-    // above, and its stages must not turn up under today's ring.
-    SleepStageMin? stages;
-    if (sleepMin.value != null) {
-      final night =
-          (status?['overnight_day'] ?? status?['today_day'])?.toString();
-      if (night != null) {
-        try {
-          stages = sleepStagesOf(await repo.getDaySleepV2(night));
-        } catch (_) {
-          stages = null;
-        }
-      }
-    }
-
     // Typical onset/wake for the unslept estimate. The armed alarm is
     // AppState's and is laid over this by the screen ([withSleepInputs]); a
     // failed read here is simply absent.

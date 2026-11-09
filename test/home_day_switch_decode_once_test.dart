@@ -78,6 +78,42 @@ void main() {
     expect(LocalRepositoryImpl.bundleDecodes - before, 2);
   });
 
+  test('loading TODAY with a scored night decodes the day bundle once',
+      () async {
+    final now = DateTime.now();
+    final todayDay = '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+    await LocalDb.putDayResult(
+      dayId: todayDay,
+      algoVersion: kAlgoVersion,
+      payloadJson: jsonEncode({
+        'date': todayDay,
+        'scalars': {'rhr': 51.0, 'strain': 9.4, 'steps': 7200},
+        'sleep': {
+          'accounting': {
+            'value': {'tst_sec': 420 * 60},
+          },
+        },
+        'series': {
+          'strain_curve': [
+            for (var i = 0; i < 50; i++) {'t': 1000 + i * 60, 'v': i / 10},
+          ],
+        },
+      }),
+      windowJson: '{}',
+    );
+    // Warm anything that is not the bundle (freshness rows, the profile).
+    await repo.getToday();
+    final before = LocalRepositoryImpl.bundleDecodes;
+    final h = await HomeData.load(repo);
+    expect(h.sleepMin.value, isNotNull,
+        reason: 'the fixture must be a scored night of today, or the stage '
+            'read this test is about never happens');
+    expect(LocalRepositoryImpl.bundleDecodes - before, 1,
+        reason: 'getToday and the stage read share ONE decode');
+  });
+
   group('HomeData.load keeps its extra reads minimal', () {
     Map<String, dynamic> today({required bool slept}) => {
           'daily': {
