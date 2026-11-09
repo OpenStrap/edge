@@ -217,6 +217,13 @@ List<T> sessionWindowRows<T extends Map<String, Object?>>(List<T> rows) {
 /// widen [derivableSourceSql] and must NOT widen this one.
 const String kPrimaryBandSourceSql = 'source IS NULL';
 
+/// The keyset cursor's start when a restore pages a backup table by rowid.
+/// Below every rowid, not 0: a table keyed on its own INTEGER column has that
+/// column as its rowid, so a row can sit at 0 or below (alarm_schedule's
+/// Monday is weekday 0, and a legacy table can hold a zero counter), and a
+/// cursor that starts at `rowid > 0` never reads it.
+const int _kBeforeEveryRowid = -0x8000000000000000;
+
 class LocalDb {
   static Database? _db;
   static String dbName = 'openstrap.db';
@@ -11846,7 +11853,7 @@ class LocalDb {
           .any((c) => c['name'] == 'device_id');
       final deviceSql =
           hasDevice ? 'device_id' : "'$kPrimaryDeviceId' AS device_id";
-      var after = 0;
+      var after = _kBeforeEveryRowid;
       while (true) {
         final page = await src.rawQuery(
           'SELECT rowid AS _r, $deviceSql, $hexSql AS hex, counter, '
@@ -12030,7 +12037,7 @@ class LocalDb {
       final maxRowid = Sqflite.firstIntValue(
         await db.rawQuery('SELECT MAX(rowid) FROM imp.${quoteSql(t)}'),
       );
-      if (maxRowid == null || maxRowid <= 0) {
+      if (maxRowid == null) {
         counts[t] = 0;
         return true;
       }
@@ -12146,7 +12153,7 @@ class LocalDb {
         // `rec_ts INTEGER PRIMARY KEY` table has rowids near 1.8e9, which
         // fixed 25k ranges walked as ~70k mostly empty transactions.
         final ends = <int>[];
-        for (var lo = 0;;) {
+        for (var lo = _kBeforeEveryRowid;;) {
           final hi = Sqflite.firstIntValue(await db.rawQuery(
             'SELECT MAX(r) FROM (SELECT rowid AS r FROM imp.${quoteSql(t)} '
             'WHERE rowid > ? ORDER BY rowid LIMIT $chunkRows)',
@@ -12183,12 +12190,12 @@ class LocalDb {
                       AND ${numericSql(sourceColumn('beat_index'))}
                     GROUP BY 1, 2) c
               LEFT JOIN temp._restore_rr_src_max x ON x.d = c.d AND x.k = c.k''',
-                [i == 0 ? 0 : ends[i - 1], ends[i]]);
+                [i == 0 ? _kBeforeEveryRowid : ends[i - 1], ends[i]]);
           }
         }
-        var lower = 0;
+        var lower = _kBeforeEveryRowid;
         for (final upper in ends) {
-          final first = lower == 0;
+          final first = lower == _kBeforeEveryRowid;
           await db.transaction((txn) async {
             if (t == 'day_result' && first) {
               // Inside the first chunk's transaction, so a day the engine
@@ -12343,10 +12350,7 @@ class LocalDb {
           final isArchive = t == SubstrateArchive.table;
           final pageSize = isArchive ? 8 : 2000;
           const rowidKey = '_rowid';
-          // Start below every rowid, not at 0: a table keyed on its own
-          // INTEGER column (alarm_schedule's weekday) has that column as its
-          // rowid, and `rowid > 0` dropped Monday (weekday 0) from every import.
-          var lastRowid = -0x8000000000000000;
+          var lastRowid = _kBeforeEveryRowid;
           final projection = isArchive
               ? SubstrateArchive.metaColumns.join(', ')
               : '*';
