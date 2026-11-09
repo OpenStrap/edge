@@ -291,7 +291,12 @@ class ChartPanelCell {
 
   /// The value's own ink; the plain ink when null.
   final Color? valueColor;
-  const ChartPanelCell(this.label, {this.color, this.value, this.valueColor});
+
+  /// Keep the swatch's width when [color] is null, so a cell whose colour
+  /// depends on its value does not rewrap its label between values.
+  final bool reserveSwatch;
+  const ChartPanelCell(this.label,
+      {this.color, this.value, this.valueColor, this.reserveSwatch = false});
 }
 
 /// ── CHART PANEL ── what a chart reads at one instant, always on screen ────
@@ -414,7 +419,7 @@ class ChartPanel extends StatelessWidget {
                   key: ValueKey('chart-panel-stat:${x.label}'),
                   child: Semantics(
                     container: true,
-                    label: x.value == null ? null : '${x.label} ${x.value}',
+                    label: '${x.label} ${x.value ?? _none(c)}',
                     child: ExcludeSemantics(child: _cell(c, p, x)),
                   ),
                 ),
@@ -450,10 +455,14 @@ class ChartPanel extends StatelessWidget {
     );
   }
 
+  /// What a screen reader says for a value that was not recorded.
+  static String _none(BuildContext c) =>
+      AppLocalizations.of(c)?.metricDetailNoRecordLabel ?? 'No record';
+
   /// The resting reading as one sentence: the caption, then each cell.
   String _reading(BuildContext c) {
     final l = AppLocalizations.of(c);
-    final none = l?.metricDetailNoRecordLabel ?? 'No record';
+    final none = _none(c);
     final reading = [
       '${l?.chartPanelLatest ?? 'LATEST'} · ${time ?? absent}',
       for (final x in cells) '${x.label} ${x.value ?? none}',
@@ -555,6 +564,7 @@ class ChartPanel extends StatelessWidget {
 
   /// Equal-width cells: one row when they fit, wrapped when they do not.
   Widget _equal(BuildContext c, List<Widget> items) {
+    if (items.isEmpty) return const SizedBox.shrink();
     final scale = math.max(1.0, MediaQuery.textScalerOf(c).scale(1));
     const gap = S.x3;
     final minW = 92.0 * scale;
@@ -610,17 +620,21 @@ class ChartPanel extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          if (cell.color != null) ...[
+          if (cell.color != null || cell.reserveSwatch) ...[
             Padding(
               padding: const EdgeInsets.only(top: 2.5),
-              child: Container(
+              child: SizedBox(
                 width: 9,
                 height: 9,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: cell.color,
-                  border: Border.all(color: p.line, width: .5),
-                ),
+                child: cell.color == null
+                    ? null
+                    : DecoratedBox(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: cell.color,
+                          border: Border.all(color: p.line, width: .5),
+                        ),
+                      ),
               ),
             ),
             const SizedBox(width: S.x1),

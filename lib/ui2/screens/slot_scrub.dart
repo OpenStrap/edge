@@ -88,12 +88,13 @@ class _SlotScrubState extends State<SlotScrub> {
     while (latest > 0 && s[latest] == null) {
       latest--;
     }
-    final shown = _pick ?? latest;
-    final v = s[shown];
+    // No slots at all: nothing to read, so an empty reading.
+    final shown = _n == 0 ? null : (_pick ?? latest).clamp(0, _n - 1);
+    final v = shown == null ? null : s[shown];
     // No slot has a value: LATEST would name a day with no reading.
     final none = _pick == null && v == null;
     final panel = ChartPanel(
-      time: none ? null : _day(c, shown),
+      time: none || shown == null ? null : _day(c, shown),
       timeSpan: [for (var i = 0; i < _n; i++) _day(c, i)],
       scrubbed: _pick != null,
       color: widget.color,

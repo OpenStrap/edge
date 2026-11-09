@@ -531,7 +531,11 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   /// previous night drawn under the new date.
   bool _failed = false;
   bool _saving = false; // an override write + its forced re-derive is in flight
-  double? _scrub; // 0..1 across the night
+  /// The instant both night charts have selected, in epoch seconds. One value
+  /// for both: a device's night and ours can have different bounds, so a
+  /// fraction of one is a different time on the other. A chart whose night does
+  /// not contain the instant shows no cursor.
+  int? _scrubT;
 
   /// Whose staging the hypnogram shows: null for ours, else a device id from
   /// [SleepData.deviceNights].
@@ -671,7 +675,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   void _goDay(String day) {
     setState(() {
       _day = sleepStepperDay(day, (_d ?? _lastGood)?.latestDay);
-      _scrub = null;
+      _scrubT = null;
       _overrideFailed = null;
       _loading = true;
       _failed = false;
@@ -841,7 +845,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           selected: _staging,
           onSelect: (id) => setState(() {
             _staging = id;
-            _scrub = null;
+            _scrubT = null;
           }),
         ),
         const SizedBox(height: S.x2),
@@ -1483,8 +1487,8 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   Widget _hypnogram(BuildContext c, P p, SleepData d, List<SleepStage?> stages,
           Map<String, dynamic> n, double height) =>
       Scrubber(
-        value: _scrub,
-        onChanged: (v) => setState(() => _scrub = v),
+        value: _fracIn(_scrubT, _spanOf(n)),
+        onChanged: (v) => setState(() => _scrubT = _instantAt(v, _spanOf(n))),
         label: AppLocalizations.of(c)?.sleepDetailHypnogramLabel ?? 'Hypnogram',
         describe: (v) {
           final l = AppLocalizations.of(c);
@@ -1495,19 +1499,17 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
                   '${(v * 100).round()}% through the night')
               : clockOfTs(t0 + ((t1 - t0) * v).round());
           // The same boundaries the panel reads, at the same second.
-          final st = (t0 == null || t1 == null || t1 <= t0)
-              ? (stages.isEmpty
-                  ? null
-                  : stages[(v * (stages.length - 1))
-                      .round()
-                      .clamp(0, stages.length - 1)])
-              : SleepData.stageAt(n, t0 + ((t1 - t0) * v).round())
-                  .$2;
-          final stageName = st == null
-              ? (l?.sleepDetailNotMeasured ?? 'not measured')
-              : _stageName(c, st);
-          final base =
-              l?.sleepDetailScrubAt(at, stageName) ?? '$at, $stageName';
+          final (known, st) = (t0 == null || t1 == null || t1 <= t0)
+              ? (
+                  stages.isNotEmpty,
+                  stages.isEmpty
+                      ? null
+                      : stages[(v * (stages.length - 1))
+                          .round()
+                          .clamp(0, stages.length - 1)]
+                )
+              : SleepData.stageAt(n, t0 + ((t1 - t0) * v).round());
+          final base = _scrubBase(c, at, known, st);
           // The panel under this chart is silent while a finger is on it, so
           // the slider speaks the whole reading, signals included.
           return (t0 == null || t1 == null || t1 <= t0)
@@ -1532,17 +1534,47 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
                           painter: Hypnogram(st, p, t: animate(c, 1))),
                 ),
             ]),
-            if (_scrub != null)
+            if (_fracIn(_scrubT, _spanOf(n)) case final f?)
               // Aligned by fraction rather than by a measured offset, so the
               // cursor needs no width from the layout.
               Align(
-                alignment: Alignment(_scrub! * 2 - 1, 0),
+                alignment: Alignment(f * 2 - 1, 0),
                 child: SizedBox(width: 2, height: double.infinity,
                     child: ColoredBox(color: p.ink)),
               ),
           ]),
         ),
       );
+
+  /// The stretch a night's chart runs over: onset to wake, or a unit-less
+  /// stand-in when the night has no bounds (then the cursor is a percentage and
+  /// only the hypnogram, which needs no clock, uses it).
+  static (int, int) _spanOf(Map<String, dynamic> n) {
+    final t0 = (n['onset_ts'] as num?)?.toInt();
+    final t1 = (n['wake_ts'] as num?)?.toInt();
+    return (t0 == null || t1 == null || t1 <= t0) ? (0, 1000000) : (t0, t1);
+  }
+
+  /// Where [t] sits across [span], or null when it is outside it.
+  static double? _fracIn(int? t, (int, int) span) =>
+      t == null || t < span.$1 || t > span.$2
+          ? null
+          : (t - span.$1) / (span.$2 - span.$1);
+
+  static int _instantAt(double v, (int, int) span) =>
+      span.$1 + ((span.$2 - span.$1) * v).round();
+
+  /// The slider's first words: the time and, when the night is staged at all,
+  /// the stage there ("not measured" for a known hole). A night with no
+  /// staging says no stage, as its panel shows none.
+  String _scrubBase(BuildContext c, String at, bool known, SleepStage? stage) {
+    if (!known) return at;
+    final l = AppLocalizations.of(c);
+    final name = stage == null
+        ? (l?.sleepDetailNotMeasured ?? 'not measured')
+        : _stageName(c, stage);
+    return l?.sleepDetailScrubAt(at, name) ?? '$at, $name';
+  }
 
   /// The night's signals at second [t]: the cells the panel lists under the
   /// stage, and what the slider speaks, from one place.
@@ -1625,8 +1657,9 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final t0 = (n['onset_ts'] as num?)?.toInt();
     final t1 = (n['wake_ts'] as num?)?.toInt();
     if (t0 == null || t1 == null || t1 <= t0) return const SizedBox.shrink();
-    final scrubbed = _scrub != null;
-    final t = scrubbed ? t0 + ((t1 - t0) * _scrub!).round() : t1;
+    // The shared instant, when this night contains it; else this chart rests.
+    final scrubbed = _fracIn(_scrubT, (t0, t1)) != null;
+    final t = scrubbed ? _scrubT! : t1;
 
     final (known, stage) = SleepData.stageAt(n, t);
     final pigment = stage == null ? null : Hypnogram.pigment[stage];
@@ -1637,6 +1670,8 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       if (known)
         ChartPanelCell(sentence(l?.sleepDetailUnitStage ?? 'stage'),
             color: stageInk,
+            // A hole has no pigment; it keeps the swatch's width all the same.
+            reserveSwatch: true,
             value: stage == null
                 ? (l?.sleepDetailNotMeasuredCap ?? 'Not measured')
                 : _stageName(c, stage),
@@ -2369,28 +2404,22 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
           // makes the two time bases one.
           child: linked
               ? Scrubber(
-                  value: _scrub,
-                  onChanged: (v) => setState(() => _scrub = v),
+                  value: _fracIn(_scrubT, (t0, t1)),
+                  onChanged: (v) =>
+                      setState(() => _scrubT = _instantAt(v, (t0, t1))),
                   label: loc?.sleepDetailThroughTheNight ?? 'Through the night',
                   describe: (v) {
-                    final t = t0 + ((t1 - t0) * v).round();
-                    final (_, stage) = SleepData.stageAt(n, t);
-                    final l = AppLocalizations.of(c);
-                    final name = stage == null
-                        ? (l?.sleepDetailNotMeasured ?? 'not measured')
-                        : _stageName(c, stage);
+                    final t = _instantAt(v, (t0, t1));
+                    final (known, stage) = SleepData.stageAt(n, t);
                     return _scrubSays(
-                        c,
-                        p,
-                        d,
-                        l?.sleepDetailScrubAt(clockOfTs(t), name) ??
-                            '${clockOfTs(t)}, $name',
-                        t);
+                        c, p, d, _scrubBase(c, clockOfTs(t), known, stage), t);
                   },
                   child: CustomPaint(
                       size: Size.infinite,
                       painter: NightStack(series, colors,
-                          axes: axes, selectedX: _scrub, cursor: p.ink)),
+                          axes: axes,
+                          selectedX: _fracIn(_scrubT, (t0, t1)),
+                          cursor: p.ink)),
                 )
               : CustomPaint(
                   size: Size.infinite,
