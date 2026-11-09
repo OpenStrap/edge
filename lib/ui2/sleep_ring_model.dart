@@ -111,12 +111,13 @@ SleepRingModel sleepRingModel({
   final n = now.toLocal();
   DateTime? wake;
   WakeSource? wakeSource;
-  // An alarm past the same wall-clock time tomorrow is not tonight's wake (a
-  // weekday alarm seen from Friday evening), so the learned wake answers
-  // instead. The cutoff is a calendar step, not `+ 24 h`: across a fall-back
-  // tomorrow's 07:00 alarm is 24 h 30 min away and is still tonight's.
-  final horizon =
-      DateTime(n.year, n.month, n.day + 1, n.hour, n.minute, n.second);
+  // Tonight is the night that starts this evening and ends tomorrow morning,
+  // so an alarm after tomorrow's local noon is not tonight's wake (a weekday
+  // alarm seen from Friday evening) and the learned wake answers instead. The
+  // boundary is a local calendar point, not a duration: tomorrow's 07:00
+  // alarm is 24 h 30 min away across a fall-back and 23 h 30 min across a
+  // spring-forward, and is tonight's in both.
+  final horizon = DateTime(n.year, n.month, n.day + 1, 12);
   if (nextAlarm != null &&
       nextAlarm.isAfter(now) &&
       !nextAlarm.isAfter(horizon)) {

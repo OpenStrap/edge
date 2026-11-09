@@ -96,6 +96,17 @@ void _surface(WidgetTester t, double w, {double scale = 1.0}) {
   addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
 }
 
+/// Family of the verified Thai face once the caption group has loaded it.
+String? _thaiFamily;
+
+ThemeData _themeWithThai() {
+  final th = buildTheme(Brightness.light);
+  final fam = _thaiFamily;
+  if (fam == null) return th;
+  return th.copyWith(
+      textTheme: th.textTheme.apply(fontFamilyFallback: [fam]));
+}
+
 Future<void> _rings(WidgetTester t, HomeData d,
     {void Function(HomeRingKind)? onOpen,
     double w = 390,
@@ -104,7 +115,7 @@ Future<void> _rings(WidgetTester t, HomeData d,
   _surface(t, w, scale: scale);
   await t.pumpWidget(MaterialApp(
     locale: locale,
-    theme: buildTheme(Brightness.light),
+    theme: _themeWithThai(),
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     home: Scaffold(
@@ -177,15 +188,45 @@ class _Repo extends LocalRepository {
 
 const _thaiFontEnv = 'EDGE_TEST_THAI_FONT';
 
+/// Runs a fontconfig tool against the system configuration: `flutter test`
+/// points FONTCONFIG_FILE at its own font-less one, which lists nothing.
+ProcessResult _fc(String tool, List<String> args) => Process.runSync(
+    tool, args,
+    environment: File('/etc/fonts/fonts.conf').existsSync()
+        ? {'FONTCONFIG_FILE': '/etc/fonts/fonts.conf'}
+        : null);
+
+/// True when [path] has every Thai letter, vowel and digit (U+0E01-0E3A,
+/// U+0E3F-0E5B) in its character map, as fontconfig reports it. A face that
+/// is merely installed or listed is not enough: FreeSans has no Thai.
+bool _coversThai(String path) {
+  try {
+    final r = _fc('fc-query', ['-f', '%{charset}', path]);
+    if (r.exitCode != 0) return false;
+    final ranges = <(int, int)>[];
+    for (final tok in (r.stdout as String).trim().split(RegExp(r'\s+'))) {
+      final p = tok.split('-');
+      final lo = int.tryParse(p.first, radix: 16);
+      final hi = int.tryParse(p.last, radix: 16);
+      if (lo != null && hi != null) ranges.add((lo, hi));
+    }
+    bool has(int lo, int hi) => ranges.any((e) => e.$1 <= lo && e.$2 >= hi);
+    return has(0x0E01, 0x0E3A) && has(0x0E3F, 0x0E5B);
+  } on ProcessException {
+    return false; // no fontconfig: cannot verify, so do not trust it
+  }
+}
+
 /// A Thai-capable TrueType face for measuring Thai text, or null. The repo
-/// ships none (Manrope has no Thai), so look at an explicit override, then at
-/// what fontconfig lists for Thai, then at the usual FreeFont install paths.
+/// ships none (Manrope has no Thai) and no binary is added. Candidates are the
+/// explicit override and what fontconfig lists for Thai; each must pass
+/// [_coversThai] before it is used.
 File? _thaiFontFile() {
   final candidates = <String>[
     ?Platform.environment[_thaiFontEnv],
   ];
   try {
-    final r = Process.runSync('fc-list', [':lang=th', 'file']);
+    final r = _fc('fc-list', [':lang=th', 'file']);
     if (r.exitCode == 0) {
       for (final line in (r.stdout as String).split('\n')) {
         final f = line.split(':').first.trim();
@@ -197,17 +238,12 @@ File? _thaiFontFile() {
   } on ProcessException {
     // no fontconfig
   }
-  candidates.addAll([
-    '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
-    '/run/current-system/sw/share/X11/fonts/FreeSans.ttf', // NixOS
-    '/usr/share/fonts/truetype/noto/NotoSansThai-Regular.ttf',
-  ]);
   // Prefer a sans face: the app's text is sans.
   candidates.sort((a, b) =>
       (b.contains('Sans') ? 1 : 0) - (a.contains('Sans') ? 1 : 0));
   for (final c in candidates) {
     final f = File(c);
-    if (f.existsSync()) return f;
+    if (f.existsSync() && _coversThai(c)) return f;
   }
   return null;
 }
@@ -558,8 +594,10 @@ void main() {
           ..addFont(thai.readAsBytes().then(
               (bytes) => ByteData.sublistView(Uint8List.fromList(bytes))));
         await loader.load();
+        _thaiFamily = 'ThaiTestFace';
       }
     });
+    tearDownAll(() => _thaiFamily = null);
 
     // A scored night against the 8 h default: 442 of 480 min is 92%.
     HomeData slept() => HomeData(
@@ -590,6 +628,18 @@ void main() {
           return;
         }
         final fs = para.text.style?.fontSize ?? 12;
+        if (lang == 'th') {
+          // Proof the Thai face is in use: a real face gives the combining
+          // marks no advance, so the run is narrower than one em per code
+          // unit (the block face's width).
+          final text = para.text.toPlainText();
+          final tp = TextPainter(
+              text: TextSpan(text: text, style: para.text.style),
+              textDirection: TextDirection.ltr)
+            ..layout();
+          expect(tp.width, lessThan(text.length * fs * 0.9),
+              reason: 'Thai measured with a face that has no Thai glyphs');
+        }
         expect(para.size.height / (fs * 1.3 * 1.5), lessThanOrEqualTo(3.01));
       });
     }

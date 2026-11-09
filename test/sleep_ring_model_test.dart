@@ -418,32 +418,34 @@ void main() {
       expect(m.wakeAt, DateTime(2026, 10, 9, 7, 0));
     });
 
-    test('the 24 h horizon is compared in full: exactly 24 h is accepted', () {
+    test('the night ends at tomorrow\'s local noon: 11:59:59 is tonight\'s',
+        () {
+      final m = _unslept(
+        now: _evening,
+        learnedOnset: _h23,
+        learnedWake: _h07,
+        alarm: DateTime(2026, 10, 9, 11, 59, 59),
+      );
+      expect(m.wakeSource, WakeSource.alarm);
+    });
+
+    test('an alarm just past tomorrow\'s noon is the next night\'s, not '
+        'tonight\'s', () {
+      final m = _unslept(
+        now: _evening,
+        learnedOnset: _h23,
+        learnedWake: _h07,
+        alarm: DateTime(2026, 10, 9, 12, 0, 1),
+      );
+      expect(m.wakeSource, WakeSource.learned);
+    });
+
+    test('a 22:00 alarm tomorrow evening is not tonight\'s wake', () {
       final m = _unslept(
         now: _evening,
         learnedOnset: _h23,
         learnedWake: _h07,
         alarm: _evening.add(const Duration(hours: 24)),
-      );
-      expect(m.wakeSource, WakeSource.alarm);
-    });
-
-    test('24 h and one second away is rejected', () {
-      final m = _unslept(
-        now: _evening,
-        learnedOnset: _h23,
-        learnedWake: _h07,
-        alarm: _evening.add(const Duration(hours: 24, seconds: 1)),
-      );
-      expect(m.wakeSource, WakeSource.learned);
-    });
-
-    test('24 h 0 m 59 s away is rejected (not truncated to 24 h 0 m)', () {
-      final m = _unslept(
-        now: _evening,
-        learnedOnset: _h23,
-        learnedWake: _h07,
-        alarm: _evening.add(const Duration(hours: 24, seconds: 59)),
       );
       expect(m.wakeSource, WakeSource.learned);
     });
@@ -562,6 +564,21 @@ void main() {
       expect(m.wakeAt, DateTime(2026, 11, 1, 7, 0));
       expect(m.windowStart, DateTime(2026, 10, 31, 23, 0));
       expect(m.estimateMin, 540);
+    });
+
+    test('spring forward: tomorrow\'s 07:00 alarm is 23 h 30 min away but is '
+        'still tonight\'s wake', () {
+      final now = DateTime(2026, 3, 7, 6, 30);
+      final m = _unslept(
+        now: now,
+        learnedOnset: _h23,
+        learnedWake: 8 * 60,
+        alarm: DateTime.utc(2026, 3, 8, 13, 0), // 07:00 MDT
+      );
+      expect(m.wakeSource, WakeSource.alarm);
+      expect(m.wakeAt, DateTime(2026, 3, 8, 7, 0));
+      expect(m.windowStart, DateTime(2026, 3, 7, 23, 0));
+      expect(m.estimateMin, 420);
     });
 
     test('spring forward: an alarm two calendar days out is still refused', () {
