@@ -180,10 +180,16 @@ void main() {
               of: find.byKey(const ValueKey('chart-panel')),
               matching: find.text('Recovery')))
           .width;
+      double height() =>
+          t.getSize(find.byKey(const ValueKey('chart-panel'))).height;
       final scored = width();
+      final scoredHeight = height();
       await t.tapAt(t.getBottomRight(strip) - const Offset(1, 1));
       await t.pumpAndSettle();
       expect(width(), scored);
+      // The point of the reserved swatch: the panel, and everything below it,
+      // stays put when scrubbing onto a missing day.
+      expect(height(), scoredHeight);
     });
   });
 
