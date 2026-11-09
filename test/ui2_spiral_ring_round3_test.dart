@@ -48,7 +48,9 @@ void main() {
           }
         }
         expect(inner, isNotNull, reason: 'u=$u');
-        for (var r = inner! + .5; r < 8.8; r += .25) {
+        // A flat ring's innermost pixel is lap 0's inner edge (~7).
+        expect(inner!, lessThan(6), reason: 'u=$u: no inner laps');
+        for (var r = inner + .5; r < 8.8; r += .25) {
           final c = _at(d, 20, u, r);
           expect(c[3], greaterThan(200), reason: 'gap at u=$u r=$r $c');
           expect(_magenta(c), isFalse, reason: 'separator at u=$u r=$r');

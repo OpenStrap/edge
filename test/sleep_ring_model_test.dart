@@ -469,12 +469,20 @@ void main() {
       expect(m.wakeAt, isNull);
       expect(m.arcs, isEmpty);
       expect(m.sweep, 0);
+      // Control: the same inputs plus a wake DO give an estimate, so the
+      // refusal above is the model's rule, not an inert model.
+      final withWake = _unslept(
+          now: _evening, bedtime: 1350, learnedOnset: _h23, learnedWake: _h07);
+      expect(withWake.phase, SleepRingPhase.estimate);
     });
 
     test('nothing at all is also no estimate', () {
       final m = _unslept(now: _evening);
       expect(m.phase, SleepRingPhase.none);
       expect(m.arcs, isEmpty);
+      // Control: the default target is still reported (a real model).
+      expect(m.targetMin, kDefaultSleepTargetMin);
+      expect(kDefaultSleepTargetMin, 480);
     });
 
     test('cycle length is injectable: 100 min => floor(480 / 100) = 4', () {
@@ -606,6 +614,14 @@ void main() {
       ]);
       expect(r.onsetMin, isNull);
       expect(r.wakeMin, isNull);
+      // Control: one more night and both sides answer.
+      final three = learnedClockMinutes([
+        night(10, (23, 0), (7, 0)),
+        night(11, (23, 0), (7, 0)),
+        night(12, (23, 0), (7, 0)),
+      ]);
+      expect(three.onsetMin, 23 * 60);
+      expect(three.wakeMin, 7 * 60);
     });
 
     test('nights with no window are skipped, and each side counts its own',
@@ -625,6 +641,11 @@ void main() {
       final r = learnedClockMinutes(const []);
       expect(r.onsetMin, isNull);
       expect(r.wakeMin, isNull);
+      // Control: minSamples is honoured (a single night answers at 1).
+      expect(
+          learnedClockMinutes([night(10, (23, 0), (7, 0))], minSamples: 1)
+              .wakeMin,
+          7 * 60);
     });
   });
 }

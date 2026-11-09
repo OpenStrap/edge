@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/charts.dart';
@@ -117,11 +118,23 @@ void main() {
         return c.paths;
       }
 
+      expect(paths(3.0), greaterThan(paths(1.0)),
+          reason: 'extra laps are extra bands');
       expect(paths(200), lessThanOrEqualTo(paths(3.0)));
       expect(paths(200), lessThan(30));
       expect(paths(10), paths(3.0));
       await tester.runAsync(() async {
         final sat = await _raster(ring(3.0), px: 20);
+        final one = await _raster(ring(1.0), px: 20);
+        expect(listEquals(sat.buffer.asUint8List(), one.buffer.asUint8List()),
+            isFalse,
+            reason: 'the saturated picture is a spiral, not one flat lap');
+        // Radius 5 (u = .3, 20 px) is inside the saturated laps and outside
+        // lap 0's band (7..10): only a spiral paints it.
+        int a(ByteData d) => _px(d, 10 + 5 * sin(2 * pi * .3),
+            10 - 5 * cos(2 * pi * .3), px: 20)[3];
+        expect(a(one), 0);
+        expect(a(sat), greaterThan(200));
         for (final v in [5.0, 10.0, 200.0]) {
           final d = await _raster(ring(v), px: 20);
           expect(d.buffer.asUint8List(), sat.buffer.asUint8List(),

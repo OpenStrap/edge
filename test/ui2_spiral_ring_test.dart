@@ -357,6 +357,18 @@ void main() {
         expect(imgs[1.5], isNot(imgs[1.0]), reason: '150% must differ from 100%');
         expect(imgs[2.0], isNot(imgs[1.5]));
         expect(imgs[3.0], isNot(imgs[2.0]));
+        // A flat ring would put the extra lap exactly on lap 0. The spiral
+        // puts it inside: at 12 o'clock + 72 degrees the 150% ring is painted
+        // at radius 37 (lap 0's inner edge is 40, lap 1's is ~34), the 100%
+        // ring is not.
+        int alpha(List<int> px, double u, double r) {
+          final x = (50 + r * sin(2 * pi * u)).floor();
+          final y = (50 - r * cos(2 * pi * u)).floor();
+          return px[(y * side.toInt() + x) * 4 + 3];
+        }
+        expect(alpha(imgs[1.0]!, .2, 37), 0);
+        expect(alpha(imgs[1.5]!, .2, 37), greaterThan(200),
+            reason: 'the second lap must sit inside the first');
       });
     });
 
@@ -379,6 +391,10 @@ void main() {
           expect(alphaAt(big, x, y), 0);
         }
         expect(sqrt(pow(50 - 1, 2) * 2), greaterThan(50)); // sanity: corner is outside
+        // ...and the laps that are drawn sit inside lap 0 (radius 30 at 108
+        // degrees is painted by lap 2 only; a flat ring leaves it empty).
+        expect(alphaAt(big, (50 + 30 * sin(2 * pi * .3)).floor(),
+            (50 - 30 * cos(2 * pi * .3)).floor()), greaterThan(200));
       });
     });
   });
@@ -527,6 +543,11 @@ void main() {
           // The ring is painted, nothing is drawn through the centre.
           expect(at(d, .3, 8.5, px: 20)[3], greaterThan(200), reason: 'v=$v');
           expect(at(d, .3, 0.5, px: 20)[3], 0, reason: 'centre stays empty');
+          // The extra laps are on the dial: radius 5 lies inside lap 0's
+          // band (7..10) and inside the saturated lap's (3..6). A flat ring
+          // leaves it empty.
+          expect(at(d, .3, 5.0, px: 20)[3], greaterThan(200),
+              reason: 'v=$v: inner laps missing');
         }
       });
     });

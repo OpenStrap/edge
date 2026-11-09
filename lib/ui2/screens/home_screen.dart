@@ -42,7 +42,6 @@ import '../../compute/findings.dart'
         kReadinessGoodFrom,
         kReadinessRestBelow;
 import '../../data/day_label.dart' show todayLabel, calendarDaysBetween;
-import '../sleep_ring_model.dart' show SleepStageMin;
 import '../../compute/onehz_pipeline.dart'
     show readinessInputShortfallNote, readinessUnstableBaselineNote;
 import '../../data/db.dart' show DbRebuild, LocalDb;
