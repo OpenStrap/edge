@@ -12343,7 +12343,10 @@ class LocalDb {
           final isArchive = t == SubstrateArchive.table;
           final pageSize = isArchive ? 8 : 2000;
           const rowidKey = '_rowid';
-          var lastRowid = 0;
+          // Start below every rowid, not at 0: a table keyed on its own
+          // INTEGER column (alarm_schedule's weekday) has that column as its
+          // rowid, and `rowid > 0` dropped Monday (weekday 0) from every import.
+          var lastRowid = -0x8000000000000000;
           final projection = isArchive
               ? SubstrateArchive.metaColumns.join(', ')
               : '*';
