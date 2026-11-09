@@ -440,6 +440,23 @@ void main() {
       expect(m.wakeSource, WakeSource.learned);
     });
 
+    test('1 am: already in the night, so it ends at TODAY\'s noon', () {
+      final now = DateTime(2026, 10, 9, 1, 0);
+      final today = _unslept(
+          now: now,
+          learnedOnset: _h23,
+          learnedWake: _h07,
+          alarm: DateTime(2026, 10, 9, 7, 0));
+      expect(today.wakeSource, WakeSource.alarm);
+      final next = _unslept(
+          now: now,
+          learnedOnset: _h23,
+          learnedWake: _h07,
+          alarm: DateTime(2026, 10, 10, 7, 0));
+      expect(next.wakeSource, WakeSource.learned);
+      expect(next.wakeAt, DateTime(2026, 10, 9, 7, 0));
+    });
+
     test('a 22:00 alarm tomorrow evening is not tonight\'s wake', () {
       final m = _unslept(
         now: _evening,
@@ -579,6 +596,23 @@ void main() {
       expect(m.wakeAt, DateTime(2026, 3, 8, 7, 0));
       expect(m.windowStart, DateTime(2026, 3, 7, 23, 0));
       expect(m.estimateMin, 420);
+    });
+
+    test('1 am inside a DST night: today\'s alarm accepted, tomorrow\'s '
+        'refused (spring forward and fall back)', () {
+      for (final c in [
+        (DateTime(2026, 3, 8, 1, 0), DateTime.utc(2026, 3, 8, 13, 0),
+            DateTime.utc(2026, 3, 9, 13, 0)),
+        (DateTime(2026, 11, 1, 0, 30), DateTime.utc(2026, 11, 1, 14, 0),
+            DateTime.utc(2026, 11, 2, 14, 0)),
+      ]) {
+        final ok = _unslept(
+            now: c.$1, learnedOnset: _h23, learnedWake: 8 * 60, alarm: c.$2);
+        expect(ok.wakeSource, WakeSource.alarm, reason: '${c.$1} today');
+        final no = _unslept(
+            now: c.$1, learnedOnset: _h23, learnedWake: 8 * 60, alarm: c.$3);
+        expect(no.wakeSource, WakeSource.learned, reason: '${c.$1} tomorrow');
+      }
     });
 
     test('spring forward: an alarm two calendar days out is still refused', () {

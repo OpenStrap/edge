@@ -117,7 +117,9 @@ SleepRingModel sleepRingModel({
   // boundary is a local calendar point, not a duration: tomorrow's 07:00
   // alarm is 24 h 30 min away across a fall-back and 23 h 30 min across a
   // spring-forward, and is tonight's in both.
-  final horizon = DateTime(n.year, n.month, n.day + 1, 12);
+  // Before 04:00 the user is already inside the night that started yesterday
+  // evening, so it ends at today's noon instead.
+  final horizon = DateTime(n.year, n.month, n.day + (n.hour < 4 ? 0 : 1), 12);
   if (nextAlarm != null &&
       nextAlarm.isAfter(now) &&
       !nextAlarm.isAfter(horizon)) {
