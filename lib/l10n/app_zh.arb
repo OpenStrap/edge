@@ -1491,64 +1491,6 @@
       }
     }
   },
-  "homeSleepOnTrack": "有望达到 {cycles} 个周期，{duration}",
-  "homeSleepOnTrackDefault": "有望达到 {cycles} 个周期，{duration} · 目标 {target}（默认）",
-  "homeSleepEstimateCompact": "~{cycles} 个周期 · {duration}",
-  "@homeSleepEstimateCompact": {
-    "description": "Short sleep estimate: \"~\" marks it as an estimate; keeps cycle count and duration.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      },
-      "duration": {
-        "type": "String"
-      }
-    }
-  },
-  "homeSleepEstimateDefaultCompact": "~{cycles} 个周期 · {duration} · 默认目标",
-  "@homeSleepEstimateDefaultCompact": {
-    "description": "Short sleep estimate keeping the \"~\" estimate marker and an explicit default-target qualifier.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      },
-      "duration": {
-        "type": "String"
-      }
-    }
-  },
-  "homeSleepEstimateDefaultTight": "~{cycles} 个周期 · {duration} · 默认目标",
-  "@homeSleepEstimateDefaultTight": {
-    "description": "Tightest sleep estimate caption: keeps the estimate marker, cycles, duration and the default-target qualifier.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      },
-      "duration": {
-        "type": "String"
-      }
-    }
-  },
-  "homeSleepEstimateDefaultMin": "~{cycles} 个周期 · 默认目标",
-  "@homeSleepEstimateDefaultMin": {
-    "description": "Smallest default-target estimate caption: drops the duration, keeps the estimate marker, cycles and the default goal.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      }
-    }
-  },
-  "homeSleepEstimateBare": "~{cycles} 个周期",
-  "@homeSleepEstimateBare": {
-    "description": "Smallest estimate caption: the estimate marker and the cycle count.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      }
-    }
-  },
-  "homeSleepNoEstimate": "暂无估算",
-  "homeSleepNoEstimateWhy": "尚无已评分的夜晚，也没有闹钟或常规起床时间可供估算。",
   "homeWhyRecoveryTitle": "恢复状态偏低",
   "homeWhyRecoveryPlain": "恢复 {score}/100",
   "@homeWhyRecoveryPlain": {

@@ -2,8 +2,7 @@
 // upgrade, each pinned where it can be checked without a screen.
 //
 //  1. NEW COPY, ALL LOCALES. The sleep ring's wording ("92% of 8h 00m
-//     (default)", "on track for 5 cycles ...", compact forms) and the why panels
-//     add 25 message keys. Every locale file (glob, so a newly added locale is
+//     (default)", compact forms) and the why panels add message keys. Every locale file (glob, so a newly added locale is
 //     covered; today de en es fr hi ru th zh) must carry each one with the
 //     SAME placeholders as English, a real ICU plural where English has one,
 //     and a translation (not English pasted in). Checklist "Copy and UI":
@@ -30,22 +29,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 
-/// The 25 keys this PR adds (sleep ring wording + why panels).
+/// The keys this PR adds (sleep ring wording + why panels).
 const _newKeys = [
   'homeSleepPctOf',
   'homeSleepPctOfDefault',
   'homeSleepPctCompact',
   'homeSleepPctDefaultCompact',
   'homeSleepPctDefaultTight',
-  'homeSleepOnTrack',
-  'homeSleepOnTrackDefault',
-  'homeSleepEstimateCompact',
-  'homeSleepEstimateDefaultCompact',
-  'homeSleepEstimateDefaultTight',
-  'homeSleepEstimateDefaultMin',
-  'homeSleepEstimateBare',
-  'homeSleepNoEstimate',
-  'homeSleepNoEstimateWhy',
   'homeWhyRecoveryTitle',
   'homeWhyRecoveryPlain',
   'homeWhySleepTitle',
@@ -151,39 +141,6 @@ void main() {
         expect(missing, isEmpty, reason: 'missing or empty in $name');
       });
     }
-
-    test(
-        'WHY: in every locale the cycle strings print the real count for each '
-        'of its plural forms (0, 1, 2, 5, 11, 21, 100)', () {
-      String render(AppLocalizations l, String key, int n) => switch (key) {
-            'homeSleepOnTrack' => l.homeSleepOnTrack(n, '8h'),
-            'homeSleepOnTrackDefault' =>
-              l.homeSleepOnTrackDefault(n, '8h', '8h'),
-            'homeSleepEstimateCompact' => l.homeSleepEstimateCompact(n, '8h'),
-            'homeSleepEstimateDefaultCompact' =>
-              l.homeSleepEstimateDefaultCompact(n, '8h'),
-            'homeSleepEstimateDefaultTight' =>
-              l.homeSleepEstimateDefaultTight(n, '8h'),
-            'homeSleepEstimateDefaultMin' => l.homeSleepEstimateDefaultMin(n),
-            'homeSleepEstimateBare' => l.homeSleepEstimateBare(n),
-            _ => fail('no renderer for $key'),
-          };
-      final cycleKeys = _newKeys
-          .where((k) => (en[k] as String?)?.contains('{cycles') ?? false)
-          .toList();
-      expect(cycleKeys, hasLength(7),
-          reason: 'English must define the seven cycle keys first');
-      for (final loc in AppLocalizations.supportedLocales) {
-        final l = lookupAppLocalizations(loc);
-        for (final k in cycleKeys) {
-          for (final n in [0, 1, 2, 5, 11, 21, 100]) {
-            final out = render(l, k, n);
-            expect(RegExp('(?<!\\d)$n(?!\\d)').hasMatch(out), isTrue,
-                reason: '$k ($loc) for $n printed "$out"');
-          }
-        }
-      }
-    });
   });
 
   group('1b. the English wording', () {
@@ -195,37 +152,6 @@ void main() {
       final n =
           _get('homeSleepPctOf', () => (l as dynamic).homeSleepPctOf(96, '7h 42m'));
       expect(n, '96% of 7h 42m');
-    });
-
-    test('WHY: the estimate sentence has a real singular and plural', () {
-      String f(int c) => _get('homeSleepOnTrackDefault',
-          () => (l as dynamic).homeSleepOnTrackDefault(c, '8h 00m', '8h 00m'));
-      expect(f(1), 'on track for 1 cycle, 8h 00m · target 8h 00m (default)');
-      expect(f(5), 'on track for 5 cycles, 8h 00m · target 8h 00m (default)');
-    });
-
-    test('WHY: compact forms keep the estimate marker and the default label',
-        () {
-      expect(
-          _get('homeSleepEstimateDefaultCompact',
-              () => (l as dynamic).homeSleepEstimateDefaultCompact(4, '6h')),
-          '~4 cycles · 6h · default target');
-      expect(
-          _get('homeSleepEstimateBare',
-              () => (l as dynamic).homeSleepEstimateBare(1)),
-          '~1 cycle');
-    });
-
-    test('WHY: cycle plurals show the real count for 0, 1, 2 and 5', () {
-      for (final lang in ['en', 'fr', 'hi']) {
-        final loc = lookupAppLocalizations(Locale(lang));
-        for (final n in [0, 1, 2, 5]) {
-          final s = _get('homeSleepEstimateBare',
-              () => (loc as dynamic).homeSleepEstimateBare(n) as String);
-          expect(RegExp('(?<!\\d)$n(?!\\d)').hasMatch(s), isTrue,
-              reason: '$lang "$s" should carry the count $n');
-        }
-      }
     });
   });
 

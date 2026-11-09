@@ -1491,64 +1491,6 @@
       }
     }
   },
-  "homeSleepOnTrack": "{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}} की राह पर, {duration}",
-  "homeSleepOnTrackDefault": "{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}} की राह पर, {duration} · लक्ष्य {target} (डिफ़ॉल्ट)",
-  "homeSleepEstimateCompact": "~{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}} · {duration}",
-  "@homeSleepEstimateCompact": {
-    "description": "Short sleep estimate: \"~\" marks it as an estimate; keeps cycle count and duration.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      },
-      "duration": {
-        "type": "String"
-      }
-    }
-  },
-  "homeSleepEstimateDefaultCompact": "~{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}} · {duration} · डिफ़ॉल्ट लक्ष्य",
-  "@homeSleepEstimateDefaultCompact": {
-    "description": "Short sleep estimate keeping the \"~\" estimate marker and an explicit default-target qualifier.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      },
-      "duration": {
-        "type": "String"
-      }
-    }
-  },
-  "homeSleepEstimateDefaultTight": "~{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}} · {duration} · डिफ़ॉल्ट लक्ष्य",
-  "@homeSleepEstimateDefaultTight": {
-    "description": "Tightest sleep estimate caption: keeps the estimate marker, cycles, duration and the default-target qualifier.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      },
-      "duration": {
-        "type": "String"
-      }
-    }
-  },
-  "homeSleepEstimateDefaultMin": "~{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}} · डिफ़ॉल्ट लक्ष्य",
-  "@homeSleepEstimateDefaultMin": {
-    "description": "Smallest default-target estimate caption: drops the duration, keeps the estimate marker, cycles and the default goal.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      }
-    }
-  },
-  "homeSleepEstimateBare": "~{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}}",
-  "@homeSleepEstimateBare": {
-    "description": "Smallest estimate caption: the estimate marker and the cycle count.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      }
-    }
-  },
-  "homeSleepNoEstimate": "कोई अनुमान नहीं",
-  "homeSleepNoEstimateWhy": "अभी तक कोई रात स्कोर नहीं हुई है, और अनुमान के लिए कोई अलार्म या सामान्य जागने का समय नहीं है।",
   "homeWhyRecoveryTitle": "रिकवरी कम है",
   "homeWhyRecoveryPlain": "रिकवरी {score}/100",
   "@homeWhyRecoveryPlain": {

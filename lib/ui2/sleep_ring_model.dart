@@ -1,8 +1,7 @@
 // sleep_ring_model.dart — what the Home sleep ring says and draws, as data.
 //
-// PURE. No clock (the caller passes `now`), no I/O, no widgets, no l10n: the
-// ring turns this into shapes and strings. Kept apart so every rule below is a
-// fixed-date unit test, including the DST night.
+// PURE. No clock, no I/O, no widgets, no l10n: the ring turns this into shapes
+// and strings. Kept apart so every rule below is a fixed-input unit test.
 //
 import 'dart:math' as math;
 
@@ -10,16 +9,7 @@ import 'dart:math' as math;
 /// learned need exists, and always labelled as a default where it is shown.
 const int kDefaultSleepTargetMin = 480;
 
-/// Assumed length of one sleep cycle, until a per-user value exists.
-const int kDefaultCycleLenMin = 90;
-
-enum SleepRingPhase { slept, estimate, none }
-
-enum SleepArcKind { deep, rem, light, awake, solid, estimate }
-
-enum WindowStartSource { coach, learned }
-
-enum WakeSource { alarm, learned }
+enum SleepArcKind { deep, rem, light, awake, solid }
 
 /// One night's stage totals, minutes. Null means the pipeline had no figure.
 class SleepStageMin {
@@ -35,152 +25,42 @@ class SleepArc {
 }
 
 class SleepRingModel {
-  final SleepRingPhase phase;
   final List<SleepArc> arcs;
   final int targetMin;
   final bool targetIsDefault;
 
-  /// Slept: minutes asleep. Null otherwise.
-  final int? asleepMin;
+  /// Minutes asleep.
+  final int asleepMin;
 
-  /// Slept: whole percent of [targetMin]. Null otherwise.
-  final int? pct;
-
-  /// Estimate: minutes between the window start and the wake. Null otherwise.
-  final int? estimateMin;
-
-  /// Estimate: whole cycles in [estimateMin]. Null otherwise.
-  final int? cycles;
-  final int cycleLenMin;
-
-  /// Estimate: the instants the estimate was measured between, and where each
-  /// came from. [startSource] is null when the estimate runs from `now`.
-  final DateTime? windowStart, wakeAt;
-  final WindowStartSource? startSource;
-  final WakeSource? wakeSource;
+  /// Whole percent of [targetMin].
+  final int pct;
 
   const SleepRingModel({
-    required this.phase,
-    this.arcs = const [],
-    this.targetMin = kDefaultSleepTargetMin,
-    this.targetIsDefault = true,
-    this.asleepMin,
-    this.pct,
-    this.estimateMin,
-    this.cycles,
-    this.cycleLenMin = kDefaultCycleLenMin,
-    this.windowStart,
-    this.wakeAt,
-    this.startSource,
-    this.wakeSource,
+    required this.arcs,
+    required this.targetMin,
+    required this.targetIsDefault,
+    required this.asleepMin,
+    required this.pct,
   });
 
   /// Total sweep of the ring in laps: 1.0 is a full circle, above 1 a spiral.
   double get sweep => arcs.fold(0.0, (a, e) => a + e.fraction);
 }
 
-/// Cycle lengths outside this are not a sleep cycle; the 90 min assumption
-/// stands instead.
-const int _minCycleLenMin = 60, _maxCycleLenMin = 150;
-
+/// The scored night as a ring: the target (learned need, else the flagged 8 h
+/// default), the percent of it, and the stage arcs.
 SleepRingModel sleepRingModel({
-  required DateTime now,
-  num? durationMin,
+  required num durationMin,
   SleepStageMin? stages,
   num? needMin,
-  num? coachBedtimeMinOfDay,
-  DateTime? nextAlarm,
-  int? learnedOnsetMin,
-  int? learnedWakeMin,
-  int? cycleLenMin,
 }) {
   final learnedNeed = needMin != null && needMin > 0;
   final target = learnedNeed ? needMin.round() : kDefaultSleepTargetMin;
-  final isDefault = !learnedNeed;
-  final cycleLen = cycleLenMin != null &&
-          cycleLenMin >= _minCycleLenMin &&
-          cycleLenMin <= _maxCycleLenMin
-      ? cycleLenMin
-      : kDefaultCycleLenMin;
-
-  if (durationMin != null) {
-    return _slept(durationMin, stages, target, isDefault, cycleLen);
-  }
-
-  // ── unslept: wake ────────────────────────────────────────────────────────
-  final n = now.toLocal();
-  DateTime? wake;
-  WakeSource? wakeSource;
-  // Tonight is the night that starts this evening and ends tomorrow morning,
-  // so an alarm after tomorrow's local noon is not tonight's wake (a weekday
-  // alarm seen from Friday evening) and the learned wake answers instead. The
-  // boundary is a local calendar point, not a duration: tomorrow's 07:00
-  // alarm is 24 h 30 min away across a fall-back and 23 h 30 min across a
-  // spring-forward, and is tonight's in both.
-  // Before 04:00 the user is already inside the night that started yesterday
-  // evening, so it ends at today's noon instead.
-  final horizon = DateTime(n.year, n.month, n.day + (n.hour < 4 ? 0 : 1), 12);
-  if (nextAlarm != null &&
-      nextAlarm.isAfter(now) &&
-      !nextAlarm.isAfter(horizon)) {
-    wake = nextAlarm.toLocal();
-    wakeSource = WakeSource.alarm;
-  } else if (learnedWakeMin != null) {
-    wake = _nextClock(n, learnedWakeMin);
-    wakeSource = WakeSource.learned;
-  }
-  if (wake == null) {
-    return SleepRingModel(
-      phase: SleepRingPhase.none,
-      targetMin: target,
-      targetIsDefault: isDefault,
-      cycleLenMin: cycleLen,
-    );
-  }
-
-  // ── unslept: window start ────────────────────────────────────────────────
-  int? onsetMinute;
-  WindowStartSource? startSource;
-  if (coachBedtimeMinOfDay != null) {
-    onsetMinute = coachBedtimeMinOfDay.round() % 1440;
-    startSource = WindowStartSource.coach;
-  } else if (learnedOnsetMin != null) {
-    onsetMinute = learnedOnsetMin;
-    startSource = WindowStartSource.learned;
-  }
-  DateTime start = n;
-  if (onsetMinute != null) {
-    final onset = _clockBefore(wake, onsetMinute);
-    if (onset.isAfter(n)) start = onset;
-  }
-
-  // Real elapsed time between two instants, so a DST night is 7 h or 9 h.
-  final est = wake.difference(start).inMinutes;
-  if (est <= 0) {
-    return SleepRingModel(
-      phase: SleepRingPhase.none,
-      targetMin: target,
-      targetIsDefault: isDefault,
-      cycleLenMin: cycleLen,
-    );
-  }
-  return SleepRingModel(
-    phase: SleepRingPhase.estimate,
-    arcs: [SleepArc(SleepArcKind.estimate, math.min(1.0, est / target))],
-    targetMin: target,
-    targetIsDefault: isDefault,
-    estimateMin: est,
-    cycles: est ~/ cycleLen,
-    cycleLenMin: cycleLen,
-    windowStart: start,
-    wakeAt: wake,
-    startSource: startSource,
-    wakeSource: wakeSource,
-  );
+  return _slept(durationMin, stages, target, !learnedNeed);
 }
 
-SleepRingModel _slept(num durationMin, SleepStageMin? stages, int target,
-    bool isDefault, int cycleLen) {
+SleepRingModel _slept(
+    num durationMin, SleepStageMin? stages, int target, bool isDefault) {
   final asleep = durationMin.round();
   final asleepFrac = asleep / target;
   final pct = (asleepFrac * 100).round();
@@ -212,67 +92,10 @@ SleepRingModel _slept(num durationMin, SleepStageMin? stages, int target,
     arcs.add(SleepArc(SleepArcKind.solid, asleepFrac));
   }
   return SleepRingModel(
-    phase: SleepRingPhase.slept,
     arcs: arcs,
     targetMin: target,
     targetIsDefault: isDefault,
     asleepMin: asleep,
     pct: pct,
-    cycleLenMin: cycleLen,
   );
-}
-
-/// The first local [minuteOfDay] strictly after [from]. Calendar arithmetic,
-/// not `+ 24 h`, so the wall-clock time survives a DST change.
-DateTime _nextClock(DateTime from, int minuteOfDay) {
-  final today = DateTime(
-      from.year, from.month, from.day, minuteOfDay ~/ 60, minuteOfDay % 60);
-  return today.isAfter(from)
-      ? today
-      : DateTime(from.year, from.month, from.day + 1, minuteOfDay ~/ 60,
-          minuteOfDay % 60);
-}
-
-/// The latest local [minuteOfDay] strictly before [wake].
-DateTime _clockBefore(DateTime wake, int minuteOfDay) {
-  final same = DateTime(
-      wake.year, wake.month, wake.day, minuteOfDay ~/ 60, minuteOfDay % 60);
-  return same.isBefore(wake)
-      ? same
-      : DateTime(wake.year, wake.month, wake.day - 1, minuteOfDay ~/ 60,
-          minuteOfDay % 60);
-}
-
-/// Median local clock minute-of-day of the onsets and of the wakes in
-/// [windows] (`LocalRepository.sleepWindows` rows: epoch-second `onset_ts` /
-/// `wake_ts`, either may be null). A side is null with fewer than
-/// [minSamples] usable nights. Onsets are medianed on a noon-to-noon axis so
-/// 23:30 and 00:10 average to ~23:50, not 11:50.
-({int? onsetMin, int? wakeMin}) learnedClockMinutes(
-  List<Map<String, dynamic>> windows, {
-  int minSamples = 3,
-}) {
-  int minuteOf(num sec) {
-    final t = DateTime.fromMillisecondsSinceEpoch(sec.toInt() * 1000);
-    return t.hour * 60 + t.minute;
-  }
-
-  int? median(List<int> v) {
-    if (v.length < minSamples || v.isEmpty) return null;
-    v.sort();
-    final mid = v.length ~/ 2;
-    return v.length.isOdd ? v[mid] : ((v[mid - 1] + v[mid]) / 2).round();
-  }
-
-  final onsets = <int>[], wakes = <int>[];
-  for (final w in windows) {
-    final o = w['onset_ts'], k = w['wake_ts'];
-    if (o is num) {
-      final m = minuteOf(o);
-      onsets.add(m < 720 ? m + 1440 : m);
-    }
-    if (k is num) wakes.add(minuteOf(k));
-  }
-  final on = median(onsets);
-  return (onsetMin: on == null ? null : on % 1440, wakeMin: median(wakes));
 }

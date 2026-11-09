@@ -1,17 +1,6 @@
-// RED (Home + labels, phase 0). WHY: the Home sleep ring must show a scored
-// night as stage arcs (Deep, REM, Light, Awake) against a target that says when
-// it is the 8 h default, show an unslept evening as ONE grey estimate arc with
-// its sources honest (alarm > learned wake, coach bedtime > learned onset), keep
-// a slept night from ever being an empty bar, and follow the clock while open.
-// Ported from the fork's test/home_sleep_ring_widget_test.dart with the saved
-// "expected sleep schedule" (fork-only) replaced by the learned typical times,
-// and the AppState overlay reduced to the armed alarm (upstream has alarmEpoch).
-//
-// The Home sleep ring as rendered: stage arcs, the grey estimate arc, the
-// words under them, and the data HomeData hands it.
-//
-// Every instant is injected (`RingTrio.now`, fixed dates). Nothing here reads
-// the system clock.
+// The Home sleep ring as rendered: a scored night as stage arcs (Deep, REM,
+// Light, Awake) against a target that says when it is the 8 h default, a slept
+// night never an empty bar, and the data HomeData hands it.
 //
 // ROOT-CAUSE REGRESSIONS (owner saw "of 8h 10m" only BEFORE sleeping and an
 // EMPTY bar AFTER sleeping):
@@ -23,31 +12,22 @@
 // Both are pinned below: a slept night is never an empty bar, and the need
 // reaches the ring from both loaders.
 
-import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:provider/provider.dart';
 
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/models/metric.dart';
-import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 // ── fixtures ───────────────────────────────────────────────────────────────
 
-final _evening = DateTime(2026, 10, 8, 22, 0);
-
-/// The unslept sub-line's tail when the target is the 8 h default.
-const _dflt = ' · target 8h 00m (default)';
-
 Finder _spokenCaption(String text) => find.byWidgetPredicate((widget) =>
     widget is Pressable && (widget.semanticLabel?.contains(text) ?? false));
 
 /// The caption is BOTH spoken in full and VISIBLE: as the full text, or as one
-/// of its measured compact wordings (which keep the default / estimate
-/// qualifiers). Exactly one Text shows it.
+/// of its measured compact wordings (which keep the default qualifier). Exactly one Text shows it.
 void _caption(String full, List<String> compact) {
   expect(_spokenCaption(full), findsOneWidget);
   expect(
@@ -83,31 +63,16 @@ HomeData _slept({
       sleepStages: stages,
     );
 
-HomeData _unslept({
-  bool typical = false, // learned onset 23:00, learned wake 07:00
-  DateTime? alarm,
-  Metric need = Metric.empty,
-  Metric bedtime = Metric.empty,
-  int? learnedOnset,
-  int? learnedWake,
-  Metric sleepMin = Metric.empty,
-}) =>
-    HomeData(
+HomeData _unslept({Metric sleepMin = Metric.empty}) => HomeData(
       dayId: '2026-10-08',
       readiness: const Metric(value: 82, confidence: .8, tier: MetricTier.high),
       strain: const Metric(value: 9.0, confidence: .6, tier: MetricTier.estimate),
       sleepMin: sleepMin,
-      sleepNeedMin: need,
-      bedtime: bedtime,
-      nextAlarm: alarm,
-      learnedOnsetMin: learnedOnset ?? (typical ? 1380 : null),
-      learnedWakeMin: learnedWake ?? (typical ? 420 : null),
     );
 
 Future<void> _pump(
   WidgetTester t,
   HomeData d, {
-  DateTime? now,
   double textScale = 1,
 }) async {
   t.view.physicalSize = const Size(390 * 3, 800 * 3);
@@ -124,7 +89,7 @@ Future<void> _pump(
       ),
       child: Scaffold(
         body: SingleChildScrollView(
-          child: RingTrio(d: d, now: now ?? _evening),
+          child: RingTrio(d: d),
         ),
       ),
     ),
@@ -151,11 +116,9 @@ class _Repo extends LocalRepository {
     this.today = const {},
     this.insights = const {},
     this.night = const {},
-    this.windows = const [],
   });
 
   final Map<String, dynamic> today, insights, night;
-  final List<Map<String, dynamic>> windows;
 
   @override
   Future<Map<String, dynamic>> getToday() async => today;
@@ -169,10 +132,6 @@ class _Repo extends LocalRepository {
   Future<Map<String, dynamic>> getDayOverview(String date) async => const {};
   @override
   Future<Map<String, dynamic>> getDayStrain(String date) async => const {};
-  @override
-  Future<List<Map<String, dynamic>>> sleepWindows(
-          {int days = 60, String? before}) async =>
-      windows;
 }
 
 Map<String, dynamic> _env(num v) => {
@@ -211,19 +170,6 @@ const _nightMap = {
   'light_min': 277,
   'awake_min': 30,
 };
-
-/// Five nights, onset 23:00 the evening before and wake 07:00, as
-/// `sleepWindows` returns them (epoch seconds).
-List<Map<String, dynamic>> _windows() => [
-      for (var day = 1; day <= 5; day++)
-        {
-          'date': '2026-10-0$day',
-          'onset_ts':
-              DateTime(2026, 10, day - 1, 23, 0).millisecondsSinceEpoch ~/ 1000,
-          'wake_ts':
-              DateTime(2026, 10, day, 7, 0).millisecondsSinceEpoch ~/ 1000,
-        },
-    ];
 
 void main() {
   group('bounded scores are clamped at the call site', () {
@@ -399,19 +345,7 @@ void main() {
     });
   });
 
-  group('loaders: learned times, no stale stages', () {
-    test('HomeData.load learns the typical onset and wake from recent nights',
-        () async {
-      final d = await HomeData.load(_Repo(
-        today: _sleptToday,
-        insights: _needInsights,
-        night: _nightMap,
-        windows: _windows(),
-      ));
-      expect(d.learnedOnsetMin, 23 * 60);
-      expect(d.learnedWakeMin, 7 * 60);
-    });
-
+  group('loaders: no stale stages', () {
     test('a night that is NOT today\'s never lends its stages to today',
         () async {
       final repo = _Repo(
@@ -435,313 +369,22 @@ void main() {
     });
   });
 
-  group('HomeScreen lays AppState\'s armed alarm over the loaded data',
-      () {
-    Future<void> pumpHome(WidgetTester t, AppState app,
-        {HomeData? data}) async {
-      t.view.physicalSize = const Size(390 * 3, 1600 * 3);
-      t.view.devicePixelRatio = 3;
-      addTearDown(t.view.reset);
-      await t.pumpWidget(MaterialApp(
-        theme: buildTheme(Brightness.light),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: ChangeNotifierProvider<AppState>.value(
-          value: app,
-          child: Scaffold(
-            body: HomeScreen(
-              hour: 22,
-              now: _evening,
-              data: data ?? _unslept(typical: true),
-            ),
-          ),
-        ),
-      ));
-      for (var i = 0; i < 10; i++) {
-        await t.pump(const Duration(milliseconds: 20));
-      }
-    }
-
-    testWidgets('an armed alarm beats the learned wake', (t) async {
-      final app = AppState.forTesting();
-      addTearDown(app.dispose);
-      app.device.alarmEpoch =
-          DateTime(2026, 10, 9, 6, 30).millisecondsSinceEpoch ~/ 1000;
-      await pumpHome(t, app);
-      _caption('on track for 5 cycles, 7h 30m$_dflt', ['~5 cycles · 7h 30m · default target', '~5 cycles · 7h 30m · default goal', '~5 cycles · default goal']);
-    });
-
-    testWidgets('an alarm already past is ignored', (t) async {
-      final app = AppState.forTesting();
-      addTearDown(app.dispose);
-      app.device.alarmEpoch =
-          DateTime(2026, 10, 8, 21, 0).millisecondsSinceEpoch ~/ 1000;
-      await pumpHome(t, app);
-      _caption('on track for 5 cycles, 8h 00m$_dflt', ['~5 cycles · 8h · default target', '~5 cycles · 8h · default goal', '~5 cycles · default goal']);
-    });
-
-    testWidgets('with nothing saved and nothing armed there is no estimate',
-        (t) async {
-      final app = AppState.forTesting();
-      addTearDown(app.dispose);
-      // No learned times either: nothing at all to estimate a wake from.
-      await pumpHome(t, app, data: _unslept());
-      // An absence is a dash in the ring; the reason is a row under the rings.
-      final gap = find.byKey(const ValueKey('home-note:gap:sleep'));
-      expect(find.descendant(of: gap, matching: find.text('Sleep')), findsOneWidget);
-      expect(find.descendant(of: gap, matching: find.textContaining('No sleep scored yet')),
-          findsOneWidget);
-    });
-  });
-
-  group('a day with no measured data still shows the estimate', () {
-    Future<void> pumpBare(WidgetTester t, AppState app,
-        {HomeData data = const HomeData()}) async {
-      t.view.physicalSize = const Size(390 * 3, 1600 * 3);
-      t.view.devicePixelRatio = 3;
-      addTearDown(t.view.reset);
-      await t.pumpWidget(MaterialApp(
-        theme: buildTheme(Brightness.light),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: ChangeNotifierProvider<AppState>.value(
-          value: app,
-          child: Scaffold(
-            body: HomeScreen(hour: 22, now: _evening, data: data),
-          ),
-        ),
-      ));
-      for (var i = 0; i < 10; i++) {
-        await t.pump(const Duration(milliseconds: 20));
-      }
-    }
-
-    testWidgets('learned times and no readiness/strain/sleep: rings, not '
-        'the "Nothing derived yet" card', (t) async {
-      final app = AppState.forTesting();
-      addTearDown(app.dispose);
-      await pumpBare(t, app, data: const HomeData(learnedOnsetMin: 1380, learnedWakeMin: 420));
-      expect(find.textContaining('No nights scored yet'), findsNothing);
-      _caption('on track for 5 cycles, 8h 00m$_dflt', ['~5 cycles · 8h · default target', '~5 cycles · 8h · default goal', '~5 cycles · default goal']);
-    });
-
-    testWidgets('nothing to estimate from: the status card, as before',
-        (t) async {
-      final app = AppState.forTesting();
-      addTearDown(app.dispose);
-      await pumpBare(t, app);
-      // The status card (here the unpaired install's "No band is paired"; a
-      // paired one reads "No nights scored yet"), never three empty rings.
-      expect(find.byType(RingTrio), findsNothing);
-      expect(find.byType(StatusCard), findsWidgets);
-      expect(find.text('No estimate'), findsNothing);
-    });
-  });
-
-  group('the estimate follows the clock while the screen stays open', () {
-    final base = DateTime(2026, 10, 9, 2, 0, 30);
-
-    testWidgets('it re-reads the clock on each minute boundary — no injected '
-        'now', (t) async {
-      var fake = base;
-      await withClock(Clock(() => fake), () async {
-        final app = AppState.forTesting();
-        addTearDown(app.dispose);
-        t.view.physicalSize = const Size(390 * 3, 1600 * 3);
-        t.view.devicePixelRatio = 3;
-        addTearDown(t.view.reset);
-        await t.pumpWidget(MaterialApp(
-          theme: buildTheme(Brightness.light),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: ChangeNotifierProvider<AppState>.value(
-            value: app,
-            child: Scaffold(
-              body: HomeScreen(hour: 2, data: _unslept(typical: true)),
-            ),
-          ),
-        ));
-        await t.pump(const Duration(milliseconds: 20));
-        // 02:00:30 -> wake 07:00 is 4 h 59 m.
-        expect(find.text('4h 59m'), findsWidgets);
-
-        // Half a minute later the next boundary has passed.
-        fake = base.add(const Duration(seconds: 30));
-        await t.pump(const Duration(seconds: 30));
-        // 02:01:00 -> 4 h 59 m still; one more minute is 4 h 58 m.
-        fake = base.add(const Duration(seconds: 90));
-        await t.pump(const Duration(seconds: 60));
-        expect(find.text('4h 58m'), findsWidgets);
-        expect(find.text('4h 59m'), findsNothing);
-
-        // Half an hour on, with nothing but the passing minutes.
-        for (var i = 0; i < 30; i++) {
-          fake = fake.add(const Duration(minutes: 1));
-          await t.pump(const Duration(minutes: 1));
-        }
-        expect(find.text('4h 28m'), findsWidgets);
-      });
-    });
-
-    testWidgets('it stops ticking once the screen is gone', (t) async {
-      var fake = base;
-      await withClock(Clock(() => fake), () async {
-        final app = AppState.forTesting();
-        addTearDown(app.dispose);
-        await t.pumpWidget(MaterialApp(
-          theme: buildTheme(Brightness.light),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: ChangeNotifierProvider<AppState>.value(
-            value: app,
-            child: Scaffold(body: HomeScreen(hour: 2, data: _unslept(typical: true))),
-          ),
-        ));
-        await t.pump(const Duration(milliseconds: 20));
-        await t.pumpWidget(const SizedBox());
-        // A timer left behind would be reported as pending by the framework.
-        fake = fake.add(const Duration(minutes: 5));
-        await t.pump(const Duration(minutes: 5));
-      });
-    });
-  });
-
-  group('unslept: the grey estimate', () {
-    testWidgets('ring is ONE grey arc (track ink, no stage colours) filled to '
-        'estimate / target', (t) async {
-      await _pump(
-        t,
-        _unslept(typical: true, need: _min(540)),
-      );
-      final painter = _sleepPainter(t);
-      expect(painter, isNot(isA<StageRing>()));
-      final ring = painter as Ring;
-      expect(ring.color, _p(t).ink3);
-      expect(ring.v, closeTo(480 / 540, 1e-9));
-      final stageColours = Hypnogram.cols(_p(t)).values;
-      expect(stageColours.contains(ring.color), isFalse);
-    });
-
-    testWidgets('value is the estimate; sub is "on track for n cycles, xxh '
-        'yym"', (t) async {
-      await _pump(t, _unslept(typical: true));
-      expect(find.text('8h 00m'), findsNWidgets(1));
-      _caption('on track for 5 cycles, 8h 00m$_dflt', ['~5 cycles · 8h · default target', '~5 cycles · 8h · default goal', '~5 cycles · default goal']);
-    });
-
-    testWidgets('one cycle is singular', (t) async {
-      await _pump(
-        t,
-        _unslept(typical: true),
-        now: DateTime(2026, 10, 9, 5, 20),
-      );
-      _caption('on track for 1 cycle, 1h 40m$_dflt', ['~1 cycle · 1h 40m · default target', '~1 cycle · 1h 40m · default goal', '~1 cycle · default goal']);
-    });
-
-    testWidgets('a LEARNED need is the denominator: no "(default)" tail',
-        (t) async {
-      await _pump(t, _unslept(typical: true, need: _min(540)));
-      _caption('on track for 5 cycles, 8h 00m', ['~5 cycles · 8h', '~5 cycles']);
-      expect(find.textContaining('default'), findsNothing);
-    });
-
-    testWidgets('the DEFAULT denominator is visibly labelled on the unslept '
-        'sub-line too', (t) async {
-      await _pump(t, _unslept(typical: true));
-      expect(find.textContaining('default'), findsOneWidget);
-      _caption('on track for 5 cycles, 8h 00m$_dflt', ['~5 cycles · 8h · default target', '~5 cycles · 8h · default goal', '~5 cycles · default goal']);
-    });
-
-    testWidgets('an estimate has no percentage and no "(default)" label '
-        'on screen', (t) async {
-      await _pump(t, _unslept(typical: true));
-      expect(find.textContaining('%'), findsNothing);
-    });
-
-    testWidgets('next armed alarm sets the wake', (t) async {
-      await _pump(
-        t,
-        _unslept(
-          typical: true,
-          alarm: DateTime(2026, 10, 9, 6, 30),
-        ),
-      );
-      _caption('on track for 5 cycles, 7h 30m$_dflt', ['~5 cycles · 7h 30m · default target', '~5 cycles · 7h 30m · default goal', '~5 cycles · default goal']);
-    });
-
-    testWidgets('coach bedtime beats the learned onset', (t) async {
-      await _pump(
-        t,
-        _unslept(
-          typical: true,
-          bedtime: const Metric(
-              value: 22 * 60 + 30, confidence: .7, tier: MetricTier.estimate),
-        ),
-      );
-      _caption('on track for 5 cycles, 8h 30m$_dflt', ['~5 cycles · 8h 30m · default target', '~5 cycles · 8h 30m · default goal', '~5 cycles · default goal']);
-    });
-
-    testWidgets('learned onset and wake alone give the estimate', (t) async {
-      await _pump(
-        t,
-        _unslept(learnedOnset: 23 * 60 + 30, learnedWake: 7 * 60 + 30),
-      );
-      _caption('on track for 5 cycles, 8h 00m$_dflt', ['~5 cycles · 8h · default target', '~5 cycles · 8h · default goal', '~5 cycles · default goal']);
-    });
-
-    testWidgets('a user cycle length (hook) changes the cycle count',
-        (t) async {
-      final d = HomeData(
-        learnedOnsetMin: 1380, learnedWakeMin: 420,
-        cycleLenMin: 100,
-      );
-      await _pump(t, d);
-      _caption('on track for 4 cycles, 8h 00m$_dflt', ['~4 cycles · 8h · default target', '~4 cycles · 8h · default goal', '~4 cycles · default goal']);
-    });
-
-    testWidgets('the estimate depends only on the injected now — time passing '
-        'in the test changes nothing', (t) async {
-      await _pump(t, _unslept(typical: true));
-      await t.pump(const Duration(hours: 3));
-      _caption('on track for 5 cycles, 8h 00m$_dflt', ['~5 cycles · 8h · default target', '~5 cycles · 8h · default goal', '~5 cycles · default goal']);
-    });
-
-    testWidgets('spoken text carries the estimate sentence', (t) async {
-      final h = t.ensureSemantics();
-      await _pump(t, _unslept(typical: true));
-      expect(
-        find.bySemanticsLabel(
-            RegExp(r'Sleep\. 8h 00m\. on track for 5 cycles, 8h 00m · target 8h 00m \(default\)')),
-        findsOneWidget,
-      );
-      h.dispose();
-    });
-  });
-
-  group('unslept: no wake, no estimate', () {
+  group('no scored night', () {
     testWidgets('an honest absence and an empty ring — never a guessed time',
         (t) async {
-      await _pump(
-        t,
-        _unslept(
-          bedtime: const Metric(
-              value: 1350, confidence: .7, tier: MetricTier.estimate),
-          learnedOnset: 1380,
-        ),
-      );
+      await _pump(t, _unslept());
       // An absence is a dash in the ring; the reason is a row under the rings.
       final gap = find.byKey(const ValueKey('home-note:gap:sleep'));
-      expect(find.descendant(of: gap, matching: find.text('Sleep')), findsOneWidget);
-      expect(find.descendant(of: gap, matching: find.textContaining('No sleep scored yet')),
+      expect(find.descendant(of: gap, matching: find.text('Sleep')),
           findsOneWidget);
-      expect(find.textContaining('on track'), findsNothing);
+      expect(
+          find.descendant(
+              of: gap,
+              matching: find.textContaining(
+                  'No night long enough to score was recorded.')),
+          findsOneWidget);
       final ring = _sleepPainter(t) as Ring;
       expect(ring.v, 0);
-      expect(
-        find.textContaining('no alarm or typical wake time',
-            findRichText: true),
-        findsOneWidget,
-      );
     });
 
     testWidgets('the pipeline\'s own reason comes first', (t) async {
@@ -758,33 +401,22 @@ void main() {
       );
     });
 
-    testWidgets('RingTrio.has: an estimate is something to draw; nothing is '
-        'not', (t) async {
-      expect(
-        RingTrio.has(
-          HomeData(learnedOnsetMin: 1380, learnedWakeMin: 420),
-          now: _evening,
-        ),
-        isTrue,
-      );
-      expect(RingTrio.has(const HomeData(), now: _evening), isFalse);
+    testWidgets('RingTrio.has: a scored night is something to draw; nothing '
+        'is not', (t) async {
+      expect(RingTrio.has(_slept()), isTrue);
+      expect(RingTrio.has(const HomeData()), isFalse);
     });
   });
 
   group('calibrating is unchanged', () {
-    testWidgets('a baseline note still draws the dashed ring, even when an '
-        'estimate could be made', (t) async {
+    testWidgets('a baseline note still draws the dashed ring', (t) async {
       await _pump(
         t,
-        _unslept(
-          typical: true,
-          sleepMin: const Metric(note: 'need_baseline:have=3,need=14'),
-        ),
+        _unslept(sleepMin: const Metric(note: 'need_baseline:have=3,need=14')),
       );
       final p = _sleepPainter(t);
       expect(p, isA<DashedRing>());
       expect((p as DashedRing).segments, 14);
-      expect(find.textContaining('on track'), findsNothing);
     });
   });
 }

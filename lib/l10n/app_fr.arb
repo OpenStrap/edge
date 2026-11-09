@@ -1491,64 +1491,6 @@
       }
     }
   },
-  "homeSleepOnTrack": "sur la bonne voie pour {cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}}, {duration}",
-  "homeSleepOnTrackDefault": "sur la bonne voie pour {cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}}, {duration} · objectif {target} (par défaut)",
-  "homeSleepEstimateCompact": "~{cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}} · {duration}",
-  "@homeSleepEstimateCompact": {
-    "description": "Short sleep estimate: \"~\" marks it as an estimate; keeps cycle count and duration.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      },
-      "duration": {
-        "type": "String"
-      }
-    }
-  },
-  "homeSleepEstimateDefaultCompact": "~{cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}} · {duration} · objectif par défaut",
-  "@homeSleepEstimateDefaultCompact": {
-    "description": "Short sleep estimate keeping the \"~\" estimate marker and an explicit default-target qualifier.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      },
-      "duration": {
-        "type": "String"
-      }
-    }
-  },
-  "homeSleepEstimateDefaultTight": "~{cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}} · {duration} · cible par défaut",
-  "@homeSleepEstimateDefaultTight": {
-    "description": "Tightest sleep estimate caption: keeps the estimate marker, cycles, duration and the default-target qualifier.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      },
-      "duration": {
-        "type": "String"
-      }
-    }
-  },
-  "homeSleepEstimateDefaultMin": "~{cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}} · cible par défaut",
-  "@homeSleepEstimateDefaultMin": {
-    "description": "Smallest default-target estimate caption: drops the duration, keeps the estimate marker, cycles and the default goal.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      }
-    }
-  },
-  "homeSleepEstimateBare": "~{cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}}",
-  "@homeSleepEstimateBare": {
-    "description": "Smallest estimate caption: the estimate marker and the cycle count.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      }
-    }
-  },
-  "homeSleepNoEstimate": "Pas d'estimation",
-  "homeSleepNoEstimateWhy": "Aucune nuit n'est encore évaluée, et il n'y a ni alarme ni heure de réveil habituelle pour estimer.",
   "homeWhyRecoveryTitle": "Récupération faible",
   "homeWhyRecoveryPlain": "Récupération {score} sur 100",
   "@homeWhyRecoveryPlain": {

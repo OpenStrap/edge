@@ -49,8 +49,6 @@ import 'package:openstrap_edge/state/clock_format.dart' show formatClockOf;
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
-final _now = DateTime(2026, 10, 4, 15);
-
 Metric _m(num v) => Metric(value: v, confidence: .8, tier: MetricTier.high);
 
 const _target = {'value': 10, 'low': 8, 'high': 12};
@@ -120,7 +118,7 @@ Future<void> _rings(WidgetTester t, HomeData d,
     supportedLocales: AppLocalizations.supportedLocales,
     home: Scaffold(
         body: SingleChildScrollView(
-            child: RingTrio(d: d, now: _now, onOpen: onOpen))),
+            child: RingTrio(d: d, onOpen: onOpen))),
   ));
   await t.pump();
 }
@@ -252,58 +250,56 @@ void main() {
   // ── 0. what "pressing" means (pure) ───────────────────────────────────────
   group('pressingRings', () {
     test('WHY: a healthy day explains nothing', () {
-      expect(pressingRings(_healthy, now: _now), isEmpty);
+      expect(pressingRings(_healthy), isEmpty);
     });
 
     test('WHY: recovery is pressing below 37; 36 yes, 37 no', () {
-      expect(pressingRings(_data(recovery: 10), now: _now),
+      expect(pressingRings(_data(recovery: 10)),
           [HomeRingKind.recovery]);
-      expect(pressingRings(_data(recovery: 36), now: _now),
+      expect(pressingRings(_data(recovery: 36)),
           [HomeRingKind.recovery]);
-      expect(pressingRings(_data(recovery: 37), now: _now), isEmpty);
+      expect(pressingRings(_data(recovery: 37)), isEmpty);
     });
 
     test('WHY: sleep is pressing under 85% of need; 84% yes, 86% no', () {
-      expect(pressingRings(_data(sleep: 403, need: 480), now: _now),
+      expect(pressingRings(_data(sleep: 403, need: 480)),
           [HomeRingKind.sleep]);
-      expect(pressingRings(_data(sleep: 413, need: 480), now: _now), isEmpty);
+      expect(pressingRings(_data(sleep: 413, need: 480)), isEmpty);
     });
 
     test('WHY: strain is pressing only above the top of the target range', () {
-      expect(pressingRings(_data(strain: 15, target: _target), now: _now),
+      expect(pressingRings(_data(strain: 15, target: _target)),
           [HomeRingKind.strain]);
-      expect(pressingRings(_data(strain: 11, target: _target), now: _now),
+      expect(pressingRings(_data(strain: 11, target: _target)),
           isEmpty);
       // Low strain is not pressing, and with no target there is no range.
-      expect(pressingRings(_data(strain: 0.0, target: _target), now: _now),
+      expect(pressingRings(_data(strain: 0.0, target: _target)),
           isEmpty);
-      expect(pressingRings(_data(strain: 20), now: _now), isEmpty);
+      expect(pressingRings(_data(strain: 20)), isEmpty);
     });
 
     test('WHY: severity decides the order, ties go recovery then sleep', () {
-      expect(pressingRings(_rec2Sleep3, now: _now),
+      expect(pressingRings(_rec2Sleep3),
           [HomeRingKind.sleep, HomeRingKind.recovery]);
-      expect(pressingRings(_recAndSleep, now: _now),
+      expect(pressingRings(_recAndSleep),
           [HomeRingKind.recovery, HomeRingKind.sleep]);
     });
 
     test('WHY: at most two; the least pressing is dropped', () {
-      expect(pressingRings(_allThree, now: _now),
+      expect(pressingRings(_allThree),
           [HomeRingKind.recovery, HomeRingKind.sleep]);
     });
 
     test('WHY: an absent, provisional or in-progress value is never pressing',
         () {
-      expect(pressingRings(_data(recovery: null, sleep: null), now: _now),
+      expect(pressingRings(_data(recovery: null, sleep: null)),
           isEmpty);
       expect(
-          pressingRings(_data(recovery: 10, recoveryState: 'provisional'),
-              now: _now),
+          pressingRings(_data(recovery: 10, recoveryState: 'provisional')),
           isEmpty);
       expect(
           pressingRings(
-              _data(recovery: null, recoveryState: 'night_in_progress'),
-              now: _now),
+              _data(recovery: null, recoveryState: 'night_in_progress')),
           isEmpty);
     });
   });

@@ -317,17 +317,6 @@ Widget syncedThroughLine(BuildContext c, String? todayId,
   );
 }
 
-/// The next armed alarm, or null with none held (or in a golden). May be an
-/// instant already past: the sleep ring ignores those.
-DateTime? nextAlarmOf(BuildContext c) {
-  try {
-    final e = c.select<AppState, int?>((a) => a.alarmEpoch);
-    return e == null ? null : DateTime.fromMillisecondsSinceEpoch(e * 1000);
-  } catch (_) {
-    return null;
-  }
-}
-
 bool derivingOf(BuildContext c) {
   try {
     return c.select<AppState, bool>((a) => a.deriving || a.derivePending);
@@ -870,29 +859,17 @@ class RingTrio extends StatelessWidget {
   /// worth pushing onto.
   final void Function(HomeRingKind)? onOpen;
 
-  /// The instant the sleep ring measures an unslept night's estimate from.
-  /// Injected by tests; production reads `clock.now()`.
-  final DateTime? now;
-
-  const RingTrio({super.key, required this.d, this.onOpen, this.now});
+  const RingTrio({super.key, required this.d, this.onOpen});
 
   /// Whether ANY of the three has something to draw. When none do, the screen
   /// owes the user one written absence, not three empty circles.
-  static bool has(HomeData d, {DateTime? now}) {
-    final at = now ?? pc.clock.now();
-    return HomeRingKind.values.any((k) => _ringOf(k, d, null, at).why == null);
-  }
-
-  /// Whether the sleep ring can estimate tonight's sleep, and so has something
-  /// to draw even when nothing else on the day does.
-  static bool hasSleepEstimate(HomeData d, {DateTime? now}) =>
-      _ringOf(HomeRingKind.sleep, d, null, now ?? pc.clock.now()).estimated;
+  static bool has(HomeData d) =>
+      HomeRingKind.values.any((k) => _ringOf(k, d, null).why == null);
 
   @override
   Widget build(BuildContext c) {
     final l = AppLocalizations.of(c);
-    final at = now ?? pc.clock.now();
-    final rings = [for (final k in HomeRingKind.values) _ringOf(k, d, l, at)];
+    final rings = [for (final k in HomeRingKind.values) _ringOf(k, d, l)];
     final gaps = rings.where((r) => r.why != null).toList();
     // THERE IS NO "THESE TWO ARE FROM SATURDAY" LINE ANY MORE, and there is
     // nothing left for one to explain. Recovery and sleep used to be served
@@ -909,8 +886,8 @@ class RingTrio extends StatelessWidget {
     // win, in this order: why a ring is low, what changed the recovery number,
     // then an absent ring's reason.
     final rows = <Widget>[
-      for (final k in pressingRings(d, now: at))
-        _HomeWhyPanel(kind: k, data: d, now: at, onTap: _open(k)),
+      for (final k in pressingRings(d))
+        _HomeWhyPanel(kind: k, data: d, onTap: _open(k)),
       if (recoveryUpdatedLine(d.readinessUpdate, l) case final note?)
         _HomeUpdateNote(line: note, onTap: _open(HomeRingKind.recovery)),
       for (final r in gaps)
@@ -965,15 +942,13 @@ class RingTrio extends StatelessWidget {
 class _HomeWhyPanel extends StatelessWidget {
   final HomeRingKind kind;
   final HomeData data;
-  final DateTime now;
   final VoidCallback? onTap;
-  const _HomeWhyPanel(
-      {required this.kind, required this.data, required this.now, this.onTap});
+  const _HomeWhyPanel({required this.kind, required this.data, this.onTap});
 
   @override
   Widget build(BuildContext c) {
     final l = AppLocalizations.of(c);
-    final state = _ringOf(kind, data, l, now);
+    final state = _ringOf(kind, data, l);
     final title = switch (kind) {
       HomeRingKind.recovery => l?.homeWhyRecoveryTitle ?? 'Recovery is low',
       HomeRingKind.sleep => l?.homeWhySleepTitle ?? 'Sleep is short of need',
@@ -1211,7 +1186,7 @@ enum HomeRingKind { recovery, strain, sleep }
 /// recovery under 37, sleep under 85% of need, strain above the top of today's
 /// target range. A value that is absent, provisional or still being scored is
 /// never pressing (never fabricate).
-List<HomeRingKind> pressingRings(HomeData d, {DateTime? now}) {
+List<HomeRingKind> pressingRings(HomeData d) {
   final ranked = <(HomeRingKind, int)>[];
   final recovery = d.readiness.value;
   if (recovery != null &&
@@ -1243,30 +1218,13 @@ List<HomeRingKind> pressingRings(HomeData d, {DateTime? now}) {
   return [for (final item in ranked.take(2)) item.$1];
 }
 
-/// How long until the next whole minute after [now], in (0, 60 s].
-///
-/// Taken from the UTC instant, never from local wall-clock fields: a minute
-/// boundary is the same instant in every whole-, half- and quarter-hour zone,
-/// but `DateTime(y, m, d, h, min + 1)` in the repeated fall-back hour resolves
-/// to the FIRST occurrence of that wall time, an hour in the past: a negative
-/// delay, a zero-delay Timer, and a setState loop.
-@visibleForTesting
-Duration nextMinuteTickDelay(DateTime now) {
-  const minuteUs = 60 * 1000000;
-  final us = now.toUtc().microsecondsSinceEpoch;
-  final next = DateTime.fromMicrosecondsSinceEpoch(
-      us - us % minuteUs + minuteUs,
-      isUtc: true);
-  return next.difference(now.toUtc());
-}
-
 /// One ring's resolved state — the only place a metric becomes a shape.
 class _RingState {
   final HomeRingKind kind;
   final String label, value, sub;
 
   /// Shorter wordings of [sub], widest first, that keep its meaning (the
-  /// estimate marker, the default-target qualifier). The caption tries
+  /// default-target qualifier). The caption tries
   /// [sub], then each of these, and takes the first that fits.
   final List<String> alts;
   final IconData icon;
@@ -1291,10 +1249,6 @@ class _RingState {
   /// arc. Null for every other ring and state.
   final List<SleepArc>? arcs;
 
-  /// An ESTIMATE of tonight's sleep, not a reading: drawn in the muted ink,
-  /// never a stage colour, and never solid.
-  final bool estimated;
-
   const _RingState(
     this.kind,
     this.label,
@@ -1310,7 +1264,6 @@ class _RingState {
     this.why,
     this.provisional = false,
     this.arcs,
-    this.estimated = false,
   });
 
   /// A number that may still move (the night is still draining), drawn grey.
@@ -1318,26 +1271,20 @@ class _RingState {
 
   /// A number the ring is actually reporting. Calibration is progress, not a
   /// reading, so it is not one.
-  bool get measured => why == null && !calibrating && !estimated;
+  bool get measured => why == null && !calibrating;
 
-  /// Whether the value is a number to set in numerals (a reading or an
-  /// estimate) rather than an absence in words.
-  bool get showsNumber => why == null && !calibrating;
-
-  Color arc(P p) =>
-      calibrating || estimated || provisional ? p.ink3 : p.on(color);
+  Color arc(P p) => calibrating || provisional ? p.ink3 : p.on(color);
   Color ink(P p) => measured && !provisional ? p.on(color) : p.ink3;
 
   String get spoken => [
         label,
-        showsNumber ? value : value.toLowerCase(),
+        measured ? value : value.toLowerCase(),
         if (sub.isNotEmpty) sub,
         ?why,
       ].join('. ');
 }
 
-_RingState _ringOf(
-    HomeRingKind k, HomeData d, AppLocalizations? l, DateTime now) {
+_RingState _ringOf(HomeRingKind k, HomeData d, AppLocalizations? l) {
   switch (k) {
     case HomeRingKind.recovery:
       final v = d.readiness.value;
@@ -1394,96 +1341,42 @@ _RingState _ringOf(
               );
     case HomeRingKind.sleep:
       final label = l?.homeRingSleep ?? 'Sleep';
-      // A baseline still filling is progress, not an absence, and is drawn
-      // exactly as before: dashed, ahead of any estimate.
-      if (d.sleepMin.value == null &&
-          baselineCountsFromNote(d.sleepMin.note) != null) {
+      final v = d.sleepMin.value;
+      if (v == null) {
         return _gap(k, label, LucideIcons.moon, C.blue, d.sleepMin,
-            l?.homeRingNoSleep ?? 'No sleep', l);
+            l?.homeRingNoSleep ?? 'No sleep', l,
+            fallbackWhy: l?.homeSleepGapFallback ??
+                'No night long enough to score was recorded.');
       }
       final m = sleepRingModel(
-        now: now,
-        durationMin: d.sleepMin.value,
+        durationMin: v,
         stages: d.sleepStages,
         needMin: d.sleepNeedMin.value,
-        coachBedtimeMinOfDay: d.bedtime.value,
-        nextAlarm: d.nextAlarm,
-        learnedOnsetMin: d.learnedOnsetMin,
-        learnedWakeMin: d.learnedWakeMin,
-        cycleLenMin: d.cycleLenMin,
       );
-      switch (m.phase) {
-        case SleepRingPhase.slept:
-          final target = hm(m.targetMin);
-          return _RingState(k, label, LucideIcons.moon, C.blue,
-              value: hm(m.asleepMin),
-              // The target is the learned need, or the 8 h default — and the
-              // default says so. It is never passed off as this user's need.
-              sub: m.targetIsDefault
-                  ? (l?.homeSleepPctOfDefault(m.pct!, target) ??
-                      '${m.pct}% of $target (default)')
-                  : (l?.homeSleepPctOf(m.pct!, target) ??
-                      '${m.pct}% of $target'),
-              alts: m.targetIsDefault
-                  ? [
-                      l?.homeSleepPctDefaultCompact(
-                              m.pct!, _compactHm(m.targetMin, l)) ??
-                          '${m.pct}% of ${_compactHm(m.targetMin, l)} · default target',
-                      l?.homeSleepPctDefaultTight(
-                              m.pct!, _compactHm(m.targetMin, l)) ??
-                          '${m.pct}% of default ${_compactHm(m.targetMin, l)}',
-                    ]
-                  : [
-                      l?.homeSleepPctCompact(
-                              m.pct!, _compactHm(m.targetMin, l)) ??
-                          '${m.pct}% of ${_compactHm(m.targetMin, l)}',
-                    ],
-              frac: m.sweep,
-              arcs: m.arcs);
-        case SleepRingPhase.estimate:
-          final est = hm(m.estimateMin);
-          return _RingState(k, label, LucideIcons.moon, C.blue,
-              value: est,
-              // The ring is filled against the target, so the default says
-              // so here too — it is never passed off as this user's need.
-              sub: m.targetIsDefault
-                  ? (l?.homeSleepOnTrackDefault(
-                          m.cycles!, est, hm(m.targetMin)) ??
-                      'on track for ${m.cycles} '
-                          '${m.cycles == 1 ? 'cycle' : 'cycles'}, $est'
-                          ' · target ${hm(m.targetMin)} (default)')
-                  : (l?.homeSleepOnTrack(m.cycles!, est) ??
-                      'on track for ${m.cycles} '
-                          '${m.cycles == 1 ? 'cycle' : 'cycles'}, $est'),
-              // "~" marks an estimate in every compact form.
-              alts: m.targetIsDefault
-                  ? [
-                      l?.homeSleepEstimateDefaultCompact(
-                              m.cycles!, _compactHm(m.estimateMin, l)) ??
-                          '~${m.cycles} cycles · ${_compactHm(m.estimateMin, l)} · default target',
-                      l?.homeSleepEstimateDefaultTight(
-                              m.cycles!, _compactHm(m.estimateMin, l)) ??
-                          '~${m.cycles} cycles · ${_compactHm(m.estimateMin, l)} · default goal',
-                      // When even the tight wording needs more than three
-                      // lines: drop the duration, never the qualifiers.
-                      l?.homeSleepEstimateDefaultMin(m.cycles!) ??
-                          '~${m.cycles} cycles · default goal',
-                    ]
-                  : [
-                      l?.homeSleepEstimateCompact(
-                              m.cycles!, _compactHm(m.estimateMin, l)) ??
-                          '~${m.cycles} cycles · ${_compactHm(m.estimateMin, l)}',
-                      l?.homeSleepEstimateBare(m.cycles!) ?? '~${m.cycles} cycles',
-                    ],
-              frac: m.sweep,
-              estimated: true);
-        case SleepRingPhase.none:
-          return _gap(k, label, LucideIcons.moon, C.blue, d.sleepMin,
-              l?.homeSleepNoEstimate ?? 'No estimate', l,
-              fallbackWhy: l?.homeSleepNoEstimateWhy ??
-                  'No sleep scored yet, and no alarm or typical wake time '
-                      'to estimate from.');
-      }
+      final target = hm(m.targetMin);
+      return _RingState(k, label, LucideIcons.moon, C.blue,
+          value: hm(m.asleepMin),
+          // The target is the learned need, or the 8 h default — and the
+          // default says so. It is never passed off as this user's need.
+          sub: m.targetIsDefault
+              ? (l?.homeSleepPctOfDefault(m.pct, target) ??
+                  '${m.pct}% of $target (default)')
+              : (l?.homeSleepPctOf(m.pct, target) ?? '${m.pct}% of $target'),
+          alts: m.targetIsDefault
+              ? [
+                  l?.homeSleepPctDefaultCompact(
+                          m.pct, _compactHm(m.targetMin, l)) ??
+                      '${m.pct}% of ${_compactHm(m.targetMin, l)} · default target',
+                  l?.homeSleepPctDefaultTight(
+                          m.pct, _compactHm(m.targetMin, l)) ??
+                      '${m.pct}% of default ${_compactHm(m.targetMin, l)}',
+                ]
+              : [
+                  l?.homeSleepPctCompact(m.pct, _compactHm(m.targetMin, l)) ??
+                      '${m.pct}% of ${_compactHm(m.targetMin, l)}',
+                ],
+          frac: m.sweep,
+          arcs: m.arcs);
   }
 }
 
@@ -1726,7 +1619,7 @@ class _RingText extends StatelessWidget {
         // takes the sentence weight rather than the numeral one.
         Text(
           presentationText(AppLocalizations.of(c), r.value),
-          style: r.showsNumber
+          style: r.measured
               ? F.n24.copyWith(color: r.provisional ? p.ink3 : p.ink)
               : F.body.copyWith(color: p.ink2),
           textAlign: align,
@@ -1860,19 +1753,6 @@ class HomeData {
   /// another night.
   final SleepStageMin? sleepStages;
 
-  /// The next armed alarm. It lives on AppState, not in the repository, so the
-  /// screen lays it over what loaded ([withSleepInputs]).
-  final DateTime? nextAlarm;
-
-  /// The median local clock minute of the person's recent onsets and wakes
-  /// (`learnedClockMinutes`), the unslept estimate's fallback sources. Null
-  /// until there are enough nights.
-  final int? learnedOnsetMin, learnedWakeMin;
-
-  /// A per-user sleep-cycle length in minutes. Nothing sets it yet; the model
-  /// falls back to 90.
-  final int? cycleLenMin;
-
   const HomeData({
     this.name,
     this.dayId,
@@ -1896,38 +1776,12 @@ class HomeData {
     this.recoveryState,
     this.readinessUpdate,
     this.sleepStages,
-    this.nextAlarm,
-    this.learnedOnsetMin,
-    this.learnedWakeMin,
-    this.cycleLenMin,
   });
 
   /// The three illness fields, replaced together. Test-facing sugar, and they
   /// travel as a set on purpose — they are read as one envelope, and setting
   /// one without the others describes a state the pipeline cannot produce.
-  HomeData copyOrIllness(String? state, String? day, double? z) => _copy(
-        illnessState: state,
-        illnessDay: day,
-        illnessZ: z,
-        nextAlarm: nextAlarm,
-      );
-
-  /// The same data with the armed alarm replaced: it lives on AppState, not in
-  /// the repository, so the screen lays it over what loaded.
-  HomeData withSleepInputs({DateTime? alarm}) => _copy(
-        illnessState: illnessState,
-        illnessDay: illnessDay,
-        illnessZ: illnessZ,
-        nextAlarm: alarm,
-      );
-
-  HomeData _copy({
-    required String? illnessState,
-    required String? illnessDay,
-    required double? illnessZ,
-    required DateTime? nextAlarm,
-  }) =>
-      HomeData(
+  HomeData copyOrIllness(String? state, String? day, double? z) => HomeData(
         name: name,
         dayId: dayId,
         readiness: readiness,
@@ -1942,14 +1796,10 @@ class HomeData {
         bedtime: bedtime,
         strainTarget: strainTarget,
         sleepStages: sleepStages,
-        nextAlarm: nextAlarm,
-        learnedOnsetMin: learnedOnsetMin,
-        learnedWakeMin: learnedWakeMin,
-        cycleLenMin: cycleLenMin,
         heldOverNight: heldOverNight,
-        illnessState: illnessState,
-        illnessDay: illnessDay,
-        illnessZ: illnessZ,
+        illnessState: state,
+        illnessDay: day,
+        illnessZ: z,
         insightsStale: insightsStale,
         absentDiag: absentDiag,
         recoveryState: recoveryState,
@@ -2055,14 +1905,6 @@ class HomeData {
     final heldOver = heldOverNightOf(today);
 
     final sleepMin = overnightMetric(today, s('duration_min'), l);
-    // Typical onset/wake for the unslept estimate. The armed alarm is
-    // AppState's and is laid over this by the screen ([withSleepInputs]); a
-    // failed read here is simply absent.
-    ({int? onsetMin, int? wakeMin}) learned = (onsetMin: null, wakeMin: null);
-    try {
-      learned = learnedClockMinutes(await repo.sleepWindows(days: 14));
-    } catch (_) {}
-
     // Same envelope Health reads. The watch runs on NOCTURNAL RESTING HEART
     // RATE ALONE — it has never been given a temperature series — so nothing
     // here may imply a second signal.
@@ -2098,8 +1940,6 @@ class HomeData {
       strain: metricOf(d('strain')),
       sleepMin: sleepMin,
       sleepStages: stages,
-      learnedOnsetMin: learned.onsetMin,
-      learnedWakeMin: learned.wakeMin,
       rhr: overnightMetric(today, d('resting_hr'), l),
       steps: metricOf(d('steps')),
       calories: metricOf(d('calories')),
@@ -2232,36 +2072,14 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     });
   }
 
-  /// Re-renders on each whole minute, so the unslept estimate (which counts
-  /// down to the wake) follows the clock while the screen stays open. It
-  /// rides the same lifecycle as the rest of this screen: stopped while the
-  /// app is hidden, re-armed and refreshed on the way back.
-  Timer? _tick;
-
-  void _armTick() {
-    _tick?.cancel();
-    _tick = Timer(nextMinuteTickDelay(pc.clock.now()), () {
-      if (!mounted) return;
-      setState(() {});
-      _armTick();
-    });
-  }
-
-  void _stopTick() {
-    _tick?.cancel();
-    _tick = null;
-  }
-
   @override
   void dispose() {
     _syncTapTimer?.cancel();
-    _stopTick();
     _lifecycle?.dispose();
     super.dispose();
   }
 
   void _onHide() {
-    _stopTick();
     _dayAtHide = todayLabel(widget.now ?? debugHomeWallClock());
     _hiddenAt = debugHomeWallClock();
     _away
@@ -2286,8 +2104,6 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// for good if the read failed, since the error card only shows with no day.
   void _onReturnFromBackground() {
     if (!mounted) return;
-    _armTick();
-    setState(() {});
     final hiddenAt = _hiddenAt;
     final wall = hiddenAt == null
         ? Duration.zero
@@ -2316,7 +2132,6 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   @override
   void initState() {
     super.initState();
-    _armTick();
     if (widget.data != null) {
       _d = widget.data;
       _loading = false;
@@ -2576,7 +2391,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     // them apart: whether this install has ever scored a night. "No band
     // recordings processed yet" said to someone with three months of history is
     // the first-run answer to a gap, and it is wrong.
-    final noData = d.readiness.isEmpty &&
+    final bare = d.readiness.isEmpty &&
         d.sleepMin.isEmpty &&
         d.strain.isEmpty &&
         d.rhr.isEmpty &&
@@ -2587,16 +2402,6 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     // gates the plan/live-workout copy below, which is about what to DO
     // today and reads as a stale instruction on a day already in the past.
     final isToday = _day == null || _day == todayLabel();
-
-    // The armed alarm is AppState's, and only TODAY's rings estimate toward it:
-    // a past day with no scored sleep must not claim to be "on track" (the
-    // loaders never set the estimate inputs for a dated day either).
-    final ringData =
-        isToday ? d.withSleepInputs(alarm: nextAlarmOf(c) ?? d.nextAlarm) : d;
-    // A day with no measured data is not bare when tonight's estimate can be
-    // made: an armed alarm or typical sleep times are something to show.
-    final bare = noData &&
-        !(isToday && RingTrio.hasSleepEstimate(ringData, now: widget.now));
 
     // Until recovery can score for the first time: what arrives when.
     // Also while the readiness note still counts nights: missed nights push
@@ -2723,10 +2528,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         // diagnostic used to go nowhere but a Firebase breadcrumb. It belongs
         // one tap away, on the Readiness screen: a wall of per-input
         // diagnostics on Home makes the app read as broken.
-        if (RingTrio.has(ringData, now: widget.now))
+        if (RingTrio.has(d))
           RingTrio(
-            d: ringData,
-            now: widget.now,
+            d: d,
             onOpen: (k) => go(
                 c,
                 switch (k) {

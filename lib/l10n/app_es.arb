@@ -1491,64 +1491,6 @@
       }
     }
   },
-  "homeSleepOnTrack": "en camino a {cycles, plural, =1{1 ciclo} other{{cycles} ciclos}}, {duration}",
-  "homeSleepOnTrackDefault": "en camino a {cycles, plural, =1{1 ciclo} other{{cycles} ciclos}}, {duration} · objetivo {target} (predeterminado)",
-  "homeSleepEstimateCompact": "~{cycles, plural, =1{1 ciclo} other{{cycles} ciclos}} · {duration}",
-  "@homeSleepEstimateCompact": {
-    "description": "Short sleep estimate: \"~\" marks it as an estimate; keeps cycle count and duration.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      },
-      "duration": {
-        "type": "String"
-      }
-    }
-  },
-  "homeSleepEstimateDefaultCompact": "~{cycles, plural, =1{1 ciclo} other{{cycles} ciclos}} · {duration} · objetivo predeterminado",
-  "@homeSleepEstimateDefaultCompact": {
-    "description": "Short sleep estimate keeping the \"~\" estimate marker and an explicit default-target qualifier.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      },
-      "duration": {
-        "type": "String"
-      }
-    }
-  },
-  "homeSleepEstimateDefaultTight": "~{cycles, plural, =1{1 ciclo} other{{cycles} ciclos}} · {duration} · meta por defecto",
-  "@homeSleepEstimateDefaultTight": {
-    "description": "Tightest sleep estimate caption: keeps the estimate marker, cycles, duration and the default-target qualifier.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      },
-      "duration": {
-        "type": "String"
-      }
-    }
-  },
-  "homeSleepEstimateDefaultMin": "~{cycles, plural, =1{1 ciclo} other{{cycles} ciclos}} · meta por defecto",
-  "@homeSleepEstimateDefaultMin": {
-    "description": "Smallest default-target estimate caption: drops the duration, keeps the estimate marker, cycles and the default goal.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      }
-    }
-  },
-  "homeSleepEstimateBare": "~{cycles, plural, =1{1 ciclo} other{{cycles} ciclos}}",
-  "@homeSleepEstimateBare": {
-    "description": "Smallest estimate caption: the estimate marker and the cycle count.",
-    "placeholders": {
-      "cycles": {
-        "type": "int"
-      }
-    }
-  },
-  "homeSleepNoEstimate": "Sin estimación",
-  "homeSleepNoEstimateWhy": "Aún no hay una noche puntuada y no hay alarma ni hora habitual de despertar para estimar.",
   "homeWhyRecoveryTitle": "La recuperación es baja",
   "homeWhyRecoveryPlain": "Recuperación {score} de 100",
   "@homeWhyRecoveryPlain": {

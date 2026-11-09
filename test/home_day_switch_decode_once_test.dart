@@ -137,28 +137,24 @@ void main() {
           },
         };
 
-    test('one stage read (only for a scored night) and one windows read',
+    test('one stage read, and only for a scored night',
         () async {
       final scored = _CountingRepo(today(slept: true));
       await HomeData.load(scored);
       expect(scored.nightReads, 1);
-      expect(scored.windowReads, 1);
       expect(scored.insightReads, 1);
 
       // No scored night: no stage read at all, and nothing borrowed.
       final bare = _CountingRepo(today(slept: false));
       final d = await HomeData.load(bare);
       expect(bare.nightReads, 0);
-      expect(bare.windowReads, 1);
       expect(d.sleepStages, isNull);
     });
 
-    test('a failed stage or windows read leaves the figure absent, not a '
-        'failed Home', () async {
+    test('a failed stage read leaves the figure absent, not a failed Home', () async {
       final repo = _CountingRepo(today(slept: true), throwing: true);
       final d = await HomeData.load(repo);
       expect(d.sleepStages, isNull);
-      expect(d.learnedOnsetMin, isNull);
       expect(d.sleepMin.value, 442);
     });
   });
@@ -168,7 +164,7 @@ class _CountingRepo extends LocalRepository {
   _CountingRepo(this._today, {this.throwing = false});
   final Map<String, dynamic> _today;
   final bool throwing;
-  int nightReads = 0, windowReads = 0, insightReads = 0;
+  int nightReads = 0, insightReads = 0;
 
   @override
   Future<Map<String, dynamic>> getToday() async => _today;
@@ -185,13 +181,5 @@ class _CountingRepo extends LocalRepository {
     nightReads++;
     if (throwing) throw StateError('read failed');
     return {'has_sleep': true, 'deep_min': 70, 'rem_min': 95, 'light_min': 277};
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> sleepWindows(
-      {int days = 60, String? before}) async {
-    windowReads++;
-    if (throwing) throw StateError('read failed');
-    return const [];
   }
 }
