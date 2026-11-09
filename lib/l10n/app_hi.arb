@@ -1549,58 +1549,11 @@
   "homeSleepNoEstimate": "कोई अनुमान नहीं",
   "homeSleepNoEstimateWhy": "अभी तक कोई रात स्कोर नहीं हुई है, और अनुमान के लिए कोई अलार्म या सामान्य जागने का समय नहीं है।",
   "homeWhyRecoveryTitle": "रिकवरी कम है",
-  "homeWhyRecoveryDrivers": "सबसे बड़ा असर: {a} {za}, {b} {zb} (आपकी बेसलाइन से अंतर)।",
-  "@homeWhyRecoveryDrivers": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      },
-      "zb": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryDriver": "सबसे बड़ा असर: {a} {za} (आपकी बेसलाइन से अंतर)।",
-  "@homeWhyRecoveryDriver": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      }
-    }
-  },
   "homeWhyRecoveryPlain": "रिकवरी {score}/100",
   "@homeWhyRecoveryPlain": {
     "placeholders": {
       "score": {
         "type": "int"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingTwo": "इसे नीचे खींच रहे हैं: {a}, {b}।",
-  "@homeWhyRecoveryPullingTwo": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingOne": "इसे नीचे खींच रहा है: {a}।",
-  "@homeWhyRecoveryPullingOne": {
-    "placeholders": {
-      "a": {
-        "type": "String"
       }
     }
   },

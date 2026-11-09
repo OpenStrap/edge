@@ -1049,39 +1049,12 @@ class _HomeWhyRow extends StatelessWidget {
   }
 }
 
-/// Evidence or nothing. Built from what BOTH driver shapes carry (label and the
-/// sign/size of the weighted `contribution`; the production `detail` is prose):
-/// the biggest drags first. A number is added only when a numeric z is really in
-/// `detail` (`...=<z>`) for every driver named; otherwise none is invented.
+/// The recovery ring is the composite score. The only driver list on hand,
+/// `readiness_glassbox.drivers`, belongs to a different (percentile) score and
+/// can come from a rollup up to seven days old, so blaming it for THIS ring on
+/// THIS night would be a guess. Nothing in the composite names its own drivers,
+/// so the reason is the plain score.
 String _recoveryWhy(HomeData d, AppLocalizations? l) {
-  final drags = <(String, double, double?)>[];
-  for (final e in d.drivers) {
-    final c = e['contribution'];
-    if (c is! num || c >= 0) continue;
-    final detail = '${e['detail']}';
-    final z =
-        detail.contains('=') ? double.tryParse(detail.split('=').last) : null;
-    drags.add((driverLabel(e['label'], l), c.toDouble(), z));
-  }
-  drags.sort((a, b) => a.$2.compareTo(b.$2)); // largest drag first
-  final top = drags.take(2).toList();
-  String f(double? z) => z!.toStringAsFixed(1);
-  final numeric = top.isNotEmpty && top.every((x) => x.$3 != null);
-  if (top.length == 2) {
-    final (a, b) = (top[0], top[1]);
-    return numeric
-        ? (l?.homeWhyRecoveryDrivers(a.$1, f(a.$3), b.$1, f(b.$3)) ??
-            'Biggest drag: ${a.$1} ${f(a.$3)}, ${b.$1} ${f(b.$3)} (how far each sits from your usual).')
-        : (l?.homeWhyRecoveryPullingTwo(a.$1, b.$1) ??
-            'Pulling it down: ${a.$1}, ${b.$1}.');
-  }
-  if (top.length == 1) {
-    final a = top[0];
-    return numeric
-        ? (l?.homeWhyRecoveryDriver(a.$1, f(a.$3)) ??
-            'Biggest drag: ${a.$1} ${f(a.$3)} (how far each sits from your usual).')
-        : (l?.homeWhyRecoveryPullingOne(a.$1) ?? 'Pulling it down: ${a.$1}.');
-  }
   final v = (d.readiness.value ?? 0).round();
   return l?.homeWhyRecoveryPlain(v) ?? 'Recovery $v of 100';
 }
@@ -1829,7 +1802,6 @@ class HomeData {
   final String? name;
   final String? dayId;
   final Metric readiness;
-  final List<Map<String, dynamic>> drivers;
   final Metric sleepMin, rhr, steps, calories, caloriesTotal;
 
   /// The day's 0–21 strain, read from the same `getToday` bundle the Workout
@@ -1905,7 +1877,6 @@ class HomeData {
     this.name,
     this.dayId,
     this.readiness = Metric.empty,
-    this.drivers = const [],
     this.sleepMin = Metric.empty,
     this.rhr = Metric.empty,
     this.steps = Metric.empty,
@@ -1960,7 +1931,6 @@ class HomeData {
         name: name,
         dayId: dayId,
         readiness: readiness,
-        drivers: drivers,
         sleepMin: sleepMin,
         rhr: rhr,
         steps: steps,
@@ -1990,7 +1960,7 @@ class HomeData {
   ///
   /// Deliberately thin next to [load]: everything [load] does beyond the six
   /// headline numbers below (frozen-morning-headline pin, the illness watch,
-  /// sleep coach need/bedtime, readiness drivers, the stale-rollup notice) is
+  /// sleep coach need/bedtime, the stale-rollup notice) is
   /// about the ambiguity of an in-progress "today" — a past day already
   /// settled, so there is nothing there to resolve. Reuses the same
   /// date-parameterized getters the strain/sleep detail screens already read
@@ -2051,9 +2021,6 @@ class HomeData {
     final sleep = today['sleep'];
     Object? d(String k) => daily is Map ? daily[k] : null;
     Object? s(String k) => sleep is Map ? sleep[k] : null;
-
-    final gb = cd['readiness_glassbox'];
-    final gbDrivers = gb is Map ? gb['drivers'] : null;
 
     final coach = cd['sleep_coach'];
     final needEnv = coach is Map ? coach['need'] : null;
@@ -2121,10 +2088,6 @@ class HomeData {
       absentDiag: absentDiag,
       recoveryState: recoveryState,
       readinessUpdate: (head['recovery_update'] as Map?)?.cast<String, dynamic>(),
-      drivers: [
-        for (final e in (gbDrivers is List ? gbDrivers : const []))
-          if (e is Map) e.cast<String, dynamic>(),
-      ],
       strain: metricOf(d('strain')),
       sleepMin: sleepMin,
       sleepStages: stages,

@@ -1549,58 +1549,11 @@
   "homeSleepNoEstimate": "Sin estimación",
   "homeSleepNoEstimateWhy": "Aún no hay una noche puntuada y no hay alarma ni hora habitual de despertar para estimar.",
   "homeWhyRecoveryTitle": "La recuperación es baja",
-  "homeWhyRecoveryDrivers": "Mayor lastre: {a} {za}, {b} {zb} (desviaciones respecto a tu referencia).",
-  "@homeWhyRecoveryDrivers": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      },
-      "zb": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryDriver": "Mayor lastre: {a} {za} (desviaciones respecto a tu referencia).",
-  "@homeWhyRecoveryDriver": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      }
-    }
-  },
   "homeWhyRecoveryPlain": "Recuperación {score} de 100",
   "@homeWhyRecoveryPlain": {
     "placeholders": {
       "score": {
         "type": "int"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingTwo": "Lo reduce: {a}, {b}.",
-  "@homeWhyRecoveryPullingTwo": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingOne": "Lo reduce: {a}.",
-  "@homeWhyRecoveryPullingOne": {
-    "placeholders": {
-      "a": {
-        "type": "String"
       }
     }
   },

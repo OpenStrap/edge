@@ -1549,58 +1549,11 @@
   "homeSleepNoEstimate": "暂无估算",
   "homeSleepNoEstimateWhy": "尚无已评分的夜晚，也没有闹钟或常规起床时间可供估算。",
   "homeWhyRecoveryTitle": "恢复状态偏低",
-  "homeWhyRecoveryDrivers": "拖累最大：{a} {za}、{b} {zb}（与你的基线的偏差）。",
-  "@homeWhyRecoveryDrivers": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      },
-      "zb": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryDriver": "拖累最大：{a} {za}（与你的基线的偏差）。",
-  "@homeWhyRecoveryDriver": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      }
-    }
-  },
   "homeWhyRecoveryPlain": "恢复 {score}/100",
   "@homeWhyRecoveryPlain": {
     "placeholders": {
       "score": {
         "type": "int"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingTwo": "拉低恢复评分的因素：{a}、{b}。",
-  "@homeWhyRecoveryPullingTwo": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingOne": "拉低恢复评分的因素：{a}。",
-  "@homeWhyRecoveryPullingOne": {
-    "placeholders": {
-      "a": {
-        "type": "String"
       }
     }
   },

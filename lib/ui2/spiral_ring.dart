@@ -170,8 +170,10 @@ void paintSpiral(Canvas canvas, Size size,
   // PRE-BLENDED against [background] and everything is drawn fully opaque, so
   // bands and cap discs overlap without compositing twice (a double-alpha
   // patch) and without any subtraction (which cracked the join and removed the
-  // 100% end cap). With no [background] the translucent colour is used as is,
-  // and a cap overlap shows a slightly denser patch: callers should pass it.
+  // 100% end cap). With no [background] the translucent colour is used as is;
+  // everything is drawn into one layer with BlendMode.src, so an overlap
+  // replaces what is under it instead of compositing a second time (callers
+  // that pass no background keep their look, with no denser patch at the caps).
   Color colourAt(SpiralPiece p, double s) {
     final c = colors[p.seg];
     if (solid) return c;
@@ -181,10 +183,12 @@ void paintSpiral(Canvas canvas, Size size,
   }
 
   final sepColour = background ?? track;
+  final once = background == null;
+  final outer = Rect.fromCircle(center: center, radius: r0 + half);
   canvas.save();
   // The outer edge never leaves the lap-0 circle.
-  canvas.clipPath(
-      Path()..addOval(Rect.fromCircle(center: center, radius: r0 + half)));
+  canvas.clipPath(Path()..addOval(outer));
+  if (once) canvas.saveLayer(outer.inflate(1), Paint());
 
   final laps = <int, List<SpiralPiece>>{};
   for (final p in pieces) {
@@ -199,7 +203,11 @@ void paintSpiral(Canvas canvas, Size size,
     }
   }
   void disc(SpiralPiece p, double s) => canvas.drawCircle(
-      pt(s, geometry.radiusAt(s, r0)), half, Paint()..color = colourAt(p, s));
+      pt(s, geometry.radiusAt(s, r0)),
+      half,
+      Paint()
+        ..color = colourAt(p, s)
+        ..blendMode = once ? BlendMode.src : BlendMode.srcOver);
 
   for (final lap in laps.keys.toList()..sort()) {
     final group = laps[lap]!; // already last segment first
@@ -208,7 +216,9 @@ void paintSpiral(Canvas canvas, Size size,
     for (final p in group) {
       // A lap cut overlaps the next lap's start slightly: no hairline seam.
       final to = p.capEnd ? p.to : p.to + .003;
-      final paint = Paint()..style = PaintingStyle.fill;
+      final paint = Paint()
+        ..style = PaintingStyle.fill
+        ..blendMode = once ? BlendMode.src : BlendMode.srcOver;
       final ua = p.from - p.lap, ub = p.to - p.lap;
       if (solid || ub - ua < 1e-6) {
         paint.color = colourAt(p, (p.from + p.to) / 2);
@@ -255,6 +265,7 @@ void paintSpiral(Canvas canvas, Size size,
       if (p.capStart && !late) disc(p, p.from);
     }
   }
+  if (once) canvas.restore();
   canvas.restore();
 }
 

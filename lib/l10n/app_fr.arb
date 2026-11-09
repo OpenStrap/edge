@@ -1549,58 +1549,11 @@
   "homeSleepNoEstimate": "Pas d'estimation",
   "homeSleepNoEstimateWhy": "Aucune nuit n'est encore évaluée, et il n'y a ni alarme ni heure de réveil habituelle pour estimer.",
   "homeWhyRecoveryTitle": "Récupération faible",
-  "homeWhyRecoveryDrivers": "Principal frein : {a} {za}, {b} {zb} (écarts par rapport à votre référence).",
-  "@homeWhyRecoveryDrivers": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      },
-      "zb": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryDriver": "Principal frein : {a} {za} (écarts par rapport à votre référence).",
-  "@homeWhyRecoveryDriver": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      }
-    }
-  },
   "homeWhyRecoveryPlain": "Récupération {score} sur 100",
   "@homeWhyRecoveryPlain": {
     "placeholders": {
       "score": {
         "type": "int"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingTwo": "Ce qui la tire vers le bas : {a}, {b}.",
-  "@homeWhyRecoveryPullingTwo": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingOne": "Ce qui la tire vers le bas : {a}.",
-  "@homeWhyRecoveryPullingOne": {
-    "placeholders": {
-      "a": {
-        "type": "String"
       }
     }
   },

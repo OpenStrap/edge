@@ -170,4 +170,22 @@ void main() {
       expect(_at(d, 200, 14 / (2 * pi * 90), 90)[0], greaterThan(60));
     });
   });
+
+  // Callers that pass no `background` (Readiness, Coach figures, Live, the
+  // gallery) get a translucent fade. Bands and caps must still composite ONCE:
+  // an overlap may not be denser than the band beside it.
+  testWidgets('gradient ring with NO background at 66%: cap overlaps are as '
+      'translucent as the band beside them', (tester) async {
+    await tester.runAsync(() async {
+      final d = await _raster(Ring(.66, _green, _none, stroke: 20), 200);
+      int alpha(double u, double r) => _at(d, 200, u, r)[3];
+      final band = alpha(.05, 90);
+      expect(band, inInclusiveRange(120, 200),
+          reason: 'the 55%+ fade is translucent, not opaque');
+      expect((alpha(.008, 90) - band).abs(), lessThan(24),
+          reason: 'start cap over the band: ${alpha(.008, 90)} vs $band');
+      expect((alpha(.655, 90) - alpha(.6, 90)).abs(), lessThan(24),
+          reason: 'end cap over the band: ${alpha(.655, 90)} vs ${alpha(.6, 90)}');
+    });
+  });
 }

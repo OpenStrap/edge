@@ -13,8 +13,8 @@
 // Pressing means: recovery under 37 (severity 3 under 26, 2 for 26-36), sleep
 // under 85% of need (3 under 70%), strain above the top of today's target. A
 // ring with no value, a provisional or in-progress recovery is NEVER pressing
-// (never fabricate). The why copy states evidence or nothing: the biggest
-// drags by weighted contribution, a number only when a real z is in the driver.
+// (never fabricate). The recovery why copy is the plain score: no driver list
+// belongs to the composite ring, so none is blamed.
 //
 // Ported/adapted from the fork's ui2_home_card_test, ui2_home_card_fix_test,
 // ui2_home_card_r3_test, ui2_home_update_note_test and home_help_strip_why_test.
@@ -61,7 +61,6 @@ HomeData _data({
   num need = 480,
   num? strain = 5.0,
   Map<String, dynamic>? target,
-  List<Map<String, dynamic>> drivers = const [],
   String? recoveryState,
   Map<String, dynamic>? update,
 }) =>
@@ -73,7 +72,6 @@ HomeData _data({
       sleepNeedMin: _m(need),
       strain: strain == null ? Metric.empty : _m(strain),
       strainTarget: target,
-      drivers: drivers,
       readinessUpdate: update,
     );
 
@@ -151,8 +149,10 @@ const _drag = 'dragging your score down';
 const _lift = 'lifting your score';
 
 class _Repo extends LocalRepository {
-  _Repo(this.drivers);
+  _Repo(this.drivers, {this.score = 22.0, this.rollupDay});
   final List<Map<String, dynamic>> drivers;
+  final double score;
+  final String? rollupDay;
   @override
   Future<Map<String, dynamic>> getToday() async => {
         'daily': {
@@ -162,8 +162,9 @@ class _Repo extends LocalRepository {
       };
   @override
   Future<Map<String, dynamic>> getInsights() async => {
+        'rollup_day': rollupDay,
         'readiness_glassbox': {
-          'score': 22.0,
+          'score': score,
           'breakdown': const [],
           'drivers': drivers,
           'narrative': '',
@@ -236,15 +237,9 @@ void main() {
 
   // ── 1. the why panels ─────────────────────────────────────────────────────
   group('why panels', () {
-    testWidgets('WHY: the loose "Why?" footer is gone, drivers or not',
+    testWidgets('WHY: the loose "Why?" footer is gone, on any day',
         (t) async {
-      await _rings(
-          t,
-          _data(drivers: const [
-            {'label': 'hrv'},
-            {'label': 'rhr'},
-            {'label': 'resp'},
-          ]));
+      await _rings(t, _data());
       expect(find.textContaining('Why?'), findsNothing);
       expect(find.byIcon(LucideIcons.info), findsNothing);
     });
@@ -318,15 +313,13 @@ void main() {
         'WHY (a11y): a panel is ONE tappable node that says its ring, title '
         'and reason, and is at least 48 dp tall', (t) async {
       final h = t.ensureSemantics();
-      await _rings(t, _data(recovery: 10, drivers: [
-        _z('hrv', -6.0, -2.0),
-      ]), onOpen: (_) {});
+      await _rings(t, _data(recovery: 10), onOpen: (_) {});
       expect(_why('recovery'), findsOneWidget);
       final node = t.getSemantics(_why('recovery'));
       final data = node.getSemanticsData();
       expect(data.hasAction(SemanticsAction.tap), isTrue);
       expect(data.label, contains('Recovery is low'));
-      expect(data.label, contains('HRV'));
+      expect(data.label, contains('Recovery 10 of 100'));
       // Context, not just the reason: which ring this is about.
       expect(data.label.toLowerCase(), contains('recovery'));
       expect(t.getSize(_why('recovery')).height, greaterThanOrEqualTo(48));
@@ -336,68 +329,41 @@ void main() {
     });
   });
 
-  // ── 2. recovery copy: evidence or nothing ─────────────────────────────────
+  // ── 2. recovery copy: evidence of THIS ring, or the plain score ───────────
   group('recovery why copy', () {
-    testWidgets('WHY: ranked by weighted contribution, with the real z',
-        (t) async {
-      await _rings(
-          t,
-          _data(recovery: 22, drivers: [
-            _z('temp', -1.0, -3.0),
-            _z('hrv', -6.0, -2.0),
-            _z('rhr', -3.0, -1.0),
-          ]));
-      // HRV z=-2 (the biggest drag) outranks temp z=-3 (a smaller drag).
-      expect(_txt(t, _body('recovery')),
-          'Biggest drag: HRV -2.0, Resting heart rate -1.0 (how far each sits from your usual).');
-    });
-
-    testWidgets('WHY: without a numeric z the same order holds, no number',
-        (t) async {
-      await _rings(
-          t,
-          _data(recovery: 22, drivers: [
-            _drv('temp', -1.0, _drag),
-            _drv('hrv', -6.0, _drag),
-            _drv('rhr', -3.0, _drag),
-          ]));
-      expect(_txt(t, _body('recovery')),
-          'Pulling it down: HRV, Resting heart rate.');
-    });
-
-    testWidgets('WHY: one drag names just that one', (t) async {
-      await _rings(
-          t,
-          _data(recovery: 22, drivers: [
-            _drv('rhr', -3.1, _drag),
-            _drv('hrv', 2.0, _lift),
-          ]));
-      expect(_txt(t, _body('recovery')),
-          'Pulling it down: Resting heart rate.');
-    });
-
-    testWidgets(
-        'WHY: only lifts, or no drivers, say the plain score and claim '
-        'nothing about "usual"', (t) async {
-      await _rings(t, _data(recovery: 22, drivers: [_drv('hrv', 2.0, _lift)]));
-      expect(_txt(t, _body('recovery')), 'Recovery 22 of 100');
+    testWidgets('WHY: the plain score, with no driver claims', (t) async {
       await _rings(t, _data(recovery: 22));
       expect(_txt(t, _body('recovery')), 'Recovery 22 of 100');
       expect(find.textContaining('usual'), findsNothing);
     });
 
     testWidgets(
-        'WHY: on the shape HomeData.load really reads (readiness_glassbox '
-        'drivers) the copy names the drags by label', (t) async {
+        'WHY: readiness_glassbox drivers belong to the percentile score, not '
+        'to the composite ring: a divergent percentile is never blamed',
+        (t) async {
+      // The ring shows the composite (22). The rollup's percentile score says
+      // 80 and its drivers drag: a different calculation, so no attribution.
       final d = await t.runAsync(() => HomeData.load(_Repo([
             _drv('hrv', -6.2, _drag),
             _drv('rhr', 3.1, _lift),
             _drv('temp', -1.4, _drag),
-          ])));
-      expect(d!.drivers, hasLength(3), reason: 'the loader passed them through');
-      await _rings(t, d);
-      expect(_txt(t, _body('recovery')),
-          'Pulling it down: HRV, Skin temperature.');
+          ], score: 80.0)));
+      await _rings(t, d!);
+      expect(_txt(t, _body('recovery')), 'Recovery 22 of 100');
+      expect(find.textContaining('Pulling it down'), findsNothing);
+      expect(find.textContaining('Biggest drag'), findsNothing);
+    });
+
+    testWidgets(
+        'WHY: a usable rollup up to 7 days old is not evidence for today\'s '
+        'ring', (t) async {
+      final d = await t.runAsync(() => HomeData.load(_Repo([
+            _z('hrv', -6.0, -2.0),
+            _z('rhr', -3.0, -1.0),
+          ], rollupDay: '2026-09-29')));
+      await _rings(t, d!);
+      expect(_txt(t, _body('recovery')), 'Recovery 22 of 100');
+      expect(find.textContaining('Biggest drag'), findsNothing);
     });
   });
 

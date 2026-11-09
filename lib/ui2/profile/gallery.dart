@@ -90,11 +90,6 @@ const _tooShort = <double?>[50, 51, 50];
 const _ringsMeasured = HomeData(
   dayId: '2026-08-16',
   readiness: Metric(value: 72, confidence: .8, tier: MetricTier.high),
-  drivers: [
-    {'label': 'hrv'},
-    {'label': 'rhr'},
-    {'label': 'resp'},
-  ],
   strain: Metric(value: 14.2, confidence: .6, tier: MetricTier.estimate),
   sleepMin: Metric(
       value: 465, unit: 'min', confidence: .8, tier: MetricTier.estimate),

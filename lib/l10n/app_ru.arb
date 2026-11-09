@@ -3503,58 +3503,11 @@
   "homeSleepNoEstimate": "Нет оценки",
   "homeSleepNoEstimateWhy": "Сон ещё не оценён, и нет будильника или обычного времени подъёма для оценки.",
   "homeWhyRecoveryTitle": "Низкое восстановление",
-  "homeWhyRecoveryDrivers": "Сильнее всего тянут вниз: {a} {za}, {b} {zb} (отклонения от вашей нормы).",
-  "@homeWhyRecoveryDrivers": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      },
-      "zb": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryDriver": "Сильнее всего тянет вниз: {a} {za} (отклонения от вашей нормы).",
-  "@homeWhyRecoveryDriver": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      }
-    }
-  },
   "homeWhyRecoveryPlain": "Восстановление {score} из 100",
   "@homeWhyRecoveryPlain": {
     "placeholders": {
       "score": {
         "type": "int"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingTwo": "Снижают показатель: {a}, {b}.",
-  "@homeWhyRecoveryPullingTwo": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingOne": "Снижает показатель: {a}.",
-  "@homeWhyRecoveryPullingOne": {
-    "placeholders": {
-      "a": {
-        "type": "String"
       }
     }
   },

@@ -1596,58 +1596,11 @@
   "homeSleepNoEstimate": "Keine Schätzung",
   "homeSleepNoEstimateWhy": "Noch keine Nacht gewertet, und es gibt weder Wecker noch übliche Aufwachzeit, um zu schätzen.",
   "homeWhyRecoveryTitle": "Erholung ist niedrig",
-  "homeWhyRecoveryDrivers": "Größte Bremse: {a} {za}, {b} {zb} (Streuungen von deiner Basislinie).",
-  "@homeWhyRecoveryDrivers": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      },
-      "zb": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryDriver": "Größte Bremse: {a} {za} (Streuungen von deiner Basislinie).",
-  "@homeWhyRecoveryDriver": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      }
-    }
-  },
   "homeWhyRecoveryPlain": "Erholung {score} von 100",
   "@homeWhyRecoveryPlain": {
     "placeholders": {
       "score": {
         "type": "int"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingTwo": "Zieht ihn nach unten: {a}, {b}.",
-  "@homeWhyRecoveryPullingTwo": {
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingOne": "Zieht ihn nach unten: {a}.",
-  "@homeWhyRecoveryPullingOne": {
-    "placeholders": {
-      "a": {
-        "type": "String"
       }
     }
   },

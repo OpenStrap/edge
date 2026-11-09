@@ -7513,63 +7513,12 @@
   "@homeWhyRecoveryTitle": {
     "description": "Title of the Home card row that explains a low recovery score."
   },
-  "homeWhyRecoveryDrivers": "Biggest drag: {a} {za}, {b} {zb} (how far each sits from your usual).",
-  "@homeWhyRecoveryDrivers": {
-    "description": "Body of the low-recovery row naming the two biggest drags with their distance from the person's own usual (z-scores).",
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      },
-      "zb": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryDriver": "Biggest drag: {a} {za} (how far each sits from your usual).",
-  "@homeWhyRecoveryDriver": {
-    "description": "Body of the low-recovery row naming the one biggest drag with its distance from the person's own usual (z-score).",
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      }
-    }
-  },
   "homeWhyRecoveryPlain": "Recovery {score} of 100",
   "@homeWhyRecoveryPlain": {
     "description": "Body of the low-recovery row when no input is known to drag the score: just the score out of 100.",
     "placeholders": {
       "score": {
         "type": "int"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingTwo": "Pulling it down: {a}, {b}.",
-  "@homeWhyRecoveryPullingTwo": {
-    "description": "Body of the low-recovery row naming the two inputs pulling the score down, without numbers.",
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingOne": "Pulling it down: {a}.",
-  "@homeWhyRecoveryPullingOne": {
-    "description": "Body of the low-recovery row naming the one input pulling the score down, without numbers.",
-    "placeholders": {
-      "a": {
-        "type": "String"
       }
     }
   },

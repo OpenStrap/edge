@@ -7501,63 +7501,12 @@
   "@homeWhyRecoveryTitle": {
     "description": "Title of the Home card row that explains a low recovery score."
   },
-  "homeWhyRecoveryDrivers": "ตัวฉุดหลัก: {a} {za}, {b} {zb} (แต่ละค่าห่างจากค่าปกติของคุณเท่าไร)",
-  "@homeWhyRecoveryDrivers": {
-    "description": "Body of the low-recovery row naming the two biggest drags with their distance from the person's own usual (z-scores).",
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      },
-      "zb": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryDriver": "ตัวฉุดหลัก: {a} {za} (ห่างจากค่าปกติของคุณเท่าไร)",
-  "@homeWhyRecoveryDriver": {
-    "description": "Body of the low-recovery row naming the one biggest drag with its distance from the person's own usual (z-score).",
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "za": {
-        "type": "String"
-      }
-    }
-  },
   "homeWhyRecoveryPlain": "การฟื้นตัว {score} จาก 100",
   "@homeWhyRecoveryPlain": {
     "description": "Body of the low-recovery row when no input is known to drag the score: just the score out of 100.",
     "placeholders": {
       "score": {
         "type": "int"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingTwo": "ที่ฉุดให้ต่ำลง: {a}, {b}",
-  "@homeWhyRecoveryPullingTwo": {
-    "description": "Body of the low-recovery row naming the two inputs pulling the score down, without numbers.",
-    "placeholders": {
-      "a": {
-        "type": "String"
-      },
-      "b": {
-        "type": "String"
-      }
-    }
-  },
-  "homeWhyRecoveryPullingOne": "ที่ฉุดให้ต่ำลง: {a}",
-  "@homeWhyRecoveryPullingOne": {
-    "description": "Body of the low-recovery row naming the one input pulling the score down, without numbers.",
-    "placeholders": {
-      "a": {
-        "type": "String"
       }
     }
   },
