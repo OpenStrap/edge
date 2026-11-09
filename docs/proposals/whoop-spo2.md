@@ -167,6 +167,29 @@ the confidence level stated.
    because accurate live samples alone cannot detect wrong window selection or
    weighting. Plus: byte-82 encoding pin-down, UUID discrepancy resolution.
 
+## Publication path after the gate (explicit)
+
+The gate and the publication path are separate concerns; both are specified
+here so the gate is evaluable without shipping a display:
+
+- **Validation-only read is allowed BEFORE the gate passes.** Evaluating the
+  gate requires the actual nightly output, so the same nightly aggregation
+  intended for publication is computed and compared against the reference —
+  internally only. User-facing output stays withheld until the gate passes;
+  `Sample.spo2CandidateRaw` remains unread by the UI in the meantime.
+- **Payload changes (edge `payloads.dart`):** `Spo2Data` currently has no
+  percentage accessor and `TodayData.spo2` returns null while `odi_per_hour`
+  is null. Publication therefore adds: a `spo2Pct` field on `Spo2Data`, a
+  `double? get spo2Pct` accessor, and a getter condition on `TodayData.spo2`
+  that accepts the payload once validation has passed (flagged by the
+  validation record, not by the mere presence of a byte).
+- **UI integration:** publishing through `Spo2Data` alone does NOT display
+  anything — the chart reads `metric_series` and the Explore row stays hidden
+  without stored `spo2` history. The integration step therefore writes the
+  validated nightly value into the existing `spo2` series with
+  band-derived provenance, reusing the #472 import row's provenance axis —
+  NO second `spo2` row, no second chart key.
+
 ## Out of scope
 
 - Any medical claim or diagnosis (terms.html: wellness only, not a medical
