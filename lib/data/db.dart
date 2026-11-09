@@ -14836,7 +14836,7 @@ class LocalDb {
       "SELECT lower(replace(type, ' ', '_')) AS type, COUNT(*) AS n, "
       'MAX(start_ts) AS last_ts FROM sessions '
       'WHERE $where GROUP BY lower(replace(type, \' \', \'_\')) '
-      'ORDER BY n DESC, last_ts DESC LIMIT ?',
+      'ORDER BY n DESC, last_ts DESC, type ASC LIMIT ?',
       args,
     );
   }

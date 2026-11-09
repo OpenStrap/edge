@@ -88,6 +88,14 @@ void main() {
         reason: 'the 200-day-old run is outside the window');
   });
 
+  test('a full tie (count and last_ts) falls back to the key alphabetically',
+      () async {
+    await _session('a1', 'yoga', _t0 - 10 * 86400);
+    await _session('b1', 'cycling', _t0 - 10 * 86400);
+    final rows = await LocalDb.mostUsedActivityTypes();
+    expect([for (final r in rows) r['type']], ['cycling', 'yoga']);
+  });
+
   test('imported sources and future-dated rows never count', () async {
     await _session('a1', 'running', _t0 - 10 * 86400);
     await _session('i1', 'cycling', _t0 - 9 * 86400, source: 'scored_import');
