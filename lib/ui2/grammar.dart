@@ -331,7 +331,8 @@ class ChartPanel extends StatelessWidget {
   final List<String> timeSpan;
 
   /// Opens the shown day; null on a day with no value, and then the panel
-  /// offers nothing to press.
+  /// offers nothing to press and draws no chevron. When it is set the panel
+  /// ends its value line in a chevron.
   final VoidCallback? onOpen;
   final String? openLabel;
 
@@ -396,10 +397,15 @@ class ChartPanel extends StatelessWidget {
             child: ExcludeSemantics(child: _caption(c, p)),
           ),
           const SizedBox(height: S.x1),
-          _equal(c, [
-            for (final x in cells)
-              ExcludeSemantics(child: _cell(c, p, x, big: big)),
-          ]),
+          _withOpenMark(
+            c,
+            p,
+            big: big,
+            child: _equal(c, [
+              for (final x in cells)
+                ExcludeSemantics(child: _cell(c, p, x, big: big)),
+            ]),
+          ),
           if (stats.isNotEmpty) ...[
             const SizedBox(height: S.x2),
             _equal(c, [
@@ -499,6 +505,52 @@ class ChartPanel extends StatelessWidget {
             key: captionKey, style: style),
       );
     });
+  }
+
+  /// The cells with a chevron at the trailing edge, centred on the value line,
+  /// when the day opens. A panel that offers to open ([openLabel]) keeps the
+  /// chevron's width on a day that cannot, so scrubbing onto a gap day never
+  /// rewraps a label or changes the height. The chevron is only a picture:
+  /// the panel already speaks `Open <day>`.
+  Widget _withOpenMark(BuildContext c, P p,
+      {required bool big, required Widget child}) {
+    if (onOpen == null && openLabel == null) return child;
+    const size = 18.0;
+    final tp = TextPainter(
+      text: TextSpan(
+          text: absent,
+          style: (big ? F.n34 : F.cap).copyWith(
+              fontWeight: big ? FontWeight.w700 : FontWeight.w600,
+              fontFeatures: const [FontFeature.tabularFigures()])),
+      textDirection: Directionality.of(c),
+      textScaler: MediaQuery.textScalerOf(c),
+    )..layout();
+    final line = tp.height;
+    tp.dispose();
+    final rtl = Directionality.of(c) == TextDirection.rtl;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(child: child),
+        const SizedBox(width: S.x2),
+        SizedBox(
+          width: size,
+          height: line,
+          child: onOpen == null
+              ? null
+              : OverflowBox(
+                  minHeight: size,
+                  maxHeight: size,
+                  child: ExcludeSemantics(
+                    child: Icon(
+                        rtl ? LucideIcons.chevronLeft : LucideIcons.chevronRight,
+                        size: size,
+                        color: p.ink3),
+                  ),
+                ),
+        ),
+      ],
+    );
   }
 
   /// Equal-width cells: one row when they fit, wrapped when they do not.

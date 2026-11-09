@@ -20,6 +20,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show SemanticsNode;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/state/clock_format.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
@@ -329,6 +330,106 @@ void main() {
           reason: 'an action button is a promise; an empty day has no screen');
       h.dispose();
     });
+
+    // A day that can be opened shows the same chevron the old pop-in row had.
+    final chevron = find.descendant(
+        of: find.byKey(_panelKey), matching: find.byIcon(LucideIcons.chevronRight));
+
+    testWidgets('a chevron shows when the day opens and not on a gap day, '
+        'and the panel keeps its size', (t) async {
+      await _openRhr(t);
+      final panel = find.byKey(_panelKey);
+      expect(chevron, findsOneWidget, reason: 'today opens, so a chevron');
+      final icon = t.widget<Icon>(chevron);
+      expect(icon.size, 18);
+      expect(icon.color, P.of(t.element(panel)).ink3);
+      final size = t.getSize(panel);
+      final cap = t.getRect(find.byKey(_captionKey));
+      await _scrubBack(t, _gapBack);
+      expect(chevron, findsNothing, reason: 'a gap day opens nothing');
+      expect(t.getSize(panel), size, reason: 'the chevron changed the height');
+      expect(t.getRect(find.byKey(_captionKey)), cap,
+          reason: 'the caption jumped');
+      await _scrubBack(t, _scrubbedBack);
+      expect(chevron, findsOneWidget);
+      expect(t.getSize(panel), size);
+    });
+
+    testWidgets('the chevron sits at the trailing edge, centred on the value '
+        'line, and is not spoken', (t) async {
+      final h = t.ensureSemantics();
+      await _openRhr(t);
+      final panel = t.getRect(find.byKey(_panelKey));
+      final c = t.getRect(chevron);
+      final value = t.getRect(find.byKey(_valueKey));
+      expect(c.right, lessThanOrEqualTo(panel.right));
+      expect(panel.right - c.right, lessThan(24),
+          reason: 'trailing edge of the panel');
+      expect((c.center.dy - value.center.dy).abs(), lessThan(1.5),
+          reason: 'centred on the value line');
+      expect(c.left, greaterThanOrEqualTo(value.right - 0.01),
+          reason: 'the chevron never sits on the value');
+      expect(_spoken(t).where((s) => s.toLowerCase().contains('chevron')),
+          isEmpty);
+      h.dispose();
+    });
+
+    testWidgets('the chevron fits on metric detail at text scale 1.3 without '
+        'overflow or a height change', (t) async {
+      await _openRhr(t, scale: 1.3);
+      final panel = find.byKey(_panelKey);
+      expect(chevron, findsOneWidget);
+      final size = t.getSize(panel);
+      expect(t.takeException(), isNull);
+      await _scrubBack(t, _gapBack);
+      expect(t.takeException(), isNull);
+      expect(chevron, findsNothing);
+      expect(t.getSize(panel), size);
+    });
+
+    // The metric-detail screen has its own overflow at 3.1x (the range chips),
+    // so the large-text case runs on the panel alone, narrow and wide.
+    for (final w in [320.0, 390.0]) {
+      testWidgets('the panel alone at text scale 3.1, width $w: the chevron '
+          'fits and opening or not leaves the size alone', (t) async {
+        _phone(t, w, 1800);
+        Widget panel({required bool open}) => _scaled(
+            3.1,
+            Scaffold(
+                body: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ChartPanel(
+                  time: 'Wednesday, 28 September',
+                  timeSpan: const ['Today', 'Wednesday, 28 September'],
+                  scrubbed: true,
+                  color: Colors.red,
+                  cells: [
+                    ChartPanelCell('Resting heart rate',
+                        color: Colors.red, value: open ? '52 bpm' : null),
+                  ],
+                  stats: const [
+                    ChartPanelCell('7-day avg', value: '54 bpm'),
+                    ChartPanelCell('vs avg', value: '−2 bpm'),
+                  ],
+                  onOpen: open ? () {} : null,
+                  openLabel: 'Open Wednesday',
+                ),
+              ),
+            )));
+        await t.pumpWidget(panel(open: true));
+        expect(t.takeException(), isNull);
+        expect(chevron, findsOneWidget);
+        final size = t.getSize(find.byKey(_panelKey));
+        final cap = t.getRect(find.byKey(_captionKey));
+        await t.pumpWidget(panel(open: false));
+        expect(t.takeException(), isNull);
+        expect(chevron, findsNothing);
+        expect(t.getSize(find.byKey(_panelKey)), size);
+        expect(t.getRect(find.byKey(_captionKey)), cap);
+      });
+    }
   });
 
   // ═══════════════ sleep: the hypnogram and the night's signals ═══════════════
