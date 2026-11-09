@@ -1181,8 +1181,6 @@
   "chartPanelSevenDayAvg": "7-Tage-Schnitt",
   "chartPanelVsAvg": "ggü. Schnitt",
   "metricDetailNoRecordLabel": "Kein Eintrag",
-  "chartAnnotationKindMoment": "Moment",
-  "chartAnnotationKindSymptom": "Symptom",
   "metricDetailLowest": "Niedrigster",
   "metricDetailTypical": "Typisch",
   "metricDetailHighest": "Höchster",

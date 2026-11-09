@@ -2512,8 +2512,6 @@
   "chartPanelSevenDayAvg": "Среднее за 7 дн.",
   "chartPanelVsAvg": "от среднего",
   "metricDetailNoRecordLabel": "Нет записи",
-  "chartAnnotationKindMoment": "Момент",
-  "chartAnnotationKindSymptom": "Симптом",
   "metricDetailLowest": "Наименьшее",
   "metricDetailTypical": "Обычное",
   "metricDetailHighest": "Наибольшее",

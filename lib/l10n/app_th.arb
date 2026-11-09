@@ -5673,8 +5673,6 @@
   "chartPanelSevenDayAvg": "ค่าเฉลี่ย 7 วัน",
   "chartPanelVsAvg": "เทียบค่าเฉลี่ย",
   "metricDetailNoRecordLabel": "ไม่มีข้อมูลบันทึก",
-  "chartAnnotationKindMoment": "ช่วงเวลา",
-  "chartAnnotationKindSymptom": "อาการ",
   "@metricDetailNoRecordLabel": {
     "description": "Value text shown in the touched-day row when that day has no record."
   },

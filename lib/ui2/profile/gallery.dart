@@ -971,54 +971,6 @@ Map<String, Widget> extraCases() => {
           ),
         );
       }),
-      // Icons and dashed lines over a plot, in a lane above it; the lane alone
-      // below, and every kind of icon.
-      'chart_annotations': Builder(builder: (c) {
-        final p = P.of(c);
-        const set = AnnotationSet(
-          domainStart: 0,
-          domainEnd: 6,
-          items: [
-            ChartAnnotation(
-                id: 'w', kind: AnnotationKind.workout, at: 1, label: 'Run'),
-            ChartAnnotation(
-                id: 'n',
-                kind: AnnotationKind.nap,
-                at: 3,
-                until: 4,
-                label: 'Nap'),
-            ChartAnnotation(
-                id: 'm', kind: AnnotationKind.moment, at: 5, label: 'Meal'),
-          ],
-        );
-        return Surface(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Wrap(spacing: S.x2, children: [
-              for (final k in AnnotationKind.values)
-                AnnotationIcon(kind: k, bold: k == AnnotationKind.workout),
-            ]),
-            const SizedBox(height: S.x3),
-            ChartFrame(
-              title: 'Resting heart rate',
-              unit: 'bpm',
-              height: 96,
-              annotations: set,
-              annotationCursor: .5,
-              child: CustomPaint(
-                size: Size.infinite,
-                painter: LineChart(
-                    const [54, 53, 55, 52, 53, 51, 52], p.on(C.red)),
-              ),
-            ),
-            const SizedBox(height: S.x3),
-            SizedBox(
-              height: ChartAnnotationLane.header + 40,
-              child: const ChartAnnotationLane(
-                  set: set, cursor: null, plotHeight: 40),
-            ),
-          ]),
-        );
-      }),
       'chart_ring': Builder(builder: (c) {
         final p = P.of(c);
         return Surface(

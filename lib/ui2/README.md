@@ -421,8 +421,7 @@ Five rules:
    nobody can read**: the footnote is the mark's only screen-reader form and
    the only thing that can say what it is. Keep the wording flat — a version
    change is provenance, not something that happened to the user. Multi-day
-   charts (metric detail) use `xMarks` and draw no annotation lane;
-   `algoBreakAnnotations` is the same mark for a chart that does have one.
+   charts (metric detail) use `xMarks`.
 4. **More than one colour means a `legend`.** Use the painters' own, never
    retyped: `Hypnogram.legend(p, l)`, `IntervalLadder.legend` (instance).
    The swatch is the mark's *solved* colour, so the key and the plot can never
@@ -443,22 +442,6 @@ themselves** rather than collide when the plot is too short for the requested
 tick count at the user's text scale — the axis min/max never change, so the
 curve keeps the scale that was pinned. At >1.3× text the unit moves under the
 title instead of truncating it.
-
-### Annotations — `chart_annotations.dart`
-
-`ChartFrame.annotations` (an `AnnotationSet`) draws an icon per mark in a lane
-above the plot, each with a dashed line down to it; a range shades in its
-kind's colour. Icons never overlap: close marks collapse to one icon with a
-"+n" that steps on tap. For a screen reader every icon is a button labelled
-"kind, label" (`annotationKindName` gives the localized kind; the caller's
-`label` is the rest), the "+n" button steps the cluster and names the members
-the icon does not show, and a mark too crowded for any icon is spoken by the
-lane. Dashed lines, shading and the static label are not spoken.
-
-Multi-day graphs (metric detail) draw no annotations: marks spread over weeks
-say little and can mislead, so metric detail has no lane and no toggle. Its
-algorithm-version breaks stay the dotted `xMarks` lines. The lane is for
-single-day graphs.
 
 ---
 

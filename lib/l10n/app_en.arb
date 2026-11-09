@@ -5684,14 +5684,6 @@
   "@chartPanelVsAvg": {
     "description": "Metric-detail panel stat: the shown value minus that 7-day average."
   },
-  "chartAnnotationKindMoment": "Moment",
-  "@chartAnnotationKindMoment": {
-    "description": "Screen-reader word for a marked moment on a chart: \"Moment, <its label>\"."
-  },
-  "chartAnnotationKindSymptom": "Symptom",
-  "@chartAnnotationKindSymptom": {
-    "description": "Screen-reader word for a symptom mark on a chart: \"Symptom, <its label>\"."
-  },
   "metricDetailNoRecordLabel": "No record",
   "@metricDetailNoRecordLabel": {
     "description": "Value text shown in the touched-day row when that day has no record."
