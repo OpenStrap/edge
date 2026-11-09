@@ -1428,6 +1428,7 @@
   "homeDriverRhr": "Frecuencia cardíaca en reposo",
   "homeDriverResp": "Frecuencia respiratoria",
   "homeDriverTemp": "Temperatura de la piel",
+  "homeCoachSetUpChip": "Configurar el entrenador",
   "homeDbRebuiltTitle": "Tu base de datos se reconstruyó",
   "homeDbRebuiltNothingRecovered": "No se pudo recuperar nada.",
   "homeDbRebuiltRecovered": "Recuperado: {list}.",

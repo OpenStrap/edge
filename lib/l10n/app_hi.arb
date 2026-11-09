@@ -1428,6 +1428,7 @@
   "homeDriverRhr": "आराम की हृदय गति",
   "homeDriverResp": "श्वसन दर",
   "homeDriverTemp": "त्वचा का तापमान",
+  "homeCoachSetUpChip": "कोच सेट अप करें",
   "homeDbRebuiltTitle": "आपका डेटाबेस दोबारा बनाया गया",
   "homeDbRebuiltNothingRecovered": "कुछ भी वापस नहीं पढ़ा जा सका।",
   "homeDbRebuiltRecovered": "पुनर्प्राप्त: {list}।",

@@ -144,10 +144,6 @@ void main() {
           if (ref is! String) continue; // reported by the English test
           expect(_placeholders(v), _placeholders(ref),
               reason: '$k placeholders in $name');
-          if (ref.contains('plural,')) {
-            expect(v, contains('plural,'),
-                reason: '$k keeps its ICU plural in $name');
-          }
           if (name != 'app_en.arb') {
             expect(v, isNot(ref), reason: '$k is still English in $name');
           }
@@ -157,21 +153,34 @@ void main() {
     }
 
     test(
-        'WHY: fr and hi classify 0 as "one", so a plural singular must show '
-        'the count, not a literal 1', () {
-      final pluralKeys = _newKeys
-          .where((k) => (en[k] as String?)?.contains('{cycles, plural') ?? false)
+        'WHY: in every locale the cycle strings print the real count for each '
+        'of its plural forms (0, 1, 2, 5, 11, 21, 100)', () {
+      String render(AppLocalizations l, String key, int n) => switch (key) {
+            'homeSleepOnTrack' => l.homeSleepOnTrack(n, '8h'),
+            'homeSleepOnTrackDefault' =>
+              l.homeSleepOnTrackDefault(n, '8h', '8h'),
+            'homeSleepEstimateCompact' => l.homeSleepEstimateCompact(n, '8h'),
+            'homeSleepEstimateDefaultCompact' =>
+              l.homeSleepEstimateDefaultCompact(n, '8h'),
+            'homeSleepEstimateDefaultTight' =>
+              l.homeSleepEstimateDefaultTight(n, '8h'),
+            'homeSleepEstimateDefaultMin' => l.homeSleepEstimateDefaultMin(n),
+            'homeSleepEstimateBare' => l.homeSleepEstimateBare(n),
+            _ => fail('no renderer for $key'),
+          };
+      final cycleKeys = _newKeys
+          .where((k) => (en[k] as String?)?.contains('{cycles') ?? false)
           .toList();
-      expect(pluralKeys, hasLength(7),
-          reason: 'English must define the seven cycle-plural keys first');
-      for (final lang in ['fr', 'hi']) {
-        final j = _arb(File('lib/l10n/app_$lang.arb'));
-        for (final k in pluralKeys) {
-          final v = j[k];
-          if (v is! String) fail('$k missing in $lang');
-          final one = RegExp(r'one\{((?:[^{}]|\{[^}]*\})*)\}').firstMatch(v)?.group(1) ?? '';
-          expect(one, contains('{cycles}'),
-              reason: '$k ($lang) one-branch hard-codes the count: "$one"');
+      expect(cycleKeys, hasLength(7),
+          reason: 'English must define the seven cycle keys first');
+      for (final loc in AppLocalizations.supportedLocales) {
+        final l = lookupAppLocalizations(loc);
+        for (final k in cycleKeys) {
+          for (final n in [0, 1, 2, 5, 11, 21, 100]) {
+            final out = render(l, k, n);
+            expect(RegExp('(?<!\\d)$n(?!\\d)').hasMatch(out), isTrue,
+                reason: '$k ($loc) for $n printed "$out"');
+          }
         }
       }
     });
@@ -271,7 +280,8 @@ void main() {
       for (final f in files) {
         final j = _arb(f);
         for (final k in _plainerKeys) {
-          if (j[k] is! String) continue; // a locale may lag; parity above
+          expect(j[k], isA<String>(),
+              reason: '$k is missing in ${f.uri.pathSegments.last}');
           expect(_placeholders(j[k] as String), _placeholders(en[k] as String),
               reason: '$k in ${f.uri.pathSegments.last}');
         }

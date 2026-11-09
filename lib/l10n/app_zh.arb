@@ -1428,6 +1428,7 @@
   "homeDriverRhr": "静息心率",
   "homeDriverResp": "呼吸频率",
   "homeDriverTemp": "皮肤温度",
+  "homeCoachSetUpChip": "设置教练",
   "homeDbRebuiltTitle": "你的数据库已重建",
   "homeDbRebuiltNothingRecovered": "没有任何数据可以恢复。",
   "homeDbRebuiltRecovered": "已恢复：{list}。",
@@ -1490,9 +1491,9 @@
       }
     }
   },
-  "homeSleepOnTrack": "有望达到 {cycles, plural, other{{cycles} 个周期}}，{duration}",
-  "homeSleepOnTrackDefault": "有望达到 {cycles, plural, other{{cycles} 个周期}}，{duration} · 目标 {target}（默认）",
-  "homeSleepEstimateCompact": "~{cycles, plural, other{{cycles} 个周期}} · {duration}",
+  "homeSleepOnTrack": "有望达到 {cycles} 个周期，{duration}",
+  "homeSleepOnTrackDefault": "有望达到 {cycles} 个周期，{duration} · 目标 {target}（默认）",
+  "homeSleepEstimateCompact": "~{cycles} 个周期 · {duration}",
   "@homeSleepEstimateCompact": {
     "description": "Short sleep estimate: \"~\" marks it as an estimate; keeps cycle count and duration.",
     "placeholders": {
@@ -1504,7 +1505,7 @@
       }
     }
   },
-  "homeSleepEstimateDefaultCompact": "~{cycles, plural, other{{cycles} 个周期}} · {duration} · 默认目标",
+  "homeSleepEstimateDefaultCompact": "~{cycles} 个周期 · {duration} · 默认目标",
   "@homeSleepEstimateDefaultCompact": {
     "description": "Short sleep estimate keeping the \"~\" estimate marker and an explicit default-target qualifier.",
     "placeholders": {
@@ -1516,7 +1517,7 @@
       }
     }
   },
-  "homeSleepEstimateDefaultTight": "~{cycles, plural, other{{cycles} 个周期}} · {duration} · 默认目标",
+  "homeSleepEstimateDefaultTight": "~{cycles} 个周期 · {duration} · 默认目标",
   "@homeSleepEstimateDefaultTight": {
     "description": "Tightest sleep estimate caption: keeps the estimate marker, cycles, duration and the default-target qualifier.",
     "placeholders": {
@@ -1528,7 +1529,7 @@
       }
     }
   },
-  "homeSleepEstimateDefaultMin": "~{cycles, plural, other{{cycles} 个周期}} · 默认目标",
+  "homeSleepEstimateDefaultMin": "~{cycles} 个周期 · 默认目标",
   "@homeSleepEstimateDefaultMin": {
     "description": "Smallest default-target estimate caption: drops the duration, keeps the estimate marker, cycles and the default goal.",
     "placeholders": {
@@ -1537,7 +1538,7 @@
       }
     }
   },
-  "homeSleepEstimateBare": "~{cycles, plural, other{{cycles} 个周期}}",
+  "homeSleepEstimateBare": "~{cycles} 个周期",
   "@homeSleepEstimateBare": {
     "description": "Smallest estimate caption: the estimate marker and the cycle count.",
     "placeholders": {
