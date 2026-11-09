@@ -85,6 +85,13 @@ the confidence level stated.
 - All sources agree the raw ADC channels cannot yield SpO2; any PR deriving %
   from red/IR on 4.0 contradicts our own verified findings and should be
   rejected.
+- Relation to merged PR #472: its import surface already owns the `spo2`
+  MetricSpec (suppressed row, vendor-import provenance, not charted). Live
+  band-derived SpO2 must NOT create a second `spo2` row or chart key —
+  provenance (vendor import vs band-derived) stays separate. Our raw capture
+  (`Sample.spo2CandidateRaw`) is deliberately unread until the gate passes;
+  the single publication path afterwards is `Spo2Data` in
+  `lib/models/payloads.dart`.
 
 ## Staged plan (proposed)
 
@@ -106,6 +113,9 @@ the confidence level stated.
    `OpenStrap/analytics` (a metric, not signal wiring — AGENTS.md assigns
    metrics there), labeled as a device estimate, same labeling discipline as
    `vendor_staged`.
+   - After the gate passes: feed `Sample.spo2CandidateRaw` into `Spo2Data`
+     (`lib/models/payloads.dart`) as the single publication path — no separate
+     display path, no second `spo2` metric row (see #472 note above).
    - NO user-facing display on either generation until the validation
      workstream lands: gen5 byte 82 stays raw until its encoding (bit-7 flag)
      is pinned and validated against a reference device; gen4 byte 5 stays
