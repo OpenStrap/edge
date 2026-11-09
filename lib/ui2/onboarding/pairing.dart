@@ -21,6 +21,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/prefs.dart';
 import '../ui2.dart';
+import '../pairing/whoop_firmware_warning.dart';
 
 /// Onboarding steps the user deliberately walked past.
 ///
@@ -202,6 +203,8 @@ class PairingView extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(S.x4, S.x8, S.x4, S.x8),
           children: [
+            const WhoopFirmwareWarning(),
+            const SizedBox(height: S.x5),
             Icon(
                 blocked == null
                     ? LucideIcons.bluetooth
