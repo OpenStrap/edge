@@ -163,7 +163,9 @@ class Sample {
   /// Not persisted (no column); in-memory diagnostic only, never logged
   /// (FileLog is external storage — CWE-532). After the validation gate in
   /// docs/proposals/whoop-spo2.md passes, this byte is the raw input that
-  /// feeds `Spo2Data` — the single publication path.
+  /// feeds `Spo2Data` — the single publication path. The validation gate this
+  /// refers to lives in docs/proposals/whoop-spo2.md, added by PR #17
+  /// (upstream OpenStrap/edge#675) — not part of this branch.
   final int? spo2CandidateRaw;
 
   Sample({
