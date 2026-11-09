@@ -1428,15 +1428,15 @@
   "homeDriverRhr": "आराम की हृदय गति",
   "homeDriverResp": "श्वसन दर",
   "homeDriverTemp": "त्वचा का तापमान",
-  "homeDbRebuiltTitle": "ऐप शुरू करने के लिए आपका डेटाबेस फिर से बनाया गया",
+  "homeDbRebuiltTitle": "आपका डेटाबेस दोबारा बनाया गया",
   "homeDbRebuiltNothingRecovered": "कुछ भी वापस नहीं पढ़ा जा सका।",
   "homeDbRebuiltRecovered": "पुनर्प्राप्त: {list}।",
   "homeDbRebuiltEmpty": "खाली: {list}।",
   "homeDbRebuiltKept": "मूल फ़ाइल {path} पर सुरक्षित रखी गई है — कुछ भी हटाया नहीं गया।",
   "homeWorkoutHoldTitle": "एक वर्कआउट अभी भी चल रहा है",
-  "homeWorkoutHoldBody": "वर्कआउट चलते समय आज का दिन रुका हुआ है: स्ट्रैप रिकॉर्ड करना जारी रखता है, लेकिन आंकड़े सेशन खत्म होने पर ही गणना होते हैं। नीचे दिए गए बार से वर्कआउट पूरा करें, तभी आज का डेटा भरेगा — केवल सिंक करने से नहीं होगा।",
-  "homeInsightsRebuildingTitle": "आपकी क्रॉस-डे इनसाइट्स फिर से बनाई जा रही हैं",
-  "homeInsightsRebuildingAlgoVersion": "इसकी गणना का तरीका पिछले अपडेट के साथ बदल गया है।",
+  "homeWorkoutHoldBody": "वर्कआउट खत्म करने पर आज का दिन भर जाएगा।",
+  "homeInsightsRebuildingTitle": "आपके ट्रेंड अपडेट हो रहे हैं",
+  "homeInsightsRebuildingAlgoVersion": "ऐप के ताज़ा अपडेट के बाद अपडेट हो रहा है।",
   "homeInsightsStaleOverWeek": "आखिरी रोलअप एक हफ़्ते से भी पहले बना था, जो भरोसा करने के लिए बहुत पुराना है।",
   "homeInsightsStaleOnDay": "आखिरी रोलअप {day} को बना था, जो भरोसा करने के लिए बहुत पुराना है।",
   "homeInsightsNoVersionStamp": "सहेजे गए रोलअप पर कोई वर्शन स्टैंप नहीं है।",
@@ -1445,13 +1445,193 @@
   "homeCalibrating": "कैलिब्रेट हो रहा है",
   "homeCalibratingNights": "{need} में से {have} रातें",
   "homeCalibratingDays": "{need} में से {have} दिन",
-  "homeGapNoReason": "यह क्यों गायब है, इसकी कोई वजह दर्ज नहीं है।",
+  "homeGapNoReason": "कोई रीडिंग नहीं।",
   "homeRingRecovery": "रिकवरी",
   "homeRingStrain": "स्ट्रेन",
   "homeRingSleep": "नींद",
   "homeRingNoStrain": "कोई स्ट्रेन नहीं",
   "homeRingNoSleep": "कोई नींद नहीं",
   "homeSleepGapFallback": "स्कोर करने लायक लंबी रात दर्ज नहीं हुई।",
+  "homeSleepPctOf": "{target} का {pct}%",
+  "homeSleepPctOfDefault": "{target} का {pct}% (डिफ़ॉल्ट)",
+  "homeSleepPctCompact": "{target} का {pct}%",
+  "@homeSleepPctCompact": {
+    "description": "Short sleep caption against a learned target.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultCompact": "{target} का {pct}% · डिफ़ॉल्ट लक्ष्य",
+  "@homeSleepPctDefaultCompact": {
+    "description": "Short sleep caption that keeps an explicit default-target qualifier.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultTight": "डिफ़ॉल्ट {target} का {pct}%",
+  "@homeSleepPctDefaultTight": {
+    "description": "Tightest sleep caption when the target is the default: still names the target as the default.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepOnTrack": "{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}} की राह पर, {duration}",
+  "homeSleepOnTrackDefault": "{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}} की राह पर, {duration} · लक्ष्य {target} (डिफ़ॉल्ट)",
+  "homeSleepEstimateCompact": "~{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}} · {duration}",
+  "@homeSleepEstimateCompact": {
+    "description": "Short sleep estimate: \"~\" marks it as an estimate; keeps cycle count and duration.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepEstimateDefaultCompact": "~{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}} · {duration} · डिफ़ॉल्ट लक्ष्य",
+  "@homeSleepEstimateDefaultCompact": {
+    "description": "Short sleep estimate keeping the \"~\" estimate marker and an explicit default-target qualifier.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepEstimateDefaultTight": "~{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}} · {duration} · डिफ़ॉल्ट लक्ष्य",
+  "@homeSleepEstimateDefaultTight": {
+    "description": "Tightest sleep estimate caption: keeps the estimate marker, cycles, duration and the default-target qualifier.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepEstimateDefaultMin": "~{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}} · डिफ़ॉल्ट लक्ष्य",
+  "@homeSleepEstimateDefaultMin": {
+    "description": "Smallest default-target estimate caption: drops the duration, keeps the estimate marker, cycles and the default goal.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      }
+    }
+  },
+  "homeSleepEstimateBare": "~{cycles, plural, =0{{cycles} चक्र} one{{cycles} चक्र} other{{cycles} चक्र}}",
+  "@homeSleepEstimateBare": {
+    "description": "Smallest estimate caption: the estimate marker and the cycle count.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      }
+    }
+  },
+  "homeSleepNoEstimate": "कोई अनुमान नहीं",
+  "homeSleepNoEstimateWhy": "अभी तक कोई रात स्कोर नहीं हुई है, और अनुमान के लिए कोई अलार्म या सामान्य जागने का समय नहीं है।",
+  "homeWhyRecoveryTitle": "रिकवरी कम है",
+  "homeWhyRecoveryDrivers": "सबसे बड़ा असर: {a} {za}, {b} {zb} (आपकी बेसलाइन से अंतर)।",
+  "@homeWhyRecoveryDrivers": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "za": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      },
+      "zb": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryDriver": "सबसे बड़ा असर: {a} {za} (आपकी बेसलाइन से अंतर)।",
+  "@homeWhyRecoveryDriver": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "za": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryPlain": "रिकवरी {score}/100",
+  "@homeWhyRecoveryPlain": {
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWhyRecoveryPullingTwo": "इसे नीचे खींच रहे हैं: {a}, {b}।",
+  "@homeWhyRecoveryPullingTwo": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryPullingOne": "इसे नीचे खींच रहा है: {a}।",
+  "@homeWhyRecoveryPullingOne": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhySleepTitle": "नींद की कमी",
+  "homeWhySleepBody": "आपकी मापी गई नींद ज़रूरत से कम थी।",
+  "homeWhySleepDetail": "{asleep} सोए, आपकी {need} की ज़रूरत से {gap} कम।",
+  "@homeWhySleepDetail": {
+    "placeholders": {
+      "asleep": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      },
+      "need": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyStrainTitle": "लक्ष्य से अधिक स्ट्रेन",
+  "homeWhyStrainBody": "स्ट्रेन {strain}, आज के लक्ष्य {range} से ऊपर।",
+  "@homeWhyStrainBody": {
+    "placeholders": {
+      "strain": {
+        "type": "String"
+      },
+      "range": {
+        "type": "String"
+      }
+    }
+  },
   "homeStrainOf21": "21 में से",
   "homeSleepNoTarget": "अभी कोई लक्ष्य नहीं",
   "homeOfSpan": "{duration} में से",
@@ -1466,13 +1646,13 @@
   "homeAskCoach": "कोच से पूछें",
   "homeProfileSettings": "प्रोफ़ाइल और सेटिंग्स",
   "homeNothingTodayTitle": "आज के लिए कुछ भी दर्ज नहीं",
-  "homeNothingTodayBody": "इस ऐप ने जिस आखिरी रात को स्कोर किया वह {day} थी। तब से कुछ भी नहीं पहुँचा है।",
+  "homeNothingTodayBody": "आखिरी स्कोर की गई रात: {day}।",
   "homeNoDataThisDayTitle": "इस दिन का कोई डेटा नहीं",
   "homeNoDataThisDayBody": "इस दिन कुछ भी दर्ज नहीं हुआ।",
   "homeSomeDayDataMissingTitle": "इस दिन का कुछ डेटा मौजूद नहीं है",
   "homeReadinessNotScoredTitle": "आज रिकवरी का स्कोर नहीं है",
   "homeReadinessNeedBody": "आपके लिए सामान्य क्या है, यह जानने के लिए {need}।",
-  "homeReadinessNoReason": "इसे समझाने के लिए कुछ भी दर्ज नहीं है।",
+  "homeReadinessNoReason": "कोई रीडिंग नहीं।",
   "homeSeeWhatWasMissing": "देखें क्या कमी थी",
   "homeAtAGlance": "एक नज़र में",
   "homeTodaysPlan": "आज की योजना",
@@ -1481,9 +1661,9 @@
   "homeIllnessRedTitle": "हाल की रातें मिलकर बढ़ी हुई आराम-हृदय गति दिखाती हैं",
   "homeIllnessAmberSameNight": "पिछली रात आपकी सामान्य सीमा से बाहर रही",
   "homeIllnessAmberOtherNight": "{day} आपकी सामान्य सीमा से बाहर रहा",
-  "homeIllnessBodyNoZ": "हाल की रातों की आपकी आराम-हृदय गति मिलकर आपके अपने आधार-स्तर से ऊपर की बढ़त दिखाती है। यह केवल एक संकेत दर्शाता है। यह एक पैटर्न बताता है, कोई कारण नहीं।",
-  "homeIllnessBodyAbove": "हाल की रातों की आपकी आराम-हृदय गति मिलकर आपके अपने आधार-स्तर से ऊपर की बढ़त दिखाती है; उस रात यह आधार-स्तर से {z} मानक विचलन ऊपर रही। यह केवल एक संकेत दर्शाता है। यह एक पैटर्न बताता है, कोई कारण नहीं।",
-  "homeIllnessBodyBelow": "हाल की रातों की आपकी आराम-हृदय गति मिलकर आपके अपने आधार-स्तर से ऊपर की बढ़त दिखाती है; उस रात यह आधार-स्तर से {z} मानक विचलन नीचे रही। यह केवल एक संकेत दर्शाता है। यह एक पैटर्न बताता है, कोई कारण नहीं।",
+  "homeIllnessBodyNoZ": "हाल की रातों में आपकी आराम की हृदय गति सामान्य से ऊपर रही है। यह एक पैटर्न है, कारण नहीं।",
+  "homeIllnessBodyAbove": "हाल की रातों ने आपकी आराम की हृदय गति को सामान्य से ऊपर कर दिया है। वह रात भी उससे ऊपर थी। यह एक पैटर्न है, कारण नहीं।",
+  "homeIllnessBodyBelow": "हाल की रातों ने मिलकर आपकी आराम की हृदय गति को सामान्य से ऊपर कर दिया है, हालाँकि वह रात अकेली उससे नीचे थी। यह एक पैटर्न है, कारण नहीं।",
   "homeIllnessAdvice": "अगर यह कुछ दिन और जारी रहे तो ध्यान देने लायक है।",
   "homeHeartRate": "हृदय गति",
   "homeRestingSub": "आराम",

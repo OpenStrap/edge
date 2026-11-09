@@ -173,7 +173,7 @@ void main() {
         for (final k in pluralKeys) {
           final v = j[k];
           if (v is! String) fail('$k missing in $lang');
-          final one = RegExp(r'one\{([^}]*)\}').firstMatch(v)?.group(1) ?? '';
+          final one = RegExp(r'one\{((?:[^{}]|\{[^}]*\})*)\}').firstMatch(v)?.group(1) ?? '';
           expect(one, contains('{cycles}'),
               reason: '$k ($lang) one-branch hard-codes the count: "$one"');
         }

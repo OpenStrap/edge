@@ -1428,15 +1428,15 @@
   "homeDriverRhr": "Frecuencia cardíaca en reposo",
   "homeDriverResp": "Frecuencia respiratoria",
   "homeDriverTemp": "Temperatura de la piel",
-  "homeDbRebuiltTitle": "Tu base de datos se reconstruyó para iniciar la app",
+  "homeDbRebuiltTitle": "Tu base de datos se reconstruyó",
   "homeDbRebuiltNothingRecovered": "No se pudo recuperar nada.",
   "homeDbRebuiltRecovered": "Recuperado: {list}.",
   "homeDbRebuiltEmpty": "Vacío: {list}.",
   "homeDbRebuiltKept": "El archivo original se conserva en {path}; no se eliminó nada.",
   "homeWorkoutHoldTitle": "Todavía hay un entrenamiento en curso",
-  "homeWorkoutHoldBody": "Hoy está en espera mientras un entrenamiento está activo: la correa sigue grabando, pero los números se calculan al terminar la sesión. Finaliza el entrenamiento con la barra de abajo y hoy se completará; sincronizar no lo hará.",
-  "homeInsightsRebuildingTitle": "Tus datos entre días se están reconstruyendo",
-  "homeInsightsRebuildingAlgoVersion": "La forma de calcular esto cambió con la última actualización.",
+  "homeWorkoutHoldBody": "Hoy se completa cuando termines el entrenamiento.",
+  "homeInsightsRebuildingTitle": "Actualizando tus tendencias",
+  "homeInsightsRebuildingAlgoVersion": "Actualizando tras la última actualización de la app.",
   "homeInsightsStaleOverWeek": "El último resumen se generó hace más de una semana, lo cual es demasiado antiguo para confiar en él.",
   "homeInsightsStaleOnDay": "El último resumen se generó el {day}, lo cual es demasiado antiguo para confiar en él.",
   "homeInsightsNoVersionStamp": "El resumen guardado no tiene marca de versión.",
@@ -1445,13 +1445,193 @@
   "homeCalibrating": "Calibrando",
   "homeCalibratingNights": "{have} de {need} noches",
   "homeCalibratingDays": "{have} de {need} días",
-  "homeGapNoReason": "No hay ningún dato registrado que explique por qué falta esto.",
+  "homeGapNoReason": "Sin lectura.",
   "homeRingRecovery": "Recuperación",
   "homeRingStrain": "Esfuerzo",
   "homeRingSleep": "Sueño",
   "homeRingNoStrain": "Sin esfuerzo",
   "homeRingNoSleep": "Sin sueño",
   "homeSleepGapFallback": "No se registró ninguna noche lo bastante larga para puntuar.",
+  "homeSleepPctOf": "{pct} % de {target}",
+  "homeSleepPctOfDefault": "{pct} % de {target} (predeterminado)",
+  "homeSleepPctCompact": "{pct} % de {target}",
+  "@homeSleepPctCompact": {
+    "description": "Short sleep caption against a learned target.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultCompact": "{pct} % de {target} · objetivo predeterminado",
+  "@homeSleepPctDefaultCompact": {
+    "description": "Short sleep caption that keeps an explicit default-target qualifier.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultTight": "{pct} % de {target} por defecto",
+  "@homeSleepPctDefaultTight": {
+    "description": "Tightest sleep caption when the target is the default: still names the target as the default.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepOnTrack": "en camino a {cycles, plural, =1{1 ciclo} other{{cycles} ciclos}}, {duration}",
+  "homeSleepOnTrackDefault": "en camino a {cycles, plural, =1{1 ciclo} other{{cycles} ciclos}}, {duration} · objetivo {target} (predeterminado)",
+  "homeSleepEstimateCompact": "~{cycles, plural, =1{1 ciclo} other{{cycles} ciclos}} · {duration}",
+  "@homeSleepEstimateCompact": {
+    "description": "Short sleep estimate: \"~\" marks it as an estimate; keeps cycle count and duration.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepEstimateDefaultCompact": "~{cycles, plural, =1{1 ciclo} other{{cycles} ciclos}} · {duration} · objetivo predeterminado",
+  "@homeSleepEstimateDefaultCompact": {
+    "description": "Short sleep estimate keeping the \"~\" estimate marker and an explicit default-target qualifier.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepEstimateDefaultTight": "~{cycles, plural, =1{1 ciclo} other{{cycles} ciclos}} · {duration} · meta por defecto",
+  "@homeSleepEstimateDefaultTight": {
+    "description": "Tightest sleep estimate caption: keeps the estimate marker, cycles, duration and the default-target qualifier.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepEstimateDefaultMin": "~{cycles, plural, =1{1 ciclo} other{{cycles} ciclos}} · meta por defecto",
+  "@homeSleepEstimateDefaultMin": {
+    "description": "Smallest default-target estimate caption: drops the duration, keeps the estimate marker, cycles and the default goal.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      }
+    }
+  },
+  "homeSleepEstimateBare": "~{cycles, plural, =1{1 ciclo} other{{cycles} ciclos}}",
+  "@homeSleepEstimateBare": {
+    "description": "Smallest estimate caption: the estimate marker and the cycle count.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      }
+    }
+  },
+  "homeSleepNoEstimate": "Sin estimación",
+  "homeSleepNoEstimateWhy": "Aún no hay una noche puntuada y no hay alarma ni hora habitual de despertar para estimar.",
+  "homeWhyRecoveryTitle": "La recuperación es baja",
+  "homeWhyRecoveryDrivers": "Mayor lastre: {a} {za}, {b} {zb} (desviaciones respecto a tu referencia).",
+  "@homeWhyRecoveryDrivers": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "za": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      },
+      "zb": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryDriver": "Mayor lastre: {a} {za} (desviaciones respecto a tu referencia).",
+  "@homeWhyRecoveryDriver": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "za": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryPlain": "Recuperación {score} de 100",
+  "@homeWhyRecoveryPlain": {
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWhyRecoveryPullingTwo": "Lo reduce: {a}, {b}.",
+  "@homeWhyRecoveryPullingTwo": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryPullingOne": "Lo reduce: {a}.",
+  "@homeWhyRecoveryPullingOne": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhySleepTitle": "Falta sueño",
+  "homeWhySleepBody": "El sueño evaluado quedó por debajo de tu necesidad.",
+  "homeWhySleepDetail": "{asleep} dormidos, {gap} menos de las {need} que necesitas.",
+  "@homeWhySleepDetail": {
+    "placeholders": {
+      "asleep": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      },
+      "need": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyStrainTitle": "Esfuerzo por encima del objetivo",
+  "homeWhyStrainBody": "Esfuerzo {strain}, por encima del objetivo de hoy de {range}.",
+  "@homeWhyStrainBody": {
+    "placeholders": {
+      "strain": {
+        "type": "String"
+      },
+      "range": {
+        "type": "String"
+      }
+    }
+  },
   "homeStrainOf21": "de 21",
   "homeSleepNoTarget": "Aún sin objetivo",
   "homeOfSpan": "de {duration}",
@@ -1472,13 +1652,13 @@
   "homeAskCoach": "Preguntar al entrenador",
   "homeProfileSettings": "Perfil y ajustes",
   "homeNothingTodayTitle": "Nada registrado hoy",
-  "homeNothingTodayBody": "La última noche que la app puntuó fue el {day}. No ha llegado nada desde entonces.",
+  "homeNothingTodayBody": "Última noche puntuada: {day}.",
   "homeNoDataThisDayTitle": "No hay datos de este día",
   "homeNoDataThisDayBody": "No se registró nada este día.",
   "homeSomeDayDataMissingTitle": "Faltan algunos datos de este día",
   "homeReadinessNotScoredTitle": "La recuperación no tiene puntuación hoy",
   "homeReadinessNeedBody": "{need} para saber qué es lo normal en tu caso.",
-  "homeReadinessNoReason": "No hay ningún dato registrado que lo explique.",
+  "homeReadinessNoReason": "Sin lectura.",
   "homeSeeWhatWasMissing": "Ver qué faltaba",
   "homeAtAGlance": "De un vistazo",
   "homeTodaysPlan": "Plan de hoy",
@@ -1487,9 +1667,9 @@
   "homeIllnessRedTitle": "Las noches recientes, en conjunto, muestran una frecuencia cardíaca en reposo elevada",
   "homeIllnessAmberSameNight": "Anoche estuvo fuera de tu rango normal",
   "homeIllnessAmberOtherNight": "El {day} estuvo fuera de tu rango normal",
-  "homeIllnessBodyNoZ": "En conjunto, tus frecuencias cardíacas nocturnas en reposo recientes muestran una subida por encima de tu propio valor de referencia. Esto refleja una sola señal. Indica un patrón, pero no indica una causa.",
-  "homeIllnessBodyAbove": "En conjunto, tus frecuencias cardíacas nocturnas en reposo recientes muestran una subida por encima de tu propio valor de referencia; esa noche se situó {z} desviaciones estándar por encima. Esto refleja una sola señal. Indica un patrón, pero no indica una causa.",
-  "homeIllnessBodyBelow": "En conjunto, tus frecuencias cardíacas nocturnas en reposo recientes muestran una subida por encima de tu propio valor de referencia; esa noche se situó {z} desviaciones estándar por debajo. Esto refleja una sola señal. Indica un patrón, pero no indica una causa.",
+  "homeIllnessBodyNoZ": "Tu frecuencia cardíaca en reposo ha superado lo habitual en las últimas noches. Un patrón, no una causa.",
+  "homeIllnessBodyAbove": "Las noches recientes han subido tu frecuencia cardíaca en reposo por encima de lo habitual. Esa noche también estuvo por encima. Un patrón, no una causa.",
+  "homeIllnessBodyBelow": "Juntas, las noches recientes han subido tu frecuencia cardíaca en reposo por encima de lo habitual, aunque esa noche por sí sola estuvo por debajo. Un patrón, no una causa.",
   "homeIllnessAdvice": "Vale la pena prestarle atención si continúa varios días.",
   "homeHeartRate": "Frecuencia cardíaca",
   "homeRestingSub": "En reposo",

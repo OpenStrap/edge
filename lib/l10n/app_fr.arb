@@ -1428,15 +1428,15 @@
   "homeDriverRhr": "Fréquence cardiaque au repos",
   "homeDriverResp": "Fréquence respiratoire",
   "homeDriverTemp": "Température cutanée",
-  "homeDbRebuiltTitle": "Ta base de données a été reconstruite pour démarrer l'application",
+  "homeDbRebuiltTitle": "Ta base de données a été reconstruite",
   "homeDbRebuiltNothingRecovered": "Rien n'a pu être récupéré.",
   "homeDbRebuiltRecovered": "Récupéré : {list}.",
   "homeDbRebuiltEmpty": "Vide : {list}.",
   "homeDbRebuiltKept": "Le fichier d'origine est conservé à {path} ; rien n'a été supprimé.",
   "homeWorkoutHoldTitle": "Un entraînement est encore en cours",
-  "homeWorkoutHoldBody": "Aujourd'hui est en attente pendant qu'un entraînement est en cours : le bracelet continue d'enregistrer, mais les chiffres sont calculés une fois la séance terminée. Termine l'entraînement depuis la barre ci-dessous et la journée se complètera ; synchroniser ne suffira pas.",
-  "homeInsightsRebuildingTitle": "Tes données inter-journalières sont en cours de reconstruction",
-  "homeInsightsRebuildingAlgoVersion": "La façon dont c'est calculé a changé avec la dernière mise à jour.",
+  "homeWorkoutHoldBody": "Aujourd’hui se remplit quand tu termines l’entraînement.",
+  "homeInsightsRebuildingTitle": "Mise à jour de tes tendances",
+  "homeInsightsRebuildingAlgoVersion": "Mise à jour après la dernière mise à jour de l’app.",
   "homeInsightsStaleOverWeek": "Le dernier récapitulatif date de plus d'une semaine, ce qui est trop ancien pour s'y fier.",
   "homeInsightsStaleOnDay": "Le dernier récapitulatif a été généré le {day}, ce qui est trop ancien pour s'y fier.",
   "homeInsightsNoVersionStamp": "Le récapitulatif enregistré ne porte aucune marque de version.",
@@ -1445,13 +1445,193 @@
   "homeCalibrating": "Étalonnage",
   "homeCalibratingNights": "{have, plural, one{{have} nuit sur {need}} other{{have} nuits sur {need}}}",
   "homeCalibratingDays": "{have, plural, one{{have} jour sur {need}} other{{have} jours sur {need}}}",
-  "homeGapNoReason": "Rien n'a été enregistré pour expliquer cette absence.",
+  "homeGapNoReason": "Aucune mesure.",
   "homeRingRecovery": "Récupération",
   "homeRingStrain": "Effort",
   "homeRingSleep": "Sommeil",
   "homeRingNoStrain": "Pas d'effort",
   "homeRingNoSleep": "Pas de sommeil",
   "homeSleepGapFallback": "Aucune nuit assez longue pour être évaluée n'a été enregistrée.",
+  "homeSleepPctOf": "{pct} % de {target}",
+  "homeSleepPctOfDefault": "{pct} % de {target} (par défaut)",
+  "homeSleepPctCompact": "{pct} % de {target}",
+  "@homeSleepPctCompact": {
+    "description": "Short sleep caption against a learned target.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultCompact": "{pct} % de {target} · objectif par défaut",
+  "@homeSleepPctDefaultCompact": {
+    "description": "Short sleep caption that keeps an explicit default-target qualifier.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultTight": "{pct} % de {target} par défaut",
+  "@homeSleepPctDefaultTight": {
+    "description": "Tightest sleep caption when the target is the default: still names the target as the default.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepOnTrack": "sur la bonne voie pour {cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}}, {duration}",
+  "homeSleepOnTrackDefault": "sur la bonne voie pour {cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}}, {duration} · objectif {target} (par défaut)",
+  "homeSleepEstimateCompact": "~{cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}} · {duration}",
+  "@homeSleepEstimateCompact": {
+    "description": "Short sleep estimate: \"~\" marks it as an estimate; keeps cycle count and duration.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepEstimateDefaultCompact": "~{cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}} · {duration} · objectif par défaut",
+  "@homeSleepEstimateDefaultCompact": {
+    "description": "Short sleep estimate keeping the \"~\" estimate marker and an explicit default-target qualifier.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepEstimateDefaultTight": "~{cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}} · {duration} · cible par défaut",
+  "@homeSleepEstimateDefaultTight": {
+    "description": "Tightest sleep estimate caption: keeps the estimate marker, cycles, duration and the default-target qualifier.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepEstimateDefaultMin": "~{cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}} · cible par défaut",
+  "@homeSleepEstimateDefaultMin": {
+    "description": "Smallest default-target estimate caption: drops the duration, keeps the estimate marker, cycles and the default goal.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      }
+    }
+  },
+  "homeSleepEstimateBare": "~{cycles, plural, =0{{cycles} cycles} one{{cycles} cycle} other{{cycles} cycles}}",
+  "@homeSleepEstimateBare": {
+    "description": "Smallest estimate caption: the estimate marker and the cycle count.",
+    "placeholders": {
+      "cycles": {
+        "type": "int"
+      }
+    }
+  },
+  "homeSleepNoEstimate": "Pas d'estimation",
+  "homeSleepNoEstimateWhy": "Aucune nuit n'est encore évaluée, et il n'y a ni alarme ni heure de réveil habituelle pour estimer.",
+  "homeWhyRecoveryTitle": "Récupération faible",
+  "homeWhyRecoveryDrivers": "Principal frein : {a} {za}, {b} {zb} (écarts par rapport à votre référence).",
+  "@homeWhyRecoveryDrivers": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "za": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      },
+      "zb": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryDriver": "Principal frein : {a} {za} (écarts par rapport à votre référence).",
+  "@homeWhyRecoveryDriver": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "za": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryPlain": "Récupération {score} sur 100",
+  "@homeWhyRecoveryPlain": {
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWhyRecoveryPullingTwo": "Ce qui la tire vers le bas : {a}, {b}.",
+  "@homeWhyRecoveryPullingTwo": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      },
+      "b": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryPullingOne": "Ce qui la tire vers le bas : {a}.",
+  "@homeWhyRecoveryPullingOne": {
+    "placeholders": {
+      "a": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhySleepTitle": "Sommeil insuffisant",
+  "homeWhySleepBody": "Votre sommeil évalué était inférieur à votre besoin.",
+  "homeWhySleepDetail": "{asleep} de sommeil, {gap} de moins que vos {need} nécessaires.",
+  "@homeWhySleepDetail": {
+    "placeholders": {
+      "asleep": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      },
+      "need": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyStrainTitle": "Effort au-dessus de l’objectif",
+  "homeWhyStrainBody": "Effort {strain}, au-dessus de l’objectif du jour de {range}.",
+  "@homeWhyStrainBody": {
+    "placeholders": {
+      "strain": {
+        "type": "String"
+      },
+      "range": {
+        "type": "String"
+      }
+    }
+  },
   "homeStrainOf21": "sur 21",
   "homeSleepNoTarget": "Pas encore d'objectif",
   "homeOfSpan": "sur {duration}",
@@ -1466,13 +1646,13 @@
   "homeAskCoach": "Demander au coach",
   "homeProfileSettings": "Profil et réglages",
   "homeNothingTodayTitle": "Rien d'enregistré aujourd'hui",
-  "homeNothingTodayBody": "La dernière nuit évaluée par l'application est le {day}. Rien n'est arrivé depuis.",
+  "homeNothingTodayBody": "Dernière nuit évaluée : {day}.",
   "homeNoDataThisDayTitle": "Aucune donnée pour ce jour",
   "homeNoDataThisDayBody": "Rien n'a été enregistré ce jour-là.",
   "homeSomeDayDataMissingTitle": "Certaines données de ce jour manquent",
   "homeReadinessNotScoredTitle": "La récupération n'est pas évaluée aujourd'hui",
   "homeReadinessNeedBody": "{need} pour savoir ce qui est normal pour toi.",
-  "homeReadinessNoReason": "Rien n'a été enregistré pour l'expliquer.",
+  "homeReadinessNoReason": "Aucune mesure.",
   "homeSeeWhatWasMissing": "Voir ce qui manquait",
   "homeAtAGlance": "En un coup d'œil",
   "homeTodaysPlan": "Plan du jour",
@@ -1481,9 +1661,9 @@
   "homeIllnessRedTitle": "Prises ensemble, tes dernières nuits indiquent une fréquence cardiaque au repos élevée",
   "homeIllnessAmberSameNight": "Cette nuit se situait hors de ta plage normale",
   "homeIllnessAmberOtherNight": "Le {day} se situait hors de ta plage normale",
-  "homeIllnessBodyNoZ": "Prises ensemble, tes fréquences cardiaques nocturnes au repos récentes indiquent une hausse au-dessus de ta propre référence. Ceci reflète un seul signal. Cela indique une tendance, pas une cause.",
-  "homeIllnessBodyAbove": "Prises ensemble, tes fréquences cardiaques nocturnes au repos récentes indiquent une hausse au-dessus de ta propre référence ; cette nuit-là, la valeur se situait {z} écarts-types au-dessus. Ceci reflète un seul signal. Cela indique une tendance, pas une cause.",
-  "homeIllnessBodyBelow": "Prises ensemble, tes fréquences cardiaques nocturnes au repos récentes indiquent une hausse au-dessus de ta propre référence ; cette nuit-là, la valeur se situait {z} écarts-types en dessous. Ceci reflète un seul signal. Cela indique une tendance, pas une cause.",
+  "homeIllnessBodyNoZ": "Ta fréquence cardiaque au repos a été au-dessus de l’habituel ces dernières nuits. Une tendance, pas une cause.",
+  "homeIllnessBodyAbove": "Les nuits récentes ont fait monter ta fréquence cardiaque au repos au-dessus de l’habituel. Cette nuit-là aussi était au-dessus. Une tendance, pas une cause.",
+  "homeIllnessBodyBelow": "Ensemble, les nuits récentes ont fait monter ta fréquence cardiaque au repos au-dessus de l’habituel, même si cette nuit-là seule était en dessous. Une tendance, pas une cause.",
   "homeIllnessAdvice": "À surveiller si cela continue plusieurs jours.",
   "homeHeartRate": "Fréquence cardiaque",
   "homeRestingSub": "Au repos",

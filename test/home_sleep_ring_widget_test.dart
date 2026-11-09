@@ -437,7 +437,8 @@ void main() {
 
   group('HomeScreen lays AppState\'s armed alarm over the loaded data',
       () {
-    Future<void> pumpHome(WidgetTester t, AppState app) async {
+    Future<void> pumpHome(WidgetTester t, AppState app,
+        {HomeData? data}) async {
       t.view.physicalSize = const Size(390 * 3, 1600 * 3);
       t.view.devicePixelRatio = 3;
       addTearDown(t.view.reset);
@@ -451,7 +452,7 @@ void main() {
             body: HomeScreen(
               hour: 22,
               now: _evening,
-              data: _unslept(typical: true),
+              data: data ?? _unslept(typical: true),
             ),
           ),
         ),
@@ -483,7 +484,8 @@ void main() {
         (t) async {
       final app = AppState.forTesting();
       addTearDown(app.dispose);
-      await pumpHome(t, app);
+      // No learned times either: nothing at all to estimate a wake from.
+      await pumpHome(t, app, data: _unslept());
       // An absence is a dash in the ring; the reason is a row under the rings.
       final gap = find.byKey(const ValueKey('home-note:gap:sleep'));
       expect(find.descendant(of: gap, matching: find.text('Sleep')), findsOneWidget);
@@ -528,7 +530,10 @@ void main() {
       final app = AppState.forTesting();
       addTearDown(app.dispose);
       await pumpBare(t, app);
-      expect(find.textContaining('No nights scored yet'), findsOneWidget);
+      // The status card (here the unpaired install's "No band is paired"; a
+      // paired one reads "No nights scored yet"), never three empty rings.
+      expect(find.byType(RingTrio), findsNothing);
+      expect(find.byType(StatusCard), findsWidgets);
       expect(find.text('No estimate'), findsNothing);
     });
   });

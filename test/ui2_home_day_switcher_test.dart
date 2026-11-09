@@ -63,6 +63,30 @@ class _Repo extends LocalRepository {
       {'has_sleep': true, 'duration_min': 250};
 }
 
+/// Nothing scored on either day, but five nights of typical times.
+class _NoSleepRepo extends _Repo {
+  @override
+  Future<Map<String, dynamic>> getToday() async => {
+        ...await super.getToday(),
+        'sleep': const <String, dynamic>{},
+      };
+  @override
+  Future<Map<String, dynamic>> getDaySleepV2(String date) async => const {};
+  @override
+  Future<List<Map<String, dynamic>>> sleepWindows(
+          {int days = 60, String? before}) async =>
+      [
+        for (var day = 1; day <= 5; day++)
+          {
+            'date': '2026-10-0$day',
+            'onset_ts': DateTime(2026, 10, day - 1, 23).millisecondsSinceEpoch ~/
+                1000,
+            'wake_ts':
+                DateTime(2026, 10, day, 7).millisecondsSinceEpoch ~/ 1000,
+          },
+      ];
+}
+
 Future<void> _settle(WidgetTester t, {int n = 40}) async {
   for (var i = 0; i < n; i++) {
     await t.pump(const Duration(milliseconds: 20));
@@ -138,6 +162,38 @@ void main() {
     await t.tap(find.bySemanticsLabel('Next day'));
     await _settle(t);
     expect(find.text('70'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a past day with no scored sleep never claims tonight\'s "on track" '
+      '(the estimate belongs to today)', (t) async {
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    app.repo = _NoSleepRepo();
+
+    await t.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: ChangeNotifierProvider<AppState>.value(
+        value: app,
+        child: const Scaffold(body: HomeScreen(hour: 9)),
+      ),
+    ));
+    await _settle(t);
+    // Control: today, unslept, with typical times, shows the estimate.
+    expect(find.textContaining('cycles'), findsOneWidget);
+
+    await t.tap(find.bySemanticsLabel('Previous day'));
+    await _settle(t);
+    expect(find.text('42'), findsOneWidget, reason: 'yesterday is on screen');
+    expect(find.textContaining('on track for'), findsNothing);
+    expect(find.textContaining('cycles'), findsNothing);
+    expect(find.text('No estimate'), findsOneWidget);
+
+    await t.tap(find.bySemanticsLabel('Next day'));
+    await _settle(t);
+    expect(find.textContaining('cycles'), findsOneWidget);
   });
 
   test('a past day is kept only for a short absence on the same day', () {
@@ -410,6 +466,10 @@ void main() {
       final tile = find.text(label);
       await t.scrollUntilVisible(tile, 300,
           scrollable: find.byType(Scrollable).first);
+      // The card above is taller now (inset rows), so the scroll can stop with
+      // the tile at the very edge of the viewport.
+      await t.ensureVisible(tile);
+      await t.pump();
       await t.tap(tile);
       await _settle(t);
 
