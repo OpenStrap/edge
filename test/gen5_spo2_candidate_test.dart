@@ -8,6 +8,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
+import 'package:openstrap_edge/models/payloads.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 /// A minimal decodable v18 inner: length 112, version byte 18 at inner[1].
@@ -51,5 +52,15 @@ void main() {
     final cleared = s.copyWith(spo2CandidateRaw: null);
     expect(cleared.spo2CandidateRaw, isNull);
     expect(cleared.copyWith(heartRate: 55).spo2CandidateRaw, isNull);
+  });
+
+  // The seam to PR #472: a captured candidate byte must NOT unlock the
+  // publication path. `Spo2Data` (payloads.dart) stays unread until the
+  // validation gate passes — capturing is not displaying.
+  test('captured candidate stays unread: Spo2Data refusal is intact', () {
+    final s = decodeGen5HistoricalSample(v18Inner(spo2Candidate: 97))!;
+    expect(s.spo2CandidateRaw, 97);
+    final payload = TodayData.fromJson({'spo2': const <String, dynamic>{}});
+    expect(payload.spo2, isNull, reason: 'no odi_per_hour -> Spo2Data unread');
   });
 }

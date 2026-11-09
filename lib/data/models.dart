@@ -160,7 +160,10 @@ class Sample {
   /// pinned (values above 128 decompose as 128 + flag). Carried as the raw
   /// byte for capture correlation; NEVER displayed or stored as a
   /// percentage — see `Spo2Data` in `models/payloads.dart` for the refusal.
-  /// Not persisted (no column); diagnostic/log use only.
+  /// Not persisted (no column); in-memory diagnostic only, never logged
+  /// (FileLog is external storage — CWE-532). After the validation gate in
+  /// docs/proposals/whoop-spo2.md passes, this byte is the raw input that
+  /// feeds `Spo2Data` — the single publication path.
   final int? spo2CandidateRaw;
 
   Sample({
