@@ -83,10 +83,6 @@ class SleepRingModel {
 /// stands instead.
 const int _minCycleLenMin = 60, _maxCycleLenMin = 150;
 
-/// An alarm further away than this is not tonight's wake (a weekday alarm seen
-/// from Friday evening), so the learned wake answers instead.
-const int _maxAlarmHorizonMicros = 24 * 3600 * 1000000;
-
 SleepRingModel sleepRingModel({
   required DateTime now,
   num? durationMin,
@@ -115,9 +111,15 @@ SleepRingModel sleepRingModel({
   final n = now.toLocal();
   DateTime? wake;
   WakeSource? wakeSource;
+  // An alarm past the same wall-clock time tomorrow is not tonight's wake (a
+  // weekday alarm seen from Friday evening), so the learned wake answers
+  // instead. The cutoff is a calendar step, not `+ 24 h`: across a fall-back
+  // tomorrow's 07:00 alarm is 24 h 30 min away and is still tonight's.
+  final horizon =
+      DateTime(n.year, n.month, n.day + 1, n.hour, n.minute, n.second);
   if (nextAlarm != null &&
       nextAlarm.isAfter(now) &&
-      nextAlarm.difference(now).inMicroseconds <= _maxAlarmHorizonMicros) {
+      !nextAlarm.isAfter(horizon)) {
     wake = nextAlarm.toLocal();
     wakeSource = WakeSource.alarm;
   } else if (learnedWakeMin != null) {

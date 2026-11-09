@@ -549,6 +549,34 @@ void main() {
       expect(m.cycles, 6);
     });
 
+    test('fall back: tomorrow\'s 07:00 alarm is 24 h 30 min away by the clock '
+        'but is still tonight\'s wake', () {
+      final now = DateTime(2026, 10, 31, 7, 30);
+      final m = _unslept(
+        now: now,
+        learnedOnset: _h23,
+        learnedWake: 8 * 60,
+        alarm: DateTime.utc(2026, 11, 1, 14, 0), // 07:00 MST
+      );
+      expect(m.wakeSource, WakeSource.alarm);
+      expect(m.wakeAt, DateTime(2026, 11, 1, 7, 0));
+      expect(m.windowStart, DateTime(2026, 10, 31, 23, 0));
+      expect(m.estimateMin, 540);
+    });
+
+    test('spring forward: an alarm two calendar days out is still refused', () {
+      // Friday-evening style guard survives the change: 07:00 on the 9th is not
+      // tonight from 07:30 on the 7th, so the learned wake answers.
+      final now = DateTime(2026, 3, 7, 7, 30);
+      final m = _unslept(
+        now: now,
+        learnedOnset: _h23,
+        learnedWake: 8 * 60,
+        alarm: DateTime.utc(2026, 3, 9, 13, 0), // 07:00 MDT on the 9th
+      );
+      expect(m.wakeSource, WakeSource.learned);
+    });
+
     test('now inside the transition night still measures real elapsed time',
         () {
       // 00:30 MDT on spring-forward day, before the 02:00 jump: 7:00 MDT is
