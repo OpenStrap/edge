@@ -41,6 +41,7 @@
 import '../l10n/app_localizations.dart';
 import '../l10n/decimal_text.dart';
 import '../state/locale_controller.dart';
+import 'spiral_ring.dart';
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' show PointMode;
@@ -611,8 +612,14 @@ class Ring extends CustomPainter {
   /// calibrating" and "this is missing" into one look.
   final bool solid;
 
+  /// RED-PHASE STUB: the surface under the ring (the lap separator). Unused.
+  final Color? background;
+
   Ring(this.v, this.color, this.track,
-      {this.stroke = 10, this.t = 1, this.solid = false});
+      {this.stroke = 10, this.t = 1, this.solid = false, this.background});
+
+  /// RED-PHASE STUB: the real getter is SpiralGeometry(stroke).pieces(...).
+  List<SpiralPiece> get pieces => const [];
 
   @override
   void paint(Canvas cv, Size s) {
@@ -653,6 +660,32 @@ class Ring extends CustomPainter {
   @override
   bool shouldRepaint(covariant Ring o) =>
       o.v != v || o.t != t || o.solid != solid || o.color != color;
+}
+
+/// RED-PHASE STUB: one coloured arc of a [StageRing].
+class RingArc {
+  final Color color;
+  final double fraction;
+  const RingArc(this.color, this.fraction);
+}
+
+/// RED-PHASE STUB: paints nothing and reports no pieces.
+class StageRing extends CustomPainter {
+  final List<RingArc> arcs;
+  final Color track;
+  final double stroke, t;
+  final Color? background;
+
+  StageRing(this.arcs, this.track,
+      {this.stroke = 10, this.t = 1, this.background});
+
+  List<SpiralPiece> get pieces => const [];
+
+  @override
+  void paint(Canvas cv, Size s) {}
+
+  @override
+  bool shouldRepaint(covariant StageRing o) => true;
 }
 
 /// A ring made of discrete dashes rather than a continuous arc — for a value

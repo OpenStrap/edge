@@ -42,6 +42,7 @@ import '../../compute/findings.dart'
         kReadinessGoodFrom,
         kReadinessRestBelow;
 import '../../data/day_label.dart' show todayLabel, calendarDaysBetween;
+import '../sleep_ring_model.dart' show SleepStageMin;
 import '../../compute/onehz_pipeline.dart'
     show readinessInputShortfallNote, readinessUnstableBaselineNote;
 import '../../data/db.dart' show DbRebuild, LocalDb;
@@ -843,11 +844,14 @@ class RingTrio extends StatelessWidget {
   /// worth pushing onto.
   final void Function(HomeRingKind)? onOpen;
 
-  const RingTrio({super.key, required this.d, this.onOpen});
+  /// RED-PHASE STUB: the instant the sleep ring estimates from. Unused.
+  final DateTime? now;
+
+  const RingTrio({super.key, required this.d, this.onOpen, this.now});
 
   /// Whether ANY of the three has something to draw. When none do, the screen
   /// owes the user one written absence, not three empty circles.
-  static bool has(HomeData d) =>
+  static bool has(HomeData d, {DateTime? now}) =>
       HomeRingKind.values.any((k) => _ringOf(k, d, null).why == null);
 
   @override
@@ -960,6 +964,15 @@ String? recoveryStateLine(Map<String, dynamic> head, AppLocalizations? l) =>
 /// Which ring. The three the app can stand behind on a home screen: what the
 /// night gave back, what the day has cost, and what the night was made of.
 enum HomeRingKind { recovery, strain, sleep }
+
+/// RED-PHASE STUB: the real function ranks the (at most two) rings the Home
+/// card should explain. See edge.research/sol/home/scope-map.md.
+List<HomeRingKind> pressingRings(HomeData d, {DateTime? now}) => const [];
+
+/// RED-PHASE STUB: the real function is the delay to the next whole minute,
+/// taken from the UTC instant (so the repeated fall-back hour is safe).
+@visibleForTesting
+Duration nextMinuteTickDelay(DateTime now) => Duration.zero;
 
 /// One ring's resolved state — the only place a metric becomes a shape.
 class _RingState {
@@ -1346,6 +1359,12 @@ class HomeData {
   /// `{from, to, at}` when today's final recovery changed after it was shown.
   final Map<String, dynamic>? readinessUpdate;
 
+  // RED-PHASE STUBS (Home + labels): inputs the sleep ring needs. Not yet read
+  // by any loader or widget.
+  final SleepStageMin? sleepStages;
+  final DateTime? nextAlarm;
+  final int? learnedOnsetMin, learnedWakeMin, cycleLenMin;
+
   const HomeData({
     this.name,
     this.dayId,
@@ -1369,6 +1388,11 @@ class HomeData {
     this.absentDiag,
     this.recoveryState,
     this.readinessUpdate,
+    this.sleepStages,
+    this.nextAlarm,
+    this.learnedOnsetMin,
+    this.learnedWakeMin,
+    this.cycleLenMin,
   });
 
   /// The three illness fields, replaced together. Test-facing sugar, and they
