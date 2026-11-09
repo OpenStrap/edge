@@ -38,6 +38,8 @@ const Map<String, String> kPrefsNotBackedUp = {
   'telemetry_outbox': 'queued diagnostics belong to this install and its consent',
   'device_alerts.low_armed': 'low-battery latch belongs to the old band; '
       'the new band must establish its own battery state',
+  'alarm_schedule_cleared': 'records that Cancel-all ran on this phone, so an '
+      'import cannot bring a cancelled alarm back',
   'alarm_epoch': 'arm belongs to the old band; the restored schedule must arm again',
   'alarm_epoch_confirmed': 'confirmation belongs to an arm on the old band',
   'alarm_set_at_ms': 'confirmation replay floor for the old band arm',

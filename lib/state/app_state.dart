@@ -4892,9 +4892,9 @@ class AppState extends ChangeNotifier {
 
   /// One-time 49→50 seed: a legacy single-alarm value with nothing yet in
   /// `alarm_schedule` becomes that weekday's slot. Safe to call on every
-  /// launch — it is a no-op the moment ANY row exists, including a schedule
-  /// the user has since cleared via Cancel-all, which must stay cleared
-  /// rather than resurrect the old value.
+  /// launch — it is a no-op the moment ANY row exists, and after Cancel-all
+  /// (which deletes the rows) `_savedAlarm` is null, so a schedule the user
+  /// cleared stays cleared rather than resurrecting the old value.
   Future<void> _seedAlarmScheduleFromLegacyIfNeeded() async {
     try {
       if (_savedAlarm == null) return;
@@ -4955,6 +4955,8 @@ class AppState extends ChangeNotifier {
       enabled: next.enabled,
       smartWindowMinutes: next.smartWindowMinutes,
     );
+    // The user chose a slot: the schedule is no longer "cancelled".
+    await (await SharedPreferences.getInstance()).remove('alarm_schedule_cleared');
     await _loadAlarmSchedule();
     notifyListeners();
     // The 7pm "no alarm set for tonight" check keys off the schedule: a night
@@ -5460,6 +5462,11 @@ class AppState extends ChangeNotifier {
     // An arm that landed during the await owns the persisted epoch now.
     if (_armGen == gen) await prefs.remove('alarm_epoch');
     if (_armGen == gen) await prefs.remove('alarm_epoch_confirmed');
+    // 'alarm_schedule_cleared' tells an import that an empty schedule means
+    // "cancelled", not "never set". Marked BEFORE the rows go: a crash
+    // between the two leaves a marker over rows (harmless), never an empty
+    // table an import could refill.
+    await prefs.setBool('alarm_schedule_cleared', true);
     await LocalDb.clearAlarmSchedule();
     _schedule = fillDefaultAlarmSchedule(const []);
     notifyListeners();

@@ -11686,7 +11686,14 @@ class LocalDb {
       await src.close();
     }
     final fresh = hasSettings && await _backupPrefsFreshInstall(db);
-    final counts = await _mergeFromDbFile(path);
+    // Cancel-all deletes the schedule rows, so an empty table cannot tell
+    // "cancelled" from "never set": the marker says which, and a cancelled
+    // install keeps it empty. A fresh install has nothing to protect.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    final cancelled = !fresh && prefs.getBool('alarm_schedule_cleared') == true;
+    final counts = await _mergeFromDbFile(path,
+        skip: cancelled ? const {'alarm_schedule'} : const {});
     final summary = await restoreBackupPrefs(path, counts, freshInstall: fresh);
     // Persist only after settings restore succeeds, including a settings-only
     // backup without an onboarding choice. A later restore keeps local edits.
@@ -11917,13 +11924,15 @@ class LocalDb {
     String path, {
     List<String>? only,
     bool tolerant = false,
+    Set<String> skip = const {},
   }) => _withReaderInvalidated(() =>
-      _mergeFromDbFileImpl(path, only: only, tolerant: tolerant));
+      _mergeFromDbFileImpl(path, only: only, tolerant: tolerant, skip: skip));
 
   static Future<Map<String, int>> _mergeFromDbFileImpl(
     String path, {
     List<String>? only,
     bool tolerant = false,
+    Set<String> skip = const {},
   }) async {
     final db = await instance;
     final src = await openDatabase(path, readOnly: true);
@@ -12312,6 +12321,10 @@ class LocalDb {
             : (srcEdge == null || localEdge > srcEdge ? localEdge : srcEdge);
       }
       for (final t in (only ?? tables)) {
+        if (skip.contains(t)) {
+          counts[t] = 0;
+          continue;
+        }
         if (t == 'raw_archive') {
           try {
             counts[t] = await _mergeRawArchive(src, db);
