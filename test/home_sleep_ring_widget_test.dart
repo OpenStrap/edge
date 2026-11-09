@@ -315,10 +315,9 @@ void main() {
     });
 
     test('HomeData.loadForDay (a dated view of a slept night) carries the '
-        'learned need — it used to drop it and draw an empty bar', () async {
+        'need the night itself reports', () async {
       final repo = _Repo(
-        insights: _needInsights,
-        night: _nightMap,
+        night: {..._nightMap, 'need_min': _env(462)},
       );
       final d = await HomeData.loadForDay(repo, '2026-10-08');
       expect(d.sleepMin.value, 442);

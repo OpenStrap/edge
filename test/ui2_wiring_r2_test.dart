@@ -847,7 +847,7 @@ void main() {
               body: HomeScreen(data: HomeData(dayId: '2026-05-20'), hour: 20)),
         ));
 
-    testWidgets('no model: the chip says what the coach is for', (t) async {
+    testWidgets('no model: the chip invites setting the coach up', (t) async {
       await t.pumpWidget(frame(false));
       expect(find.byIcon(LucideIcons.sparkles), findsOneWidget);
       expect(find.text('Set up the coach'),

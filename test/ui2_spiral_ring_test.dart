@@ -11,12 +11,13 @@
 // and no inset; nothing is drawn past the value; nothing is clamped to 100%.
 //
 // Geometry is asserted through [SpiralGeometry] (lib/ui2/spiral_ring.dart),
-// then through Ring.pieces / StageRing.pieces, then a pixel smoke test.
+// then through pixels drawn by Ring / StageRing.
 
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/charts.dart';
@@ -222,68 +223,6 @@ void main() {
     });
   });
 
-  group('one implementation behind both painters', () {
-    const track = Color(0x00000000);
-
-    test('Ring draws exactly the fraction given, unclamped', () {
-      for (final v in [.66, 1.0, 1.5, 2.0, 3.0]) {
-        final r = Ring(v, Colors.green, track);
-        expect(_sweep(r.pieces), closeTo(v, 1e-9), reason: 'v=$v');
-      }
-    });
-
-    test('Ring scales by the draw-in progress t, never past the value', () {
-      expect(_sweep(Ring(1.5, Colors.green, track, t: .5).pieces),
-          closeTo(.75, 1e-9));
-      expect(Ring(1.5, Colors.green, track, t: 0).pieces, isEmpty);
-      expect(_sweep(Ring(1.5, Colors.green, track, t: 2).pieces),
-          closeTo(1.5, 1e-9));
-    });
-
-    test('Ring draws nothing for zero, negative or NaN (no invented overflow)',
-        () {
-      for (final v in [0.0, -1.0, double.nan]) {
-        expect(Ring(v, Colors.green, track).pieces, isEmpty, reason: '$v');
-      }
-    });
-
-    test('Ring <= 100% never produces a second lap', () {
-      for (final v in [.01, .5, 1.0]) {
-        expect(Ring(v, Colors.green, track).pieces, isNotEmpty);
-        expect(Ring(v, Colors.green, track).pieces.every((p) => p.lap == 0),
-            isTrue);
-      }
-    });
-
-    test('StageRing no longer clips: arcs summing to 1.5 draw 1.5 laps', () {
-      final r = StageRing(const [
-        RingArc(Colors.blue, .6),
-        RingArc(Colors.red, .5),
-        RingArc(Colors.green, .4),
-      ], track);
-      expect(_sweep(r.pieces), closeTo(1.5, 1e-9));
-      expect(r.pieces.map((p) => p.lap).toSet(), {0, 1});
-    });
-
-    test('StageRing under 100%: one lap, round caps, same rules as Ring', () {
-      final r = StageRing(const [
-        RingArc(Colors.blue, .3),
-        RingArc(Colors.red, .2),
-      ], track);
-      expect(_sweep(r.pieces), closeTo(.5, 1e-9));
-      expect(r.pieces.every((p) => p.lap == 0 && p.capEnd), isTrue);
-      expect(r.pieces.singleWhere((p) => p.seg == 0).capStart, isTrue);
-    });
-
-    test('StageRing scales by t and keeps segment order', () {
-      final r = StageRing(const [
-        RingArc(Colors.blue, .8),
-        RingArc(Colors.red, .8),
-      ], track, t: .5);
-      expect(_sweep(r.pieces), closeTo(.8, 1e-9));
-    });
-  });
-
   group('render smoke', () {
     const side = 100.0;
 
@@ -315,7 +254,6 @@ void main() {
             .whereType<Ring>()
             .single;
         expect(painter.v, v);
-        expect(_sweep(painter.pieces), closeTo(v, 1e-9), reason: 'v=$v');
       }
     });
 
@@ -342,7 +280,9 @@ void main() {
             .map((e) => e.painter)
             .whereType<StageRing>()
             .single;
-        expect(_sweep(painter.pieces), closeTo(v, 1e-9), reason: 'v=$v');
+        expect(painter.arcs.fold(0.0, (a, e) => a + e.fraction),
+            closeTo(v, 1e-9),
+            reason: 'v=$v');
       }
     });
 
@@ -369,6 +309,22 @@ void main() {
         expect(alpha(imgs[1.0]!, .2, 37), 0);
         expect(alpha(imgs[1.5]!, .2, 37), greaterThan(200),
             reason: 'the second lap must sit inside the first');
+      });
+    });
+
+    testWidgets('pixels: the draw-in progress t scales every arc, never past '
+        'the value', (tester) async {
+      await tester.runAsync(() async {
+        const tr = Color(0x00000000);
+        Future<List<int>> ring(double v, {double t = 1}) =>
+            raster(Ring(v, Colors.green, tr, t: t, solid: true));
+        expect(await ring(1.5, t: .5), await ring(.75));
+        expect(await ring(1.5, t: 2), await ring(1.5));
+        Future<List<int>> stage(double f, {double t = 1}) => raster(StageRing([
+              RingArc(Colors.blue, f),
+              RingArc(Colors.red, f),
+            ], tr, t: t));
+        expect(await stage(.8, t: .5), await stage(.4));
       });
     });
 
@@ -606,6 +562,326 @@ void main() {
           .shouldRepaint(base), isTrue);
     });
   });
+
+  group('stage joins, lap boundaries and small rings (pixel probes)', () {
+  const a = Color(0xFF0000FF);
+  const b = Color(0xFFFF0000);
+  const bg = Color(0xFFFF00FF);
+  const none = Color(0x00000000);
+  const side = 200;
+  const w = 20.0;
+  const ringR0 = 100 - w / 2;
+
+  Future<ByteData> raster(CustomPainter p, {int px = side}) async {
+    final rec = ui.PictureRecorder();
+    p.paint(Canvas(rec), Size(px.toDouble(), px.toDouble()));
+    final img = await rec.endRecording().toImage(px, px);
+    return (await img.toByteData())!;
+  }
+
+  List<int> px(ByteData d, double x, double y, {int px = side}) {
+    final i = (y.floor() * px + x.floor()) * 4;
+    return [for (var k = 0; k < 4; k++) d.getUint8(i + k)];
+  }
+
+  List<int> polar(ByteData d, double u, double r) =>
+      px(d, 100 + r * sin(2 * pi * u), 100 - r * cos(2 * pi * u));
+
+  bool isColour(List<int> c, Color k) =>
+      c[3] > 200 &&
+      (c[0] - (k.r * 255)).abs() < 40 &&
+      (c[1] - (k.g * 255)).abs() < 40 &&
+      (c[2] - (k.b * 255)).abs() < 40;
+
+    const g = SpiralGeometry(w);
+
+    testWidgets('separator halos never cut a hole in the clockwise neighbour',
+        (tester) async {
+      await tester.runAsync(() async {
+        final d = await raster(StageRing(const [
+          RingArc(a, 1.5),
+          RingArc(b, .5),
+        ], none, stroke: w, background: bg));
+        // B's centre-line just clockwise of A's end (inside A's old halo).
+        for (final u in [.5228, .53, .56, .6, .8]) {
+          final c = polar(d, u, g.radiusAt(1 + u, ringR0));
+          expect(isColour(c, b), isTrue, reason: 'u=$u px=$c');
+        }
+      });
+    });
+
+    testWidgets('a segment ending exactly on a lap boundary keeps its round cap '
+        'over the neighbour', (tester) async {
+      await tester.runAsync(() async {
+        final d = await raster(StageRing(const [
+          RingArc(a, 1.0),
+          RingArc(b, .5),
+        ], none, stroke: w, background: bg));
+        // A ends at 12 o'clock. Its disc (r 10) covers (105,12), which B's lap-1
+        // band starts under; the cap must be on top.
+        expect(isColour(px(d, 105, 12), a), isTrue, reason: px(d, 105, 12).toString());
+        expect(isColour(px(d, 100, 16), a), isTrue);
+        // Away from the cap B is on top.
+        expect(isColour(polar(d, .3, g.radiusAt(1.3, ringR0)), b), isTrue);
+      });
+    });
+
+    testWidgets('full-circle seam: the last segment\'s round end is visible over '
+        'the first segment\'s start', (tester) async {
+      await tester.runAsync(() async {
+        final d = await raster(StageRing(const [
+          RingArc(a, .5),
+          RingArc(b, .5),
+        ], none, stroke: w, background: bg));
+        // B ends at 12 o'clock; its disc covers (105,12) clockwise of the seam.
+        expect(isColour(px(d, 105, 12), b), isTrue, reason: px(d, 105, 12).toString());
+        // The first segment's own start is square: well clockwise it is A.
+        expect(isColour(polar(d, .1, ringR0), a), isTrue);
+      });
+    });
+
+    group('small rings saturate', () {
+      const small = SpiralGeometry(3);
+      const r0 = 10 - 1.5;
+
+      test('saturationLaps: the lap after which every lap looks the same', () {
+        // Hold radius of lap L is r0 - 2.25 L; the floor is 4.5: lap 2 sits on it.
+        expect(small.saturationLaps(r0), 3);
+        expect(g.saturationLaps(ringR0), 5); // 90 - 15 L <= 30 -> L = 4 -> 5 laps
+        // A ring too small to inset at all is one lap.
+        expect(const SpiralGeometry(10).saturationLaps(12), 1);
+      });
+
+      testWidgets('1000% builds a bounded number of paths, same as the '
+          'saturation point', (tester) async {
+        Ring ring(double v) => Ring(v, a, none,
+            stroke: 3, solid: true, background: bg);
+        int paths(double v) {
+          final c = _Count();
+          ring(v).paint(c, const Size(20, 20));
+          return c.paths;
+        }
+
+        expect(paths(3.0), greaterThan(paths(1.0)),
+            reason: 'extra laps are extra bands');
+        expect(paths(200), lessThanOrEqualTo(paths(3.0)));
+        expect(paths(200), lessThan(30));
+        expect(paths(10), paths(3.0));
+        await tester.runAsync(() async {
+          final sat = await raster(ring(3.0), px: 20);
+          final one = await raster(ring(1.0), px: 20);
+          expect(listEquals(sat.buffer.asUint8List(), one.buffer.asUint8List()),
+              isFalse,
+              reason: 'the saturated picture is a spiral, not one flat lap');
+          // Radius 5 (u = .3, 20 px) is inside the saturated laps and outside
+          // lap 0's band (7..10): only a spiral paints it.
+          int a(ByteData d) => px(d, 10 + 5 * sin(2 * pi * .3),
+              10 - 5 * cos(2 * pi * .3), px: 20)[3];
+          expect(a(one), 0);
+          expect(a(sat), greaterThan(200));
+          for (final v in [5.0, 10.0, 200.0]) {
+            final d = await raster(ring(v), px: 20);
+            expect(d.buffer.asUint8List(), sat.buffer.asUint8List(),
+                reason: 'v=$v');
+          }
+        });
+      });
+
+      test('the geometry still reports the value unclamped', () {
+        expect(SpiralGeometry(3).pieces([10]).last.to, 10.0);
+      });
+    });
+  });
+
+  group('separator line and single-composite translucency (pixel probes)', () {
+  const green = Color(0xFF00AA00);
+  const bg = Color(0xFFFF00FF);
+  const none = Color(0x00000000);
+
+  Future<ByteData> raster(CustomPainter p, int px) async {
+    final rec = ui.PictureRecorder();
+    p.paint(Canvas(rec), Size(px.toDouble(), px.toDouble()));
+    final img = await rec.endRecording().toImage(px, px);
+    return (await img.toByteData())!;
+  }
+
+  List<int> at(ByteData d, int px, double u, double r) {
+    final x = (px / 2 + r * sin(2 * pi * u)).floor().clamp(0, px - 1);
+    final y = (px / 2 - r * cos(2 * pi * u)).floor().clamp(0, px - 1);
+    final i = (y * px + x) * 4;
+    return [for (var k = 0; k < 4; k++) d.getUint8(i + k)];
+  }
+
+  bool magenta(List<int> c) =>
+      c[3] > 100 && c[0] > 200 && c[2] > 200 && c[1] < 80;
+
+    testWidgets('20 px / stroke 3 ring at 500%: no empty or background pixel '
+        'between the outer edge and the innermost lap', (tester) async {
+      await tester.runAsync(() async {
+        final d = await raster(
+            Ring(5.0, green, none, stroke: 3, solid: true, background: bg),
+            20);
+        for (var k = 0; k < 12; k++) {
+          final u = k / 12 + .02;
+          double? inner;
+          for (var r = 1.5; r < 10; r += .25) {
+            if (at(d, 20, u, r)[3] > 200) {
+              inner = r;
+              break;
+            }
+          }
+          expect(inner, isNotNull, reason: 'u=$u');
+          // A flat ring's innermost pixel is lap 0's inner edge (~7).
+          expect(inner!, lessThan(6), reason: 'u=$u: no inner laps');
+          for (var r = inner + .5; r < 8.8; r += .25) {
+            final c = at(d, 20, u, r);
+            expect(c[3], greaterThan(200), reason: 'gap at u=$u r=$r $c');
+            expect(magenta(c), isFalse, reason: 'separator at u=$u r=$r');
+          }
+        }
+      });
+    });
+
+    testWidgets('200 px / stroke 20: the separator is present and at most '
+        '1.5 px wide', (tester) async {
+      await tester.runAsync(() async {
+        const g = SpiralGeometry(20);
+        final d = await raster(
+            Ring(1.3, green, none, stroke: 20, solid: true, background: bg),
+            200);
+        for (final u in [.15, .2, .25]) {
+          final edge = 90 - g.inset(1 + u) + 10;
+          // Width = sum of the magenta share (the red channel; the ring is
+          // green) along the ray, so antialiased edge pixels count fractionally.
+          var w = 0.0;
+          for (var r = edge - 4; r < edge + 4; r += .1) {
+            w += at(d, 200, u, r)[0] / 255 * .1;
+          }
+          expect(w, greaterThan(.6), reason: 'u=$u: no separator');
+          expect(w, lessThanOrEqualTo(1.8), reason: 'u=$u width $w');
+        }
+      });
+    });
+
+    test('separator width scales with stroke and vanishes on tiny rings', () {
+      expect(kSpiralSeparator, 1.5);
+      expect(spiralSeparatorWidth(20), closeTo(1.5, 1e-9));
+      expect(spiralSeparatorWidth(40), closeTo(1.5, 1e-9));
+      expect(spiralSeparatorWidth(14), closeTo(1.05, 1e-9));
+      expect(spiralSeparatorWidth(10), closeTo(.75, 1e-9));
+      expect(spiralSeparatorWidth(3), 0);
+      expect(spiralSeparatorWidth(6), 0);
+    });
+
+    // Round 5: a gradient ring is pre-blended against `background` and drawn
+    // fully opaque, with ordinary discs and bands. No cap subtraction, so no
+    // crack at the join and the 100% end cap is back.
+
+    testWidgets('gradient ring at 66%: start and end caps blend into the band '
+        'with the same colour (once)', (tester) async {
+      await tester.runAsync(() async {
+        final d = await raster(
+            Ring(.66, green, none, stroke: 20, background: bg), 200);
+        int red(double u, double r) => at(d, 200, u, r)[0];
+        expect((red(.008, 90) - red(.05, 90)).abs(), lessThan(16),
+            reason: 'start cap overlap vs band');
+        expect((red(.99, 90) - red(.05, 90)).abs(), lessThan(24),
+            reason: 'cap-only side vs band');
+        expect((red(.655, 90) - red(.6, 90)).abs(), lessThan(16),
+            reason: 'end cap overlap vs band');
+      });
+    });
+
+    for (final v in [.66, 1.3]) {
+      testWidgets('gradient ring at ${(v * 100).round()}%: no crack along the '
+          'cap/band joins', (tester) async {
+        await tester.runAsync(() async {
+          const g = SpiralGeometry(20);
+          final d = await raster(
+              Ring(v, green, none, stroke: 20, background: bg), 200);
+          // Probes chosen from the geometry alone (never from what was drawn):
+          // along the tangent at offset `a` px and radially at `dr` px from the
+          // cap centre. Behind the join (a <= 0 at the start, a <= 0 at the end)
+          // is band; ahead of it only the disc covers, so it counts as interior
+          // within 6.5 px of the centre. Every such pixel must be fully opaque and
+          // match its horizontal neighbours (a crack is a lighter or more
+          // transparent hairline).
+          final end = v % 1;
+          const half = 10.0, reach = 6.5;
+          final probes = <(double, double)>[];
+          void region(double centreU, double radius, {required bool bandBehind}) {
+            for (var a = -7.0; a <= 7; a += 1) {
+              for (var dr = -6.0; dr <= 6; dr += 1) {
+                final behind = bandBehind ? a <= 0 : a >= 0;
+                final inDisc = sqrt(a * a + dr * dr) <= reach;
+                if ((behind && dr.abs() <= half - 3) || inDisc) {
+                  probes.add((centreU + a / (2 * pi * radius), radius + dr));
+                }
+              }
+            }
+          }
+
+          region(0, 90, bandBehind: false); // start cap; the band runs ahead
+          region(end, g.radiusAt(v, 90).toDouble(), bandBehind: true);
+          expect(probes.length, greaterThan(100));
+          for (final (u, rr) in probes) {
+            final c = at(d, 200, u, rr);
+            expect(c[3], 255, reason: 'transparent join pixel at u=$u r=$rr');
+            final x = (100 + rr * sin(2 * pi * u)).floor();
+            final y = (100 - rr * cos(2 * pi * u)).floor();
+            for (final nx in [x - 1, x + 1]) {
+              final i = (y * 200 + nx) * 4;
+              expect(d.getUint8(i + 3), 255,
+                  reason: 'transparent neighbour of u=$u r=$rr');
+              for (var ch = 0; ch < 3; ch++) {
+                expect((d.getUint8(i + ch) - c[ch]).abs(), lessThan(40),
+                    reason: 'crack at u=$u r=$rr ch=$ch');
+              }
+            }
+          }
+          // Inside both band and cap the pixel is opaque and not background.
+          for (final (u, r) in [(.02, 90.0), (end - .02, g.radiusAt(v, 90))]) {
+            final c = at(d, 200, u, r);
+            expect(c[3], 255, reason: 'u=$u');
+            expect(c[0] < 200, isTrue, reason: 'background shows at u=$u $c');
+          }
+        });
+      });
+    }
+
+    testWidgets('gradient ring at 100% keeps its round end cap over the start',
+        (tester) async {
+      await tester.runAsync(() async {
+        final d = await raster(
+            Ring(1.0, green, none, stroke: 20, background: bg), 200);
+        // The end disc (full colour) covers (105,12); the start band there is
+        // faint (mostly background pink), so the disc must be on top.
+        final c = at(d, 200, 5 / (2 * pi * 90), 88);
+        expect(c[0], lessThan(40), reason: 'end cap missing: $c');
+        // And it is round: the disc reaches just past the straight seam but not
+        // beyond its radius.
+        expect(at(d, 200, 14 / (2 * pi * 90), 90)[0], greaterThan(60));
+      });
+    });
+
+    // Callers that pass no `background` (Readiness, Coach figures, Live, the
+    // gallery) get a translucent fade. Bands and caps must still composite ONCE:
+    // an overlap may not be denser than the band beside it.
+    testWidgets('gradient ring with NO background at 66%: cap overlaps are as '
+        'translucent as the band beside them', (tester) async {
+      await tester.runAsync(() async {
+        final d = await raster(Ring(.66, green, none, stroke: 20), 200);
+        int alpha(double u, double r) => at(d, 200, u, r)[3];
+        final band = alpha(.05, 90);
+        expect(band, inInclusiveRange(120, 200),
+            reason: 'the 55%+ fade is translucent, not opaque');
+        expect((alpha(.008, 90) - band).abs(), lessThan(24),
+            reason: 'start cap over the band: ${alpha(.008, 90)} vs $band');
+        expect((alpha(.655, 90) - alpha(.6, 90)).abs(), lessThan(24),
+            reason: 'end cap over the band: ${alpha(.655, 90)} vs ${alpha(.6, 90)}');
+      });
+    });
+  });
 }
 
 class _Discs implements Canvas {
@@ -621,6 +897,14 @@ class _Discs implements Canvas {
     if (p.style == PaintingStyle.fill && p.color.a > 0) n++;
   }
 
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _Count implements Canvas {
+  int paths = 0;
+  @override
+  void drawPath(Path p, Paint paint) => paths++;
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }

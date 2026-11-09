@@ -1035,7 +1035,7 @@ String _recoveryWhy(HomeData d, AppLocalizations? l) {
 }
 
 String _strainWhy(HomeData d, AppLocalizations? l) {
-  String n(num v) => v == v.round() ? '${v.round()}' : v.toStringAsFixed(1);
+  String n(num v) => v == v.round() ? '${v.round()}' : displayFixed(v, 1);
   final t = d.strainTarget;
   final low = t?['low'], high = t?['high'];
   final range =
@@ -1407,7 +1407,7 @@ _RingState _gap(HomeRingKind k, String label, IconData icon, Color color,
       why: whyFromNote(m.note, unit: unit) ??
           (fallbackWhy.isNotEmpty
               ? fallbackWhy
-              : (l?.homeGapNoReason ?? 'No reading.')));
+              : (l?.homeGapNoReason ?? 'No reason recorded.')));
 }
 
 /// The scored night split by stage, in the hypnogram's own colours — or null
@@ -1466,10 +1466,6 @@ class _Dial extends StatelessWidget {
     ]);
   }
 }
-
-/// The default: three across, the number under the ring rather than inside it.
-/// Inside is where a duration overflows its own circle at the first
-/// accessibility step, and nothing about "7h 45m" gets shorter.
 
 /// The default: three across, the number under the ring rather than inside it.
 /// Inside is where a duration overflows its own circle at the first
@@ -1574,21 +1570,6 @@ class _CaptionSpec {
     return ok;
   }
 
-  double height(String text, double width) {
-    final tp = TextPainter(
-      text: TextSpan(text: text, style: style),
-      textAlign: align,
-      textDirection: dir,
-      textScaler: scaler,
-      locale: locale,
-      textWidthBasis: basis,
-      textHeightBehavior: heightBehavior,
-    )..layout(maxWidth: width);
-    final h = tp.height;
-    tp.dispose();
-    return h;
-  }
-
   Text build(String text, {bool bounded = true}) => Text(text,
       style: style,
       textAlign: align,
@@ -1603,10 +1584,7 @@ class _RingText extends StatelessWidget {
   const _RingText(this.r, {required this.align});
 
   @override
-  Widget build(BuildContext c) => LayoutBuilder(
-      builder: (c, box) => _build(c, box.maxWidth));
-
-  Widget _build(BuildContext c, double colWidth) {
+  Widget build(BuildContext c) {
     final p = P.of(c);
     final cross = align == TextAlign.center
         ? CrossAxisAlignment.center
@@ -1630,7 +1608,7 @@ class _RingText extends StatelessWidget {
         if (r.sub.isNotEmpty)
           LayoutBuilder(builder: (c, box) {
                   final l = AppLocalizations.of(c);
-                  // The two-line bound is the centred column's; the big-text
+                  // The three-line bound is the centred column's; the big-text
                   // row has the width it needs and wraps without a limit.
                   final spec = _CaptionSpec.of(c, p.ink3, align,
                       align == TextAlign.center ? 3 : null);
@@ -1671,24 +1649,6 @@ SleepStageMin? sleepStagesOf(Map<String, dynamic> night) {
   return s.deep == null && s.rem == null && s.light == null && s.awake == null
       ? null
       : s;
-}
-
-/// The learned sleep need and the coach bedtime out of `getInsights()`, shared
-/// by every loader so a dated view cannot forget them (it did, and drew an
-/// empty bar under a night that had a need).
-({Metric need, Metric bedtime}) sleepCoachOf(Map<String, dynamic> insights) {
-  final coach = insights['sleep_coach'];
-  final needEnv = coach is Map ? coach['need'] : null;
-  final bedEnv = coach is Map ? coach['bedtime'] : null;
-  final needSec = envValue(needEnv)?['need_sec'] as num?;
-  return (
-    // sleep_coach.need is the COMPUTED need. `sleep.need_min` is a hardcoded
-    // 480 and must never be shown as "your sleep need".
-    need: envMetric(needEnv, needSec == null ? null : needSec / 60,
-        unit: 'min'),
-    bedtime: envMetric(
-        bedEnv, envValue(bedEnv)?['bedtime_min_of_day'] as num?),
-  );
 }
 
 class HomeData {
@@ -1833,16 +1793,10 @@ class HomeData {
     final absentDiag = readiness.value != null
         ? null
         : await LocalDb.readinessAbsentDiag(date);
-    // The learned need: the day's own when the night carries one, otherwise
-    // the current one off the coach, like [load]. A failed read leaves it
-    // absent, and the ring then shows the labelled default, never an invented
-    // need.
-    var need = metricOf(sleep['need_min']);
-    if (need.value == null) {
-      try {
-        need = sleepCoachOf(await repo.getInsights()).need;
-      } catch (_) {}
-    }
+    // The learned need comes with the night: getDaySleepV2 reads the same
+    // sleep_coach.need (same staleness gate) as getInsights. Absent stays
+    // absent: the ring shows the labelled default, never an invented need.
+    final need = metricOf(sleep['need_min']);
     return HomeData(
       name: profile['name']?.toString(),
       dayId: date,
@@ -2572,7 +2526,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                   // is what actually answers it.
                   : shortfall ??
                       whyFromNote(d.readiness.note) ??
-                      (l?.homeReadinessNoReason ?? 'No reading.'),
+                      (l?.homeReadinessNoReason ?? 'No reason recorded.'),
               fix: l?.homeSeeWhatWasMissing ?? 'See what was missing',
               icon: LucideIcons.batteryCharging,
               onFix: () =>

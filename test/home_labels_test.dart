@@ -161,8 +161,8 @@ void main() {
     test('WHY: the English strings are the plain ones', () {
       expect(l.homeCoachSetUpChip, 'Set up the coach');
       expect(l.homeDbRebuiltTitle, 'Your database was rebuilt');
-      expect(l.homeGapNoReason, 'No reading.');
-      expect(l.homeReadinessNoReason, 'No reading.');
+      expect(l.homeGapNoReason, 'No reason recorded.');
+      expect(l.homeReadinessNoReason, 'No reason recorded.');
       expect(l.homeInsightsRebuildingTitle, 'Updating your trends');
       expect(l.homeInsightsRebuildingAlgoVersion,
           'Updating after the latest app update.');

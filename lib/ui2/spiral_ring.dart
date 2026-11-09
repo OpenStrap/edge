@@ -177,7 +177,7 @@ void paintSpiral(Canvas canvas, Size size,
   Color colourAt(SpiralPiece p, double s) {
     final c = colors[p.seg];
     if (solid) return c;
-    final a = .55 + .45 * gradientAt(s, total);
+    final a = .55 + .45 * SpiralGeometry.gradientAt(s, total);
     final faded = c.withValues(alpha: c.a * a);
     return background == null ? faded : Color.alphaBlend(faded, background);
   }
@@ -268,5 +268,3 @@ void paintSpiral(Canvas canvas, Size size,
   if (once) canvas.restore();
   canvas.restore();
 }
-
-double gradientAt(double s, double total) => SpiralGeometry.gradientAt(s, total);

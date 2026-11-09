@@ -46,6 +46,7 @@ import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/state/clock_format.dart' show formatClockOf;
+import 'package:openstrap_edge/state/locale_controller.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
@@ -152,8 +153,6 @@ Map<String, Offset> _ringPos(WidgetTester t) => {
 
 Map<String, dynamic> _drv(String label, double c, String detail) =>
     {'label': label, 'contribution': c, 'detail': detail};
-Map<String, dynamic> _z(String l, double c, double z) =>
-    _drv(l, c, 'oriented robust-z (median+MAD)=$z');
 const _drag = 'dragging your score down';
 const _lift = 'lifting your score';
 
@@ -336,6 +335,21 @@ void main() {
           findsOneWidget);
     });
 
+    testWidgets('WHY: the strain and its target range share one decimal '
+        'separator (de)', (t) async {
+      final c = LocaleController.seed('de')..useForPresentation();
+      addTearDown(c.dispose);
+      await _rings(
+          t,
+          _data(
+              strain: 15.2,
+              target: const {'value': 12, 'low': 10.5, 'high': 14.5}),
+          locale: const Locale('de'));
+      final body = _txt(t, _body('strain'));
+      expect(body, contains('15,2'));
+      expect(body, contains('10,5–14,5'));
+    });
+
     testWidgets('WHY: panels order by how pressing, not by ring order',
         (t) async {
       await _rings(t, _rec2Sleep3);
@@ -407,32 +421,19 @@ void main() {
     });
 
     testWidgets(
-        'WHY: readiness_glassbox drivers belong to the percentile score, not '
-        'to the composite ring: a divergent percentile is never blamed',
-        (t) async {
-      // The ring shows the composite (22). The rollup's percentile score says
-      // 80 and its drivers drag: a different calculation, so no attribution.
-      final d = await t.runAsync(() => HomeData.load(_Repo([
+        'WHY: HomeData.load ignores readiness_glassbox, a different score from '
+        'the composite ring, whatever its drivers or rollup age', (t) async {
+      final withBox = await t.runAsync(() => HomeData.load(_Repo([
             _drv('hrv', -6.2, _drag),
             _drv('rhr', 3.1, _lift),
-            _drv('temp', -1.4, _drag),
-          ], score: 80.0)));
-      await _rings(t, d!);
+          ], score: 80.0, rollupDay: '2026-09-29')));
+      final without = await t.runAsync(() => HomeData.load(_Repo(const [])));
+      expect(withBox!.readiness.value, 22);
+      expect(withBox.readiness.value, without!.readiness.value);
+      expect(withBox.strain.value, without.strain.value);
+      expect(withBox.sleepMin.value, without.sleepMin.value);
+      await _rings(t, withBox);
       expect(_txt(t, _body('recovery')), 'Recovery 22 of 100');
-      expect(find.textContaining('Pulling it down'), findsNothing);
-      expect(find.textContaining('Biggest drag'), findsNothing);
-    });
-
-    testWidgets(
-        'WHY: a usable rollup up to 7 days old is not evidence for today\'s '
-        'ring', (t) async {
-      final d = await t.runAsync(() => HomeData.load(_Repo([
-            _z('hrv', -6.0, -2.0),
-            _z('rhr', -3.0, -1.0),
-          ], rollupDay: '2026-09-29')));
-      await _rings(t, d!);
-      expect(_txt(t, _body('recovery')), 'Recovery 22 of 100');
-      expect(find.textContaining('Biggest drag'), findsNothing);
     });
   });
 

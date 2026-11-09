@@ -3327,7 +3327,6 @@
   },
   "homeInsightsNoVersionStamp": "Тренды обновляются. После синхронизации это занимает около минуты.",
   "homeSyncBand": "Синхронизировать браслет",
-  "homeWhyLabel": "Почему?",
   "homeCalibrating": "Изучаем ваш обычный уровень",
   "homeCalibratingNights": "{have} из {need} ночей",
   "@homeCalibratingNights": {
@@ -3351,7 +3350,7 @@
       }
     }
   },
-  "homeGapNoReason": "Нет показания.",
+  "homeGapNoReason": "Причина не указана.",
   "homeRingRecovery": "Восстановление",
   "homeRingStrain": "Нагрузка",
   "homeRingSleep": "Сон",
@@ -3456,16 +3455,6 @@
     }
   },
   "homeStrainOf21": "из 21",
-  "homeSleepNoTarget": "Цель пока не задана",
-  "homeOfSpan": "из {duration}",
-  "@homeOfSpan": {
-    "placeholders": {
-      "duration": {
-        "type": "String",
-        "example": "7h 45m"
-      }
-    }
-  },
   "homeLoadFailedTitle": "Не удалось прочитать сегодняшний день",
   "homeLoadFailedBody": "Сохранённый день не загрузился. Ничего не удалено: это ошибка чтения, а не отсутствие данных.",
   "homeDayLoadFailedTitle": "Не удалось прочитать {day}",
@@ -3523,7 +3512,7 @@
       }
     }
   },
-  "homeReadinessNoReason": "Нет показания.",
+  "homeReadinessNoReason": "Причина не указана.",
   "homeSeeWhatWasMissing": "Посмотреть, чего не хватило",
   "homeAtAGlance": "Краткий обзор",
   "homeTodaysPlan": "План на сегодня",
@@ -7518,7 +7507,7 @@
       }
     }
   },
-  "homeCoachSetUpChip": "Настроить коуча",
+  "homeCoachSetUpChip": "Настроить тренера",
   "profileSetupCycleSub": "Отмечайте менструацию в разделе «Здоровье». Это можно изменить позже.",
   "homeRecoverySleeping": "Сон…",
   "homeRecoveryAfterWake": "Восстановление оценивается после пробуждения.",

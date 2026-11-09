@@ -7283,10 +7283,6 @@
   "@homeSyncBand": {
     "description": "Call-to-action button label: sync the band."
   },
-  "homeWhyLabel": "เพราะอะไร?",
-  "@homeWhyLabel": {
-    "description": "Short label introducing the readiness driver list on Home."
-  },
   "homeCalibrating": "กำลังเรียนรู้ช่วงปกติของคุณ",
   "@homeCalibrating": {
     "description": "Ring value shown while a metric is still building its baseline."
@@ -7315,7 +7311,7 @@
       }
     }
   },
-  "homeGapNoReason": "ไม่มีค่าที่อ่านได้",
+  "homeGapNoReason": "ไม่มีการบันทึกเหตุผล",
   "@homeGapNoReason": {
     "description": "Fallback reason shown when a ring is empty and nothing explains why."
   },
@@ -7461,20 +7457,6 @@
   "@homeStrainOf21": {
     "description": "Strain ring subtitle: out of the fixed 21-point scale."
   },
-  "homeSleepNoTarget": "ยังไม่มีเป้าหมาย",
-  "@homeSleepNoTarget": {
-    "description": "Sleep ring subtitle when no computed sleep-need target exists yet."
-  },
-  "homeOfSpan": "จาก {duration}",
-  "@homeOfSpan": {
-    "description": "Sleep ring subtitle: duration measured against a computed sleep-need target.",
-    "placeholders": {
-      "duration": {
-        "type": "String",
-        "example": "7h 45m"
-      }
-    }
-  },
   "homeLoadFailedTitle": "อ่านข้อมูลวันนี้ไม่ได้",
   "@homeLoadFailedTitle": {
     "description": "Title of the card shown when today's data failed to load from the database."
@@ -7599,7 +7581,7 @@
       }
     }
   },
-  "homeReadinessNoReason": "ไม่มีค่าที่อ่านได้",
+  "homeReadinessNoReason": "ไม่มีการบันทึกเหตุผล",
   "@homeReadinessNoReason": {
     "description": "Fallback body of the readiness-not-scored card when no reason is recorded."
   },

@@ -618,8 +618,6 @@ class Ring extends CustomPainter {
   Ring(this.v, this.color, this.track,
       {this.stroke = 10, this.t = 1, this.solid = false, this.background});
 
-  List<SpiralPiece> get pieces => SpiralGeometry(stroke).pieces([v * t.clamp(0.0, 1.0)]);
-
   @override
   void paint(Canvas cv, Size s) {
     paintSpiral(cv, s, stroke: stroke, track: track, colors: [color],
@@ -662,13 +660,15 @@ class StageRing extends CustomPainter {
   StageRing(this.arcs, this.track,
       {this.stroke = 10, this.t = 1, this.background});
 
-  List<SpiralPiece> get pieces => SpiralGeometry(stroke).pieces(arcs.map((a) => a.fraction * t.clamp(0.0, 1.0)).toList());
-
   @override
   void paint(Canvas cv, Size s) {
-    paintSpiral(cv, s, stroke: stroke, track: track,
-      colors: arcs.map((a) => a.color).toList(), fractions: arcs.map((a) => a.fraction).toList(), t: t,
-      background: background);
+    paintSpiral(cv, s,
+        stroke: stroke,
+        track: track,
+        colors: arcs.map((a) => a.color).toList(),
+        fractions: arcs.map((a) => a.fraction).toList(),
+        t: t,
+        background: background);
   }
 
   @override
