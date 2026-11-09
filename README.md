@@ -1,8 +1,9 @@
 > [!WARNING]
 > **WHOOP users: do not reconnect to the official WHOOP app.**
 >
-> If you want to keep using OpenStrap or another open-source app, do not connect
-> your band to the WHOOP app again. It can install firmware updates automatically.
+> If you use OpenStrap or another open-source app, or plan to switch to one later,
+> do not connect your band to the WHOOP app again. It can install firmware updates
+> automatically.
 > Uninstall or disable the WHOOP app to prevent it from updating your band.
 >
 > Users report blocked data access on WHOOP 5.0 / MG firmware **50.43.1.0** and
@@ -63,7 +64,9 @@ unknown.** October 19 establishes that 50.43.1.0 was available by then; October 
 is the page date, not a confirmed firmware release date.
 
 If your band has already updated, the version alone does not prove it is locked.
-These reports do not establish a reliable downgrade or an OpenStrap-side fix.
+If you plan to switch to OpenStrap later, keep your band off the official WHOOP
+app in the meantime. We are working on a solution, but no fix is available yet.
+These reports do not establish a reliable downgrade.
 
 ## Support
 
