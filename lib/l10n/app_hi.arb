@@ -2938,5 +2938,7 @@
         "type": "int"
       }
     }
-  }
+  },
+  "reportContactLabel": "संपर्क (वैकल्पिक)",
+  "reportContactHint": "ईमेल या Discord, केवल अगर आप जवाब चाहते हैं"
 }
