@@ -204,6 +204,119 @@ void main() {
     await back(tester);
     expect(find.text('Today count 1'), findsOneWidget);
   });
+
+  testWidgets(
+    'an external selection switch keeps visited tab state alive',
+    (tester) async {
+      // A notification deep link drives AppShell through `selection` rather
+      // than a re-key: recreating the shell would wipe the IndexedStack state.
+      final selection = ValueNotifier<ShellDomain>(ShellDomain.today);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(
+            Brightness.light,
+          ).copyWith(platform: TargetPlatform.android),
+          home: AppShell(
+            initial: ShellDomain.today,
+            selection: selection,
+            builder: (_, domain) => _TestTab(domain: domain),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('increment Today'));
+      await tester.pump();
+
+      selection.value = ShellDomain.activity;
+      await tester.pumpAndSettle();
+      expect(find.text('screen Activity'), findsOneWidget);
+      await tester.tap(find.text('increment Activity'));
+      await tester.pump();
+
+      selection.value = ShellDomain.today;
+      await tester.pumpAndSettle();
+      expect(find.text('Today count 1'), findsOneWidget);
+      selection.value = ShellDomain.activity;
+      await tester.pumpAndSettle();
+      expect(find.text('Activity count 1'), findsOneWidget);
+    },
+  );
+
+  testWidgets('swapping the selection notifier re-syncs to its current value', (
+    tester,
+  ) async {
+    final notified = <ShellDomain>[];
+    Widget shell(ValueNotifier<ShellDomain>? s) => MaterialApp(
+          theme: buildTheme(
+            Brightness.light,
+          ).copyWith(platform: TargetPlatform.android),
+          home: AppShell(
+            initial: ShellDomain.today,
+            selection: s,
+            onSelect: notified.add,
+            builder: (_, domain) => _TestTab(domain: domain),
+          ),
+        );
+    final first = ValueNotifier<ShellDomain>(ShellDomain.today);
+    final second = ValueNotifier<ShellDomain>(ShellDomain.activity);
+    await tester.pumpWidget(shell(first));
+    await tester.pumpAndSettle();
+    expect(find.text('screen Today'), findsOneWidget);
+
+    // Same element position, new notifier instance: didUpdateWidget must
+    // move the listener and reconcile to the new value, delivering onSelect
+    // after the frame rather than during the build.
+    await tester.pumpWidget(shell(second));
+    await tester.pumpAndSettle();
+    expect(find.text('screen Activity'), findsOneWidget);
+    expect(notified, [ShellDomain.activity]);
+
+    // The old notifier must no longer drive the shell.
+    first.value = ShellDomain.health;
+    await tester.pumpAndSettle();
+    expect(find.text('screen Activity'), findsOneWidget);
+
+    // Removing the notifier entirely must not throw.
+    await tester.pumpWidget(shell(null));
+    await tester.pumpAndSettle();
+    expect(find.text('screen Activity'), findsOneWidget);
+  });
+
+  testWidgets('a deferred selection is discarded when the notifier moves on', (
+    tester,
+  ) async {
+    final notified = <ShellDomain>[];
+    Widget shell(ValueNotifier<ShellDomain> s) => MaterialApp(
+          theme: buildTheme(
+            Brightness.light,
+          ).copyWith(platform: TargetPlatform.android),
+          home: AppShell(
+            initial: ShellDomain.today,
+            selection: s,
+            onSelect: notified.add,
+            builder: (_, domain) => _TestTab(domain: domain),
+          ),
+        );
+    final first = ValueNotifier<ShellDomain>(ShellDomain.today);
+    final second = ValueNotifier<ShellDomain>(ShellDomain.activity);
+    await tester.pumpWidget(shell(first));
+    await tester.pumpAndSettle();
+
+    // didUpdateWidget schedules the deferred onSelect for Activity; moving
+    // the notifier to Health before the frame ends must win, and the stale
+    // Activity callback must be discarded (onSelect writes back to the
+    // notifier in the real shell, which would flip the tab back).
+    // pumpWidget runs a whole frame, so the move has to be queued ahead of
+    // the shell's own post-frame callback to land between schedule and fire.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => second.value = ShellDomain.health,
+    );
+    await tester.pumpWidget(shell(second));
+    await tester.pumpAndSettle();
+    expect(find.text('screen Health'), findsOneWidget);
+    expect(notified, isNot(contains(ShellDomain.activity)));
+    expect(notified, contains(ShellDomain.health));
+  });
 }
 
 class _TestTab extends StatefulWidget {
