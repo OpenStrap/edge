@@ -2904,5 +2904,7 @@
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",
     "placeholders": {"n": {"type": "int"}}
-  }
+  },
+  "reportContactLabel": "Contacto (opcional)",
+  "reportContactHint": "Correo o Discord, solo si quieres una respuesta"
 }
