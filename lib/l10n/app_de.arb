@@ -811,7 +811,7 @@
   "journalComposeNotEnoughEntriesTitle": "Nicht genug Einträge für einen Verlauf",
   "journalComposeNotEnoughEntriesBody": "Die Linie ist ein Sieben-Tage-Durchschnitt deiner Einträge und braucht daher mindestens zwei Tage. Lücken dazwischen werden nicht aufgefüllt.",
   "journalComposeSevenDayTrend": "Sieben-Tage-Trend",
-  "journalComposeTrendFootnote": "Von dir eingegeben. Tage ohne Eintrag bleiben leer.",
+  "journalComposeTrendFootnote": "Von dir oder deiner Waage eingegeben. Tage ohne Eintrag bleiben leer.",
   "journalComposeWeightTrendExplainer": "Von dir oder deiner Waage eingetragen – das Band misst kein Gewicht. Angezeigt wird ein Sieben-Tage-Durchschnitt, denn allein durch Wasser und Essen schwankt die Waage um ein bis zwei Kilo, und die Rohwerte würden das wie eine echte Veränderung aussehen lassen. {count, plural, one{{count} Tag eingetragen.} other{{count} Tage eingetragen.}}",
   "nutritionTabToday": "Heute",
   "nutritionTabWeek": "Woche",
