@@ -1704,8 +1704,8 @@ class _LiveStrengthState extends State<LiveStrength> {
             l?.activityLiveWeightLabel ?? 'WEIGHT',
             bodyweight ? (l?.activityLiveBwAbbrev ?? 'BW') : _fmt(kg, u),
             bodyweight ? '' : (u?.weightUnit ?? 'kg'),
-            () => setState(() => kg = _step(kg, -stepKg, u)),
-            () => setState(() => kg = _step(kg, stepKg, u)),
+            () => _stepLoad(c, -stepKg, u),
+            () => _stepLoad(c, stepKg, u),
             onTapValue: () => _editWeight(c, u)),
         const SizedBox(height: S.x3),
         Row(
@@ -1743,8 +1743,8 @@ class _LiveStrengthState extends State<LiveStrength> {
             l?.activityLiveRepsLabel ?? 'REPS',
             '$reps',
             '',
-            () => setState(() => reps = (reps - 1).clamp(1, 200)),
-            () => setState(() => reps = (reps + 1).clamp(1, 200)),
+            () => _stepReps(c, -1),
+            () => _stepReps(c, 1),
             onTapValue: () => _editReps(c)),
         const SizedBox(height: S.x5),
         Align(
@@ -1901,91 +1901,83 @@ class _LiveStrengthState extends State<LiveStrength> {
     _persist();
   }
 
-  static double _step(double val, double delta, UnitsController? u) {
-    if (delta == 0) return val;
-    if (u != null && u.isImperial) {
-      final currentLb = u.weightValue(val);
-      final stepLb = delta > 0 ? 5.0 : -5.0;
-      final nextLb = (currentLb + stepLb).clamp(0.0, 1100.0);
-      return u.weightToKg('$nextLb') ?? (val + delta).clamp(0.0, 500.0);
+  /// Clamped by [stepStrengthLoad]; says so when a press hits a limit.
+  void _stepLoad(BuildContext c, double delta, UnitsController? u) {
+    final next = stepStrengthLoad(kg, delta, u);
+    if (delta != 0 && (delta > 0 ? next <= kg : next >= kg)) {
+      _limitHint(c, strengthLoadRangeText(c, u));
     }
-    final next = (val + delta).clamp(0.0, 500.0);
-    return double.parse(next.toStringAsFixed(2));
+    setState(() => kg = next);
   }
 
-  Future<void> _editWeight(BuildContext c, UnitsController? u) async {
-    final imperial = u?.isImperial ?? false;
-    final currentText = bodyweight ? '' : _fmt(kg, u);
-    final ctrl = TextEditingController(text: currentText);
+  void _stepReps(BuildContext c, int delta) {
+    final next = (reps + delta).clamp(1, kMaxStrengthReps);
+    if (next == reps) _limitHint(c, uiText(c, 'Must be 1–200 reps'));
+    setState(() => reps = next);
+  }
+
+  void _limitHint(BuildContext c, String msg) {
+    HapticFeedback.selectionClick();
+    ScaffoldMessenger.maybeOf(c)
+      ?..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /// One text-field dialog for both weight and reps. [check] returns the value
+  /// to accept or an error to show under the field (never a silent clamp).
+  Future<T?> _numberDialog<T>(
+    BuildContext c, {
+    required String title,
+    required String initial,
+    required bool decimal,
+    String? suffix,
+    String? hint,
+    required ({T? value, String? error}) Function(String text) check,
+  }) async {
+    final ctrl = TextEditingController(text: initial);
     final p = P.of(c);
     final l = AppLocalizations.of(c);
-    final unitLabel = u?.weightUnit ?? 'kg';
     String? errorText;
-
-    final picked = await showDialog<double>(
+    final picked = await showDialog<T>(
       context: c,
       builder: (dc) => StatefulBuilder(
         builder: (ctx, setDialogState) {
           void submit() {
-            final text = ctrl.text.trim();
-            if (text.isEmpty) {
-              setDialogState(() => errorText = uiText(c, 'Enter a value'));
+            final r = check(ctrl.text.trim());
+            if (r.error != null) {
+              setDialogState(() => errorText = r.error);
               return;
             }
-            if (text == currentText) {
-              Navigator.of(dc).pop(kg);
-              return;
-            }
-            final parsed = _parseWeightInput(text, u);
-            if (parsed == null) {
-              setDialogState(() => errorText = uiText(c, 'Invalid number'));
-              return;
-            }
-            if (parsed < 0 || parsed > 500) {
-              setDialogState(() => errorText = imperial
-                  ? uiText(c, 'Must be 0–1100 lb')
-                  : uiText(c, 'Must be 0–500 kg'));
-              return;
-            }
-            Navigator.of(dc).pop(parsed);
+            Navigator.of(dc).pop(r.value);
           }
 
           return AlertDialog(
             backgroundColor: p.card,
-            title: Text(
-              l?.activityLiveWeightLabel ?? 'Weight',
-              style: F.head.copyWith(color: p.ink),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: ctrl,
-                  autofocus: true,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  style: F.body.copyWith(color: p.ink),
-                  cursorColor: p.on(C.purple),
-                  decoration: InputDecoration(
-                    labelText:
-                        '${l?.activityLiveWeightLabel ?? 'Weight'} ($unitLabel)',
-                    labelStyle: F.over.copyWith(color: p.ink3),
-                    hintText: imperial ? '135' : '60',
-                    hintStyle: F.body.copyWith(color: p.ink3),
-                    suffixText: unitLabel,
-                    suffixStyle: F.body.copyWith(color: p.ink3),
-                    errorText: errorText,
-                    enabledBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: p.line),
-                    ),
-                    focusedBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: p.on(C.purple)),
-                    ),
-                  ),
-                  onSubmitted: (_) => submit(),
+            title: Text(title, style: F.head.copyWith(color: p.ink)),
+            content: TextField(
+              controller: ctrl,
+              autofocus: true,
+              keyboardType: decimal
+                  ? const TextInputType.numberWithOptions(decimal: true)
+                  : TextInputType.number,
+              style: F.body.copyWith(color: p.ink),
+              cursorColor: p.on(C.purple),
+              decoration: InputDecoration(
+                labelText: suffix == null ? title : '$title ($suffix)',
+                labelStyle: F.over.copyWith(color: p.ink3),
+                hintText: hint,
+                hintStyle: F.body.copyWith(color: p.ink3),
+                suffixText: suffix,
+                suffixStyle: F.body.copyWith(color: p.ink3),
+                errorText: errorText,
+                enabledBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: p.line),
                 ),
-              ],
+                focusedBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: p.on(C.purple)),
+                ),
+              ),
+              onSubmitted: (_) => submit(),
             ),
             actions: [
               TextButton(
@@ -2010,7 +2002,33 @@ class _LiveStrengthState extends State<LiveStrength> {
         },
       ),
     );
-    ctrl.dispose();
+    // Not disposed: the dialog's exit animation still builds the field after
+    // this returns, and a bare controller holds nothing once the field is gone.
+    return picked;
+  }
+
+  Future<void> _editWeight(BuildContext c, UnitsController? u) async {
+    final currentText = bodyweight ? '' : _fmt(kg, u);
+    final picked = await _numberDialog<double>(
+      c,
+      title: AppLocalizations.of(c)?.activityLiveWeightLabel ?? 'Weight',
+      initial: currentText,
+      decimal: true,
+      suffix: u?.weightUnit ?? 'kg',
+      hint: (u?.isImperial ?? false) ? '135' : '60',
+      check: (text) {
+        if (text.isEmpty) return (value: null, error: uiText(c, 'Enter a value'));
+        if (text == currentText) return (value: kg, error: null);
+        final parsed = u != null ? u.weightToKg(text) : parseTypedNumber(text);
+        if (parsed == null) {
+          return (value: null, error: uiText(c, 'Invalid number'));
+        }
+        if (!strengthLoadInRange(parsed, u)) {
+          return (value: null, error: strengthLoadRangeText(c, u));
+        }
+        return (value: parsed, error: null);
+      },
+    );
     if (!mounted || picked == null) return;
     setState(() {
       kg = picked;
@@ -2018,90 +2036,20 @@ class _LiveStrengthState extends State<LiveStrength> {
     });
   }
 
-  double? _parseWeightInput(String text, UnitsController? u) {
-    final s = text.trim();
-    if (s.isEmpty) return null;
-    if (u != null) {
-      return u.weightToKg(s);
-    }
-    return parseTypedNumber(s);
-  }
-
   Future<void> _editReps(BuildContext c) async {
-    final ctrl = TextEditingController(text: '$reps');
-    final p = P.of(c);
-    final l = AppLocalizations.of(c);
-    String? errorText;
-
-    final picked = await showDialog<int>(
-      context: c,
-      builder: (dc) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-          void submit() {
-            final val = ctrl.text.trim();
-            final n = int.tryParse(val);
-            if (n == null || n < 1 || n > 200) {
-              setDialogState(() => errorText = uiText(c, 'Must be 1–200 reps'));
-              return;
-            }
-            Navigator.of(dc).pop(n);
-          }
-
-          return AlertDialog(
-            backgroundColor: p.card,
-            title: Text(
-              l?.activityLiveRepsLabel ?? 'Reps',
-              style: F.head.copyWith(color: p.ink),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: ctrl,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  style: F.body.copyWith(color: p.ink),
-                  cursorColor: p.on(C.purple),
-                  decoration: InputDecoration(
-                    labelText: l?.activityLiveRepsLabel ?? 'Reps',
-                    labelStyle: F.over.copyWith(color: p.ink3),
-                    errorText: errorText,
-                    enabledBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: p.line),
-                    ),
-                    focusedBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: p.on(C.purple)),
-                    ),
-                  ),
-                  onSubmitted: (_) => submit(),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dc).pop(),
-                child: Text(
-                  l?.actionCancel ?? 'Cancel',
-                  style: F.body.copyWith(color: p.ink2),
-                ),
-              ),
-              TextButton(
-                onPressed: submit,
-                child: Text(
-                  l?.actionDone ?? 'Done',
-                  style: F.body.copyWith(
-                    color: p.on(C.purple),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+    final picked = await _numberDialog<int>(
+      c,
+      title: AppLocalizations.of(c)?.activityLiveRepsLabel ?? 'Reps',
+      initial: '$reps',
+      decimal: false,
+      check: (text) {
+        final n = int.tryParse(text);
+        if (n == null || n < 1 || n > kMaxStrengthReps) {
+          return (value: null, error: uiText(c, 'Must be 1–200 reps'));
+        }
+        return (value: n, error: null);
+      },
     );
-    ctrl.dispose();
     if (!mounted || picked == null) return;
     setState(() => reps = picked);
   }
@@ -2174,7 +2122,8 @@ class _LiveStrengthState extends State<LiveStrength> {
   /// the same way its edit-field does. Null [u] (a golden, or no unit
   /// context) shows metric untouched.
   String _fmt(double d, [UnitsController? u]) {
-    final v = u != null ? u.weightValue(d) : d;
+    final imperial = u?.isImperial ?? false;
+    final v = imperial ? roundLbHalf(u!.weightValue(d)) : (u?.weightValue(d) ?? d);
     final s = v.toStringAsFixed(2);
     final r = double.parse(s);
     if (r == r.roundToDouble()) return r.round().toString();

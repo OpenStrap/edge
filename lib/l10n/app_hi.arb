@@ -2861,5 +2861,17 @@
         "type": "int"
       }
     }
-  }
+  },
+  "strengthCustomWeight": "कस्टम वज़न",
+  "strengthEnterValue": "एक मान दर्ज करें",
+  "strengthInvalidNumber": "अमान्य संख्या",
+  "strengthLoadRangeKg": "0–500 kg के बीच होना चाहिए",
+  "strengthLoadRangeLb": "0–1100 lb के बीच होना चाहिए",
+  "strengthRepsRange": "1–200 पुनरावृत्तियों के बीच होना चाहिए",
+  "strengthEditSet": "सेट संपादित करें",
+  "strengthDeleteSet": "सेट हटाएं",
+  "strengthDeleteSetConfirm": "क्या यह सेट हटाना चाहते हैं?",
+  "strengthBodyweight": "शारीरिक वज़न",
+  "strengthDelete": "हटाएं",
+  "strengthSaveFailed": "परिवर्तन सहेजने में विफल"
 }

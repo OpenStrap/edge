@@ -3472,5 +3472,17 @@
         "type": "int"
       }
     }
-  }
+  },
+  "strengthCustomWeight": "Benutzerdefiniertes Gewicht",
+  "strengthEnterValue": "Wert eingeben",
+  "strengthInvalidNumber": "Ungültige Zahl",
+  "strengthLoadRangeKg": "Muss zwischen 0 und 500 kg liegen",
+  "strengthLoadRangeLb": "Muss zwischen 0 und 1100 lb liegen",
+  "strengthRepsRange": "Muss zwischen 1 und 200 Wdh. liegen",
+  "strengthEditSet": "Satz bearbeiten",
+  "strengthDeleteSet": "Satz löschen",
+  "strengthDeleteSetConfirm": "Diesen Satz löschen?",
+  "strengthBodyweight": "Körpergewicht",
+  "strengthDelete": "Löschen",
+  "strengthSaveFailed": "Änderungen konnten nicht gespeichert werden"
 }

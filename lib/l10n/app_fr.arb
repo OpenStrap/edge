@@ -2861,5 +2861,17 @@
         "type": "int"
       }
     }
-  }
+  },
+  "strengthCustomWeight": "Poids personnalisé",
+  "strengthEnterValue": "Saisissez une valeur",
+  "strengthInvalidNumber": "Nombre invalide",
+  "strengthLoadRangeKg": "Doit être compris entre 0 et 500 kg",
+  "strengthLoadRangeLb": "Doit être compris entre 0 et 1100 lb",
+  "strengthRepsRange": "Doit être compris entre 1 et 200 répétitions",
+  "strengthEditSet": "Modifier la série",
+  "strengthDeleteSet": "Supprimer la série",
+  "strengthDeleteSetConfirm": "Supprimer cette série ?",
+  "strengthBodyweight": "Poids du corps",
+  "strengthDelete": "Supprimer",
+  "strengthSaveFailed": "Échec de l'enregistrement des modifications"
 }

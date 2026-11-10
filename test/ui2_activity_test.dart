@@ -1989,7 +1989,7 @@ void main() {
       final textFields = find.byType(TextField);
       await tester.enterText(textFields.first, '57.5');
       await tester.enterText(textFields.last, '9');
-      await tester.tap(find.bySemanticsLabel('RPE 8'));
+      await tester.tap(find.text('8').last);
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Save'));
@@ -2292,9 +2292,9 @@ void main() {
       await tester.tap(find.text('Log set'));
       await tester.pump();
       expect(find.text('93 lb × 8'), findsWidgets);
-      // Volume = (40 kg + one 5 lb step, in kg) × 8 reps, shown in lb.
+      // Volume = 93 lb × 8 reps, shown in lb.
       final u = UnitsController.seed(UnitSystem.imperial);
-      final loggedKg = 40.0 + u.loadStepKg(2.5);
+      final loggedKg = u.weightToKg('93')!;
       expect(find.text(u.weightValue(loggedKg * 8).round().toString()),
           findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -2331,4 +2331,36 @@ void main() {
     });
   });
 
+  group('strength load stepper limits', () {
+    final lb = UnitsController.seed(UnitSystem.imperial);
+    final kgU = UnitsController.seed(UnitSystem.metric);
+
+    test('metric steps and clamps at 0 and 500', () {
+      expect(stepStrengthLoad(60, 2.5, kgU), 62.5);
+      expect(stepStrengthLoad(499, 2.5, kgU), 500);
+      expect(stepStrengthLoad(500, 2.5, kgU), 500);
+      expect(stepStrengthLoad(1, -2.5, kgU), 0);
+    });
+
+    test('imperial 5 lb presses do not drift', () {
+      var kg = lb.weightToKg('135')!;
+      for (var i = 0; i < 20; i++) {
+        kg = stepStrengthLoad(kg, lb.loadStepKg(2.5), lb);
+      }
+      expect(double.parse(lb.weightValue(kg).toStringAsFixed(2)), 235.0);
+      for (var i = 0; i < 20; i++) {
+        kg = stepStrengthLoad(kg, -lb.loadStepKg(2.5), lb);
+      }
+      expect(double.parse(lb.weightValue(kg).toStringAsFixed(2)), 135.0);
+    });
+
+    test('imperial cap is 1100 lb, matching the editor', () {
+      final top = lb.weightToKg('1100')!;
+      expect(strengthLoadInRange(top, lb), isTrue);
+      expect(strengthLoadInRange(lb.weightToKg('1101')!, lb), isFalse);
+      expect(stepStrengthLoad(top, lb.loadStepKg(2.5), lb), top);
+      expect(strengthLoadInRange(500.1, kgU), isFalse);
+      expect(strengthLoadInRange(-1, kgU), isFalse);
+    });
+  });
 }

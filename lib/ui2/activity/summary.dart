@@ -275,6 +275,36 @@ String formatStrengthWeight(double v, [UnitsController? u]) {
       .replaceFirst(RegExp(r'\.$'), '');
 }
 
+const kMaxStrengthKg = 500.0;
+const kMaxStrengthLb = 1100.0;
+const kMaxStrengthReps = 200;
+
+/// Cap on a set's load, in the user's display unit.
+bool strengthLoadInRange(double kg, UnitsController? u) {
+  final imperial = u?.isImperial ?? false;
+  return kg >= 0 &&
+      (imperial ? u!.weightValue(kg) <= kMaxStrengthLb + 1e-6 : kg <= kMaxStrengthKg);
+}
+
+String strengthLoadRangeText(BuildContext c, UnitsController? u) => uiText(
+    c, (u?.isImperial ?? false) ? 'Must be 0–1100 lb' : 'Must be 0–500 kg');
+
+/// Imperial loads show and step on half-pound increments.
+double roundLbHalf(double lb) => (lb * 2).roundToDouble() / 2;
+
+/// One stepper press on a load in kg, clamped to the cap. Imperial steps in
+/// whole display-unit increments (re-derived from the stored kg each time), so
+/// repeated 5 lb presses land on 135, 140, 145 rather than drifting.
+double stepStrengthLoad(double kg, double deltaKg, UnitsController? u) {
+  if (deltaKg == 0) return kg;
+  if (u != null && u.isImperial) {
+    final lb = roundLbHalf(u.weightValue(kg));
+    final next = (lb + (deltaKg > 0 ? 5.0 : -5.0)).clamp(0.0, kMaxStrengthLb);
+    return u.weightToKg(next.toString()) ?? kg;
+  }
+  return double.parse((kg + deltaKg).clamp(0.0, kMaxStrengthKg).toStringAsFixed(2));
+}
+
 Future<EditSetResult?> showEditSetDialog(
   BuildContext context, {
   required LoggedSet set,
@@ -325,17 +355,16 @@ Future<EditSetResult?> showEditSetDialog(
                   () => weightError = uiText(context, 'Invalid number'));
               return;
             }
-            if (parsedKg < 0 || parsedKg > 500) {
-              setDialogState(() => weightError = imperial
-                  ? uiText(context, 'Must be 0–1100 lb')
-                  : uiText(context, 'Must be 0–500 kg'));
+            if (!strengthLoadInRange(parsedKg, units)) {
+              setDialogState(
+                  () => weightError = strengthLoadRangeText(context, units));
               return;
             }
           }
 
           final rText = repsCtrl.text.trim();
           final parsedReps = int.tryParse(rText);
-          if (parsedReps == null || parsedReps < 1 || parsedReps > 200) {
+          if (parsedReps == null || parsedReps < 1 || parsedReps > kMaxStrengthReps) {
             setDialogState(
                 () => repsError = uiText(context, 'Must be 1–200 reps'));
             return;
@@ -580,8 +609,7 @@ Future<EditSetResult?> showEditSetDialog(
     ),
   );
 
-  weightCtrl.dispose();
-  repsCtrl.dispose();
+  // Controllers are not disposed: the dialog's exit animation still builds them.
   return result;
 }
 

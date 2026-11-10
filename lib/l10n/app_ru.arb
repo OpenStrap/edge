@@ -7904,5 +7904,17 @@
         "type": "int"
       }
     }
-  }
+  },
+  "strengthCustomWeight": "Свой вес",
+  "strengthEnterValue": "Введите значение",
+  "strengthInvalidNumber": "Неверное число",
+  "strengthLoadRangeKg": "Должно быть от 0 до 500 кг",
+  "strengthLoadRangeLb": "Должно быть от 0 до 1100 фунтов",
+  "strengthRepsRange": "Должно быть от 1 до 200 повторений",
+  "strengthEditSet": "Редактировать подход",
+  "strengthDeleteSet": "Удалить подход",
+  "strengthDeleteSetConfirm": "Удалить этот подход?",
+  "strengthBodyweight": "Свой вес",
+  "strengthDelete": "Удалить",
+  "strengthSaveFailed": "Не удалось сохранить изменения"
 }

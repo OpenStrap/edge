@@ -16331,5 +16331,29 @@
         "type": "int"
       }
     }
-  }
+  },
+  "strengthCustomWeight": "Custom weight",
+  "@strengthCustomWeight": {"description": "Strength set editor copy."},
+  "strengthEnterValue": "Enter a value",
+  "@strengthEnterValue": {"description": "Strength set editor copy."},
+  "strengthInvalidNumber": "Invalid number",
+  "@strengthInvalidNumber": {"description": "Strength set editor copy."},
+  "strengthLoadRangeKg": "Must be 0–500 kg",
+  "@strengthLoadRangeKg": {"description": "Strength set editor copy."},
+  "strengthLoadRangeLb": "Must be 0–1100 lb",
+  "@strengthLoadRangeLb": {"description": "Strength set editor copy."},
+  "strengthRepsRange": "Must be 1–200 reps",
+  "@strengthRepsRange": {"description": "Strength set editor copy."},
+  "strengthEditSet": "Edit set",
+  "@strengthEditSet": {"description": "Strength set editor copy."},
+  "strengthDeleteSet": "Delete set",
+  "@strengthDeleteSet": {"description": "Strength set editor copy."},
+  "strengthDeleteSetConfirm": "Delete this set?",
+  "@strengthDeleteSetConfirm": {"description": "Strength set editor copy."},
+  "strengthBodyweight": "Bodyweight",
+  "@strengthBodyweight": {"description": "Strength set editor copy."},
+  "strengthDelete": "Delete",
+  "@strengthDelete": {"description": "Strength set editor copy."},
+  "strengthSaveFailed": "Failed to save changes",
+  "@strengthSaveFailed": {"description": "Strength set editor copy."}
 }

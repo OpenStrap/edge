@@ -16325,5 +16325,17 @@
         "type": "int"
       }
     }
-  }
+  },
+  "strengthCustomWeight": "น้ำหนักที่กำหนดเอง",
+  "strengthEnterValue": "ป้อนค่า",
+  "strengthInvalidNumber": "ตัวเลขไม่ถูกต้อง",
+  "strengthLoadRangeKg": "ต้องอยู่ระหว่าง 0–500 กก.",
+  "strengthLoadRangeLb": "ต้องอยู่ระหว่าง 0–1100 ปอนด์",
+  "strengthRepsRange": "ต้องอยู่ระหว่าง 1–200 ครั้ง",
+  "strengthEditSet": "แก้ไขเซ็ต",
+  "strengthDeleteSet": "ลบเซ็ต",
+  "strengthDeleteSetConfirm": "ลบเซ็ตนี้หรือไม่?",
+  "strengthBodyweight": "น้ำหนักตัว",
+  "strengthDelete": "ลบ",
+  "strengthSaveFailed": "ไม่สามารถบันทึกการเปลี่ยนแปลงได้"
 }
