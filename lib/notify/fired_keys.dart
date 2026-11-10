@@ -137,7 +137,7 @@ class FiredKeyStore {
         // parsed at cold start and on every reload() above.
         await _prunePrefs(p);
       }
-      await LocalDb.pruneNotifFired(_cutoffLabel());
+      await LocalDb.pruneNotifFired(cutoffLabel());
     } catch (_) {/* bookkeeping is best-effort — the claim stands */}
     return true;
   }
@@ -176,8 +176,12 @@ class FiredKeyStore {
   Future<void> recordFired(String dedupeKey) async => claim(dedupeKey);
 
   /// The oldest day label a dated claim may carry and still be retained.
-  static String _cutoffLabel() =>
-      dayLabelOf(DateTime.now().subtract(const Duration(days: retentionDays)));
+  ///
+  /// Calendar days, not `subtract(Duration(days: 14))`: that is 14 x 24 h, and
+  /// across a DST change one of those days is 23 or 25 h long, so in the hour
+  /// either side of midnight the cutoff landed one label early or late.
+  static String cutoffLabel([DateTime? now]) =>
+      dayLabelBefore(todayLabel(now), retentionDays)!;
 
   static Future<SharedPreferences?> _prefs() async {
     try {
@@ -215,7 +219,7 @@ class FiredKeyStore {
   /// prunes a little late. Keys without a leading YYYY-MM-DD are left untouched.
   static Future<void> _prunePrefs(SharedPreferences p) async {
     try {
-      final cutoff = _cutoffLabel();
+      final cutoff = cutoffLabel();
       for (final k in p.getKeys()) {
         if (!k.startsWith(_prefix)) continue;
         final d = leadingDate(k.substring(_prefix.length));

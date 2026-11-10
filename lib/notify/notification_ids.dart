@@ -37,7 +37,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../data/day_label.dart';
 import '../data/db.dart';
 import 'fired_keys.dart';
 import 'notification_event.dart';
@@ -204,8 +203,7 @@ class NotificationIds {
   /// directions. Cheap and rare (only after a FRESH allocation).
   Future<void> _prune(SharedPreferences p, {String? keep}) async {
     try {
-      final cutoff =
-          dayLabelOf(DateTime.now().subtract(const Duration(days: retentionDays)));
+      final cutoff = FiredKeyStore.cutoffLabel();
       for (final k in p.getKeys().toList(growable: false)) {
         if (!k.startsWith(_kSlot) || k == keep) continue;
         final rest = k.substring(_kSlot.length); // "<cat>:<dedupeKey>"
