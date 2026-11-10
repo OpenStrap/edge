@@ -625,7 +625,14 @@ class HealthExporter {
   }
 
   /// True on iOS/macOS (Apple Health); false on Android (Health Connect).
-  static bool get isApple => Platform.isIOS || Platform.isMacOS;
+  static bool get isApple =>
+      isAppleOverride ?? (Platform.isIOS || Platform.isMacOS);
+
+  /// Pins [isApple] in a test. The host VM is macOS on a Mac and Linux in CI,
+  /// so a test of one store's behaviour otherwise passes or fails depending on
+  /// whose machine runs it. null = the real platform.
+  @visibleForTesting
+  static bool? isAppleOverride;
 
   /// Display name of the platform health store.
   static String get storeName => isApple ? 'Apple Health' : 'Health Connect';

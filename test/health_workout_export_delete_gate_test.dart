@@ -85,11 +85,16 @@ void main() {
   });
 
   group('exportWorkout delete-then-write', () {
-    // The host VM is neither iOS nor macOS, so `HealthExporter.isApple` is
-    // false and these exercise the Health-Connect reading of `delete`.
+    // These exercise the Health-Connect reading of `delete`. Pinned, not left
+    // to the host: on a Mac the host VM is macOS, `isApple` was true, and the
+    // first test failed there while passing in CI (Linux).
     late _FakeHealthStore store;
 
-    tearDown(() => store.remove());
+    setUp(() => HealthExporter.isAppleOverride = false);
+    tearDown(() {
+      store.remove();
+      HealthExporter.isAppleOverride = null;
+    });
 
     test('a failed delete does not write a duplicate on top of it', () async {
       store = _FakeHealthStore(deleteResult: false)..install();
