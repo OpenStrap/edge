@@ -1848,7 +1848,11 @@ import 'vendor_sleep.dart';
 // temperature rhythm and alertness forecast use local time. Steps: the live
 // pedometer counts from stride periodicity. Workouts: a 5-15 min rest with HR
 // still raised stays inside one suggested workout.
-const int kAlgoVersion = 119;
+// 119 → 120 (gen5/MG steps): the on-chip counter answers whenever it counted
+// more than the windowed live/phone sources, instead of only when they counted
+// nothing, so a short tracked walk no longer hides the day's chip total.
+// gen4 (no counter) is unchanged. Edge-only.
+const int kAlgoVersion = 120;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -8661,17 +8665,23 @@ class DerivationEngine {
     // per record, so the day screen gets hourly `spans` off them; but adding
     // it to the windowed spans would double-count every walk the other two
     // already counted. So it stays a
-    // WHOLE-DAY FALLBACK — used only when no span source covered the day at
-    // all. That inversion is deliberate: whole-day precedence for this counter
-    // is exactly the bug being fixed (622 steps published over the phone's
-    // 18,856 on a day the strap synced for part of).
+    // WHOLE-DAY ALTERNATIVE: whichever of the two whole-day answers counted
+    // MORE wins. Unconditional counter precedence is the old bug (622 steps
+    // published over the phone's 18,856 on a day the strap synced for part
+    // of); "counter only when nothing else counted" was the next one: a
+    // 53-step manual walk hid the chip's 6,164 for the whole day. Neither
+    // answer adds to the other, so nothing is double-counted.
+    // ponytail: max undercounts a day split between disjoint sources; the
+    // upgrade is windowed total + counter ticks outside those windows
+    // (`counterTicksPerWindow`).
     final strap = liveStepsFromStrap.clamp(0, liveStepsReal);
     final phone = liveStepsReal - strap;
     final rawBand = counter?.total;
     final calibratedBand =
         rawBand == null ? null : applyStepCalibration(rawBand, profile);
-    final useBand =
-        liveStepsReal <= 0 && calibratedBand != null && calibratedBand > 0;
+    final useBand = calibratedBand != null &&
+        calibratedBand > 0 &&
+        calibratedBand > liveStepsReal;
     final steps = useBand ? calibratedBand : liveStepsReal;
     final calibrated = useBand && profile != null && profile.isCalibrated;
     final haveRealSteps = steps > 0;

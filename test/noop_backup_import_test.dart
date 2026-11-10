@@ -199,6 +199,31 @@ void main() {
     expect(days, isNotEmpty);
   }, timeout: const Timeout(Duration(minutes: 5)));
 
+  test('a WAL-mode backup with no -wal beside it still opens', () async {
+    // Read-only, a WAL-mode database without its -wal/-shm fails with
+    // SQLITE_CANTOPEN ("unable to open database file", code 14).
+    const t0 = 1785747600; // 2026-08-03
+    final dbPath = await writeNoopDb('w.sqlite', t0: t0, seconds: 600);
+    final raf = File(dbPath).openSync(mode: FileMode.append);
+    raf.setPositionSync(18);
+    raf.writeFromSync(const [2, 2]); // the header's WAL marker
+    raf.closeSync();
+    // The test sqlite builds the -wal itself, so assert the copy's header
+    // (what the system sqlite on iOS needs), then the import as a whole.
+    final (fixed, scratch) =
+        await NoopBackupImporter.repairTruncatedHeader(dbPath);
+    expect(fixed, isNot(dbPath));
+    expect(File(fixed).readAsBytesSync().sublist(18, 20), [1, 1]);
+    expect(File(dbPath).readAsBytesSync().sublist(18, 20), [2, 2],
+        reason: 'the picked file itself is never written');
+    await scratch!.delete(recursive: true);
+
+    final bak = writeBackup('w.noopbak', dbPath);
+    final res = await NoopImporter.importFile(
+        bak, const Profile(), DerivationEngine());
+    expect(res.steps, 599);
+  }, timeout: const Timeout(Duration(minutes: 5)));
+
   test('re-importing the same backup does not double-count steps', () async {
     const t0 = 1785660000; // 2026-08-02
     const secs = 900;

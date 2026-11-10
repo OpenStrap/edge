@@ -3323,6 +3323,8 @@
   "reportTitleHint": "Eine Zeile dazu, was schiefging",
   "reportDescriptionLabel": "Was passiert ist",
   "reportDescriptionHint": "Was du getan hast, was du erwartet hast, was du gesehen hast",
+  "reportContactLabel": "Kontakt (optional)",
+  "reportContactHint": "E-Mail oder Discord, nur wenn du eine Antwort möchtest",
   "reportAttachGroup": "Anhänge",
   "reportScreenshotRow": "Screenshot hinzufügen",
   "reportScreenshotRemove": "Screenshot entfernen",

@@ -263,6 +263,14 @@ class BandStatus {
       condition != BandCondition.disconnected;
 }
 
+/// True when a GATT error [code] means the band will not accept the phone's
+/// encryption key: insufficient authentication (5), authorization (8) or
+/// encryption (15), or an auth failure (137). On iOS there is no explicit bond
+/// step, so a stale or rejected key only ever shows up here, on the first
+/// notification registration.
+bool isLinkAuthRefusal(int? code) =>
+    code == 5 || code == 8 || code == 15 || code == 137;
+
 /// Fold the phone-level blocker and the band's own diagnostic flags into one
 /// state. Pure; [connection] is `DeviceState.connection`.
 ///
@@ -2196,16 +2204,24 @@ enum LiveStreamStep {
 /// gen4 bundle can be half-applied). Dirty ALWAYS replays the newest desired
 /// direction before convergence, even when nothing is desired: a dirty OFF
 /// must be cleaned up, unlike a fresh one.
+///
+/// [holdImuOn] — a history offload is running on gen4. Arming the bundle
+/// mid-burst silences the strap: the burst stops, the 60 s idle watchdog
+/// aborts it and the drain restarts. Only the ON is held; the caller
+/// re-runs the reconcile when the offload ends.
 LiveStreamStep? nextLiveStreamStep({
   required LiveStreamIntent applied,
   required LiveStreamIntent desired,
   bool imuFresh = false,
   bool imuDirty = false,
   bool hrDirty = false,
+  bool holdImuOn = false,
 }) {
   final replayImu = imuDirty || (imuFresh && desired.any);
   if (desired.hr && (!applied.hr || hrDirty)) return LiveStreamStep.hrOn;
-  if (desired.imu && (!applied.imu || replayImu)) return LiveStreamStep.imuOn;
+  if (desired.imu && (!applied.imu || replayImu) && !holdImuOn) {
+    return LiveStreamStep.imuOn;
+  }
   if (!desired.imu && (applied.imu || replayImu)) return LiveStreamStep.imuOff;
   if (!desired.hr && (applied.hr || hrDirty)) return LiveStreamStep.hrOff;
   return null;
@@ -2334,5 +2350,76 @@ Future<T> withSecondaryLinkSlot<T>(
     return await body();
   } finally {
     releaseSecondaryLinkSlot();
+  }
+}
+
+/// Firmware version from a revision-3 gen5 HELLO body (hex): bytes 96..99 are
+/// major, minor, patch, build. Null when the body is too short. Diagnostics
+/// only — the revision-1 map stays the only one anything is published from.
+String? gen5HelloRev3Firmware(String bodyHex) {
+  if (bodyHex.length < 200) return null;
+  int b(int i) => int.parse(bodyHex.substring(i * 2, i * 2 + 2), radix: 16);
+  return '${b(96)}.${b(97)}.${b(98)}.${b(99)}';
+}
+
+/// Per-session inbound notification tally plus an optional capped capture
+/// window, so a log can say what (if anything) arrived after a request the
+/// band accepted but never acted on. Pure bookkeeping, no behaviour.
+class NotifyDiag {
+  static const int maxChunks = 40;
+  static const int prefixBytes = 12;
+
+  final Map<String, int> chunks = {};
+  final Map<String, int> bytes = {};
+  bool _windowOpen = false;
+  final List<String> _windowChunks = [];
+  final Map<String, int> _windowFrames = {};
+  int _windowDropped = 0;
+
+  /// Start (or restart) the capture window.
+  void openWindow() {
+    _windowOpen = true;
+    _windowChunks.clear();
+    _windowFrames.clear();
+    _windowDropped = 0;
+  }
+
+  void chunk(String role, List<int> data) {
+    chunks[role] = (chunks[role] ?? 0) + 1;
+    bytes[role] = (bytes[role] ?? 0) + data.length;
+    if (!_windowOpen) return;
+    if (_windowChunks.length >= maxChunks) {
+      _windowDropped++;
+      return;
+    }
+    final n = data.length < prefixBytes ? data.length : prefixBytes;
+    final hex = [
+      for (final x in data.take(n)) x.toRadixString(16).padLeft(2, '0'),
+    ].join();
+    _windowChunks.add('$role/${data.length}B:$hex');
+  }
+
+  /// One reassembled frame (or reject) seen inside the window. [kind] is the
+  /// packet type for a decodable frame, or `rev?` / `crc` for a reject.
+  void frame(String role, String kind) {
+    if (!_windowOpen) return;
+    final k = '$role:$kind';
+    _windowFrames[k] = (_windowFrames[k] ?? 0) + 1;
+  }
+
+  String totals() => chunks.isEmpty
+      ? 'none'
+      : [for (final r in chunks.keys) '$r=${chunks[r]}/${bytes[r]}B'].join(' ');
+
+  /// Close the window and render it as one line.
+  String closeWindow() {
+    _windowOpen = false;
+    final frames = _windowFrames.isEmpty
+        ? 'none'
+        : [for (final e in _windowFrames.entries) '${e.key}=${e.value}']
+            .join(' ');
+    final list = _windowChunks.isEmpty ? 'none' : _windowChunks.join(' ');
+    final more = _windowDropped > 0 ? ' (+$_windowDropped more)' : '';
+    return 'frames[$frames] chunks[$list]$more';
   }
 }

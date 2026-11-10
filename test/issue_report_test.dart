@@ -47,6 +47,7 @@ Future<Uint8List> _zip(
         category: ReportCategory.sync,
         title: 'Sync stuck',
         description: 'It never finishes',
+        contact: 'me@example.com',
         screenshotPath: shot ? '/tmp/x/Shot.PNG' : null,
         includeDatabase: db,
         fullDatabase: full,
@@ -122,6 +123,16 @@ void main() {
     expect(reportServerMeta(const ReportDraft(
         category: ReportCategory.sleep, title: 't', description: 'd'),
         {'rawDays': 7}).containsKey('rawDays'), isFalse);
+  });
+
+  test('contact rides only in the encrypted user.txt', () async {
+    final a = ZipDecoder().decodeBytes(await _zip());
+    expect(utf8.decode(a.findFile('user.txt')!.content as List<int>),
+        contains('Contact: me@example.com\n'));
+    const d = ReportDraft(
+        category: ReportCategory.sync, title: 't', description: 'd',
+        contact: 'me@example.com');
+    expect(jsonEncode(reportServerMeta(d, {})), isNot(contains('example.com')));
   });
 
   test('manifest lists exactly the files in the archive, same as the screen',
