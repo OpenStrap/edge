@@ -216,11 +216,10 @@ class _NapsScreenState extends State<NapsScreen> {
           await LocalDb.putNapEdit(
               dayId: day, startTs: start, endTs: end, source: 'rejected');
         }
-        // The window is no longer a confirmed nap (deleted, or replaced by a
-        // rejection), so its Apple Health samples go too. Best-effort on
-        // purpose: a failed delete returns false and is only logged — the
-        // next per-day export re-writes the day's remaining naps, and a
-        // stale sample here is harmless (it is the app's own window).
+        // The window is no longer a confirmed nap, so its Apple Health
+        // samples go too. A failed native delete is queued by the exporter
+        // (health_nap_pending_deletes) and retried by the next per-day
+        // export pass, so the false result needs no handling here.
         await HealthNapExporter.deleteExportedNap(
             startTs: start, endTs: end, dayId: day);
         });

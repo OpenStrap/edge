@@ -10285,8 +10285,8 @@ class DerivationEngine {
       candidates?.addAll(capped.where((n) => !napEdits.any((e) =>
         e.overlaps(n['start'] as int, n['end'] as int))));
       // Cap stored edits too: a manual nap logged before the 3 h cap must not
-    // survive a re-derive as a counted nap.
-    final merged = dropOversizedNaps(applyNapEdits(const [], napEdits));
+      // survive a re-derive as a counted nap.
+      final merged = dropOversizedNaps(applyNapEdits(const [], napEdits));
 
       bundle['naps'] = <String, dynamic>{
         'value': merged,
