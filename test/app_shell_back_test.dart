@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/app_shell.dart';
@@ -307,9 +306,12 @@ void main() {
     // the notifier to Health before the frame ends must win, and the stale
     // Activity callback must be discarded (onSelect writes back to the
     // notifier in the real shell, which would flip the tab back).
+    // pumpWidget runs a whole frame, so the move has to be queued ahead of
+    // the shell's own post-frame callback to land between schedule and fire.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => second.value = ShellDomain.health,
+    );
     await tester.pumpWidget(shell(second));
-    second.value = ShellDomain.health;
-    await tester.pump();
     await tester.pumpAndSettle();
     expect(find.text('screen Health'), findsOneWidget);
     expect(notified, isNot(contains(ShellDomain.activity)));

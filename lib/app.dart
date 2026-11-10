@@ -604,6 +604,7 @@ class _ShellState extends State<_Shell> {
   void dispose() {
     _app?.navRequest.removeListener(_consumeSoon);
     _app?.screenRequest.removeListener(_consumeSoon);
+    _selection.dispose();
     super.dispose();
   }
 
