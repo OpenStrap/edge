@@ -8,6 +8,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
+import 'package:openstrap_edge/data/models.dart';
 import 'package:openstrap_edge/models/payloads.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
@@ -42,16 +43,17 @@ void main() {
 
   // copyWith must carry the candidate along — a regression that drops
   // spo2CandidateRaw from copyWith would silently lose it on every copy.
+  // (copyWith only overrides tsEpoch; the field must pass through unchanged.)
   test('copyWith preserves a nonzero spo2CandidateRaw', () {
     final s = decodeGen5HistoricalSample(v18Inner(spo2Candidate: 97))!;
-    expect(s.copyWith(heartRate: 60).spo2CandidateRaw, 97);
+    expect(s.copyWith(tsEpoch: s.tsEpoch + 1).spo2CandidateRaw, 97);
   });
 
-  test('copyWith preserves an explicitly cleared (null) spo2CandidateRaw', () {
-    final s = decodeGen5HistoricalSample(v18Inner(spo2Candidate: 97))!;
-    final cleared = s.copyWith(spo2CandidateRaw: null);
-    expect(cleared.spo2CandidateRaw, isNull);
-    expect(cleared.copyWith(heartRate: 55).spo2CandidateRaw, isNull);
+  test('copyWith preserves an absent (null) spo2CandidateRaw', () {
+    // A gen4-shaped sample carries no candidate byte at all.
+    final s = Sample(tsEpoch: 1000, counter: 0, hr: 60);
+    expect(s.spo2CandidateRaw, isNull);
+    expect(s.copyWith(tsEpoch: 1001).spo2CandidateRaw, isNull);
   });
 
   // The seam to PR #472: a captured candidate byte must NOT unlock the
