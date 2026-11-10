@@ -72,9 +72,6 @@ void main() {
         p.join(await databaseFactory.getDatabasesPath(), LocalDb.dbName),
       );
       repo = LocalRepositoryImpl(getProfileMap: () => const {});
-      today = todayLabel();
-      final t = DateTime.parse(today);
-      pastDay = label(DateTime(t.year, t.month, t.day - 3));
     });
 
     tearDownAll(() async {
@@ -85,6 +82,11 @@ void main() {
     });
 
     setUp(() async {
+      // Per test, not once: a run that crosses local midnight would otherwise
+      // read a fixture "today" as a past day.
+      today = todayLabel();
+      final t = DateTime.parse(today);
+      pastDay = label(DateTime(t.year, t.month, t.day - 3));
       final db = await LocalDb.instance;
       await db.delete('day_result');
       await db.delete('baselines');
@@ -141,6 +143,27 @@ void main() {
       expect(rows, hasLength(1));
       expect((await repo.getDaySleepV2(pastDay)).containsKey('need_min'),
           isFalse);
+    });
+
+    test('the crossday write stores the artifact and its day\'s need together, '
+        'or neither', () async {
+      Future<double?> stored() => LocalDb.metricValueOn(today, 'sleep_need_min');
+      final revision = await LocalDb.activityReviewRevision();
+
+      expect(
+          await LocalDb.putReviewedBaseline('crossday', '{"v":1}', revision,
+              series: (date: today, key: 'sleep_need_min', value: 455.0)),
+          isTrue);
+      expect(await stored(), 455.0);
+      expect((await LocalDb.baseline('crossday'))?['payload_json'], '{"v":1}');
+
+      // A stale build (a newer activity review landed) writes nothing.
+      expect(
+          await LocalDb.putReviewedBaseline('crossday', '{"v":2}', revision + 1,
+              series: (date: today, key: 'sleep_need_min', value: 400.0)),
+          isFalse);
+      expect(await stored(), 455.0);
+      expect((await LocalDb.baseline('crossday'))?['payload_json'], '{"v":1}');
     });
 
     test('today still reads the live crossday need', () async {

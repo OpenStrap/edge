@@ -7344,16 +7344,18 @@ class DerivationEngine {
         _log('crossday: zone changed during the build; not stored');
         return false;
       }
-      if (!await LocalDb.putReviewedBaseline('crossday', bundleJson, reviewRevision)) {
+      // `series`: the need this build computed, kept per day: the artifact
+      // only ever holds the latest one, so without this every past night was
+      // read against TODAY's need (#619). Same transaction as the artifact,
+      // so the day's row always matches the artifact that day last served; a
+      // later build the same day replaces both. null when the need abstained,
+      // so a past day reads "—", never a stale value. No backfill: an earlier
+      // day's need was never stored anywhere.
+      if (!await LocalDb.putReviewedBaseline('crossday', bundleJson, reviewRevision,
+          series: (date: builtForDay, key: 'sleep_need_min', value: needMin))) {
         _log('crossday: newer activity review; leaving its refresh queued');
         return false;
       }
-      // The need this build computed, kept per day: the artifact above only
-      // ever holds the latest one, so without this every past night was read
-      // against TODAY's need (#619). A later build the same day replaces it;
-      // null when the need abstained, so a past day reads "—", never a stale
-      // value. No backfill: an earlier day's need was never stored anywhere.
-      await LocalDb.putMetricSeriesValue(builtForDay, 'sleep_need_min', needMin);
       if (dropped.isNotEmpty) {
         // Loud, not debug-only: a dropped field is a metric the user will see
         // as absent, and the reason lives here and nowhere else.
