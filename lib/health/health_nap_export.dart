@@ -166,7 +166,7 @@ class HealthNapExporter {
        isApple = isApple ?? HealthExporter.isApple,
        _healthSyncEnabled = healthSyncEnabled ?? _defaultHealthSyncEnabled,
        _napRow = napRow ?? _defaultNapRow,
-       _dayNapRows = dayNapRows ?? LocalDb.napEdits,
+       _dayNapRows = dayNapRows ?? _defaultDayNapRows,
        _overlapsMainSleep = overlapsMainSleep ?? _defaultOverlapsMainSleep,
        _mainSleepWindows = mainSleepWindows ?? _defaultMainSleepWindows,
        _getCursor = getCursor ?? LocalDb.getCursor,
