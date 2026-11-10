@@ -427,7 +427,7 @@ void main() {
       expect(ok, isTrue);
       expect(
         writer.calls.where((c) => c.method == 'replaceNap'),
-        hasLength(1),
+        hasLength(2), // the failed attempt plus the retry
       );
       expect(cursors['health_nap_pending_exports'], '[]');
     });
@@ -445,7 +445,7 @@ void main() {
       await e.exportDayNaps('2026-08-03');
       expect(
         writer.calls.where((c) => c.method == 'deleteNapRange'),
-        hasLength(1),
+        hasLength(2), // the failed attempt plus the retry
       );
       expect(cursors['health_nap_pending_deletes'], '[]');
     });
@@ -528,9 +528,9 @@ void main() {
         writer.calls.where((c) => c.method == 'replaceNap'),
         hasLength(1),
       );
-      final remaining = jsonDecode(cursors['health_nap_pending_exports']!);
-      expect(remaining, hasLength(1));
-      expect(remaining.single['dayId'], '2026-08-02');
+      // Both entries are gone: the first was written (cleared under ITS day),
+      // the second was obsolete.
+      expect(jsonDecode(cursors['health_nap_pending_exports']!), isEmpty);
     });
 
     test('exportNapRowAt returns false instead of throwing when the row read fails',

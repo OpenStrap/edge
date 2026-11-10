@@ -327,10 +327,10 @@ class HealthNapExporter {
       if (!await _healthSyncEnabled()) return true;
       await _retryPendingDeletes();
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final accepted = <({int s, int e})>[];
+      final accepted = <({int s, int e, String day})>[];
       bool overlapsAccepted(int s, int e) =>
           accepted.any((w) => s < w.e && e > w.s);
-      void consider(int s, int e, String? source) {
+      void consider(int s, int e, String? source, String day) {
         if (!napWindowExportable(
           source: source,
           startTs: s,
@@ -342,7 +342,7 @@ class HealthNapExporter {
         // Two overlapping nap rows must not erase each other's samples:
         // the first one written in this pass wins.
         if (overlapsAccepted(s, e)) return;
-        accepted.add((s: s, e: e));
+        accepted.add((s: s, e: e, day: day));
       }
 
       for (final row in await _dayNapRows(dayId)) {
@@ -350,7 +350,8 @@ class HealthNapExporter {
         final endTs = row['end_ts'];
         final source = row['source'];
         if (startTs is! num || endTs is! num) continue;
-        consider(startTs.toInt(), endTs.toInt(), source is String ? source : null);
+        consider(startTs.toInt(), endTs.toInt(),
+            source is String ? source : null, dayId);
       }
       // Retry previously failed exports of ANY day (failed writes on days
       // behind the export cursor would otherwise never be retried). Each
@@ -380,7 +381,7 @@ class HealthNapExporter {
           await _removePending(_kPendingNapExports, pDay, s.toInt());
           continue;
         }
-        consider(s.toInt(), e.toInt(), source as String);
+        consider(s.toInt(), e.toInt(), source as String, pDay);
       }
 
       var ok = true;
@@ -398,18 +399,18 @@ class HealthNapExporter {
           if (!written) {
             ok = false;
             await _recordPending(_kPendingNapExports, {
-              'dayId': dayId,
+              'dayId': w.day,
               'startTs': w.s,
               'endTs': w.e,
             });
           } else {
-            await _removePending(_kPendingNapExports, dayId, w.s);
+            await _removePending(_kPendingNapExports, w.day, w.s);
           }
         } catch (rowError) {
           debugPrint('[health] exportDayNaps $dayId row ${w.s}-${w.e}: $rowError');
           ok = false;
           await _recordPending(_kPendingNapExports, {
-            'dayId': dayId,
+            'dayId': w.day,
             'startTs': w.s,
             'endTs': w.e,
           });
