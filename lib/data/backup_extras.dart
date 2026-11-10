@@ -29,6 +29,8 @@ const Map<String, String> kPrefsNotBackedUp = {
   'coach_chatgpt_welcomed': 'the new sign-in must show its welcome on this phone',
   'coach_base_url': 'a custom server address can carry an access key; '
       'a non-default one is reported for re-entry',
+  'companion_url': 'a server address a restored file must not be able to set; '
+      'it redirects announcements, updates and uploads',
   'backup.folder': 'storage-access URI permission belongs to this phone',
   'backup.last_run_ms': 'status of this install\'s automatic backup',
   'backup.last_error': 'status of this install\'s automatic backup',
@@ -101,7 +103,6 @@ const Map<String, String> kPrefTypes = {
   'coach_model': 'string',
   'coach_timeout_seconds': 'int',
   'coach_use_chatgpt': 'bool',
-  'companion_url': 'string',
   'cycle_tracking_enabled': 'bool',
   'dev.mode': 'bool',
   'device_alerts.charge_shown_day': 'int',
@@ -253,7 +254,9 @@ Future<bool> _write(SharedPreferences prefs, String key,
     case 'int':
       return prefs.setInt(key, int.parse(value));
     case 'double':
-      return prefs.setDouble(key, double.parse(value));
+      final d = double.parse(value);
+      if (!d.isFinite) throw const FormatException('invalid preference number');
+      return prefs.setDouble(key, d);
     case 'string':
       return prefs.setString(key, value);
     case 'stringList':
