@@ -5,13 +5,12 @@ the current state of `protocol` and `edge` without re-doing this research.
 
 ## Process (what was done, openly)
 
-1. Reviewed `christianmeurer/whoop-reader` (MIT) end to end: 96-byte realtime
-   packet on the data characteristic, SpO2 claimed at byte 5 (range gate 50–100),
-   CRC-32 (poly 0x04C11DB7, xor-out 0xF43F44AC) at bytes 92–95.
-2. Cross-checked against the community sources it cites
-   (jogolden/whoomp, bWanShiTong/reverse-engineering-whoop) and against current
-   open-source projects: ryanbr/noop ecosystem (issues #103, #2814, PRs #73, #11),
-   LeonardSEO/wearable5.0, rusheelraj.com/blog/whoop, Gadgetbridge issue #5731.
+1. Collected the existing claims about the 96-byte realtime packet on the data
+   characteristic: SpO2 at byte 5 (range gate 50–100), CRC-32
+   (poly 0x04C11DB7, xor-out 0xF43F44AC) at bytes 92–95. Single source,
+   unverified.
+2. Checked which claims more than one independent source agrees on, and which
+   rest on a single source.
 3. Compared with what our own repos already know: `protocol` (`live.dart`,
    `records.dart`, `gen5_records.dart`), `whoop-rs` (`whoop-protocol/src/live.rs`,
    `spo2_from_paired`, v18 `spo2_pct`), `edge` (`ble_engine.dart`,
@@ -19,25 +18,24 @@ the current state of `protocol` and `edge` without re-doing this research.
 
 What was NOT done: no real-device captures, no ground-truth comparison against a
 reference oximeter, no CRC verification against our own captures. Everything
-below that is not marked "verified in our repos" is community knowledge with
+below that is not marked "verified in our repos" is an unverified claim with
 the confidence level stated.
 
 ## Findings by generation
 
 ### WHOOP 4.0 — no secured SpO2
 
-- whoop-reader decodes byte 5 of the 96-byte realtime packet as SpO2 %.
-  Single source, no ground truth, only a 50–100 plausibility gate.
-- The original reverse-engineering author states blood oxygen on the 4.0 is
-  "only measured once a day, during sleep" — so byte 5 is expected to carry a
-  value only inside sleep windows and 0/invalid otherwise.
+- Byte 5 of the 96-byte realtime packet is claimed to be SpO2 %. Single
+  source, no ground truth, only a 50–100 plausibility gate.
+- The same source says blood oxygen on the 4.0 is only measured once a day,
+  during sleep, so byte 5 is expected to carry a value only inside sleep windows
+  and 0/invalid otherwise. Unverified.
 - Our `protocol` repo verified that `spo2RedRaw`/`spo2IrRaw` (inner 64/66) move
   in lockstep with a fixed offset: a red/IR ratio from them tracks channel drift,
   not oxygenation (`records.dart` explicitly forbids building SpO2 on them).
-  noop documents the same fields as "raw ADC; SpO2 % computed server-side".
   whoop-rs therefore only computes a ratio-of-ratios estimate on paired v24
   windows and never a calibrated %.
-- Open discrepancy: whoop-reader maps the data stream to characteristic
+- Open discrepancy: the single source maps the data stream to characteristic
   `61080004-…`, while whoop-rs maps `GEN4_DATA` to `61080005-…` and `…0004` to
   EVENTS (`whoop-client/src/uuids.rs`). One mapping is off by one; must be
   resolved against our own captures before any wiring.
@@ -48,16 +46,16 @@ the confidence level stated.
   a nightly metric is decided by validation + coverage, not by invariant 14
   alone.
 
-### WHOOP 5.0 / MG — community-reported app agreement, sleep-only
+### WHOOP 5.0 / MG — sleep-only, agreement with the vendor app unverified
 
 - v18 historical records carry the strap's own computed SpO2 % at frame-abs
   byte 82 (= `inner[74]`), which our `protocol` already exposes as
   `spo2CandidateRaw` (`gen5_records.dart`) but deliberately does not publish as
   a percentage.
-- Measurement schedule, confirmed independently by noop#2814, noop#73 and
-  wearable5.0 (FINDINGS §13): 30 s measurement bursts every 1,200 s, only while
-  the band declares sleep. 5/MG never sends red/IR raw channels (noop#11).
-- Validation against the vendor app (noop#73): nightly means 93.4–96.7 vs
+- Measurement schedule, reported by more than one independent source: 30 s
+  measurement bursts every 1,200 s, only while the band declares sleep. 5/MG is
+  reported to never send red/IR raw channels. Not verified by us.
+- Reported comparison with the vendor app: nightly means 93.4–96.7 vs
   WHOOP's own 93.1–96.5 over the same weeks (period means 94.4 vs 94.8). No
   night had both readings, so this stays an estimate, not a validation.
 - No usable offline derivation from raw PPG on 5.0: time multiplexing alone
@@ -66,9 +64,8 @@ the confidence level stated.
   channel bursts are widely separated in time — so no derivation path is
   available from what we can decode. The byte-82 device value is the only
   usable source.
-- Encoding not fully pinned: values above 128 appear to decompose as
-  `128 + value` with bit 7 acting as a flag/status bit. This is why
-  `spo2Candidate` is deprecated.
+- Encoding unknown. Treat byte 82 as an opaque byte until a validation run
+  pins its encoding; this is why `spo2Candidate` is deprecated.
 
 ## Self-critical assessment
 
@@ -96,9 +93,9 @@ the confidence level stated.
 ## Staged plan (proposed)
 
 1. **protocol** — raw, gated decode only:
-   - Keep `spo2CandidateRaw` as-is; add a pinned, documented interpretation
-     (bit 7 flag, value = low 7 bits) behind a plausibility gate, still
-     labeled candidate until validated.
+   - Keep `spo2CandidateRaw` as-is. Do not document any interpretation of the
+     byte until the validation workstream pins its encoding; it stays labeled
+     candidate until validated.
    - Add a decoder for the 96-byte realtime packet exposing byte 5 as **raw +
      CRC flag only** — no percentage publishing. Resolve the characteristic
      UUID discrepancy from real captures first.
@@ -121,16 +118,17 @@ the confidence level stated.
      is pinned and validated against a reference device; gen4 byte 5 stays
      diagnostic, never user-facing, until ground-truth validated.
    - Diagnostics stay RAM-ONLY, never in `_log`/FileLog. FileLog persists to
-     Android external storage (`lib/sync/file_log.dart`): on Android ≤10 other
-     apps with storage permission can read it (CWE-532), and on 11+ the
-     app-specific dir is no longer cross-app readable — but the data would
-     still be PERSISTED, which is the primary reason health diagnostics stay
+     disk (`lib/sync/file_log.dart`). Check where it lands on each Android
+     version before claiming who can read it; regardless of readability the
+     data would still be PERSISTED, which is the reason health diagnostics stay
      in RAM.
    - Respect invariants: live streams RAM-only (inv. 14), never fabricate a
      metric (inv. 3), bump `kAlgoVersion` when any output changes (inv. 4).
 4. **Validation workstream** (prerequisite for ANY user-facing SpO2 value,
    both generations): paired measurements against a reference oximeter over
-   at least 10 nights / 30 paired samples; the display gate opens only when
+   at least 10 nights / 30 paired samples across at least 3 distinct wearers (one
+   wearer's nights can satisfy the counts alone, so the wearer minimum is
+   separate); the display gate opens only when
    accuracy criteria are met — MAE <= 2 pp AND |mean bias| <= 1 pp AND
    Bland-Altman 95% limits of agreement within +/-4 pp. Correlation
    (Pearson/Spearman) is reported separately and is NEVER treated as proof of
