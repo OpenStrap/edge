@@ -2873,5 +2873,7 @@
   "strengthDeleteSetConfirm": "Supprimer cette série ?",
   "strengthBodyweight": "Poids du corps",
   "strengthDelete": "Supprimer",
-  "strengthSaveFailed": "Échec de l'enregistrement des modifications"
+  "strengthSaveFailed": "Échec de l'enregistrement des modifications",
+  "reportContactLabel": "Contact (facultatif)",
+  "reportContactHint": "E-mail ou Discord, seulement si vous voulez une réponse"
 }

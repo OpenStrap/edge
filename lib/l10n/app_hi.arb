@@ -2873,5 +2873,7 @@
   "strengthDeleteSetConfirm": "क्या यह सेट हटाना चाहते हैं?",
   "strengthBodyweight": "शारीरिक वज़न",
   "strengthDelete": "हटाएं",
-  "strengthSaveFailed": "परिवर्तन सहेजने में विफल"
+  "strengthSaveFailed": "परिवर्तन सहेजने में विफल",
+  "reportContactLabel": "संपर्क (वैकल्पिक)",
+  "reportContactHint": "ईमेल या Discord, केवल अगर आप जवाब चाहते हैं"
 }

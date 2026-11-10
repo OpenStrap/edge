@@ -2873,5 +2873,7 @@
   "strengthDeleteSetConfirm": "删除此组？",
   "strengthBodyweight": "自身体重",
   "strengthDelete": "删除",
-  "strengthSaveFailed": "保存更改失败"
+  "strengthSaveFailed": "保存更改失败",
+  "reportContactLabel": "联系方式（可选）",
+  "reportContactHint": "邮箱或 Discord，仅在你希望得到回复时填写"
 }
