@@ -2861,5 +2861,7 @@
         "type": "int"
       }
     }
-  }
+  },
+  "reportContactLabel": "Contact (facultatif)",
+  "reportContactHint": "E-mail ou Discord, seulement si vous voulez une réponse"
 }
