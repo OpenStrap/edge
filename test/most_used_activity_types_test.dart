@@ -7,7 +7,7 @@ import 'package:openstrap_edge/data/db.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-const int _t0 = 1_800_000_040; // a fixed epoch second
+const int _t0 = 1_700_000_040; // a fixed epoch second, safely in the past
 
 Future<void> _session(String id, String type, int startTs,
     {String status = 'done', String source = 'manual'}) async {

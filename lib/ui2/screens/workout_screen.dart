@@ -2201,7 +2201,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
     final mostUsed = <Activity>[];
     try {
       final since90 =
-          now.subtract(Motion.tick * 86400 * 90).millisecondsSinceEpoch ~/
+          now.subtract(const Duration(days: 90)).millisecondsSinceEpoch ~/
               1000;
       // Fetch far more than the six the row shows: unknown stored types are
       // dropped below, and a small SQL-side LIMIT could hand back only those
