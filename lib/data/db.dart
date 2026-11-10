@@ -11680,18 +11680,26 @@ class LocalDb {
     // before merge, which can make a new phone look established.
     final src = await openDatabase(path, readOnly: true, singleInstance: false);
     final bool hasSettings;
+    final bool hasSchedule;
     try {
       hasSettings = await _objectType(src, 'backup_prefs') == 'table';
+      hasSchedule = await _objectType(src, 'alarm_schedule') == 'table' &&
+          (await src.rawQuery('SELECT 1 FROM alarm_schedule LIMIT 1'))
+              .isNotEmpty;
     } finally {
       await src.close();
     }
     final fresh = hasSettings && await _backupPrefsFreshInstall(db);
     // Cancel-all deletes the schedule rows, so an empty table cannot tell
     // "cancelled" from "never set": the marker says which, and a cancelled
-    // install keeps it empty. A fresh install has nothing to protect.
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
-    final cancelled = !fresh && prefs.getBool('alarm_schedule_cleared') == true;
+    // install keeps it empty. A fresh install has nothing to protect, and a
+    // backup with no schedule rows has nothing to bring back.
+    var cancelled = false;
+    if (hasSchedule && !fresh) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      cancelled = prefs.getBool('alarm_schedule_cleared') == true;
+    }
     final counts = await _mergeFromDbFile(path,
         skip: cancelled ? const {'alarm_schedule'} : const {});
     final summary = await restoreBackupPrefs(path, counts, freshInstall: fresh);
