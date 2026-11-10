@@ -1,8 +1,8 @@
 // The gen5 v18 SpO2 candidate byte (protocol `spo2CandidateRaw`, inner[74])
 // must be carried through `decodeGen5HistoricalSample` as a RAW byte — never
-// gated, never converted to a percentage. The byte is unvalidated community
-// knowledge (nonzero only in band-declared sleep bursts), so the contract
-// under test is passthrough + null on gen4-shaped input, not a value claim.
+// gated, never converted to a percentage. The byte is unvalidated, so the
+// contract under test is passthrough + null on gen4-shaped input, not a value
+// claim.
 
 import 'dart:typed_data';
 
@@ -13,12 +13,12 @@ import 'package:openstrap_edge/models/payloads.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 /// A minimal decodable v18 inner: length 112, version byte 18 at inner[1].
-Uint8List v18Inner({int spo2Candidate = 0}) {
+Uint8List v18Inner({int spo2Candidate = 0, int stateByte = 2}) {
   final b = Uint8List(kGen5V18InnerLen);
   b[1] = 18;
   final v = ByteData.sublistView(b);
   v.setUint32(7, 1780916150, Endian.little); // unix
-  b[73] = 2; // sleepStateByte: sleep
+  b[73] = stateByte; // sleep-state byte; the sleep code sits in bits 4-5
   b[74] = spo2Candidate;
   return b;
 }
@@ -29,6 +29,15 @@ void main() {
     expect(s, isNotNull);
     expect(s!.spo2CandidateRaw, 97);
     expect(s.bandSleepState, isNotNull);
+  });
+
+  // The candidate is carried whatever the band says about sleep: the decoder
+  // must not gate it on the sleep code, so a nonzero byte with a wake state
+  // still comes through unchanged.
+  test('a nonzero candidate is carried with a wake sleep state too', () {
+    final s = decodeGen5HistoricalSample(
+        v18Inner(spo2Candidate: 97, stateByte: 0x00));
+    expect(s!.spo2CandidateRaw, 97);
   });
 
   test('zero candidate stays zero — absent measurement, not a gated null', () {

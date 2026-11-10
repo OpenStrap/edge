@@ -155,17 +155,12 @@ class Sample {
   /// The gen5 v18 SpO2 candidate byte (protocol `spo2CandidateRaw`,
   /// inner[74]) — GEN5/MG ONLY, raw and unvalidated.
   ///
-  /// Zero in ~99% of records, nonzero only during band-declared sleep
-  /// (community-observed bursts of 30 s every 1,200 s), encoding not fully
-  /// pinned (values above 128 decompose as 128 + flag). Carried as the raw
-  /// byte for capture correlation; NEVER displayed or stored as a
-  /// percentage — see `Spo2Data` in `models/payloads.dart` for the refusal.
-  /// Not persisted (no column); in-memory diagnostic only, never logged
-  /// (FileLog is external storage — CWE-532). After the validation gate in
-  /// docs/proposals/whoop-spo2.md passes, this byte is the raw input that
-  /// feeds `Spo2Data` — the single publication path. The validation gate this
-  /// refers to lives in docs/proposals/whoop-spo2.md, added by PR #17
-  /// (upstream OpenStrap/edge#675) — not part of this branch.
+  /// The encoding is unknown and no ground truth exists, so this is the opaque
+  /// byte as received: never gated, never shown, never stored or converted as
+  /// a percentage. It lives in memory only, on the live decode path: there is
+  /// no column, so a sample rebuilt from stored rows has it null. Never write
+  /// it to a log. The validation gate for any later use is in
+  /// docs/proposals/whoop-spo2.md.
   final int? spo2CandidateRaw;
 
   Sample({
