@@ -50,6 +50,27 @@ void main() {
     expect(find.text('detail'), findsNothing);
   });
 
+  testWidgets('a screen that refuses to close stays; the one above it goes',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      navigatorKey: navKey,
+      home: const Text('tab'),
+    ));
+    navKey.currentState!.push(MaterialPageRoute<void>(
+      builder: (_) => const PopScope(canPop: false, child: Text('capture')),
+    ));
+    await tester.pumpAndSettle();
+    navKey.currentState!
+        .push(MaterialPageRoute<void>(builder: (_) => const Text('help')));
+    await tester.pumpAndSettle();
+    ActivityRelaunch.listen(nav);
+
+    await fromNative(tester, 'relaunched');
+
+    expect(find.text('help'), findsNothing);
+    expect(find.text('capture'), findsOneWidget);
+  });
+
   testWidgets('any other call leaves the screens alone', (tester) async {
     await openTwoScreens(tester);
     ActivityRelaunch.listen(nav);

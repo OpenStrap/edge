@@ -21,7 +21,13 @@ class ActivityRelaunch {
     _navigator = navigator;
     channel.setMethodCallHandler((call) async {
       if (call.method != 'relaunched') return;
-      _navigator?.call()?.popUntil((route) => route.isFirst);
+      // Stops at a screen that refuses to close (`PopScope(canPop: false)`):
+      // a breathing session or an ECG capture in progress. `popUntil` pops
+      // without asking, and closing one of those mid-run would throw the
+      // recording away; whatever sits above it is still closed.
+      _navigator?.call()?.popUntil((route) =>
+          route.isFirst ||
+          route.popDisposition == RoutePopDisposition.doNotPop);
     });
   }
 
