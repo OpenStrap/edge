@@ -3531,5 +3531,11 @@
   "pairDeviceNamed": "{name} koppeln",
   "pairUseForWorkouts": "Nur fürs Training nutzen",
   "pairReplaceUnpairFailed": "Dein Band ließ sich nicht trennen, daher wurde das neue nicht gekoppelt. Versuche es erneut.",
-  "pairWearableLeadPebble": "Pebble 2 kann deine Tage mit Schlaf, Erholung und Herzfrequenz füllen. Pebble 2 SE zeigt die eigenen Schlaf- und Schrittdaten der Uhr. Sie hat keinen Herzfrequenzsensor, daher kann diese App daraus weder die tägliche Belastung berechnen noch die Erholung schätzen."
+  "pairWearableLeadPebble": "Pebble 2 kann deine Tage mit Schlaf, Erholung und Herzfrequenz füllen. Pebble 2 SE zeigt die eigenen Schlaf- und Schrittdaten der Uhr. Sie hat keinen Herzfrequenzsensor, daher kann diese App daraus weder die tägliche Belastung berechnen noch die Erholung schätzen.",
+  "pairMainBandWhoopOnly": "Hauptband: nur WHOOP 4.0 oder WHOOP 5.0/MG. Andere Geräte lassen sich als zusätzliche Geräte hinzufügen.",
+  "pairBandTitle": "Band koppeln",
+  "pairBandSubtitle": "Wähle das, das du trägst. Wir suchen es in der Nähe.",
+  "pairStrapOnlyLink": "Ich habe nur einen Herzfrequenzgurt",
+  "pairWhoopRowLine": "Schlaf, Erholung, Belastung, Herzfrequenz und mehr",
+  "pairSetUpTitle": "Einrichten"
 }

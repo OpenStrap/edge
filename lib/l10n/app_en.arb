@@ -16629,5 +16629,29 @@
   "pairWearableLeadPebble": "Pebble 2 can fill your days with sleep, recovery and heart rate. Pebble 2 SE shows the watch’s own sleep and steps. It has no heart-rate sensor, so this app cannot calculate daily strain or estimate recovery from it.",
   "@pairWearableLeadPebble": {
     "description": "Pebble-family pairing lead: SE shows the watch’s own sleep and steps; no HR sensor means no app-calculated daily strain or recovery estimate from the SE alone."
+  },
+  "pairMainBandWhoopOnly": "Main band: WHOOP 4.0 or WHOOP 5.0/MG only. Other devices can be added as additional devices.",
+  "@pairMainBandWhoopOnly": {
+    "description": "Plain statement on the pairing screens: only WHOOP can be the main band; other devices are added as additional devices."
+  },
+  "pairBandTitle": "Pair your band",
+  "@pairBandTitle": {
+    "description": "Title of the first-run list of bands."
+  },
+  "pairBandSubtitle": "Pick the one you wear. We will look for it nearby.",
+  "@pairBandSubtitle": {
+    "description": "Subtitle of the first-run list of bands."
+  },
+  "pairStrapOnlyLink": "I only have a heart-rate strap",
+  "@pairStrapOnlyLink": {
+    "description": "Text link under the band list for someone with only a heart-rate strap."
+  },
+  "pairWhoopRowLine": "Sleep, recovery, strain, heart rate and more",
+  "@pairWhoopRowLine": {
+    "description": "Line under each WHOOP on the first-run list."
+  },
+  "pairSetUpTitle": "Set up",
+  "@pairSetUpTitle": {
+    "description": "Top bar title of the first-run pairing screen."
   }
 }

@@ -54,6 +54,7 @@ import '../../state/app_state.dart';
 import '../onboarding/pairing.dart' show PairingScreen;
 import '../ui2.dart';
 import 'add_device_flow.dart';
+import 'pair_band_view.dart';
 import 'category_filter_pills.dart';
 import 'pair_text.dart'
     show PairFilter, pairFilterOf;
@@ -92,7 +93,7 @@ class DevicePickerScreen extends StatefulWidget {
 }
 
 class _DevicePickerScreenState extends State<DevicePickerScreen>
-    implements AddDeviceIo {
+    implements AddDeviceIo, PairBandHost {
   final _query = TextEditingController();
   String _q = '';
 
@@ -253,8 +254,10 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
     await _openEntry(entry);
   }
 
+  @override
   void pickBand(BandEntry entry) => unawaited(_openEntry(entry));
 
+  @override
   void strapOnlyConfirmed() => unawaited(_openEntry(kBleHrs));
 
   /// The pairing operation itself, for [AddDeviceFlow].
@@ -387,7 +390,13 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
   @override
   Widget build(BuildContext c) {
     final l = AppLocalizations.of(c);
-    final entries = [if (widget.includeBand) kWhoopGen4, ..._notifyEntries];
+    if (widget.includeBand) {
+      return PairBandView(
+        entries: firstRunBandEntries(), host: this, onSkip: widget.onSkip,
+        onBack: widget.onBack, problem: _problem,
+      );
+    }
+    final entries = _notifyEntries;
     return DevicePickerView(
       query: _query,
       title: l?.pairAddDevice ?? 'Add a device',
