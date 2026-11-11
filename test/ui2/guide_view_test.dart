@@ -60,6 +60,79 @@ Rect _inSkeleton(WidgetTester t, Rect global) {
 }
 
 void main() {
+  group('GuidePillLayout', () {
+    // Frame 300 x 600; pill 40 x 20. Candidate boxes, by hand (S.x2 = ${S.x2}):
+    //   left  : x = outline.left + 2 - 40, y = outline.centre.dy - 10
+    //   above : x = outline.right - 40 - S.x2, y = outline.top - 20 + 2
+    //   below : x = same,                      y = outline.bottom - 2
+    const bounds = Rect.fromLTWH(0, 0, 300, 600);
+    const size = Size(40, 20);
+
+    test('beside the outline (left, vertically centred) when it fits', () {
+      // why: new rule - the pill no longer sits above, where it covered text.
+      const outline = Rect.fromLTWH(150, 300, 100, 30);
+      final pill = const GuidePillLayout(outline, bounds).place(size);
+      expect(pill, const Rect.fromLTWH(112, 305, 40, 20)); // 150 + 2 - 40; 315 - 10
+    });
+
+    test('above when there is no room on the left', () {
+      // why: second preference. Outline at x=20: left box would start at -18.
+      const outline = Rect.fromLTWH(20, 300, 100, 30);
+      final pill = const GuidePillLayout(outline, bounds).place(size);
+      expect(pill, Rect.fromLTWH(120 - 40 - S.x2, 282, 40, 20)); // 300 - 20 + 2
+    });
+
+    test('below when left does not fit and above leaves the frame', () {
+      // why: third preference. Outline 5 px from the top: above would start at -13.
+      const outline = Rect.fromLTWH(20, 5, 100, 30);
+      final pill = const GuidePillLayout(outline, bounds).place(size);
+      expect(pill, Rect.fromLTWH(120 - 40 - S.x2, 33, 40, 20)); // 35 - 2
+    });
+
+    test('a position that overlaps legible text is skipped', () {
+      // why: step 3 of guide #1 - text right above the link must stay readable.
+      const outline = Rect.fromLTWH(20, 300, 100, 30);
+      const textAbove = Rect.fromLTWH(30, 285, 80, 14); // inside the above box (72..112 x 282..302)
+      final pill = const GuidePillLayout(outline, bounds, [textAbove]).place(size);
+      expect(pill, Rect.fromLTWH(120 - 40 - S.x2, 328, 40, 20)); // below: 330 - 2
+      // and a text line to the left pushes the pill off the left slot
+      const outline2 = Rect.fromLTWH(150, 300, 100, 30);
+      const textLeft = Rect.fromLTWH(100, 305, 40, 14); // overlaps the left box 112..152
+      final pill2 = const GuidePillLayout(outline2, bounds, [textLeft]).place(size);
+      expect(pill2, Rect.fromLTWH(250 - 40 - S.x2, 282, 40, 20));
+    });
+
+    test('text that only touches the pill\'s edge does not block it', () {
+      // why: boundary - Rect.overlaps is strict; touching is not covering.
+      const outline = Rect.fromLTWH(150, 300, 100, 30);
+      const touching = Rect.fromLTWH(60, 305, 52, 14); // right edge 112 = pill.left
+      expect(const GuidePillLayout(outline, bounds, [touching]).place(size), const Rect.fromLTWH(112, 305, 40, 20));
+    });
+
+    test('with every position blocked, the one covering the least text wins and stays inside the frame', () {
+      // why: never off-screen, never silently the old behaviour; deterministic.
+      const outline = Rect.fromLTWH(150, 300, 100, 30);
+      // left box 112..152 x 305..325; above 202..242 x 282..302; below 202..242 x 328..348
+      final big = [
+        const Rect.fromLTWH(112, 305, 40, 20), // fully covers left (area 800)
+        const Rect.fromLTWH(202, 282, 40, 20), // fully covers above (800)
+        const Rect.fromLTWH(202, 328, 40, 5), // covers 5 of 20 rows of below (200)
+      ];
+      final pill = GuidePillLayout(outline, bounds, big).place(size);
+      expect(pill, const Rect.fromLTWH(202, 328, 40, 20));
+      expect(bounds.contains(pill.topLeft) && bounds.contains(pill.bottomRight), isTrue);
+    });
+
+    test('getPositionForChild is the placed box\'s corner and constraints are loose', () {
+      // why: the delegate must hand the pill loose constraints (tight ones
+      // stretched it over the whole frame once) and use place().
+      const outline = Rect.fromLTWH(150, 300, 100, 30);
+      const d = GuidePillLayout(outline, bounds);
+      expect(d.getPositionForChild(const Size(300, 600), size), const Offset(112, 305));
+      expect(d.getConstraintsForChild(BoxConstraints.tight(const Size(300, 600))).minWidth, 0);
+    });
+  });
+
   const howSet = 'How these are set'; // app_en.arb dayStrainHowSet
 
   group('GuideStepView', () {
@@ -138,6 +211,78 @@ void main() {
       expect(enMarker, isNotEmpty);
       expect(pill(t), isNot(enPill));
       expect(marker(t), isNot(enMarker));
+    });
+  });
+
+  group('GuideStepView pill placement', () {
+    // A screen where legible text sits directly above the target, left-aligned
+    // like the target: the old "above the outline" spot lands on that text.
+    GuideStep hintAbove() => GuideStep(
+          id: 'hint-above',
+          screen: (_) => Scaffold(
+            body: ListView(
+              padding: const EdgeInsets.all(16),
+              children: const [
+                ScreenTitle('Screen title'),
+                SizedBox(height: 40),
+                Align(alignment: Alignment.centerLeft, child: Text('Legible hint line')),
+                SizedBox(height: 6),
+                Align(alignment: Alignment.centerLeft, child: Pressable(child: Text('Go link'))),
+              ],
+            ),
+          ),
+          target: GuideTarget.label((_) => 'Go link'),
+          anchor: GuideTarget.label((_) => 'Go link'),
+          alsoKeep: [GuideTarget.label((_) => 'Legible hint line')],
+          action: GuideAction.tap,
+          caption: (_) => 'Tap Go link',
+        );
+
+    testWidgets('the tap pill never covers legible text: it goes below when left has no room and above is taken', (t) async {
+      // why: guide #1 step 3 - the pill covered the line of text above the link.
+      // Deterministic version: the hint is kept legible (alsoKeep) and sits 6 px
+      // above the target at the same x. proves: CLAIM(pill-legible), CLAIM(pill-order)
+      await _pump(t, hintAbove());
+      final frame = t.getRect(find.byKey(_fk));
+      final hint = t.getRect(find.text('Legible hint line'));
+      final target = t.getRect(find.text('Go link'));
+      final outline = t.getRect(find.byKey(GuideStepView.outlineKey));
+      final pill = t.getRect(find.byKey(GuideStepView.tapPillKey));
+      expect(hint.bottom, lessThan(target.top), reason: 'fixture sanity: the hint is above the target');
+      expect(pill.overlaps(hint), isFalse, reason: 'pill $pill covers the hint $hint');
+      expect(pill.overlaps(target), isFalse);
+      expect(skContains(frame, pill), isTrue);
+      expect(pill.top, greaterThanOrEqualTo(outline.bottom - 2.5), reason: 'left has no room (target at the margin) and above is taken: below');
+      // control: without the text knowledge the same layout picks the old spot, onto the hint
+      final blind = GuidePillLayout(outline, frame.deflate(7)).place(pill.size);
+      expect(blind.overlaps(hint), isTrue, reason: 'positive control: the blind spot $blind covers the hint $hint');
+    });
+
+    testWidgets('with nothing legible nearby and room on the left, the pill sits beside the target', (t) async {
+      // why: the new first preference. The target is a label pushed to the right
+      // of the screen so there is room on its left.
+      final step = GuideStep(
+        id: 'right',
+        screen: (_) => Scaffold(
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: const [
+              ScreenTitle('Screen title'),
+              SizedBox(height: 120),
+              Align(alignment: Alignment.centerRight, child: Pressable(child: Text('Go link'))),
+            ],
+          ),
+        ),
+        target: GuideTarget.label((_) => 'Go link'),
+        anchor: GuideTarget.label((_) => 'Go link'),
+        action: GuideAction.tap,
+        caption: (_) => 'Tap Go link',
+      );
+      await _pump(t, step);
+      final outline = t.getRect(find.byKey(GuideStepView.outlineKey));
+      final pill = t.getRect(find.byKey(GuideStepView.tapPillKey));
+      expect(pill.right, closeTo(outline.left + 2, 0.6), reason: 'pill ends 2 px inside the outline, on its left');
+      expect(pill.center.dy, closeTo(outline.center.dy, 0.6), reason: 'vertically centred on the outline');
     });
   });
 

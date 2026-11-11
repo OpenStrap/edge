@@ -12,6 +12,7 @@
 // activityZonesYourZonesSection, dayStrainTimeInZonesSection.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/activity/day_strain.dart';
@@ -408,6 +409,55 @@ void main() {
             expect(skContains(frame, t.getRect(find.byKey(GuideStepView.scrollMarkerKey))), isTrue);
           }
           expect(find.byKey(GuideStepView.failureKey), findsNothing);
+        }
+      });
+    }
+  });
+
+  group('the tap pill never covers legible text (guide #1)', () {
+    for (final (locale, scale) in const [(Locale('en'), 1.0), (Locale('en'), 1.3), (Locale('ru'), 1.0), (Locale('ru'), 1.3)]) {
+      testWidgets('${locale.languageCode} at text scale $scale: no step\'s pill overlaps a legible text line', (t) async {
+        // why: in step 3 the pill used to sit above "Set your own zones" and
+        // hid the line of text above it. Legible = a text line of the demo
+        // screen that no skeleton shape covers and that is not the target's own.
+        // proves: CLAIM(pill-legible), CLAIM(pill-order)
+        t.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+        skTallView(t, w: 800, h: 3000);
+        final l = lookupAppLocalizations(locale);
+        final steps = _steps();
+        final labels = [l.homeRingStrain.toUpperCase(), l.dayStrainHowSet, l.activityZonesSetYourOwnLink];
+        for (var i = 0; i < steps.length; i++) {
+          await t.pumpWidget(skHost(
+            Scaffold(body: SingleChildScrollView(child: Center(child: GuideStepView(number: i + 1, step: steps[i])))),
+            locale: locale,
+          ));
+          await t.pumpAndSettle();
+          final skeleton = find.byType(Skeletonize);
+          final toGlobal = t.renderObject<RenderBox>(skeleton).getTransformTo(null);
+          final shapes = [
+            for (final s in t.state<SkeletonizeState>(skeleton).paintedShapes) MatrixUtils.transformRect(toGlobal, s.rect),
+          ];
+          final target = t.getRect(find.text(labels[i]).first);
+          final legible = <Rect>[];
+          for (final e in find.descendant(of: skeleton, matching: find.byType(RichText)).evaluate()) {
+            final para = e.renderObject! as RenderParagraph;
+            final len = para.text.toPlainText().length;
+            if (len == 0) continue;
+            final m = para.getTransformTo(null);
+            for (final b in para.getBoxesForSelection(TextSelection(baseOffset: 0, extentOffset: len))) {
+              final r = MatrixUtils.transformRect(m, Rect.fromLTRB(b.left, b.top, b.right, b.bottom));
+              if (r.isEmpty || skContains(target.inflate(1), r)) continue;
+              if (shapes.any((s) => s.overlaps(r))) continue;
+              legible.add(r);
+            }
+          }
+          expect(legible, isNotEmpty, reason: 'positive control: step ${i + 1} has legible text besides the target');
+          final pill = t.getRect(find.byKey(GuideStepView.tapPillKey));
+          for (final r in legible) {
+            expect(pill.overlaps(r), isFalse, reason: 'step ${i + 1} ${locale.languageCode}: pill $pill covers legible line $r');
+          }
+          expect(t.takeException(), isNull);
         }
       });
     }

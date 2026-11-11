@@ -3,7 +3,9 @@
 // engine (RenderParagraph line boxes, RenderBox transforms), never from the
 // code under test.
 
+import 'dart:convert' show jsonDecode;
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -103,6 +105,86 @@ Future<void> skLoadAppFonts() async {
     }
     await loader.load();
   }
+  await _skLoadIconFonts();
+}
+
+/// The directory of the Flutter SDK running the tests: `FLUTTER_ROOT` when
+/// the tool exported it, else found above the tester binary
+/// (`<sdk>/bin/cache/artifacts/engine/<arch>/flutter_tester`).
+Directory _skFlutterRoot() {
+  final env = Platform.environment['FLUTTER_ROOT'];
+  if (env != null && env.isNotEmpty) return Directory(env);
+  var dir = File(Platform.resolvedExecutable).parent;
+  while (dir.parent.path != dir.path) {
+    if (Directory('${dir.path}/bin/cache/artifacts/material_fonts').existsSync()) return dir;
+    dir = dir.parent;
+  }
+  throw StateError('Flutter SDK not found from ${Platform.resolvedExecutable}; set FLUTTER_ROOT');
+}
+
+/// The root directory of [package]. `Isolate.resolvePackageUri` where the test
+/// VM supports it; `flutter test` does not (it throws UnsupportedError), so
+/// then the project's `.dart_tool/package_config.json` is read, which is the
+/// same table the resolver uses.
+Future<Directory> _skPackageDir(String package) async {
+  try {
+    final libUri = await Isolate.resolvePackageUri(Uri.parse('package:$package/'));
+    if (libUri != null) return Directory.fromUri(libUri.resolve('../'));
+  } on UnsupportedError {
+    // fall through to the package config
+  }
+  final config = File('.dart_tool/package_config.json');
+  final packages = (jsonDecode(config.readAsStringSync()) as Map)['packages'] as List;
+  for (final entry in packages.cast<Map>()) {
+    if (entry['name'] != package) continue;
+    // rootUri is relative to the config file's directory, or absolute.
+    final root = config.absolute.uri.resolve(entry['rootUri'] as String);
+    return Directory.fromUri(root.replace(path: root.path.endsWith('/') ? root.path : '${root.path}/'));
+  }
+  throw StateError('package $package is not in ${config.path}');
+}
+
+/// Registers the icon fonts the app draws with, so review renders show glyphs
+/// and not the empty "tofu" box the test engine falls back to:
+///  * every family of lucide_icons_flutter (read from that package's pubspec),
+///    under the package-scoped name Flutter gives them
+///    (`packages/lucide_icons_flutter/<Family>`);
+///  * MaterialIcons from the SDK's cached artifacts (`MaterialIcons`).
+/// Fails loudly when a font file is missing: a silent skip would bring the
+/// boxes back unnoticed.
+Future<void> _skLoadIconFonts() async {
+  Future<void> register(String family, File file) async {
+    if (!file.existsSync()) throw StateError('icon font missing for $family: ${file.path}');
+    final loader = FontLoader(family)
+      ..addFont(file.readAsBytes().then((b) => ByteData.sublistView(Uint8List.fromList(b))));
+    await loader.load();
+  }
+
+  const package = 'lucide_icons_flutter';
+  final packageDir = await _skPackageDir(package);
+  final pubspec = File('${packageDir.path}/pubspec.yaml').readAsStringSync();
+  // The pubspec's `fonts:` list is regular (`- family: X` then `- asset: Y`
+  // lines); a line scan avoids a YAML dependency in test support.
+  String? family;
+  var registered = 0;
+  for (final line in pubspec.split('\n')) {
+    final t = line.trim();
+    if (t.startsWith('#')) continue;
+    final fam = RegExp(r'^- family:\s*(\S+)').firstMatch(t);
+    if (fam != null) {
+      family = fam.group(1);
+      continue;
+    }
+    final asset = RegExp(r'^- asset:\s*(\S+)').firstMatch(t);
+    if (asset != null && family != null) {
+      await register('packages/$package/$family', File('${packageDir.path}/${asset.group(1)}'));
+      registered++;
+    }
+  }
+  if (registered == 0) throw StateError('no fonts found in $package pubspec');
+
+  await register('MaterialIcons',
+      File('${_skFlutterRoot().path}/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf'));
 }
 
 /// Labels of every semantics node in screen-reader traversal order.

@@ -10,7 +10,9 @@
 // [revealTarget] (guide_target.dart) scrolls it to the target and reports the
 // rect the markers are placed from. Both read the screen at the same root.
 
+import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -18,6 +20,7 @@ import '../skeleton/skeleton.dart';
 import '../theme.dart';
 import 'guide.dart';
 import 'guide_target.dart';
+import 'tree_geometry.dart';
 
 /// Logical size the demo screen is laid out at inside the frame; the frame
 /// scales it down to fit its width.
@@ -64,6 +67,11 @@ class _GuideStepViewState extends State<GuideStepView> {
 
   /// null while the target is being looked for (the frame shows, unmarked).
   TargetResolution? _resolution;
+
+  /// Text lines of the screen that stay readable in this step (not covered by
+  /// the skeleton, not the target's own), in the screen's unscaled coordinates:
+  /// what the tap pill must not cover. Empty while the target is searched.
+  List<Rect> _legibleLines = const [];
   int _revealRound = 0;
 
   @override
@@ -77,6 +85,7 @@ class _GuideStepViewState extends State<GuideStepView> {
     super.didUpdateWidget(old);
     if (!identical(old.step, widget.step)) {
       _resolution = null;
+      _legibleLines = const [];
       _reveal();
     }
   }
@@ -93,7 +102,21 @@ class _GuideStepViewState extends State<GuideStepView> {
       final l = AppLocalizations.of(context) ?? lookupAppLocalizations(const Locale('en'));
       final found = await revealTarget(root, widget.step.target, l);
       if (!mounted || round != _revealRound) return;
-      setState(() => _resolution = found);
+      // The same plan Skeletonize paints: same function, same keep rects, same
+      // chrome, read from the tree after the scroll.
+      final screenRoot = _screenKey.currentContext;
+      final lines = switch ((screenRoot, found)) {
+        (final Element screenElement, TargetFound(:final rect)) => legibleTextLines(screenElement, keep: [
+            rect,
+            for (final extra in widget.step.alsoKeep)
+              if (extra.resolve(screenElement, l) case TargetFound(rect: final kept)) kept,
+          ], target: rect),
+        _ => const <Rect>[],
+      };
+      setState(() {
+        _resolution = found;
+        _legibleLines = lines;
+      });
     });
   }
 
@@ -226,7 +249,15 @@ class _GuideStepViewState extends State<GuideStepView> {
               child: ExcludeSemantics(
                 child: IgnorePointer(
                   child: CustomSingleChildLayout(
-                    delegate: _PillLayout(outline, screen),
+                    delegate: GuidePillLayout(outline, screen, [
+                      for (final r in _legibleLines)
+                        Rect.fromLTWH(
+                          screen.left + r.left * scale,
+                          screen.top + r.top * scale,
+                          r.width * scale,
+                          r.height * scale,
+                        ),
+                    ]),
                     child: _pill(l.guideTapMarker, key: GuideStepView.tapPillKey),
                   ),
                 ),
@@ -272,30 +303,121 @@ class _GuideStepViewState extends State<GuideStepView> {
       );
 }
 
-/// Places the "tap" pill astride the top edge of the outline, at its right end;
-/// below the outline instead when there is no room above. Always inside
-/// [bounds]. CLAIM(pill-clear): the pill never covers the target: the outline
-/// is grown by [_kOutlineGap] (4) past the target and the pill reaches 2 px
-/// into it [guide_view_test 'the tap pill sits beside the target'].
-class _PillLayout extends SingleChildLayoutDelegate {
+/// Every laid-out text line under [root] that the step leaves readable: not
+/// covered by a shape of the skeleton plan for [keep] (so inside a kept unit or
+/// chrome), and not inside [target] itself. Rects are in [root]'s coordinates.
+/// The tap pill avoids these (it would hide text the reader is meant to read).
+///
+/// ↳ CLAIM(pill-legible): "legible" is defined by the same [skeletonPlan] that
+/// [Skeletonize] paints, so the two cannot disagree on what is covered
+/// [guide_view_test 'the tap pill never covers legible text'].
+@visibleForTesting
+List<Rect> legibleTextLines(Element root, {required List<Rect> keep, required Rect target}) {
+  final rootBox = laidOutBox(root);
+  if (rootBox == null) return const [];
+  final plan = skeletonPlan(root, keep: keep, chrome: defaultSkeletonChrome(root));
+  final lines = <Rect>[];
+  visitOnstage(root, (e) {
+    final ro = e is RenderObjectElement ? e.renderObject : null;
+    if (ro is! RenderParagraph || !ro.hasSize) return;
+    final length = ro.text.toPlainText().length;
+    if (length == 0) return;
+    final visible = visibleBoundsInRoot(ro, rootBox);
+    final boxes = ro.getBoxesForSelection(TextSelection(baseOffset: 0, extentOffset: length));
+    // One rect per line: boxes sharing a line (several spans) are merged.
+    final byLine = <int, Rect>{};
+    for (final b in boxes) {
+      final r = Rect.fromLTRB(b.left, b.top, b.right, b.bottom);
+      if (r.isEmpty) continue;
+      final key = (r.top * 2).round();
+      byLine[key] = byLine[key]?.expandToInclude(r) ?? r;
+    }
+    for (final local in byLine.values) {
+      final line = rectInRoot(ro, rootBox, local).intersect(visible);
+      if (line.isEmpty) continue;
+      if (target.inflate(.5).contains(line.topLeft) && target.inflate(.5).contains(line.bottomRight)) continue;
+      if (plan.any((s) => s.rect.overlaps(line))) continue;
+      lines.add(line);
+    }
+  });
+  return lines;
+}
+
+/// Places the "tap" pill next to the outline. Order of preference:
+///  1. beside it: to the LEFT, vertically centred on the outline;
+///  2. above it, astride the top edge at its right end;
+///  3. below it, astride the bottom edge at its right end.
+/// A position is taken only when it is inside [bounds] and overlaps none of
+/// [avoid] (the step's legible text lines). When none qualifies the one that
+/// covers the least text is used (always inside [bounds]).
+///
+/// CLAIM(pill-clear): the pill never covers the target: the outline is grown by
+/// [_kOutlineGap] (4) past the target and the pill reaches 2 px into it
+/// [guide_view_test 'the tap pill sits beside the target'].
+/// CLAIM(pill-order): left, then above, then below, skipping any position that
+/// leaves the frame or touches legible text
+/// [guide_view_test 'GuidePillLayout'].
+class GuidePillLayout extends SingleChildLayoutDelegate {
   final Rect outline;
   final Rect bounds;
-  const _PillLayout(this.outline, this.bounds);
+  final List<Rect> avoid;
+  const GuidePillLayout(this.outline, this.bounds, [this.avoid = const []]);
 
   // The default would hand the pill the whole frame as TIGHT constraints.
   @override
   BoxConstraints getConstraintsForChild(BoxConstraints constraints) => constraints.loosen();
 
-  @override
-  Offset getPositionForChild(Size size, Size childSize) {
-    final x = (outline.right - childSize.width - S.x2).clamp(bounds.left, bounds.right - childSize.width);
-    var y = outline.top - childSize.height + 2;
-    if (y < bounds.top) y = outline.bottom - 2;
-    return Offset(x.toDouble(), y.clamp(bounds.top, bounds.bottom - childSize.height).toDouble());
+  /// The three candidate boxes for a pill of [size], in preference order, each
+  /// only when it lies inside [bounds].
+  List<Rect> candidates(Size size) {
+    final rightEnd = (outline.right - size.width - S.x2).clamp(bounds.left, bounds.right - size.width).toDouble();
+    final all = [
+      Rect.fromLTWH(outline.left + 2 - size.width, outline.center.dy - size.height / 2, size.width, size.height),
+      Rect.fromLTWH(rightEnd, outline.top - size.height + 2, size.width, size.height),
+      Rect.fromLTWH(rightEnd, outline.bottom - 2, size.width, size.height),
+    ];
+    return [
+      for (final c in all)
+        if (c.left >= bounds.left - .01 && c.right <= bounds.right + .01 && c.top >= bounds.top - .01 && c.bottom <= bounds.bottom + .01) c,
+    ];
+  }
+
+  static double _overlapArea(Rect a, Rect b) {
+    final i = a.intersect(b);
+    return i.width <= 0 || i.height <= 0 ? 0 : i.width * i.height;
+  }
+
+  /// Where the pill goes (its box), see the class doc.
+  Rect place(Size size) {
+    final fits = candidates(size);
+    for (final c in fits) {
+      if (!avoid.any((r) => r.overlaps(c))) return c;
+    }
+    if (fits.isNotEmpty) {
+      // Nothing is free: cover the least text.
+      Rect best = fits.first;
+      var bestCover = double.infinity;
+      for (final c in fits) {
+        final cover = avoid.fold<double>(0, (sum, r) => sum + _overlapArea(r, c));
+        if (cover < bestCover) {
+          best = c;
+          bestCover = cover;
+        }
+      }
+      return best;
+    }
+    // No candidate fits the frame at all: above, pushed inside.
+    final x = (outline.right - size.width - S.x2).clamp(bounds.left, bounds.right - size.width).toDouble();
+    final y = (outline.top - size.height + 2).clamp(bounds.top, bounds.bottom - size.height).toDouble();
+    return Rect.fromLTWH(x, y, size.width, size.height);
   }
 
   @override
-  bool shouldRelayout(_PillLayout old) => old.outline != outline || old.bounds != bounds;
+  Offset getPositionForChild(Size size, Size childSize) => place(childSize).topLeft;
+
+  @override
+  bool shouldRelayout(GuidePillLayout old) =>
+      old.outline != outline || old.bounds != bounds || !listEquals(old.avoid, avoid);
 }
 
 /// [text] with every `**quoted**` run in bold: the captions quote the app's own
