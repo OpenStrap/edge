@@ -414,7 +414,6 @@ class HrsLink {
               in await FlutterBluePlus.systemDevices([Guid(e.service)])) {
             final id = d.remoteId.str;
             if (ours.contains(id)) continue;
-            confirmed.putIfAbsent(id, () => e.id);
             final previous = seen[id];
             seen[id] = candidateFromSystemDevice(
               entries: entries, device: d, queriedEntry: e,
@@ -510,11 +509,23 @@ class HrsLink {
     required BandEvidenceLedger bandSeen,
     Map<String, String>? confirmed,
     BandCandidate? previous,
-  }) => candidateFromAd(entries: entries, device: device,
-      serviceUuids: [Guid(queriedEntry.service)], advName: '',
-      platformName: platformName, rssi: previous?.rssi,
-      previousLabel: previous?.label, bandSeen: bandSeen,
-      confirmed: confirmed, unfilteredScan: false)!;
+  }) {
+    final id = device.remoteId.str;
+    // Query order deliberately prefers HRS to PMD for straps such as H10.
+    // Later queries contribute identity evidence, never replace that claim.
+    final entryId = confirmed?[id] ?? previous?.entryId ?? queriedEntry.id;
+    confirmed?.putIfAbsent(id, () => entryId);
+    final candidate = candidateFromAd(entries: entries, device: device,
+        serviceUuids: [Guid(queriedEntry.service)], advName: '',
+        platformName: platformName, rssi: previous?.rssi,
+        previousLabel: previous?.label, bandSeen: bandSeen,
+        unfilteredScan: false)!;
+    final band = bandSeen.identityFor(id);
+    return (device: device, label: candidate.label, rssi: candidate.rssi,
+        entryId: entryId,
+        alsoBand: band != null && (band.entry.id != entryId || !band.modelCertain)
+            ? band : null);
+  }
 
   @visibleForTesting
   static BandCandidate? candidateFromAd({

@@ -851,6 +851,41 @@ void _pairing() {
 
 void _reviewEvidence() {
   group('review regressions: evidence provenance', () {
+    test('later PMD query retains HRS claim while later band query records evidence', () async {
+      // WHY: an H10 can answer both queries but cannot provide PMD PPI.
+      final ledger = BandEvidenceLedger();
+      final confirmed = <String, String>{};
+      final device = BluetoothDevice.fromId('multi-query');
+      final first = HrsLink.candidateFromSystemDevice(entries: [kBleHrs, kPolarPmd],
+          device: device, queriedEntry: kBleHrs, platformName: 'Polar H10',
+          bandSeen: ledger, confirmed: confirmed);
+      final second = HrsLink.candidateFromSystemDevice(entries: [kBleHrs, kPolarPmd],
+          device: device, queriedEntry: kPolarPmd, platformName: 'Polar H10',
+          bandSeen: ledger, confirmed: confirmed, previous: first);
+      expect(second.entryId, kBleHrs.id);
+      expect(confirmed[device.remoteId.str], kBleHrs.id);
+      final io = _FakeIo(() async => _strap());
+      final outcome = await pairNotifyDevice(entry: kBandRegistry.firstWhere((e) => e.id == second.entryId),
+          remoteId: device.remoteId.str, io: io,
+          latestBand: () => ledger.identityFor(device.remoteId.str));
+      expect(outcome.saved, isTrue);
+      expect(io.pmdReads, 0);
+      expect(io.writes.single.adapterId, kBleHrs.id);
+
+      // Keeping the chosen adapter must not discard later safety evidence.
+      final third = HrsLink.candidateFromSystemDevice(entries: [kBleHrs, kWhoopGen5],
+          device: device, queriedEntry: kWhoopGen5, platformName: 'Polar H10',
+          bandSeen: ledger, confirmed: confirmed, previous: second);
+      expect(third.entryId, kBleHrs.id);
+      expect(third.alsoBand?.entry.id, kWhoopGen5.id);
+      final bandIo = _FakeIo(() async => _strap());
+      final refusal = await pairNotifyDevice(entry: kBleHrs,
+          remoteId: device.remoteId.str, io: bandIo,
+          latestBand: () => ledger.identityFor(device.remoteId.str));
+      expect(refusal.isBand?.id, kWhoopGen5.id);
+      expect(bandIo.writes, isEmpty);
+    });
+
     test('system-device cached WHOOP name refuses a standard-only sensor save', () async {
       // WHY: iOS may return a connected WHOOP with only HRS discovery.
       final ledger = BandEvidenceLedger();
