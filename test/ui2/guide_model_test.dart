@@ -7,8 +7,10 @@ import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 
 GuideStep _step(String id) => GuideStep(
+      id: id,
       screen: (_) => const SizedBox(),
       target: GuideTarget.key(ValueKey(id)),
+      anchor: GuideTarget.key(ValueKey('anchor-$id')),
       action: GuideAction.tap,
       caption: (_) => id,
     );
@@ -79,6 +81,29 @@ void main() {
       final r = _guide(const []).variantFor(BandGeneration.whoop4);
       expect(r, isA<GuideNoVariant>());
       expect((r as GuideNoVariant).available, isEmpty);
+    });
+  });
+
+  group('GuideStep', () {
+    test('keeps its stable id, anchor and extra kept targets', () {
+      // why: item 2/1: ids key progress and phase-4 matching and must be the
+      // value given, not derived from the (translated) caption; alsoKeep
+      // defaults to none and carries step 3's "Your zones".
+      final extra = GuideTarget.key(const ValueKey('extra'));
+      final plain = _step('open');
+      expect(plain.id, 'open');
+      expect(plain.alsoKeep, isEmpty);
+      final withExtra = GuideStep(
+        id: 'set',
+        screen: (_) => const SizedBox(),
+        target: GuideTarget.key(const ValueKey('t')),
+        anchor: GuideTarget.key(const ValueKey('a')),
+        alsoKeep: [extra],
+        action: GuideAction.tap,
+        caption: (_) => 'c',
+      );
+      expect(withExtra.alsoKeep, [extra]);
+      expect(withExtra.id, 'set');
     });
   });
 

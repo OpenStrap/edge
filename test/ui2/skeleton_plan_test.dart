@@ -131,6 +131,31 @@ void main() {
       expect(_of(p, SkeletonKind.surface), hasLength(2));
       expect(_of(p, SkeletonKind.bar), hasLength(5));
       expect(_of(p, SkeletonKind.block), hasLength(1));
+      // loose text sits on the scaffold, not on a card, so it needs an erase;
+      // text inside cards is erased by the card's own surface repaint.
+      expect(_of(p, SkeletonKind.erase), hasLength(1));
+    });
+
+    testWidgets('loose text and Section headings get an opaque erase under their bar (item 10)', (t) async {
+      // why: a rounded bar over bare scaffold leaves the glyph pixels at its
+      // corners visible. With nothing kept: loose line + Section title + Section
+      // action = 3 erases, each in the scaffold colour, each containing the
+      // bar it precedes in paint order. Text inside cards gets none.
+      final p = await _plan(t);
+      final erases = _of(p, SkeletonKind.erase).toList();
+      expect(erases, hasLength(3));
+      final bg = Theme.of(t.element(find.byKey(_root))).scaffoldBackgroundColor;
+      for (final e in erases) {
+        expect(e.color, bg);
+        final bar = p.skip(p.indexOf(e) + 1).firstWhere((s) => s.kind == SkeletonKind.bar,
+            orElse: () => fail('no bar after erase ${e.rect}'));
+        expect(skContains(e.rect, bar.rect), isTrue, reason: 'erase ${e.rect} must cover bar ${bar.rect}');
+        expect(e.section, bar.section);
+      }
+      final texts = [for (final x in ['loose line', 'Sect', 'Act']) skLineRects(t, find.text(x), find.byKey(_root)).single];
+      for (final line in texts) {
+        expect(erases.any((e) => skContains(e.rect, line)), isTrue, reason: 'no erase over $line');
+      }
     });
 
     testWidgets('a block sits exactly on the chart / custom paint', (t) async {
@@ -263,6 +288,150 @@ void main() {
       for (final s in p) {
         expect(skContains(bounds, s.rect), isTrue, reason: '${s.kind} ${s.rect} escapes $bounds');
       }
+    });
+  });
+
+  group('ancestor clips and transforms (item 9)', () {
+    testWidgets('a card half-hidden under a fixed header is clipped to the viewport; hidden text gets no bar',
+        (t) async {
+      // why: a detail screen = fixed NavBar + a smaller ListView. Scrolled
+      // children can sit inside the ROOT bounds while the viewport clips them.
+      // Header 0..60, viewport 60..300 (root-relative). Scrolled by 35: card 1
+      // spans 25..67 (surface visible only 60..67); its text line 41..51 is
+      // fully hidden above the viewport -> no bar; card 2 (67..109) is whole.
+      skTallView(t);
+      final c = ScrollController();
+      addTearDown(c.dispose);
+      await t.pumpWidget(skHost(Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            key: _root,
+            width: 300,
+            height: 300,
+            child: Column(children: [
+              const SizedBox(height: 60, child: Text('Header', style: _ahem)),
+              SizedBox(
+                height: 240,
+                child: ListView(controller: c, padding: EdgeInsets.zero, children: [
+                  for (final n in ['first', 'second', 'third', 'fourth'])
+                    Surface(child: Text(n, style: _ahem)),
+                ]),
+              ),
+            ]),
+          ),
+        ),
+      )));
+      c.jumpTo(35);
+      await t.pump();
+      final p = skeletonPlan(t.element(find.byKey(_root)), keep: const [], chrome: [const Rect.fromLTWH(0, 0, 300, 60)]);
+      const viewport = Rect.fromLTWH(0, 60, 300, 240);
+      for (final s in p) {
+        expect(skContains(viewport, s.rect), isTrue, reason: '${s.kind} ${s.rect} escapes the viewport $viewport');
+      }
+      final firstCard = skLocalRect(t, find.byType(Surface).first, find.byKey(_root));
+      expect(firstCard.top, closeTo(25, 0.6), reason: 'oracle: card 1 really starts above the viewport');
+      final surf = _of(p, SkeletonKind.surface).first;
+      expect(surf.rect.top, closeTo(60, 0.6));
+      expect(surf.rect.bottom, closeTo(firstCard.bottom, 0.6));
+      final firstText = skLineRects(t, find.text('first'), find.byKey(_root)).single;
+      expect(_of(p, SkeletonKind.bar).where((b) => b.rect.overlaps(firstText)), isEmpty,
+          reason: 'its text is entirely hidden above the viewport');
+      expect(_of(p, SkeletonKind.bar).where((b) => b.rect.overlaps(skLineRects(t, find.text('second'), find.byKey(_root)).single)), hasLength(1));
+    });
+
+    testWidgets('a nested viewport clips its own content: only the lines inside are covered', (t) async {
+      // why: an inner list inside a card. Lines are 10 px; the inner viewport is
+      // 25 px: lines at 0-10, 10-20 and a third cut to 20-25 are visible, the
+      // rest (built in the cache extent) must not produce bars.
+      skTallView(t);
+      await t.pumpWidget(skHost(Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            key: _root,
+            width: 300,
+            child: Surface(
+              pad: EdgeInsets.zero,
+              child: SizedBox(
+                key: const ValueKey('inner'),
+                height: 25,
+                child: ListView(padding: EdgeInsets.zero, children: [
+                  for (var i = 0; i < 6; i++) SizedBox(height: 10, child: Text('line $i', style: _ahem)),
+                ]),
+              ),
+            ),
+          ),
+        ),
+      )));
+      expect(find.text('line 5', skipOffstage: false), findsOneWidget, reason: 'built beyond the viewport');
+      final p = skeletonPlan(t.element(find.byKey(_root)), keep: const []);
+      final inner = skLocalRect(t, find.byKey(const ValueKey('inner')), find.byKey(_root));
+      final bars = _of(p, SkeletonKind.bar).toList()..sort((a, b) => a.rect.top.compareTo(b.rect.top));
+      expect(bars, hasLength(3));
+      for (final b in bars) {
+        expect(skContains(inner, b.rect), isTrue, reason: '${b.rect} escapes $inner');
+      }
+      expect(bars.last.rect.height, closeTo(5, 0.6));
+    });
+
+    testWidgets('a Transform inside the root: shapes are the transformed line boxes in root space', (t) async {
+      // why: the plan is in the root's space; a card under Transform.scale(0.5)
+      // must produce a bar at the SCALED rect, not the unscaled paragraph rect.
+      skTallView(t);
+      await t.pumpWidget(skHost(Scaffold(
+        body: Padding(
+          padding: const EdgeInsets.only(left: 20, top: 30),
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              key: _root,
+              width: 400,
+              height: 300,
+              child: Transform.scale(
+                scale: 0.5,
+                alignment: Alignment.topLeft,
+                child: const SizedBox(width: 400, child: Surface(child: Text('scaled text', style: _ahem))),
+              ),
+            ),
+          ),
+        ),
+      )));
+      final p = skeletonPlan(t.element(find.byKey(_root)), keep: const []);
+      final line = skLineRects(t, find.text('scaled text'), find.byKey(_root)).single;
+      expect(line.width, closeTo(55, 0.6), reason: 'oracle: 11 glyphs * 10 px * 0.5');
+      final bar = _of(p, SkeletonKind.bar).single;
+      expect(bar.rect.left, closeTo(line.left, 0.6));
+      expect(bar.rect.top, closeTo(line.top, 0.6));
+      expect(bar.rect.width, closeTo(line.width, 0.6));
+      expect(bar.rect.height, closeTo(line.height, 0.6));
+    });
+
+    testWidgets('a scaled ROOT: shapes stay in the root\'s own (unscaled) space', (t) async {
+      // why: the guide frame scales the whole screen down (FittedBox). The
+      // overlay paints inside that scaling, so the plan must be in unscaled
+      // root-local units: 55 px wide here, not 27.5.
+      skTallView(t);
+      await t.pumpWidget(skHost(Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: Transform.scale(
+            scale: 0.5,
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              key: _root,
+              width: 400,
+              child: const Surface(child: Text('scaled text', style: _ahem)),
+            ),
+          ),
+        ),
+      )));
+      final p = skeletonPlan(t.element(find.byKey(_root)), keep: const []);
+      final bar = _of(p, SkeletonKind.bar).single;
+      expect(bar.rect.width, closeTo(110, 0.6), reason: '11 glyphs * 10 px, unscaled');
+      final line = skLineRects(t, find.text('scaled text'), find.byKey(_root)).single;
+      expect(bar.rect.left, closeTo(line.left, 0.6));
+      expect(bar.rect.top, closeTo(line.top, 0.6));
     });
   });
 

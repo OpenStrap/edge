@@ -33,9 +33,14 @@ Widget _screen(double gap) => Builder(builder: (c) {
       );
     });
 
-GuideStep _step(double gap, GuideAction a, {GuideTarget? target, int n = 0}) => GuideStep(
+GuideStep _step(double gap, GuideAction a,
+        {GuideTarget? target, int n = 0, List<GuideTarget> alsoKeep = const []}) =>
+    GuideStep(
+      id: 'step-$n',
       screen: (_) => _screen(gap),
       target: target ?? GuideTarget.label((l) => l.dayStrainHowSet),
+      anchor: GuideTarget.label((l) => l.dayStrainTimeInZonesSection),
+      alsoKeep: alsoKeep,
       action: a,
       caption: (l) => 'Step caption $n: ${l.dayStrainTimeInZonesSection}',
     );
@@ -84,9 +89,9 @@ void main() {
 
     testWidgets('a scrollThenTap step scrolls the target into the frame and shows the scroll marker',
         (t) async {
-      // why: step 2 of guide #1. The target starts ~900 px below the 780 px
+      // why: step 2 of guide #1. The target starts ~3000 px (4 viewports) below the 780 px
       // phone; without the programmatic scroll it is outside the frame.
-      await _pump(t, _step(900, GuideAction.scrollThenTap));
+      await _pump(t, _step(3000, GuideAction.scrollThenTap));
       expect(skContains(t.getRect(find.byKey(_fk)), t.getRect(find.text(howSet))), isTrue,
           reason: 'target must end up inside the frame');
       expect(find.byKey(GuideStepView.scrollMarkerKey), findsOneWidget);
@@ -126,9 +131,9 @@ void main() {
       String marker(WidgetTester t) => t
           .widget<Text>(find.descendant(of: find.byKey(GuideStepView.scrollMarkerKey), matching: find.byType(Text)).first)
           .data!;
-      await _pump(t, _step(900, GuideAction.scrollThenTap));
+      await _pump(t, _step(3000, GuideAction.scrollThenTap));
       final (enPill, enMarker) = (pill(t), marker(t));
-      await _pump(t, _step(900, GuideAction.scrollThenTap), locale: const Locale('de'));
+      await _pump(t, _step(3000, GuideAction.scrollThenTap), locale: const Locale('de'));
       expect(enPill, isNotEmpty);
       expect(enMarker, isNotEmpty);
       expect(pill(t), isNot(enPill));
@@ -136,8 +141,55 @@ void main() {
     });
   });
 
+  group('GuideStepView semantics (item 7)', () {
+    testWidgets('the caption is announced before anything in the frame; the target once; covered text never',
+        (t) async {
+      // why: a screen-reader user hears "what to do" first, then the screen. The
+      // outline and pills are decoration: they must not repeat the target's
+      // label or add context-free "tap" / "scroll" announcements.
+      final h = t.ensureSemantics();
+      addTearDown(h.dispose);
+      await _pump(t, _step(0, GuideAction.tap, n: 2));
+      final labels = skTraversalLabels(t);
+      final caption = labels.indexWhere((l) => l.contains('Step caption 2'));
+      expect(caption, isNonNegative, reason: 'caption must be announced; got $labels');
+      for (final inFrame in [howSet, 'chart']) {
+        final i = labels.indexWhere((l) => l.contains(inFrame));
+        expect(i, greaterThan(caption), reason: '"$inFrame" must come after the caption; got $labels');
+      }
+      expect(labels.where((l) => l.contains(howSet)), hasLength(1), reason: 'target label announced exactly once');
+      expect(labels.any((l) => l.contains('other card text')), isFalse, reason: 'covered text must not be announced');
+      expect(labels.any((l) => l.contains('Screen title')), isTrue, reason: 'chrome stays announced');
+
+      final pill = t.widget<Text>(find.descendant(of: find.byKey(GuideStepView.tapPillKey), matching: find.byType(Text)).first).data!;
+      expect(labels.any((l) => l == pill), isFalse, reason: 'the tap pill is decoration, not an announcement');
+    });
+
+    testWidgets('the scroll marker is not announced', (t) async {
+      // why: "scroll" with no context is noise; the caption already says it.
+      final h = t.ensureSemantics();
+      addTearDown(h.dispose);
+      await _pump(t, _step(3000, GuideAction.scrollThenTap));
+      final marker = t.widget<Text>(find.descendant(of: find.byKey(GuideStepView.scrollMarkerKey), matching: find.byType(Text)).first).data!;
+      expect(skTraversalLabels(t).any((l) => l == marker), isFalse);
+    });
+
+    testWidgets('alsoKeep leaves its unit readable (text and semantics)', (t) async {
+      // why: step 3 of guide #1 keeps "Your zones" besides the link.
+      final h = t.ensureSemantics();
+      addTearDown(h.dispose);
+      await _pump(t, _step(0, GuideAction.tap, alsoKeep: [GuideTarget.label((_) => 'other card text')]));
+      final state = t.state<SkeletonizeState>(find.byType(Skeletonize));
+      final other = _inSkeleton(t, t.getRect(find.text('other card text')));
+      expect(state.paintedShapes.where((s) => s.rect.overlaps(other)), isEmpty);
+      expect(skTraversalLabels(t).any((l) => l.contains('other card text')), isTrue);
+    });
+  });
+
   group('GuideView', () {
     GuideStep s(String label) => GuideStep(
+          id: 'id-$label',
+          anchor: GuideTarget.label((_) => label),
           screen: (_) => Scaffold(body: Center(child: Pressable(onTap: () {}, child: Text(label)))),
           target: GuideTarget.label((_) => label),
           action: GuideAction.tap,

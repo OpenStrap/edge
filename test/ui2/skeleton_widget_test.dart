@@ -1,6 +1,8 @@
-// Skeletonize + SkeletonBar/SkeletonBlock: what the user sees and can touch.
+// Skeletonize + SkeletonBar/SkeletonBlock: what the user sees, touches and
+// hears. Skeletonize takes GuideTargets (no snapshot rects) and recomputes its
+// plan from the live tree after every layout.
 //
-// Pixel checks compare the SAME pixel with the overlay at progress 0 and 1, so
+// Pixel checks compare the SAME pixels with the overlay at progress 0 and 1, so
 // no skeleton colour is hard-coded (that is a design token, not a claim).
 
 import 'dart:ui' as ui;
@@ -8,6 +10,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/ui2/skeleton/skeleton.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
@@ -16,14 +19,48 @@ import '../support/skeleton_fixture.dart';
 const _ahem = TextStyle(fontSize: 10, height: 1);
 const _shot = ValueKey('shot');
 const _sk = ValueKey('sk');
+const _tapA = ValueKey('tapA');
+const _tapT = ValueKey('tapT');
 
-/// Card A (text + a tappable), card B (text + the TARGET tappable), a loose
-/// line. [keep] is in the Skeletonize's coordinates (origin = the shot's).
+GuideTarget get _target => GuideTarget.key(_tapT);
+
+/// Card A (text + a tappable), card B (text + the TARGET tappable).
+Widget _cards({required VoidCallback onA, required VoidCallback onTarget}) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Surface(
+          child: Column(children: [
+            const Text('A text', style: _ahem),
+            GestureDetector(
+              key: _tapA,
+              behavior: HitTestBehavior.opaque,
+              onTap: onA,
+              child: const SizedBox(height: 30, width: 100, child: Text('tap A', style: _ahem)),
+            ),
+          ]),
+        ),
+        Surface(
+          child: Column(children: [
+            const Text('B text', style: _ahem),
+            GestureDetector(
+              key: _tapT,
+              behavior: HitTestBehavior.opaque,
+              onTap: onTarget,
+              child: const SizedBox(height: 30, width: 100, child: Text('target', style: _ahem)),
+            ),
+          ]),
+        ),
+      ],
+    );
+
 Widget _app({
-  required List<Rect> keep,
+  List<GuideTarget>? keep,
+  List<GuideTarget> alsoKeep = const [],
   double progress = 1,
-  required VoidCallback onA,
-  required VoidCallback onTarget,
+  VoidCallback? onA,
+  VoidCallback? onTarget,
+  Widget? child,
+  SkeletonChromeResolver? chrome,
 }) =>
     skHost(Scaffold(
       body: Align(
@@ -35,37 +72,13 @@ Widget _app({
             height: 400,
             child: Skeletonize(
               key: _sk,
-              keep: keep,
+              keep: keep ?? [_target],
+              alsoKeep: alsoKeep,
               progress: progress,
+              chrome: chrome ?? defaultSkeletonChrome,
               child: ColoredBox(
                 color: const Color(0xFFFFFFFF),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Surface(
-                      child: Column(children: [
-                        const Text('A text', style: _ahem),
-                        GestureDetector(
-                          key: const ValueKey('tapA'),
-                          behavior: HitTestBehavior.opaque,
-                          onTap: onA,
-                          child: const SizedBox(height: 30, width: 100, child: Text('tap A', style: _ahem)),
-                        ),
-                      ]),
-                    ),
-                    Surface(
-                      child: Column(children: [
-                        const Text('B text', style: _ahem),
-                        GestureDetector(
-                          key: const ValueKey('tapT'),
-                          behavior: HitTestBehavior.opaque,
-                          onTap: onTarget,
-                          child: const SizedBox(height: 30, width: 100, child: Text('target', style: _ahem)),
-                        ),
-                      ]),
-                    ),
-                  ],
-                ),
+                child: child ?? _cards(onA: onA ?? () {}, onTarget: onTarget ?? () {}),
               ),
             ),
           ),
@@ -74,24 +87,33 @@ Widget _app({
     ));
 
 Rect _local(WidgetTester t, Finder f) => skLocalRect(t, f, find.byKey(_shot));
+SkeletonizeState _state(WidgetTester t) => t.state<SkeletonizeState>(find.byKey(_sk));
 
-Future<List<int>> _pixel(WidgetTester t, Offset p) async {
-  late List<int> out;
+/// RGBA of every pixel of [r] (rounded inward) in the shot.
+Future<List<List<int>>> _pixels(WidgetTester t, Rect r) async {
+  late List<List<int>> out;
   await t.runAsync(() async {
     final b = t.renderObject<RenderRepaintBoundary>(find.byKey(_shot));
     final img = await b.toImage();
     final data = (await img.toByteData(format: ui.ImageByteFormat.rawRgba))!;
-    final i = (p.dy.floor() * img.width + p.dx.floor()) * 4;
-    out = [for (var k = 0; k < 4; k++) data.getUint8(i + k)];
+    out = [];
+    for (var y = r.top.ceil(); y < r.bottom.floor(); y++) {
+      for (var x = r.left.ceil(); x < r.right.floor(); x++) {
+        final i = (y * img.width + x) * 4;
+        out.add([for (var k = 0; k < 4; k++) data.getUint8(i + k)]);
+      }
+    }
   });
   return out;
 }
 
+bool _same(List<int> a, List<int> b) => a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3];
+
 void main() {
   group('SkeletonBar / SkeletonBlock', () {
     testWidgets('take exactly the size asked for and are rounded', (t) async {
-      // why: they are reusable loading placeholders; a wrong size or square
-      // corners breaks the look wherever they are reused.
+      // why: reusable loading placeholders; a wrong size or square corners
+      // breaks the look wherever they are reused.
       await t.pumpWidget(skHost(const Scaffold(
         body: Align(
           alignment: Alignment.topLeft,
@@ -104,8 +126,11 @@ void main() {
       expect(t.getSize(find.byKey(const ValueKey('bar'))), const Size(120, 14));
       expect(t.getSize(find.byKey(const ValueKey('block'))), const Size(200, 60));
       for (final k in const ['bar', 'block']) {
-        final deco = t.widget<DecoratedBox>(find.descendant(
-            of: find.byKey(ValueKey(k)), matching: find.byType(DecoratedBox)).first).decoration as BoxDecoration;
+        final deco = t
+            .widget<DecoratedBox>(find
+                .descendant(of: find.byKey(ValueKey(k)), matching: find.byType(DecoratedBox))
+                .first)
+            .decoration as BoxDecoration;
         expect(deco.borderRadius, isNotNull, reason: '$k is rounded');
         expect(deco.color, isNotNull, reason: '$k is filled');
       }
@@ -120,14 +145,12 @@ void main() {
             find.descendant(of: find.byType(SkeletonBar), matching: find.byType(DecoratedBox)).first);
         return (box.decoration as BoxDecoration).color;
       }
-      final light = await colour(Brightness.light);
-      final dark = await colour(Brightness.dark);
-      expect(light, isNot(dark));
+
+      expect(await colour(Brightness.light), isNot(await colour(Brightness.dark)));
     });
 
     testWidgets('no animation by default', (t) async {
-      // why: spec 1.1 "no animation by default"; a shimmer ticker would keep
-      // every golden and pumpAndSettle from ever settling.
+      // why: spec 1.1; a shimmer ticker would keep pumpAndSettle from settling.
       await t.pumpWidget(skHost(const Scaffold(
         body: Column(children: [SkeletonBar(width: 50), SkeletonBlock(height: 20)]),
       )));
@@ -136,74 +159,117 @@ void main() {
     });
   });
 
-  group('Skeletonize pointer events', () {
+  group('pointer events', () {
     testWidgets('a skeletonized section absorbs taps; the kept target still gets them', (t) async {
       // why: while a guide shows, only the target may act; every other card is
-      // painted over and must not fire (a tap on a skeleton bar must not open
-      // a screen). Keep = card B's "target". Positive control in the same test:
-      // the kept tappable DOES fire.
+      // painted over and must not fire. Positive control in the same test: the
+      // kept tappable DOES fire.
       skTallView(t);
       var a = 0, target = 0;
-      await t.pumpWidget(_app(keep: const [], progress: 0, onA: () => a++, onTarget: () => target++));
-      final keep = _local(t, find.byKey(const ValueKey('tapT')));
-      await t.pumpWidget(_app(keep: [keep], onA: () => a++, onTarget: () => target++));
+      await t.pumpWidget(_app(onA: () => a++, onTarget: () => target++));
       await t.pump();
-
-      await t.tap(find.byKey(const ValueKey('tapA')), warnIfMissed: false);
-      await t.tap(find.byKey(const ValueKey('tapT')), warnIfMissed: false);
+      await t.tap(find.byKey(_tapA), warnIfMissed: false);
+      await t.tap(find.byKey(_tapT), warnIfMissed: false);
       expect(a, 0, reason: 'card A is skeletonized: tap absorbed');
       expect(target, 1, reason: 'the kept target must stay tappable');
     });
 
     testWidgets('nothing is absorbed until a section is actually painted (progress 0)', (t) async {
-      // why: absorption follows the painted skeleton. If it ignored progress,
-      // the screen would be dead while the overlay is still invisible.
+      // why: absorption follows the painted skeleton; the screen must not be
+      // dead while the overlay is still invisible.
       skTallView(t);
       var a = 0;
-      await t.pumpWidget(_app(keep: const [], progress: 0, onA: () => a++, onTarget: () {}));
+      await t.pumpWidget(_app(progress: 0, onA: () => a++));
       await t.pump();
-      await t.tap(find.byKey(const ValueKey('tapA')), warnIfMissed: false);
+      await t.tap(find.byKey(_tapA), warnIfMissed: false);
       expect(a, 1);
+    });
+
+    testWidgets('chrome stays tappable: a tab bar tap reaches AppShell under the overlay (item 11)', (t) async {
+      // why: the default chrome resolver finds AppShell's private tab bar BY
+      // TYPE. If it did not, the overlay would cover and absorb the tabs.
+      skTallView(t, w: 400, h: 800);
+      await t.pumpWidget(skHost(
+        Skeletonize(
+          keep: const [],
+          child: AppShell(
+            builder: (c, d) => ListView(children: [
+              Surface(child: Text('page ${d.name}')),
+            ]),
+          ),
+        ),
+      ));
+      await t.pump();
+      expect(find.text('page today'), findsOneWidget);
+      await t.tap(find.text('Sleep'));
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 300));
+      expect(find.text('page sleep'), findsOneWidget, reason: 'the tab must have switched');
     });
   });
 
-  group('Skeletonize painting', () {
-    testWidgets('progress 0 leaves the child pixels alone; 1 covers skeletonized text, not the target',
-        (t) async {
-      // why: the overlay really paints. Same pixel, two progress values:
-      // - inside card A's text line: must CHANGE (covered by a bar),
-      // - inside the kept target's text: must stay IDENTICAL.
-      // Also exercises repaint when only `progress` changes.
+  group('painting', () {
+    testWidgets('progress 0 leaves pixels alone; 1 covers skeletonized text, not the target', (t) async {
+      // why: the overlay really paints. Same pixel, two progress values: card
+      // A's text must CHANGE, the kept target's text must stay IDENTICAL. Also
+      // exercises repaint when only `progress` changes.
       skTallView(t);
-      await t.pumpWidget(_app(keep: const [], progress: 0, onA: () {}, onTarget: () {}));
-      final keep = _local(t, find.byKey(const ValueKey('tapT')));
-      final aText = _local(t, find.text('A text'));
-      final aPoint = Offset(aText.left + 3, aText.center.dy);
-      final tPoint = Offset(_local(t, find.text('target')).left + 3, _local(t, find.text('target')).center.dy);
-
-      await t.pumpWidget(_app(keep: [keep], progress: 0, onA: () {}, onTarget: () {}));
+      await t.pumpWidget(_app(progress: 0));
       await t.pump();
-      final aBefore = await _pixel(t, aPoint);
-      final tBefore = await _pixel(t, tPoint);
+      final aLine = _local(t, find.text('A text'));
+      final tLine = _local(t, find.text('target'));
+      final aPoint = Rect.fromLTWH(aLine.left + 3, aLine.center.dy, 1, 1);
+      final tPoint = Rect.fromLTWH(tLine.left + 3, tLine.center.dy, 1, 1);
+      final aBefore = (await _pixels(t, aPoint)).single;
+      final tBefore = (await _pixels(t, tPoint)).single;
 
-      await t.pumpWidget(_app(keep: [keep], progress: 1, onA: () {}, onTarget: () {}));
+      await t.pumpWidget(_app(progress: 1));
       await t.pump();
-      final aAfter = await _pixel(t, aPoint);
-      final tAfter = await _pixel(t, tPoint);
-
-      expect(aAfter, isNot(aBefore), reason: 'card A text must be covered at progress 1');
-      expect(tAfter, tBefore, reason: 'the kept target text must be untouched');
+      expect(_same((await _pixels(t, aPoint)).single, aBefore), isFalse, reason: 'card A text must be covered');
+      expect(_same((await _pixels(t, tPoint)).single, tBefore), isTrue, reason: 'target text must be untouched');
     });
 
-    testWidgets('paintedShapes follows progress in whole units', (t) async {
-      // why: the state exposes what was painted. Fixture: no kept target and
-      // two cards = 2 units; 0.5 -> exactly unit 0; 0 -> none; 1 -> both.
+    testWidgets('loose text and Section headings: NO glyph pixel survives under their bars (item 10)', (t) async {
+      // why: bars are rounded; over bare scaffold the glyph squares (Ahem: solid
+      // ink) would poke out at the corners unless the plan erases first. Scan
+      // EVERY pixel of each text line: at progress 1 none may still be the ink
+      // colour seen at progress 0. Positive control: ink is present at 0.
+      skTallView(t);
+      Widget app(double progress) => _app(
+            progress: progress,
+            keep: const [],
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: const [
+              Padding(padding: EdgeInsets.all(8), child: Text('loose line here', style: _ahem)),
+              Section('Heading', SizedBox(height: 10), action: 'Act'),
+            ]),
+          );
+      await t.pumpWidget(app(0));
+      await t.pump();
+      final lines = [
+        for (final s in ['loose line here', 'Heading', 'Act']) _local(t, find.text(s)),
+      ];
+      final ink = (await _pixels(t, Rect.fromLTWH(lines[0].left + 2, lines[0].center.dy, 1, 1))).single;
+      for (final r in lines) {
+        expect((await _pixels(t, r)).where((p) => _same(p, ink)), isNotEmpty, reason: 'ink visible at progress 0 in $r');
+      }
+
+      await t.pumpWidget(app(1));
+      await t.pump();
+      for (final r in lines) {
+        final left = (await _pixels(t, r)).where((p) => _same(p, ink)).length;
+        expect(left, 0, reason: '$left glyph pixels still visible in $r');
+      }
+    });
+
+    testWidgets('paintedShapes follows progress in whole units; shapes is the full plan', (t) async {
+      // why: fixture has two cards = 2 units; 0.5 -> exactly unit 0; 0 -> none.
       skTallView(t);
       Future<SkeletonizeState> at(double p) async {
-        await t.pumpWidget(_app(keep: const [], progress: p, onA: () {}, onTarget: () {}));
+        await t.pumpWidget(_app(keep: const [], progress: p));
         await t.pump();
-        return t.state<SkeletonizeState>(find.byKey(_sk));
+        return _state(t);
       }
+
       expect((await at(0)).paintedShapes, isEmpty);
       final half = await at(0.5);
       expect(half.shapes.map((s) => s.section).toSet(), {0, 1});
@@ -211,18 +277,243 @@ void main() {
       final full = await at(1);
       expect(full.paintedShapes, full.shapes);
     });
+  });
 
-    testWidgets('the kept rect is excluded from the state plan too', (t) async {
-      // why: widget and pure function must agree; the state's plan is the
-      // plan for the keep it was given.
+  group('live plan: targets, not snapshots (item 3)', () {
+    Widget scrolling(ScrollController c, {int cards = 6}) => skHost(Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 300,
+              height: 300,
+              child: Skeletonize(
+                key: _sk,
+                keep: [_target],
+                child: ListView(
+                  controller: c,
+                  cacheExtent: 2000,
+                  padding: EdgeInsets.zero,
+                  children: [
+                    for (var i = 0; i < cards; i++)
+                      Surface(
+                        key: ValueKey('card$i'),
+                        child: i == 3
+                            ? GestureDetector(key: _tapT, onTap: () {}, child: const Text('target', style: _ahem))
+                            : Text('card $i', style: _ahem),
+                      ),
+                    const SizedBox(height: 900),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ));
+
+    testWidgets('scrolling under ONE mounted overlay: shapes follow the cards, the target stays clear', (t) async {
+      // why: a snapshot plan taken before the scroll would cover the target and
+      // leave the other cards uncovered. Oracle: the cards' real rects, read
+      // from the tree after each scroll. Same State instance throughout.
       skTallView(t);
-      await t.pumpWidget(_app(keep: const [], progress: 0, onA: () {}, onTarget: () {}));
-      final keep = _local(t, find.byKey(const ValueKey('tapT')));
-      await t.pumpWidget(_app(keep: [keep], onA: () {}, onTarget: () {}));
+      final c = ScrollController();
+      addTearDown(c.dispose);
+      await t.pumpWidget(scrolling(c));
       await t.pump();
-      final shapes = t.state<SkeletonizeState>(find.byKey(_sk)).shapes;
-      expect(shapes, isNotEmpty);
-      expect(shapes.where((s) => skOverlaps(s.rect, keep)), isEmpty);
+      final state = _state(t);
+      final root = find.byType(Skeletonize);
+
+      void check(String when) {
+        expect(state.resolutions.single, isA<TargetFound>(), reason: when);
+        final target = skLocalRect(t, find.byKey(_tapT), root);
+        final surfaces = state.shapes.where((s) => s.kind == SkeletonKind.surface).toList();
+        for (final s in state.shapes) {
+          expect(skOverlaps(s.rect, target), isFalse, reason: '$when: ${s.kind} ${s.rect} hits target $target');
+        }
+        // every other VISIBLE card has a surface shape on it (clipped to the 300 px viewport)
+        const viewport = Rect.fromLTWH(0, 0, 300, 300);
+        for (final i in [0, 1, 2, 4, 5]) {
+          final card = skLocalRect(t, find.byKey(ValueKey('card$i')), root).intersect(viewport);
+          if (card.isEmpty) continue;
+          expect(surfaces.any((s) => (s.rect.top - card.top).abs() < 0.6 && (s.rect.bottom - card.bottom).abs() < 0.6),
+              isTrue, reason: '$when: no surface on card $i at $card; have ${surfaces.map((s) => s.rect)}');
+        }
+      }
+
+      check('initial');
+      final before = [for (final s in state.shapes) s.rect];
+      c.jumpTo(100);
+      await t.pump();
+      expect(identical(_state(t), state), isTrue, reason: 'overlay must not be remounted');
+      check('after scroll');
+      expect([for (final s in state.shapes) s.rect], isNot(before));
+    });
+
+    testWidgets('replacing the content under the same mounted overlay replans', (t) async {
+      // why: data rebuilds (a screen finishing its load) swap the whole subtree;
+      // the plan must follow without anyone calling refresh.
+      skTallView(t);
+      await t.pumpWidget(_app());
+      await t.pump();
+      final state = _state(t);
+      expect(state.shapes.where((s) => s.kind == SkeletonKind.surface), hasLength(1), reason: 'card A (B is kept)');
+
+      await t.pumpWidget(_app(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const Surface(child: Text('new one', style: _ahem)),
+          const Surface(child: Text('new two', style: _ahem)),
+          Surface(child: GestureDetector(key: _tapT, onTap: () {}, child: const Text('target', style: _ahem))),
+        ]),
+      ));
+      await t.pump();
+      expect(identical(_state(t), state), isTrue);
+      expect(state.shapes.where((s) => s.kind == SkeletonKind.surface), hasLength(2));
+      expect(state.shapes.where((s) => s.kind == SkeletonKind.bar), hasLength(2));
+    });
+
+    testWidgets('a keep target that cannot be resolved yields NO shapes and absorbs nothing', (t) async {
+      // why: never cover a screen whose target cannot be found (the reader
+      // would see a skeleton with nothing to tap). The reason stays readable.
+      skTallView(t);
+      var a = 0;
+      await t.pumpWidget(_app(keep: [GuideTarget.key(const ValueKey('nope'))], onA: () => a++));
+      await t.pump();
+      final state = _state(t);
+      expect(state.shapes, isEmpty);
+      expect(state.paintedShapes, isEmpty);
+      expect(state.resolutions.single, isA<TargetAbsent>());
+      await t.tap(find.byKey(_tapA), warnIfMissed: false);
+      expect(a, 1);
+    });
+
+    testWidgets('alsoKeep leaves extra units readable; an unresolved alsoKeep is skipped, not fatal', (t) async {
+      // why: step 3 keeps "Your zones" besides the link.
+      skTallView(t);
+      await t.pumpWidget(_app(alsoKeep: [GuideTarget.key(_tapA)]));
+      await t.pump();
+      expect(_state(t).shapes, isEmpty, reason: 'both cards kept');
+
+      await t.pumpWidget(_app(alsoKeep: [GuideTarget.key(const ValueKey('nope'))]));
+      await t.pump();
+      expect(_state(t).shapes.where((s) => s.kind == SkeletonKind.surface), hasLength(1), reason: 'card A still covered');
+      expect(_state(t).resolutions, hasLength(1), reason: 'resolutions describe keep only');
+    });
+
+    testWidgets('a custom chrome resolver decides what stays legible', (t) async {
+      // why: chrome comes from a resolver, not a rect list. Positive control:
+      // with the default resolver (no ScreenTitle here) the same text is covered.
+      skTallView(t);
+      Widget app(SkeletonChromeResolver? chrome) => _app(
+            chrome: chrome,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              const Text('Chrome text', style: _ahem),
+              _cards(onA: () {}, onTarget: () {}),
+            ]),
+          );
+      const strip = Rect.fromLTWH(0, 0, 300, 10);
+      await t.pumpWidget(app(null));
+      await t.pump();
+      expect(_state(t).shapes.where((s) => skOverlaps(s.rect, strip)), isNotEmpty);
+      await t.pumpWidget(app((root) => const [strip]));
+      await t.pump();
+      expect(_state(t).shapes.where((s) => skOverlaps(s.rect, strip)), isEmpty);
+    });
+  });
+
+  group('defaultSkeletonChrome (item 11)', () {
+    testWidgets('finds ScreenTitle and NavBar by type, nothing else', (t) async {
+      // why: the title bar must stay legible on every detail screen.
+      skTallView(t);
+      const root = ValueKey('root');
+      await t.pumpWidget(skHost(Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            key: root,
+            width: 300,
+            child: Column(children: [
+              NavBar('Nav', onBack: () {}),
+              const ScreenTitle('Title'),
+              const Surface(child: Text('body')),
+            ]),
+          ),
+        ),
+      )));
+      final rects = defaultSkeletonChrome(t.element(find.byKey(root)));
+      for (final f in [find.byType(NavBar), find.byType(ScreenTitle)]) {
+        final r = skLocalRect(t, f, find.byKey(root));
+        expect(rects.any((c) => skContains(c, r)), isTrue, reason: '$f not in $rects');
+      }
+      final body = skLocalRect(t, find.byType(Surface), find.byKey(root));
+      expect(rects.where((c) => c.overlaps(body)), isEmpty);
+    });
+
+    testWidgets("finds AppShell's tab bar by type without app_shell.dart changes", (t) async {
+      // why: the real bottom navigation is a private _TabBar (app_shell.dart:215).
+      // The resolver must cover all four tabs and only them.
+      skTallView(t, w: 400, h: 800);
+      const root = ValueKey('root');
+      await t.pumpWidget(skHost(SizedBox(
+        key: root,
+        width: 400,
+        height: 800,
+        child: AppShell(builder: (c, d) => Center(child: Text('page ${d.name}'))),
+      )));
+      final rects = defaultSkeletonChrome(t.element(find.byKey(root)));
+      final tabs = [for (final l in ['Today', 'Sleep', 'Activity', 'Health']) skLocalRect(t, find.text(l), find.byKey(root))];
+      expect(rects.any((c) => tabs.every((r) => skContains(c, r))), isTrue, reason: 'one chrome rect must hold all 4 tabs: $rects');
+      final page = skLocalRect(t, find.text('page today'), find.byKey(root));
+      expect(rects.where((c) => c.overlaps(page)), isEmpty);
+    });
+
+    testWidgets('a plain tree has no chrome', (t) async {
+      // why: nothing to find must mean nothing returned, not the whole root.
+      skTallView(t);
+      await t.pumpWidget(_app());
+      expect(defaultSkeletonChrome(t.element(find.byKey(_sk))), isEmpty);
+    });
+  });
+
+  group('semantics (item 7)', () {
+    Widget app(double progress) => _app(
+          progress: progress,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const ScreenTitle('Chrome title'),
+            Surface(
+              child: Semantics(
+                button: true,
+                label: 'cover me',
+                child: GestureDetector(onTap: () {}, child: const Text('A text', style: _ahem)),
+              ),
+            ),
+            Surface(
+              child: Semantics(
+                button: true,
+                label: 'the target',
+                child: GestureDetector(key: _tapT, onTap: () {}, child: const Text('target', style: _ahem)),
+              ),
+            ),
+          ]),
+        );
+
+    testWidgets('covered units leave the semantics tree; target and chrome keep theirs; it follows progress', (t) async {
+      // why: painted-over content must not be announced or activatable by a
+      // screen reader (the sighted reader cannot see it either).
+      final h = t.ensureSemantics();
+      addTearDown(h.dispose);
+      skTallView(t);
+
+      await t.pumpWidget(app(0));
+      await t.pump();
+      expect(skHasSemanticsLabel(t, 'cover me'), isTrue, reason: 'progress 0 covers nothing');
+
+      await t.pumpWidget(app(1));
+      await t.pump();
+      expect(skHasSemanticsLabel(t, 'cover me'), isFalse, reason: 'covered: excluded');
+      expect(skHasSemanticsLabel(t, 'the target'), isTrue, reason: 'target keeps its semantics');
+      expect(skHasSemanticsLabel(t, 'Chrome title'), isTrue, reason: 'chrome keeps its semantics');
+
+      await t.pumpWidget(app(0));
+      await t.pump();
+      expect(skHasSemanticsLabel(t, 'cover me'), isTrue, reason: 'back to progress 0 restores it');
     });
   });
 }

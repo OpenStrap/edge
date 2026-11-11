@@ -8,6 +8,8 @@
 
 import 'package:flutter/widgets.dart';
 
+import '../guides/guide_target.dart';
+
 enum SkeletonKind {
   /// A card rect repainted in its own surface colour ([SkeletonShape.color]).
   surface,
@@ -17,6 +19,12 @@ enum SkeletonKind {
 
   /// One per chart / image / custom paint.
   block,
+
+  /// An OPAQUE fill in the scaffold background colour, painted before the bar
+  /// of loose text and of Section headings/actions (text that sits on the
+  /// scaffold, not on a card), so no glyph pixel survives at a bar's rounded
+  /// corners. Carries [SkeletonShape.color].
+  erase,
 }
 
 @immutable
@@ -26,7 +34,8 @@ class SkeletonShape {
   /// In paint coordinates of the plan's root (origin = root's top-left).
   final Rect rect;
 
-  /// Set for [SkeletonKind.surface] only: the card's own colour.
+  /// Set for [SkeletonKind.surface] (the card's own colour) and
+  /// [SkeletonKind.erase] (the background colour) only.
   final Color? color;
 
   /// 0-based index of the skeletonized unit (a card / `Section`, or one loose
@@ -43,8 +52,11 @@ class SkeletonShape {
 }
 
 /// PURE over an already laid-out subtree. Output order: unit by unit,
-/// top-to-bottom; inside a unit, containers before what they contain, then by
-/// (top, left). Shapes are clipped to the root's bounds.
+/// top-to-bottom; inside a unit, containers before what they contain (an erase
+/// before its bar), then by (top, left). Shapes are in the root's local space,
+/// after applying every ancestor clip (viewports, ClipRect, the root bounds)
+/// and transform between the root and the shape's render object; a shape whose
+/// clipped rect is empty is dropped.
 List<SkeletonShape> skeletonPlan(
   Element root, {
   required List<Rect> keep,
@@ -77,21 +89,41 @@ class SkeletonBlock extends StatelessWidget {
   Widget build(BuildContext context) => throw UnimplementedError();
 }
 
-/// Wraps [child]; after it paints, paints [revealedShapes] of the plan.
-/// Revealed (painted) units absorb pointer events; [keep] rects stay tappable.
+/// Resolver for the regions that must stay legible and interactive. Rects in
+/// the root element's local space.
+typedef SkeletonChromeResolver = List<Rect> Function(Element root);
+
+/// The default: finds `ScreenTitle` and `NavBar` by widget type, and AppShell's
+/// private tab bar by its runtime type (app_shell.dart:215), without editing
+/// app_shell.dart.
+List<Rect> defaultSkeletonChrome(Element root) => throw UnimplementedError();
+
+/// Wraps [child]; after every layout it re-resolves [keep] / [alsoKeep] against
+/// the LIVE tree and recomputes the plan; paints [revealedShapes]. Revealed
+/// units absorb pointer events and are excluded from semantics; kept targets
+/// and chrome stay tappable and keep their semantics.
+///
+/// A [keep] target that does not resolve (absent / ambiguous / not built)
+/// yields an EMPTY plan - never cover a screen whose target cannot be found -
+/// and the reason is in [SkeletonizeState.resolutions]. An unresolved
+/// [alsoKeep] target is skipped.
 class Skeletonize extends StatefulWidget {
   final Widget child;
 
-  /// Resolved targets, in this widget's local coordinates.
-  final List<Rect> keep;
-  final List<Rect> chrome;
+  /// The targets the guide points at.
+  final List<GuideTarget> keep;
+
+  /// Extra units to leave readable (e.g. "Your zones" in step 3).
+  final List<GuideTarget> alsoKeep;
+  final SkeletonChromeResolver chrome;
   final double progress;
 
   const Skeletonize({
     super.key,
     required this.child,
-    this.keep = const [],
-    this.chrome = const [],
+    required this.keep,
+    this.alsoKeep = const [],
+    this.chrome = defaultSkeletonChrome,
     this.progress = 1,
   });
 
@@ -100,11 +132,15 @@ class Skeletonize extends StatefulWidget {
 }
 
 class SkeletonizeState extends State<Skeletonize> {
-  /// The full plan as of the last paint (valid after the first frame).
+  /// The full plan as of the last layout (valid after the first frame).
   List<SkeletonShape> get shapes => throw UnimplementedError();
 
   /// The subset actually painted at the current `progress`.
   List<SkeletonShape> get paintedShapes => throw UnimplementedError();
+
+  /// One resolution per [Skeletonize.keep] target, same order, as of the last
+  /// layout.
+  List<TargetResolution> get resolutions => throw UnimplementedError();
 
   @override
   Widget build(BuildContext context) => throw UnimplementedError();

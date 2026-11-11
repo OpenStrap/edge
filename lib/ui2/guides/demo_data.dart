@@ -14,4 +14,8 @@ abstract final class GuideDemo {
 
   /// Five zone rows, source not 'manual' (so the link reads "Set your own").
   static ZonesData get zones => throw UnimplementedError();
+
+  /// The same zones with the user's own set saved (`source == 'manual'`): the
+  /// real screen then labels the link "Edit your own zones".
+  static ZonesData get zonesManual => throw UnimplementedError();
 }
