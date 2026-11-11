@@ -108,4 +108,41 @@ void main() {
     expect(find.text('3 exercises'), findsOneWidget);
     expect(find.text('START A SITTING'), findsOneWidget);
   });
+
+  testWidgets('inside a ListView (the tabs\' real parent) it lays out cleanly, at least 190 high, label above the count',
+      (t) async {
+    // why: F1. The card used to put a Spacer in a Column whose height is
+    // unbounded inside the tabs' ListView, so every debug frame asserted
+    // "RenderFlex children have non-zero flex but incoming height constraints
+    // are unbounded" and the failed layout cascaded into not-laid-out and
+    // semantics assertions. Release builds ignored the flex (it laid out as
+    // 0), so the shipped look is: the label, then the count directly below it.
+    // Fails (takeException) with the Spacer; passes without.
+    t.view.physicalSize = const Size(390 * 2, 780 * 2);
+    t.view.devicePixelRatio = 2;
+    addTearDown(t.view.reset);
+    final handle = t.ensureSemantics();
+    addTearDown(handle.dispose);
+    await t.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: Scaffold(
+        body: ListView(children: const [
+          StartCard(
+            label: 'START A SESSION',
+            count: 71,
+            noun: 'activities',
+            asset: 'mascot_workout.png',
+            accent: C.purple,
+            deep: C.indigo,
+          ),
+        ]),
+      ),
+    ));
+    await t.pump();
+    expect(t.takeException(), isNull, reason: 'no rendering assertion in a ListView');
+    expect(t.getSize(find.byType(StartCard)).height, greaterThanOrEqualTo(190));
+    final label = t.getRect(find.text('START A SESSION'));
+    final count = t.getRect(find.text('71 activities'));
+    expect(count.top, label.bottom, reason: 'the label sits directly above the count, as release builds always laid it out');
+  });
 }

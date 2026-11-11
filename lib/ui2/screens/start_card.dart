@@ -127,7 +127,10 @@ class StartCard extends StatelessWidget {
                         Text(label,
                             style: F.over.copyWith(
                                 color: C.white.withValues(alpha: .75))),
-                        const Spacer(),
+                        // No Spacer here: in the tabs' ListView this Column's height
+                        // is unbounded, and a Spacer there asserts in debug ("non-zero
+                        // flex but unbounded height") while release lays it out as 0.
+                        // Removing it keeps the shipped layout exactly.
                         Text('$count $noun',
                             style: F.t2.copyWith(color: C.white),
                             maxLines: 1,
