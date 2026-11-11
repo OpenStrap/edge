@@ -3,13 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 
 void main() {
-  test('every registry entry declares a role', () {
-    // WHY: an undeclared role would let a sensor or a band slip into the wrong list.
-    final missing = [
-      for (final e in kBandRegistry)
-        if (e.role == null) e.id,
-    ];
-    expect(missing, isEmpty, reason: 'entries without role: $missing');
+  test('standard heart-rate service does not imply a chest strap', () {
+    // WHY: the same service is advertised by watches and armbands.
+    expect(kBleHrs.kind, DeviceKind.other);
   });
 
   test('the sensor set is exactly ble_hrs, polar_pmd, thermometer, scales', () {

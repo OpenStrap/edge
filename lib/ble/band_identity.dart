@@ -73,6 +73,61 @@ BandIdentity? bandIdentityOf({
   return null;
 }
 
+// A scan owns this ledger; the last completed scan remains available while
+// pairing awaits discovery/bonding. Model certainty does not rank evidence.
+enum _BandEvidenceKind { cachedName, advertisedName, serviceData, service }
+typedef _BandEvidence = ({BandIdentity identity, _BandEvidenceKind kind});
+
+class BandEvidenceLedger {
+  final _seen = <String, _BandEvidence?>{};
+  final _advertisedNames = <String>{};
+
+  BandIdentity? observe(String remoteId, {
+    required List<String> advertisedServiceUuids,
+    String? advertisedName,
+    String? cachedName,
+    List<String> serviceDataUuids = const [],
+  }) {
+    final realName = advertisedName?.trim();
+    if (realName != null && realName.isNotEmpty) {
+      _advertisedNames.add(remoteId);
+      if (_seen[remoteId]?.kind == _BandEvidenceKind.cachedName) {
+        _seen[remoteId] = null;
+      }
+    }
+    _BandEvidence? incoming;
+    final service = _bandForService(advertisedServiceUuids);
+    if (service != null) {
+      incoming = (identity: (entry: service, modelCertain: true),
+          kind: _BandEvidenceKind.service);
+    } else {
+      final data = bandIdentityOf(advertisedServiceUuids: const [], name: null,
+          serviceDataUuids: serviceDataUuids);
+      if (data != null) {
+        incoming = (identity: data, kind: _BandEvidenceKind.serviceData);
+      } else {
+        final name = realName != null && realName.isNotEmpty ? realName
+            : _advertisedNames.contains(remoteId) ? null : cachedName;
+        final identity = bandIdentityOf(advertisedServiceUuids: const [], name: name);
+        if (identity != null) {
+          incoming = (identity: identity, kind: realName != null && realName.isNotEmpty
+              ? _BandEvidenceKind.advertisedName : _BandEvidenceKind.cachedName);
+        }
+      }
+    }
+    final previous = _seen[remoteId];
+    if (incoming != null && (previous == null || incoming.kind.index >= previous.kind.index)) {
+      _seen[remoteId] = incoming;
+    } else {
+      _seen.putIfAbsent(remoteId, () => null);
+    }
+    return _seen[remoteId]?.identity;
+  }
+
+  BandIdentity? identityFor(String remoteId, {BandIdentity? fallback}) =>
+      _seen.containsKey(remoteId) ? _seen[remoteId]?.identity : fallback;
+}
+
 /// DEFINITIVE check after `discoverServices()`: the full GATT service list
 /// against every role==band entry's service.
 BandEntry? bandIdentityFromGatt(Iterable<String> discoveredServiceUuids) =>

@@ -193,6 +193,28 @@ void main() {
     },
   );
 
+  test('a failed sensor upsert rolls back its initial insert', () async {
+    // WHY: pairing reports nothing saved if the second statement fails.
+    final db = await LocalDb.instance;
+    await db.execute(
+      'CREATE TEMP TRIGGER refuse_sensor_update BEFORE UPDATE ON device '
+      "WHEN NEW.id = 'ble_hrs:rollback' BEGIN "
+      "SELECT RAISE(ABORT, 'cannot update sensor'); END",
+    );
+    addTearDown(() => db.execute('DROP TRIGGER IF EXISTS refuse_sensor_update'));
+    addTearDown(() => LocalDb.deleteDevice('ble_hrs:rollback'));
+    await expectLater(LocalDb.upsertDevice(
+      id: 'ble_hrs:rollback', adapterId: 'ble_hrs', remoteId: 'sensor-uuid',
+      label: 'Chest strap', tier: 'beatToBeat'),
+      throwsA(isA<DatabaseException>()));
+    expect(await LocalDb.deviceRow('ble_hrs:rollback'), isNull);
+    // Positive control: once the refusal is gone, the same row saves normally.
+    await db.execute('DROP TRIGGER refuse_sensor_update');
+    await LocalDb.upsertDevice(id: 'ble_hrs:rollback', adapterId: 'ble_hrs',
+        remoteId: 'sensor-uuid', label: 'Chest strap', tier: 'beatToBeat');
+    expect((await LocalDb.deviceRow('ble_hrs:rollback'))?['remote_id'], 'sensor-uuid');
+  });
+
   test('a failed database update rolls back the initial insert', () async {
     final db = await LocalDb.instance;
     await db.execute(

@@ -3322,7 +3322,15 @@ class LocalDb {
     bool clearAdapterId = false,
     DatabaseExecutor? executor,
   }) async {
-    final db = executor ?? await instance;
+    if (executor == null) {
+      final db = await instance;
+      // A failed UPDATE must not leave the initial INSERT behind.
+      await db.transaction((txn) => upsertDevice(id: id, adapterId: adapterId,
+          remoteId: remoteId, label: label, tier: tier,
+          clearAdapterId: clearAdapterId, executor: txn));
+      return;
+    }
+    final db = executor;
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     await db.insert('device', {
       'id': id,

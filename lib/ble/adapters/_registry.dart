@@ -464,9 +464,8 @@ class BandEntry {
   final DeviceCategory category;
 
   /// Whether the safeguard recognises this entry as a band (or a plain
-  /// sensor). Nullable only so a const constructor needs no default; every
-  /// registry entry sets it (pinned by pairing_device_role_test).
-  final DeviceRole? role;
+  /// sensor). Required so a new entry cannot silently bypass recognition.
+  final DeviceRole role;
 
   /// What the device physically is; drives the pairing lists' filter pills.
   final DeviceKind kind;
@@ -499,7 +498,7 @@ class BandEntry {
     this.burstCountGateEnforced = false,
     this.logsConsoleOutput = false,
     this.nameMatcher,
-    this.role,
+    required this.role,
     this.kind = DeviceKind.other,
     bool canBeMainDevice = true,
   })  : _canBeMainDevice = canBeMainDevice,
@@ -534,7 +533,7 @@ class BandEntry {
     this.scanHints = const <String>[],
     this.scanCompanyIds = const <int>[],
     this.scanServiceData = const <String>[],
-    this.role,
+    required this.role,
     this.kind = DeviceKind.other,
     bool canBeMainDevice = true,
   })  : _canBeMainDevice = canBeMainDevice,
@@ -661,7 +660,8 @@ const BandEntry kWhoopGen5 = BandEntry.framed(
 const BandEntry kBleHrs = BandEntry.notify(
   id: 'ble_hrs',
   role: DeviceRole.sensor,
-  kind: DeviceKind.chestStrap,
+  // HRS alone identifies no body position: watches and armbands use it too.
+  kind: DeviceKind.other,
   category: DeviceCategory.workoutSensor,
   label: 'Bluetooth heart rate sensor',
   service: kHeartRateServiceUuid,

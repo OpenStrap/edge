@@ -118,6 +118,8 @@ typedef BandCandidate = ({
 /// The live link to a paired heart-rate sensor. One instance; a second
 /// concurrent sensor is not a thing anyone asked for.
 class HrsLink {
+  static BandEvidenceLedger _scanBandEvidence = BandEvidenceLedger();
+
   HrsLink._();
   static final HrsLink instance = HrsLink._();
 
@@ -358,7 +360,8 @@ class HrsLink {
     final confirmed = <String, String>{};
     // Band evidence per remote id, kept for the whole scan: once an
     // advertisement showed a band, a later bare 0x180D one does not erase it.
-    final bandSeen = <String, BandIdentity>{};
+    final bandSeen = BandEvidenceLedger();
+    _scanBandEvidence = bandSeen;
 
     // Keyed by remote id: a scan re-reports the same peripheral several times
     // a second, and a list that grows a row per advertisement is not a picker.
@@ -412,15 +415,12 @@ class HrsLink {
             final id = d.remoteId.str;
             if (ours.contains(id)) continue;
             confirmed.putIfAbsent(id, () => e.id);
-            seen.putIfAbsent(
-                id,
-                () => (
-                      device: d,
-                      label: cleanDeviceLabel(d.platformName),
-                      rssi: null,
-                      entryId: e.id,
-                      alsoBand: null,
-                    ));
+            final previous = seen[id];
+            seen[id] = candidateFromSystemDevice(
+              entries: entries, device: d, queriedEntry: e,
+              platformName: d.platformName, bandSeen: bandSeen,
+              confirmed: confirmed, previous: previous,
+            );
           }
         } catch (err) {
           debugPrint('[hrs] systemDevices(${e.id}) failed: $err');
@@ -502,17 +502,32 @@ class HrsLink {
   /// ([BandEntry.scanHints]): a result matching nothing is some other
   /// peripheral, not a candidate.
   @visibleForTesting
+  static BandCandidate candidateFromSystemDevice({
+    required List<BandEntry> entries,
+    required BluetoothDevice device,
+    required BandEntry queriedEntry,
+    required String platformName,
+    required BandEvidenceLedger bandSeen,
+    Map<String, String>? confirmed,
+    BandCandidate? previous,
+  }) => candidateFromAd(entries: entries, device: device,
+      serviceUuids: [Guid(queriedEntry.service)], advName: '',
+      platformName: platformName, rssi: previous?.rssi,
+      previousLabel: previous?.label, bandSeen: bandSeen,
+      confirmed: confirmed, unfilteredScan: false)!;
+
+  @visibleForTesting
   static BandCandidate? candidateFromAd({
     required List<BandEntry> entries,
     required BluetoothDevice device,
     required List<Guid> serviceUuids,
     required String advName,
     required String platformName,
-    required int rssi,
+    required int? rssi,
     List<int> manufacturerCompanyIds = const <int>[],
     List<Guid> serviceDataUuids = const <Guid>[],
     Map<String, String>? confirmed,
-    Map<String, BandIdentity>? bandSeen,
+    BandEvidenceLedger? bandSeen,
     String? previousLabel,
     bool unfilteredScan = true,
     Set<Guid> hints = const <Guid>{},
@@ -556,20 +571,14 @@ class HrsLink {
         adMatch();
     if (svcMatch != null) confirmed?[key] = svcMatch;
     final match = confirmed?[key] ?? svcMatch ?? nameMatch();
-    final band = bandIdentityOf(
+    // Keep cached OS names separate from real advertisements, and remember
+    // disproved guesses so the OS cache cannot resurrect them later.
+    final best = (bandSeen ?? BandEvidenceLedger()).observe(key,
       advertisedServiceUuids: adUuids,
-      name: scanName,
+      advertisedName: cleanDeviceLabel(advName),
+      cachedName: cleanDeviceLabel(platformName),
       serviceDataUuids: [for (final g in serviceDataUuids) g.str128],
     );
-    // Recorded BEFORE the unmatched early return below: a band-only packet
-    // (no sensor match) must still leave its evidence for a later HR-only one.
-    // Evidence only accumulates: a later advertisement that shows a band
-    // replaces a weaker (name-only) guess, never a bare one erases it.
-    final earlier = bandSeen?[key];
-    final best = band != null && (earlier == null || band.modelCertain)
-        ? band
-        : earlier ?? band;
-    if (best != null) bandSeen?[key] = best;
     if (match == null &&
         (unfilteredScan || serviceUuids.any(hints.contains))) {
       return null;
@@ -822,6 +831,7 @@ class HrsLink {
     BandIdentity? earlierBand,
     PairConfirmation? confirmation,
   }) async {
+    final scanEvidence = _scanBandEvidence;
     try {
       await device.connect(timeout: _connectTimeout);
     } catch (e) {
@@ -838,6 +848,8 @@ class HrsLink {
         io: io,
         confirmation: confirmation,
         earlierBand: earlierBand,
+        latestBand: () => scanEvidence.identityFor(device.remoteId.str,
+            fallback: earlierBand),
         label: label,
         tier: tier,
       );
@@ -1453,6 +1465,7 @@ Future<PairOutcome> pairNotifyDevice({
   required PairingIo io,
   PairConfirmation? confirmation,
   BandIdentity? earlierBand,
+  BandIdentity? Function()? latestBand,
   String? label,
   String? tier,
 }) async {
@@ -1464,17 +1477,17 @@ Future<PairOutcome> pairNotifyDevice({
         'could be set up. Nothing was saved.');
   }
   final gattBand = bandIdentityFromGatt([for (final s in services) s.uuid]);
-  final band = gattBand ?? earlierBand?.entry;
-  final confirmedBand = band != null && band.id != entry.id;
-  if (confirmedBand) {
-    final ok = confirmation != null &&
-        confirmation.remoteId == remoteId &&
-        confirmation.bandEntryId == band.id;
-    if (!ok) {
-      return PairOutcome.band(band,
-          modelCertain: gattBand != null || earlierBand?.modelCertain != false);
-    }
+  BandIdentity? currentEvidence() => latestBand != null ? latestBand() : earlierBand;
+  PairOutcome? bandRefusal() {
+    final evidence = currentEvidence();
+    final band = gattBand ?? evidence?.entry;
+    if (band == null || band.id == entry.id) return null;
+    if (confirmation?.remoteId == remoteId && confirmation?.bandEntryId == band.id) return null;
+    return PairOutcome.band(band,
+        modelCertain: gattBand != null || evidence?.modelCertain != false);
   }
+  final initialRefusal = bandRefusal();
+  if (initialRefusal != null) return initialRefusal;
   final missing = [
     for (final u in entry.requiredCharacteristics)
       if (!_hasCharacteristic(services, u)) u,
@@ -1508,6 +1521,11 @@ Future<PairOutcome> pairNotifyDevice({
     return const PairOutcome.failed('That device did not accept Bluetooth '
         'pairing. Nothing was saved.');
   }
+  // Pending platform lookups may finish even after scan shutdown times out.
+  final finalRefusal = bandRefusal();
+  if (finalRefusal != null) return finalRefusal;
+  final band = gattBand ?? currentEvidence()?.entry;
+  final confirmedBand = band != null && band.id != entry.id;
   try {
     await io.persist((
       id: HrsLink.mintDeviceId(entry, remoteId),
