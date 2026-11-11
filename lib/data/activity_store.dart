@@ -520,7 +520,9 @@ class ActivityStore {
         s.status == ActivityReviewStatus.pending &&
         c is num &&
         c >= napAutoLogMinConfidence &&
-        s.endTs >= sinceSec;
+        // Strictly after: the switch is stored in whole seconds, and a nap
+        // that ended in that same second ended before it was turned on.
+        s.endTs > sinceSec;
   }
 
   /// Confirms every [napAutoLoggable] pending nap exactly as detected, once
@@ -533,7 +535,21 @@ class ActivityStore {
     required int settleSec,
   }) async {
     if (sinceSec == null) return;
-    for (final s in await pending()) {
+    await migrateLegacy();
+    // Imported history is never logged for the user: the same line
+    // [mayNotifyNew] draws for prompts.
+    final importedThrough =
+        (await db.query('activity_review_meta')).single['alert_after_ts']
+            as int;
+    // Not [pending]: its seven-day floor is for what the review list shows. A
+    // band that syncs after a longer gap still has naps to log.
+    final rows = await db.query(
+      'activity_suggestions',
+      where: "status = 'pending' AND kind = 'nap' AND end_ts > ?",
+      whereArgs: [math.max(sinceSec, importedThrough)],
+      orderBy: 'start_ts ASC, id ASC',
+    );
+    for (final s in rows.map(ActivitySuggestion.fromRow)) {
       if (!napAutoLoggable(s, sinceSec) || s.endTs + settleSec > dataEdgeSec) {
         continue;
       }

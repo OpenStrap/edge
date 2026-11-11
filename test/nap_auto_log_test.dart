@@ -113,6 +113,31 @@ void main() {
     expect(await logged(), isEmpty);
   });
 
+  test('on: a nap that ended in the same second the switch was turned on '
+      'is left alone', () async {
+    await detect(0.85);
+    await run(since: end);
+    expect(await logged(), isEmpty);
+  });
+
+  test('on: a nap synced more than a week late is still logged', () async {
+    final oldStart = now - 9 * 86400;
+    await db.update('activity_review_meta', {'activated_at': oldStart - 1});
+    await store.reconcile(ActivityKind.nap, [
+      {...nap(0.85), 'start': oldStart, 'end': oldStart + 1800},
+    ]);
+    expect(await store.pending(), isEmpty, reason: 'past the review list');
+    await run(since: oldStart - 1);
+    expect(await logged(), hasLength(1));
+  });
+
+  test('on: a nap from imported history is left alone', () async {
+    await detect(0.85);
+    await ActivityStore.suppressImportedAlerts(db);
+    await run(since: start - 1);
+    expect(await logged(), isEmpty);
+  });
+
   test('on: a nap the user discarded is never logged', () async {
     final s = await detect(0.85);
     await store.discard(s);

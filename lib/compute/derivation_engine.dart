@@ -6448,27 +6448,28 @@ class DerivationEngine {
         ...await activityStore.reconcile(ActivityKind.nap, blocks.napSuggestions),
       ];
       // Opt-in (#625): a clear, settled nap is logged without asking. Never
-      // for an import, which has no user at the other end of "just now".
-      final napAutoLogPref = forceFinalize
-          ? null
-          : (await SharedPreferences.getInstance())
+      // on an import pass, which has no user at the other end of "just now".
+      // Inside its own try, like the prompts below: an optional convenience
+      // must not mark the day partial.
+      if (!forceFinalize) {
+        try {
+          final since = (await SharedPreferences.getInstance())
               .getInt(Prefs.napAutoLogSinceSec);
-      // 0 is the switch turned back off.
-      final napAutoLogSince = (napAutoLogPref ?? 0) > 0 ? napAutoLogPref : null;
-      try {
-        await activityStore.autoLogNaps(
-          sinceSec: napAutoLogSince,
-          dataEdgeSec: dataNowSec,
-          settleSec: ana.napBridgeSec,
-        );
-      } catch (e) {
-        _log('nap auto-log failed for ${day.date}: $e');
+          await activityStore.autoLogNaps(
+            // 0 is the switch turned back off.
+            sinceSec: (since ?? 0) > 0 ? since : null,
+            dataEdgeSec: dataNowSec,
+            settleSec: ana.napBridgeSec,
+          );
+        } catch (e) {
+          _log('nap auto-log failed for ${day.date}: $e');
+        }
       }
       for (final suggestion in newSuggestions) {
         // The rows are already banked; a failed prompt must not mark the day partial.
         try {
-          // It is about to be logged for them; asking as well would be noise.
-          if (ActivityStore.napAutoLoggable(suggestion, napAutoLogSince)) continue;
+          // A nap logged just above is no longer pending, so [mayNotifyNew]
+          // already declines it. One that could not be logged yet still asks.
           if (forceFinalize || !await activityStore.mayNotifyNew(suggestion)) continue;
           final nap = suggestion.kind == ActivityKind.nap;
           await NotificationCenter.instance.emit(NotificationEvent(
