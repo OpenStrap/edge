@@ -1564,8 +1564,8 @@ class MyDevicesView extends StatelessWidget {
                   Surface(
                     pad: const EdgeInsets.symmetric(horizontal: S.x4),
                     child: SetRow(LucideIcons.plus, C.green,
-                        l?.devicesAddASensor ?? 'Add a sensor',
-                        sub: l?.devicesAddASensorSub ??
+                        l?.pairAddDevice ?? 'Add a device',
+                        sub: l?.pairAddDeviceSub ??
                             'A heart-rate strap or a ring, alongside the band',
                         onTap: onAddSensor),
                   ),

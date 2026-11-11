@@ -126,7 +126,10 @@ class PairingScreen extends StatefulWidget {
   /// accessory picker chooses on its own sheet.
   final String? remoteId;
 
-  const PairingScreen({super.key, this.onSkip, this.entry, this.remoteId});
+  /// Keep the existing pairing until the new bootstrap succeeds.
+  final bool replacing;
+
+  const PairingScreen({super.key, this.onSkip, this.entry, this.remoteId, this.replacing = false});
 
   @override
   State<PairingScreen> createState() => _PairingScreenState();
@@ -146,7 +149,11 @@ class _PairingScreenState extends State<PairingScreen> {
     });
     try {
       if (await app.accessorySetupSupported()) {
-        await app.pairViaAccessorySetup();
+        if (widget.replacing) {
+          await app.replaceViaAccessorySetup();
+        } else {
+          await app.pairViaAccessorySetup();
+        }
       } else {
         final found = await app.scanForBand(
             remoteId: widget.remoteId, generation: widget.entry?.id);
@@ -154,7 +161,11 @@ class _PairingScreenState extends State<PairingScreen> {
           if (mounted) setState(() => _phase = PairPhase.notFound);
           return;
         }
-        await app.pairWith(found);
+        if (widget.replacing) {
+          await app.replaceWith(found);
+        } else {
+          await app.pairWith(found);
+        }
       }
       if (!mounted) return;
       setState(() => _phase = PairPhase.paired);

@@ -108,6 +108,13 @@ enum AccessorySetup {
                               message: "AccessorySetupKit requires iOS 18", details: nil))
         }
 
+      case "removeBand":
+        if #available(iOS 18.0, *), let id = call.arguments as? String {
+          Impl.shared.removeBand(id: id) { result(nil) }
+        } else {
+          result(nil)
+        }
+
       case "removeAll":
         if #available(iOS 18.0, *) {
           Impl.shared.removeAll { result(nil) }
@@ -466,6 +473,16 @@ private final class Impl {
   func removeAll(_ completion: @escaping () -> Void) {
     let sensors = sensorServices
     remove({ a in !(self.service(of: a).map(sensors.contains) ?? false) }, completion)
+  }
+
+  /// Retire exactly the former main band; keep the replacement and all sensors.
+  func removeBand(id: String, _ completion: @escaping () -> Void) {
+    let sensors = sensorServices
+    let wanted = id.uppercased()
+    remove({ a in
+      a.bluetoothIdentifier?.uuidString.uppercased() == wanted
+        && !(self.service(of: a).map(sensors.contains) ?? false)
+    }, completion)
   }
 
   /// Deprovisions the SENSOR with CoreBluetooth id [id] (called when it is forgotten), so

@@ -1799,7 +1799,7 @@ class AppState extends ChangeNotifier {
       // Gated for the same reason as [_onRecord] — this one is wired straight
       // to LocalDb, so it bypasses every check AppState makes.
       onRecordsBatch: (raws, samples) async {
-        if (_resetting) return; // see [_resetting]
+        if (_resetting || _replacingBand) return; // candidate is not the primary yet
         await LocalDb.insertRecordsBatch(raws, samples);
       },
       // RESUMABLE SYNC: atomic commit of decoded rows + continuation cursor
@@ -1836,7 +1836,7 @@ class AppState extends ChangeNotifier {
       },
       // Pre-setup fallback only: the drain path archives inside commitSyncBatch.
       onArchiveRecord: (raw) async {
-        if (_resetting) return; // see [_resetting]
+        if (_resetting || _replacingBand) return; // candidate is not the primary yet
         await LocalDb.archiveRawRecord(raw);
       },
       cursorReader: (base) =>
@@ -2981,7 +2981,7 @@ class AppState extends ChangeNotifier {
     proto.BandProfile profile,
     String deviceId,
   ) {
-    if (_resetting) return; // see [_resetting]
+    if (_resetting || _replacingBand) return; // candidate is not the primary yet
     LocalDb.insertEvent(id, ts, hex, deviceId: deviceId, profile: profile);
     // M3: gesture dispatch and the alarm handler stay unscoped — neither is
     // device-scoped in M3's scope, and a double-tap on either band should
@@ -3534,7 +3534,7 @@ class AppState extends ChangeNotifier {
   // Historical singles only now (live frames go through _onLiveFrame and are
   // never persisted). Just write the raw record (+ optional decoded sample).
   Future<void> _onRecord(Sample? sample, RawRecord raw) async {
-    if (_resetting) return; // see [_resetting]
+    if (_resetting || _replacingBand) return; // candidate is not the primary yet
     final ts = raw.recTs ?? sample?.tsEpoch;
     // AFTER the write, and gated on the write SAYING it wrote. `_lastRecTs` is
     // the DATA EDGE — what is banked — and it only ever moves forward, so
@@ -4498,7 +4498,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _onEngineState(String deviceId, DeviceState s) {
-    if (_resetting) return; // see [_resetting]
+    if (_resetting || _replacingBand) return; // candidate is not the primary yet
     _appendLiveHr(deviceId, s.liveHr, s.liveHrAt);
     // Bank the name the moment the band says it, so it survives the
     // disconnect. Written through `cleanDeviceLabel` for the same reason the
@@ -4656,12 +4656,59 @@ class AppState extends ChangeNotifier {
     await _persistPaired(d.remoteId.str, serial);
   }
 
+  /// AppState owns the replacement lifetime and cancellation epoch.
+  bool _replacingBand = false;
+  bool _replacementPickerInProgress = false;
+  int _pairingEpoch = 0;
   bool _pairingInProgress = false;
 
-  Future<void> _persistPaired(String remoteId, String? serial) async {
-    if (_pairingInProgress) throw Exception('Pairing is already in progress.');
+  /// Verify and save the replacement before retiring the old phone approval.
+  /// A failed attempt keeps the old pairing and attempts to reconnect it.
+  Future<void> replaceWith(BluetoothDevice d) =>
+      _persistPaired(d.remoteId.str, null, replacing: true);
+
+  /// The system sheet chooses the replacement on iOS 18+. The tapped scan
+  /// identity is not enforced by ASK. Picker errors retain the old pairing.
+  Future<void> replaceViaAccessorySetup() async {
+    if (_pairingInProgress || _replacementPickerInProgress) {
+      throw StateError('Pairing is already in progress.');
+    }
+    final old = paired;
+    if (old == null) throw StateError('There is no band to replace.');
+    final epoch = _pairingEpoch;
+    _replacementPickerInProgress = true;
+    try {
+      await IosBleRestore.releaseCentralForPicker();
+      final id = await AccessorySetup.showPicker(addAnother: true);
+      if (epoch != _pairingEpoch || paired?.remoteId != old.remoteId) {
+        throw StateError('The current pairing changed.');
+      }
+      await IosBleRestore.provisioned(id);
+      _replacementPickerInProgress = false;
+      await _persistPaired(id, null, replacing: true);
+    } finally {
+      _replacementPickerInProgress = false;
+      // A dismissed/refused picker must not leave background restore disabled.
+      final current = paired;
+      if (current != null) await IosBleRestore.provisioned(current.remoteId);
+    }
+  }
+
+  void _resetBandIdentity() {
+    device.reset();
+    pairedIsMaverick = false;
+    _lastSeenGeneration = null;
+    _lastSeenStrapNameRaw = null;
+    Prefs.setString(_kStrapName, '');
+  }
+
+  Future<void> _persistPaired(String remoteId, String? serial,
+      {bool replacing = false}) async {
+    if (_pairingInProgress || _replacementPickerInProgress) {
+      throw StateError('Pairing is already in progress.');
+    }
     final existing = paired;
-    if (existing != null) {
+    if (existing != null && !replacing) {
       if (existing.remoteId != remoteId) {
         throw Exception('Forget the current band before pairing another.');
       }
@@ -4669,17 +4716,31 @@ class AppState extends ChangeNotifier {
       if (!engine.isConnected) throw Exception('Connection setup did not complete.');
       return;
     }
+    if (replacing && existing == null) throw StateError('There is no band to replace.');
+    if (replacing && existing!.remoteId == remoteId) return;
+    final epoch = _pairingEpoch;
     _pairingInProgress = true;
+    _replacingBand = replacing;
+    var committed = false;
     try {
+      if (replacing) _resetBandIdentity();
       final confirmed = await _sync.connectForPairing(
         PairedDevice(remoteId, serial),
+        replacingRemoteId: replacing ? existing?.remoteId : null,
         confirm: () async {
           // Only READY proves we can talk to this band. Until then neither
           // the persisted record nor isPaired may advance onboarding. Save
           // the identity THIS bootstrap discovered, not a stale device hint.
+          if (epoch != _pairingEpoch || _resetting) {
+            throw StateError('Pairing was cancelled.');
+          }
           await PairedDevice.save(remoteId, serial ?? device.serial,
               generation: device.generation);
+          if (epoch != _pairingEpoch || _resetting) {
+            throw StateError('Pairing was cancelled.');
+          }
           paired = await PairedDevice.load();
+          committed = paired?.remoteId == remoteId;
         },
       );
       if (!confirmed) {
@@ -4687,8 +4748,30 @@ class AppState extends ChangeNotifier {
         if (blocker != null) throw BleUnavailableException(blocker);
         throw Exception('Connection setup did not complete.');
       }
+    } catch (error, stack) {
+      // PairedDevice.save rolls back its transaction and preference mirror.
+      // Only reconnect while the old pairing still owns this attempt.
+      if (replacing && !committed && epoch == _pairingEpoch &&
+          paired?.remoteId == existing?.remoteId) {
+        _replacingBand = false;
+        _resetBandIdentity();
+        try {
+          await IosBleRestore.provisioned(existing!.remoteId);
+          await openSession();
+        } catch (restoreError) {
+          _log('Replacement failed; old band is still paired: $restoreError');
+        }
+      }
+      Error.throwWithStackTrace(error, stack);
     } finally {
+      _replacingBand = false;
       _pairingInProgress = false;
+    }
+    if (replacing && committed) {
+      // Never use unpair/removeAll here: the new primary is already durable.
+      await IosBleRestore.disarmOne(existing!.remoteId);
+      await AccessorySetup.removeBand(existing.remoteId);
+      _onEngineState(LocalDb.kPrimaryDeviceId, device);
     }
     // Now that there's a band to alert about, ask for notification permission
     // (a natural moment; battery/charging alerts depend on it). Best-effort.
@@ -4729,6 +4812,7 @@ class AppState extends ChangeNotifier {
       AndroidBackground.openOemAutostartSettings();
 
   Future<void> unpair() async {
+    _pairingEpoch++;
     await _sync.unpairSession();
     await PairedDevice.clear();
     pairedIsMaverick = false;

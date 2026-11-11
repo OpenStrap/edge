@@ -1,6 +1,7 @@
 // Selecting a band in the system picker is not a completed BLE bootstrap.
 // Pair through the real AppState entry point with only the radio replaced,
 // so a failed first connect cannot persist a pairing or advance onboarding.
+import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -246,4 +247,148 @@ void main() {
       expect(await _history(), before);
     }, paired: false),
   );
+  group('replacement keeps the old pairing until READY', () {
+    const replacementId = 'AA:BB:CC:DD:EE:99';
+
+    test('held bootstrap keeps old identity; READY switches without losing history',
+        syncCase((rig, timers) async {
+      // WHY: discovering a replacement must not forget a working band.
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      final before = await _history();
+      final old = await PairedDevice.load();
+      final gate = rig.holdConnect();
+      final replacing = rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+      await rig.waitFor(() => rig.engine.count('connect') == 1);
+      rig.engine.state.serial = 'NEW12345';
+      rig.engine.state.generation = 'gen5';
+      rig.app.debugFeedEngineState('', rig.engine.state);
+      expect((await PairedDevice.load())?.remoteId, old!.remoteId);
+      expect((await PairedDevice.load())?.serial, old.serial);
+      expect(rig.app.isPaired, isTrue);
+      gate.complete();
+      await replacing;
+      expect((await PairedDevice.load())?.remoteId, replacementId);
+      expect((await PairedDevice.load())?.serial, 'NEW12345');
+      expect((await PairedDevice.load())?.generation, 'gen5');
+      expect(await _history(), before);
+    }));
+
+    for (final error in [false, StateError('bootstrap refused')]) {
+      test('failed replacement ($error) preserves the old pairing',
+          syncCase((rig, timers) async {
+        // WHY: a failed new band must leave a saved old band to reconnect.
+        await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      final before = await _history();
+        rig.engine.connectScript.add(error);
+        await expectLater(rig.app.replaceWith(BluetoothDevice.fromId(replacementId)),
+            throwsA(isA<Object>()));
+        expect((await PairedDevice.load())?.remoteId, kRemoteId);
+        expect(rig.app.paired?.remoteId, kRemoteId);
+        expect(rig.app.isPaired, isTrue);
+        expect(rig.app.busy, isFalse);
+        expect(rig.engine.events.where((e) => e.startsWith('connect:')), [
+          'connect:$replacementId:-', 'connect:$kRemoteId:gen4',
+        ]);
+        expect(await _history(), before);
+      }));
+    }
+
+    test('failed replacement save rolls back to the old pairing',
+        syncCase((rig, timers) async {
+      // WHY: READY alone cannot publish a primary the database did not save.
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      final before = await _history();
+      final store = SharedPreferencesStorePlatform.instance;
+      SharedPreferencesStorePlatform.instance = FailingPreferencesStore(
+          store, key: 'paired_serial', throws: true);
+      addTearDown(() => SharedPreferencesStorePlatform.instance = store);
+      await expectLater(rig.app.replaceWith(BluetoothDevice.fromId(replacementId)),
+          throwsStateError);
+      expect((await PairedDevice.load())?.remoteId, kRemoteId);
+      expect(rig.app.paired?.remoteId, kRemoteId);
+      expect(await _history(), before);
+    }));
+
+    test('forget wins while replacement waits',
+        syncCase((rig, timers) async {
+      // WHY: cancelling the old pairing must not resurrect it on rollback.
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      final gate = rig.holdConnect();
+      final replacing = rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+      final failed = expectLater(replacing, throwsA(isA<Object>()));
+      await rig.waitFor(() => rig.engine.count('connect') == 1);
+      await rig.app.unpair();
+      gate.complete();
+      await failed;
+      expect(await PairedDevice.load(), isNull);
+      expect(rig.app.isPaired, isFalse);
+    }));
+    test('a cancelled system picker keeps the old pairing and requests addAnother',
+        syncCase((rig, timers) async {
+      // WHY: an already-provisioned old band must not silently win the picker.
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      const channel = MethodChannel('openstrap/accessory_setup');
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      Object? argument;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'showPicker') {
+          argument = call.arguments;
+          throw PlatformException(code: 'cancelled');
+        }
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      await expectLater(rig.app.replaceViaAccessorySetup(), throwsA(isA<PlatformException>()));
+      expect(argument, isTrue);
+      expect((await PairedDevice.load())?.remoteId, kRemoteId);
+      expect(rig.app.isPaired, isTrue);
+    }));
+
+    test('forget during the replacement save does not recreate a pairing',
+        syncCase((rig, timers) async {
+      // WHY: unpair must win both before READY and while persistence awaits.
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      final store = SharedPreferencesStorePlatform.instance;
+      final held = _HeldPreferences(store);
+      SharedPreferencesStorePlatform.instance = held;
+      addTearDown(() => SharedPreferencesStorePlatform.instance = store);
+      final replacing = rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+      final failed = expectLater(replacing, throwsA(isA<Object>()));
+      await held.entered.future;
+      final forgetting = rig.app.unpair();
+      held.release.complete();
+      await forgetting;
+      await failed;
+      expect(await PairedDevice.load(), isNull);
+      expect(rig.app.isPaired, isFalse);
+    }));
+
+
+  });
+}
+
+// Hold the actual preference write, keeping PairedDevice's real transaction.
+class _HeldPreferences extends SharedPreferencesStorePlatform {
+  _HeldPreferences(this.delegate);
+  final SharedPreferencesStorePlatform delegate;
+  final entered = Completer<void>();
+  final release = Completer<void>();
+  bool held = false;
+  Future<bool> write(String key, Future<bool> Function() action) async {
+    if (!held && key == 'flutter.paired_serial') {
+      held = true;
+      entered.complete();
+      await release.future;
+    }
+    return action();
+  }
+  @override
+  Future<Map<String, Object>> getAll() => delegate.getAll();
+  @override
+  Future<bool> clear() => delegate.clear();
+  @override
+  Future<bool> remove(String key) => write(key, () => delegate.remove(key));
+  @override
+  Future<bool> setValue(String type, String key, Object value) =>
+      write(key, () => delegate.setValue(type, key, value));
 }

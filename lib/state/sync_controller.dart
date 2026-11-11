@@ -518,8 +518,13 @@ class SyncController {
   Future<bool> connectForPairing(
     PairedDevice candidate, {
     required Future<void> Function() confirm,
+    String? replacingRemoteId,
   }) async {
-    if (busy || _reconnecting || paired != null || _isDisposed || ResetGate.active) {
+    final existing = paired;
+    final allowed = replacingRemoteId == null
+        ? existing == null
+        : existing?.remoteId == replacingRemoteId;
+    if (busy || _reconnecting || !allowed || _isDisposed || ResetGate.active) {
       return false;
     }
     final generation = _reconnectGeneration;
@@ -545,6 +550,8 @@ class SyncController {
         _log('Pairing: bootstrap did not complete; pairing not confirmed.');
         return false;
       }
+      // A forget or another primary change during bootstrap wins.
+      if (paired?.remoteId != existing?.remoteId) return false;
       await confirm();
       if (!current() || paired?.remoteId != candidate.remoteId) return false;
       confirmed = true;
