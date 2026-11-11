@@ -69,7 +69,7 @@ class _GuideStepViewState extends State<GuideStepView> {
   TargetResolution? _resolution;
 
   /// Text lines of the screen that stay readable in this step (not covered by
-  /// the skeleton, not the target's own), in the screen's unscaled coordinates:
+  /// the skeleton), in the screen's unscaled coordinates:
   /// what the tap pill must not cover. Empty while the target is searched.
   List<Rect> _legibleLines = const [];
   int _revealRound = 0;
@@ -110,7 +110,7 @@ class _GuideStepViewState extends State<GuideStepView> {
             rect,
             for (final extra in widget.step.alsoKeep)
               if (extra.resolve(screenElement, l) case TargetFound(rect: final kept)) kept,
-          ], target: rect),
+          ]),
         _ => const <Rect>[],
       };
       setState(() {
@@ -305,14 +305,16 @@ class _GuideStepViewState extends State<GuideStepView> {
 
 /// Every laid-out text line under [root] that the step leaves readable: not
 /// covered by a shape of the skeleton plan for [keep] (so inside a kept unit or
-/// chrome), and not inside [target] itself. Rects are in [root]'s coordinates.
-/// The tap pill avoids these (it would hide text the reader is meant to read).
+/// chrome). Rects are in [root]'s coordinates. The target's own lines are
+/// included: the pill stops 2 px inside the outline, which is 4 px clear of the
+/// target, so they never constrain it. The tap pill avoids these (it would hide
+/// text the reader is meant to read).
 ///
 /// ↳ CLAIM(pill-legible): "legible" is defined by the same [skeletonPlan] that
 /// [Skeletonize] paints, so the two cannot disagree on what is covered
 /// [guide_view_test 'the tap pill never covers legible text'].
 @visibleForTesting
-List<Rect> legibleTextLines(Element root, {required List<Rect> keep, required Rect target}) {
+List<Rect> legibleTextLines(Element root, {required List<Rect> keep}) {
   final rootBox = laidOutBox(root);
   if (rootBox == null) return const [];
   final plan = skeletonPlan(root, keep: keep, chrome: defaultSkeletonChrome(root));
@@ -335,7 +337,6 @@ List<Rect> legibleTextLines(Element root, {required List<Rect> keep, required Re
     for (final local in byLine.values) {
       final line = rectInRoot(ro, rootBox, local).intersect(visible);
       if (line.isEmpty) continue;
-      if (target.inflate(.5).contains(line.topLeft) && target.inflate(.5).contains(line.bottomRight)) continue;
       if (plan.any((s) => s.rect.overlaps(line))) continue;
       lines.add(line);
     }
