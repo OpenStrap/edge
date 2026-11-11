@@ -209,12 +209,15 @@ void main() {
         cols[SleepStage.light],
         cols[SleepStage.awake],
       ]);
+      // All 472 staged minutes divide the earned 442/480-lap sweep.
       expect([for (final a in ring.arcs) a.fraction], [
-        closeTo(70 / 480, 1e-9),
-        closeTo(95 / 480, 1e-9),
-        closeTo(277 / 480, 1e-9),
-        closeTo(30 / 480, 1e-9),
+        closeTo(442 / 480 * 70 / 472, 1e-9),
+        closeTo(442 / 480 * 95 / 472, 1e-9),
+        closeTo(442 / 480 * 277 / 472, 1e-9),
+        closeTo(442 / 480 * 30 / 472, 1e-9),
       ]);
+      expect(ring.arcs.fold<double>(0, (s, a) => s + a.fraction),
+          closeTo(442 / 480, 1e-9));
       expect(ring.track, _p(t).track);
     });
 
@@ -231,7 +234,7 @@ void main() {
       expect(find.text('96% of 7h 42m'), findsOneWidget);
       expect(find.textContaining('default'), findsNothing);
       final ring = _sleepPainter(t) as StageRing;
-      expect(ring.arcs.first.fraction, closeTo(70 / 462, 1e-9));
+      expect(ring.arcs.first.fraction, closeTo(442 / 462 * 70 / 472, 1e-9));
     });
 
     testWidgets('no stage totals => ONE solid arc in the sleep colour, never '

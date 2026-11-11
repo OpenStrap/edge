@@ -3,7 +3,6 @@
 // PURE. No clock, no I/O, no widgets, no l10n: the ring turns this into shapes
 // and strings. Kept apart so every rule below is a fixed-input unit test.
 //
-import 'dart:math' as math;
 
 /// The owner's explicit default target: 5 cycles + 30 min. Used ONLY when no
 /// learned need exists, and always labelled as a default where it is shown.
@@ -54,7 +53,7 @@ SleepRingModel sleepRingModel({
   SleepStageMin? stages,
   num? needMin,
 }) {
-  final learnedNeed = needMin != null && needMin > 0;
+  final learnedNeed = needMin != null && needMin.isFinite && needMin.round() > 0;
   final target = learnedNeed ? needMin.round() : kDefaultSleepTargetMin;
   return _slept(durationMin, stages, target, !learnedNeed);
 }
@@ -72,21 +71,19 @@ SleepRingModel _slept(
 
   final arcs = <SleepArc>[];
   if (split > 0 && asleep > 0) {
-    // Rescale to the night's duration so rounding in the stage totals cannot
-    // move the sweep. Fractions are minutes / NEED and stay unscaled past a
-    // full circle: 12 h against an 8 h need is 150%, a second lap, as the
-    // label says.
-    final k = asleepFrac / split;
+    // Stage proportions, including awake, divide the earned sleep sweep.
+    // Awake describes the night without adding progress toward the target.
+    // Keep sweeps above one lap so the picture agrees with percentages >100.
+    final awake = stages?.awake;
+    final awakeMin = awake != null && awake > 0 ? awake : 0;
+    final k = asleepFrac / (split + awakeMin);
     arcs.addAll([
       SleepArc(SleepArcKind.deep, d! * k),
       SleepArc(SleepArcKind.rem, r! * k),
       SleepArc(SleepArcKind.light, l! * k),
     ]);
-    final awake = stages!.awake;
-    final room = 1 - math.min(1.0, asleepFrac);
-    if (awake != null && awake > 0) {
-      final f = math.min(awake / target, room).toDouble();
-      if (f > 1e-12) arcs.add(SleepArc(SleepArcKind.awake, f));
+    if (awakeMin > 0) {
+      arcs.add(SleepArc(SleepArcKind.awake, awakeMin * k));
     }
   } else {
     arcs.add(SleepArc(SleepArcKind.solid, asleepFrac));
