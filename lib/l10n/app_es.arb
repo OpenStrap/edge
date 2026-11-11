@@ -2957,5 +2957,61 @@
   "pairBandSubtitle": "Elige la que llevas puesta. La buscaremos cerca.",
   "pairStrapOnlyLink": "Solo tengo una banda de frecuencia cardíaca",
   "pairWhoopRowLine": "Sueño, recuperación, esfuerzo, frecuencia cardiaca y más",
-  "pairSetUpTitle": "Configurar"
+  "pairSetUpTitle": "Configurar",
+  "capLabelSleep": "Sueño",
+  "capLabelRecovery": "Recuperación",
+  "capLabelStrain": "Esfuerzo",
+  "capLabelHrv": "Variabilidad de la frecuencia cardíaca",
+  "capLabelSkinTemperature": "Temperatura de la piel",
+  "capLabelBloodOxygen": "Oxígeno en sangre",
+  "capLabelWorkoutHeartRate": "Frecuencia cardíaca durante los entrenamientos",
+  "capLabelWorkoutBeatToBeat": "Tiempo entre latidos durante los entrenamientos",
+  "capLabelSteps": "Pasos",
+  "capReasonSkinTempNights": "Tras algunas noches",
+  "capReasonEstimated": "Una estimación, no una medición directa",
+  "capReasonEarly": "Estimación inicial; mejora durante las primeras semanas",
+  "capVendorReported": "La medición propia del dispositivo",
+  "slotSendsHeading": "Envía",
+  "slotDoesntSendHeading": "No envía",
+  "pairSectionTitle": "Emparejar un dispositivo",
+  "pairCardBandBody": "Solo WHOOP 4.0 o WHOOP 5.0/MG. Sueño, recuperación y esfuerzo, todo el día.",
+  "pairUnpairBand": "Desemparejar pulsera",
+  "capLabelHeartRate": "Frecuencia cardiaca y en reposo",
+  "capLabelRespiration": "Respiración",
+  "capReasonFirstNights": "Estimada durante las primeras 14 noches",
+  "capReasonOwnStagesRing": "A partir de las fases de sueño del propio anillo",
+  "capReasonOwnStages": "A partir de las fases de sueño del propio dispositivo",
+  "capReasonLiveSessions": "Durante las sesiones en vivo",
+  "slotEveryDay": "Todos los días",
+  "slotWorkoutsOnly": "Solo entrenamientos",
+  "pairWearableCardNote": "Completa los días sin tu WHOOP. Es experimental, así que actívalo abajo.",
+  "pairWhatItSends": "Qué envía",
+  "capReasonUnconfirmed": "Si este dispositivo lo envía, sin confirmar",
+  "capReasonPebble2Only": "Solo Pebble 2. El 2 SE no tiene sensor de frecuencia cardiaca.",
+  "capReasonPebble2OnlyEstimated": "Solo Pebble 2, y es una estimación, no una medición directa. El 2 SE no tiene sensor de frecuencia cardiaca.",
+  "slotColumnReason": "{column}: {reason}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

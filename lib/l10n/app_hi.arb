@@ -2928,5 +2928,61 @@
   "pairBandSubtitle": "वही चुनें जो आप पहनते हैं। हम उसे आस-पास खोजेंगे।",
   "pairStrapOnlyLink": "मेरे पास सिर्फ़ हार्ट-रेट स्ट्रैप है",
   "pairWhoopRowLine": "नींद, रिकवरी, शारीरिक परिश्रम, हृदय गति और बहुत कुछ",
-  "pairSetUpTitle": "सेट अप"
+  "pairSetUpTitle": "सेट अप",
+  "capLabelSleep": "नींद",
+  "capLabelRecovery": "रिकवरी",
+  "capLabelStrain": "शारीरिक परिश्रम",
+  "capLabelHrv": "हृदय गति में उतार-चढ़ाव (HRV)",
+  "capLabelSkinTemperature": "त्वचा का तापमान",
+  "capLabelBloodOxygen": "रक्त में ऑक्सीजन",
+  "capLabelWorkoutHeartRate": "वर्कआउट के दौरान हृदय गति",
+  "capLabelWorkoutBeatToBeat": "वर्कआउट के दौरान धड़कन-दर-धड़कन का समय",
+  "capLabelSteps": "कदम",
+  "capReasonSkinTempNights": "कुछ रातों के बाद",
+  "capReasonEstimated": "अनुमान है, सीधी माप नहीं",
+  "capReasonEarly": "शुरुआती अनुमान; पहले कुछ हफ़्तों में यह बेहतर होता जाता है",
+  "capVendorReported": "डिवाइस की अपनी माप",
+  "slotSendsHeading": "भेजता है",
+  "slotDoesntSendHeading": "नहीं भेजता",
+  "pairSectionTitle": "डिवाइस पेयर करें",
+  "pairCardBandBody": "केवल WHOOP 4.0 या WHOOP 5.0/MG। नींद, रिकवरी और शारीरिक परिश्रम, चौबीसों घंटे।",
+  "pairUnpairBand": "बैंड अनपेयर करें",
+  "capLabelHeartRate": "हृदय गति और आराम की हृदय गति",
+  "capLabelRespiration": "श्वसन",
+  "capReasonFirstNights": "पहली 14 रातों तक अनुमानित",
+  "capReasonOwnStagesRing": "रिंग के अपने नींद चरणों से",
+  "capReasonOwnStages": "डिवाइस के अपने नींद चरणों से",
+  "capReasonLiveSessions": "लाइव सत्रों के दौरान",
+  "slotEveryDay": "हर दिन",
+  "slotWorkoutsOnly": "केवल वर्कआउट",
+  "pairWearableCardNote": "आपके WHOOP के बिना वाले दिनों को भरता है। प्रायोगिक है, इसलिए इसे नीचे चालू करें।",
+  "pairWhatItSends": "यह क्या भेजता है",
+  "capReasonUnconfirmed": "अगर यह डिवाइस इसे भेजता है, पुष्टि नहीं हुई",
+  "capReasonPebble2Only": "केवल Pebble 2। 2 SE में हृदय गति सेंसर नहीं है।",
+  "capReasonPebble2OnlyEstimated": "केवल Pebble 2, और यह अनुमान है, सीधी माप नहीं। 2 SE में हृदय गति सेंसर नहीं है।",
+  "slotColumnReason": "{column}: {reason}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

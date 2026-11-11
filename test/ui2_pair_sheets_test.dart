@@ -19,6 +19,7 @@ import 'package:openstrap_edge/ui2/profile/pair_sensor.dart' show afterBandFound
 import 'package:openstrap_edge/ui2/pairing/pair_sheets.dart';
 
 import 'support/pair_ui_support.dart';
+import 'package:openstrap_edge/ui2/pairing/slot_comparison_view.dart';
 
 BandCandidate _cand(String entryId,
         {String id = 'AA:BB:CC:DD:EE:01', String? label, BandEntry? alsoBand}) =>
@@ -146,6 +147,84 @@ void main() {
       return got;
     }
 
+    testWidgets('pairing mode is up front: WHOOP 5’s steps, above the main button', (t) async {
+      await open(t, kWhoopGen5, hasMain: false);
+      expect(find.text('Put it in pairing mode'), findsOneWidget);
+      final step = t.getTopLeft(find.byKey(const ValueKey('pairing-mode-step-gen5-1'))).dy;
+      expect(step, lessThan(t.getTopLeft(find.text('Pair it as my band')).dy));
+      expect(step, greaterThan(t.getTopLeft(find.byType(SlotTable)).dy));
+    });
+
+    testWidgets('the table: every day sends sleep, workouts only does not; no dashes', (t) async {
+      await open(t, kWhoopGen5, hasMain: false);
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-sleep'))).label, 'Sleep, Every day: Sends');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-workoutsOnly-sleep'))).label, 'Sleep, Workouts only: Doesn’t send');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-workoutsOnly-workoutHeartRate'))).label, 'Heart rate during workouts, Workouts only: Sends');
+      expect(find.byIcon(LucideIcons.minus), findsNothing);
+      expect(find.text('Workouts only: If this device sends it, not confirmed'), findsOneWidget);
+      expect(find.text('Blood oxygen'), findsNothing);
+    });
+
+    testWidgets('the sheet washes the Every day column, not Workouts only', (t) async {
+      await open(t, kWhoopGen5, hasMain: false);
+      Color? colour(String slot) => (t
+              .widget<Container>(find
+                  .descendant(
+                      of: find.byKey(const ValueKey('slot-row-sleep')),
+                      matching: find.byKey(ValueKey('slot-cell-$slot')))
+                  .first)
+              .color);
+      expect(colour('everyDay'), isNotNull);
+      expect(colour('workoutsOnly'), isNull);
+    });
+
+    testWidgets('a ring fills every day: the ring’s rows with their captions, and the experimental note', (t) async {
+      await open(t, kOura, hasMain: false);
+      expect(find.text('This is a ring'), findsOneWidget);
+      expect(find.text('It can fill your days with sleep, recovery and heart rate.'), findsOneWidget);
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-sleep'))).label, 'Sleep, Every day: Sends. From the ring’s own sleep stages');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-workoutsOnly-sleep'))).label, 'Sleep, Workouts only: Doesn’t send');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-strain'))).label, 'Strain, Every day: Doesn’t send');
+      expect(find.text('Every day: From the ring’s own sleep stages'), findsOneWidget);
+      expect(find.text('Every day: Estimated for the first 14 nights'), findsOneWidget);
+      expect(find.text('Every day: After a few nights'), findsOneWidget);
+      expect(find.text('Fills days without your WHOOP. Experimental, so switch it on in Devices.'), findsOneWidget);
+      expect(find.text('Pair Oura Ring'), findsOneWidget);
+      expect(find.text('Pair it as my band'), findsNothing);
+    });
+
+    testWidgets('a heart-rate strap: workouts only, the switch note, and Pair', (t) async {
+      await pumpPair(t, Builder(builder: (c) => Scaffold(body: TextButton(
+          onPressed: () => showStrapSheet(c, sensor: kBleHrs),
+          child: const Text('open')))), size: const Size(412, 2000));
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+      expect(find.text('This is a heart-rate sensor'), findsOneWidget);
+      expect(find.text('It adds heart rate while you work out. It does not record sleep, recovery or daily strain.'), findsOneWidget);
+      expect(find.text('Both need “Use during workouts” on.'), findsOneWidget);
+      expect(find.text('Workouts only: If this device sends it, not confirmed'), findsOneWidget);
+      expect(find.text('Pair Bluetooth heart rate sensor'), findsOneWidget);
+      expect(find.text('Go back'), findsOneWidget);
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-sleep'))).label, 'Sleep, Every day: Doesn’t send');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-workoutHeartRate'))).label, 'Heart rate during workouts, Every day: Doesn’t send');
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-workoutsOnly-workoutHeartRate'))).label, 'Heart rate during workouts, Workouts only: Sends');
+    });
+
+    testWidgets('the confirm fits in German at 2x text', (t) async {
+      await pumpPair(
+          t,
+          Builder(
+              builder: (c) => Scaffold(
+                  body: TextButton(
+                      onPressed: () => showReplaceBandConfirm(c,
+                          mainBandName: 'Jordans WHOOP'),
+                      child: const Text('open')))),
+          locale: const Locale('de'), textScale: 2, size: const Size(360, 800));
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      expect(find.byType(SlotTable), findsNothing);
+    });
     testWidgets('no main band yet: pair it as my band, or use it for workouts only', (t) async {
       await open(t, kWhoopGen5, hasMain: false);
       expect(find.text('This is a WHOOP band'), findsOneWidget);

@@ -65,6 +65,12 @@ void main() {
     }
   });
 
+  test('Hindi physical strain is distinct from stress', () {
+    // WHY: the comparison table must not label physical strain as stress.
+    final hi = _arb(File('lib/l10n/app_hi.arb'));
+    expect(hi['capLabelStrain'], 'शारीरिक परिश्रम');
+  });
+
   test('every registry entry declares reset steps', () {
     // WHY: an undeclared device would show a user stuck at pairing nothing.
     final missing = [

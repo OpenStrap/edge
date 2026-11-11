@@ -8042,5 +8042,61 @@
   "pairBandSubtitle": "Выберите то, что вы носите. Мы поищем его поблизости.",
   "pairStrapOnlyLink": "У меня только пульсовой ремень",
   "pairWhoopRowLine": "Сон, восстановление, нагрузка, пульс и многое другое",
-  "pairSetUpTitle": "Настройка"
+  "pairSetUpTitle": "Настройка",
+  "capLabelSleep": "Сон",
+  "capLabelRecovery": "Восстановление",
+  "capLabelStrain": "Нагрузка",
+  "capLabelHrv": "Вариабельность пульса",
+  "capLabelSkinTemperature": "Температура кожи",
+  "capLabelBloodOxygen": "Кислород в крови",
+  "capLabelWorkoutHeartRate": "Пульс во время тренировок",
+  "capLabelWorkoutBeatToBeat": "Интервалы между ударами во время тренировок",
+  "capLabelSteps": "Шаги",
+  "capReasonSkinTempNights": "Через несколько ночей",
+  "capReasonEstimated": "Оценка, а не прямое измерение",
+  "capReasonEarly": "Предварительная оценка; за первые недели она становится точнее",
+  "capVendorReported": "Собственное измерение устройства",
+  "slotSendsHeading": "Передаёт",
+  "slotDoesntSendHeading": "Не передаёт",
+  "pairSectionTitle": "Подключить устройство",
+  "pairCardBandBody": "Только WHOOP 4.0 или WHOOP 5.0/MG. Сон, восстановление и нагрузка круглые сутки.",
+  "pairUnpairBand": "Удалить сопряжение с браслетом",
+  "capLabelHeartRate": "Пульс и пульс в покое",
+  "capLabelRespiration": "Дыхание",
+  "capReasonFirstNights": "Первые 14 ночей — оценка",
+  "capReasonOwnStagesRing": "По фазам сна самого кольца",
+  "capReasonOwnStages": "По фазам сна самого устройства",
+  "capReasonLiveSessions": "Во время сеансов в реальном времени",
+  "slotEveryDay": "Каждый день",
+  "slotWorkoutsOnly": "Только тренировки",
+  "pairWearableCardNote": "Заполняет дни без вашего WHOOP. Экспериментально, поэтому включите это ниже.",
+  "pairWhatItSends": "Что передаёт",
+  "capReasonUnconfirmed": "Если устройство это передаёт, не подтверждено",
+  "capReasonPebble2Only": "Только Pebble 2. У 2 SE нет датчика пульса.",
+  "capReasonPebble2OnlyEstimated": "Только Pebble 2, и это оценка, а не прямое измерение. У 2 SE нет датчика пульса.",
+  "slotColumnReason": "{column}: {reason}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

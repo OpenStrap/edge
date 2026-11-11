@@ -272,12 +272,18 @@ const _notComponents = {
   // `start_session_card_test.dart`, which renders it at a real phone width and
   // asserts the copy is not truncated and nothing overflows.
   'StartCard',
-  // Pairing pieces are exercised on routes by the pairing widget tests.
+  // The pairing screens' building blocks (lib/ui2/pairing): each is one
+  // swappable piece of a pairing screen, driven by registry data and pumped,
+  // state by state, by ui2_pairing_blocks_test.dart,
+  // ui2_pairing_help_reset_test.dart, ui2_pair_band_view_test.dart and
+  // ui2_device_slot_card_test.dart. A
+  // gallery cell is too narrow for the slot table and the sheets, and the
+  // sheets open over a route.
+  'SlotTable', 'SlotMark', 'PairNote', 'CategoryFilterPills',
+  'TroubleConnectingCard', 'ResetStepsView', 'PairingModeSection',
   'PairBandView',
-  // Pairing pieces are exercised on routes by the pairing widget tests.
-  'PairNote', 'CategoryFilterPills', 'PairChoiceSheet',
-  // Pairing pieces are exercised on routes by the pairing widget tests.
-  'TroubleConnectingCard', 'ResetStepsView', 'PairingModeSection', 'PairStepRow', 'TextLinkButton', 'ChoiceRow',
+  'PairChoiceSheet', 'PairStepRow', 'TextLinkButton', 'ChoiceRow',
+  'DeviceSlotCard',
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
   'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',

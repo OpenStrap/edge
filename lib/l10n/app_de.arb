@@ -3537,5 +3537,61 @@
   "pairBandSubtitle": "Wähle das, das du trägst. Wir suchen es in der Nähe.",
   "pairStrapOnlyLink": "Ich habe nur einen Herzfrequenzgurt",
   "pairWhoopRowLine": "Schlaf, Erholung, Belastung, Herzfrequenz und mehr",
-  "pairSetUpTitle": "Einrichten"
+  "pairSetUpTitle": "Einrichten",
+  "capLabelSleep": "Schlaf",
+  "capLabelRecovery": "Erholung",
+  "capLabelStrain": "Belastung",
+  "capLabelHrv": "Herzfrequenzvariabilität",
+  "capLabelSkinTemperature": "Hauttemperatur",
+  "capLabelBloodOxygen": "Blutsauerstoff",
+  "capLabelWorkoutHeartRate": "Herzfrequenz beim Training",
+  "capLabelWorkoutBeatToBeat": "Abstand von Herzschlag zu Herzschlag beim Training",
+  "capLabelSteps": "Schritte",
+  "capReasonSkinTempNights": "Nach ein paar Nächten",
+  "capReasonEstimated": "Eine Schätzung, keine direkte Messung",
+  "capReasonEarly": "Erste Schätzung; wird in den ersten Wochen genauer",
+  "capVendorReported": "Eigener Messwert des Geräts",
+  "slotSendsHeading": "Liefert",
+  "slotDoesntSendHeading": "Liefert nicht",
+  "pairSectionTitle": "Gerät koppeln",
+  "pairCardBandBody": "Nur WHOOP 4.0 oder WHOOP 5.0/MG. Schlaf, Erholung und Belastung rund um die Uhr.",
+  "pairUnpairBand": "Band trennen",
+  "capLabelHeartRate": "Herzfrequenz und Ruhepuls",
+  "capLabelRespiration": "Atmung",
+  "capReasonFirstNights": "In den ersten 14 Nächten geschätzt",
+  "capReasonOwnStagesRing": "Aus den eigenen Schlafphasen des Rings",
+  "capReasonOwnStages": "Aus den eigenen Schlafphasen des Geräts",
+  "capReasonLiveSessions": "Während Live-Sitzungen",
+  "slotEveryDay": "Jeden Tag",
+  "slotWorkoutsOnly": "Nur Training",
+  "pairWearableCardNote": "Füllt Tage ohne dein WHOOP. Experimentell, also schalte es unten ein.",
+  "pairWhatItSends": "Was es sendet",
+  "capReasonUnconfirmed": "Falls das Gerät es sendet, nicht bestätigt",
+  "capReasonPebble2Only": "Nur Pebble 2. Die 2 SE hat keinen Herzfrequenzsensor.",
+  "capReasonPebble2OnlyEstimated": "Nur Pebble 2, und eine Schätzung, keine direkte Messung. Die 2 SE hat keinen Herzfrequenzsensor.",
+  "slotColumnReason": "{column}: {reason}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

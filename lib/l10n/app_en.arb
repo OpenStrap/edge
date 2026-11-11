@@ -16653,5 +16653,156 @@
   "pairSetUpTitle": "Set up",
   "@pairSetUpTitle": {
     "description": "Top bar title of the first-run pairing screen."
+  },
+  "capLabelSleep": "Sleep",
+  "@capLabelSleep": {
+    "description": "Name of a thing a device sends: sleep."
+  },
+  "capLabelRecovery": "Recovery",
+  "@capLabelRecovery": {
+    "description": "Name of a thing a device sends: the morning recovery score."
+  },
+  "capLabelStrain": "Strain",
+  "@capLabelStrain": {
+    "description": "Name of a thing a device sends: strain."
+  },
+  "capLabelHrv": "Heart-rate variability",
+  "@capLabelHrv": {
+    "description": "Name of a thing a device sends: heart-rate variability."
+  },
+  "capLabelSkinTemperature": "Skin temperature",
+  "@capLabelSkinTemperature": {
+    "description": "Name of a thing a device sends: skin temperature."
+  },
+  "capLabelBloodOxygen": "Blood oxygen",
+  "@capLabelBloodOxygen": {
+    "description": "Name of a thing a device sends: blood oxygen (only a device’s own reading)."
+  },
+  "capLabelWorkoutHeartRate": "Heart rate during workouts",
+  "@capLabelWorkoutHeartRate": {
+    "description": "Table row: heart rate during a workout."
+  },
+  "capLabelWorkoutBeatToBeat": "Beat-to-beat timing during workouts",
+  "@capLabelWorkoutBeatToBeat": {
+    "description": "Table row: beat-to-beat timing during a workout."
+  },
+  "capLabelSteps": "Steps",
+  "@capLabelSteps": {
+    "description": "Name of a thing a device sends: steps."
+  },
+  "capReasonSkinTempNights": "After a few nights",
+  "@capReasonSkinTempNights": {
+    "description": "Caption under Skin temperature: it needs a few nights first."
+  },
+  "capReasonEstimated": "An estimate, not a direct reading",
+  "@capReasonEstimated": {
+    "description": "Why a value is conditional: it is an estimate, not a direct reading."
+  },
+  "capReasonEarly": "Early estimate; it firms up over the first weeks",
+  "@capReasonEarly": {
+    "description": "Why a value is conditional: it is an early estimate that firms up over the first weeks."
+  },
+  "capVendorReported": "The device’s own reading",
+  "@capVendorReported": {
+    "description": "Tag on a value that is the device’s own reading, not calculated by this app."
+  },
+  "slotSendsHeading": "Sends",
+  "@slotSendsHeading": {
+    "description": "Heading above the list of what a device sends."
+  },
+  "slotDoesntSendHeading": "Doesn’t send",
+  "@slotDoesntSendHeading": {
+    "description": "Heading above the list of what a secondary sensor does not send."
+  },
+  "pairSectionTitle": "Pair a device",
+  "@pairSectionTitle": {
+    "description": "Heading of the section in My sources that holds pairing."
+  },
+  "pairCardBandBody": "WHOOP 4.0 or WHOOP 5.0/MG only. Sleep, recovery and strain, around the clock.",
+  "@pairCardBandBody": {
+    "description": "Body of the Your band card in Settings."
+  },
+  "pairUnpairBand": "Unpair band",
+  "@pairUnpairBand": {
+    "description": "Red outline button that starts forgetting the paired band (a confirm dialog follows)."
+  },
+  "capLabelHeartRate": "Heart rate and resting heart rate",
+  "@capLabelHeartRate": {
+    "description": "Table row: heart rate and resting heart rate, as one capability."
+  },
+  "capLabelRespiration": "Respiration",
+  "@capLabelRespiration": {
+    "description": "Table row: breathing rate."
+  },
+  "capReasonFirstNights": "Estimated for the first 14 nights",
+  "@capReasonFirstNights": {
+    "description": "Caption under Recovery for a ring or watch: its recovery is an estimate until 14 nights of baseline."
+  },
+  "capReasonOwnStagesRing": "From the ring’s own sleep stages",
+  "@capReasonOwnStagesRing": {
+    "description": "Caption under Sleep for a ring: the sleep stages are the ring’s own."
+  },
+  "capReasonOwnStages": "From the device’s own sleep stages",
+  "@capReasonOwnStages": {
+    "description": "Caption under Sleep for a watch or fitness band: the sleep stages are the device’s own."
+  },
+  "capReasonLiveSessions": "During live sessions",
+  "@capReasonLiveSessions": {
+    "description": "Caption under Steps for WHOOP 4: it counts steps only while the app has a live connection."
+  },
+  "slotEveryDay": "Every day",
+  "@slotEveryDay": {
+    "description": "Column and chip: the device is used every day (the main band, or the ring/watch that fills days)."
+  },
+  "slotWorkoutsOnly": "Workouts only",
+  "@slotWorkoutsOnly": {
+    "description": "Column and chip: the device is used only during workouts."
+  },
+  "pairWearableCardNote": "Fills days without your WHOOP. Experimental, so switch it on below.",
+  "@pairWearableCardNote": {
+    "description": "Note under a ring’s or watch’s table on its device page; the switch is below it."
+  },
+  "pairWhatItSends": "What it sends",
+  "@pairWhatItSends": {
+    "description": "Heading above the table on a device page."
+  },
+  "capReasonUnconfirmed": "If this device sends it, not confirmed",
+  "@capReasonUnconfirmed": {
+    "description": "Caption under a row the device may or may not send; nobody has confirmed it does."
+  },
+  "capReasonPebble2Only": "Pebble 2 only. The 2 SE has no heart-rate sensor.",
+  "@capReasonPebble2Only": {
+    "description": "Caption under the heart rate, strain and recovery rows for Pebble: the shared Pebble entry covers the 2 SE, which has no heart-rate sensor."
+  },
+  "capReasonPebble2OnlyEstimated": "Pebble 2 only, and an estimate, not a direct reading. The 2 SE has no heart-rate sensor.",
+  "@capReasonPebble2OnlyEstimated": {
+    "description": "Caption under Pebble's recovery row: Pebble 2 only (the 2 SE has no heart-rate sensor), and recovery is an estimate."
+  },
+  "slotColumnReason": "{column}: {reason}",
+  "@slotColumnReason": {
+    "description": "Capability caption naming the column it applies to.",
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotCapabilityStatus": {
+    "description": "Accessible table result with capability, column and sends status.",
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
   }
 }

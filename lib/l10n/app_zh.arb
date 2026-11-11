@@ -2928,5 +2928,61 @@
   "pairBandSubtitle": "选择你佩戴的那一个，我们会在附近寻找它。",
   "pairStrapOnlyLink": "我只有心率带",
   "pairWhoopRowLine": "睡眠、恢复、负荷、心率等",
-  "pairSetUpTitle": "设置"
+  "pairSetUpTitle": "设置",
+  "capLabelSleep": "睡眠",
+  "capLabelRecovery": "恢复",
+  "capLabelStrain": "负荷",
+  "capLabelHrv": "心率变异性",
+  "capLabelSkinTemperature": "皮肤温度",
+  "capLabelBloodOxygen": "血氧",
+  "capLabelWorkoutHeartRate": "锻炼时的心率",
+  "capLabelWorkoutBeatToBeat": "锻炼时的逐次心跳间隔",
+  "capLabelSteps": "步数",
+  "capReasonSkinTempNights": "几晚之后",
+  "capReasonEstimated": "估算值，不是直接测量",
+  "capReasonEarly": "初步估算，前几周会越来越准",
+  "capVendorReported": "设备自己的读数",
+  "slotSendsHeading": "提供",
+  "slotDoesntSendHeading": "不提供",
+  "pairSectionTitle": "配对设备",
+  "pairCardBandBody": "仅限 WHOOP 4.0 或 WHOOP 5.0/MG。全天候记录睡眠、恢复和负荷。",
+  "pairUnpairBand": "取消配对手环",
+  "capLabelHeartRate": "心率和静息心率",
+  "capLabelRespiration": "呼吸",
+  "capReasonFirstNights": "前 14 晚为估算值",
+  "capReasonOwnStagesRing": "来自戒指自身的睡眠分期",
+  "capReasonOwnStages": "来自设备自身的睡眠分期",
+  "capReasonLiveSessions": "仅在实时连接期间",
+  "slotEveryDay": "每天",
+  "slotWorkoutsOnly": "仅运动时",
+  "pairWearableCardNote": "填补没有 WHOOP 数据的日子。这是实验功能，请在下方开启。",
+  "pairWhatItSends": "它提供的数据",
+  "capReasonUnconfirmed": "如果此设备发送该数据，尚未确认",
+  "capReasonPebble2Only": "仅限 Pebble 2。2 SE 没有心率传感器。",
+  "capReasonPebble2OnlyEstimated": "仅限 Pebble 2，且是估算值，不是直接测量。2 SE 没有心率传感器。",
+  "slotColumnReason": "{column}：{reason}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}，{column}：{status}",
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

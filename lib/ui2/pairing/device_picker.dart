@@ -57,8 +57,9 @@ import 'add_device_flow.dart';
 import 'pair_band_view.dart';
 import 'category_filter_pills.dart';
 import 'pair_text.dart'
-    show PairFilter, pairFilterOf;
+    show PairFilter, pairFilterOf, pairL10n, slotPill;
 import 'whoop_firmware_warning.dart';
+import '../../ble/slot_comparison.dart' show slotComparisonFor;
 import '../profile/devices.dart'
     show
         kPairableSensors,
@@ -605,6 +606,7 @@ class DevicePickerView extends StatelessWidget {
                                 ? null
                                 : () => onOpenEntry?.call(categories[i].entry),
                           ),
+                          ?_slotChip(c, categories[i].entry),
                           if (i < categories.length - 1)
                             Divider(color: p.line, height: 1),
                             ],
@@ -774,12 +776,29 @@ class _NearbySection extends StatelessWidget {
       chevron: !busy,
       onTap: busy || onTap == null ? null : () => onTap!(cand),
     );
-    return row;
+    final entry = cand.alsoBand?.entry ??
+        kBandRegistry.where((e) => e.id == cand.entryId).firstOrNull;
+    final chip = entry == null ? null : _slotChip(c, entry);
+    if (chip == null) return row;
+    return Column(children: [row, chip]);
   }
 }
 
 /// The "Every day" / "Workouts only" chip under a device row, or null when
 /// the device fits neither column.
+
+Widget? _slotChip(BuildContext c, BandEntry e) {
+  final slot = slotComparisonFor(e).slot;
+  if (slot == null) return null;
+  return Align(
+    key: ValueKey('row-slot-${e.id}'),
+    alignment: AlignmentDirectional.centerStart,
+    child: Padding(
+      padding: const EdgeInsets.only(bottom: S.x3),
+      child: slotPill(pairL10n(c), slot),
+    ),
+  );
+}
 
 /// The one-line description under each device in the picker, localised.
 String deviceCategoryBlurb(AppLocalizations? l, BandEntry e) {
