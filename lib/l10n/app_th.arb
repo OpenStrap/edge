@@ -16337,5 +16337,146 @@
         "type": "String"
       }
     }
-  }
+  },
+  "pairResetWhoop5Step1": "ถอดสายรัดออกจากข้อมือ แล้วรอจนไฟสีเขียวดับ",
+  "@pairResetWhoop5Step1": {
+    "description": "Reset help for WHOOP 5.0 / MG, step 1."
+  },
+  "pairResetWhoop5Step2": "จับสายรัดที่ด้านข้าง แล้วใช้สองนิ้วแตะด้านบนแรงๆ จนเหลือแต่ไฟสีน้ำเงินกะพริบ ถ้าไฟสีน้ำเงินและสีขาวขึ้นพร้อมกัน ให้แตะต่อจนเหลือแต่สีน้ำเงิน",
+  "@pairResetWhoop5Step2": {
+    "description": "Reset help for WHOOP 5.0 / MG, step 2: the tap procedure."
+  },
+  "pairResetWhoop5Step3": "ถ้ามีแอป WHOOP ในโทรศัพท์เครื่องนี้ ให้บังคับปิดแอป",
+  "@pairResetWhoop5Step3": {
+    "description": "Reset help for WHOOP 5.0 / MG, step 3."
+  },
+  "pairResetWhoop5Step4": "กลับมาที่นี่แล้วลองอีกครั้ง",
+  "@pairResetWhoop5Step4": {
+    "description": "Reset help for WHOOP 5.0 / MG, step 4."
+  },
+  "pairResetGenericStep1": "เปิดแอปของผู้ผลิต แล้วลบอุปกรณ์นี้ออกจากแอป",
+  "@pairResetGenericStep1": {
+    "description": "General reset help for a device, step 1."
+  },
+  "pairResetGenericStep2": "ในการตั้งค่า Bluetooth ของโทรศัพท์ หาอุปกรณ์นี้แล้วเลือกลืม",
+  "@pairResetGenericStep2": {
+    "description": "General reset help for a device, step 2."
+  },
+  "pairResetGenericStep3": "รีสตาร์ทอุปกรณ์ ถือไว้ใกล้โทรศัพท์เครื่องนี้ แล้วลองอีกครั้ง",
+  "@pairResetGenericStep3": {
+    "description": "General reset help for a device, step 3."
+  },
+  "pairResetGenericNote": "นี่เป็นคำแนะนำทั่วไป เรายังไม่ได้ตรวจสอบขั้นตอนที่ถูกต้องสำหรับอุปกรณ์นี้",
+  "@pairResetGenericNote": {
+    "description": "Shown above the general reset steps for a device whose own steps have not been checked yet."
+  },
+  "pairResetOfficialLink": "เปิดหน้าช่วยเหลือของผู้ผลิต",
+  "@pairResetOfficialLink": {
+    "description": "Link text opening the maker’s own help page in the browser."
+  },
+  "pairResetTitleBand": "สายรัดของคุณจับคู่อยู่กับที่อื่น",
+  "@pairResetTitleBand": {
+    "description": "Title of the screen shown when pairing a band did not finish: it is probably still paired with another phone or app."
+  },
+  "pairResetTitleRing": "แหวนของคุณจับคู่อยู่กับที่อื่น",
+  "@pairResetTitleRing": {
+    "description": "Same screen as the band title, for a ring."
+  },
+  "pairResetBody": "จับคู่ {name} ไม่สำเร็จ อุปกรณ์อาจยังเชื่อมต่ออยู่กับโทรศัพท์หรือแอปอื่น",
+  "@pairResetBody": {
+    "description": "Body under the pairing-did-not-finish title. {name} is the device’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairResetHeading": "วิธีรีเซ็ต",
+  "@pairResetHeading": {
+    "description": "Heading above the numbered reset steps."
+  },
+  "pairResetWhoopTakeover": "การจับคู่ที่นี่จะตัดการเชื่อมต่อจากแอป WHOOP",
+  "@pairResetWhoopTakeover": {
+    "description": "Shown for WHOOP devices: a WHOOP keeps one connection, so pairing here takes it from the WHOOP app."
+  },
+  "pairResetOfficialSub": "{host} · เปิดในเบราว์เซอร์",
+  "@pairResetOfficialSub": {
+    "description": "Second line of the maker’s-help-page row. {host} is the website’s host name.",
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "pairLinkOpenFailed": "เปิดลิงก์ไม่ได้ ที่อยู่คือ {url}",
+  "@pairLinkOpenFailed": {
+    "description": "Snackbar when a help link could not be opened. {url} is the address, so the user can open it by hand.",
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "pairPickDifferentBand": "เลือกสายรัดอื่น",
+  "@pairPickDifferentBand": {
+    "description": "Button that goes back to the list of bands."
+  },
+  "pairThisIsWhoop": "นี่คือสายรัด WHOOP",
+  "@pairThisIsWhoop": {
+    "description": "Sheet title for a WHOOP found by the scan."
+  },
+  "pairThisIsRing": "นี่คือแหวน",
+  "@pairThisIsRing": {
+    "description": "Sheet title for a ring."
+  },
+  "pairThisIsWatch": "นี่คือนาฬิกา",
+  "@pairThisIsWatch": {
+    "description": "Sheet title for a watch."
+  },
+  "pairThisIsFitnessBand": "นี่คือสายรัดฟิตเนส",
+  "@pairThisIsFitnessBand": {
+    "description": "Sheet title for a fitness band (Mi Band)."
+  },
+  "pairThisIsStrap": "นี่คือสายวัดชีพจร",
+  "@pairThisIsStrap": {
+    "description": "Sheet title for a heart-rate chest strap."
+  },
+  "pairThisIsSensor": "นี่คือเซนเซอร์วัดชีพจร",
+  "@pairThisIsSensor": {
+    "description": "Sheet title for a heart-rate armband or other heart-rate sensor."
+  },
+  "pairTroubleTitle": "เชื่อมต่อไม่ได้ใช่ไหม",
+  "@pairTroubleTitle": {
+    "description": "Heading of the always-open help card on the pairing screen."
+  },
+  "pairTroubleBody": "ตั้งสายรัดเป็นโหมดจับคู่ แล้วลองอีกครั้ง ยังไม่ได้อยู่ใช่ไหม ถามเราได้",
+  "@pairTroubleBody": {
+    "description": "Body of the help card."
+  },
+  "pairTroubleModeLink": "โหมดจับคู่ของ {device}",
+  "@pairTroubleModeLink": {
+    "description": "Link to the maker’s page on putting {device} in pairing mode.",
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "pairTroubleDiscord": "ถามใน Discord",
+  "@pairTroubleDiscord": {
+    "description": "Link to the project’s Discord."
+  },
+  "pairTroubleDiscordSub": "ชุมชน OpenStrap",
+  "@pairTroubleDiscordSub": {
+    "description": "Line under the Discord link."
+  },
+  "pairModeTitle": "ตั้งให้อยู่ในโหมดจับคู่",
+  "@pairModeTitle": {
+    "description": "Heading of the pairing-mode steps on a device sheet."
+  },
+  "pairModeNoSite": "อุปกรณ์ทั่วไปที่ไม่มีผู้ผลิตรายเดียว จึงไม่มีขั้นตอนจากผู้ผลิต",
+  "@pairModeNoSite": {
+    "description": "Shown instead of steps for a generic device with no maker’s page."
+  },
+  "pairOuraExistingKeyGuidance": "ใช้แอป Oura อยู่แล้วใช่ไหม คงการจับคู่แหวนในแอปนั้นไว้ แล้วจับคู่ด้วยคีย์เดิมของแหวน ข้ามขั้นตอนรีเซ็ตด้านล่าง รีเซ็ตเฉพาะเมื่อต้องการคีย์ใหม่เท่านั้น"
 }

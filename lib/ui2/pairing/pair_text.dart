@@ -6,7 +6,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../ble/adapters/_registry.dart';
 import '../../l10n/app_localizations.dart';
-import '../ui2.dart';
 
 /// Localizations for [c]; English when none are mounted (a bare test widget),
 /// the same fallback the rest of the pairing copy has.

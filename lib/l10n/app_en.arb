@@ -16352,5 +16352,149 @@
         "type": "String"
       }
     }
+  },
+  "pairResetWhoop5Step1": "Take the band off your wrist and wait for the green lights to go out.",
+  "@pairResetWhoop5Step1": {
+    "description": "Reset help for WHOOP 5.0 / MG, step 1."
+  },
+  "pairResetWhoop5Step2": "Hold the band by its sides and tap the top firmly with two fingers until only blue flashes. If blue and white show together, keep tapping until only blue is left.",
+  "@pairResetWhoop5Step2": {
+    "description": "Reset help for WHOOP 5.0 / MG, step 2: the tap procedure."
+  },
+  "pairResetWhoop5Step3": "If the WHOOP app is on this phone, force-quit it.",
+  "@pairResetWhoop5Step3": {
+    "description": "Reset help for WHOOP 5.0 / MG, step 3."
+  },
+  "pairResetWhoop5Step4": "Come back here and try again.",
+  "@pairResetWhoop5Step4": {
+    "description": "Reset help for WHOOP 5.0 / MG, step 4."
+  },
+  "pairResetGenericStep1": "Open the maker’s app and remove this device from it.",
+  "@pairResetGenericStep1": {
+    "description": "General reset help for a device, step 1."
+  },
+  "pairResetGenericStep2": "In your phone’s Bluetooth settings, find the device and choose Forget.",
+  "@pairResetGenericStep2": {
+    "description": "General reset help for a device, step 2."
+  },
+  "pairResetGenericStep3": "Restart the device, hold it close to this phone and try again.",
+  "@pairResetGenericStep3": {
+    "description": "General reset help for a device, step 3."
+  },
+  "pairResetGenericNote": "These are general tips. We haven’t checked the exact steps for this device yet.",
+  "@pairResetGenericNote": {
+    "description": "Shown above the general reset steps for a device whose own steps have not been checked yet."
+  },
+  "pairResetOfficialLink": "Open the maker’s help page",
+  "@pairResetOfficialLink": {
+    "description": "Link text opening the maker’s own help page in the browser."
+  },
+  "pairResetTitleBand": "Your band is paired somewhere else",
+  "@pairResetTitleBand": {
+    "description": "Title of the screen shown when pairing a band did not finish: it is probably still paired with another phone or app."
+  },
+  "pairResetTitleRing": "Your ring is paired somewhere else",
+  "@pairResetTitleRing": {
+    "description": "Same screen as the band title, for a ring."
+  },
+  "pairResetBody": "We couldn’t finish pairing {name}. It is probably still connected to another phone or app.",
+  "@pairResetBody": {
+    "description": "Body under the pairing-did-not-finish title. {name} is the device’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairResetHeading": "To reset it",
+  "@pairResetHeading": {
+    "description": "Heading above the numbered reset steps."
+  },
+  "pairResetWhoopTakeover": "Pairing here disconnects it from the WHOOP app.",
+  "@pairResetWhoopTakeover": {
+    "description": "Shown for WHOOP devices: a WHOOP keeps one connection, so pairing here takes it from the WHOOP app."
+  },
+  "pairResetOfficialSub": "{host} · opens in your browser",
+  "@pairResetOfficialSub": {
+    "description": "Second line of the maker’s-help-page row. {host} is the website’s host name.",
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "pairLinkOpenFailed": "Could not open the link. The address is {url}",
+  "@pairLinkOpenFailed": {
+    "description": "Snackbar when a help link could not be opened. {url} is the address, so the user can open it by hand.",
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "pairPickDifferentBand": "Pick a different band",
+  "@pairPickDifferentBand": {
+    "description": "Button that goes back to the list of bands."
+  },
+  "pairThisIsWhoop": "This is a WHOOP band",
+  "@pairThisIsWhoop": {
+    "description": "Sheet title for a WHOOP found by the scan."
+  },
+  "pairThisIsRing": "This is a ring",
+  "@pairThisIsRing": {
+    "description": "Sheet title for a ring."
+  },
+  "pairThisIsWatch": "This is a watch",
+  "@pairThisIsWatch": {
+    "description": "Sheet title for a watch."
+  },
+  "pairThisIsFitnessBand": "This is a fitness band",
+  "@pairThisIsFitnessBand": {
+    "description": "Sheet title for a fitness band (Mi Band)."
+  },
+  "pairThisIsStrap": "This is a heart-rate strap",
+  "@pairThisIsStrap": {
+    "description": "Sheet title for a heart-rate chest strap."
+  },
+  "pairThisIsSensor": "This is a heart-rate sensor",
+  "@pairThisIsSensor": {
+    "description": "Sheet title for a heart-rate armband or other heart-rate sensor."
+  },
+  "pairTroubleTitle": "Trouble connecting?",
+  "@pairTroubleTitle": {
+    "description": "Heading of the always-open help card on the pairing screen."
+  },
+  "pairTroubleBody": "Put the band in pairing mode, then try again. Still stuck? Ask us.",
+  "@pairTroubleBody": {
+    "description": "Body of the help card."
+  },
+  "pairTroubleModeLink": "{device} pairing mode",
+  "@pairTroubleModeLink": {
+    "description": "Link to the maker’s page on putting {device} in pairing mode.",
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "pairTroubleDiscord": "Ask on Discord",
+  "@pairTroubleDiscord": {
+    "description": "Link to the project’s Discord."
+  },
+  "pairTroubleDiscordSub": "The OpenStrap community",
+  "@pairTroubleDiscordSub": {
+    "description": "Line under the Discord link."
+  },
+  "pairModeTitle": "Put it in pairing mode",
+  "@pairModeTitle": {
+    "description": "Heading of the pairing-mode steps on a device sheet."
+  },
+  "pairModeNoSite": "A generic device with no single maker, so there are no maker’s steps to follow.",
+  "@pairModeNoSite": {
+    "description": "Shown instead of steps for a generic device with no maker’s page."
+  },
+  "pairOuraExistingKeyGuidance": "Already use the Oura app? Keep the ring in that app and pair with its existing key. Skip the reset steps below. Only reset it if you want a new key.",
+  "@pairOuraExistingKeyGuidance": {
+    "description": "Before any Oura reset steps: existing-key users keep the ring paired in Oura and skip resets; reset only for a new key."
   }
 }

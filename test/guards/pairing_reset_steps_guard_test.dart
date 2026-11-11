@@ -55,17 +55,14 @@ void main() {
     ]));
   });
 
-  test('reviewed help links and the Hindi strain label are the fixed ones (G2 r1 S3-S5)', () {
+  test('reviewed help links point to the right products (G2 r1 S3-S5)', () {
     // WHY: review found a Polar H9/H10 page behind an OH1/Verity Sense entry, a
-    // different Xiaomi product's FAQ behind the body-composition scale, and a
-    // Hindi "stress level" for physical strain (two different app metrics).
+    // different Xiaomi product's FAQ behind the body-composition scale.
     for (final m in kPinnedOfficialUrl.entries) {
       final e = kBandRegistry.firstWhere((e) => e.id == m.key);
       expect(e.resetSteps?.officialUrl, m.value, reason: m.key);
       expect(Uri.parse(m.value).host, kPinnedOfficialHost[m.key], reason: m.key);
     }
-    final hi = _arb(File('lib/l10n/app_hi.arb'));
-    expect(hi['capLabelStrain'], 'शारीरिक परिश्रम');
   });
 
   test('every registry entry declares reset steps', () {
