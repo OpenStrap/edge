@@ -36,6 +36,13 @@ void main() {
     expect(es.stepCalTitle, isNot(en.stepCalTitle));
   });
 
+  test('built-in activities are named in spanish, custom ones pass through',
+      () {
+    expect(es.activityCatalogueName('krunning', 'Running'), 'Carrera');
+    expect(es.activityCatalogueName('kcardio', 'Cardio'), 'Cardio');
+    expect(es.activityCatalogueName('custom', 'Mi deporte'), 'Mi deporte');
+  });
+
   test('counts agree with their noun', () {
     expect(es.stepCalBandSeen(1), 'paso visto por la banda');
     expect(es.stepCalBandSeen(5), 'pasos vistos por la banda');
