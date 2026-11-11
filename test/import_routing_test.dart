@@ -17,6 +17,7 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/ui2/onboarding/welcome.dart';
 
@@ -28,6 +29,13 @@ class _RoutingSpy extends AppState {
 
   final noop = <String>[];
   final vendor = <String>[];
+  final backup = <String>[];
+
+  @override
+  Future<int> importEdgeBackup(String path) async {
+    backup.add(path);
+    return 1;
+  }
 
   @override
   Future<int> importNoopCsv(String path,
@@ -144,6 +152,69 @@ void main() {
 
     expect(app.noop, [path]);
     expect(app.vendor, isEmpty);
+  });
+
+  // #606: the app's own backup, renamed on its way through Drive or a file
+  // manager, was a SQLite file the NOOP path claimed: "That database is not a
+  // NOOP backup — it has no `hrSample` table".
+  group('own backup by content', () {
+    setUpAll(() {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    });
+
+    Future<String> sqlite(String name, String table) async {
+      final path = '${tmp.path}/$name';
+      final db = await openDatabase(path, singleInstance: false);
+      await db.execute('CREATE TABLE $table (id INTEGER PRIMARY KEY)');
+      await db.close();
+      return path;
+    }
+
+    test('a renamed backup goes to the backup importer', () async {
+      final app = _RoutingSpy();
+      final path = await sqlite('openstrap-backup (1)', 'samples');
+
+      final out = await runImport(app, [path]);
+
+      expect(app.backup, [path]);
+      expect(app.noop, isEmpty, reason: 'this is the #606 refusal');
+      expect(out.source, contains('OpenStrap backup'));
+    });
+
+    test('a renamed gzipped auto-backup goes to the backup importer',
+        () async {
+      final app = _RoutingSpy();
+      final plain = await sqlite('auto', 'day_result');
+      final path = await write(
+          'backup-2026-10-18.gz', gzip.encode(File(plain).readAsBytesSync()));
+
+      await runImport(app, [path]);
+
+      expect(app.backup, [path]);
+      expect(app.noop, isEmpty);
+      expect(app.vendor, isEmpty);
+    });
+
+    test('a bare NOOP database still goes to the NOOP importer', () async {
+      final app = _RoutingSpy();
+      final path = await sqlite('noop-backup.sqlite', 'hrSample');
+
+      await runImport(app, [path]);
+
+      expect(app.noop, [path]);
+      expect(app.backup, isEmpty);
+    });
+
+    test('a file named .db is still ours without being opened', () async {
+      final app = _RoutingSpy();
+      final path = await write('damaged.db', utf8.encode('not a database'));
+
+      await runImport(app, [path]);
+
+      expect(app.backup, [path],
+          reason: 'the backup importer owns the message for a damaged backup');
+    });
   });
 
   test('a journal export re-saved as cp1252 is named, not handed to the '

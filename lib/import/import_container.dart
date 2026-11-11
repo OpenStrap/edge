@@ -32,6 +32,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart';
 
 /// What the first bytes of the picked file say it is.
 enum ImportContainer {
@@ -145,6 +146,56 @@ bool noopCsvFirstRecordMatches(String text, {bool truncated = false}) {
     return f.length >= 15 && ts != null && ts > 1000000000 && ts < 4100000000;
   }
   return false;
+}
+
+/// True when [path] is a database THIS app wrote: an export, an auto-backup,
+/// or a quarantined copy — judged by CONTENT when the name does not say so.
+///
+/// The router used to go by name alone (`.db`, `.db.gz`, `.db.unopenable-`).
+/// A backup that came back off Drive, a mail attachment or a file manager
+/// under any other name is still a SQLite file, so it fell through to
+/// [isNoopExport], which claims every SQLite file, and the user restoring
+/// their own history was told "That database is not a NOOP backup" (#606).
+/// `LocalDb.importFromDbFile` already reads by magic bytes for the same
+/// reason; this makes the router agree with it.
+///
+/// A name that says it is ours is still believed without opening the file, so
+/// a damaged backup reaches the backup importer and gets ITS message.
+Future<bool> isEdgeBackup(String path) async {
+  final lower = path.toLowerCase();
+  if (lower.endsWith('.db') ||
+      lower.endsWith('.db.gz') ||
+      lower.contains('.db.unopenable-')) {
+    return true;
+  }
+  final kind = await sniffFile(path);
+  if (kind != ImportContainer.sqlite && kind != ImportContainer.gzip) {
+    return false;
+  }
+  // Unwraps the gzip; null when it does not hold a database.
+  final resolved = await resolveNoopDatabase(path);
+  if (resolved == null) return false;
+  try {
+    final src = await openDatabase(resolved.path,
+        readOnly: true, singleInstance: false);
+    try {
+      final tables = {
+        for (final r in await src
+            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
+          r['name'],
+      };
+      // `hrSample` is NOOP's spine; `samples` and `day_result` are ours.
+      return !tables.contains('hrSample') &&
+          (tables.contains('samples') || tables.contains('day_result'));
+    } finally {
+      await src.close();
+    }
+  } catch (_) {
+    // Unreadable: whoever picks it up next owns the message.
+    return false;
+  } finally {
+    await resolved.dispose();
+  }
 }
 
 /// True when [path] is a NOOP export — judged by CONTENT, not by name.

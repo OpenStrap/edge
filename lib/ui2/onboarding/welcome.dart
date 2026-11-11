@@ -411,7 +411,11 @@ Future<ImportOutcome> runImport(
   // multi-select and this used to return inside the winning branch, so a
   // backup selected alongside a vendor CSV imported the backup and threw the
   // CSV away without a word.
-  final db = [...plain.where(_isDbBackup), ...decrypted];
+  final ownDb = <String>{};
+  for (final p in plain) {
+    if (await isEdgeBackup(p)) ownDb.add(p);
+  }
+  final db = [...plain.where(ownDb.contains), ...decrypted];
   // Raw-vs-vendor is decided by what the file HOLDS, not by what it is called.
   // See [isNoopExport]: routing on the extension sent NOOP's raw-sensor `.csv`
   // to the vendor importer and WHOOP's `.zip` to the NOOP one — both files
@@ -419,12 +423,12 @@ Future<ImportOutcome> runImport(
   final raw = <String>[];
   final csv = <String>[];
   for (final p in plain) {
-    if (_isDbBackup(p)) continue;
+    if (ownDb.contains(p)) continue;
     (await isNoopExport(p) ? raw : csv).add(p);
   }
 
   if (decrypted.isNotEmpty) sources.add('Encrypted backup');
-  if (plain.any(_isDbBackup)) sources.add('OpenStrap backup');
+  if (ownDb.isNotEmpty) sources.add('OpenStrap backup');
   try {
     for (final p in db) {
       days += await app.importEdgeBackup(p);
@@ -622,19 +626,6 @@ Future<String> decryptToTemp(String path, String passphrase) async {
   await Isolate.run(
       () => decryptBackupFile(File(path), File(dest), passphrase));
   return dest;
-}
-
-bool _isDbBackup(String path) {
-  final p = path.toLowerCase();
-  // `.db.unopenable-<ms>` is what a corrupt-database rebuild quarantines the
-  // old file as, and the rebuilt card points the user straight at it. Matching
-  // only the `.db` suffix handed that SQLite file to the vendor-CSV importer.
-  // `.db.gz` is what the app's own automatic backup writes (auto_backup.dart's
-  // kBackupExtension). Leaving it out sent a user restoring their own backup
-  // down the vendor-CSV path, which is the one import that has to work.
-  return p.endsWith('.db') ||
-      p.endsWith('.db.gz') ||
-      p.contains('.db.unopenable-');
 }
 
 class WelcomeView extends StatelessWidget {
