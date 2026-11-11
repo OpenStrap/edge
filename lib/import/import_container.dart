@@ -168,14 +168,18 @@ Future<bool> isEdgeBackup(String path) async {
       lower.contains('.db.unopenable-')) {
     return true;
   }
-  final kind = await sniffFile(path);
-  if (kind != ImportContainer.sqlite && kind != ImportContainer.gzip) {
-    return false;
-  }
-  // Unwraps the gzip; null when it does not hold a database.
-  final resolved = await resolveNoopDatabase(path);
-  if (resolved == null) return false;
+  // Never throws: this runs while a decrypted backup may be sitting in the
+  // temp directory, before the caller's cleanup is armed. An unreadable file
+  // is simply not claimed, and whoever picks it up next owns the message.
+  ResolvedNoopDatabase? resolved;
   try {
+    final kind = await sniffFile(path);
+    if (kind != ImportContainer.sqlite && kind != ImportContainer.gzip) {
+      return false;
+    }
+    // Unwraps the gzip; null when it does not hold a database.
+    resolved = await resolveNoopDatabase(path);
+    if (resolved == null) return false;
     final src = await openDatabase(resolved.path,
         readOnly: true, singleInstance: false);
     try {
@@ -184,17 +188,21 @@ Future<bool> isEdgeBackup(String path) async {
             .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
           r['name'],
       };
-      // `hrSample` is NOOP's spine; `samples` and `day_result` are ours.
+      // `hrSample` is NOOP's spine. Ours is the raw ledger, the baselines and
+      // a per-day result table TOGETHER: one generic name such as `samples`
+      // in somebody else's database must not get its rows merged into the
+      // user's history.
       return !tables.contains('hrSample') &&
-          (tables.contains('samples') || tables.contains('day_result'));
+          tables.contains('samples') &&
+          tables.contains('baselines') &&
+          (tables.contains('day_result') || tables.contains('derived_day'));
     } finally {
       await src.close();
     }
   } catch (_) {
-    // Unreadable: whoever picks it up next owns the message.
     return false;
   } finally {
-    await resolved.dispose();
+    await resolved?.dispose();
   }
 }
 

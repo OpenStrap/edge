@@ -18,6 +18,7 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:openstrap_edge/import/import_container.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/ui2/onboarding/welcome.dart';
 
@@ -163,17 +164,21 @@ void main() {
       databaseFactory = databaseFactoryFfi;
     });
 
-    Future<String> sqlite(String name, String table) async {
+    Future<String> sqlite(String name, List<String> tables) async {
       final path = '${tmp.path}/$name';
       final db = await openDatabase(path, singleInstance: false);
-      await db.execute('CREATE TABLE $table (id INTEGER PRIMARY KEY)');
+      for (final t in tables) {
+        await db.execute('CREATE TABLE $t (id INTEGER PRIMARY KEY)');
+      }
       await db.close();
       return path;
     }
 
+    const ours = ['samples', 'baselines', 'day_result'];
+
     test('a renamed backup goes to the backup importer', () async {
       final app = _RoutingSpy();
-      final path = await sqlite('openstrap-backup (1)', 'samples');
+      final path = await sqlite('openstrap-backup (1)', ours);
 
       final out = await runImport(app, [path]);
 
@@ -185,7 +190,7 @@ void main() {
     test('a renamed gzipped auto-backup goes to the backup importer',
         () async {
       final app = _RoutingSpy();
-      final plain = await sqlite('auto', 'day_result');
+      final plain = await sqlite('auto', ['samples', 'baselines', 'derived_day']);
       final path = await write(
           'backup-2026-10-18.gz', gzip.encode(File(plain).readAsBytesSync()));
 
@@ -198,12 +203,26 @@ void main() {
 
     test('a bare NOOP database still goes to the NOOP importer', () async {
       final app = _RoutingSpy();
-      final path = await sqlite('noop-backup.sqlite', 'hrSample');
+      final path = await sqlite('noop-backup.sqlite', ['hrSample', ...ours]);
 
       await runImport(app, [path]);
 
       expect(app.noop, [path]);
       expect(app.backup, isEmpty);
+    });
+
+    test('one generic table name does not make a database ours', () async {
+      final app = _RoutingSpy();
+      final path = await sqlite('someone-elses.sqlite', ['samples']);
+
+      await runImport(app, [path]);
+
+      expect(app.backup, isEmpty,
+          reason: 'its rows would be merged into the user\'s history');
+    });
+
+    test('a file that vanished is not claimed and does not throw', () async {
+      expect(await isEdgeBackup('${tmp.path}/gone.sqlite'), isFalse);
     });
 
     test('a file named .db is still ours without being opened', () async {
