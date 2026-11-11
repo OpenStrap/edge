@@ -3472,5 +3472,6 @@
         "type": "int"
       }
     }
-  }
+  },
+  "pairBandNotSensor": "Dieses Gerät ist ein {label}, also ein Band und kein einfacher Sensor. Es wurde nichts gespeichert."
 }

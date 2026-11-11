@@ -2863,5 +2863,6 @@
     }
   },
   "reportContactLabel": "联系方式（可选）",
-  "reportContactHint": "邮箱或 Discord，仅在你希望得到回复时填写"
+  "reportContactHint": "邮箱或 Discord，仅在你希望得到回复时填写",
+  "pairBandNotSensor": "这台设备是 {label}，是手环，不是普通传感器。没有保存任何内容。"
 }

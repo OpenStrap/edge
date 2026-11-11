@@ -2892,5 +2892,6 @@
     }
   },
   "reportContactLabel": "Contacto (opcional)",
-  "reportContactHint": "Correo o Discord, solo si quieres una respuesta"
+  "reportContactHint": "Correo o Discord, solo si quieres una respuesta",
+  "pairBandNotSensor": "Ese dispositivo es una pulsera {label}, no un sensor sencillo. No se guardó nada."
 }
