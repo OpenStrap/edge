@@ -3472,5 +3472,7 @@
         "type": "int"
       }
     }
-  }
+  },
+  "napAutoLogTitle": "Eindeutige Nickerchen automatisch eintragen",
+  "napAutoLogSub": "Ein erkanntes Nickerchen mit starken Anzeichen wird ohne Nachfrage eingetragen. Du kannst es weiterhin bearbeiten oder entfernen"
 }

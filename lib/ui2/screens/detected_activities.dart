@@ -6,8 +6,10 @@ import '../../compute/manual_session.dart'
     show ManualWindowErrorMessage, ManualWindowException;
 import '../../compute/nap_edits.dart';
 import '../../models/activity_suggestion.dart';
+import '../../state/prefs.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/catalogue.dart';
+import '../profile/profile.dart' show SetRow;
 import '../ui2.dart';
 import 'home_screen.dart';
 import 'log_workout.dart';
@@ -183,11 +185,46 @@ class _DetectedActivitiesScreenState extends State<DetectedActivitiesScreen>
                               : () => _act(s, discard: true),
                         ),
                       ),
+                  const NapAutoLogRow(),
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The opt-in switch for logging clear naps without asking (#625). Off by
+/// default. Turning it on stores the moment it was turned on, so only naps
+/// that end after that are logged for the user.
+class NapAutoLogRow extends StatefulWidget {
+  const NapAutoLogRow({super.key});
+
+  @override
+  State<NapAutoLogRow> createState() => _NapAutoLogRowState();
+}
+
+class _NapAutoLogRowState extends State<NapAutoLogRow> {
+  @override
+  Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    final on = Prefs.getInt(Prefs.napAutoLogSinceSec, 0) > 0;
+    return Surface(
+      child: SetRow(
+        LucideIcons.moon,
+        C.domHealth,
+        l?.napAutoLogTitle ?? 'Log clear naps automatically',
+        sub: l?.napAutoLogSub ??
+            'A detected nap with strong evidence is added without asking. '
+                'You can still edit or remove it',
+        value: on ? (l?.stateOn ?? 'On') : (l?.stateOff ?? 'Off'),
+        chevron: false,
+        onTap: () => setState(() => Prefs.setInt(
+              Prefs.napAutoLogSinceSec,
+              on ? 0 : DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            )),
       ),
     );
   }

@@ -22,6 +22,8 @@
 import '../data/activity_store.dart';
 import '../sync/reset_gate.dart';
 import '../models/activity_suggestion.dart';
+import '../state/prefs.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
@@ -6445,9 +6447,28 @@ class DerivationEngine {
         ...await activityStore.reconcile(ActivityKind.workout, blocks.suggestionsToPersist),
         ...await activityStore.reconcile(ActivityKind.nap, blocks.napSuggestions),
       ];
+      // Opt-in (#625): a clear, settled nap is logged without asking. Never
+      // for an import, which has no user at the other end of "just now".
+      final napAutoLogPref = forceFinalize
+          ? null
+          : (await SharedPreferences.getInstance())
+              .getInt(Prefs.napAutoLogSinceSec);
+      // 0 is the switch turned back off.
+      final napAutoLogSince = (napAutoLogPref ?? 0) > 0 ? napAutoLogPref : null;
+      try {
+        await activityStore.autoLogNaps(
+          sinceSec: napAutoLogSince,
+          dataEdgeSec: dataNowSec,
+          settleSec: ana.napBridgeSec,
+        );
+      } catch (e) {
+        _log('nap auto-log failed for ${day.date}: $e');
+      }
       for (final suggestion in newSuggestions) {
         // The rows are already banked; a failed prompt must not mark the day partial.
         try {
+          // It is about to be logged for them; asking as well would be noise.
+          if (ActivityStore.napAutoLoggable(suggestion, napAutoLogSince)) continue;
           if (forceFinalize || !await activityStore.mayNotifyNew(suggestion)) continue;
           final nap = suggestion.kind == ActivityKind.nap;
           await NotificationCenter.instance.emit(NotificationEvent(

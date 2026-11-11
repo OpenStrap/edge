@@ -95,6 +95,11 @@ class Prefs {
   /// list and nothing reads it except the surfaces it reveals.
   static const String devMode = 'dev.mode';
 
+  /// "Log clear naps automatically" (#625). Absent = off. Holds WHEN it was
+  /// turned on, in epoch seconds, so only naps that end after that are logged
+  /// without asking: switching it on never rewrites days already past.
+  static const String napAutoLogSinceSec = 'activity.nap_auto_log_since_sec';
+
   /// Per-metric range toggle on the shared MetricScreen (Today/Week/Month/3M).
   /// Keyed by the metric id so Sleep / Heart / Body each remember independently.
   static String metricTab(String metric) => 'ui.metric_tab.$metric';

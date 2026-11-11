@@ -16343,5 +16343,7 @@
         "type": "int"
       }
     }
-  }
+  },
+  "napAutoLogTitle": "Log clear naps automatically",
+  "napAutoLogSub": "A detected nap with strong evidence is added without asking. You can still edit or remove it"
 }

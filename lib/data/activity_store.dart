@@ -426,6 +426,7 @@ class ActivityStore {
     required int endTs,
     Map<String, dynamic>? session,
     bool edited = false,
+    bool auto = false,
   }) => db.transaction((tx) async {
     final row = await _check(tx, expected, 'confirmed');
     if (row == null) return;
@@ -487,6 +488,8 @@ class ActivityStore {
                 'start': startTs,
                 'end': endTs,
                 'source': 'confirmed',
+                // Logged by the opt-in setting, not by a tap (#625).
+                if (auto) 'auto_logged': true,
               }),
       });
       await _changed(tx, day);
@@ -499,6 +502,48 @@ class ActivityStore {
     );
     await _changed(tx, row['day_id'] as String);
   });
+
+  /// The bar for logging a nap without asking (#625). The detector's
+  /// confidence is a composite of HR coverage, HR dip, stillness and wear,
+  /// in [0.2, 0.85]; it is not a probability and 0.8 is not a validated cut.
+  /// ponytail: one fixed bar, the value the issue asked for. Make it a user
+  /// choice if people want it looser or stricter.
+  static const double napAutoLogMinConfidence = 0.8;
+
+  /// Whether the opt-in setting would log [s] without asking. [sinceSec] is
+  /// when the setting was turned on (null = off): a nap that ended before
+  /// that is never logged behind the user's back.
+  static bool napAutoLoggable(ActivitySuggestion s, int? sinceSec) {
+    final c = s.details['confidence'];
+    return sinceSec != null &&
+        s.kind == ActivityKind.nap &&
+        s.status == ActivityReviewStatus.pending &&
+        c is num &&
+        c >= napAutoLogMinConfidence &&
+        s.endTs >= sinceSec;
+  }
+
+  /// Confirms every [napAutoLoggable] pending nap exactly as detected, once
+  /// the data edge is [settleSec] past its end, so sleep that resumes after a
+  /// short arousal can still be bridged into it first. A nap that cannot be
+  /// confirmed (it overlaps saved sleep, or changed underneath) stays pending.
+  Future<void> autoLogNaps({
+    required int? sinceSec,
+    required int dataEdgeSec,
+    required int settleSec,
+  }) async {
+    if (sinceSec == null) return;
+    for (final s in await pending()) {
+      if (!napAutoLoggable(s, sinceSec) || s.endTs + settleSec > dataEdgeSec) {
+        continue;
+      }
+      try {
+        await confirm(s, startTs: s.startTs, endTs: s.endTs, auto: true);
+      } on ActivityReviewException {
+        // Left for the user to review.
+      }
+    }
+  }
 
   static Future<void> _changed(DatabaseExecutor tx, String day) async {
     await _ensureMeta(tx);

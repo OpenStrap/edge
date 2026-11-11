@@ -2863,5 +2863,7 @@
     }
   },
   "reportContactLabel": "联系方式（可选）",
-  "reportContactHint": "邮箱或 Discord，仅在你希望得到回复时填写"
+  "reportContactHint": "邮箱或 Discord，仅在你希望得到回复时填写",
+  "napAutoLogTitle": "自动记录明确的小睡",
+  "napAutoLogSub": "证据充分的小睡会直接记录，不再询问。之后仍可编辑或删除"
 }

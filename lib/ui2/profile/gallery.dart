@@ -835,6 +835,7 @@ Map<String, Widget> extraCases() => {
           startTs: 1787157000, endTs: 1787164200, revision: 0,
           status: ActivityReviewStatus.pending, details: const {}),
         onConfirm: () {}, onEdit: () {}, onDiscard: () {}),
+      'nap_auto_log_row': const NapAutoLogRow(),
       'nap_row': const MetricRow(LucideIcons.sun, C.indigo, 'Daytime sleep',
           '1h 12m',
           sub: '2 naps · Sunday, 16 August'),
