@@ -1,8 +1,23 @@
-// GUIDE TARGET (phase 1) — RED-PHASE STUBS ONLY.
+// GUIDE TARGET (phase 1): how a guide finds "the thing to tap" on the real,
+// laid-out screen.
+//
+// A target is a translated label or a Key. Resolution reads the LIVE element
+// and render tree under a root (no snapshots), in the root's coordinates, and
+// always answers with exactly one of four outcomes (sealed [TargetResolution]),
+// so a guide can never silently point at nothing.
+//
+// Mating parts: `Skeletonize` (../skeleton/skeleton.dart) resolves its `keep`
+// targets with [GuideTarget.resolve] after every layout; `GuideStepView`
+// (guide_view.dart) calls [revealTarget] once to scroll a lazy screen to the
+// target. Both read rects in the same root space.
+
+import 'dart:async' show unawaited;
 
 import 'package:flutter/widgets.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../grammar.dart' show Pressable;
+import 'tree_geometry.dart';
 
 /// What a target resolves to: always exactly one of the four, never null.
 sealed class TargetResolution {
@@ -41,20 +56,39 @@ final class TargetAmbiguous extends TargetResolution {
   const TargetAmbiguous(this.target, this.count, this.detail);
 }
 
+/// What one lookup found: the element a target stands for and its rect, or the
+/// failure to report. Internal; [GuideTarget.resolve] flattens it.
+sealed class _Lookup {
+  const _Lookup();
+}
+
+final class _Hit extends _Lookup {
+  final Element element;
+  final Rect rect;
+  const _Hit(this.element, this.rect);
+}
+
+final class _Miss extends _Lookup {
+  final TargetResolution failure;
+  const _Miss(this.failure);
+}
+
 sealed class GuideTarget {
   const GuideTarget();
 
-  /// By translated label, matched (exactly, trimmed) against `Text` plain text
-  /// and `Semantics` labels. The resolved rect grows to the nearest `Pressable`
-  /// ancestor (grammar.dart:54) when there is one. Matches that belong to one
-  /// control (same nearest Pressable, or one semantics node) count ONCE.
-  /// [within] scopes the match to the resolved rect's subtree of another
-  /// target (a Key, a Section...).
+  /// By translated label, matched (exactly after trimming, ignoring letter
+  /// case: Home prints its ring labels upper-cased, home_screen.dart:1215)
+  /// against `Text` plain text and `Semantics` labels. The resolved rect grows to the nearest tappable
+  /// `Pressable` ancestor (grammar.dart:54; one with an `onTap` - a `Surface`
+  /// wraps a tap-less Pressable only for its 44 pt minimum) when there is one.
+  /// Matches that belong to one control (same nearest Pressable, or one
+  /// semantics node) count ONCE. [within] scopes the match to the subtree of
+  /// another target (a Key, a Section...).
   factory GuideTarget.label(
     String Function(AppLocalizations l) label, {
     GuideTarget? within,
   }) =>
-      throw UnimplementedError();
+      _LabelTarget([label], within);
 
   /// As [label], accepting any of several labels (a control whose text depends
   /// on state, e.g. "Set your own zones" / "Edit your own zones").
@@ -62,30 +96,301 @@ sealed class GuideTarget {
     List<String Function(AppLocalizations l)> alternatives, {
     GuideTarget? within,
   }) =>
-      throw UnimplementedError();
+      _LabelTarget(alternatives, within);
 
   /// By Key: the keyed widget's own render box; no growing.
-  factory GuideTarget.key(Key key) => throw UnimplementedError();
+  factory GuideTarget.key(Key key) => _KeyTarget(key);
 
   /// Resolve in the laid-out tree under [root], in [root]'s coordinates.
-  TargetResolution resolve(Element root, AppLocalizations l) =>
-      throw UnimplementedError();
+  TargetResolution resolve(Element root, AppLocalizations l) {
+    final rootBox = laidOutBox(root);
+    if (rootBox == null) {
+      return TargetNotBuilt(this, 'the root is not laid out yet');
+    }
+    return switch (_lookup(root, rootBox, root, l)) {
+      _Hit(:final rect) => TargetFound(rect),
+      _Miss(:final failure) => failure,
+    };
+  }
+
+  /// Looks for the target inside [scope] (a descendant-or-self of [root]).
+  _Lookup _lookup(Element root, RenderBox rootBox, Element scope, AppLocalizations l);
+
+  /// "Absent" vs "NotBuilt": a scrollable under [scope] that still has extent
+  /// before or after its viewport could build children no one has asked for.
+  _Miss _miss(Element scope, String what) {
+    if (_hasUnexploredScrollable(scope)) {
+      return _Miss(TargetNotBuilt(this, '$what; a scrollable could still build it'));
+    }
+    return _Miss(TargetAbsent(this, what));
+  }
+}
+
+final class _KeyTarget extends GuideTarget {
+  final Key key;
+  const _KeyTarget(this.key);
+
+  @override
+  _Lookup _lookup(Element root, RenderBox rootBox, Element scope, AppLocalizations l) {
+    final hits = <Element>[];
+    visitBuilt(scope, (e) {
+      if (e.widget.key == key) hits.add(e);
+    });
+    if (hits.isEmpty) return _miss(scope, 'no widget with key $key');
+    if (hits.length > 1) {
+      return _Miss(TargetAmbiguous(this, hits.length, '${hits.length} widgets share key $key'));
+    }
+    final box = laidOutBox(hits.single);
+    if (box == null) return _miss(scope, 'the widget with key $key has no laid-out box');
+    return _Hit(hits.single, rectInRoot(box, rootBox));
+  }
+}
+
+final class _LabelTarget extends GuideTarget {
+  final List<String Function(AppLocalizations l)> alternatives;
+  final GuideTarget? within;
+  const _LabelTarget(this.alternatives, this.within);
+
+  @override
+  _Lookup _lookup(Element root, RenderBox rootBox, Element scope, AppLocalizations l) {
+    final wanted = {for (final f in alternatives) f(l).trim().toUpperCase()}..remove('');
+    final quoted = [for (final f in alternatives) '"${f(l).trim()}"'].join(' / ');
+
+    var searchIn = scope;
+    final w = within;
+    if (w != null) {
+      switch (w._lookup(root, rootBox, scope, l)) {
+        case _Hit(:final element):
+          searchIn = element;
+        case _Miss(:final failure):
+          // A missing scope is the target's absence too: never fall back to an
+          // unscoped match (it may be the wrong duplicate).
+          return _Miss(switch (failure) {
+            TargetAbsent(:final detail) => TargetAbsent(this, 'scope of $quoted: $detail'),
+            TargetNotBuilt(:final detail) => TargetNotBuilt(this, 'scope of $quoted: $detail'),
+            TargetAmbiguous(:final count, :final detail) =>
+              TargetAmbiguous(this, count, 'scope of $quoted: $detail'),
+            TargetFound() => failure,
+          });
+      }
+    }
+
+    // Candidates: Text and Semantics labels that equal a wanted label.
+    final matches = <Element>[];
+    visitBuilt(searchIn, (e) {
+      final widget = e.widget;
+      final text = switch (widget) {
+        Text() => widget.data ?? widget.textSpan?.toPlainText(),
+        Semantics() => widget.properties.label,
+        _ => null,
+      };
+      if (text != null && wanted.contains(text.trim().toUpperCase())) matches.add(e);
+    });
+    if (matches.isEmpty) return _miss(searchIn, 'nothing on screen reads $quoted');
+
+    // One control = one nearest tappable Pressable, else one outermost matching
+    // Semantics, else the match itself. CLAIM(one-control-once): a Text and the
+    // Semantics label of the same control never count twice [guide_target_test].
+    final matchSet = matches.toSet();
+    final controls = <Element, Element>{}; // control element -> first match
+    for (final m in matches) {
+      Element? pressable;
+      Element? outermostSemantics = matchSet.contains(m) && m.widget is Semantics ? m : null;
+      m.visitAncestorElements((a) {
+        if (a.widget is Pressable && (a.widget as Pressable).onTap != null) {
+          pressable = a;
+          return false;
+        }
+        if (matchSet.contains(a) && a.widget is Semantics) outermostSemantics = a;
+        return !identical(a, root);
+      });
+      controls.putIfAbsent(pressable ?? outermostSemantics ?? m, () => m);
+    }
+    if (controls.length > 1) {
+      return _Miss(TargetAmbiguous(this, controls.length, '${controls.length} controls read $quoted'));
+    }
+    final control = controls.keys.single;
+    final box = laidOutBox(control) ?? laidOutBox(controls.values.single);
+    if (box == null) return _miss(searchIn, '$quoted has no laid-out box');
+    return _Hit(control, rectInRoot(box, rootBox));
+  }
+}
+
+/// Every [ScrollableState] under [scope] (onstage), outer before inner.
+List<ScrollableState> _scrollablesUnder(Element scope) {
+  final out = <ScrollableState>[];
+  visitBuilt(scope, (e) {
+    if (e is StatefulElement && e.state is ScrollableState) out.add(e.state as ScrollableState);
+  });
+  return out;
+}
+
+bool _hasUnexploredScrollable(Element scope) => _scrollablesUnder(scope).any((s) {
+      final p = s.position;
+      return p.hasPixels && p.hasContentDimensions && (p.extentBefore > 0 || p.extentAfter > 0);
+    });
+
+/// Builds and lays the tree out NOW (outside a frame), so lazily built children
+/// exist after a scroll jump and dropped ones are unmounted.
+///
+/// CLAIM(sync-settle): this is the first half of `drawFrame` [flutter
+/// widgets/binding.dart drawFrame]: pending builds first (a layout-time build
+/// asserts "wrong build scope" while an earlier `setState` is still dirty), then
+/// the layout whose sliver callbacks build the children, then `finalizeTree` so
+/// elements the layout removed are unmounted, not left inactive.
+void _layoutNow(Element root) {
+  final binding = WidgetsBinding.instance;
+  binding.buildOwner!.buildScope(binding.rootElement!);
+  root.renderObject?.owner?.flushLayout();
+  binding.buildOwner!.finalizeTree();
 }
 
 /// Bounded scroll discovery: resolves [target]; while it is [TargetNotBuilt],
-/// jumps the scrollables under [root] one viewport at a time (no animation,
-/// at most [maxViewports] steps per scrollable, outer then inner) until it is
-/// found; then scrolls so the target is inside the visible viewport.
+/// jumps the scrollables under [root] (no animation, outer then inner),
+/// searching BOTH directions from where each started, one viewport further per
+/// round in each direction, at most [maxViewports] rounds per scrollable and
+/// direction, until it is found; then scrolls so the target is inside the
+/// visible viewport.
 ///
 /// - found: returns [TargetFound] with the rect after scrolling;
-/// - the end of every scrollable reached without a match: [TargetAbsent], and
-///   the scroll positions are restored to where they started;
-/// - [maxViewports] spent before the end: [TargetNotBuilt] (budget exhausted),
-///   positions restored.
+/// - the end of every scrollable reached in both directions without a match:
+///   [TargetAbsent], scroll positions restored to where they started;
+/// - [maxViewports] spent in a direction before its end: [TargetNotBuilt]
+///   (budget exhausted), positions restored.
+///
+/// Call it from a post-frame callback or an event handler, never during
+/// build or layout.
 Future<TargetResolution> revealTarget(
   Element root,
   GuideTarget target,
   AppLocalizations l, {
   int maxViewports = 20,
-}) =>
-    throw UnimplementedError();
+}) async {
+  var now = target.resolve(root, l);
+  if (now is TargetNotBuilt) {
+    final search = _Search(root, target, l, maxViewports);
+    final found = search.runAll();
+    if (!found) {
+      _layoutNow(root);
+      return search.budgetSpent
+          ? TargetNotBuilt(target, 'not found within $maxViewports viewports of where the search began')
+          : TargetAbsent(target, 'searched every scrollable to both ends; ${now.detail}');
+    }
+    now = target.resolve(root, l);
+  }
+  if (now is! TargetFound) return now;
+
+  _scrollIntoView(root, target, l);
+  _layoutNow(root);
+  return target.resolve(root, l);
+}
+
+/// The expanding two-direction search behind [revealTarget].
+class _Search {
+  final Element root;
+  final GuideTarget target;
+  final AppLocalizations l;
+  final int maxViewports;
+
+  /// True once any direction stopped because the budget ran out, not because
+  /// it reached the end.
+  bool budgetSpent = false;
+  final _visited = <ScrollableState>{};
+
+  _Search(this.root, this.target, this.l, this.maxViewports);
+
+  bool _found() => target.resolve(root, l) is TargetFound;
+
+  bool runAll() {
+    // Re-scanned each round: restoring a scrollable can rebuild the lazily built
+    // lists inside it, replacing their States.
+    while (true) {
+      final next = _scrollablesUnder(root).where((s) => s.mounted && !_visited.contains(s)).firstOrNull;
+      if (next == null) return false;
+      if (_explore(next)) return true;
+    }
+  }
+
+  /// Probes [s] at origin +/- i viewports, i = 1..maxViewports; descends into
+  /// scrollables each probe newly builds. Restores [s] to its origin on failure.
+  bool _explore(ScrollableState s) {
+    _visited.add(s);
+    final position = s.position;
+    if (!position.hasPixels || !position.hasContentDimensions) return false;
+    final origin = position.pixels;
+    final viewport = position.viewportDimension;
+    if (viewport <= 0) return false;
+
+    // Per direction: the last offset probed (null = none yet) and whether the
+    // end was reached.
+    final lastProbed = <int, double?>{1: null, -1: null};
+    final ended = <int, bool>{1: false, -1: false};
+    for (var i = 1; i <= maxViewports && !(ended[1]! && ended[-1]!); i++) {
+      for (final direction in const [1, -1]) {
+        if (ended[direction]!) continue;
+        final want = origin + direction * i * viewport;
+        final limit = direction > 0 ? position.maxScrollExtent : position.minScrollExtent;
+        final offset = (direction > 0
+                ? want.clamp(position.minScrollExtent, limit)
+                : want.clamp(limit, position.maxScrollExtent))
+            .toDouble();
+        final previous = lastProbed[direction] ?? origin;
+        if ((offset - previous).abs() < 0.5) {
+          ended[direction] = true; // no progress: the end was already probed
+          continue;
+        }
+        lastProbed[direction] = offset;
+        position.jumpTo(offset);
+        _layoutNow(root);
+        if (_found()) return true;
+        for (final inner in _scrollablesUnder(root)) {
+          if (inner.mounted && !_visited.contains(inner) && _isUnder(inner, s) && _explore(inner)) return true;
+        }
+        if ((offset - limit).abs() < 0.5) ended[direction] = true;
+      }
+    }
+    if (!(ended[1]! && ended[-1]!)) budgetSpent = true;
+    position.jumpTo(origin);
+    _layoutNow(root);
+    return false;
+  }
+
+  bool _isUnder(ScrollableState inner, ScrollableState outer) {
+    var inside = false;
+    inner.context.visitAncestorElements((a) {
+      if (identical(a, outer.context)) {
+        inside = true;
+        return false;
+      }
+      return true;
+    });
+    return inside;
+  }
+}
+
+/// Scrolls every scrollable under [root] that contains the resolved target so
+/// it sits inside that scrollable's viewport (centred when it had to move).
+/// Scrollables ABOVE the root (the page the guide sits in) are left alone.
+void _scrollIntoView(Element root, GuideTarget target, AppLocalizations l) {
+  final owned = _scrollablesUnder(root).toSet();
+  final element = switch (target._lookup(root, laidOutBox(root)!, root, l)) {
+    _Hit(:final element) => element,
+    _Miss() => null,
+  };
+  if (element == null) return;
+  var object = element.renderObject;
+  BuildContext cursor = element;
+  while (object is RenderBox) {
+    final scrollable = Scrollable.maybeOf(cursor);
+    final viewportBox = scrollable?.context.findRenderObject();
+    if (scrollable == null || !owned.contains(scrollable) || viewportBox is! RenderBox) break;
+    final seen = rectInRoot(object, viewportBox);
+    final viewport = Offset.zero & viewportBox.size;
+    if (!(viewport.contains(seen.topLeft) && viewport.contains(seen.bottomRight))) {
+      // Zero duration = an immediate jump; the returned future is already done.
+      unawaited(scrollable.position.ensureVisible(object, alignment: 0.5, duration: Duration.zero));
+    }
+    cursor = scrollable.context;
+    object = viewportBox;
+  }
+}

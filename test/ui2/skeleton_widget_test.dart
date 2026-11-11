@@ -16,7 +16,9 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 
 import '../support/skeleton_fixture.dart';
 
-const _ahem = TextStyle(fontSize: 10, height: 1);
+// Ahem by name: the theme's own family would fall back to a system font, and the
+// pixel and size oracles below need glyphs that are exact font-size squares.
+const _ahem = TextStyle(fontFamily: 'Ahem', fontSize: 10, height: 1, letterSpacing: 0);
 const _shot = ValueKey('shot');
 const _sk = ValueKey('sk');
 const _tapA = ValueKey('tapA');
@@ -141,6 +143,7 @@ void main() {
       // invisible on one of the two themes.
       Future<Color?> colour(Brightness b) async {
         await t.pumpWidget(skHost(const Scaffold(body: SkeletonBar(width: 50)), brightness: b));
+        await t.pumpAndSettle(); // MaterialApp animates a theme change (200 ms)
         final box = t.widget<DecoratedBox>(
             find.descendant(of: find.byType(SkeletonBar), matching: find.byType(DecoratedBox)).first);
         return (box.decoration as BoxDecoration).color;
@@ -218,8 +221,9 @@ void main() {
       await t.pump();
       final aLine = _local(t, find.text('A text'));
       final tLine = _local(t, find.text('target'));
-      final aPoint = Rect.fromLTWH(aLine.left + 3, aLine.center.dy, 1, 1);
-      final tPoint = Rect.fromLTWH(tLine.left + 3, tLine.center.dy, 1, 1);
+      // whole-pixel probes: _pixels reads nothing for a rect straddling pixels
+      final aPoint = Rect.fromLTWH((aLine.left + 3).floorToDouble(), aLine.center.dy.floorToDouble(), 1, 1);
+      final tPoint = Rect.fromLTWH((tLine.left + 3).floorToDouble(), tLine.center.dy.floorToDouble(), 1, 1);
       final aBefore = (await _pixels(t, aPoint)).single;
       final tBefore = (await _pixels(t, tPoint)).single;
 
@@ -229,11 +233,15 @@ void main() {
       expect(_same((await _pixels(t, tPoint)).single, tBefore), isTrue, reason: 'target text must be untouched');
     });
 
-    testWidgets('loose text and Section headings: NO glyph pixel survives under their bars (item 10)', (t) async {
+    testWidgets('loose text and Section headings: NO glyph pixel survives under their bars (item 10, G2)', (t) async {
       // why: bars are rounded; over bare scaffold the glyph squares (Ahem: solid
-      // ink) would poke out at the corners unless the plan erases first. Scan
-      // EVERY pixel of each text line: at progress 1 none may still be the ink
-      // colour seen at progress 0. Positive control: ink is present at 0.
+      // ink) would poke out at the corners unless the plan erases first. The
+      // three texts have DIFFERENT foregrounds (loose: default text colour,
+      // heading: p.ink, action: p.on(C.blue)), so a single sampled ink colour
+      // (the old test) would miss two of them. Instead: per text, the foreground
+      // mask = every pixel of its line box that is not the white ColoredBox
+      // background at progress 0; then each mask pixel (corners outside the
+      // rounded bar included) must have a DIFFERENT value at progress 1.
       skTallView(t);
       Widget app(double progress) => _app(
             progress: progress,
@@ -248,16 +256,25 @@ void main() {
       final lines = [
         for (final s in ['loose line here', 'Heading', 'Act']) _local(t, find.text(s)),
       ];
-      final ink = (await _pixels(t, Rect.fromLTWH(lines[0].left + 2, lines[0].center.dy, 1, 1))).single;
-      for (final r in lines) {
-        expect((await _pixels(t, r)).where((p) => _same(p, ink)), isNotEmpty, reason: 'ink visible at progress 0 in $r');
+      const white = [255, 255, 255, 255];
+      final before = [for (final r in lines) await _pixels(t, r)];
+      final masks = [
+        for (final px in before) [for (var i = 0; i < px.length; i++) if (!_same(px[i], white)) i],
+      ];
+      // positive control: each text really has foreground pixels at progress 0,
+      // and the three foregrounds are not one colour.
+      for (var k = 0; k < lines.length; k++) {
+        expect(masks[k], isNotEmpty, reason: 'no foreground pixel at progress 0 in ${lines[k]}');
       }
+      final colours = {for (var k = 0; k < 3; k++) before[k][masks[k].first].join(',')};
+      expect(colours.length, greaterThan(1), reason: 'oracle sanity: the texts differ in foreground colour');
 
       await t.pumpWidget(app(1));
       await t.pump();
-      for (final r in lines) {
-        final left = (await _pixels(t, r)).where((p) => _same(p, ink)).length;
-        expect(left, 0, reason: '$left glyph pixels still visible in $r');
+      for (var k = 0; k < lines.length; k++) {
+        final after = await _pixels(t, lines[k]);
+        final survivors = masks[k].where((i) => _same(after[i], before[k][i])).length;
+        expect(survivors, 0, reason: '$survivors of ${masks[k].length} glyph pixels survive in ${lines[k]}');
       }
     });
 
@@ -331,7 +348,7 @@ void main() {
         // every other VISIBLE card has a surface shape on it (clipped to the 300 px viewport)
         const viewport = Rect.fromLTWH(0, 0, 300, 300);
         for (final i in [0, 1, 2, 4, 5]) {
-          final card = skLocalRect(t, find.byKey(ValueKey('card$i')), root).intersect(viewport);
+          final card = skLocalRect(t, find.byKey(ValueKey('card$i'), skipOffstage: false), root).intersect(viewport);
           if (card.isEmpty) continue;
           expect(surfaces.any((s) => (s.rect.top - card.top).abs() < 0.6 && (s.rect.bottom - card.bottom).abs() < 0.6),
               isTrue, reason: '$when: no surface on card $i at $card; have ${surfaces.map((s) => s.rect)}');
@@ -498,7 +515,6 @@ void main() {
       // why: painted-over content must not be announced or activatable by a
       // screen reader (the sighted reader cannot see it either).
       final h = t.ensureSemantics();
-      addTearDown(h.dispose);
       skTallView(t);
 
       await t.pumpWidget(app(0));
@@ -514,6 +530,8 @@ void main() {
       await t.pumpWidget(app(0));
       await t.pump();
       expect(skHasSemanticsLabel(t, 'cover me'), isTrue, reason: 'back to progress 0 restores it');
+      // dispose before the test ends: the harness checks handles BEFORE tearDowns run
+      h.dispose();
     });
   });
 }

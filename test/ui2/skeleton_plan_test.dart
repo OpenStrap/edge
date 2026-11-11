@@ -19,8 +19,11 @@ const _cardB = ValueKey('cardB');
 const _title = ValueKey('title');
 const _tabs = ValueKey('tabs');
 
-// Ahem: every glyph is a font-size square, so line widths are exact.
-const _ahem = TextStyle(fontSize: 10, height: 1);
+// Ahem (named explicitly: ui2's theme sets another family, which falls back to a
+// system font with 10.25 px glyphs here): every glyph is a font-size square, so
+// line widths are exact. letterSpacing 0: Material's body style adds .25 px per
+// glyph (11 glyphs measured 112.75, not 110).
+const _ahem = TextStyle(fontFamily: 'Ahem', fontSize: 10, height: 1, letterSpacing: 0);
 
 /// Title (chrome) / card A (3 text lines, one wrapped) / card B (1 line + a
 /// 200x40 custom paint) / one loose line / Section C (title, action, card with
@@ -299,6 +302,7 @@ void main() {
       // Header 0..60, viewport 60..300 (root-relative). Scrolled by 35: card 1
       // spans 25..67 (surface visible only 60..67); its text line 41..51 is
       // fully hidden above the viewport -> no bar; card 2 (67..109) is whole.
+      // (G1: trailing content makes 35 a valid offset; asserted after the jump.)
       skTallView(t);
       final c = ScrollController();
       addTearDown(c.dispose);
@@ -316,6 +320,9 @@ void main() {
                 child: ListView(controller: c, padding: EdgeInsets.zero, children: [
                   for (final n in ['first', 'second', 'third', 'fourth'])
                     Surface(child: Text(n, style: _ahem)),
+                  // trailing content: 4 cards (168) alone fit the 240 viewport,
+                  // so maxScrollExtent would be 0 and jumpTo(35) a silent no-op.
+                  const SizedBox(height: 300),
                 ]),
               ),
             ]),
@@ -324,6 +331,8 @@ void main() {
       )));
       c.jumpTo(35);
       await t.pump();
+      expect(c.position.maxScrollExtent, greaterThanOrEqualTo(35), reason: 'offset 35 must be a reachable scroll position');
+      expect(c.offset, 35, reason: 'the jump really happened (not clamped to 0)');
       final p = skeletonPlan(t.element(find.byKey(_root)), keep: const [], chrome: [const Rect.fromLTWH(0, 0, 300, 60)]);
       const viewport = Rect.fromLTWH(0, 60, 300, 240);
       for (final s in p) {

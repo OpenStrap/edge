@@ -104,6 +104,23 @@ void main() {
       expect((sem as TargetFound).rect.size, const Size(40, 40));
     });
 
+    testWidgets('matching ignores letter case: Home prints its ring labels upper-cased', (t) async {
+      // why: home_screen.dart:1215 prints `r.label.toUpperCase()`, so the Text on
+      // the Today tab reads "STRAIN" while the arb string (and the guide's
+      // target) is "Strain". An exact-case match could never find the ring.
+      // Still exact otherwise: a different word does not match.
+      final (root, l) = await _pumpIn(
+        t,
+        const Locale('en'),
+        (_) => Column(children: [
+          Pressable(onTap: () {}, child: const Text('STRAIN')),
+          const Text('Strains'),
+        ]),
+      );
+      expect(GuideTarget.label((_) => 'Strain').resolve(root, l), isA<TargetFound>());
+      expect(GuideTarget.label((_) => 'Strai').resolve(root, l), isA<TargetAbsent>());
+    });
+
     testWidgets('a target with no Pressable ancestor resolves to its own text rect', (t) async {
       // why: "grow to the Pressable" must not grow to the whole screen when
       // there is none (Section titles are plain text).
@@ -114,7 +131,8 @@ void main() {
 
     testWidgets('rects are in the ROOT element coordinates, not the screen\'s', (t) async {
       // why: the overlay draws in the root's space; the root sits at (16, 40).
-      final (root, l) = await _pumpIn(t, const Locale('en'), (_) => const Column(children: [Text('Plain')]));
+      final (root, l) = await _pumpIn(
+          t, const Locale('en'), (_) => const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Plain')]));
       final r = GuideTarget.label((_) => 'Plain').resolve(root, l) as TargetFound;
       expect(r.rect.topLeft, isNot(t.getTopLeft(find.text('Plain'))));
       expect(r.rect.left, closeTo(0, 0.5));
@@ -231,7 +249,10 @@ void main() {
       final (root, l) = await _pumpIn(
         t,
         const Locale('en'),
-        (_) => Semantics(button: true, label: 'Close sheet', child: const SizedBox(width: 40, height: 40)),
+        // Align: a bare child of the 360 px root would be forced to its width.
+        (_) => Align(
+            alignment: Alignment.topLeft,
+            child: Semantics(button: true, label: 'Close sheet', child: const SizedBox(width: 40, height: 40))),
       );
       final r = GuideTarget.label((_) => 'Close sheet').resolve(root, l);
       expect(r, isA<TargetFound>());
@@ -370,9 +391,47 @@ void main() {
       expect(r, isA<TargetFound>());
     });
 
+    testWidgets('starts near the bottom: a target ABOVE the built range is found (G3)', (t) async {
+      // why: revealTarget used to search forward only, so a screen restored to
+      // a scrolled-down position never found a target above it. 100 rows of 50
+      // px in a 200 px viewport, parked at the bottom (rows 96-99 built): row 60
+      // sits (4800 - 3000) / 200 = 9 viewports up, inside the budget of 20.
+      // Fails if only the forward direction is searched.
+      final c = ScrollController();
+      addTearDown(c.dispose);
+      final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(c: c));
+      c.jumpTo(c.position.maxScrollExtent);
+      await t.pump();
+      final target = GuideTarget.label((_) => 'row 60');
+      expect(target.resolve(root, l), isA<TargetNotBuilt>(), reason: 'precondition: above the built range');
+      final r = await revealTarget(root, target, l);
+      await t.pump();
+      expect(r, isA<TargetFound>());
+      final viewport = skLocalRect(t, find.byType(ListView), find.byKey(_root));
+      expect(skContains(viewport, (r as TargetFound).rect), isTrue);
+    });
+
+    testWidgets('budget spent in the middle of a long list: NotBuilt, original offset restored (G3)', (t) async {
+      // why: parked at 2500 (row 50) with the target absent, BOTH ends are
+      // 11+ viewports away and the budget is 3: the search must say "gave up"
+      // (not "absent") and put the screen back where the user left it, not at
+      // the end it was probing last.
+      final c = ScrollController();
+      addTearDown(c.dispose);
+      final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(c: c));
+      c.jumpTo(2500);
+      await t.pump();
+      final r = await revealTarget(root, GuideTarget.label((_) => 'no such row'), l, maxViewports: 3);
+      await t.pump();
+      expect(r, isA<TargetNotBuilt>());
+      expect(c.offset, 2500);
+    });
+
     testWidgets('the end reached without a match: TargetAbsent, scroll position restored', (t) async {
-      // why: "exhausted search fails" - and must not leave the screen scrolled
-      // to the bottom as a side effect.
+      // why: "exhausted search fails" - Absent only when EVERY searchable range
+      // is exhausted (G3: both directions from offset 100, so the top 100 px
+      // are searched too) - and must not leave the screen scrolled to either
+      // end as a side effect.
       final c = ScrollController();
       addTearDown(c.dispose);
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(count: 30, c: c));
@@ -386,7 +445,8 @@ void main() {
 
     testWidgets('budget spent before the end: TargetNotBuilt (not Absent), position restored', (t) async {
       // why: a bounded search must say "gave up", not "does not exist": row 90
-      // exists, 18 viewports down, and the budget is 3.
+      // exists, 18 viewports down, and the budget is 3 (per direction; from the
+      // top there is nothing above to search).
       final c = ScrollController();
       addTearDown(c.dispose);
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(c: c));
