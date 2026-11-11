@@ -23,8 +23,25 @@ Future<void> _pump(WidgetTester t, String key) async {
 const _overnight = 'Wear the band overnight to start the series';
 const _daytime = 'Wear the band through the day';
 
+// Written out, not read from kDaytimeMetricKeys: a key dropped from the set
+// must fail here rather than quietly lose its test.
+const _daytimeKeys = [
+  'steps',
+  'calories',
+  'strain',
+  'trimp',
+  'active_min',
+  'wear',
+  'hrr',
+  'nap_min',
+];
+
 void main() {
-  for (final key in kDaytimeMetricKeys) {
+  test('the daytime set is exactly the keys tested here', () {
+    expect(kDaytimeMetricKeys, _daytimeKeys.toSet());
+  });
+
+  for (final key in _daytimeKeys) {
     testWidgets('$key, never recorded: wear it through the day', (t) async {
       await _pump(t, key);
       expect(find.text(_daytime), findsOneWidget);

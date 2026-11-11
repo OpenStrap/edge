@@ -66,6 +66,9 @@ const kDaytimeMetricKeys = {
   'trimp',
   'active_min',
   'wear',
+  // After a workout, and sleep outside the main night.
+  'hrr',
+  'nap_min',
 };
 
 /// What a metric key means on screen, and whether we are willing to draw it.
