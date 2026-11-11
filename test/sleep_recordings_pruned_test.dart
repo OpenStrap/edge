@@ -52,6 +52,19 @@ void main() {
     expect(await LocalDb.decodedPrunedFor('2026-06-11'), isFalse);
   });
 
+  test('an imported day before the cut never had recordings to prune',
+      () async {
+    await LocalDb.setCursor(LocalDb.kDecodedPrunedBeforeCursor,
+        '${localDayStartSec('2026-06-10')}');
+    final db = await LocalDb.instance;
+    await db.insert('metric_series_version',
+        {'date': '2026-06-08', 'algo_version': 1, 'source': 'whoop_csv'});
+    addTearDown(() => db.delete('metric_series_version'));
+
+    expect(await LocalDb.decodedPrunedFor('2026-06-08'), isFalse);
+    expect(await LocalDb.decodedPrunedFor('2026-06-09'), isTrue);
+  });
+
   test('a malformed day label is never reported as pruned', () async {
     await LocalDb.setCursor(LocalDb.kDecodedPrunedBeforeCursor,
         '${localDayStartSec('2026-06-10')}');
