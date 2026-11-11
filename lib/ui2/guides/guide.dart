@@ -1,4 +1,8 @@
-// GUIDE MODEL (phase 2) — RED-PHASE STUBS ONLY.
+// GUIDE MODEL (phase 2)
+//
+// One guide definition drives two renderers: the demo frame (GuideStepView /
+// GuideView, filled with demo data) and, in phase 4, a live overlay on the
+// user's own screen. Steps are data; nothing here builds a frame.
 
 import 'package:flutter/widgets.dart';
 
@@ -38,7 +42,7 @@ class GuideStep {
   });
 
   /// True when [anchor] resolves (found) under [root].
-  bool isActive(Element root, AppLocalizations l) => throw UnimplementedError();
+  bool isActive(Element root, AppLocalizations l) => anchor.resolve(root, l) is TargetFound;
 }
 
 class GuideFooter {
@@ -78,20 +82,35 @@ final class GuideNoVariant extends GuideVariantResult {
 class Guide {
   final String id;
   final String Function(AppLocalizations l) title;
+
+  /// One line under the title ("...it takes three taps").
+  final String Function(AppLocalizations l)? intro;
   final List<GuideVariant> variants;
   final List<GuideFooter> footers;
 
   const Guide({
     required this.id,
     required this.title,
+    this.intro,
     required this.variants,
     this.footers = const [],
   });
 
   /// Bands any variant covers; an "any" variant covers both.
-  Set<BandGeneration> get devices => throw UnimplementedError();
+  Set<BandGeneration> get devices => {
+        for (final v in variants)
+          ...(v.devices.isEmpty ? BandGeneration.values : v.devices),
+      };
 
   /// An exact-band variant beats an "any" variant; no match -> [GuideNoVariant].
-  GuideVariantResult variantFor(BandGeneration? band) =>
-      throw UnimplementedError();
+  /// An unknown band (null) gets only an "any" variant: guessing a generation
+  /// would show the wrong steps.
+  GuideVariantResult variantFor(BandGeneration? band) {
+    GuideVariant? any;
+    for (final v in variants) {
+      if (band != null && v.devices.contains(band)) return GuideVariantFound(v);
+      if (v.devices.isEmpty) any ??= v;
+    }
+    return any == null ? GuideNoVariant(id, band, devices) : GuideVariantFound(any);
+  }
 }

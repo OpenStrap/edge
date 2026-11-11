@@ -3472,5 +3472,18 @@
         "type": "int"
       }
     }
-  }
+  },
+  "guideTapMarker": "tippen",
+  "guideScrollMarker": "scrollen",
+  "guideStepUnavailable": "Dieser Schritt kann gerade nicht angezeigt werden.",
+  "guideNoVariantBody": "Diese Anleitung gilt noch nicht für dein Band. Sie gilt für: {bands}.",
+  "guideHrZonesTitle": "So findest du deine Herzfrequenzzonen",
+  "guideHrZonesIntro": "Die Herzfrequenzzonen findest du hinter deinem {score}-Wert. Dafür tippst du dreimal.",
+  "guideHrZonesStep1": "Tippe im Tab **{tab}** auf den Ring **{ring}**.",
+  "guideHrZonesStep2": "Scrolle nach unten zu **{section}** und tippe rechts auf **{action}**.",
+  "guideHrZonesStep3": "Das ist der Bildschirm **{screen}**. Um eigene Zonen einzugeben, tippe auf **{link}**.",
+  "guideHrZonesAltTitle": "Ein anderer Weg",
+  "guideHrZonesAltBody": "Öffne den Tab **{tab}** und tippe auf **{link}**. Danach folge den Schritten 2 und 3.",
+  "guideHrZonesMissingTitle": "„{section}“ nicht zu sehen?",
+  "guideHrZonesMissingBody": "Der Eintrag erscheint erst, wenn das Band für den Tag etwas Herzfrequenz aufgezeichnet hat. Trag es eine Weile und schau dann noch einmal nach."
 }

@@ -2863,5 +2863,18 @@
     }
   },
   "reportContactLabel": "联系方式（可选）",
-  "reportContactHint": "邮箱或 Discord，仅在你希望得到回复时填写"
+  "reportContactHint": "邮箱或 Discord，仅在你希望得到回复时填写",
+  "guideTapMarker": "点按",
+  "guideScrollMarker": "滚动",
+  "guideStepUnavailable": "暂时无法显示此步骤。",
+  "guideNoVariantBody": "本指南暂不支持你的设备。支持：{bands}",
+  "guideHrZonesTitle": "在哪里找到你的心率区间",
+  "guideHrZonesIntro": "心率区间页面位于你的“{score}”之后，点三下即可到达。",
+  "guideHrZonesStep1": "在**{tab}**标签页，点按**{ring}**圆环。",
+  "guideHrZonesStep2": "向下滚动到**{section}**，然后点按右侧的**{action}**。",
+  "guideHrZonesStep3": "这是**{screen}**页面。要输入自己的区间，请点按**{link}**。",
+  "guideHrZonesAltTitle": "另一条路径",
+  "guideHrZonesAltBody": "打开**{tab}**标签页，点按**{link}**，然后按第 2、3 步操作。",
+  "guideHrZonesMissingTitle": "没有看到“{section}”？",
+  "guideHrZonesMissingBody": "只有在设备记录了当天的一些心率后才会出现。请佩戴一段时间再查看。"
 }

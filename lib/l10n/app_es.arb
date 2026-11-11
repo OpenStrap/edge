@@ -2892,5 +2892,18 @@
     }
   },
   "reportContactLabel": "Contacto (opcional)",
-  "reportContactHint": "Correo o Discord, solo si quieres una respuesta"
+  "reportContactHint": "Correo o Discord, solo si quieres una respuesta",
+  "guideTapMarker": "toca",
+  "guideScrollMarker": "desplaza",
+  "guideStepUnavailable": "Este paso no se puede mostrar ahora.",
+  "guideNoVariantBody": "Esta guía aún no cubre tu banda. Cubre: {bands}.",
+  "guideHrZonesTitle": "Dónde encontrar tus zonas de frecuencia cardíaca",
+  "guideHrZonesIntro": "La pantalla de zonas de frecuencia cardíaca está detrás de tu puntuación de {score}. Son tres toques.",
+  "guideHrZonesStep1": "En la pestaña **{tab}**, toca el anillo **{ring}**.",
+  "guideHrZonesStep2": "Desplázate hacia abajo hasta **{section}** y toca **{action}** a la derecha.",
+  "guideHrZonesStep3": "Esta es la pantalla **{screen}**. Para introducir las tuyas, toca **{link}**.",
+  "guideHrZonesAltTitle": "Otra forma de llegar",
+  "guideHrZonesAltBody": "Abre la pestaña **{tab}** y toca **{link}**; después sigue los pasos 2 y 3.",
+  "guideHrZonesMissingTitle": "¿No ves «{section}»?",
+  "guideHrZonesMissingBody": "Solo aparece cuando la banda ha registrado algo de frecuencia cardíaca del día. Úsala un rato y vuelve a mirar."
 }

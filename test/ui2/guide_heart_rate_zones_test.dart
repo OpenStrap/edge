@@ -202,7 +202,11 @@ void main() {
           if (i == 0) {
             final trio = skLocalRect(t, find.byType(RingTrio), find.byKey(_root));
             expect(skContains(trio, rect), isTrue, reason: 'ring target inside the ring card');
-            final label = skLocalRect(t, find.text(l.homeRingStrain).first, find.byKey(_root));
+            // Home prints the ring label UPPER-CASED (home_screen.dart:1215
+            // `r.label.toUpperCase()`), so the Text on screen is not the arb
+            // string; the red version of this line looked for the arb string and
+            // could never find it.
+            final label = skLocalRect(t, find.text(l.homeRingStrain.toUpperCase()).first, find.byKey(_root));
             expect(rect.height, greaterThan(label.height * 2), reason: 'outline wraps ring + label');
           }
           roots.add(root);
@@ -281,7 +285,8 @@ void main() {
       await t.pump();
       expect(identical(t.state<SkeletonizeState>(find.byKey(const ValueKey('sk'))), state), isTrue);
       expect(state.resolutions.single, isA<TargetFound>());
-      final link = t.getRect(find.byType(Pressable));
+      // the Surface above also wraps a (tap-less) Pressable: the link is the last one
+      final link = t.getRect(find.byType(Pressable).last);
       for (final s in state.shapes) {
         expect(s.rect.overlaps(link), isFalse);
       }
@@ -378,7 +383,9 @@ void main() {
         skTallView(t, w: 800, h: 3000);
         final l = lookupAppLocalizations(locale);
         final steps = _steps();
-        final labels = [l.homeRingStrain, l.dayStrainHowSet, l.activityZonesSetYourOwnLink];
+        // The texts as the screens PRINT them: Home upper-cases the ring label
+        // (home_screen.dart:1215); the other two are printed as in the arb.
+        final labels = [l.homeRingStrain.toUpperCase(), l.dayStrainHowSet, l.activityZonesSetYourOwnLink];
         for (var i = 0; i < steps.length; i++) {
           await t.pumpWidget(skHost(
             Scaffold(body: SingleChildScrollView(child: Center(child: GuideStepView(number: i + 1, step: steps[i])))),

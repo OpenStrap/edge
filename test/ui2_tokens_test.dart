@@ -272,6 +272,13 @@ const _notComponents = {
   // `start_session_card_test.dart`, which renders it at a real phone width and
   // asserts the copy is not truncated and nothing overflows.
   'StartCard',
+  // The navigation-guide renderer and the skeleton overlay under it
+  // (lib/ui2/skeleton, lib/ui2/guides). Their gallery cases belong with the Help
+  // list that shows guides (phase 3; gallery.dart is not edited in phases 1-2).
+  // Until then test/ui2/skeleton_*_test.dart and test/ui2/guide_*_test.dart
+  // pump them at real phone width: GuideStepView/GuideView lay out whole demo
+  // screens at 390x780, which a ~179 px gallery cell cannot hold.
+  'SkeletonBar', 'SkeletonBlock', 'Skeletonize', 'GuideStepView', 'GuideView',
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
   'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',

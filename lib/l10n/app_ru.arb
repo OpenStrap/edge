@@ -7907,5 +7907,79 @@
   },
   "whoopFirmwareWarningTitle": "Пользователям WHOOP: не подключайтесь снова к приложению WHOOP",
   "whoopFirmwareWarningAction": "Если вы пользуетесь OpenStrap или другим приложением с открытым кодом либо планируете перейти на него позже, не подключайте браслет к официальному приложению WHOOP снова. Оно может автоматически установить обновления прошивки. Удалите или отключите приложение WHOOP, чтобы оно не обновляло ваш браслет.",
-  "whoopFirmwareWarningDetails": "В сообщениях о прошивках WHOOP 5.0 / MG 50.43.1.0 и 50.43.2.0 описывается заблокированный доступ к данным. Bluetooth при этом может подключаться. OpenStrap не может выпустить подписанный WHOOP токен членства, необходимый для разблокировки затронутых браслетов. Мы работаем над решением, но исправления пока нет."
+  "whoopFirmwareWarningDetails": "В сообщениях о прошивках WHOOP 5.0 / MG 50.43.1.0 и 50.43.2.0 описывается заблокированный доступ к данным. Bluetooth при этом может подключаться. OpenStrap не может выпустить подписанный WHOOP токен членства, необходимый для разблокировки затронутых браслетов. Мы работаем над решением, но исправления пока нет.",
+  "guideTapMarker": "нажать",
+  "guideScrollMarker": "листать",
+  "guideStepUnavailable": "Этот шаг сейчас нельзя показать.",
+  "guideNoVariantBody": "Эта инструкция пока не подходит для вашего браслета. Подходит для: {bands}.",
+  "guideHrZonesTitle": "Где найти зоны пульса",
+  "guideHrZonesIntro": "Экран зон пульса находится за показателем «{score}». Нужно три нажатия.",
+  "guideHrZonesStep1": "На вкладке **{tab}** нажмите на кольцо **{ring}**.",
+  "guideHrZonesStep2": "Прокрутите вниз до **{section}** и нажмите **{action}** справа.",
+  "guideHrZonesStep3": "Это экран **{screen}**. Чтобы задать свои зоны, нажмите **{link}**.",
+  "guideHrZonesAltTitle": "Другой путь",
+  "guideHrZonesAltBody": "Откройте вкладку **{tab}** и нажмите **{link}**, затем выполните шаги 2 и 3.",
+  "guideHrZonesMissingTitle": "Не видите «{section}»?",
+  "guideHrZonesMissingBody": "Раздел появляется, только когда браслет записал пульс за этот день. Поносите его некоторое время и проверьте снова.",
+  "@guideNoVariantBody": {
+    "placeholders": {
+      "bands": {
+        "type": "String"
+      }
+    }
+  },
+  "@guideHrZonesIntro": {
+    "placeholders": {
+      "score": {
+        "type": "String"
+      }
+    }
+  },
+  "@guideHrZonesStep1": {
+    "placeholders": {
+      "tab": {
+        "type": "String"
+      },
+      "ring": {
+        "type": "String"
+      }
+    }
+  },
+  "@guideHrZonesStep2": {
+    "placeholders": {
+      "section": {
+        "type": "String"
+      },
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "@guideHrZonesStep3": {
+    "placeholders": {
+      "screen": {
+        "type": "String"
+      },
+      "link": {
+        "type": "String"
+      }
+    }
+  },
+  "@guideHrZonesAltBody": {
+    "placeholders": {
+      "tab": {
+        "type": "String"
+      },
+      "link": {
+        "type": "String"
+      }
+    }
+  },
+  "@guideHrZonesMissingTitle": {
+    "placeholders": {
+      "section": {
+        "type": "String"
+      }
+    }
+  }
 }

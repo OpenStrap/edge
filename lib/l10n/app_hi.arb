@@ -2863,5 +2863,18 @@
     }
   },
   "reportContactLabel": "संपर्क (वैकल्पिक)",
-  "reportContactHint": "ईमेल या Discord, केवल अगर आप जवाब चाहते हैं"
+  "reportContactHint": "ईमेल या Discord, केवल अगर आप जवाब चाहते हैं",
+  "guideTapMarker": "टैप करें",
+  "guideScrollMarker": "स्क्रोल करें",
+  "guideStepUnavailable": "यह चरण अभी नहीं दिखाया जा सकता।",
+  "guideNoVariantBody": "यह गाइड अभी आपके बैंड को कवर नहीं करती। यह इन्हें कवर करती है: {bands}।",
+  "guideHrZonesTitle": "अपने हृदय गति ज़ोन कहाँ मिलेंगे",
+  "guideHrZonesIntro": "हृदय गति ज़ोन की स्क्रीन आपके {score} स्कोर के पीछे है। इसमें तीन टैप लगते हैं।",
+  "guideHrZonesStep1": "**{tab}** टैब पर **{ring}** रिंग पर टैप करें।",
+  "guideHrZonesStep2": "**{section}** तक नीचे स्क्रोल करें और दाईं ओर **{action}** पर टैप करें।",
+  "guideHrZonesStep3": "यह **{screen}** स्क्रीन है। अपने ज़ोन डालने के लिए **{link}** पर टैप करें।",
+  "guideHrZonesAltTitle": "दूसरा रास्ता",
+  "guideHrZonesAltBody": "**{tab}** टैब खोलें और **{link}** पर टैप करें, फिर चरण 2 और 3 अपनाएँ।",
+  "guideHrZonesMissingTitle": "\"{section}\" नहीं दिख रहा?",
+  "guideHrZonesMissingBody": "यह तभी दिखता है जब बैंड उस दिन की कुछ हृदय गति दर्ज कर चुका हो। इसे कुछ देर पहनें, फिर दोबारा देखें।"
 }

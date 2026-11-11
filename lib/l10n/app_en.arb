@@ -16343,5 +16343,104 @@
         "type": "int"
       }
     }
+  },
+  "guideTapMarker": "tap",
+  "@guideTapMarker": {
+    "description": "Short pill on the highlighted control in a navigation guide picture: the user taps it."
+  },
+  "guideScrollMarker": "scroll",
+  "@guideScrollMarker": {
+    "description": "Short vertical marker in a navigation guide picture: the screen needs scrolling to reach the highlighted control."
+  },
+  "guideStepUnavailable": "This step can't be shown right now.",
+  "@guideStepUnavailable": {
+    "description": "Shown in place of a guide step's picture when the control it points at cannot be found on the demo screen."
+  },
+  "guideNoVariantBody": "This guide doesn't cover your band yet. It covers: {bands}.",
+  "@guideNoVariantBody": {
+    "description": "Shown instead of a guide's steps when the guide has no version for the user's band. {bands} is a list of band names such as WHOOP 4 / WHOOP 5; brand names are not translated.",
+    "placeholders": {
+      "bands": {
+        "type": "String"
+      }
+    }
+  },
+  "guideHrZonesTitle": "Where to find your heart-rate zones",
+  "@guideHrZonesTitle": {
+    "description": "Title of the navigation guide that shows where to find the heart-rate zones."
+  },
+  "guideHrZonesIntro": "The heart-rate zones screen sits behind your {score} score. It takes three taps.",
+  "@guideHrZonesIntro": {
+    "description": "One line under the guide title. {score} is the in-app name of the Strain ring on the Today tab.",
+    "placeholders": {
+      "score": {
+        "type": "String"
+      }
+    }
+  },
+  "guideHrZonesStep1": "On the **{tab}** tab, tap the **{ring}** ring.",
+  "@guideHrZonesStep1": {
+    "description": "Step 1 caption. The words between ** ** are shown in bold and must be the in-app labels, passed in: {tab} is the Today tab name, {ring} the Strain ring name.",
+    "placeholders": {
+      "tab": {
+        "type": "String"
+      },
+      "ring": {
+        "type": "String"
+      }
+    }
+  },
+  "guideHrZonesStep2": "Scroll down to **{section}** and tap **{action}** on the right.",
+  "@guideHrZonesStep2": {
+    "description": "Step 2 caption. Bold words are in-app labels: {section} is the 'Time in zones' heading, {action} the link on its right ('How these are set').",
+    "placeholders": {
+      "section": {
+        "type": "String"
+      },
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "guideHrZonesStep3": "This is the **{screen}** screen. To enter your own, tap **{link}**.",
+  "@guideHrZonesStep3": {
+    "description": "Step 3 caption. Bold words are in-app labels: {screen} is the heart-rate zones screen title, {link} the link that opens the own-zones form.",
+    "placeholders": {
+      "screen": {
+        "type": "String"
+      },
+      "link": {
+        "type": "String"
+      }
+    }
+  },
+  "guideHrZonesAltTitle": "Another way in",
+  "@guideHrZonesAltTitle": {
+    "description": "Title of a footer card of the heart-rate zones guide: a second route to the same screen."
+  },
+  "guideHrZonesAltBody": "Open the **{tab}** tab and tap **{link}**, then follow steps 2 and 3.",
+  "@guideHrZonesAltBody": {
+    "description": "Footer card body. Bold words are in-app labels: {tab} is the Activity tab name, {link} the 'Today's strain' link.",
+    "placeholders": {
+      "tab": {
+        "type": "String"
+      },
+      "link": {
+        "type": "String"
+      }
+    }
+  },
+  "guideHrZonesMissingTitle": "Don't see \"{section}\"?",
+  "@guideHrZonesMissingTitle": {
+    "description": "Footer card title: the user cannot see the 'Time in zones' section. {section} is that section's in-app heading.",
+    "placeholders": {
+      "section": {
+        "type": "String"
+      }
+    }
+  },
+  "guideHrZonesMissingBody": "It only appears once the band has recorded some heart rate for the day. Wear it for a while, then check again.",
+  "@guideHrZonesMissingBody": {
+    "description": "Footer card body: why the 'Time in zones' section can be missing (no heart rate recorded for the day yet)."
   }
 }

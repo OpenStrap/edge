@@ -2863,5 +2863,18 @@
     }
   },
   "reportContactLabel": "Contact (facultatif)",
-  "reportContactHint": "E-mail ou Discord, seulement si vous voulez une réponse"
+  "reportContactHint": "E-mail ou Discord, seulement si vous voulez une réponse",
+  "guideTapMarker": "touchez",
+  "guideScrollMarker": "défiler",
+  "guideStepUnavailable": "Cette étape ne peut pas être affichée pour le moment.",
+  "guideNoVariantBody": "Ce guide ne couvre pas encore votre bracelet. Il couvre : {bands}.",
+  "guideHrZonesTitle": "Où trouver vos zones de fréquence cardiaque",
+  "guideHrZonesIntro": "L’écran des zones de fréquence cardiaque se trouve derrière votre score « {score} ». Trois appuis suffisent.",
+  "guideHrZonesStep1": "Dans l’onglet **{tab}**, touchez l’anneau **{ring}**.",
+  "guideHrZonesStep2": "Faites défiler jusqu’à **{section}**, puis touchez **{action}** à droite.",
+  "guideHrZonesStep3": "Voici l’écran **{screen}**. Pour saisir vos propres zones, touchez **{link}**.",
+  "guideHrZonesAltTitle": "Un autre chemin",
+  "guideHrZonesAltBody": "Ouvrez l’onglet **{tab}** et touchez **{link}**, puis suivez les étapes 2 et 3.",
+  "guideHrZonesMissingTitle": "Vous ne voyez pas « {section} » ?",
+  "guideHrZonesMissingBody": "Cet élément n’apparaît qu’une fois que le bracelet a enregistré de la fréquence cardiaque pour la journée. Portez-le un moment, puis revenez voir."
 }

@@ -16328,5 +16328,79 @@
   },
   "whoopFirmwareWarningTitle": "ผู้ใช้ WHOOP: อย่าเชื่อมต่อกับแอป WHOOP อีก",
   "whoopFirmwareWarningAction": "หากคุณใช้ OpenStrap หรือแอปโอเพนซอร์สอื่น หรือวางแผนจะเปลี่ยนไปใช้ในภายหลัง อย่าเชื่อมต่อสายรัดกับแอป WHOOP อย่างเป็นทางการอีก แอปอาจติดตั้งอัปเดตเฟิร์มแวร์โดยอัตโนมัติ ให้ถอนการติดตั้งหรือปิดใช้งานแอป WHOOP เพื่อไม่ให้แอปอัปเดตสายรัดของคุณ",
-  "whoopFirmwareWarningDetails": "มีรายงานเกี่ยวกับเฟิร์มแวร์ WHOOP 5.0 / MG เวอร์ชัน 50.43.1.0 และ 50.43.2.0 ว่าเข้าถึงข้อมูลไม่ได้ บลูทูธอาจยังเชื่อมต่อได้ OpenStrap ไม่สามารถออกโทเค็นสมาชิกที่ WHOOP ลงนามซึ่งจำเป็นต่อการปลดล็อกสายรัดที่ได้รับผลกระทบ เรากำลังหาทางแก้ไข แต่ยังไม่มีวิธีแก้ในตอนนี้"
+  "whoopFirmwareWarningDetails": "มีรายงานเกี่ยวกับเฟิร์มแวร์ WHOOP 5.0 / MG เวอร์ชัน 50.43.1.0 และ 50.43.2.0 ว่าเข้าถึงข้อมูลไม่ได้ บลูทูธอาจยังเชื่อมต่อได้ OpenStrap ไม่สามารถออกโทเค็นสมาชิกที่ WHOOP ลงนามซึ่งจำเป็นต่อการปลดล็อกสายรัดที่ได้รับผลกระทบ เรากำลังหาทางแก้ไข แต่ยังไม่มีวิธีแก้ในตอนนี้",
+  "guideTapMarker": "แตะ",
+  "guideScrollMarker": "เลื่อน",
+  "guideStepUnavailable": "ขณะนี้ไม่สามารถแสดงขั้นตอนนี้ได้",
+  "guideNoVariantBody": "คู่มือนี้ยังไม่รองรับสายรัดของคุณ รองรับ: {bands}",
+  "guideHrZonesTitle": "หาโซนอัตราการเต้นหัวใจของคุณได้ที่ไหน",
+  "guideHrZonesIntro": "หน้าจอโซนอัตราการเต้นหัวใจอยู่หลังคะแนน{score}ของคุณ ใช้เพียงสามการแตะ",
+  "guideHrZonesStep1": "ที่แท็บ **{tab}** แตะวง **{ring}**",
+  "guideHrZonesStep2": "เลื่อนลงไปที่ **{section}** แล้วแตะ **{action}** ทางขวา",
+  "guideHrZonesStep3": "นี่คือหน้าจอ **{screen}** หากต้องการกำหนดเอง ให้แตะ **{link}**",
+  "guideHrZonesAltTitle": "อีกเส้นทางหนึ่ง",
+  "guideHrZonesAltBody": "เปิดแท็บ **{tab}** แล้วแตะ **{link}** จากนั้นทำตามขั้นตอนที่ 2 และ 3",
+  "guideHrZonesMissingTitle": "ไม่เห็น \"{section}\" ใช่ไหม",
+  "guideHrZonesMissingBody": "จะแสดงเมื่อสายรัดบันทึกอัตราการเต้นหัวใจของวันนั้นได้บ้างแล้ว ลองสวมสักพักแล้วกลับมาดูอีกครั้ง",
+  "@guideNoVariantBody": {
+    "placeholders": {
+      "bands": {
+        "type": "String"
+      }
+    }
+  },
+  "@guideHrZonesIntro": {
+    "placeholders": {
+      "score": {
+        "type": "String"
+      }
+    }
+  },
+  "@guideHrZonesStep1": {
+    "placeholders": {
+      "tab": {
+        "type": "String"
+      },
+      "ring": {
+        "type": "String"
+      }
+    }
+  },
+  "@guideHrZonesStep2": {
+    "placeholders": {
+      "section": {
+        "type": "String"
+      },
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "@guideHrZonesStep3": {
+    "placeholders": {
+      "screen": {
+        "type": "String"
+      },
+      "link": {
+        "type": "String"
+      }
+    }
+  },
+  "@guideHrZonesAltBody": {
+    "placeholders": {
+      "tab": {
+        "type": "String"
+      },
+      "link": {
+        "type": "String"
+      }
+    }
+  },
+  "@guideHrZonesMissingTitle": {
+    "placeholders": {
+      "section": {
+        "type": "String"
+      }
+    }
+  }
 }

@@ -148,7 +148,6 @@ void main() {
       // outline and pills are decoration: they must not repeat the target's
       // label or add context-free "tap" / "scroll" announcements.
       final h = t.ensureSemantics();
-      addTearDown(h.dispose);
       await _pump(t, _step(0, GuideAction.tap, n: 2));
       final labels = skTraversalLabels(t);
       final caption = labels.indexWhere((l) => l.contains('Step caption 2'));
@@ -163,26 +162,30 @@ void main() {
 
       final pill = t.widget<Text>(find.descendant(of: find.byKey(GuideStepView.tapPillKey), matching: find.byType(Text)).first).data!;
       expect(labels.any((l) => l == pill), isFalse, reason: 'the tap pill is decoration, not an announcement');
+      // dispose before the test ends: the harness checks handles BEFORE tearDowns run
+      h.dispose();
     });
 
     testWidgets('the scroll marker is not announced', (t) async {
       // why: "scroll" with no context is noise; the caption already says it.
       final h = t.ensureSemantics();
-      addTearDown(h.dispose);
       await _pump(t, _step(3000, GuideAction.scrollThenTap));
       final marker = t.widget<Text>(find.descendant(of: find.byKey(GuideStepView.scrollMarkerKey), matching: find.byType(Text)).first).data!;
       expect(skTraversalLabels(t).any((l) => l == marker), isFalse);
+      // dispose before the test ends: the harness checks handles BEFORE tearDowns run
+      h.dispose();
     });
 
     testWidgets('alsoKeep leaves its unit readable (text and semantics)', (t) async {
       // why: step 3 of guide #1 keeps "Your zones" besides the link.
       final h = t.ensureSemantics();
-      addTearDown(h.dispose);
       await _pump(t, _step(0, GuideAction.tap, alsoKeep: [GuideTarget.label((_) => 'other card text')]));
       final state = t.state<SkeletonizeState>(find.byType(Skeletonize));
       final other = _inSkeleton(t, t.getRect(find.text('other card text')));
       expect(state.paintedShapes.where((s) => s.rect.overlaps(other)), isEmpty);
       expect(skTraversalLabels(t).any((l) => l.contains('other card text')), isTrue);
+      // dispose before the test ends: the harness checks handles BEFORE tearDowns run
+      h.dispose();
     });
   });
 
