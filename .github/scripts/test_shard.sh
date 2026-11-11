@@ -14,12 +14,17 @@ set -euo pipefail
 index="$1"
 total="$2"
 
+# Listed into a variable first, so a failed `find` or `sort` fails the slice
+# (set -e, pipefail). Feeding the loop straight from the pipeline would let a
+# half-read test tree pass with some of its files never run.
+all="$(find test -name '*_test.dart' | LC_ALL=C sort)"
+
 files=()
 i=0
 while IFS= read -r f; do
   if [ $((i % total)) -eq "$index" ]; then files+=("$f"); fi
   i=$((i + 1))
-done < <(find test -name '*_test.dart' | LC_ALL=C sort)
+done <<< "$all"
 
 if [ "${#files[@]}" -eq 0 ]; then
   echo "slice $index of $total holds no test files" >&2
