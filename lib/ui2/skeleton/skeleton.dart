@@ -105,6 +105,12 @@ class _Unit {
 /// italics) does not survive it.
 const _kEraseGrow = 1.0;
 
+/// True for a widget that paints something no text line describes (a chart, a
+/// ring, an image). The single definition: the plan covers these with `block`s
+/// and the guide view keeps its tap pill off the ones that stay legible.
+bool paintsVisual(Widget w, RenderObject ro) =>
+    (w is CustomPaint && (w.painter != null || w.foregroundPainter != null)) || ro is RenderImage;
+
 /// PURE over an already laid-out subtree. Output order: unit by unit,
 /// top-to-bottom; inside a unit, containers before what they contain (an erase
 /// before its bar), then by (top, left). Shapes are in the root's local space,
@@ -177,10 +183,6 @@ List<SkeletonShape> skeletonPlan(
     return items;
   }
 
-  /// True for a widget that paints something no text line describes.
-  bool isVisual(Widget w, RenderObject ro) =>
-      (w is CustomPaint && (w.painter != null || w.foregroundPainter != null)) || ro is RenderImage;
-
   /// The unit a Surface / Section opens: its nested surfaces, then its lines
   /// and visuals.
   _Unit? cardUnit(Element card) {
@@ -206,7 +208,7 @@ List<SkeletonShape> skeletonPlan(
       final ro = e is RenderObjectElement ? e.renderObject : null;
       if (ro is RenderParagraph && ro.hasSize) {
         items.addAll(linesOf(ro, onCard: here));
-      } else if (ro is RenderBox && ro.hasSize && isVisual(w, ro)) {
+      } else if (ro is RenderBox && ro.hasSize && paintsVisual(w, ro)) {
         final rect = visibleOf(ro);
         if (!rect.isEmpty) items.add(_Item(rect, 0, [_Draft(SkeletonKind.block, rect)]));
       }
@@ -242,7 +244,7 @@ List<SkeletonShape> skeletonPlan(
           [for (final i in items) ...i.drafts],
         ));
       }
-    } else if (ro is RenderBox && ro.hasSize && isVisual(w, ro)) {
+    } else if (ro is RenderBox && ro.hasSize && paintsVisual(w, ro)) {
       final rect = visibleOf(ro);
       if (!rect.isEmpty) units.add(_Unit(rect, [_Draft(SkeletonKind.block, rect)]));
     }

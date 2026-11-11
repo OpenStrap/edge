@@ -416,7 +416,7 @@ void main() {
 
   group('the tap pill never covers legible text (guide #1)', () {
     for (final (locale, scale) in const [(Locale('en'), 1.0), (Locale('en'), 1.3), (Locale('ru'), 1.0), (Locale('ru'), 1.3)]) {
-      testWidgets('${locale.languageCode} at text scale $scale: no step\'s pill overlaps a legible text line', (t) async {
+      testWidgets('${locale.languageCode} at text scale $scale: no step\'s pill overlaps legible text or a visual', (t) async {
         // why: in step 3 the pill used to sit above "Set your own zones" and
         // hid the line of text above it. Legible = a text line of the demo
         // screen that no skeleton shape covers and that is not the target's own.
@@ -453,9 +453,29 @@ void main() {
             }
           }
           expect(legible, isNotEmpty, reason: 'positive control: step ${i + 1} has legible text besides the target');
+          // Visuals (rings, charts, images) that no skeleton shape covers: the
+          // pill must not hide them either (owner review: on step 1 it sat on
+          // the Recovery ring).
+          final visuals = <Rect>[];
+          for (final e in find.descendant(of: skeleton, matching: find.byType(CustomPaint)).evaluate()) {
+            if ((e.widget as CustomPaint).painter == null && (e.widget as CustomPaint).foregroundPainter == null) continue;
+            final box = e.renderObject! as RenderBox;
+            final r = MatrixUtils.transformRect(box.getTransformTo(null), Offset.zero & box.size);
+            if (r.isEmpty || skContains(target.inflate(1), r)) continue;
+            if (shapes.any((s) => s.overlaps(r))) continue;
+            visuals.add(r);
+          }
+          if (i == 0) {
+            expect(visuals, isNotEmpty, reason: 'positive control: step 1 keeps the Recovery and Sleep rings legible');
+          }
           final pill = t.getRect(find.byKey(GuideStepView.tapPillKey));
-          for (final r in legible) {
-            expect(pill.overlaps(r), isFalse, reason: 'step ${i + 1} ${locale.languageCode}: pill $pill covers legible line $r');
+          for (final r in [...legible, ...visuals]) {
+            expect(pill.overlaps(r), isFalse, reason: 'step ${i + 1} ${locale.languageCode}: pill $pill covers legible content $r');
+          }
+          if (i == 0) {
+            final outline = t.getRect(find.byKey(GuideStepView.outlineKey));
+            expect(pill.bottom, lessThanOrEqualTo(outline.top + 2.5),
+                reason: 'step 1: the free space is above the Strain outline (owner review), not beside it: pill $pill outline $outline');
           }
           expect(t.takeException(), isNull);
         }

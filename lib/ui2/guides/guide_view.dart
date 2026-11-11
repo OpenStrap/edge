@@ -68,10 +68,10 @@ class _GuideStepViewState extends State<GuideStepView> {
   /// null while the target is being looked for (the frame shows, unmarked).
   TargetResolution? _resolution;
 
-  /// Text lines of the screen that stay readable in this step (not covered by
-  /// the skeleton), in the screen's unscaled coordinates:
+  /// Text lines and visuals of the screen that stay readable in this step (not
+  /// covered by the skeleton), in the screen's unscaled coordinates:
   /// what the tap pill must not cover. Empty while the target is searched.
-  List<Rect> _legibleLines = const [];
+  List<Rect> _legible = const [];
   int _revealRound = 0;
 
   @override
@@ -85,7 +85,7 @@ class _GuideStepViewState extends State<GuideStepView> {
     super.didUpdateWidget(old);
     if (!identical(old.step, widget.step)) {
       _resolution = null;
-      _legibleLines = const [];
+      _legible = const [];
       _reveal();
     }
   }
@@ -106,7 +106,7 @@ class _GuideStepViewState extends State<GuideStepView> {
       // chrome, read from the tree after the scroll.
       final screenRoot = _screenKey.currentContext;
       final lines = switch ((screenRoot, found)) {
-        (final Element screenElement, TargetFound(:final rect)) => legibleTextLines(screenElement, keep: [
+        (final Element screenElement, TargetFound(:final rect)) => legibleContent(screenElement, keep: [
             rect,
             for (final extra in widget.step.alsoKeep)
               if (extra.resolve(screenElement, l) case TargetFound(rect: final kept)) kept,
@@ -115,7 +115,7 @@ class _GuideStepViewState extends State<GuideStepView> {
       };
       setState(() {
         _resolution = found;
-        _legibleLines = lines;
+        _legible = lines;
       });
     });
   }
@@ -250,7 +250,7 @@ class _GuideStepViewState extends State<GuideStepView> {
                 child: IgnorePointer(
                   child: CustomSingleChildLayout(
                     delegate: GuidePillLayout(outline, screen, [
-                      for (final r in _legibleLines)
+                      for (final r in _legible)
                         Rect.fromLTWH(
                           screen.left + r.left * scale,
                           screen.top + r.top * scale,
@@ -303,45 +303,51 @@ class _GuideStepViewState extends State<GuideStepView> {
       );
 }
 
-/// Every laid-out text line under [root] that the step leaves readable: not
-/// covered by a shape of the skeleton plan for [keep] (so inside a kept unit or
-/// chrome). Rects are in [root]'s coordinates. The target's own lines are
-/// included: the pill stops 2 px inside the outline, which is 4 px clear of the
-/// target, so they never constrain it. The tap pill avoids these (it would hide
-/// text the reader is meant to read).
+/// Everything under [root] that the step leaves readable and the tap pill must
+/// not hide: every laid-out text line AND every visual (ring, chart, image;
+/// [paintsVisual]) that no shape of the skeleton plan for [keep] covers (so
+/// inside a kept unit or chrome). Rects are in [root]'s coordinates. The
+/// target's own content is included: the pill stops 2 px inside the outline,
+/// which is 4 px clear of the target, so it never constrains it.
 ///
 /// ↳ CLAIM(pill-legible): "legible" is defined by the same [skeletonPlan] that
 /// [Skeletonize] paints, so the two cannot disagree on what is covered
-/// [guide_view_test 'the tap pill never covers legible text'].
+/// [guide_view_test 'the tap pill never covers legible text'; guide #1 step 1
+/// 'pill overlaps no legible text or visual'].
 @visibleForTesting
-List<Rect> legibleTextLines(Element root, {required List<Rect> keep}) {
+List<Rect> legibleContent(Element root, {required List<Rect> keep}) {
   final rootBox = laidOutBox(root);
   if (rootBox == null) return const [];
   final plan = skeletonPlan(root, keep: keep, chrome: defaultSkeletonChrome(root));
-  final lines = <Rect>[];
+  final found = <Rect>[];
   visitOnstage(root, (e) {
     final ro = e is RenderObjectElement ? e.renderObject : null;
-    if (ro is! RenderParagraph || !ro.hasSize) return;
-    final length = ro.text.toPlainText().length;
-    if (length == 0) return;
-    final visible = visibleBoundsInRoot(ro, rootBox);
-    final boxes = ro.getBoxesForSelection(TextSelection(baseOffset: 0, extentOffset: length));
-    // One rect per line: boxes sharing a line (several spans) are merged.
-    final byLine = <int, Rect>{};
-    for (final b in boxes) {
-      final r = Rect.fromLTRB(b.left, b.top, b.right, b.bottom);
-      if (r.isEmpty) continue;
-      final key = (r.top * 2).round();
-      byLine[key] = byLine[key]?.expandToInclude(r) ?? r;
+    if (ro is RenderParagraph && ro.hasSize) {
+      final length = ro.text.toPlainText().length;
+      if (length == 0) return;
+      final visible = visibleBoundsInRoot(ro, rootBox);
+      final boxes = ro.getBoxesForSelection(TextSelection(baseOffset: 0, extentOffset: length));
+      // One rect per line: boxes sharing a line (several spans) are merged.
+      final byLine = <int, Rect>{};
+      for (final b in boxes) {
+        final r = Rect.fromLTRB(b.left, b.top, b.right, b.bottom);
+        if (r.isEmpty) continue;
+        final key = (r.top * 2).round();
+        byLine[key] = byLine[key]?.expandToInclude(r) ?? r;
+      }
+      for (final local in byLine.values) {
+        found.add(rectInRoot(ro, rootBox, local).intersect(visible));
+      }
+      return;
     }
-    for (final local in byLine.values) {
-      final line = rectInRoot(ro, rootBox, local).intersect(visible);
-      if (line.isEmpty) continue;
-      if (plan.any((s) => s.rect.overlaps(line))) continue;
-      lines.add(line);
+    if (ro is RenderBox && ro.hasSize && paintsVisual(e.widget, ro)) {
+      found.add(rectInRoot(ro, rootBox).intersect(visibleBoundsInRoot(ro, rootBox)));
     }
   });
-  return lines;
+  return [
+    for (final r in found)
+      if (!r.isEmpty && !plan.any((s) => s.rect.overlaps(r))) r,
+  ];
 }
 
 /// Places the "tap" pill next to the outline. Order of preference:
