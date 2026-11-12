@@ -677,21 +677,28 @@ void main() {
     () async {
       tz_data.initializeTimeZones();
       final rome = tz.getLocation('Europe/Rome');
-      final a = tz.TZDateTime(rome, 2025, 10, 26, 1, 30);
-      final b = tz.TZDateTime(rome, 2025, 10, 26, 3, 30);
-      final st = a.millisecondsSinceEpoch ~/ 1000,
-          en = b.millisecondsSinceEpoch ~/ 1000;
-      expect(en - st, 3 * 3600); // repeated hour is real elapsed sleep time
+      // Anchors are UTC instants, not wall times: on the Rome fall-back day
+      // (2025-10-26) the wall hour 01:00-01:59 occurs twice, and whether a
+      // TZDateTime picks the first or second occurrence differs between
+      // tzdata versions (CI vs Windows ICU) — elapsed-time math must not
+      // depend on it. 22:30Z == 00:30 CEST local; +2 h crosses the fold.
+      final st = DateTime.utc(2025, 10, 25, 22, 30).millisecondsSinceEpoch ~/
+          1000;
+      final en = st + 2 * 3600; // 2 h elapsed across the fold (01:30 CET local)
+      expect(en - st, 2 * 3600); // repeated hour is real elapsed sleep time
+      expect(tz.TZDateTime(rome, 2025, 10, 26, 0, 30).millisecondsSinceEpoch ~/
+              1000,
+          st); // sanity: the UTC anchor really is 00:30 local in Rome
       await db.update('activity_review_meta', {'activated_at': st - 86400});
       final proposal = (await store.reconcile(ActivityKind.nap, [
-        {'start': st, 'end': en, 'duration_min': 150},
+        {'start': st, 'end': en, 'duration_min': 120},
       ])).single;
-      await repo.confirmActivity(proposal, startTs: st - 2 * 3600, endTs: en);
+      await repo.confirmActivity(proposal, startTs: st - 3600, endTs: en);
       final label = dayLabelOf(
-        DateTime.fromMillisecondsSinceEpoch((st - 2 * 3600) * 1000),
+        DateTime.fromMillisecondsSinceEpoch((st - 3600) * 1000),
       );
       final row = (await LocalDb.napEdits(label)).single;
-      expect((row['end_ts'] as int) - (row['start_ts'] as int), 5 * 3600);
+      expect((row['end_ts'] as int) - (row['start_ts'] as int), 3 * 3600);
       // both the detected and the edited start's local day get revised; they
       // are two days only where the host zone puts midnight between them
       final days = (await db.query('activity_review_days'))

@@ -2,7 +2,7 @@
  "day_result": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 120,
+   "algo_version": 121,
    "payload_json": {
     "date": "2026-07-13",
     "day_confidence": 0.6,
@@ -24902,7 +24902,7 @@
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 120,
+   "algo_version": 121,
    "payload_json": {
     "date": "2026-07-14",
     "day_confidence": 0.6,
@@ -49595,7 +49595,7 @@
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 120,
+   "algo_version": 121,
    "payload_json": {
     "date": "2026-07-15",
     "day_confidence": 0.6,
@@ -71090,7 +71090,7 @@
      "quiet_hrr": 0.18057477316419124,
      "trimp_net": null,
      "calories_total": 2151.991671845124,
-     "dyn_p90": 0.016617360477042792,
+     "dyn_p90": 0.0166173604770428,
      "nap_min": 0.0,
      "hrr_bpm": 18.0
     },
@@ -72717,7 +72717,7 @@
    "readiness": 66.1155535435143,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "0187cd292873351886d856d95ba367289227f875a585b0bbbee6c5525617a6da"
+   "payload_sha256": "bf1c2270ea868effc012ed7f83c834eac0f08e642bbde8aa6894e8aa2b394d18"
   }
  ],
  "metric_series": [
@@ -73179,7 +73179,7 @@
   {
    "date": "2026-07-15",
    "key": "dyn_p90",
-   "value": 0.016617360477042792
+   "value": 0.0166173604770428
   },
   {
    "date": "2026-07-15",
@@ -73355,7 +73355,7 @@
  "metric_series_version": [
   {
    "date": "2026-07-13",
-   "algo_version": 120,
+   "algo_version": 121,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -73363,7 +73363,7 @@
   },
   {
    "date": "2026-07-14",
-   "algo_version": 120,
+   "algo_version": 121,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -73371,7 +73371,7 @@
   },
   {
    "date": "2026-07-15",
-   "algo_version": 120,
+   "algo_version": 121,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -73381,7 +73381,7 @@
  "wake_day_features": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 120,
+   "algo_version": 121,
    "payload_json": {
     "day_id": "2026-07-13",
     "active_min": 90,
@@ -74589,7 +74589,7 @@
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 120,
+   "algo_version": 121,
    "payload_json": {
     "day_id": "2026-07-14",
     "active_min": 240,
@@ -75797,7 +75797,7 @@
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 120,
+   "algo_version": 121,
    "payload_json": {
     "day_id": "2026-07-15",
     "active_min": 40,
