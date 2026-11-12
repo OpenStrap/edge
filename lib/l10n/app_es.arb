@@ -391,7 +391,7 @@
   "aiBriefingEmptyCardBody": "Ninguna métrica tenía un valor cuando se escribió esto, así que el mensaje no llevaba ninguno.",
   "napsFellAsleepHelp": "CUÁNDO TE QUEDASTE DORMIDO",
   "napsWokeUpHelp": "CUÁNDO TE DESPERTASTE",
-  "napsInvalidWindow": "Una siesta dura entre 5 minutos y 6 horas. Cualquier cosa más larga es un sueño nocturno y pertenece a la noche, donde se pueden leer las fases.",
+  "napsInvalidWindow": "Una siesta dura entre 5 minutos y 3 horas. Cualquier cosa más larga es un sueño nocturno y pertenece a la noche, donde se pueden leer las fases.",
   "napsOverlap": "Eso se superpone con una siesta ya registrada este día. Elimina esa primero, en lugar de contar la misma hora dos veces.",
   "napsOverlapsSleep": "Eso se superpone con tu sueño principal, que ya cuenta ese tiempo. Registra solo la parte posterior a levantarte o corrige la noche.",
   "napsNotReanalysed": "El día no se ha vuelto a analizar: ya había otro análisis en curso. Tu edición está guardada y se aplicará la próxima vez.",

@@ -391,7 +391,7 @@
   "aiBriefingEmptyCardBody": "Aucune métrique n'avait de valeur au moment de la rédaction, donc l'invite n'en contenait aucune.",
   "napsFellAsleepHelp": "QUAND VOUS VOUS ÊTES ENDORMI",
   "napsWokeUpHelp": "QUAND VOUS VOUS ÊTES RÉVEILLÉ",
-  "napsInvalidWindow": "Une sieste dure entre 5 minutes et 6 heures. Au-delà, il s'agit d'un sommeil, et cela appartient à la nuit, où les phases peuvent être lues.",
+  "napsInvalidWindow": "Une sieste dure entre 5 minutes et 3 heures. Au-delà, il s'agit d'un sommeil, et cela appartient à la nuit, où les phases peuvent être lues.",
   "napsOverlap": "Cela chevauche une sieste déjà enregistrée ce jour-là. Supprimez d'abord celle-ci plutôt que de compter la même heure deux fois.",
   "napsOverlapsSleep": "Cela chevauche votre sommeil principal, qui compte déjà ce temps. Enregistrez seulement la partie après votre lever, ou corrigez plutôt la nuit.",
   "napsNotReanalysed": "La journée n'a pas été réanalysée — une autre analyse était déjà en cours. Votre modification est enregistrée et s'appliquera la prochaine fois.",
