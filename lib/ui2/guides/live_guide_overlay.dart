@@ -15,8 +15,10 @@
 //
 // Input: a tap on the target goes THROUGH to the real control (it does exactly
 // what it always does, confirmation dialogs included); every other tap on the
-// page is absorbed; the card's buttons work; system Back is untouched. While a
-// dialog / sheet / picker is on top the overlay is inert and draws nothing, so
+// page is absorbed; the card's buttons work; Android system Back and the
+// NavBar arrow work. Accepted limitation (S6): on step pages the shield absorbs
+// the iOS edge-swipe Back gesture. Use the NavBar arrow to leave those pages.
+// While a dialog / sheet / picker is on top the overlay is inert and draws nothing, so
 // the app's own dialog is fully usable.
 //
 // Semantics: the step card's caption is a live region; the target gets a proxy
