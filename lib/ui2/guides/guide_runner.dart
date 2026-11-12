@@ -96,8 +96,9 @@ class GuideRunner extends ChangeNotifier {
     _shell = null;
     final run = _run;
     // The shell detaches from dispose, while Flutter is finalizing the tree.
-    // Notify the still-mounted overlay only after that lock has been released.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // A microtask runs after that lock is released, but before the next frame
+    // builds the overlay. A post-frame exit would leave it for an extra frame.
+    scheduleMicrotask(() {
       if (_shell == null && identical(_run, run)) exit();
     });
   }
