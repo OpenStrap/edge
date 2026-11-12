@@ -123,7 +123,21 @@ void main() {
       await _frames(t);
       await pushStagePage(t, h.stage, StagePages(h.stage.taps).other());
       await _frames(t);
-      expect(find.byKey(GuideStepCard.offPathKey).hitTestable(), findsOneWidget);
+      expect(h.runner.activeRun!.state, isA<GuideOffPath>());
+      final offPath = find.byKey(GuideStepCard.offPathKey);
+      expect(offPath, findsOneWidget);
+      // Probe painted text and a real control, not the layout Column's centre,
+      // which need not hit any child. Both must stay above the new page.
+      final title = find.descendant(of: offPath, matching: find.byType(Text)).first;
+      expect(title.hitTestable(), findsOneWidget);
+      final exit = find.byKey(GuideStepCard.exitKey);
+      expect(exit.hitTestable(), findsOneWidget);
+      await t.tap(exit);
+      await t.pump();
+      expect(h.runner.activeRun, isNull);
+      expect(_overlays(t), 0);
+      expect(find.byKey(stageElsewhereAction), findsOneWidget);
+      expect(h.stage.navigator.canPop(), isTrue, reason: 'Exit leaves the pushed route in place');
     });
 
     testWidgets('a second start replaces the first: one overlay, the first run exited', (t) async {
