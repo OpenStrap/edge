@@ -179,7 +179,10 @@ class _GuideStepCardState extends State<GuideStepCard> {
         decoration: BoxDecoration(border: Border.all(color: p.line), borderRadius: R.rLg),
         child: Padding(padding: const EdgeInsets.all(S.x4),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            ...content, const SizedBox(height: S.x1),
+            Flexible(fit: FlexFit.loose, child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: content),
+            )),
+            const SizedBox(height: S.x1),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: actions),
           ])),
       ),

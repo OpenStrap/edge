@@ -222,6 +222,20 @@ void main() {
     });
   });
 
+  testWidgets('Exit stays visible when a footer exceeds the available height', (t) async {
+    // why: long translated help must not overflow the card or scroll Exit out
+    // of reach. The action remains available while the body can be scrolled.
+    final calls = await _pumpCard(t, GuideCardDone([
+      GuideFooter(kind: GuideFooterKind.note, title: (_) => 'More help',
+        body: (_) => List.filled(100, 'A long explanation of this action.').join(' ')),
+    ]));
+    expect(t.takeException(), isNull);
+    expect(find.byKey(GuideStepCard.exitKey).hitTestable(), findsOneWidget);
+    expect(t.getRect(find.byKey(GuideStepCard.exitKey)).bottom, lessThanOrEqualTo(780));
+    await t.tap(find.byKey(GuideStepCard.exitKey));
+    expect(calls.exits, ['exit']);
+  });
+
   group('off the path', () {
     testWidgets('"You\'ve left the path" with "Back to the guide" and "Exit", and nothing of a step', (t) async {
       // why: spec "Off-path: the same card shows ..." - no stale badge/dots.
