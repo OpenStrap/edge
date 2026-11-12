@@ -134,13 +134,18 @@ void main() {
 
     test('a need that abstained later the same day clears the stored one',
         () async {
-      await LocalDb.putMetricSeriesValue(pastDay, 'sleep_need_min', 450);
-      await LocalDb.putMetricSeriesValue(pastDay, 'sleep_need_min', null);
+      final revision = await LocalDb.activityReviewRevision();
+      await LocalDb.putReviewedBaseline('crossday', '{"v":1}', revision,
+          series: (date: pastDay, key: 'sleep_need_min', value: 450.0));
+      await LocalDb.putReviewedBaseline('crossday', '{"v":2}', revision,
+          series: (date: pastDay, key: 'sleep_need_min', value: null));
 
+      // No row at all, not a null one: the freeze goldens pin metric_series,
+      // and a row for the build's (wall-clock) day would move with the date.
       final rows = await (await LocalDb.instance).query('metric_series',
           where: 'date = ? AND key = ?',
           whereArgs: [pastDay, 'sleep_need_min']);
-      expect(rows, hasLength(1));
+      expect(rows, isEmpty);
       expect((await repo.getDaySleepV2(pastDay)).containsKey('need_min'),
           isFalse);
     });
