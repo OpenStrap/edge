@@ -54,7 +54,7 @@ class _RecordingRunner extends GuideRunner {
   _RecordingRunner() : super(navigatorKey: GlobalKey<NavigatorState>());
 
   @override
-  GuideStartResult start(Guide guide, {required BandGeneration? band}) {
+  Future<GuideStartResult> start(Guide guide, {required BandGeneration? band}) async {
     calls.add((guide.id, band));
     return answer?.call(guide) ?? GuideStarted(GuideRun(guide: guide, variant: (guide.variantFor(band) as GuideVariantFound).variant));
   }
