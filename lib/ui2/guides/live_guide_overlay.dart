@@ -103,6 +103,9 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
   Object? _revealedPage;
   GuideStep? _revealedStep;
   Object? _searchSignature;
+  Element? _searchingPage;
+  Object? _searchToken;
+  Rect? _lastRevealRect;
   final Map<int, Offset> _downs = {};
 
   @visibleForTesting
@@ -144,7 +147,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
 
   void _pointer(PointerEvent event) {
     final layer = _layerKey.currentContext?.findRenderObject();
-    if (layer is! RenderBox || !layer.hasSize || _yielding) return;
+    if (layer is! RenderBox || !layer.hasSize || !layer.attached || _yielding) return;
     final point = layer.globalToLocal(event.position);
     if (event is PointerDownEvent && (_target?.contains(point) ?? false)) _downs[event.pointer] = point;
     if (event is PointerCancelEvent) _downs.remove(event.pointer);
@@ -164,7 +167,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
   void _activateTarget() {
     final target = _target;
     final layer = _layerKey.currentContext?.findRenderObject();
-    if (target == null || layer is! RenderBox) return;
+    if (target == null || layer is! RenderBox || !layer.attached) return;
     final position = layer.localToGlobal(target.center);
     GestureBinding.instance.handlePointerEvent(PointerDownEvent(pointer: -1, position: position));
     GestureBinding.instance.handlePointerEvent(PointerUpEvent(pointer: -1, position: position));
@@ -185,10 +188,10 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
   void _plan() {
     final nav = widget.navigatorKey.currentState;
     final layer = _layerKey.currentContext?.findRenderObject();
-    if (nav == null || layer is! RenderBox || !layer.hasSize) return;
+    if (nav == null || layer is! RenderBox || !layer.hasSize || !layer.attached) return;
     final page = widget.routes.page;
     final l = AppLocalizations.of(context)!;
-    widget.run.observe(page, l);
+    if (page == null || !identical(page, _searchingPage)) widget.run.observe(page, l);
     final step = widget.run.currentStep;
     final newStep = _revealedPage != page || _revealedStep != step;
     if (page != null && step == null) {
@@ -210,16 +213,41 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
       });
     }
     final signature = Object.hashAll(content);
-    if (page != null && step != null && (newStep || (_target == null && _searchSignature != signature))) {
+    final box = page == null ? null : laidOutBox(page);
+    final resolution = page == null || step == null ? null : step.target.resolve(page, l);
+    final targetNow = box != null && resolution is TargetFound
+        ? MatrixUtils.transformRect(box.getTransformTo(layer), resolution.rect) : null;
+    final viewport = Offset.zero & layer.size;
+    final outside = targetNow != null &&
+        !(viewport.contains(targetNow.topLeft) && viewport.contains(targetNow.bottomRight));
+    // Async screen reads can move a previously revealed target out of view.
+    // Retry when that geometry changes, without repeatedly probing a fixed,
+    // unscrollable target. See the dynamic-layout overlay regression.
+    final retry = _searchingPage == null &&
+        ((_target == null && _searchSignature != signature) ||
+         (outside && _lastRevealRect != targetNow));
+    if (page != null && step != null && (newStep || retry)) {
       _revealedPage = page;
       _revealedStep = step;
       _searchSignature = signature;
+      _lastRevealRect = targetNow;
       // Also reveal plain-tap targets built just beyond the viewport: a target
       // must be visible before the card asks the user to press it.
-      unawaited(revealTarget(page, step.target, l));
+      final token = Object();
+      _searchToken = token;
+      _searchingPage = page;
+      unawaited(revealTarget(page, step.target, l, isCurrent: () =>
+        mounted && identical(_searchToken, token) && !widget.run.isExited && identical(widget.routes.page, page) &&
+        identical(widget.run.currentStep, step)).whenComplete(() {
+          if (mounted && identical(_searchToken, token)) {
+            _searchingPage = null;
+            _searchToken = null;
+            if (!identical(widget.routes.page, page)) _revealedPage = null;
+            setState(() {});
+          }
+        }));
       if (newStep) _reveal.forward(from: 0);
     }
-    final box = page == null ? null : laidOutBox(page);
     Rect? target;
     var shapes = <SkeletonShape>[];
     var chrome = <Rect>[];
@@ -227,7 +255,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
     if (page != null && box != null && step != null) {
       final transform = box.getTransformTo(layer);
       Rect intoOverlay(Rect r) => MatrixUtils.transformRect(transform, r);
-      if (step.target.resolve(page, l) case TargetFound(:final rect)) {
+      if (resolution case TargetFound(:final rect)) {
         target = intoOverlay(rect);
         final keep = <Rect>[rect];
         for (final extra in step.alsoKeep) {
@@ -275,10 +303,11 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
       GuideFinished() => GuideCardDone(run.guide.doneFooters),
     };
     final show = !_yielding && !run.isExited;
-    final marked = show && target != null && step != null && revealProgress == 1;
     return SizedBox.expand(key: _layerKey, child: LayoutBuilder(builder: (context, constraints) {
       final screen = Offset.zero & constraints.biggest;
       final outline = target?.inflate(kGuideOutlineGap).intersect(screen);
+      final marked = show && target != null && step != null && revealProgress == 1 &&
+          outline != null && !outline.isEmpty;
       final padding = MediaQuery.paddingOf(context);
       var bounds = Rect.fromLTRB(screen.left, padding.top, screen.right,
         screen.bottom - math.max(padding.bottom, MediaQuery.viewInsetsOf(context).bottom));

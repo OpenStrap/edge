@@ -114,6 +114,34 @@ void main() {
       expect(t.takeException(), isNull, reason: 'all inherited dependents detach cleanly');
     });
 
+    testWidgets('content arriving later cannot leave the target below the screen', (t) async {
+      // WHY: a real screen's async reads can insert content after the initial
+      // reveal. The guide must reveal the target again when its geometry moves.
+      final gap = ValueNotifier<double>(0);
+      addTearDown(gap.dispose);
+      final stage = await pumpLiveStage(t);
+      await _settleReveal(t);
+      await pushStagePage(t, stage, ValueListenableBuilder<double>(
+        valueListenable: gap,
+        builder: (_, height, _) => Scaffold(body: ListView(children: [
+          const Text('Details', key: stageDetailsTitle),
+          SizedBox(height: height),
+          TextButton(key: stageFinish, onPressed: () => stage.taps.finish++,
+              child: const Text('Finish')),
+        ])),
+      ));
+      await _settleReveal(t);
+      expect(_rectOf(t, find.byKey(stageFinish)).bottom, lessThanOrEqualTo(780));
+      gap.value = 3000;
+      await _settleReveal(t);
+      await _settleReveal(t);
+      final target = _overlay(t).targetRect!;
+      expect(target.top, greaterThanOrEqualTo(0));
+      expect(target.bottom, lessThanOrEqualTo(780));
+      expect(stage.run.state, isA<GuideAtStep>().having((s) => s.index, 'index', 1));
+      expect(t.takeException(), isNull);
+    });
+
     testWidgets('an idle guide schedules no frames', (t) async {
       // why: the overlay re-plans after each frame; the loop must settle
       // (PR 1 'markers follow layout' made the same promise for the frame view).
@@ -504,10 +532,10 @@ void main() {
 
   group('screen readers', () {
     testWidgets('the target gets ONE proxy node "Guide target: <caption>" that performs the tap', (t) async {
-      // why: spec "the target gets a proxy node that says Guide target: <caption>".
-      // Activating it must do what tapping the control does.
       final handle = t.ensureSemantics();
       addTearDown(handle.dispose);
+      // why: spec "the target gets a proxy node that says Guide target: <caption>".
+      // Activating it must do what tapping the control does.
       final stage = await pumpLiveStage(t);
       await _settleReveal(t);
       final proxy = find.semantics.byLabel(_en.guideTargetProxy('Tap Open details on the home page.'));
@@ -518,10 +546,10 @@ void main() {
     });
 
     testWidgets('the tap pill, scroll marker and outline add no duplicate labels', (t) async {
-      // why: PR 1 item 7 "markers carry no duplicate labels": the proxy already
-      // says what to do.
       final handle = t.ensureSemantics();
       addTearDown(handle.dispose);
+      // why: PR 1 item 7 "markers carry no duplicate labels": the proxy already
+      // says what to do.
       await pumpLiveStage(t);
       await _settleReveal(t);
       expect(find.bySemanticsLabel(_en.guideTapMarker), findsNothing);
@@ -529,9 +557,9 @@ void main() {
     });
 
     testWidgets('covered content stays in the semantics tree (foreign semantics cannot be excluded)', (t) async {
-      // why: spec states the limit; this pins that we do not pretend otherwise.
       final handle = t.ensureSemantics();
       addTearDown(handle.dispose);
+      // why: spec states the limit; this pins that we do not pretend otherwise.
       await pumpLiveStage(t);
       await _settleReveal(t);
       expect(find.bySemanticsLabel('Second card text'), findsOneWidget);

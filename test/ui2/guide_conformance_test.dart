@@ -43,6 +43,7 @@ import 'package:openstrap_edge/ui2/screens/sleep_tab.dart' show SleepTab;
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../support/guide_search.dart';
 import '../support/live_guide_harness.dart';
 
 /// One step on its real screen.
@@ -158,7 +159,7 @@ void main() {
 
           // Looked at BEFORE any scrolling: this is what the run sees after a frame.
           final anchor = step.anchor.resolve(root, l);
-          final target = await revealTarget(root, step.target, l);
+          final target = await pumpGuideSearch(t, revealTarget(root, step.target, l));
           expect(target, isA<TargetFound>(), reason: 'target: $target (anchor before scrolling: $anchor)');
           // CLAIM(anchor-built): the run matches steps by anchor after each frame
           // WITHOUT scrolling, so an anchor deep in a lazy list (not built yet) would

@@ -230,19 +230,13 @@ bool _hasUnexploredScrollable(Element scope) => _scrollablesUnder(scope).any((s)
       return p.hasPixels && p.hasContentDimensions && (p.extentBefore > 0 || p.extentAfter > 0);
     });
 
-/// Builds and lays the tree out NOW (outside a frame), so lazily built children
-/// exist after a scroll jump and dropped ones are unmounted.
-///
-/// CLAIM(sync-settle): this is the first half of `drawFrame` [flutter
-/// widgets/binding.dart drawFrame]: pending builds first (a layout-time build
-/// asserts "wrong build scope" while an earlier `setState` is still dirty), then
-/// the layout whose sliver callbacks build the children, then `finalizeTree` so
-/// elements the layout removed are unmounted, not left inactive.
-void _layoutNow(Element root) {
+// CLAIM(reveal-frame-boundary): scroll discovery waits for Flutter's next
+// layout, without rebuilding/finalizing the app inside a post-frame callback
+// [guide_target_test bounded scroll discovery; live_guide_overlay_test navigation].
+Future<void> _nextLayout() {
   final binding = WidgetsBinding.instance;
-  binding.buildOwner!.buildScope(binding.rootElement!);
-  root.renderObject?.owner?.flushLayout();
-  binding.buildOwner!.finalizeTree();
+  binding.scheduleFrame();
+  return binding.endOfFrame;
 }
 
 /// Bounded scroll discovery: resolves [target]; while it is [TargetNotBuilt],
@@ -259,19 +253,25 @@ void _layoutNow(Element root) {
 ///   (budget exhausted), positions restored.
 ///
 /// Call it from a post-frame callback or an event handler, never during
-/// build or layout.
+/// build or layout. Discovery advances on normal frames. [isCurrent] cancels
+/// work when the user navigates or ends the guide.
 Future<TargetResolution> revealTarget(
   Element root,
   GuideTarget target,
   AppLocalizations l, {
   int maxViewports = 20,
+  bool Function()? isCurrent,
 }) async {
+  bool active() => root.mounted && (isCurrent?.call() ?? true);
+  if (!active()) return TargetNotBuilt(target, 'page is no longer active');
   var now = target.resolve(root, l);
   if (now is TargetNotBuilt) {
-    final search = _Search(root, target, l, maxViewports);
-    final found = search.runAll();
+    final search = _Search(root, target, l, maxViewports, active);
+    final found = await search.runAll();
+    if (!active()) return TargetNotBuilt(target, 'page is no longer active');
     if (!found) {
-      _layoutNow(root);
+      await _nextLayout();
+      if (!active()) return TargetNotBuilt(target, 'page is no longer active');
       return search.budgetSpent
           ? TargetNotBuilt(target, 'not found within $maxViewports viewports of where the search began')
           : TargetAbsent(target, 'searched every scrollable to both ends; ${now.detail}');
@@ -281,7 +281,8 @@ Future<TargetResolution> revealTarget(
   if (now is! TargetFound) return now;
 
   _scrollIntoView(root, target, l);
-  _layoutNow(root);
+  await _nextLayout();
+  if (!active()) return TargetNotBuilt(target, 'page is no longer active');
   return target.resolve(root, l);
 }
 
@@ -291,29 +292,31 @@ class _Search {
   final GuideTarget target;
   final AppLocalizations l;
   final int maxViewports;
+  final bool Function() active;
 
   /// True once any direction stopped because the budget ran out, not because
   /// it reached the end.
   bool budgetSpent = false;
   final _visited = <ScrollableState>{};
 
-  _Search(this.root, this.target, this.l, this.maxViewports);
+  _Search(this.root, this.target, this.l, this.maxViewports, this.active);
 
   bool _found() => target.resolve(root, l) is TargetFound;
 
-  bool runAll() {
+  Future<bool> runAll() async {
     // Re-scanned each round: restoring a scrollable can rebuild the lazily built
     // lists inside it, replacing their States.
-    while (true) {
+    while (active()) {
       final next = _scrollablesUnder(root).where((s) => s.mounted && !_visited.contains(s)).firstOrNull;
       if (next == null) return false;
-      if (_explore(next)) return true;
+      if (await _explore(next)) return true;
     }
+    return false;
   }
 
   /// Probes [s] at origin +/- i viewports, i = 1..maxViewports; descends into
   /// scrollables each probe newly builds. Restores [s] to its origin on failure.
-  bool _explore(ScrollableState s) {
+  Future<bool> _explore(ScrollableState s) async {
     _visited.add(s);
     final position = s.position;
     if (!position.hasPixels || !position.hasContentDimensions) return false;
@@ -340,18 +343,21 @@ class _Search {
           continue;
         }
         lastProbed[direction] = offset;
+        if (!active() || !s.mounted) return false;
         position.jumpTo(offset);
-        _layoutNow(root);
+        await _nextLayout();
+        if (!active() || !s.mounted) return false;
         if (_found()) return true;
         for (final inner in _scrollablesUnder(root)) {
-          if (inner.mounted && !_visited.contains(inner) && _isUnder(inner, s) && _explore(inner)) return true;
+          if (inner.mounted && !_visited.contains(inner) && _isUnder(inner, s) && await _explore(inner)) return true;
         }
         if ((offset - limit).abs() < 0.5) ended[direction] = true;
       }
     }
     if (!(ended[1]! && ended[-1]!)) budgetSpent = true;
+    if (!active() || !s.mounted) return false;
     position.jumpTo(origin);
-    _layoutNow(root);
+    await _nextLayout();
     return false;
   }
 
@@ -381,7 +387,7 @@ void _scrollIntoView(Element root, GuideTarget target, AppLocalizations l) {
   var object = element.renderObject;
   BuildContext cursor = element;
   while (object is RenderBox) {
-    final scrollable = Scrollable.maybeOf(cursor);
+    final scrollable = cursor.findAncestorStateOfType<ScrollableState>();
     final viewportBox = scrollable?.context.findRenderObject();
     if (scrollable == null || !owned.contains(scrollable) || viewportBox is! RenderBox) break;
     final seen = rectInRoot(object, viewportBox);

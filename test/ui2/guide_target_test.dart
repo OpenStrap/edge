@@ -9,6 +9,7 @@ import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
+import '../support/guide_search.dart';
 import '../support/skeleton_fixture.dart';
 
 const _root = ValueKey('root');
@@ -345,6 +346,33 @@ void main() {
           ),
         );
 
+    testWidgets('a cancelled search stops moving the page on later frames', (t) async {
+      // WHY: CLAIM(reveal-frame-boundary). Exiting or navigating while discovery
+      // awaits layout must stop it from continuing to scroll the user's page.
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+      final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(c: controller));
+      var active = true;
+      final search = revealTarget(root, GuideTarget.label((_) => 'row 90'), l,
+          isCurrent: () => active);
+      final cancelledAt = controller.offset;
+      expect(cancelledAt, 200, reason: 'the first probe moves one viewport');
+      active = false;
+      expect(await pumpGuideSearch(t, search), isA<TargetNotBuilt>());
+      await t.pump();
+      expect(controller.offset, cancelledAt);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('unmounting during search does not read a detached tree', (t) async {
+      // WHY: CLAIM(reveal-frame-boundary). A route can disappear between probes.
+      final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list());
+      final search = revealTarget(root, GuideTarget.label((_) => 'row 90'), l);
+      await t.pumpWidget(const SizedBox());
+      expect(await pumpGuideSearch(t, search), isA<TargetNotBuilt>());
+      expect(t.takeException(), isNull);
+    });
+
     testWidgets('finds a target 5 viewports away with cacheExtent 0, and leaves it visible',
         (t) async {
       // why: the resolver alone cannot see an unbuilt lazy child; the 200 px
@@ -355,7 +383,7 @@ void main() {
       final target = GuideTarget.label((_) => 'row 20');
       expect(target.resolve(root, l), isA<TargetNotBuilt>(), reason: 'precondition: not built yet');
 
-      final r = await revealTarget(root, target, l);
+      final r = await pumpGuideSearch(t, revealTarget(root, target, l));
       await t.pump();
       expect(r, isA<TargetFound>());
       final rect = (r as TargetFound).rect;
@@ -386,7 +414,7 @@ void main() {
           ]),
         ),
       );
-      final r = await revealTarget(root, GuideTarget.label((_) => 'inner 40'), l);
+      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label((_) => 'inner 40'), l));
       await t.pump();
       expect(r, isA<TargetFound>());
     });
@@ -404,7 +432,7 @@ void main() {
       await t.pump();
       final target = GuideTarget.label((_) => 'row 60');
       expect(target.resolve(root, l), isA<TargetNotBuilt>(), reason: 'precondition: above the built range');
-      final r = await revealTarget(root, target, l);
+      final r = await pumpGuideSearch(t, revealTarget(root, target, l));
       await t.pump();
       expect(r, isA<TargetFound>());
       final viewport = skLocalRect(t, find.byType(ListView), find.byKey(_root));
@@ -421,7 +449,7 @@ void main() {
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(c: c));
       c.jumpTo(2500);
       await t.pump();
-      final r = await revealTarget(root, GuideTarget.label((_) => 'no such row'), l, maxViewports: 3);
+      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label((_) => 'no such row'), l, maxViewports: 3));
       await t.pump();
       expect(r, isA<TargetNotBuilt>());
       expect(c.offset, 2500);
@@ -437,7 +465,7 @@ void main() {
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(count: 30, c: c));
       c.jumpTo(100);
       await t.pump();
-      final r = await revealTarget(root, GuideTarget.label((_) => 'no such row'), l);
+      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label((_) => 'no such row'), l));
       await t.pump();
       expect(r, isA<TargetAbsent>());
       expect(c.offset, 100);
@@ -450,7 +478,7 @@ void main() {
       final c = ScrollController();
       addTearDown(c.dispose);
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(c: c));
-      final r = await revealTarget(root, GuideTarget.label((_) => 'row 90'), l, maxViewports: 3);
+      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label((_) => 'row 90'), l, maxViewports: 3));
       await t.pump();
       expect(r, isA<TargetNotBuilt>());
       expect(c.offset, 0);
@@ -461,7 +489,7 @@ void main() {
       final c = ScrollController();
       addTearDown(c.dispose);
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(c: c));
-      final r = await revealTarget(root, GuideTarget.label((_) => 'row 1'), l);
+      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label((_) => 'row 1'), l));
       expect(r, isA<TargetFound>());
       expect(c.offset, 0);
     });
