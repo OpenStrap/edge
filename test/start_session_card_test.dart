@@ -121,8 +121,6 @@ void main() {
     t.view.physicalSize = const Size(390 * 2, 780 * 2);
     t.view.devicePixelRatio = 2;
     addTearDown(t.view.reset);
-    final handle = t.ensureSemantics();
-    addTearDown(handle.dispose);
     await t.pumpWidget(MaterialApp(
       theme: buildTheme(Brightness.light),
       home: Scaffold(

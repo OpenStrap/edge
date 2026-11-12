@@ -132,8 +132,6 @@ void main() {
     testWidgets('a screen reader hears ONE "Step 2 of 3", not three dots', (t) async {
       // why: three unlabeled dots would be three silent stops; one node carries
       // the whole sentence (guideStepOf).
-      final handle = t.ensureSemantics();
-      addTearDown(handle.dispose);
       await _pumpCard(t, _step2of3);
       expect(find.bySemanticsLabel(_l.guideStepOf('2', '3')), findsOneWidget);
     });
@@ -150,8 +148,6 @@ void main() {
     testWidgets('expands the guide\'s missing-target help IN PLACE, and collapses again', (t) async {
       // why: spec: the help shows during the step, inside the card (not a new
       // route or dialog), and the caption and dots stay while it is open.
-      final handle = t.ensureSemantics();
-      addTearDown(handle.dispose);
       await _pumpCard(t, _withHelp());
       expect(find.byKey(GuideStepCard.missingHelpKey), findsNothing);
       final collapsedHeight = t.getSize(find.byKey(GuideStepCard.cardKey)).height;
@@ -209,8 +205,6 @@ void main() {
     testWidgets('is on every state and calls onExit once; its screen-reader label says what it exits', (t) async {
       // why: spec "Exit always available"; the visible word "Exit" alone is
       // ambiguous to a screen reader.
-      final handle = t.ensureSemantics();
-      addTearDown(handle.dispose);
       for (final model in <GuideCardModel>[_withHelp(), const GuideCardOffPath(), GuideCardDone([_alt()])]) {
         final calls = await _pumpCard(t, model);
         expect(find.byKey(GuideStepCard.exitKey), findsOneWidget, reason: '${model.runtimeType}');
@@ -291,8 +285,6 @@ void main() {
     testWidgets('the caption is a live region whose label is the caption without markup, updated on every step', (t) async {
       // why: CLAIM(card-live-region). Announced on each step change; the
       // asterisks of the bold markup must not be read out.
-      final handle = t.ensureSemantics();
-      addTearDown(handle.dispose);
       await _pumpCard(t, _step2of3);
       final first = find.semantics.byLabel('Tap Open details on the home page.');
       expect(first, findsOneWidget);
@@ -319,8 +311,6 @@ void main() {
     testWidgets('the off-path and Done titles are live regions too', (t) async {
       // why: the state change IS the news; silence would leave a blind user on a
       // card they do not know has changed.
-      final handle = t.ensureSemantics();
-      addTearDown(handle.dispose);
       await _pumpCard(t, const GuideCardOffPath());
       expect(find.semantics.byLabel(_l.guideOffPathTitle).evaluate().single.flagsCollection.isLiveRegion, isTrue);
       await _pumpCard(t, const GuideCardDone([]));

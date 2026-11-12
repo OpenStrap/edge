@@ -532,8 +532,6 @@ void main() {
 
   group('screen readers', () {
     testWidgets('the target gets ONE proxy node "Guide target: <caption>" that performs the tap', (t) async {
-      final handle = t.ensureSemantics();
-      addTearDown(handle.dispose);
       // why: spec "the target gets a proxy node that says Guide target: <caption>".
       // Activating it must do what tapping the control does.
       final stage = await pumpLiveStage(t);
@@ -546,8 +544,6 @@ void main() {
     });
 
     testWidgets('the tap pill, scroll marker and outline add no duplicate labels', (t) async {
-      final handle = t.ensureSemantics();
-      addTearDown(handle.dispose);
       // why: PR 1 item 7 "markers carry no duplicate labels": the proxy already
       // says what to do.
       await pumpLiveStage(t);
@@ -557,8 +553,6 @@ void main() {
     });
 
     testWidgets('covered content stays in the semantics tree (foreign semantics cannot be excluded)', (t) async {
-      final handle = t.ensureSemantics();
-      addTearDown(handle.dispose);
       // why: spec states the limit; this pins that we do not pretend otherwise.
       await pumpLiveStage(t);
       await _settleReveal(t);
