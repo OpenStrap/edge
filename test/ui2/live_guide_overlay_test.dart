@@ -425,6 +425,19 @@ void main() {
       expect(card.overlaps(_rectOf(t, find.byKey(LiveGuideOverlay.tapPillKey))), isFalse);
     });
 
+    testWidgets('Exit stays above the keyboard', (t) async {
+      // why: ActivityPicker autofocuses its search field. The real keyboard
+      // must not cover the guide's only Exit action.
+      final stage = await pumpLiveStage(t);
+      await _settleReveal(t);
+      t.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await _settleReveal(t);
+      expect(t.takeException(), isNull);
+      expect(t.getRect(find.byKey(GuideStepCard.exitKey)).bottom, lessThanOrEqualTo(480));
+      await t.tap(find.byKey(GuideStepCard.exitKey));
+      expect(stage.exitCount, 1);
+    });
+
     testWidgets('the card shows the step caption and the number of the step the run is on', (t) async {
       // why: caption and badge come from the run\'s current step, in the app\'s language.
       final stage = await pumpLiveStage(t);

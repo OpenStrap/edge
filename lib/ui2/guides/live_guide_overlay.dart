@@ -292,7 +292,8 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
       final screen = Offset.zero & constraints.biggest;
       final outline = target?.inflate(kGuideOutlineGap).intersect(screen);
       final padding = MediaQuery.paddingOf(context);
-      var bounds = Rect.fromLTRB(screen.left, padding.top, screen.right, screen.bottom - padding.bottom);
+      var bounds = Rect.fromLTRB(screen.left, padding.top, screen.right,
+        screen.bottom - math.max(padding.bottom, MediaQuery.viewInsetsOf(context).bottom));
       for (final r in _chrome) {
         if (r.top > screen.height / 2 && r.width > screen.width / 2) bounds = Rect.fromLTRB(bounds.left, bounds.top, bounds.right, math.min(bounds.bottom, r.top));
         if (r.top < screen.height / 4 && r.width > screen.width / 2) bounds = Rect.fromLTRB(bounds.left, math.max(bounds.top, r.bottom), bounds.right, bounds.bottom);
