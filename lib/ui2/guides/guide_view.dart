@@ -83,7 +83,10 @@ class _GuideStepViewState extends State<GuideStepView> {
   @override
   void didUpdateWidget(GuideStepView old) {
     super.didUpdateWidget(old);
-    if (!identical(old.step, widget.step)) {
+    // By id, not identity: guides are built by getters, so a parent rebuild
+    // (theme, locale, MediaQuery) hands over an equal step in a new object, and
+    // resetting on that would drop the markers and jump the demo's scroll.
+    if (old.step.id != widget.step.id) {
       _resolution = null;
       _legible = const [];
       _reveal();

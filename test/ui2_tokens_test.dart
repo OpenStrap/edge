@@ -276,8 +276,9 @@ const _notComponents = {
   // (lib/ui2/skeleton, lib/ui2/guides). Their gallery cases belong with the Help
   // list that shows guides (phase 3; gallery.dart is not edited in phases 1-2).
   // Until then test/ui2/skeleton_*_test.dart and test/ui2/guide_*_test.dart
-  // pump them at real phone width: GuideStepView/GuideView lay out whole demo
-  // screens at 390x780, which a ~179 px gallery cell cannot hold.
+  // pump them. SkeletonBar/SkeletonBlock would fit a cell; they wait only
+  // because gallery.dart is not edited in these phases. GuideStepView/GuideView
+  // lay out whole demo screens at 390x780, which a ~179 px cell cannot hold.
   'SkeletonBar', 'SkeletonBlock', 'Skeletonize', 'GuideStepView', 'GuideView',
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',

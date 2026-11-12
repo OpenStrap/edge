@@ -17,6 +17,12 @@ import '../screens/home_screen.dart' show HomeData;
 Metric _reading(num value, {String? unit}) =>
     Metric(value: value, unit: unit, confidence: .9, tier: MetricTier.high);
 
+/// Today's local date at midnight.
+DateTime _today() {
+  final now = DateTime.now();
+  return DateTime(now.year, now.month, now.day);
+}
+
 abstract final class GuideDemo {
   /// Today, all three rings scored (strain visible): recovery 72, strain 9.4,
   /// sleep 7 h of an 8 h need.
@@ -34,7 +40,9 @@ abstract final class GuideDemo {
 
   /// A curve, zone minutes with a non-zero total, a computed (not manual) set.
   static DayStrainData get dayStrain => DayStrainData(
-        day: DateTime(2026, 11, 11),
+        // Today's local date, like the Home fixture: a fixed date would make
+        // the strain screen's subtitle read a date instead of "today".
+        day: _today(),
         // Cumulative strain over the waking minutes 07:00-19:00, ending at the
         // day's 9.4 (a gentle ease-out, like the real curve).
         curve: [
