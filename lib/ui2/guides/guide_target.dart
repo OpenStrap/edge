@@ -7,9 +7,9 @@
 // so a guide can never silently point at nothing.
 //
 // Mating parts: `Skeletonize` (../skeleton/skeleton.dart) resolves its `keep`
-// targets with [GuideTarget.resolve] after every layout; `GuideStepView`
-// (guide_view.dart) calls [revealTarget] once to scroll a lazy screen to the
-// target. Both read rects in the same root space.
+// targets with [GuideTarget.resolve] after every layout; the guide run and
+// the review views (test/support/guide_view.dart) call [revealTarget] to scroll
+// a lazy screen to the target. Both read rects in the same root space.
 
 import 'dart:async' show unawaited;
 

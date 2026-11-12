@@ -8,7 +8,6 @@ import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 
 GuideStep _step(String id) => GuideStep(
       id: id,
-      screen: (_) => const SizedBox(),
       target: GuideTarget.key(ValueKey(id)),
       anchor: GuideTarget.key(ValueKey('anchor-$id')),
       action: GuideAction.tap,
@@ -18,7 +17,7 @@ GuideStep _step(String id) => GuideStep(
 GuideVariant _v(String id, [Set<BandGeneration> devices = const {}]) =>
     GuideVariant(devices: devices, steps: [_step(id)]);
 
-Guide _guide(List<GuideVariant> vs) => Guide(id: 'g', title: (_) => 'G', variants: vs);
+Guide _guide(List<GuideVariant> vs) => Guide(id: 'g', title: (_) => 'G', start: GuideStart.today, variants: vs);
 
 BandGeneration? _unknown;
 
@@ -95,8 +94,7 @@ void main() {
       expect(plain.alsoKeep, isEmpty);
       final withExtra = GuideStep(
         id: 'set',
-        screen: (_) => const SizedBox(),
-        target: GuideTarget.key(const ValueKey('t')),
+          target: GuideTarget.key(const ValueKey('t')),
         anchor: GuideTarget.key(const ValueKey('a')),
         alsoKeep: [extra],
         action: GuideAction.tap,

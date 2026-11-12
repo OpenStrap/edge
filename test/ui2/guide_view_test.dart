@@ -1,4 +1,6 @@
-// GuideStepView / GuideView: the demo frame around a skeletonized real screen.
+// GuideStepView / GuideView (test/support: review tooling, never shipped): the demo
+// frame around a skeletonized real screen. The marker rules it shares with the
+// live overlay (GuidePillLayout, legibleContent) live in guide_markers.dart.
 // Hand-built screens of real ui2 cards; the real guide #1 is covered in
 // guide_heart_rate_zones_test.dart.
 
@@ -7,10 +9,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
-import 'package:openstrap_edge/ui2/guides/guide_view.dart';
+import 'package:openstrap_edge/ui2/guides/guide_markers.dart';
 import 'package:openstrap_edge/ui2/skeleton/skeleton.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
+import '../support/guide_demo_screens.dart';
+import '../support/guide_view.dart';
 import '../support/skeleton_fixture.dart';
 
 const _fk = GuideStepView.frameKey;
@@ -35,7 +39,7 @@ Widget _screen(double gap) => Builder(builder: (c) {
 
 GuideStep _step(double gap, GuideAction a,
         {GuideTarget? target, int n = 0, List<GuideTarget> alsoKeep = const []}) =>
-    GuideStep(
+    demoStep(
       id: 'step-$n',
       screen: (_) => _screen(gap),
       target: target ?? GuideTarget.label((l) => l.dayStrainHowSet),
@@ -222,7 +226,7 @@ void main() {
       // where the ring used to be. The markers must follow the target.
       final extra = ValueNotifier<bool>(false);
       addTearDown(extra.dispose);
-      final step = GuideStep(
+      final step = demoStep(
         id: 'moving',
         screen: (_) => Builder(builder: (c) {
           final l = AppLocalizations.of(c)!;
@@ -267,7 +271,7 @@ void main() {
   group('GuideStepView pill placement', () {
     // A screen where legible text sits directly above the target, left-aligned
     // like the target: the old "above the outline" spot lands on that text.
-    GuideStep hintAbove() => GuideStep(
+    GuideStep hintAbove() => demoStep(
           id: 'hint-above',
           screen: (_) => Scaffold(
             body: ListView(
@@ -311,7 +315,7 @@ void main() {
     testWidgets('with nothing legible nearby and room on the left, the pill sits beside the target', (t) async {
       // why: the new first preference. The target is a label pushed to the right
       // of the screen so there is room on its left.
-      final step = GuideStep(
+      final step = demoStep(
         id: 'right',
         screen: (_) => Scaffold(
           body: ListView(
@@ -385,7 +389,7 @@ void main() {
   });
 
   group('GuideView', () {
-    GuideStep s(String label) => GuideStep(
+    GuideStep s(String label) => demoStep(
           id: 'id-$label',
           anchor: GuideTarget.label((_) => label),
           screen: (_) => Scaffold(body: Center(child: Pressable(onTap: () {}, child: Text(label)))),
@@ -409,6 +413,7 @@ void main() {
       // pinned by tree order AND by numbers, so a reversed list fails.
       final steps = [s('Alpha'), s('Beta'), s('Gamma')];
       final g = Guide(
+        start: GuideStart.today,
         id: 'g',
         title: (_) => 'Where to find Alpha',
         variants: [GuideVariant(steps: steps)],
@@ -431,7 +436,7 @@ void main() {
 
     testWidgets('the band picks the variant: WHOOP 5 gets its own, longer path', (t) async {
       // why: separate WHOOP 4 / 5 variants where the path differs (owner).
-      final g = Guide(id: 'g', title: (_) => 'T', variants: [
+      final g = Guide(id: 'g', title: (_) => 'T', start: GuideStart.today, variants: [
         GuideVariant(devices: {BandGeneration.whoop4}, steps: [s('Alpha')]),
         GuideVariant(devices: {BandGeneration.whoop5}, steps: [s('Alpha'), s('Beta')]),
       ]);
@@ -443,7 +448,7 @@ void main() {
 
     testWidgets('a guide with no variant for the band says so instead of rendering steps', (t) async {
       // why: "a guide with no variant for the user's band says so".
-      final g = Guide(id: 'g', title: (_) => 'T', variants: [
+      final g = Guide(id: 'g', title: (_) => 'T', start: GuideStart.today, variants: [
         GuideVariant(devices: {BandGeneration.whoop4}, steps: [s('Alpha')]),
       ]);
       await pumpGuide(t, g, BandGeneration.whoop5);

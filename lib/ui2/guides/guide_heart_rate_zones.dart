@@ -11,13 +11,6 @@
 //
 // One path serves both band generations (the screens are band-independent).
 
-import 'package:flutter/widgets.dart';
-
-import '../activity/day_strain.dart' show DayStrainDetail;
-import '../activity/zones.dart' show ZonesDetail;
-import '../app_shell.dart' show AppShell, ShellDomain;
-import '../screens/home_screen.dart' show HomeScreen;
-import 'demo_data.dart';
 import 'guide.dart';
 import 'guide_target.dart';
 
@@ -38,19 +31,12 @@ final _ownZonesLink = GuideTarget.anyLabel([
 Guide get heartRateZonesGuide => Guide(
       id: 'heart-rate-zones',
       title: (l) => l.guideHrZonesTitle,
+      start: GuideStart.today,
       intro: (l) => l.guideHrZonesIntro(l.homeRingStrain),
       variants: [
         GuideVariant(steps: [
           GuideStep(
             id: 'open-strain',
-            // Home inside the tab bar, as on the phone: the bar is chrome and
-            // stays legible.
-            screen: (_) => AppShell(
-              builder: (context, domain) => switch (domain) {
-                ShellDomain.today => HomeScreen(data: GuideDemo.home, hour: 9, workoutLive: false),
-                ShellDomain.sleep || ShellDomain.activity || ShellDomain.health => const SizedBox.shrink(),
-              },
-            ),
             target: _strainRing,
             anchor: _strainRing,
             action: GuideAction.tap,
@@ -58,7 +44,6 @@ Guide get heartRateZonesGuide => Guide(
           ),
           GuideStep(
             id: 'open-zones',
-            screen: (_) => DayStrainDetail(data: GuideDemo.dayStrain),
             target: _howTheseAreSet,
             anchor: _howTheseAreSet,
             action: GuideAction.scrollThenTap,
@@ -66,7 +51,6 @@ Guide get heartRateZonesGuide => Guide(
           ),
           GuideStep(
             id: 'set-own-zones',
-            screen: (_) => ZonesDetail(data: GuideDemo.zones),
             target: _ownZonesLink,
             anchor: _ownZonesLink,
             // The mock-up keeps "Your zones" legible: it is what the link edits.

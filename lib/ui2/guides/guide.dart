@@ -1,8 +1,10 @@
 // GUIDE MODEL (phase 2)
 //
-// One guide definition drives two renderers: the demo frame (GuideStepView /
-// GuideView, filled with demo data) and, in phase 4, a live overlay on the
-// user's own screen. Steps are data; nothing here builds a frame.
+// A guide is data: where it starts, its steps (each a target on one of the
+// user's REAL screens), and its footers. The live overlay walks the user's own
+// screens along it. Nothing here builds a screen; review renders on demo data
+// are test tooling (test/support/guide_view.dart) and keep their own map from
+// step id to demo screen.
 
 import 'package:flutter/widgets.dart';
 
@@ -13,13 +15,16 @@ enum BandGeneration { whoop4, whoop5 }
 
 enum GuideAction { tap, scrollThenTap }
 
+/// Where a guide begins: a tab of the shell, or the Settings screen. A run
+/// first brings the app here (pop to the shell root, select the destination)
+/// so step 1's screen is on top.
+enum GuideStart { today, sleep, activity, health, settings }
+
 class GuideStep {
   /// Stable across releases and locales (progress, deep links and the phase-4
   /// "which step am I on" logic key on it). Unique within a guide variant.
   final String id;
 
-  /// The screen, filled with demo data (never read from or written to the DB).
-  final Widget Function(BuildContext context) screen;
   final GuideTarget target;
 
   /// Identifies the route this step belongs to: the step is ACTIVE when this
@@ -33,7 +38,6 @@ class GuideStep {
 
   const GuideStep({
     required this.id,
-    required this.screen,
     required this.target,
     required this.anchor,
     this.alsoKeep = const [],
@@ -83,6 +87,9 @@ class Guide {
   final String id;
   final String Function(AppLocalizations l) title;
 
+  /// Where a run brings the app before step 1.
+  final GuideStart start;
+
   /// One line under the title ("...it takes three taps").
   final String Function(AppLocalizations l)? intro;
   final List<GuideVariant> variants;
@@ -91,6 +98,7 @@ class Guide {
   const Guide({
     required this.id,
     required this.title,
+    required this.start,
     this.intro,
     required this.variants,
     this.footers = const [],

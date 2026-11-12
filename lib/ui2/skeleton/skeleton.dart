@@ -19,7 +19,8 @@
 //
 // Mating parts: [GuideTarget] (../guides/guide_target.dart) resolves the rects
 // that [skeletonPlan] keeps; [Skeletonize] owns the live loop between them;
-// `GuideStepView` (../guides/guide_view.dart) is its only caller today.
+// The guide run draws it live; the review views (test/support/guide_view.dart)
+// draw it on demo data.
 
 import 'dart:math' as math;
 

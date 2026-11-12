@@ -272,14 +272,16 @@ const _notComponents = {
   // `start_session_card_test.dart`, which renders it at a real phone width and
   // asserts the copy is not truncated and nothing overflows.
   'StartCard',
-  // The navigation-guide renderer and the skeleton overlay under it
-  // (lib/ui2/skeleton, lib/ui2/guides). Their gallery cases belong with the Help
-  // list that shows guides (phase 3; gallery.dart is not edited in phases 1-2).
-  // Until then test/ui2/skeleton_*_test.dart and test/ui2/guide_*_test.dart
-  // pump them. SkeletonBar/SkeletonBlock would fit a cell; they wait only
-  // because gallery.dart is not edited in these phases. GuideStepView/GuideView
-  // lay out whole demo screens at 390x780, which a ~179 px cell cannot hold.
-  'SkeletonBar', 'SkeletonBlock', 'Skeletonize', 'GuideStepView', 'GuideView',
+  // The skeleton overlay (lib/ui2/skeleton). Its gallery cases wait for the Help
+  // list (gallery.dart is not edited in phases 1-2); until then
+  // test/ui2/skeleton_*_test.dart pump them. SkeletonBar/SkeletonBlock would fit
+  // a cell; they wait only because gallery.dart is not edited in these phases.
+  // (The guide review views GuideStepView/GuideView are test tooling, not in lib.)
+  // GuideMarkerPill and GuideFooterCard (lib/ui2/guides/guide_markers.dart) are
+  // parts of a guide step drawn by the live overlay and the review views; they are
+  // pumped by test/ui2/guide_view_test.dart and the live-guide tests, and a gallery
+  // cell would show a yellow pill / a footer card with nothing to point at.
+  'SkeletonBar', 'SkeletonBlock', 'Skeletonize', 'GuideMarkerPill', 'GuideFooterCard',
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
   'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',

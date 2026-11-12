@@ -17,15 +17,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/activity/day_strain.dart';
 import 'package:openstrap_edge/ui2/activity/zones.dart';
-import 'package:openstrap_edge/ui2/guides/demo_data.dart';
 import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_heart_rate_zones.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
-import 'package:openstrap_edge/ui2/guides/guide_view.dart';
 import 'package:openstrap_edge/ui2/screens/home_screen.dart';
 import 'package:openstrap_edge/ui2/skeleton/skeleton.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
+import '../support/guide_demo_data.dart';
+import '../support/guide_demo_screens.dart';
+import '../support/guide_view.dart';
 import '../support/skeleton_fixture.dart';
 
 const _root = ValueKey('root');
@@ -46,7 +47,7 @@ Future<Element> _pumpScreen(
 }) async {
   skTallView(t, w: w, h: h);
   await t.pumpWidget(skHost(
-    SizedBox(key: _root, width: w, height: h, child: screen ?? Builder(builder: step.screen)),
+    SizedBox(key: _root, width: w, height: h, child: screen ?? Builder(builder: demoScreenFor(step))),
     locale: locale,
   ));
   await t.pump();

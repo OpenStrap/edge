@@ -1,16 +1,17 @@
-// DEMO FIXTURES (phase 2): the data the guide frames render the REAL screens
-// with. In lib so the app can render them; handed to the screens' `data:`
-// parameter and never written to the DB (the screens only read what they are
-// given; a screen with data injected never opens a repository).
+// DEMO FIXTURES (review tooling): the data the review renders (GuideStepView,
+// test/support/guide_view.dart) give the REAL screens. Test-only: the shipped
+// app never renders a guide on demo data; live guides (lib/ui2/guides) walk the
+// user's own screens. Handed to the screens' `data:` parameter and never
+// written to the DB.
 //
 // One fictional user, one believable day: a scored night, a moderate-to-hard
 // day (strain 9.4 of 21) with the heart-rate zones filled, WHOOP-style numbers.
 
-import '../../data/day_label.dart' show todayLabel;
-import '../../models/metric.dart';
-import '../activity/day_strain.dart' show DayStrainData;
-import '../activity/zones.dart' show ZonesData;
-import '../screens/home_screen.dart' show HomeData;
+import 'package:openstrap_edge/data/day_label.dart' show todayLabel;
+import 'package:openstrap_edge/models/metric.dart';
+import 'package:openstrap_edge/ui2/activity/day_strain.dart' show DayStrainData;
+import 'package:openstrap_edge/ui2/activity/zones.dart' show ZonesData;
+import 'package:openstrap_edge/ui2/screens/home_screen.dart' show HomeData;
 
 /// A measured value the screens treat as a real reading (non-empty: a value
 /// and a confidence above zero).
