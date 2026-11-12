@@ -321,7 +321,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
             holes: [target, ..._chrome],
             child: CustomPaint(key: LiveGuideOverlay.skeletonKey, painter: _GuidePainter(paintedShapes, p)),
           )),
-        if (marked) Positioned.fromRect(rect: outline!, child: ExcludeSemantics(child: IgnorePointer(child: DecoratedBox(
+        if (marked) Positioned.fromRect(rect: outline, child: ExcludeSemantics(child: IgnorePointer(child: DecoratedBox(
           key: LiveGuideOverlay.outlineKey,
           decoration: BoxDecoration(border: Border.all(color: kGuideMarkerColor, width: 2.5), borderRadius: R.rMd),
         )))),
