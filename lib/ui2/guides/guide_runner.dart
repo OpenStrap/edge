@@ -93,7 +93,12 @@ class GuideRunner extends ChangeNotifier {
   void detachShell(GuideShellLink link) {
     if (!identical(link, _shell)) return;
     _shell = null;
-    exit();
+    final run = _run;
+    // The shell detaches from dispose, while Flutter is finalizing the tree.
+    // Notify the still-mounted overlay only after that lock has been released.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_shell == null && identical(_run, run)) exit();
+    });
   }
 
   /// Starts [guide] for [band] (null = unknown band, which gets only an "any"

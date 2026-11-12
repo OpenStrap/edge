@@ -111,6 +111,41 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
+  // why: S2. The real shell's dispose detaches the runner while the element
+  // tree is locked; synchronous run notification used to setState the overlay.
+  testWidgets('unmounting the real shell during a run ends it without a locked-tree exception', (t) async {
+    final showShell = ValueNotifier(true);
+    addTearDown(showShell.dispose);
+    final app = await pumpLiveGuideApp(t, home: ValueListenableBuilder<bool>(
+      valueListenable: showShell,
+      builder: (_, show, _) => show ? const AppMainShell() : const SizedBox(),
+    ));
+    final run = (await app.runner.start(_guide('heart-rate-zones'), band: null) as GuideStarted).run;
+    await _reveal(t);
+    expect(find.byType(LiveGuideOverlay), findsOneWidget);
+    showShell.value = false;
+    await t.pump();
+    await t.pump();
+    expect(t.takeException(), isNull);
+    expect(find.byType(AppMainShell), findsNothing);
+    expect(run.isExited, isTrue);
+    expect(app.runner.activeRun, isNull);
+    expect(find.byType(LiveGuideOverlay), findsNothing);
+    expect(await app.runner.start(_guide('heart-rate-zones'), band: null), isA<GuideStartNoShell>());
+  });
+
+  // why: S2 also occurs when the Navigator and its overlay leave with the shell.
+  testWidgets('unmounting the entire real app during a run is safe', (t) async {
+    final app = await pumpLiveGuideApp(t);
+    final run = (await app.runner.start(_guide('heart-rate-zones'), band: null) as GuideStarted).run;
+    await _reveal(t);
+    await t.pumpWidget(const SizedBox());
+    await t.pump();
+    expect(t.takeException(), isNull);
+    expect(run.isExited, isTrue);
+    expect(app.runner.activeRun, isNull);
+  });
+
   group('wiring', () {
     testWidgets('the shell registers itself with the runner: start does not answer "no shell"', (t) async {
       // why: GuideRunner needs the shell\'s tab selection; AppMainShell must attach
