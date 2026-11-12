@@ -14820,6 +14820,47 @@ class LocalDb {
     ), executor: db);
   }
 
+  /// The most-used finished sessions' activity keys, most-used first — rows
+  /// of `{'type', 'n', 'last_ts'}` for the activity picker's quick row.
+  /// `type` comes back NORMALIZED exactly the way [activityByName] resolves
+  /// it (`lower(replace(type, ' ', '_'))`, the same rule as `Activity.typeKey`),
+  /// so 'Running' and 'running' count as one activity and can never rank an
+  /// activity low or show it twice. [sinceTs] bounds the window (the picker
+  /// passes 90 days so a seasonal sport does not stay pinned at the top
+  /// forever); null counts all history. Live sessions never count, and
+  /// `last_ts` breaks ties so a newly started sport does not sink below an
+  /// old habit. [limit] caps the ranked rows returned — a caller that drops
+  /// unresolvable types itself should fetch more than it displays, or
+  /// unknown types could crowd out every known one before the limit.
+  /// [toTs] bounds the window from above (defaults to now) so a future-dated
+  /// row (clock skew) cannot inflate a count. Only sessions this app started
+  /// count: scored imports (`scored_import`) and WHOOP exports (`whoop`) also
+  /// live in `sessions`, and the quick row's tiles START a session, so
+  /// someone else's recording must not outrank what this user does here.
+  static Future<List<Map<String, dynamic>>> mostUsedActivityTypes({
+    int? sinceTs,
+    int? toTs,
+    int limit = 6,
+  }) async {
+    final db = await instance;
+    final args = <Object?>[];
+    var where = "status = 'done' AND type IS NOT NULL AND type <> '' "
+        "AND source NOT IN ('scored_import', 'whoop') AND start_ts <= ?";
+    args.add(toTs ?? DateTime.now().millisecondsSinceEpoch ~/ 1000);
+    if (sinceTs != null) {
+      where += ' AND start_ts >= ?';
+      args.add(sinceTs);
+    }
+    args.add(limit);
+    return db.rawQuery(
+      "SELECT lower(replace(type, ' ', '_')) AS type, COUNT(*) AS n, "
+      'MAX(start_ts) AS last_ts FROM sessions '
+      'WHERE $where GROUP BY lower(replace(type, \' \', \'_\')) '
+      'ORDER BY n DESC, last_ts DESC, type ASC LIMIT ?',
+      args,
+    );
+  }
+
   /// What a session's sensor scored: served empty, not stored empty.
   static const List<String> _sensorScoreColumns = [
     'calories',

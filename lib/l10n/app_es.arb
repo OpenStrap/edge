@@ -1879,6 +1879,7 @@
   "activityPickerNoMatchBody": "El catálogo cubre unas setenta actividades con un coste energético publicado. Elige la más parecida.",
   "activityPickerQuickStart": "INICIO RÁPIDO",
   "activityPickerRecent": "RECIENTES",
+  "activityPickerMostDone": "MÁS USADAS",
   "activityPickerCalorieEstimatesTitle": "Las calorías son estimaciones",
   "activityPickerMetValue": "{met} MET",
   "activityPickerKcalPer30": "{kcal} kcal / 30 min",
