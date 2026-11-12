@@ -2200,9 +2200,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
     // five-MET nothing is worse than the six real ones.
     final mostUsed = <Activity>[];
     try {
-      final since90 =
-          now.subtract(const Duration(days: 90)).millisecondsSinceEpoch ~/
-              1000;
+      final since90 = now.millisecondsSinceEpoch ~/ 1000 - 90 * 86400;
       // Fetch far more than the six the row shows: unknown stored types are
       // dropped below, and a small SQL-side LIMIT could hand back only those
       // and leave the picker on quickStart despite usable history.
