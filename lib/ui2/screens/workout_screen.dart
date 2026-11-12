@@ -1150,9 +1150,12 @@ class _HistoryRow extends StatelessWidget {
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               Icon(LucideIcons.clock, size: 14, color: p.on(C.blue)),
               const SizedBox(width: S.x2),
-              Text(loc?.workoutFixTimes ?? 'Fix the times',
-                  style: F.cap.copyWith(
-                      color: p.on(C.blue), fontWeight: FontWeight.w600)),
+              Flexible(
+                child: Text(loc?.workoutFixTimes ?? 'Fix the times',
+                    textAlign: TextAlign.center,
+                    style: F.cap.copyWith(
+                        color: p.on(C.blue), fontWeight: FontWeight.w600)),
+              ),
             ]),
           ),
         ],
