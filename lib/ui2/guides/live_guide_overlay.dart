@@ -1,7 +1,7 @@
 // LIVE GUIDE OVERLAY (live mode): draws a [GuideRun] over the user's own
 // screens. It is one entry in the app's ROOT Overlay, above every route.
 //
-// After EVERY frame it
+// After frames that change the page, layout, scroll or content it
 //   1. finds the top PAGE route's subtree (null while a dialog,
 //      sheet or picker is on top),
 //   2. lets the run match a step by anchor ([GuideRun.observe]),
@@ -108,6 +108,12 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
   Object? _searchToken;
   Rect? _lastRevealRect;
   final Map<int, Offset> _downs = {};
+  Object? _plannedSignature;
+  Duration? _lastPlanTime;
+  int _planningCount = 0;
+
+  @visibleForTesting
+  int get planningCount => _planningCount;
 
   @visibleForTesting
   List<SkeletonShape> get paintedShapes => _yielding ? const [] : revealedShapes(_shapes, revealProgress);
@@ -203,6 +209,49 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
     if (nav == null || layer is! RenderBox || !layer.hasSize || !layer.attached) return;
     final page = widget.routes.page;
     final l = AppLocalizations.of(context)!;
+    // One cheap walk replaces repeated anchor, target, chrome, legibility and
+    // skeleton walks on idle/reveal frames. Widget identity catches replacement
+    // structure (including same-text controls); dimensions catch pure relayout;
+    // scroll pixels catch motion without a widget rebuild.
+    final content = <Object?>[];
+    final discoveryContent = <Object?>[];
+    if (page != null) {
+      visitBuilt(page, (e) {
+        final w = e.widget;
+        content.add(w);
+        final object = e is RenderObjectElement ? e.renderObject : null;
+        if (object is RenderBox && object.hasSize) content.add(object.size);
+        if (w is Text) discoveryContent.add(w.data ?? w.textSpan?.toPlainText());
+        if (e is StatefulElement && e.state is ScrollableState) {
+          final position = (e.state as ScrollableState).position;
+          if (position.hasPixels) content.add(position.pixels);
+          if (position.hasContentDimensions) {
+            content.add(position.maxScrollExtent);
+            discoveryContent.add(position.maxScrollExtent);
+          }
+        }
+      });
+    }
+    // Discovery retries use stable text/extents: rebuilding cached list
+    // children during an unsuccessful search must not restart that search.
+    final signature = Object.hashAll(discoveryContent);
+    final planSignature = (page, layer.size, Object.hashAll(content), widget.run,
+      widget.run.state, l, _searchingPage, _revealedPage, _revealedStep);
+    if (_plannedSignature == planSignature) return;
+    final now = SchedulerBinding.instance.currentFrameTimeStamp;
+    // Avoid full-tree planning at animation cadence. Request a trailing frame
+    // so even the last throttled layout is eventually measured. New pages,
+    // popups and completed animations are always reflected immediately.
+    final animating = SchedulerBinding.instance.transientCallbackCount >
+        (_reveal.isAnimating ? 1 : 0);
+    if (page != null && identical(page, _page) && animating &&
+        _lastPlanTime != null && now - _lastPlanTime! < const Duration(milliseconds: 50)) {
+      SchedulerBinding.instance.scheduleFrame();
+      return;
+    }
+    _plannedSignature = planSignature;
+    _lastPlanTime = now;
+    _planningCount++;
     if (page == null || !identical(page, _searchingPage)) widget.run.observe(page, l);
     final step = widget.run.currentStep;
     final newStep = _revealedPage != page || _revealedStep != step;
@@ -211,20 +260,6 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
       _revealedStep = null;
       _reveal.stop();
     }
-    // Retry discovery when async screen data replaces the loading state. A
-    // failed search is not retried just because our own animation ticks.
-    final content = <Object?>[];
-    if (page != null) {
-      visitBuilt(page, (e) {
-        final w = e.widget;
-        if (w is Text) content.add(w.data ?? w.textSpan?.toPlainText());
-        if (e is StatefulElement && e.state is ScrollableState) {
-          final position = (e.state as ScrollableState).position;
-          if (position.hasContentDimensions) content.add(position.maxScrollExtent);
-        }
-      });
-    }
-    final signature = Object.hashAll(content);
     final box = page == null ? null : laidOutBox(page);
     final resolution = page == null || step == null ? null : step.target.resolve(page, l);
     final targetNow = box != null && resolution is TargetFound

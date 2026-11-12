@@ -112,6 +112,26 @@ void main() {
     expect(find.byKey(GuideStepCard.doneKey), findsNothing);
   });
 
+  // why: S4 / CLAIM(overlay-idle-plan). Even idle frames used to run every
+  // whole-page resolver and skeleton planner; reveal ticks must reuse the plan.
+  testWidgets('an idle frame does not re-plan the page', (t) async {
+    final stage = await pumpLiveStage(t);
+    await _settleReveal(t);
+    await t.pump();
+    await t.pump();
+    final count = _overlay(t).planningCount;
+    final target = _overlay(t).targetRect;
+    expect(target, t.getRect(find.byKey(stageOpenDetails)));
+    await t.pump(const Duration(milliseconds: 16));
+    await t.pump(const Duration(milliseconds: 16));
+    expect(_overlay(t).planningCount, count);
+    // Positive control: changing the actual page invalidates the cached plan.
+    await pushStagePage(t, stage, StagePages(stage.taps).details());
+    await _settleReveal(t);
+    expect(_overlay(t).planningCount, greaterThan(count));
+    expect(_overlay(t).targetRect, t.getRect(find.byKey(stageFinish)));
+  });
+
   group('skeleton over the real page', () {
     testWidgets('covers the text of every card that is not the target, keeps the target and the title', (t) async {
       // why: the headline behaviour: the user's OWN screen with everything but the
