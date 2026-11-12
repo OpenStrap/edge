@@ -47,6 +47,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../onboarding/pairing.dart' show PairingScreen;
 import '../ui2.dart';
+import 'whoop_firmware_warning.dart';
 import '../profile/devices.dart'
     show kPairableSensors, refuseIfSensorCapReached, sensorIcon;
 import '../profile/pair_sensor.dart' show PairSensorScreen;
@@ -290,6 +291,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       subtitle:
           l?.devicePickerSubtitle ?? 'Bring whatever you use. You can add more anytime.',
       found: _found,
+      showWhoopWarning: widget.includeBand,
       scanning: _scanning,
       heldBack: _heldBack,
       problem: _problem,
@@ -327,6 +329,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
 /// The pure half — every state this screen can be in, from values, so a
 /// test can render each one without a radio.
 class DevicePickerView extends StatelessWidget {
+  final bool showWhoopWarning;
   final TextEditingController query;
   final String title, subtitle;
 
@@ -349,6 +352,7 @@ class DevicePickerView extends StatelessWidget {
     required this.query,
     required this.title,
     required this.subtitle,
+    this.showWhoopWarning = true,
     this.found = const [],
     this.scanning = false,
     this.heldBack,
@@ -379,6 +383,10 @@ class DevicePickerView extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
               children: [
+                if (showWhoopWarning) ...[
+                  const WhoopFirmwareWarning(),
+                  const SizedBox(height: S.x4),
+                ],
                 Text(subtitle, style: F.body.copyWith(color: p.ink3)),
                 const SizedBox(height: S.x4),
                 _SearchField(controller: query),

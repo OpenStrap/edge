@@ -2891,5 +2891,7 @@
         "type": "int"
       }
     }
-  }
+  },
+  "reportContactLabel": "Contacto (opcional)",
+  "reportContactHint": "Correo o Discord, solo si quieres una respuesta"
 }

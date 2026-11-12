@@ -2862,5 +2862,7 @@
         "type": "int"
       }
     }
-  }
+  },
+  "reportContactLabel": "联系方式（可选）",
+  "reportContactHint": "邮箱或 Discord，仅在你希望得到回复时填写"
 }
