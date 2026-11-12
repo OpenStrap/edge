@@ -86,6 +86,7 @@ class GuideRunner extends ChangeNotifier {
   GuideShellLink? _shell;
   OverlayEntry? _entry;
   Future<void>? _backToGuideFuture;
+  GuideRun? _backToGuideRun;
   GuideRun? get activeRun => _run;
 
   /// The shell registers itself on mount and unregisters on dispose. Detaching
@@ -151,8 +152,23 @@ class GuideRunner extends ChangeNotifier {
   /// Navigator back, one route at a time, until a step matches or only the
   /// shell is left; if the shell root still matches nothing, selects
   /// [Guide.start] again. Completes when the run is back on a step.
-  Future<void> backToGuide() => _backToGuideFuture ??=
-      _backToGuide().whenComplete(() => _backToGuideFuture = null);
+  ///
+  /// Concurrent calls for the same run share one walk. The walk is tied to its
+  /// run: a call for a newer run never gets an older run's walk back.
+  Future<void> backToGuide() {
+    final run = _run;
+    final pending = _backToGuideFuture;
+    if (pending != null && identical(_backToGuideRun, run)) return pending;
+    _backToGuideRun = run;
+    late final Future<void> walk;
+    walk = _backToGuide().whenComplete(() {
+      if (identical(_backToGuideFuture, walk)) {
+        _backToGuideFuture = null;
+        _backToGuideRun = null;
+      }
+    });
+    return _backToGuideFuture = walk;
+  }
 
   Future<void> _backToGuide() async {
     final run = _run;
