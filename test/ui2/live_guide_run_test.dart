@@ -25,6 +25,40 @@ GuideRun _freshRun([Guide? g]) {
 Element _topPage(WidgetTester t) => t.element(find.byType(Scaffold).last);
 
 void main() {
+  // why: S8. Popup/transition frames pass null, and finished runs stop matching.
+  // Neither may keep the Element trees of routes that have been popped.
+  testWidgets('null-page observations prune popped route elements', (t) async {
+    final stage = await pumpLiveStage(t, insertOverlay: false);
+    stage.run.observe(_topPage(t), _en);
+    await pushStagePage(t, stage, StagePages(stage.taps).details());
+    final details = _topPage(t);
+    stage.run.observe(details, _en);
+    expect(stage.run.rememberedPageCount, 2);
+    stage.navigator.pop();
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 400));
+    expect(details.mounted, isFalse);
+    stage.run.observe(null, _en);
+    expect(stage.run.rememberedPageCount, 1);
+  });
+
+  // why: S8. Terminal runs no longer need any remembered anchor Elements.
+  testWidgets('finishing and exiting release remembered page elements', (t) async {
+    final stage = await pumpLiveStage(t, insertOverlay: false);
+    stage.run.observe(_topPage(t), _en);
+    expect(stage.run.rememberedPageCount, 1);
+    stage.run.exit();
+    expect(stage.run.rememberedPageCount, 0);
+    final run = _freshRun();
+    addTearDown(run.dispose);
+    await pushStagePage(t, stage, StagePages(stage.taps).details());
+    run.observe(_topPage(t), _en);
+    expect(run.rememberedPageCount, 1);
+    run.targetTapped();
+    expect(run.state, isA<GuideFinished>());
+    expect(run.rememberedPageCount, 0);
+  });
+
   group('start', () {
     test('a new run is on step 0: not off the path, not finished, not exited', () {
       // why: the first frame has not looked at the screen yet; showing "You've

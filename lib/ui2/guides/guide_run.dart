@@ -19,7 +19,7 @@
 // navigation around it; [LiveGuideOverlay] (live_guide_overlay.dart) feeds it
 // the top page after every frame and draws its state.
 
-import 'package:flutter/foundation.dart' show ChangeNotifier;
+import 'package:flutter/foundation.dart' show ChangeNotifier, visibleForTesting;
 import 'package:flutter/widgets.dart' show Element, IndexedStack;
 
 import '../../l10n/app_localizations.dart';
@@ -62,6 +62,9 @@ class GuideRun extends ChangeNotifier {
   GuideRunState _state = const GuideAtStep(0);
   int? _lastIndex;
   final _matchedPages = <Element, int>{};
+  @visibleForTesting
+  int get rememberedPageCount => _matchedPages.length;
+
   bool _exited = false;
   GuideRunState get state => _state;
 
@@ -93,8 +96,8 @@ class GuideRun extends ChangeNotifier {
   /// dialog / sheet / picker is on top (the run holds its state then: the
   /// user is acting on the step, not leaving it). Notifies only on change.
   void observe(Element? topPage, AppLocalizations l) {
-    if (_exited || _state is GuideFinished || topPage == null) return;
     _matchedPages.removeWhere((page, _) => !page.mounted);
+    if (_exited || _state is GuideFinished || topPage == null) return;
     var index = matchStep(variant, topPage, l);
     // A reveal may dispose the anchor in a lazy list. Only restore a step
     // whose anchor was already observed on THIS page, with its action still
@@ -120,6 +123,7 @@ class GuideRun extends ChangeNotifier {
   void targetTapped() {
     if (_exited) return;
     if (_state case GuideAtStep(:final index) when index == variant.steps.length - 1) {
+      _matchedPages.clear();
       _state = const GuideFinished();
       notifyListeners();
     }
@@ -129,6 +133,7 @@ class GuideRun extends ChangeNotifier {
   void exit() {
     if (_exited) return;
     _exited = true;
+    _matchedPages.clear();
     notifyListeners();
   }
 }

@@ -209,6 +209,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
     if (nav == null || layer is! RenderBox || !layer.hasSize || !layer.attached) return;
     final page = widget.routes.page;
     final l = AppLocalizations.of(context)!;
+    widget.run.observe(null, l); // Prune disposed pages even when the plan is cached.
     // One cheap walk replaces repeated anchor, target, chrome, legibility and
     // skeleton walks on idle/reveal frames. Widget identity catches replacement
     // structure (including same-text controls); dimensions catch pure relayout;
