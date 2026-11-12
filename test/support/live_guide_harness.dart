@@ -21,6 +21,7 @@ import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/models/activity_suggestion.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/state/prefs.dart';
+import 'package:openstrap_edge/state/units_controller.dart';
 import 'package:openstrap_edge/theme/theme_controller.dart';
 import 'package:openstrap_edge/ui2/guides/guide_runner.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
@@ -193,6 +194,7 @@ Future<LiveGuideApp> pumpLiveGuideApp(
   await t.pumpWidget(MultiProvider(
     providers: [
       ChangeNotifierProvider<AppState>.value(value: state),
+      ChangeNotifierProvider<UnitsController>(create: (_) => UnitsController.seed(UnitSystem.metric)),
       ChangeNotifierProvider<ThemeController>.value(
           value: ThemeController.seed(AppThemeChoice.light, Brightness.light)),
       ChangeNotifierProvider<GuideRunner>.value(value: guideRunner),
