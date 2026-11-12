@@ -1734,6 +1734,7 @@
   "sleepDetailWindowNoSleep": "Deine Zeiten sind gespeichert, aber die Aufzeichnungen des Bands aus diesen Stunden zeigen keinen Schlaf zum Auswerten.",
   "sleepDetailNightUnrecorded": "Deine Herzfrequenz deutet auf eine Nacht Schlaf hin, aber das Band hat dabei größtenteils zu wenige Bewegungsdaten aufgezeichnet, daher gibt es keine Nacht zum Auswerten.",
   "sleepDetailCorrectionUnavailable": "Die detaillierten Aufzeichnungen dieser Nacht sind nicht mehr auf dem Telefon, daher lässt sich ihr Schlaf nicht mehr korrigieren.",
+  "sleepDetailCorrectionNoRecordings": "Für diese Nacht liegen keine detaillierten Aufzeichnungen auf dem Telefon, daher kann ihr Schlaf nicht korrigiert werden.",
   "sleepDetailCorrectionEveningPruned": "Der Abend vor dieser Nacht ist nicht mehr auf dem Telefon, daher lassen sich nur eine Schlafenszeit nach Mitternacht oder „Kein Schlaf“ übernehmen.",
   "sleepDetailNoHypnogramTitle": "Kein Hypnogramm für diese Nacht",
   "sleepDetailNoHypnogramBody": "Für die Berechnung der Schlafphasen werden Bewegungsdaten und Herzschlag-Abstände benötigt. Mindestens eine dieser Datenquellen fehlt.",

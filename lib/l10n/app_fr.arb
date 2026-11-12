@@ -1671,6 +1671,7 @@
   "sleepDetailWindowNoSleep": "Vos horaires sont enregistrés, mais les enregistrements du bracelet pour ces heures ne montrent aucun sommeil à évaluer.",
   "sleepDetailNightUnrecorded": "Votre fréquence cardiaque indique une nuit de sommeil, mais le bracelet a enregistré trop peu de données de mouvement pendant la majeure partie : il n'y a donc pas de nuit à évaluer.",
   "sleepDetailCorrectionUnavailable": "Les enregistrements détaillés de cette nuit ne sont plus sur le téléphone, son sommeil ne peut donc plus être corrigé.",
+  "sleepDetailCorrectionNoRecordings": "Cette nuit n’a pas d’enregistrements détaillés sur le téléphone, son sommeil ne peut donc pas être corrigé.",
   "sleepDetailCorrectionEveningPruned": "La soirée précédant cette nuit n’est plus sur le téléphone : on peut seulement indiquer une heure de coucher après minuit, ou marquer la nuit comme n’étant pas du sommeil.",
   "sleepDetailNoHypnogramTitle": "Aucun hypnogramme pour cette nuit",
   "sleepDetailNoHypnogramBody": "L'analyse des phases nécessite le mouvement et le rythme cardiaque. L'un des deux manquait.",

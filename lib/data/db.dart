@@ -4546,6 +4546,20 @@ class LocalDb {
     return v == null ? null : int.tryParse(v);
   }
 
+  /// Whether the raw prune has already deleted [day]'s decoded recordings:
+  /// the whole day lies before the [kDecodedPrunedBeforeCursor] cut, which the
+  /// prune only ever sets at a local midnight (a day straddling it is not). False when nothing has been
+  /// pruned yet, so "no recordings" on a fresh install or an unworn night is
+  /// not mistaken for "deleted", and false for a day that was imported.
+  static Future<bool> decodedPrunedFor(String day) async {
+    final cut = await getCursorInt(kDecodedPrunedBeforeCursor);
+    final end = localDayEndSec(day);
+    if (cut == null || end == null || end > cut) return false;
+    // An imported day sits before the cut without ever having had recordings
+    // here, so there was nothing for the prune to remove.
+    return !(await importedDates()).contains(day);
+  }
+
   /// The primary device's durable record frontier (`rec_ts_hw`), or null when
   /// no record has been banked. Builds before the commit guard could persist
   /// '0' from a record-less commit, so a non-positive value reads as unset.
