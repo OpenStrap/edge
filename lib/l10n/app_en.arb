@@ -16442,5 +16442,575 @@
   "guideHrZonesMissingBody": "It appears once the band has recorded heart rate for the day and your zones can be worked out. If it still doesn't show after you've worn the band for a while, add your age in your profile.",
   "@guideHrZonesMissingBody": {
     "description": "Footer card body: why the 'Time in zones' section can be missing: no heart rate recorded for the day yet, or zones can't be worked out (no age set)."
+  },
+  "profileHelpRow": "Help",
+  "@profileHelpRow": {
+    "description": "Profile row: open the Help list of navigation guides (where to find things in the app)."
+  },
+  "guideStepOf": "Step {step} of {total}",
+  "@guideStepOf": {
+    "description": "Screen-reader label of one dot in the step indicator of a guide.",
+    "placeholders": {
+      "step": {
+        "type": "String",
+        "description": "The number of the step this dot stands for."
+      },
+      "total": {
+        "type": "String",
+        "description": "How many steps the guide has."
+      }
+    }
+  },
+  "guidePickBand": "Which band do you have?",
+  "@guidePickBand": {
+    "description": "Shown above the band buttons when a guide has different steps for WHOOP 4 and WHOOP 5 and no band is paired yet."
+  },
+  "helpEmpty": "There are no guides for your band yet.",
+  "@helpEmpty": {
+    "description": "Help screen: shown when no guide covers the paired band."
+  },
+  "guideAnotherWayInTitle": "Another way in",
+  "@guideAnotherWayInTitle": {
+    "description": "Title of a footer card in a guide: a second route to the same screen."
+  },
+  "guideAlarmTitle": "Where to set an alarm, or a different time each day",
+  "@guideAlarmTitle": {
+    "description": "Title of the navigation guide for the weekly alarm schedule."
+  },
+  "guideAlarmStep1": "On the **{tab}** tab, scroll down to **{section}** and tap **{row}**.",
+  "@guideAlarmStep1": {
+    "description": "Step 1 caption. Words between ** ** are bold and must be the in-app labels, passed in: {tab} is the Sleep tab name, {section} the \"Alarm and body clock\" heading, {row} the Alarm row.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Sleep tab name"
+      },
+      "section": {
+        "type": "String",
+        "description": "Heading of the section with the alarm row"
+      },
+      "row": {
+        "type": "String",
+        "description": "Name of the Alarm row"
+      }
+    }
+  },
+  "guideAlarmStep2": "Under **{group}**, tap a day to turn it on, for example **{day}**.",
+  "@guideAlarmStep2": {
+    "description": "Step 2 caption. Bold words are in-app labels: {group} is the \"Weekly schedule\" heading, {day} a short weekday name such as Tue.",
+    "placeholders": {
+      "group": {
+        "type": "String",
+        "description": "Heading of the weekly schedule"
+      },
+      "day": {
+        "type": "String",
+        "description": "Short name of one weekday"
+      }
+    }
+  },
+  "guideAlarmStep3": "Then tap **{wake}** under that day and pick the time. Every day can have its own time.",
+  "@guideAlarmStep3": {
+    "description": "Step 3 caption. {wake} is the in-app name of the Wake time row that appears under a day that is on.",
+    "placeholders": {
+      "wake": {
+        "type": "String",
+        "description": "Name of the Wake time row"
+      }
+    }
+  },
+  "guideAlarmAltBody": "Open **{profile}**, then **{settings}**, then **{band}**, then **{alarm}**.",
+  "@guideAlarmAltBody": {
+    "description": "Footer card body: the second route to the Alarm screen. Bold words are in-app labels in the order they are tapped.",
+    "placeholders": {
+      "profile": {
+        "type": "String",
+        "description": "Profile screen name"
+      },
+      "settings": {
+        "type": "String",
+        "description": "Settings row name"
+      },
+      "band": {
+        "type": "String",
+        "description": "The band settings group name"
+      },
+      "alarm": {
+        "type": "String",
+        "description": "Alarm row name"
+      }
+    }
+  },
+  "guideAlarmMissingTitle": "Don't see \"{group}\"?",
+  "@guideAlarmMissingTitle": {
+    "description": "Footer card title: the user cannot see the weekly schedule. {group} is its in-app heading.",
+    "placeholders": {
+      "group": {
+        "type": "String",
+        "description": "Heading of the weekly schedule"
+      }
+    }
+  },
+  "guideAlarmMissingBody": "**{group}** only shows while your band is connected. Keep the band close to your phone, wait for it to connect, then look again.",
+  "@guideAlarmMissingBody": {
+    "description": "Footer card body: why the weekly schedule can be missing (the band is not connected).",
+    "placeholders": {
+      "group": {
+        "type": "String",
+        "description": "Heading of the weekly schedule"
+      }
+    }
+  },
+  "guideAddNapTitle": "Where to log a nap yourself",
+  "@guideAddNapTitle": {
+    "description": "Title of the navigation guide for adding a nap by hand."
+  },
+  "guideAddNapStep1": "On the **{tab}** tab, tap **{naps}** under your last night.",
+  "@guideAddNapStep1": {
+    "description": "Step 1 caption. Bold words are in-app labels: {tab} is the Sleep tab name, {naps} the Naps button.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Sleep tab name"
+      },
+      "naps": {
+        "type": "String",
+        "description": "Name of the Naps button"
+      }
+    }
+  },
+  "guideAddNapStep2": "Tap **{log}**. You are asked two things: **{fell}**, then **{woke}**. Pick both times.",
+  "@guideAddNapStep2": {
+    "description": "Step 2 caption. {log} is the Log a nap button; {fell} and {woke} are the two questions of the time pickers, in lower case.",
+    "placeholders": {
+      "log": {
+        "type": "String",
+        "description": "Name of the Log a nap button"
+      },
+      "fell": {
+        "type": "String",
+        "description": "The first picker question, lower case"
+      },
+      "woke": {
+        "type": "String",
+        "description": "The second picker question, lower case"
+      }
+    }
+  },
+  "guideAddNapFoundTitle": "Naps the band found",
+  "@guideAddNapFoundTitle": {
+    "description": "Footer card title of the add-a-nap guide: naps the app detected itself."
+  },
+  "guideAddNapFoundBody": "Naps the band detected are listed on the same screen. If one is wrong, tap **{notNap}** next to it.",
+  "@guideAddNapFoundBody": {
+    "description": "Footer card body. {notNap} is the in-app button that rejects a detected nap.",
+    "placeholders": {
+      "notNap": {
+        "type": "String",
+        "description": "Name of the Not a nap button"
+      }
+    }
+  },
+  "guideAddNapRulesTitle": "The nap won't save?",
+  "@guideAddNapRulesTitle": {
+    "description": "Footer card title: the user tried to log a nap and it was refused."
+  },
+  "guideAddNapRulesBody": "A nap lasts between 5 minutes and 6 hours, has to be over already, and can't overlap another nap or your main sleep.",
+  "@guideAddNapRulesBody": {
+    "description": "Footer card body: the rules a logged nap must satisfy."
+  },
+  "guideRemoveTitle": "Where to remove a nap or workout that wasn't real",
+  "@guideRemoveTitle": {
+    "description": "Title of the navigation guide for rejecting a detected nap or workout."
+  },
+  "guideRemoveStep1": "On the **{tab}** tab, tap the **{card}** card. It only shows while something is waiting for you.",
+  "@guideRemoveStep1": {
+    "description": "Step 1 caption. Bold words are in-app labels: {tab} is the Today tab name, {card} the title of the card.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Today tab name"
+      },
+      "card": {
+        "type": "String",
+        "description": "Title of the Detected activities card"
+      }
+    }
+  },
+  "guideRemoveStep2": "Tap **{notNap}** on a nap, or **{notWorkout}** on a workout, that didn't happen.",
+  "@guideRemoveStep2": {
+    "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",
+    "placeholders": {
+      "notNap": {
+        "type": "String",
+        "description": "Name of the Not a nap button"
+      },
+      "notWorkout": {
+        "type": "String",
+        "description": "Name of the Not a workout button"
+      }
+    }
+  },
+  "guideRemoveSavedTitle": "Already saved?",
+  "@guideRemoveSavedTitle": {
+    "description": "Footer card title: the nap or workout was already accepted earlier."
+  },
+  "guideRemoveSavedBody": "Open the **{sleep}** tab and tap **{naps}**. Tap **{notNap}** on a nap the band found, or **{delete}** on one you logged yourself.",
+  "@guideRemoveSavedBody": {
+    "description": "Footer card body. Bold words are in-app labels.",
+    "placeholders": {
+      "sleep": {
+        "type": "String",
+        "description": "Sleep tab name"
+      },
+      "naps": {
+        "type": "String",
+        "description": "Name of the Naps button"
+      },
+      "notNap": {
+        "type": "String",
+        "description": "Name of the Not a nap button"
+      },
+      "delete": {
+        "type": "String",
+        "description": "Name of the Delete button"
+      }
+    }
+  },
+  "guideRemoveMissingTitle": "Don't see \"{card}\"?",
+  "@guideRemoveMissingTitle": {
+    "description": "Footer card title: the user cannot see the card. {card} is its in-app title.",
+    "placeholders": {
+      "card": {
+        "type": "String",
+        "description": "Title of the Detected activities card"
+      }
+    }
+  },
+  "guideRemoveMissingBody": "The card is only there while something is waiting for your answer. Once it has been answered, look under **{sleep}** > **{naps}** for naps, or **{activity}** > **{history}** for workouts.",
+  "@guideRemoveMissingBody": {
+    "description": "Footer card body. Bold words are in-app labels; > separates the taps.",
+    "placeholders": {
+      "sleep": {
+        "type": "String",
+        "description": "Sleep tab name"
+      },
+      "naps": {
+        "type": "String",
+        "description": "Name of the Naps button"
+      },
+      "activity": {
+        "type": "String",
+        "description": "Activity tab name"
+      },
+      "history": {
+        "type": "String",
+        "description": "Name of the History sub-tab"
+      }
+    }
+  },
+  "guideFixTimesTitle": "Where to fix your sleep times",
+  "@guideFixTimesTitle": {
+    "description": "Title of the navigation guide for correcting when a night started and ended."
+  },
+  "guideFixTimesStep1": "On the **{tab}** tab, tap **{change}** under your last night. It reads **{set}** until you have set the times yourself. You are asked when you went to bed, then when you woke up.",
+  "@guideFixTimesStep1": {
+    "description": "Step 1 caption. Bold words are in-app labels: {tab} the Sleep tab, {change} and {set} the two texts of the same button.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Sleep tab name"
+      },
+      "change": {
+        "type": "String",
+        "description": "Button text once the times are the user's own"
+      },
+      "set": {
+        "type": "String",
+        "description": "Button text while the times are automatic"
+      }
+    }
+  },
+  "guideFixTimesStep2": "To undo your changes, tap **{back}**. The night goes back to the times the app detected.",
+  "@guideFixTimesStep2": {
+    "description": "Step 2 caption. {back} is the in-app Back to automatic button.",
+    "placeholders": {
+      "back": {
+        "type": "String",
+        "description": "Name of the Back to automatic button"
+      }
+    }
+  },
+  "guideFixTimesBackTitle": "Don't see \"{back}\"?",
+  "@guideFixTimesBackTitle": {
+    "description": "Footer card title. {back} is the in-app Back to automatic button.",
+    "placeholders": {
+      "back": {
+        "type": "String",
+        "description": "Name of the Back to automatic button"
+      }
+    }
+  },
+  "guideFixTimesBackBody": "**{back}** only shows after you have set the times yourself. Set them first, then it appears.",
+  "@guideFixTimesBackBody": {
+    "description": "Footer card body.",
+    "placeholders": {
+      "back": {
+        "type": "String",
+        "description": "Name of the Back to automatic button"
+      }
+    }
+  },
+  "guideFixTimesAskTitle": "What the pickers ask",
+  "@guideFixTimesAskTitle": {
+    "description": "Footer card title: explains the two time pickers that open."
+  },
+  "guideFixTimesAskBody": "First the time you went to bed, then the time you woke up. The night is worked out again from those two times.",
+  "@guideFixTimesAskBody": {
+    "description": "Footer card body."
+  },
+  "guideDeleteTitle": "Where to delete a workout",
+  "@guideDeleteTitle": {
+    "description": "Title of the navigation guide for deleting a recorded workout."
+  },
+  "guideDeleteStep1": "On the **{tab}** tab, open **{history}**.",
+  "@guideDeleteStep1": {
+    "description": "Step 1 caption. Bold words are in-app labels: {tab} is the Activity tab, {history} the History sub-tab.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Activity tab name"
+      },
+      "history": {
+        "type": "String",
+        "description": "Name of the History sub-tab"
+      }
+    }
+  },
+  "guideDeleteStep2": "Tap the bin at the end of the session's row (**{label}**), then confirm.",
+  "@guideDeleteStep2": {
+    "description": "Step 2 caption. {label} is the accessibility label of the bin icon.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "description": "Accessibility label of the delete icon"
+      }
+    }
+  },
+  "guideDeleteWhatTitle": "What deleting does",
+  "@guideDeleteWhatTitle": {
+    "description": "Footer card title: the effect of deleting a workout."
+  },
+  "guideDeleteWhatBody": "The session disappears from the app. A copy in your phone's health app, if there is one, stays where it is.",
+  "@guideDeleteWhatBody": {
+    "description": "Footer card body."
+  },
+  "guideDeleteNoneTitle": "No bin to tap?",
+  "@guideDeleteNoneTitle": {
+    "description": "Footer card title: the user sees no delete icon."
+  },
+  "guideDeleteNoneBody": "If History says **{none}**, there is nothing to delete yet. **{start}** or **{log}** adds a session.",
+  "@guideDeleteNoneBody": {
+    "description": "Footer card body. Bold words are in-app labels: {none} the empty-History message, {start} and {log} the two ways to add a session.",
+    "placeholders": {
+      "none": {
+        "type": "String",
+        "description": "The message shown when no session is recorded"
+      },
+      "start": {
+        "type": "String",
+        "description": "Name of the Start a workout button"
+      },
+      "log": {
+        "type": "String",
+        "description": "Name of the Log a past workout button"
+      }
+    }
+  },
+  "guideStartTitle": "Where to start and stop a workout",
+  "@guideStartTitle": {
+    "description": "Title of the navigation guide for starting and stopping a workout."
+  },
+  "guideStartStep1": "On the **{tab}** tab, tap the **{card}** card.",
+  "@guideStartStep1": {
+    "description": "Step 1 caption. Bold words are in-app labels: {tab} is the Activity tab, {card} the start card.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Activity tab name"
+      },
+      "card": {
+        "type": "String",
+        "description": "Text of the start card"
+      }
+    }
+  },
+  "guideStartStep2": "Find your activity: type in **{search}**, or tap one in the list.",
+  "@guideStartStep2": {
+    "description": "Step 2 caption. {search} is the in-app label of the search field.",
+    "placeholders": {
+      "search": {
+        "type": "String",
+        "description": "Label of the activity search field"
+      }
+    }
+  },
+  "guideStartStep3": "Check the details, then tap **{start}**.",
+  "@guideStartStep3": {
+    "description": "Step 3 caption. {start} is the Start button of the setup screen.",
+    "placeholders": {
+      "start": {
+        "type": "String",
+        "description": "Name of the Start button"
+      }
+    }
+  },
+  "guideStartStep4": "To stop, tap the red square (**{finish}**). You land on the summary of your session.",
+  "@guideStartStep4": {
+    "description": "Step 4 caption. {finish} is the accessibility label of the red stop button.",
+    "placeholders": {
+      "finish": {
+        "type": "String",
+        "description": "Accessibility label of the finish button"
+      }
+    }
+  },
+  "guideStartNoBandTitle": "No band connected?",
+  "@guideStartNoBandTitle": {
+    "description": "Footer card title of the start-a-workout guide."
+  },
+  "guideStartNoBandBody": "You can still start a session. Without the band there is no heart rate for it.",
+  "@guideStartNoBandBody": {
+    "description": "Footer card body."
+  },
+  "guideStartPauseTitle": "Need a break?",
+  "@guideStartPauseTitle": {
+    "description": "Footer card title: pausing a running workout."
+  },
+  "guideStartPauseBody": "Tap **{pause}** to stop the clock, and **{resume}** to carry on.",
+  "@guideStartPauseBody": {
+    "description": "Footer card body. Bold words are the in-app Pause and Resume buttons.",
+    "placeholders": {
+      "pause": {
+        "type": "String",
+        "description": "Name of the Pause button"
+      },
+      "resume": {
+        "type": "String",
+        "description": "Name of the Resume button"
+      }
+    }
+  },
+  "guideLogPastTitle": "Where to log a workout you forgot to record",
+  "@guideLogPastTitle": {
+    "description": "Title of the navigation guide for adding a workout by hand."
+  },
+  "guideLogPastStep1": "On the **{tab}** tab, open **{history}**.",
+  "@guideLogPastStep1": {
+    "description": "Step 1 caption. Bold words are in-app labels: {tab} is the Activity tab, {history} the History sub-tab.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Activity tab name"
+      },
+      "history": {
+        "type": "String",
+        "description": "Name of the History sub-tab"
+      }
+    }
+  },
+  "guideLogPastStep2": "Scroll to the bottom and tap **{log}**.",
+  "@guideLogPastStep2": {
+    "description": "Step 2 caption. {log} is the Log a past workout button.",
+    "placeholders": {
+      "log": {
+        "type": "String",
+        "description": "Name of the Log a past workout button"
+      }
+    }
+  },
+  "guideLogPastStep3": "Choose the activity and fill in the **{when}** times, then tap **{logIt}**.",
+  "@guideLogPastStep3": {
+    "description": "Step 3 caption. Bold words are in-app labels: {when} the heading of the times group, {logIt} the save button.",
+    "placeholders": {
+      "when": {
+        "type": "String",
+        "description": "Heading of the group with the times"
+      },
+      "logIt": {
+        "type": "String",
+        "description": "Name of the save button"
+      }
+    }
+  },
+  "guideLogPastScoreTitle": "Will it get a score?",
+  "@guideLogPastScoreTitle": {
+    "description": "Footer card title of the log-a-past-workout guide."
+  },
+  "guideLogPastScoreBody": "If the band recorded your heart rate for that time, the workout is scored from it. If not, it is saved without a score.",
+  "@guideLogPastScoreBody": {
+    "description": "Footer card body."
+  },
+  "guideLogPastMissingTitle": "Don't see \"{log}\"?",
+  "@guideLogPastMissingTitle": {
+    "description": "Footer card title. {log} is the in-app button.",
+    "placeholders": {
+      "log": {
+        "type": "String",
+        "description": "Name of the Log a past workout button"
+      }
+    }
+  },
+  "guideLogPastMissingBody": "It sits at the very bottom of **{history}**, below your sessions. Scroll all the way down.",
+  "@guideLogPastMissingBody": {
+    "description": "Footer card body.",
+    "placeholders": {
+      "history": {
+        "type": "String",
+        "description": "Name of the History sub-tab"
+      }
+    }
+  },
+  "guideDontSeeIt": "Don't see it?",
+  "@guideDontSeeIt": {
+    "description": "Link on the guide's step card that expands the help for a target that is not on the screen."
+  },
+  "guideExit": "Exit",
+  "@guideExit": {
+    "description": "Button on the guide card that ends the guide and leaves the app where it is."
+  },
+  "guideExitLabel": "Exit the guide",
+  "@guideExitLabel": {
+    "description": "Screen-reader label of the Exit button on the guide card."
+  },
+  "guideOffPathTitle": "You've left the path",
+  "@guideOffPathTitle": {
+    "description": "Title of the guide card when the user has gone to a screen the guide does not cover."
+  },
+  "guideOffPathBody": "This screen isn't part of the guide.",
+  "@guideOffPathBody": {
+    "description": "Body of the off-path guide card."
+  },
+  "guideBackToGuide": "Back to the guide",
+  "@guideBackToGuide": {
+    "description": "Button on the off-path guide card that returns to the last screen of the guide."
+  },
+  "guideDoneTitle": "Done",
+  "@guideDoneTitle": {
+    "description": "Title of the guide card after the last step."
+  },
+  "guideDoneBody": "That was the last step.",
+  "@guideDoneBody": {
+    "description": "Body of the guide card after the last step."
+  },
+  "guideTargetProxy": "Guide target: {caption}",
+  "@guideTargetProxy": {
+    "description": "Screen-reader label of the highlighted control while a guide runs.",
+    "placeholders": {
+      "caption": {
+        "type": "String",
+        "description": "The step caption."
+      }
+    }
   }
 }

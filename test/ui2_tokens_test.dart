@@ -282,6 +282,11 @@ const _notComponents = {
   // pumped by test/ui2/guide_view_test.dart and the live-guide tests, and a gallery
   // cell would show a yellow pill / a footer card with nothing to point at.
   'SkeletonBar', 'SkeletonBlock', 'Skeletonize', 'GuideMarkerPill', 'GuideFooterCard',
+  // Live guides: the card and the overlay exist only while a guide runs over the
+  // user's own screens (a cell cannot hold a full-screen overlay; the card needs a
+  // GuideRun). HelpScreen is a screen. Pumped by test/ui2/guide_step_card_test.dart,
+  // live_guide_overlay_test.dart and help_screen_test.dart.
+  'GuideStepCard', 'LiveGuideOverlay', 'HelpScreen',
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
   'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',

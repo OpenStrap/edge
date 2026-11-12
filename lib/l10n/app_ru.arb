@@ -7981,5 +7981,468 @@
         "type": "String"
       }
     }
+  },
+  "profileHelpRow": "Помощь",
+  "guideStepOf": "Шаг {step} из {total}",
+  "guidePickBand": "Какой у вас браслет?",
+  "helpEmpty": "Для вашего браслета пока нет инструкций.",
+  "guideAnotherWayInTitle": "Другой путь",
+  "guideAlarmTitle": "Где поставить будильник или задать своё время на каждый день",
+  "guideAlarmStep1": "На вкладке **{tab}** прокрутите вниз до **{section}** и нажмите **{row}**.",
+  "guideAlarmStep2": "В разделе **{group}** нажмите на день, чтобы включить его, например **{day}**.",
+  "guideAlarmStep3": "Затем нажмите **{wake}** под этим днём и выберите время. У каждого дня может быть своё время.",
+  "guideAlarmAltBody": "Откройте **{profile}**, затем **{settings}**, затем **{band}**, затем **{alarm}**.",
+  "guideAlarmMissingTitle": "Не видите «{group}»?",
+  "guideAlarmMissingBody": "**{group}** показывается, только пока браслет подключён. Держите браслет рядом с телефоном, дождитесь подключения и посмотрите снова.",
+  "guideAddNapTitle": "Где самому записать дневной сон",
+  "guideAddNapStep1": "На вкладке **{tab}** нажмите **{naps}** под последней ночью.",
+  "guideAddNapStep2": "Нажмите **{log}**. Вас спросят о двух вещах: **{fell}**, затем **{woke}**. Выберите оба времени.",
+  "guideAddNapFoundTitle": "Дневной сон, найденный браслетом",
+  "guideAddNapFoundBody": "Дневной сон, который заметил браслет, показан на том же экране. Если что-то определено неверно, нажмите рядом **{notNap}**.",
+  "guideAddNapRulesTitle": "Дневной сон не сохраняется?",
+  "guideAddNapRulesBody": "Дневной сон длится от 5 минут до 6 часов, должен уже закончиться и не может пересекаться с другим дневным сном или с основным сном.",
+  "guideRemoveTitle": "Где убрать дневной сон или тренировку, которых не было",
+  "guideRemoveStep1": "На вкладке **{tab}** нажмите на карточку **{card}**. Она есть, только пока что-то ждёт вашего ответа.",
+  "guideRemoveStep2": "Нажмите **{notNap}** у дневного сна или **{notWorkout}** у тренировки, которых не было.",
+  "guideRemoveSavedTitle": "Уже сохранено?",
+  "guideRemoveSavedBody": "Откройте вкладку **{sleep}** и нажмите **{naps}**. Нажмите **{notNap}** у сна, найденного браслетом, или **{delete}** у записанного вами.",
+  "guideRemoveMissingTitle": "Не видите «{card}»?",
+  "guideRemoveMissingBody": "Карточка есть, только пока что-то ждёт вашего ответа. После ответа ищите дневной сон в **{sleep}** > **{naps}**, а тренировки в **{activity}** > **{history}**.",
+  "guideFixTimesTitle": "Где исправить время сна",
+  "guideFixTimesStep1": "На вкладке **{tab}** нажмите **{change}** под последней ночью. Там написано **{set}**, пока вы сами не задали время. Вас спросят, когда вы легли, а затем когда проснулись.",
+  "guideFixTimesStep2": "Чтобы отменить изменения, нажмите **{back}**. Ночь вернётся ко времени, которое определило приложение.",
+  "guideFixTimesBackTitle": "Не видите «{back}»?",
+  "guideFixTimesBackBody": "**{back}** появляется только после того, как вы сами задали время. Сначала задайте его, и кнопка появится.",
+  "guideFixTimesAskTitle": "О чём спрашивают окна выбора",
+  "guideFixTimesAskBody": "Сначала время, когда вы легли, затем время, когда проснулись. По этим двум значениям ночь рассчитывается заново.",
+  "guideDeleteTitle": "Где удалить тренировку",
+  "guideDeleteStep1": "На вкладке **{tab}** откройте **{history}**.",
+  "guideDeleteStep2": "Нажмите на корзину в конце строки тренировки (**{label}**) и подтвердите.",
+  "guideDeleteWhatTitle": "Что происходит при удалении",
+  "guideDeleteWhatBody": "Тренировка исчезает из приложения. Копия в приложении «Здоровье» на телефоне, если она есть, остаётся на месте.",
+  "guideDeleteNoneTitle": "Нет корзины, на которую нажать?",
+  "guideDeleteNoneBody": "Если в разделе «История» написано **{none}**, удалять пока нечего. Тренировку добавляют кнопки **{start}** и **{log}**.",
+  "guideStartTitle": "Где начать и закончить тренировку",
+  "guideStartStep1": "На вкладке **{tab}** нажмите на карточку **{card}**.",
+  "guideStartStep2": "Найдите свою активность: введите её в **{search}** или выберите из списка.",
+  "guideStartStep3": "Проверьте детали и нажмите **{start}**.",
+  "guideStartStep4": "Чтобы остановить, нажмите красный квадрат (**{finish}**). Вы попадёте на итоги тренировки.",
+  "guideStartNoBandTitle": "Браслет не подключён?",
+  "guideStartNoBandBody": "Тренировку всё равно можно начать. Без браслета пульса в ней не будет.",
+  "guideStartPauseTitle": "Нужен перерыв?",
+  "guideStartPauseBody": "Нажмите **{pause}**, чтобы остановить время, и **{resume}**, чтобы продолжить.",
+  "guideLogPastTitle": "Где записать тренировку, которую вы забыли начать",
+  "guideLogPastStep1": "На вкладке **{tab}** откройте **{history}**.",
+  "guideLogPastStep2": "Прокрутите в самый низ и нажмите **{log}**.",
+  "guideLogPastStep3": "Выберите активность, заполните время в разделе **{when}** и нажмите **{logIt}**.",
+  "guideLogPastScoreTitle": "Будет ли оценка?",
+  "guideLogPastScoreBody": "Если браслет записывал ваш пульс в это время, тренировка получит оценку по нему. Если нет, она сохранится без оценки.",
+  "guideLogPastMissingTitle": "Не видите «{log}»?",
+  "guideLogPastMissingBody": "Она в самом низу раздела **{history}**, под вашими тренировками. Прокрутите до конца.",
+  "@guideStepOf": {
+    "placeholders": {
+      "step": {
+        "type": "String",
+        "description": "The number of the step this dot stands for."
+      },
+      "total": {
+        "type": "String",
+        "description": "How many steps the guide has."
+      }
+    }
+  },
+  "@guideAlarmStep1": {
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Sleep tab name"
+      },
+      "section": {
+        "type": "String",
+        "description": "Heading of the section with the alarm row"
+      },
+      "row": {
+        "type": "String",
+        "description": "Name of the Alarm row"
+      }
+    }
+  },
+  "@guideAlarmStep2": {
+    "placeholders": {
+      "group": {
+        "type": "String",
+        "description": "Heading of the weekly schedule"
+      },
+      "day": {
+        "type": "String",
+        "description": "Short name of one weekday"
+      }
+    }
+  },
+  "@guideAlarmStep3": {
+    "placeholders": {
+      "wake": {
+        "type": "String",
+        "description": "Name of the Wake time row"
+      }
+    }
+  },
+  "@guideAlarmAltBody": {
+    "placeholders": {
+      "profile": {
+        "type": "String",
+        "description": "Profile screen name"
+      },
+      "settings": {
+        "type": "String",
+        "description": "Settings row name"
+      },
+      "band": {
+        "type": "String",
+        "description": "The band settings group name"
+      },
+      "alarm": {
+        "type": "String",
+        "description": "Alarm row name"
+      }
+    }
+  },
+  "@guideAlarmMissingTitle": {
+    "placeholders": {
+      "group": {
+        "type": "String",
+        "description": "Heading of the weekly schedule"
+      }
+    }
+  },
+  "@guideAlarmMissingBody": {
+    "placeholders": {
+      "group": {
+        "type": "String",
+        "description": "Heading of the weekly schedule"
+      }
+    }
+  },
+  "@guideAddNapStep1": {
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Sleep tab name"
+      },
+      "naps": {
+        "type": "String",
+        "description": "Name of the Naps button"
+      }
+    }
+  },
+  "@guideAddNapStep2": {
+    "placeholders": {
+      "log": {
+        "type": "String",
+        "description": "Name of the Log a nap button"
+      },
+      "fell": {
+        "type": "String",
+        "description": "The first picker question, lower case"
+      },
+      "woke": {
+        "type": "String",
+        "description": "The second picker question, lower case"
+      }
+    }
+  },
+  "@guideAddNapFoundBody": {
+    "placeholders": {
+      "notNap": {
+        "type": "String",
+        "description": "Name of the Not a nap button"
+      }
+    }
+  },
+  "@guideRemoveStep1": {
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Today tab name"
+      },
+      "card": {
+        "type": "String",
+        "description": "Title of the Detected activities card"
+      }
+    }
+  },
+  "@guideRemoveStep2": {
+    "placeholders": {
+      "notNap": {
+        "type": "String",
+        "description": "Name of the Not a nap button"
+      },
+      "notWorkout": {
+        "type": "String",
+        "description": "Name of the Not a workout button"
+      }
+    }
+  },
+  "@guideRemoveSavedBody": {
+    "placeholders": {
+      "sleep": {
+        "type": "String",
+        "description": "Sleep tab name"
+      },
+      "naps": {
+        "type": "String",
+        "description": "Name of the Naps button"
+      },
+      "notNap": {
+        "type": "String",
+        "description": "Name of the Not a nap button"
+      },
+      "delete": {
+        "type": "String",
+        "description": "Name of the Delete button"
+      }
+    }
+  },
+  "@guideRemoveMissingTitle": {
+    "placeholders": {
+      "card": {
+        "type": "String",
+        "description": "Title of the Detected activities card"
+      }
+    }
+  },
+  "@guideRemoveMissingBody": {
+    "placeholders": {
+      "sleep": {
+        "type": "String",
+        "description": "Sleep tab name"
+      },
+      "naps": {
+        "type": "String",
+        "description": "Name of the Naps button"
+      },
+      "activity": {
+        "type": "String",
+        "description": "Activity tab name"
+      },
+      "history": {
+        "type": "String",
+        "description": "Name of the History sub-tab"
+      }
+    }
+  },
+  "@guideFixTimesStep1": {
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Sleep tab name"
+      },
+      "change": {
+        "type": "String",
+        "description": "Button text once the times are the user's own"
+      },
+      "set": {
+        "type": "String",
+        "description": "Button text while the times are automatic"
+      }
+    }
+  },
+  "@guideFixTimesStep2": {
+    "placeholders": {
+      "back": {
+        "type": "String",
+        "description": "Name of the Back to automatic button"
+      }
+    }
+  },
+  "@guideFixTimesBackTitle": {
+    "placeholders": {
+      "back": {
+        "type": "String",
+        "description": "Name of the Back to automatic button"
+      }
+    }
+  },
+  "@guideFixTimesBackBody": {
+    "placeholders": {
+      "back": {
+        "type": "String",
+        "description": "Name of the Back to automatic button"
+      }
+    }
+  },
+  "@guideDeleteStep1": {
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Activity tab name"
+      },
+      "history": {
+        "type": "String",
+        "description": "Name of the History sub-tab"
+      }
+    }
+  },
+  "@guideDeleteStep2": {
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "description": "Accessibility label of the delete icon"
+      }
+    }
+  },
+  "@guideDeleteNoneBody": {
+    "placeholders": {
+      "none": {
+        "type": "String",
+        "description": "The message shown when no session is recorded"
+      },
+      "start": {
+        "type": "String",
+        "description": "Name of the Start a workout button"
+      },
+      "log": {
+        "type": "String",
+        "description": "Name of the Log a past workout button"
+      }
+    }
+  },
+  "@guideStartStep1": {
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Activity tab name"
+      },
+      "card": {
+        "type": "String",
+        "description": "Text of the start card"
+      }
+    }
+  },
+  "@guideStartStep2": {
+    "placeholders": {
+      "search": {
+        "type": "String",
+        "description": "Label of the activity search field"
+      }
+    }
+  },
+  "@guideStartStep3": {
+    "placeholders": {
+      "start": {
+        "type": "String",
+        "description": "Name of the Start button"
+      }
+    }
+  },
+  "@guideStartStep4": {
+    "placeholders": {
+      "finish": {
+        "type": "String",
+        "description": "Accessibility label of the finish button"
+      }
+    }
+  },
+  "@guideStartPauseBody": {
+    "placeholders": {
+      "pause": {
+        "type": "String",
+        "description": "Name of the Pause button"
+      },
+      "resume": {
+        "type": "String",
+        "description": "Name of the Resume button"
+      }
+    }
+  },
+  "@guideLogPastStep1": {
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "Activity tab name"
+      },
+      "history": {
+        "type": "String",
+        "description": "Name of the History sub-tab"
+      }
+    }
+  },
+  "@guideLogPastStep2": {
+    "placeholders": {
+      "log": {
+        "type": "String",
+        "description": "Name of the Log a past workout button"
+      }
+    }
+  },
+  "@guideLogPastStep3": {
+    "placeholders": {
+      "when": {
+        "type": "String",
+        "description": "Heading of the group with the times"
+      },
+      "logIt": {
+        "type": "String",
+        "description": "Name of the save button"
+      }
+    }
+  },
+  "@guideLogPastMissingTitle": {
+    "placeholders": {
+      "log": {
+        "type": "String",
+        "description": "Name of the Log a past workout button"
+      }
+    }
+  },
+  "@guideLogPastMissingBody": {
+    "placeholders": {
+      "history": {
+        "type": "String",
+        "description": "Name of the History sub-tab"
+      }
+    }
+  },
+  "guideDontSeeIt": "Не видите?",
+  "@guideDontSeeIt": {
+    "description": "Link on the guide's step card that expands the help for a target that is not on the screen."
+  },
+  "guideExit": "Выйти",
+  "@guideExit": {
+    "description": "Button on the guide card that ends the guide and leaves the app where it is."
+  },
+  "guideExitLabel": "Выйти из инструкции",
+  "@guideExitLabel": {
+    "description": "Screen-reader label of the Exit button on the guide card."
+  },
+  "guideOffPathTitle": "Вы сошли с пути",
+  "@guideOffPathTitle": {
+    "description": "Title of the guide card when the user has gone to a screen the guide does not cover."
+  },
+  "guideOffPathBody": "Этого экрана нет в инструкции.",
+  "@guideOffPathBody": {
+    "description": "Body of the off-path guide card."
+  },
+  "guideBackToGuide": "Назад к инструкции",
+  "@guideBackToGuide": {
+    "description": "Button on the off-path guide card that returns to the last screen of the guide."
+  },
+  "guideDoneTitle": "Готово",
+  "@guideDoneTitle": {
+    "description": "Title of the guide card after the last step."
+  },
+  "guideDoneBody": "Это был последний шаг.",
+  "@guideDoneBody": {
+    "description": "Body of the guide card after the last step."
+  },
+  "guideTargetProxy": "Цель инструкции: {caption}",
+  "@guideTargetProxy": {
+    "description": "Screen-reader label of the highlighted control while a guide runs.",
+    "placeholders": {
+      "caption": {
+        "type": "String",
+        "description": "The step caption."
+      }
+    }
   }
 }

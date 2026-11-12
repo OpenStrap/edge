@@ -398,8 +398,8 @@ void main() {
           caption: (_) => 'Caption for $label',
         );
     final footers = [
-      GuideFooter(title: (_) => 'Another way in', body: (_) => 'Open the Activity tab.'),
-      GuideFooter(title: (_) => "Don't see it?", body: (_) => 'Wear the band for a while.'),
+      GuideFooter(kind: GuideFooterKind.anotherWay, title: (_) => 'Another way in', body: (_) => 'Open the Activity tab.'),
+      GuideFooter(kind: GuideFooterKind.missingTarget, title: (_) => "Don't see it?", body: (_) => 'Wear the band for a while.'),
     ];
 
     Future<void> pumpGuide(WidgetTester t, Guide g, BandGeneration? band) async {

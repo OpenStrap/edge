@@ -49,10 +49,24 @@ class GuideStep {
   bool isActive(Element root, AppLocalizations l) => anchor.resolve(root, l) is TargetFound;
 }
 
+/// What a footer is for; the live card picks footers by it.
+enum GuideFooterKind {
+  /// "Another way in": a second route to the same place. Shown on the Done card.
+  anotherWay,
+
+  /// "Don't see X?": why the target may be missing and what to do. The step
+  /// card's "Don't see it?" link expands it in place during a step.
+  missingTarget,
+
+  /// Anything else worth saying once the guide is done ("What deleting does").
+  note,
+}
+
 class GuideFooter {
+  final GuideFooterKind kind;
   final String Function(AppLocalizations l) title;
   final String Function(AppLocalizations l) body;
-  const GuideFooter({required this.title, required this.body});
+  const GuideFooter({required this.kind, required this.title, required this.body});
 }
 
 class GuideVariant {
@@ -103,6 +117,20 @@ class Guide {
     required this.variants,
     this.footers = const [],
   });
+
+  /// The footer behind the step card's "Don't see it?" link, or null when the
+  /// guide has none (then the link is not offered).
+  GuideFooter? get missingTargetHelp {
+    for (final f in footers) {
+      if (f.kind == GuideFooterKind.missingTarget) return f;
+    }
+    return null;
+  }
+
+  /// What the Done card shows: every footer except the missing-target help
+  /// (moot once the guide is done), in definition order.
+  List<GuideFooter> get doneFooters =>
+      [for (final f in footers) if (f.kind != GuideFooterKind.missingTarget) f];
 
   /// Bands any variant covers; an "any" variant covers both.
   Set<BandGeneration> get devices => {

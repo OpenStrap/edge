@@ -62,10 +62,12 @@ Guide get heartRateZonesGuide => Guide(
       ],
       footers: [
         GuideFooter(
+          kind: GuideFooterKind.anotherWay,
           title: (l) => l.guideHrZonesAltTitle,
           body: (l) => l.guideHrZonesAltBody(l.tabActivity, l.workoutTodaysStrainAction),
         ),
         GuideFooter(
+          kind: GuideFooterKind.missingTarget,
           title: (l) => l.guideHrZonesMissingTitle(l.dayStrainTimeInZonesSection),
           body: (l) => l.guideHrZonesMissingBody,
         ),
