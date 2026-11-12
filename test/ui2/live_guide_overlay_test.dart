@@ -220,6 +220,8 @@ void main() {
       final finish = _rectOf(t, find.byKey(stageFinish));
       expect(finish.top >= 0 && finish.bottom <= 780, isTrue, reason: 'scrolled into view: $finish');
       expect(find.byKey(LiveGuideOverlay.scrollMarkerKey), findsOneWidget);
+      final marker = t.getRect(find.byKey(LiveGuideOverlay.scrollMarkerKey));
+      expect(marker.height, greaterThan(marker.width), reason: 'scroll reads vertically with an arrow down');
     });
   });
 

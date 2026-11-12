@@ -305,7 +305,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
           )),
         if (marked) Positioned.fromRect(rect: outline!, child: ExcludeSemantics(child: IgnorePointer(child: DecoratedBox(
           key: LiveGuideOverlay.outlineKey,
-          decoration: BoxDecoration(border: Border.all(color: kGuideMarkerColor, width: 2), borderRadius: R.rMd),
+          decoration: BoxDecoration(border: Border.all(color: kGuideMarkerColor, width: 2.5), borderRadius: R.rMd),
         )))),
         if (marked) Positioned.fromRect(rect: target, child: Semantics(
           key: LiveGuideOverlay.targetProxyKey, container: true, button: true,
@@ -318,9 +318,10 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
             LayoutId(id: 'card', child: GuideStepCard(model: model, onExit: widget.onExit,
               onBackToGuide: state is GuideOffPath && state.lastIndex != null ? widget.onBackToGuide : null)),
             if (marked) LayoutId(id: 'pill', child: ExcludeSemantics(child: IgnorePointer(
-              child: GuideMarkerPill(l.guideTapMarker, key: LiveGuideOverlay.tapPillKey, arrow: true)))),
+              child: GuideMarkerPill(l.guideTapMarker, key: LiveGuideOverlay.tapPillKey)))),
             if (marked && step.action == GuideAction.scrollThenTap) LayoutId(id: 'scroll', child: ExcludeSemantics(child: IgnorePointer(
-              child: GuideMarkerPill(l.guideScrollMarker, key: LiveGuideOverlay.scrollMarkerKey)))),
+              child: RotatedBox(key: LiveGuideOverlay.scrollMarkerKey, quarterTurns: 1,
+                child: GuideMarkerPill(l.guideScrollMarker, arrow: true))))),
           ],
         )),
       ]);
