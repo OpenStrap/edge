@@ -21,7 +21,14 @@
 // Mating parts: [LiveGuideOverlay] builds the model from a [GuideRun] and
 // positions the card with [placeGuideCard].
 
-import 'package:flutter/widgets.dart';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+
+import '../../l10n/app_localizations.dart';
+import '../theme.dart';
+import '../grammar.dart' show Pressable;
+import 'guide_markers.dart';
 
 import 'guide.dart';
 
@@ -85,8 +92,99 @@ class GuideStepCard extends StatefulWidget {
 }
 
 class _GuideStepCardState extends State<GuideStepCard> {
+  bool _expanded = false;
+
   @override
-  Widget build(BuildContext context) => throw UnimplementedError('GuideStepCard.build');
+  void didUpdateWidget(GuideStepCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final old = oldWidget.model;
+    final now = widget.model;
+    if (old is! GuideCardOnStep || now is! GuideCardOnStep || old.number != now.number || old.caption != now.caption) {
+      _expanded = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = P.of(context);
+    final l = AppLocalizations.of(context)!;
+    Widget title(String text) => Semantics(
+      liveRegion: true, child: Text(text, style: F.head.copyWith(color: p.ink)),
+    );
+    Widget footer(GuideFooter f, Key key) => Padding(
+      key: key, padding: const EdgeInsets.only(top: S.x2),
+      child: GuideFooterCard(title: f.title(l), body: f.body(l)),
+    );
+    final model = widget.model;
+    final content = <Widget>[];
+    switch (model) {
+      case GuideCardOnStep():
+        content.add(Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          DecoratedBox(
+            key: GuideStepCard.badgeKey,
+            decoration: BoxDecoration(color: p.fill(C.red), borderRadius: R.rPill),
+            child: Padding(padding: const EdgeInsets.symmetric(horizontal: S.x2, vertical: S.x1),
+              child: Text('${model.number}', style: F.body.copyWith(color: p.inkOnFill, fontWeight: FontWeight.w700))),
+          ),
+          const SizedBox(width: S.x2),
+          Expanded(child: Semantics(
+            key: GuideStepCard.captionKey, liveRegion: true,
+            child: guideBoldQuoted(model.caption, F.body.copyWith(color: p.ink)),
+          )),
+        ]));
+        content.add(const SizedBox(height: S.x2));
+        content.add(Semantics(
+          key: GuideStepCard.dotsKey, label: l.guideStepOf('${model.number}', '${model.total}'),
+          child: ExcludeSemantics(child: Wrap(spacing: S.x1, runSpacing: S.x1, children: [
+            for (var i = 0; i < model.total; i++) DecoratedBox(
+              key: GuideStepCard.dotKey(i),
+              decoration: BoxDecoration(color: i == model.number - 1 ? C.red : p.line, borderRadius: R.rPill),
+              child: const SizedBox(width: S.x2, height: S.x2),
+            ),
+          ])),
+        ));
+        if (_expanded && model.missingHelp != null) content.add(footer(model.missingHelp!, GuideStepCard.missingHelpKey));
+      case GuideCardOffPath():
+        content.add(Column(key: GuideStepCard.offPathKey, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          title(l.guideOffPathTitle), const SizedBox(height: S.x1),
+          Text(l.guideOffPathBody, style: F.body.copyWith(color: p.ink2)),
+        ]));
+      case GuideCardDone():
+        content.add(Column(key: GuideStepCard.doneKey, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          title(l.guideDoneTitle), const SizedBox(height: S.x1),
+          Text(l.guideDoneBody, style: F.body.copyWith(color: p.ink2)),
+        ]));
+        for (var i = 0; i < model.footers.length; i++) {
+          content.add(footer(model.footers[i], GuideStepCard.footerKey(i)));
+        }
+    }
+    final actions = <Widget>[];
+    if (model is GuideCardOnStep && model.missingHelp != null) {
+      actions.add(Flexible(child: Semantics(
+        key: GuideStepCard.dontSeeItKey, button: true, expanded: _expanded,
+        child: Pressable(onTap: () => setState(() => _expanded = !_expanded),
+          child: Text(l.guideDontSeeIt, style: F.cap.copyWith(color: p.on(C.blue)))),
+      )));
+    }
+    if (model is GuideCardOffPath && widget.onBackToGuide != null) {
+      actions.add(Flexible(child: Pressable(key: GuideStepCard.backToGuideKey,
+        onTap: widget.onBackToGuide, child: Text(l.guideBackToGuide, style: F.cap.copyWith(color: p.on(C.blue))))));
+    }
+    actions.add(Semantics(label: l.guideExitLabel, button: true, onTap: widget.onExit,
+      child: ExcludeSemantics(child: Pressable(key: GuideStepCard.exitKey, onTap: widget.onExit,
+        child: Text(l.guideExit, style: F.cap.copyWith(color: p.ink2))))));
+    return Material(
+      key: GuideStepCard.cardKey, color: p.card, borderRadius: R.rLg,
+      child: DecoratedBox(
+        decoration: BoxDecoration(border: Border.all(color: p.line), borderRadius: R.rLg),
+        child: Padding(padding: const EdgeInsets.all(S.x4),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            ...content, const SizedBox(height: S.x1),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: actions),
+          ])),
+      ),
+    );
+  }
 }
 
 /// Margin between the card and the edge of [placeGuideCard]'s bounds.
@@ -113,5 +211,18 @@ Rect placeGuideCard({
   required Size cardSize,
   required List<Rect> keepClear,
   List<Rect> avoid = const [],
-}) =>
-    throw UnimplementedError('placeGuideCard');
+}) {
+  final width = math.min(cardSize.width, bounds.width);
+  final height = math.min(cardSize.height, bounds.height);
+  final x = bounds.center.dx - width / 2;
+  final top = Rect.fromLTWH(x, math.min(bounds.top + kGuideCardGap, bounds.bottom - height), width, height);
+  final bottom = Rect.fromLTWH(x, math.max(bounds.top, bounds.bottom - kGuideCardGap - height), width, height);
+  double overlap(Rect candidate, List<Rect> rects) => rects.fold(0, (sum, rect) {
+    final intersection = candidate.intersect(rect);
+    return sum + (intersection.isEmpty ? 0 : intersection.width * intersection.height);
+  });
+  final bottomKeep = overlap(bottom, keepClear), topKeep = overlap(top, keepClear);
+  if (bottomKeep < topKeep) return bottom;
+  if (topKeep < bottomKeep) return top;
+  return overlap(top, avoid) < overlap(bottom, avoid) ? top : bottom;
+}

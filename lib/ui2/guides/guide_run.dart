@@ -20,10 +20,13 @@
 // the top page after every frame and draws its state.
 
 import 'package:flutter/foundation.dart' show ChangeNotifier;
-import 'package:flutter/widgets.dart' show Element;
+import 'package:flutter/widgets.dart' show Element, IndexedStack;
 
 import '../../l10n/app_localizations.dart';
+import '../app_shell.dart' show AppShell;
+import 'tree_geometry.dart';
 import 'guide.dart';
+import 'guide_target.dart';
 
 sealed class GuideRunState {
   const GuideRunState();
@@ -56,29 +59,69 @@ class GuideRun extends ChangeNotifier {
   GuideRun({required this.guide, required this.variant});
 
   /// Starts at step 0 ([GuideAtStep]) until the first frame says otherwise.
-  GuideRunState get state => throw UnimplementedError('GuideRun.state');
+  GuideRunState _state = const GuideAtStep(0);
+  int? _lastIndex;
+  bool _exited = false;
+  GuideRunState get state => _state;
 
   /// True after [exit]; an exited run ignores every later call.
-  bool get isExited => throw UnimplementedError('GuideRun.isExited');
+  bool get isExited => _exited;
 
   /// The step shown now, or null when off the path / finished / exited.
-  GuideStep? get currentStep => throw UnimplementedError('GuideRun.currentStep');
+  GuideStep? get currentStep => !_exited && _state is GuideAtStep
+      ? variant.steps[(_state as GuideAtStep).index] : null;
 
   /// The index of the HIGHEST step of [variant] whose anchor resolves
   /// ([TargetFound]) under [root]; null when none does.
   /// ↳ CLAIM(run-match-furthest)
-  static int? matchStep(GuideVariant variant, Element root, AppLocalizations l) =>
-      throw UnimplementedError('GuideRun.matchStep');
+  static int? matchStep(GuideVariant variant, Element root, AppLocalizations l) {
+    // Shell labels name destinations even when those tabs are not selected.
+    // Match the visible content, so a Sleep title cannot match the tab button
+    // on every other screen (or become ambiguous with that button).
+    Element content = root;
+    visitOnstage(root, (e) {
+      if (e.widget is AppShell) {
+        visitOnstage(e, (child) { if (child.widget is IndexedStack) content = child; });
+      }
+    });
+    return [for (var i = 0; i < variant.steps.length; i++)
+      if (variant.steps[i].anchor.resolve(content, l) is TargetFound) i].lastOrNull;
+  }
 
   /// Called after every frame with the top PAGE's element, or null while a
   /// dialog / sheet / picker is on top (the run holds its state then: the
   /// user is acting on the step, not leaving it). Notifies only on change.
-  void observe(Element? topPage, AppLocalizations l) => throw UnimplementedError('GuideRun.observe');
+  void observe(Element? topPage, AppLocalizations l) {
+    if (_exited || _state is GuideFinished || topPage == null) return;
+    final index = matchStep(variant, topPage, l);
+    if (index != null) {
+      _lastIndex = index;
+      if (_state case GuideAtStep(index: final old) when old == index) return;
+      _state = GuideAtStep(index);
+    } else {
+      // A lazy-list reveal can dispose the early anchor while its action is
+      // still in view. The action itself then keeps this matched step active.
+      if (currentStep?.target.resolve(topPage, l) is TargetFound) return;
+      if (_state is GuideOffPath) return;
+      _state = GuideOffPath(_lastIndex);
+    }
+    notifyListeners();
+  }
 
   /// The user tapped the highlighted target. On the last step: [GuideFinished].
   /// On any other step: no change (the next frame decides).
-  void targetTapped() => throw UnimplementedError('GuideRun.targetTapped');
+  void targetTapped() {
+    if (_exited) return;
+    if (_state case GuideAtStep(:final index) when index == variant.steps.length - 1) {
+      _state = const GuideFinished();
+      notifyListeners();
+    }
+  }
 
   /// Ends the run for good.
-  void exit() => throw UnimplementedError('GuideRun.exit');
+  void exit() {
+    if (_exited) return;
+    _exited = true;
+    notifyListeners();
+  }
 }

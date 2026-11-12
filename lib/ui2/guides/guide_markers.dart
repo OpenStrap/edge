@@ -7,7 +7,7 @@
 // and the review frame (test/support/guide_view.dart, review tooling only).
 // Everything here is derived from a laid-out tree; nothing knows about a screen.
 
-import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -58,7 +58,6 @@ class GuideMarkerPill extends StatelessWidget {
 /// [Skeletonize] paints, so the two cannot disagree on what is covered
 /// [guide_view_test 'the tap pill never covers legible text'; guide #1 step 1
 /// 'pill overlaps no legible text or visual'].
-@visibleForTesting
 List<Rect> legibleContent(Element root, {required List<Rect> keep}) {
   final rootBox = laidOutBox(root);
   if (rootBox == null) return const [];
