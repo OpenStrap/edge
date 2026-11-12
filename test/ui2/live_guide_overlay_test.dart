@@ -389,6 +389,24 @@ void main() {
       expect(_overlay(t).paintedShapes, isEmpty, reason: 'nothing is covered any more');
     });
 
+    testWidgets('a drag away and back to the last target is not a tap', (t) async {
+      // why: returning to the down position must not complete a guide after
+      // the real control's tap recognizer already cancelled on movement.
+      final stage = await pumpLiveStage(t);
+      await _settleReveal(t);
+      await pushStagePage(t, stage, StagePages(stage.taps).details());
+      await _settleReveal(t);
+      final centre = t.getCenter(find.byKey(stageFinish));
+      final gesture = await t.startGesture(centre);
+      await gesture.moveTo(centre + const Offset(100, 0));
+      await gesture.moveTo(centre);
+      await gesture.up();
+      await _settleReveal(t);
+      expect(stage.taps.finish, 0, reason: 'the real control cancelled its tap');
+      expect(stage.run.state, isA<GuideAtStep>().having((s) => s.index, 'index', 1));
+      expect(find.byKey(GuideStepCard.doneKey), findsNothing);
+    });
+
     testWidgets('a tap that lands elsewhere on the last step does NOT finish the guide', (t) async {
       // why: only the target\'s tap completes the guide (an absorbed tap is not it).
       final stage = await pumpLiveStage(t);

@@ -164,9 +164,13 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
     final point = layer.globalToLocal(event.position);
     if (event is PointerDownEvent && (_target?.contains(point) ?? false)) _downs[event.pointer] = point;
     if (event is PointerCancelEvent) _downs.remove(event.pointer);
+    if (event is PointerMoveEvent) {
+      final down = _downs[event.pointer];
+      if (down != null && (point - down).distance > kTouchSlop) _downs.remove(event.pointer);
+    }
     if (event is PointerUpEvent) {
       final down = _downs.remove(event.pointer);
-      if (down != null && (point - down).distance < kTouchSlop && (_target?.contains(point) ?? false)) {
+      if (down != null && (point - down).distance <= kTouchSlop && (_target?.contains(point) ?? false)) {
         // Let the real gesture recognizer handle the tap before completing the run.
         scheduleMicrotask(() { if (mounted) widget.run.targetTapped(); });
       }
