@@ -104,8 +104,18 @@ class _GuideStepViewState extends State<GuideStepView> {
       if (!mounted || round != _revealRound) return;
       // The same plan Skeletonize paints: same function, same keep rects, same
       // chrome, read from the tree after the scroll.
-      final screenRoot = _screenKey.currentContext;
-      final lines = switch ((screenRoot, found)) {
+      setState(() {
+        _resolution = found;
+        _legible = _legibleFor(found, l);
+      });
+      _track(round);
+    });
+  }
+
+  /// The same plan Skeletonize paints: same function, same keep rects, same
+  /// chrome, read from the tree as it is laid out now.
+  List<Rect> _legibleFor(TargetResolution found, AppLocalizations l) =>
+      switch ((_screenKey.currentContext, found)) {
         (final Element screenElement, TargetFound(:final rect)) => legibleContent(screenElement, keep: [
             rect,
             for (final extra in widget.step.alsoKeep)
@@ -113,10 +123,32 @@ class _GuideStepViewState extends State<GuideStepView> {
           ]),
         _ => const <Rect>[],
       };
-      setState(() {
-        _resolution = found;
-        _legible = lines;
-      });
+
+  /// Skeletonize re-plans after every layout; the markers must too. The screen
+  /// can move under them without this widget rebuilding (Home inserts and
+  /// removes its sync-status card above the rings, home_screen.dart:2059).
+  /// After each drawn frame, re-resolve without scrolling and update only when
+  /// something moved, so an idle guide schedules no work and the loop settles.
+  void _track(int round) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || round != _revealRound) return;
+      final root = _screenKey.currentContext;
+      if (root is Element) {
+        final l = AppLocalizations.of(context) ?? lookupAppLocalizations(const Locale('en'));
+        final now = widget.step.target.resolve(root, l);
+        final lines = _legibleFor(now, l);
+        final moved = switch ((now, _resolution)) {
+          (TargetFound(rect: final a), TargetFound(rect: final b)) => a != b,
+          _ => now.runtimeType != _resolution.runtimeType,
+        };
+        if (moved || !listEquals(lines, _legible)) {
+          setState(() {
+            _resolution = now;
+            _legible = lines;
+          });
+        }
+      }
+      _track(round);
     });
   }
 

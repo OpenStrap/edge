@@ -2876,5 +2876,5 @@
   "guideHrZonesAltTitle": "另一条路径",
   "guideHrZonesAltBody": "打开**{tab}**标签页，点按**{link}**，然后按第 2、3 步操作。",
   "guideHrZonesMissingTitle": "没有看到“{section}”？",
-  "guideHrZonesMissingBody": "只有在设备记录了当天的一些心率后才会出现。请佩戴一段时间再查看。"
+  "guideHrZonesMissingBody": "当设备记录了当天的心率并且可以计算出你的心率区间后，它就会出现。如果佩戴一段时间后仍未出现，请在个人资料中填写你的年龄。"
 }

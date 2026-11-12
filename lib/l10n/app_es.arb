@@ -2905,5 +2905,5 @@
   "guideHrZonesAltTitle": "Otra forma de llegar",
   "guideHrZonesAltBody": "Abre la pestaña **{tab}** y toca **{link}**; después sigue los pasos 2 y 3.",
   "guideHrZonesMissingTitle": "¿No ves «{section}»?",
-  "guideHrZonesMissingBody": "Solo aparece cuando la banda ha registrado algo de frecuencia cardíaca del día. Úsala un rato y vuelve a mirar."
+  "guideHrZonesMissingBody": "Aparece cuando la banda ha registrado frecuencia cardíaca del día y se pueden calcular tus zonas. Si sigue sin aparecer después de llevarla un rato, añade tu edad en tu perfil."
 }

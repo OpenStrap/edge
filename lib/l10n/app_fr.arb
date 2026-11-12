@@ -2876,5 +2876,5 @@
   "guideHrZonesAltTitle": "Un autre chemin",
   "guideHrZonesAltBody": "Ouvrez l’onglet **{tab}** et touchez **{link}**, puis suivez les étapes 2 et 3.",
   "guideHrZonesMissingTitle": "Vous ne voyez pas « {section} » ?",
-  "guideHrZonesMissingBody": "Cet élément n’apparaît qu’une fois que le bracelet a enregistré de la fréquence cardiaque pour la journée. Portez-le un moment, puis revenez voir."
+  "guideHrZonesMissingBody": "Cet élément apparaît une fois que le bracelet a enregistré de la fréquence cardiaque pour la journée et que vos zones peuvent être calculées. S’il n’apparaît toujours pas après l’avoir porté un moment, ajoutez votre âge dans votre profil."
 }

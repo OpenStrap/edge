@@ -214,6 +214,56 @@ void main() {
     });
   });
 
+  group('GuideStepView markers follow layout (PR 1 review S1)', () {
+    testWidgets('a card appearing above the target moves the outline with it', (t) async {
+      // why: Skeletonize re-plans after every layout, but the outline and pill
+      // were measured once per step. Home inserts and removes a sync-status card
+      // above the rings without rebuilding the guide, which left the outline
+      // where the ring used to be. The markers must follow the target.
+      final extra = ValueNotifier<bool>(false);
+      addTearDown(extra.dispose);
+      final step = GuideStep(
+        id: 'moving',
+        screen: (_) => Builder(builder: (c) {
+          final l = AppLocalizations.of(c)!;
+          return Scaffold(
+            body: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                ValueListenableBuilder<bool>(
+                  valueListenable: extra,
+                  builder: (_, on, _) => SizedBox(height: on ? 120 : 0),
+                ),
+                Section(l.dayStrainTimeInZonesSection, const Surface(child: Text('chart')),
+                    action: l.dayStrainHowSet, onAction: () {}),
+              ],
+            ),
+          );
+        }),
+        target: GuideTarget.label((l) => l.dayStrainHowSet),
+        anchor: GuideTarget.label((l) => l.dayStrainTimeInZonesSection),
+        action: GuideAction.tap,
+        caption: (_) => 'caption',
+      );
+      await _pump(t, step);
+      final l = lookupAppLocalizations(const Locale('en'));
+      final targetBefore = t.getRect(find.text(l.dayStrainHowSet));
+      final outlineBefore = t.getRect(find.byKey(GuideStepView.outlineKey));
+
+      extra.value = true;
+      await t.pumpAndSettle();
+
+      final targetAfter = t.getRect(find.text(l.dayStrainHowSet));
+      final outlineAfter = t.getRect(find.byKey(GuideStepView.outlineKey));
+      // The screen is drawn scaled down inside the phone frame, so 120 logical
+      // px of new content move the target by less than 120 on screen.
+      final moved = targetAfter.top - targetBefore.top;
+      expect(moved, greaterThan(40), reason: 'control: the target really moved');
+      expect(outlineAfter.top - outlineBefore.top, closeTo(moved, 0.5));
+      expect(skContains(outlineAfter, targetAfter), isTrue, reason: 'outline $outlineAfter target $targetAfter');
+    });
+  });
+
   group('GuideStepView pill placement', () {
     // A screen where legible text sits directly above the target, left-aligned
     // like the target: the old "above the outline" spot lands on that text.

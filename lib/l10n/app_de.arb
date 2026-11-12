@@ -3485,5 +3485,5 @@
   "guideHrZonesAltTitle": "Ein anderer Weg",
   "guideHrZonesAltBody": "Öffne den Tab **{tab}** und tippe auf **{link}**. Danach folge den Schritten 2 und 3.",
   "guideHrZonesMissingTitle": "„{section}“ nicht zu sehen?",
-  "guideHrZonesMissingBody": "Der Eintrag erscheint erst, wenn das Band für den Tag etwas Herzfrequenz aufgezeichnet hat. Trag es eine Weile und schau dann noch einmal nach."
+  "guideHrZonesMissingBody": "Der Eintrag erscheint, sobald das Band für den Tag Herzfrequenz aufgezeichnet hat und deine Zonen berechnet werden können. Fehlt er auch nach einer Weile Tragen noch, trag dein Alter in deinem Profil ein."
 }

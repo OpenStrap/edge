@@ -16439,8 +16439,8 @@
       }
     }
   },
-  "guideHrZonesMissingBody": "It only appears once the band has recorded some heart rate for the day. Wear it for a while, then check again.",
+  "guideHrZonesMissingBody": "It appears once the band has recorded heart rate for the day and your zones can be worked out. If it still doesn't show after you've worn the band for a while, add your age in your profile.",
   "@guideHrZonesMissingBody": {
-    "description": "Footer card body: why the 'Time in zones' section can be missing (no heart rate recorded for the day yet)."
+    "description": "Footer card body: why the 'Time in zones' section can be missing: no heart rate recorded for the day yet, or zones can't be worked out (no age set)."
   }
 }
