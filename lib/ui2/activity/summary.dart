@@ -559,7 +559,7 @@ Future<EditSetResult?> showEditSetDialog(
                         ],
                       ),
                     );
-                    if (confirm == true) {
+                    if (confirm == true && dc.mounted) {
                       Navigator.of(dc).pop(const EditSetResult.delete());
                     }
                   },
