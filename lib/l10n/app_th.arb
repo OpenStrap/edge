@@ -8558,6 +8558,7 @@
     "description": "Shown after the user set their own sleep window and the band recorded it, but staging found no sleep in it."
   },
   "sleepDetailCorrectionUnavailable": "ข้อมูลบันทึกรายละเอียดของคืนนี้ไม่ได้อยู่ในโทรศัพท์แล้ว จึงแก้ไขการนอนไม่ได้",
+  "sleepDetailCorrectionNoRecordings": "คืนนี้ไม่มีข้อมูลบันทึกรายละเอียดในโทรศัพท์ จึงแก้ไขการนอนของคืนนี้ไม่ได้",
   "sleepDetailCorrectionEveningPruned": "ข้อมูลช่วงเย็นก่อนคืนนี้ไม่ได้อยู่ในโทรศัพท์แล้ว จึงใช้ได้เฉพาะเวลาเข้านอนหลังเที่ยงคืน หรือ “ไม่ใช่การนอน”",
   "@sleepDetailCorrectionEveningPruned": {
     "description": "Shown on the oldest night still kept, or after a correction there was refused: the evening part of the night has been pruned, so a bedtime before midnight, confirming the detected times, or reverting to automatic cannot be applied."

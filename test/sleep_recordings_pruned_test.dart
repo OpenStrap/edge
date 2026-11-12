@@ -71,4 +71,13 @@ void main() {
 
     expect(await LocalDb.decodedPrunedFor('not-a-day'), isFalse);
   });
+
+  test('a day straddling the cut still has recordings, so is not pruned',
+      () async {
+    final mid = localDayStartSec('2026-06-09')! + 12 * 3600;
+    await LocalDb.setCursor(LocalDb.kDecodedPrunedBeforeCursor, '$mid');
+
+    expect(await LocalDb.decodedPrunedFor('2026-06-09'), isFalse);
+    expect(await LocalDb.decodedPrunedFor('2026-06-08'), isTrue);
+  });
 }

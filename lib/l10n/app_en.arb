@@ -8570,6 +8570,10 @@
     "description": "Shown after the user set their own sleep window and the band recorded it, but staging found no sleep in it."
   },
   "sleepDetailCorrectionUnavailable": "This night’s detailed recordings are no longer on the phone, so its sleep can’t be corrected now.",
+  "sleepDetailCorrectionNoRecordings": "This night has no detailed recordings on the phone, so its sleep can’t be corrected.",
+  "@sleepDetailCorrectionNoRecordings": {
+    "description": "Shown instead of the sleep correction buttons on a night with no detailed recordings on the phone that were never pruned (imported or never worn)."
+  },
   "sleepDetailCorrectionEveningPruned": "The evening before this night is no longer on the phone, so only a bedtime after midnight, or Not sleep, can be applied.",
   "@sleepDetailCorrectionEveningPruned": {
     "description": "Shown on the oldest night still kept, or after a correction there was refused: the evening part of the night has been pruned, so a bedtime before midnight, confirming the detected times, or reverting to automatic cannot be applied."

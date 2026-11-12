@@ -1681,6 +1681,7 @@
   "sleepDetailWindowNoSleep": "Tus horas están guardadas, pero los registros de la pulsera de esas horas no muestran sueño que puntuar.",
   "sleepDetailNightUnrecorded": "Tu frecuencia cardíaca indica una noche de sueño, pero la pulsera registró muy pocos datos de movimiento durante la mayor parte, así que no hay noche que puntuar.",
   "sleepDetailCorrectionUnavailable": "Los registros detallados de esta noche ya no están en el teléfono, así que su sueño ya no se puede corregir.",
+  "sleepDetailCorrectionNoRecordings": "Esta noche no tiene registros detallados en el teléfono, así que su sueño no se puede corregir.",
   "sleepDetailCorrectionEveningPruned": "La tarde anterior a esta noche ya no está en el teléfono, así que solo se puede aplicar una hora de acostarse después de medianoche o «No es sueño».",
   "sleepDetailNoHypnogramTitle": "No hay hipnograma para esta noche",
   "sleepDetailNoHypnogramBody": "El cálculo de fases necesita movimiento y ritmo cardíaco. Faltaba uno de los dos.",

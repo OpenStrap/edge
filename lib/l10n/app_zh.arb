@@ -1671,6 +1671,7 @@
   "sleepDetailWindowNoSleep": "你设置的时间已保存，但手环在这段时间的记录中没有可评分的睡眠。",
   "sleepDetailNightUnrecorded": "你的心率显示有一夜睡眠，但手环在大部分时间里记录的动作数据太少，所以没有可评分的夜晚。",
   "sleepDetailCorrectionUnavailable": "这一夜的详细记录已不在手机上，因此无法再更正这一夜的睡眠。",
+  "sleepDetailCorrectionNoRecordings": "这一夜手机上没有详细记录，因此无法修正其睡眠。",
   "sleepDetailCorrectionEveningPruned": "这一夜之前的傍晚记录已不在手机上，因此只能设置午夜之后的入睡时间，或将这一夜标记为不是睡眠。",
   "sleepDetailNoHypnogramTitle": "这一夜没有睡眠阶段图",
   "sleepDetailNoHypnogramBody": "阶段判定需要运动和心跳时序数据，其中有一项缺失。",

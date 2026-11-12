@@ -626,7 +626,9 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
                   onset != null &&
                   await app.sleepCorrectable(d.day!,
                       sleepSource: 'confirmed', onsetSec: onset));
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('sleep detail: correctability read failed: $e');
+        }
       }
       // LAST NIGHT ONLY. The card names the luteal phase, and `getCycle` knows
       // today's phase and no other day's — so a card offered while stepping
@@ -1060,11 +1062,12 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
             ),
           ],
           const SizedBox(height: S.x2),
-          // No buttons either way when uncorrectable; the note only when the
-          // prune really removed this night's recordings (not, say, a night
-          // imported from elsewhere that never had any here).
+          // No buttons when uncorrectable; the note says why: pruned
+          // recordings, or (imported, never worn) nothing to re-analyse.
           if (!_correctable)
-            _recordingsPruned ? _uncorrectableNote(c, l) : const SizedBox.shrink()
+            _recordingsPruned
+                ? _uncorrectableNote(c, l)
+                : _noRecordingsNote(c, l)
           else
           Wrap(spacing: S.x2, children: [
             if (fallback && _confirmable)
@@ -1118,6 +1121,14 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         l?.sleepDetailCorrectionUnavailable ??
             'This night\u2019s detailed recordings are no longer on the phone, '
                 'so its sleep can\u2019t be corrected now.',
+        style: F.cap.copyWith(color: P.of(c).ink3),
+      );
+
+  /// An uncorrectable night whose recordings were never here to prune.
+  Widget _noRecordingsNote(BuildContext c, AppLocalizations? l) => Text(
+        l?.sleepDetailCorrectionNoRecordings ??
+            'This night has no detailed recordings on the phone, so its sleep '
+                'can\u2019t be corrected.',
         style: F.cap.copyWith(color: P.of(c).ink3),
       );
 
