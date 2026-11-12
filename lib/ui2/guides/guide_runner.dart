@@ -131,9 +131,9 @@ class GuideRunner extends ChangeNotifier {
     final run = _run;
     final nav = navigatorKey.currentState;
     if (run == null || nav == null) return;
+    final l = AppLocalizations.of(nav.context);
     while (identical(_run, run) && nav.mounted) {
       final page = topPageRoot(nav);
-      final l = AppLocalizations.of(nav.context);
       if (page != null && l != null && GuideRun.matchStep(run.variant, page, l) != null) {
         run.observe(page, l);
         return;
