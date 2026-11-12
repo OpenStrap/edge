@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/app.dart' show AppMainShell;
 import 'package:openstrap_edge/data/day_label.dart';
+import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/models/activity_suggestion.dart';
@@ -128,7 +129,7 @@ class GuideFakeRepo extends LocalRepository {
         'has_sleep': true,
         'sleep_source': sleepSource,
         'onset_ts': _at(0, 0) - 3600,
-        'offset_ts': _at(0, 0) + 6 * 3600,
+        'wake_ts': _at(0, 0) + 6 * 3600,
         'duration_min': 420,
       };
   @override
@@ -169,6 +170,18 @@ Future<LiveGuideApp> pumpLiveGuideApp(
   t.view.physicalSize = size;
   t.view.devicePixelRatio = 1;
   addTearDown(t.view.reset);
+
+  // Sleep correction controls require retained input. Seed only a test DB row;
+  // the repository's published night alone does not establish correctability.
+  if (repo is GuideFakeRepo || repo == null) {
+    await t.runAsync(() async {
+      final ts = GuideFakeRepo._at(12, 0);
+      await (await LocalDb.instance).rawInsert(
+        'INSERT OR REPLACE INTO decoded_onehz (device_id, ts_ms, rec_ts, counter, hr) VALUES (?, ?, ?, ?, ?)',
+        ['', ts * 1000, ts, ts % 100000, 60],
+      );
+    });
+  }
 
   final key = GlobalKey<NavigatorState>();
   final guideRunner = runner ?? GuideRunner(navigatorKey: key);

@@ -16,7 +16,6 @@ import 'guide.dart';
 import 'guide_target.dart';
 
 final _alarmRow = GuideTarget.label((l) => l.settingsAlarmRowTitle);
-final _sectionHeading = GuideTarget.label((l) => l.sleepTabMoreTitle);
 final _tuesday = GuideTarget.label((l) => l.wellnessTue);
 final _wakeTime = GuideTarget.label((l) => l.alarmWakeTimeRowTitle);
 
@@ -29,7 +28,7 @@ Guide get alarmScheduleGuide => Guide(
           GuideStep(
             id: 'open-alarm',
             target: _alarmRow,
-            anchor: _sectionHeading,
+            anchor: GuideTarget.label((l) => l.sleepDetailNavTitle),
             action: GuideAction.scrollThenTap,
             caption: (l) => l.guideAlarmStep1(l.tabSleep, l.sleepTabMoreTitle, l.settingsAlarmRowTitle),
           ),

@@ -70,6 +70,10 @@ class _Scene {
 Widget _tab(Widget w) => Scaffold(body: w);
 
 Future<void> _tapHistory(WidgetTester t, AppLocalizations l) async {
+  // At 1.3x many translations put History outside the horizontal viewport.
+  // A tap at its offscreen centre does not select the tab.
+  await t.ensureVisible(find.text(l.workoutTabHistory));
+  await t.pump();
   await t.tap(find.text(l.workoutTabHistory));
   await settleLiveGuide(t);
 }

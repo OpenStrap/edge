@@ -365,10 +365,12 @@ void main() {
       final r = placeGuideCard(
         bounds: bounds,
         cardSize: card,
-        keepClear: [const Rect.fromLTWH(20, 200, 350, 44)],
+        // Both slots must clear the target before testing the legibility tie-break.
+        keepClear: [const Rect.fromLTWH(20, 330, 350, 44)],
         avoid: [const Rect.fromLTWH(20, 600, 300, 18)],
       );
       expect(r.top, 72);
+      expect(r.overlaps(const Rect.fromLTWH(20, 330, 350, 44)), isFalse);
     });
 
     test('legible content on both sides: the side that covers less of it wins, the target stays clear', () {

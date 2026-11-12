@@ -22,7 +22,7 @@ final _strainRing = GuideTarget.label((l) => l.homeRingStrain);
 final _howTheseAreSet = GuideTarget.label((l) => l.dayStrainHowSet);
 
 /// The own-zones link; its text flips with the saved state, so both labels.
-/// Also step 3's anchor.
+/// The title anchors step 3 before this link is built by the lazy list.
 final _ownZonesLink = GuideTarget.anyLabel([
   (l) => l.activityZonesSetYourOwnLink,
   (l) => l.activityZonesEditYourOwnLink,
@@ -52,7 +52,7 @@ Guide get heartRateZonesGuide => Guide(
           GuideStep(
             id: 'set-own-zones',
             target: _ownZonesLink,
-            anchor: _ownZonesLink,
+            anchor: GuideTarget.label((l) => l.activityZonesTitle),
             // The mock-up keeps "Your zones" legible: it is what the link edits.
             alsoKeep: [GuideTarget.label((l) => l.activityZonesYourZonesSection)],
             action: GuideAction.tap,

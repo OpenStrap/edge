@@ -31,7 +31,10 @@ Guide get logPastWorkoutGuide => Guide(
           GuideStep(
             id: 'log-past',
             target: _logPast,
-            anchor: _logPast,
+            anchor: GuideTarget.anyLabel([
+              (l) => l.workoutTrackedLabel,
+              (l) => l.workoutNoSessionsTitle,
+            ]),
             action: GuideAction.scrollThenTap,
             caption: (l) => l.guideLogPastStep2(l.workoutLogPastFix),
           ),

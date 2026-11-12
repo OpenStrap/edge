@@ -32,7 +32,7 @@ Guide get deleteWorkoutGuide => Guide(
           GuideStep(
             id: 'delete-session',
             target: _bin,
-            anchor: _bin,
+            anchor: GuideTarget.label((l) => l.workoutTrackedLabel),
             action: GuideAction.tap,
             caption: (l) => l.guideDeleteStep2(l.workoutDeleteSessionLabel),
           ),
