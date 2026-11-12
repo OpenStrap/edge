@@ -42,6 +42,9 @@ class EngineFlashLink implements FlashLink {
 
 class FirmwareFlashController extends ChangeNotifier {
   FirmwareFlashController(this._link);
+
+  /// Upper bound on a staged file, so a wrong pick can't fill memory.
+  static const int maxImageBytes = 4 * 1024 * 1024;
   final FlashLink _link;
 
   /// Below this the flash is refused: a strap that dies mid-write is the one
@@ -77,6 +80,7 @@ class FirmwareFlashController extends ChangeNotifier {
   /// Reason staging cannot start, or null when it can.
   String? get blocker {
     if (_image == null || _image!.isEmpty) return 'Choose an image file first.';
+    if (_image!.length > maxImageBytes) return 'That file is too large for an image.';
     if (!_link.canFlash) {
       return 'Connect a WHOOP 5 and wait for any sync to finish.';
     }

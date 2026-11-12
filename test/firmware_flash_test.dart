@@ -66,4 +66,27 @@ void main() {
     l.batt = null;
     expect(c.blocker, isNotNull);
   });
+  test('an oversize file is blocked', () {
+    final c = FirmwareFlashController(_Link())
+      ..load('a.bin', Uint8List(FirmwareFlashController.maxImageBytes + 1));
+    expect(c.blocker, isNotNull);
+  });
+  test('abandon after verify releases the link and never commits', () async {
+    final l = _Link();
+    final c = FirmwareFlashController(l)..load('a.bin', img);
+    await c.stage();
+    c.abandon();
+    expect(l.ends, 1);
+    expect(l.sent.contains(0x90), isFalse);
+  });
+  test('cancel mid-stage stops before verify and releases the link', () async {
+    final l = _Link();
+    final c = FirmwareFlashController(l)..load('a.bin', img);
+    final f = c.stage();
+    c.cancel();
+    await f;
+    expect(l.sent.contains(0x53), isFalse);
+    expect(l.sent.contains(0x90), isFalse);
+    expect(l.ends, 1);
+  });
 }

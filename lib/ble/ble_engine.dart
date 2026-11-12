@@ -2395,6 +2395,8 @@ class BleEngine {
   /// batch ACKs cannot interleave with the transfer. Set only by
   /// [beginFirmwareFlash], cleared by [endFirmwareFlash].
   bool _flashLock = false;
+  // The session that claimed the link; a commit on any other session is refused.
+  Object? _flashSession;
   bool get firmwareFlashActive => _flashLock;
 
   /// The most recent gen5 HELLO. Its timestamp is the primary input to the
@@ -5127,6 +5129,7 @@ class BleEngine {
   bool beginFirmwareFlash() {
     if (_flashLock || !canFlashFirmware) return false;
     _flashLock = true;
+    _flashSession = _session;
     _log('FIRMWARE FLASH: link claimed; all other writes suspended.');
     return true;
   }
@@ -5134,6 +5137,7 @@ class BleEngine {
   void endFirmwareFlash() {
     if (!_flashLock) return;
     _flashLock = false;
+    _flashSession = null;
     _log('FIRMWARE FLASH: link released.');
   }
 
@@ -5143,6 +5147,7 @@ class BleEngine {
   Future<CorrelatedResponse?> firmwareCommand(int opcode, List<int> payload,
       {Duration timeout = const Duration(seconds: 5)}) async {
     if (!_flashLock || !canFlashFirmwareLink) return null;
+    if (!identical(_session, _flashSession)) return null;
     if (!const {
       FwUpdate.startLoad,
       FwUpdate.loadData,
@@ -9368,6 +9373,12 @@ class BleEngine {
     // awaits below are pending, and nothing that resumes after them may touch
     // it. Only this dying session object and its radio are awaited on.
     _session = null;
+    if (_flashLock) {
+      // A held lock would refuse every ACK on the next link.
+      _flashLock = false;
+      _flashSession = null;
+      _log('FIRMWARE FLASH: link lost, lock released.');
+    }
     // The strap-RTC↔wall correlation belongs to the session that measured it —
     // drop it so it can't leak into the next connection's alarm arming before a
     // fresh GET_CLOCK. (Connection setup also re-nulls it; this covers the gap
