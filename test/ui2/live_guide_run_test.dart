@@ -112,6 +112,7 @@ void main() {
       expect(run.currentStep, isNull);
 
       stage.navigator.pop();
+      await t.pump(); // Start the reverse transition before advancing its clock.
       await t.pump(const Duration(milliseconds: 400));
       run.observe(_topPage(t), _en);
       expect(run.state, isA<GuideAtStep>().having((s) => s.index, 'index', 1));
