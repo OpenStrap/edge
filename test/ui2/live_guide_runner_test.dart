@@ -326,6 +326,31 @@ void main() {
   });
 
   group('backToGuide', () {
+    // why: S5. Two fast presses must share the operation, including a route's
+    // pending Back refusal; duplicated calls used to invoke its cleanup twice.
+    testWidgets('concurrent Back to the guide calls share one future and one Back attempt', (t) async {
+      final h = await _pump(t);
+      await h.runner.start(stageGuide(), band: null);
+      await _frames(t);
+      final attempts = <bool>[];
+      await pushStagePage(t, h.stage, PopScope<void>(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) => attempts.add(didPop),
+        child: const Scaffold(body: Text('Busy capture')),
+      ));
+      await _frames(t);
+      final first = h.runner.backToGuide();
+      final second = h.runner.backToGuide();
+      expect(second, same(first));
+      await _frames(t);
+      await first;
+      expect(attempts, [false]);
+      expect(find.text('Busy capture'), findsOneWidget);
+      // A completed refusal must release the latch so a later user retry works.
+      await h.runner.backToGuide();
+      expect(attempts, [false, false]);
+    });
+
     testWidgets('pops one route at a time until a step matches', (t) async {
       // why: spec "Back to the guide (returns to the last matched step's screen
       // via Navigator back)". Stack: home, details (step 2), other (off path).
