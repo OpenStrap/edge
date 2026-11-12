@@ -398,6 +398,10 @@ class Motion {
   /// the rest (the guide then shows the finished state at once).
   static const reveal = Duration(milliseconds: 600);
 
+  /// Minimum interval between live-guide plans during page animations.
+  /// Reduced motion removes the throttle as well as the reveal animation.
+  static const guidePlanInterval = Duration(milliseconds: 50);
+
   /// The session clock. A live workout counts REAL seconds, so this is the one
   /// duration that must NOT pass through [motion] — reduced motion silences
   /// animation, it does not stop time. It lives here because theme.dart is the

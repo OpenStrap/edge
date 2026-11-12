@@ -248,7 +248,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
     final animating = SchedulerBinding.instance.transientCallbackCount >
         (_reveal.isAnimating ? 1 : 0);
     if (page != null && identical(page, _page) && animating &&
-        _lastPlanTime != null && now - _lastPlanTime! < const Duration(milliseconds: 50)) {
+        _lastPlanTime != null && now - _lastPlanTime! < motion(context, Motion.guidePlanInterval)) {
       SchedulerBinding.instance.scheduleFrame();
       return;
     }
