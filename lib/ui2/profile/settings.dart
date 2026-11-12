@@ -41,6 +41,8 @@ import '../ui2.dart';
 import 'alarm.dart';
 import 'band_notifications.dart';
 import 'data.dart';
+import 'firmware_flash_screen.dart';
+import '../../ble/ble_state.dart' show kFirmwareFlashEnabled;
 import 'gallery.dart';
 import 'gestures.dart';
 import 'profile.dart';
@@ -947,6 +949,11 @@ class MoreSettingsView extends StatelessWidget {
                             'Every component, at any text scale, in either '
                                 'theme',
                         onTap: onGallery),
+                    if (kFirmwareFlashEnabled)
+                      SetRow(LucideIcons.upload, C.red, 'Install an image',
+                          sub: 'WHOOP 5 only. Use at your own risk',
+                          onTap: () =>
+                              goto(c, const FirmwareFlashScreen())),
                     SetRow(LucideIcons.code, C.n500,
                         l?.settingsDeveloperModeRowTitle ?? 'Developer mode',
                         value: on, chevron: false, onTap: onToggleDev),

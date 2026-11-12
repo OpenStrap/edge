@@ -2390,6 +2390,13 @@ class BleEngine {
   /// caller waiting out a full timeout on a connection that is gone.
   final CommandAwaiter _awaiter = CommandAwaiter();
 
+  /// True while a user-initiated image update owns the link. Every other write
+  /// is refused at [_write] for the duration, so the heartbeat, keepalive and
+  /// batch ACKs cannot interleave with the transfer. Set only by
+  /// [beginFirmwareFlash], cleared by [endFirmwareFlash].
+  bool _flashLock = false;
+  bool get firmwareFlashActive => _flashLock;
+
   /// The most recent gen5 HELLO. Its timestamp is the primary input to the
   /// clock decision.
   Gen5HelloInfo? _gen5Hello;
@@ -4964,7 +4971,11 @@ class BleEngine {
     _Session? owner,
     bool allowDangerous = false,
     bool Function()? beforeTransport,
+    bool flash = false,
   }) {
+    // An image update owns the link: nothing but its own frames goes out.
+    if (_flashLock && !flash) return Future.value(false);
+    if (flash) allowDangerous = true;
     final session = _session;
     // The dangerous-opcode block lives HERE, at the one write every command
     // funnels through, not only in `_send`: nine call sites build their own
@@ -5104,6 +5115,59 @@ class BleEngine {
     }
     return ok;
   }
+
+  /// Image update is offered for gen5 only, on builds that opt in, on a live
+  /// link with no history offload in flight.
+  bool get canFlashFirmware =>
+      kFirmwareFlashEnabled &&
+      (_session?.connected ?? false) &&
+      (_session?.band.isGen5 ?? false) &&
+      !_offloadActive;
+
+  bool beginFirmwareFlash() {
+    if (_flashLock || !canFlashFirmware) return false;
+    _flashLock = true;
+    _log('FIRMWARE FLASH: link claimed; all other writes suspended.');
+    return true;
+  }
+
+  void endFirmwareFlash() {
+    if (!_flashLock) return;
+    _flashLock = false;
+    _log('FIRMWARE FLASH: link released.');
+  }
+
+  /// One image-update command and its correlated reply (null on a failed
+  /// write, timeout, or dropped link). Only valid between [beginFirmwareFlash]
+  /// and [endFirmwareFlash]; never resent here (a repeated 0x90 is not safe).
+  Future<CorrelatedResponse?> firmwareCommand(int opcode, List<int> payload,
+      {Duration timeout = const Duration(seconds: 5)}) async {
+    if (!_flashLock || !canFlashFirmwareLink) return null;
+    if (!const {
+      FwUpdate.startLoad,
+      FwUpdate.loadData,
+      FwUpdate.verifyImage,
+      FwUpdate.processImage,
+    }.contains(opcode)) {
+      return null;
+    }
+    final session = _session!;
+    final seq = _seq.nextLive();
+    final pending = _awaiter.register(seq, opcode, timeout: timeout);
+    final frame = buildCommand(seq, opcode, payload, session.band);
+    if (!await _write(frame, flash: true)) {
+      pending.cancel();
+      return null;
+    }
+    return pending.response;
+  }
+
+  // Link-only half of [canFlashFirmware] (offload is allowed to be set by
+  // our own claim once a transfer has started).
+  bool get canFlashFirmwareLink =>
+      kFirmwareFlashEnabled &&
+      (_session?.connected ?? false) &&
+      (_session?.band.isGen5 ?? false);
 
   /// Send a command and wait for ITS reply.
   ///

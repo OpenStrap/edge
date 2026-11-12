@@ -2423,3 +2423,9 @@ class NotifyDiag {
     return 'frames[$frames] chunks[$list]$more';
   }
 }
+
+/// Whether this build offers the user-supplied image update flow. Off unless
+/// the build opts in (`--dart-define=ENABLE_FIRMWARE_FLASH=true`), so store
+/// builds never contain a reachable path to it.
+const bool kFirmwareFlashEnabled =
+    bool.fromEnvironment('ENABLE_FIRMWARE_FLASH', defaultValue: false);
