@@ -298,6 +298,7 @@ void main() {
       final stage = await pumpLiveStage(t);
       await _settleReveal(t);
       await t.tap(find.byKey(stageOpenDetails));
+      await t.pump(); // Start the pushed route's ticker before advancing time.
       await t.pump(const Duration(milliseconds: 400));
       expect(stage.taps.openDetails, 1);
       expect(find.byKey(stageDetailsTitle), findsOneWidget, reason: 'the real navigation happened');
@@ -414,6 +415,7 @@ void main() {
       await _settleReveal(t);
       expect(stage.run.state, isA<GuideOffPath>());
       stage.navigator.pop();
+      await t.pump(); // Start the reverse transition before advancing time.
       await t.pump(const Duration(milliseconds: 400));
       await _settleReveal(t);
       expect(stage.run.state, isA<GuideAtStep>().having((s) => s.index, 'index', 1));
@@ -427,6 +429,7 @@ void main() {
       await pushStagePage(t, stage, StagePages(stage.taps).other());
       await _settleReveal(t);
       stage.navigator.pop();
+      await t.pump(); // Finish the pop before timing the guide's own reveal.
       await t.pump(const Duration(milliseconds: 400));
       await _settleReveal(t);
       expect(find.byKey(GuideStepCard.offPathKey), findsNothing);
