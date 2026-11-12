@@ -542,6 +542,7 @@ class _ShellState extends State<AppMainShell> {
   AppState? _app;
   GuideRunner? _guideRunner;
   GuideShellLink? _guideShell;
+  bool _persistSelection = true;
 
   @override
   void initState() {
@@ -551,7 +552,8 @@ class _ShellState extends State<AppMainShell> {
     _app = context.read<AppState>();
     _selection = ValueNotifier(_domain);
     _guideRunner = context.read<GuideRunner?>();
-    _guideShell = GuideShellLink(selectTab: _go, openSettings: () async {
+    // Guide navigation is temporary; only the user's own tab changes persist.
+    _guideShell = GuideShellLink(selectTab: (d) => _go(d, persist: false), openSettings: () async {
       if (mounted) await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const MoreSettings()));
     });
     _guideRunner?.attachShell(_guideShell!);
@@ -610,12 +612,19 @@ class _ShellState extends State<AppMainShell> {
     if (tab >= 0) _go(domainForTab(tab));
   }
 
-  void _go(ShellDomain d) {
+  void _go(ShellDomain d, {bool persist = true}) {
     if (d == _domain) return;
     setState(() => _domain = d);
-    Prefs.setInt(Prefs.shellTabV2, d.index);
-    // AppShell follows this without being recreated, so tab state survives.
-    _selection.value = d;
+    if (persist) Prefs.setInt(Prefs.shellTabV2, d.index);
+    // AppShell reports notifier-driven changes through onSelect as well.
+    // Keep guide write suppression scoped to that synchronous notification.
+    final previous = _persistSelection;
+    _persistSelection = persist;
+    try {
+      _selection.value = d;
+    } finally {
+      _persistSelection = previous;
+    }
   }
 
   @override
@@ -638,7 +647,7 @@ class _ShellState extends State<AppMainShell> {
       banner: live ? const _LiveSessionBar() : null,
       onSelect: (d) {
         _domain = d;
-        Prefs.setInt(Prefs.shellTabV2, d.index);
+        if (_persistSelection) Prefs.setInt(Prefs.shellTabV2, d.index);
         // Manual tab changes (and Back) must update the notifier too:
         // otherwise it goes stale and a later _go to that stale value fires
         // no change event, so AppShell would not follow the deep link.

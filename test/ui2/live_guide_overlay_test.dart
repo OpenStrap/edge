@@ -369,6 +369,38 @@ void main() {
   });
 
   group('pointer rules', () {
+    // why: S9 / CLAIM(overlay-pass-through). Exercise drag recognizers, not
+    // just taps: the target hole passes drags and the surrounding shield
+    // absorbs them. Removing the overlay proves the covered recognizer works.
+    testWidgets('target drags pass through and unrelated drags are absorbed', (t) async {
+      final stage = await pumpLiveStage(t, guide: _occludedGuide());
+      var targetDrags = 0, otherDrags = 0;
+      Widget area(Key key, VoidCallback onEnd) => GestureDetector(
+        key: key, behavior: HitTestBehavior.opaque,
+        onVerticalDragEnd: (_) => onEnd(),
+        child: const SizedBox(width: 240, height: 100),
+      );
+      await pushStagePage(t, stage, Scaffold(body: Column(children: [
+        const SizedBox(height: 120),
+        area(stageFinish, () => targetDrags++),
+        const SizedBox(height: 20),
+        area(stageOtherAction, () => otherDrags++),
+        const SizedBox(height: 200),
+      ])));
+      await _settleReveal(t);
+      await t.drag(find.byKey(stageFinish), const Offset(0, 60));
+      await t.pump();
+      expect(targetDrags, 1);
+      expect(stage.run.state, isA<GuideAtStep>(), reason: 'a drag is not completion');
+      await t.drag(find.byKey(stageOtherAction), const Offset(0, 60), warnIfMissed: false);
+      await t.pump();
+      expect(otherDrags, 0);
+      stage.entry!.remove();
+      await t.pump();
+      await t.drag(find.byKey(stageOtherAction), const Offset(0, 60));
+      expect(otherDrags, 1, reason: 'positive control without the shield');
+    });
+
     testWidgets('a tap on the target reaches the real control, which does what it always does', (t) async {
       // why: CLAIM(overlay-pass-through) + spec "taps on the target pass through
       // to the real control (it does exactly what it always does)".

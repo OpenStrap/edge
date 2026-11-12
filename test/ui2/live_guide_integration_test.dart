@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/app.dart' show AppMainShell;
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/activity/day_strain.dart' show DayStrainDetail;
 import 'package:openstrap_edge/ui2/activity/zones.dart' show ZonesDetail;
@@ -69,6 +70,9 @@ Future<void> _startFromHelp(WidgetTester t, LiveGuideApp app, String guideId) as
 }
 
 Future<void> _reveal(WidgetTester t) => settleLiveGuide(t, frames: 12);
+
+Future<int> _dbChanges() async => ((await (await LocalDb.instance)
+    .rawQuery('SELECT total_changes() AS n')).single['n'] as num).toInt();
 
 void main() {
   setUpAll(() async {
@@ -144,6 +148,58 @@ void main() {
     expect(t.takeException(), isNull);
     expect(run.isExited, isTrue);
     expect(app.runner.activeRun, isNull);
+  });
+
+  // why: S9 / CLAIM(run-memory-only). A recording shell missed the real
+  // shell persisting guide-driven tab changes. Measure actual SQLite and prefs
+  // through start, off-path navigation, Back to the guide and exit.
+  testWidgets('the real shell guide start and Back to the guide write nothing', (t) async {
+    final app = await pumpLiveGuideApp(t);
+    final beforeProbePrefs = await t.runAsync(prefsSnapshot);
+    final beforeProbeDb = await t.runAsync(_dbChanges);
+    Prefs.setInt('guide-write-probe', 7);
+    await t.runAsync(() => LocalDb.setCursor('guide-write-probe', '1'));
+    expect(await t.runAsync(prefsSnapshot), isNot(beforeProbePrefs), reason: 'prefs positive control');
+    expect(await t.runAsync(_dbChanges), greaterThan(beforeProbeDb!), reason: 'SQLite positive control');
+    final prefs = await t.runAsync(prefsSnapshot);
+    final db = await t.runAsync(_dbChanges);
+
+    // Force an actual tab change, rather than starting a Today guide on Today.
+    final run = (await app.runner.start(_guide('log-past-workout'), band: null) as GuideStarted).run;
+    await _reveal(t);
+    expect(find.byType(WorkoutScreen), findsOneWidget);
+    expect(run.state, isA<GuideAtStep>());
+    expect(await t.runAsync(prefsSnapshot), prefs);
+    expect(await t.runAsync(_dbChanges), db);
+    app.navigator.push(MaterialPageRoute<void>(builder: (_) => const HelpScreen()));
+    await _reveal(t);
+    expect(run.state, isA<GuideOffPath>());
+    final back = app.runner.backToGuide();
+    await _reveal(t);
+    await back;
+    await _reveal(t);
+    expect(find.byType(HelpScreen), findsNothing);
+    expect(run.state, isA<GuideAtStep>());
+    expect(await t.runAsync(prefsSnapshot), prefs, reason: 'start and return change no preferences');
+    expect(await t.runAsync(_dbChanges), db, reason: 'start and return change no database rows');
+
+    // A user-driven tab change legitimately persists its choice. Take a new
+    // baseline, then cover Back to the guide's shell-root fallback as well.
+    app.state.navRequest.value = 3;
+    await _reveal(t);
+    expect(find.byType(HealthScreen), findsOneWidget);
+    expect(run.state, isA<GuideOffPath>());
+    final userPrefs = await t.runAsync(prefsSnapshot);
+    final userDb = await t.runAsync(_dbChanges);
+    expect(userPrefs, isNot(prefs), reason: 'ordinary navigation still saves the selected tab');
+    await app.runner.backToGuide();
+    await _reveal(t);
+    expect(find.byType(WorkoutScreen), findsOneWidget);
+    expect(run.state, isA<GuideAtStep>());
+    app.runner.exit();
+    await t.pump();
+    expect(await t.runAsync(prefsSnapshot), userPrefs, reason: 'guide fallback and exit change no preferences');
+    expect(await t.runAsync(_dbChanges), userDb, reason: 'guide fallback and exit change no database rows');
   });
 
   group('wiring', () {

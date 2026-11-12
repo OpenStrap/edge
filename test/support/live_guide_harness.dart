@@ -168,6 +168,9 @@ Future<LiveGuideApp> pumpLiveGuideApp(
 }) async {
   SharedPreferences.setMockInitialValues(const {});
   await Prefs.ensureLoaded();
+  // Prefs caches its own instance across tests, while setMockInitialValues
+  // replaces the plugin singleton. Seed its synchronous tab read explicitly.
+  Prefs.setInt(Prefs.shellTabV2, 0);
   t.view.physicalSize = size;
   t.view.devicePixelRatio = 1;
   addTearDown(t.view.reset);
@@ -230,5 +233,6 @@ Future<void> settleLiveGuide(WidgetTester t, {int frames = 8}) async {
 /// A JSON snapshot of every shared-preferences key, to compare before/after.
 Future<String> prefsSnapshot() async {
   final sp = await SharedPreferences.getInstance();
+  await sp.reload(); // Include writes through any previously cached Prefs instance.
   return jsonEncode({for (final k in (sp.getKeys().toList()..sort())) k: sp.get(k)});
 }
