@@ -17,6 +17,7 @@ import 'package:openstrap_edge/ui2/guides/guide_step_card.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
 import 'package:openstrap_edge/ui2/skeleton/skeleton.dart';
+import 'package:openstrap_edge/ui2/grammar.dart' show NavBar, Pressable;
 
 import '../support/live_guide_stage.dart';
 
@@ -54,7 +55,63 @@ Guide _askFirstGuide() {
   ], footers: base.footers);
 }
 
+Guide _occludedGuide() => Guide(
+  id: 'occluded', title: (_) => 'Occluded', start: GuideStart.today,
+  variants: [GuideVariant(steps: [GuideStep(
+    id: 'finish', target: GuideTarget.key(stageFinish),
+    anchor: GuideTarget.key(stageFinish), action: GuideAction.tap,
+    caption: (_) => 'Tap Finish.',
+  )])],
+);
+
+Future<LiveStage> _pumpOccludedTarget(WidgetTester t) async {
+  final stage = await pumpLiveStage(t, guide: _occludedGuide());
+  await pushStagePage(t, stage, Scaffold(body: Stack(children: [
+    Positioned(right: 0, top: 40, width: 80, height: 100, child: Pressable(
+      key: stageFinish, onTap: () => stage.taps.finish++,
+      child: const ColoredBox(color: Colors.blue, child: Center(child: Text('Finish'))),
+    )),
+    // The centre of Finish is behind this real chrome, but its lower 40px
+    // remain tappable. Its trailing action records an unintended dispatch independently.
+    Positioned(left: 0, right: 0, top: 0, height: 100,
+      child: NavBar('Cover', trailingWidth: 80, trailing: Pressable(
+        onTap: () => stage.taps.elsewhere++,
+        child: const SizedBox(width: 80, height: 100),
+      ))),
+  ])));
+  await _settleReveal(t);
+  return stage;
+}
+
 void main() {
+  // why: S3 / CLAIM(overlay-hit-target). Accessibility must never activate the
+  // NavBar at the centre of a partly covered target.
+  testWidgets('semantics proxy refuses a target centre hidden by the NavBar', (t) async {
+    final stage = await _pumpOccludedTarget(t);
+    t.semantics.tap(find.semantics.byLabel(_en.guideTargetProxy('Tap Finish.')));
+    await t.pump();
+    expect(stage.taps.elsewhere, 0);
+    expect(stage.taps.finish, 0);
+    expect(stage.run.state, isA<GuideAtStep>());
+    // Positive control: the exposed part still reaches the actual control.
+    await t.tapAt(t.getRect(find.byKey(stageFinish)).bottomCenter - const Offset(0, 10));
+    await t.pump();
+    expect(stage.taps.finish, 1);
+    expect(stage.run.state, isA<GuideFinished>());
+  });
+
+  // why: S7 / CLAIM(overlay-hit-target). A pointer-up inside the target RECT
+  // can belong to chrome; completion must follow the control's hit path.
+  testWidgets('a NavBar tap over the target rect does not finish the guide', (t) async {
+    final stage = await _pumpOccludedTarget(t);
+    await t.tapAt(t.getCenter(find.byKey(stageFinish)));
+    await t.pump();
+    expect(stage.taps.elsewhere, 1, reason: 'the NavBar action received the real tap');
+    expect(stage.taps.finish, 0);
+    expect(stage.run.state, isA<GuideAtStep>());
+    expect(find.byKey(GuideStepCard.doneKey), findsNothing);
+  });
+
   group('skeleton over the real page', () {
     testWidgets('covers the text of every card that is not the target, keeps the target and the title', (t) async {
       // why: the headline behaviour: the user's OWN screen with everything but the

@@ -96,6 +96,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
   late final AnimationController _reveal;
   List<SkeletonShape> _shapes = const [];
   Rect? _target;
+  RenderBox? _targetObject;
   List<Rect> _chrome = const [], _legible = const [];
   bool _yielding = true;
   Element? _page;
@@ -145,11 +146,21 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
 
   void _changed() { if (mounted) setState(() {}); }
 
+  // CLAIM(overlay-hit-target): geometry alone cannot prove a tap reaches a
+  // control hidden under chrome [occluded target regressions in overlay tests].
+  bool _hitsTarget(Offset position) {
+    final target = _targetObject;
+    if (target == null || !target.attached) return false;
+    final result = HitTestResult();
+    WidgetsBinding.instance.hitTestInView(result, position, View.of(context).viewId);
+    return result.path.any((entry) => identical(entry.target, target));
+  }
+
   void _pointer(PointerEvent event) {
     final layer = _layerKey.currentContext?.findRenderObject();
     if (layer is! RenderBox || !layer.hasSize || !layer.attached || _yielding) return;
     final point = layer.globalToLocal(event.position);
-    if (event is PointerDownEvent && (_target?.contains(point) ?? false)) _downs[event.pointer] = point;
+    if (event is PointerDownEvent && (_target?.contains(point) ?? false) && _hitsTarget(event.position)) _downs[event.pointer] = point;
     if (event is PointerCancelEvent) _downs.remove(event.pointer);
     if (event is PointerMoveEvent) {
       final down = _downs[event.pointer];
@@ -157,7 +168,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
     }
     if (event is PointerUpEvent) {
       final down = _downs.remove(event.pointer);
-      if (down != null && (point - down).distance <= kTouchSlop && (_target?.contains(point) ?? false)) {
+      if (down != null && (point - down).distance <= kTouchSlop && (_target?.contains(point) ?? false) && _hitsTarget(event.position)) {
         // Let the real gesture recognizer handle the tap before completing the run.
         scheduleMicrotask(() { if (mounted) widget.run.targetTapped(); });
       }
@@ -169,6 +180,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
     final layer = _layerKey.currentContext?.findRenderObject();
     if (target == null || layer is! RenderBox || !layer.attached) return;
     final position = layer.localToGlobal(target.center);
+    if (!_hitsTarget(position)) return;
     GestureBinding.instance.handlePointerEvent(PointerDownEvent(pointer: -1, position: position));
     GestureBinding.instance.handlePointerEvent(PointerUpEvent(pointer: -1, position: position));
   }
@@ -273,6 +285,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
     _page = page;
     _step = step;
     _target = target;
+    _targetObject = resolution is TargetFound ? resolution.renderObject : null;
     _shapes = shapes;
     _chrome = chrome;
     _legible = legible;

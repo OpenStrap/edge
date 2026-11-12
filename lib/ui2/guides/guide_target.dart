@@ -27,7 +27,9 @@ sealed class TargetResolution {
 final class TargetFound extends TargetResolution {
   /// In the coordinate space of the root element passed to `resolve`.
   final Rect rect;
-  const TargetFound(this.rect);
+  /// The actual control used for pointer hit-path validation by live guides.
+  final RenderBox renderObject;
+  const TargetFound(this.rect, {required this.renderObject});
 }
 
 /// No match in the built tree, but a scrollable under the root could still
@@ -108,7 +110,7 @@ sealed class GuideTarget {
       return TargetNotBuilt(this, 'the root is not laid out yet');
     }
     return switch (_lookup(root, rootBox, root, l)) {
-      _Hit(:final rect) => TargetFound(rect),
+      _Hit(:final rect, :final element) => TargetFound(rect, renderObject: laidOutBox(element)!),
       _Miss(:final failure) => failure,
     };
   }
