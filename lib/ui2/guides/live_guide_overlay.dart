@@ -212,25 +212,44 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
     final page = widget.routes.page;
     final l = AppLocalizations.of(context)!;
     widget.run.observe(null, l); // Prune disposed pages even when the plan is cached.
-    // One cheap walk replaces repeated anchor, target, chrome, legibility and
+    // One traversal replaces repeated anchor, target, chrome, legibility and
     // skeleton walks on idle/reveal frames. Widget identity catches replacement
-    // structure (including same-text controls); dimensions catch pure relayout;
-    // scroll pixels catch motion without a widget rebuild.
+    // structure (including same-text controls). Transforms catch controls moving
+    // without resizing; sliver geometry and counts catch newly built lazy content.
+    // See the late-content, real Sleep and History integration regressions.
     final content = <Object?>[];
     final discoveryContent = <Object?>[];
+    var builtCount = 0;
     if (page != null) {
       visitBuilt(page, (e) {
+        builtCount++;
         final w = e.widget;
+        content.add(e);
         content.add(w);
         final object = e is RenderObjectElement ? e.renderObject : null;
-        if (object is RenderBox && object.hasSize) content.add(object.size);
+        if (object != null && object.attached) {
+          content.add(object);
+          if (object is RenderBox && object.hasSize) {
+            content.add(object.size);
+            content.add(Object.hashAll(object.getTransformTo(layer).storage));
+          }
+          if (object is RenderSliver && object.geometry != null) {
+            content.add(object.constraints);
+            content.add(object.geometry);
+            content.add(Object.hashAll(object.getTransformTo(layer).storage));
+          }
+        }
         if (w is Text) discoveryContent.add(w.data ?? w.textSpan?.toPlainText());
         if (e is StatefulElement && e.state is ScrollableState) {
           final position = (e.state as ScrollableState).position;
           if (position.hasPixels) content.add(position.pixels);
           if (position.hasContentDimensions) {
+            content.add(position.minScrollExtent);
             content.add(position.maxScrollExtent);
+            content.add(position.viewportDimension);
+            discoveryContent.add(position.minScrollExtent);
             discoveryContent.add(position.maxScrollExtent);
+            discoveryContent.add(position.viewportDimension);
           }
         }
       });
@@ -238,7 +257,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
     // Discovery retries use stable text/extents: rebuilding cached list
     // children during an unsuccessful search must not restart that search.
     final signature = Object.hashAll(discoveryContent);
-    final planSignature = (page, layer.size, Object.hashAll(content), widget.run,
+    final planSignature = (page, layer.size, builtCount, Object.hashAll(content), widget.run,
       widget.run.state, l, _searchingPage, _revealedPage, _revealedStep);
     if (_plannedSignature == planSignature) return;
     final now = SchedulerBinding.instance.currentFrameTimeStamp;
@@ -273,8 +292,11 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
     // Async screen reads can move a previously revealed target out of view.
     // Retry when that geometry changes, without repeatedly probing a fixed,
     // unscrollable target. See the dynamic-layout overlay regression.
+    // Use THIS layout's resolution: a late insert can unbuild a previously
+    // visible target. Waiting for _target to become null would need another
+    // full plan, but the next frame may reuse this plan's unchanged signature.
     final retry = _searchingPage == null &&
-        ((_target == null && _searchSignature != signature) ||
+        ((targetNow == null && _searchSignature != signature) ||
          (outside && _lastRevealRect != targetNow));
     if (page != null && step != null && (newStep || retry)) {
       _revealedPage = page;
@@ -292,6 +314,9 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
           if (mounted && identical(_searchToken, token)) {
             _searchingPage = null;
             _searchToken = null;
+            // The search can build children or move the target after this
+            // frame's snapshot. Always measure its settled result once.
+            _plannedSignature = null;
             if (!identical(widget.routes.page, page)) _revealedPage = null;
             setState(() {});
           }
