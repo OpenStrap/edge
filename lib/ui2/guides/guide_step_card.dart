@@ -109,7 +109,7 @@ class _GuideStepCardState extends State<GuideStepCard> {
     final p = P.of(context);
     final l = AppLocalizations.of(context)!;
     Widget title(String text) => Semantics(
-      liveRegion: true, child: Text(text, style: F.head.copyWith(color: p.ink)),
+      container: true, liveRegion: true, child: Text(text, style: F.head.copyWith(color: p.ink)),
     );
     Widget footer(GuideFooter f, Key key) => Padding(
       key: key, padding: const EdgeInsets.only(top: S.x2),
@@ -128,13 +128,13 @@ class _GuideStepCardState extends State<GuideStepCard> {
           ),
           const SizedBox(width: S.x2),
           Expanded(child: Semantics(
-            key: GuideStepCard.captionKey, liveRegion: true,
+            key: GuideStepCard.captionKey, container: true, liveRegion: true,
             child: guideBoldQuoted(model.caption, F.body.copyWith(color: p.ink)),
           )),
         ]));
         content.add(const SizedBox(height: S.x2));
         content.add(Semantics(
-          key: GuideStepCard.dotsKey, label: l.guideStepOf('${model.number}', '${model.total}'),
+          key: GuideStepCard.dotsKey, container: true, label: l.guideStepOf('${model.number}', '${model.total}'),
           child: ExcludeSemantics(child: Wrap(spacing: S.x1, runSpacing: S.x1, children: [
             for (var i = 0; i < model.total; i++) DecoratedBox(
               key: GuideStepCard.dotKey(i),
@@ -161,7 +161,7 @@ class _GuideStepCardState extends State<GuideStepCard> {
     final actions = <Widget>[];
     if (model is GuideCardOnStep && model.missingHelp != null) {
       actions.add(Flexible(child: Semantics(
-        key: GuideStepCard.dontSeeItKey, button: true, expanded: _expanded,
+        key: GuideStepCard.dontSeeItKey, container: true, button: true, expanded: _expanded,
         child: Pressable(onTap: () => setState(() => _expanded = !_expanded),
           child: Text(l.guideDontSeeIt, style: F.cap.copyWith(color: p.on(C.blue)))),
       )));
@@ -170,7 +170,7 @@ class _GuideStepCardState extends State<GuideStepCard> {
       actions.add(Flexible(child: Pressable(key: GuideStepCard.backToGuideKey,
         onTap: widget.onBackToGuide, child: Text(l.guideBackToGuide, style: F.cap.copyWith(color: p.on(C.blue))))));
     }
-    actions.add(Semantics(label: l.guideExitLabel, button: true, onTap: widget.onExit,
+    actions.add(Semantics(container: true, label: l.guideExitLabel, button: true, onTap: widget.onExit,
       child: ExcludeSemantics(child: Pressable(key: GuideStepCard.exitKey, onTap: widget.onExit,
         child: Text(l.guideExit, style: F.cap.copyWith(color: p.ink2))))));
     return Material(
