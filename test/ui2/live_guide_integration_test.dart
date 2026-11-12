@@ -89,6 +89,23 @@ void main() {
     expect(find.byKey(HelpScreen.guideRowKey('heart-rate-zones')), findsOneWidget);
   });
 
+  testWidgets('alarm starts on the real Sleep content and stays matched after revealing its lazy target', (t) async {
+    // why: a Sleep title must not be ambiguous with the shell's Sleep button,
+    // and revealing Alarm can dispose that title in the lazy list.
+    final app = await pumpLiveGuideApp(t);
+    app.runner.start(_guide('alarm-schedule'), band: null);
+    await _reveal(t);
+    await _reveal(t);
+    expect(_step(app), 0);
+    expect(_run(app).currentStep!.id, 'open-alarm');
+    expect(find.byKey(LiveGuideOverlay.outlineKey), findsOneWidget);
+    final target = _overlay(t).targetRect!;
+    expect(target.overlaps(t.getRect(_label(_l(t).settingsAlarmRowTitle))), isTrue);
+    expect(target.top, greaterThanOrEqualTo(0));
+    expect(target.bottom, lessThanOrEqualTo(844));
+    expect(t.takeException(), isNull);
+  });
+
   group('wiring', () {
     testWidgets('the shell registers itself with the runner: start does not answer "no shell"', (t) async {
       // why: GuideRunner needs the shell\'s tab selection; AppMainShell must attach
@@ -257,6 +274,12 @@ void main() {
       expect(find.byType(WorkoutScreen), findsOneWidget);
       expect(_step(app), 0);
       expect(_caption(t), _plain(l.guideStartStep1(l.tabActivity, l.workoutStartSessionLabel)));
+      // The StartCard is edge to edge; growing its outline must not draw offscreen.
+      final outline = t.getRect(find.byKey(LiveGuideOverlay.outlineKey));
+      expect(outline.left, greaterThanOrEqualTo(0));
+      expect(outline.right, lessThanOrEqualTo(390));
+      expect(outline.top, greaterThanOrEqualTo(0));
+      expect(outline.bottom, lessThanOrEqualTo(844));
       await t.tap(_label(l.workoutStartSessionLabel));
       await _reveal(t);
       expect(_step(app), 1);

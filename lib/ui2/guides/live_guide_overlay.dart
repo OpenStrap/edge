@@ -203,17 +203,24 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
     widget.run.observe(page, l);
     final step = widget.run.currentStep;
     final newStep = _revealedPage != page || _revealedStep != step;
+    if (page != null && step == null) {
+      _revealedPage = null;
+      _revealedStep = null;
+      _reveal.stop();
+    }
     // Retry discovery when async screen data replaces the loading state. A
     // failed search is not retried just because our own animation ticks.
     final content = <Object?>[];
-    if (page != null) visitBuilt(page, (e) {
-      final w = e.widget;
-      if (w is Text) content.add(w.data ?? w.textSpan?.toPlainText());
-      if (e is StatefulElement && e.state is ScrollableState) {
-        final position = (e.state as ScrollableState).position;
-        if (position.hasContentDimensions) content.add(position.maxScrollExtent);
-      }
-    });
+    if (page != null) {
+      visitBuilt(page, (e) {
+        final w = e.widget;
+        if (w is Text) content.add(w.data ?? w.textSpan?.toPlainText());
+        if (e is StatefulElement && e.state is ScrollableState) {
+          final position = (e.state as ScrollableState).position;
+          if (position.hasContentDimensions) content.add(position.maxScrollExtent);
+        }
+      });
+    }
     final signature = Object.hashAll(content);
     if (page != null && step != null && (newStep || (_target == null && _searchSignature != signature))) {
       _revealedPage = page;
@@ -280,10 +287,10 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
       GuideFinished() => GuideCardDone(run.guide.doneFooters),
     };
     final show = !_yielding && !run.isExited;
-    final outline = target?.inflate(kGuideOutlineGap);
     final marked = show && target != null && step != null && revealProgress == 1;
     return SizedBox.expand(key: _layerKey, child: LayoutBuilder(builder: (context, constraints) {
       final screen = Offset.zero & constraints.biggest;
+      final outline = target?.inflate(kGuideOutlineGap).intersect(screen);
       final padding = MediaQuery.paddingOf(context);
       var bounds = Rect.fromLTRB(screen.left, padding.top, screen.right, screen.bottom - padding.bottom);
       for (final r in _chrome) {
