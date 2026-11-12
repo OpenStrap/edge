@@ -98,7 +98,7 @@ void main() {
     // why: a Sleep title must not be ambiguous with the shell's Sleep button,
     // and revealing Alarm can dispose that title in the lazy list.
     final app = await pumpLiveGuideApp(t);
-    app.runner.start(_guide('alarm-schedule'), band: null);
+    await app.runner.start(_guide('alarm-schedule'), band: null);
     await _reveal(t);
     await _reveal(t);
     expect(_step(app), 0);
@@ -116,14 +116,14 @@ void main() {
       // why: GuideRunner needs the shell\'s tab selection; AppMainShell must attach
       // its link on mount (CLAIM run-no-new-stack needs a shell to select on).
       final app = await pumpLiveGuideApp(t);
-      expect(app.runner.start(_guide('heart-rate-zones'), band: null), isA<GuideStarted>());
+      expect(await app.runner.start(_guide('heart-rate-zones'), band: null), isA<GuideStarted>());
     });
 
     testWidgets('the shell unregisters on dispose: a later start answers "no shell"', (t) async {
       // why: a stale link would select tabs on a disposed shell.
       final app = await pumpLiveGuideApp(t);
       await t.pumpWidget(const SizedBox());
-      expect(app.runner.start(_guide('heart-rate-zones'), band: null), isA<GuideStartNoShell>());
+      expect(await app.runner.start(_guide('heart-rate-zones'), band: null), isA<GuideStartNoShell>());
     });
   });
 

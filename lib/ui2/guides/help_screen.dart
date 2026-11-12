@@ -118,7 +118,7 @@ class HelpScreen extends StatelessWidget {
       ));
       if (!context.mounted || selected == null) return;
     }
-    final result = runner.start(guide, band: selected);
+    final result = await runner.start(guide, band: selected);
     if (result is GuideStartNoVariant && context.mounted) {
       final bands = result.reason.available.map((g) => g == BandGeneration.whoop4 ? 'WHOOP 4' : 'WHOOP 5').join(', ');
       showDialog<void>(context: context, builder: (_) => AlertDialog(

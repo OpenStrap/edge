@@ -67,6 +67,11 @@ final class GuideStartNoShell extends GuideStartResult {
   const GuideStartNoShell();
 }
 
+/// A route above the shell handled or refused Back. No new run was started.
+final class GuideStartBlocked extends GuideStartResult {
+  const GuideStartBlocked();
+}
+
 class GuideRunner extends ChangeNotifier {
   /// The key of the app's ROOT Navigator (MaterialApp.navigatorKey).
   final GlobalKey<NavigatorState> navigatorKey;
@@ -94,13 +99,21 @@ class GuideRunner extends ChangeNotifier {
   /// Starts [guide] for [band] (null = unknown band, which gets only an "any"
   /// variant, see [Guide.variantFor]). See the file header for the steps.
   /// ↳ CLAIM(run-no-new-stack) ↳ CLAIM(run-one-at-a-time)
-  GuideStartResult start(Guide guide, {required BandGeneration? band}) {
+  Future<GuideStartResult> start(Guide guide, {required BandGeneration? band}) async {
     final choice = guide.variantFor(band);
     if (choice is GuideNoVariant) return GuideStartNoVariant(choice);
     final nav = navigatorKey.currentState;
     if (_shell == null || nav == null) return const GuideStartNoShell();
     exit();
-    nav.popUntil((route) => route.isFirst);
+    final shell = _shell;
+    while (nav.canPop()) {
+      final before = routes.topRoute;
+      // maybePop invokes the screen's own refusal/cleanup handler. A handled
+      // Back can return true without removing the route (PopScope, capture).
+      final handled = await nav.maybePop();
+      if (!nav.mounted || !identical(shell, _shell)) return const GuideStartNoShell();
+      if (!handled || before?.isActive != false || identical(before, routes.topRoute)) return const GuideStartBlocked();
+    }
     _selectStart(guide.start);
     final run = GuideRun(guide: guide, variant: (choice as GuideVariantFound).variant);
     _run = run;
@@ -152,7 +165,9 @@ class GuideRunner extends ChangeNotifier {
         _selectStart(run.guide.start);
         return;
       }
-      nav.pop();
+      final before = routes.topRoute;
+      final handled = await nav.maybePop();
+      if (!handled || before?.isActive != false || identical(before, routes.topRoute)) return;
       await WidgetsBinding.instance.endOfFrame;
     }
   }

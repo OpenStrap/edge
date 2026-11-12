@@ -5,6 +5,8 @@ import 'package:flutter/widgets.dart';
 class GuideRouteObserver extends NavigatorObserver {
   Route<dynamic>? _top;
 
+  Route<dynamic>? get topRoute => _top;
+
   @override
   void didChangeTop(Route<dynamic> topRoute, Route<dynamic>? previousTopRoute) {
     _top = topRoute;

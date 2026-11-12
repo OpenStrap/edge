@@ -68,6 +68,74 @@ Future<int> _dbChanges() async {
 }
 
 void main() {
+  // why: S1 / CLAIM(run-honors-back): capture and breathing pages own their
+  // abort/save flow. A guide must invoke that flow and leave a refusal in place.
+  testWidgets('start over a busy PopScope returns blocked without an overlay', (t) async {
+    final h = await _pump(t);
+    final attempts = <bool>[];
+    await pushStagePage(t, h.stage, PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) => attempts.add(didPop),
+      child: const Scaffold(body: Text('Busy capture')),
+    ));
+    final result = await h.runner.start(stageGuide(), band: null);
+    await _frames(t);
+    expect(result, isA<GuideStartBlocked>());
+    expect(attempts, [false]);
+    expect(find.text('Busy capture'), findsOneWidget);
+    expect(h.stage.navigator.canPop(), isTrue);
+    expect(h.runner.activeRun, isNull);
+    expect(h.shell.events, isEmpty);
+    expect(_overlays(t), 0);
+  });
+
+  // why: S1. maybePop can report "handled" without removing a PopScope route;
+  // stop after that attempt instead of retrying forever or forcing its removal.
+  testWidgets('Back to the guide leaves a busy page and invokes its Back handler once', (t) async {
+    final h = await _pump(t);
+    final run = (await h.runner.start(stageGuide(), band: null) as GuideStarted).run;
+    await _frames(t);
+    final attempts = <bool>[];
+    await pushStagePage(t, h.stage, PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) => attempts.add(didPop),
+      child: const Scaffold(body: Text('Busy capture')),
+    ));
+    await _frames(t);
+    expect(run.state, isA<GuideOffPath>());
+    await t.tap(find.byKey(GuideStepCard.backToGuideKey));
+    await _frames(t);
+    expect(attempts, [false]);
+    expect(find.text('Busy capture'), findsOneWidget);
+    expect(run.state, isA<GuideOffPath>());
+    expect(find.byKey(GuideStepCard.offPathKey), findsOneWidget);
+    expect(h.stage.navigator.canPop(), isTrue);
+  });
+
+  // why: S1. A screen's Back handler may push its own save/abort dialog.
+  // A changed top route alone does not mean that the busy page was removed.
+  testWidgets('start leaves a busy page and its Back confirmation intact', (t) async {
+    final h = await _pump(t);
+    var attempts = 0;
+    await pushStagePage(t, h.stage, Builder(builder: (context) => PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        attempts++;
+        showDialog<void>(context: context, builder: (_) => const AlertDialog(title: Text('Save capture?')));
+      },
+      child: const Scaffold(body: Text('Busy capture')),
+    )));
+    final result = await h.runner.start(stageGuide(), band: null);
+    await _frames(t);
+    expect(result, isA<GuideStartBlocked>());
+    expect(attempts, 1);
+    expect(find.text('Save capture?'), findsOneWidget);
+    expect(find.text('Busy capture', skipOffstage: false), findsOneWidget);
+    expect(h.runner.activeRun, isNull);
+    expect(_overlays(t), 0);
+  });
+
   group('start', () {
     for (final (start, tab) in [
       (GuideStart.today, ShellDomain.today),
@@ -84,7 +152,7 @@ void main() {
         await pushStagePage(t, h.stage, StagePages(h.stage.taps).other());
         expect(h.stage.navigator.canPop(), isTrue);
 
-        final result = h.runner.start(stageGuide(start: start), band: null);
+        final result = await h.runner.start(stageGuide(start: start), band: null);
         await _frames(t);
 
         expect(result, isA<GuideStarted>());
@@ -97,7 +165,7 @@ void main() {
       // why: Settings is a pushed screen, not a tab; the shell link owns that push.
       final h = await _pump(t);
       await pushStagePage(t, h.stage, StagePages(h.stage.taps).details());
-      h.runner.start(stageGuide(start: GuideStart.settings), band: null);
+      await h.runner.start(stageGuide(start: GuideStart.settings), band: null);
       await _frames(t);
       expect(h.shell.events, ['settings canPop=false']);
     });
@@ -106,7 +174,7 @@ void main() {
       // why: CLAIM(run-no-new-stack): a run is an OverlayEntry, not a Navigator or a route.
       final h = await _pump(t);
       expect(_overlays(t), 0);
-      final result = h.runner.start(stageGuide(), band: null) as GuideStarted;
+      final result = (await h.runner.start(stageGuide(), band: null)) as GuideStarted;
       await _frames(t);
       expect(_overlays(t), 1);
       expect(h.runner.activeRun, same(result.run));
@@ -119,7 +187,7 @@ void main() {
       // route; an overlay entry added earlier must not end up underneath, or the
       // off-path card would be hidden by the very page that makes it necessary.
       final h = await _pump(t);
-      h.runner.start(stageGuide(), band: null);
+      await h.runner.start(stageGuide(), band: null);
       await _frames(t);
       await pushStagePage(t, h.stage, StagePages(h.stage.taps).other());
       await _frames(t);
@@ -143,9 +211,9 @@ void main() {
     testWidgets('a second start replaces the first: one overlay, the first run exited', (t) async {
       // why: CLAIM(run-one-at-a-time).
       final h = await _pump(t);
-      final first = (h.runner.start(stageGuide(), band: null) as GuideStarted).run;
+      final first = ((await h.runner.start(stageGuide(), band: null)) as GuideStarted).run;
       await _frames(t);
-      final second = (h.runner.start(stageGuide(), band: null) as GuideStarted).run;
+      final second = ((await h.runner.start(stageGuide(), band: null)) as GuideStarted).run;
       await _frames(t);
       expect(first.isExited, isTrue);
       expect(h.runner.activeRun, same(second));
@@ -156,7 +224,7 @@ void main() {
       // why: before the main screen exists there is nowhere to bring the app to.
       final h = await _pump(t, attach: false);
       await pushStagePage(t, h.stage, StagePages(h.stage.taps).details());
-      final result = h.runner.start(stageGuide(), band: null);
+      final result = await h.runner.start(stageGuide(), band: null);
       await _frames(t);
       expect(result, isA<GuideStartNoShell>());
       expect(h.stage.navigator.canPop(), isTrue, reason: 'no pop happened');
@@ -169,10 +237,10 @@ void main() {
     testWidgets('a known band runs its own variant\'s steps', (t) async {
       // why: WHOOP 4 and 5 differ in paths; the run must carry the right steps.
       final h = await _pump(t);
-      final run = (h.runner.start(_twoBandGuide(), band: BandGeneration.whoop5) as GuideStarted).run;
+      final run = ((await h.runner.start(_twoBandGuide(), band: BandGeneration.whoop5)) as GuideStarted).run;
       expect(run.variant.steps.single.id, 'five');
       h.runner.exit();
-      final run4 = (h.runner.start(_twoBandGuide(), band: BandGeneration.whoop4) as GuideStarted).run;
+      final run4 = ((await h.runner.start(_twoBandGuide(), band: BandGeneration.whoop4)) as GuideStarted).run;
       expect(run4.variant.steps.single.id, 'four');
     });
 
@@ -180,7 +248,7 @@ void main() {
       // why: "a guide with no variant for the user\'s band says so" - never an empty guide.
       final h = await _pump(t);
       await pushStagePage(t, h.stage, StagePages(h.stage.taps).details());
-      final result = h.runner.start(_twoBandGuide(), band: null);
+      final result = await h.runner.start(_twoBandGuide(), band: null);
       await _frames(t);
       expect(result, isA<GuideStartNoVariant>());
       final reason = (result as GuideStartNoVariant).reason;
@@ -197,7 +265,7 @@ void main() {
       // user on another screen/tab than the one they are looking at would be a
       // surprise.
       final h = await _pump(t);
-      h.runner.start(stageGuide(), band: null);
+      await h.runner.start(stageGuide(), band: null);
       await _frames(t);
       await pushStagePage(t, h.stage, StagePages(h.stage.taps).details());
       await _frames(t);
@@ -215,7 +283,7 @@ void main() {
       // why: Exit can race a finished frame callback.
       final h = await _pump(t);
       h.runner.exit();
-      h.runner.start(stageGuide(), band: null);
+      await h.runner.start(stageGuide(), band: null);
       await _frames(t);
       h.runner.exit();
       h.runner.exit();
@@ -226,7 +294,7 @@ void main() {
     testWidgets('a run that exits itself (GuideRun.exit) takes its overlay with it', (t) async {
       // why: one path to "ended": whoever ends the run, the overlay goes and activeRun clears.
       final h = await _pump(t);
-      final run = (h.runner.start(stageGuide(), band: null) as GuideStarted).run;
+      final run = ((await h.runner.start(stageGuide(), band: null)) as GuideStarted).run;
       await _frames(t);
       run.exit();
       await t.pump();
@@ -237,7 +305,7 @@ void main() {
     testWidgets('the shell going away ends the run', (t) async {
       // why: a run needs a shell to be brought to; without one it would sit over a dead app.
       final h = await _pump(t);
-      final run = (h.runner.start(stageGuide(), band: null) as GuideStarted).run;
+      final run = ((await h.runner.start(stageGuide(), band: null)) as GuideStarted).run;
       await _frames(t);
       h.runner.detachShell(h.shell.link);
       await t.pump();
@@ -248,7 +316,7 @@ void main() {
     testWidgets('detaching a shell that is not the attached one is ignored', (t) async {
       // why: a stale shell disposing late (hot restart, re-mount) must not end a live run.
       final h = await _pump(t);
-      final run = (h.runner.start(stageGuide(), band: null) as GuideStarted).run;
+      final run = ((await h.runner.start(stageGuide(), band: null)) as GuideStarted).run;
       await _frames(t);
       h.runner.detachShell(_ShellLog(h.stage).link);
       await t.pump();
@@ -262,7 +330,7 @@ void main() {
       // why: spec "Back to the guide (returns to the last matched step's screen
       // via Navigator back)". Stack: home, details (step 2), other (off path).
       final h = await _pump(t);
-      final run = (h.runner.start(stageGuide(), band: null) as GuideStarted).run;
+      final run = ((await h.runner.start(stageGuide(), band: null)) as GuideStarted).run;
       await _frames(t);
       await pushStagePage(t, h.stage, StagePages(h.stage.taps).details());
       await _frames(t);
@@ -282,7 +350,7 @@ void main() {
       // why: the user left by switching tab (no route to pop). The way back is the
       // start; the future must complete (bounded) rather than pop forever.
       final h = await _pump(t);
-      h.runner.start(stageGuide(), band: null);
+      await h.runner.start(stageGuide(), band: null);
       await _frames(t);
       h.shell.events.clear();
       h.stage.navigator.pushReplacement(MaterialPageRoute<void>(builder: (_) => StagePages(h.stage.taps).other()));
@@ -323,7 +391,7 @@ void main() {
       final db = await t.runAsync(_dbChanges);
 
       final h = await _pump(t);
-      final run = (h.runner.start(stageGuide(), band: null) as GuideStarted).run;
+      final run = ((await h.runner.start(stageGuide(), band: null)) as GuideStarted).run;
       await _frames(t);
       await pushStagePage(t, h.stage, StagePages(h.stage.taps).details());
       await _frames(t);
