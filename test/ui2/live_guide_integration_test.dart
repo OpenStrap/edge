@@ -60,7 +60,11 @@ Guide _guide(String id) => kGuideCatalogue.firstWhere((e) => e.guide.id == id).g
 Future<void> _startFromHelp(WidgetTester t, LiveGuideApp app, String guideId) async {
   app.navigator.push(MaterialPageRoute<void>(builder: (_) => const HelpScreen()));
   await settleLiveGuide(t);
-  await t.tap(find.byKey(HelpScreen.guideRowKey(guideId)));
+  final row = find.byKey(HelpScreen.guideRowKey(guideId));
+  await t.ensureVisible(row);
+  await t.pump();
+  expect(row.hitTestable(), findsOneWidget, reason: 'the Help row is visible before the user taps it');
+  await t.tap(row);
   await settleLiveGuide(t, frames: 12);
 }
 
