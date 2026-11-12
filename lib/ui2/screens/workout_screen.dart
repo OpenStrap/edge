@@ -13,6 +13,7 @@ import '../../l10n/display_text.dart';
 // fixes it.
 
 import 'dart:async' show unawaited;
+import 'dart:convert' show utf8;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -653,6 +654,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       for (final w in d.workouts) ...[
         _HistoryRow(w,
             weightKg: d.weightKg,
+            onChanged: () {
+              if (mounted) reload();
+            },
             onDelete: w.id.isEmpty
                 ? null
                 : () => _confirmDeleteWorkout(c, w),
@@ -1027,14 +1031,22 @@ class _HistoryRow extends StatelessWidget {
   /// An imported row's tap: score its window from the band (#325).
   final VoidCallback? onScore;
 
+  /// Called after returning from the session's summary in case it changed.
+  final VoidCallback? onChanged;
+
   const _HistoryRow(this.w,
-      {this.weightKg, this.onRetime, this.onDelete, this.onScore});
+      {this.weightKg,
+      this.onRetime,
+      this.onDelete,
+      this.onScore,
+      this.onChanged});
 
   Future<void> _open(BuildContext c) async {
     final nav = Navigator.of(c);
     final r = await _detailOf(c.read<AppState>(), w);
     await nav.push(MaterialPageRoute(
         builder: (_) => ActivitySummary(r, weightKg: weightKg)));
+    onChanged?.call();
   }
 
   @override
@@ -1377,31 +1389,17 @@ Future<bool> _startSession(AppState app, Activity a) async {
 /// `strength_set` rows for one log. `set_index` counts per exercise; `seq` is
 /// the position in the whole session and is [LocalDb.saveStrengthSets]'s own
 /// key, which is why re-sending the same log is idempotent.
-List<Map<String, Object?>> _setRows(List<LoggedSet> sets) {
-  final perExercise = <String, int>{};
-  return [
-    for (final s in sets)
-      {
-        'exercise_key': s.exerciseKey,
-        'set_index':
-            perExercise[s.exerciseKey] = (perExercise[s.exerciseKey] ?? 0) + 1,
-        'reps': s.reps,
-        'load_kg': s.loadKg,
-        'rpe': s.rpe,
-        'rest_sec': s.restSec,
-        'at_ts': s.at.millisecondsSinceEpoch ~/ 1000,
-      },
-  ];
-}
+List<Map<String, Object?>> _setRows(List<LoggedSet> sets) =>
+    strengthSetsToRows(sets);
 
 /// Bank the sets logged so far against the OPEN session. Called on every set,
 /// because a typed set is the one thing in a session no sensor can reproduce
 /// and it used to live in widget state until the user pressed stop.
 Future<void> _bankSets(AppState app, List<LoggedSet> sets) async {
   final id = app.activeWorkout?.workoutId;
-  if (id == null || sets.isEmpty) return;
+  if (id == null) return;
   try {
-    await LocalDb.saveStrengthSets(id, _setRows(sets));
+    await LocalDb.replaceStrengthSets(id, _setRows(sets));
   } catch (_) {
     // The draft still holds them, and finish writes the whole log again.
   }
@@ -1432,9 +1430,7 @@ Future<ActivityResult> _finishSession(
 
   // Written on every set already; written again here because the last one
   // may have landed while the app was being torn down.
-  if (draft.strength.sets.isNotEmpty) {
-    await LocalDb.saveStrengthSets(id, _setRows(draft.strength.sets));
-  }
+  await LocalDb.replaceStrengthSets(id, _setRows(draft.strength.sets));
 
   // The GPS tail is flushed by stopWorkout before it returns, so the route
   // read here is the whole route.
@@ -1703,6 +1699,19 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   return out;
 }
 
+String _parseNote(Object? val) {
+  if (val == null) return '';
+  if (val is String) return val;
+  if (val is List<int>) {
+    try {
+      return utf8.decode(val, allowMalformed: true);
+    } catch (_) {
+      return '';
+    }
+  }
+  return '$val';
+}
+
 /// `strength_set` rows → the log the summary renders. `load_kg` stays null
 /// when it was null: a bodyweight set is not a zero-kilo set.
 StrengthLog _logFrom(List<Map<String, Object?>> rows) => StrengthLog([
@@ -1713,6 +1722,8 @@ StrengthLog _logFrom(List<Map<String, Object?>> rows) => StrengthLog([
           loadKg: (r['load_kg'] as num?)?.toDouble(),
           rpe: (r['rpe'] as num?)?.toInt(),
           restSec: (r['rest_sec'] as num?)?.toInt(),
+          holdSec: (r['hold_sec'] as num?)?.toInt(),
+          note: _parseNote(r['note']),
           at: DateTime.fromMillisecondsSinceEpoch(
               ((r['at_ts'] as num?)?.toInt() ?? 0) * 1000),
         ),

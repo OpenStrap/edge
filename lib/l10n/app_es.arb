@@ -2891,6 +2891,18 @@
       }
     }
   },
+  "strengthCustomWeight": "Peso personalizado",
+  "strengthEnterValue": "Introduce un valor",
+  "strengthInvalidNumber": "Número no válido",
+  "strengthLoadRangeKg": "Debe estar entre 0 y 500 kg",
+  "strengthLoadRangeLb": "Debe estar entre 0 y 1100 lb",
+  "strengthRepsRange": "Debe estar entre 1 y 200 repeticiones",
+  "strengthEditSet": "Editar serie",
+  "strengthDeleteSet": "Eliminar serie",
+  "strengthDeleteSetConfirm": "¿Eliminar esta serie?",
+  "strengthBodyweight": "Peso corporal",
+  "strengthDelete": "Eliminar",
+  "strengthSaveFailed": "No se pudieron guardar los cambios",
   "reportContactLabel": "Contacto (opcional)",
   "reportContactHint": "Correo o Discord, solo si quieres una respuesta"
 }

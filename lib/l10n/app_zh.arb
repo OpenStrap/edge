@@ -2862,6 +2862,18 @@
       }
     }
   },
+  "strengthCustomWeight": "自定义重量",
+  "strengthEnterValue": "输入数值",
+  "strengthInvalidNumber": "无效数字",
+  "strengthLoadRangeKg": "必须在 0–500 千克之间",
+  "strengthLoadRangeLb": "必须在 0–1100 磅之间",
+  "strengthRepsRange": "必须在 1–200 次之间",
+  "strengthEditSet": "编辑组",
+  "strengthDeleteSet": "删除组",
+  "strengthDeleteSetConfirm": "删除此组？",
+  "strengthBodyweight": "自身体重",
+  "strengthDelete": "删除",
+  "strengthSaveFailed": "保存更改失败",
   "reportContactLabel": "联系方式（可选）",
   "reportContactHint": "邮箱或 Discord，仅在你希望得到回复时填写"
 }

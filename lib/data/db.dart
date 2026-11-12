@@ -5594,6 +5594,26 @@ class LocalDb {
     });
   }
 
+  /// Replace the sets of one strength session, in log order. Deletes any
+  /// prior rows for this session before inserting the new list.
+  static Future<void> replaceStrengthSets(
+    String sessionId,
+    List<Map<String, Object?>> sets,
+  ) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      await txn.delete('strength_set',
+          where: 'session_id = ?', whereArgs: [sessionId]);
+      for (var i = 0; i < sets.length; i++) {
+        await txn.insert('strength_set', {
+          ...sets[i],
+          'session_id': sessionId,
+          'seq': i,
+        });
+      }
+    });
+  }
+
   static Future<List<Map<String, Object?>>> strengthSets(
     String sessionId,
   ) async {
