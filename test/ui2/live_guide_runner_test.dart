@@ -38,7 +38,7 @@ class _ShellLog {
 
 Future<({LiveStage stage, GuideRunner runner, _ShellLog shell})> _pump(WidgetTester t, {Guide? guide, bool attach = true}) async {
   final stage = await pumpLiveStage(t, guide: guide, insertOverlay: false);
-  final runner = GuideRunner(navigatorKey: stage.navigatorKey);
+  final runner = GuideRunner(navigatorKey: stage.navigatorKey, routes: stage.routes);
   addTearDown(runner.dispose);
   final shell = _ShellLog(stage);
   if (attach) runner.attachShell(shell.link);

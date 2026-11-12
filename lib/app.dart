@@ -192,7 +192,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       },
       builder: (context, child) => _ClockScope(
           child: ThemeSwitchOverlay(key: themeSwitchKey, child: child!)),
-      navigatorObservers: [TelemetryNavigatorObserver()],
+      navigatorObservers: [TelemetryNavigatorObserver(), _guideRunner.routes],
       home: const _Gate(),
     ));
   }

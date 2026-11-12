@@ -133,7 +133,11 @@ List<SkeletonShape> skeletonPlan(
   final rootBox = laidOutBox(root);
   if (rootBox == null) return const [];
   final legible = [...keep, ...chrome];
-  final scaffold = Theme.of(root).scaffoldBackgroundColor;
+  // Tree inspection must not register dependencies on the inspected elements,
+  // which may themselves be inherited elements. Only colours are read here.
+  ThemeData themeAt(Element e) => (e.widget is Theme ? e.widget as Theme :
+      e.findAncestorWidgetOfExactType<Theme>())?.data ?? ThemeData.fallback();
+  final scaffold = themeAt(root).scaffoldBackgroundColor;
 
   Rect visibleOf(RenderBox box, [Rect? local]) =>
       rectInRoot(box, rootBox, local).intersect(visibleBoundsInRoot(box, rootBox));
@@ -202,7 +206,7 @@ List<SkeletonShape> skeletonPlan(
         final surfaceBox = laidOutBox(e);
         if (surfaceBox != null) {
           final rect = visibleOf(surfaceBox);
-          if (!rect.isEmpty) surfaces.add(_Draft(SkeletonKind.surface, rect, w.color ?? P.of(e).card));
+          if (!rect.isEmpty) surfaces.add(_Draft(SkeletonKind.surface, rect, w.color ?? P(themeAt(e).brightness == Brightness.dark).card));
         }
         here = true;
       }

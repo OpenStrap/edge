@@ -33,6 +33,7 @@ import 'live_guide_overlay.dart';
 import '../app_shell.dart' show ShellDomain;
 import 'guide.dart';
 import 'guide_run.dart';
+import 'guide_routes.dart';
 
 /// What the app shell offers a run: its own tab selection and Settings.
 class GuideShellLink {
@@ -70,7 +71,10 @@ class GuideRunner extends ChangeNotifier {
   /// The key of the app's ROOT Navigator (MaterialApp.navigatorKey).
   final GlobalKey<NavigatorState> navigatorKey;
 
-  GuideRunner({required this.navigatorKey});
+  final GuideRouteObserver routes;
+
+  GuideRunner({required this.navigatorKey, GuideRouteObserver? routes})
+      : routes = routes ?? GuideRouteObserver();
 
   /// The run in progress, or null.
   GuideRun? _run;
@@ -102,7 +106,7 @@ class GuideRunner extends ChangeNotifier {
     _run = run;
     run.addListener(_runChanged);
     _entry = OverlayEntry(builder: (_) => LiveGuideOverlay(
-      run: run, navigatorKey: navigatorKey, onExit: exit,
+      run: run, navigatorKey: navigatorKey, routes: routes, onExit: exit,
       onBackToGuide: () => unawaited(backToGuide()),
     ));
     nav.overlay!.insert(_entry!);
@@ -133,7 +137,7 @@ class GuideRunner extends ChangeNotifier {
     if (run == null || nav == null) return;
     final l = AppLocalizations.of(nav.context);
     while (identical(_run, run) && nav.mounted) {
-      final page = topPageRoot(nav);
+      final page = routes.page;
       if (page != null && l != null) {
         run.observe(page, l);
         if (run.state is GuideAtStep) return;

@@ -93,6 +93,27 @@ void main() {
       expect(stage.run.state, isA<GuideAtStep>().having((s) => s.index, 'index', 1));
     });
 
+    testWidgets('route observation survives repeated push, pop and unmount', (t) async {
+      // WHY: CLAIM(overlay-follows-top-route). Reading inherited route scopes
+      // during traversal used to make those scopes their own dependents. The
+      // first push broke the tree, then poisoned later tests in the same file.
+      final stage = await pumpLiveStage(t);
+      await _settleReveal(t);
+      for (var visit = 0; visit < 2; visit++) {
+        await pushStagePage(t, stage, StagePages(stage.taps).details());
+        await _settleReveal(t);
+        expect(stage.run.state, isA<GuideAtStep>().having((s) => s.index, 'index', 1));
+        stage.navigator.pop();
+        await t.pump();
+        await t.pump(const Duration(milliseconds: 400));
+        await _settleReveal(t);
+        expect(stage.run.state, isA<GuideAtStep>().having((s) => s.index, 'index', 0));
+        expect(t.takeException(), isNull);
+      }
+      await t.pumpWidget(const SizedBox());
+      expect(t.takeException(), isNull, reason: 'all inherited dependents detach cleanly');
+    });
+
     testWidgets('an idle guide schedules no frames', (t) async {
       // why: the overlay re-plans after each frame; the loop must settle
       // (PR 1 'markers follow layout' made the same promise for the frame view).

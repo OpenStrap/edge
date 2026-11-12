@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_run.dart';
+import 'package:openstrap_edge/ui2/guides/guide_routes.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
@@ -176,6 +177,7 @@ class LiveStage {
   final StageTaps taps;
   final GlobalKey<NavigatorState> navigatorKey;
   final GuideRun run;
+  final routes = GuideRouteObserver();
   final List<VoidCallback> exits = [];
   int exitCount = 0, backToGuideCount = 0;
   OverlayEntry? entry;
@@ -205,6 +207,7 @@ Future<LiveStage> pumpLiveStage(
   addTearDown(stage.run.dispose);
   await t.pumpWidget(MaterialApp(
     navigatorKey: key,
+    navigatorObservers: [stage.routes],
     debugShowCheckedModeBanner: false,
     theme: buildTheme(Brightness.light),
     locale: locale,
@@ -218,6 +221,7 @@ Future<LiveStage> pumpLiveStage(
       builder: (_) => LiveGuideOverlay(
         run: stage.run,
         navigatorKey: key,
+        routes: stage.routes,
         onExit: () => stage.exitCount++,
         onBackToGuide: () => stage.backToGuideCount++,
       ),

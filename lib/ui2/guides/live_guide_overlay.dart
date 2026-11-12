@@ -2,7 +2,7 @@
 // screens. It is one entry in the app's ROOT Overlay, above every route.
 //
 // After EVERY frame it
-//   1. finds the top PAGE route's subtree ([topPageRoot]; null while a dialog,
+//   1. finds the top PAGE route's subtree (null while a dialog,
 //      sheet or picker is on top),
 //   2. lets the run match a step by anchor ([GuideRun.observe]),
 //   3. plans the skeleton over that subtree (the same [skeletonPlan] as
@@ -54,34 +54,17 @@ import 'tree_geometry.dart';
 
 import '../skeleton/skeleton.dart';
 import 'guide_run.dart';
+import 'guide_routes.dart';
 
 /// How long one step's skeleton takes to fade in, top to bottom.
 const kGuideRevealDuration = Motion.reveal;
-
-/// The subtree of the page route on top of [navigator], or null when the top
-/// route is not a page (dialog, bottom sheet, picker) or has no built subtree.
-Element? topPageRoot(NavigatorState navigator) {
-  ModalRoute<dynamic>? current;
-  void walk(Element e) {
-    if (current != null || e.widget is LiveGuideOverlay) return;
-    final route = ModalRoute.of(e);
-    if (route != null && route.isCurrent) {
-      current = route;
-      return;
-    }
-    e.debugVisitOnstageChildren(walk);
-  }
-  walk(navigator.context as Element);
-  final route = current;
-  if (route is! PageRoute || route.animation?.status != AnimationStatus.completed) return null;
-  return route.subtreeContext as Element?;
-}
 
 class LiveGuideOverlay extends StatefulWidget {
   final GuideRun run;
 
   /// The app's root Navigator: where the top page is looked for.
   final GlobalKey<NavigatorState> navigatorKey;
+  final GuideRouteObserver routes;
 
   /// "Exit" on the card.
   final VoidCallback onExit;
@@ -93,6 +76,7 @@ class LiveGuideOverlay extends StatefulWidget {
     super.key,
     required this.run,
     required this.navigatorKey,
+    required this.routes,
     required this.onExit,
     required this.onBackToGuide,
   });
@@ -202,7 +186,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
     final nav = widget.navigatorKey.currentState;
     final layer = _layerKey.currentContext?.findRenderObject();
     if (nav == null || layer is! RenderBox || !layer.hasSize) return;
-    final page = topPageRoot(nav);
+    final page = widget.routes.page;
     final l = AppLocalizations.of(context)!;
     widget.run.observe(page, l);
     final step = widget.run.currentStep;

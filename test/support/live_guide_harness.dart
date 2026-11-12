@@ -199,6 +199,7 @@ Future<LiveGuideApp> pumpLiveGuideApp(
     ],
     child: MaterialApp(
       navigatorKey: app.navigatorKey,
+      navigatorObservers: [guideRunner.routes],
       debugShowCheckedModeBanner: false,
       theme: buildTheme(Brightness.light),
       locale: locale,
