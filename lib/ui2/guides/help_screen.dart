@@ -102,8 +102,28 @@ class HelpScreen extends StatelessWidget {
   /// ([noVariantKey]) and starts nothing.
   /// CLAIM(help-starts-live): a row starts a LIVE run (no walkthrough route)
   /// [help_screen_test 'a row starts a live run'].
-  void _open(BuildContext context, Guide guide) {
+  void _open(BuildContext context, Guide guide) async {
     final runner = context.read<GuideRunner>();
-    throw UnimplementedError('HelpScreen._open for ${runner.navigatorKey}');
+    final l = AppLocalizations.of(context)!;
+    var selected = band;
+    if (selected == null && guide.variantFor(null) is GuideNoVariant) {
+      selected = await showDialog<BandGeneration>(context: context, builder: (c) => SimpleDialog(
+        key: bandPickerKey, title: Text(l.guidePickBand), children: [
+          for (final generation in BandGeneration.values)
+            if (guide.devices.contains(generation)) SimpleDialogOption(
+              onPressed: () => Navigator.of(c).pop(generation),
+              child: Text(generation == BandGeneration.whoop4 ? 'WHOOP 4' : 'WHOOP 5'),
+            ),
+        ],
+      ));
+      if (!context.mounted || selected == null) return;
+    }
+    final result = runner.start(guide, band: selected);
+    if (result is GuideStartNoVariant && context.mounted) {
+      final bands = result.reason.available.map((g) => g == BandGeneration.whoop4 ? 'WHOOP 4' : 'WHOOP 5').join(', ');
+      showDialog<void>(context: context, builder: (_) => AlertDialog(
+        key: noVariantKey, content: Text(l.guideNoVariantBody(bands)),
+      ));
+    }
   }
 }
