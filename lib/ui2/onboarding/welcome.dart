@@ -412,24 +412,32 @@ Future<ImportOutcome> runImport(
   // backup selected alongside a vendor CSV imported the backup and threw the
   // CSV away without a word.
   final ownDb = <String>{};
-  for (final p in plain) {
-    if (await isEdgeBackup(p)) ownDb.add(p);
-  }
-  final db = [...plain.where(ownDb.contains), ...decrypted];
   // Raw-vs-vendor is decided by what the file HOLDS, not by what it is called.
   // See [isNoopExport]: routing on the extension sent NOOP's raw-sensor `.csv`
   // to the vendor importer and WHOOP's `.zip` to the NOOP one — both files
   // fine, both refused, both with advice for the other file.
   final raw = <String>[];
   final csv = <String>[];
-  for (final p in plain) {
-    if (ownDb.contains(p)) continue;
-    (await isNoopExport(p) ? raw : csv).add(p);
-  }
+  final db = <String>[];
 
   if (decrypted.isNotEmpty) sources.add('Encrypted backup');
-  if (ownDb.isNotEmpty) sources.add('OpenStrap backup');
   try {
+    // Inside the cleanup boundary: a throw while sniffing must not leave a
+    // decrypted backup in the temp directory.
+    for (final p in plain) {
+      final own = await isEdgeBackup(p);
+      if (own == true) {
+        ownDb.add(p);
+      } else if (own == null) {
+        // Inspection failed: not claimable as ours, and not a NOOP export
+        // either, so the vendor path's generic message is the honest one.
+        csv.add(p);
+      } else {
+        (await isNoopExport(p) ? raw : csv).add(p);
+      }
+    }
+    if (ownDb.isNotEmpty) sources.add('OpenStrap backup');
+    db.addAll([...plain.where(ownDb.contains), ...decrypted]);
     for (final p in db) {
       days += await app.importEdgeBackup(p);
       // The rows are in and the rollup rebuild threw. AppState's own note:

@@ -221,8 +221,22 @@ void main() {
           reason: 'its rows would be merged into the user\'s history');
     });
 
-    test('a file that vanished is not claimed and does not throw', () async {
-      expect(await isEdgeBackup('${tmp.path}/gone.sqlite'), isFalse);
+    test('a file that vanished reports a failed inspection, not a throw',
+        () async {
+      expect(await isEdgeBackup('${tmp.path}/gone.sqlite'), isNull);
+    });
+
+    test('a database that will not open is not sent to the NOOP importer',
+        () async {
+      final app = _RoutingSpy();
+      final path = await write('broken.sqlite',
+          [...utf8.encode('SQLite format 3\x00'), ...List.filled(200, 7)]);
+
+      await runImport(app, [path]);
+
+      expect(app.noop, isEmpty,
+          reason: 'the NOOP check claims every SQLite file');
+      expect(app.vendor, [path]);
     });
 
     test('a file named .db is still ours without being opened', () async {

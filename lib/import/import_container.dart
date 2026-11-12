@@ -161,7 +161,11 @@ bool noopCsvFirstRecordMatches(String text, {bool truncated = false}) {
 ///
 /// A name that says it is ours is still believed without opening the file, so
 /// a damaged backup reaches the backup importer and gets ITS message.
-Future<bool> isEdgeBackup(String path) async {
+///
+/// Null means the inspection itself failed (the file would not open or
+/// query), which is not the same as "not ours": the caller must not hand it to
+/// [isNoopExport], which claims every SQLite file.
+Future<bool?> isEdgeBackup(String path) async {
   final lower = path.toLowerCase();
   if (lower.endsWith('.db') ||
       lower.endsWith('.db.gz') ||
@@ -170,7 +174,7 @@ Future<bool> isEdgeBackup(String path) async {
   }
   // Never throws: this runs while a decrypted backup may be sitting in the
   // temp directory, before the caller's cleanup is armed. An unreadable file
-  // is simply not claimed, and whoever picks it up next owns the message.
+  // is reported as null, and the caller shows the generic unreadable-file path.
   ResolvedNoopDatabase? resolved;
   try {
     final kind = await sniffFile(path);
@@ -200,7 +204,7 @@ Future<bool> isEdgeBackup(String path) async {
       await src.close();
     }
   } catch (_) {
-    return false;
+    return null;
   } finally {
     await resolved?.dispose();
   }
