@@ -332,6 +332,26 @@ void main() {
       expect(stage.exitCount, 1);
     });
 
+    testWidgets('Back restores a scrolled step whose early anchor is no longer built', (t) async {
+      // why: revealing a far action disposes the title anchor; returning from
+      // another route must restore the observed step from its visible action.
+      final stage = await pumpLiveStage(t, guide: stageGuide(scrollLast: true));
+      await _settleReveal(t);
+      await pushStagePage(t, stage, StagePages(stage.taps, detailsGap: 3000).details());
+      await _settleReveal(t);
+      await _settleReveal(t);
+      expect(find.byKey(stageDetailsTitle), findsNothing, reason: 'anchor scrolled out of the lazy list');
+      expect(find.byKey(stageFinish), findsOneWidget);
+      await pushStagePage(t, stage, StagePages(stage.taps).other());
+      await _settleReveal(t);
+      expect(stage.run.state, isA<GuideOffPath>());
+      stage.navigator.pop();
+      await t.pump(const Duration(milliseconds: 400));
+      await _settleReveal(t);
+      expect(stage.run.state, isA<GuideAtStep>().having((s) => s.index, 'index', 1));
+      expect(find.byKey(LiveGuideOverlay.outlineKey), findsOneWidget);
+    });
+
     testWidgets('coming back to a step page brings the step card back', (t) async {
       // why: the card follows the run state in both directions.
       final stage = await pumpLiveStage(t);

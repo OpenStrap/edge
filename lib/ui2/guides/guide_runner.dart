@@ -134,9 +134,9 @@ class GuideRunner extends ChangeNotifier {
     final l = AppLocalizations.of(nav.context);
     while (identical(_run, run) && nav.mounted) {
       final page = topPageRoot(nav);
-      if (page != null && l != null && GuideRun.matchStep(run.variant, page, l) != null) {
+      if (page != null && l != null) {
         run.observe(page, l);
-        return;
+        if (run.state is GuideAtStep) return;
       }
       if (!nav.canPop()) {
         _selectStart(run.guide.start);

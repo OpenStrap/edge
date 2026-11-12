@@ -61,6 +61,7 @@ class GuideRun extends ChangeNotifier {
   /// Starts at step 0 ([GuideAtStep]) until the first frame says otherwise.
   GuideRunState _state = const GuideAtStep(0);
   int? _lastIndex;
+  final _matchedPages = <Element, int>{};
   bool _exited = false;
   GuideRunState get state => _state;
 
@@ -93,15 +94,21 @@ class GuideRun extends ChangeNotifier {
   /// user is acting on the step, not leaving it). Notifies only on change.
   void observe(Element? topPage, AppLocalizations l) {
     if (_exited || _state is GuideFinished || topPage == null) return;
-    final index = matchStep(variant, topPage, l);
+    _matchedPages.removeWhere((page, _) => !page.mounted);
+    var index = matchStep(variant, topPage, l);
+    // A reveal may dispose the anchor in a lazy list. Only restore a step
+    // whose anchor was already observed on THIS page, with its action still
+    // found. This also works when Back returns from a later step's route.
+    final remembered = _matchedPages[topPage];
+    if (index == null && remembered != null && variant.steps[remembered].target.resolve(topPage, l) is TargetFound) {
+      index = remembered;
+    }
     if (index != null) {
       _lastIndex = index;
+      _matchedPages[topPage] = index;
       if (_state case GuideAtStep(index: final old) when old == index) return;
       _state = GuideAtStep(index);
     } else {
-      // A lazy-list reveal can dispose the early anchor while its action is
-      // still in view. The action itself then keeps this matched step active.
-      if (currentStep?.target.resolve(topPage, l) is TargetFound) return;
       if (_state is GuideOffPath) return;
       _state = GuideOffPath(_lastIndex);
     }
