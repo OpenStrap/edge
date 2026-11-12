@@ -379,7 +379,12 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
       GuideFinished() => GuideCardDone(run.guide.doneFooters),
     };
     final show = !_yielding && !run.isExited;
-    return SizedBox.expand(key: _layerKey, child: LayoutBuilder(builder: (context, constraints) {
+    // The root overlay sits above every route's Material, so text here would
+    // fall back to the yellow-underlined debug style. A theme text style fixes
+    // that without a Material, which would take part in hit testing.
+    return DefaultTextStyle(
+        style: Theme.of(context).textTheme.bodyMedium ?? const TextStyle(),
+        child: SizedBox.expand(key: _layerKey, child: LayoutBuilder(builder: (context, constraints) {
       final screen = Offset.zero & constraints.biggest;
       final outline = target?.inflate(kGuideOutlineGap).intersect(screen);
       final marked = show && target != null && step != null && revealProgress == 1 &&
@@ -419,7 +424,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with SingleTickerPro
           ],
         )),
       ]);
-    }));
+    })));
   }
 }
 
