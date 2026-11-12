@@ -28,6 +28,7 @@ import 'package:openstrap_edge/ui2/guides/guide_step_card.dart';
 import 'package:openstrap_edge/ui2/guides/help_screen.dart';
 import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
+import 'package:openstrap_edge/ui2/grammar.dart' show Surface;
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -125,7 +126,8 @@ void main() {
   group('guide #1 heart-rate zones, on the real screens', () {
     testWidgets('start from Help: Help is gone, Today is on screen, step 1 skeletonizes the REAL Today and keeps the Strain ring', (t) async {
       // why: the headline integration claim: Help -> live overlay on the user\'s
-      // own Today tab, everything but the Strain ring collapsed.
+      // own Today tab. Spec phase 1 keeps the whole target Surface legible;
+      // RingTrio puts all three rings in that single Surface.
       final app = await pumpLiveGuideApp(t);
       await _startFromHelp(t, app, 'heart-rate-zones');
       final l = _l(t);
@@ -141,7 +143,14 @@ void main() {
       expect(shapes, isNotEmpty);
       expect(shapes.any((s) => s.rect.overlaps(ring.deflate(1))), isFalse, reason: 'the Strain ring stays legible');
       final recovery = t.getRect(_label(l.homeRingRecovery));
-      expect(shapes.any((s) => s.rect.overlaps(recovery.deflate(1))), isTrue, reason: 'the other rings are skeleton');
+      expect(shapes.any((s) => s.rect.overlaps(recovery.deflate(1))), isFalse,
+          reason: 'the target Surface stays whole, including its Recovery ring');
+      final targetCard = find.ancestor(of: _label(l.homeRingStrain), matching: find.byType(Surface)).first;
+      final targetCardRect = t.getRect(targetCard);
+      expect(shapes.any((s) => s.rect.overlaps(targetCardRect.deflate(1))), isFalse,
+          reason: 'no part of the kept Surface is skeletonized');
+      expect(shapes.any((s) => !s.rect.overlaps(targetCardRect)), isTrue,
+          reason: 'unrelated visible content is still skeletonized');
     });
 
     testWidgets('tapping the real Strain ring opens the real Day strain screen and the run advances to step 2', (t) async {
