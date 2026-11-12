@@ -42,7 +42,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../ble/adapters/_registry.dart' show DeviceCategory, categoryOf;
 import '../ble/adapters/miscale.dart' show kWeightMaxKg, kWeightMinKg;
 import '../compute/inputs/canonical.dart' show wearableEnabled;
-import '../compute/inputs/measurement_inputs.dart' show nearWeight;
+import '../compute/inputs/measurement_inputs.dart' show weighingChain;
 import '../data/db.dart';
 
 /// Per-device persisted set (JSON list) of exported weighing ts_ms.
@@ -86,40 +86,18 @@ typedef Weighing = ({int atMs, double kg});
 /// Skips non-finite and out-of-bounds values, then applies the chained
 /// household band over ALL plausible weighings (so the chain does not depend
 /// on what was exported before), re-seeding after 3 consecutive mutually-near
-/// rejects so a guest seed or a lasting weight change recovers. Never substitutes a value.
+/// rejects so a guest seed or a lasting weight change recovers (the same
+/// [weighingChain] the trend uses). Never substitutes a value.
 @visibleForTesting
 List<Weighing> exportableWeighings(
   Map<int, num> raw, {
   Set<int> exported = const {},
 }) {
-  final sorted =
-      <Weighing>[
-        for (final e in raw.entries)
-          if (e.value.isFinite &&
-              e.value >= kWeightMinKg &&
-              e.value <= kWeightMaxKg)
-            (atMs: e.key, kg: e.value.toDouble()),
-      ]..sort((a, b) {
-        final c = a.atMs.compareTo(b.atMs);
-        return c != 0 ? c : a.kg.compareTo(b.kg);
-      });
-  // Chained band with RE-SEED: a run of 3 consecutive rejected weighings, each
-  // near the previous run member, is accepted retroactively and its last
-  // member becomes the anchor (mirrors weighingChain in measurement_inputs).
-  final chain = <Weighing>[];
-  var run = <Weighing>[];
-  for (final w in sorted) {
-    if (chain.isEmpty || nearWeight(w.kg, chain.last.kg)) {
-      chain.add(w);
-      run = [];
-      continue;
-    }
-    run = run.isNotEmpty && nearWeight(w.kg, run.last.kg) ? [...run, w] : [w];
-    if (run.length >= 3) {
-      chain.addAll(run);
-      run = [];
-    }
-  }
+  final chain = weighingChain([
+    for (final e in raw.entries)
+      if (e.value.isFinite && e.value >= kWeightMinKg && e.value <= kWeightMaxKg)
+        (atMs: e.key, kg: e.value.toDouble()),
+  ]);
   return [
     for (final w in chain)
       if (!exported.contains(w.atMs)) w,
