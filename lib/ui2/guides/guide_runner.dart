@@ -137,6 +137,12 @@ class GuideRunner extends ChangeNotifier {
     if (run == null || nav == null) return;
     final l = AppLocalizations.of(nav.context);
     while (identical(_run, run) && nav.mounted) {
+      // After a pop, the next page is current before the outgoing page has
+      // finished leaving. Wait to match it before deciding to pop again.
+      if (routes.isTransitioning) {
+        await WidgetsBinding.instance.endOfFrame;
+        continue;
+      }
       final page = routes.page;
       if (page != null && l != null) {
         run.observe(page, l);

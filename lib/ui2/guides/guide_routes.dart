@@ -10,11 +10,17 @@ class GuideRouteObserver extends NavigatorObserver {
     _top = topRoute;
   }
 
+  /// Includes the departing route above the newly current page after a pop.
+  bool get isTransitioning {
+    final route = _top;
+    return route is PageRoute && (route.animation?.isCompleted == false ||
+        route.secondaryAnimation?.isDismissed == false);
+  }
+
   /// Null for popups and while the page is entering or leaving.
   Element? get page {
     final route = _top;
-    if (route is! PageRoute || !route.isCurrent ||
-        route.animation?.status != AnimationStatus.completed) return null;
+    if (route is! PageRoute || !route.isCurrent || isTransitioning) return null;
     final root = route.subtreeContext;
     return root is Element && root.mounted ? root : null;
   }

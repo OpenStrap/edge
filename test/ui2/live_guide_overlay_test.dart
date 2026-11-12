@@ -142,6 +142,23 @@ void main() {
       expect(t.takeException(), isNull);
     });
 
+    testWidgets('yields while a popped route is still leaving the current page', (t) async {
+      // WHY: the previous page becomes current before the popped route finishes
+      // animating. Markers must wait until that route has left the screen.
+      final stage = await pumpLiveStage(t);
+      await pushStagePage(t, stage, StagePages(stage.taps).details());
+      await _settleReveal(t);
+      stage.navigator.pop();
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 100));
+      expect(_overlay(t).isYielding, isTrue);
+      await t.pump(const Duration(milliseconds: 400));
+      await _settleReveal(t);
+      expect(_overlay(t).isYielding, isFalse);
+      expect(stage.run.state, isA<GuideAtStep>().having((s) => s.index, 'index', 0));
+      expect(t.takeException(), isNull);
+    });
+
     testWidgets('an idle guide schedules no frames', (t) async {
       // why: the overlay re-plans after each frame; the loop must settle
       // (PR 1 'markers follow layout' made the same promise for the frame view).
