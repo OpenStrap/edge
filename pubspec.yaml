@@ -268,9 +268,8 @@ dependencies:
       # (R10 gated on packet type, hello/battery parsing, reassembler
       # truncation semantics, removal of deprecated gen5 APIs). #81 sits on top
       # of #82, so it cannot be pinned alone.
-      # REPIN: protocol #85 head (image update payload builders only). Re-point
-      # at the merge commit once it lands on protocol main.
-      ref: 1d580bad34100a9ac7d20e28030931edfa1bab11
+      # protocol main @ #85 merge (image update payload builders).
+      ref: fbadb5bd055965d9400e266d6cf42748992ba950
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
