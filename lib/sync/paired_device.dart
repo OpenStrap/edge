@@ -183,40 +183,76 @@ class PairedDevice {
     // A forget that landed while the reads above were in flight wins: this
     // save is describing a band the user has just told us to drop.
     if (epoch != _forgetEpoch) return;
-    await LocalDb.upsertDevice(
-      adapterId: gen,
-      remoteId: remoteId,
-      label: clean,
-      tier: kBandSourceTier,
-      // `adapter_id` COALESCEs like every other column, and the primary row is
-      // reused for whatever band is primary — so a new band needs it said out
-      // loud that the old family no longer applies.
-      clearAdapterId: !sameDevice,
-    );
-    // Re-checked between the two copies as well: `clear()` empties the table
-    // and the mirror in that order, so a forget landing inside this window
-    // would otherwise leave the mirror pointing at a band the table no longer
-    // has — and `load()` heals FROM the mirror.
-    if (epoch != _forgetEpoch) return;
+    final mirror = {
+      _kRemoteId: prefs.getString(_kRemoteId),
+      _kSerial: prefs.getString(_kSerial),
+      _kGeneration: prefs.getString(_kGeneration),
+    };
     final worn = prefs.getStringList(_kWornOn);
-    if (worn != null &&
-        worn.length == 3 &&
-        (worn[0] == remoteId || worn[0].isEmpty)) {
-      final w = int.tryParse(worn[1]);
-      final ts = int.tryParse(worn[2]);
-      if (w != null && ts != null) await LocalDb.adoptDeviceWearing(w, ts);
-      await prefs.remove(_kWornOn);
+
+    Future<bool> putString(String key, String? value) =>
+        value == null ? prefs.remove(key) : prefs.setString(key, value);
+    Future<void> requireWrite(Future<bool> write) async {
+      if (!await write) {
+        throw StateError('Could not persist paired device preferences.');
+      }
     }
-    await prefs.setString(_kRemoteId, remoteId);
-    if (clean != null) {
-      await prefs.setString(_kSerial, clean);
-    } else {
-      await prefs.remove(_kSerial); // never persist junk
-    }
-    if (gen != null) {
-      await prefs.setString(_kGeneration, gen);
-    } else if (!sameDevice) {
-      await prefs.remove(_kGeneration);
+
+    // A failed mirror must not leave a row that load() reports as paired.
+    // Keep the row and wearing adoption in one transaction until every mirror
+    // write succeeds, including plugins that report failure by returning false.
+    final db = await LocalDb.instance;
+    try {
+      await db.transaction((txn) async {
+        await LocalDb.upsertDevice(
+          adapterId: gen,
+          remoteId: remoteId,
+          label: clean,
+          tier: kBandSourceTier,
+          // A different band must not inherit the previous band's family.
+          clearAdapterId: !sameDevice,
+          executor: txn,
+        );
+        if (worn != null &&
+            worn.length == 3 &&
+            (worn[0] == remoteId || worn[0].isEmpty)) {
+          final w = int.tryParse(worn[1]);
+          final ts = int.tryParse(worn[2]);
+          if (w != null && ts != null) {
+            await LocalDb.adoptDeviceWearing(
+              w,
+              ts,
+              LocalDb.kPrimaryDeviceId,
+              txn,
+            );
+          }
+          await requireWrite(prefs.remove(_kWornOn));
+        }
+        await requireWrite(putString(_kSerial, clean)); // never persist junk
+        if (gen != null) {
+          await requireWrite(putString(_kGeneration, gen));
+        } else if (!sameDevice) {
+          await requireWrite(putString(_kGeneration, null));
+        }
+        // Publish the mirror's identity after its dependent fields are ready.
+        await requireWrite(putString(_kRemoteId, remoteId));
+      });
+    } catch (error, stack) {
+      // SharedPreferences changes its cache before the native write completes.
+      // Restore every key so a partial mirror cannot heal the rolled-back row
+      // on the next load. The serialized queue keeps this cleanup ahead of any
+      // subsequent forget or re-pair.
+      try {
+        await Future.wait([
+          for (final entry in mirror.entries) putString(entry.key, entry.value),
+          worn == null
+              ? prefs.remove(_kWornOn)
+              : prefs.setStringList(_kWornOn, worn),
+        ]);
+      } finally {
+        // Preserve the original failure if storage also refuses the rollback.
+        Error.throwWithStackTrace(error, stack);
+      }
     }
   }
 

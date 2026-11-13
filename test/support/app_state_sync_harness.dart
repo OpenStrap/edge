@@ -211,6 +211,12 @@ class SyncFakeEngine extends BleEngine {
   bool get liveEnabled => liveArmed;
   @override
   bool get historyStuckThisSession => stuck;
+  bool offloading = false;
+  int gateDrops = 0;
+  @override
+  int get historyGateDrops => gateDrops;
+  @override
+  bool get offloadActive => offloading;
   @override
   int? get strapHistoryNewestTs => newestTs;
   @override

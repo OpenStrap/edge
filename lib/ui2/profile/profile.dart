@@ -198,6 +198,7 @@ const Map<String, String> _kLanguageNames = {
   'zh': '中文',
   'hi': 'हिन्दी',
   'ru': 'Русский',
+  'th': 'ไทย',
 };
 
 String _languageLabel(BuildContext c, String? code) => code == null

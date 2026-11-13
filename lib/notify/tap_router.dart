@@ -16,10 +16,11 @@ const String kRouteBreathing = '/breathing';
 /// that still needs a scroll to find the control is a different promise.
 const String kRouteWater = '/water';
 
-/// "Did you work out?" auto-detect notification. Lands on the Workouts tab and
-/// pushes a focused review of the detected activity (log or adjust) — the plain
-/// `/workouts` route only selected the tab, leaving the suggestion buried in the
-/// history list (issue #113).
+/// "Did you work out?" / "Did you nap?" auto-detect notification. Lands on the
+/// Activity tab (the old Workouts tab) and pushes a focused review of the
+/// detected activity (log or adjust) — the plain `/workouts` route only
+/// selected the tab, leaving the suggestion buried in the history list
+/// (issue #113).
 ///
 /// Carries the bout it is about as `?id=<workout_suggestions.id>` — see
 /// [workoutSuggestionRoute]. The bare path still resolves (older payloads, and
@@ -134,8 +135,9 @@ const Map<String, int> _tabRoutes = {
 };
 
 // Sub-screen routes → the shell tab they sit on top of. Most briefing/journal
-// deep links live over Today (0), and so do the detected-workout and
-// detected-activity reviews: Home is where they are surfaced and land on close.
+// deep links live over Today (0). The detected-activity reviews keep base 0
+// here (the payload's own base) but land on the Activity domain — app.dart's
+// `domainForRoute` decides whenever a screen route is present.
 //
 // /profile and /recap were BOTH being emitted with neither table knowing them,
 // so resolveTapRoute fell through to Today and every band-battery alert landed

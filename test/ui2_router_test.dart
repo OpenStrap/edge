@@ -32,6 +32,8 @@ import 'package:openstrap_edge/ui2/onboarding/welcome.dart'
     show isEncryptedBackup;
 import 'package:openstrap_edge/ui2/screens/log_workout.dart'
     show WorkoutSuggestionScreen;
+import 'package:openstrap_edge/ui2/screens/detected_activities.dart'
+    show DetectedActivitiesScreen;
 import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'package:openstrap_edge/ui2/profile/profile.dart';
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart'
@@ -158,7 +160,7 @@ void main() {
         kRouteBreathing: ShellDomain.health,
         kRouteMeds: ShellDomain.health,
         kRouteWorkoutSuggestion: ShellDomain.today,
-        kRouteDetectedActivities: ShellDomain.today,
+        kRouteDetectedActivities: ShellDomain.activity,
         kRouteWater: ShellDomain.activity,
         kRouteWorkoutIdle: ShellDomain.activity,
         kRouteAlarm: ShellDomain.sleep,
@@ -194,6 +196,21 @@ void main() {
           (screenForRoute(kRouteWorkoutSuggestion)! as WorkoutSuggestionScreen)
               .focusId,
           isNull);
+    });
+
+    test('the detected-nap deep link lands on the Activity tab, focused', () {
+      // "Did you nap?" has to open the review over the Activity tab — where
+      // the suggestion cards live — not over Home, with the nap's own card
+      // scrolled into view.
+      const id = '2026-08-19:nap:1755625800';
+      final route = activitySuggestionRoute(id, 'nap');
+      expect(domainForRoute(route), ShellDomain.activity);
+      final screen = screenForRoute(route);
+      expect(screen, isA<DetectedActivitiesScreen>());
+      expect((screen! as DetectedActivitiesScreen).focusId, id);
+      // A detected workout rides the same route and the same domain.
+      expect(domainForRoute(activitySuggestionRoute(id, 'workout')),
+          ShellDomain.activity);
     });
 
     test('the tab index the shell persists round-trips through the enum', () {

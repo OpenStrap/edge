@@ -231,7 +231,10 @@ class _ZonesDetailState extends State<ZonesDetail> {
             right: S.x5,
             top: S.x5,
             bottom: MediaQuery.of(s).viewInsets.bottom + S.x5),
-        child: Column(
+        // Five fields plus the number pad outgrow a phone screen, which hid
+        // Save under the keyboard.
+        child: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -261,6 +264,7 @@ class _ZonesDetailState extends State<ZonesDetail> {
             BigButton(l?.actionSave ?? 'Save',
                 color: C.red, onTap: () => Navigator.of(s).pop(true)),
           ],
+        ),
         ),
       ),
     );

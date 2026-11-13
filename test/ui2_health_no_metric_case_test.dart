@@ -58,4 +58,34 @@ void main() {
     await _pump(t, const Locale('en'));
     expect(find.text('No resting heart rate'), findsOneWidget);
   });
+
+  // Same rule on the Trends tab's empty card. It used to drop the label in
+  // as written, so English read "No Resting heart rate trend yet".
+  Future<void> openTrends(WidgetTester t) async {
+    await t.tap(find.text('Trends'));
+    for (var i = 0; i < 20; i++) {
+      await t.pump();
+    }
+  }
+
+  testWidgets('english lowercases the trend card label', (t) async {
+    t.view.physicalSize = const Size(800 * 3, 4000 * 3);
+    t.view.devicePixelRatio = 3;
+    addTearDown(t.view.reset);
+    await _pump(t, const Locale('en'));
+    await openTrends(t);
+    expect(find.text('No resting heart rate trend yet'), findsOneWidget);
+    expect(find.text('No Resting heart rate trend yet'), findsNothing);
+    // An acronym keeps its case.
+    expect(find.text('No HRV trend yet'), findsOneWidget);
+  });
+
+  testWidgets('german keeps the noun case in the trend card', (t) async {
+    t.view.physicalSize = const Size(800 * 3, 4000 * 3);
+    t.view.devicePixelRatio = 3;
+    addTearDown(t.view.reset);
+    await _pump(t, const Locale('de'));
+    await openTrends(t);
+    expect(find.text('Noch kein Trend für Ruhepuls'), findsOneWidget);
+  });
 }

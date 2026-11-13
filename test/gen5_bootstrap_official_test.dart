@@ -26,6 +26,8 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'
+    show ErrorPlatform, FlutterBluePlusException;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
@@ -143,6 +145,11 @@ class _Rig {
     // carries no requestConnectionPriority (doc 06 found none in the official
     // data path); the post-READY offload transition still may.
     engine.debugOnPriorityRequest = () => trace.add('link_priority');
+    relink(armDrains: armDrains);
+  }
+
+  /// A fresh fake link (a reconnect after a failed connect tore it down).
+  void relink({bool armDrains = true}) {
     engine.debugInstallFakeLink(
       band: BandProfile.gen5,
       armDrains: armDrains,
@@ -204,6 +211,8 @@ class _Ops implements GattBootstrapOps {
   final bool discoveryFails;
   final bool memfaultPresent;
   final Set<String> failSubscribe;
+  /// What a failed registration throws; a plain exception by default.
+  final Object? subscribeError;
   /// Runs right after a registration succeeds — traffic the band (or another
   /// client's transfer) delivers the moment notifications are on.
   final void Function(String role)? afterSubscribe;
@@ -217,6 +226,7 @@ class _Ops implements GattBootstrapOps {
     this.discoveryFails = false,
     this.memfaultPresent = true,
     this.failSubscribe = const {},
+    this.subscribeError,
     this.afterSubscribe,
   });
 
@@ -258,7 +268,9 @@ class _Ops implements GattBootstrapOps {
   @override
   Future<void> subscribe(String role) async {
     rig.trace.add('sub:$role');
-    if (failSubscribe.contains(role)) throw Exception('CCC write failed');
+    if (failSubscribe.contains(role)) {
+      throw subscribeError ?? Exception('CCC write failed');
+    }
     afterSubscribe?.call(role);
   }
 
@@ -1266,6 +1278,77 @@ void main() {
         expect(rig.ready, isFalse);
         expect(rig.commands, isEmpty, reason: 'no HELLO after a failed CCC');
         expect(rig.logged('required notification registration failed'), isTrue);
+      });
+    });
+
+    test('a registration refused for the phone\'s key is a bond refusal', () {
+      // iOS bonds implicitly, so a stale key only surfaces as an ATT error on
+      // the first registration. Without this the user saw an endless
+      // connect loop and no re-pair guide.
+      fakeAsync((async) {
+        final rig = _Rig()..answerAll();
+        final ops = _Ops(
+          rig,
+          failSubscribe: {'cmd_from'},
+          subscribeError: FlutterBluePlusException(ErrorPlatform.apple,
+              'setNotifyValue', 15, 'Encryption is insufficient.'),
+        );
+        expect(_run(rig, async, ops: ops), isFalse);
+        expect(rig.engine.state.needsRepairGuide, isTrue);
+        expect(rig.engine.state.bondRefusals, 1);
+      });
+    });
+
+    test('an existing bond refused at registration keeps its streak across '
+        'reconnects', () {
+      fakeAsync((async) {
+        final rig = _Rig()..answerAll();
+        _Ops refused() => _Ops(
+              rig,
+              alreadyBonded: true,
+              failSubscribe: {'cmd_from'},
+              subscribeError: FlutterBluePlusException(ErrorPlatform.android,
+                  'setNotifyValue', 5, 'GATT_INSUFFICIENT_AUTHENTICATION'),
+            );
+        expect(_run(rig, async, ops: refused()), isFalse);
+        rig.relink();
+        expect(_run(rig, async, ops: refused()), isFalse);
+        expect(rig.engine.state.bondRefusals, 2);
+      });
+    });
+
+    test('an existing bond succeeding does not lift a give-up pause', () {
+      // After give-up the streak no longer records refusals, so a bond
+      // "success" clearing the pause re-armed auto-reconnect for good.
+      fakeAsync((async) {
+        final rig = _Rig()..answerAll();
+        _Ops refused() => _Ops(
+              rig,
+              alreadyBonded: true,
+              failSubscribe: {'cmd_from'},
+              subscribeError: FlutterBluePlusException(ErrorPlatform.android,
+                  'setNotifyValue', 5, 'GATT_INSUFFICIENT_AUTHENTICATION'),
+            );
+        for (var i = 0; i < 5; i++) {
+          if (i > 0) rig.relink();
+          expect(_run(rig, async, ops: refused()), isFalse);
+        }
+        expect(rig.engine.state.autoReconnectPaused, isTrue);
+        rig.relink();
+        expect(_run(rig, async, ops: refused()), isFalse);
+        expect(rig.engine.state.autoReconnectPaused, isTrue);
+      });
+    });
+
+    test('a registration failing for any other reason is not', () {
+      fakeAsync((async) {
+        final rig = _Rig()..answerAll();
+        expect(
+          _run(rig, async, ops: _Ops(rig, failSubscribe: {'cmd_from'})),
+          isFalse,
+        );
+        expect(rig.engine.state.needsRepairGuide, isFalse);
+        expect(rig.engine.state.bondRefusals, 0);
       });
     });
 

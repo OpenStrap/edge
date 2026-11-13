@@ -440,7 +440,9 @@ void main() {
     // bout ends inside the 3 h buffer, so it is not deferred as unfinished.
     const first = midnight + 18 * 3600;
     const bed = midnight + 21 * 3600 + 1800;
-    const up = midnight + 86400 + 2 * 3600;
+    // The bout is exactly 3 h (kMaxNapSec): longer is a sleep, not a nap,
+    // and would be dropped by dropOversizedNaps before attribution.
+    const up = midnight + 86400 + 1800;
     final s = _daySubstrate(
       startSec: first,
       lengthSec: 9 * 3600,

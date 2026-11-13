@@ -24,6 +24,12 @@ class Prefs {
     } catch (_) {/* reads fall back to defaults */}
   }
 
+  /// Refresh the synchronous cache after a backup restores settings.
+  static Future<void> reload() async {
+    _sp = await SharedPreferences.getInstance();
+    await _sp!.reload();
+  }
+
   /// Whether storage is actually available, i.e. whether a `getX` default is
   /// "the key is unset" or "we cannot see what you chose".
   ///

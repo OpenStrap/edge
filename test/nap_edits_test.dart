@@ -218,9 +218,34 @@ void main() {
       expect(manualNapWindowIsValid(0, kMaxManualNapSec), isTrue);
     });
 
+    test('the cap is 3 hours — exactly 3h is a nap, 3h+1s is a night', () {
+      expect(kMaxNapSec, 3 * hour);
+      expect(kMaxManualNapSec, kMaxNapSec);
+      expect(manualNapWindowIsValid(0, 3 * hour), isTrue);
+      expect(manualNapWindowIsValid(0, 3 * hour + 1), isFalse);
+    });
+
     test('rejects a backwards or empty window', () {
       expect(manualNapWindowIsValid(100, 100), isFalse);
       expect(manualNapWindowIsValid(200, 100), isFalse);
+    });
+  });
+
+  group('dropOversizedNaps', () {
+    test('keeps naps up to 3h, drops longer ones', () {
+      final naps = [
+        {'start': 0, 'end': 2 * hour, 'duration_min': 120},
+        {'start': 3 * hour, 'end': 6 * hour, 'duration_min': 180}, // exactly 3h
+        {'start': 7 * hour, 'end': 11 * hour, 'duration_min': 240}, // 4h -> drop
+      ];
+      final kept = dropOversizedNaps(naps);
+      expect(kept.length, 2);
+      expect(kept[0]['end'], 2 * hour);
+      expect(kept[1]['end'], 6 * hour);
+    });
+
+    test('an empty list stays empty', () {
+      expect(dropOversizedNaps(const []), isEmpty);
     });
   });
 

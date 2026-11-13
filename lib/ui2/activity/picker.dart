@@ -2,7 +2,7 @@ import '../../l10n/display_text.dart';
 // Choose an activity.
 //
 // Two ways in, because there are two kinds of user: the one who does the same
-// six things (the recent row, one tap) and the one who did something unusual
+// six things (the most-used row, one tap) and the one who did something unusual
 // today (search, then eight collapsed groups). Both land on the same setup
 // screen, so there is one path to a live session, not two.
 
@@ -24,10 +24,10 @@ class ActivityPicker extends StatefulWidget {
   /// The app behind the session this picker starts.
   final ActivityHost host;
 
-  /// The activities this user actually did, most recent first. Empty means
-  /// there is no history to show, and the row falls back to [quickStart]
-  /// under its own honest heading.
-  final List<Activity> recent;
+  /// The activities this user does most, most-used first. Empty means there
+  /// is no history to show, and the row falls back to [quickStart] under its
+  /// own honest heading.
+  final List<Activity> mostUsed;
 
   /// Where a chosen activity goes. Defaults to [ActivitySetup].
   final void Function(BuildContext c, Activity a)? onPick;
@@ -36,7 +36,7 @@ class ActivityPicker extends StatefulWidget {
     super.key,
     this.weightKg,
     this.host = ActivityHost.none,
-    this.recent = const [],
+    this.mostUsed = const [],
     this.onPick,
   });
 
@@ -152,18 +152,18 @@ class _ActivityPickerState extends State<ActivityPicker> {
                       ]),
                     )
                 else ...[
-                  // "RECENT" over a fixed six-item constant was a lie the
-                  // first time anyone read it. The heading follows the data.
+                  // "MOST DONE" over a fixed six-item constant would be the
+                  // same lie "RECENT" was. The heading follows the data.
                   Text(
-                      widget.recent.isEmpty
+                      widget.mostUsed.isEmpty
                           ? (l?.activityPickerQuickStart ?? 'QUICK START')
-                          : (l?.activityPickerRecent ?? 'RECENT'),
+                          : (l?.activityPickerMostDone ?? 'MOST DONE'),
                       style: F.over.copyWith(color: p.ink3)),
                   const SizedBox(height: S.x3),
                   Builder(builder: (_) {
-                    final row = widget.recent.isEmpty
+                    final row = widget.mostUsed.isEmpty
                         ? quickStart
-                        : widget.recent;
+                        : widget.mostUsed;
                     return SizedBox(
                       height: 96,
                       child: ListView.separated(

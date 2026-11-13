@@ -10,6 +10,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/data/auto_backup.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
@@ -241,6 +242,8 @@ void _expectSameRows(
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
   late Directory tmp;
   final policy = const SubstrateArchivePolicy(365);
   const cutoff = _d0 + 2 * _day; // start of day 3
@@ -1416,7 +1419,7 @@ void main() {
     ]) {
       expect(
         src(auto),
-        contains('exportCopy(includeSubstrateArchive: false)'),
+        matches(RegExp(r'exportCopy\([^)]*includeSubstrateArchive:\s*false')),
         reason: auto,
       );
     }

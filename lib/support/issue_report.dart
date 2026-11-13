@@ -85,6 +85,10 @@ String describeReportFile(AppLocalizations l, String path) => switch (path) {
 class ReportDraft {
   final ReportCategory category;
   final String title, description;
+
+  /// Email or handle for a reply. Only in the encrypted user.txt, never in
+  /// the plaintext server meta.
+  final String contact;
   final String? screenshotPath;
   /// The last-2-weeks slice (uploadable).
   final bool includeDatabase;
@@ -95,6 +99,7 @@ class ReportDraft {
     required this.category,
     required this.title,
     required this.description,
+    this.contact = '',
     this.screenshotPath,
     this.includeDatabase = false,
     this.fullDatabase = false,
@@ -146,7 +151,9 @@ Future<File> writeReportZip(
     'logs/sync.log': utf8.encode(syncLog),
     'logs/telemetry.json': utf8.encode(pretty.convert(telemetry)),
     'user.txt': utf8.encode('Category: ${draft.category.name}\n'
-        'Title: ${draft.title}\n\n${draft.description}\n'),
+        'Title: ${draft.title}\n'
+        '${draft.contact.isEmpty ? '' : 'Contact: ${draft.contact}\n'}'
+        '\n${draft.description}\n'),
     'screenshot.${draft.screenshotExt}': ?screenshot,
   };
   final zip = ZipFileEncoder()..create(path);
@@ -359,7 +366,8 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
     if (draft.fullDatabase) {
       onStage?.call(ReportStage.database);
       // The existing export path: a VACUUM INTO snapshot, not a file copy.
-      path = await LocalDb.exportCopy(includeSubstrateArchive: false);
+      path = await LocalDb.exportCopy(
+          includeSubstrateArchive: false, includePrefs: false);
     } else {
       onStage?.call(ReportStage.slice);
       path = await exportRecentSlice(rawDays: days);

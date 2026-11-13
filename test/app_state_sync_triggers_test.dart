@@ -262,6 +262,42 @@ void main() {
       await rig.quiesce();
     }));
 
+    test('a task that hit its terminal is not waited on again, even while '
+        'the claim is still held', syncCase((rig, timers) async {
+      await _open(rig);
+      rig.engine.offloading = true;
+      rig.engine.syncScript.addAll(
+          [for (var i = 0; i < 5; i++) SyncReport(0, 0, false, ended: true)]);
+      await rig.app.forceResync();
+      expect(rig.engine.count('runSync'), 1);
+      expect(_logged(rig, 'Backfill stop — no batch ACKs; trim did not advance.'), isTrue);
+    }));
+
+    test('batches with no records behind a stuck frontier end the loop',
+        syncCase((rig, timers) async {
+      await _open(rig);
+      rig.engine.newestTs = 1800000000;
+      await LocalDb.setCursor('rec_ts_hw', '1700000000');
+      rig.engine.syncScript.addAll([for (var i = 0; i < 5; i++) SyncReport(0, 1, true)]);
+      await rig.app.forceResync();
+      expect(rig.engine.count('runSync'), 1);
+      expect(_logged(rig, 'Backfill stop — batches carried no records'), isTrue);
+      await rig.quiesce();
+    }));
+
+    test('gate-dropped batches behind a stuck frontier keep draining',
+        syncCase((rig, timers) async {
+      await _open(rig);
+      rig.engine.newestTs = 1800000000;
+      await LocalDb.setCursor('rec_ts_hw', '1700000000');
+      rig.engine.onRunSync = () async => rig.engine.gateDrops += 50;
+      rig.engine.syncScript.addAll([for (var i = 0; i < 3; i++) SyncReport(0, 1, true)]);
+      await rig.app.forceResync();
+      expect(rig.engine.count('runSync'), greaterThan(1));
+      expect(_logged(rig, 'Backfill stop — batches carried no records'), isFalse);
+      await rig.quiesce();
+    }));
+
     test('a terminal Stuck connection runs no session at all',
         syncCase((rig, timers) async {
       await _open(rig);

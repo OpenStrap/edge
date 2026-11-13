@@ -38,6 +38,15 @@ class UnitsController extends ChangeNotifier {
   UnitSystem get system => _system;
   bool get isImperial => _system == UnitSystem.imperial;
 
+  /// Adopt restored settings without persisting another write.
+  Future<void> reloadFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final next = _parse(prefs.getString(_kUnits));
+    if (next == _system) return;
+    _system = next;
+    notifyListeners();
+  }
+
   Future<void> setSystem(UnitSystem s) async {
     if (_system == s) return;
     _system = s;

@@ -79,6 +79,15 @@ class LocaleController extends ChangeNotifier {
   String? get code => _code;
   Locale? get locale => _code == null ? null : Locale(_code!);
 
+  /// Adopt restored settings without persisting another write.
+  Future<void> reloadFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final next = _validCode(prefs.getString(_kLocale));
+    if (next == _code) return;
+    _code = next;
+    notifyListeners();
+  }
+
   Future<void> setCode(String? code) async {
     if (_code == code) return;
     _code = code;

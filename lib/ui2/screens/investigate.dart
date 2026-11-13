@@ -1094,10 +1094,12 @@ class _InvestigateState extends State<Investigate> {
       return [
         StatusCard(
           l?.investigateNoStoredSeries ?? 'No stored series',
+          // nounInSentence, not toLowerCase(): that read "hrv" in English
+          // and "Für ruhepuls" in German.
           l?.investigateNothingStoredYet(
-                uiText(context, spec.title).toLowerCase(),
+                nounInSentence(l, uiText(context, spec.title)),
               ) ??
-              'Nothing stored for ${uiText(context, spec.title).toLowerCase()} yet.',
+              'Nothing stored for ${nounInSentence(l, uiText(context, spec.title))} yet.',
           icon: spec.icon,
         ),
       ];

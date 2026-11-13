@@ -16,8 +16,8 @@
   "pillLocalNoCloud": "Локально · без облака",
   "pairingSkipForNow": "Пропустить",
   "pairingSkipNote": "Приложение откроется без браслета. Пока браслет не подключён, измерения выполняться не будут.",
-  "pairingIdleTitle": "Разбудите браслет и держите его рядом",
-  "pairingIdleBody": "Снимите браслет с зарядки, наденьте на запястье и держите телефон на расстоянии вытянутой руки.",
+  "pairingIdleTitle": "Переведите браслет в режим сопряжения",
+  "pairingIdleBody": "Снимите браслет с запястья и уверенно постучите по верхней части, пока он не начнёт мигать синим. Держите телефон рядом.",
   "pairingScanningTitle": "Ищем браслет",
   "pairingScanningBody": "После снятия с зарядки браслету может потребоваться до 30 секунд, чтобы начать передавать сигнал.",
   "pairingNotFoundTitle": "Браслет не найден",
@@ -41,7 +41,7 @@
   "pairingBondRefusedAdviceBody": "В настройках Bluetooth телефона забудьте браслет и снова запустите поиск здесь. Старую запись о сопряжении может удалить только система.",
   "pairingBondRefusedAdviceFix": "Затем вернитесь и нажмите «Повторить»",
   "pairingFailedAdviceTitle": "Браслет найден, но подключение не завершилось",
-  "pairingFailedAdviceBody": "Обычно помогает повторный поиск с расстояния около метра.",
+  "pairingFailedAdviceBody": "Переведите браслет в режим сопряжения (мигающий синий индикатор), затем нажмите «Повторить».",
   "profileSetupTitle": "О вас",
   "profileSetupBody": "Чтобы продолжить, нужно указать только пол. Возраст, рост и вес влияют на расчёт ваших показателей; если оставить какой-либо из них пустым, недоступными останутся только зависящие от него показатели.",
   "profileSetupSexHeader": "ПОЛ",
@@ -819,7 +819,7 @@
   "aiBriefingEmptyCardBody": "На момент составления ни у одного показателя не было значения, поэтому запрос их не содержал.",
   "napsFellAsleepHelp": "КОГДА ВЫ ЗАСНУЛИ",
   "napsWokeUpHelp": "КОГДА ВЫ ПРОСНУЛИСЬ",
-  "napsInvalidWindow": "Дневной сон длится от 5 минут до 6 часов. Более долгий сон относится к ночному, где можно просмотреть его стадии.",
+  "napsInvalidWindow": "Дневной сон длится от 5 минут до 3 часов. Более долгий сон относится к ночному, где можно просмотреть его стадии.",
   "napsOverlap": "Этот период пересекается с уже записанным дневным сном. Сначала удалите прежнюю запись, чтобы не учитывать одно время дважды.",
   "napsOverlapsSleep": "Этот период пересекается с основным сном, который уже учитывает это время. Запишите только часть после подъёма или исправьте ночь.",
   "napsNotReanalysed": "Повторный анализ дня не выполнен: уже идёт другой анализ. Изменение сохранено и будет учтено в следующий раз.",
@@ -3940,6 +3940,7 @@
   "sleepDetailWindowNoSleep": "Время сохранено, но в записях браслета за эти часы нет сна, который можно оценить.",
   "sleepDetailNightUnrecorded": "Пульс указывает на ночной сон, но большую часть ночи браслет записал слишком мало данных о движении, поэтому оценивать нечего.",
   "sleepDetailCorrectionUnavailable": "Подробные записи этой ночи уже удалены с телефона, поэтому её сон больше нельзя исправить.",
+  "sleepDetailCorrectionNoRecordings": "Для этой ночи на телефоне нет подробных записей, поэтому её сон нельзя исправить.",
   "sleepDetailCorrectionEveningPruned": "Вечер перед этой ночью уже удалён с телефона, поэтому можно применить только время отхода ко сну после полуночи или «Не сон».",
   "sleepDetailNoHypnogramTitle": "За эту ночь гипнограммы нет",
   "sleepDetailNoHypnogramBody": "Для определения стадий нужны движение и межударные интервалы. Одного из источников не было.",
@@ -4469,6 +4470,7 @@
   "activityPickerNoMatchBody": "В каталоге около семидесяти активностей с опубликованными энергозатратами. Выберите ближайшую.",
   "activityPickerQuickStart": "БЫСТРЫЙ СТАРТ",
   "activityPickerRecent": "НЕДАВНИЕ",
+  "activityPickerMostDone": "ЧАЩЕ ВСЕГО",
   "activityPickerCalorieEstimatesTitle": "Калории — оценочные значения",
   "activityPickerMetValue": "{met}× от покоя",
   "@activityPickerMetValue": {
@@ -5828,7 +5830,7 @@
   "activityStart": "Начало",
   "activityEnd": "Конец",
   "activityCheckTimes": "Проверьте время",
-  "activityNapWindow": "Выберите прошедший период от 5 минут до 6 часов.",
+  "activityNapWindow": "Выберите прошедший период от 5 минут до 3 часов.",
   "activityEditNap": "Изменить дневной сон",
   "activityEditWorkout": "Изменить тренировку",
   "activityNapAlerts": "Обнаруженный дневной сон",
@@ -7500,6 +7502,8 @@
   "reportTitleHint": "Одной строкой: что пошло не так",
   "reportDescriptionLabel": "Что произошло",
   "reportDescriptionHint": "Что вы делали, чего ожидали и что увидели",
+  "reportContactLabel": "Контакт (необязательно)",
+  "reportContactHint": "Email или Discord, если хотите получить ответ",
   "reportAttachGroup": "Вложения",
   "reportScreenshotRow": "Добавить снимок экрана",
   "reportScreenshotRemove": "Убрать снимок экрана",
@@ -7907,12 +7911,41 @@
   "@sleepDetailMedicalDisclaimer": {
     "description": "Disclaimer shown on the sleep detail screen."
   },
-  "settingsSleepHmmRowTitle": "Экспериментальное определение стадий сна (HMM)",
-  "@settingsSleepHmmRowTitle": {
-    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  "welcomeCoachKeyReentry": "API-ключ тренера остаётся в защищённом хранилище и не включён в резервную копию. Введите его снова в настройках ИИ, чтобы пользоваться тренером на этом телефоне.",
+  "welcomeSettingsSkipped": "{n, plural, one{{n} настройку из резервной копии не удалось прочитать, она пропущена} few{{n} настройки из резервной копии не удалось прочитать, они пропущены} many{{n} настроек из резервной копии не удалось прочитать, они пропущены} other{{n} настройки из резервной копии не удалось прочитать, они пропущены}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
   },
-  "settingsSleepHmmRowSub": "Исследовательский алгоритм, не медицинское устройство. Выключено по умолчанию; применяется со следующей синхронизации",
-  "@settingsSleepHmmRowSub": {
-    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
+  "welcomeSettingsSkippedBody": "Для них остаются значения этого телефона.",
+  "welcomeCoachChatGptReentry": "Данные входа в ChatGPT остаются в защищённом хранилище и не включены в резервную копию. Войдите снова в настройках ИИ, чтобы пользоваться тренером на этом телефоне.",
+  "welcomeCoachServerReentry": "Адрес вашего собственного сервера коуча не сохранён в резервной копии, потому что адрес может содержать ключ. Введите его снова в настройках ИИ.",
+  "welcomeSettingsRestored": "Восстановлено настроек: {n}",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "strengthCustomWeight": "Свой вес",
+  "strengthEnterValue": "Введите значение",
+  "strengthInvalidNumber": "Неверное число",
+  "strengthLoadRangeKg": "Должно быть от 0 до 500 кг",
+  "strengthLoadRangeLb": "Должно быть от 0 до 1100 фунтов",
+  "strengthRepsRange": "Должно быть от 1 до 200 повторений",
+  "strengthEditSet": "Редактировать подход",
+  "strengthDeleteSet": "Удалить подход",
+  "strengthDeleteSetConfirm": "Удалить этот подход?",
+  "strengthBodyweight": "Свой вес",
+  "strengthDelete": "Удалить",
+  "strengthSaveFailed": "Не удалось сохранить изменения",
+  "whoopFirmwareWarningTitle": "Пользователям WHOOP: не подключайтесь снова к приложению WHOOP",
+  "whoopFirmwareWarningAction": "Если вы пользуетесь OpenStrap или другим приложением с открытым кодом либо планируете перейти на него позже, не подключайте браслет к официальному приложению WHOOP снова. Оно может автоматически установить обновления прошивки. Удалите или отключите приложение WHOOP, чтобы оно не обновляло ваш браслет.",
+  "whoopFirmwareWarningDetails": "В сообщениях о прошивках WHOOP 5.0 / MG 50.43.1.0 и 50.43.2.0 описывается заблокированный доступ к данным. Bluetooth при этом может подключаться. OpenStrap не может выпустить подписанный WHOOP токен членства, необходимый для разблокировки затронутых браслетов. Мы работаем над решением, но исправления пока нет.",
+  "pairBandNotSensor": "Это устройство — {label}, то есть браслет, а не простой датчик. Ничего не сохранено.",
+  "@pairBandNotSensor": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
   }
 }

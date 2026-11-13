@@ -3,7 +3,7 @@
 // lock -- exactly the bug this milestone fixed at
 // lib/ui2/profile/pair_sensor.dart (spec-m0-m2.md §4).
 //
-// Only two files may call FlutterBluePlus.startScan/stopScan or read
+// Only these files may call FlutterBluePlus.startScan/stopScan or read
 // isScanning directly: lib/ble/ble_engine.dart and lib/ble/hrs_link.dart,
 // both of which route every call through withScanLock. Every other file must
 // go through HrsLink's public API (`scanFor`, `stopScanIfRunning`) or
@@ -19,6 +19,9 @@ const _allowlist = {
   // BleEngine, not a new entry point.
   'lib/ble/transport.dart',
   'lib/ble/hrs_link.dart',
+  // The Android scale presence watcher: one low-power scan, filtered to the
+  // paired scale's address, run entirely inside `withScanLock`.
+  'lib/ble/scale_presence.dart',
 };
 
 final _pureComment = RegExp(r'^\s*(///|//|\*|/\*)');

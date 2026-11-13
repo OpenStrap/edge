@@ -71,12 +71,19 @@ class AppShell extends StatefulWidget {
   /// belongs inside the domain.
   final Widget? banner;
 
+  /// External selection control. When provided, the shell follows changes to
+  /// it and switches tabs WITHOUT being recreated, so a programmatic jump
+  /// (a notification deep link) keeps every visited tab's state — scroll
+  /// position included — alive in the [IndexedStack].
+  final ValueNotifier<ShellDomain>? selection;
+
   const AppShell({
     super.key,
     required this.builder,
     this.initial = ShellDomain.today,
     this.onSelect,
     this.banner,
+    this.selection,
   });
 
   @override
@@ -93,7 +100,50 @@ class _AppShellState extends State<AppShell> {
     if (widget.initial != ShellDomain.today) ShellDomain.today,
   ];
 
-  void _select(ShellDomain d) {
+  @override
+  void initState() {
+    super.initState();
+    widget.selection?.addListener(_followSelection);
+  }
+
+  @override
+  void didUpdateWidget(covariant AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selection != oldWidget.selection) {
+      oldWidget.selection?.removeListener(_followSelection);
+      widget.selection?.addListener(_followSelection);
+      // Reconcile with the new notifier's current value. didUpdateWidget
+      // runs during the build phase, so the onSelect callback is deferred
+      // to after the frame — it may setState on the parent.
+      final s = widget.selection;
+      if (s != null && s.value != _current) {
+        final d = s.value;
+        _select(d, notify: false);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          // Discard the callback if the shell was unmounted, the notifier
+          // was swapped, or the selection moved on since scheduling —
+          // reporting the stale domain would write it back via onSelect.
+          if (mounted && widget.selection == s && s.value == d) {
+            widget.onSelect?.call(d);
+          }
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.selection?.removeListener(_followSelection);
+    super.dispose();
+  }
+
+  void _followSelection() {
+    final s = widget.selection;
+    if (s == null) return;
+    if (s.value != _current) _select(s.value);
+  }
+
+  void _select(ShellDomain d, {bool notify = true}) {
     setState(() {
       // Each tab at most once, most recent last, so switching back and forth
       // between two tabs does not add a Back press per switch. Today stays in
@@ -112,7 +162,7 @@ class _AppShellState extends State<AppShell> {
       _current = d;
       _built.add(d);
     });
-    widget.onSelect?.call(d);
+    if (notify) widget.onSelect?.call(d);
   }
 
   void _back() {

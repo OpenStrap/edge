@@ -250,4 +250,53 @@ void main() {
     await LocalDb.setSessionPrivate('sess-priv', false);
     expect((await LocalDb.session('sess-priv'))!['private'], 0);
   });
+
+  test('replaceStrengthSets replaces all sets and prunes removed rows',
+      () async {
+    created.add('strength_replace.db');
+    await databaseFactory.deleteDatabase(await _dbPath('strength_replace.db'));
+    await _openThroughLocalDb('strength_replace.db');
+
+    await LocalDb.replaceStrengthSets('sess-r', [
+      {
+        'exercise_key': 'bench_press',
+        'set_index': 1,
+        'reps': 10,
+        'load_kg': 60.0,
+        'at_ts': 1770000000,
+      },
+      {
+        'exercise_key': 'bench_press',
+        'set_index': 2,
+        'reps': 8,
+        'load_kg': 70.0,
+        'at_ts': 1770000100,
+      },
+    ]);
+
+    var sets = await LocalDb.strengthSets('sess-r');
+    expect(sets, hasLength(2));
+    expect(sets[0]['load_kg'], 60.0);
+    expect(sets[1]['load_kg'], 70.0);
+
+    // Replace with a single updated set
+    await LocalDb.replaceStrengthSets('sess-r', [
+      {
+        'exercise_key': 'bench_press',
+        'set_index': 1,
+        'reps': 12,
+        'load_kg': 65.0,
+        'rpe': 9,
+        'note': 'Good set 💪',
+        'at_ts': 1770000000,
+      },
+    ]);
+
+    sets = await LocalDb.strengthSets('sess-r');
+    expect(sets, hasLength(1));
+    expect(sets[0]['reps'], 12);
+    expect(sets[0]['load_kg'], 65.0);
+    expect(sets[0]['rpe'], 9);
+    expect(sets[0]['note'], 'Good set 💪');
+  });
 }

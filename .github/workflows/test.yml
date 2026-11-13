@@ -16,7 +16,9 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  # Analyze, the lock guard and the zone-dependent tests: everything that is
+  # not the main suite.
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,17 +70,8 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
-      # --concurrency=1: the suite uses sqflite_common_ffi against real database
-      # files, and parallel workers race on them.
-      #
-      # The golden capture (whoop_hist.jsonl) is a real band recording kept
-      # beside the repo rather than committed to it, so the two derivation-replay
-      # tests SKIP here and run locally.
-      - name: Test
-        run: flutter test --concurrency=1 --reporter=expanded
-
       # The WHOOP freeze goldens are per timezone (day labels are local), and
-      # the run above is UTC, so it only enforces the *_utc files and the other
+      # the main suite runs in UTC, so it only enforces the *_utc files and the other
       # two skip. Re-run that one file under each committed offset. The Mi
       # scale clock test reads the process zone and is a no-op under UTC, so it
       # rides along.
@@ -86,3 +79,49 @@ jobs:
         run: |
           TZ=Asia/Kolkata flutter test --concurrency=1 test/whoop_freeze_golden_test.dart test/adapters/miscale_test.dart
           TZ=America/New_York flutter test --concurrency=1 test/whoop_freeze_golden_test.dart test/adapters/miscale_test.dart
+
+  # The main suite, split across machines. It ran as ONE job for about 75
+  # minutes, and a newer push to main cancels the run in progress
+  # (`cancel-in-progress` above), so runs on main were cancelled about as often
+  # as they finished. Each slice still runs its files one at a time; see
+  # .github/scripts/test_shard.sh.
+  #
+  # The golden capture (whoop_hist.jsonl) is a real band recording kept beside
+  # the repo rather than committed to it, so the two derivation-replay tests
+  # SKIP here and run locally.
+  suite:
+    runs-on: ubuntu-latest
+    strategy:
+      # One failing slice must not hide failures in the others.
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Same pin as `checks`; see the note there.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.6
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Test (slice ${{ matrix.shard }} of 6)
+        run: bash .github/scripts/test_shard.sh ${{ matrix.shard }} 6
+
+  # One check with the old job's name, so anything that waits for `test`
+  # (branch protection, a badge) keeps working. Fails unless every job above
+  # passed.
+  test:
+    if: always()
+    needs: [checks, suite]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All checks and slices passed
+        run: |
+          [ "${{ needs.checks.result }}" = success ] && [ "${{ needs.suite.result }}" = success ]

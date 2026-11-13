@@ -15,7 +15,7 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 BandCandidate _cand(String id, String entryId, {String? label, int rssi = -60}) =>
-    (device: BluetoothDevice.fromId(id), label: label, rssi: rssi, entryId: entryId);
+    (device: BluetoothDevice.fromId(id), label: label, rssi: rssi, entryId: entryId, alsoBand: null);
 
 Future<void> _pump(WidgetTester t, DevicePickerView view,
     {bool settle = true}) async {

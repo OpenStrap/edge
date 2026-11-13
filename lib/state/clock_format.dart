@@ -54,6 +54,15 @@ class ClockFormatController extends ChangeNotifier {
         ClockFormat.h12 => false,
       };
 
+  /// Adopt restored settings without persisting another write.
+  Future<void> reloadFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final next = _parse(prefs.getString(_kClockFormat));
+    if (next == _format) return;
+    _format = next;
+    notifyListeners();
+  }
+
   Future<void> setFormat(ClockFormat f) async {
     if (_format == f) return;
     _format = f;

@@ -152,6 +152,17 @@ class Sample {
   /// (analytics `band_offset.dart`) — never to create, extend or stage one.
   final int? bandSleepState;
 
+  /// The gen5 v18 SpO2 candidate byte (protocol `spo2CandidateRaw`,
+  /// inner[74]) — GEN5/MG ONLY, raw and unvalidated.
+  ///
+  /// The encoding is unknown and no ground truth exists, so this is the opaque
+  /// byte as received: never gated, never shown, never stored or converted as
+  /// a percentage. It lives in memory only, on the live decode path: there is
+  /// no column, so a sample rebuilt from stored rows has it null. Never write
+  /// it to a log. The validation gate for any later use is in
+  /// docs/proposals/whoop-spo2.md.
+  final int? spo2CandidateRaw;
+
   Sample({
     required this.tsEpoch,
     required this.counter,
@@ -177,6 +188,7 @@ class Sample {
     this.dynAccelG,
     this.tsSubsec,
     this.bandSleepState,
+    this.spo2CandidateRaw,
   });
 
   /// Copy with an overridden [tsEpoch] — used by the clock-offset salvage path
@@ -208,6 +220,7 @@ class Sample {
     dynAccelG: dynAccelG,
     tsSubsec: tsSubsec,
     bandSleepState: bandSleepState,
+    spo2CandidateRaw: spo2CandidateRaw,
   );
 
   bool get hasDecodedOneHz =>
