@@ -4675,7 +4675,9 @@ class AppState extends ChangeNotifier {
   }
 
   // ── pairing (LOCAL only) ────────────────────────────────────────────────────
-  Future<BluetoothDevice?> scanForBand() => engine.scan();
+  /// [remoteId] / [generation]: only the band the user chose ([BleEngine.scan]).
+  Future<BluetoothDevice?> scanForBand({String? remoteId, String? generation}) =>
+      engine.scan(remoteId: remoteId, generation: generation);
 
   /// True on iOS 18+, where pairing must go through the AccessorySetupKit picker so
   /// the band is provisioned for iOS-26 background relaunch (TN3115). False on Android
