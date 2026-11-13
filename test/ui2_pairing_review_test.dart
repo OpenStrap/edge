@@ -35,6 +35,40 @@ void _expectKeyBeforeReset(WidgetTester t) {
 }
 
 void main() {
+  // WHY: synthetic-night calibration stays provisional after the minimum nights.
+  // catches: replacing the provisional warning with only a waiting period.
+  for (final ring in [kOura, kColmi, kUltrahuman]) {
+    testWidgets('${ring.id} skin temperature retains its provisional warning', (t) async {
+      await _openBand(t, ring);
+      final row = find.byKey(const ValueKey('slot-row-skinTemperature'));
+      expect(find.descendant(of: row, matching: find.text(
+          'Every day: Provisional estimate; needs a few nights')), findsOneWidget);
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-skinTemperature'))).label,
+          contains('Provisional estimate; needs a few nights'));
+    });
+  }
+
+  // WHY: a name-only WHOOP could have either generation's step acquisition.
+  // catches: using the representative's live-only or stored-counter claim.
+  for (final representative in [kWhoopGen4, kWhoopGen5]) {
+    testWidgets('unknown WHOOP steps stay unconfirmed (${representative.id})', (t) async {
+      await pumpPair(t, Builder(builder: (c) => Scaffold(body: TextButton(
+          onPressed: () => showBandFoundSheet(c, band: representative,
+              hasMainBand: false, modelKnown: false),
+          child: const Text('open')))), size: const Size(412, 2400));
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+      final l = lookupAppLocalizations(const Locale('en'));
+      final row = find.byKey(const ValueKey('slot-row-steps'));
+      expect(find.descendant(of: row, matching: find.text(
+          l.slotColumnReason(l.slotEveryDay, l.capReasonUnconfirmed))), findsOneWidget);
+      expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-steps'))).label,
+          contains(l.capReasonUnconfirmed));
+      expect(find.text('WHOOP 4'), findsNothing);
+      expect(find.text('WHOOP 5'), findsNothing);
+    });
+  }
+
   testWidgets('Oura sheet preserves the existing key before reset steps', (t) async {
     await _openBand(t, kOura);
     _expectKeyBeforeReset(t);

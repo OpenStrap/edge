@@ -35,6 +35,7 @@ String? capabilityReason(AppLocalizations l, CapabilityStatus s) =>
       CapabilityKind.vendorReported => l.capVendorReported,
       CapabilityKind.conditional => switch (s.reasonKey) {
         kReasonSkinTempNights => l.capReasonSkinTempNights,
+        kReasonSkinTempProvisional => l.capReasonSkinTempProvisional,
         kReasonEstimated => l.capReasonEstimated,
         kReasonEarly => l.capReasonEarly,
         kReasonFirstNights => l.capReasonFirstNights,

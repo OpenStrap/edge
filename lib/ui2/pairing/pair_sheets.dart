@@ -47,7 +47,7 @@ Future<BandSheetChoice?> showBandFoundSheet(
 }) async {
   final l = pairL10n(c);
   final label = modelKnown ? uiText(c, band.label) : 'WHOOP';
-  final cmp = slotComparisonFor(band);
+  final cmp = slotComparisonFor(band, modelKnown: modelKnown);
   final icon = deviceKindIcon(band.kind);
   final name = deviceName ?? label;
   if (!band.canBeMainDevice) {

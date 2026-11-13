@@ -125,6 +125,10 @@ typedef CapabilityTrace = ({String rule, String source});
 /// l10n keys (lib/l10n/app_*.arb) of the one-line captions a conditional
 /// capability carries.
 const String kReasonSkinTempNights = 'capReasonSkinTempNights';
+
+// Ring settle bands use synthetic nights (oura_inputs.dart), so waiting
+// for the minimum nights does not remove their provisional status.
+const String kReasonSkinTempProvisional = 'capReasonSkinTempProvisional';
 const String kReasonEstimated = 'capReasonEstimated';
 const String kReasonEarly = 'capReasonEarly';
 
@@ -194,13 +198,15 @@ DeviceSlot? _slotOf(BandEntry e) {
 
 /// Every capability [e] gives in [slot], each with the rule behind it. The one
 /// place claims are made, so a claim cannot exist without its trace.
-Map<DeviceCapability, _Claim> _claims(BandEntry e, DeviceSlot slot) =>
+Map<DeviceCapability, _Claim> _claims(BandEntry e, DeviceSlot slot,
+    {bool modelKnown = true}) =>
     switch (slot) {
-      DeviceSlot.everyDay => _everyDayClaims(e),
+      DeviceSlot.everyDay => _everyDayClaims(e, modelKnown: modelKnown),
       DeviceSlot.workoutsOnly => _workoutClaims(e),
     };
 
-Map<DeviceCapability, _Claim> _everyDayClaims(BandEntry e) {
+Map<DeviceCapability, _Claim> _everyDayClaims(BandEntry e,
+    {bool modelKnown = true}) {
   if (!_nativeWhoop(e)) {
     // The active wearable: its column's rows, behind its own switch. Coros has
     // no column (and wearableEnabled() is false for it): nothing.
@@ -222,7 +228,9 @@ Map<DeviceCapability, _Claim> _everyDayClaims(BandEntry e) {
   // WHOOP 4 has none (derivation_engine.dart _stepCounterModulus), so only
   // the live link's 100 Hz pedometer counts for it.
   out[DeviceCapability.steps] = (
-    status: e.id == kWhoopGen5.id ? _native : _when(kReasonLiveSessions),
+    status: !modelKnown
+        ? _when(kReasonUnconfirmed)
+        : e.id == kWhoopGen5.id ? _native : _when(kReasonLiveSessions),
     trace: (rule: 'band steps (counter or live pedometer)', source: _engine),
   );
   // The band records a workout itself.
@@ -279,7 +287,7 @@ Map<DeviceCapability, _Claim> _columnClaims(BandEntry e) {
     if (status.reasonKey == kReasonEarly) {
       status = switch (m.key) {
         DeviceCapability.recovery => _when(kReasonFirstNights),
-        DeviceCapability.skinTemperature => _when(kReasonSkinTempNights),
+        DeviceCapability.skinTemperature => _when(kReasonSkinTempProvisional),
         _ => status,
       };
     }
@@ -317,11 +325,12 @@ CapabilityTrace? capabilityTrace(
   BandEntry e,
   DeviceCapability c, {
   required DeviceSlot slot,
-}) => _claims(e, slot)[c]?.trace;
+  bool modelKnown = true,
+}) => _claims(e, slot, modelKnown: modelKnown)[c]?.trace;
 
-SlotSide _side(BandEntry e, DeviceSlot slot) {
+SlotSide _side(BandEntry e, DeviceSlot slot, {bool modelKnown = true}) {
   final sends = {
-    for (final m in _claims(e, slot).entries) m.key: m.value.status,
+    for (final m in _claims(e, slot, modelKnown: modelKnown).entries) m.key: m.value.status,
   };
   return SlotSide(
     sends: sends,
@@ -329,8 +338,8 @@ SlotSide _side(BandEntry e, DeviceSlot slot) {
   );
 }
 
-SlotComparison slotComparisonFor(BandEntry e) => SlotComparison(
-  everyDay: _side(e, DeviceSlot.everyDay),
-  workoutsOnly: _side(e, DeviceSlot.workoutsOnly),
+SlotComparison slotComparisonFor(BandEntry e, {bool modelKnown = true}) => SlotComparison(
+  everyDay: _side(e, DeviceSlot.everyDay, modelKnown: modelKnown),
+  workoutsOnly: _side(e, DeviceSlot.workoutsOnly, modelKnown: modelKnown),
   slot: _slotOf(e),
 );

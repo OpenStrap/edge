@@ -104,7 +104,7 @@ void main() {
           C.respiration, C.skinTemperature});
       expect(d[C.sleep]?.reasonKey, kReasonOwnStagesRing);
       expect(d[C.recovery]?.reasonKey, kReasonFirstNights);
-      expect(d[C.skinTemperature]?.reasonKey, kReasonSkinTempNights);
+      expect(d[C.skinTemperature]?.reasonKey, kReasonSkinTempProvisional);
       for (final c in [C.heartRate, C.hrv, C.respiration]) {
         expect(d[c]?.kind, K.native, reason: '$c');
       }

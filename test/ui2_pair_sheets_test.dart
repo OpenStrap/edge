@@ -193,7 +193,7 @@ void main() {
       expect(t.getSemantics(find.byKey(const ValueKey('slot-everyDay-strain'))).label, 'Strain, Every day: Doesn’t send');
       expect(find.text('Every day: From the ring’s own sleep stages'), findsOneWidget);
       expect(find.text('Every day: Estimated for the first 14 nights'), findsOneWidget);
-      expect(find.text('Every day: After a few nights'), findsOneWidget);
+      expect(find.text('Every day: Provisional estimate; needs a few nights'), findsOneWidget);
       expect(find.text('Fills days without your WHOOP. Experimental, so switch it on in Devices.'), findsOneWidget);
       expect(find.text('Pair Oura Ring'), findsOneWidget);
       expect(find.text('Pair it as my band'), findsNothing);
