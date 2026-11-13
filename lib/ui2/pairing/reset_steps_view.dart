@@ -20,14 +20,15 @@ bool isWhoopEntry(BandEntry e) =>
 /// The l10n key of every step to show for [e] (its own, else the general ones).
 /// [bondRefused]: the phone still holds an old pairing record the device
 /// refused, which only "Forget" in Bluetooth settings clears, so that step is
-/// added when the device's own steps lack it.
+/// added first when the device's own steps lack it: their last step is to
+/// retry, which fails until the old record is gone.
 List<String> resetStepKeysFor(BandEntry e, {bool bondRefused = false}) {
   final r = e.resetSteps;
   final keys = r?.keys?.isNotEmpty == true
       ? r!.keys!
       : kGenericResetStepKeys;
   const forget = 'pairResetGenericStep2';
-  return bondRefused && !keys.contains(forget) ? [...keys, forget] : keys;
+  return bondRefused && !keys.contains(forget) ? [forget, ...keys] : keys;
 }
 
 String resetStepText(AppLocalizations l, String key) => switch (key) {
