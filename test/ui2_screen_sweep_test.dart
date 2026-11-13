@@ -4,7 +4,7 @@
 // in the gallery, and the cards a screen builds for itself were never swept:
 // this sweep found four that overflowed at large text on a 390 pt phone
 // (readiness ring, zone rows, the cycle-day card, a MetricRow holding a
-// word), one of them in German already at 2x.
+// word), one of them in German already at 2x. Fourteen screens are swept.
 //
 // The bundled type is loaded so text measures as on a phone, and German runs
 // beside English because its words are the long ones. A screen added here is
@@ -18,6 +18,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:openstrap_edge/ai/nightly_sweep.dart' show SweepFinding;
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/state/app_state.dart';
@@ -45,6 +46,30 @@ Future<void> _loadType() async {
 final _onset = DateTime(2026, 5, 19, 23).millisecondsSinceEpoch ~/ 1000;
 final _wake = DateTime(2026, 5, 20, 7).millisecondsSinceEpoch ~/ 1000;
 final _nine = DateTime(2026, 8, 17, 9).millisecondsSinceEpoch ~/ 1000;
+
+
+Metric _m(num v) => Metric(value: v, confidence: .8, tier: MetricTier.high);
+
+/// Newest-last daily points at local noon, ending today.
+List<ChartPoint> _daily(List<double?> v) {
+  final now = DateTime.now();
+  return [
+    for (var i = 0; i < v.length; i++)
+      if (v[i] != null)
+        (
+          t: DateTime(now.year, now.month, now.day - (v.length - 1 - i), 12)
+                  .millisecondsSinceEpoch ~/
+              1000,
+          v: v[i]!,
+        ),
+  ];
+}
+
+String _todayLabel() {
+  final n = DateTime.now();
+  String two(int x) => x.toString().padLeft(2, '0');
+  return '${n.year}-${two(n.month)}-${two(n.day)}';
+}
 
 /// One fixture per screen, longest realistic values where there is a choice.
 Map<String, Widget Function()> _screens() => {
@@ -138,6 +163,99 @@ Map<String, Widget Function()> _screens() => {
               strap: 3240,
               phone: 1200,
               bandLabel: 'WHOOP 4',
+            ),
+          ),
+      'home': () => HomeScreen(
+            data: HomeData(
+              dayId: '2026-10-04',
+              readiness: _m(62),
+              sleepMin: _m(412),
+              sleepNeedMin: _m(486),
+              strain: _m(14.6),
+              strainTarget: const {'value': 12, 'low': 10, 'high': 14},
+            ),
+          ),
+      'health': () => HealthScreen(
+            data: HealthData(charts: {
+              'hrv': _daily([for (var i = 0; i < 30; i++) 60.0 + i % 7]),
+              'rhr': _daily([for (var i = 0; i < 30; i++) 52.0 + i % 4]),
+            }),
+          ),
+      'investigate': () => Investigate(
+            'rhr',
+            data: InvestigateData(
+              day: _todayLabel(),
+              series: [for (var i = 0; i < 30; i++) 52.0 + i % 4],
+              stress: const {'si': 112.5, 'level': 'moderate', 'score': 54.2},
+            ),
+          ),
+      'metric_detail': () => MetricDetail(
+            'rhr',
+            data: MetricData(
+              daysAvailable: 30,
+              series: _daily([for (var i = 0; i < 30; i++) 50.0 + i % 6]),
+            ),
+          ),
+      'timeline': () => DayTimelineScreen(
+            data: TimelineData(
+              day: '2026-08-14',
+              graph: DayGraph(
+                dayStart: DateTime(2026, 8, 14).millisecondsSinceEpoch ~/ 1000,
+                hr: [for (var i = 0; i < 1440; i++) 60 + (i % 20).toDouble()],
+                movement: List.filled(1440, null),
+              ),
+            ),
+          ),
+      'beats': () => Beats(
+            data: BeatsData(
+              day: '2026-08-15',
+              nn: [
+                for (var i = 0; i < 2400; i++)
+                  880 + (i % 37) * 3.0 - (i % 11) * 4.0,
+              ],
+              rawBeats: 2685,
+              cleanFraction: .983,
+              poincare: const {'sd1': 29.9, 'sd2': 150.7, 'flag': false},
+              bins: [
+                for (var i = 0; i < 17; i++)
+                  (
+                    startSec: i * 1800,
+                    nBeats: 900,
+                    v: 30 + i * 1.5,
+                    lo: 26 + i * 1.5,
+                    hi: 35 + i * 1.5,
+                  ),
+              ],
+              firstThirdMs: 34.1,
+              lastThirdMs: 51.2,
+              shape: const Metric(value: 1, confidence: .9),
+              dcPoints: _daily([for (var i = 0; i < 30; i++) 7.5 + (i % 5) * .4]),
+              dcAnchors: 10435,
+              dc: const Metric(value: 8.27, confidence: .95),
+              rhythmPoints:
+                  _daily([for (var i = 0; i < 30; i++) i == 17 ? 1 : 0]),
+              deviceFamily: 'gen4',
+            ),
+          ),
+      'what_changed': () => WhatChangedScreen(
+            data: WhatChangedData(
+              day: _todayLabel(),
+              days: [_todayLabel()],
+              findings: const [
+                SweepFinding(
+                    key: 'rhr',
+                    text: 'Resting heart rate was higher than your usual '
+                        'for the third night running',
+                    z: 2.4,
+                    high: true),
+                SweepFinding(
+                    key: 'rmssd',
+                    text: 'Heart rate variability was well below your usual',
+                    z: -2.1,
+                    high: false),
+              ],
+              longestHistory: 30,
+              hadToday: true,
             ),
           ),
       'cycle': () => const CycleTab(
