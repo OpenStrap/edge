@@ -87,6 +87,52 @@ void main() {
     expect(find.text('WHOOP 4'), findsNothing);
   });
 
+  testWidgets('with a WHOOP 4.0 paired, a phone-only day says why the band '
+      'added nothing', (t) async {
+    await _pump(
+      t,
+      DayStepsData(
+        spans: [_span(0, 60, 1200)],
+        total: 1200,
+        phone: 1200,
+        bandHasNoCounter: true,
+      ),
+    );
+    expect(find.textContaining('had it on you for'), findsOneWidget);
+    expect(find.textContaining('A WHOOP 4.0 has no step counter'),
+        findsOneWidget);
+  });
+
+  testWidgets('with a WHOOP 4.0 paired, a day with no steps says why',
+      (t) async {
+    await _pump(t, const DayStepsData(bandHasNoCounter: true));
+    expect(find.textContaining('No steps counted'), findsOneWidget);
+    expect(find.textContaining('A WHOOP 4.0 has no step counter'),
+        findsOneWidget);
+  });
+
+  testWidgets('the WHOOP 4.0 hint never shows on a day the band counted, or '
+      'for another band', (t) async {
+    // The band counted: it evidently can, so the hint would be wrong.
+    await _pump(
+      t,
+      DayStepsData(
+        spans: [_span(240, 300, 3240, band: true)],
+        total: 3240,
+        strap: 3240,
+        bandLabel: 'WHOOP 4',
+        bandHasNoCounter: true,
+      ),
+    );
+    expect(find.textContaining('has no step counter'), findsNothing);
+    // A band with its own counter (or none paired): never mentioned.
+    await _pump(
+      t,
+      DayStepsData(spans: [_span(0, 60, 1200)], total: 1200, phone: 1200),
+    );
+    expect(find.textContaining('has no step counter'), findsNothing);
+  });
+
   testWidgets('a day counted only by the strap\'s on-chip counter says the '
       'TIMES are missing, not the steps', (t) async {
     await _pump(
