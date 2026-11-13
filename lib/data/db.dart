@@ -9363,13 +9363,15 @@ class LocalDb {
     );
     final decoded =
         decodedRows.isEmpty ? null : Sample.fromDecodedRow(decodedRows.first);
-    // Same primary-band filter as the decoded query above: without it the
-    // fallback could return a peripheral sensor's row, and callers that read
-    // this as "how fresh is the BAND" (e.g. the morning-briefing readiness
-    // gate) would be unlocked by a sensor that carries no band data.
+    // Primary band only, same meaning as the decoded query above: without it
+    // the fallback could return a peripheral sensor's row, and callers that
+    // read this as "how fresh is the BAND" (e.g. the morning-briefing
+    // readiness gate) would be unlocked by a sensor with no band data. The
+    // samples table keys by device_id ('' = primary band), not `source`.
     final rows = await db.query(
       'samples',
-      where: kPrimaryBandSourceSql,
+      where: 'device_id = ?',
+      whereArgs: [kPrimaryDeviceId],
       orderBy: 'ts DESC',
       limit: 1,
     );
