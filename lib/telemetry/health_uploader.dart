@@ -105,7 +105,8 @@ class HealthUploader {
       // year of already-compressed raw history read into memory and re-gzipped
       // here would be both a bigger upload than anyone consented to and a
       // memory spike on the phone.
-      final path = await LocalDb.exportCopy(includeSubstrateArchive: false);
+      final path = await LocalDb.exportCopy(
+          includeSubstrateArchive: false, includePrefs: false);
       final file = File(path);
       try {
         final bytes = await file.readAsBytes();

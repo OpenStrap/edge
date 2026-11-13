@@ -1749,6 +1749,52 @@ void main() {
           reason: 'the open group, and only the open group');
     });
 
+    testWidgets('the quick row shows the most-used activities, most-used first',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      // `_frame` carries no localizations, so the English fallbacks are what
+      // these headings assert.
+      final mostUsed = [
+        activityByName('running')!,
+        activityByName('weight_training')!,
+      ];
+      await tester.pumpWidget(_frame(
+          ActivityPicker(weightKg: 72.4, mostUsed: mostUsed),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('MOST DONE'), findsOneWidget);
+      expect(find.text('QUICK START'), findsNothing);
+      final running = tester.getTopLeft(find.text('Running').first);
+      final weights = tester.getTopLeft(find.text('Weight training').first);
+      expect(running.dx < weights.dx, isTrue,
+          reason: 'the row is left to right, most-used first');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('with no history the row falls back to QUICK START',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+          _frame(const ActivityPicker(weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('QUICK START'), findsOneWidget);
+      expect(find.text('MOST DONE'), findsNothing);
+      // The heading alone proves nothing — the fallback row must actually
+      // show the quick-start tiles, not render empty under the heading.
+      expect(find.text('Running'), findsOneWidget,
+          reason: 'quickStart[0] is Running; its tile must be on screen');
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a location denial is named on the live screen',
         (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
@@ -1892,6 +1938,113 @@ void main() {
       expect(StrengthLog(sets).volumeKg, 40 * 8);
     });
 
+    testWidgets('custom weight and reps entry updates set values',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final activity = activityByName('weight_training')!;
+      LiveDraft.begin(activity);
+      LiveDraft.current!.put('exercise_plan', ['bench_press']);
+
+      var sets = <LoggedSet>[];
+      await tester.pumpWidget(_frame(
+          LiveStrength(activity, onSets: (s) => sets = s),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('40'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), '47.5');
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      expect(sets.single.loadKg, 47.5);
+    });
+
+    testWidgets('editing a logged set during rest updates the set and draft',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final activity = activityByName('weight_training')!;
+      LiveDraft.begin(activity);
+      LiveDraft.current!.put('exercise_plan', ['bench_press']);
+
+      var sets = <LoggedSet>[];
+      await tester.pumpWidget(_frame(
+          LiveStrength(activity, onSets: (s) => sets = s),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      expect(sets.length, 1);
+      expect(sets.single.loadKg, 40.0);
+      expect(sets.single.reps, 8);
+
+      await tester.tap(find.text('Edit set'));
+      await tester.pumpAndSettle();
+
+      final textFields = find.byType(TextField);
+      await tester.enterText(textFields.first, '55');
+      await tester.enterText(textFields.last, '10');
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(sets.single.loadKg, 55.0);
+      expect(sets.single.reps, 10);
+    });
+
+    testWidgets('editing a set in ActivitySummary updates strength log',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      final initialSets = [
+        LoggedSet('bench_press', 8, loadKg: 50.0, at: DateTime.now()),
+      ];
+      final r = _result(Arch.strength).copyWith(
+        strength: StrengthLog(initialSets),
+      );
+
+      await tester.pumpWidget(_frame(
+        ActivitySummary(r, weightKg: 75.0),
+        Brightness.light,
+        1.0,
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Splits'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('50 kg × 8'));
+      await tester.pumpAndSettle();
+
+      final textFields = find.byType(TextField);
+      await tester.enterText(textFields.first, '57.5');
+      await tester.enterText(textFields.last, '9');
+      await tester.tap(find.text('8').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('57.5 kg × 9'), findsOneWidget);
+      expect(find.text('RPE 8'), findsOneWidget);
+    });
+
     testWidgets('a session that failed to save says so and can retry',
         (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
@@ -1919,6 +2072,52 @@ void main() {
 
       await tester.tap(find.text('Try again'));
       await tester.pumpAndSettle();
+      expect(find.text('This session is not saved yet'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('retry save synchronizes edited strength sets',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      final initialSets = [
+        LoggedSet('bench_press', 8, loadKg: 50.0, at: DateTime.now()),
+      ];
+      final draft = _result(Arch.strength).copyWith(
+        strength: StrengthLog(initialSets),
+      );
+
+      ActivityResult? savedResult;
+      await tester.pumpWidget(_frame(
+          ActivitySummary(draft, weightKg: 75.0, onRetrySave: () async {
+            savedResult = draft.copyWith(sessionId: 'sess-saved-1');
+            return savedResult!;
+          }),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('This session is not saved yet'), findsOneWidget);
+
+      await tester.tap(find.text('Splits'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('50 kg × 8'));
+      await tester.pumpAndSettle();
+
+      final textFields = find.byType(TextField);
+      await tester.enterText(textFields.first, '55');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Overview'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Try again'));
+      await tester.pumpAndSettle();
+
       expect(find.text('This session is not saved yet'), findsNothing);
       expect(tester.takeException(), isNull);
     });
@@ -2139,9 +2338,9 @@ void main() {
       await tester.tap(find.text('Log set'));
       await tester.pump();
       expect(find.text('93 lb × 8'), findsWidgets);
-      // Volume = (40 kg + one 5 lb step, in kg) × 8 reps, shown in lb.
+      // Volume = 93 lb × 8 reps, shown in lb.
       final u = UnitsController.seed(UnitSystem.imperial);
-      final loggedKg = 40.0 + u.loadStepKg(2.5);
+      final loggedKg = u.weightToKg('93')!;
       expect(find.text(u.weightValue(loggedKg * 8).round().toString()),
           findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -2178,4 +2377,36 @@ void main() {
     });
   });
 
+  group('strength load stepper limits', () {
+    final lb = UnitsController.seed(UnitSystem.imperial);
+    final kgU = UnitsController.seed(UnitSystem.metric);
+
+    test('metric steps and clamps at 0 and 500', () {
+      expect(stepStrengthLoad(60, 2.5, kgU), 62.5);
+      expect(stepStrengthLoad(499, 2.5, kgU), 500);
+      expect(stepStrengthLoad(500, 2.5, kgU), 500);
+      expect(stepStrengthLoad(1, -2.5, kgU), 0);
+    });
+
+    test('imperial 5 lb presses do not drift', () {
+      var kg = lb.weightToKg('135')!;
+      for (var i = 0; i < 20; i++) {
+        kg = stepStrengthLoad(kg, lb.loadStepKg(2.5), lb);
+      }
+      expect(double.parse(lb.weightValue(kg).toStringAsFixed(2)), 235.0);
+      for (var i = 0; i < 20; i++) {
+        kg = stepStrengthLoad(kg, -lb.loadStepKg(2.5), lb);
+      }
+      expect(double.parse(lb.weightValue(kg).toStringAsFixed(2)), 135.0);
+    });
+
+    test('imperial cap is 1100 lb, matching the editor', () {
+      final top = lb.weightToKg('1100')!;
+      expect(strengthLoadInRange(top, lb), isTrue);
+      expect(strengthLoadInRange(lb.weightToKg('1101')!, lb), isFalse);
+      expect(stepStrengthLoad(top, lb.loadStepKg(2.5), lb), top);
+      expect(strengthLoadInRange(500.1, kgU), isFalse);
+      expect(strengthLoadInRange(-1, kgU), isFalse);
+    });
+  });
 }
