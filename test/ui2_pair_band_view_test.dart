@@ -229,6 +229,9 @@ void main() {
       expect(find.text('Skip for now'), findsNothing);
       var skipped = 0;
       await pumpPair(t, view(onSkip: () => skipped++), size: const Size(412, 2400));
+      // The first-run help and comparison chips can put Skip below the fold.
+      await t.ensureVisible(find.text('Skip for now'));
+      await t.pumpAndSettle();
       await t.tap(find.text('Skip for now'));
       expect(skipped, 1);
     });
