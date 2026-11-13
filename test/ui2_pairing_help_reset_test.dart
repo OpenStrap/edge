@@ -78,7 +78,7 @@ void main() {
     expect(de.presentationColmiRing, isNot('Colmi ring'), reason: 'control');
   });
 
-  group('Trouble connecting card (H1)', () {
+  group('Trouble connecting card', () {
     Widget card(List<BandEntry> entries, [PairLinkOpener? links]) => _scroll(
         TroubleConnectingCard(entries: entries, openLink: links ?? _Links()));
 

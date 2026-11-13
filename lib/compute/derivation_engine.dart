@@ -1852,7 +1852,12 @@ import 'vendor_sleep.dart';
 // more than the windowed live/phone sources, instead of only when they counted
 // nothing, so a short tracked walk no longer hides the day's chip total.
 // gen4 (no counter) is unchanged. Edge-only.
-const int kAlgoVersion = 120;
+// 120 → 121 (nap cap 3 h): naps are capped at kMaxNapSec on every path —
+// detected bouts via dropOversizedNaps AND stored edits replayed through
+// applyNapEdits — so a pre-cap manual nap longer than 3 h no longer counts
+// into naps/nap_min. Days derived at v120 keep their stale naps without this
+// bump.
+const int kAlgoVersion = 121;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -7312,7 +7317,7 @@ class DerivationEngine {
       // one layer up on the output.
       final builtForDay = LocalDb.localDayLabelNow();
       final builtAtEpoch = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final (bundleJson, dropped) = await _runIsolateCancellable(
+      final (bundleJson, dropped, needMin) = await _runIsolateCancellable(
         () {
           final bundle =
               buildCrossDayBundle(
@@ -7331,7 +7336,9 @@ class DerivationEngine {
           final paths = <String>[];
           final safe = sanitizeForJson(bundle, paths) as Map<String, dynamic>;
           if (paths.isNotEmpty) safe['encode_dropped_fields'] = paths;
-          return (jsonEncode(safe), paths);
+          // Read here, not by re-decoding bundleJson on the main isolate (the
+          // hang the comment above is about).
+          return (jsonEncode(safe), paths, crossDayNeedMin(safe));
         },
         _crossDayTimeout,
         label: 'crossday',
@@ -7342,7 +7349,15 @@ class DerivationEngine {
         _log('crossday: zone changed during the build; not stored');
         return false;
       }
-      if (!await LocalDb.putReviewedBaseline('crossday', bundleJson, reviewRevision)) {
+      // `series`: the need this build computed, kept per day: the artifact
+      // only ever holds the latest one, so without this every past night was
+      // read against TODAY's need (#619). Same transaction as the artifact,
+      // so the day's row always matches the artifact that day last served; a
+      // later build the same day replaces both. null when the need abstained,
+      // so a past day reads "—", never a stale value. No backfill: an earlier
+      // day's need was never stored anywhere.
+      if (!await LocalDb.putReviewedBaseline('crossday', bundleJson, reviewRevision,
+          series: (date: builtForDay, key: 'sleep_need_min', value: needMin))) {
         _log('crossday: newer activity review; leaving its refresh queued');
         return false;
       }
@@ -7402,6 +7417,16 @@ class DerivationEngine {
     }
     return out;
   }
+
+  /// The learned sleep need in a crossday bundle, in whole minutes, or null
+  /// when `sleep_coach.need` abstained or is missing — the same field and
+  /// rounding `LocalRepositoryImpl._sleepNeedMin` reads.
+  static double? crossDayNeedMin(Map<String, dynamic> bundle) =>
+      switch (bundle['sleep_coach']) {
+        {'need': {'value': {'need_sec': final num s}}} =>
+          (s / 60).roundToDouble(),
+        _ => null,
+      };
 
   /// The phone zone a `crossday_input` artifact was built in. Its records are
   /// zone-RELATIVE (`clock_shift_sec` is "this night's clock minus the zone the
@@ -10082,7 +10107,9 @@ class DerivationEngine {
     List<NapEdit> napEdits,
     String note,
   ) {
-    final merged = applyNapEdits(const [], napEdits);
+    // Cap stored edits too: a manual nap logged before the 3 h cap must not
+    // survive a re-derive as a counted nap.
+    final merged = dropOversizedNaps(applyNapEdits(const [], napEdits));
     if (merged.isEmpty) {
       _writeUnknownNaps(bundle, note);
       return null;
@@ -10269,9 +10296,17 @@ class DerivationEngine {
             'confidence': nap.confidence,
           },
       ];
-      candidates?.addAll(detected.where((n) => !napEdits.any((e) =>
+      // A nap longer than kMaxNapSec (3 h) is a sleep, not a nap — drop it
+      // before it can reach the suggestions, `nap_min`, sleep need or the
+      // timeline. Entry-time paths share the same constant via
+      // manualNapWindowIsValid; stored edits are capped again at the merge
+      // below so pre-cap rows cannot survive a re-derive.
+      final capped = dropOversizedNaps(detected);
+      candidates?.addAll(capped.where((n) => !napEdits.any((e) =>
         e.overlaps(n['start'] as int, n['end'] as int))));
-      final merged = applyNapEdits(const [], napEdits);
+      // Cap stored edits too: a manual nap logged before the 3 h cap must not
+      // survive a re-derive as a counted nap.
+      final merged = dropOversizedNaps(applyNapEdits(const [], napEdits));
 
       bundle['naps'] = <String, dynamic>{
         'value': merged,
