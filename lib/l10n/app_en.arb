@@ -16964,5 +16964,6 @@
   "napAutoLogSub": "A detected nap with strong evidence is added without asking. You can still edit or remove it",
   "napAutoLogSaveFailed": "That setting could not be saved. Try again.",
   "pairSearchDevices": "Search for devices",
-  "pairPrimaryCannotBeSensor": "This is already your main band. It cannot also be paired as a workout sensor."
+  "pairPrimaryCannotBeSensor": "This is already your main band. It cannot also be paired as a workout sensor.",
+  "pairReplaceMyBand": "Replace my band"
 }

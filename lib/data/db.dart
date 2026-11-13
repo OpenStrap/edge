@@ -4509,6 +4509,9 @@ class LocalDb {
   /// import reporting success while banking nothing for those days. Band clips
   /// against band. Phone coverage needs no clipping at all: it is replaced
   /// wholesale per day (see [replacePhoneCoverageForDay]).
+  @visibleForTesting
+  static Future<void> Function()? debugAfterCoverageRead;
+
   static Future<List<List<int>>> coverageWindowsOverlapping(
     int loSec,
     int hiSec, {
@@ -4520,6 +4523,7 @@ class LocalDb {
       where: 'end_ts >= ? AND start_ts < ? AND source = ?',
       whereArgs: [loSec, hiSec, source],
     );
+    await debugAfterCoverageRead?.call();
     return [
       for (final r in rows)
         [(r['start_ts'] as num).toInt(), (r['end_ts'] as num).toInt()],

@@ -7,8 +7,20 @@
 // storage/UI indexing choice, not a replacement for `DateTime.weekday`
 // (1=Mon..7=Sun), which every conversion below still goes through explicitly.
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../ble/ble_engine.dart';
 import '../ble/ble_state.dart' show AlarmConfirmation;
+
+/// The physical band that received the persisted SET_ALARM.
+const kAlarmRemoteId = 'alarm_remote_id';
+
+/// CLAIM(alarm-band-ownership): a tagged arm is usable only by its band.
+/// Legacy arms are bound before replacement commits [replacement alarm tests].
+int? persistedAlarmEpoch(SharedPreferences prefs, String? remoteId) {
+  final owner = prefs.getString(kAlarmRemoteId);
+  return owner == null || owner == remoteId ? prefs.getInt('alarm_epoch') : null;
+}
 
 /// One weekday's slot in the schedule. Immutable — callers build a new one to
 /// change a field.

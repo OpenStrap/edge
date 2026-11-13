@@ -143,6 +143,7 @@ class _PairingScreenState extends State<PairingScreen> {
   PairPhase _phase = PairPhase.idle;
   String _detail = '';
   BleBlocker? _blocker;
+  bool _usedAccessoryPicker = false;
 
   Future<void> _pair() async {
     final app = context.read<AppState>();
@@ -154,6 +155,7 @@ class _PairingScreenState extends State<PairingScreen> {
     try {
       final accessorySetup = await app.accessorySetupSupported();
       if (!mounted) return;
+      _usedAccessoryPicker = accessorySetup;
       if (accessorySetup) {
         if (widget.replacing) {
           await app.replaceViaAccessorySetup();
@@ -201,7 +203,7 @@ class _PairingScreenState extends State<PairingScreen> {
         blocker: _blocker,
         onPair: _pair,
         onSkip: widget.onSkip,
-        resetEntry: widget.modelKnown ? widget.entry : null,
+        resetEntry: widget.modelKnown && !_usedAccessoryPicker ? widget.entry : null,
         onPickDifferent: Navigator.of(c).canPop()
             ? () => Navigator.of(c).maybePop()
             : null,

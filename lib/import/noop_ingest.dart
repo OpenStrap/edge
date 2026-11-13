@@ -232,7 +232,7 @@ class NoopIngest {
     // buffered and then dropped without ever deriving.
     if (last != null && (_secs.isNotEmpty || _rrMs.isNotEmpty)) {
       final st = _stepsByDate.remove(last);
-      if (st != null) steps += await flushStepCoverage(st, last);
+      if (st != null) steps += await flushStepCoverage(st, last, resetGeneration: _resetGen);
       final sub = _buildSubstrate(_secs, _rrTs, _rrMs);
       days += await _engine.deriveImportedDays(sub, _profile, {last},
           resetGeneration: _resetGen);
@@ -242,7 +242,7 @@ class NoopIngest {
     // dropping it would lose steps the band actually measured.
     for (final e in _stepsByDate.entries) {
       _stopIfReset();
-      steps += await flushStepCoverage(e.value, e.key);
+      steps += await flushStepCoverage(e.value, e.key, resetGeneration: _resetGen);
     }
     _stepsByDate.clear();
     _stopIfReset();
@@ -254,7 +254,7 @@ class NoopIngest {
     // Real steps must be banked BEFORE deriving: the derivation reads them via
     // LocalDb.liveStepsForDay / coverageWindowsOverlapping at derive time.
     final st = _stepsByDate.remove(date);
-    if (st != null) steps += await flushStepCoverage(st, date);
+    if (st != null) steps += await flushStepCoverage(st, date, resetGeneration: _resetGen);
     // Build a Substrate from everything buffered (prev + current date) and
     // derive ONLY [date]; the prior evening gives a sleep that started before
     // midnight its context.
@@ -469,14 +469,15 @@ class NoopIngest {
   ///
   /// Returns the steps actually banked (0 when the span was fully covered).
   static Future<int> flushStepCoverage(
-      Map<int, int> stepSamples, String date) async {
+      Map<int, int> stepSamples, String date, {required int resetGeneration}) async {
     if (stepSamples.isEmpty) return 0;
     final ts = stepSamples.keys.toList()..sort();
     final existing =
         await LocalDb.coverageWindowsOverlapping(ts.first, ts.last + 1);
     var banked = 0;
     for (final r in stepRuns(stepSamples, covered: existing)) {
-      await LocalDb.addLiveCoverage(r.startSec, r.endSec, r.steps, date);
+      await LocalDb.addLiveCoverage(r.startSec, r.endSec, r.steps, date,
+          resetGeneration: resetGeneration);
       banked += r.steps;
     }
     return banked;
