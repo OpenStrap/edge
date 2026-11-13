@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/db.dart';
 import '../data/day_label.dart';
+import '../sync/reset_gate.dart';
 
 /// Reads steps in `[from, to)`. Null means the READ FAILED — see [syncDay].
 typedef StepIntervalReader = Future<int?> Function(DateTime from, DateTime to);
@@ -211,6 +212,15 @@ class PhonePedometer {
     }
   }
 
+  /// Retire a read that has stopped answering, without touching the sensor.
+  ///
+  /// Bumps the same epoch [stop] does, so a `syncRecent` still parked on a
+  /// platform call ends at its next check and never banks a day it read before
+  /// a newer read replaced it. Unlike [stop] it leaves the counter running.
+  void abandonInFlight() {
+    _epoch++;
+  }
+
   /// One-time drop of the rows the OLD health-store read banked.
   ///
   /// Those rows are labelled `phone`, exactly like the ones our own sensor
@@ -264,6 +274,9 @@ class PhonePedometer {
   Future<int?> syncDay(DateTime dayStartLocal) async {
     final dayId = dayLabelOf(dayStartLocal);
     final epoch = _epoch;
+    // A reset wipes `live_coverage`; a read that started before it must not
+    // bank rows back into the fresh store.
+    final resetGen = ResetGate.generation;
     try {
       final windows = <({int startTs, int endTs, int steps})>[];
       var total = 0;
@@ -379,7 +392,9 @@ class PhonePedometer {
         return null;
       }
 
-      if (epoch != _epoch) return null; // stopped mid-walk, see [stop]
+      if (epoch != _epoch || ResetGate.changedSince(resetGen)) {
+        return null; // stopped or reset mid-walk, see [stop]
+      }
       await LocalDb.replacePhoneCoverageForDay(dayId, windows);
       return total;
     } catch (e) {
@@ -425,9 +440,12 @@ class PhonePedometer {
     }
     final now = DateTime.now();
     final epoch = _epoch;
+    final resetGen = ResetGate.generation;
     var ok = 0;
     var total = 0;
-    for (var d = 0; d < days && epoch == _epoch; d++) {
+    for (var d = 0;
+        d < days && epoch == _epoch && !ResetGate.changedSince(resetGen);
+        d++) {
       // Calendar subtraction, NOT `Duration(days: d)` — the latter lands on
       // 23:00 or 01:00 across a DST transition rather than local midnight,
       // which would mislabel the day and start its hour walk at the wrong

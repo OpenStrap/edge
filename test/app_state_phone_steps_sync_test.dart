@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/health/phone_pedometer.dart';
+import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/sync/reset_gate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/app_state_sync_harness.dart';
@@ -177,5 +179,65 @@ void main() {
     expect(await rig.app.syncPhoneSteps(), 0);
     expect(calls, 0);
     expect(await rig.jobTypes(), isEmpty);
+  }, paired: false));
+
+  test('a hung sensor read is retired after the timeout, the next call reads '
+      'fresh, and the late finish cannot overwrite it',
+      syncCase((rig, timers) async {
+    rig.app.phoneStepsEnabled = true;
+    final saved = AppState.phoneStepsReadTimeout;
+    AppState.phoneStepsReadTimeout = const Duration(milliseconds: 80);
+    addTearDown(() => AppState.phoneStepsReadTimeout = saved);
+    final stuck = Completer<void>();
+    var reads = 0;
+    sensor((call) async {
+      if (call.method == 'authorized') return true;
+      if (call.method == 'stepsInInterval') {
+        final mine = ++reads;
+        if (mine == 1) {
+          await stuck.future;
+          return 900;
+        }
+        return 5;
+      }
+      return null;
+    });
+    expect(await rig.app.syncPhoneSteps(days: 1), 0,
+        reason: 'the hung read is given up on');
+    final fresh = await rig.app.syncPhoneSteps(days: 1);
+    expect(fresh, 1, reason: 'the slot was freed, so this one really reads');
+    final banked = await LocalDb.phoneStepsForDay(todayLabel());
+    expect(banked, greaterThan(0));
+    stuck.complete();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(await LocalDb.phoneStepsForDay(todayLabel()), banked,
+        reason: 'the retired read banks nothing when it finally returns');
+  }, paired: false));
+
+  test('a reset while a sensor read is in flight is not written back',
+      syncCase((rig, timers) async {
+    rig.app.phoneStepsEnabled = true;
+    final gate = Completer<void>();
+    var reads = 0;
+    sensor((call) async {
+      if (call.method == 'authorized') return true;
+      if (call.method == 'stepsInInterval') {
+        reads++;
+        await gate.future;
+        return 40;
+      }
+      return null;
+    });
+    final sync = rig.app.syncPhoneSteps(days: 1);
+    await rig.waitFor(() => reads > 0);
+    ResetGate.enter();
+    try {
+      gate.complete();
+      await sync;
+    } finally {
+      ResetGate.leave();
+    }
+    expect(await LocalDb.phoneStepsForDay(todayLabel()), 0,
+        reason: 'the read started before the reset must not repopulate it');
   }, paired: false));
 }

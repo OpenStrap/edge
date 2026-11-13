@@ -1034,12 +1034,22 @@ class AppState extends ChangeNotifier {
 
   Future<int>? _phoneStepsSync;
   int _phoneStepsSyncDays = 0;
+  int _phoneStepsToken = 0;
+
+  /// How long one phone step read may hold the shared slot. Longer than the
+  /// manual sync's own wait, so a tap gives up first and this reclaims the slot
+  /// afterwards. A platform call that never returns would otherwise block every
+  /// later refresh and backfill until the app restarts.
+  @visibleForTesting
+  static Duration phoneStepsReadTimeout = const Duration(seconds: 90);
 
   /// Pull the last [days] days of phone step counts into `live_coverage`.
   ///
   /// Share overlapping reads so a slower, older sensor walk cannot overwrite a
   /// newer one. A larger explicit backfill waits for the routine read, then
-  /// runs its full window. Queue derivation after the rows land: screens read
+  /// runs its full window. A read that outlives [phoneStepsReadTimeout] is
+  /// retired (it can no longer bank rows or touch state) and frees the slot.
+  /// Queue derivation after the rows land: screens read
   /// day_result/metric_series, not phoneStepsToday. Best-effort; never throws.
   Future<int> syncPhoneSteps({
     int days = PhonePedometer.routineSyncDays,
@@ -1051,25 +1061,45 @@ class AppState extends ChangeNotifier {
       await running;
       return syncPhoneSteps(days: days);
     }
+    final token = ++_phoneStepsToken;
     _phoneStepsSyncDays = days;
-    final future = _readPhoneSteps(days);
+    final future = _readPhoneSteps(days, token).timeout(
+      phoneStepsReadTimeout,
+      onTimeout: () {
+        debugPrint('[phone_steps] read still running after '
+            '${phoneStepsReadTimeout.inSeconds}s; abandoning it');
+        // Retire the stuck read BEFORE the slot frees: a late completion must
+        // not write older rows over a newer read's.
+        _phoneStepsToken++;
+        _phonePedometer.abandonInFlight();
+        return 0;
+      },
+    );
     _phoneStepsSync = future;
     try {
       return await future;
     } finally {
-      _phoneStepsSync = null;
-      _phoneStepsSyncDays = 0;
+      // Only the read that owns the slot may clear it.
+      if (identical(_phoneStepsSync, future)) {
+        _phoneStepsSync = null;
+        _phoneStepsSyncDays = 0;
+      }
     }
   }
 
-  Future<int> _readPhoneSteps(int days) async {
+  Future<int> _readPhoneSteps(int days, int token) async {
+    bool stale() =>
+        token != _phoneStepsToken ||
+        !phoneStepsEnabled ||
+        _disposed ||
+        ResetGate.active;
     try {
       final r = await _phonePedometer.syncRecent(days: days);
-      if (!phoneStepsEnabled || _disposed || ResetGate.active) return 0;
+      if (stale()) return 0;
       phoneStepsLastSyncedDays = r.daysRead;
       phoneStepsLastTotal = r.totalSteps;
       await _refreshPhoneStepsToday();
-      if (!phoneStepsEnabled || _disposed || ResetGate.active) return 0;
+      if (stale()) return 0;
       if (r.daysRead > 0) {
         // Use the normal durable queue: capture, workout and background holds
         // still apply, and a read finishing during derive gets a later pass.

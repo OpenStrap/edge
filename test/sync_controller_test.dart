@@ -624,16 +624,24 @@ void main() {
         'and finalizes after the phone read', _rigCase((r, timers) async {
       r.engine.link = true;
       r.phoneSteps = true;
+      final ble = r.engine.syncGate = Completer<void>();
       final steps = r.phoneStepsGate = Completer<void>();
       final first = r.c.syncNow();
       final second = r.c.syncNow();
-      expect(identical(first, second), isTrue);
-      await until(() => r.engine.count('runSync') == 1);
-      expect(r.engine.count('steps'), 1);
+      // The BLE sync is held, so the phone read can only have started if the
+      // two really run side by side.
+      await until(() =>
+          r.engine.count('runSync') == 1 && r.engine.count('steps') == 1);
       expect(r.trace, isNot(contains('sched.heavy')));
+      ble.complete();
       steps.complete();
-      await first;
+      await Future.wait([first, second]);
+      expect(r.engine.count('runSync'), 1,
+          reason: 'the second tap joined the first');
+      expect(r.engine.count('steps'), 1,
+          reason: 'one phone read for both taps');
       expect(r.trace.last, 'sched.heavy');
+      r.engine.syncGate = null;
       r.trace.clear();
       await r.c.syncNow();
       expect(r.engine.count('steps'), 1,
