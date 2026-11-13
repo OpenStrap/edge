@@ -146,6 +146,7 @@ import '../telemetry/health_uploader.dart';
 import '../widget/widget_service.dart';
 import '../sync/file_log.dart';
 import 'breathing_controller.dart';
+import 'coalescing_runner.dart';
 import 'package:uuid/uuid.dart';
 
 export 'derive_coordinator.dart' show DeriveRunHook;
@@ -3072,6 +3073,11 @@ class AppState extends ChangeNotifier {
       }
       notifyListeners();
       _deriveScheduler.markStoredData();
+      // A sync that just stored last night's data is exactly when the morning
+      // briefing's readiness gate can flip to true — re-arm the AI reminders
+      // now, on every durable store path, so a morning sync arms the slot
+      // even when no foreground pass or alarm event follows.
+      unawaited(_ensureRemindersScheduled());
     }());
   }
 
@@ -3369,9 +3375,22 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// Serializes whole reminder passes. The readiness read inside a pass and
+  /// the (internally serialized) scheduling must run in the same order:
+  /// without this chain, an older `lastNightDataReady: false` pass can reach
+  /// the scheduler after a newer ready pass and cancel the briefing it armed.
+  ///
+  /// Requests that arrive while a pass is queued but not yet started join it
+  /// (it reads its inputs when it starts), so a drain's many store paths cost
+  /// at most one running pass and one waiting pass, not one pass per batch.
+  late final CoalescingRunner _reminderRunner =
+      CoalescingRunner(_ensureRemindersScheduledLocked);
+
   /// (Re)register standing scheduled reminders per the user's prefs. Idempotent;
   /// safe to call repeatedly (cancels + re-schedules). Best-effort.
-  Future<void> _ensureRemindersScheduled() async {
+  Future<void> _ensureRemindersScheduled() => _reminderRunner.run();
+
+  Future<void> _ensureRemindersScheduledLocked() async {
     try {
       final prefs = await NotificationPrefs.load();
       // ONE crossday read feeds every schedule that hangs off the rollup:
@@ -3421,7 +3440,9 @@ class AppState extends ChangeNotifier {
         prefs,
         ai,
         aiConfigured: aiRemindersConfigured(coachConfig),
+        lastNightDataReady: await _lastNightDataReady(cd.recent),
         bedtimeMinOfDay: cd.bedtimeMin,
+        typicalWakeMinOfDay: cd.wakeMin,
         journalDoneToday: BriefingStore.journalDoneToday(),
         sweepHeadline: await _sweepHeadlineNow(),
       );
@@ -3431,27 +3452,35 @@ class AppState extends ChangeNotifier {
   }
 
   /// Everything the reminder scheduler needs from the crossday rollup, in ONE
-  /// read: the Sleep Coach's recommended bedtime (local minutes past midnight,
-  /// or null when not yet learned) and the per-day `recent[]` rows the weekly
-  /// lookback's finding summarizes. Read in one place because three schedules
-  /// hang off it — check-in, wind-down, nightly sweep, weekly lookback — and
-  /// a second copy of this parse is a second thing to get wrong.
-  Future<({double? bedtimeMin, List<Map<String, dynamic>> recent})>
-      _readCrossdaySummary() async {
+  /// read: the Sleep Coach's recommended bedtime and typical wake (local
+  /// minutes past midnight, or null when not yet learned) and the per-day
+  /// `recent[]` rows the weekly lookback's finding summarizes. Read in one
+  /// place because three schedules hang off it — check-in, wind-down, nightly
+  /// sweep, weekly lookback — and a second copy of this parse is a second
+  /// thing to get wrong.
+  Future<
+      ({double? bedtimeMin,
+      double? wakeMin,
+      List<Map<String, dynamic>> recent})> _readCrossdaySummary() async {
     try {
       final cd = await LocalDb.baseline('crossday');
       final m = cd?['payload_json'];
       if (m is! String) {
-        return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
+        return (bedtimeMin: null, wakeMin: null, recent: const <Map<String, dynamic>>[]);
       }
       final j = jsonDecode(m);
       if (j is! Map) {
-        return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
+        return (bedtimeMin: null, wakeMin: null, recent: const <Map<String, dynamic>>[]);
       }
-      final bt = (j['sleep_coach'] as Map?)?['bedtime'];
+      final coach = (j['sleep_coach'] as Map?)?.cast<String, dynamic>();
+      final bt = coach?['bedtime'];
       final v = bt is Map ? bt['value'] : null;
       final bedtime =
           (v is Map ? (v['bedtime_min_of_day'] as num?) : null)?.toDouble();
+      final wk = coach?['wake'];
+      final wv = wk is Map ? wk['value'] : null;
+      final wake =
+          (wv is Map ? (wv['wake_min_of_day'] as num?) : null)?.toDouble();
       // Same rows `DerivationEngine._runNotifications` consumes for the daily
       // exception — {date, rhr, unsettled, illness, anomaly, temp}.
       final rawRecent = j['recent'];
@@ -3460,11 +3489,51 @@ class AppState extends ChangeNotifier {
           for (final r in rawRecent)
             if (r is Map) r.cast<String, dynamic>(),
       ];
-      return (bedtimeMin: bedtime, recent: recent);
+      return (bedtimeMin: bedtime, wakeMin: wake, recent: recent);
     } catch (_) {
-      // No rollup → no learned bedtime and an empty week: every consumer has
-      // its own honest silence for that.
-      return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
+      // No rollup → no learned bedtime/wake and an empty week: every consumer
+      // has its own honest silence for that.
+      return (bedtimeMin: null, wakeMin: null, recent: const <Map<String, dynamic>>[]);
+    }
+  }
+
+  /// Whether data for the night that just ended has actually arrived: a synced
+  /// band sample from TODAY (local day label), or — for sources that write
+  /// derived days without raw samples, e.g. a cloud ring — a crossday row
+  /// already derived for today. This is the morning briefing's arm gate: the
+  /// notification promises last night's sleep, so it is armed only when that
+  /// data exists. False on a read failure too — the next pass (sync
+  /// completion, foreground resume) re-arms as soon as the data lands, and a
+  /// silently missing briefing beats one the deep link cannot back.
+  Future<bool> _lastNightDataReady(List<Map<String, dynamic>> recent) async {
+    try {
+      final today = todayLabel();
+      // The crossday pipeline flags today's row `unsettled` while the night is
+      // still settling — same rows the weekly lookback skips. A same-day band
+      // sample is NOT sufficient while that row is unsettled: the overnight
+      // is still building and the briefing cannot be generated yet.
+      if (recent.isNotEmpty) {
+        final last = recent.last;
+        if (last['date'] == today && last['unsettled'] == true) return false;
+      }
+      // Query the DB first: the cached `lastSynced` is only refreshed at
+      // startup and on wipe, so it can hold yesterday's sample and would hide
+      // a freshly synced one from the `??` fallback. latestSample() is
+      // primary-band only, so a peripheral sensor cannot unlock the briefing.
+      final s = await LocalDb.latestSample() ?? lastSynced;
+      if (s != null &&
+          s.tsEpoch > 0 &&
+          dayLabelOf(DateTime.fromMillisecondsSinceEpoch(s.tsEpoch * 1000)) ==
+              today) {
+        return true;
+      }
+      // Cloud sources without raw samples: a settled derived row for today.
+      if (recent.isEmpty) return false;
+      final last = recent.last;
+      return last['date'] == today && last['unsettled'] != true;
+    } catch (e) {
+      _log('[notify] last-night data check skipped: $e');
+      return false;
     }
   }
 
