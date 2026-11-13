@@ -157,8 +157,10 @@ two copies of a `100 - readiness` stress fallback; RHR falling back to daytime H
 oxygen dips; a skin-temp section gated on `spo2` presence; `StageBars` drawing an
 *invisible gap* for an absent sleep stage; pace showing absurd numbers instead of
 "—"; a false empty state instead of a retryable error; Bluetooth-off reported as
-"no strap found". One is still open: stress shows a confident score on ~20 min of
-data.
+"no strap found". The "confident stress score on ~20 min of data" report (#148)
+was the `100 - readiness` fallback, removed in `adb51173`: stress now comes only
+from the Baevsky SI over a scored night's beats, and a night is scored only from
+60 min of sleep (90 min in the daytime).
 **Ask on any metric diff:** what does this return when the input is missing or
 thin? Anything other than null/"—"/an honest low-confidence envelope is a bug.
 
