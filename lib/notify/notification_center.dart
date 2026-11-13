@@ -1028,16 +1028,22 @@ class NotificationCenter {
       if (hasPendingMorning) {
         await const FiredKeyStore().release(announcedKey);
       }
-    } else if (morningAnnounced &&
-        ((slotMin! <= nowMin && !hasPendingMorning) || // delivered already
-            (hasPendingMorning && slotArmed))) {
-      // Delivered occurrence, or pending one armed for the current plan slot:
-      // neither is cancelled nor re-armed.
+    } else if (morningAnnounced && (!hasPendingMorning || slotArmed)) {
+      // Delivery is read off the PREVIOUSLY armed occurrence, not the new plan
+      // slot: announced + no longer pending means it already fired — that guard
+      // stays even if the user moves the slot later today. Announced + still
+      // pending + armed for the current plan slot means preserve the pending
+      // one. Neither is cancelled nor re-armed.
       morningPreserved = true;
     } else {
-      // Fresh arm below, pending lost while still ahead, or the requested time
-      // changed (pending slot != plan slot) — replace the pending one.
+      // Re-arm below: fresh arm, or replacing an undelivered pending whose slot
+      // no longer matches the plan. Clear the guard when cancelling an
+      // undelivered registration, and record it again ONLY if the replacement
+      // registration succeeds — a failed replacement must stay retryable.
       await svc.cancel(NotificationService.idMorningBrief);
+      if (morningAnnounced && hasPendingMorning) {
+        await const FiredKeyStore().release(announcedKey);
+      }
     }
     await svc.cancel(NotificationService.idEveningBrief);
     await svc.cancel(NotificationService.idJournalLog);
