@@ -988,12 +988,7 @@ class NotificationCenter {
       if (s.id == NotificationService.idMorningBrief) morningSlot = s;
     }
     await svc.ensureTimezone();
-    // Read the clock AFTER the awaits above: a pass that captured `now` at
-    // 07:59:59 must not resolve tomorrow's occurrence with today's readiness
-    // just because the intervening awaits crossed the slot boundary.
-    final now = DateTime.now();
-    final today = todayLabel(now);
-    final nowMin = now.hour * 60 + now.minute;
+    final today = todayLabel(DateTime.now());
     // A morning occurrence already announced today must not be re-armed by a
     // later pass: re-showing the OS id only replaces a pending post, and a
     // one-shot that already fired is gone from the pending list, so without
@@ -1057,6 +1052,12 @@ class NotificationCenter {
     await svc.cancel(NotificationService.idEveningBrief);
     await svc.cancel(NotificationService.idJournalLog);
     if (plan.isEmpty) return;
+    // Read the clock after the LAST await (guard reads, pending query, cancels)
+    // so the armability check, the late-fire window and the occurrence
+    // resolution all use one instant: a pass that captured `now` at 07:59:59
+    // must not arm tomorrow's occurrence with today's readiness.
+    final now = DateTime.now();
+    final nowMin = now.hour * 60 + now.minute;
     for (final s in plan) {
       final slotMin = s.hour * 60 + s.minute;
       if (!aiSlotArmable(s.id, slotMin, nowMin)) continue;

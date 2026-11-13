@@ -9361,9 +9361,8 @@ class LocalDb {
       orderBy: 'rec_ts DESC, counter DESC',
       limit: 1,
     );
-    if (decodedRows.isNotEmpty) {
-      return Sample.fromDecodedRow(decodedRows.first);
-    }
+    final decoded =
+        decodedRows.isEmpty ? null : Sample.fromDecodedRow(decodedRows.first);
     // Same primary-band filter as the decoded query above: without it the
     // fallback could return a peripheral sensor's row, and callers that read
     // this as "how fresh is the BAND" (e.g. the morning-briefing readiness
@@ -9374,7 +9373,12 @@ class LocalDb {
       orderBy: 'ts DESC',
       limit: 1,
     );
-    return rows.isEmpty ? null : Sample.fromDbMap(rows.first);
+    final plain = rows.isEmpty ? null : Sample.fromDbMap(rows.first);
+    // Newest across BOTH stores: decoded_onehz holding only yesterday while
+    // today's records already sit in `samples` must still read as today.
+    if (decoded == null) return plain;
+    if (plain == null) return decoded;
+    return plain.tsEpoch > decoded.tsEpoch ? plain : decoded;
   }
 
   static Future<Map<String, int>> counts() async {
