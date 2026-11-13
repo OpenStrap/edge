@@ -51,6 +51,10 @@ const _mustTravel = {
   // Serial-scoped ECG safety guards must survive so reconnect still cleans up
   // a possibly active publisher. These are separate from alarm arm receipts.
   'ecg.guard.MG123', 'ecg.wrist.MG123', 'ecg.maverick.MG123',
+  // Weighing export state: the Health store usually survives a restore, so
+  // the marks must too, or every weighing is written again as a duplicate.
+  'health_weight_exported:d1', 'health_weight_attempts:d1',
+  'health_weight_maybe_landed:d1', 'health_weight_trimmed:d1',
   'future.setting',
 };
 
@@ -65,6 +69,8 @@ const _mustStay = {
   'alarm_schedule_cleared', 'alarm_epoch', 'alarm_epoch_confirmed', 'alarm_set_at_ms',
   'alarm_pending_until', 'alarm_latch_alert', 'alarm_probe_pending', 'alarm_fired_at',
   'live.session_draft', 'live_session_checkpoint', 'telemetry_outbox',
+  // Permission and grant are per install.
+  'health_weight_perm_asked', 'health_weight_grant_seen',
 };
 
 // Interpolated keys, including ones hidden behind key-building helpers.
@@ -111,6 +117,16 @@ const _indirectKeys = <String, List<String>>{
     'onboard.skipped_pairing', 'onboard.saw_profile_setup'],
   'lib/ui2/nudges.dart:_lastShownKey(a)': ['nudge.discord.last_shown_ms'],
   'lib/ui2/nudges.dart:_dismissedKey(a)': ['nudge.discord.dismissed'],
+  'lib/health/health_export.dart:kHealthWeightPermAskedPref': [
+    'health_weight_perm_asked'],
+  'lib/health/health_weight_export.dart:healthWeightExportedKey(id)': [
+    'health_weight_exported:d1'],
+  'lib/health/health_weight_export.dart:healthWeightAttemptsKey(id)': [
+    'health_weight_attempts:d1'],
+  'lib/health/health_weight_export.dart:healthWeightMaybeLandedKey(id)': [
+    'health_weight_maybe_landed:d1'],
+  'lib/health/health_weight_export.dart:healthWeightTrimmedKey(id)': [
+    'health_weight_trimmed:d1'],
 };
 
 Map<String, String> _constants(String text) => {
