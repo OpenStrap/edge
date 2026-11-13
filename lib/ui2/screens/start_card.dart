@@ -115,7 +115,11 @@ class StartCard extends StatelessWidget {
                       ]),
             boxShadow: p.el(3),
           ),
-          child: Row(
+          // IntrinsicHeight: in a scrolling page the height is unbounded and
+          // the Spacer below would assert; this gives the Column the height
+          // its own copy needs (never under the 190 floor above).
+          child: IntrinsicHeight(
+           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
@@ -161,6 +165,7 @@ class StartCard extends StatelessWidget {
                 ),
               ),
             ],
+           ),
           ),
         ),
       ),

@@ -47,6 +47,27 @@ const String kOurRingNightSource = 'hr_5min_stager';
 /// ('auto_fallback'), not the device's.
 const String kHrWindowNightSource = 'hr_5min_window';
 
+/// The point list a night is drawn and read from: each epoch's stage from its
+/// start, closed by a final point at wake. A stretch no epoch covers gets an
+/// `unobserved` boundary where the epoch before it ends, so a reader of the
+/// list never carries that epoch's stage across the hole.
+List<Map<String, Object?>> vendorHypnogram(
+    List<VendorEpoch> epochs, int wakeSec) {
+  final out = <Map<String, Object?>>[];
+  for (var i = 0; i < epochs.length; i++) {
+    final e = epochs[i];
+    out.add({'t': e.startSec, 'stage': e.stage});
+    final next = i + 1 < epochs.length ? epochs[i + 1].startSec : wakeSec;
+    if (next > e.endSec) out.add({'t': e.endSec, 'stage': 'unobserved'});
+  }
+  final last = epochs.last;
+  out.add({
+    't': wakeSec,
+    'stage': last.endSec < wakeSec ? 'unobserved' : last.stage,
+  });
+  return out;
+}
+
 /// One night of one device's epochs, as `vendor_sleep_epoch` groups them.
 class VendorNight {
   final String deviceId;

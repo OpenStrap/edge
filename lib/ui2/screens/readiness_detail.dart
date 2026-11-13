@@ -53,6 +53,11 @@ class ReadinessData {
   /// as five consecutive days.
   final List<double?> series;
 
+  /// The calendar day [series] ends on: the day it was densified, not the day
+  /// it is drawn. A screen left open across midnight keeps dating its scores
+  /// with the days they are from. Null (a fixture) reads the day it is drawn.
+  final DateTime? anchor;
+
   /// `todayHeadlineOf` off the same `getToday()`: the state and update note
   /// Home shows beside this number.
   final Map<String, dynamic> head;
@@ -76,6 +81,7 @@ class ReadinessData {
     this.inputsUsed = 0,
     this.heldOverNight,
     this.series = const [],
+    this.anchor,
     this.absentDiag,
     this.insightsStale,
   });
@@ -89,10 +95,12 @@ class ReadinessData {
     final overview = await repo.getDayOverview(date);
     final chart = await repo.getChart('recovery');
     final readiness = metricOf(overview['readiness']);
+    final anchor = DateTime.now();
     return ReadinessData(
       day: date,
       readiness: readiness,
       series: denseDays(pointsOf(chart), 90),
+      anchor: anchor,
       absentDiag: readiness.value != null
           ? null
           : await LocalDb.readinessAbsentDiag(date),
@@ -134,6 +142,7 @@ class ReadinessData {
       insightsStale: staleReasonOf(cd),
       heldOverNight: heldOverNightOf(today),
       series: denseDays(pointsOf(chart), 90),
+      anchor: DateTime.now(),
       // Only read when there is nothing to explain away — a scored day has no
       // diag in its bundle anyway, and this is one more day_result decode.
       //
@@ -406,7 +415,9 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     // "Steady" is the usual band; abstains under two weeks of scored days.
     final band = usualRangeFor('readiness', scored, null);
     final pick = _pick == null || _pick! >= win.length ? null : _pick;
-    final n = DateTime.now();
+    // The day the series was built for, never the day it is drawn.
+    final n = d.anchor ?? DateTime.now();
+    final behindToday = calendarDaysBetween(n, DateTime.now());
     String dayOf(int i) => prettyDay(
         dayLabelOf(DateTime(n.year, n.month, n.day - (win.length - 1 - i))), l);
     String says(int i) {
@@ -431,9 +442,12 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
         // already counts it this way; the two screens dated one chart
         // differently.
         xLabels: [
-          l?.readinessDetailDaysAgo(win.length - 1) ??
-              '${win.length - 1} day${win.length == 2 ? '' : 's'} ago',
-          l?.readinessDetailToday ?? 'Today',
+          l?.readinessDetailDaysAgo(win.length - 1 + behindToday) ??
+              '${win.length - 1 + behindToday} day'
+                  '${win.length - 1 + behindToday == 1 ? '' : 's'} ago',
+          behindToday <= 0
+              ? (l?.readinessDetailToday ?? 'Today')
+              : dayOf(win.length - 1),
         ],
         series: win,
         legend: [
@@ -472,12 +486,39 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
                 ),
               ),
       ),
-      if (pick != null) ...[
-        const SizedBox(height: S.x2),
-        ExcludeSemantics(
-          child: Text(says(pick),
-              style: F.cap.copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-        ),
+      // Always there: the newest scored day at rest, the touched one while a
+      // finger is on the chart. The slider speaks the selection; the panel is
+      // the same reading in print.
+      if (win.length >= 2) ...[
+        const SizedBox(height: S.x3),
+        Builder(builder: (c) {
+          var latest = win.length - 1;
+          while (latest > 0 && win[latest] == null) {
+            latest--;
+          }
+          final i = pick ?? latest;
+          final v = win[i];
+          final band = v == null ? null : readinessBand(v, l);
+          String dayName(int k) {
+            final day =
+                dayLabelOf(DateTime(n.year, n.month, n.day - (win.length - 1 - k)));
+            return dayNavLabel(day, l);
+          }
+
+          return ChartPanel(
+            time: pick == null && v == null ? null : dayName(i),
+            timeSpan: [for (var k = 0; k < win.length; k++) dayName(k)],
+            scrubbed: pick != null,
+            color: p.on(C.green),
+            cells: [
+              ChartPanelCell(l?.readinessDetailTitle ?? 'Recovery',
+                  color: band == null ? null : p.on(band.color),
+                  reserveSwatch: true,
+                  value: v == null ? null : '${v.round()} · ${band!.label}',
+                  valueColor: band == null ? null : p.on(band.color)),
+            ],
+          );
+        }),
       ],
     ]);
   }

@@ -80,6 +80,16 @@ class Prefs {
     }
   }
 
+  /// [setBoolAcked] for an int: false when there is no storage or the platform
+  /// refused the write, never a throw.
+  static Future<bool> setIntAcked(String key, int value) async {
+    try {
+      return await _sp?.setInt(key, value) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ── selection keys (one namespace; keep them disjoint) ──────────────────────
   /// The five-tab bar's index (Home, Health, Nutrition, Workout, Wellness).
   /// Read once to migrate, never written.
@@ -100,6 +110,11 @@ class Prefs {
   /// tool for us, not a feature, so it has no switch in the normal settings
   /// list and nothing reads it except the surfaces it reveals.
   static const String devMode = 'dev.mode';
+
+  /// "Log clear naps automatically" (#625). Absent = off. Holds WHEN it was
+  /// turned on, in epoch seconds, so only naps that end after that are logged
+  /// without asking: switching it on never rewrites days already past.
+  static const String napAutoLogSinceSec = 'activity.nap_auto_log_since_sec';
 
   /// Per-metric range toggle on the shared MetricScreen (Today/Week/Month/3M).
   /// Keyed by the metric id so Sleep / Heart / Body each remember independently.

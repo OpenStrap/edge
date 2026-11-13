@@ -1924,6 +1924,17 @@ class ScanAcceptPolicy {
     }
     return null;
   }
+
+  /// Whether a scan result may be the band the user chose: the remote id
+  /// [wantRemoteId] when one was named, and no advertised generation other
+  /// than [wantGeneration]. A name-only or 16-bit-only match names no
+  /// generation, so it may still be either and passes.
+  static bool fitsChoice(String remoteId, Iterable<String> serviceUuids,
+      {String? wantRemoteId, String? wantGeneration}) {
+    if (wantRemoteId != null && remoteId != wantRemoteId) return false;
+    final adv = accepts(serviceUuids);
+    return wantGeneration == null || adv == null || adv == wantGeneration;
+  }
 }
 
 /// Which connect order a link gets, decided BEFORE discovery has run.
@@ -2423,3 +2434,4 @@ class NotifyDiag {
     return 'frames[$frames] chunks[$list]$more';
   }
 }
+

@@ -51,7 +51,14 @@ export interface Meta {
   hasDatabase: boolean; hasScreenshot: boolean;
   /** Days of second-by-second data in the attached slice (1..14); absent when there is no database. */
   rawDays?: number;
+  /** The paired band's generation (`gen4`, `gen5`) and firmware (`50.43.2.0`), when the app knows them.
+   * Optional and best-effort: a malformed value is dropped, never a reason to refuse the report. */
+  bandGeneration?: string;
+  bandFirmware?: string;
 }
+
+const BAND_GENERATION = /^[a-z0-9]{1,16}$/;
+const BAND_FIRMWARE = /^\d{1,4}(\.\d{1,6}){1,4}$/;
 
 /** Returns a normalised Meta or null. Unknown fields are dropped. */
 export function validateMeta(raw: unknown): Meta | null {
@@ -74,10 +81,14 @@ export function validateMeta(raw: unknown): Meta | null {
   if (typeof m.hasDatabase !== "boolean" || typeof m.hasScreenshot !== "boolean") return null;
   const rawDays = m.rawDays;
   if (rawDays !== undefined && !(Number.isInteger(rawDays) && (rawDays as number) >= 1 && (rawDays as number) <= 14)) return null;
+  const bandGeneration = typeof m.bandGeneration === "string" && BAND_GENERATION.test(m.bandGeneration) ? m.bandGeneration : undefined;
+  const bandFirmware = typeof m.bandFirmware === "string" && BAND_FIRMWARE.test(m.bandFirmware) ? m.bandFirmware : undefined;
   return {
     v: 1, installId: installId.toLowerCase(), category, title, description, appVersion,
     platform: m.platform, osVersion, deviceModel, hasDatabase: m.hasDatabase, hasScreenshot: m.hasScreenshot,
     ...(rawDays !== undefined && { rawDays: rawDays as number }),
+    ...(bandGeneration !== undefined && { bandGeneration }),
+    ...(bandFirmware !== undefined && { bandFirmware }),
   };
 }
 
@@ -90,6 +101,9 @@ async function createIssue(env: Env, id: string, m: Meta): Promise<string | null
     const body = [
       `**Report:** ${id}`, `**Category:** ${m.category}`,
       `**App:** ${m.appVersion} (${m.platform} ${m.osVersion}, ${m.deviceModel})`,
+      ...(m.bandGeneration || m.bandFirmware
+        ? [`**Band:** ${m.bandGeneration ?? "unknown"}, firmware ${m.bandFirmware ?? "unknown"}`]
+        : []),
       `**Database attached:** ${m.hasDatabase ? "yes" : "no"} | **Screenshot:** ${m.hasScreenshot ? "yes" : "no"}`,
       "", m.description || "(no description)",
     ].join("\n");

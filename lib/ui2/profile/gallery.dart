@@ -46,6 +46,7 @@ import '../../compute/findings.dart';
 import '../../models/metric.dart';
 import '../../models/activity_suggestion.dart';
 import '../screens/detected_activities.dart';
+import '../screens/slot_scrub.dart';
 import '../activity/catalogue.dart';
 import '../activity/live.dart';
 import '../activity/picker.dart' show ActivityPicker, ActivityRow;
@@ -835,6 +836,8 @@ Map<String, Widget> extraCases() => {
           startTs: 1787157000, endTs: 1787164200, revision: 0,
           status: ActivityReviewStatus.pending, details: const {}),
         onConfirm: () {}, onEdit: () {}, onDiscard: () {}),
+      // Inert here: a tap on the real row changes the real setting.
+      'nap_auto_log_row': const IgnorePointer(child: NapAutoLogRow()),
       'nap_row': const MetricRow(LucideIcons.sun, C.indigo, 'Daytime sleep',
           '1h 12m',
           sub: '2 naps · Sunday, 16 August'),
@@ -898,6 +901,76 @@ Map<String, Widget> extraCases() => {
               describe: (_) => '03:12, light sleep',
               child:
                   CustomPaint(size: Size.infinite, painter: Hypnogram(_night, p)),
+            ),
+          ),
+        );
+      }),
+      // The panel under a chart: at rest (LATEST), then while a finger is on
+      // the chart (SELECTED), the second with a day that has no reading.
+      'chart_panel': Builder(builder: (c) {
+        final p = P.of(c);
+        return Surface(
+          child: Column(children: [
+            ChartPanel(
+              time: 'Today',
+              timeSpan: const ['Today', 'Wednesday, 28 September'],
+              scrubbed: false,
+              color: p.on(C.red),
+              cells: [
+                ChartPanelCell('Resting heart rate',
+                    color: p.on(C.red), value: '52 bpm'),
+              ],
+              stats: const [
+                ChartPanelCell('7-day avg', value: '54 bpm'),
+                ChartPanelCell('vs avg', value: '−2 bpm'),
+              ],
+              onOpen: () {},
+              openLabel: 'Open Today',
+            ),
+            const SizedBox(height: S.x3),
+            ChartPanel(
+              time: 'Wednesday, 28 September',
+              timeSpan: const ['Today', 'Wednesday, 28 September'],
+              scrubbed: true,
+              color: p.on(C.red),
+              cells: [
+                ChartPanelCell('Resting heart rate', color: p.on(C.red)),
+              ],
+              stats: const [
+                ChartPanelCell('7-day avg', value: '54 bpm'),
+                ChartPanelCell('vs avg'),
+              ],
+            ),
+          ]),
+        );
+      }),
+      // A day-per-slot chart with its scroll-first scrubber and panel: bars,
+      // one empty day (a dash when touched), LATEST at rest.
+      'slot_scrub': Builder(builder: (c) {
+        final p = P.of(c);
+        final series = <double?>[30, 55, null, 70, 40, 65, 80];
+        return Surface(
+          child: SlotScrub(
+            series: series,
+            anchor: DateTime.now(),
+            bars: true,
+            label: 'Heart effort by day',
+            color: p.on(C.purple),
+            format: (v) => '${v.round()} points',
+            builder: (c, pick, scrub, panel) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: 88,
+                  child: scrub(CustomPaint(
+                    size: Size.infinite,
+                    painter: Bars(series, p.on(C.purple),
+                        highlight: pick ?? -1),
+                  )),
+                ),
+                const SizedBox(height: S.x3),
+                panel,
+              ],
             ),
           ),
         );

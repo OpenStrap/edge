@@ -30,6 +30,7 @@ import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
 import 'home_screen.dart' show ChartPoint, denseDays, pointsOf;
 import 'metric_detail.dart' show MetricSpec, specOf;
+import 'slot_scrub.dart';
 
 /// Days on screen. One month, and the same window every trend card uses.
 const int kGridDays = 30;
@@ -53,10 +54,14 @@ class GridRow {
     required this.have,
     required this.historyDays,
     required this.ranged,
+    required this.anchor,
   });
 
   final MetricSpec spec;
   final String key;
+
+  /// The calendar day of the last cell: the day the row was built.
+  final DateTime anchor;
 
   /// Per day, oldest first: where the day sat against the usual range, or null
   /// for a day with no value or a row with no range.
@@ -88,6 +93,7 @@ List<Side?> sideCells(List<double?> window, UsualRange? band) => [
 
 /// Build one domain's row from its stored points.
 GridRow gridRow(String key, List<ChartPoint> points) {
+  final anchor = DateTime.now();
   final window = denseDays(points, kGridDays);
   final history = [for (final p in points) p.v];
   final band = usualRangeFor(key, history, null);
@@ -98,6 +104,7 @@ GridRow gridRow(String key, List<ChartPoint> points) {
     have: window.where((v) => v != null).length,
     historyDays: history.length,
     ranged: band != null,
+    anchor: anchor,
   );
 }
 
@@ -250,16 +257,35 @@ class MonthGrid extends StatelessWidget {
                             'value. ${r.cells.where((s) => s == Side.below).length} '
                             'below and ${r.cells.where((s) => s == Side.above).length} '
                             'above your usual range.',
-                    child: SizedBox(
-                      height: 22,
-                      child: CustomPaint(
-                        size: Size.infinite,
-                        painter: _SideStrip(
-                          r.cells,
-                          (s) => _cellInk(p, r, s),
-                          p.line,
-                          p.ink,
-                        ),
+                    // A cell is a day: the finger reads where that day sat
+                    // against the usual range, in the panel under the strip.
+                    // The 22 pt belongs to the strip alone.
+                    child: SlotScrub(
+                      key: ValueKey('grid-scrub:${r.key}'),
+                      series: [for (final s in r.cells) s?.index.toDouble()],
+                      anchor: r.anchor,
+                      bars: true,
+                      label: uiText(c, r.spec.title),
+                      color: p.on(r.spec.color),
+                      format: (v) => usualWord(l, Side.values[v.round()]),
+                      builder: (c, pick, scrub, panel) => Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(
+                            height: 22,
+                            child: scrub(CustomPaint(
+                              size: Size.infinite,
+                              painter: _SideStrip(
+                                r.cells,
+                                (s) => _cellInk(p, r, s),
+                                p.line,
+                                p.ink,
+                              ),
+                            )),
+                          ),
+                          const SizedBox(height: S.x2),
+                          panel,
+                        ],
                       ),
                     ),
                   ),

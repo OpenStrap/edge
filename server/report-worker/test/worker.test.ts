@@ -101,6 +101,32 @@ describe("POST /v1/reports", () => {
     expect(JSON.parse(row.meta).rawDays).toBe(7);
   });
 
+  it("keeps the band's generation and firmware in the stored meta", async () => {
+    const j = (await (await post(meta({ bandGeneration: "gen5", bandFirmware: "50.43.2.0" }))).json()) as any;
+    const row = await e.DB.prepare("SELECT meta FROM reports WHERE id=?").bind(j.id).first<any>();
+    expect(JSON.parse(row.meta)).toMatchObject({ bandGeneration: "gen5", bandFirmware: "50.43.2.0" });
+  });
+
+  it("drops a malformed band field but still accepts the report", async () => {
+    const r = await post(meta({ bandGeneration: "Gen 5!", bandFirmware: "50.43.2.0\n**x**" }));
+    expect(r.status).toBe(201);
+    const row = await e.DB.prepare("SELECT meta FROM reports WHERE id=?").bind(((await r.json()) as any).id).first<any>();
+    const stored = JSON.parse(row.meta);
+    expect(stored.bandGeneration).toBeUndefined();
+    expect(stored.bandFirmware).toBeUndefined();
+  });
+
+  it("drops a band field that only ends in a line break", async () => {
+    // JavaScript's `$` (no m flag) matches only at the very end of the input,
+    // not before a trailing newline, so this must not reach the issue body.
+    const r = await post(meta({ bandGeneration: "gen5\n", bandFirmware: "50.43.2.0\n" }));
+    expect(r.status).toBe(201);
+    const row = await e.DB.prepare("SELECT meta FROM reports WHERE id=?").bind(((await r.json()) as any).id).first<any>();
+    const stored = JSON.parse(row.meta);
+    expect(stored.bandGeneration).toBeUndefined();
+    expect(stored.bandFirmware).toBeUndefined();
+  });
+
   it("requires Content-Length and refuses oversized ones before reading the body", async () => {
     const h = { "content-type": "application/octet-stream", "x-report-meta": metaHeader(meta()) };
     expect((await req(h, streamOf([blobOf()]))).status).toBe(411);
@@ -208,11 +234,23 @@ describe("POST /v1/reports", () => {
     const body = JSON.parse(init.body as string);
     expect(body.title).toBe(`[${id}] sync: Sync stuck`);
     expect(body.labels).toContain("sync");
+    // No band fields in this report: no Band line, rather than "unknown, unknown".
+    expect(body.body).not.toContain("**Band:**");
     const row = await e.DB.prepare("SELECT github_issue_url u FROM reports WHERE id=?").bind(id).first<any>();
     expect(row.u).toContain("/issues/1");
 
     spy.mockRejectedValueOnce(new Error("down"));
     expect((await post(meta())).status).toBe(201);
+    spy.mockRestore();
+  });
+
+  it("names the band and firmware in the GitHub issue", async () => {
+    e.GITHUB_TOKEN = "t"; e.GITHUB_REPO = "OpenStrap/reports";
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ html_url: "https://github.com/OpenStrap/reports/issues/2" }), { status: 201 }));
+    await post(meta({ bandGeneration: "gen5", bandFirmware: "50.43.2.0" }));
+    const body = JSON.parse((spy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.body).toContain("**Band:** gen5, firmware 50.43.2.0");
     spy.mockRestore();
   });
 });

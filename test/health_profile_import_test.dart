@@ -296,10 +296,10 @@ void main() {
         reason: '$perm is requested by HealthProfileImporter',
       );
     }
-    // And no write counterparts: this app reads body metrics, it does not
-    // write them back.
-    for (final perm in ['WRITE_WEIGHT', 'WRITE_HEIGHT']) {
-      expect(manifest, isNot(contains('android.permission.health.$perm')));
-    }
+    // Height is never written. WRITE_WEIGHT exists only for a paired scale's
+    // own weighings (lib/health/health_weight_export.dart); the weight read
+    // here is never exported (that source is `observation`, not the profile).
+    expect(manifest, isNot(contains('android.permission.health.WRITE_HEIGHT')));
+    expect(manifest, contains('android.permission.health.WRITE_WEIGHT'));
   });
 }

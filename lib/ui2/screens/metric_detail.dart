@@ -10,6 +10,8 @@
 // the old UI ended up with forty different opinions about what a chart is.
 
 import '../../l10n/display_text.dart';
+import 'dart:math' as math;
+
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -716,6 +718,7 @@ Widget metricDayScreen(String key, String day) => switch (key) {
 class MetricDetail extends StatefulWidget {
   final String metricKey;
   final MetricData? data;
+
   const MetricDetail(this.metricKey, {super.key, this.data});
 
   @override
@@ -1498,7 +1501,7 @@ class _MetricDetailState extends State<MetricDetail> {
               style: F.over.copyWith(color: p.ink3),
             ),
           ),
-        if (_pick != null) _picked(c, spec, series, d),
+        if (win > 1) _panel(c, spec, series, d),
         // L4 — the coverage denominator, under the curve it belongs to.
         //
         // Deliberately unflattering, and gated to the ranges where it changes
@@ -1615,12 +1618,13 @@ class _MetricDetailState extends State<MetricDetail> {
     return l?.metricDetailSlotNoRecord(pretty) ?? '$pretty, no record';
   }
 
-  /// The touched day, and the door into it.
+  /// The panel under the chart: the newest reading at rest, the touched day
+  /// while a finger is on the chart, and the door into that day.
   ///
   /// A day with a value is a day that derived, so the door always leads
-  /// somewhere. A day with no value says so and offers nothing — an action
+  /// somewhere. A day with no value reads a dash and offers nothing — an action
   /// button is a promise, and there is no screen behind an empty day.
-  Widget _picked(
+  Widget _panel(
     BuildContext c,
     MetricSpec spec,
     List<double?> series,
@@ -1628,60 +1632,61 @@ class _MetricDetailState extends State<MetricDetail> {
   ) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
-    final i = _pick!.clamp(0, series.length - 1);
-    final day = _dayOfSlot(i, series.length);
+    final len = series.length;
+    var latest = len - 1;
+    while (latest > 0 && series[latest] == null) {
+      latest--;
+    }
+    final i = (_pick ?? latest).clamp(0, len - 1);
+    final day = _dayOfSlot(i, len);
     final v = series[i];
-    final attributed = _labelSources(d) && _labelsFor(day, d.coverage, d.sources).isNotEmpty;
-    final who = attributed ? _contributors(_labelsFor(day, d.coverage, d.sources)) : '';
+    final ub = unitBeside(spec.unit);
+    final u = ub.isEmpty ? '' : ' ${uiText(c, ub)}';
+    // The last 7 days up to today, whatever day is shown: the figure the shown
+    // day is set against. Only recorded days count; none recorded is a dash.
+    final week = [for (var k = math.max(0, len - 7); k < len; k++) ?series[k]];
+    final avg =
+        week.isEmpty ? null : week.reduce((a, b) => a + b) / week.length;
+    String? versus;
+    if (v != null && avg != null) {
+      final diff = v - avg;
+      final shown = _fmt(spec, diff.abs());
+      // No signed zero: a difference that rounds to nothing carries no sign.
+      final zero = shown == _fmt(spec, 0);
+      versus = '${zero ? shown : signed(diff, shown)}$u';
+    }
+    // The same gate and rule as `_slotSays`: a day with no attribution names
+    // none, and a single-device window reserves nothing.
+    final multi = _labelSources(d);
+    final who = multi ? _contributors(_labelsFor(day, d.coverage, d.sources)) : '';
     return Padding(
       padding: const EdgeInsets.only(top: S.x3),
-      child: Surface(
-        color: p.card2,
-        elevation: 0,
-        onTap: v == null ? null : () => go(c, _dayScreen(widget.metricKey, day)),
-        semanticLabel: [
-          v == null
-              ? (l?.metricDetailSlotNoRecord(prettyDay(day, l)) ??
-                  '${prettyDay(day, l)}, no record')
-              : (l?.metricDetailOpenDay(prettyDay(day, l)) ??
-                  'Open ${prettyDay(day, l)}'),
-          if (attributed) who,
-        ].join(' · '),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    dayNavLabel(day, l),
-                  style: F.body
-                      .copyWith(color: p.ink, fontWeight: FontWeight.w600),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-            ),
-            const SizedBox(width: S.x3),
-            Text(
-              v == null
-                  ? (l?.metricDetailNoRecordLabel ?? 'No record')
-                  : '${_fmt(spec, v)} ${unitBeside(spec.unit)}'.trimRight(),
-              style: v == null
-                  ? F.cap.copyWith(color: p.ink3)
-                  : F.n17.copyWith(color: p.ink),
-            ),
-            if (v != null) ...[
-              const SizedBox(width: S.x2),
-              Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
-            ],
-          ]),
-          // WHICH DEVICE, second line, only under the gate. A day-level scalar
-          // from a merged substrate has no single producer, so this names the
-          // SET (final-plan §4.4) and never picks one of two.
-          if (attributed) ...[
-            const SizedBox(height: S.x1),
-            Text(who, style: F.over.copyWith(color: p.ink3)),
-          ],
-        ]),
+      child: ChartPanel(
+        // Scrubbed onto a no-value day the slider names no device, so the
+        // panel does not either: the screen shows what the slider says.
+        note: _pick != null && v == null ? '' : who,
+        reserveNote: multi,
+        time: dayNavLabel(day, l),
+        timeSpan: [
+          for (var k = 0; k < len; k++) dayNavLabel(_dayOfSlot(k, len), l),
+        ],
+        scrubbed: _pick != null,
+        color: p.on(spec.color),
+        cells: [
+          ChartPanelCell(uiText(c, spec.title),
+              color: p.on(spec.color),
+              value: v == null ? null : '${_fmt(spec, v)}$u'),
+        ],
+        stats: [
+          ChartPanelCell(l?.chartPanelSevenDayAvg ?? '7-day avg',
+              value: avg == null ? null : '${_fmt(spec, avg)}$u'),
+          ChartPanelCell(l?.chartPanelVsAvg ?? 'vs avg', value: versus),
+        ],
+        onOpen: v == null
+            ? null
+            : () => go(c, _dayScreen(widget.metricKey, day)),
+        openLabel: l?.metricDetailOpenDay(prettyDay(day, l)) ??
+            'Open ${prettyDay(day, l)}',
       ),
     );
   }

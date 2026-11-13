@@ -25,6 +25,8 @@ void main() {
   tearDownAll(() async => LocalDb.close());
 
   test('firmware: latest plus one history entry per change', () async {
+    // Nothing recorded yet reads as unknown, not as an empty version.
+    expect(await LocalDb.bandFirmware(), isNull);
     await LocalDb.noteBandFirmware('41.16.6.0', nowSec: 100);
     await LocalDb.noteBandFirmware('41.16.6.0', nowSec: 200);
     await LocalDb.noteBandFirmware('41.17.1.0', nowSec: 300);
@@ -33,6 +35,8 @@ void main() {
     expect(m['last_seen'], 300);
     expect([for (final e in m['history'] as List) e['fw']],
         ['41.16.6.0', '41.17.1.0']);
+    // What a support report reads: the latest version only.
+    expect(await LocalDb.bandFirmware(), '41.17.1.0');
   });
 
   test('usage counters count', () async {

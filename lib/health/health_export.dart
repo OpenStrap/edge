@@ -32,6 +32,7 @@ import '../data/series_codec.dart';
 import 'health_heart_rate_batch.dart';
 import 'health_nap_export.dart';
 import 'health_sleep_session.dart';
+import 'health_weight_export.dart';
 
 /// What we can do with the health store right now.
 enum HealthLinkState {
@@ -663,6 +664,10 @@ class HealthExporter {
     for (final t in _sleepHealthTypes)
       if (t != _foreignSleepEnvelope(_apple)) t,
     HealthDataType.WORKOUT,
+    // Scale weighings (health_weight_export.dart). Authorization scope only:
+    // deliberately NOT in healthDeleteTypes / _rewriteTypes, because the
+    // per-day pass would delete weights it has no day_result to rewrite.
+    HealthDataType.WEIGHT,
   ];
 
   /// The types the per-day delete-then-write pass touches.
@@ -744,6 +749,52 @@ class HealthExporter {
     }
   }
 
+  /// WEIGHT write permission, for the weight export only. Existing users were
+  /// authorized before WEIGHT joined [_types] and are never re-prompted by
+  /// [request], so a plain attempt would no-op forever. HealthKit hides write
+  /// auth, so the one-time request runs there too (idempotent; shows the sheet
+  /// only for undetermined types); asked for at most once per install. The per-day pass keeps its
+  /// attempt-everything behaviour (see below).
+  Future<bool> _weightWriteAllowed() async {
+    final types = [HealthDataType.WEIGHT];
+    const access = [HealthDataAccess.WRITE];
+    final prefs = await SharedPreferences.getInstance();
+    return weightWritePermitted(
+      check: () async =>
+          await _health
+              .hasPermissions(types, permissions: access)
+              .timeout(_deleteTimeout) ==
+          true,
+      request: () async {
+        try {
+          await _health
+              .requestAuthorization(types, permissions: access)
+              .timeout(_deleteTimeout);
+        } catch (e) {
+          if (e is TimeoutException) _storeHung = true;
+          rethrow;
+        }
+      },
+      asked: () async => prefs.getBool(kHealthWeightPermAskedPref) == true,
+      markAsked: () => prefs.setBool(kHealthWeightPermAskedPref, true),
+    );
+  }
+
+  /// Current WEIGHT grant for the cap-reset transition; null = unknown.
+  Future<bool?> _weightGranted() async {
+    try {
+      return await _health
+          .hasPermissions(
+            [HealthDataType.WEIGHT],
+            permissions: [HealthDataAccess.WRITE],
+          )
+          .timeout(_deleteTimeout);
+    } catch (e) {
+      debugPrint('[health] weight grant read: $e');
+      return null;
+    }
+  }
+
   // We do NOT gate on a write-permission check: HealthKit hides write-auth by
   // design, and Health Connect's hasPermissions(WRITE) frequently returns
   // null/false even after the user grants everything — which would leave the UI
@@ -801,6 +852,11 @@ class HealthExporter {
       await _health.requestAuthorization(
         _types,
         permissions: _types.map((_) => HealthDataAccess.WRITE).toList(),
+      );
+      // WEIGHT is in _types: the scale path need not ask a second time.
+      await (await SharedPreferences.getInstance()).setBool(
+        kHealthWeightPermAskedPref,
+        true,
       );
     } catch (e) {
       debugPrint('[health] requestAuthorization: $e');
@@ -908,6 +964,7 @@ class HealthExporter {
     if (await _androidUnavailable() != null) return 0; // HC missing/outdated
     return _workoutLock.run(() async {
     _storeHung = false;
+    var days = 0;
     try {
       await ensureHealthSleepExportEpoch(
         getCursor: LocalDb.getCursor,
@@ -1193,11 +1250,53 @@ class HealthExporter {
         return done;
       };
 
-      return exportPriorityOrBulk();
+      days = await exportPriorityOrBulk();
     } catch (e) {
+      // Weighings do not depend on the day results: log and carry on.
       debugPrint('[health] exportAll: $e');
-      return 0;
     }
+    try {
+      if (!_storeHung) {
+        await exportScaleWeighings(
+          reset: reset,
+          forceRetry: forceRetry,
+          stopped: () => _storeHung,
+          permitted: _weightWriteAllowed,
+          weightGranted: _weightGranted,
+          syncEnabled: () async =>
+              (await SharedPreferences.getInstance()).getBool(kHealthSyncPref) ==
+              true,
+          deleteOwn: (a, b) => _deleteOwnSamples(HealthDataType.WEIGHT, a, b),
+          write: (kg, at) async {
+            if (_storeHung) return false;
+            try {
+              // A timeout is rethrown: the weighing export records the instant
+              // as possibly written (persisted) and clears it, safely, before
+              // the retry.
+              return await _health
+                  .writeHealthData(
+                    value: kg,
+                    type: HealthDataType.WEIGHT,
+                    startTime: at,
+                    endTime: at,
+                    unit: HealthDataUnit.KILOGRAM,
+                  )
+                  .timeout(_deleteTimeout);
+            } catch (e) {
+              debugPrint('[health] write WEIGHT: $e');
+              if (e is TimeoutException) {
+                _storeHung = true;
+                rethrow;
+              }
+              return false;
+            }
+          },
+        );
+      }
+    } catch (e) {
+      debugPrint('[health] exportAll weighings: $e');
+    }
+    return days;
     });
   }
 

@@ -509,6 +509,10 @@ void main() {
                   ? ru.metricDetailRankFromBand(axisDay(ts), 12, band)
                   : ru.metricDetailRankFrom(axisDay(ts), 12));
         expect(expected, contains('выше, чем в 12% ваших дней'));
+        // The scrub panel under the chart is always on screen now, which moves
+        // this line below the 600 px test viewport; bring it into view.
+        await t.ensureVisible(find.text(expected, skipOffstage: false));
+        await t.pumpAndSettle();
         expect(find.text(expected), findsOneWidget);
         expect(t.takeException(), isNull);
       });

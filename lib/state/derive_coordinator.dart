@@ -132,6 +132,12 @@ class DeriveCoordinator {
       } catch (e) {
         _log('[derive] session rescore failed: $e');
       }
+      // Naps the opt-in auto-log confirmed during this pass: their review job
+      // is durable but only runs on a resume or an edit, so the day's nap
+      // credit would otherwise wait for one of those.
+      if (DerivationEngine.takeAutoLoggedNaps() > 0) {
+        unawaited(refreshActivityReviews(retry: true));
+      }
       bumpInsights();
       _notify(); // screens re-fetch from the derived store
       // Same signal, for the surfaces that can't listen: home/lock-screen

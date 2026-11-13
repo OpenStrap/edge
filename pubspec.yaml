@@ -268,7 +268,8 @@ dependencies:
       # (R10 gated on packet type, hello/battery parsing, reassembler
       # truncation semantics, removal of deprecated gen5 APIs). #81 sits on top
       # of #82, so it cannot be pinned alone.
-      ref: b4fde6ab5589e53154b808f8b2bbb4d01d9c15b5
+      # protocol main @ #85 merge (image update payload builders).
+      ref: fbadb5bd055965d9400e266d6cf42748992ba950
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

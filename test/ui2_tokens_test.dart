@@ -211,6 +211,9 @@ const _notComponents = {
   'NotificationSettings', 'NotificationSettingsView', 'EditProfile',
   'EditProfileView', 'DataScreen', 'AlarmScreen', 'AlarmScreenView',
   'ReportIssueScreen',
+  // Developer-only route: drives a live image transfer to the strap, so a
+  // gallery case would start one.
+  'FirmwareFlashScreen',
   // Owns a live calibration routine: a ticker over the band's step stream and
   // phone pedometer reads, and it writes calibration rows when it finishes.
   'StepCalibrationScreen',
