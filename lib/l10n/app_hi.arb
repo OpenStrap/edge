@@ -391,7 +391,7 @@
   "aiBriefingEmptyCardBody": "जब यह लिखा गया, तब किसी भी मेट्रिक का कोई मान नहीं था, इसलिए प्रॉम्प्ट में कोई मान शामिल नहीं था।",
   "napsFellAsleepHelp": "आप कब सोए",
   "napsWokeUpHelp": "आप कब जागे",
-  "napsInvalidWindow": "झपकी 5 मिनट से 6 घंटे के बीच होती है। इससे अधिक लंबी अवधि नींद मानी जाती है, और वह रात के हिस्से में आती है जहाँ चरणों को पढ़ा जा सकता है।",
+  "napsInvalidWindow": "झपकी 5 मिनट से 3 घंटे के बीच होती है। इससे अधिक लंबी अवधि नींद मानी जाती है, और वह रात के हिस्से में आती है जहाँ चरणों को पढ़ा जा सकता है।",
   "napsOverlap": "यह इस दिन पहले से मौजूद एक झपकी से टकराता है। उसे पहले हटाएँ, बजाय इसके कि उसी घंटे को दो बार गिना जाए।",
   "napsOverlapsSleep": "यह आपकी मुख्य नींद से टकराता है, जो उस समय को पहले से गिनती है। केवल उठने के बाद का हिस्सा दर्ज करें, या इसके बजाय रात को ठीक करें।",
   "napsNotReanalysed": "दिन का पुनः विश्लेषण नहीं हुआ — पहले से ही एक अन्य विश्लेषण चल रहा था। आपका बदलाव सहेज लिया गया है और अगली बार लागू होगा।",
@@ -1671,6 +1671,7 @@
   "sleepDetailWindowNoSleep": "आपके समय सेव हैं, लेकिन उन घंटों की बैंड रिकॉर्डिंग में स्कोर करने लायक कोई नींद नहीं दिखती।",
   "sleepDetailNightUnrecorded": "आपकी हृदय गति रात की नींद दिखाती है, लेकिन ज़्यादातर समय बैंड ने बहुत कम मूवमेंट डेटा रिकॉर्ड किया, इसलिए स्कोर करने के लिए कोई रात नहीं है।",
   "sleepDetailCorrectionUnavailable": "इस रात की विस्तृत रिकॉर्डिंग अब फ़ोन पर नहीं हैं, इसलिए इसकी नींद अब ठीक नहीं की जा सकती।",
+  "sleepDetailCorrectionNoRecordings": "इस रात की विस्तृत रिकॉर्डिंग फ़ोन पर नहीं हैं, इसलिए इसकी नींद को सुधारा नहीं जा सकता।",
   "sleepDetailCorrectionEveningPruned": "इस रात से पहले की शाम अब फ़ोन पर नहीं है, इसलिए केवल आधी रात के बाद का सोने का समय दिया जा सकता है, या इस रात को नींद नहीं के रूप में चिह्नित किया जा सकता है।",
   "sleepDetailNoHypnogramTitle": "इस रात के लिए कोई हिप्नोग्राम नहीं",
   "sleepDetailNoHypnogramBody": "चरण तय करने के लिए हलचल और हृदय-धड़कन की टाइमिंग चाहिए। इनमें से एक मौजूद नहीं था।",
@@ -1867,6 +1868,7 @@
   "activityPickerNoMatchBody": "कैटलॉग में प्रकाशित ऊर्जा खर्च वाली लगभग सत्तर गतिविधियाँ शामिल हैं। सबसे नज़दीकी गतिविधि चुनें।",
   "activityPickerQuickStart": "क्विक स्टार्ट",
   "activityPickerRecent": "हाल की",
+  "activityPickerMostDone": "सबसे अधिक उपयोग की गईं",
   "activityPickerCalorieEstimatesTitle": "कैलोरी आंकड़े अनुमानित हैं",
   "activityPickerMetValue": "{met} MET",
   "activityPickerKcalPer30": "{kcal} kcal / 30 मिनट",
@@ -2861,5 +2863,36 @@
         "type": "int"
       }
     }
-  }
+  },
+  "welcomeCoachKeyReentry": "आपके कोच की API कुंजी सुरक्षित स्टोरेज में रहती है और बैकअप में शामिल नहीं की गई। इस फ़ोन पर कोच इस्तेमाल करने के लिए इसे AI सेटिंग में फिर से दर्ज करें।",
+  "welcomeSettingsSkipped": "{n, plural, =1{बैकअप की 1 सेटिंग पढ़ी नहीं जा सकी और छोड़ दी गई} other{बैकअप की {n} सेटिंग्स पढ़ी नहीं जा सकीं और छोड़ दी गईं}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "welcomeSettingsSkippedBody": "उनके लिए इस फ़ोन के मान बने रहेंगे।",
+  "welcomeCoachChatGptReentry": "आपका ChatGPT साइन-इन सुरक्षित स्टोरेज में रहता है और बैकअप में शामिल नहीं किया गया। इस फ़ोन पर कोच इस्तेमाल करने के लिए AI सेटिंग में फिर से साइन इन करें।",
+  "welcomeCoachServerReentry": "आपका कस्टम कोच सर्वर पता बैकअप नहीं हुआ, क्योंकि पते में कुंजी हो सकती है। इसे AI सेटिंग्स में फिर से दर्ज करें।",
+  "welcomeSettingsRestored": "{n} सेटिंग बहाल हुईं",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "strengthCustomWeight": "कस्टम वज़न",
+  "strengthEnterValue": "एक मान दर्ज करें",
+  "strengthInvalidNumber": "अमान्य संख्या",
+  "strengthLoadRangeKg": "0–500 kg के बीच होना चाहिए",
+  "strengthLoadRangeLb": "0–1100 lb के बीच होना चाहिए",
+  "strengthRepsRange": "1–200 पुनरावृत्तियों के बीच होना चाहिए",
+  "strengthEditSet": "सेट संपादित करें",
+  "strengthDeleteSet": "सेट हटाएं",
+  "strengthDeleteSetConfirm": "क्या यह सेट हटाना चाहते हैं?",
+  "strengthBodyweight": "शारीरिक वज़न",
+  "strengthDelete": "हटाएं",
+  "strengthSaveFailed": "परिवर्तन सहेजने में विफल",
+  "reportContactLabel": "संपर्क (वैकल्पिक)",
+  "reportContactHint": "ईमेल या Discord, केवल अगर आप जवाब चाहते हैं",
+  "whoopFirmwareWarningTitle": "WHOOP उपयोगकर्ता: WHOOP ऐप से दोबारा कनेक्ट न करें",
+  "whoopFirmwareWarningAction": "अगर आप OpenStrap या कोई दूसरा ओपन-सोर्स ऐप इस्तेमाल करते हैं, या बाद में किसी पर जाने की सोच रहे हैं, तो अपना बैंड आधिकारिक WHOOP ऐप से दोबारा कनेक्ट न करें। वह फ़र्मवेयर अपडेट अपने-आप इंस्टॉल कर सकता है। WHOOP ऐप को अनइंस्टॉल या अक्षम कर दें, ताकि वह आपके बैंड को अपडेट न कर सके।",
+  "whoopFirmwareWarningDetails": "WHOOP 5.0 / MG के फ़र्मवेयर 50.43.1.0 और 50.43.2.0 के बारे में रिपोर्टें बताती हैं कि डेटा तक पहुँच रोक दी जाती है। ब्लूटूथ फिर भी कनेक्ट हो सकता है। प्रभावित बैंड को अनलॉक करने के लिए WHOOP द्वारा साइन किया गया मेंबरशिप टोकन चाहिए, जिसे OpenStrap जारी नहीं कर सकता। हम समाधान पर काम कर रहे हैं, लेकिन अभी कोई उपाय उपलब्ध नहीं है।"
 }
