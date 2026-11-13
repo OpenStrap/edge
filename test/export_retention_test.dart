@@ -5,6 +5,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/export_retention.dart';
 import 'package:path/path.dart' as p;
@@ -33,6 +34,8 @@ List<String> _names(Directory dir) =>
     dir.listSync().map((e) => p.basename(e.path)).toList()..sort();
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
   group('pruneSharedExports', () {
     late Directory dir;
     setUp(() async => dir = await Directory.systemTemp.createTemp('osx_'));
