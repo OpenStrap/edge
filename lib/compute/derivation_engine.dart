@@ -2089,7 +2089,10 @@ const String kAnalyticsPin = '3a7ca34d30233ff11e6c2877083f319a907ccb31';
 // REPIN: protocol main @ b4fde6a (#81 Mi scale 7-byte history count, on top
 // of #82 decoder hardening). NO kAlgoVersion bump: decode runs at ingest, so a
 // bump re-derives nothing differently; WHOOP output unchanged (freeze goldens).
-const String kProtocolPin = 'b4fde6ab5589e53154b808f8b2bbb4d01d9c15b5';
+// REPIN: protocol main @ fbadb5b (#84 realtime packet decoder, #85 image
+// update payload builders). NO kAlgoVersion bump: neither is read by any
+// derivation; WHOOP output unchanged (freeze goldens).
+const String kProtocolPin = 'fbadb5bd055965d9400e266d6cf42748992ba950';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
