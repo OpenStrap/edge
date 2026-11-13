@@ -6,8 +6,8 @@
 // (readiness ring, zone rows, the cycle-day card, a MetricRow holding a
 // word), one of them in German already at 2x. Fourteen screens are swept.
 //
-// The bundled type is loaded so text measures as on a phone, and German runs
-// beside English because its words are the long ones. A screen added here is
+// The bundled type is loaded so text measures as on a phone, and every shipped
+// language runs, because the long words are not in English. A screen added here is
 // swept from then on; each takes its own preloaded data, so nothing touches
 // the database.
 
@@ -282,7 +282,7 @@ void main() {
     await _loadType();
   });
 
-  for (final locale in const ['en', 'de']) {
+  for (final locale in const ['en', 'de', 'es', 'fr', 'hi', 'ru', 'th', 'zh']) {
     for (final scale in const [1.0, 2.0, 3.1]) {
       testWidgets('no screen overflows: $locale, ${scale}x text', (t) async {
         t.view.physicalSize = const Size(390 * 3, 9000 * 3);
