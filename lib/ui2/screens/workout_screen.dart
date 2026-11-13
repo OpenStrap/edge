@@ -13,6 +13,7 @@ import '../../l10n/display_text.dart';
 // fixes it.
 
 import 'dart:async' show unawaited;
+import 'dart:convert' show utf8;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -31,6 +32,7 @@ import '../../models/metric.dart';
 import '../../state/app_state.dart';
 import '../../state/clock_format.dart' show formatClockOf;
 import '../../state/units_controller.dart';
+import '../../telemetry/telemetry_service.dart';
 import '../activity/catalogue.dart';
 import '../activity/day_strain.dart';
 import '../activity/live.dart';
@@ -38,6 +40,7 @@ import '../activity/picker.dart';
 import '../activity/poster.dart' show PosterStatRow;
 import '../activity/setup.dart';
 import '../activity/summary.dart';
+import 'slot_scrub.dart';
 import '../charts.dart';
 import '../profile/profile.dart' show ProfileAvatar, openProfile;
 import '../grammar.dart';
@@ -154,7 +157,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   void _openPicker(BuildContext c, _WorkoutData d) =>
       Navigator.of(c).push(MaterialPageRoute(
           builder: (_) => ActivityPicker(
-              weightKg: d.weightKg, host: _host(d), recent: d.recent)));
+              weightKg: d.weightKg, host: _host(d), mostUsed: d.mostUsed)));
 
   ActivityHost _host(_WorkoutData d) =>
       activityHost(context.read<AppState>(), history: d.setHistory);
@@ -295,31 +298,48 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     final loc = AppLocalizations.of(c);
     final end = d.trimpEnd ?? DateTime.now();
     final axis = AxisSpec.of([for (final v in d.tonnage7) ?v], floor: 0);
+    final title = loc?.workoutMechanicalLoadTitle ?? 'Mechanical load';
+    final unit = loc?.workoutKgLiftedUnit ?? 'kg lifted';
     return Surface(
-      child: ChartFrame(
-        title: loc?.workoutMechanicalLoadTitle ?? 'Mechanical load',
-        unit: loc?.workoutKgLiftedUnit ?? 'kg lifted',
-        height: 88,
-        yAxis: axis,
-        xLabels: [
-          for (var i = 6; i >= 0; i--)
-            _weekdayLetter(c, DateTime(end.year, end.month, end.day - i)),
-        ],
-        footnote: (loc?.workoutTonnageFootnoteIntro ??
-                'Reps × load over the sets you logged with a weight. ') +
-            (d.tonnagePartial
-                ? (loc?.workoutTonnageFootnotePartial ??
-                    'Sets logged without one are not in it, so '
-                        'this is a floor rather than a total. ')
-                : '') +
-            (loc?.workoutTonnageFootnoteOutro ??
-                'Exact for what you typed and worthless across exercises — '
-                    'kept out of strain and recovery for that reason.'),
+      child: SlotScrub(
         series: d.tonnage7,
-        child: CustomPaint(
-          size: Size.infinite,
-          painter: Bars(d.tonnage7, p.on(C.orange),
-              axis: axis, t: animate(context, 1)),
+        anchor: end,
+        bars: true,
+        label: title,
+        color: p.on(C.orange),
+        format: (v) => '${v.round()} $unit',
+        builder: (c, pick, scrub, panel) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ChartFrame(
+              title: title,
+              unit: unit,
+              height: 88,
+              yAxis: axis,
+              xLabels: [
+                for (var i = 6; i >= 0; i--)
+                  _weekdayLetter(c, DateTime(end.year, end.month, end.day - i)),
+              ],
+              footnote: (loc?.workoutTonnageFootnoteIntro ??
+                      'Reps × load over the sets you logged with a weight. ') +
+                  (d.tonnagePartial
+                      ? (loc?.workoutTonnageFootnotePartial ??
+                          'Sets logged without one are not in it, so '
+                              'this is a floor rather than a total. ')
+                      : '') +
+                  (loc?.workoutTonnageFootnoteOutro ??
+                      'Exact for what you typed and worthless across exercises — '
+                          'kept out of strain and recovery for that reason.'),
+              series: d.tonnage7,
+              child: scrub(CustomPaint(
+                size: Size.infinite,
+                painter: Bars(d.tonnage7, p.on(C.orange),
+                    highlight: pick ?? -1, axis: axis, t: animate(c, 1)),
+              )),
+            ),
+            const SizedBox(height: S.x3),
+            panel,
+          ],
         ),
       ),
     );
@@ -390,34 +410,55 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             final end = d.trimpEnd ?? DateTime.now();
             final axis = AxisSpec.of([for (final v in d.trimp7) ?v], floor: 0);
             final days = d.trimp7.where((v) => v != null).length;
-            return ChartFrame(
-              title: loc?.workoutDailyLoadTitle ?? 'Heart effort by day',
-              unit: loc?.workoutTrimpUnit ?? 'points',
-              height: 88,
-              yAxis: axis,
-              // Seven slots, seven real dates. A day with nothing keeps its
-              // place and its letter, and draws as the gap it is.
-              xLabels: [
-                for (var i = 6; i >= 0; i--)
-                  _weekdayLetter(c, DateTime(end.year, end.month, end.day - i)),
-              ],
-              footnote: (loc?.workoutDailyLoadFootnoteIntro ??
-                      'Heart points with no cap: minutes in each heart-rate zone, harder zones counting more. Strain reads the same heart rate on a 0–21 scale. ') +
-                  (days == 7
-                      ? (loc?.workoutDailyLoadAllDays ?? 'Last seven days.')
-                      : (loc?.workoutDailyLoadPartialDays(days) ??
-                          '$days of the last '
-                              'seven days produced a figure.')),
+            final title = loc?.workoutDailyLoadTitle ?? 'Heart effort by day';
+            final unit = loc?.workoutTrimpUnit ?? 'points';
+            return SlotScrub(
               series: d.trimp7,
-              child: CustomPaint(
-                  size: Size.infinite,
-                  // Today is the last slot, always — not "the newest value".
-                  painter: Bars(d.trimp7, p.on(C.purple),
-                      highlight: d.trimp7.last == null ? -1 : 6,
-                      axis: axis,
-                      t: animate(context, 1)),
+              anchor: end,
+              bars: true,
+              label: title,
+              color: p.on(C.purple),
+              format: (v) => '${v.round()} $unit',
+              builder: (c, pick, scrub, panel) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ChartFrame(
+                    title: title,
+                    unit: unit,
+                    height: 88,
+                    yAxis: axis,
+                    // Seven slots, seven real dates. A day with nothing keeps
+                    // its place and its letter, and draws as the gap it is.
+                    xLabels: [
+                      for (var i = 6; i >= 0; i--)
+                        _weekdayLetter(
+                            c, DateTime(end.year, end.month, end.day - i)),
+                    ],
+                    footnote: (loc?.workoutDailyLoadFootnoteIntro ??
+                            'Heart points with no cap: minutes in each heart-rate zone, harder zones counting more. Strain reads the same heart rate on a 0–21 scale. ') +
+                        (days == 7
+                            ? (loc?.workoutDailyLoadAllDays ??
+                                'Last seven days.')
+                            : (loc?.workoutDailyLoadPartialDays(days) ??
+                                '$days of the last '
+                                    'seven days produced a figure.')),
+                    series: d.trimp7,
+                    child: scrub(CustomPaint(
+                      size: Size.infinite,
+                      // Today is the last slot at rest — not "the newest
+                      // value"; a touch moves the highlight.
+                      painter: Bars(d.trimp7, p.on(C.purple),
+                          highlight:
+                              pick ?? (d.trimp7.last == null ? -1 : 6),
+                          axis: axis,
+                          t: animate(c, 1)),
+                    )),
                   ),
-                );
+                  const SizedBox(height: S.x3),
+                  panel,
+                ],
+              ),
+            );
               },
             ),
           ],
@@ -653,6 +694,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       for (final w in d.workouts) ...[
         _HistoryRow(w,
             weightKg: d.weightKg,
+            onChanged: () {
+              if (mounted) reload();
+            },
             onDelete: w.id.isEmpty
                 ? null
                 : () => _confirmDeleteWorkout(c, w),
@@ -1027,14 +1071,22 @@ class _HistoryRow extends StatelessWidget {
   /// An imported row's tap: score its window from the band (#325).
   final VoidCallback? onScore;
 
+  /// Called after returning from the session's summary in case it changed.
+  final VoidCallback? onChanged;
+
   const _HistoryRow(this.w,
-      {this.weightKg, this.onRetime, this.onDelete, this.onScore});
+      {this.weightKg,
+      this.onRetime,
+      this.onDelete,
+      this.onScore,
+      this.onChanged});
 
   Future<void> _open(BuildContext c) async {
     final nav = Navigator.of(c);
     final r = await _detailOf(c.read<AppState>(), w);
     await nav.push(MaterialPageRoute(
         builder: (_) => ActivitySummary(r, weightKg: weightKg)));
+    onChanged?.call();
   }
 
   @override
@@ -1377,31 +1429,17 @@ Future<bool> _startSession(AppState app, Activity a) async {
 /// `strength_set` rows for one log. `set_index` counts per exercise; `seq` is
 /// the position in the whole session and is [LocalDb.saveStrengthSets]'s own
 /// key, which is why re-sending the same log is idempotent.
-List<Map<String, Object?>> _setRows(List<LoggedSet> sets) {
-  final perExercise = <String, int>{};
-  return [
-    for (final s in sets)
-      {
-        'exercise_key': s.exerciseKey,
-        'set_index':
-            perExercise[s.exerciseKey] = (perExercise[s.exerciseKey] ?? 0) + 1,
-        'reps': s.reps,
-        'load_kg': s.loadKg,
-        'rpe': s.rpe,
-        'rest_sec': s.restSec,
-        'at_ts': s.at.millisecondsSinceEpoch ~/ 1000,
-      },
-  ];
-}
+List<Map<String, Object?>> _setRows(List<LoggedSet> sets) =>
+    strengthSetsToRows(sets);
 
 /// Bank the sets logged so far against the OPEN session. Called on every set,
 /// because a typed set is the one thing in a session no sensor can reproduce
 /// and it used to live in widget state until the user pressed stop.
 Future<void> _bankSets(AppState app, List<LoggedSet> sets) async {
   final id = app.activeWorkout?.workoutId;
-  if (id == null || sets.isEmpty) return;
+  if (id == null) return;
   try {
-    await LocalDb.saveStrengthSets(id, _setRows(sets));
+    await LocalDb.replaceStrengthSets(id, _setRows(sets));
   } catch (_) {
     // The draft still holds them, and finish writes the whole log again.
   }
@@ -1432,9 +1470,7 @@ Future<ActivityResult> _finishSession(
 
   // Written on every set already; written again here because the last one
   // may have landed while the app was being torn down.
-  if (draft.strength.sets.isNotEmpty) {
-    await LocalDb.saveStrengthSets(id, _setRows(draft.strength.sets));
-  }
+  await LocalDb.replaceStrengthSets(id, _setRows(draft.strength.sets));
 
   // The GPS tail is flushed by stopWorkout before it returns, so the route
   // read here is the whole route.
@@ -1703,6 +1739,19 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   return out;
 }
 
+String _parseNote(Object? val) {
+  if (val == null) return '';
+  if (val is String) return val;
+  if (val is List<int>) {
+    try {
+      return utf8.decode(val, allowMalformed: true);
+    } catch (_) {
+      return '';
+    }
+  }
+  return '$val';
+}
+
 /// `strength_set` rows → the log the summary renders. `load_kg` stays null
 /// when it was null: a bodyweight set is not a zero-kilo set.
 StrengthLog _logFrom(List<Map<String, Object?>> rows) => StrengthLog([
@@ -1713,6 +1762,8 @@ StrengthLog _logFrom(List<Map<String, Object?>> rows) => StrengthLog([
           loadKg: (r['load_kg'] as num?)?.toDouble(),
           rpe: (r['rpe'] as num?)?.toInt(),
           restSec: (r['rest_sec'] as num?)?.toInt(),
+          holdSec: (r['hold_sec'] as num?)?.toInt(),
+          note: _parseNote(r['note']),
           at: DateTime.fromMillisecondsSinceEpoch(
               ((r['at_ts'] as num?)?.toInt() ?? 0) * 1000),
         ),
@@ -1943,8 +1994,9 @@ class _WorkoutData {
   final double? weekLoad;
   final int? workoutsTracked;
 
-  /// The activities this user actually started, most recent first, deduped.
-  final List<Activity> recent;
+  /// The activities this user does most, most-used first — the picker's quick
+  /// row, counted over the last 90 days (see [_load]).
+  final List<Activity> mostUsed;
 
   /// Previous and best set per exercise, from this user's own log.
   final Map<String, SetHistory> setHistory;
@@ -1985,7 +2037,7 @@ class _WorkoutData {
     this.weekImported = 0,
     this.weekLoad,
     this.workoutsTracked,
-    this.recent = const [],
+    this.mostUsed = const [],
     this.setHistory = const {},
     this.overreach,
     this.morningAfter = const [],
@@ -2187,19 +2239,33 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
         .where((w) => w.strain != null)
         .fold<double?>(null, (a, w) => (a ?? 0) + w.strain!);
 
-    // Real recency, deduped, newest first — six tiles like the constant it
-    // replaces, so the picker's row is the same shape either way.
+    // The picker's quick row: the MOST-USED activities, not the most recent
+    // ones — hunting for an unusual activity is what the search and the
+    // collapsed groups are for. Counted over the last 90 days so a seasonal
+    // sport does not stay pinned at the top forever; newest use breaks ties.
     //
-    // Band sessions only. These tiles START a session, and most imported types
-    // land on the generic fallback activity — a row of "Workout" tiles that
-    // begin a five-MET nothing is worse than the six real ones.
-    final recent = <Activity>[];
-    for (final w in past) {
-      if (w.importedFrom != null) continue;
-      if (!recent.any((x) => x.name == w.activity.name)) {
-        recent.add(w.activity);
+    // Band sessions only (`sessions` table), same reason the tiles used to
+    // skip imports: these tiles START a session, and most imported types land
+    // on the generic fallback activity — a row of "Workout" tiles that begin a
+    // five-MET nothing is worse than the six real ones.
+    final mostUsed = <Activity>[];
+    try {
+      final since90 = now.millisecondsSinceEpoch ~/ 1000 - 90 * 86400;
+      // Fetch far more than the six the row shows: unknown stored types are
+      // dropped below, and a small SQL-side LIMIT could hand back only those
+      // and leave the picker on quickStart despite usable history.
+      for (final r in await LocalDb.mostUsedActivityTypes(
+          sinceTs: since90, limit: 200)) {
+        final a = activityByName(r['type'] as String?);
+        if (a == null) continue;
+        mostUsed.add(a);
+        if (mostUsed.length == 6) break;
       }
-      if (recent.length == 6) break;
+    } catch (e, st) {
+      // An unreadable table must not take the screen down — record it, then
+      // fall back to quickStart under its own heading.
+      TelemetryService.instance
+          .recordNonFatal(e, st, reason: 'most_used_activities_failed');
     }
 
     // The live screen has to have previous/best in hand before the first set;
@@ -2224,7 +2290,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
       weekImported: thisWeek.where((w) => w.importedFrom != null).length,
       weekLoad: weekLoad,
       workoutsTracked: tracked,
-      recent: recent,
+      mostUsed: mostUsed,
       setHistory: history,
       overreach: overreach,
       morningAfter: morningAfter,

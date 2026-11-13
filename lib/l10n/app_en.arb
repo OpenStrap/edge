@@ -1,5 +1,17 @@
 {
   "@@locale": "en",
+  "whoopFirmwareWarningTitle": "WHOOP users: do not reconnect to the WHOOP app",
+  "@whoopFirmwareWarningTitle": {
+    "description": "Prominent WHOOP firmware warning shared by connection and pairing screens."
+  },
+  "whoopFirmwareWarningAction": "If you use OpenStrap or another open-source app, or plan to switch to one later, do not connect your band to the official WHOOP app again. It can install firmware updates automatically. Uninstall or disable the WHOOP app to prevent it from updating your band.",
+  "@whoopFirmwareWarningAction": {
+    "description": "Prominent WHOOP firmware warning shared by connection and pairing screens."
+  },
+  "whoopFirmwareWarningDetails": "Reports on WHOOP 5.0 / MG firmware 50.43.1.0 and 50.43.2.0 describe blocked data access. Bluetooth may still connect. OpenStrap cannot issue the WHOOP-signed membership token needed to unlock affected bands. We are working on a solution, but no fix is available yet.",
+  "@whoopFirmwareWarningDetails": {
+    "description": "Prominent WHOOP firmware warning shared by connection and pairing screens."
+  },
   "appTitle": "OpenStrap",
   "@appTitle": {
     "description": "App name shown in the OS task switcher / MaterialApp title."
@@ -976,6 +988,166 @@
   "@devicesFindItByFeel": {
     "description": "Row sub."
   },
+  "devicesInstallImage": "Install an image",
+  "@devicesInstallImage": {
+    "description": "Row title on a WHOOP 5 band's device page: install an image file the user supplies."
+  },
+  "devicesInstallImageSub": "Use at your own risk",
+  "@devicesInstallImageSub": {
+    "description": "Row sub: the user takes the risk."
+  },
+  "flashWarning": "Installing an image you supply yourself can permanently damage your strap, void its warranty and stop it working. It cannot be undone from this app. OpenStrap does not provide, review or endorse any image, and OpenStrap and its contributors accept no responsibility or liability for any loss or damage. You do this entirely at your own risk.",
+  "@flashWarning": {
+      "description": "Install-an-image screen (WHOOP 5): Warning"
+  },
+  "flashAccept": "I understand and accept the risk",
+  "@flashAccept": {
+      "description": "Install-an-image screen (WHOOP 5): Accept"
+  },
+  "flashFileInfo": "{name}\n{bytes} bytes\nsha256 {sha}",
+  "@flashFileInfo": {
+      "description": "Install-an-image screen (WHOOP 5): FileInfo",
+      "placeholders": {
+          "name": {
+              "type": "String"
+          },
+          "bytes": {
+              "type": "int"
+          },
+          "sha": {
+              "type": "String"
+          }
+      }
+  },
+  "flashChoose": "Choose image file",
+  "@flashChoose": {
+      "description": "Install-an-image screen (WHOOP 5): Choose"
+  },
+  "flashChooseAnother": "Choose another",
+  "@flashChooseAnother": {
+      "description": "Install-an-image screen (WHOOP 5): ChooseAnother"
+  },
+  "flashSend": "Send to strap",
+  "@flashSend": {
+      "description": "Install-an-image screen (WHOOP 5): Send"
+  },
+  "flashStop": "Stop",
+  "@flashStop": {
+      "description": "Install-an-image screen (WHOOP 5): Stop"
+  },
+  "flashProgress": "{done} of {total} blocks sent. Keep the app open and the strap close.",
+  "@flashProgress": {
+      "description": "Install-an-image screen (WHOOP 5): Progress",
+      "placeholders": {
+          "done": {
+              "type": "int"
+          },
+          "total": {
+              "type": "int"
+          }
+      }
+  },
+  "flashCommitting": "Sending the commit…",
+  "@flashCommitting": {
+      "description": "Install-an-image screen (WHOOP 5): Committing"
+  },
+  "flashCommitted": "The strap accepted the image. That does not confirm it is running. Check the strap's firmware version after it restarts.",
+  "@flashCommitted": {
+      "description": "Install-an-image screen (WHOOP 5): Committed"
+  },
+  "flashCommitUnknown": "The commit was sent but the strap did not answer. It may or may not have been applied. Do not try again. Check the strap's firmware version after it restarts.",
+  "@flashCommitUnknown": {
+      "description": "Install-an-image screen (WHOOP 5): CommitUnknown"
+  },
+  "flashBlockNoImage": "Choose an image file first.",
+  "@flashBlockNoImage": {
+      "description": "Install-an-image screen (WHOOP 5): BlockNoImage"
+  },
+  "flashBlockTooLarge": "That file is too large for an image.",
+  "@flashBlockTooLarge": {
+      "description": "Install-an-image screen (WHOOP 5): BlockTooLarge"
+  },
+  "flashBlockNoLink": "Connect a WHOOP 5 and wait for any sync to finish.",
+  "@flashBlockNoLink": {
+      "description": "Install-an-image screen (WHOOP 5): BlockNoLink"
+  },
+  "flashBlockBatteryUnknown": "Battery level unknown. Wait for it to be read.",
+  "@flashBlockBatteryUnknown": {
+      "description": "Install-an-image screen (WHOOP 5): BlockBatteryUnknown"
+  },
+  "flashBlockBatteryLow": "Battery is {pct}%. Charge to at least {min}% first.",
+  "@flashBlockBatteryLow": {
+      "description": "Install-an-image screen (WHOOP 5): BlockBatteryLow",
+      "placeholders": {
+          "pct": {
+              "type": "int"
+          },
+          "min": {
+              "type": "int"
+          }
+      }
+  },
+  "flashFailTakeover": "Could not take over the connection.",
+  "@flashFailTakeover": {
+      "description": "Install-an-image screen (WHOOP 5): FailTakeover"
+  },
+  "flashFailStart": "The strap did not accept the start of the update.",
+  "@flashFailStart": {
+      "description": "Install-an-image screen (WHOOP 5): FailStart"
+  },
+  "flashFailData": "The strap rejected data at byte {offset}. Nothing was committed.",
+  "@flashFailData": {
+      "description": "Install-an-image screen (WHOOP 5): FailData",
+      "placeholders": {
+          "offset": {
+              "type": "int"
+          }
+      }
+  },
+  "flashFailVerify": "The strap did not verify the image. Nothing was committed.",
+  "@flashFailVerify": {
+      "description": "Install-an-image screen (WHOOP 5): FailVerify"
+  },
+  "flashFailCancelled": "Cancelled. Nothing was committed.",
+  "@flashFailCancelled": {
+      "description": "Install-an-image screen (WHOOP 5): FailCancelled"
+  },
+  "flashFailCommitRejected": "The strap did not accept the commit.",
+  "@flashFailCommitRejected": {
+      "description": "Install-an-image screen (WHOOP 5): FailCommitRejected"
+  },
+  "flashPickUnreadable": "That file could not be read.",
+  "@flashPickUnreadable": {
+      "description": "Install-an-image screen (WHOOP 5): PickUnreadable"
+  },
+  "flashConfirmTitle": "Install this image?",
+  "@flashConfirmTitle": {
+      "description": "Install-an-image screen (WHOOP 5): ConfirmTitle"
+  },
+  "flashConfirmBody": "The strap has the file and verified it. Nothing is installed until you press Sure, and that cannot be undone.\n\n{name}\nsha256 {sha}",
+  "@flashConfirmBody": {
+      "description": "Install-an-image screen (WHOOP 5): ConfirmBody",
+      "placeholders": {
+          "name": {
+              "type": "String"
+          },
+          "sha": {
+              "type": "String"
+          }
+      }
+  },
+  "flashConfirmSure": "Sure",
+  "@flashConfirmSure": {
+      "description": "Install-an-image screen (WHOOP 5): ConfirmSure"
+  },
+  "flashConfirmCancel": "Cancel",
+  "@flashConfirmCancel": {
+      "description": "Install-an-image screen (WHOOP 5): ConfirmCancel"
+  },
+  "flashAcknowledge": "I checked the firmware version. Allow another install.",
+  "@flashAcknowledge": {
+    "description": "Install-an-image screen: after an unanswered commit, the user confirms they checked the firmware version."
+  },
   "devicesForgetThisBand": "Forget this band",
   "@devicesForgetThisBand": {
     "description": "Row title: danger action."
@@ -1943,9 +2115,9 @@
   "@napsWokeUpHelp": {
     "description": "Time picker helper text for logging when a manual nap ended."
   },
-  "napsInvalidWindow": "A nap is between 5 minutes and 6 hours. Anything longer is a sleep, and it belongs in the night where the stages can be read.",
+  "napsInvalidWindow": "A nap is between 5 minutes and 3 hours. Anything longer is a sleep, and it belongs in the night where the stages can be read.",
   "@napsInvalidWindow": {
-    "description": "Validation error when a manually logged nap window is outside 5 minutes to 6 hours."
+    "description": "Validation error when a manually logged nap window is outside 5 minutes to 3 hours."
   },
   "napsOverlap": "That overlaps a nap already on this day. Remove that one first, rather than counting the same hour twice.",
   "@napsOverlap": {
@@ -3846,7 +4018,7 @@
   "@journalComposeSevenDayTrend": {
     "description": "Title of the weight trend chart."
   },
-  "journalComposeTrendFootnote": "Entered by you. Days with no entry are left empty.",
+  "journalComposeTrendFootnote": "Entered by you or your scale. Days with no entry are left empty.",
   "@journalComposeTrendFootnote": {
     "description": "Footnote under the weight trend chart."
   },
@@ -5667,6 +5839,22 @@
         "type": "String"
       }
     }
+  },
+  "chartPanelLatest": "LATEST",
+  "@chartPanelLatest": {
+    "description": "Caption prefix on the panel under a chart when nothing is selected: the newest reading. Shown upper-case where the script has case. It is not a judgement such as best."
+  },
+  "chartPanelSelected": "SELECTED",
+  "@chartPanelSelected": {
+    "description": "Caption prefix on the panel under a chart while a finger is on the chart: the reading the finger is on."
+  },
+  "chartPanelSevenDayAvg": "7-day avg",
+  "@chartPanelSevenDayAvg": {
+    "description": "Metric-detail panel stat: the last 7 days up to today, the same figure whichever day is shown."
+  },
+  "chartPanelVsAvg": "vs avg",
+  "@chartPanelVsAvg": {
+    "description": "Metric-detail panel stat: the shown value minus that 7-day average."
   },
   "metricDetailNoRecordLabel": "No record",
   "@metricDetailNoRecordLabel": {
@@ -8558,6 +8746,10 @@
     "description": "Shown after the user set their own sleep window and the band recorded it, but staging found no sleep in it."
   },
   "sleepDetailCorrectionUnavailable": "This night’s detailed recordings are no longer on the phone, so its sleep can’t be corrected now.",
+  "sleepDetailCorrectionNoRecordings": "This night has no detailed recordings on the phone, so its sleep can’t be corrected.",
+  "@sleepDetailCorrectionNoRecordings": {
+    "description": "Shown instead of the sleep correction buttons on a night with no detailed recordings on the phone that were never pruned (imported or never worn)."
+  },
   "sleepDetailCorrectionEveningPruned": "The evening before this night is no longer on the phone, so only a bedtime after midnight, or Not sleep, can be applied.",
   "@sleepDetailCorrectionEveningPruned": {
     "description": "Shown on the oldest night still kept, or after a correction there was refused: the evening part of the night has been pruned, so a bedtime before midnight, confirming the detected times, or reverting to automatic cannot be applied."
@@ -9634,6 +9826,10 @@
   "activityPickerRecent": "RECENT",
   "@activityPickerRecent": {
     "description": "Section heading over the recent-activities row"
+  },
+  "activityPickerMostDone": "MOST DONE",
+  "@activityPickerMostDone": {
+    "description": "Section heading over the most-used-activities row"
   },
   "activityPickerCalorieEstimatesTitle": "Calorie figures are estimates",
   "@activityPickerCalorieEstimatesTitle": {
@@ -12737,7 +12933,7 @@
   "activityStart": "Start",
   "activityEnd": "End",
   "activityCheckTimes": "Check the times",
-  "activityNapWindow": "Choose a past window between 5 minutes and 6 hours.",
+  "activityNapWindow": "Choose a past window between 5 minutes and 3 hours.",
   "activityEditNap": "Edit nap",
   "activityEditWorkout": "Edit workout",
   "activityNapAlerts": "Detected naps",
@@ -16331,5 +16527,55 @@
         "type": "int"
       }
     }
-  }
+  },
+  "pairBandNotSensor": "That device is a {label}, a band, not a plain sensor. Nothing was saved.",
+  "@pairBandNotSensor": {
+    "description": "Shown when a device picked as a plain sensor turns out to be a band. Nothing was saved. {label} is the band’s name.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomeCoachKeyReentry": "Your coach API key stays in secure storage and was not backed up. Enter it again in AI settings to use the coach on this phone.",
+  "welcomeSettingsSkipped": "{n, plural, =1{1 setting in the backup could not be read and was skipped} other{{n} settings in the backup could not be read and were skipped}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "welcomeSettingsSkippedBody": "Those keep this phone's values.",
+  "welcomeCoachChatGptReentry": "Your ChatGPT sign-in stays in secure storage and was not backed up. Sign in again in AI settings to use the coach on this phone.",
+  "welcomeCoachServerReentry": "Your custom coach server address was not backed up, because an address can hold a key. Enter it again in AI settings.",
+  "welcomeSettingsRestored": "{n} settings restored",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "strengthCustomWeight": "Custom weight",
+  "@strengthCustomWeight": {"description": "Strength set editor copy."},
+  "strengthEnterValue": "Enter a value",
+  "@strengthEnterValue": {"description": "Strength set editor copy."},
+  "strengthInvalidNumber": "Invalid number",
+  "@strengthInvalidNumber": {"description": "Strength set editor copy."},
+  "strengthLoadRangeKg": "Must be 0–500 kg",
+  "@strengthLoadRangeKg": {"description": "Strength set editor copy."},
+  "strengthLoadRangeLb": "Must be 0–1100 lb",
+  "@strengthLoadRangeLb": {"description": "Strength set editor copy."},
+  "strengthRepsRange": "Must be 1–200 reps",
+  "@strengthRepsRange": {"description": "Strength set editor copy."},
+  "strengthEditSet": "Edit set",
+  "@strengthEditSet": {"description": "Strength set editor copy."},
+  "strengthDeleteSet": "Delete set",
+  "@strengthDeleteSet": {"description": "Strength set editor copy."},
+  "strengthDeleteSetConfirm": "Delete this set?",
+  "@strengthDeleteSetConfirm": {"description": "Strength set editor copy."},
+  "strengthBodyweight": "Bodyweight",
+  "@strengthBodyweight": {"description": "Strength set editor copy."},
+  "strengthDelete": "Delete",
+  "@strengthDelete": {"description": "Strength set editor copy."},
+  "strengthSaveFailed": "Failed to save changes",
+  "@strengthSaveFailed": {"description": "Strength set editor copy."},
+  "napAutoLogTitle": "Log clear naps automatically",
+  "napAutoLogSub": "A detected nap with strong evidence is added without asking. You can still edit or remove it",
+  "napAutoLogSaveFailed": "That setting could not be saved. Try again."
 }

@@ -15,12 +15,14 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ble/adapters/_registry.dart' show BandEntry;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/prefs.dart';
 import '../ui2.dart';
+import '../pairing/whoop_firmware_warning.dart';
 
 /// Onboarding steps the user deliberately walked past.
 ///
@@ -109,7 +111,12 @@ class PairingScreen extends StatefulWidget {
   /// Walk past pairing and open the app anyway. Supplied by the router.
   final VoidCallback? onSkip;
 
-  const PairingScreen({super.key, this.onSkip});
+  /// Android and older iOS bind scans to this choice. On iOS 18+ the
+  /// AccessorySetupKit sheet chooses; no post-connect choice check runs.
+  final BandEntry? entry;
+  final String? remoteId;
+
+  const PairingScreen({super.key, this.onSkip, this.entry, this.remoteId});
 
   @override
   State<PairingScreen> createState() => _PairingScreenState();
@@ -131,7 +138,8 @@ class _PairingScreenState extends State<PairingScreen> {
       if (await app.accessorySetupSupported()) {
         await app.pairViaAccessorySetup();
       } else {
-        final found = await app.scanForBand();
+        final found = await app.scanForBand(
+            remoteId: widget.remoteId, generation: widget.entry?.id);
         if (found == null) {
           if (mounted) setState(() => _phase = PairPhase.notFound);
           return;
@@ -202,6 +210,8 @@ class PairingView extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(S.x4, S.x8, S.x4, S.x8),
           children: [
+            const WhoopFirmwareWarning(),
+            const SizedBox(height: S.x5),
             Icon(
                 blocked == null
                     ? LucideIcons.bluetooth

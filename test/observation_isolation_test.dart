@@ -29,6 +29,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/coach/coach_db.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/data/db.dart';
@@ -140,6 +141,7 @@ Future<String> _everyDerivedRead() async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
 
   // ── LAYER 1 — structural ────────────────────────────────────────────────────
   test('only lib/data/db.dart may reach the observation table', () {

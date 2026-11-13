@@ -126,6 +126,14 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   /// once at startup. No-op on iOS.
   Future<void> bootstrap() async {
     if (!supported) return;
+    WidgetsBinding.instance.addObserver(this);
+    await reloadFromPrefs();
+  }
+
+  /// Adopt imported relay settings without registering another observer.
+  Future<void> reloadFromPrefs() async {
+    if (!supported) return;
+    _offGeneration++;
     final prefs = await SharedPreferences.getInstance();
     _enabled = prefs.getBool(_kEnabled) ?? false;
     _packages
@@ -140,7 +148,6 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
     for (final p in _packages) {
       if (!_seen.contains(p)) _seen.add(p);
     }
-    WidgetsBinding.instance.addObserver(this);
     await refreshPermission();
     _resync();
     notifyListeners();

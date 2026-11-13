@@ -30,7 +30,9 @@ import '../data/day_label.dart';
 import '../data/db.dart';
 import '../data/series_codec.dart';
 import 'health_heart_rate_batch.dart';
+import 'health_nap_export.dart';
 import 'health_sleep_session.dart';
+import 'health_weight_export.dart';
 
 /// What we can do with the health store right now.
 enum HealthLinkState {
@@ -537,10 +539,14 @@ class HealthExporter {
   /// behind the purge: exportAll keeps it pending without spending an attempt.
   bool _dayHeldForPurge = false;
 
+  final bool? _isAppleOverride;
+
   HealthExporter({
     HealthConnectHeartRateWriter? androidHeartRate,
     @visibleForTesting Duration deleteTimeout = const Duration(seconds: 30),
-  }) : _androidHeartRate =
+    @visibleForTesting bool? isApple,
+  }) : _isAppleOverride = isApple,
+       _androidHeartRate =
            androidHeartRate ?? MethodChannelHealthConnectHeartRateWriter(),
        _deleteTimeout = deleteTimeout;
 
@@ -627,12 +633,17 @@ class HealthExporter {
   /// True on iOS/macOS (Apple Health); false on Android (Health Connect).
   static bool get isApple => Platform.isIOS || Platform.isMacOS;
 
+  /// [isApple], or what a test pinned through the constructor. The host VM is
+  /// macOS on a Mac and Linux in CI, so a test of one store's behaviour
+  /// otherwise passes or fails depending on whose machine runs it.
+  bool get _apple => _isAppleOverride ?? isApple;
+
   /// Display name of the platform health store.
   static String get storeName => isApple ? 'Apple Health' : 'Health Connect';
 
   /// HealthKit only stores SDNN; Health Connect stores RMSSD — write whichever
   /// the platform supports (both are real, from cleaned RR).
-  HealthDataType get _hrvType => isApple
+  HealthDataType get _hrvType => _apple
       ? HealthDataType.HEART_RATE_VARIABILITY_SDNN
       : HealthDataType.HEART_RATE_VARIABILITY_RMSSD;
 
@@ -651,8 +662,12 @@ class HealthExporter {
     // and [_rewriteTypes].
     HealthDataType.STEPS,
     for (final t in _sleepHealthTypes)
-      if (t != _foreignSleepEnvelope(isApple)) t,
+      if (t != _foreignSleepEnvelope(_apple)) t,
     HealthDataType.WORKOUT,
+    // Scale weighings (health_weight_export.dart). Authorization scope only:
+    // deliberately NOT in healthDeleteTypes / _rewriteTypes, because the
+    // per-day pass would delete weights it has no day_result to rewrite.
+    HealthDataType.WEIGHT,
   ];
 
   /// The types the per-day delete-then-write pass touches.
@@ -675,7 +690,7 @@ class HealthExporter {
   ///   * HEART_RATE is removed on Apple too: the minute-HR block clears it
   ///     itself, only over the minutes it still has rows for.
   List<HealthDataType> get _rewriteTypes => [
-    for (final t in healthDeleteTypes(isApplePlatform: isApple))
+    for (final t in healthDeleteTypes(isApplePlatform: _apple))
       if (t != HealthDataType.STEPS && t != HealthDataType.HEART_RATE) t,
   ];
 
@@ -725,12 +740,58 @@ class HealthExporter {
     try {
       return healthDeleteClearedRange(
         deleted: await _nativeDelete(type, start, end),
-        ios: isApple,
+        ios: _apple,
       );
     } catch (e) {
       if (e is TimeoutException) _storeHung = true;
       debugPrint('[health] delete ${type.name}: $e');
       return false;
+    }
+  }
+
+  /// WEIGHT write permission, for the weight export only. Existing users were
+  /// authorized before WEIGHT joined [_types] and are never re-prompted by
+  /// [request], so a plain attempt would no-op forever. HealthKit hides write
+  /// auth, so the one-time request runs there too (idempotent; shows the sheet
+  /// only for undetermined types); asked for at most once per install. The per-day pass keeps its
+  /// attempt-everything behaviour (see below).
+  Future<bool> _weightWriteAllowed() async {
+    final types = [HealthDataType.WEIGHT];
+    const access = [HealthDataAccess.WRITE];
+    final prefs = await SharedPreferences.getInstance();
+    return weightWritePermitted(
+      check: () async =>
+          await _health
+              .hasPermissions(types, permissions: access)
+              .timeout(_deleteTimeout) ==
+          true,
+      request: () async {
+        try {
+          await _health
+              .requestAuthorization(types, permissions: access)
+              .timeout(_deleteTimeout);
+        } catch (e) {
+          if (e is TimeoutException) _storeHung = true;
+          rethrow;
+        }
+      },
+      asked: () async => prefs.getBool(kHealthWeightPermAskedPref) == true,
+      markAsked: () => prefs.setBool(kHealthWeightPermAskedPref, true),
+    );
+  }
+
+  /// Current WEIGHT grant for the cap-reset transition; null = unknown.
+  Future<bool?> _weightGranted() async {
+    try {
+      return await _health
+          .hasPermissions(
+            [HealthDataType.WEIGHT],
+            permissions: [HealthDataAccess.WRITE],
+          )
+          .timeout(_deleteTimeout);
+    } catch (e) {
+      debugPrint('[health] weight grant read: $e');
+      return null;
     }
   }
 
@@ -791,6 +852,11 @@ class HealthExporter {
       await _health.requestAuthorization(
         _types,
         permissions: _types.map((_) => HealthDataAccess.WRITE).toList(),
+      );
+      // WEIGHT is in _types: the scale path need not ask a second time.
+      await (await SharedPreferences.getInstance()).setBool(
+        kHealthWeightPermAskedPref,
+        true,
       );
     } catch (e) {
       debugPrint('[health] requestAuthorization: $e');
@@ -898,13 +964,14 @@ class HealthExporter {
     if (await _androidUnavailable() != null) return 0; // HC missing/outdated
     return _workoutLock.run(() async {
     _storeHung = false;
+    var days = 0;
     try {
       await ensureHealthSleepExportEpoch(
         getCursor: LocalDb.getCursor,
         setCursor: (name, value) => LocalDb.setCursor(name, value),
         // Same platform flag the delete types use — the epoch rewrite is an
         // Apple-HealthKit concern only.
-        isApplePlatform: isApple,
+        isApplePlatform: _apple,
       );
       if (reset) {
         await LocalDb.setCursor('health_export_through', '');
@@ -922,7 +989,7 @@ class HealthExporter {
           try {
             return healthDeleteClearedRange(
               deleted: await _nativeDelete(HealthDataType.STEPS, start, end),
-              ios: isApple,
+              ios: _apple,
             );
           } on TimeoutException {
             _storeHung = true;
@@ -1183,11 +1250,53 @@ class HealthExporter {
         return done;
       };
 
-      return exportPriorityOrBulk();
+      days = await exportPriorityOrBulk();
     } catch (e) {
+      // Weighings do not depend on the day results: log and carry on.
       debugPrint('[health] exportAll: $e');
-      return 0;
     }
+    try {
+      if (!_storeHung) {
+        await exportScaleWeighings(
+          reset: reset,
+          forceRetry: forceRetry,
+          stopped: () => _storeHung,
+          permitted: _weightWriteAllowed,
+          weightGranted: _weightGranted,
+          syncEnabled: () async =>
+              (await SharedPreferences.getInstance()).getBool(kHealthSyncPref) ==
+              true,
+          deleteOwn: (a, b) => _deleteOwnSamples(HealthDataType.WEIGHT, a, b),
+          write: (kg, at) async {
+            if (_storeHung) return false;
+            try {
+              // A timeout is rethrown: the weighing export records the instant
+              // as possibly written (persisted) and clears it, safely, before
+              // the retry.
+              return await _health
+                  .writeHealthData(
+                    value: kg,
+                    type: HealthDataType.WEIGHT,
+                    startTime: at,
+                    endTime: at,
+                    unit: HealthDataUnit.KILOGRAM,
+                  )
+                  .timeout(_deleteTimeout);
+            } catch (e) {
+              debugPrint('[health] write WEIGHT: $e');
+              if (e is TimeoutException) {
+                _storeHung = true;
+                rethrow;
+              }
+              return false;
+            }
+          },
+        );
+      }
+    } catch (e) {
+      debugPrint('[health] exportAll weighings: $e');
+    }
+    return days;
     });
   }
 
@@ -1245,7 +1354,7 @@ class HealthExporter {
         success = false;
       }
     }
-    if (isApple) {
+    if (_apple) {
       try {
         if (!await _appleSleep.replace(
           bundle: b,
@@ -1257,6 +1366,31 @@ class HealthExporter {
         }
       } catch (e) {
         debugPrint('[health] write Apple sleep session: $e');
+        success = false;
+      }
+      // The sleep replace's noon-to-noon cleanup window covers the wake day's
+      // afternoon AND can reach into the previous calendar day, so it deletes
+      // OUR nap samples there. Re-write the confirmed naps of BOTH days after
+      // it on every pass (delete-then-write, so idempotent) — otherwise the
+      // next re-derive of a non-finalized day would silently remove a nap the
+      // user confirmed.
+      final prevDate = dayLabelOf(
+        DateTime(dayStart.year, dayStart.month, dayStart.day - 1),
+      );
+      try {
+        // Both days independently: a failure on one must not skip the other —
+        // the cleanup may already have deleted that day's nap samples.
+        final todayOk = await HealthNapExporter.shared.exportDayNaps(date);
+        final prevOk = await HealthNapExporter.shared.exportDayNaps(prevDate);
+        if (!todayOk || !prevOk) {
+          debugPrint('[health] write Apple naps returned false');
+          success = false;
+        }
+      } on TimeoutException {
+        // A hung nap write means the store is busy/locked — same handling as
+        // the other native deletes: stop the pass instead of burning the
+        // day's retry budget (and holding the lock) for 30 s per nap.
+        _storeHung = true;
         success = false;
       }
     }
@@ -1392,7 +1526,7 @@ class HealthExporter {
     );
     await writeAt(
       _hrvType,
-      healthHrvExportValue(b, apple: isApple),
+      healthHrvExportValue(b, apple: _apple),
       HealthDataUnit.MILLISECOND,
       mid,
     );
@@ -1628,7 +1762,7 @@ class HealthExporter {
         activityType: _activity(r['type']?.toString()),
         start: DateTime.fromMillisecondsSinceEpoch(st * 1000),
         end: DateTime.fromMillisecondsSinceEpoch(en * 1000),
-        totalEnergyBurned: healthWorkoutEnergyKcal(r, isApplePlatform: isApple),
+        totalEnergyBurned: healthWorkoutEnergyKcal(r, isApplePlatform: _apple),
         title: healthWorkoutTitleForType(r['type']?.toString()),
       );
     } catch (e) {
@@ -1699,7 +1833,7 @@ class HealthExporter {
   // (the HRV type, the delete list, the store name) keys off the same getter,
   // and a divergence here would hand macOS the Health Connect spellings.
   HealthWorkoutActivityType _activity(String? type) =>
-      healthActivityForType(type, ios: isApple);
+      healthActivityForType(type, ios: _apple);
 
   /// Decode a stored day bundle, normalizing the compact curve format back to
   /// plain [{t,v}] lists. Hypnogram segments are never encoded (no `t` key), so

@@ -327,6 +327,10 @@ void main() {
   );
 
   testWidgets('category search accepts original and Russian blurb', (t) async {
+    // The firmware warning banner sits above the list; a tall surface keeps
+    // the filtered row built instead of lazily off-screen.
+    await t.binding.setSurfaceSize(const Size(800, 3000));
+    addTearDown(() => t.binding.setSurfaceSize(null));
     await t.pumpWidget(page(const DevicePickerScreen()));
     await t.pumpAndSettle();
     final entry = kBleHrs;
@@ -505,6 +509,10 @@ void main() {
                   ? ru.metricDetailRankFromBand(axisDay(ts), 12, band)
                   : ru.metricDetailRankFrom(axisDay(ts), 12));
         expect(expected, contains('выше, чем в 12% ваших дней'));
+        // The scrub panel under the chart is always on screen now, which moves
+        // this line below the 600 px test viewport; bring it into view.
+        await t.ensureVisible(find.text(expected, skipOffstage: false));
+        await t.pumpAndSettle();
         expect(find.text(expected), findsOneWidget);
         expect(t.takeException(), isNull);
       });
