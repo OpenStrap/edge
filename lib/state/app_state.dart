@@ -5087,14 +5087,6 @@ class AppState extends ChangeNotifier {
   /// v1 behavior). Defined here rather than exported from smart_wake.dart
   /// because it operates on the same SmartWakeSample list but is only
   /// needed on this fallback path.
-  static double _medianHr(List<SmartWakeSample> samples) {
-    final hrs = [for (final s in samples) s.hr]..sort();
-    final mid = hrs.length ~/ 2;
-    return hrs.length.isOdd
-        ? hrs[mid]
-        : (hrs[mid - 1] + hrs[mid]) / 2;
-  }
-
   /// Build (or return the cached) confounder profile for [now]'s wake
   /// window. Reads the journal for the calendar day BEFORE the window —
   /// alcohol, caffeine, stress and workout are consumed during the day
@@ -5104,8 +5096,14 @@ class AppState extends ChangeNotifier {
   /// profile — no adjustment, never a penalty. A failed journal read must
   /// not disable smart wake; it only means the detector runs with default
   /// thresholds, exactly as v1 did.
-  Future<ConfounderProfile> _smartWakeConfounderProfile(DateTime now) async {
-    final day = dayLabelOf(now.subtract(const Duration(days: 1)));
+  Future<ConfounderProfile> _smartWakeConfounderProfile(
+      DateTime windowEnd) async {
+    // The local calendar day before the window's own wake day, by calendar
+    // arithmetic: subtracting 24 elapsed hours lands on the wrong date around
+    // a DST change, and a window that crosses midnight belongs to the day it
+    // ends on, not the day the tick happens to fall on.
+    final day = dayLabelOf(
+        DateTime(windowEnd.year, windowEnd.month, windowEnd.day - 1));
     if (_smartWakeProfile != null && _smartWakeProfileDay == day) {
       return _smartWakeProfile!;
     }
@@ -5134,10 +5132,9 @@ class AppState extends ChangeNotifier {
       final profile = confounderProfile(tags: tags, metrics: metrics);
       _smartWakeProfile = profile;
       _smartWakeProfileDay = day;
-      // Log the EFFECTIVE thresholds, never the confounder names — the log
-      // is visible in the app's diagnostics and must not read like an
-      // accusation (see rough_night.dart guardrail).
-      _log('[smart-wake] confounder profile: $profile');
+      // Nothing derived from the journal goes in the log: thresholds would
+      // let a reader of a shared report work the tags back out.
+      _log('[smart-wake] journal profile read');
       return profile;
     } catch (e) {
       _log('[smart-wake] confounder profile read failed (defaults): $e');
@@ -5183,7 +5180,7 @@ class AppState extends ChangeNotifier {
       // alcohol+stress combo is active, early buzz is disabled entirely
       // for this night — the fallback SET_ALARM at window end fires as
       // usual. This is an early return that never touches the fallback.
-      final profile = await _smartWakeConfounderProfile(now);
+      final profile = await _smartWakeConfounderProfile(armed.windowEnd);
       if (profile.earlyBuzzDisabled) return;
 
       // The recent window is as long as the journal's trend window asks for
@@ -5231,8 +5228,17 @@ class AppState extends ChangeNotifier {
       final recentSamples = [
         for (final r in recentRows) SmartWakeSample.fromRow(r),
       ];
-      if (baselineHr == null && baselineSamples.length >= 30) {
-        baselineHr = _medianHr(baselineSamples);
+      if (baselineHr == null) {
+        // The shipped fallback is the median of the 90 minutes before the
+        // recent window, not of the whole 3 h the percentile just refused.
+        final fallbackRows = await LocalDb.onehzHrAccelBetween(
+          now.subtract(const Duration(minutes: 90)).millisecondsSinceEpoch ~/
+              1000,
+          baselineWindowEnd.millisecondsSinceEpoch ~/ 1000,
+        );
+        baselineHr = medianValidHr([
+          for (final r in fallbackRows) SmartWakeSample.fromRow(r),
+        ]);
       }
 
       // If we still have no baseline, we cannot make a confident call —
@@ -5254,12 +5260,16 @@ class AppState extends ChangeNotifier {
       // would just be repeated buzzing), and the untouched fallback arm
       // still covers a write that genuinely failed. Persisted too, so a
       // relaunch mid-window does not re-buzz (PR #630 review).
-      unawaited(SharedPreferences.getInstance()
-          .then((p) => p.setInt('smart_wake_fired_epoch', epoch))
-          .catchError((Object e) {
+      // The write completes BEFORE the buzz goes out, so a process that dies
+      // right after the band buzzes still finds the latch on relaunch. A
+      // failed write is logged and the buzz still goes (the in-memory latch
+      // holds for this process).
+      try {
+        final p = await SharedPreferences.getInstance();
+        await p.setInt('smart_wake_fired_epoch', epoch);
+      } catch (e) {
         _log('[smart-wake] persisting the fired latch failed: $e');
-        return false;
-      }));
+      }
       await engine.runAlarm();
       _log('[smart-wake] light sleep detected inside the window — early buzz.');
     } catch (e) {
@@ -5615,6 +5625,7 @@ class AppState extends ChangeNotifier {
       throw Exception("Couldn't reach your strap, so the alarm is still set");
     }
     _savedAlarm = null;
+    _smartWakeFiredForEpoch = null;
     final gen = ++_armGen;
     device.alarmEpoch = null;
     _alarm.disable();
@@ -5623,6 +5634,7 @@ class AppState extends ChangeNotifier {
     // An arm that landed during the await owns the persisted epoch now.
     if (_armGen == gen) await prefs.remove('alarm_epoch');
     if (_armGen == gen) await prefs.remove('alarm_epoch_confirmed');
+    if (_armGen == gen) await prefs.remove('smart_wake_fired_epoch');
     // 'alarm_schedule_cleared' tells an import that an empty schedule means
     // "cancelled", not "never set". Marked BEFORE the rows go: a crash
     // between the two leaves a marker over rows (harmless), never an empty
@@ -5730,6 +5742,9 @@ class AppState extends ChangeNotifier {
   /// dedupeKey still resolves after this runs.
   void _clearArmedAlarmState() {
     _savedAlarm = null;
+    // A re-arm of the same occurrence in this process must be able to buzz
+    // again; the persisted latch goes below, the in-memory one goes now.
+    _smartWakeFiredForEpoch = null;
     final gen = ++_armGen;
     device.alarmEpoch = null;
     _alarm.disable();
@@ -5742,6 +5757,9 @@ class AppState extends ChangeNotifier {
         await prefs.remove('alarm_epoch');
         if (_armGen != gen) return;
         await prefs.remove('alarm_epoch_confirmed');
+        // A newer arm may have latched its own early buzz while the removes
+        // above were in flight; its latch is not ours to clear.
+        if (_armGen != gen) return;
         await prefs.remove('smart_wake_fired_epoch');
       } catch (e) {
         _log('[alarm] clearing the persisted epoch failed: $e');
@@ -5843,7 +5861,7 @@ class AppState extends ChangeNotifier {
                 // with the last ~3h of nocturnal data before the smart-wake
                 // window opens. Falls back to the shipped 90-min lease when
                 // preSyncAt is null (no plan / outside extended window).
-                lease: plan.effectiveLease ?? HighFreqWakeWindow.lease,
+                lease: plan.leaseFrom(DateTime.now()) ?? HighFreqWakeWindow.lease,
                 source: plan.source,
               )
             : null,

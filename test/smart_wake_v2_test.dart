@@ -142,7 +142,8 @@ void main() {
     test('late meal tag → HR threshold 4→5', () {
       final p = confounderProfile(tags: {'late meal'}, metrics: {});
       expect(p.hrArousalBpm, 5.0);
-      expect(p.trendThresholdFactor, 1.5); // more tolerant trend
+      // The movement veto is not relaxed for a late meal.
+      expect(p.trendThresholdFactor, 1.0);
     });
 
     test('sick tag → ENMO 0.06 + HR 5 bpm', () {
@@ -554,8 +555,10 @@ void main() {
     });
 
     test('10th percentile picks the low end (deep-sleep HR)', () {
-      // 80 samples at 48 (deep), 20 samples at 60 (light) → 10th pct = 48
-      final samples = [...still(48, 80), ...still(60, 20)];
+      // One reading at 40 (lower than the 10th percentile), 80 at 48 (deep),
+      // 19 at 60 (light): a minimum-based baseline would say 40, the 10th
+      // percentile says 48.
+      final samples = [...still(40, 1), ...still(48, 80), ...still(60, 19)];
       expect(percentileHr(samples, 0.10), 48.0);
     });
 
@@ -564,10 +567,12 @@ void main() {
     });
 
     test('filters invalid HR (≤30 or ≥200)', () {
+      // 30 valid readings at 48 plus 20 invalid ones: with the invalid rows in
+      // the sort the 10th percentile would be an off-skin 0.
       final samples = [
-        ...still(48, 90),
-        SmartWakeSample(0, 0, 0, 1.0),   // off-skin sentinel
-        SmartWakeSample(250, 0, 0, 1.0), // impossible
+        ...still(48, 30),
+        for (var i = 0; i < 10; i++) SmartWakeSample(0, 0, 0, 1.0), // off-skin
+        for (var i = 0; i < 10; i++) SmartWakeSample(250, 0, 0, 1.0), // impossible
       ];
       expect(percentileHr(samples, 0.10), 48.0);
     });
@@ -577,6 +582,97 @@ void main() {
       // wrong floor, so it must refuse and let the caller fall back.
       expect(percentileHr(still(48, 29), 0.10), isNull);
       expect(percentileHr(still(48, 30), 0.10), 48.0);
+      // 29 valid among 49 rows: counting rows instead of valid readings would
+      // pass this through.
+      final padded = [
+        ...still(48, 29),
+        for (var i = 0; i < 20; i++) SmartWakeSample(0, 0, 0, 1.0),
+      ];
+      expect(percentileHr(padded, 0.10), isNull);
+    });
+  });
+
+  group('medianValidHr (the 90-minute fallback)', () {
+    test('a median of zeros never comes back', () {
+      final zeros = [for (var i = 0; i < 30; i++) SmartWakeSample(0, 0, 0, 1.0)];
+      expect(medianValidHr(zeros), isNull);
+    });
+
+    test('needs 30 VALID readings, not 30 rows', () {
+      final padded = [
+        ...still(52, 29),
+        for (var i = 0; i < 20; i++) SmartWakeSample(0, 0, 0, 1.0),
+      ];
+      expect(medianValidHr(padded), isNull);
+      expect(medianValidHr([...still(52, 30), ...still(0, 40)]), 52.0);
+    });
+  });
+
+  group('windows are cut by time, not by row count', () {
+    SmartWakeSample at(int ts, double hr) =>
+        SmartWakeSample(hr, 0, 0, 1.0, tsSec: ts);
+
+    test('30 rows from four minutes ago are not "the last 3 minutes"', () {
+      final now = DateTime.fromMillisecondsSinceEpoch(1000000 * 1000);
+      final nowS = now.millisecondsSinceEpoch ~/ 1000;
+      final stale = [for (var i = 0; i < 30; i++) at(nowS - 240 + i, 60)];
+      expect(
+        likelyLightSleep(
+            baseline: still(50, 90),
+            recent: stale,
+            baselineHrOverride: 50,
+            now: now),
+        isFalse,
+      );
+      // The same rows, fresh, do buzz.
+      final fresh = [for (var i = 0; i < 30; i++) at(nowS - 60 + i, 60)];
+      expect(
+        likelyLightSleep(
+            baseline: still(50, 90),
+            recent: fresh,
+            baselineHrOverride: 50,
+            now: now),
+        isTrue,
+      );
+    });
+
+    test('trailingSamples keeps only the trailing seconds', () {
+      final xs = [for (var i = 0; i < 600; i++) at(i, 50)];
+      expect(trailingSamples(xs, 180).length, 180);
+      expect(trailingSamples(xs, 180).first.tsSec, 420);
+    });
+  });
+
+  group('late-window protection is applied inside likelyLightSleep', () {
+    // An arousal bar low enough that +1.5 bpm would buzz, so only the
+    // late-window veto can hold it back.
+    const lowBar = ConfounderProfile(
+      hrArousalBpm: 1.0,
+      motionCeilingG: 0.08,
+      lateWindowProtectionMinutes: 5,
+      earlyBuzzDisabled: false,
+      trendWindowMinutes: 3,
+      trendThresholdFactor: 1.0,
+    );
+
+    test('buzzes mid-window, is held back in the last minutes', () {
+      final end = DateTime(2026, 6, 10, 7, 30);
+      bool run(DateTime now) => likelyLightSleep(
+            baseline: still(48, 90),
+            recent: still(49.5, 60),
+            profile: lowBar,
+            windowEnd: end,
+            now: now,
+          );
+      expect(run(end.subtract(const Duration(minutes: 30))), isTrue);
+      expect(run(end.subtract(const Duration(minutes: 2))), isFalse);
+    });
+  });
+
+  group('a late meal does not loosen the movement veto', () {
+    test('trendThresholdFactor stays 1.0', () {
+      final p = confounderProfile(tags: {'late meal'}, metrics: const {});
+      expect(p.trendThresholdFactor, 1.0);
     });
   });
 }

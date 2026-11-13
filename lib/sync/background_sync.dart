@@ -258,7 +258,7 @@ Future<void> prepareHeadlessLink(BleEngine engine, PairedDevice paired) async {
     targetWake: plan.targetWake,
     // Extended lease (preSyncAt → targetWake) so the pre-window backfill has
     // data when the smart-wake window opens; falls back to the shipped 90 min.
-    duration: plan.effectiveLease ?? HighFreqWakeWindow.lease,
+    duration: plan.leaseFrom(DateTime.now()) ?? HighFreqWakeWindow.lease,
     intervalSeconds: 61, // gen5 rejects <= 60
 
     reason: plan.source,
