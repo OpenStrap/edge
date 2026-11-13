@@ -65,6 +65,16 @@ const _mustStay = {
   'alarm_schedule_cleared', 'alarm_epoch', 'alarm_epoch_confirmed', 'alarm_set_at_ms',
   'alarm_pending_until', 'alarm_latch_alert', 'alarm_probe_pending', 'alarm_fired_at',
   'live.session_draft', 'live_session_checkpoint', 'telemetry_outbox',
+  // What this phone's Health store holds; the new phone's store is empty.
+  'health_weight_perm_asked', 'health_weight_grant_seen',
+};
+
+// One concrete member of each per-device family that stays on the phone
+// (kPrefFamiliesNotBackedUp). The persisted maybe-landed marker is one: it
+// names a sample only the old phone's Health store may contain.
+const _mustStayFamilies = {
+  'health_weight_exported:d1', 'health_weight_attempts:d1',
+  'health_weight_maybe_landed:d1',
 };
 
 // Interpolated keys, including ones hidden behind key-building helpers.
@@ -111,6 +121,14 @@ const _indirectKeys = <String, List<String>>{
     'onboard.skipped_pairing', 'onboard.saw_profile_setup'],
   'lib/ui2/nudges.dart:_lastShownKey(a)': ['nudge.discord.last_shown_ms'],
   'lib/ui2/nudges.dart:_dismissedKey(a)': ['nudge.discord.dismissed'],
+  'lib/health/health_export.dart:kHealthWeightPermAskedPref': [
+    'health_weight_perm_asked'],
+  'lib/health/health_weight_export.dart:healthWeightExportedKey(id)': [
+    'health_weight_exported:d1'],
+  'lib/health/health_weight_export.dart:healthWeightAttemptsKey(id)': [
+    'health_weight_attempts:d1'],
+  'lib/health/health_weight_export.dart:healthWeightMaybeLandedKey(id)': [
+    'health_weight_maybe_landed:d1'],
 };
 
 Map<String, String> _constants(String text) => {
@@ -160,7 +178,7 @@ void main() {
     expect(keys, containsAll(['theme_choice', 'backup.cadence', 'coach_model',
       'local_profile_json', 'consent_chosen', 'nudge.discord.dismissed']),
         reason: 'scanner positive control');
-    expect(keys.difference({..._mustTravel, ..._mustStay}), isEmpty,
+    expect(keys.difference({..._mustTravel, ..._mustStay, ..._mustStayFamilies}), isEmpty,
         reason: 'new preference needs a policy decision in this test');
     final all = lib.map((f) => f.readAsStringSync()).join('\n');
     for (final e in _dynamicExamples.entries) {
@@ -171,7 +189,10 @@ void main() {
 
   test('required user settings and dynamic keys actually travel', () async {
     await env.wipe();
-    await setPrefs({for (final key in {..._mustTravel, ..._mustStay}) key: 'audit value'});
+    await setPrefs({
+      for (final key in {..._mustTravel, ..._mustStay, ..._mustStayFamilies})
+        key: 'audit value'
+    });
     final prefs = (await exportedPrefs(await LocalDb.exportCopy()))!;
     for (final key in _mustTravel) {
       expect(prefs[key], ('string', 'audit value'), reason: '$key must travel');
@@ -182,7 +203,7 @@ void main() {
     await env.wipe();
     // Typed as the app reads them: restore refuses a row of another type.
     await setPrefs({
-      for (final key in {..._mustTravel, ..._mustStay}) key: switch (expectedPrefType(key)) {
+      for (final key in {..._mustTravel, ..._mustStay, ..._mustStayFamilies}) key: switch (expectedPrefType(key)) {
         'bool' => true,
         'int' => 1,
         'double' => 1.5,
@@ -192,13 +213,13 @@ void main() {
     });
     final path = await LocalDb.exportCopy();
     final prefs = (await exportedPrefs(path))!;
-    for (final key in _mustStay) {
+    for (final key in {..._mustStay, ..._mustStayFamilies}) {
       expect(prefs, isNot(contains(key)), reason: '$key stays on the phone');
     }
     // Even an old or foreign export that carries blocked state cannot inject it.
     final copy = await databaseFactoryFfi.openDatabase(path,
         options: OpenDatabaseOptions(singleInstance: false));
-    for (final key in _mustStay) {
+    for (final key in {..._mustStay, ..._mustStayFamilies}) {
       await copy.insert('backup_prefs',
           {'key': key, 'type': 'string', 'value': 'foreign state'},
           conflictAlgorithm: ConflictAlgorithm.replace);
@@ -223,6 +244,18 @@ void main() {
       if (e.key != 'alarm_probe_pending') {
         expect(all, contains("'${e.key}'"), reason: '${e.key} is a stale exclusion');
       }
+    }
+  });
+
+  test('each per-device family has a reason and a sample under it', () {
+    final families = policyMap('kPrefFamiliesNotBackedUp');
+    for (final e in families.entries) {
+      expect(e.value.length, greaterThan(10), reason: e.key);
+      expect(_mustStayFamilies.where((k) => k.startsWith(e.key)), isNotEmpty,
+          reason: '${e.key} has no sample in _mustStayFamilies');
+    }
+    for (final k in _mustStayFamilies) {
+      expect(families.keys.any(k.startsWith), isTrue, reason: k);
     }
   });
 

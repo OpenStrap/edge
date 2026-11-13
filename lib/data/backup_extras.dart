@@ -50,6 +50,24 @@ const Map<String, String> kPrefsNotBackedUp = {
   'alarm_probe_pending': 'legacy pending hardware probe; never resume on another band',
   'alarm_fired_at': 'last fire event from the old band, not the chosen schedule',
   'health_upload_last_ts': 'upload cursor for this installation',
+  'health_weight_perm_asked': 'records that this phone already asked for '
+      'WEIGHT write access; the new phone has not asked yet',
+  'health_weight_grant_seen': 'last WEIGHT grant observed on this phone; '
+      'the grant belongs to its Health store',
+};
+
+/// Per-item families that stay on the phone: (prefix, reason). Each describes
+/// what this phone's Health store holds, which a restore onto another phone
+/// cannot carry. Exported and attempt marks would claim samples that are not
+/// there, and a maybe-landed marker would clear a sample the new store never
+/// received.
+const Map<String, String> kPrefFamiliesNotBackedUp = {
+  'health_weight_exported:': 'weighings already written to this phone\'s '
+      'Health store; the new store is empty, so they must be sent again',
+  'health_weight_attempts:': 'failure counts against this phone\'s Health '
+      'store, not the new one',
+  'health_weight_maybe_landed:': 'writes that timed out on this phone\'s '
+      'Health store; the retry clears a sample only this store may hold',
 };
 
 const Map<String, String> kSecretsNotBackedUp = {
@@ -193,7 +211,12 @@ String? expectedPrefType(String key) {
   return null;
 }
 
-bool _backedUp(String key) => !kPrefsNotBackedUp.containsKey(key);
+bool _backedUp(String key) =>
+    !kPrefsNotBackedUp.containsKey(key) &&
+    !kPrefFamiliesNotBackedUp.keys.any(key.startsWith);
+
+/// Whether [key] travels in a backup (exact exclusions and families).
+bool prefBackedUp(String key) => _backedUp(key);
 
 (String, String)? _encode(Object? value) => switch (value) {
   bool b => ('bool', '$b'),
