@@ -15,6 +15,7 @@ void main() {
         const AiPrefs(),
         remindersEnabled: true,
         aiConfigured: true,
+        lastNightDataReady: true,
         journalDoneToday: false,
         sweepHeadline: 'Resting heart rate 62 bpm — the highest in 41 days',
       );
@@ -29,6 +30,7 @@ void main() {
         const AiPrefs(),
         remindersEnabled: true,
         aiConfigured: false,
+        lastNightDataReady: true,
         journalDoneToday: false,
         sweepHeadline: 'Steps 21,400 — the highest in 60 days',
       );
@@ -43,6 +45,7 @@ void main() {
         const AiPrefs(),
         remindersEnabled: false,
         aiConfigured: true,
+        lastNightDataReady: true,
         journalDoneToday: false,
       );
       expect(plan, isEmpty);
@@ -53,6 +56,7 @@ void main() {
         const AiPrefs(morningEnabled: false, journalEnabled: false),
         remindersEnabled: true,
         aiConfigured: true,
+        lastNightDataReady: true,
         journalDoneToday: false,
         sweepHeadline: 'HRV 28 ms — the lowest in 34 days',
       );
@@ -65,6 +69,7 @@ void main() {
         const AiPrefs(),
         remindersEnabled: true,
         aiConfigured: true,
+        lastNightDataReady: true,
         journalDoneToday: true,
       ).firstWhere((s) => s.id == NotificationService.idJournalLog);
       expect(done.skipToday, isTrue);
@@ -75,6 +80,7 @@ void main() {
         const AiPrefs(), // journalMin defaults to AUTO
         remindersEnabled: true,
         aiConfigured: true,
+        lastNightDataReady: true,
         bedtimeMinOfDay: 23 * 60, // 23:00
         journalDoneToday: false,
       ).firstWhere((s) => s.id == NotificationService.idJournalLog);
@@ -88,6 +94,7 @@ void main() {
         const AiPrefs(journalMin: 21 * 60 + 15),
         remindersEnabled: true,
         aiConfigured: true,
+        lastNightDataReady: true,
         bedtimeMinOfDay: 23 * 60,
         journalDoneToday: false,
       ).firstWhere((s) => s.id == NotificationService.idJournalLog);
@@ -100,6 +107,7 @@ void main() {
         const AiPrefs(),
         remindersEnabled: true,
         aiConfigured: true,
+        lastNightDataReady: true,
         journalDoneToday: false,
         sweepHeadline: 'Readiness 31 — below your usual range',
       );
@@ -118,6 +126,7 @@ void main() {
         const AiPrefs(),
         remindersEnabled: true,
         aiConfigured: true,
+        lastNightDataReady: true,
         journalDoneToday: false,
       );
       expect(plan.map((s) => s.id),
@@ -130,6 +139,7 @@ void main() {
         const AiPrefs(),
         remindersEnabled: true,
         aiConfigured: true,
+        lastNightDataReady: true,
         journalDoneToday: false,
         sweepHeadline: headline,
       ).firstWhere((s) => s.id == NotificationService.idEveningBrief);
@@ -141,6 +151,7 @@ void main() {
         const AiPrefs(), // eveningMin default 20:00 — the fallback, not the time
         remindersEnabled: true,
         aiConfigured: true,
+        lastNightDataReady: true,
         bedtimeMinOfDay: 21 * 60 + 15, // 21:15 — well clear of quiet hours
         journalDoneToday: false,
         sweepHeadline: 'x',
@@ -157,6 +168,7 @@ void main() {
         const AiPrefs(),
         remindersEnabled: true,
         aiConfigured: true,
+        lastNightDataReady: true,
         bedtimeMinOfDay: 23 * 60 + 30,
         journalDoneToday: false,
         sweepHeadline: 'x',
@@ -174,6 +186,7 @@ void main() {
         const AiPrefs(),
         remindersEnabled: true,
         aiConfigured: true,
+        lastNightDataReady: true,
         bedtimeMinOfDay: 23 * 60 + 30,
         journalDoneToday: false,
         sweepHeadline: 'x',
@@ -189,6 +202,7 @@ void main() {
         const AiPrefs(),
         remindersEnabled: true,
         aiConfigured: true,
+        lastNightDataReady: true,
         journalDoneToday: false,
         sweepHeadline: 'x',
       ).firstWhere((s) => s.id == NotificationService.idEveningBrief);
@@ -280,6 +294,81 @@ void main() {
       // Exactly 00:30 lands on the limit itself.
       expect(const AiPrefs().resolvedEveningMin(bedtimeMinOfDay: 30),
           AiPrefs.eveningLatestMin);
+    });
+  });
+
+  group('morning briefing waits for last night\'s data', () {
+    test('no data for the night that just ended, no slot', () {
+      final plan = aiReminderPlan(
+        const AiPrefs(),
+        remindersEnabled: true,
+        aiConfigured: true,
+        lastNightDataReady: false,
+        journalDoneToday: false,
+      );
+      expect(plan.map((s) => s.id),
+          isNot(contains(NotificationService.idMorningBrief)));
+    });
+
+    test('data ready arms the slot; the other AI slots are unaffected', () {
+      final plan = aiReminderPlan(
+        const AiPrefs(),
+        remindersEnabled: true,
+        aiConfigured: true,
+        lastNightDataReady: true,
+        journalDoneToday: false,
+        sweepHeadline: 'x',
+      );
+      final ids = plan.map((s) => s.id).toSet();
+      expect(ids, contains(NotificationService.idMorningBrief));
+      expect(ids, contains(NotificationService.idEveningBrief));
+      expect(ids, contains(NotificationService.idJournalLog));
+    });
+  });
+
+  group('morningBriefSlotMin follows the typical wake', () {
+    test('no learned wake keeps the configured time', () {
+      expect(morningBriefSlotMin(8 * 60, null), 8 * 60);
+    });
+
+    test('an early wake keeps the configured floor', () {
+      // Wake 06:00 + 30 = 06:30, but the user asked for nothing before 08:00.
+      expect(morningBriefSlotMin(8 * 60, 6 * 60), 8 * 60);
+    });
+
+    test('a late wake pushes the slot past it', () {
+      // Wake 09:30 -> 10:00, so a user still asleep at 08:00 is not buzzed.
+      expect(morningBriefSlotMin(8 * 60, 9 * 60 + 30), 10 * 60);
+    });
+
+    test('the slot lands inside the plan, quiet-hours cap still applies', () {
+      final slot = aiReminderPlan(
+        const AiPrefs(),
+        remindersEnabled: true,
+        aiConfigured: true,
+        lastNightDataReady: true,
+        typicalWakeMinOfDay: 9 * 60 + 30,
+        journalDoneToday: false,
+      ).firstWhere((s) => s.id == NotificationService.idMorningBrief);
+      expect(slot.hour, 10);
+      expect(slot.minute, 0);
+    });
+
+    test('a wake-derived slot inside quiet hours is dropped, not moved', () {
+      final plan = aiReminderPlan(
+        const AiPrefs(morningMin: 0),
+        remindersEnabled: true,
+        aiConfigured: true,
+        lastNightDataReady: true,
+        typicalWakeMinOfDay: 23 * 60 + 45, // wake+30 = 00:15, inside 22:00-07:00
+        journalDoneToday: false,
+        quiet: const NotificationPrefs(
+            quietEnabled: true,
+            quietStartMin: 22 * 60,
+            quietEndMin: 7 * 60),
+      );
+      expect(plan.map((s) => s.id),
+          isNot(contains(NotificationService.idMorningBrief)));
     });
   });
 }

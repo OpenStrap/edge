@@ -3317,7 +3317,9 @@ class AppState extends ChangeNotifier {
         prefs,
         ai,
         aiConfigured: aiRemindersConfigured(coachConfig),
+        lastNightDataReady: await _lastNightDataReady(cd.recent),
         bedtimeMinOfDay: cd.bedtimeMin,
+        typicalWakeMinOfDay: cd.wakeMin,
         journalDoneToday: BriefingStore.journalDoneToday(),
         sweepHeadline: await _sweepHeadlineNow(),
       );
@@ -3327,27 +3329,35 @@ class AppState extends ChangeNotifier {
   }
 
   /// Everything the reminder scheduler needs from the crossday rollup, in ONE
-  /// read: the Sleep Coach's recommended bedtime (local minutes past midnight,
-  /// or null when not yet learned) and the per-day `recent[]` rows the weekly
-  /// lookback's finding summarizes. Read in one place because three schedules
-  /// hang off it — check-in, wind-down, nightly sweep, weekly lookback — and
-  /// a second copy of this parse is a second thing to get wrong.
-  Future<({double? bedtimeMin, List<Map<String, dynamic>> recent})>
-      _readCrossdaySummary() async {
+  /// read: the Sleep Coach's recommended bedtime and typical wake (local
+  /// minutes past midnight, or null when not yet learned) and the per-day
+  /// `recent[]` rows the weekly lookback's finding summarizes. Read in one
+  /// place because three schedules hang off it — check-in, wind-down, nightly
+  /// sweep, weekly lookback — and a second copy of this parse is a second
+  /// thing to get wrong.
+  Future<
+      ({double? bedtimeMin,
+      double? wakeMin,
+      List<Map<String, dynamic>> recent})> _readCrossdaySummary() async {
     try {
       final cd = await LocalDb.baseline('crossday');
       final m = cd?['payload_json'];
       if (m is! String) {
-        return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
+        return (bedtimeMin: null, wakeMin: null, recent: const <Map<String, dynamic>>[]);
       }
       final j = jsonDecode(m);
       if (j is! Map) {
-        return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
+        return (bedtimeMin: null, wakeMin: null, recent: const <Map<String, dynamic>>[]);
       }
-      final bt = (j['sleep_coach'] as Map?)?['bedtime'];
+      final coach = (j['sleep_coach'] as Map?)?.cast<String, dynamic>();
+      final bt = coach?['bedtime'];
       final v = bt is Map ? bt['value'] : null;
       final bedtime =
           (v is Map ? (v['bedtime_min_of_day'] as num?) : null)?.toDouble();
+      final wk = coach?['wake'];
+      final wv = wk is Map ? wk['value'] : null;
+      final wake =
+          (wv is Map ? (wv['wake_min_of_day'] as num?) : null)?.toDouble();
       // Same rows `DerivationEngine._runNotifications` consumes for the daily
       // exception — {date, rhr, unsettled, illness, anomaly, temp}.
       final rawRecent = j['recent'];
@@ -3356,11 +3366,37 @@ class AppState extends ChangeNotifier {
           for (final r in rawRecent)
             if (r is Map) r.cast<String, dynamic>(),
       ];
-      return (bedtimeMin: bedtime, recent: recent);
+      return (bedtimeMin: bedtime, wakeMin: wake, recent: recent);
     } catch (_) {
-      // No rollup → no learned bedtime and an empty week: every consumer has
-      // its own honest silence for that.
-      return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
+      // No rollup → no learned bedtime/wake and an empty week: every consumer
+      // has its own honest silence for that.
+      return (bedtimeMin: null, wakeMin: null, recent: const <Map<String, dynamic>>[]);
+    }
+  }
+
+  /// Whether data for the night that just ended has actually arrived: a synced
+  /// band sample from TODAY (local day label), or — for sources that write
+  /// derived days without raw samples, e.g. a cloud ring — a crossday row
+  /// already derived for today. This is the morning briefing's arm gate: the
+  /// notification promises last night's sleep, so it is armed only when that
+  /// data exists. False on a read failure too — the next pass (sync
+  /// completion, foreground resume) re-arms as soon as the data lands, and a
+  /// silently missing briefing beats one the deep link cannot back.
+  Future<bool> _lastNightDataReady(List<Map<String, dynamic>> recent) async {
+    try {
+      final today = todayLabel();
+      final s = lastSynced ?? await LocalDb.latestSample();
+      if (s != null &&
+          s.tsEpoch > 0 &&
+          dayLabelOf(DateTime.fromMillisecondsSinceEpoch(s.tsEpoch * 1000)) ==
+              today) {
+        return true;
+      }
+      final last = recent.isEmpty ? null : recent.last['date'];
+      return last is String && last == today;
+    } catch (e) {
+      _log('[notify] last-night data check skipped: $e');
+      return false;
     }
   }
 

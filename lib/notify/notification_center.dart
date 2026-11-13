@@ -883,17 +883,42 @@ class NotificationCenter {
     return slotMin > nowMin;
   }
 
+  /// How long after its slot the morning briefing may still fire "late"
+  /// instead of rolling to tomorrow — see [morningBriefLateFire]. Covers the
+  /// pass that runs when the morning sync lands just after the slot time.
+  static const int morningBriefLateGraceMin = 3 * 60;
+
+  /// When a morning-briefing pass at [now] finds the slot already past today,
+  /// the instant to fire at instead of rolling to tomorrow: [now] + 2 min,
+  /// but only within [morningBriefLateGraceMin] of the slot. Beyond that the
+  /// briefing is tomorrow's — announcing last night at 14:00 is the recap
+  /// problem all over again. Null means "roll to tomorrow" as before.
+  ///
+  /// Only reachable when the slot was armed at all, i.e. last-night data was
+  /// already there — this never fires a briefing the data cannot back.
+  @visibleForTesting
+  static DateTime? morningBriefLateFire(int slotMin, DateTime now) {
+    final nowMin = now.hour * 60 + now.minute;
+    if (slotMin <= nowMin && nowMin < slotMin + morningBriefLateGraceMin) {
+      return now.add(const Duration(minutes: 2));
+    }
+    return null;
+  }
+
   /// Re-assert the three AI slots (morning briefing, nightly sweep, pre-sleep
   /// journal prompt).
   ///
   /// The nightly sweep earns the interruption the same way the weekly
   /// lookback does — [sweepHeadline] is a finding that already exists,
   /// computed on-device before this is called, and it IS the notification's
-  /// body. The morning briefing is armed for a BYOK user with the switch on;
-  /// its body is static. The journal prompt is a nudge with no finding behind
-  /// it; [aiReminderPlan] still describes it (it is the plan, not the policy)
-  /// and [NotificationService.maySchedule] still refuses it, quietly, right
-  /// here.
+  /// body. The morning briefing is armed for a BYOK user with the switch on
+  /// AND last night's data actually present ([lastNightDataReady] — a briefing
+  /// announced before the band has synced is a promise the deep link cannot
+  /// keep); its slot follows the typical wake when that is known
+  /// ([typicalWakeMinOfDay]). Its body is static. The journal prompt is a
+  /// nudge with no finding behind it; [aiReminderPlan] still describes it (it
+  /// is the plan, not the policy) and [NotificationService.maySchedule] still
+  /// refuses it, quietly, right here.
   ///
   /// The cancels stay unconditional: they are what clears yesterday's slot when
   /// today has nothing to say, and what clears whatever an older build left.
@@ -901,7 +926,9 @@ class NotificationCenter {
     NotificationPrefs prefs,
     AiPrefs ai, {
     required bool aiConfigured,
+    required bool lastNightDataReady,
     double? bedtimeMinOfDay,
+    double? typicalWakeMinOfDay,
     required bool journalDoneToday,
     String? sweepHeadline,
   }) async {
@@ -913,22 +940,29 @@ class NotificationCenter {
       ai,
       remindersEnabled: prefs.remindersEnabled,
       aiConfigured: aiConfigured,
+      lastNightDataReady: lastNightDataReady,
       bedtimeMinOfDay: bedtimeMinOfDay,
+      typicalWakeMinOfDay: typicalWakeMinOfDay,
       journalDoneToday: journalDoneToday,
       sweepHeadline: sweepHeadline,
       quiet: prefs,
     ).where((s) => NotificationService.maySchedule(s.id)).toList();
     if (plan.isEmpty) return;
     await svc.ensureTimezone();
-    final nowMin = DateTime.now().hour * 60 + DateTime.now().minute;
+    final now = DateTime.now();
+    final nowMin = now.hour * 60 + now.minute;
     for (final s in plan) {
       if (!aiSlotArmable(s.id, s.hour * 60 + s.minute, nowMin)) continue;
+      var at = svc.nextDailyInstant(s.hour, s.minute);
+      if (s.id == NotificationService.idMorningBrief) {
+        at = morningBriefLateFire(s.hour * 60 + s.minute, now) ?? at;
+      }
       await svc.scheduleOnce(
         id: s.id,
         category: NotifCategory.reminders,
         title: s.title,
         body: s.body,
-        at: svc.nextDailyInstant(s.hour, s.minute),
+        at: at,
         route: s.route,
       );
     }

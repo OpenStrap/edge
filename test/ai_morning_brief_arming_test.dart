@@ -15,6 +15,7 @@ void main() {
       const AiPrefs(),
       remindersEnabled: const NotificationPrefs().remindersEnabled,
       aiConfigured: true,
+      lastNightDataReady: true,
       journalDoneToday: false,
     ).where((s) => NotificationService.maySchedule(s.id));
     return [
@@ -37,5 +38,29 @@ void main() {
     expect(NotificationCenter.aiSlotArmable(id, 21 * 60, 20 * 60), isTrue);
     expect(NotificationCenter.aiSlotArmable(id, 21 * 60, 21 * 60), isFalse);
     expect(NotificationCenter.aiSlotArmable(id, 21 * 60, 22 * 60), isFalse);
+  });
+
+  test('a slot just past fires late within the grace window, not tomorrow', () {
+    // Sync landed at 08:30 for an 08:00 slot: fire ~now instead of next 08:00.
+    final late =
+        NotificationCenter.morningBriefLateFire(8 * 60, DateTime(2025, 1, 6, 8, 30));
+    expect(late, isNotNull);
+    expect(late!.hour, 8);
+    expect(late.minute, 32);
+  });
+
+  test('a slot long past rolls to tomorrow — no 14:00 "morning" briefing', () {
+    expect(
+        NotificationCenter.morningBriefLateFire(8 * 60, DateTime(2025, 1, 6, 11, 0)),
+        isNull);
+    expect(
+        NotificationCenter.morningBriefLateFire(8 * 60, DateTime(2025, 1, 6, 23, 0)),
+        isNull);
+  });
+
+  test('a slot still ahead is not "late"', () {
+    expect(
+        NotificationCenter.morningBriefLateFire(8 * 60, DateTime(2025, 1, 6, 7, 59)),
+        isNull);
   });
 }
