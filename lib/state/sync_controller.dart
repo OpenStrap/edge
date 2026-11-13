@@ -1007,10 +1007,19 @@ class SyncController {
     });
   }
 
+  /// How long a manual sync waits on the phone's step read before moving on.
+  /// A hung platform call would otherwise hold the single-flight slot for
+  /// good: every later tap would join the stuck future and the heavy finalize
+  /// would never be requested.
+  static const Duration manualPhoneStepsTimeout = Duration(seconds: 60);
+
   Future<void> _refreshPhoneStepsForManualSync() async {
     if (!_phoneStepsEnabled()) return;
     try {
-      await _syncPhoneSteps();
+      await _syncPhoneSteps().timeout(manualPhoneStepsTimeout);
+    } on TimeoutException {
+      _log('Phone step refresh timed out after '
+          '${manualPhoneStepsTimeout.inSeconds}s; carrying on without it.');
     } catch (e) {
       _log('Phone step refresh failed: $e');
     }

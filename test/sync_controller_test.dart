@@ -652,6 +652,27 @@ void main() {
       expect(r.engine.count('runSync'), 2);
     }));
 
+    test('a hung phone step read is given up on and does not wedge the next tap',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.phoneSteps = true;
+      r.phoneStepsGate = Completer<void>(); // never completes
+      final first = r.c.syncNow();
+      await until(() => r.engine.count('runSync') == 1);
+      expect(r.trace, isNot(contains('sched.heavy')));
+      timers
+          .activeOneShot(SyncController.manualPhoneStepsTimeout)
+          .single
+          .fire();
+      await first;
+      expect(r.logged('Phone step refresh timed out'), isTrue);
+      expect(r.trace.last, 'sched.heavy');
+      r.phoneStepsGate = null;
+      await r.c.syncNow();
+      expect(r.engine.count('steps'), 2,
+          reason: 'the single-flight slot cleared after the timeout');
+    }));
+
     test('manual sync reconnects a silent link with a live stream armed',
         _rigCase((r, timers) async {
       r.engine.link = true;
