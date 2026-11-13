@@ -1029,6 +1029,12 @@ class SyncController {
     final steps = _refreshPhoneStepsForManualSync();
     var finalize = false;
     try {
+      // An image install owns the link: a Sync now tap must not probe it,
+      // drop it, or open a session over it.
+      if (engine.firmwareFlashActive) {
+        _log('Sync now: an image install is using the link — not touching it.');
+        return;
+      }
       if (background || !engine.isConnected) {
         await openSession();
         return;

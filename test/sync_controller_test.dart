@@ -55,6 +55,7 @@ class _Engine implements BleEngine {
   Duration quiet = Duration.zero;
   bool liveArmed = false;
   bool historyStuck = false;
+  bool flashActive = false;
   int? newestTs;
 
   /// A history task the band has not ended yet.
@@ -72,6 +73,8 @@ class _Engine implements BleEngine {
   bool get liveEnabled => liveArmed;
   @override
   bool get historyStuckThisSession => historyStuck;
+  @override
+  bool get firmwareFlashActive => flashActive;
   @override
   int get historyGateDrops => 0;
   @override
@@ -694,6 +697,20 @@ void main() {
       expect(r.engine.count('disconnect'), 1);
       expect(r.engine.count('requestForegroundSync'), 0);
       expect(r.logged('Sync now: history is stuck on this connection'), isTrue);
+    }));
+
+    test('manual sync leaves the link alone during an image install',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.flashActive = true;
+      r.engine.quiet = const Duration(minutes: 5);
+      r.engine.historyStuck = true;
+      await r.c.syncNow();
+      expect(r.engine.count('probe'), 0);
+      expect(r.engine.count('disconnect'), 0);
+      expect(r.engine.count('connect'), 0);
+      expect(r.engine.count('requestForegroundSync'), 0);
+      expect(r.logged('image install is using the link'), isTrue);
     }));
 
     test('manual sync probes a quiet link and reuses it if the band replies',
