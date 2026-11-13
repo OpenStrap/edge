@@ -7661,15 +7661,15 @@
       }
     }
   },
-  "homeIllnessBodyNoZ": "อัตราการเต้นหัวใจขณะพักสูงกว่าปกติในหลายคืนล่าสุด เป็นรูปแบบ ไม่ใช่สาเหตุ",
+  "homeIllnessBodyNoZ": "ข้อมูลช่วงคืนล่าสุดแสดงอัตราการเต้นหัวใจขณะพักสูงกว่าปกติ เป็นรูปแบบ ไม่ใช่สาเหตุ",
   "@homeIllnessBodyNoZ": {
     "description": "Illness watch body text when no standardised-deviation figure is available."
   },
-  "homeIllnessBodyAbove": "หลายคืนล่าสุดแสดงอัตราการเต้นหัวใจขณะพักสูงกว่าปกติ คืนนั้นก็สูงกว่าเช่นกัน เป็นรูปแบบ ไม่ใช่สาเหตุ",
+  "homeIllnessBodyAbove": "ข้อมูลช่วงคืนล่าสุดแสดงอัตราการเต้นหัวใจขณะพักสูงกว่าปกติ คืนนั้นก็สูงกว่าเช่นกัน เป็นรูปแบบ ไม่ใช่สาเหตุ",
   "@homeIllnessBodyAbove": {
     "description": "Illness watch body text when the flagged night's heart rate sat above baseline, with the deviation amount."
   },
-  "homeIllnessBodyBelow": "หลายคืนล่าสุดรวมกันแสดงอัตราการเต้นหัวใจขณะพักสูงกว่าปกติ แม้คืนนั้นเพียงคืนเดียวจะต่ำกว่า เป็นรูปแบบ ไม่ใช่สาเหตุ",
+  "homeIllnessBodyBelow": "ข้อมูลช่วงคืนล่าสุดรวมกันแสดงอัตราการเต้นหัวใจขณะพักสูงกว่าปกติ แม้คืนนั้นเพียงคืนเดียวจะต่ำกว่า เป็นรูปแบบ ไม่ใช่สาเหตุ",
   "@homeIllnessBodyBelow": {
     "description": "Illness watch body text when the flagged night's heart rate sat below baseline, with the deviation amount."
   },
