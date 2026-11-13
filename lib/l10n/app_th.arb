@@ -1943,9 +1943,9 @@
   "@napsWokeUpHelp": {
     "description": "Time picker helper text for logging when a manual nap ended."
   },
-  "napsInvalidWindow": "การงีบต้องยาว 5 นาทีถึง 6 ชั่วโมง หากนานกว่านั้นถือเป็นการนอนหลักและควรอยู่ในคืนนั้นเพื่ออ่านระยะการนอน",
+  "napsInvalidWindow": "การงีบต้องยาว 5 นาทีถึง 3 ชั่วโมง หากนานกว่านั้นถือเป็นการนอนหลักและควรอยู่ในคืนนั้นเพื่ออ่านระยะการนอน",
   "@napsInvalidWindow": {
-    "description": "Validation error when a manually logged nap window is outside 5 minutes to 6 hours."
+    "description": "Validation error when a manually logged nap window is outside 5 minutes to 3 hours."
   },
   "napsOverlap": "เวลาทับซ้อนกับการงีบที่มีอยู่ในวันนี้ โปรดลบรายการเดิมก่อนเพื่อไม่นับชั่วโมงซ้ำ",
   "@napsOverlap": {
@@ -8646,6 +8646,7 @@
     "description": "Shown after the user set their own sleep window and the band recorded it, but staging found no sleep in it."
   },
   "sleepDetailCorrectionUnavailable": "ข้อมูลบันทึกรายละเอียดของคืนนี้ไม่ได้อยู่ในโทรศัพท์แล้ว จึงแก้ไขการนอนไม่ได้",
+  "sleepDetailCorrectionNoRecordings": "คืนนี้ไม่มีข้อมูลบันทึกรายละเอียดในโทรศัพท์ จึงแก้ไขการนอนของคืนนี้ไม่ได้",
   "sleepDetailCorrectionEveningPruned": "ข้อมูลช่วงเย็นก่อนคืนนี้ไม่ได้อยู่ในโทรศัพท์แล้ว จึงใช้ได้เฉพาะเวลาเข้านอนหลังเที่ยงคืน หรือ “ไม่ใช่การนอน”",
   "@sleepDetailCorrectionEveningPruned": {
     "description": "Shown on the oldest night still kept, or after a correction there was refused: the evening part of the night has been pruned, so a bedtime before midnight, confirming the detected times, or reverting to automatic cannot be applied."
@@ -9723,6 +9724,7 @@
   "@activityPickerRecent": {
     "description": "Section heading over the recent-activities row"
   },
+  "activityPickerMostDone": "ใช้บ่อยที่สุด",
   "activityPickerCalorieEstimatesTitle": "ตัวเลขแคลอรีเป็นค่าประมาณ",
   "@activityPickerCalorieEstimatesTitle": {
     "description": "Status card title explaining that calorie figures are estimates"
@@ -12825,7 +12827,7 @@
   "activityStart": "เริ่ม",
   "activityEnd": "จบ",
   "activityCheckTimes": "ตรวจสอบเวลา",
-  "activityNapWindow": "เลือกช่วงเวลาที่ผ่านมา ความยาว 5 นาทีถึง 6 ชั่วโมง",
+  "activityNapWindow": "เลือกช่วงเวลาที่ผ่านมา ความยาว 5 นาทีถึง 3 ชั่วโมง",
   "activityEditNap": "แก้ไขการงีบ",
   "activityEditWorkout": "แก้ไขการออกกำลังกาย",
   "activityNapAlerts": "การงีบที่ตรวจพบ",
@@ -16414,7 +16416,42 @@
       }
     }
   },
+  "welcomeCoachKeyReentry": "คีย์ API ของโค้ชยังอยู่ในพื้นที่จัดเก็บที่ปลอดภัยและไม่ได้รวมอยู่ในข้อมูลสำรอง โปรดป้อนคีย์อีกครั้งในการตั้งค่า AI เพื่อใช้โค้ชบนโทรศัพท์เครื่องนี้",
+  "welcomeSettingsSkipped": "{n, plural, other{อ่านการตั้งค่า {n} รายการในข้อมูลสำรองไม่ได้และข้ามไป}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "welcomeSettingsSkippedBody": "รายการเหล่านั้นใช้ค่าของโทรศัพท์เครื่องนี้ต่อ",
+  "welcomeCoachChatGptReentry": "ข้อมูลการลงชื่อเข้าใช้ ChatGPT ยังอยู่ในพื้นที่จัดเก็บที่ปลอดภัยและไม่ได้รวมอยู่ในข้อมูลสำรอง โปรดลงชื่อเข้าใช้อีกครั้งในการตั้งค่า AI เพื่อใช้โค้ชบนโทรศัพท์เครื่องนี้",
+  "welcomeCoachServerReentry": "ที่อยู่เซิร์ฟเวอร์โค้ชที่คุณกำหนดเองไม่ได้ถูกสำรองไว้ เพราะที่อยู่อาจมีคีย์อยู่ด้วย ป้อนอีกครั้งในการตั้งค่า AI",
+  "welcomeSettingsRestored": "กู้คืนการตั้งค่าแล้ว {n} รายการ",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "strengthCustomWeight": "น้ำหนักที่กำหนดเอง",
+  "strengthEnterValue": "ป้อนค่า",
+  "strengthInvalidNumber": "ตัวเลขไม่ถูกต้อง",
+  "strengthLoadRangeKg": "ต้องอยู่ระหว่าง 0–500 กก.",
+  "strengthLoadRangeLb": "ต้องอยู่ระหว่าง 0–1100 ปอนด์",
+  "strengthRepsRange": "ต้องอยู่ระหว่าง 1–200 ครั้ง",
+  "strengthEditSet": "แก้ไขเซ็ต",
+  "strengthDeleteSet": "ลบเซ็ต",
+  "strengthDeleteSetConfirm": "ลบเซ็ตนี้หรือไม่?",
+  "strengthBodyweight": "น้ำหนักตัว",
+  "strengthDelete": "ลบ",
+  "strengthSaveFailed": "ไม่สามารถบันทึกการเปลี่ยนแปลงได้",
   "whoopFirmwareWarningTitle": "ผู้ใช้ WHOOP: อย่าเชื่อมต่อกับแอป WHOOP อีก",
   "whoopFirmwareWarningAction": "หากคุณใช้ OpenStrap หรือแอปโอเพนซอร์สอื่น หรือวางแผนจะเปลี่ยนไปใช้ในภายหลัง อย่าเชื่อมต่อสายรัดกับแอป WHOOP อย่างเป็นทางการอีก แอปอาจติดตั้งอัปเดตเฟิร์มแวร์โดยอัตโนมัติ ให้ถอนการติดตั้งหรือปิดใช้งานแอป WHOOP เพื่อไม่ให้แอปอัปเดตสายรัดของคุณ",
-  "whoopFirmwareWarningDetails": "มีรายงานเกี่ยวกับเฟิร์มแวร์ WHOOP 5.0 / MG เวอร์ชัน 50.43.1.0 และ 50.43.2.0 ว่าเข้าถึงข้อมูลไม่ได้ บลูทูธอาจยังเชื่อมต่อได้ OpenStrap ไม่สามารถออกโทเค็นสมาชิกที่ WHOOP ลงนามซึ่งจำเป็นต่อการปลดล็อกสายรัดที่ได้รับผลกระทบ เรากำลังหาทางแก้ไข แต่ยังไม่มีวิธีแก้ในตอนนี้"
+  "whoopFirmwareWarningDetails": "มีรายงานเกี่ยวกับเฟิร์มแวร์ WHOOP 5.0 / MG เวอร์ชัน 50.43.1.0 และ 50.43.2.0 ว่าเข้าถึงข้อมูลไม่ได้ บลูทูธอาจยังเชื่อมต่อได้ OpenStrap ไม่สามารถออกโทเค็นสมาชิกที่ WHOOP ลงนามซึ่งจำเป็นต่อการปลดล็อกสายรัดที่ได้รับผลกระทบ เรากำลังหาทางแก้ไข แต่ยังไม่มีวิธีแก้ในตอนนี้",
+  "pairBandNotSensor": "อุปกรณ์นั้นคือ {label} ซึ่งเป็นสายรัด ไม่ใช่เซ็นเซอร์ธรรมดา ไม่ได้บันทึกอะไรไว้",
+  "@pairBandNotSensor": {
+    "description": "Shown when a device picked as a plain sensor turns out to be a band. Nothing was saved. {label} is the band’s name.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  }
 }

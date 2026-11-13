@@ -9,6 +9,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/data/auto_backup.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:path/path.dart' as p;
@@ -37,6 +38,8 @@ class _FakePathProvider extends PathProviderPlatform {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
   group('backupIsDue', () {
     final now = DateTime(2026, 8, 9, 12);
 

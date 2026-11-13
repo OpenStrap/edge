@@ -42,6 +42,7 @@ import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
 import '../../ble/hrs_link.dart';
+import '../pairing/pair_outcome_text.dart';
 import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
@@ -196,8 +197,8 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
     try {
       failure = sensor.pick != null
           ? await sensor.pick!(cand.device)
-          : await HrsLink.pairNotifySensor(sensor.entry, cand.device,
-              label: cand.label);
+          : pairOutcomeText(l, await HrsLink.pairNotifySensor(sensor.entry, cand.device,
+              label: cand.label, earlierBand: cand.alsoBand));
     } catch (e) {
       failure = l?.pairSensorCouldNotPair(e.toString()) ?? 'Could not pair that device: $e';
     }
