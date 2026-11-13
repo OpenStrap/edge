@@ -201,7 +201,7 @@ class _PairingScreenState extends State<PairingScreen> {
         blocker: _blocker,
         onPair: _pair,
         onSkip: widget.onSkip,
-        resetEntry: widget.entry,
+        resetEntry: widget.modelKnown ? widget.entry : null,
         onPickDifferent: Navigator.of(c).canPop()
             ? () => Navigator.of(c).maybePop()
             : null,

@@ -4,6 +4,9 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:openstrap_edge/sync/reset_gate.dart';
+import 'package:openstrap_edge/data/models.dart' show DeviceState;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ios_ble_restore.dart';
@@ -309,6 +312,100 @@ void main() {
       expect(rows.single['end_ts'], startMs ~/ 1000 + 19);
       expect(rows.single['steps'], greaterThan(0));
     }));
+
+    // WHY: a calibration read can resume after Delete everything has wiped.
+    // catches: checking reset only before the read, or outside the commit gate.
+    test('pre-reset live finalization cannot restore deleted step rows',
+        syncCase((rig, timers) async {
+      const startMs = 1786233600000;
+      for (var frame = 0; frame < 100; frame++) {
+        rig.app.debugFeedLiveAccel([
+          for (var i = 0; i < 20; i++)
+            1 + 0.45 * math.sin(2 * math.pi * 2 * (frame * 20 + i) / 100),
+        ], atMs: startMs + frame * 200, recTs: startMs ~/ 1000);
+      }
+      final db = await LocalDb.instance;
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      rig.app.debugReadLiveStepCalibration = () async {
+        final rows = await LocalDb.liveStepCalibrationRuns();
+        entered.complete();
+        await release.future;
+        return rows;
+      };
+      final finalizing = rig.app.debugFinalizeLivePedometer();
+      await entered.future;
+      ResetGate.enter();
+      await LocalDb.wipeAll();
+      ResetGate.leave();
+      release.complete();
+      await finalizing;
+      expect(await db.query('live_coverage'), isEmpty);
+      // Positive control: a new session still banks real measured steps.
+      await LocalDb.addLiveCoverage(1786233600, 1786233660, 80, '2026-08-09');
+      expect(await LocalDb.liveStepsForDay('2026-08-09'), 80);
+    }));
+
+    // WHY: replacement suppresses disconnect callbacks, but traces are per band.
+    // catches: preserving primary samples at the identity reset boundary.
+    test('replacement clears only the old primary live HR trace',
+        syncCase((rig, timers) async {
+      rig.app.debugFeedEngineState('', DeviceState()
+        ..connection = 'connected' ..liveHr = 61 ..liveHrAt = 1786233600000);
+      rig.app.debugFeedEngineState('ring', DeviceState()
+        ..connection = 'connected' ..liveHr = 72 ..liveHrAt = 1786233600000);
+      expect(rig.app.liveHrTrace(''), [61]);
+      expect(rig.app.liveHrTrace('ring'), [72]);
+      await rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+      expect(rig.app.liveHrTrace(''), isEmpty);
+      expect(rig.app.liveHrTrace('ring'), [72]);
+      rig.app.debugFeedEngineState('', rig.engine.state
+        ..liveHr = 84 ..liveHrAt = 1786233601000);
+      expect(rig.app.liveHrTrace(''), [84]);
+    }));
+
+    // WHY: MG's saved ECG remains available while its radio is absent.
+    // catches: resetting pairedIsMaverick on a failed replacement rollback.
+    test('failed replacement restores the absent old MG identity',
+        syncCase((rig, timers) async {
+      rig.app.pairedIsMaverick = true;
+      rig.engine.connectScript.addAll([false, false]);
+      await expectLater(rig.app.replaceWith(BluetoothDevice.fromId(replacementId)),
+          throwsA(isA<Exception>()));
+      expect(rig.app.paired?.remoteId, kRemoteId);
+      expect(rig.app.pairedIsMaverick, isTrue);
+    }));
+
+    for (final success in [true, false]) {
+      // WHY: the epoch and confirmation describe a physical band's arm;
+      // a new band must receive its own write, and failure keeps the old arm.
+      // catches: clearing only RAM, or clearing before replacement commits.
+      test('replacement alarm ownership follows commit (success=$success)',
+          syncCase((rig, timers) async {
+        await rig.openAndSettle();
+        final tomorrow = DateTime.now().add(const Duration(days: 1));
+        await rig.app.setScheduleDay(weekday: tomorrow.weekday,
+            hour: 7, minute: 0, enabled: true);
+        final epoch = rig.app.alarmEpoch;
+        expect(epoch, isNotNull);
+        expect(rig.app.alarmConfirmed, isTrue);
+        final schedule = await LocalDb.alarmScheduleRows();
+        rig.engine.events.clear();
+        rig.engine.connectScript.addAll(success ? [true] : [false, false]);
+        if (success) {
+          await rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+          expect(rig.engine.count('armAlarm'), greaterThanOrEqualTo(1),
+              reason: 'the same next occurrence must be written to the new band');
+        } else {
+          await expectLater(rig.app.replaceWith(BluetoothDevice.fromId(replacementId)),
+              throwsA(isA<Exception>()));
+          expect(rig.app.alarmEpoch, epoch);
+          expect(rig.app.alarmConfirmed, isTrue);
+          expect((await SharedPreferences.getInstance()).getInt('alarm_epoch'), epoch);
+        }
+        expect(await LocalDb.alarmScheduleRows(), schedule);
+      }));
+    }
 
     test('held bootstrap keeps old identity; READY switches without losing history',
         syncCase((rig, timers) async {

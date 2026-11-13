@@ -78,6 +78,10 @@ class _Calls implements AddDeviceIo {
   @override
   bool get hasMainBand => _hasMain;
 
+  String primaryId = 'primary';
+  @override
+  String? get mainBandRemoteId => _hasMain ? primaryId : null;
+
   String? bandName = 'Jordan’s WHOOP';
   @override
   String? get mainBandName => _hasMain ? bandName : null;
@@ -512,6 +516,50 @@ void main() {
     });
 
 
+  });
+
+  // WHY: the workout cleanup must never own the main peripheral's link.
+  // catches: letting the primary's remote id reach the secondary pair call.
+  for (final discoveredAfterConnect in [false, true]) {
+    testWidgets('current main band cannot become a sensor (after connect=$discoveredAfterConnect)', (t) async {
+      final calls = _Calls(discoveredAfterConnect
+          ? [PairOutcome.band(kWhoopGen5), const PairOutcome.saved()]
+          : [const PairOutcome.saved()]);
+      await _tap(t, calls, _cand('ble_hrs', id: 'primary',
+          alsoBand: discoveredAfterConnect ? null : kWhoopGen5), hasMain: true);
+      final choice = find.text('Use it for workouts only');
+      if (choice.evaluate().isNotEmpty) {
+        await t.tap(choice);
+        await t.pumpAndSettle();
+      }
+      expect(calls.pairs, isEmpty,
+          reason: 'reject before connecting to the saved primary');
+      expect(_result(t), startsWith('failed|'));
+    });
+  }
+
+  // WHY: another flow can commit a primary while this confirmation is open.
+  // catches: checking primary identity only at the original tap.
+  testWidgets('workouts choice rechecks the primary identity before connecting', (t) async {
+    final calls = _Calls();
+    await _tap(t, calls, _cand('gen5', id: 'new-main'), hasMain: true);
+    calls.primaryId = 'new-main';
+    await t.tap(find.text('Use it for workouts only'));
+    await t.pumpAndSettle();
+    expect(calls.pairs, isEmpty);
+    expect(_result(t), startsWith('failed|'));
+  });
+
+  // WHY: post-connect WHOOP identification supersedes a Polar-looking advert.
+  // catches: retrying WHOOP under Polar PMD's required characteristics.
+  testWidgets('WHOOP discovered during Polar pairing retries as BLE HRS', (t) async {
+    final calls = _Calls([PairOutcome.band(kWhoopGen5), const PairOutcome.saved()]);
+    await _tap(t, calls, _cand('polar_pmd'), hasMain: true);
+    await t.tap(find.text('Use it for workouts only'));
+    await t.pumpAndSettle();
+    expect(calls.pairs.map((p) => p.$1), ['polar_pmd', 'ble_hrs']);
+    expect(calls.pairs.last.$2?.bandEntryId, 'gen5');
+    expect(_result(t), 'pairedSecondary|');
   });
 
   group('tap flow', () {

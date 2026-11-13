@@ -3712,12 +3712,16 @@ class AppState extends ChangeNotifier {
   /// save would have every later walk fit the previous gain.
   int _liveStepCalibrationGeneration = 0;
 
+  @visibleForTesting
+  Future<List<StepCalibrationRun>> Function()? debugReadLiveStepCalibration;
+
   Future<List<StepCalibrationRun>> _liveStepCalibrationRuns() async {
     while (true) {
       final cached = _liveStepCalibration;
       if (cached != null) return cached;
       final generation = _liveStepCalibrationGeneration;
-      final rows = await LocalDb.liveStepCalibrationRuns();
+      final rows = await (debugReadLiveStepCalibration?.call() ??
+          LocalDb.liveStepCalibrationRuns());
       // Invalidated while the read was in flight: these rows may predate the
       // save that invalidated them, so read again rather than hand the caller
       // the previous calibration.
@@ -4021,6 +4025,7 @@ class AppState extends ChangeNotifier {
   /// No cadence calibration any more — its only consumer was the deleted 1 Hz
   /// `dailyStepEstimate` (see kAlgoVersion v55).
   Future<void> _finalizeLivePedometer() async {
+    final resetGeneration = ResetGate.generation;
     // The still-filling partial minute is real signal that was about to be
     // discarded: count it over the time it actually sampled — but only if that
     // time says it arrived fast enough to count (GATE 2). The tail has its own
@@ -4039,7 +4044,14 @@ class AppState extends ChangeNotifier {
     }
     final runs = _gaitRuns.runs;
     _resetLivePedometer();
-    await _bankGaitRuns(runs);
+    try {
+      await _bankGaitRuns(runs, resetGeneration: resetGeneration);
+    } catch (_) {
+      // Reset cancelled this session; disconnect finalization is unawaited.
+      if (!ResetGate.changedSince(resetGeneration)) rethrow;
+      return;
+    }
+    if (ResetGate.changedSince(resetGeneration)) return;
     // The session ended cleanly and is now durably recorded — the checkpoint
     // that would otherwise let a killed-process session recover is no longer
     // needed.
@@ -4054,7 +4066,8 @@ class AppState extends ChangeNotifier {
   /// documents as the gain's home. Two formulas, or one formula applied at both
   /// ends, is the silent x1.23 this method's history records; one shared
   /// function with one factor per run is the invariant that prevents it.
-  Future<void> _bankGaitRuns(List<LiveStepRun> runs) async {
+  Future<void> _bankGaitRuns(List<LiveStepRun> runs,
+      {required int resetGeneration}) async {
     if (runs.isEmpty) return;
     final calibration = await _liveStepCalibrationRuns();
     for (final run in runs) {
@@ -4080,6 +4093,7 @@ class AppState extends ChangeNotifier {
         steps,
         day,
         source: kStepSourceStrap,
+        resetGeneration: resetGeneration,
       );
       // AGENTS.md §4.7 — the other two callers of `addLiveCoverage` are
       // enumerated here so this capability cannot be wired into one path and
@@ -4105,10 +4119,12 @@ class AppState extends ChangeNotifier {
   static const String _kLiveSessionCheckpoint = 'live_session_checkpoint';
 
   Future<void> _checkpointLiveSession() async {
+    final resetGeneration = ResetGate.generation;
     if (_gaitRuns.isEmpty) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final calibration = await _liveStepCalibrationRuns();
+      if (ResetGate.changedSince(resetGeneration)) return;
       await prefs.setString(
         _kLiveSessionCheckpoint,
         // Runs are stored gain-applied, i.e. exactly the numbers
@@ -4166,6 +4182,7 @@ class AppState extends ChangeNotifier {
       });
 
   Future<void> _recoverOrphanedLiveSessionOnce() async {
+    final resetGeneration = ResetGate.generation;
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_kLiveSessionCheckpoint);
@@ -4228,6 +4245,7 @@ class AppState extends ChangeNotifier {
           s[2],
           day,
           source: kStepSourceStrap,
+          resetGeneration: resetGeneration,
         );
         recovered += s[2];
       }
@@ -4744,6 +4762,7 @@ class AppState extends ChangeNotifier {
   /// it is also what the old band is shown under while it is still the paired
   /// one, so a replacement that has not committed must leave it alone.
   void _resetBandIdentity({bool clearSavedName = true}) {
+    _clearLiveHrTrace(LocalDb.kPrimaryDeviceId);
     device.reset();
     pairedIsMaverick = false;
     _lastSeenGeneration = null;
@@ -4757,6 +4776,7 @@ class AppState extends ChangeNotifier {
       throw StateError('Pairing is already in progress.');
     }
     final existing = paired;
+    final existingIsMaverick = pairedIsMaverick;
     if (existing != null && !replacing) {
       if (existing.remoteId != remoteId) {
         throw Exception('Forget the current band before pairing another.');
@@ -4799,7 +4819,12 @@ class AppState extends ChangeNotifier {
           committed = paired?.remoteId == remoteId;
           // The old band's name belongs to the old band; the new one banks
           // its own as soon as it reports it.
-          if (committed && replacing) Prefs.setString(_kStrapName, '');
+          if (committed && replacing) {
+            Prefs.setString(_kStrapName, '');
+            // An epoch confirms the OLD physical band, never the replacement.
+            // Clear persistence before openSession can reload it and skip SET.
+            await _clearArmedAlarmState();
+          }
         },
       );
       if (!confirmed) {
@@ -4814,6 +4839,7 @@ class AppState extends ChangeNotifier {
           paired?.remoteId == existing?.remoteId) {
         _replacingBand = false;
         _resetBandIdentity(clearSavedName: false);
+        pairedIsMaverick = existingIsMaverick;
         try {
           await IosBleRestore.provisioned(existing!.remoteId);
           await openSession();
@@ -5672,24 +5698,22 @@ class AppState extends ChangeNotifier {
   /// Drop the armed-alarm state (in-memory + persisted). [AlarmConfirmation]'s
   /// `firedAt` deliberately survives `disable()`, so the fired-notification's
   /// dedupeKey still resolves after this runs.
-  void _clearArmedAlarmState() {
+  Future<void> _clearArmedAlarmState() async {
     _savedAlarm = null;
     final gen = ++_armGen;
     device.alarmEpoch = null;
     _alarm.disable();
     _alarmGraceTimer?.cancel();
-    unawaited(() async {
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        // An arm that landed during the await owns the persisted epoch now.
-        if (_armGen != gen) return;
-        await prefs.remove('alarm_epoch');
-        if (_armGen != gen) return;
-        await prefs.remove('alarm_epoch_confirmed');
-      } catch (e) {
-        _log('[alarm] clearing the persisted epoch failed: $e');
-      }
-    }());
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // An arm that landed during the await owns the persisted epoch now.
+      if (_armGen != gen) return;
+      await prefs.remove('alarm_epoch');
+      if (_armGen != gen) return;
+      await prefs.remove('alarm_epoch_confirmed');
+    } catch (e) {
+      _log('[alarm] clearing the persisted epoch failed: $e');
+    }
   }
 
   Future<void> _notifyAlarmFired() async {
