@@ -3400,8 +3400,13 @@ class AppState extends ChangeNotifier {
               today) {
         return true;
       }
-      final last = recent.isEmpty ? null : recent.last['date'];
-      return last is String && last == today;
+      // The crossday pipeline flags today's row `unsettled` while the night is
+      // still settling — same rows the weekly lookback skips. A row that is
+      // not settled yet is not "last night's data arrived".
+      final last = recent.isEmpty ? null : recent.last;
+      return last is Map &&
+          last['date'] == today &&
+          last['unsettled'] != true;
     } catch (e) {
       _log('[notify] last-night data check skipped: $e');
       return false;

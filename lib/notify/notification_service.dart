@@ -663,6 +663,18 @@ class NotificationService {
     } catch (_) {}
   }
 
+  /// Ids of the currently PENDING (armed, not yet fired) OS notifications.
+  /// A one-shot that already fired is no longer in this list — that is the
+  /// only way Dart can tell "armed" from "delivered" for a scheduled slot.
+  Future<Set<int>> pendingIds() async {
+    try {
+      final reqs = await _plugin.pendingNotificationRequests();
+      return reqs.map((r) => r.id).toSet();
+    } catch (_) {
+      return const {};
+    }
+  }
+
   /// Drop every notification this app has scheduled or posted.
   ///
   /// Part of "Delete everything": a scheduled alarm or wind-down reminder that

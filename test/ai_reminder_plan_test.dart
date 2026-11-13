@@ -354,6 +354,44 @@ void main() {
       expect(slot.minute, 0);
     });
 
+    test('quiet-hours cap never moves a wake-derived slot before wake+30', () {
+      // Wake 21:30 → slot 22:00; quiet from 22:00 would cap it to 21:30, i.e.
+      // exactly AT wake — that is not "after wake", so the slot is omitted.
+      final plan = aiReminderPlan(
+        const AiPrefs(morningMin: 8 * 60),
+        remindersEnabled: true,
+        aiConfigured: true,
+        lastNightDataReady: true,
+        typicalWakeMinOfDay: 21 * 60 + 30,
+        journalDoneToday: false,
+        quiet: const NotificationPrefs(
+            quietEnabled: true,
+            quietStartMin: 22 * 60,
+            quietEndMin: 7 * 60),
+      );
+      expect(plan.map((s) => s.id),
+          isNot(contains(NotificationService.idMorningBrief)));
+    });
+
+    test('a plain configured time keeps the shared cap-then-refuse rule', () {
+      // No learned wake: slot 08:00, quiet 08:30-09:00 caps nothing (cap is
+      // 08:00, slot is not past it, not inside the window) — still armed.
+      final plan = aiReminderPlan(
+        const AiPrefs(morningMin: 8 * 60),
+        remindersEnabled: true,
+        aiConfigured: true,
+        lastNightDataReady: true,
+        journalDoneToday: false,
+        quiet: const NotificationPrefs(
+            quietEnabled: true,
+            quietStartMin: 8 * 60 + 30,
+            quietEndMin: 9 * 60),
+      );
+      final slot = plan
+          .firstWhere((s) => s.id == NotificationService.idMorningBrief);
+      expect(slot.hour * 60 + slot.minute, 8 * 60);
+    });
+
     test('a wake-derived slot inside quiet hours is dropped, not moved', () {
       final plan = aiReminderPlan(
         const AiPrefs(morningMin: 0),

@@ -108,8 +108,16 @@ List<AiReminderSlot> aiReminderPlan(
   if (!remindersEnabled) return const [];
   final out = <AiReminderSlot>[];
   if (aiConfigured && prefs.morningEnabled && lastNightDataReady) {
-    final m = _capToQuietHours(
-        quiet, morningBriefSlotMin(prefs.morningMin, typicalWakeMinOfDay));
+    final floor = prefs.morningMin % 1440;
+    final slot = morningBriefSlotMin(prefs.morningMin, typicalWakeMinOfDay);
+    var m = _capToQuietHours(quiet, slot);
+    // The quiet-hours cap can pull the slot EARLIER than the wake-derived
+    // minimum (wake 21:30 → slot 22:00, quiet from 22:00 → capped to 21:30,
+    // i.e. exactly at wake). A briefing at wake time is not "after wake": when
+    // the cap moves a wake-derived slot below its own minimum, quiet hours
+    // have prevented a valid slot — omit it rather than fire early. A plain
+    // configured time keeps the shared cap-then-refuse semantics.
+    if (m != null && slot > floor && m < slot) m = null;
     if (m != null) {
       out.add(AiReminderSlot(
         id: NotificationService.idMorningBrief,
