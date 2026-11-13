@@ -310,6 +310,24 @@ class BandWireCommands {
 /// sessions only, a health measurement's own reading only.
 enum DeviceCategory { wearable, workoutSensor, healthMeasurement }
 
+/// Whether a device can be the user's main device or only a workout add-on.
+enum DeviceRole { band, sensor }
+
+/// What a device physically is, for the pairing lists' filter pills. Not
+/// [DeviceCategory] (what the data is used for): a Colmi ring and an Oura ring
+/// are both rings, a Polar armband and a chest strap are both workout sensors.
+enum DeviceKind {
+  strap,
+  ring,
+  watch,
+  band,
+  chestStrap,
+  armband,
+  scale,
+  thermometer,
+  other,
+}
+
 /// One band the app can discover and connect to.
 ///
 /// The wire format itself stays in `protocol` ([BandProfile] = header length,
@@ -421,7 +439,7 @@ class BandEntry {
   /// carried only a hint (and none of the entries' own services) is kept only
   /// when a [nameMatcher] claims it; a hint alone never confirms an entry,
   /// but this entry's name on an advertisement carrying its hint does, ahead
-  /// of another entry's service (`HrsLink.hintedNameMatch`). For
+  /// of another entry's service (`hintedNameMatch`). For
   /// a band whose advertisement carries a shared 16-bit UUID rather than the
   /// GATT service it is checked against after connect.
   final List<String> scanHints;
@@ -445,6 +463,23 @@ class BandEntry {
   /// What this device is for ([DeviceCategory]). A framed band is a wearable.
   final DeviceCategory category;
 
+  /// Whether the safeguard recognises this entry as a band (or a plain
+  /// sensor). Required so a new entry cannot silently bypass recognition.
+  final DeviceRole role;
+
+  /// What the device physically is; drives the pairing lists' filter pills.
+  final DeviceKind kind;
+
+  final bool _canBeMainDevice;
+
+  /// Whether the first-run list may offer this entry as the user's main
+  /// device. Separate from [role], which only says "recognised as a band" for
+  /// the safeguard: only a framed WHOOP band has a supported main-device
+  /// path. Every other band is recognised but pairs as an
+  /// additional device under its own adapter, and a sensor never is one.
+  bool get canBeMainDevice =>
+      role == DeviceRole.band && isFramed && _canBeMainDevice;
+
   /// A framed WHOOP-family band: an envelope, a command characteristic, and a
   /// flash the offload engine trims.
   const BandEntry.framed({
@@ -463,7 +498,11 @@ class BandEntry {
     this.burstCountGateEnforced = false,
     this.logsConsoleOutput = false,
     this.nameMatcher,
-  })  : _requiredCharacteristics = requiredCharacteristics,
+    required this.role,
+    this.kind = DeviceKind.other,
+    bool canBeMainDevice = true,
+  })  : _canBeMainDevice = canBeMainDevice,
+        _requiredCharacteristics = requiredCharacteristics,
         _commands = commands,
         scanByName = false,
         scanHints = const <String>[],
@@ -494,7 +533,11 @@ class BandEntry {
     this.scanHints = const <String>[],
     this.scanCompanyIds = const <int>[],
     this.scanServiceData = const <String>[],
-  })  : _service = service,
+    required this.role,
+    this.kind = DeviceKind.other,
+    bool canBeMainDevice = true,
+  })  : _canBeMainDevice = canBeMainDevice,
+        _service = service,
         _requiredCharacteristics = characteristics,
         gatt = null,
         wire = null,
@@ -541,6 +584,8 @@ bool _nameContainsWhoop(String lowercaseName) => lowercaseName.contains('whoop')
 /// that says nothing about a band is not evidence that the band does nothing.
 const BandEntry kWhoopGen4 = BandEntry.framed(
   id: 'gen4',
+  role: DeviceRole.band,
+  kind: DeviceKind.strap,
   label: 'WHOOP 4',
   gatt: GattProfile.gen4,
   wire: BandProfile.gen4,
@@ -572,6 +617,8 @@ const BandEntry kWhoopGen4 = BandEntry.framed(
 /// envelope differs, which is exactly what [BandProfile] models.
 const BandEntry kWhoopGen5 = BandEntry.framed(
   id: 'gen5',
+  role: DeviceRole.band,
+  kind: DeviceKind.strap,
   label: 'WHOOP 5',
   gatt: GattProfile.gen5,
   wire: BandProfile.gen5,
@@ -612,6 +659,9 @@ const BandEntry kWhoopGen5 = BandEntry.framed(
 /// off, nothing derives from it.
 const BandEntry kBleHrs = BandEntry.notify(
   id: 'ble_hrs',
+  role: DeviceRole.sensor,
+  // HRS alone identifies no body position: watches and armbands use it too.
+  kind: DeviceKind.other,
   category: DeviceCategory.workoutSensor,
   label: 'Bluetooth heart rate sensor',
   service: kHeartRateServiceUuid,
@@ -644,6 +694,8 @@ const BandEntry kBleHrs = BandEntry.notify(
 /// Pairing confirms the PMD characteristics and the PPI feature bit.
 const BandEntry kPolarPmd = BandEntry.notify(
   id: 'polar_pmd',
+  role: DeviceRole.sensor,
+  kind: DeviceKind.armband,
   category: DeviceCategory.workoutSensor,
   label: 'Polar sensor',
   service: kPolarPmdService,
@@ -683,6 +735,8 @@ bool _looksLikePolarPpi(String lowercaseName) =>
 /// proves nothing about decode correctness.
 const BandEntry kOura = BandEntry.notify(
   id: 'oura',
+  role: DeviceRole.band,
+  kind: DeviceKind.ring,
   category: DeviceCategory.wearable,
   label: 'Oura Ring',
   service: kOuraService,
@@ -725,6 +779,9 @@ const BandEntry kOura = BandEntry.notify(
 /// session source either, flag or not (`kWorkoutArmedSensors`).
 const BandEntry kCoros = BandEntry.notify(
   id: 'coros',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  canBeMainDevice: false,
   category: DeviceCategory.workoutSensor,
   label: 'Coros watch',
   service: kCorosService,
@@ -770,6 +827,9 @@ bool _looksLikeCoros(String lowercaseName) =>
 /// wearable's substrate, while its flag is on (`compute/inputs/canonical.dart`).
 const BandEntry kGarmin = BandEntry.notify(
   id: 'garmin',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
+  canBeMainDevice: false,
   category: DeviceCategory.wearable,
   label: 'Garmin watch',
   service: kGarminService,
@@ -815,6 +875,8 @@ const BandEntry kGarmin = BandEntry.notify(
 /// until a real ring's advertisement settles it.
 const BandEntry kUltrahuman = BandEntry.notify(
   id: 'ultrahuman',
+  role: DeviceRole.band,
+  kind: DeviceKind.ring,
   category: DeviceCategory.wearable,
   label: 'Ultrahuman Ring Air',
   service: kUltrahumanCommandService,
@@ -854,6 +916,8 @@ bool _looksLikeUltrahuman(String lowercaseName) =>
 /// `wearable_enabled:miband234` flag is on and it is the active wearable.
 const BandEntry kMiBand234 = BandEntry.notify(
   id: 'miband234',
+  role: DeviceRole.band,
+  kind: DeviceKind.band,
   category: DeviceCategory.wearable,
   label: 'Mi Band 2/3',
   service: kHuami234Service,
@@ -883,6 +947,8 @@ bool _looksLikeMiBand23(String lowercaseName) => const {
 /// not a byte of this path has met hardware (ASSUMPTIONS R6).
 const BandEntry kPebble = BandEntry.notify(
   id: 'pebble',
+  role: DeviceRole.band,
+  kind: DeviceKind.watch,
   category: DeviceCategory.wearable,
   label: 'Pebble',
   service: kPebbleServiceUuid,
@@ -943,6 +1009,8 @@ const String kColmiAdvertisedHint = '0000fee7-0000-1000-8000-00805f9b34fb';
 /// found at all until a real ring's advertisement settles it.
 const BandEntry kColmi = BandEntry.notify(
   id: 'colmi',
+  role: DeviceRole.band,
+  kind: DeviceKind.ring,
   category: DeviceCategory.wearable,
   label: 'Colmi ring',
   service: kColmiService,
@@ -960,6 +1028,8 @@ const BandEntry kColmi = BandEntry.notify(
 /// become attributed `body_temp` observations; nothing derives from them.
 const BandEntry kThermometer = BandEntry.notify(
   id: 'thermometer',
+  role: DeviceRole.sensor,
+  kind: DeviceKind.thermometer,
   category: DeviceCategory.healthMeasurement,
   label: 'Bluetooth thermometer',
   service: kHtpService,
@@ -986,6 +1056,8 @@ bool _looksLikeThermometer(String lowercaseName) =>
 /// stays a measurement only.
 const BandEntry kMiScaleComposition = BandEntry.notify(
   id: 'miscale_bc',
+  role: DeviceRole.sensor,
+  kind: DeviceKind.scale,
   category: DeviceCategory.healthMeasurement,
   label: 'Mi Body Composition Scale',
   service: kMiScaleBodyCompositionService,
@@ -1008,6 +1080,8 @@ bool _looksLikeMiCompositionScale(String lowercaseName) =>
 /// weight (`newestWeighing`).
 const BandEntry kMiScale2 = BandEntry.notify(
   id: 'miscale2',
+  role: DeviceRole.sensor,
+  kind: DeviceKind.scale,
   category: DeviceCategory.healthMeasurement,
   label: 'Mi Smart Scale 2',
   service: kMiScaleWeightService,
@@ -1018,6 +1092,30 @@ const BandEntry kMiScale2 = BandEntry.notify(
 );
 
 bool _looksLikeMiScale2(String lowercaseName) => lowercaseName == 'mi scale2';
+
+/// The entry whose [BandEntry.nameMatcher] claims [lowercaseName] while
+/// [advertisedUuids] (canonical 128-bit lowercase) carries one of that same
+/// entry's [BandEntry.scanHints], or null. Name and hint together name the
+/// entry; either alone does not.
+///
+/// [requireHint] false drops the hint condition: the plain "does this entry
+/// claim this name" question, kept here so the name matcher is invoked from
+/// ONE place (the heavy-calc baseline holds exactly this call). Lives with the
+/// registry so identity code and the pairing link share it without importing
+/// each other.
+String? hintedNameMatch(List<BandEntry> entries,
+    Iterable<String> advertisedUuids, String lowercaseName,
+    {bool requireHint = true}) {
+  for (final e in entries) {
+    if ((e.nameMatcher?.call(lowercaseName) ?? false) &&
+        (!requireHint ||
+            e.scanHints
+                .any((h) => advertisedUuids.contains(h.toLowerCase())))) {
+      return e.id;
+    }
+  }
+  return null;
+}
 
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
