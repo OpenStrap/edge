@@ -7317,7 +7317,7 @@ class DerivationEngine {
       // one layer up on the output.
       final builtForDay = LocalDb.localDayLabelNow();
       final builtAtEpoch = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final (bundleJson, dropped) = await _runIsolateCancellable(
+      final (bundleJson, dropped, needMin) = await _runIsolateCancellable(
         () {
           final bundle =
               buildCrossDayBundle(
@@ -7336,7 +7336,9 @@ class DerivationEngine {
           final paths = <String>[];
           final safe = sanitizeForJson(bundle, paths) as Map<String, dynamic>;
           if (paths.isNotEmpty) safe['encode_dropped_fields'] = paths;
-          return (jsonEncode(safe), paths);
+          // Read here, not by re-decoding bundleJson on the main isolate (the
+          // hang the comment above is about).
+          return (jsonEncode(safe), paths, crossDayNeedMin(safe));
         },
         _crossDayTimeout,
         label: 'crossday',
@@ -7347,7 +7349,15 @@ class DerivationEngine {
         _log('crossday: zone changed during the build; not stored');
         return false;
       }
-      if (!await LocalDb.putReviewedBaseline('crossday', bundleJson, reviewRevision)) {
+      // `series`: the need this build computed, kept per day: the artifact
+      // only ever holds the latest one, so without this every past night was
+      // read against TODAY's need (#619). Same transaction as the artifact,
+      // so the day's row always matches the artifact that day last served; a
+      // later build the same day replaces both. null when the need abstained,
+      // so a past day reads "—", never a stale value. No backfill: an earlier
+      // day's need was never stored anywhere.
+      if (!await LocalDb.putReviewedBaseline('crossday', bundleJson, reviewRevision,
+          series: (date: builtForDay, key: 'sleep_need_min', value: needMin))) {
         _log('crossday: newer activity review; leaving its refresh queued');
         return false;
       }
@@ -7407,6 +7417,16 @@ class DerivationEngine {
     }
     return out;
   }
+
+  /// The learned sleep need in a crossday bundle, in whole minutes, or null
+  /// when `sleep_coach.need` abstained or is missing — the same field and
+  /// rounding `LocalRepositoryImpl._sleepNeedMin` reads.
+  static double? crossDayNeedMin(Map<String, dynamic> bundle) =>
+      switch (bundle['sleep_coach']) {
+        {'need': {'value': {'need_sec': final num s}}} =>
+          (s / 60).roundToDouble(),
+        _ => null,
+      };
 
   /// The phone zone a `crossday_input` artifact was built in. Its records are
   /// zone-RELATIVE (`clock_shift_sec` is "this night's clock minus the zone the

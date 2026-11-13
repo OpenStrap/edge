@@ -13375,13 +13375,32 @@ class LocalDb {
   }
 
   /// A calculation started before a review must never publish over it.
-  static Future<bool> putReviewedBaseline(String key, String payloadJson, int expectedRevision) async {
+  /// [series], when given, is one `metric_series` row derived from this same
+  /// payload, written in the same transaction so the two can never disagree
+  /// (derivation runs in more than one isolate, so two builds can interleave).
+  static Future<bool> putReviewedBaseline(String key, String payloadJson, int expectedRevision,
+      {({String date, String key, double? value})? series}) async {
     return (await instance).transaction((tx) async {
       final rows = await tx.query('activity_review_meta', columns: ['revision']);
       final revision = rows.isEmpty ? 0 : rows.single['revision'] as int;
       if (revision != expectedRevision) return false;
       await tx.insert('baselines', {'key': key, 'payload_json': payloadJson,
         'updated_at': DateTime.now().millisecondsSinceEpoch}, conflictAlgorithm: ConflictAlgorithm.replace);
+      if (series != null) {
+        // An abstained value removes the day's row rather than storing a
+        // null: an absent row already reads "—", and a null row would be a
+        // stored fact about a day nothing measured.
+        final v = series.value;
+        if (v == null) {
+          await tx.delete('metric_series',
+              where: 'date = ? AND key = ?',
+              whereArgs: [series.date, series.key]);
+        } else {
+          await tx.insert('metric_series',
+              {'date': series.date, 'key': series.key, 'value': v},
+              conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+      }
       return true;
     });
   }
