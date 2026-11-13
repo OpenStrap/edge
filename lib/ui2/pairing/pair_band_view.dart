@@ -145,6 +145,10 @@ class _PairBandViewState extends State<PairBandView> {
   }
 }
 
+/// The line under a row says what a WHOOP sends. It is WHOOP copy, so another
+/// main-band entry added later gets no line until it has its own.
+bool _isWhoop(BandEntry e) => e.id == kWhoopGen4.id || e.id == kWhoopGen5.id;
+
 class _BandRow extends StatelessWidget {
   final BandEntry entry;
   final VoidCallback onTap;
@@ -173,8 +177,11 @@ class _BandRow extends StatelessWidget {
                 Text(uiText(c, entry.label),
                     style: F.body
                         .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 2),
-                Text(l.pairWhoopRowLine, style: F.cap.copyWith(color: p.ink2)),
+                if (_isWhoop(entry)) ...[
+                  const SizedBox(height: 2),
+                  Text(l.pairWhoopRowLine,
+                      style: F.cap.copyWith(color: p.ink2)),
+                ],
               ]),
         ),
         Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
