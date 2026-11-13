@@ -60,13 +60,19 @@ import '../data/journal_fields.dart';
 class SmartWakeSample {
   final double hr;
   final double ax, ay, az;
-  const SmartWakeSample(this.hr, this.ax, this.ay, this.az);
+
+  /// The row's `rec_ts` (unix seconds) when it came from the store. Windows
+  /// are cut by this, not by row count: a sync gap leaves fewer rows than
+  /// seconds, so "the last 180 rows" can reach back many minutes.
+  final int? tsSec;
+  const SmartWakeSample(this.hr, this.ax, this.ay, this.az, {this.tsSec});
 
   factory SmartWakeSample.fromRow(Map<String, Object?> row) => SmartWakeSample(
         (row['hr'] as num).toDouble(),
         (row['ax'] as num).toDouble(),
         (row['ay'] as num).toDouble(),
         (row['az'] as num).toDouble(),
+        tsSec: (row['rec_ts'] as num?)?.toInt(),
       );
 }
 
@@ -110,8 +116,8 @@ class ConfounderProfile {
   final int trendWindowMinutes;
 
   /// Multiplier on the personalized trend threshold. Default 1.0;
-  /// stress or sick → 0.5 (stricter — only large transitions count);
-  /// late meal → 1.5 (more tolerant — digestion movement is slow/diffuse).
+  /// stress or sick → 0.5 (stricter — a smaller rise already counts as a
+  /// trend). Never above 1.0: no journal tag relaxes the movement veto.
   final double trendThresholdFactor;
 
   const ConfounderProfile({
@@ -200,7 +206,9 @@ ConfounderProfile confounderProfile({
   // ── Trend threshold factor ───────────────────────────────────────────────
   double trendFactor = 1.0;
   if (stressActive || sickActive) trendFactor *= 0.5; // stricter
-  if (lateMealActive) trendFactor *= 1.5; // more tolerant
+  // A late meal never loosens the movement veto: a rising trend means the
+  // person is stirring, and an early buzz that lands on that is worse than a
+  // missed one (the fixed alarm still fires at the window end).
 
   // ── Alcohol + Stress combo: disable early buzz entirely ──────────────────
   // Both elevate nocturnal HR and movement independently; together the
@@ -216,6 +224,28 @@ ConfounderProfile confounderProfile({
     trendWindowMinutes: trendWindow,
     trendThresholdFactor: trendFactor,
   );
+}
+
+/// The samples of the trailing [seconds], cut by time when the rows carry a
+/// timestamp (relative to [now] when given, else to the newest row) and by
+/// count, at 1 Hz, when they do not. A window with a hole in it comes back
+/// short, which every caller already treats as "not enough to judge".
+List<SmartWakeSample> trailingSamples(
+  List<SmartWakeSample> samples,
+  int seconds, {
+  DateTime? now,
+}) {
+  if (samples.isEmpty) return samples;
+  if (samples.every((s) => s.tsSec != null)) {
+    final ref = now != null
+        ? now.millisecondsSinceEpoch ~/ 1000
+        : samples.map((s) => s.tsSec!).reduce(math.max);
+    final cutoff = ref - seconds;
+    return [for (final s in samples) if (s.tsSec! > cutoff) s];
+  }
+  return samples.length > seconds
+      ? samples.sublist(samples.length - seconds)
+      : samples;
 }
 
 // ── enmoTrendExceeded (Q4 — personalized movement trend) ────────────────────
@@ -242,14 +272,14 @@ bool enmoTrendExceeded(
   required double threshold,
   required int windowMinutes,
 }) {
+  if (samples.isEmpty) return false;
   // 1 Hz samples: trim to the trailing window. Trimming HERE rather than in
   // the caller is what makes the alcohol/workout 5-minute smoothing real —
   // the caller hands over everything it fetched, and this decides how much
   // of the tail the trend is judged on.
-  final want = windowMinutes <= 0 ? samples.length : windowMinutes * 60;
-  final window = samples.length > want
-      ? samples.sublist(samples.length - want)
-      : samples;
+  final window = windowMinutes <= 0
+      ? samples
+      : trailingSamples(samples, windowMinutes * 60);
   // Minimum 30 samples (~30 s at 1 Hz) — same floor as the HR check.
   if (window.length < 30) return false;
   final enmos = [for (final s in window) enmo(s)];
@@ -317,6 +347,19 @@ double? percentileHr(List<SmartWakeSample> samples, double p) {
   return valid[idx];
 }
 
+/// The median of the valid HR readings in [samples], or null unless at least
+/// 30 valid ones (30 < hr < 200; the off-skin sentinel 0 is not one) are
+/// there. The same floor [percentileHr] holds, so rows that function refused
+/// cannot come back through the fallback as a median of zeros.
+double? medianValidHr(List<SmartWakeSample> samples) {
+  final hrs = [
+    for (final s in samples)
+      if (s.hr > 30.0 && s.hr < 200.0) s.hr,
+  ];
+  if (hrs.length < 30) return null;
+  return _median(hrs);
+}
+
 // ── likelyLightSleep v2 (Q1+Q2+Q3+Q4 integrated) ─────────────────────────────
 
 /// True when the last few minutes show a lightening-sleep signature —
@@ -365,10 +408,7 @@ bool likelyLightSleep({
   // ceiling are separate questions and are always judged on the trailing
   // 3 minutes, exactly as they were before the trend window existed — a
   // longer fetch must not quietly move them.
-  const int kHrWindowSamples = 180; // 3 min at 1 Hz
-  final hrWindow = recent.length > kHrWindowSamples
-      ? recent.sublist(recent.length - kHrWindowSamples)
-      : recent;
+  final hrWindow = trailingSamples(recent, 180, now: now);
   if (hrWindow.length < minRecentSamples) return false;
 
   // Baseline HR: caller-supplied (10th percentile from a wider window) or

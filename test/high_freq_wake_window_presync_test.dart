@@ -111,26 +111,59 @@ void main() {
     });
 
     test('scheduled alarm path also gets preSyncAt and extended lease', () {
-      // 05:30 alarm with 30-min smart window → windowEnd = 05:30
-      // preSyncAt = 05:30 − 135min = 03:15
+      // 05:30 alarm with a 30-min smart window → windowEnd = 05:30.
+      // preSyncAt = windowEnd − (the window's OWN 30 min + 45 min lead) =
+      // 04:15, not the 90-minute default's 03:15.
       final scheduledEnd = DateTime(2026, 10, 26, 5, 30);
       final plan = HighFreqWakeWindow.planFromRows(
         [], // no habitual history — scheduled path takes over
-        DateTime(2026, 10, 26, 3, 15), // exactly at preSyncAt
+        DateTime(2026, 10, 26, 4, 15), // exactly at preSyncAt
         scheduledWindowEnd: scheduledEnd,
         scheduledWindowMinutes: 30,
       );
       expect(plan.shouldEnable, isTrue);
       expect(plan.source, 'scheduled_alarm');
       expect(plan.targetWake, scheduledEnd);
-      expect(plan.preSyncAt, DateTime(2026, 10, 26, 3, 15));
-      expect(plan.effectiveLease, const Duration(minutes: 135));
+      expect(plan.preSyncAt, DateTime(2026, 10, 26, 4, 15));
+      expect(plan.effectiveLease, const Duration(minutes: 75));
+    });
+
+    test('a longer armed window starts pre-sync earlier, a shorter one later',
+        () {
+      final end = DateTime(2026, 10, 26, 7, 0);
+      HighFreqWakePlan plan(int minutes) => HighFreqWakeWindow.planFromRows(
+            [],
+            end.subtract(const Duration(minutes: 1)),
+            scheduledWindowEnd: end,
+            scheduledWindowMinutes: minutes,
+          );
+      expect(plan(120).preSyncAt, DateTime(2026, 10, 26, 4, 15));
+      expect(plan(45).preSyncAt, DateTime(2026, 10, 26, 5, 30));
+    });
+
+    test('leaseFrom never runs past the wake time', () {
+      final end = DateTime(2026, 10, 26, 7, 0);
+      final plan = HighFreqWakeWindow.planFromRows(
+        [],
+        DateTime(2026, 10, 26, 6, 0),
+        scheduledWindowEnd: end,
+        scheduledWindowMinutes: 90,
+      );
+      // At preSyncAt (04:45) the whole 135 min is still ahead.
+      expect(plan.leaseFrom(DateTime(2026, 10, 26, 4, 45)),
+          const Duration(minutes: 135));
+      // A late connect at 06:30 only has 30 min left, not 135.
+      expect(plan.leaseFrom(DateTime(2026, 10, 26, 6, 30)),
+          const Duration(minutes: 30));
+      expect(plan.leaseFrom(end), Duration.zero);
+      expect(plan.leaseFrom(end.add(const Duration(minutes: 5))),
+          Duration.zero);
     });
 
     test('scheduled alarm path: shouldEnable false before preSyncAt', () {
       final plan = HighFreqWakeWindow.planFromRows(
         [],
-        DateTime(2026, 10, 26, 3, 0), // 15 min before preSyncAt
+        DateTime(2026, 10, 26, 4, 0), // 15 min before preSyncAt
         scheduledWindowEnd: DateTime(2026, 10, 26, 5, 30),
         scheduledWindowMinutes: 30,
       );

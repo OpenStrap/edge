@@ -15,7 +15,10 @@ class HighFreqWakePlan {
   /// (checked by `inSmartWakeWindow` in `_checkSmartWake`); this only extends
   /// the DATA COLLECTION lease, not the buzz window.
   ///
-  /// When the plan is disabled (outside the extended lease), this is null.
+  /// Set whenever the plan has a target (habitual or scheduled), including
+  /// before it opens and after it closed, so a caller can say when the lease
+  /// will start. Null only when there is no plan at all (too little sleep
+  /// history); [shouldEnable] says whether the lease applies right now.
   final DateTime? preSyncAt;
 
   /// The total duration the band prompt lease should cover: from [preSyncAt]
@@ -30,6 +33,19 @@ class HighFreqWakePlan {
     final start = preSyncAt ??
         targetWake!.subtract(HighFreqWakeWindow.lease);
     return targetWake!.difference(start);
+  }
+
+  /// The lease to hand the band when it is programmed at [now]: what is left
+  /// until [targetWake], never more than [effectiveLease]. Programming the
+  /// full [effectiveLease] on a late connect or refresh (after [preSyncAt])
+  /// would keep the band prompting past the wake time.
+  Duration? leaseFrom(DateTime now) {
+    final full = effectiveLease;
+    final target = targetWake;
+    if (full == null || target == null) return null;
+    final remaining = target.difference(now);
+    if (remaining.isNegative) return Duration.zero;
+    return remaining < full ? remaining : full;
   }
 
   const HighFreqWakePlan({
@@ -143,7 +159,11 @@ class HighFreqWakeWindow {
     if (scheduledWindowEnd != null &&
         scheduledWindowMinutes > 0 &&
         habitualPlan?.shouldEnable != true) {
-      final preSyncAt = scheduledWindowEnd.subtract(lease + preSyncLead);
+      // The armed window's own length, not the 90-minute default: a longer
+      // window would otherwise open with less than [preSyncLead] of backfill,
+      // a shorter one would start prompting too early.
+      final preSyncAt = scheduledWindowEnd
+          .subtract(Duration(minutes: scheduledWindowMinutes) + preSyncLead);
       if (!now.isBefore(preSyncAt) && now.isBefore(scheduledWindowEnd)) {
         return HighFreqWakePlan(
           shouldEnable: true,

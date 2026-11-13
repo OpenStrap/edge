@@ -701,8 +701,9 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final l = AppLocalizations.of(c);
     final p = P.of(c);
     final title = l?.sleepDetailNavTitle ?? 'Sleep';
-    // Persistent, not load-only: the experimental / not-a-medical-device
-    // notice stays on screen for the whole visit.
+    // Shown in every state of this screen (loading, failed, no night, loaded),
+    // not only once data arrives. It sits at the top of the content, so it
+    // scrolls with it.
     // Theme tokens (wash/on + caption) for contrast — raw amber-on-white
     // measured ~1.7-2.5:1.
     final disclaimer = Container(
