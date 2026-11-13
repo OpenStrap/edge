@@ -32,7 +32,7 @@ void main() {
     });
   });
 
-  test('recognised as a band is not the same as can be the main device (DT10)', () {
+  test('recognised as a band is not the same as can be the main device', () {
     // WHY: Coros and Garmin must trip the "this is a band" safeguard, but have
     // no supported main-device path, so the first-run list must not offer them.
     for (final e in [kWhoopGen4, kWhoopGen5]) {
@@ -41,11 +41,11 @@ void main() {
     }
     for (final e in [kCoros, kGarmin]) {
       expect(e.role, DeviceRole.band, reason: '${e.id} is recognised');
-      expect(e.canBeMainDevice, isFalse, reason: '${e.id} is not on W2');
+      expect(e.canBeMainDevice, isFalse, reason: '${e.id} is not offered as a main device');
     }
   });
 
-  test('a sensor can never be the main device (DT10)', () {
+  test('a sensor can never be the main device', () {
     // WHY: workout add-ons and scales stay off the first-run list.
     for (final e in kBandRegistry) {
       if (e.role == DeviceRole.sensor) {
@@ -54,10 +54,10 @@ void main() {
     }
     expect(kBandRegistry.where((e) => e.canBeMainDevice).map((e) => e.id),
         containsAll(<String>['gen4', 'gen5']),
-        reason: 'positive control: the W2 list is not empty');
+        reason: 'positive control: the main-device list is not empty');
   });
 
-  test('only the framed WHOOP bands can be the main device (DT12)', () {
+  test('only the framed WHOOP bands can be the main device', () {
     // WHY: the main-band path (PairingScreen, AppState.isPaired) runs framed
     // WHOOP only. Oura, Colmi, Mi Band and the rest are recognised as bands
     // but pair as additional devices under their own adapter.

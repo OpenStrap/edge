@@ -84,6 +84,20 @@ void main() {
 
 
 
+    testWidgets('the WHOOP description is not shown under other devices', (t) async {
+      await pumpPair(t, view(entries: [kWhoopGen5, kOura, kColmi]),
+          size: const Size(412, 2400));
+      const line = 'Sleep, recovery, strain, heart rate and more';
+      expect(find.descendant(of: _row(kWhoopGen5), matching: find.text(line)),
+          findsOneWidget);
+      for (final e in [kOura, kColmi]) {
+        expect(_row(e), findsOneWidget, reason: e.id);
+        expect(find.descendant(of: _row(e), matching: find.text(line)),
+            findsNothing,
+            reason: e.id);
+      }
+    });
+
     testWidgets('says plainly that only WHOOP is the main band', (t) async {
       await pumpPair(t, view(), size: const Size(412, 2400));
       expect(find.byKey(const ValueKey('main-band-whoop-only-note')), findsOneWidget);

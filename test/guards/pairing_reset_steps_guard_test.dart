@@ -1,6 +1,6 @@
 // Reset-steps guard: a user whose device will not pair must always get steps,
 // in their language, and a device without sourced steps must be visibly queued
-// for a human. Three states: specific / unverified / noOfficialSite (S7).
+// for a human. Three states: specific / unverified / noOfficialSite.
 import 'dart:convert';
 import 'dart:io';
 
@@ -55,7 +55,7 @@ void main() {
     ]));
   });
 
-  test('reviewed help links point to the right products (G2 r1 S3-S5)', () {
+  test('reviewed help links point to the right products', () {
     // WHY: review found a Polar H9/H10 page behind an OH1/Verity Sense entry, a
     // different Xiaomi product's FAQ behind the body-composition scale.
     for (final m in kPinnedOfficialUrl.entries) {
@@ -89,7 +89,7 @@ void main() {
   });
 
   test('a specific procedure has at least one step', () {
-    // WHY (S9): a "specific" entry with zero steps shows the user an empty list.
+    // WHY: a "specific" entry with zero steps shows the user an empty list.
     final specific = _of(ResetKind.specific).toList();
     expect(specific, isNotEmpty, reason: 'positive control: gen5 is specific');
     for (final e in specific) {
@@ -99,7 +99,7 @@ void main() {
   });
 
   test('every specific step key has non-blank text in EVERY locale', () {
-    // WHY (S9): a missing or "" value renders blank text for that language.
+    // WHY: a missing or "" value renders blank text for that language.
     final keys = [
       for (final e in _of(ResetKind.specific)) ...?e.resetSteps!.keys,
     ];
@@ -115,7 +115,7 @@ void main() {
 
   group('unverified', () {
     test('an unverified entry carries an officialUrl on its pinned host', () {
-      // WHY (S9): unsourced steps point at the vendor's own help page, never a
+      // WHY: unsourced steps point at the vendor's own help page, never a
       // search engine or a look-alike host. DT8: zero unverified entries is
       // allowed (the goal), so the registry loop may be empty; the fixture
       // controls below prove the check can bite.
@@ -138,7 +138,7 @@ void main() {
     });
 
     test('a specific entry that has a URL has it on the pinned host', () {
-      // WHY (S9): the optional link on a specific procedure is held to the same rule.
+      // WHY: the optional link on a specific procedure is held to the same rule.
       for (final e in _of(ResetKind.specific)) {
         final url = e.resetSteps!.officialUrl;
         if (url == null) continue;
@@ -151,7 +151,7 @@ void main() {
     });
   });
 
-  group('noOfficialSite (S7)', () {
+  group('noOfficialSite', () {
     test('needs a non-blank reason and no URL', () {
       // WHY: "no official site" without a why is a silent gap.
       for (final e in _of(ResetKind.noOfficialSite)) {
@@ -221,13 +221,13 @@ void main() {
       'empty': '',
     }.entries) {
       test('rejects ${bad.key}', () {
-        // WHY (S9): only the reviewed official host may be linked.
+        // WHY: only the reviewed official host may be linked.
         expect(resetUrlProblem(bad.value, pinnedHost: host), isNotNull);
       });
     }
   });
 
-  group('follow-up list (S8)', () {
+  group('follow-up list', () {
     test('lists exactly the entries whose help is not device-specific', () {
       // WHY: exact membership; an unverified/no-site device must be queued, a
       // specific one must not be. Zero is allowed (no isNotEmpty on the list).

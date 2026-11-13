@@ -517,10 +517,10 @@ class BandEntry {
 
   final bool _canBeMainDevice;
 
-  /// Whether the first-run list (W2) may offer this entry as the user's main
+  /// Whether the first-run list may offer this entry as the user's main
   /// device. Separate from [role], which only says "recognised as a band" for
-  /// the safeguard (DT10): only a framed WHOOP band has a supported
-  /// main-device path (DT12). Every other band is recognised but pairs as an
+  /// the safeguard: only a framed WHOOP band has a supported main-device
+  /// path. Every other band is recognised but pairs as an
   /// additional device under its own adapter, and a sensor never is one.
   bool get canBeMainDevice =>
       role == DeviceRole.band && isFramed && _canBeMainDevice;
