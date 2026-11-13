@@ -239,6 +239,17 @@ void main() {
       expect(app.vendor, [path]);
     });
 
+    test('a vanished file after a backup does not lose the backup counts',
+        () async {
+      final app = _RoutingSpy();
+      final good = await write('mine.db', utf8.encode('x'));
+
+      final out = await runImport(app, [good, '${tmp.path}/gone.bin']);
+
+      expect(app.backup, [good]);
+      expect(out.days, greaterThan(0));
+    });
+
     test('a file named .db is still ours without being opened', () async {
       final app = _RoutingSpy();
       final path = await write('damaged.db', utf8.encode('not a database'));

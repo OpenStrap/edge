@@ -482,7 +482,13 @@ Future<ImportOutcome> runImport(
     // comes back as `FileSystemException: Failed to decode data using encoding
     // 'utf-8'`, which no catch below was going to turn into advice. The vendor
     // path unwraps archives (and gzip) properly, so hand them straight over.
-    if (await sniffFile(p) != ImportContainer.text) {
+    // An unreadable file is the vendor path's to report (it is caught below
+    // and named); throwing here would lose the counts already landed.
+    ImportContainer? kind;
+    try {
+      kind = await sniffFile(p);
+    } catch (_) {}
+    if (kind != ImportContainer.text) {
       vendor.add(p);
       continue;
     }
