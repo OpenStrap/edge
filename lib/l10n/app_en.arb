@@ -16811,7 +16811,7 @@
   "@bandStatusFirmwareLockedReason": {
     "description": "BandStatus card body: band firmware 50.43 withholds all data until a WHOOP membership token is on it"
   },
-  "bandStatusFirmwareLockedFix": "If it is the firmware, re-pairing or charging will not help. This clears by itself once the band sends data again",
+  "bandStatusFirmwareLockedFix": "If it is the firmware, nothing in the app changes it, and this clears once the band sends data again. If nothing arrives, charging the band or re-pairing is still worth a try",
   "@bandStatusFirmwareLockedFix": {
     "description": "BandStatus fix action: band firmware 50.43 withholds all data until a WHOOP membership token is on it"
   },
