@@ -2397,6 +2397,12 @@ class BleEngine {
   bool _flashLock = false;
   // The session that claimed the link; a commit on any other session is refused.
   Object? _flashSession;
+  // Who holds the claim. Release and every command must present it, so a
+  // screen that was closed mid-command cannot free a newer screen's claim.
+  Object? _flashToken;
+  // The session a battery reading was last taken on. A reading from an earlier
+  // link says nothing about the strap on this one.
+  Object? _batterySession;
   bool get firmwareFlashActive => _flashLock;
 
   /// The most recent gen5 HELLO. Its timestamp is the primary input to the
@@ -4973,8 +4979,9 @@ class BleEngine {
     _Session? owner,
     bool allowDangerous = false,
     bool Function()? beforeTransport,
-    bool flash = false,
+    Object? flashToken,
   }) {
+    final flash = flashToken != null;
     // An image update owns the link: nothing but its own frames goes out.
     if (_flashLock && !flash) return Future.value(false);
     if (flash) allowDangerous = true;
@@ -5007,6 +5014,10 @@ class BleEngine {
           _log('write skipped: it belongs to a session that is no longer live.');
           return false;
         }
+        // Checked again here: this write may have queued before the claim was
+        // taken (or after it was released), and the chain can hold it a while.
+        if (_flashLock && !flash) return false;
+        if (flash && !identical(flashToken, _flashToken)) return false;
         if (beforeTransport != null && !beforeTransport()) return false;
         final hook = debugWriteHook;
         if (hook != null) return await hook(raw);
@@ -5118,34 +5129,50 @@ class BleEngine {
     return ok;
   }
 
-  /// Image update is offered for gen5 only, on a live link with no history
-  /// offload in flight.
+  /// Image update is offered for gen5 only, on a READY link (bootstrap and
+  /// INIT finished) with no history offload, connect setup or ECG reading in
+  /// flight, each of which the claim would starve.
   bool get canFlashFirmware =>
       (_session?.connected ?? false) &&
       (_session?.band.isGen5 ?? false) &&
-      !_offloadActive;
+      _phase == BleConnState.listening &&
+      _liveReady &&
+      !_connectSetup &&
+      !_offloadActive &&
+      _ecgLease == null;
 
-  bool beginFirmwareFlash() {
-    if (_flashLock || !canFlashFirmware) return false;
+  /// Battery on THIS link, or null until it has been read since connecting.
+  double? get flashBatteryPct =>
+      identical(_batterySession, _session) ? state.batteryPct : null;
+
+  /// Claims the link. Returns the ownership token, or null when refused.
+  Object? beginFirmwareFlash() {
+    if (_flashLock || !canFlashFirmware) return null;
     _flashLock = true;
     _flashSession = _session;
+    final token = _flashToken = Object();
     _log('FIRMWARE FLASH: link claimed; all other writes suspended.');
-    return true;
+    return token;
   }
 
-  void endFirmwareFlash() {
-    if (!_flashLock) return;
+  /// Releases the claim, only for the holder of [token].
+  bool endFirmwareFlash(Object token) {
+    if (!_flashLock || !identical(token, _flashToken)) return false;
     _flashLock = false;
     _flashSession = null;
+    _flashToken = null;
     _log('FIRMWARE FLASH: link released.');
+    return true;
   }
 
   /// One image-update command and its correlated reply (null on a failed
   /// write, timeout, or dropped link). Only valid between [beginFirmwareFlash]
   /// and [endFirmwareFlash]; never resent here (a repeated 0x90 is not safe).
-  Future<CorrelatedResponse?> firmwareCommand(int opcode, List<int> payload,
+  Future<CorrelatedResponse?> firmwareCommand(
+      Object token, int opcode, List<int> payload,
       {Duration timeout = const Duration(seconds: 5)}) async {
-    if (!_flashLock || !canFlashFirmwareLink) return null;
+    if (!_flashLock || !identical(token, _flashToken)) return null;
+    if (!canFlashFirmwareLink) return null;
     if (!identical(_session, _flashSession)) return null;
     if (!const {
       FwUpdate.startLoad,
@@ -5159,7 +5186,7 @@ class BleEngine {
     final seq = _seq.nextLive();
     final pending = _awaiter.register(seq, opcode, timeout: timeout);
     final frame = buildCommand(seq, opcode, payload, session.band);
-    if (!await _write(frame, flash: true)) {
+    if (!await _write(frame, flashToken: token)) {
       pending.cancel();
       return null;
     }
@@ -6081,6 +6108,7 @@ class BleEngine {
       final wallNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       if (BatteryPolicy.acceptsEventReading(batteryTs, wallNow)) {
         state.batteryPct = (f['battery_pct'] as num).toDouble();
+        _batterySession = _session;
         onState(state);
       }
     }
@@ -6212,6 +6240,7 @@ class BleEngine {
       // the UI (the "?*" symptom).
       state.serial = cleanDeviceLabel(h.serial) ?? state.serial;
       state.batteryPct = h.batteryPct ?? state.batteryPct;
+      if (h.batteryPct != null) _batterySession = _session;
       state.wristOn = h.wristOn ?? state.wristOn;
       onState(state);
     }
@@ -6240,7 +6269,10 @@ class BleEngine {
       // this publication either way.
       if (h.helloRevision == 1) {
         state.serial = cleanDeviceLabel(h.serial) ?? state.serial;
-        if (h.batteryPct != null) state.batteryPct = h.batteryPct!.toDouble();
+        if (h.batteryPct != null) {
+          state.batteryPct = h.batteryPct!.toDouble();
+          _batterySession = _session;
+        }
         state.charging = h.charging;
         state.wristOn = h.wristOn;
         onState(state);
@@ -9375,6 +9407,7 @@ class BleEngine {
       // A held lock would refuse every ACK on the next link.
       _flashLock = false;
       _flashSession = null;
+      _flashToken = null;
       _log('FIRMWARE FLASH: link lost, lock released.');
     }
     // The strap-RTC↔wall correlation belongs to the session that measured it —

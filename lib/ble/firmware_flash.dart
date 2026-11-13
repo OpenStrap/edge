@@ -1,4 +1,4 @@
-// User-supplied image update (WHOOP 5 only, opt-in builds only).
+// User-supplied image update (WHOOP 5 only).
 //
 // Stage the whole file, verify it, then stop and wait. The commit (0x90) is
 // sent only by an explicit [commit] call after the user confirms. Nothing here
@@ -11,7 +11,32 @@ import 'package:openstrap_protocol/openstrap_protocol.dart';
 import 'ble_engine.dart';
 import 'ble_state.dart';
 
-enum FlashPhase { idle, staging, verified, committing, committed, failed }
+enum FlashPhase {
+  idle,
+  staging,
+  verified,
+  committing,
+  committed,
+
+  /// The commit was sent and nothing came back. The strap may or may not have
+  /// taken it, so nothing here offers a retry.
+  commitUnknown,
+  failed,
+}
+
+/// Why staging cannot start yet.
+enum FlashBlock { noImage, tooLarge, noLink, batteryUnknown, batteryLow }
+
+/// Why a run ended without a committed image.
+enum FlashFailure {
+  takeover,
+  start,
+  data,
+  verify,
+  cancelled,
+  commitRejected,
+  commitUnknown,
+}
 
 /// The slice of the engine the flow needs (a seam so the flow is testable).
 abstract class FlashLink {
@@ -23,22 +48,43 @@ abstract class FlashLink {
       {Duration timeout});
 }
 
+/// Holds the engine's ownership token for ONE claim. Only this instance's own
+/// claim is ever released or used to send, so a controller that outlives its
+/// screen cannot touch a newer screen's claim.
 class EngineFlashLink implements FlashLink {
   EngineFlashLink(this._e);
   final BleEngine _e;
+  Object? _token;
   @override
   bool get canFlash => _e.canFlashFirmware;
   @override
-  double? get batteryPct => _e.state.batteryPct;
+  double? get batteryPct => _e.flashBatteryPct;
   @override
-  bool begin() => _e.beginFirmwareFlash();
+  bool begin() {
+    final t = _e.beginFirmwareFlash();
+    if (t == null) return false;
+    _token = t;
+    return true;
+  }
+
   @override
-  void end() => _e.endFirmwareFlash();
+  void end() {
+    final t = _token;
+    if (t == null) return;
+    _token = null;
+    _e.endFirmwareFlash(t);
+  }
+
   @override
   Future<CorrelatedResponse?> command(int opcode, List<int> payload,
-          {Duration timeout = const Duration(seconds: 5)}) =>
-      _e.firmwareCommand(opcode, payload, timeout: timeout);
+      {Duration timeout = const Duration(seconds: 5)}) async {
+    final t = _token;
+    if (t == null) return null;
+    return _e.firmwareCommand(t, opcode, payload, timeout: timeout);
+  }
 }
+
+enum _Reply { ok, rejected, none }
 
 class FirmwareFlashController extends ChangeNotifier {
   FirmwareFlashController(this._link);
@@ -52,44 +98,56 @@ class FirmwareFlashController extends ChangeNotifier {
   static const double minBatteryPct = 50;
 
   FlashPhase phase = FlashPhase.idle;
-  String? error;
+  FlashFailure? failure;
+
+  /// The byte offset the strap rejected, for [FlashFailure.data].
+  int failureOffset = 0;
   Uint8List? _image;
   String? fileName;
   String? sha;
   int chunksDone = 0;
   int chunksTotal = 0;
   bool _cancel = false;
+  bool _disposed = false;
+  bool _inFlight = false;
+  bool _claimed = false;
 
   int get imageBytes => _image?.length ?? 0;
   double get progress => chunksTotal == 0 ? 0 : chunksDone / chunksTotal;
   bool get busy =>
       phase == FlashPhase.staging || phase == FlashPhase.committing;
 
+  /// A finished commit, or one whose outcome is unknown, ends the flow: no new
+  /// image can be picked or staged from here.
+  bool get settled =>
+      phase == FlashPhase.committed || phase == FlashPhase.commitUnknown;
+
+  /// Current battery on this link, for the blocker's wording.
+  double? get batteryNow => _link.batteryPct;
+
   void load(String name, Uint8List bytes) {
-    if (busy) return;
+    if (busy || settled || _disposed) return;
+    // A new pick after verify drops the claim the old image held.
+    if (phase == FlashPhase.verified) _release();
     _image = bytes;
     fileName = name;
     sha = sha256.convert(bytes).toString();
     phase = FlashPhase.idle;
-    error = null;
+    failure = null;
     chunksDone = 0;
-    chunksTotal = FwUpdate.chunkCount(bytes.length);
-    notifyListeners();
+    chunksTotal = bytes.isEmpty ? 0 : FwUpdate.chunkCount(bytes.length);
+    _notify();
   }
 
   /// Reason staging cannot start, or null when it can.
-  String? get blocker {
-    if (_image == null || _image!.isEmpty) return 'Choose an image file first.';
-    if (_image!.length > maxImageBytes) return 'That file is too large for an image.';
-    if (!_link.canFlash) {
-      return 'Connect a WHOOP 5 and wait for any sync to finish.';
-    }
+  FlashBlock? get blocker {
+    final image = _image;
+    if (image == null || image.isEmpty) return FlashBlock.noImage;
+    if (image.length > maxImageBytes) return FlashBlock.tooLarge;
+    if (!_link.canFlash) return FlashBlock.noLink;
     final b = _link.batteryPct;
-    if (b == null) return 'Battery level unknown. Wait for it to be read.';
-    if (b < minBatteryPct) {
-      return 'Battery is ${b.round()}%. Charge to at least '
-          '${minBatteryPct.round()}% first.';
-    }
+    if (b == null) return FlashBlock.batteryUnknown;
+    if (b < minBatteryPct) return FlashBlock.batteryLow;
     return null;
   }
 
@@ -97,77 +155,114 @@ class FirmwareFlashController extends ChangeNotifier {
 
   /// Start load, stage every chunk, verify. Ends at [FlashPhase.verified].
   Future<void> stage() async {
-    if (busy || blocker != null) return;
-    if (!_link.begin()) return _fail('Could not take over the connection.');
+    if (busy || settled || _disposed || blocker != null) return;
+    if (!_link.begin()) return _fail(FlashFailure.takeover);
+    _claimed = true;
     _cancel = false;
     phase = FlashPhase.staging;
-    error = null;
+    failure = null;
     chunksDone = 0;
-    notifyListeners();
+    _notify();
     final image = _image!;
-    if (!await _ok(FwUpdate.startLoad, FwUpdate.rev1)) {
-      return _fail('The strap did not accept the start of the update.');
-    }
+    final start = await _cmd(FwUpdate.startLoad, FwUpdate.rev1);
+    if (_disposed) return _release();
+    if (start != _Reply.ok) return _fail(FlashFailure.start);
     for (var off = 0; off < image.length; off += FwUpdate.chunk) {
-      if (_cancel) return _fail('Cancelled. Nothing was committed.');
+      if (_cancel) return _fail(FlashFailure.cancelled);
       final end = off + FwUpdate.chunk > image.length
           ? image.length
           : off + FwUpdate.chunk;
-      if (!await _ok(FwUpdate.loadData,
-          FwUpdate.loadDataPayload(off, image.sublist(off, end)))) {
-        return _fail('The strap rejected data at byte $off. '
-            'Nothing was committed.');
+      final r = await _cmd(FwUpdate.loadData,
+          FwUpdate.loadDataPayload(off, image.sublist(off, end)));
+      if (_disposed) return _release();
+      if (r != _Reply.ok) {
+        failureOffset = off;
+        return _fail(FlashFailure.data);
       }
       chunksDone++;
-      notifyListeners();
+      _notify();
     }
-    if (!await _ok(FwUpdate.verifyImage, FwUpdate.rev1)) {
-      return _fail('The strap did not verify the image. '
-          'Nothing was committed.');
-    }
+    // Stop pressed while the last chunk was in flight.
+    if (_cancel) return _fail(FlashFailure.cancelled);
+    final v = await _cmd(FwUpdate.verifyImage, FwUpdate.rev1);
+    if (_disposed) return _release();
+    if (v != _Reply.ok) return _fail(FlashFailure.verify);
+    if (_cancel) return _fail(FlashFailure.cancelled);
     // The link stays claimed through the user's decision so no heartbeat or
     // ACK lands between verify and commit. Released by commit, abandon,
     // failure or dispose.
     phase = FlashPhase.verified;
-    notifyListeners();
+    _notify();
   }
 
   /// Send the commit. Call only after the user confirmed.
   Future<void> commit() async {
-    if (phase != FlashPhase.verified) return;
+    if (phase != FlashPhase.verified || _disposed) return;
     phase = FlashPhase.committing;
-    notifyListeners();
-    final ok = await _ok(FwUpdate.processImage, FwUpdate.rev1);
-    _link.end();
-    if (!ok) return _fail('The strap did not accept the commit.');
-    phase = FlashPhase.committed;
-    notifyListeners();
+    _notify();
+    final r = await _cmd(FwUpdate.processImage, FwUpdate.rev1);
+    _release();
+    if (_disposed) return;
+    switch (r) {
+      case _Reply.ok:
+        phase = FlashPhase.committed;
+        _notify();
+      case _Reply.rejected:
+        _fail(FlashFailure.commitRejected);
+      case _Reply.none:
+        // Sent, and no answer: not a rejection. Never offer a retry.
+        failure = FlashFailure.commitUnknown;
+        phase = FlashPhase.commitUnknown;
+        _notify();
+    }
   }
 
   /// The user backed out after verify. Nothing is committed.
   void abandon() {
     if (phase != FlashPhase.verified) return;
-    _link.end();
+    _release();
     phase = FlashPhase.idle;
-    notifyListeners();
+    _notify();
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _cancel = true;
-    _link.end();
+    // A command still in flight keeps the claim until it returns; the staging
+    // loop releases it then. Freeing it now would let ordinary writes
+    // interleave with a half-sent transfer.
+    if (!_inFlight) _release();
     super.dispose();
   }
 
-  Future<bool> _ok(int op, List<int> payload) async {
-    final r = await _link.command(op, payload);
-    return r != null && r.status == CommandAwaiter.statusSuccess;
+  Future<_Reply> _cmd(int op, List<int> payload) async {
+    _inFlight = true;
+    try {
+      final r = await _link.command(op, payload);
+      if (r == null) return _Reply.none;
+      return r.status == CommandAwaiter.statusSuccess
+          ? _Reply.ok
+          : _Reply.rejected;
+    } finally {
+      _inFlight = false;
+    }
   }
 
-  void _fail(String why) {
+  void _release() {
+    if (!_claimed) return;
+    _claimed = false;
     _link.end();
-    error = why;
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  void _fail(FlashFailure why) {
+    _release();
+    failure = why;
     phase = FlashPhase.failed;
-    notifyListeners();
+    _notify();
   }
 }
