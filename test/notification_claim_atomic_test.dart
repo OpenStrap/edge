@@ -255,5 +255,72 @@ void main() {
       expect(await store.claim('${_dayOffset(0)}:trigger'), isTrue);
       expect(await LocalDb.notifFiredExists('alarm_fired:12345'), isTrue);
     });
+
+    test('the morning briefing guards expire by the date inside the key',
+        () async {
+      // They are `<prefix><date>[:<slot>]`, so the date does not lead the key
+      // and a leading-date prune never saw them: one row per day, forever.
+      final old = _dayOffset(-(FiredKeyStore.retentionDays + 5));
+      final recent = _dayOffset(-1);
+      final keys = [
+        '${NotificationCenter.morningBriefAnnouncedPrefix}$old',
+        '${NotificationCenter.morningBriefSlotPrefix}$old:480',
+        '${NotificationCenter.morningBriefAnnouncedPrefix}$recent',
+        '${NotificationCenter.morningBriefSlotPrefix}$recent:480',
+      ];
+      SharedPreferences.setMockInitialValues({
+        for (final k in keys) 'notif_fired:$k': true,
+      });
+      await LocalDb.seedNotifFired(keys);
+
+      expect(await const FiredKeyStore().claim('${_dayOffset(0)}:trigger'),
+          isTrue);
+
+      expect(await LocalDb.notifFiredExists(keys[0]), isFalse);
+      expect(await LocalDb.notifFiredExists(keys[1]), isFalse);
+      expect(await LocalDb.notifFiredExists(keys[2]), isTrue);
+      expect(await LocalDb.notifFiredExists(keys[3]), isTrue);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      expect(prefs.containsKey('notif_fired:${keys[0]}'), isFalse);
+      expect(prefs.containsKey('notif_fired:${keys[1]}'), isFalse);
+      expect(prefs.getBool('notif_fired:${keys[2]}'), isTrue);
+      expect(prefs.getBool('notif_fired:${keys[3]}'), isTrue);
+    });
+
+    test('releasePrefix gives back only the matching claims', () async {
+      const store = FiredKeyStore();
+      final day = _dayOffset(0);
+      final slotA = '${NotificationCenter.morningBriefSlotPrefix}$day:480';
+      final slotB = '${NotificationCenter.morningBriefSlotPrefix}$day:510';
+      final announced = '${NotificationCenter.morningBriefAnnouncedPrefix}$day';
+      for (final k in [slotA, slotB, announced]) {
+        expect(await store.claim(k), isTrue);
+      }
+
+      await store.releasePrefix('${NotificationCenter.morningBriefSlotPrefix}$day:');
+
+      expect(await store.hasFired(slotA), isFalse);
+      expect(await store.hasFired(slotB), isFalse);
+      expect(await store.hasFired(announced), isTrue);
+    });
+
+    test('replaceUnderPrefix leaves the new slot key as the only one', () async {
+      const store = FiredKeyStore();
+      final day = _dayOffset(0);
+      final prefix = '${NotificationCenter.morningBriefSlotPrefix}$day:';
+      final slotA = '${prefix}480';
+      final slotB = '${prefix}510';
+      final announced = '${NotificationCenter.morningBriefAnnouncedPrefix}$day';
+      // A failed cancel while moving A to B left A's key in place.
+      expect(await store.claim(slotA), isTrue);
+      expect(await store.claim(announced), isTrue);
+
+      await store.replaceUnderPrefix(prefix, slotB);
+
+      expect(await store.hasFired(slotA), isFalse);
+      expect(await store.hasFired(slotB), isTrue);
+      expect(await store.hasFired(announced), isTrue);
+    });
   });
 }
