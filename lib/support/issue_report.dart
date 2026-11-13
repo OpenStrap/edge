@@ -262,7 +262,13 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
   final build = s['app_build'];
   final d = app.device;
   final bandGeneration = app.paired?.generation ?? d.generation;
-  final bandFirmware = await LocalDb.bandFirmware();
+  // Only gen5 HELLOs record a firmware, and the record is per install, not
+  // per band: after a swap to a WHOOP 4.0, or with no band paired, it would
+  // name a band that is no longer the one reporting.
+  // ponytail: two gen5 bands in turn still share one record; keying it by
+  // serial is the upgrade if that ever misleads a ticket.
+  final bandFirmware =
+      bandGeneration == 'gen5' ? await LocalDb.bandFirmware() : null;
   final meta = <String, Object?>{
     'appVersion': '${s['app_version'] ?? '?'}${build == null ? '' : '+$build'}',
     'algoVersion': kAlgoVersion,

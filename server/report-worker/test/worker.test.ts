@@ -116,6 +116,17 @@ describe("POST /v1/reports", () => {
     expect(stored.bandFirmware).toBeUndefined();
   });
 
+  it("drops a band field that only ends in a line break", async () => {
+    // JavaScript's `$` (no m flag) matches only at the very end of the input,
+    // not before a trailing newline, so this must not reach the issue body.
+    const r = await post(meta({ bandGeneration: "gen5\n", bandFirmware: "50.43.2.0\n" }));
+    expect(r.status).toBe(201);
+    const row = await e.DB.prepare("SELECT meta FROM reports WHERE id=?").bind(((await r.json()) as any).id).first<any>();
+    const stored = JSON.parse(row.meta);
+    expect(stored.bandGeneration).toBeUndefined();
+    expect(stored.bandFirmware).toBeUndefined();
+  });
+
   it("requires Content-Length and refuses oversized ones before reading the body", async () => {
     const h = { "content-type": "application/octet-stream", "x-report-meta": metaHeader(meta()) };
     expect((await req(h, streamOf([blobOf()]))).status).toBe(411);
