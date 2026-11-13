@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/state/triathlon_reconciler.dart';
 import 'package:openstrap_edge/data/db.dart';
@@ -14,10 +15,27 @@ import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/triathlon_plan.dart';
 import 'package:openstrap_edge/data/triathlon_store.dart';
 
+/// path_provider has no plugin in a unit test; exportDaysDb needs a temp dir.
+class _FakePathProvider extends PathProviderPlatform {
+  _FakePathProvider(this.root);
+  final String root;
+  @override
+  Future<String?> getTemporaryPath() async => root;
+  @override
+  Future<String?> getApplicationSupportPath() async => root;
+  @override
+  Future<String?> getApplicationDocumentsPath() async => root;
+  @override
+  Future<String?> getApplicationCachePath() async => root;
+}
+
 void main() {
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    PathProviderPlatform.instance = _FakePathProvider(
+      Directory.systemTemp.createTempSync('tri_paths').path,
+    );
   });
 
   tearDownAll(() async {
@@ -535,7 +553,7 @@ void main() {
       );
       segs = await TriathlonDb.segments(db, 'tri_move_1');
       expect(segs[0].endTs, 1700);
-      expect(segs[1].startTs, 1700);
+      expect(segs[1].startTs, 2000, reason: 'the gap is a pause, not an error');
       await LocalDb.close();
     });
 
@@ -917,6 +935,156 @@ void main() {
       expect(restored.plan?.preset, 'sprint');
       await File(path).delete();
       await LocalDb.close();
+    });
+
+
+    test('a restore cut off after the parent resumes and brings the segments',
+        () async {
+      final db = await freshDb('tri_resume_source.db');
+      final now = DateTime.now();
+      final nowSec = now.millisecondsSinceEpoch ~/ 1000;
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      await TriathlonDb.create(
+        db,
+        TriSession(
+          id: 'tri_resume_1',
+          kind: 'race',
+          preset: 'sprint',
+          status: 'armed',
+          plan: plan,
+          createdAt: nowSec * 1000,
+          updatedAt: nowSec * 1000,
+        ),
+      );
+      await TriathlonDb.startSegment(
+        db: db,
+        sessionId: 'tri_resume_1',
+        ts: nowSec - 60,
+        boundarySource: 'gesture',
+      );
+      final path = await LocalDb.exportDaysDb({dayLabelOf(now)});
+
+      await LocalDb.close();
+      LocalDb.dbName = 'tri_resume_dest.db';
+      final dir = await databaseFactory.getDatabasesPath();
+      await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+      final dest = await LocalDb.instance;
+      await LocalDb.importFromDbFile(path);
+
+      // The restore stopped between the two tables: the parent is on disk,
+      // its segments are not.
+      await dest.delete('triathlon_segment',
+          where: 'session_id = ?', whereArgs: ['tri_resume_1']);
+      expect(await TriathlonDb.segments(dest, 'tri_resume_1'), isEmpty);
+
+      final counts = await LocalDb.importFromDbFile(path);
+      expect(counts['triathlon_segment'], 5,
+          reason: 'the parent being current must not hide its missing rows');
+      final back = await TriathlonDb.byId(dest, 'tri_resume_1');
+      expect(back!.segments, hasLength(5));
+      expect(back.segments[0].startTs, nowSec - 60);
+
+      // A complete race is still protected: a second import writes nothing.
+      final again = await LocalDb.importFromDbFile(path);
+      expect(again['triathlon_segment'] ?? 0, 0);
+      await File(path).delete();
+      await LocalDb.close();
+    });
+
+    test('retention keeps the taps of a race that is still armed or active',
+        () async {
+      final db = await freshDb('tri_prune_taps_test.db');
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      await TriathlonDb.create(
+        db,
+        TriSession(
+          id: 'tri_prune_1',
+          kind: 'race',
+          preset: 'sprint',
+          status: 'armed',
+          plan: plan,
+          createdAt: nowSec * 1000,
+          updatedAt: nowSec * 1000,
+        ),
+      );
+      Future<void> tap(int ts, {int event = 14}) => db.insert('band_events', {
+            'device_id': '',
+            'hex': 'e${event}_$ts',
+            'event_id': event,
+            'name': 'E$event',
+            'ts': ts,
+            'payload_json': '{}',
+            'captured_at': ts * 1000,
+          });
+      await tap(nowSec + 10); // after arming: the race's own
+      await tap(nowSec - 5000); // long before arming: nobody's
+      await tap(nowSec + 11, event: 33); // some other event: ordinary prune
+
+      await LocalDb.pruneDecodedBeforeRecTs(nowSec + 100000);
+      Future<List<int>> left(int event) async => [
+            for (final r in await db.query('band_events',
+                columns: ['ts'],
+                where: 'event_id = ?',
+                whereArgs: [event]))
+              (r['ts'] as num).toInt(),
+          ];
+      expect(await left(14), [nowSec + 10]);
+      expect(await left(33), isEmpty);
+
+      // Once the race is no longer open its taps are ordinary again.
+      await db.update('triathlon_session', {'status': 'discarded'},
+          where: 'id = ?', whereArgs: ['tri_prune_1']);
+      await LocalDb.pruneDecodedBeforeRecTs(nowSec + 100000);
+      expect(await left(14), isEmpty);
+      await LocalDb.close();
+    });
+
+    test('a start tap from a strap running behind the phone is not dropped',
+        () {
+      final plan = TriathlonPlan.race(
+        'sprint',
+        swimEnv: TriEnvironment.outdoor,
+        bikeEnv: TriEnvironment.outdoor,
+        runEnv: TriEnvironment.outdoor,
+      );
+      final segs = [
+        for (var i = 0; i < plan.segments.length; i++)
+          TriSegment(
+            sessionId: 's',
+            idx: i,
+            kind: plan.segments[i].kind,
+          ),
+      ];
+      // Armed at 10_000 on the phone; the strap is 60 s behind, so a start
+      // tapped 40 s after arming carries a strap time 20 s BEFORE it.
+      final out = deriveBoundaries(
+        taps: [9980, 9982, 9984],
+        segments: segs,
+        plan: plan,
+        sessionCreatedAtSec: 10000,
+      );
+      expect(out, hasLength(1));
+      expect(out.single.atSec, 9980);
+
+      // Past the drift allowance it is genuinely from before the race.
+      final stale = deriveBoundaries(
+        taps: [9800, 9802, 9804],
+        segments: segs,
+        plan: plan,
+        sessionCreatedAtSec: 10000,
+      );
+      expect(stale, isEmpty);
     });
 
 
@@ -1385,7 +1553,7 @@ void main() {
             .copyWith(startTs: 5600, endTs: 5660),
       );
       final read = (await TriathlonDb.byId(db, 'tri_pause_1'))!;
-      expect(read.movingSec, 660 + 60); // swim 1000s + t1 60s
+      expect(read.movingSec, 1000 + 60); // swim 1000s + t1 60s
       expect(read.totalSec, 5660 - 1000);
       expect(read.pauseSec, (5660 - 1000) - (1000 + 60));
       await LocalDb.close();

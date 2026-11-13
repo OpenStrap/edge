@@ -669,11 +669,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  // 59 is claimed by the open stranded-device-id PR (#537); this feature
-  // takes the next free rung rather than collide with it. The ladder is a
-  // sequence of `oldV < N` checks, so an unused 59 costs nothing: a device
-  // upgrading from 58 runs this step, and whichever PR lands second renumbers.
-  static const int schemaVersion = 60;
+  static const int schemaVersion = 59;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -1443,7 +1439,7 @@ class LocalDb {
           // A band's own hypnogram (`vendor_staged`). New table only.
           await _createVendorSleepEpoch(db);
         }
-        if (oldV < 60) {
+        if (oldV < 59) {
           // Triathlon/multisport: parent session + per-segment boundaries.
           // New tables only, no backfill — there is no older data to move.
           await createTriathlonTables(db);
@@ -12131,11 +12127,19 @@ class LocalDb {
       return {for (final c in info) (c['name'] as String)};
     }
 
+    // A LOCAL race wins over an OLDER snapshot, but a NEWER backup must be
+    // able to advance it (e.g. the final boundaries recorded on another
+    // phone). `discarded` is an explicit local decision and always wins.
+    // Segments follow their parent's verdict, because they arrive as separate
+    // rows and would otherwise rewrite the boundaries of a skipped race.
+    final protectedTriathlons = <String>{};
+    final triLastEdit = <String, int>{};
+    final skippedTriathlons = <String>{};
     // A local race is protected from an import when the athlete explicitly
     // discarded it, or when the local row was edited no earlier than the
     // imported snapshot (a newer backup may still advance the race). [row] is
     // the imported triathlon_session row, null for segment rows.
-    bool _triProtected(String id, Map<String, Object?>? row) {
+    bool triProtected(String id, Map<String, Object?>? row) {
       if (protectedTriathlons.contains(id)) return true;
       if (row == null) return false;
       final local = triLastEdit[id];
@@ -12164,24 +12168,44 @@ class LocalDb {
     // get the same protection, or trends and the rolling baselines would be
     // rebuilt from the other export's numbers while day detail serves ours.
     final finalizedDays = <String>{};
-    // A LOCAL race wins over an OLDER snapshot, but a NEWER backup must be
-    // able to advance it (e.g. the final boundaries recorded on another
-    // phone). `discarded` is an explicit local decision and always wins.
-    // Segments follow their parent's verdict, because they arrive as separate
-    // rows and would otherwise rewrite the boundaries of a skipped race.
-    final protectedTriathlons = <String>{};
-    final triLastEdit = <String, int>{};
     try {
+      // A race arrives as a parent row and its segment rows, in separate
+      // statements. A restore cut off between the two leaves a parent with
+      // none or only some of its segments; if that parent counted as "local
+      // and current" the next restore would skip its segments for good. So a
+      // parent only earns the newer-than-snapshot protection once every
+      // segment its plan calls for is on disk.
+      final haveSegments = <String, int>{
+        for (final r in await db.rawQuery(
+          'SELECT session_id, COUNT(*) AS n FROM triathlon_segment '
+          'GROUP BY session_id',
+        ))
+          '${r['session_id']}': (r['n'] as num?)?.toInt() ?? 0,
+      };
+      int? plannedSegments(Object? planJson) {
+        try {
+          final j = jsonDecode('$planJson');
+          final segs = j is Map ? j['segments'] : null;
+          return segs is List ? segs.length : null;
+        } catch (_) {
+          return null;
+        }
+      }
+
       for (final r in await db.query(
         'triathlon_session',
-        columns: ['id', 'status', 'updated_at'],
+        columns: ['id', 'status', 'updated_at', 'plan_json'],
         distinct: true,
       )) {
         final id = '${r['id']}';
-        triLastEdit[id] = (r['updated_at'] as num?)?.toInt() ?? 0;
         if (r['status'] == 'discarded') {
           protectedTriathlons.add(id);
         }
+        final planned = plannedSegments(r['plan_json']);
+        if (planned == null || (haveSegments[id] ?? 0) < planned) {
+          continue; // an interrupted import: let the next one finish it
+        }
+        triLastEdit[id] = (r['updated_at'] as num?)?.toInt() ?? 0;
       }
     } on DatabaseException {
       /* table absent in an older build of this file — nothing to protect */
@@ -12919,11 +12943,16 @@ class LocalDb {
                   }
                 }
                 if (t == 'triathlon_session' &&
-                    _triProtected('${row['id']}', row)) {
-                  continue; // locally discarded, or newer than the snapshot
+                    triProtected('${row['id']}', row)) {
+                  // Locally discarded, or newer than the snapshot. Its
+                  // segments are skipped with it: the parent table is merged
+                  // first, so the verdict is already known when they arrive.
+                  skippedTriathlons.add('${row['id']}');
+                  continue;
                 }
                 if (t == 'triathlon_segment' &&
-                    _triProtected('${row['session_id']}', null)) {
+                    (protectedTriathlons.contains('${row['session_id']}') ||
+                        skippedTriathlons.contains('${row['session_id']}'))) {
                   continue;
                 }
                 if (t == 'day_result') {
@@ -15772,15 +15801,25 @@ class LocalDb {
       // on the three real exports these four ids are 87, 22 and 12 rows across
       // 8 to 11 days — a few thousand a year. Event 33 alone is ~1900 A DAY,
       // which is why the exemption is four ids and not the whole table.
+      //
+      // The double-taps (event 14) that mark a triathlon's boundaries are also
+      // kept while a race is still armed or active: the reconciler rebuilds the
+      // boundaries from them, and a race left unreconciled past the cutoff
+      // would otherwise lose the only record of where its segments change.
       deleted += await txn.delete(
         'band_events',
-        where: 'ts < ? AND event_id NOT IN (?, ?, ?, ?)',
+        where: 'ts < ? AND event_id NOT IN (?, ?, ?, ?) '
+            'AND NOT (event_id = ? AND ts >= COALESCE('
+            '(SELECT MIN(created_at) / 1000 - ? FROM triathlon_session '
+            "WHERE status IN ('armed', 'active')), 9223372036854775807))",
         whereArgs: [
           cutoffSec,
           proto.EventId.chargingOn,
           proto.EventId.chargingOff,
           proto.EventId.wristOn,
           proto.EventId.wristOff,
+          kTriathlonDoubleTapEventId,
+          kClockDriftToleranceSec,
         ],
       );
       // THE UNDECODABLE ARCHIVE IS THINNED, NOT KEPT WHOLE. See

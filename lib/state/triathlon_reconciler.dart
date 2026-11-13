@@ -34,8 +34,10 @@ import 'package:sqflite/sqflite.dart';
 import '../data/triathlon_plan.dart';
 import '../data/triathlon_store.dart';
 
-/// Double-tap event id, the only gesture the firmware emits today.
-const int kTriathlonDoubleTapEventId = 14;
+// The double-tap id and the clock tolerance live beside the store so the
+// retention prune can honour them without importing this layer.
+export '../data/triathlon_store.dart'
+    show kTriathlonDoubleTapEventId, kClockDriftToleranceSec;
 
 /// How many double-taps make one accepted transition. Matches the "keep
 /// tapping until it answers" rule: an accidental blocked tap cannot reach it.
@@ -43,12 +45,6 @@ const int kMinTaps = 3;
 
 /// The window those taps must fall inside, in seconds.
 const int kTapWindowSec = 6;
-
-/// Widening applied to the event window on both sides, because the strap's RTC
-/// and the phone's clock are different clocks and can drift. The boundary
-/// floor still rejects anything at or before the last recorded boundary, so a
-/// wider read can only ADD taps the strap really recorded, never rewind.
-const int kClockDriftToleranceSec = 120;
 
 /// Minimum time a segment must have been running before a transition is
 /// believable, per segment kind. These are deliberately conservative floors,
@@ -166,7 +162,12 @@ List<ReconcileBoundary> deriveBoundaries({
     if (s.isOpen) openIdx = s.idx;
   }
   // A tap at or before the last recorded boundary is already accounted for.
-  int floor = sessionCreatedAtSec;
+  // Before anything is recorded the floor is the arming time, which is the
+  // PHONE's clock, while the taps are the STRAP's. The query widens its window
+  // by [kClockDriftToleranceSec] to catch a strap running behind, so the floor
+  // has to give the same allowance, or the very start tap it just fetched is
+  // thrown away here.
+  int floor = sessionCreatedAtSec - kClockDriftToleranceSec;
   for (final s in segments) {
     final t = s.startTs;
     if (t != null && t > floor) floor = t;

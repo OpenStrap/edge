@@ -80,6 +80,15 @@ Future<void> createTriathlonTables(DatabaseExecutor db) async {
   );
 }
 
+/// Double-tap event id, the only gesture the firmware emits today.
+const int kTriathlonDoubleTapEventId = 14;
+
+/// Widening applied to the event window on both sides, because the strap's RTC
+/// and the phone's clock are different clocks and can drift. The boundary
+/// floor still rejects anything at or before the last recorded boundary, so a
+/// wider read can only ADD taps the strap really recorded, never rewind.
+const int kClockDriftToleranceSec = 120;
+
 /// How a segment boundary was established. `gesture` is a live band tap,
 /// `phone` an on-screen button, `manual` a boundary the user moved afterwards,
 /// `posthoc` a boundary reconstructed from band history or suggested by the
@@ -1215,7 +1224,7 @@ class TriathlonDb {
       'start_ts': start,
       'end_ts': end,
       'updated_at': DateTime.now().millisecondsSinceEpoch,
-      if (status != null) 'status': status,
+      'status': ?status,
     };
     await db.update(
       'triathlon_session',
