@@ -1793,9 +1793,10 @@ class HomeData {
     final absentDiag = readiness.value != null
         ? null
         : await LocalDb.readinessAbsentDiag(date);
-    // The learned need comes with the night: getDaySleepV2 reads the same
-    // sleep_coach.need (same staleness gate) as getInsights. Absent stays
-    // absent: the ring shows the labelled default, never an invented need.
+    // The need comes with the night: today's is the live estimate, a past
+    // night's is the one stored for that day, and absent when none was (see
+    // getDaySleepV2). Absent stays absent: the ring shows the labelled
+    // default, and never measures an old night against today's need.
     final need = metricOf(sleep['need_min']);
     return HomeData(
       name: profile['name']?.toString(),

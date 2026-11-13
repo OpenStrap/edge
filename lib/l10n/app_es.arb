@@ -3270,7 +3270,6 @@
   "homeFirstWeekRecovery": "Recuperación: a partir de la noche {night}, cuando conozca tu normalidad",
   "homeFirstWeekSoFar": "{count, plural, =1{1 día registrado hasta ahora} other{{count} días registrados hasta ahora}}",
   "homeFirstWeekDone": "Hecho: {step}",
-  "homeCoachSetUpChip": "Haz preguntas sobre tus datos: configura el coach",
   "homeRecoverySleeping": "Durmiendo…",
   "homeRecoveryAfterWake": "La recuperación se puntúa cuando te despiertas.",
   "homeRecoveryFinishingUp": "Terminando",

@@ -57,7 +57,7 @@ const _target = {'value': 10, 'low': 8, 'high': 12};
 HomeData _data({
   num? recovery = 80,
   num? sleep = 450, // minutes
-  num need = 480,
+  num? need = 480,
   num? strain = 5.0,
   Map<String, dynamic>? target,
   String? recoveryState,
@@ -68,7 +68,7 @@ HomeData _data({
       recoveryState: recoveryState,
       readiness: recovery == null ? Metric.empty : _m(recovery),
       sleepMin: sleep == null ? Metric.empty : _m(sleep),
-      sleepNeedMin: _m(need),
+      sleepNeedMin: need == null ? Metric.empty : _m(need),
       strain: strain == null ? Metric.empty : _m(strain),
       strainTarget: target,
       readinessUpdate: update,
@@ -333,6 +333,16 @@ void main() {
       // Derived from the data: 5h 50m asleep against an 8h 48m need.
       expect(find.text('5h 50m asleep, 2h 58m under your 8h 48m need.'),
           findsOneWidget);
+    });
+
+    testWidgets(
+        'WHY: a night with no stored need is never measured against one',
+        (t) async {
+      // A past night the crossday pass never wrote a need for: the ring has
+      // nothing to be short of, so it neither ranks nor claims a shortfall.
+      await _rings(t, _data(recovery: 80, sleep: 300, need: null));
+      expect(_why('sleep'), findsNothing);
+      expect(find.textContaining('under your'), findsNothing);
     });
 
     testWidgets('WHY: the strain and its target range share one decimal '
