@@ -37,7 +37,7 @@ import '../data/triathlon_store.dart';
 // The double-tap id and the clock tolerance live beside the store so the
 // retention prune can honour them without importing this layer.
 export '../data/triathlon_store.dart'
-    show kTriathlonDoubleTapEventId, kClockDriftToleranceSec;
+    show kTriathlonDoubleTapEventId, kTriathlonClockDriftSec;
 
 /// How many double-taps make one accepted transition. Matches the "keep
 /// tapping until it answers" rule: an accidental blocked tap cannot reach it.
@@ -103,8 +103,8 @@ class TriathlonReconciler {
       whereArgs: [
         kTriathlonDoubleTapEventId,
         deviceId,
-        since - kClockDriftToleranceSec,
-        until + kClockDriftToleranceSec,
+        since - kTriathlonClockDriftSec,
+        until + kTriathlonClockDriftSec,
       ],
       orderBy: 'ts ASC',
     );
@@ -164,10 +164,10 @@ List<ReconcileBoundary> deriveBoundaries({
   // A tap at or before the last recorded boundary is already accounted for.
   // Before anything is recorded the floor is the arming time, which is the
   // PHONE's clock, while the taps are the STRAP's. The query widens its window
-  // by [kClockDriftToleranceSec] to catch a strap running behind, so the floor
+  // by [kTriathlonClockDriftSec] to catch a strap running behind, so the floor
   // has to give the same allowance, or the very start tap it just fetched is
   // thrown away here.
-  int floor = sessionCreatedAtSec - kClockDriftToleranceSec;
+  int floor = sessionCreatedAtSec - kTriathlonClockDriftSec;
   for (final s in segments) {
     final t = s.startTs;
     if (t != null && t > floor) floor = t;

@@ -87,7 +87,7 @@ const int kTriathlonDoubleTapEventId = 14;
 /// and the phone's clock are different clocks and can drift. The boundary
 /// floor still rejects anything at or before the last recorded boundary, so a
 /// wider read can only ADD taps the strap really recorded, never rewind.
-const int kClockDriftToleranceSec = 120;
+const int kTriathlonClockDriftSec = 120;
 
 /// How a segment boundary was established. `gesture` is a live band tap,
 /// `phone` an on-screen button, `manual` a boundary the user moved afterwards,
