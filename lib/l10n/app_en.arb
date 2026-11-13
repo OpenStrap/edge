@@ -1,5 +1,17 @@
 {
   "@@locale": "en",
+  "whoopFirmwareWarningTitle": "WHOOP users: do not reconnect to the WHOOP app",
+  "@whoopFirmwareWarningTitle": {
+    "description": "Prominent WHOOP firmware warning shared by connection and pairing screens."
+  },
+  "whoopFirmwareWarningAction": "If you use OpenStrap or another open-source app, or plan to switch to one later, do not connect your band to the official WHOOP app again. It can install firmware updates automatically. Uninstall or disable the WHOOP app to prevent it from updating your band.",
+  "@whoopFirmwareWarningAction": {
+    "description": "Prominent WHOOP firmware warning shared by connection and pairing screens."
+  },
+  "whoopFirmwareWarningDetails": "Reports on WHOOP 5.0 / MG firmware 50.43.1.0 and 50.43.2.0 describe blocked data access. Bluetooth may still connect. OpenStrap cannot issue the WHOOP-signed membership token needed to unlock affected bands. We are working on a solution, but no fix is available yet.",
+  "@whoopFirmwareWarningDetails": {
+    "description": "Prominent WHOOP firmware warning shared by connection and pairing screens."
+  },
   "appTitle": "OpenStrap",
   "@appTitle": {
     "description": "App name shown in the OS task switcher / MaterialApp title."
@@ -68,11 +80,11 @@
   "@pairingSkipNote": {
     "description": "Note under the skip button."
   },
-  "pairingIdleTitle": "Wake the band and hold it close",
+  "pairingIdleTitle": "Put your band in pairing mode",
   "@pairingIdleTitle": {
     "description": "Pairing state title: idle."
   },
-  "pairingIdleBody": "Take the band off the charger, put it on your wrist and keep the phone within arm’s reach.",
+  "pairingIdleBody": "Take the band off your wrist and tap the top firmly until it flashes blue. Keep your phone nearby.",
   "@pairingIdleBody": {
     "description": "Pairing state body: idle."
   },
@@ -168,7 +180,7 @@
   "@pairingFailedAdviceTitle": {
     "description": "Advice card title: failed."
   },
-  "pairingFailedAdviceBody": "Scanning again from a metre away normally works.",
+  "pairingFailedAdviceBody": "Put the band in pairing mode (flashing blue), then tap Try again.",
   "@pairingFailedAdviceBody": {
     "description": "Advice card body: failed."
   },
@@ -1943,9 +1955,9 @@
   "@napsWokeUpHelp": {
     "description": "Time picker helper text for logging when a manual nap ended."
   },
-  "napsInvalidWindow": "A nap is between 5 minutes and 6 hours. Anything longer is a sleep, and it belongs in the night where the stages can be read.",
+  "napsInvalidWindow": "A nap is between 5 minutes and 3 hours. Anything longer is a sleep, and it belongs in the night where the stages can be read.",
   "@napsInvalidWindow": {
-    "description": "Validation error when a manually logged nap window is outside 5 minutes to 6 hours."
+    "description": "Validation error when a manually logged nap window is outside 5 minutes to 3 hours."
   },
   "napsOverlap": "That overlaps a nap already on this day. Remove that one first, rather than counting the same hour twice.",
   "@napsOverlap": {
@@ -3846,7 +3858,7 @@
   "@journalComposeSevenDayTrend": {
     "description": "Title of the weight trend chart."
   },
-  "journalComposeTrendFootnote": "Entered by you. Days with no entry are left empty.",
+  "journalComposeTrendFootnote": "Entered by you or your scale. Days with no entry are left empty.",
   "@journalComposeTrendFootnote": {
     "description": "Footnote under the weight trend chart."
   },
@@ -8558,6 +8570,10 @@
     "description": "Shown after the user set their own sleep window and the band recorded it, but staging found no sleep in it."
   },
   "sleepDetailCorrectionUnavailable": "This night’s detailed recordings are no longer on the phone, so its sleep can’t be corrected now.",
+  "sleepDetailCorrectionNoRecordings": "This night has no detailed recordings on the phone, so its sleep can’t be corrected.",
+  "@sleepDetailCorrectionNoRecordings": {
+    "description": "Shown instead of the sleep correction buttons on a night with no detailed recordings on the phone that were never pruned (imported or never worn)."
+  },
   "sleepDetailCorrectionEveningPruned": "The evening before this night is no longer on the phone, so only a bedtime after midnight, or Not sleep, can be applied.",
   "@sleepDetailCorrectionEveningPruned": {
     "description": "Shown on the oldest night still kept, or after a correction there was refused: the evening part of the night has been pruned, so a bedtime before midnight, confirming the detected times, or reverting to automatic cannot be applied."
@@ -9634,6 +9650,10 @@
   "activityPickerRecent": "RECENT",
   "@activityPickerRecent": {
     "description": "Section heading over the recent-activities row"
+  },
+  "activityPickerMostDone": "MOST DONE",
+  "@activityPickerMostDone": {
+    "description": "Section heading over the most-used-activities row"
   },
   "activityPickerCalorieEstimatesTitle": "Calorie figures are estimates",
   "@activityPickerCalorieEstimatesTitle": {
@@ -12737,7 +12757,7 @@
   "activityStart": "Start",
   "activityEnd": "End",
   "activityCheckTimes": "Check the times",
-  "activityNapWindow": "Choose a past window between 5 minutes and 6 hours.",
+  "activityNapWindow": "Choose a past window between 5 minutes and 3 hours.",
   "activityEditNap": "Edit nap",
   "activityEditWorkout": "Edit workout",
   "activityNapAlerts": "Detected naps",
@@ -15689,6 +15709,14 @@
   "@reportDescriptionHint": {
     "description": "Issue report: description field hint."
   },
+  "reportContactLabel": "Contact (optional)",
+  "@reportContactLabel": {
+    "description": "Issue report: optional contact field label."
+  },
+  "reportContactHint": "Email or Discord, only if you want a reply",
+  "@reportContactHint": {
+    "description": "Issue report: optional contact field hint. Only shared so the developer can reply."
+  },
   "reportAttachGroup": "Attachments",
   "@reportAttachGroup": {
     "description": "Issue report: heading over screenshot and database options."
@@ -16323,5 +16351,52 @@
         "type": "int"
       }
     }
-  }
+  },
+  "pairBandNotSensor": "That device is a {label}, a band, not a plain sensor. Nothing was saved.",
+  "@pairBandNotSensor": {
+    "description": "Shown when a device picked as a plain sensor turns out to be a band. Nothing was saved. {label} is the band’s name.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomeCoachKeyReentry": "Your coach API key stays in secure storage and was not backed up. Enter it again in AI settings to use the coach on this phone.",
+  "welcomeSettingsSkipped": "{n, plural, =1{1 setting in the backup could not be read and was skipped} other{{n} settings in the backup could not be read and were skipped}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "welcomeSettingsSkippedBody": "Those keep this phone's values.",
+  "welcomeCoachChatGptReentry": "Your ChatGPT sign-in stays in secure storage and was not backed up. Sign in again in AI settings to use the coach on this phone.",
+  "welcomeCoachServerReentry": "Your custom coach server address was not backed up, because an address can hold a key. Enter it again in AI settings.",
+  "welcomeSettingsRestored": "{n} settings restored",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "strengthCustomWeight": "Custom weight",
+  "@strengthCustomWeight": {"description": "Strength set editor copy."},
+  "strengthEnterValue": "Enter a value",
+  "@strengthEnterValue": {"description": "Strength set editor copy."},
+  "strengthInvalidNumber": "Invalid number",
+  "@strengthInvalidNumber": {"description": "Strength set editor copy."},
+  "strengthLoadRangeKg": "Must be 0–500 kg",
+  "@strengthLoadRangeKg": {"description": "Strength set editor copy."},
+  "strengthLoadRangeLb": "Must be 0–1100 lb",
+  "@strengthLoadRangeLb": {"description": "Strength set editor copy."},
+  "strengthRepsRange": "Must be 1–200 reps",
+  "@strengthRepsRange": {"description": "Strength set editor copy."},
+  "strengthEditSet": "Edit set",
+  "@strengthEditSet": {"description": "Strength set editor copy."},
+  "strengthDeleteSet": "Delete set",
+  "@strengthDeleteSet": {"description": "Strength set editor copy."},
+  "strengthDeleteSetConfirm": "Delete this set?",
+  "@strengthDeleteSetConfirm": {"description": "Strength set editor copy."},
+  "strengthBodyweight": "Bodyweight",
+  "@strengthBodyweight": {"description": "Strength set editor copy."},
+  "strengthDelete": "Delete",
+  "@strengthDelete": {"description": "Strength set editor copy."},
+  "strengthSaveFailed": "Failed to save changes",
+  "@strengthSaveFailed": {"description": "Strength set editor copy."}
 }
