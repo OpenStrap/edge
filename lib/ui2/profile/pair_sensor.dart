@@ -59,7 +59,9 @@ import '../../ble/adapters/_registry.dart';
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
+import '../../ble/band_identity.dart' show BandIdentity;
 import '../../ble/hrs_link.dart';
+import '../pairing/pair_outcome_text.dart';
 import '../../ble/ios_ble_restore.dart';
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
@@ -279,9 +281,9 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
     }
   }
 
-  Future<void> _pick(BandCandidate c) => _pickDevice(c.device, label: c.label);
+  Future<void> _pick(BandCandidate c) => _pickDevice(c.device, label: c.label, earlierBand: c.alsoBand);
 
-  Future<void> _pickDevice(BluetoothDevice device, {required String? label}) async {
+  Future<void> _pickDevice(BluetoothDevice device, {required String? label, BandIdentity? earlierBand}) async {
     // THE exact cap check. This screen stays open after a pair and offers
     // "Pair another", and every route into it (Add sensor, onboarding,
     // re-pair) only checked on the way in. The minted id is the row only
@@ -320,11 +322,12 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
           ? await widget.onPickedWithKey!(device, typedKey)
           : widget.onPicked != null
           ? await widget.onPicked!(device)
-          : await HrsLink.pairNotifySensor(
+          : pairOutcomeText(l, await HrsLink.pairNotifySensor(
               widget.entry,
               device,
               label: label,
-            );
+              earlierBand: earlierBand,
+            ));
     } catch (e) {
       failure = l?.pairSensorCouldNotPair(e.toString()) ??
           'Could not pair that device: $e';

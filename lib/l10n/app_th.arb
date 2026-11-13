@@ -16328,6 +16328,20 @@
       }
     }
   },
+  "welcomeCoachKeyReentry": "คีย์ API ของโค้ชยังอยู่ในพื้นที่จัดเก็บที่ปลอดภัยและไม่ได้รวมอยู่ในข้อมูลสำรอง โปรดป้อนคีย์อีกครั้งในการตั้งค่า AI เพื่อใช้โค้ชบนโทรศัพท์เครื่องนี้",
+  "welcomeSettingsSkipped": "{n, plural, other{อ่านการตั้งค่า {n} รายการในข้อมูลสำรองไม่ได้และข้ามไป}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "welcomeSettingsSkippedBody": "รายการเหล่านั้นใช้ค่าของโทรศัพท์เครื่องนี้ต่อ",
+  "welcomeCoachChatGptReentry": "ข้อมูลการลงชื่อเข้าใช้ ChatGPT ยังอยู่ในพื้นที่จัดเก็บที่ปลอดภัยและไม่ได้รวมอยู่ในข้อมูลสำรอง โปรดลงชื่อเข้าใช้อีกครั้งในการตั้งค่า AI เพื่อใช้โค้ชบนโทรศัพท์เครื่องนี้",
+  "welcomeCoachServerReentry": "ที่อยู่เซิร์ฟเวอร์โค้ชที่คุณกำหนดเองไม่ได้ถูกสำรองไว้ เพราะที่อยู่อาจมีคีย์อยู่ด้วย ป้อนอีกครั้งในการตั้งค่า AI",
+  "welcomeSettingsRestored": "กู้คืนการตั้งค่าแล้ว {n} รายการ",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
+  },
   "strengthCustomWeight": "น้ำหนักที่กำหนดเอง",
   "strengthEnterValue": "ป้อนค่า",
   "strengthInvalidNumber": "ตัวเลขไม่ถูกต้อง",
@@ -16344,5 +16358,14 @@
   "whoopFirmwareWarningAction": "หากคุณใช้ OpenStrap หรือแอปโอเพนซอร์สอื่น หรือวางแผนจะเปลี่ยนไปใช้ในภายหลัง อย่าเชื่อมต่อสายรัดกับแอป WHOOP อย่างเป็นทางการอีก แอปอาจติดตั้งอัปเดตเฟิร์มแวร์โดยอัตโนมัติ ให้ถอนการติดตั้งหรือปิดใช้งานแอป WHOOP เพื่อไม่ให้แอปอัปเดตสายรัดของคุณ",
   "whoopFirmwareWarningDetails": "มีรายงานเกี่ยวกับเฟิร์มแวร์ WHOOP 5.0 / MG เวอร์ชัน 50.43.1.0 และ 50.43.2.0 ว่าเข้าถึงข้อมูลไม่ได้ บลูทูธอาจยังเชื่อมต่อได้ OpenStrap ไม่สามารถออกโทเค็นสมาชิกที่ WHOOP ลงนามซึ่งจำเป็นต่อการปลดล็อกสายรัดที่ได้รับผลกระทบ เรากำลังหาทางแก้ไข แต่ยังไม่มีวิธีแก้ในตอนนี้",
   "napAutoLogTitle": "บันทึกการงีบที่ชัดเจนโดยอัตโนมัติ",
-  "napAutoLogSub": "การงีบที่ตรวจพบและมีหลักฐานชัดเจนจะถูกเพิ่มโดยไม่ถาม คุณยังแก้ไขหรือลบได้"
+  "napAutoLogSub": "การงีบที่ตรวจพบและมีหลักฐานชัดเจนจะถูกเพิ่มโดยไม่ถาม คุณยังแก้ไขหรือลบได้",
+  "pairBandNotSensor": "อุปกรณ์นั้นคือ {label} ซึ่งเป็นสายรัด ไม่ใช่เซ็นเซอร์ธรรมดา ไม่ได้บันทึกอะไรไว้",
+  "@pairBandNotSensor": {
+    "description": "Shown when a device picked as a plain sensor turns out to be a band. Nothing was saved. {label} is the band’s name.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  }
 }

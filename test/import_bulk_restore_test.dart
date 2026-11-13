@@ -623,7 +623,8 @@ void main() {
         expect(sql, matches(RegExp(r'rowid\s*<=\s*\?', caseSensitive: false)));
         final args = prep[i]['arguments'] as List;
         expect(args, hasLength(2));
-        expect(args[0], i * 25000);
+        // The first chunk starts below every rowid (rows can sit at 0 or below).
+        expect(args[0], i == 0 ? -0x8000000000000000 : i * 25000);
         expect(args[1], inInclusiveRange(i == 0 ? 25000 : n, (i + 1) * 25000));
       }
     }, timeout: const Timeout(Duration(minutes: 5)));
@@ -729,6 +730,33 @@ void main() {
     expect([for (final r in await db.query('decoded_rr', orderBy: 'beat_index'))
       r['beat_index']], [0, 1, 2, 3]);
   });
+
+  // A legacy table keyed on its own INTEGER column has that column as its
+  // rowid, so a zero counter is rowid 0. The chunk bounds started at
+  // `rowid > 0`, and a table whose highest rowid was 0 was skipped outright.
+  for (final counters in [
+    [0, 1],
+    [-1, 0],
+  ]) {
+    test('bulk restore keeps rows at rowid $counters', () async {
+      final path = p.join(tmp.path, 'zero_rowid_src.db');
+      await databaseFactoryFfi.deleteDatabase(path);
+      final src = await databaseFactoryFfi.openDatabase(path);
+      await src.execute('CREATE TABLE samples '
+          '(counter INTEGER PRIMARY KEY, ts INTEGER, hr INTEGER)');
+      for (final (i, c) in counters.indexed) {
+        await src.insert('samples', {'counter': c, 'ts': _t0 + i, 'hr': 60 + i});
+      }
+      await src.close();
+      await freshLocal();
+      await LocalDb.importFromDbFile(path);
+      final rows = await (await LocalDb.instance)
+          .query('samples', columns: ['ts', 'hr'], orderBy: 'ts');
+      expect(rows, [
+        for (final (i, _) in counters.indexed) {'ts': _t0 + i, 'hr': 60 + i},
+      ]);
+    });
+  }
 
   test('sparse source rowids are paged by row, not by rowid range', () async {
     final path = p.join(tmp.path, 'sparse_rowid_src.db');
