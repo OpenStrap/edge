@@ -1126,6 +1126,10 @@ class NotificationCenter {
       // suppress the briefing for the rest of the day.
       if (armed && s.id == NotificationService.idMorningBrief) {
         await const FiredKeyStore().recordFired(announcedKey);
+        // Replace the day's slot keys even if the preceding cancel failed —
+        // only the slot armed here is current; a stale slot key would make a
+        // later change back to the old time preserve the wrong pending post.
+        await const FiredKeyStore().releasePrefix(slotDayPrefix);
         await const FiredKeyStore().recordFired(slotKey!);
       }
     }
