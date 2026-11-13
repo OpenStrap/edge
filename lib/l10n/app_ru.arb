@@ -8030,5 +8030,64 @@
         "type": "String"
       }
     }
-  }
+  },
+  "pairResetWhoop5Step1": "Снимите браслет с руки и подождите, пока погаснут зелёные огоньки.",
+  "pairResetWhoop5Step2": "Держите браслет за боковые стороны и сильно постукивайте двумя пальцами по верхней части, пока не будет мигать только синий. Если горят синий и белый вместе, продолжайте стучать, пока не останется только синий.",
+  "pairResetWhoop5Step3": "Если приложение WHOOP установлено на этом телефоне, принудительно закройте его.",
+  "pairResetWhoop5Step4": "Вернитесь сюда и попробуйте ещё раз.",
+  "pairResetGenericStep1": "Откройте приложение производителя и удалите из него это устройство.",
+  "pairResetGenericStep2": "В настройках Bluetooth телефона найдите устройство и выберите «Забыть».",
+  "pairResetGenericStep3": "Перезапустите устройство, поднесите его ближе к этому телефону и попробуйте ещё раз.",
+  "pairResetGenericNote": "Это общие советы. Точные шаги для этого устройства мы пока не проверяли.",
+  "pairResetOfficialLink": "Открыть страницу помощи производителя",
+  "pairResetTitleBand": "Ваш браслет подключён к другому устройству",
+  "pairResetTitleRing": "Ваше кольцо подключено к другому устройству",
+  "pairResetBody": "Не удалось завершить подключение {name}. Скорее всего, устройство всё ещё подключено к другому телефону или приложению.",
+  "@pairResetBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairResetHeading": "Как сбросить",
+  "pairResetWhoopTakeover": "Подключение здесь отключает его от приложения WHOOP.",
+  "pairResetOfficialSub": "{host} · откроется в браузере",
+  "@pairResetOfficialSub": {
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "pairLinkOpenFailed": "Не удалось открыть ссылку. Адрес: {url}",
+  "@pairLinkOpenFailed": {
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "pairPickDifferentBand": "Выбрать другой браслет",
+  "pairThisIsWhoop": "Это браслет WHOOP",
+  "pairThisIsRing": "Это кольцо",
+  "pairThisIsWatch": "Это часы",
+  "pairThisIsFitnessBand": "Это фитнес-браслет",
+  "pairThisIsStrap": "Это нагрудный пульсометр",
+  "pairThisIsSensor": "Это датчик пульса",
+  "pairTroubleTitle": "Не получается подключить?",
+  "pairTroubleBody": "Переведите браслет в режим сопряжения и попробуйте снова. Не помогло? Спросите нас.",
+  "pairTroubleModeLink": "Режим сопряжения {device}",
+  "@pairTroubleModeLink": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "pairTroubleDiscord": "Спросить в Discord",
+  "pairTroubleDiscordSub": "Сообщество OpenStrap",
+  "pairModeTitle": "Переведите в режим сопряжения",
+  "pairModeNoSite": "Это универсальное устройство без единого производителя, поэтому инструкции производителя нет.",
+  "pairOuraExistingKeyGuidance": "Уже пользуетесь приложением Oura? Оставьте кольцо сопряжённым в этом приложении и выполните сопряжение с его текущим ключом. Пропустите шаги сброса ниже. Сбрасывайте кольцо только для получения нового ключа."
 }
