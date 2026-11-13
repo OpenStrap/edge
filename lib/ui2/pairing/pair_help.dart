@@ -1,4 +1,4 @@
-// H1: "Trouble connecting?", an always-open card where the pairing screens
+// "Trouble connecting?", an always-open card where the pairing screens
 // list their ways out: each band's official pairing-mode page and the
 // project's Discord. Nothing expands, so nothing shifts. Links open in the
 // user's own browser, never inside the app.
