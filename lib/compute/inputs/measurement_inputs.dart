@@ -28,12 +28,50 @@ const double kWeighingBand = 0.10;
 bool nearWeight(num kg, num? near) =>
     near == null || near <= 0 || (kg - near).abs() <= near * kWeighingBand;
 
-/// The newest weighing any paired health-measurement device with its flag
-/// on (rule R6, [wearableEnabled]) banked (kg, epoch ms), or null. With
-/// [near] (the profile's weight), only weighings within [kWeighingBand] of
-/// it count.
-Future<({double kg, int atMs})?> newestWeighing({num? near}) async {
-  ({double kg, int atMs})? newest;
+/// The household-band chain over [ws], in time order: the first weighing
+/// seeds it and a later one is kept while within [kWeighingBand] of the
+/// previous kept one. A run of 3 consecutive rejected weighings, each near
+/// the one before it, is a lasting change (a guest seeded the chain, or a
+/// real step in weight), so the whole run is kept and its last member becomes
+/// the anchor; a rejected weighing that breaks the run starts a new run of 1.
+/// Pure and deterministic: same input, same output, however often it runs.
+List<({double kg, int atMs})> weighingChain(
+  Iterable<({double kg, int atMs})> ws,
+) {
+  final sorted = [...ws]
+    ..sort((a, b) {
+      final c = a.atMs.compareTo(b.atMs);
+      return c != 0 ? c : a.kg.compareTo(b.kg);
+    });
+  final chain = <({double kg, int atMs})>[];
+  var run = <({double kg, int atMs})>[];
+  for (final w in sorted) {
+    if (chain.isEmpty || nearWeight(w.kg, chain.last.kg)) {
+      chain.add(w);
+      run = [];
+      continue;
+    }
+    run = run.isNotEmpty && nearWeight(w.kg, run.last.kg) ? [...run, w] : [w];
+    if (run.length >= 3) {
+      chain.addAll(run);
+      run = [];
+    }
+  }
+  return chain;
+}
+
+/// Every weighing (kg, epoch ms) of a paired health-measurement device with
+/// its flag on (rule R6, [wearableEnabled]), from [fromMs]. With [near] (the
+/// profile's weight), only weighings within [kWeighingBand] of it count.
+Future<List<({double kg, int atMs})>> weighings({
+  num? near,
+  int fromMs = 0,
+}) => _eachWeighing(near: near, fromMs: fromMs).toList();
+
+Stream<({double kg, int atMs})> _eachWeighing({
+  num? near,
+  int fromMs = 0,
+}) async* {
   for (final row in await LocalDb.deviceRows()) {
     final adapter = row['adapter_id'] as String?;
     if (adapter == null ||
@@ -42,13 +80,20 @@ Future<({double kg, int atMs})?> newestWeighing({num? near}) async {
       continue;
     }
     final w = await LocalDb.deviceObservationValues(
-        row['id'] as String, 'weight');
+        row['id'] as String, 'weight',
+        fromMs: fromMs);
     for (final MapEntry(key: at, value: kg) in w.entries) {
-      if (!nearWeight(kg, near)) continue;
-      if (newest == null || at > newest.atMs) {
-        newest = (kg: kg.toDouble(), atMs: at);
-      }
+      if (nearWeight(kg, near)) yield (kg: kg.toDouble(), atMs: at);
     }
+  }
+}
+
+/// The newest of [weighings], or null. A running maximum: the whole history
+/// is never held at once.
+Future<({double kg, int atMs})?> newestWeighing({num? near}) async {
+  ({double kg, int atMs})? newest;
+  await for (final w in _eachWeighing(near: near)) {
+    if (newest == null || w.atMs > newest.atMs) newest = w;
   }
   return newest;
 }

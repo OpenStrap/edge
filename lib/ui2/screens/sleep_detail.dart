@@ -550,6 +550,11 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
   /// Unknown counts as correctable, which is how the screen behaved before.
   bool _correctable = true;
 
+  /// Whether the day's recordings were actually pruned, as opposed to never
+  /// recorded (a fresh install, a night without the band). Only the first may
+  /// say "no longer on the phone"; both leave the day uncorrectable.
+  bool _recordingsPruned = false;
+
   /// Whether the night's whole derive window is still kept. False on the
   /// oldest kept day: the prune cut at its midnight took the evening half, so
   /// confirming the detected times or going back to automatic would be
@@ -628,10 +633,14 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       var correctable = true;
       var wholeNightKept = true;
       var confirmable = true;
+      var recordingsPruned = false;
       if (app != null && d.day != null) {
         try {
           correctable =
               await app.sleepCorrectable(d.day!, sleepSource: 'rejected');
+          if (!correctable) {
+            recordingsPruned = await app.sleepRecordingsPruned(d.day!);
+          }
           wholeNightKept =
               correctable && await app.sleepCorrectable(d.day!);
           final onset = (d.night['onset_ts'] as num?)?.toInt();
@@ -640,7 +649,9 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
                   onset != null &&
                   await app.sleepCorrectable(d.day!,
                       sleepSource: 'confirmed', onsetSec: onset));
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('sleep detail: correctability read failed: $e');
+        }
       }
       // LAST NIGHT ONLY. The card names the luteal phase, and `getCycle` knows
       // today's phase and no other day's — so a card offered while stepping
@@ -657,6 +668,7 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
               _lastGood = d,
               _rough = rough,
               _correctable = correctable,
+              _recordingsPruned = recordingsPruned,
               _wholeNightKept = wholeNightKept,
               _confirmable = confirmable,
               _loading = false,
@@ -761,8 +773,18 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         // the write is refused (and said so) when it doesn't.
         if (rejectedDay != null &&
             (!_correctable || (rejected && !_wholeNightKept))) ...[
-          const SizedBox(height: S.x2),
-          _correctable ? _eveningPrunedNote(c, l) : _uncorrectableNote(c, l),
+          // Uncorrectable with nothing ever recorded (a fresh install, a
+          // night without the band) offers no button and says nothing more:
+          // the card above already says why there is no night. "No longer on
+          // the phone" is only true once the prune has actually run past it;
+          // a rejected night was recorded by definition.
+          if (_correctable) ...[
+            const SizedBox(height: S.x2),
+            _eveningPrunedNote(c, l),
+          ] else if (rejected || _recordingsPruned) ...[
+            const SizedBox(height: S.x2),
+            _uncorrectableNote(c, l),
+          ],
         ] else if (rejected) ...[
           const SizedBox(height: S.x2),
           TextButton(
@@ -1061,8 +1083,12 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
             ),
           ],
           const SizedBox(height: S.x2),
+          // No buttons when uncorrectable; the note says why: pruned
+          // recordings, or (imported, never worn) nothing to re-analyse.
           if (!_correctable)
-            _uncorrectableNote(c, l)
+            _recordingsPruned
+                ? _uncorrectableNote(c, l)
+                : _noRecordingsNote(c, l)
           else
           Wrap(spacing: S.x2, children: [
             if (fallback && _confirmable)
@@ -1116,6 +1142,14 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
         l?.sleepDetailCorrectionUnavailable ??
             'This night\u2019s detailed recordings are no longer on the phone, '
                 'so its sleep can\u2019t be corrected now.',
+        style: F.cap.copyWith(color: P.of(c).ink3),
+      );
+
+  /// An uncorrectable night whose recordings were never here to prune.
+  Widget _noRecordingsNote(BuildContext c, AppLocalizations? l) => Text(
+        l?.sleepDetailCorrectionNoRecordings ??
+            'This night has no detailed recordings on the phone, so its sleep '
+                'can\u2019t be corrected.',
         style: F.cap.copyWith(color: P.of(c).ink3),
       );
 

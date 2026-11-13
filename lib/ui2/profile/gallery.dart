@@ -54,6 +54,7 @@ import '../activity/poster.dart'
     show PosterCard, PosterFormat, PosterStatRow, kPosterMapH, kPosterMapW;
 import '../activity/setup.dart' show ActivitySetup;
 import '../activity/tiles.dart';
+import '../pairing/whoop_firmware_warning.dart';
 import '../activity/share.dart' show ShareSheet, shareOrigin;
 import '../activity/summary.dart';
 import '../onboarding/welcome.dart' show ImportOutcome, ImportReport;
@@ -211,6 +212,7 @@ Map<String, Widget> componentCases() => {
       'ecg_reading_row': Surface(
           pad: EdgeInsets.zero,
           child: EcgReadingRow(reading: _ecgDemoReading, onTap: () {})),
+      'whoop_firmware_warning': const WhoopFirmwareWarning(),
       'signal': const SignalCard(
           LucideIcons.heartPulse, C.blue, 'Resting heart rate', '52',
           unit: 'bpm', sub: '4 BELOW YOUR BASELINE'),

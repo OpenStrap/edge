@@ -58,6 +58,21 @@ String nounInSentence(AppLocalizations? l, String name) {
   return '${name[0].toLowerCase()}${name.substring(1)}';
 }
 
+/// Metrics a day's wear produces, not a night's. Their empty state asks for
+/// the band through the day; "overnight" would send someone to bed to get a
+/// step count.
+const kDaytimeMetricKeys = {
+  'steps',
+  'calories',
+  'strain',
+  'trimp',
+  'active_min',
+  'wear',
+  // After a workout, and sleep outside the main night.
+  'hrr',
+  'nap_min',
+};
+
 /// What a metric key means on screen, and whether we are willing to draw it.
 class MetricSpec {
   /// The alias `getChart` / `getTrend` understand (`_trendKey` maps it on).
@@ -959,8 +974,11 @@ class _MetricDetailState extends State<MetricDetail> {
             // them to wear the band is a promise that cannot change anything —
             // they already did, and the days are one tab away.
             fix: all.isEmpty
-                ? (l?.metricDetailWearBandFix ??
-                    'Wear the band overnight to start the series')
+                ? (kDaytimeMetricKeys.contains(widget.metricKey)
+                    ? (l?.dayStrainWearBandFix ??
+                        'Wear the band through the day')
+                    : (l?.metricDetailWearBandFix ??
+                        'Wear the band overnight to start the series'))
                 : '',
             icon: spec.icon,
           ),
