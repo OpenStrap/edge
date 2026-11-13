@@ -277,7 +277,7 @@ bool isLinkAuthRefusal(int? code) =>
 
 /// True for WHOOP 5.0 / MG firmware 50.43.x, which keeps answering commands
 /// but sends no history or live data until a WHOOP-signed membership token is
-/// on the band (edge#673, captured on 50.43.1.0; reported on 50.43.2.0).
+/// on the band (edge#673; reported on 50.43.1.0 and 50.43.2.0).
 /// [firmware] is `Gen5HelloInfo.firmwareVersion` (`major.minor.build.x`).
 // ponytail: a version prefix, not a probe for the token itself. A later
 // firmware with the same lock needs adding here; one that lifts it on 50.43
@@ -387,8 +387,9 @@ BandStatus bandStatusFor({
           'WHOOP-signed membership token is on it. That is the most likely '
           'reason no data is arriving. OpenStrap cannot issue that token. '
           'Everything already saved here is safe.',
-      fix: 'If it is the firmware, re-pairing or charging will not help. This '
-          'clears by itself once the band sends data again',
+      fix: 'If it is the firmware, nothing in the app changes it, and this '
+          'clears once the band sends data again. If nothing arrives, '
+          'charging the band or re-pairing is still worth a try',
     );
   }
   if (strapNeedsReboot) {
