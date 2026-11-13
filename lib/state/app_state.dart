@@ -4796,6 +4796,9 @@ class AppState extends ChangeNotifier {
 
   /// Verify and save the replacement before retiring the old phone approval.
   /// A failed attempt keeps the old pairing and attempts to reconnect it.
+  @visibleForTesting
+  Future<void> Function(String remoteId)? debugRetireBandApproval;
+
   Future<void> replaceWith(BluetoothDevice d) =>
       _persistPaired(d.remoteId.str, null, replacing: true);
 
@@ -4924,7 +4927,8 @@ class AppState extends ChangeNotifier {
     if (replacing && committed) {
       // Never use unpair/removeAll here: the new primary is already durable.
       await IosBleRestore.disarmOne(existing!.remoteId);
-      await AccessorySetup.removeBand(existing.remoteId);
+      await (debugRetireBandApproval?.call(existing.remoteId) ??
+          AccessorySetup.removeBand(existing.remoteId));
       _onEngineState(LocalDb.kPrimaryDeviceId, device);
     }
     // Now that there's a band to alert about, ask for notification permission

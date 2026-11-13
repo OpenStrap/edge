@@ -923,6 +923,9 @@ void main() {
     await t.tap(find.text('Pair Colmi ring'));
     await t.pumpAndSettle();
     expect(calls.pairs.map((p) => p.$1), ['colmi']);
+    // WHY: a ring is not workout-only; CLAIM(wearable-pair-result).
+    // catches: treating the presence of confirmation as a workout sensor.
+    expect(_result(t), 'pairedOther|');
   });
 
   for (final sensor in kPairableSensors.where((s) => s.pick != null)) {

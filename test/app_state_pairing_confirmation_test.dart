@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/sync/reset_gate.dart';
+import 'package:openstrap_edge/sync/background_sync.dart' show rearmHeadlessAlarm;
 import 'package:openstrap_edge/data/models.dart' show DeviceState;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -255,6 +256,131 @@ void main() {
   );
   group('replacement keeps the old pairing until READY', () {
     const replacementId = 'AA:BB:CC:DD:EE:99';
+
+    // WHY: old accessory retirement can revoke the next replacement's approval.
+    // CLAIM(pairing-retirement-lock); catches: clearing the lock before removeBand.
+    test('replacement stays exclusive until old accessory retirement settles',
+        syncCase((rig, timers) async {
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final retired = <String>[];
+      rig.app.debugRetireBandApproval = (id) async {
+        retired.add(id);
+        entered.complete();
+        await release.future;
+      };
+      final replacing = rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+      await entered.future;
+      try {
+        expect(rig.app.paired?.remoteId, replacementId);
+        await expectLater(rig.app.pairWith(BluetoothDevice.fromId(kRemoteId)),
+            throwsStateError);
+        await expectLater(rig.app.replaceViaAccessorySetup(), throwsStateError);
+        expect(rig.app.paired?.remoteId, replacementId);
+        expect(retired, [kRemoteId]);
+      } finally {
+        release.complete();
+        await replacing;
+      }
+      rig.app.debugRetireBandApproval = (_) async {};
+      await rig.app.replaceWith(BluetoothDevice.fromId(kRemoteId));
+      expect(rig.app.paired?.remoteId, kRemoteId,
+          reason: 'the next deliberate replacement works once retirement ends');
+    }));
+
+    // WHY: an early refusal never left the old band; wiping it destroys live data.
+    // CLAIM(pairing-refusal-preserves-state); catches: unconditional rollback reset.
+    test('busy refusal preserves the connected old band and its live HR',
+        syncCase((rig, timers) async {
+      await rig.openAndSettle();
+      rig.app.pairedIsMaverick = true;
+      rig.app.debugFeedEngineState('', rig.engine.state
+        ..serial = kSerial ..generation = 'gen5'
+        ..liveHr = 61 ..liveHrAt = 1786233600000);
+      final before = await _history();
+      rig.engine.events.clear();
+      rig.app.busy = true;
+      try {
+        await expectLater(rig.app.replaceWith(BluetoothDevice.fromId(replacementId)),
+            throwsA(isA<Exception>()));
+        expect(rig.engine.isConnected, isTrue);
+        expect(rig.app.device.serial, kSerial);
+        expect(rig.app.device.generation, 'gen5');
+        expect(rig.app.liveHrTrace(''), [61]);
+        expect(rig.app.pairedIsMaverick, isTrue);
+        expect(rig.engine.only('connect'), isEmpty);
+        expect(rig.engine.count('disconnect'), 0);
+        expect(await _history(), before);
+      } finally {
+        rig.app.busy = false;
+      }
+    }));
+
+    for (final throws in [true, false]) {
+      // WHY: stale persisted state must never stand in for a write to a new band.
+      // CLAIM(alarm-band-ownership); catches: logging a failed epoch remove then deduping it.
+      test('replacement arms despite epoch removal failure (throws=$throws)',
+          syncCase((rig, timers) async {
+        await rig.openAndSettle();
+        final tomorrow = DateTime.now().add(const Duration(days: 1));
+        await rig.app.setScheduleDay(weekday: tomorrow.weekday,
+            hour: 7, minute: 0, enabled: true);
+        final epoch = rig.app.alarmEpoch;
+        final schedule = await LocalDb.alarmScheduleRows();
+        expect(epoch, isNotNull);
+        final store = SharedPreferencesStorePlatform.instance;
+        SharedPreferencesStorePlatform.instance = _AlarmRemoveFailure(store, throws);
+        addTearDown(() => SharedPreferencesStorePlatform.instance = store);
+        rig.engine.events.clear();
+        await rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+        expect(rig.engine.count('armAlarm'), 1,
+            reason: 'old epoch cannot suppress the new physical band’s SET_ALARM');
+        expect(rig.app.alarmEpoch, epoch);
+        expect(rig.app.alarmConfirmed, isTrue);
+        expect(await LocalDb.alarmScheduleRows(), schedule);
+        expect((await PairedDevice.load())?.remoteId, replacementId);
+      }));
+    }
+
+    // WHY: background reconnects use the same physical alarm ownership rule.
+    // CLAIM(alarm-band-ownership); catches: a headless read bypassing owner checks.
+    test('headless reconnect never adopts another band’s persisted alarm',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      final tomorrow = DateTime.now().add(const Duration(days: 1));
+      await rig.app.setScheduleDay(weekday: tomorrow.weekday,
+          hour: 7, minute: 0, enabled: true);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('alarm_remote_id', 'retired-band');
+      rig.engine.events.clear();
+      await rearmHeadlessAlarm(rig.engine);
+      expect(rig.engine.count('armAlarm'), 1);
+      expect(prefs.getString('alarm_remote_id'), kRemoteId);
+    }));
+
+    // WHY: a replacement can leave the old link before its prepare callback.
+    // CLAIM(pairing-refusal-preserves-state); catches: rolling back only after prepare.
+    test('departure failure before prepare still restores the old pairing',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      final before = await _history();
+      rig.engine.events.clear();
+      var departed = false;
+      rig.engine.disconnectHook = () async {
+        if (!departed) {
+          departed = true;
+          throw StateError('old disconnect failed');
+        }
+      };
+      await expectLater(rig.app.replaceWith(BluetoothDevice.fromId(replacementId)),
+          throwsStateError);
+      expect(rig.app.paired?.remoteId, kRemoteId);
+      expect(rig.engine.isConnected, isTrue);
+      expect(rig.engine.only('connect'), ['connect:$kRemoteId:gen4']);
+      expect(await _history(), before);
+    }));
 
     // WHY: a lost band's retry must finish before candidate bootstrap starts.
     // catches: rejecting replacement because the old loop is reconnecting,
@@ -583,4 +709,28 @@ class _HeldPreferences extends SharedPreferencesStorePlatform {
   @override
   Future<bool> setValue(String type, String key, Object value) =>
       write(key, () => delegate.setValue(type, key, value));
+}
+
+// Emulate disk retaining the epoch after a platform removal failure, including
+// another reader refreshing the process cache before replacement resumes.
+class _AlarmRemoveFailure extends SharedPreferencesStorePlatform {
+  _AlarmRemoveFailure(this.delegate, this.throws);
+  final SharedPreferencesStorePlatform delegate;
+  final bool throws;
+  @override
+  Future<Map<String, Object>> getAll() => delegate.getAll();
+  @override
+  Future<bool> clear() => delegate.clear();
+  @override
+  Future<bool> remove(String key) async {
+    if (key == 'flutter.alarm_epoch') {
+      await (await SharedPreferences.getInstance()).reload();
+      if (throws) throw StateError('epoch removal failed');
+      return false;
+    }
+    return delegate.remove(key);
+  }
+  @override
+  Future<bool> setValue(String type, String key, Object value) =>
+      delegate.setValue(type, key, value);
 }
