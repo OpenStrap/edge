@@ -4,7 +4,7 @@
 // engine keeps the headline and carries the previous row's wear forward, so
 // the figure stops moving while everything around it says "today". The row
 // now records the edge the carried detail was computed at
-// (`detail_edge_sec`), and the wear read hands it to the screen, which says
+// (`wear_edge_sec`), and the wear read hands it to the screen, which says
 // "not updated since" instead of passing a frozen morning off as current.
 
 import 'dart:convert';
@@ -19,6 +19,7 @@ import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/ui2/activity/day_strain.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
@@ -94,21 +95,21 @@ void main() {
     );
   });
 
-  Future<void> store({int? detailEdge}) => LocalDb.putDayResult(
+  Future<void> store({int? wearEdge}) => LocalDb.putDayResult(
     dayId: day,
     algoVersion: kAlgoVersion,
     payloadJson: jsonEncode({
       'scalars': {'rhr': 53},
       'wear': {'worn_min': 300, 'coverage_pct': 45, 'segments': []},
       'data_edge_sec': edge + 4 * 3600,
-      'detail_edge_sec': ?detailEdge,
+      'wear_edge_sec': ?wearEdge,
     }),
     windowJson: '{}',
-    partial: detailEdge != null,
+    partial: wearEdge != null,
   );
 
   test('carried wear says how old it is', () async {
-    await store(detailEdge: edge);
+    await store(wearEdge: edge);
     final w = await repo.getDayWear(day);
     expect(w['worn_min'], 300);
     expect(w['as_of'], edge);
@@ -125,7 +126,10 @@ void main() {
     testWidgets('says when a carried figure was last updated', (t) async {
       await _vitals(t, {'worn_min': 300, 'coverage_pct': 45, 'as_of': edge});
       expect(find.text('Wear time'), findsOneWidget);
-      expect(find.textContaining('not updated since'), findsOneWidget);
+      expect(
+        find.textContaining('not updated since ${clockOfTs(edge)}'),
+        findsOneWidget,
+      );
       expect(
         find.textContaining('45%'),
         findsOneWidget,
@@ -141,7 +145,7 @@ void main() {
       expect(line, findsOneWidget);
       expect(
         (t.widget<Text>(line)).data,
-        contains('15'),
+        contains('${prettyDay('2026-07-15')} ${clockOfTs(nextDay)}'),
         reason: 'a bare 2:30 under the 14th would read as that day',
       );
     });
@@ -150,6 +154,60 @@ void main() {
       await _vitals(t, {'worn_min': 300, 'coverage_pct': 45});
       expect(find.text('Wear time'), findsOneWidget);
       expect(find.textContaining('not updated since'), findsNothing);
+    });
+  });
+
+  group('Day Strain', () {
+    Future<void> show(WidgetTester t, DayStrainData d, double scale) async {
+      t.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      final curve = List<double?>.filled(1440, null);
+      for (var m = 7 * 60; m < 11 * 60; m++) {
+        curve[m] = (m - 7 * 60) / 60;
+      }
+      await t.pumpWidget(
+        MediaQuery(
+          data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+          child: MaterialApp(
+            theme: buildTheme(Brightness.light),
+            home: DayStrainDetail(
+              data: DayStrainData(
+                day: DateTime(2026, 7, 14),
+                curve: curve,
+                strain: 9.2,
+                wornMin: d.wornMin,
+                coveragePct: d.coveragePct,
+                wearAsOf: d.wearAsOf,
+              ),
+            ),
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('a carried wear figure says where it stops', (t) async {
+      await show(
+        t,
+        DayStrainData(wornMin: 300, coveragePct: 90, wearAsOf: edge),
+        1,
+      );
+      expect(find.text('Worn until ${clockOfTs(edge)}'), findsOneWidget);
+      expect(find.text('Worn'), findsNothing);
+      // The pump is the overflow assertion at the largest iOS text size.
+      await show(
+        t,
+        DayStrainData(wornMin: 300, coveragePct: 90, wearAsOf: edge),
+        3.1,
+      );
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('a current one is plain "Worn"', (t) async {
+      await show(t, const DayStrainData(wornMin: 300, coveragePct: 90), 1);
+      expect(find.text('Worn'), findsOneWidget);
+      expect(find.textContaining('Worn until'), findsNothing);
     });
   });
 }

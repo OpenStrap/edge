@@ -16628,5 +16628,6 @@
     "description": "Shown instead of steps for a generic device with no maker’s page."
   },
   "pairOuraExistingKeyGuidance": "ใช้แอป Oura อยู่แล้วใช่ไหม คงการจับคู่แหวนในแอปนั้นไว้ แล้วจับคู่ด้วยคีย์เดิมของแหวน ข้ามขั้นตอนรีเซ็ตด้านล่าง รีเซ็ตเฉพาะเมื่อต้องการคีย์ใหม่เท่านั้น",
-  "healthWearNotUpdatedSince": "ไม่ได้อัปเดตตั้งแต่ {time}"
+  "healthWearNotUpdatedSince": "ไม่ได้อัปเดตตั้งแต่ {time}",
+  "dayStrainWornUntil": "สวมถึง {time}"
 }

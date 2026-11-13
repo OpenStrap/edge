@@ -1469,12 +1469,14 @@ class LocalRepositoryImpl extends LocalRepository {
       'first_on': w?['first_on'],
       'last_on': w?['last_on'],
       'longest_off_min': w?['longest_off_min'],
-      // #450. The data edge this wear block was computed at, when it is older
-      // than the row it sits in: the derive's second half failed and the
-      // engine carried the previous block forward. Absent on a complete
-      // derive, so a screen never shows an age that is not there.
-      if (w != null && b['detail_edge_sec'] is num)
-        'as_of': (b['detail_edge_sec'] as num).toInt(),
+      // #450. The data edge this wear was computed at, when it is older than
+      // the row it sits in: the derive's second half failed and the engine
+      // carried the previous wear forward. Absent on a complete derive, so a
+      // screen never shows an age that is not there. Not gated on the block:
+      // the stamp exists only when wear was carried, whichever field above
+      // the figure ends up read from.
+      if (b['wear_edge_sec'] is num)
+        'as_of': (b['wear_edge_sec'] as num).toInt(),
       'hourly': const [],
     };
   }

@@ -108,7 +108,7 @@ void main() {
   // #450. Wear and the day's curves live in the second half, so a carried
   // block was computed against an EARLIER data edge than the row it now sits
   // in. The row says which, or a frozen morning reads as the current day.
-  group('carried detail names the edge it was computed at', () {
+  group('carried wear names the edge it was computed at', () {
     test('a first failure stamps the previous row\'s edge', () {
       final prev = _storedCompleteRow()
         ..['data_edge_sec'] = _t0 + 3600
@@ -116,17 +116,29 @@ void main() {
       final next = _freshBundle();
       expect(DerivationEngine.carryForwardDetail(prev, next), isTrue);
       expect(next['wear'], prev['wear']);
-      expect(next['detail_edge_sec'], _t0 + 3600);
+      expect(next['wear_edge_sec'], _t0 + 3600);
     });
 
     test('a second failure in a row keeps the OLDEST edge', () {
       final prev = _storedCompleteRow()
         ..['data_edge_sec'] = _t0 + 7200
-        ..['detail_edge_sec'] = _t0 + 3600
+        ..['wear_edge_sec'] = _t0 + 3600
         ..['wear'] = {'worn_min': 60};
       final next = _freshBundle();
       DerivationEngine.carryForwardDetail(prev, next);
-      expect(next['detail_edge_sec'], _t0 + 3600);
+      expect(next['wear_edge_sec'], _t0 + 3600);
+    });
+
+    test('fresh wear beside other carried detail is not stamped', () {
+      // The second half wrote wear, then a later step threw: the previous
+      // row's other detail is carried, but wear is this pass's own.
+      final prev = _storedCompleteRow()
+        ..['data_edge_sec'] = _t0 + 3600
+        ..['wear'] = {'worn_min': 60};
+      final next = _freshBundle()..['wear'] = {'worn_min': 95};
+      expect(DerivationEngine.carryForwardDetail(prev, next), isTrue);
+      expect((next['wear'] as Map)['worn_min'], 95);
+      expect(next.containsKey('wear_edge_sec'), isFalse);
     });
 
     test('a previous edge alone is not detail, and stamps nothing', () {
@@ -136,7 +148,7 @@ void main() {
         ..['data_edge_sec'] = _t0 + 3600;
       final next = _freshBundle();
       expect(DerivationEngine.carryForwardDetail(prev, next), isFalse);
-      expect(next.containsKey('detail_edge_sec'), isFalse);
+      expect(next.containsKey('wear_edge_sec'), isFalse);
       expect(next.containsKey('data_edge_sec'), isFalse);
     });
   });
