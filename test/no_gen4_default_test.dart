@@ -18,6 +18,8 @@ const _bandProfileGen4Defaults = 6;
 
 final _pureComment = RegExp(r'^\s*(///|//|\*|/\*)');
 
+RegExp _assignmentOf(String symbol) => RegExp('(?<![=!<>])=\\s*${RegExp.escape(symbol)}\\b');
+
 int _countMatches(RegExp pattern) {
   var total = 0;
   for (final f in Directory('lib')
@@ -33,10 +35,24 @@ int _countMatches(RegExp pattern) {
 }
 
 void main() {
+  // WHY: a model comparison added by the pairing screen is not a fallback.
+  // catches: counting the second '=' in == or the '=' in !=/<=/>=.
+  test('the default counter distinguishes assignment from comparisons', () {
+    for (final symbol in ['kWhoopGen4', 'BandProfile.gen4']) {
+      final assignment = _assignmentOf(symbol);
+      expect(assignment.hasMatch('BandEntry entry = $symbol;'), isTrue);
+      for (final operator in ['==', '!=', '<=', '>=']) {
+        expect(assignment.hasMatch('entry $operator $symbol.id'), isFalse,
+            reason: '$operator is a comparison, not an assignment');
+      }
+    }
+  });
+
+
   test('kWhoopGen4 default-fallback count only goes down', () {
     // `?? kWhoopGen4` sites plus the one field default (`= kWhoopGen4`).
     final count = _countMatches(RegExp(r'\?\?\s*kWhoopGen4')) +
-        _countMatches(RegExp(r'=\s*kWhoopGen4\b'));
+        _countMatches(_assignmentOf('kWhoopGen4'));
     expect(count, _kWhoopGen4Defaults,
         reason: 'kWhoopGen4-default count drifted from the tracked value. '
             'If a commit just retired a site, lower _kWhoopGen4Defaults in '
@@ -47,7 +63,7 @@ void main() {
     // `?? BandProfile.gen4` sites plus the one field/parameter default
     // (`= BandProfile.gen4`).
     final count = _countMatches(RegExp(r'\?\?\s*BandProfile\.gen4')) +
-        _countMatches(RegExp(r'=\s*BandProfile\.gen4\b'));
+        _countMatches(_assignmentOf('BandProfile.gen4'));
     expect(count, _bandProfileGen4Defaults,
         reason: 'BandProfile.gen4-default count drifted from the tracked '
             'value. If a commit just retired a site, lower '
