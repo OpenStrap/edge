@@ -3280,7 +3280,7 @@ class AppState extends ChangeNotifier {
   /// safe to call repeatedly (cancels + re-schedules). Best-effort.
   Future<void> _ensureRemindersScheduled() {
     final pass = _reminderChain.then((_) => _ensureRemindersScheduledLocked());
-    _reminderChain = pass.catch((_) {});
+    _reminderChain = pass.catchError((_) {});
     return pass;
   }
 
