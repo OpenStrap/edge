@@ -223,6 +223,10 @@ enum BandCondition {
   /// Syncs complete carrying no sensor data — the band's clock has lost sync.
   clockLost,
 
+  /// The band is on a firmware that withholds all data until a WHOOP-signed
+  /// membership token is on it (edge#673), and no data is arriving.
+  firmwareLocked,
+
   connected,
   connecting,
   scanning,
@@ -271,6 +275,16 @@ class BandStatus {
 bool isLinkAuthRefusal(int? code) =>
     code == 5 || code == 8 || code == 15 || code == 137;
 
+/// True for WHOOP 5.0 / MG firmware 50.43.x, which keeps answering commands
+/// but sends no history or live data until a WHOOP-signed membership token is
+/// on the band (edge#673, captured on 50.43.1.0; reported on 50.43.2.0).
+/// [firmware] is `Gen5HelloInfo.firmwareVersion` (`major.minor.build.x`).
+// ponytail: a version prefix, not a probe for the token itself. A later
+// firmware with the same lock needs adding here; one that lifts it on 50.43
+// still only shows this while the data flags below are tripped.
+bool isDataLockedFirmware(String? firmware) =>
+    firmware != null && firmware.startsWith('50.43.');
+
 /// Fold the phone-level blocker and the band's own diagnostic flags into one
 /// state. Pure; [connection] is `DeviceState.connection`.
 ///
@@ -287,6 +301,7 @@ BandStatus bandStatusFor({
   bool strapNeedsReboot = false,
   bool syncClockLost = false,
   int bondRefusals = 0,
+  String? bandFirmware,
 }) {
   const repairFix = 'Forget the band in the phone’s Bluetooth settings, '
       'then pair it again here';
@@ -353,6 +368,23 @@ BandStatus bandStatusFor({
           'nothing is lost — but the band cannot move on until the '
           'confirmation lands.',
       fix: 'Reconnect the band; if it repeats tomorrow, pair it again',
+    );
+  }
+  // The same two "no data is arriving" flags, explained by the firmware
+  // instead: a charger cycle or a re-pair cannot help a band that withholds
+  // its data by design, and both flags clear once records bank again.
+  if ((strapNeedsReboot || syncClockLost) &&
+      isDataLockedFirmware(bandFirmware)) {
+    return const BandStatus(
+      BandCondition.firmwareLocked,
+      'The band’s firmware is holding back its data',
+      'This band runs WHOOP firmware 50.43, which connects and answers the '
+          'app but sends no recordings or live heart rate until a '
+          'WHOOP-signed membership token is on it. OpenStrap cannot issue '
+          'that token. Everything already saved here is safe, and the band '
+          'keeps recording.',
+      fix: 'Re-pairing or charging will not help. This clears by itself once '
+          'the band sends data again',
     );
   }
   if (strapNeedsReboot) {

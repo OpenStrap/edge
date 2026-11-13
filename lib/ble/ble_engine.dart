@@ -2817,6 +2817,7 @@ class BleEngine {
         strapNeedsReboot: state.strapNeedsReboot,
         syncClockLost: state.syncClockLost,
         bondRefusals: state.bondRefusals,
+        bandFirmware: state.firmware,
       );
 
   /// Read past pre-init/resetting states without an unbounded startup await.
@@ -6176,6 +6177,7 @@ class BleEngine {
         if (h.batteryPct != null) state.batteryPct = h.batteryPct!.toDouble();
         state.charging = h.charging;
         state.wristOn = h.wristOn;
+        state.firmware = h.firmwareVersion;
         onState(state);
         unawaited(LocalDb.noteBandFirmware(h.firmwareVersion));
         _log('[HELLO gen5] serial=${h.serial} fw=${h.firmwareVersion} '

@@ -317,6 +317,7 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
     'syncClockLost': d.syncClockLost,
     'strapNeedsReboot': d.strapNeedsReboot,
     'syncChunkQuarantined': d.syncChunkQuarantined,
+    'bandFirmware': d.firmware,
     'initError': app.initError,
     'importRollupError': app.importRollupError,
     'lastBackupError': app.lastBackupError,

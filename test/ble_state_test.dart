@@ -638,6 +638,10 @@ void main() {
         bandStatusFor(connection: 'connected', syncChunkQuarantined: true),
         bandStatusFor(connection: 'connected', strapNeedsReboot: true),
         bandStatusFor(connection: 'connected', syncClockLost: true),
+        bandStatusFor(
+            connection: 'connected',
+            strapNeedsReboot: true,
+            bandFirmware: '50.43.2.0'),
       ];
       for (final s in faults) {
         expect(s.isFault, isTrue, reason: '${s.condition}');
@@ -710,6 +714,48 @@ void main() {
             .condition,
         BandCondition.syncStuck,
       );
+    });
+
+    test('a 50.43 band that sends nothing is named by its firmware (#673)', () {
+      for (final flags in [
+        (stuck: true, clock: false),
+        (stuck: false, clock: true),
+      ]) {
+        final s = bandStatusFor(
+          connection: 'connected',
+          strapNeedsReboot: flags.stuck,
+          syncClockLost: flags.clock,
+          bandFirmware: '50.43.2.0',
+        );
+        expect(s.condition, BandCondition.firmwareLocked, reason: '$flags');
+        expect(s.isFault, isTrue);
+        expect(s.reason, contains('50.43'));
+        // Charging or re-pairing is the advice for the other two flags; for a
+        // locked band it is the wrong instruction.
+        expect(s.fix, startsWith('Re-pairing or charging will not help'));
+      }
+    });
+
+    test('firmware alone is not a fault, and other firmware keeps its advice',
+        () {
+      // A token-unlocked 50.43 band that is syncing shows as connected.
+      expect(
+        bandStatusFor(connection: 'connected', bandFirmware: '50.43.1.0')
+            .condition,
+        BandCondition.connected,
+      );
+      expect(
+        bandStatusFor(
+          connection: 'connected',
+          strapNeedsReboot: true,
+          bandFirmware: '50.38.1.0',
+        ).condition,
+        BandCondition.strapUnresponsive,
+      );
+      expect(isDataLockedFirmware(null), isFalse);
+      expect(isDataLockedFirmware('50.43.1.0'), isTrue);
+      expect(isDataLockedFirmware('50.430.0.0'), isFalse);
+      expect(isDataLockedFirmware('5.43.0.0'), isFalse);
     });
 
     test('the ordinary link states are not faults', () {
