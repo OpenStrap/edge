@@ -3362,7 +3362,7 @@
   "homeDriverRhr": "Пульс в покое",
   "homeDriverResp": "Частота дыхания",
   "homeDriverTemp": "Температура кожи",
-  "homeDbRebuiltTitle": "Для запуска приложения база восстановлена заново",
+  "homeDbRebuiltTitle": "Ваша база данных пересоздана",
   "homeDbRebuiltNothingRecovered": "Ничего не удалось прочитать.",
   "homeDbRebuiltRecovered": "Восстановлено: {list}.",
   "@homeDbRebuiltRecovered": {
@@ -3392,9 +3392,9 @@
     }
   },
   "homeWorkoutHoldTitle": "Тренировка ещё идёт",
-  "homeWorkoutHoldBody": "Пока идёт тренировка, расчёт дня на паузе. Браслет продолжает запись; завершите тренировку на панели ниже, и день заполнится.",
-  "homeInsightsRebuildingTitle": "Выводы за несколько дней пересчитываются",
-  "homeInsightsRebuildingAlgoVersion": "После обновления способ расчёта изменился.",
+  "homeWorkoutHoldBody": "Сегодняшний день заполнится, когда вы завершите тренировку.",
+  "homeInsightsRebuildingTitle": "Обновляем ваши тренды",
+  "homeInsightsRebuildingAlgoVersion": "Обновляется после последнего обновления приложения.",
   "homeInsightsStaleOverWeek": "Тренды обновлялись больше недели назад. Синхронизируйте браслет, чтобы обновить их.",
   "homeInsightsStaleOnDay": "Тренды обновлялись {day}. Синхронизируйте браслет, чтобы обновить их.",
   "@homeInsightsStaleOnDay": {
@@ -3407,7 +3407,6 @@
   },
   "homeInsightsNoVersionStamp": "Тренды обновляются. После синхронизации это занимает около минуты.",
   "homeSyncBand": "Синхронизировать браслет",
-  "homeWhyLabel": "Почему?",
   "homeCalibrating": "Изучаем ваш обычный уровень",
   "homeCalibratingNights": "{have} из {need} ночей",
   "@homeCalibratingNights": {
@@ -3431,24 +3430,111 @@
       }
     }
   },
-  "homeGapNoReason": "Причина отсутствия данных не записана.",
+  "homeGapNoReason": "Причина не указана.",
   "homeRingRecovery": "Восстановление",
   "homeRingStrain": "Нагрузка",
   "homeRingSleep": "Сон",
   "homeRingNoStrain": "Нет нагрузки",
   "homeRingNoSleep": "Нет сна",
   "homeSleepGapFallback": "Не записана ночь с достаточной длительностью сна для оценки.",
-  "homeStrainOf21": "из 21",
-  "homeSleepNoTarget": "Цель пока не задана",
-  "homeOfSpan": "из {duration}",
-  "@homeOfSpan": {
+  "homeSleepPctOf": "{pct}% от {target}",
+  "@homeSleepPctOf": {
     "placeholders": {
-      "duration": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
         "type": "String",
-        "example": "7h 45m"
+        "example": "8h 00m"
       }
     }
   },
+  "homeSleepPctOfDefault": "{pct}% от {target} (по умолчанию)",
+  "@homeSleepPctOfDefault": {
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String",
+        "example": "8h 00m"
+      }
+    }
+  },
+  "homeSleepPctCompact": "{pct}% от {target}",
+  "@homeSleepPctCompact": {
+    "description": "Short sleep caption against a learned target.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultCompact": "{pct}% от {target} · цель по умолчанию",
+  "@homeSleepPctDefaultCompact": {
+    "description": "Short sleep caption that keeps an explicit default-target qualifier.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultTight": "{pct}% от {target} по умолч.",
+  "@homeSleepPctDefaultTight": {
+    "description": "Tightest sleep caption when the target is the default: still names the target as the default.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryTitle": "Низкое восстановление",
+  "homeWhyRecoveryPlain": "Восстановление {score} из 100",
+  "@homeWhyRecoveryPlain": {
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWhySleepTitle": "Недостаточно сна",
+  "homeWhySleepBody": "Оценённый сон был короче вашей потребности.",
+  "homeWhySleepDetail": "Сон {asleep}, на {gap} меньше вашей потребности {need}.",
+  "@homeWhySleepDetail": {
+    "placeholders": {
+      "asleep": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      },
+      "need": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyStrainTitle": "Нагрузка выше цели",
+  "homeWhyStrainBody": "Нагрузка {strain}, выше сегодняшней цели {range}.",
+  "@homeWhyStrainBody": {
+    "placeholders": {
+      "strain": {
+        "type": "String"
+      },
+      "range": {
+        "type": "String"
+      }
+    }
+  },
+  "homeStrainOf21": "из 21",
   "homeLoadFailedTitle": "Не удалось прочитать сегодняшний день",
   "homeLoadFailedBody": "Сохранённый день не загрузился. Ничего не удалено: это ошибка чтения, а не отсутствие данных.",
   "homeDayLoadFailedTitle": "Не удалось прочитать {day}",
@@ -3484,7 +3570,7 @@
   "homeAskCoach": "Спросить тренера",
   "homeProfileSettings": "Профиль и настройки",
   "homeNothingTodayTitle": "За сегодня ничего не записано",
-  "homeNothingTodayBody": "Последняя оценённая ночь: {day}. С тех пор данные не поступали.",
+  "homeNothingTodayBody": "Последняя оценённая ночь: {day}.",
   "homeNoDataThisDayTitle": "Нет данных за этот день",
   "homeNoDataThisDayBody": "В этот день ничего не было записано.",
   "homeSomeDayDataMissingTitle": "Часть данных за этот день отсутствует",
@@ -3506,7 +3592,7 @@
       }
     }
   },
-  "homeReadinessNoReason": "Причина не записана.",
+  "homeReadinessNoReason": "Причина не указана.",
   "homeSeeWhatWasMissing": "Посмотреть, чего не хватило",
   "homeAtAGlance": "Краткий обзор",
   "homeTodaysPlan": "План на сегодня",
@@ -3525,25 +3611,9 @@
       }
     }
   },
-  "homeIllnessBodyNoZ": "В последние ночи пульс в покое выше обычного. Отслеживается один сигнал, поэтому это закономерность, а не причина.",
-  "homeIllnessBodyAbove": "В последние ночи пульс в покое выше обычного. В ту ночь он был выше на {z} вашего обычного разброса. Это закономерность, а не причина.",
-  "@homeIllnessBodyAbove": {
-    "placeholders": {
-      "z": {
-        "type": "String",
-        "example": "1.8"
-      }
-    }
-  },
-  "homeIllnessBodyBelow": "В сумме за последние ночи пульс в покое выше обычного, хотя сама по себе та ночь была ниже нормы на {z} вашего обычного разброса. Это закономерность, а не причина.",
-  "@homeIllnessBodyBelow": {
-    "placeholders": {
-      "z": {
-        "type": "String",
-        "example": "1.8"
-      }
-    }
-  },
+  "homeIllnessBodyNoZ": "В последние ночи ваш пульс в покое был выше обычного. Это закономерность, а не причина.",
+  "homeIllnessBodyAbove": "Последние ночи подняли ваш пульс в покое выше обычного. Та ночь тоже была выше. Это закономерность, а не причина.",
+  "homeIllnessBodyBelow": "В сумме последние ночи подняли ваш пульс в покое выше обычного, хотя сама та ночь была ниже. Это закономерность, а не причина.",
   "homeIllnessAdvice": "Обратите внимание, если это продолжается больше пары дней.",
   "homeHeartRate": "Пульс",
   "homeRestingSub": "В покое",
@@ -7519,7 +7589,7 @@
       }
     }
   },
-  "homeCoachSetUpChip": "Задавайте вопросы о своих данных: настройте тренера",
+  "homeCoachSetUpChip": "Настроить тренера",
   "profileSetupCycleSub": "Отмечайте менструацию в разделе «Здоровье». Это можно изменить позже.",
   "homeRecoverySleeping": "Сон…",
   "homeRecoveryAfterWake": "Восстановление оценивается после пробуждения.",
@@ -8033,5 +8103,64 @@
   },
   "bandStatusFirmwareLockedTitle": "Прошивка браслета, вероятно, удерживает его данные",
   "bandStatusFirmwareLockedReason": "На этом браслете прошивка WHOOP 50.43: он может подключаться и отвечать приложению, но не передавать ни записи, ни пульс в реальном времени, пока на нём нет подписанного WHOOP токена подписки. Скорее всего, данные не приходят именно поэтому. OpenStrap не может выпустить такой токен. Всё, что уже сохранено здесь, в безопасности.",
-  "bandStatusFirmwareLockedFix": "Если дело в прошивке, повторное сопряжение или зарядка не помогут. Сообщение исчезнет само, как только браслет снова начнёт передавать данные"
+  "bandStatusFirmwareLockedFix": "Если дело в прошивке, повторное сопряжение или зарядка не помогут. Сообщение исчезнет само, как только браслет снова начнёт передавать данные",
+  "pairResetWhoop5Step1": "Снимите браслет с руки и подождите, пока погаснут зелёные огоньки.",
+  "pairResetWhoop5Step2": "Держите браслет за боковые стороны и сильно постукивайте двумя пальцами по верхней части, пока не будет мигать только синий. Если горят синий и белый вместе, продолжайте стучать, пока не останется только синий.",
+  "pairResetWhoop5Step3": "Если приложение WHOOP установлено на этом телефоне, принудительно закройте его.",
+  "pairResetWhoop5Step4": "Вернитесь сюда и попробуйте ещё раз.",
+  "pairResetGenericStep1": "Откройте приложение производителя и удалите из него это устройство.",
+  "pairResetGenericStep2": "В настройках Bluetooth телефона найдите устройство и выберите «Забыть».",
+  "pairResetGenericStep3": "Перезапустите устройство, поднесите его ближе к этому телефону и попробуйте ещё раз.",
+  "pairResetGenericNote": "Это общие советы. Точные шаги для этого устройства мы пока не проверяли.",
+  "pairResetOfficialLink": "Открыть страницу помощи производителя",
+  "pairResetTitleBand": "Ваш браслет подключён к другому устройству",
+  "pairResetTitleRing": "Ваше кольцо подключено к другому устройству",
+  "pairResetBody": "Не удалось завершить подключение {name}. Скорее всего, устройство всё ещё подключено к другому телефону или приложению.",
+  "@pairResetBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairResetHeading": "Как сбросить",
+  "pairResetWhoopTakeover": "Подключение здесь отключает его от приложения WHOOP.",
+  "pairResetOfficialSub": "{host} · откроется в браузере",
+  "@pairResetOfficialSub": {
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "pairLinkOpenFailed": "Не удалось открыть ссылку. Адрес: {url}",
+  "@pairLinkOpenFailed": {
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "pairPickDifferentBand": "Выбрать другой браслет",
+  "pairThisIsWhoop": "Это браслет WHOOP",
+  "pairThisIsRing": "Это кольцо",
+  "pairThisIsWatch": "Это часы",
+  "pairThisIsFitnessBand": "Это фитнес-браслет",
+  "pairThisIsStrap": "Это нагрудный пульсометр",
+  "pairThisIsSensor": "Это датчик пульса",
+  "pairTroubleTitle": "Не получается подключить?",
+  "pairTroubleBody": "Переведите браслет в режим сопряжения и попробуйте снова. Не помогло? Спросите нас.",
+  "pairTroubleModeLink": "Режим сопряжения {device}",
+  "@pairTroubleModeLink": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "pairTroubleDiscord": "Спросить в Discord",
+  "pairTroubleDiscordSub": "Сообщество OpenStrap",
+  "pairModeTitle": "Переведите в режим сопряжения",
+  "pairModeNoSite": "Это универсальное устройство без единого производителя, поэтому инструкции производителя нет.",
+  "pairOuraExistingKeyGuidance": "Уже пользуетесь приложением Oura? Оставьте кольцо сопряжённым в этом приложении и выполните сопряжение с его текущим ключом. Пропустите шаги сброса ниже. Сбрасывайте кольцо только для получения нового ключа."
 }
