@@ -146,6 +146,7 @@ import '../telemetry/health_uploader.dart';
 import '../widget/widget_service.dart';
 import '../sync/file_log.dart';
 import 'breathing_controller.dart';
+import 'coalescing_runner.dart';
 import 'package:uuid/uuid.dart';
 
 export 'derive_coordinator.dart' show DeriveRunHook;
@@ -3319,15 +3320,16 @@ class AppState extends ChangeNotifier {
   /// the (internally serialized) scheduling must run in the same order:
   /// without this chain, an older `lastNightDataReady: false` pass can reach
   /// the scheduler after a newer ready pass and cancel the briefing it armed.
-  Future<void> _reminderChain = Future.value();
+  ///
+  /// Requests that arrive while a pass is queued but not yet started join it
+  /// (it reads its inputs when it starts), so a drain's many store paths cost
+  /// at most one running pass and one waiting pass, not one pass per batch.
+  late final CoalescingRunner _reminderRunner =
+      CoalescingRunner(_ensureRemindersScheduledLocked);
 
   /// (Re)register standing scheduled reminders per the user's prefs. Idempotent;
   /// safe to call repeatedly (cancels + re-schedules). Best-effort.
-  Future<void> _ensureRemindersScheduled() {
-    final pass = _reminderChain.then((_) => _ensureRemindersScheduledLocked());
-    _reminderChain = pass.catchError((_) {});
-    return pass;
-  }
+  Future<void> _ensureRemindersScheduled() => _reminderRunner.run();
 
   Future<void> _ensureRemindersScheduledLocked() async {
     try {

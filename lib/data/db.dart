@@ -2218,12 +2218,30 @@ class LocalDb {
   /// to expire against, and they're rare enough to be self-limiting. Matches
   /// the retention semantics of the SharedPreferences fallback exactly.
   static Future<void> pruneNotifFired(String cutoffDate) async {
+    const date = "'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'";
     await _guardedWrite<int>(
       (db) => db.rawDelete(
         "DELETE FROM notif_fired "
-        "WHERE substr(key, 1, 10) GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "
-        "AND substr(key, 1, 10) < ?",
-        [cutoffDate],
+        "WHERE (substr(key, 1, 10) GLOB $date AND substr(key, 1, 10) < ?) "
+        // The morning briefing's guards carry their date after a fixed prefix
+        // (FiredKeyStore.datedAfterPrefixes): 24 and 19 characters long.
+        "OR (key GLOB 'morning_brief_announced:*' "
+        "AND substr(key, 25, 10) GLOB $date AND substr(key, 25, 10) < ?) "
+        "OR (key GLOB 'morning_brief_slot:*' "
+        "AND substr(key, 20, 10) GLOB $date AND substr(key, 20, 10) < ?)",
+        [cutoffDate, cutoffDate, cutoffDate],
+      ),
+      bestEffort: true,
+    );
+  }
+
+  /// Delete every claim whose key starts with [prefix]. See
+  /// [FiredKeyStore.releasePrefix].
+  static Future<void> releaseNotifFiredPrefix(String prefix) async {
+    await _guardedWrite<int>(
+      (db) => db.rawDelete(
+        'DELETE FROM notif_fired WHERE substr(key, 1, ?) = ?',
+        [prefix.length, prefix],
       ),
       bestEffort: true,
     );

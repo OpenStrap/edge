@@ -934,6 +934,34 @@ class NotificationCenter {
   /// tomorrow is a fresh key and the store prunes itself.
   static const String morningBriefAnnouncedPrefix = 'morning_brief_announced:';
 
+  /// Dedupe-key prefix for "the morning slot armed for this minute today".
+  /// `<prefix><date>:<minute>`. Only ONE slot is current at a time, so a
+  /// replacement releases every slot key of the day — a stale key for an
+  /// earlier minute would otherwise read as "armed for the current slot" when
+  /// the user moves the time A to B and back to A, and preserve B's pending post.
+  static const String morningBriefSlotPrefix = 'morning_brief_slot:';
+
+  /// What a pass does with the morning briefing, given what it can see. Pure so
+  /// the failure-mode rules are testable without the OS scheduler.
+  ///
+  /// [pendingKnown] false means the pending query FAILED. Then an
+  /// already-announced day is left alone: with the post's state unknown it may
+  /// already have been delivered, and replacing it would announce a second
+  /// time. The next pass with a readable pending list picks up a moved slot.
+  static MorningBriefAction morningBriefAction({
+    required bool slotPlanned,
+    required bool announced,
+    required bool pendingKnown,
+    required bool hasPending,
+    required bool slotArmed,
+  }) {
+    if (!slotPlanned) return MorningBriefAction.cancel;
+    if (announced && (!pendingKnown || !hasPending || slotArmed)) {
+      return MorningBriefAction.preserve;
+    }
+    return MorningBriefAction.rearm;
+  }
+
   /// Public entry point — serialized through [_synchronized] exactly like
   /// [scheduleStandingReminders]: the guard read, the cancels, the registration
   /// and the guard write must run as ONE critical section, or two overlapping
@@ -1011,12 +1039,19 @@ class NotificationCenter {
     // guard. Date-prefixed like the announced key, so the store prunes itself.
     final slotMin =
         morningSlot == null ? null : morningSlot.hour * 60 + morningSlot.minute;
-    final slotKey =
-        slotMin == null ? null : 'morning_brief_slot:$today:$slotMin';
+    final slotDayPrefix = '$morningBriefSlotPrefix$today:';
+    final slotKey = slotMin == null ? null : '$slotDayPrefix$slotMin';
     final slotArmed =
         slotKey == null ? false : await const FiredKeyStore().hasFired(slotKey);
     var morningPreserved = false;
-    if (morningSlot == null) {
+    final action = morningBriefAction(
+      slotPlanned: morningSlot != null,
+      announced: morningAnnounced,
+      pendingKnown: pendingKnown,
+      hasPending: hasPendingMorning,
+      slotArmed: slotArmed,
+    );
+    if (action == MorningBriefAction.cancel) {
       // Not armed by this pass (switch off, no data, quiet hours): cancel any
       // pending one — a disabled preference wins over the anti-repeat guard —
       // but release the announced key ONLY when that registration was still
@@ -1029,8 +1064,9 @@ class NotificationCenter {
       final cancelled = await svc.cancel(NotificationService.idMorningBrief);
       if (cancelled && pendingKnown && hasPendingMorning) {
         await const FiredKeyStore().release(announcedKey);
+        await const FiredKeyStore().releasePrefix(slotDayPrefix);
       }
-    } else if (morningAnnounced && (!hasPendingMorning || slotArmed)) {
+    } else if (action == MorningBriefAction.preserve) {
       // Delivery is read off the PREVIOUSLY armed occurrence, not the new plan
       // slot: announced + no longer pending means it already fired — that guard
       // stays even if the user moves the slot later today. Announced + still
@@ -1045,8 +1081,10 @@ class NotificationCenter {
       // (If the cancel itself failed, the pending post is still there; the
       // re-arm below replaces it by id, so arming is still safe.)
       final cancelled = await svc.cancel(NotificationService.idMorningBrief);
-      if (cancelled && morningAnnounced && hasPendingMorning) {
+      if (cancelled && morningAnnounced && pendingKnown && hasPendingMorning) {
         await const FiredKeyStore().release(announcedKey);
+        // The old slot's key goes with it: only the slot armed below is current.
+        await const FiredKeyStore().releasePrefix(slotDayPrefix);
       }
     }
     await svc.cancel(NotificationService.idEveningBrief);
@@ -1093,3 +1131,6 @@ class NotificationCenter {
     }
   }
 }
+
+/// See [NotificationCenter.morningBriefAction].
+enum MorningBriefAction { cancel, preserve, rearm }
