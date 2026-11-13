@@ -835,6 +835,8 @@ Map<String, Widget> extraCases() => {
           startTs: 1787157000, endTs: 1787164200, revision: 0,
           status: ActivityReviewStatus.pending, details: const {}),
         onConfirm: () {}, onEdit: () {}, onDiscard: () {}),
+      // Inert here: a tap on the real row changes the real setting.
+      'nap_auto_log_row': const IgnorePointer(child: NapAutoLogRow()),
       'nap_row': const MetricRow(LucideIcons.sun, C.indigo, 'Daytime sleep',
           '1h 12m',
           sub: '2 naps · Sunday, 16 August'),

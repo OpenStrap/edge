@@ -22,6 +22,8 @@
 import '../data/activity_store.dart';
 import '../sync/reset_gate.dart';
 import '../models/activity_suggestion.dart';
+import '../state/prefs.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
@@ -3131,6 +3133,18 @@ class DerivationEngine {
   /// are decided before the write transaction, so the slower one's PARTIAL row
   /// could land on top of the faster one's complete row.
   static bool _running = false;
+
+  static int _autoLoggedNaps = 0;
+
+  /// How many naps the opt-in auto-log confirmed since the last call. Logging
+  /// one queues a durable review job for its day; the day's nap credit only
+  /// lands once that job runs, so the caller kicks it off after the pass
+  /// instead of leaving it for the next app resume.
+  static int takeAutoLoggedNaps() {
+    final n = _autoLoggedNaps;
+    _autoLoggedNaps = 0;
+    return n;
+  }
   bool get running => _running;
 
   /// Hold or release the process-wide latch, as another pass would.
@@ -6453,9 +6467,30 @@ class DerivationEngine {
         ...await activityStore.reconcile(ActivityKind.workout, blocks.suggestionsToPersist),
         ...await activityStore.reconcile(ActivityKind.nap, blocks.napSuggestions),
       ];
+      // Opt-in (#625): a clear, settled nap is logged without asking. Never
+      // on an import pass, which has no user at the other end of "just now".
+      // Inside its own try, like the prompts below: an optional convenience
+      // must not mark the day partial.
+      if (!forceFinalize) {
+        try {
+          final since = (await SharedPreferences.getInstance())
+              .getInt(Prefs.napAutoLogSinceSec);
+          _autoLoggedNaps += await activityStore.autoLogNaps(
+            // 0 is the switch turned back off.
+            sinceSec: (since ?? 0) > 0 ? since : null,
+            dataEdgeSec: dataNowSec,
+            settleSec: ana.napBridgeSec,
+            current: blocks.napSuggestions,
+          );
+        } catch (e) {
+          _log('nap auto-log failed for ${day.date}: $e');
+        }
+      }
       for (final suggestion in newSuggestions) {
         // The rows are already banked; a failed prompt must not mark the day partial.
         try {
+          // A nap logged just above is no longer pending, so [mayNotifyNew]
+          // already declines it. One that could not be logged yet still asks.
           if (forceFinalize || !await activityStore.mayNotifyNew(suggestion)) continue;
           final nap = suggestion.kind == ActivityKind.nap;
           await NotificationCenter.instance.emit(NotificationEvent(
