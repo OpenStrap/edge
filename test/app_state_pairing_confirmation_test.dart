@@ -382,6 +382,32 @@ void main() {
       expect(await _history(), before);
     }));
 
+    // WHY: binding a legacy alarm adds an await before PairedDevice.save starts.
+    // CLAIM(pairing-cancellation-epoch); catches: checking cancellation only before that await.
+    test('forget while alarm ownership waits cannot recreate the pairing',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      final tomorrow = DateTime.now().add(const Duration(days: 1));
+      await rig.app.setScheduleDay(weekday: tomorrow.weekday,
+          hour: 7, minute: 0, enabled: true);
+      final store = SharedPreferencesStorePlatform.instance;
+      final held = _HeldPreferences(store, key: 'alarm_remote_id');
+      SharedPreferencesStorePlatform.instance = held;
+      addTearDown(() => SharedPreferencesStorePlatform.instance = store);
+      final replacing = rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+      final failed = expectLater(replacing, throwsA(isA<Object>()));
+      await held.entered.future;
+      try {
+        await rig.app.unpair();
+      } finally {
+        held.release.complete();
+      }
+      await failed;
+      expect(rig.app.isPaired, isFalse);
+      expect(await PairedDevice.load(), isNull);
+    }));
+
     // WHY: a lost band's retry must finish before candidate bootstrap starts.
     // catches: rejecting replacement because the old loop is reconnecting,
     // or clearing its flag without waiting for its in-flight connect.
@@ -687,13 +713,14 @@ void main() {
 
 // Hold the actual preference write, keeping PairedDevice's real transaction.
 class _HeldPreferences extends SharedPreferencesStorePlatform {
-  _HeldPreferences(this.delegate);
+  _HeldPreferences(this.delegate, {this.key = 'paired_serial'});
+  final String key;
   final SharedPreferencesStorePlatform delegate;
   final entered = Completer<void>();
   final release = Completer<void>();
   bool held = false;
   Future<bool> write(String key, Future<bool> Function() action) async {
-    if (!held && key == 'flutter.paired_serial') {
+    if (!held && key == 'flutter.${this.key}') {
       held = true;
       entered.complete();
       await release.future;

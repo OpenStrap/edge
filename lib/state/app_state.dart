@@ -4897,6 +4897,11 @@ class AppState extends ChangeNotifier {
               }
             }
           }
+          // The ownership write above can outlive a completed forget/reset;
+          // PairedDevice must not start a new save after that cancellation.
+          if (epoch != _pairingEpoch || _resetting) {
+            throw StateError('Pairing was cancelled.');
+          }
           await PairedDevice.save(remoteId, serial ?? device.serial,
               generation: device.generation);
           if (epoch != _pairingEpoch || _resetting) {
