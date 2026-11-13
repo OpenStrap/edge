@@ -371,15 +371,20 @@ class _PairSensorScreenState extends State<PairSensorScreen>
       entryId: widget.entry.id,
       alsoBand: earlierBand,
     );
+    final previousMain = context.read<AppState>().paired?.remoteId;
     final r = await AddDeviceFlow(this)
         .afterConnect(context, cand, widget.entry, outcome);
     if (!mounted) return null;
     return afterBandFoundText(l, outcome, r,
-        bandPairedNow: context.read<AppState>().paired?.remoteId == device.remoteId.str);
+        bandPairedNow: context.read<AppState>().paired?.remoteId != null &&
+            context.read<AppState>().paired?.remoteId != previousMain);
   }
 
   @override
   bool get hasMainBand => context.read<AppState>().isPaired;
+
+  @override
+  String? get mainBandRemoteId => context.read<AppState>().paired?.remoteId;
 
   @override
   String? get mainBandName => context.read<AppState>().strapName;
@@ -795,8 +800,8 @@ class PairSensorView extends StatelessWidget {
 /// what to do ([AddDeviceFlow.afterConnect]); null says nothing went wrong.
 /// The main-band flow that opened may have paired the band: then
 /// "Nothing was saved" would be false. A ring's own screen reported its own
-/// outcome. [bandPairedNow] says whether the selected peripheral is now the
-/// main band, not merely whether an earlier main band still exists.
+/// outcome. [bandPairedNow] says whether this flow changed the main band;
+/// the system picker can select a different peripheral from the scan.
 @visibleForTesting
 String? afterBandFoundText(
   AppLocalizations? l,

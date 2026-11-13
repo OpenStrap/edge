@@ -84,8 +84,15 @@ class DevicePickerScreen extends StatefulWidget {
   /// not something to offer beside a chest strap in the same list.
   final bool includeBand;
 
+  @visibleForTesting
+  final Future<String?> Function()? debugScanHeldBackReason;
+
   const DevicePickerScreen(
-      {super.key, this.onSkip, this.onBack, this.includeBand = true});
+      {super.key,
+      this.onSkip,
+      this.onBack,
+      this.includeBand = true,
+      this.debugScanHeldBackReason});
 
   @override
   State<DevicePickerScreen> createState() => _DevicePickerScreenState();
@@ -147,8 +154,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
 
   Future<void> _start() async {
     if (_locked || _scanning) return;
-    final held = await HrsLink.scanHeldBackReason();
-    if (!mounted) return;
+    final held = await (widget.debugScanHeldBackReason?.call() ??
+        HrsLink.scanHeldBackReason());
+    if (!mounted || _locked || _scanning) return;
     if (held != null) {
       setState(() => _heldBack = held);
       return;
@@ -229,6 +237,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
 
   @override
   bool get hasMainBand => context.read<AppState>().isPaired;
+
+  @override
+  String? get mainBandRemoteId => context.read<AppState>().paired?.remoteId;
 
   @override
   String? get mainBandName => context.read<AppState>().strapName;

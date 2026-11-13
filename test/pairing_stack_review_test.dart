@@ -256,10 +256,47 @@ void main() {
     );
   }
 
+  // WHY: a category tap owns the radio even while the earlier iOS probe waits.
+  // catches: _start checking the navigation lock only before its await.
+  testWidgets('pending scan probe does not start a scan behind pairing', (t) async {
+    final app = _App();
+    addTearDown(app.dispose);
+    final probe = Completer<String?>();
+    await _screen(t, app, DevicePickerScreen(debugScanHeldBackReason: () => probe.future));
+    final view = t.widget<DevicePickerView>(find.byType(DevicePickerView));
+    view.onScan!();
+    view.onOpenEntry!(kWhoopGen4);
+    await t.pumpAndSettle();
+    probe.complete(null);
+    await t.pumpAndSettle();
+    final parent = t.widget<DevicePickerView>(find.byType(DevicePickerView, skipOffstage: false));
+    expect(parent.scanning, isFalse);
+    expect(parent.problem, isNull, reason: 'no late parent scan may touch Bluetooth');
+    // The navigation lock still belongs to the child route.
+    expect(parent.locked, isTrue);
+    Navigator.of(t.element(find.byType(PairingScreen))).pop();
+    await t.pumpAndSettle();
+    expect(t.widget<DevicePickerView>(find.byType(DevicePickerView)).locked, isFalse);
+  });
+
+  // WHY: a representative gen4 entry is not evidence of the band's model.
+  // catches: forwarding widget.entry to failure help despite modelKnown=false.
+  testWidgets('unknown WHOOP failure keeps recovery guidance model-neutral', (t) async {
+    final app = _App();
+    addTearDown(app.dispose);
+    await _screen(t, app, const PairingScreen(entry: kWhoopGen4, modelKnown: false));
+    await t.tap(find.text('Find my band'));
+    await t.pumpAndSettle();
+    expect(t.widget<PairingView>(find.byType(PairingView)).phase, PairPhase.notFound);
+    expect(t.widget<PairingView>(find.byType(PairingView)).resetEntry, isNull);
+    expect(find.text('WHOOP 4'), findsNothing);
+  });
+
   // WHY: an old primary still existing does not prove a replacement succeeded.
   // catches: using AppState.isPaired instead of comparing the selected identity.
+  for (final systemPickerSaved in [false, true]) {
   testWidgets(
-    'cancelled replacement keeps candidate and reports nothing saved',
+    'band flow reports actual replacement (system picker=$systemPickerSaved)',
     (t) async {
       final app = _App();
       addTearDown(app.dispose);
@@ -299,6 +336,7 @@ void main() {
       await t.tap(find.byKey(const ValueKey('replace-confirm-yes')));
       await t.pumpAndSettle();
       expect(find.byType(PairingScreen), findsOneWidget);
+      if (systemPickerSaved) app.paired = PairedDevice('system-picked', 'new');
       Navigator.of(t.element(find.byType(PairingScreen))).pop();
       await t.pumpAndSettle();
       await t.runAsync(
@@ -308,11 +346,13 @@ void main() {
       await _ioUntil(t, () => done);
       await pairing;
       await t.pumpAndSettle();
-      expect(app.paired?.remoteId, 'old');
-      expect(find.text('Candidate'), findsOneWidget);
-      expect(find.textContaining('Nothing was saved'), findsOneWidget);
+      expect(app.paired?.remoteId, systemPickerSaved ? 'system-picked' : 'old');
+      expect(find.textContaining('Nothing was saved'), systemPickerSaved ? findsNothing : findsOneWidget);
+      if (!systemPickerSaved) expect(find.text('Candidate'), findsOneWidget);
     },
   );
+
+  }
 
   // WHY: AddDeviceFlow can finish stopping a scan after its owner is disposed.
   // catches: looking up either navigator on a disposed PairSensorScreen.
