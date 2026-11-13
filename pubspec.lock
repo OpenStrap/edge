@@ -946,8 +946,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "b4fde6ab5589e53154b808f8b2bbb4d01d9c15b5"
-      resolved-ref: "b4fde6ab5589e53154b808f8b2bbb4d01d9c15b5"
+      ref: fbadb5bd055965d9400e266d6cf42748992ba950
+      resolved-ref: fbadb5bd055965d9400e266d6cf42748992ba950
       url: "https://github.com/OpenStrap/protocol.git"
     source: git
     version: "1.0.0"
