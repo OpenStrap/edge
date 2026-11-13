@@ -16698,5 +16698,6 @@
   "@pairSetUpTitle": {
     "description": "Top bar title of the first-run pairing screen."
   },
-  "pairSearchDevices": "ค้นหาอุปกรณ์"
+  "pairSearchDevices": "ค้นหาอุปกรณ์",
+  "pairPrimaryCannotBeSensor": "นี่คือสายรัดหลักของคุณอยู่แล้ว จึงไม่สามารถจับคู่เป็นเซ็นเซอร์ออกกำลังกายด้วยได้"
 }

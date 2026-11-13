@@ -4305,17 +4305,24 @@ class LocalDb {
     // phone is the primary device's own pedometer, so it keeps `''` too —
     // `source` is what tells wrist from pocket.
     String deviceId = kPrimaryDeviceId,
+    // The generation when the caller's session began, before async reads.
+    int? resetGeneration,
   }) async {
+    final generation = resetGeneration ?? ResetGate.generation;
     final w = sanitizeCoverageWindow(startTs, endTs, steps);
     if (w == null) return;
-    final db = await instance;
-    await db.insert('live_coverage', {
-      'start_ts': w.startTs,
-      'end_ts': w.endTs,
-      'steps': steps,
-      'day': day,
-      'source': source,
-      'device_id': deviceId,
+    // The wipe uses this gate too: a check before queuing can still race it.
+    await _withCommitGate(() async {
+      _refuseAfterReset(generation);
+      final db = await instance;
+      await db.insert('live_coverage', {
+        'start_ts': w.startTs,
+        'end_ts': w.endTs,
+        'steps': steps,
+        'day': day,
+        'source': source,
+        'device_id': deviceId,
+      });
     });
   }
 
