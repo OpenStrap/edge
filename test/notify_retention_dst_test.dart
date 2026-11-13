@@ -3,7 +3,10 @@
 // 336 h: across a DST change one of those days is 23 or 25 h, so in the hour
 // either side of midnight the cutoff landed one day early or late. Real
 // DST only bites if the PROCESS timezone has DST, so this moves it (libc
-// setenv("TZ") + tzset(), as day_window_dst_test does).
+// setenv("TZ") + tzset(), as day_window_dst_test does). Windows has neither
+// symbol, so the file is skipped there rather than failing in setUpAll.
+@TestOn('!windows')
+library;
 
 import 'dart:ffi';
 import 'dart:io';
