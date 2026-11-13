@@ -37,6 +37,7 @@ import 'db.dart';
 import 'activity_store.dart';
 import '../models/activity_suggestion.dart';
 import '../health/health_export.dart';
+import '../health/health_nap_export.dart';
 import '../import/whoop_import.dart' show WhoopImporter;
 import 'journal_fields.dart';
 import '../ble/adapters/_registry.dart' show kBandRegistry;
@@ -90,9 +91,21 @@ class LocalRepositoryImpl extends LocalRepository {
         sessionId: 'suggestion:${suggestion.id}', suggestion: suggestion);
       await HealthExporter.exportWorkoutId('suggestion:${suggestion.id}');
     } else {
-      await ActivityStore(await LocalDb.instance).confirm(suggestion,
-        startTs: start, endTs: end,
-        edited: start != suggestion.startTs || end != suggestion.endTs);
+      // DB write + Health write in one critical section: a concurrently
+      // running per-day export must not read the pre-confirm state and write
+      // the nap after a removal, and vice versa.
+      await HealthNapExporter.shared.synchronized(() async {
+        await ActivityStore(await LocalDb.instance).confirm(suggestion,
+          startTs: start, endTs: end,
+          edited: start != suggestion.startTs || end != suggestion.endTs);
+        // A nap the user just confirmed goes to Apple Health right away (iOS);
+        // the exporter re-checks the row and the main-sleep overlap itself.
+        await HealthNapExporter.exportConfirmedNap(
+          dayId: dayLabelOf(DateTime.fromMillisecondsSinceEpoch(start * 1000)),
+          startTs: start,
+          endTs: end,
+        );
+      });
     }
     await onActivitiesChanged?.call();
   }
@@ -1096,7 +1109,12 @@ class LocalRepositoryImpl extends LocalRepository {
       return v == null ? null : (v / 60).round();
     }
 
-    final needMin = _sleepNeedMin(await _crossDay());
+    // Today: the live estimate. A past night: the need computed on that day
+    // (written per day by the crossday pass), absent if none was — never
+    // today's estimate, which postdates the night (#619).
+    final needMin = _isTodayLabel(date)
+        ? _sleepNeedMin(await _crossDay())
+        : (await LocalDb.metricValueOn(date, 'sleep_need_min'))?.round();
     final sleepConf = _sub(b, 'sleep.accounting')?['confidence'] as num?;
     // Sleep periods (main + naps) for the periods screen. The main period is
     // enriched HERE with the hypnogram + stage minutes: derivation builds the
@@ -1166,9 +1184,9 @@ class LocalRepositoryImpl extends LocalRepository {
       // field getDayHeart already read; no new computation.
       'spo2': b['spo2'],
       // Sleep need, and the debt against it — both only when the need was
-      // actually learned (`sleep_coach.need`, see [_sleepNeedMin]; it is the
-      // current personal estimate, and the artifact behind it is refused once
-      // it is more than a week old). There is no 8 h default: it made the gauge
+      // actually learned (`sleep_coach.need`, see [_sleepNeedMin]; today's is
+      // the current personal estimate, a past night's the one stored for that
+      // day — see `needMin` above). There is no 8 h default: it made the gauge
       // "always read", which is the point, since what it read was a population
       // figure presented as this user's own. Absent keys leave the gauge in its
       // honest empty state.

@@ -1,11 +1,34 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/onboarding/pairing.dart';
 import 'package:openstrap_edge/ui2/pairing/device_picker.dart';
 import 'package:openstrap_edge/ui2/pairing/whoop_firmware_warning.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 void main() {
+  // The warning is the one message that keeps a band usable, so it may not
+  // fall back to English: it shipped translated for ru and th only.
+  test('every language has its own firmware warning', () {
+    final en = lookupAppLocalizations(const Locale('en'));
+    for (final locale in AppLocalizations.supportedLocales) {
+      if (locale.languageCode == 'en') continue;
+      final l = lookupAppLocalizations(locale);
+      final code = locale.languageCode;
+      expect(l.whoopFirmwareWarningTitle, isNot(en.whoopFirmwareWarningTitle),
+          reason: code);
+      expect(l.whoopFirmwareWarningAction, isNot(en.whoopFirmwareWarningAction),
+          reason: code);
+      expect(
+          l.whoopFirmwareWarningDetails, isNot(en.whoopFirmwareWarningDetails),
+          reason: code);
+      // The facts a translation must not lose.
+      expect(l.whoopFirmwareWarningTitle, contains('WHOOP'), reason: code);
+      expect(l.whoopFirmwareWarningDetails, contains('50.43.1.0'), reason: code);
+      expect(l.whoopFirmwareWarningDetails, contains('50.43.2.0'), reason: code);
+    }
+  });
+
   for (final brightness in Brightness.values) {
     testWidgets('connection warning precedes search in $brightness', (t) async {
       t.view.physicalSize = const Size(390, 844);
