@@ -88,6 +88,18 @@ void main() {
     expect(find.byKey(panelKey), findsNWidgets(3));
   });
 
+  testWidgets('the strip is 22 pt tall but its scrub area is a full tap target',
+      (t) async {
+    phone(t, 390, 900);
+    await t.pumpWidget(scaledApp(1, _page([_row('readiness')])));
+    await t.pumpAndSettle();
+    final area = t.getSize(find.byType(Scrubber));
+    expect(area.height, greaterThanOrEqualTo(S.tap));
+    final strip = find.descendant(
+        of: find.byType(Scrubber), matching: find.byType(CustomPaint));
+    expect(t.getSize(strip.first).height, 22);
+  });
+
   testWidgets('a row without enough history draws no strip to scrub and no '
       'panel: nothing is invented', (t) async {
     phone(t, 390, 900);

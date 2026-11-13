@@ -125,6 +125,21 @@ void main() {
         {'rawDays': 7}).containsKey('rawDays'), isFalse);
   });
 
+  test('server meta names the band and its firmware, and only when known',
+      () {
+    const d = ReportDraft(
+        category: ReportCategory.sync, title: 't', description: 'd');
+    final m = reportServerMeta(
+        d, {'bandGeneration': 'gen5', 'bandFirmware': '50.43.2.0'});
+    expect(m['bandGeneration'], 'gen5');
+    expect(m['bandFirmware'], '50.43.2.0');
+    // No band, or one that never reported firmware: the keys are absent, not
+    // null, so the tracker never shows an empty "firmware" line.
+    final none = reportServerMeta(d, {});
+    expect(none.containsKey('bandGeneration'), isFalse);
+    expect(none.containsKey('bandFirmware'), isFalse);
+  });
+
   test('contact rides only in the encrypted user.txt', () async {
     final a = ZipDecoder().decodeBytes(await _zip());
     expect(utf8.decode(a.findFile('user.txt')!.content as List<int>),

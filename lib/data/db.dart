@@ -2218,12 +2218,30 @@ class LocalDb {
   /// to expire against, and they're rare enough to be self-limiting. Matches
   /// the retention semantics of the SharedPreferences fallback exactly.
   static Future<void> pruneNotifFired(String cutoffDate) async {
+    const date = "'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'";
     await _guardedWrite<int>(
       (db) => db.rawDelete(
         "DELETE FROM notif_fired "
-        "WHERE substr(key, 1, 10) GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' "
-        "AND substr(key, 1, 10) < ?",
-        [cutoffDate],
+        "WHERE (substr(key, 1, 10) GLOB $date AND substr(key, 1, 10) < ?) "
+        // The morning briefing's guards carry their date after a fixed prefix
+        // (FiredKeyStore.datedAfterPrefixes): 24 and 19 characters long.
+        "OR (key GLOB 'morning_brief_announced:*' "
+        "AND substr(key, 25, 10) GLOB $date AND substr(key, 25, 10) < ?) "
+        "OR (key GLOB 'morning_brief_slot:*' "
+        "AND substr(key, 20, 10) GLOB $date AND substr(key, 20, 10) < ?)",
+        [cutoffDate, cutoffDate, cutoffDate],
+      ),
+      bestEffort: true,
+    );
+  }
+
+  /// Delete every claim whose key starts with [prefix]. See
+  /// [FiredKeyStore.releasePrefix].
+  static Future<void> releaseNotifFiredPrefix(String prefix) async {
+    await _guardedWrite<int>(
+      (db) => db.rawDelete(
+        'DELETE FROM notif_fired WHERE substr(key, 1, ?) = ?',
+        [prefix.length, prefix],
       ),
       bestEffort: true,
     );
@@ -9473,11 +9491,26 @@ class LocalDb {
       orderBy: 'rec_ts DESC, counter DESC',
       limit: 1,
     );
-    if (decodedRows.isNotEmpty) {
-      return Sample.fromDecodedRow(decodedRows.first);
-    }
-    final rows = await db.query('samples', orderBy: 'ts DESC', limit: 1);
-    return rows.isEmpty ? null : Sample.fromDbMap(rows.first);
+    final decoded =
+        decodedRows.isEmpty ? null : Sample.fromDecodedRow(decodedRows.first);
+    // Primary band only, same meaning as the decoded query above: without it
+    // the fallback could return a peripheral sensor's row, and callers that
+    // read this as "how fresh is the BAND" (e.g. the morning-briefing
+    // readiness gate) would be unlocked by a sensor with no band data. The
+    // samples table keys by device_id ('' = primary band), not `source`.
+    final rows = await db.query(
+      'samples',
+      where: 'device_id = ?',
+      whereArgs: [kPrimaryDeviceId],
+      orderBy: 'ts DESC',
+      limit: 1,
+    );
+    final plain = rows.isEmpty ? null : Sample.fromDbMap(rows.first);
+    // Newest across BOTH stores: decoded_onehz holding only yesterday while
+    // today's records already sit in `samples` must still read as today.
+    if (decoded == null) return plain;
+    if (plain == null) return decoded;
+    return plain.tsEpoch > decoded.tsEpoch ? plain : decoded;
   }
 
   static Future<Map<String, int>> counts() async {
@@ -10057,6 +10090,19 @@ class LocalDb {
             : history;
         return {'fw': fw, 'last_seen': now, 'history': kept};
       });
+
+  /// The firmware [noteBandFirmware] last recorded, or null when no band has
+  /// reported one on this install. Best-effort; never throws.
+  static Future<String?> bandFirmware() async {
+    try {
+      final raw = (await computeFreshness(kBandFirmwareKey))?['payload_json'];
+      final m = raw is String ? jsonDecode(raw) : null;
+      final fw = m is Map ? m['fw'] : null;
+      return fw is String && fw.isNotEmpty ? fw : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// `compute_freshness` key marking the raw-free next-night nap cleanup
   /// (compute/nap_overlap_cleanup.dart) as applied. Cleared by an import.
