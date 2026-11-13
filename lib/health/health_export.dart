@@ -30,6 +30,7 @@ import '../data/day_label.dart';
 import '../data/db.dart';
 import '../data/series_codec.dart';
 import 'health_heart_rate_batch.dart';
+import 'health_nap_export.dart';
 import 'health_sleep_session.dart';
 import 'health_weight_export.dart';
 
@@ -1370,6 +1371,31 @@ class HealthExporter {
         }
       } catch (e) {
         debugPrint('[health] write Apple sleep session: $e');
+        success = false;
+      }
+      // The sleep replace's noon-to-noon cleanup window covers the wake day's
+      // afternoon AND can reach into the previous calendar day, so it deletes
+      // OUR nap samples there. Re-write the confirmed naps of BOTH days after
+      // it on every pass (delete-then-write, so idempotent) — otherwise the
+      // next re-derive of a non-finalized day would silently remove a nap the
+      // user confirmed.
+      final prevDate = dayLabelOf(
+        DateTime(dayStart.year, dayStart.month, dayStart.day - 1),
+      );
+      try {
+        // Both days independently: a failure on one must not skip the other —
+        // the cleanup may already have deleted that day's nap samples.
+        final todayOk = await HealthNapExporter.shared.exportDayNaps(date);
+        final prevOk = await HealthNapExporter.shared.exportDayNaps(prevDate);
+        if (!todayOk || !prevOk) {
+          debugPrint('[health] write Apple naps returned false');
+          success = false;
+        }
+      } on TimeoutException {
+        // A hung nap write means the store is busy/locked — same handling as
+        // the other native deletes: stop the pass instead of burning the
+        // day's retry budget (and holding the lock) for 30 s per nap.
+        _storeHung = true;
         success = false;
       }
     }

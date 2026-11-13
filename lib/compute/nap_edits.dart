@@ -54,9 +54,14 @@ typedef NapMap = Map<String, dynamic>;
 /// scatter of two-minute entries would swamp the real ones in every total.
 const int kMinManualNapSec = 5 * 60;
 
-/// Maximum. Anything longer is a sleep, not a nap, and belongs in the main
-/// sleep window where the stager can actually say something about its stages.
-const int kMaxManualNapSec = 6 * 60 * 60;
+/// Maximum length of anything counted as a nap: 3 hours. Anything longer is a
+/// sleep, not a nap, and belongs in the main sleep window where the stager can
+/// actually say something about its stages. Applies to detected AND manually
+/// logged naps alike — one cap, one place.
+const int kMaxNapSec = 3 * 60 * 60;
+
+/// Maximum for a manually logged nap — the same cap as detected naps.
+const int kMaxManualNapSec = kMaxNapSec;
 
 /// Whether a window can be logged as a nap.
 bool manualNapWindowIsValid(int startSec, int endSec) {
@@ -128,6 +133,16 @@ List<NapMap> applyNapEdits(List<NapMap> detected, List<NapEdit> edits) {
   out.sort((a, b) => (a['start'] as num).compareTo(b['start'] as num));
   return out;
 }
+
+/// Drops every nap whose window exceeds [kMaxNapSec]. A detected bout longer
+/// than 3 h is a sleep fragment the detector misfiled as a nap; crediting it
+/// into `nap_min` would count a night's sleep as daytime rest. The filter is
+/// pure so the rule is testable without a derivation run.
+List<NapMap> dropOversizedNaps(List<NapMap> naps) => [
+      for (final n in naps)
+        if ((n['end'] as num).toInt() - (n['start'] as num).toInt() <= kMaxNapSec)
+          n,
+    ];
 
 /// Total asleep minutes across [naps] — the `nap_min` scalar.
 ///
