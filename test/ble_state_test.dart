@@ -732,7 +732,8 @@ void main() {
         expect(s.reason, contains('50.43'));
         // Charging or re-pairing is the advice for the other two flags; for a
         // locked band it is the wrong instruction.
-        expect(s.fix, startsWith('Re-pairing or charging will not help'));
+        expect(s.fix, contains('re-pairing or charging will not help'));
+        expect(s.title, contains('probably'));
       }
     });
 

@@ -16575,15 +16575,15 @@
   "@strengthDelete": {"description": "Strength set editor copy."},
   "strengthSaveFailed": "Failed to save changes",
   "@strengthSaveFailed": {"description": "Strength set editor copy."},
-  "bandStatusFirmwareLockedTitle": "The band’s firmware is holding back its data",
+  "bandStatusFirmwareLockedTitle": "The band’s firmware is probably holding back its data",
   "@bandStatusFirmwareLockedTitle": {
     "description": "BandStatus card title: band firmware 50.43 withholds all data until a WHOOP membership token is on it"
   },
-  "bandStatusFirmwareLockedReason": "This band runs WHOOP firmware 50.43, which connects and answers the app but sends no recordings or live heart rate until a WHOOP-signed membership token is on it. OpenStrap cannot issue that token. Everything already saved here is safe, and the band keeps recording.",
+  "bandStatusFirmwareLockedReason": "This band runs WHOOP firmware 50.43, which can connect and answer the app but send no recordings or live heart rate until a WHOOP-signed membership token is on it. That is the most likely reason no data is arriving. OpenStrap cannot issue that token. Everything already saved here is safe.",
   "@bandStatusFirmwareLockedReason": {
     "description": "BandStatus card body: band firmware 50.43 withholds all data until a WHOOP membership token is on it"
   },
-  "bandStatusFirmwareLockedFix": "Re-pairing or charging will not help. This clears by itself once the band sends data again",
+  "bandStatusFirmwareLockedFix": "If it is the firmware, re-pairing or charging will not help. This clears by itself once the band sends data again",
   "@bandStatusFirmwareLockedFix": {
     "description": "BandStatus fix action: band firmware 50.43 withholds all data until a WHOOP membership token is on it"
   },

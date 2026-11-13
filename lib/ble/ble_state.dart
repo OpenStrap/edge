@@ -372,19 +372,23 @@ BandStatus bandStatusFor({
   }
   // The same two "no data is arriving" flags, explained by the firmware
   // instead: a charger cycle or a re-pair cannot help a band that withholds
-  // its data by design, and both flags clear once records bank again.
+  // its data by design, and both flags clear once records bank again. The
+  // flags cannot tell the lock from a real strap or clock fault, so the text
+  // says "probably", never "is". It sits BELOW the quarantine check on
+  // purpose: a quarantined batch is data that DID arrive, which a locked band
+  // does not send, so that diagnosis is the more specific one.
   if ((strapNeedsReboot || syncClockLost) &&
       isDataLockedFirmware(bandFirmware)) {
     return const BandStatus(
       BandCondition.firmwareLocked,
-      'The band’s firmware is holding back its data',
-      'This band runs WHOOP firmware 50.43, which connects and answers the '
-          'app but sends no recordings or live heart rate until a '
-          'WHOOP-signed membership token is on it. OpenStrap cannot issue '
-          'that token. Everything already saved here is safe, and the band '
-          'keeps recording.',
-      fix: 'Re-pairing or charging will not help. This clears by itself once '
-          'the band sends data again',
+      'The band’s firmware is probably holding back its data',
+      'This band runs WHOOP firmware 50.43, which can connect and answer the '
+          'app but send no recordings or live heart rate until a '
+          'WHOOP-signed membership token is on it. That is the most likely '
+          'reason no data is arriving. OpenStrap cannot issue that token. '
+          'Everything already saved here is safe.',
+      fix: 'If it is the firmware, re-pairing or charging will not help. This '
+          'clears by itself once the band sends data again',
     );
   }
   if (strapNeedsReboot) {
