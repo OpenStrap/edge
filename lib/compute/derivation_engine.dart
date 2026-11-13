@@ -6991,6 +6991,9 @@ class DerivationEngine {
     var carried = false;
     for (final e in prev.entries) {
       if (e.key == 'scalars' || e.key == 'series') continue;
+      // Row metadata, not detail: the persist stamps the fresh edge, and the
+      // carried edge is stamped below only when detail actually came across.
+      if (e.key == 'data_edge_sec' || e.key == 'detail_edge_sec') continue;
       if (!carrySleep && kSleepOwnedDetailKeys.contains(e.key)) continue;
       if (next.containsKey(e.key) || e.value == null) continue;
       next[e.key] = e.value;
@@ -7024,6 +7027,15 @@ class DerivationEngine {
         carried = true;
       }
       if (merged != null) next[sub] = merged;
+    }
+    // #450. What was carried (wear, the day's curves) was computed against
+    // the PREVIOUS row's edge, not this one's, and a second half that keeps
+    // failing would otherwise pass that morning off as the current day. A
+    // chain of failures keeps the oldest edge: that is when the detail was
+    // last actually computed.
+    if (carried) {
+      final edge = prev['detail_edge_sec'] ?? prev['data_edge_sec'];
+      if (edge is num) next['detail_edge_sec'] = edge.toInt();
     }
     return carried;
   }
