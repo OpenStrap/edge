@@ -40,6 +40,7 @@ import '../activity/picker.dart';
 import '../activity/poster.dart' show PosterStatRow;
 import '../activity/setup.dart';
 import '../activity/summary.dart';
+import 'slot_scrub.dart';
 import '../charts.dart';
 import '../profile/profile.dart' show ProfileAvatar, openProfile;
 import '../grammar.dart';
@@ -297,31 +298,48 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
     final loc = AppLocalizations.of(c);
     final end = d.trimpEnd ?? DateTime.now();
     final axis = AxisSpec.of([for (final v in d.tonnage7) ?v], floor: 0);
+    final title = loc?.workoutMechanicalLoadTitle ?? 'Mechanical load';
+    final unit = loc?.workoutKgLiftedUnit ?? 'kg lifted';
     return Surface(
-      child: ChartFrame(
-        title: loc?.workoutMechanicalLoadTitle ?? 'Mechanical load',
-        unit: loc?.workoutKgLiftedUnit ?? 'kg lifted',
-        height: 88,
-        yAxis: axis,
-        xLabels: [
-          for (var i = 6; i >= 0; i--)
-            _weekdayLetter(c, DateTime(end.year, end.month, end.day - i)),
-        ],
-        footnote: (loc?.workoutTonnageFootnoteIntro ??
-                'Reps × load over the sets you logged with a weight. ') +
-            (d.tonnagePartial
-                ? (loc?.workoutTonnageFootnotePartial ??
-                    'Sets logged without one are not in it, so '
-                        'this is a floor rather than a total. ')
-                : '') +
-            (loc?.workoutTonnageFootnoteOutro ??
-                'Exact for what you typed and worthless across exercises — '
-                    'kept out of strain and recovery for that reason.'),
+      child: SlotScrub(
         series: d.tonnage7,
-        child: CustomPaint(
-          size: Size.infinite,
-          painter: Bars(d.tonnage7, p.on(C.orange),
-              axis: axis, t: animate(context, 1)),
+        anchor: end,
+        bars: true,
+        label: title,
+        color: p.on(C.orange),
+        format: (v) => '${v.round()} $unit',
+        builder: (c, pick, scrub, panel) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ChartFrame(
+              title: title,
+              unit: unit,
+              height: 88,
+              yAxis: axis,
+              xLabels: [
+                for (var i = 6; i >= 0; i--)
+                  _weekdayLetter(c, DateTime(end.year, end.month, end.day - i)),
+              ],
+              footnote: (loc?.workoutTonnageFootnoteIntro ??
+                      'Reps × load over the sets you logged with a weight. ') +
+                  (d.tonnagePartial
+                      ? (loc?.workoutTonnageFootnotePartial ??
+                          'Sets logged without one are not in it, so '
+                              'this is a floor rather than a total. ')
+                      : '') +
+                  (loc?.workoutTonnageFootnoteOutro ??
+                      'Exact for what you typed and worthless across exercises — '
+                          'kept out of strain and recovery for that reason.'),
+              series: d.tonnage7,
+              child: scrub(CustomPaint(
+                size: Size.infinite,
+                painter: Bars(d.tonnage7, p.on(C.orange),
+                    highlight: pick ?? -1, axis: axis, t: animate(c, 1)),
+              )),
+            ),
+            const SizedBox(height: S.x3),
+            panel,
+          ],
         ),
       ),
     );
@@ -392,34 +410,55 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
             final end = d.trimpEnd ?? DateTime.now();
             final axis = AxisSpec.of([for (final v in d.trimp7) ?v], floor: 0);
             final days = d.trimp7.where((v) => v != null).length;
-            return ChartFrame(
-              title: loc?.workoutDailyLoadTitle ?? 'Heart effort by day',
-              unit: loc?.workoutTrimpUnit ?? 'points',
-              height: 88,
-              yAxis: axis,
-              // Seven slots, seven real dates. A day with nothing keeps its
-              // place and its letter, and draws as the gap it is.
-              xLabels: [
-                for (var i = 6; i >= 0; i--)
-                  _weekdayLetter(c, DateTime(end.year, end.month, end.day - i)),
-              ],
-              footnote: (loc?.workoutDailyLoadFootnoteIntro ??
-                      'Heart points with no cap: minutes in each heart-rate zone, harder zones counting more. Strain reads the same heart rate on a 0–21 scale. ') +
-                  (days == 7
-                      ? (loc?.workoutDailyLoadAllDays ?? 'Last seven days.')
-                      : (loc?.workoutDailyLoadPartialDays(days) ??
-                          '$days of the last '
-                              'seven days produced a figure.')),
+            final title = loc?.workoutDailyLoadTitle ?? 'Heart effort by day';
+            final unit = loc?.workoutTrimpUnit ?? 'points';
+            return SlotScrub(
               series: d.trimp7,
-              child: CustomPaint(
-                  size: Size.infinite,
-                  // Today is the last slot, always — not "the newest value".
-                  painter: Bars(d.trimp7, p.on(C.purple),
-                      highlight: d.trimp7.last == null ? -1 : 6,
-                      axis: axis,
-                      t: animate(context, 1)),
+              anchor: end,
+              bars: true,
+              label: title,
+              color: p.on(C.purple),
+              format: (v) => '${v.round()} $unit',
+              builder: (c, pick, scrub, panel) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ChartFrame(
+                    title: title,
+                    unit: unit,
+                    height: 88,
+                    yAxis: axis,
+                    // Seven slots, seven real dates. A day with nothing keeps
+                    // its place and its letter, and draws as the gap it is.
+                    xLabels: [
+                      for (var i = 6; i >= 0; i--)
+                        _weekdayLetter(
+                            c, DateTime(end.year, end.month, end.day - i)),
+                    ],
+                    footnote: (loc?.workoutDailyLoadFootnoteIntro ??
+                            'Heart points with no cap: minutes in each heart-rate zone, harder zones counting more. Strain reads the same heart rate on a 0–21 scale. ') +
+                        (days == 7
+                            ? (loc?.workoutDailyLoadAllDays ??
+                                'Last seven days.')
+                            : (loc?.workoutDailyLoadPartialDays(days) ??
+                                '$days of the last '
+                                    'seven days produced a figure.')),
+                    series: d.trimp7,
+                    child: scrub(CustomPaint(
+                      size: Size.infinite,
+                      // Today is the last slot at rest — not "the newest
+                      // value"; a touch moves the highlight.
+                      painter: Bars(d.trimp7, p.on(C.purple),
+                          highlight:
+                              pick ?? (d.trimp7.last == null ? -1 : 6),
+                          axis: axis,
+                          t: animate(c, 1)),
+                    )),
                   ),
-                );
+                  const SizedBox(height: S.x3),
+                  panel,
+                ],
+              ),
+            );
               },
             ),
           ],
