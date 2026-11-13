@@ -444,6 +444,49 @@ void main() {
       }));
     }
 
+    for (final succeeds in [true, false]) {
+      // WHY: after a process kill, an unreachable old band leaves the only
+      // durable copy of a walk in prefs. Empty finalization must preserve it.
+      // CLAIM(orphan-checkpoint-preserved); catches: clearing after banking no runs.
+      test('replacement preserves orphan steps (succeeds=$succeeds)',
+          syncCase((rig, timers) async {
+        const checkpoint = '{"runs":[[1786233600,1786233660,80],'
+            '[1786233720,1786233780,120]]}';
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('live_session_checkpoint', checkpoint);
+        rig.engine.connectScript.add(false);
+        await rig.app.openSession();
+        expect(rig.engine.isConnected, isFalse);
+        expect(prefs.getString('live_session_checkpoint'), checkpoint);
+        final db = await LocalDb.instance;
+        expect(await db.query('live_coverage'), isEmpty);
+
+        rig.engine.connectScript.addAll(succeeds ? [true] : [false, false]);
+        final replacing = rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+        if (succeeds) {
+          await replacing;
+        } else {
+          await expectLater(replacing, throwsA(isA<Exception>()));
+          expect(prefs.getString('live_session_checkpoint'), checkpoint);
+          expect(await db.query('live_coverage'), isEmpty);
+          await rig.app.openSession();
+        }
+        // These are the checkpoint's credited counts, recovered verbatim.
+        final rows = await db.query('live_coverage',
+            columns: ['start_ts', 'end_ts', 'steps'], orderBy: 'start_ts');
+        expect(rows, [
+          {'start_ts': 1786233600, 'end_ts': 1786233660, 'steps': 80},
+          {'start_ts': 1786233720, 'end_ts': 1786233780, 'steps': 120},
+        ]);
+        expect(prefs.getString('live_session_checkpoint'), isNull);
+        // A later session must not recover the same walk twice.
+        await rig.app.endSession();
+        await rig.app.openSession();
+        expect(await db.query('live_coverage',
+            columns: ['start_ts', 'end_ts', 'steps'], orderBy: 'start_ts'), rows);
+      }));
+    }
+
     // WHY: replacement suppresses the old disconnect callback, including its
     // pedometer finalization. A 20-second tail is still recorded walking data.
     // catches: resetting the pedometer at new-session start without banking it.
