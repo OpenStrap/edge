@@ -12,6 +12,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/sync/paired_device.dart';
 import 'package:openstrap_edge/ui2/screens/day_steps.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
@@ -32,18 +36,39 @@ DayStepSpan _span(
   activity: activity,
 );
 
-Future<void> _pump(WidgetTester t, DayStepsData d, {double scale = 1}) async {
+/// An app state whose pairing a test can swap, the way an unpair or a re-pair
+/// does, and announce.
+class _Paired extends AppState {
+  _Paired() : super.forTesting();
+
+  void pair(String? generation) {
+    paired = generation == null
+        ? null
+        : PairedDevice('remote', 'SN1', generation: generation);
+    notifyListeners();
+  }
+}
+
+Future<void> _pump(
+  WidgetTester t,
+  DayStepsData d, {
+  double scale = 1,
+  AppState? app,
+}) async {
   t.view.physicalSize = Size(390 * 3, 3000 * 3 * scale);
   t.view.devicePixelRatio = 3;
   addTearDown(t.view.reset);
-  await t.pumpWidget(
-    MediaQuery(
-      data: MediaQueryData(textScaler: TextScaler.linear(scale)),
-      child: MaterialApp(
-        theme: buildTheme(Brightness.light),
-        home: DayStepsDetail(data: d),
-      ),
+  final screen = MediaQuery(
+    data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+    child: MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: DayStepsDetail(data: d),
     ),
+  );
+  await t.pumpWidget(
+    app == null
+        ? screen
+        : ChangeNotifierProvider<AppState>.value(value: app, child: screen),
   );
   await t.pumpAndSettle();
 }
@@ -99,16 +124,49 @@ void main() {
       ),
     );
     expect(find.textContaining('had it on you for'), findsOneWidget);
-    expect(find.textContaining('A WHOOP 4.0 has no step counter'),
-        findsOneWidget);
+    expect(
+      find.textContaining('A WHOOP 4.0 has no step counter'),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('with a WHOOP 4.0 paired, a day with no steps says why',
-      (t) async {
+  testWidgets('with a WHOOP 4.0 paired, a day with no steps says why', (
+    t,
+  ) async {
     await _pump(t, const DayStepsData(bandHasNoCounter: true));
     expect(find.textContaining('No steps counted'), findsOneWidget);
-    expect(find.textContaining('A WHOOP 4.0 has no step counter'),
-        findsOneWidget);
+    expect(
+      find.textContaining('A WHOOP 4.0 has no step counter'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the WHOOP 4.0 hint follows the band the app has paired', (
+    t,
+  ) async {
+    // The day loaded with no hint; the live pairing decides.
+    SharedPreferences.setMockInitialValues({});
+    final app = _Paired()..pair('gen4');
+    addTearDown(app.dispose);
+    await _pump(
+      t,
+      DayStepsData(spans: [_span(0, 60, 1200)], total: 1200, phone: 1200),
+      app: app,
+    );
+    const hint = 'A WHOOP 4.0 has no step counter';
+    expect(find.textContaining(hint), findsOneWidget);
+
+    app.pair('gen5');
+    await t.pumpAndSettle();
+    expect(find.textContaining(hint), findsNothing, reason: 'a 5.0 counts');
+
+    app.pair('gen4');
+    await t.pumpAndSettle();
+    expect(find.textContaining(hint), findsOneWidget);
+
+    app.pair(null);
+    await t.pumpAndSettle();
+    expect(find.textContaining(hint), findsNothing, reason: 'unpaired');
   });
 
   testWidgets('the WHOOP 4.0 hint never shows on a day the band counted, or '
@@ -209,19 +267,16 @@ void main() {
       _span(660, 720, 2074),
     ];
     final merged = mergeAdjacent(rows);
-    expect(
-      merged.map((s) => (s.startTs - _nine, s.endTs - _nine, s.steps)),
-      [
-        (0, 180 * 60, 1913), // three contiguous phone hours, joined
-        (240 * 60, 300 * 60, 228), // the gap kept it separate
-        (480 * 60, 540 * 60, 1649), // a band stretch starts inside the next
-        (532 * 60, 534 * 60, 51),
-        (534 * 60, 540 * 60, 737),
-        (540 * 60, 600 * 60, 5753),
-        (541 * 60, 544 * 60, 352),
-        (600 * 60, 720 * 60, 2288),
-      ],
-    );
+    expect(merged.map((s) => (s.startTs - _nine, s.endTs - _nine, s.steps)), [
+      (0, 180 * 60, 1913), // three contiguous phone hours, joined
+      (240 * 60, 300 * 60, 228), // the gap kept it separate
+      (480 * 60, 540 * 60, 1649), // a band stretch starts inside the next
+      (532 * 60, 534 * 60, 51),
+      (534 * 60, 540 * 60, 737),
+      (540 * 60, 600 * 60, 5753),
+      (541 * 60, 544 * 60, 352),
+      (600 * 60, 720 * 60, 2288),
+    ]);
   });
 
   test('an hour gets one bar, in the colour of the sensor that counted most '
