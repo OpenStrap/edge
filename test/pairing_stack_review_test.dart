@@ -1,0 +1,333 @@
+// Behavioral regressions for the pairing stack review. No real Bluetooth.
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' show BluetoothDevice;
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
+import 'package:openstrap_edge/ble/adapters/_registry.dart';
+import 'package:openstrap_edge/ble/hrs_link.dart';
+import 'package:openstrap_edge/ble/band_identity.dart' show PairOutcome;
+import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/sync/paired_device.dart';
+import 'package:openstrap_edge/ui2/onboarding/pairing.dart';
+import 'package:openstrap_edge/ui2/pairing/add_device_flow.dart';
+import 'package:openstrap_edge/ui2/pairing/device_picker.dart';
+import 'package:openstrap_edge/ui2/pairing/pair_text.dart';
+import 'package:openstrap_edge/ui2/profile/pair_sensor.dart';
+
+import 'support/app_state_derive_harness.dart'
+    show deriveDbSetUp, deriveDbTearDown;
+import 'support/pair_ui_support.dart';
+
+class _App extends AppState {
+  _App() : super.forTesting() {
+    paired = PairedDevice('old', 'old');
+  }
+  Completer<bool>? supported;
+  Completer<BluetoothDevice?>? scanned;
+  String? scannedGeneration;
+  var replacements = 0;
+  var pickers = 0;
+  @override
+  Future<bool> accessorySetupSupported() async =>
+      supported == null ? false : await supported!.future;
+  @override
+  Future<BluetoothDevice?> scanForBand({
+    String? remoteId,
+    String? generation,
+  }) async {
+    scannedGeneration = generation;
+    return scanned == null ? null : await scanned!.future;
+  }
+
+  @override
+  Future<void> replaceWith(BluetoothDevice device) async => replacements++;
+  @override
+  Future<void> replaceViaAccessorySetup() async => pickers++;
+  @override
+  Future<void> refreshSensors() async {}
+}
+
+Future<void> _screen(WidgetTester t, _App app, Widget screen) => pumpPair(
+  t,
+  screen,
+  wrap: (child) =>
+      ChangeNotifierProvider<AppState>.value(value: app, child: child),
+  size: const Size(412, 2400),
+);
+
+Future<void> _ioUntil(WidgetTester t, bool Function() ready) async {
+  for (var i = 0; i < 100 && !ready(); i++) {
+    await t.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await t.pump();
+  }
+  expect(ready(), isTrue, reason: 'screen did not finish its database read');
+}
+
+void main() {
+  setUp(() async {
+    await deriveDbSetUp('pairing_stack_review.db');
+    await LocalDb.instance;
+  });
+  tearDown(() => deriveDbTearDown('pairing_stack_review.db'));
+
+  for (final found in [false, true]) {
+    // WHY: the default picker deliberately skips automatic scanning, and must
+    // offer an explicit scan both before and after results arrive.
+    // catches: exposing onScan only inside the held-back warning card.
+    testWidgets('scan remains reachable (has results=$found)', (t) async {
+      final query = TextEditingController();
+      addTearDown(query.dispose);
+      var scans = 0;
+      await pumpPair(
+        t,
+        DevicePickerView(
+          query: query,
+          title: 'Devices',
+          subtitle: 'Nearby',
+          found: found
+              ? [
+                  (
+                    device: BluetoothDevice.fromId('ring'),
+                    label: 'Ring',
+                    rssi: -50,
+                    entryId: 'colmi',
+                    alsoBand: null,
+                  ),
+                ]
+              : [],
+          onScan: () => scans++,
+        ),
+        size: const Size(412, 2400),
+      );
+      // Exercise the rendered scan control, not just the stored callback.
+      expect(find.text('Search for devices'), findsOneWidget);
+      await t.tap(find.text('Search for devices'));
+      await t.pump();
+      expect(scans, 1);
+    });
+  }
+
+  // WHY: a hidden Rings selection must not hide an ungrouped scale.
+  // catches: applying a selected filter when only one pill group remains.
+  testWidgets('hidden filter pills leave rings and ungrouped devices visible', (
+    t,
+  ) async {
+    final query = TextEditingController();
+    final selection = ValueNotifier<PairFilter?>(PairFilter.rings);
+    addTearDown(query.dispose);
+    addTearDown(selection.dispose);
+    await pumpPair(
+      t,
+      DevicePickerView(
+        query: query,
+        title: 'Devices',
+        subtitle: 'Nearby',
+        kindSelection: selection,
+        categories: [
+          (entry: kColmi, blurb: 'Ring', icon: LucideIcons.circleDot),
+          (
+            entry: kThermometer,
+            blurb: 'Temperature',
+            icon: LucideIcons.thermometer,
+          ),
+        ],
+      ),
+      size: const Size(412, 2400),
+    );
+    expect(find.text('Colmi ring'), findsOneWidget);
+    expect(find.text('Bluetooth thermometer'), findsOneWidget);
+  });
+
+  // WHY: callbacks may already be queued before the disabled rows rebuild.
+  // catches: guarding only _flow.running, which category navigation never sets.
+  testWidgets(
+    'category and nearby taps share a lock until navigation returns',
+    (t) async {
+      final app = _App();
+      addTearDown(app.dispose);
+      await _screen(t, app, const DevicePickerScreen());
+      final view = t.widget<DevicePickerView>(find.byType(DevicePickerView));
+      view.onOpenEntry!(kWhoopGen4);
+      view.onOpenEntry!(kWhoopGen4);
+      view.onPickNearby!((
+        device: BluetoothDevice.fromId('new'),
+        label: 'WHOOP',
+        rssi: -50,
+        entryId: 'gen5',
+        alsoBand: null,
+      ));
+      await t.pumpAndSettle();
+      expect(find.byType(PairingScreen, skipOffstage: false), findsOneWidget);
+      expect(find.byType(BottomSheet), findsNothing);
+      Navigator.of(t.element(find.byType(PairingScreen))).pop();
+      await t.pumpAndSettle();
+      final unlocked = t.widget<DevicePickerView>(
+        find.byType(DevicePickerView),
+      );
+      expect(unlocked.locked, isFalse);
+      unlocked.onOpenEntry!(kWhoopGen4);
+      await t.pumpAndSettle();
+      expect(
+        find.byType(PairingScreen),
+        findsOneWidget,
+        reason: 'next deliberate tap is accepted',
+      );
+    },
+  );
+
+  // WHY: the host callbacks used by first-run must obey the same lock as
+  // category and nearby taps, without losing the selected WHOOP model.
+  // catches: pickBand forwarding straight to _openEntry without the guard.
+  testWidgets('first-run host callbacks share the navigation lock', (t) async {
+    final app = _App();
+    addTearDown(app.dispose);
+    await _screen(t, app, const DevicePickerScreen());
+    final dynamic host = t.state(find.byType(DevicePickerScreen));
+    host.pickBand(kWhoopGen5);
+    host.pickBand(kWhoopGen4);
+    host.strapOnlyConfirmed();
+    await t.pumpAndSettle();
+    expect(find.byType(PairingScreen, skipOffstage: false), findsOneWidget);
+    expect(find.byType(BottomSheet), findsNothing);
+    final pairing = t.widget<PairingScreen>(find.byType(PairingScreen));
+    expect(pairing.entry, kWhoopGen5);
+    await t.tap(find.text('Find my band'));
+    await t.pumpAndSettle();
+    expect(app.scannedGeneration, 'gen5');
+  });
+
+  // WHY: the single WHOOP category stands for gen4 and gen5 while still
+  // carrying WHOOP reset help. Only a scanned candidate establishes its model.
+  // catches: forwarding the category representative gen4 as a scan filter.
+  testWidgets('WHOOP category keeps help while scanning across generations', (
+    t,
+  ) async {
+    final app = _App();
+    addTearDown(app.dispose);
+    await _screen(t, app, const DevicePickerScreen());
+    t.widget<DevicePickerView>(find.byType(DevicePickerView)).onOpenEntry!(
+      kWhoopGen4,
+    );
+    await t.pumpAndSettle();
+    expect(
+      t.widget<PairingScreen>(find.byType(PairingScreen)).entry,
+      kWhoopGen4,
+    );
+    await t.tap(find.text('Find my band'));
+    await t.pumpAndSettle();
+    expect(app.scannedGeneration, isNull);
+  });
+
+  for (final waitingOnSupport in [false, true]) {
+    // WHY: leaving while the scan/support probe waits cancels the intent to
+    // replace. Checking mounted after replacement is already too late.
+    // catches: starting replaceWith/replaceViaAccessorySetup after disposal.
+    testWidgets(
+      'closing pairing cancels pending work (support=$waitingOnSupport)',
+      (t) async {
+        final app = _App();
+        addTearDown(app.dispose);
+        app.supported = Completer<bool>();
+        app.scanned = Completer<BluetoothDevice?>();
+        await _screen(t, app, const PairingScreen(replacing: true));
+        await t.tap(find.text('Find my band'));
+        await t.pump();
+        if (!waitingOnSupport) {
+          app.supported!.complete(false);
+          await t.pump();
+        }
+        await t.pumpWidget(const MaterialApp(home: SizedBox()));
+        if (waitingOnSupport) {
+          app.supported!.complete(true);
+        } else {
+          app.scanned!.complete(BluetoothDevice.fromId('new'));
+        }
+        await t.pumpAndSettle();
+        expect(app.replacements, 0);
+        expect(app.pickers, 0);
+        expect(t.takeException(), isNull);
+      },
+    );
+  }
+
+  // WHY: an old primary still existing does not prove a replacement succeeded.
+  // catches: using AppState.isPaired instead of comparing the selected identity.
+  testWidgets(
+    'cancelled replacement keeps candidate and reports nothing saved',
+    (t) async {
+      final app = _App();
+      addTearDown(app.dispose);
+      final candidate = (
+        device: BluetoothDevice.fromId('new'),
+        label: 'Candidate',
+        rssi: -50,
+        entryId: 'ble_hrs',
+        alsoBand: null,
+      );
+      final entered = Completer<void>();
+      await _screen(
+        t,
+        app,
+        PairSensorScreen(
+          entry: kBleHrs,
+          debugFound: [candidate],
+          debugPair: (_) async {
+            entered.complete();
+            return PairOutcome.band(kWhoopGen5);
+          },
+        ),
+      );
+      await t.runAsync(
+        () async => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await t.pumpAndSettle();
+      var done = false;
+      final pick =
+          t.widget<PairSensorView>(find.byType(PairSensorView)).onPick!
+              as Future<void> Function(BandCandidate);
+      final pairing = pick(candidate).whenComplete(() => done = true);
+      await _ioUntil(t, () => entered.isCompleted);
+      await t.pumpAndSettle();
+      await t.tap(find.textContaining('Pair this band, then disconnect'));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('replace-confirm-yes')));
+      await t.pumpAndSettle();
+      expect(find.byType(PairingScreen), findsOneWidget);
+      Navigator.of(t.element(find.byType(PairingScreen))).pop();
+      await t.pumpAndSettle();
+      await t.runAsync(
+        () async => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await t.pumpAndSettle();
+      await _ioUntil(t, () => done);
+      await pairing;
+      await t.pumpAndSettle();
+      expect(app.paired?.remoteId, 'old');
+      expect(find.text('Candidate'), findsOneWidget);
+      expect(find.textContaining('Nothing was saved'), findsOneWidget);
+    },
+  );
+
+  // WHY: AddDeviceFlow can finish stopping a scan after its owner is disposed.
+  // catches: looking up either navigator on a disposed PairSensorScreen.
+  testWidgets('disposed sensor screen ignores band handoff', (t) async {
+    final app = _App();
+    addTearDown(app.dispose);
+    await _screen(t, app, PairSensorScreen(entry: kBleHrs));
+    final io = t.state(find.byType(PairSensorScreen)) as AddDeviceIo;
+    await t.runAsync(
+      () async => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await t.pumpWidget(const MaterialApp(home: SizedBox()));
+    for (final band in [kWhoopGen5, kOura]) {
+      await io.openBandFlow(band, remoteId: 'new');
+      expect(t.takeException(), isNull);
+    }
+  });
+}

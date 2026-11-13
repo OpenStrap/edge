@@ -2990,5 +2990,6 @@
   "pairWearableLeadPebble": "Pebble 2 可以为你的每一天补上睡眠、恢复和心率。Pebble 2 SE 显示手表自身记录的睡眠和步数。它没有心率传感器，因此本应用无法根据它的数据计算每日身体负荷或估算恢复。",
   "whoopFirmwareWarningTitle": "WHOOP 用户：请勿重新连接 WHOOP 应用",
   "whoopFirmwareWarningAction": "如果你在使用 OpenStrap 或其他开源应用，或打算以后改用，请不要再把手环连接到 WHOOP 官方应用。它可能会自动安装固件更新。请卸载或停用 WHOOP 应用，以免它更新你的手环。",
-  "whoopFirmwareWarningDetails": "有报告称，WHOOP 5.0 / MG 固件 50.43.1.0 和 50.43.2.0 会阻止访问数据。蓝牙可能仍能连接。解锁受影响的手环需要由 WHOOP 签名的会员令牌，OpenStrap 无法签发。我们正在寻找解决办法，但目前还没有可用的修复。"
+  "whoopFirmwareWarningDetails": "有报告称，WHOOP 5.0 / MG 固件 50.43.1.0 和 50.43.2.0 会阻止访问数据。蓝牙可能仍能连接。解锁受影响的手环需要由 WHOOP 签名的会员令牌，OpenStrap 无法签发。我们正在寻找解决办法，但目前还没有可用的修复。",
+  "pairSearchDevices": "搜索设备"
 }

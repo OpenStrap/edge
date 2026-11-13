@@ -3340,5 +3340,6 @@
   "stepCalDoneHousehold": "Guardado. Tu teléfono contó {count} de los {band} pasos que vio la banda. El movimiento en casa ahora se escala a {gain}.",
   "whoopFirmwareWarningTitle": "Usuarios de WHOOP: no vuelvas a conectarte a la app de WHOOP",
   "whoopFirmwareWarningAction": "Si usas OpenStrap u otra app de código abierto, o piensas cambiarte a una más adelante, no vuelvas a conectar tu banda a la app oficial de WHOOP. Puede instalar actualizaciones de firmware automáticamente. Desinstala o desactiva la app de WHOOP para evitar que actualice tu banda.",
-  "whoopFirmwareWarningDetails": "Hay informes de que el firmware 50.43.1.0 y 50.43.2.0 de WHOOP 5.0 / MG bloquea el acceso a los datos. Es posible que el Bluetooth siga conectándose. OpenStrap no puede emitir el token de membresía firmado por WHOOP que se necesita para desbloquear las bandas afectadas. Estamos trabajando en una solución, pero todavía no hay ningún arreglo disponible."
+  "whoopFirmwareWarningDetails": "Hay informes de que el firmware 50.43.1.0 y 50.43.2.0 de WHOOP 5.0 / MG bloquea el acceso a los datos. Es posible que el Bluetooth siga conectándose. OpenStrap no puede emitir el token de membresía firmado por WHOOP que se necesita para desbloquear las bandas afectadas. Estamos trabajando en una solución, pero todavía no hay ningún arreglo disponible.",
+  "pairSearchDevices": "Buscar dispositivos"
 }
