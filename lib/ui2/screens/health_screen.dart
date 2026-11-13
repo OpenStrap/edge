@@ -1171,17 +1171,8 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     // #450: the latest derive could not refresh wear, so this is an earlier
     // one's figure. Say so rather than let a frozen morning read as now.
     final wearAsOf = v.wear['as_of'] as num?;
-    // A clock alone only when the edge fell on the day shown; a past day's
-    // carried block can date from a later day's sync.
-    final wearAsOfDay = wearAsOf == null
-        ? null
-        : dayLabelOf(DateTime.fromMillisecondsSinceEpoch(
-            wearAsOf.toInt() * 1000));
-    final wearAsOfText = wearAsOf == null
-        ? ''
-        : wearAsOfDay == v.day
-            ? clockOfTs(wearAsOf)
-            : '${prettyDay(wearAsOfDay, l)} ${clockOfTs(wearAsOf)}';
+    final wearAsOfText =
+        wearAsOf == null ? '' : asOfText(wearAsOf, v.day ?? todayLabel(), l);
     final skinTemp = metricOf(d.today['skin_temp']);
     // WHOOP 5 reads in real °C, so its row says degrees, not SDs.
     final tempDevC = ((d.today['skin_temp'] as Map?)?['dev_c'] as num?)

@@ -204,6 +204,21 @@ void main() {
       expect(t.takeException(), isNull);
     });
 
+    testWidgets('names the day when the edge fell on another one', (t) async {
+      // The screen shows 14 July; the carried wear was computed on the 15th.
+      final nextDay =
+          DateTime(2026, 7, 15, 2, 30).millisecondsSinceEpoch ~/ 1000;
+      await show(
+        t,
+        DayStrainData(wornMin: 300, coveragePct: 90, wearAsOf: nextDay),
+        1,
+      );
+      expect(
+        find.text('Worn until ${prettyDay('2026-07-15')} ${clockOfTs(nextDay)}'),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('a current one is plain "Worn"', (t) async {
       await show(t, const DayStrainData(wornMin: 300, coveragePct: 90), 1);
       expect(find.text('Worn'), findsOneWidget);
