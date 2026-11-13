@@ -243,6 +243,14 @@ class _FirmwareFlashScreenState extends State<FirmwareFlashScreen> {
                     'running. Check the strap\'s firmware version after it '
                     'restarts.',
             style: F.body.copyWith(color: p.ink2, height: 1.4)),
+      if (f.phase == FlashPhase.commitUnknown) ...[
+        const SizedBox(height: S.x3),
+        BigButton(
+            l?.flashAcknowledge ??
+                'I checked the firmware version. Allow another install.',
+            soft: true,
+            onTap: f.acknowledgeUnresolved),
+      ],
       if (f.failure != null) ...[
         const SizedBox(height: S.x3),
         Text(_failureText(l, f),

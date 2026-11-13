@@ -262,6 +262,7 @@
   "flashConfirmBody": "Das Band hat die Datei erhalten und verifiziert. Nichts wird installiert, bis du auf „Sicher“ tippst, und das lässt sich nicht rückgängig machen.\n\n{name}\nsha256 {sha}",
   "flashConfirmSure": "Sicher",
   "flashConfirmCancel": "Abbrechen",
+  "flashAcknowledge": "Ich habe die Firmware-Version geprüft. Weitere Installation erlauben.",
   "devicesForgetThisBand": "Dieses Band entfernen",
   "pairSensorAddASensor": "Sensor hinzufügen",
   "pairSensorWhatThisAdds": "Was das bringt",

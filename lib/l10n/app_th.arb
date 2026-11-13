@@ -1002,6 +1002,7 @@
   "flashConfirmBody": "สายรัดได้รับไฟล์และตรวจสอบแล้ว จะไม่มีการติดตั้งใด ๆ จนกว่าคุณจะกดยืนยัน และไม่สามารถย้อนกลับได้\n\n{name}\nsha256 {sha}",
   "flashConfirmSure": "ยืนยัน",
   "flashConfirmCancel": "ยกเลิก",
+  "flashAcknowledge": "ฉันตรวจสอบเวอร์ชันเฟิร์มแวร์แล้ว อนุญาตให้ติดตั้งอีกครั้ง",
   "@devicesFindItByFeel": {
     "description": "Row sub."
   },

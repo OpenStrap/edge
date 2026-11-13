@@ -1144,6 +1144,10 @@
   "@flashConfirmCancel": {
       "description": "Install-an-image screen (WHOOP 5): ConfirmCancel"
   },
+  "flashAcknowledge": "I checked the firmware version. Allow another install.",
+  "@flashAcknowledge": {
+    "description": "Install-an-image screen: after an unanswered commit, the user confirms they checked the firmware version."
+  },
   "devicesForgetThisBand": "Forget this band",
   "@devicesForgetThisBand": {
     "description": "Row title: danger action."

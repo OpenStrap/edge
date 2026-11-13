@@ -253,6 +253,7 @@
   "flashConfirmBody": "腕带已收到文件并完成验证。在你按下“确定”之前不会安装任何内容，且无法撤销。\n\n{name}\nsha256 {sha}",
   "flashConfirmSure": "确定",
   "flashConfirmCancel": "取消",
+  "flashAcknowledge": "我已检查固件版本。允许再次安装。",
   "devicesForgetThisBand": "忘记此腕带",
   "pairSensorAddASensor": "添加传感器",
   "pairSensorWhatThisAdds": "这将添加什么",

@@ -42,6 +42,11 @@ enum FlashFailure {
 abstract class FlashLink {
   bool get canFlash;
   double? get batteryPct;
+
+  /// A commit was sent earlier and never answered (kept beyond this screen).
+  bool get commitUnresolved;
+  void markCommitUnresolved();
+  void acknowledgeCommit();
   bool begin();
   void end();
   Future<CorrelatedResponse?> command(int opcode, List<int> payload,
@@ -59,6 +64,12 @@ class EngineFlashLink implements FlashLink {
   bool get canFlash => _e.canFlashFirmware;
   @override
   double? get batteryPct => _e.flashBatteryPct;
+  @override
+  bool get commitUnresolved => _e.flashCommitUnresolved;
+  @override
+  void markCommitUnresolved() => _e.markFlashCommitUnresolved();
+  @override
+  void acknowledgeCommit() => _e.acknowledgeFlashCommit();
   @override
   bool begin() {
     final t = _e.beginFirmwareFlash();
@@ -87,7 +98,12 @@ class EngineFlashLink implements FlashLink {
 enum _Reply { ok, rejected, none }
 
 class FirmwareFlashController extends ChangeNotifier {
-  FirmwareFlashController(this._link);
+  FirmwareFlashController(this._link) {
+    if (_link.commitUnresolved) {
+      phase = FlashPhase.commitUnknown;
+      failure = FlashFailure.commitUnknown;
+    }
+  }
 
   /// Upper bound on a staged file, so a wrong pick can't fill memory.
   static const int maxImageBytes = 4 * 1024 * 1024;
@@ -120,7 +136,9 @@ class FirmwareFlashController extends ChangeNotifier {
   /// A finished commit, or one whose outcome is unknown, ends the flow: no new
   /// image can be picked or staged from here.
   bool get settled =>
-      phase == FlashPhase.committed || phase == FlashPhase.commitUnknown;
+      phase == FlashPhase.committed ||
+      phase == FlashPhase.commitUnknown ||
+      _link.commitUnresolved;
 
   /// Current battery on this link, for the blocker's wording.
   double? get batteryNow => _link.batteryPct;
@@ -211,10 +229,21 @@ class FirmwareFlashController extends ChangeNotifier {
         _fail(FlashFailure.commitRejected);
       case _Reply.none:
         // Sent, and no answer: not a rejection. Never offer a retry.
+        _link.markCommitUnresolved();
         failure = FlashFailure.commitUnknown;
         phase = FlashPhase.commitUnknown;
         _notify();
     }
+  }
+
+  /// The user checked the firmware version after an unanswered commit and
+  /// accepts a new install. The only way out of [FlashPhase.commitUnknown].
+  void acknowledgeUnresolved() {
+    if (phase != FlashPhase.commitUnknown && !_link.commitUnresolved) return;
+    _link.acknowledgeCommit();
+    phase = FlashPhase.idle;
+    failure = null;
+    _notify();
   }
 
   /// The user backed out after verify. Nothing is committed.

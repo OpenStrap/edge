@@ -253,6 +253,7 @@
   "flashConfirmBody": "Le bracelet a reçu le fichier et l'a vérifié. Rien n'est installé tant que vous n'appuyez pas sur Sûr, et cela ne peut pas être annulé.\n\n{name}\nsha256 {sha}",
   "flashConfirmSure": "Sûr",
   "flashConfirmCancel": "Annuler",
+  "flashAcknowledge": "J'ai vérifié la version du firmware. Autoriser une nouvelle installation.",
   "devicesForgetThisBand": "Oublier ce bracelet",
   "pairSensorAddASensor": "Ajouter un capteur",
   "pairSensorWhatThisAdds": "Ce que cela ajoute",

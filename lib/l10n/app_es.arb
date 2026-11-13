@@ -253,6 +253,7 @@
   "flashConfirmBody": "La banda recibió el archivo y lo verificó. No se instala nada hasta que pulses Seguro, y eso no se puede deshacer.\n\n{name}\nsha256 {sha}",
   "flashConfirmSure": "Seguro",
   "flashConfirmCancel": "Cancelar",
+  "flashAcknowledge": "He comprobado la versión de firmware. Permitir otra instalación.",
   "devicesForgetThisBand": "Olvidar esta banda",
   "pairSensorAddASensor": "Añadir un sensor",
   "pairSensorWhatThisAdds": "Qué añade esto",

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
 import 'package:openstrap_edge/ble/firmware_flash.dart';
+import 'package:openstrap_edge/ui2/profile/devices.dart' show currentBandFamily;
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 class _Link implements FlashLink {
@@ -12,6 +13,13 @@ class _Link implements FlashLink {
   int ends = 0;
   int? failOnOpcode;
   bool beginOk = true;
+  bool unresolved = false;
+  @override
+  bool get commitUnresolved => unresolved;
+  @override
+  void markCommitUnresolved() => unresolved = true;
+  @override
+  void acknowledgeCommit() => unresolved = false;
   int? rejectOpcode;
 
   /// When set, the next command to this opcode waits on it.
@@ -215,5 +223,41 @@ void main() {
     expect(c.failure, FlashFailure.takeover);
     expect(l.sent, isEmpty);
     expect(l.ends, 0);
+  });
+
+  test('an unresolved commit survives the screen: a new controller is locked',
+      () async {
+    final l = _Link()..failOnOpcode = 0x90;
+    final c = FirmwareFlashController(l)..load('a.bin', img);
+    await c.stage();
+    await c.commit();
+    expect(l.unresolved, isTrue);
+    c.dispose();
+    final again = FirmwareFlashController(l);
+    expect(again.phase, FlashPhase.commitUnknown);
+    final before = l.sent.length;
+    again.load('b.bin', img);
+    await again.stage();
+    expect(l.sent.length, before);
+    expect(again.fileName, isNull);
+  });
+  test('acknowledging the unresolved commit is the only way back', () async {
+    final l = _Link()..unresolved = true;
+    final c = FirmwareFlashController(l);
+    expect(c.settled, isTrue);
+    c.acknowledgeUnresolved();
+    expect(l.unresolved, isFalse);
+    expect(c.phase, FlashPhase.idle);
+    c.load('a.bin', img);
+    await c.stage();
+    expect(c.phase, FlashPhase.verified);
+  });
+  test('the band family is read live, so a page opened early still gets gen5',
+      () {
+    expect(currentBandFamily(null, live: 'gen5'), 'gen5');
+    expect(currentBandFamily(null, stored: 'gen5'), 'gen5');
+    expect(currentBandFamily('gen4', live: 'gen5'), 'gen5');
+    expect(currentBandFamily('gen5'), 'gen5');
+    expect(currentBandFamily(null), isNull);
   });
 }

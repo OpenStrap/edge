@@ -5145,6 +5145,30 @@ class BleEngine {
   double? get flashBatteryPct =>
       identical(_batterySession, _session) ? state.batteryPct : null;
 
+  // A commit that was sent and never answered. Held here, not on the screen,
+  // so leaving and reopening it cannot offer a second install. Keyed by the
+  // strap's serial so another band is unaffected; cleared only by the user.
+  bool _flashCommitUnresolved = false;
+  String? _flashCommitSerial;
+
+  bool get flashCommitUnresolved {
+    if (!_flashCommitUnresolved) return false;
+    final mine = _flashCommitSerial;
+    final now = state.serial;
+    return mine == null || now == null || mine == now;
+  }
+
+  void markFlashCommitUnresolved() {
+    _flashCommitUnresolved = true;
+    _flashCommitSerial = state.serial;
+  }
+
+  /// The user checked the strap's firmware version and wants to go on.
+  void acknowledgeFlashCommit() {
+    _flashCommitUnresolved = false;
+    _flashCommitSerial = null;
+  }
+
   /// Claims the link. Returns the ownership token, or null when refused.
   Object? beginFirmwareFlash() {
     if (_flashLock || !canFlashFirmware) return null;

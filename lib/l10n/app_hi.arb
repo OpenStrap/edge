@@ -253,6 +253,7 @@
   "flashConfirmBody": "बैंड को फ़ाइल मिल गई है और उसने उसे सत्यापित कर लिया है। जब तक आप पक्का दबाते नहीं, कुछ भी इंस्टॉल नहीं होगा, और इसे पलटा नहीं जा सकता।\n\n{name}\nsha256 {sha}",
   "flashConfirmSure": "पक्का",
   "flashConfirmCancel": "रद्द करें",
+  "flashAcknowledge": "मैंने फ़र्मवेयर वर्शन जांच लिया है। दूसरी इंस्टॉलेशन की अनुमति दें।",
   "devicesForgetThisBand": "इस बैंड को भूल जाएं",
   "pairSensorAddASensor": "सेंसर जोड़ें",
   "pairSensorWhatThisAdds": "यह क्या जोड़ता है",

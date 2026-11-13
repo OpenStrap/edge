@@ -429,6 +429,7 @@
   },
   "flashConfirmSure": "Уверен",
   "flashConfirmCancel": "Отмена",
+  "flashAcknowledge": "Я проверил версию прошивки. Разрешить ещё одну установку.",
   "devicesForgetThisBand": "Удалить браслет",
   "pairSensorAddASensor": "Добавить датчик",
   "pairSensorWhatThisAdds": "Что это даёт",
