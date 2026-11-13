@@ -407,7 +407,7 @@ void main() {
       });
     }
 
-    testWidgets('(CR r2) a refused bond lists the Bluetooth-settings Forget step, even for WHOOP 5', (t) async {
+    testWidgets('a refused bond lists the Bluetooth-settings Forget step first, even for WHOOP 5', (t) async {
       // WHY: WHOOP 5's own four steps never say to forget the old pairing
       // record, and Try again cannot clear a refused bond without it.
       const forget = 'In your phone’s Bluetooth settings, find the device and choose Forget.';
@@ -423,7 +423,9 @@ void main() {
       // A device on the general steps already has it, once.
       expect(resetStepKeysFor(kWhoopGen4, bondRefused: true)
           .where((k) => k == 'pairResetGenericStep2'), hasLength(1));
-      expect(resetStepKeysFor(kWhoopGen5, bondRefused: true).last,
+      // WHOOP 5's last step is to retry, which fails while the refused
+      // record is still there, so Forget comes before its own steps.
+      expect(resetStepKeysFor(kWhoopGen5, bondRefused: true).first,
           'pairResetGenericStep2');
     });
 
