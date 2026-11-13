@@ -78,6 +78,42 @@ void main() {
     expect(de.presentationColmiRing, isNot('Colmi ring'), reason: 'control');
   });
 
+  // WHY: WHOOP 4 must not send users into the app that may update their band.
+  // catches: restoring the generic app-opening fallback for gen4.
+  testWidgets('WHOOP 4 reset help never asks to open the maker app in any locale', (t) async {
+    for (final locale in AppLocalizations.supportedLocales) {
+      final l = lookupAppLocalizations(locale);
+      for (final view in [
+        ResetStepsView(entry: kWhoopGen4),
+        PairingModeSection(entry: kWhoopGen4),
+      ]) {
+        await pumpPair(t, _scroll(view), locale: locale);
+        expect(find.text(l.pairResetGenericStep1), findsNothing, reason: locale.toString());
+        expect(find.text(l.pairResetWhoop5Step3), findsOneWidget);
+        expect(find.text(l.pairResetGenericStep2), findsOneWidget);
+        expect(find.text(l.pairResetWhoop5Step4), findsOneWidget);
+      }
+    }
+    expect(kWhoopGen4.resetSteps!.kind, ResetKind.unverified);
+    expect(kWhoopGen4.resetSteps!.officialUrl,
+        'https://support.whoop.com/s/article/WHOOP-4-0-iOS-Connectivity-and-Pairing?language=en_US');
+  });
+
+  // WHY: compact help must disclose that these are unverified instructions.
+  // catches: hiding the note when the heading or help link is disabled.
+  testWidgets('unverified pairing sections always disclose general guidance', (t) async {
+    final l = lookupAppLocalizations(const Locale('en'));
+    for (final heading in [false, true]) {
+      for (final link in [false, true]) {
+        await pumpPair(t, _scroll(PairingModeSection(
+            entry: kColmi, heading: heading, link: link)));
+        expect(find.text(l.pairResetGenericNote), findsOneWidget);
+      }
+    }
+    await pumpPair(t, _scroll(PairingModeSection(entry: kWhoopGen5)));
+    expect(find.text(l.pairResetGenericNote), findsNothing);
+  });
+
   group('Trouble connecting card', () {
     Widget card(List<BandEntry> entries, [PairLinkOpener? links]) => _scroll(
         TroubleConnectingCard(entries: entries, openLink: links ?? _Links()));

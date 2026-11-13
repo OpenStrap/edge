@@ -333,14 +333,14 @@ enum ResetKind { specific, unverified, noOfficialSite }
 
 /// What to tell a user whose device will not finish pairing. THREE states:
 /// - specific: l10n keys of device-specific steps (>= 1), optional official URL;
-/// - unverified: no sourced steps; generic template plus an official URL that
+/// - unverified: no sourced procedure; safe guidance plus an official URL that
 ///   is pinned to the vendor's host (follow-up list);
 /// - noOfficialSite: the vendor has no official site (generic family, no-name
 ///   brand); generic steps and a nonblank [reason] (follow-up list).
 class ResetSteps {
   final ResetKind kind;
 
-  /// Non-null only for [ResetKind.specific].
+  /// Device-specific steps, or a safe subset of guidance for an unverified device.
   final List<String>? keys;
 
   /// Official https help page. Optional for specific, required for unverified,
@@ -352,9 +352,8 @@ class ResetSteps {
   const ResetSteps.specific(List<String> this.keys, {this.officialUrl})
       : kind = ResetKind.specific,
         reason = null;
-  const ResetSteps.unverified({required String this.officialUrl})
+  const ResetSteps.unverified({required String this.officialUrl, this.keys})
       : kind = ResetKind.unverified,
-        keys = null,
         reason = null;
   const ResetSteps.noOfficialSite({required String this.reason})
       : kind = ResetKind.noOfficialSite,
@@ -634,6 +633,12 @@ const BandEntry kWhoopGen4 = BandEntry.framed(
   role: DeviceRole.band,
   kind: DeviceKind.strap,
   resetSteps: ResetSteps.unverified(
+    // Opening the official app may update the band; use only app-free guidance.
+    keys: <String>[
+      'pairResetWhoop5Step3',
+      'pairResetGenericStep2',
+      'pairResetWhoop5Step4',
+    ],
     officialUrl:
         'https://support.whoop.com/s/article/WHOOP-4-0-iOS-Connectivity-and-Pairing?language=en_US',
   ),
