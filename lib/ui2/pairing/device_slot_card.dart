@@ -1,4 +1,4 @@
-// S5: a paired device's own card, said plainly: where it fits ("Every day" or
+// a paired device's own card, said plainly: where it fits ("Every day" or
 // "Workouts only"), and THE table the pairing sheets show, with the column it
 // is not in faded. The note says which switch it waits for; the switch itself
 // sits right under the card (DeviceUseSwitch).

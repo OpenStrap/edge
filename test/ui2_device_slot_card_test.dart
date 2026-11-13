@@ -1,4 +1,4 @@
-// The device slot card (S5) and how a paired device reads on the sources list
+// The device slot card and how a paired device reads on the sources list
 // and its detail page.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';

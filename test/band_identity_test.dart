@@ -136,7 +136,7 @@ void main() {
           rssi: -55,
         );
 
-    test('(G3 r1 S4) the Add a device scan covers the framed WHOOP entries: a WHOOP-only advertisement is a candidate', () {
+    test('the Add a device scan covers the framed WHOOP entries: a WHOOP-only advertisement is a candidate', () {
       // WHY: a WHOOP that advertises only its own band service matched no
       // sensor entry and was dropped, so the band could never be discovered
       // from "Add a device".

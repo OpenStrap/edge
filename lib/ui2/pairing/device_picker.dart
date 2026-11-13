@@ -463,7 +463,7 @@ class DevicePickerView extends StatelessWidget {
   final VoidCallback? onSkip;
   final VoidCallback? onBack;
 
-  /// The filter pills over the results (K3): the chosen kind (null = All) and
+  /// The filter pills over the results: the chosen kind (null = All) and
   /// its setter. Null [kindSelection] draws no pills. The owner listens and
   /// rebuilds this view when it changes.
   final ValueNotifier<PairFilter?>? kindSelection;

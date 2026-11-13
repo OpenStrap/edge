@@ -92,6 +92,44 @@ void main() {
       expect(find.byType(BigButton), findsOneWidget);
     });
 
+    testWidgets('no band: the same card says what that costs, once', (t) async {
+      // WHY: one card, but it must still say that every metric abstains; the
+      // WHOOP-only line alone never told a person their data was empty.
+      const phone = HealthSource(
+        name: 'This phone',
+        kind: 'Motion coprocessor',
+        tier: SourceTier.phone,
+        icon: Icons.smartphone,
+        connected: false,
+      );
+      await pumpPair(t, view(const [phone], onPair: () {}, onAdd: () {}),
+          size: const Size(412, 1400));
+      expect(
+          inCard('pair-band-card', find.byKey(const ValueKey('no-band-consequence'))),
+          findsOneWidget);
+      expect(find.textContaining('every metric in the app will abstain'), findsOneWidget);
+      expect(find.textContaining('The phone counts steps and nothing else'), findsNothing);
+    });
+
+    testWidgets('no band, phone steps arriving: says only the phone counts steps', (t) async {
+      const phone = HealthSource(
+        name: 'This phone',
+        kind: 'Motion coprocessor',
+        tier: SourceTier.phone,
+        icon: Icons.smartphone,
+        connected: true,
+      );
+      await pumpPair(t, view(const [phone], onPair: () {}, onAdd: () {}),
+          size: const Size(412, 1400));
+      expect(find.textContaining('The phone counts steps and nothing else'), findsOneWidget);
+      expect(find.textContaining('every metric in the app will abstain'), findsNothing);
+    });
+
+    testWidgets('a paired band: no consequence line', (t) async {
+      await pumpPair(t, view([_band()], onUnpair: () {}), size: const Size(412, 1400));
+      expect(find.byKey(const ValueKey('no-band-consequence')), findsNothing);
+    });
+
     testWidgets('“Add a device” is its own row, below the band card', (t) async {
       var add = 0;
       await pumpPair(t, view(const [], onPair: () {}, onAdd: () => add++), size: const Size(412, 1400));

@@ -1,4 +1,4 @@
-// C1: THE table of what a device gives "Every day" and "Workouts only": a row
+// THE table of what a device gives "Every day" and "Workouts only": a row
 // per capability, a check on a tint where it sends, a muted cross where it
 // does not (never a dash). The pairing sheets wash the column the device goes
 // into; the device page fades the column it is not in. One widget, one file,

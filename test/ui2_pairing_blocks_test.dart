@@ -1,5 +1,5 @@
-// The two swappable pairing building blocks: the capability matrix (C1) and
-// the category filter pills (K3), plus the registry field the pills read.
+// The two swappable pairing building blocks: the capability matrix and
+// the category filter pills, plus the registry field the pills read.
 // Rendered, not read: both are layout.
 import 'dart:convert';
 import 'dart:io';
@@ -52,7 +52,7 @@ void main() {
     });
   });
 
-  group('CategoryFilterPills (K3)', () {
+  group('CategoryFilterPills', () {
     Widget pills(List<DeviceKind> kinds,
             {PairFilter? selected, ValueNotifier<PairFilter?>? selection}) =>
         Scaffold(
@@ -235,7 +235,7 @@ void main() {
     });
   });
 
-  group('SlotTable (C1)', () {
+  group('SlotTable', () {
     Widget table(SlotComparison c, {DeviceSlot? focus, DeviceSlot? dim}) =>
         Scaffold(
             body: SingleChildScrollView(

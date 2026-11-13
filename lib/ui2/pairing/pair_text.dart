@@ -70,7 +70,7 @@ IconData slotIcon(DeviceSlot s) => switch (s) {
 Widget slotPill(AppLocalizations l, DeviceSlot s, {Key? key}) =>
     Pill(slotLabel(l, s), slotColor(s), icon: slotIcon(s), key: key);
 
-/// The filter pills' groups (K3): what the user would call the device.
+/// The filter pills' groups: what the user would call the device.
 /// A WHOOP is its own group; a Mi Band sits with the watches. Scales and
 /// thermometers have no group and show under All only.
 enum PairFilter { whoop, rings, watches, straps }

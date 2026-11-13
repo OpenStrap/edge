@@ -673,7 +673,7 @@ void main() {
       final calls = _Calls();
       await _tap(t, calls, _cand('oura', label: 'Oura Ring'));
       expect(find.text('This is a ring'), findsOneWidget);
-      // Not a WHOOP, so there is no main-band choice (DT12): one button.
+      // Not a WHOOP, so there is no main-band choice: one button.
       expect(find.text('Pair it as my band'), findsNothing);
       await t.tap(find.text('Pair Oura Ring'));
       await t.pumpAndSettle();
@@ -782,7 +782,7 @@ void main() {
     });
   });
 
-  group('G3 r1 S2: browsing goes through the same confirmations', () {
+  group('browsing goes through the same confirmations', () {
     // A button that runs confirmBrowse and prints the answer.
     Future<bool?> browse(WidgetTester t, _Calls calls, BandEntry e,
         {required bool hasMain, String? tapLabel}) async {
@@ -967,7 +967,7 @@ void main() {
     });
   }
 
-  group('G3 r1 S3: the handoff to the main-band flow', () {
+  group('the handoff to the main-band flow', () {
     final whoopOnly = _cand('gen5', label: 'WHOOP 5A1B');
 
     testWidgets('the scan is stopped BEFORE the main-band flow opens', (t) async {
@@ -990,7 +990,7 @@ void main() {
     });
   });
 
-  group('G3 r1 S4: a WHOOP-only advertisement', () {
+  group('a WHOOP-only advertisement', () {
     testWidgets('the band-choice flow runs for a scanned framed entry; a secondary choice pairs under ble_hrs with the confirmation', (t) async {
       final calls = _Calls();
       await _tap(t, calls, _cand('gen5', label: 'WHOOP 5A1B'), hasMain: true);

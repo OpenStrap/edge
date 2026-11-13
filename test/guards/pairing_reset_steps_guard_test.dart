@@ -116,7 +116,7 @@ void main() {
   group('unverified', () {
     test('an unverified entry carries an officialUrl on its pinned host', () {
       // WHY: unsourced steps point at the vendor's own help page, never a
-      // search engine or a look-alike host. DT8: zero unverified entries is
+      // search engine or a look-alike host. zero unverified entries is
       // allowed (the goal), so the registry loop may be empty; the fixture
       // controls below prove the check can bite.
       for (final e in _of(ResetKind.unverified)) {
@@ -125,7 +125,7 @@ void main() {
     });
 
     test('control: the unverified check passes a good fixture and fails bad ones', () {
-      // WHY (DT8): a fixture, not a real registry entry, is the positive control.
+      // WHY: a fixture, not a real registry entry, is the positive control.
       const good = ResetSteps.unverified(officialUrl: 'https://support.whoop.com/x');
       const search = ResetSteps.unverified(
           officialUrl: 'https://www.google.com/search?q=whoop');
@@ -176,7 +176,7 @@ void main() {
       final actual = {for (final e in _of(ResetKind.noOfficialSite)) e.id};
       expect(expected, {'thermometer'},
           reason: 'only the thermometer is a registry entry on this branch');
-      // DT11: the generic HR profile has no maker either (no research row).
+      // the generic HR profile has no maker either (no research row).
       expect(actual, {...expected, 'ble_hrs'});
       expect(kBleHrs.resetSteps?.reason, 'Generic Bluetooth heart-rate profile; maker unknown');
     });

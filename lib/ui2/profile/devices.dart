@@ -85,11 +85,10 @@ import '../../sync/paired_device.dart' show cleanDeviceLabel;
 import '../../state/app_state.dart';
 import '../../state/clock_format.dart' show formatClockOf;
 import '../pairing/device_picker.dart' show DevicePickerScreen;
-import '../pairing/pair_text.dart' show pairL10n;
+import '../pairing/pair_text.dart' show pairL10n, slotPill;
 import '../../ble/slot_comparison.dart' show DeviceSlot;
 import '../pairing/device_slot_card.dart'
     show DeviceSlotCard, pairedDeviceSlot;
-import '../pairing/pair_text.dart' show slotPill;
 import '../onboarding/profile_setup.dart' show formatDay;
 import '../ui2.dart';
 import 'profile.dart';
@@ -1596,6 +1595,11 @@ extension _PairSection on MyDevicesView {
   List<Widget> _pairSection(BuildContext c, bool hasBand) {
     final l = pairL10n(c);
     final band = sources.where((s) => s.isBand).firstOrNull;
+    // What having no band costs. The phone row is listed whenever its toggle
+    // is on, so "a source exists" is not the test: only steps actually being
+    // banked is (see the note above `hasBand`).
+    final phoneCounting = sources.any((s) => !s.isBand && s.connected);
+    final al = AppLocalizations.of(c);
     final children = <Widget>[
       // ONE card for the band, paired or not, so the section keeps its
       // height when the state flips: the status and the action in one box.
@@ -1607,6 +1611,17 @@ extension _PairSection on MyDevicesView {
               : null,
           onPair: onPair,
           onUnpair: onUnpair,
+          consequence: hasBand
+              ? null
+              : phoneCounting
+                  ? (al?.devicesPhoneCountingBody ??
+                      'The phone counts steps and nothing else. Heart '
+                          'rate, sleep, recovery and temperature all abstain '
+                          'until a band is paired.')
+                  : (al?.devicesNothingMeasuringBody ??
+                      'No band is paired and no phone steps are arriving, '
+                          'so every metric in the app will abstain rather '
+                          'than estimate.'),
         ),
       if (onAddSensor != null)
         Surface(
@@ -1654,8 +1669,16 @@ class _YourBandCard extends StatelessWidget {
   final String? bandName;
   final String? bandState;
   final VoidCallback? onPair, onUnpair;
+
+  /// Unpaired only: what the app can and cannot measure without a band, in
+  /// the same card so the section says it once.
+  final String? consequence;
   const _YourBandCard(
-      {this.bandName, this.bandState, this.onPair, this.onUnpair});
+      {this.bandName,
+      this.bandState,
+      this.onPair,
+      this.onUnpair,
+      this.consequence});
 
   @override
   Widget build(BuildContext c) {
@@ -1685,6 +1708,12 @@ class _YourBandCard extends StatelessWidget {
             : Text(l.pairCardBandBody,
                 key: const ValueKey('main-band-whoop-only-note'),
                 style: F.cap.copyWith(color: p.ink2)),
+        if (!paired && consequence != null) ...[
+          const SizedBox(height: S.x2),
+          Text(consequence!,
+              key: const ValueKey('no-band-consequence'),
+              style: F.cap.copyWith(color: p.ink2)),
+        ],
         if (paired ? onUnpair != null : onPair != null) ...[
           const SizedBox(height: S.x4),
           paired

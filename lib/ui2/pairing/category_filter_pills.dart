@@ -1,4 +1,4 @@
-// K3: filter pills over a device list ("All · WHOOP · Rings · Watches ·
+// filter pills over a device list ("All · WHOOP · Rings · Watches ·
 // Straps"). One widget, one file, so the list grouping can be swapped for
 // another style (accordions, plain headers) without touching a screen.
 import 'package:flutter/material.dart';

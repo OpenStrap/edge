@@ -1,7 +1,7 @@
 // What a device gives in each of the two columns the pairing screens draw:
 // "Every day" (the main band, or the active wearable that fills the days the
 // band left empty) and "Workouts only" (a workout-armed sensor). Capabilities
-// come from the compute layer's eligibility rules (S6), never from raw-signal
+// come from the compute layer's eligibility rules, never from raw-signal
 // membership.
 import '../compute/inputs/canonical.dart'
     show Cell, MetricClass, capabilities, columnFor, kWorkoutArmedSensors;
@@ -31,7 +31,7 @@ enum DeviceCapability {
 /// How a capability is delivered.
 /// native: this app computes it. conditional: only when [CapabilityStatus.reasonKey]
 /// holds (an l10n-able key). vendorReported: the device's own number, shown as
-/// the device's (never passed off as native, RULES B2).
+/// the device's (never passed off as native).
 enum CapabilityKind { native, conditional, vendorReported }
 
 class CapabilityStatus {

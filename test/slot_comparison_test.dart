@@ -1,6 +1,6 @@
 // Slot comparison: what a device gives "Every day" (the main band, or the
 // active wearable) and "Workouts only" (a workout-armed sensor). Capabilities
-// come from the compute layer's eligibility rules (S6): the metric x device
+// come from the compute layer's eligibility rules: the metric x device
 // columns (canonical.dart columnFor/capabilities), the native WHOOP pipeline,
 // and the workout-armed sensor set.
 import 'dart:convert';
@@ -58,7 +58,7 @@ void main() {
             C.respiration, C.workoutHeartRate, C.workoutBeatToBeat]) {
           expect(d[c]?.kind, K.native, reason: '${e.id} $c');
         }
-        // DT7: a nightly mean, >= 3 prior nights, baseline spread >= 1.
+        // a nightly mean, >= 3 prior nights, baseline spread >= 1.
         expect(d[C.skinTemperature]?.kind, K.conditional);
         expect(d[C.skinTemperature]?.reasonKey, kReasonSkinTempNights);
       });
@@ -154,7 +154,7 @@ void main() {
       }
       expect(d[C.strain]?.reasonKey, 'capReasonPebble2Only');
       expect(d[C.heartRate]?.reasonKey, 'capReasonPebble2Only');
-      // WHY (CR 4500472602): Pebble 2's recovery is an estimate; the
+      // WHY: Pebble 2's recovery is an estimate; the
       // Pebble 2 only caption must not drop that.
       expect(d[C.recovery]?.reasonKey, 'capReasonPebble2OnlyEstimated');
       expect(d[C.sleep]?.reasonKey, kReasonOwnStages);
@@ -204,7 +204,7 @@ void main() {
   });
 
   test('"not confirmed" only where the device may not send it: a generic strap, a WHOOP read as one', () {
-    // WHY (owner): devices people use (Oura, Polar) carry only factual
+    // WHY: devices people use (Oura, Polar) carry only factual
     // captions; the unconfirmed one is for RR from the generic profile.
     final unconfirmed = {
       for (final e in kBandRegistry)
@@ -232,7 +232,7 @@ void main() {
     }
   });
 
-  test('no registry entry claims blood oxygen, in either column (S1)', () {
+  test('no registry entry claims blood oxygen, in either column', () {
     expect(capabilities(columnFor('oura')!)['spo2'], MetricClass.device,
         reason: 'positive control: a column does offer a vendor spo2');
     for (final e in kBandRegistry) {
@@ -259,7 +259,7 @@ void main() {
     }
   });
 
-  group('nothing fabricated (S6)', () {
+  group('nothing fabricated', () {
     test('every claim traces to an eligibility rule in an existing file', () {
       var claims = 0;
       for (final e in kBandRegistry) {

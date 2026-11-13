@@ -34,7 +34,7 @@ Finder _row(BandEntry e) => find.byKey(ValueKey('band-row-${e.id}'));
 
 void main() {
   group('which devices the first run offers', () {
-    test('only the WHOOP bands (DT12)', () {
+    test('only the WHOOP bands', () {
       final ids = [for (final e in firstRunBandEntries()) e.id];
       expect(ids, ['gen4', 'gen5']);
       // Other bands pair as additional devices from "Add a device"; sensors,
