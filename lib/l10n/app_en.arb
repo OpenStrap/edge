@@ -988,6 +988,166 @@
   "@devicesFindItByFeel": {
     "description": "Row sub."
   },
+  "devicesInstallImage": "Install an image",
+  "@devicesInstallImage": {
+    "description": "Row title on a WHOOP 5 band's device page: install an image file the user supplies."
+  },
+  "devicesInstallImageSub": "Use at your own risk",
+  "@devicesInstallImageSub": {
+    "description": "Row sub: the user takes the risk."
+  },
+  "flashWarning": "Installing an image you supply yourself can permanently damage your strap, void its warranty and stop it working. It cannot be undone from this app. OpenStrap does not provide, review or endorse any image, and OpenStrap and its contributors accept no responsibility or liability for any loss or damage. You do this entirely at your own risk.",
+  "@flashWarning": {
+      "description": "Install-an-image screen (WHOOP 5): Warning"
+  },
+  "flashAccept": "I understand and accept the risk",
+  "@flashAccept": {
+      "description": "Install-an-image screen (WHOOP 5): Accept"
+  },
+  "flashFileInfo": "{name}\n{bytes} bytes\nsha256 {sha}",
+  "@flashFileInfo": {
+      "description": "Install-an-image screen (WHOOP 5): FileInfo",
+      "placeholders": {
+          "name": {
+              "type": "String"
+          },
+          "bytes": {
+              "type": "int"
+          },
+          "sha": {
+              "type": "String"
+          }
+      }
+  },
+  "flashChoose": "Choose image file",
+  "@flashChoose": {
+      "description": "Install-an-image screen (WHOOP 5): Choose"
+  },
+  "flashChooseAnother": "Choose another",
+  "@flashChooseAnother": {
+      "description": "Install-an-image screen (WHOOP 5): ChooseAnother"
+  },
+  "flashSend": "Send to strap",
+  "@flashSend": {
+      "description": "Install-an-image screen (WHOOP 5): Send"
+  },
+  "flashStop": "Stop",
+  "@flashStop": {
+      "description": "Install-an-image screen (WHOOP 5): Stop"
+  },
+  "flashProgress": "{done} of {total} blocks sent. Keep the app open and the strap close.",
+  "@flashProgress": {
+      "description": "Install-an-image screen (WHOOP 5): Progress",
+      "placeholders": {
+          "done": {
+              "type": "int"
+          },
+          "total": {
+              "type": "int"
+          }
+      }
+  },
+  "flashCommitting": "Sending the commit…",
+  "@flashCommitting": {
+      "description": "Install-an-image screen (WHOOP 5): Committing"
+  },
+  "flashCommitted": "The strap accepted the image. That does not confirm it is running. Check the strap's firmware version after it restarts.",
+  "@flashCommitted": {
+      "description": "Install-an-image screen (WHOOP 5): Committed"
+  },
+  "flashCommitUnknown": "The commit was sent but the strap did not answer. It may or may not have been applied. Do not try again. Check the strap's firmware version after it restarts.",
+  "@flashCommitUnknown": {
+      "description": "Install-an-image screen (WHOOP 5): CommitUnknown"
+  },
+  "flashBlockNoImage": "Choose an image file first.",
+  "@flashBlockNoImage": {
+      "description": "Install-an-image screen (WHOOP 5): BlockNoImage"
+  },
+  "flashBlockTooLarge": "That file is too large for an image.",
+  "@flashBlockTooLarge": {
+      "description": "Install-an-image screen (WHOOP 5): BlockTooLarge"
+  },
+  "flashBlockNoLink": "Connect a WHOOP 5 and wait for any sync to finish.",
+  "@flashBlockNoLink": {
+      "description": "Install-an-image screen (WHOOP 5): BlockNoLink"
+  },
+  "flashBlockBatteryUnknown": "Battery level unknown. Wait for it to be read.",
+  "@flashBlockBatteryUnknown": {
+      "description": "Install-an-image screen (WHOOP 5): BlockBatteryUnknown"
+  },
+  "flashBlockBatteryLow": "Battery is {pct}%. Charge to at least {min}% first.",
+  "@flashBlockBatteryLow": {
+      "description": "Install-an-image screen (WHOOP 5): BlockBatteryLow",
+      "placeholders": {
+          "pct": {
+              "type": "int"
+          },
+          "min": {
+              "type": "int"
+          }
+      }
+  },
+  "flashFailTakeover": "Could not take over the connection.",
+  "@flashFailTakeover": {
+      "description": "Install-an-image screen (WHOOP 5): FailTakeover"
+  },
+  "flashFailStart": "The strap did not accept the start of the update.",
+  "@flashFailStart": {
+      "description": "Install-an-image screen (WHOOP 5): FailStart"
+  },
+  "flashFailData": "The strap rejected data at byte {offset}. Nothing was committed.",
+  "@flashFailData": {
+      "description": "Install-an-image screen (WHOOP 5): FailData",
+      "placeholders": {
+          "offset": {
+              "type": "int"
+          }
+      }
+  },
+  "flashFailVerify": "The strap did not verify the image. Nothing was committed.",
+  "@flashFailVerify": {
+      "description": "Install-an-image screen (WHOOP 5): FailVerify"
+  },
+  "flashFailCancelled": "Cancelled. Nothing was committed.",
+  "@flashFailCancelled": {
+      "description": "Install-an-image screen (WHOOP 5): FailCancelled"
+  },
+  "flashFailCommitRejected": "The strap did not accept the commit.",
+  "@flashFailCommitRejected": {
+      "description": "Install-an-image screen (WHOOP 5): FailCommitRejected"
+  },
+  "flashPickUnreadable": "That file could not be read.",
+  "@flashPickUnreadable": {
+      "description": "Install-an-image screen (WHOOP 5): PickUnreadable"
+  },
+  "flashConfirmTitle": "Install this image?",
+  "@flashConfirmTitle": {
+      "description": "Install-an-image screen (WHOOP 5): ConfirmTitle"
+  },
+  "flashConfirmBody": "The strap has the file and verified it. Nothing is installed until you press Sure, and that cannot be undone.\n\n{name}\nsha256 {sha}",
+  "@flashConfirmBody": {
+      "description": "Install-an-image screen (WHOOP 5): ConfirmBody",
+      "placeholders": {
+          "name": {
+              "type": "String"
+          },
+          "sha": {
+              "type": "String"
+          }
+      }
+  },
+  "flashConfirmSure": "Sure",
+  "@flashConfirmSure": {
+      "description": "Install-an-image screen (WHOOP 5): ConfirmSure"
+  },
+  "flashConfirmCancel": "Cancel",
+  "@flashConfirmCancel": {
+      "description": "Install-an-image screen (WHOOP 5): ConfirmCancel"
+  },
+  "flashAcknowledge": "I checked the firmware version. Allow another install.",
+  "@flashAcknowledge": {
+    "description": "Install-an-image screen: after an unanswered commit, the user confirms they checked the firmware version."
+  },
   "devicesForgetThisBand": "Forget this band",
   "@devicesForgetThisBand": {
     "description": "Row title: danger action."
@@ -5679,6 +5839,22 @@
         "type": "String"
       }
     }
+  },
+  "chartPanelLatest": "LATEST",
+  "@chartPanelLatest": {
+    "description": "Caption prefix on the panel under a chart when nothing is selected: the newest reading. Shown upper-case where the script has case. It is not a judgement such as best."
+  },
+  "chartPanelSelected": "SELECTED",
+  "@chartPanelSelected": {
+    "description": "Caption prefix on the panel under a chart while a finger is on the chart: the reading the finger is on."
+  },
+  "chartPanelSevenDayAvg": "7-day avg",
+  "@chartPanelSevenDayAvg": {
+    "description": "Metric-detail panel stat: the last 7 days up to today, the same figure whichever day is shown."
+  },
+  "chartPanelVsAvg": "vs avg",
+  "@chartPanelVsAvg": {
+    "description": "Metric-detail panel stat: the shown value minus that 7-day average."
   },
   "metricDetailNoRecordLabel": "No record",
   "@metricDetailNoRecordLabel": {
@@ -16352,6 +16528,15 @@
       }
     }
   },
+  "pairBandNotSensor": "That device is a {label}, a band, not a plain sensor. Nothing was saved.",
+  "@pairBandNotSensor": {
+    "description": "Shown when a device picked as a plain sensor turns out to be a band. Nothing was saved. {label} is the band’s name.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
   "welcomeCoachKeyReentry": "Your coach API key stays in secure storage and was not backed up. Enter it again in AI settings to use the coach on this phone.",
   "welcomeSettingsSkipped": "{n, plural, =1{1 setting in the backup could not be read and was skipped} other{{n} settings in the backup could not be read and were skipped}}",
   "@welcomeSettingsSkipped": {
@@ -16389,5 +16574,8 @@
   "strengthDelete": "Delete",
   "@strengthDelete": {"description": "Strength set editor copy."},
   "strengthSaveFailed": "Failed to save changes",
-  "@strengthSaveFailed": {"description": "Strength set editor copy."}
+  "@strengthSaveFailed": {"description": "Strength set editor copy."},
+  "napAutoLogTitle": "Log clear naps automatically",
+  "napAutoLogSub": "A detected nap with strong evidence is added without asking. You can still edit or remove it",
+  "napAutoLogSaveFailed": "That setting could not be saved. Try again."
 }

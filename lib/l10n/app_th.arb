@@ -973,6 +973,36 @@
     "description": "Row title."
   },
   "devicesFindItByFeel": "หาตำแหน่งจากแรงสั่น",
+  "devicesInstallImage": "ติดตั้งอิมเมจ",
+  "devicesInstallImageSub": "ใช้ด้วยความเสี่ยงของคุณเอง",
+  "flashWarning": "การติดตั้งอิมเมจที่คุณจัดหามาเองอาจทำให้สายรัดเสียหายถาวร หมดประกัน และใช้งานไม่ได้ และไม่สามารถยกเลิกได้จากแอปนี้ OpenStrap ไม่ได้จัด ตรวจสอบ หรือรับรองอิมเมจใด ๆ และ OpenStrap กับผู้ร่วมพัฒนาไม่รับผิดชอบต่อความสูญเสียหรือความเสียหายใด ๆ คุณทำสิ่งนี้ด้วยความเสี่ยงของคุณเองทั้งหมด",
+  "flashAccept": "ฉันเข้าใจและยอมรับความเสี่ยง",
+  "flashFileInfo": "{name}\n{bytes} ไบต์\nsha256 {sha}",
+  "flashChoose": "เลือกไฟล์อิมเมจ",
+  "flashChooseAnother": "เลือกไฟล์อื่น",
+  "flashSend": "ส่งไปยังสายรัด",
+  "flashStop": "หยุด",
+  "flashProgress": "ส่งแล้ว {done} จาก {total} บล็อก เปิดแอปค้างไว้และวางสายรัดไว้ใกล้ ๆ",
+  "flashCommitting": "กำลังส่งการยืนยัน…",
+  "flashCommitted": "สายรัดยอมรับอิมเมจแล้ว แต่นั่นไม่ได้ยืนยันว่ากำลังทำงานอยู่ ตรวจสอบเวอร์ชันเฟิร์มแวร์ของสายรัดหลังจากรีสตาร์ต",
+  "flashCommitUnknown": "ส่งการยืนยันแล้ว แต่สายรัดไม่ตอบกลับ อาจถูกนำไปใช้แล้วหรือยังไม่ได้ใช้ก็ได้ อย่าลองอีกครั้ง ตรวจสอบเวอร์ชันเฟิร์มแวร์ของสายรัดหลังจากรีสตาร์ต",
+  "flashBlockNoImage": "เลือกไฟล์อิมเมจก่อน",
+  "flashBlockTooLarge": "ไฟล์นี้ใหญ่เกินกว่าจะเป็นอิมเมจ",
+  "flashBlockNoLink": "เชื่อมต่อ WHOOP 5 และรอให้การซิงก์ที่กำลังทำอยู่เสร็จก่อน",
+  "flashBlockBatteryUnknown": "ไม่ทราบระดับแบตเตอรี่ รอให้อ่านค่าก่อน",
+  "flashBlockBatteryLow": "แบตเตอรี่เหลือ {pct}% ชาร์จให้ถึงอย่างน้อย {min}% ก่อน",
+  "flashFailTakeover": "ไม่สามารถควบคุมการเชื่อมต่อได้",
+  "flashFailStart": "สายรัดไม่ยอมรับการเริ่มอัปเดต",
+  "flashFailData": "สายรัดปฏิเสธข้อมูลที่ไบต์ {offset} ยังไม่มีอะไรถูกยืนยัน",
+  "flashFailVerify": "สายรัดไม่ได้ตรวจสอบอิมเมจ ยังไม่มีอะไรถูกยืนยัน",
+  "flashFailCancelled": "ยกเลิกแล้ว ยังไม่มีอะไรถูกยืนยัน",
+  "flashFailCommitRejected": "สายรัดไม่ยอมรับการยืนยัน",
+  "flashPickUnreadable": "ไม่สามารถอ่านไฟล์นั้นได้",
+  "flashConfirmTitle": "ติดตั้งอิมเมจนี้หรือไม่?",
+  "flashConfirmBody": "สายรัดได้รับไฟล์และตรวจสอบแล้ว จะไม่มีการติดตั้งใด ๆ จนกว่าคุณจะกดยืนยัน และไม่สามารถย้อนกลับได้\n\n{name}\nsha256 {sha}",
+  "flashConfirmSure": "ยืนยัน",
+  "flashConfirmCancel": "ยกเลิก",
+  "flashAcknowledge": "ฉันตรวจสอบเวอร์ชันเฟิร์มแวร์แล้ว อนุญาตให้ติดตั้งอีกครั้ง",
   "@devicesFindItByFeel": {
     "description": "Row sub."
   },
@@ -5668,6 +5698,10 @@
       }
     }
   },
+  "chartPanelLatest": "ล่าสุด",
+  "chartPanelSelected": "ที่เลือก",
+  "chartPanelSevenDayAvg": "ค่าเฉลี่ย 7 วัน",
+  "chartPanelVsAvg": "เทียบค่าเฉลี่ย",
   "metricDetailNoRecordLabel": "ไม่มีข้อมูลบันทึก",
   "@metricDetailNoRecordLabel": {
     "description": "Value text shown in the touched-day row when that day has no record."
@@ -16356,5 +16390,17 @@
   "strengthSaveFailed": "ไม่สามารถบันทึกการเปลี่ยนแปลงได้",
   "whoopFirmwareWarningTitle": "ผู้ใช้ WHOOP: อย่าเชื่อมต่อกับแอป WHOOP อีก",
   "whoopFirmwareWarningAction": "หากคุณใช้ OpenStrap หรือแอปโอเพนซอร์สอื่น หรือวางแผนจะเปลี่ยนไปใช้ในภายหลัง อย่าเชื่อมต่อสายรัดกับแอป WHOOP อย่างเป็นทางการอีก แอปอาจติดตั้งอัปเดตเฟิร์มแวร์โดยอัตโนมัติ ให้ถอนการติดตั้งหรือปิดใช้งานแอป WHOOP เพื่อไม่ให้แอปอัปเดตสายรัดของคุณ",
-  "whoopFirmwareWarningDetails": "มีรายงานเกี่ยวกับเฟิร์มแวร์ WHOOP 5.0 / MG เวอร์ชัน 50.43.1.0 และ 50.43.2.0 ว่าเข้าถึงข้อมูลไม่ได้ บลูทูธอาจยังเชื่อมต่อได้ OpenStrap ไม่สามารถออกโทเค็นสมาชิกที่ WHOOP ลงนามซึ่งจำเป็นต่อการปลดล็อกสายรัดที่ได้รับผลกระทบ เรากำลังหาทางแก้ไข แต่ยังไม่มีวิธีแก้ในตอนนี้"
+  "whoopFirmwareWarningDetails": "มีรายงานเกี่ยวกับเฟิร์มแวร์ WHOOP 5.0 / MG เวอร์ชัน 50.43.1.0 และ 50.43.2.0 ว่าเข้าถึงข้อมูลไม่ได้ บลูทูธอาจยังเชื่อมต่อได้ OpenStrap ไม่สามารถออกโทเค็นสมาชิกที่ WHOOP ลงนามซึ่งจำเป็นต่อการปลดล็อกสายรัดที่ได้รับผลกระทบ เรากำลังหาทางแก้ไข แต่ยังไม่มีวิธีแก้ในตอนนี้",
+  "napAutoLogTitle": "บันทึกการงีบที่ชัดเจนโดยอัตโนมัติ",
+  "napAutoLogSub": "การงีบที่ตรวจพบและมีหลักฐานชัดเจนจะถูกเพิ่มโดยไม่ถาม คุณยังแก้ไขหรือลบได้",
+  "napAutoLogSaveFailed": "บันทึกการตั้งค่าไม่สำเร็จ ลองอีกครั้ง",
+  "pairBandNotSensor": "อุปกรณ์นั้นคือ {label} ซึ่งเป็นสายรัด ไม่ใช่เซ็นเซอร์ธรรมดา ไม่ได้บันทึกอะไรไว้",
+  "@pairBandNotSensor": {
+    "description": "Shown when a device picked as a plain sensor turns out to be a band. Nothing was saved. {label} is the band’s name.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  }
 }
