@@ -218,10 +218,54 @@ class FiredKeyStore {
       final cutoff = _cutoffLabel();
       for (final k in p.getKeys()) {
         if (!k.startsWith(_prefix)) continue;
-        final d = leadingDate(k.substring(_prefix.length));
+        final d = expiryDate(k.substring(_prefix.length));
         if (d != null && d.compareTo(cutoff) < 0) await p.remove(k);
       }
     } catch (_) {/* bounding is best-effort — never break a record on it */}
+  }
+
+  /// Key families whose date follows a fixed prefix instead of leading the key
+  /// (the morning briefing's guards). They are pruned by that embedded date; the
+  /// SQL in [LocalDb.pruneNotifFired] must list the same prefixes.
+  static const List<String> datedAfterPrefixes = [
+    'morning_brief_announced:',
+    'morning_brief_slot:',
+  ];
+
+  /// The day a key expires against: its leading date, or the date right after
+  /// one of [datedAfterPrefixes]. Null for keys with no day to expire against.
+  static String? expiryDate(String dedupeKey) {
+    final lead = leadingDate(dedupeKey);
+    if (lead != null) return lead;
+    for (final p in datedAfterPrefixes) {
+      if (dedupeKey.startsWith(p)) return leadingDate(dedupeKey.substring(p.length));
+    }
+    return null;
+  }
+
+  /// Make [key] the only claim under [prefix]: whatever sibling a failed
+  /// cancel left behind is given back first, so a later change back to that
+  /// sibling cannot read it as the current one.
+  Future<void> replaceUnderPrefix(String prefix, String key) async {
+    await releasePrefix(prefix);
+    await recordFired(key);
+  }
+
+  /// Give back every claim whose key starts with [prefix] (table row and prefs
+  /// mirror). For key families where one value supersedes another, so a stale
+  /// sibling cannot be read as the current one. Best-effort; never throws.
+  Future<void> releasePrefix(String prefix) async {
+    try {
+      await LocalDb.releaseNotifFiredPrefix(prefix);
+    } catch (_) {/* degraded mode has no rows to give back */}
+    try {
+      final p = await _prefs();
+      if (p == null) return;
+      await _reload(p);
+      for (final k in p.getKeys().toList()) {
+        if (k.startsWith('$_prefix$prefix')) await p.remove(k);
+      }
+    } catch (_) {/* mirror is best-effort */}
   }
 
   /// The leading "YYYY-MM-DD" of a dedupeKey, or null if it isn't dated.

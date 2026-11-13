@@ -1458,33 +1458,106 @@
   "homeDriverRhr": "Frecuencia cardíaca en reposo",
   "homeDriverResp": "Frecuencia respiratoria",
   "homeDriverTemp": "Temperatura de la piel",
-  "homeDbRebuiltTitle": "Tu base de datos se reconstruyó para iniciar la app",
+  "homeCoachSetUpChip": "Configurar el entrenador",
+  "homeDbRebuiltTitle": "Tu base de datos se reconstruyó",
   "homeDbRebuiltNothingRecovered": "No se pudo recuperar nada.",
   "homeDbRebuiltRecovered": "Recuperado: {list}.",
   "homeDbRebuiltEmpty": "Vacío: {list}.",
   "homeDbRebuiltKept": "El archivo original se conserva en {path}; no se eliminó nada.",
   "homeWorkoutHoldTitle": "Todavía hay un entrenamiento en curso",
-  "homeWorkoutHoldBody": "Hoy está en espera mientras un entrenamiento está activo: la correa sigue grabando, pero los números se calculan al terminar la sesión. Finaliza el entrenamiento con la barra de abajo y hoy se completará; sincronizar no lo hará.",
-  "homeInsightsRebuildingTitle": "Tus datos entre días se están reconstruyendo",
-  "homeInsightsRebuildingAlgoVersion": "La forma de calcular esto cambió con la última actualización.",
+  "homeWorkoutHoldBody": "Hoy se completa cuando termines el entrenamiento.",
+  "homeInsightsRebuildingTitle": "Actualizando tus tendencias",
+  "homeInsightsRebuildingAlgoVersion": "Actualizando tras la última actualización de la app.",
   "homeInsightsStaleOverWeek": "El último resumen se generó hace más de una semana, lo cual es demasiado antiguo para confiar en él.",
   "homeInsightsStaleOnDay": "El último resumen se generó el {day}, lo cual es demasiado antiguo para confiar en él.",
   "homeInsightsNoVersionStamp": "El resumen guardado no tiene marca de versión.",
   "homeSyncBand": "Sincronizar la correa",
-  "homeWhyLabel": "¿Por qué?",
   "homeCalibrating": "Calibrando",
   "homeCalibratingNights": "{have} de {need} noches",
   "homeCalibratingDays": "{have} de {need} días",
-  "homeGapNoReason": "No hay ningún dato registrado que explique por qué falta esto.",
+  "homeGapNoReason": "Sin motivo registrado.",
   "homeRingRecovery": "Recuperación",
   "homeRingStrain": "Esfuerzo",
   "homeRingSleep": "Sueño",
   "homeRingNoStrain": "Sin esfuerzo",
   "homeRingNoSleep": "Sin sueño",
   "homeSleepGapFallback": "No se registró ninguna noche lo bastante larga para puntuar.",
+  "homeSleepPctOf": "{pct} % de {target}",
+  "homeSleepPctOfDefault": "{pct} % de {target} (predeterminado)",
+  "homeSleepPctCompact": "{pct} % de {target}",
+  "@homeSleepPctCompact": {
+    "description": "Short sleep caption against a learned target.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultCompact": "{pct} % de {target} · objetivo predeterminado",
+  "@homeSleepPctDefaultCompact": {
+    "description": "Short sleep caption that keeps an explicit default-target qualifier.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultTight": "{pct} % de {target} por defecto",
+  "@homeSleepPctDefaultTight": {
+    "description": "Tightest sleep caption when the target is the default: still names the target as the default.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryTitle": "La recuperación es baja",
+  "homeWhyRecoveryPlain": "Recuperación {score} de 100",
+  "@homeWhyRecoveryPlain": {
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWhySleepTitle": "Falta sueño",
+  "homeWhySleepBody": "El sueño evaluado quedó por debajo de tu necesidad.",
+  "homeWhySleepDetail": "{asleep} dormidos, {gap} menos de las {need} que necesitas.",
+  "@homeWhySleepDetail": {
+    "placeholders": {
+      "asleep": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      },
+      "need": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyStrainTitle": "Esfuerzo por encima del objetivo",
+  "homeWhyStrainBody": "Esfuerzo {strain}, por encima del objetivo de hoy de {range}.",
+  "@homeWhyStrainBody": {
+    "placeholders": {
+      "strain": {
+        "type": "String"
+      },
+      "range": {
+        "type": "String"
+      }
+    }
+  },
   "homeStrainOf21": "de 21",
-  "homeSleepNoTarget": "Aún sin objetivo",
-  "homeOfSpan": "de {duration}",
   "homeLoadFailedTitle": "No se pudo leer el día de hoy",
   "homeLoadFailedBody": "No se pudo cargar el día guardado. No se eliminó nada; fue un error de lectura, no datos perdidos.",
   "homeDayLoadFailedTitle": "No se pudo leer {day}",
@@ -1502,13 +1575,13 @@
   "homeAskCoach": "Preguntar al entrenador",
   "homeProfileSettings": "Perfil y ajustes",
   "homeNothingTodayTitle": "Nada registrado hoy",
-  "homeNothingTodayBody": "La última noche que la app puntuó fue el {day}. No ha llegado nada desde entonces.",
+  "homeNothingTodayBody": "Última noche puntuada: {day}.",
   "homeNoDataThisDayTitle": "No hay datos de este día",
   "homeNoDataThisDayBody": "No se registró nada este día.",
   "homeSomeDayDataMissingTitle": "Faltan algunos datos de este día",
   "homeReadinessNotScoredTitle": "La recuperación no tiene puntuación hoy",
   "homeReadinessNeedBody": "{need} para saber qué es lo normal en tu caso.",
-  "homeReadinessNoReason": "No hay ningún dato registrado que lo explique.",
+  "homeReadinessNoReason": "Sin motivo registrado.",
   "homeSeeWhatWasMissing": "Ver qué faltaba",
   "homeAtAGlance": "De un vistazo",
   "homeTodaysPlan": "Plan de hoy",
@@ -1517,9 +1590,9 @@
   "homeIllnessRedTitle": "Las noches recientes, en conjunto, muestran una frecuencia cardíaca en reposo elevada",
   "homeIllnessAmberSameNight": "Anoche estuvo fuera de tu rango normal",
   "homeIllnessAmberOtherNight": "El {day} estuvo fuera de tu rango normal",
-  "homeIllnessBodyNoZ": "En conjunto, tus frecuencias cardíacas nocturnas en reposo recientes muestran una subida por encima de tu propio valor de referencia. Esto refleja una sola señal. Indica un patrón, pero no indica una causa.",
-  "homeIllnessBodyAbove": "En conjunto, tus frecuencias cardíacas nocturnas en reposo recientes muestran una subida por encima de tu propio valor de referencia; esa noche se situó {z} desviaciones estándar por encima. Esto refleja una sola señal. Indica un patrón, pero no indica una causa.",
-  "homeIllnessBodyBelow": "En conjunto, tus frecuencias cardíacas nocturnas en reposo recientes muestran una subida por encima de tu propio valor de referencia; esa noche se situó {z} desviaciones estándar por debajo. Esto refleja una sola señal. Indica un patrón, pero no indica una causa.",
+  "homeIllnessBodyNoZ": "Tu frecuencia cardíaca en reposo ha superado lo habitual en las últimas noches. Un patrón, no una causa.",
+  "homeIllnessBodyAbove": "Las noches recientes han subido tu frecuencia cardíaca en reposo por encima de lo habitual. Esa noche también estuvo por encima. Un patrón, no una causa.",
+  "homeIllnessBodyBelow": "Juntas, las noches recientes han subido tu frecuencia cardíaca en reposo por encima de lo habitual, aunque esa noche por sí sola estuvo por debajo. Un patrón, no una causa.",
   "homeIllnessAdvice": "Vale la pena prestarle atención si continúa varios días.",
   "homeHeartRate": "Frecuencia cardíaca",
   "homeRestingSub": "En reposo",
@@ -2959,6 +3032,37 @@
   "napAutoLogSub": "Una siesta detectada con indicios sólidos se añade sin preguntar. Puedes editarla o eliminarla después",
   "napAutoLogSaveFailed": "No se pudo guardar el ajuste. Inténtalo de nuevo.",
   "pairBandNotSensor": "Ese dispositivo es una pulsera {label}, no un sensor sencillo. No se guardó nada.",
+  "pairResetWhoop5Step1": "Quítate la pulsera de la muñeca y espera a que se apaguen las luces verdes.",
+  "pairResetWhoop5Step2": "Sujeta la pulsera por los lados y toca con firmeza la parte superior con dos dedos hasta que solo parpadee el azul. Si salen el azul y el blanco a la vez, sigue tocando hasta que quede solo el azul.",
+  "pairResetWhoop5Step3": "Si la app de WHOOP está en este teléfono, ciérrala por completo con «forzar cierre».",
+  "pairResetWhoop5Step4": "Vuelve aquí e inténtalo de nuevo.",
+  "pairResetGenericStep1": "Abre la app del fabricante y quita este dispositivo de ella.",
+  "pairResetGenericStep2": "En los ajustes de Bluetooth del teléfono, busca el dispositivo y elige «Olvidar».",
+  "pairResetGenericStep3": "Reinicia el dispositivo, acércalo a este teléfono e inténtalo de nuevo.",
+  "pairResetGenericNote": "Son consejos generales. Aún no hemos comprobado los pasos exactos para este dispositivo.",
+  "pairResetOfficialLink": "Abrir la página de ayuda del fabricante",
+  "pairResetTitleBand": "Tu pulsera está emparejada en otro sitio",
+  "pairResetTitleRing": "Tu anillo está emparejado en otro sitio",
+  "pairResetBody": "No pudimos terminar de emparejar {name}. Probablemente sigue conectado a otro teléfono o app.",
+  "pairResetHeading": "Para restablecerlo",
+  "pairResetWhoopTakeover": "Al emparejarla aquí se desconecta de la app de WHOOP.",
+  "pairResetOfficialSub": "{host} · se abre en tu navegador",
+  "pairLinkOpenFailed": "No se pudo abrir el enlace. La dirección es {url}",
+  "pairPickDifferentBand": "Elegir otra pulsera",
+  "pairThisIsWhoop": "Es una pulsera WHOOP",
+  "pairThisIsRing": "Es un anillo",
+  "pairThisIsWatch": "Es un reloj",
+  "pairThisIsFitnessBand": "Es una pulsera de actividad",
+  "pairThisIsStrap": "Es una banda de frecuencia cardiaca",
+  "pairThisIsSensor": "Es un sensor de frecuencia cardiaca",
+  "pairTroubleTitle": "¿Problemas para conectar?",
+  "pairTroubleBody": "Pon la pulsera en modo de emparejamiento e inténtalo de nuevo. ¿Sigue sin funcionar? Pregúntanos.",
+  "pairTroubleModeLink": "Modo de emparejamiento de {device}",
+  "pairTroubleDiscord": "Preguntar en Discord",
+  "pairTroubleDiscordSub": "La comunidad de OpenStrap",
+  "pairModeTitle": "Ponlo en modo de emparejamiento",
+  "pairModeNoSite": "Un dispositivo genérico sin un único fabricante, así que no hay pasos del fabricante.",
+  "pairOuraExistingKeyGuidance": "¿Ya usas la app de Oura? Mantén el anillo en esa app y emparéjalo con la clave que ya tiene. Omite los pasos de restablecimiento de abajo. Restablécelo solo si quieres una clave nueva.",
   "alarmNextLabel": "SIGUIENTE",
   "alarmScheduleGroup": "Horario semanal",
   "alarmWakeTimeRowTitle": "Hora de despertar",
@@ -3230,7 +3334,6 @@
   "homeFirstWeekRecovery": "Recuperación: a partir de la noche {night}, cuando conozca tu normalidad",
   "homeFirstWeekSoFar": "{count, plural, =1{1 día registrado hasta ahora} other{{count} días registrados hasta ahora}}",
   "homeFirstWeekDone": "Hecho: {step}",
-  "homeCoachSetUpChip": "Haz preguntas sobre tus datos: configura el coach",
   "homeRecoverySleeping": "Durmiendo…",
   "homeRecoveryAfterWake": "La recuperación se puntúa cuando te despiertas.",
   "homeRecoveryFinishingUp": "Terminando",

@@ -515,7 +515,7 @@ void main() {
       // nights back under. Printing "1.3 deviations" without a direction read
       // as "above your baseline, 1.3 below it".
       await t.pumpWidget(frame(base.copyOrIllness('red', '2026-05-20', -1.3)));
-      expect(find.textContaining('1.3× your normal night-to-night swing below it'),
+      expect(find.textContaining('though that night alone was below it'),
           findsOneWidget);
     });
 
@@ -847,10 +847,10 @@ void main() {
               body: HomeScreen(data: HomeData(dayId: '2026-05-20'), hour: 20)),
         ));
 
-    testWidgets('no model: the chip says what the coach is for', (t) async {
+    testWidgets('no model: the chip invites setting the coach up', (t) async {
       await t.pumpWidget(frame(false));
       expect(find.byIcon(LucideIcons.sparkles), findsOneWidget);
-      expect(find.text('Ask questions about your data: set up the coach'),
+      expect(find.text('Set up the coach'),
           findsOneWidget);
       // Profile is the avatar every tab carries, not a gear on Home.
       expect(find.byType(ProfileAvatar), findsOneWidget);

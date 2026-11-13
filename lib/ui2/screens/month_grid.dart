@@ -259,7 +259,7 @@ class MonthGrid extends StatelessWidget {
                             'above your usual range.',
                     // A cell is a day: the finger reads where that day sat
                     // against the usual range, in the panel under the strip.
-                    // The 22 pt belongs to the strip alone.
+                    // The strip is 22 pt; its hit area is a full tap target.
                     child: SlotScrub(
                       key: ValueKey('grid-scrub:${r.key}'),
                       series: [for (final s in r.cells) s?.index.toDouble()],
@@ -271,15 +271,23 @@ class MonthGrid extends StatelessWidget {
                       builder: (c, pick, scrub, panel) => Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          // The finger gets a full tap target; only the
+                          // painted strip is 22 pt, centred inside it.
                           SizedBox(
-                            height: 22,
-                            child: scrub(CustomPaint(
-                              size: Size.infinite,
-                              painter: _SideStrip(
-                                r.cells,
-                                (s) => _cellInk(p, r, s),
-                                p.line,
-                                p.ink,
+                            height: S.tap,
+                            child: scrub(Center(
+                              child: SizedBox(
+                                height: 22,
+                                width: double.infinity,
+                                child: CustomPaint(
+                                  size: Size.infinite,
+                                  painter: _SideStrip(
+                                    r.cells,
+                                    (s) => _cellInk(p, r, s),
+                                    p.line,
+                                    p.ink,
+                                  ),
+                                ),
                               ),
                             )),
                           ),

@@ -91,11 +91,6 @@ const _tooShort = <double?>[50, 51, 50];
 const _ringsMeasured = HomeData(
   dayId: '2026-08-16',
   readiness: Metric(value: 72, confidence: .8, tier: MetricTier.high),
-  drivers: [
-    {'label': 'hrv'},
-    {'label': 'rhr'},
-    {'label': 'resp'},
-  ],
   strain: Metric(value: 14.2, confidence: .6, tier: MetricTier.estimate),
   sleepMin: Metric(
       value: 465, unit: 'min', confidence: .8, tier: MetricTier.estimate),
@@ -986,6 +981,43 @@ Map<String, Widget> extraCases() => {
             child: CustomPaint(
                 size: Size.infinite,
                 painter: Ring(.72, p.on(C.green), p.track)),
+          ),
+        );
+      }),
+      // Past 100% a ring is an eased spiral, one lap inside the last with a
+      // thin separator; the sleep ring is the same spiral split into stages.
+      'chart_ring_spiral': Builder(builder: (c) {
+        final p = P.of(c);
+        return Surface(
+          child: ChartFrame(
+            title: 'Sleep',
+            unit: '113% of 8h 00m (default)',
+            height: 120,
+            child: CustomPaint(
+                size: Size.infinite,
+                painter: StageRing(
+                    [
+                      RingArc(Hypnogram.cols(p)[SleepStage.deep]!, .15),
+                      RingArc(Hypnogram.cols(p)[SleepStage.rem]!, .2),
+                      RingArc(Hypnogram.cols(p)[SleepStage.light]!, .7),
+                      RingArc(Hypnogram.cols(p)[SleepStage.awake]!, .08),
+                    ],
+                    p.track,
+                    background: p.card)),
+          ),
+        );
+      }),
+      'chart_ring_overflow': Builder(builder: (c) {
+        final p = P.of(c);
+        return Surface(
+          child: ChartFrame(
+            title: 'Strain',
+            unit: '150% of target',
+            height: 120,
+            child: CustomPaint(
+                size: Size.infinite,
+                painter: Ring(1.5, p.on(C.purple), p.track,
+                    solid: true, background: p.card)),
           ),
         );
       }),
