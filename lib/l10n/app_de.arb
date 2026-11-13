@@ -3475,6 +3475,7 @@
       }
     }
   },
+  "pairBandNotSensor": "Dieses Gerät ist ein {label}, also ein Band und kein einfacher Sensor. Es wurde nichts gespeichert.",
   "welcomeCoachKeyReentry": "Dein API-Schlüssel für den Coach bleibt im sicheren Speicher und wurde nicht gesichert. Gib ihn in den KI-Einstellungen erneut ein, um den Coach auf diesem Telefon zu nutzen.",
   "welcomeSettingsSkipped": "{n, plural, =1{1 Einstellung in der Sicherung war nicht lesbar und wurde übersprungen} other{{n} Einstellungen in der Sicherung waren nicht lesbar und wurden übersprungen}}",
   "@welcomeSettingsSkipped": {

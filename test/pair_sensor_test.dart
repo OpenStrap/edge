@@ -35,6 +35,7 @@ BandCandidate _cand(String id, {String? label, int? rssi = -60}) => (
       label: label,
       rssi: rssi,
       entryId: 'ble_hrs',
+      alsoBand: null,
     );
 
 Future<void> _pump(

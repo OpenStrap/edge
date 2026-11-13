@@ -2892,6 +2892,7 @@
   "strengthSaveFailed": "保存更改失败",
   "reportContactLabel": "联系方式（可选）",
   "reportContactHint": "邮箱或 Discord，仅在你希望得到回复时填写",
+  "pairBandNotSensor": "这台设备是 {label}，是手环，不是普通传感器。没有保存任何内容。",
   "whoopFirmwareWarningTitle": "WHOOP 用户：请勿重新连接 WHOOP 应用",
   "whoopFirmwareWarningAction": "如果你在使用 OpenStrap 或其他开源应用，或打算以后改用，请不要再把手环连接到 WHOOP 官方应用。它可能会自动安装固件更新。请卸载或停用 WHOOP 应用，以免它更新你的手环。",
   "whoopFirmwareWarningDetails": "有报告称，WHOOP 5.0 / MG 固件 50.43.1.0 和 50.43.2.0 会阻止访问数据。蓝牙可能仍能连接。解锁受影响的手环需要由 WHOOP 签名的会员令牌，OpenStrap 无法签发。我们正在寻找解决办法，但目前还没有可用的修复。"

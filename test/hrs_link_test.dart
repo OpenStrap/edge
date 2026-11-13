@@ -583,24 +583,24 @@ void main() {
     // A Polar advertises 0x180D and its name, never the PMD service.
     test('a Polar optical sensor on 0x180D is routed to PMD, not generic HR',
         () {
-      expect(HrsLink.hintedNameMatch(notify, [hr], 'polar sense 1a2b3c4d'),
+      expect(hintedNameMatch(notify, [hr.str128], 'polar sense 1a2b3c4d'),
           kPolarPmd.id);
       expect(HrsLink.scanServiceFilter([kPolarPmd]), contains(hr));
     });
 
     test('an H-series chest strap and an unnamed strap stay generic HR', () {
-      expect(HrsLink.hintedNameMatch(notify, [hr], 'polar h10 1a2b3c4d'),
+      expect(hintedNameMatch(notify, [hr.str128], 'polar h10 1a2b3c4d'),
           isNull);
-      expect(HrsLink.hintedNameMatch(notify, [hr], ''), isNull);
+      expect(hintedNameMatch(notify, [hr.str128], ''), isNull);
       // A Polar name without the hint is not enough on its own.
-      expect(HrsLink.hintedNameMatch(notify, const [], 'polar oh1 1a2b'),
+      expect(hintedNameMatch(notify, const [], 'polar oh1 1a2b'),
           isNull);
     });
 
     test('a Coros is found by its name on the shared 0xFEE7 hint', () {
       expect(
-          HrsLink.hintedNameMatch(
-              notify, [Guid(kColmiAdvertisedHint)], 'coros pace 3 a1b2'),
+          hintedNameMatch(
+              notify, [Guid(kColmiAdvertisedHint).str128], 'coros pace 3 a1b2'),
           kCoros.id);
     });
   });

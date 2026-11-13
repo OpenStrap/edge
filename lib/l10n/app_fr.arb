@@ -2892,6 +2892,7 @@
   "strengthSaveFailed": "Échec de l'enregistrement des modifications",
   "reportContactLabel": "Contact (facultatif)",
   "reportContactHint": "E-mail ou Discord, seulement si vous voulez une réponse",
+  "pairBandNotSensor": "Cet appareil est un {label}, c’est-à-dire un bracelet, pas un simple capteur. Rien n’a été enregistré.",
   "whoopFirmwareWarningTitle": "Utilisateurs WHOOP : ne vous reconnectez pas à l’application WHOOP",
   "whoopFirmwareWarningAction": "Si vous utilisez OpenStrap ou une autre application open source, ou si vous comptez y passer plus tard, ne reconnectez pas votre bracelet à l’application WHOOP officielle. Elle peut installer des mises à jour du firmware automatiquement. Désinstallez ou désactivez l’application WHOOP pour l’empêcher de mettre à jour votre bracelet.",
   "whoopFirmwareWarningDetails": "Des signalements concernant les firmwares 50.43.1.0 et 50.43.2.0 des WHOOP 5.0 / MG décrivent un accès aux données bloqué. Le Bluetooth peut encore se connecter. OpenStrap ne peut pas émettre le jeton d’abonnement signé par WHOOP nécessaire pour déverrouiller les bracelets concernés. Nous travaillons sur une solution, mais aucun correctif n’est encore disponible."

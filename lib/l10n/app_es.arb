@@ -2921,6 +2921,7 @@
   "strengthSaveFailed": "No se pudieron guardar los cambios",
   "reportContactLabel": "Contacto (opcional)",
   "reportContactHint": "Correo o Discord, solo si quieres una respuesta",
+  "pairBandNotSensor": "Ese dispositivo es una pulsera {label}, no un sensor sencillo. No se guardó nada.",
   "alarmNextLabel": "SIGUIENTE",
   "alarmScheduleGroup": "Horario semanal",
   "alarmWakeTimeRowTitle": "Hora de despertar",

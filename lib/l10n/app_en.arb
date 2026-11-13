@@ -16352,6 +16352,15 @@
       }
     }
   },
+  "pairBandNotSensor": "That device is a {label}, a band, not a plain sensor. Nothing was saved.",
+  "@pairBandNotSensor": {
+    "description": "Shown when a device picked as a plain sensor turns out to be a band. Nothing was saved. {label} is the band’s name.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
   "welcomeCoachKeyReentry": "Your coach API key stays in secure storage and was not backed up. Enter it again in AI settings to use the coach on this phone.",
   "welcomeSettingsSkipped": "{n, plural, =1{1 setting in the backup could not be read and was skipped} other{{n} settings in the backup could not be read and were skipped}}",
   "@welcomeSettingsSkipped": {
