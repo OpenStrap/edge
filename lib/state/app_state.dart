@@ -1861,8 +1861,8 @@ class AppState extends ChangeNotifier {
           // real data loss on a band the user may not be deleting after all if
           // the reset then fails. A throw blocks the ACK and the records stay
           // on the strap.
-          if (ResetGate.active) {
-            throw StateError('data reset in progress — refusing to commit');
+          if (ResetGate.active || _replacingBand) {
+            throw StateError('data reset or band replacement in progress — refusing to commit');
           }
           await _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
               archives: archives,
@@ -4774,10 +4774,15 @@ class AppState extends ChangeNotifier {
     _replacingBand = replacing;
     var committed = false;
     try {
-      if (replacing) _resetBandIdentity(clearSavedName: false);
       final confirmed = await _sync.connectForPairing(
         PairedDevice(remoteId, serial),
         replacingRemoteId: replacing ? existing?.remoteId : null,
+        prepare: replacing ? () async {
+          // Replacement suppresses disconnect callbacks; bank the old band's
+          // still-filling minute before the new session clears its pedometer.
+          await _finalizeLivePedometer();
+          _resetBandIdentity(clearSavedName: false);
+        } : null,
         confirm: () async {
           // Only READY proves we can talk to this band. Until then neither
           // the persisted record nor isPaired may advance onboarding. Save

@@ -16697,5 +16697,6 @@
   "pairSetUpTitle": "ตั้งค่า",
   "@pairSetUpTitle": {
     "description": "Top bar title of the first-run pairing screen."
-  }
+  },
+  "pairSearchDevices": "ค้นหาอุปกรณ์"
 }

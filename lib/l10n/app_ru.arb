@@ -8157,5 +8157,6 @@
   "pairBandSubtitle": "Выберите то, что вы носите. Мы поищем его поблизости.",
   "pairStrapOnlyLink": "У меня только пульсовой ремень",
   "pairWhoopRowLine": "Сон, восстановление, нагрузка, пульс и многое другое",
-  "pairSetUpTitle": "Настройка"
+  "pairSetUpTitle": "Настройка",
+  "pairSearchDevices": "Найти устройства"
 }

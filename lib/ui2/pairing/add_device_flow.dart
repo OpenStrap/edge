@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import '../../ble/adapters/_registry.dart';
 import '../../ble/band_identity.dart';
 import '../../ble/hrs_link.dart' show BandCandidate;
+import '../../l10n/app_localizations.dart';
 import 'pair_sheets.dart';
 
 enum AddDeviceOutcome {
@@ -94,8 +95,12 @@ class AddDeviceFlow {
   Future<AddDeviceResult> onTap(BuildContext c, BandCandidate cand) async {
     if (_running) return _r(AddDeviceOutcome.cancelled);
     _running = true;
+    final l = AppLocalizations.of(c);
     try {
       return await _onTap(c, cand);
+    } catch (e) {
+      return _r(AddDeviceOutcome.failed,
+          l?.pairSensorCouldNotPair(e.toString()) ?? 'Could not pair that device: $e');
     } finally {
       _running = false;
     }

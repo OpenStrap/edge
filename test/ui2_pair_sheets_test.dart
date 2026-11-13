@@ -70,6 +70,7 @@ class _Calls implements AddDeviceIo {
   final events = <String>[];
   String? heldBack;
   final List<PairOutcome> outcomes;
+  Object? pairError;
   _Calls([this.outcomes = const [PairOutcome.saved()]]);
   int _i = 0;
   bool _hasMain = false;
@@ -85,6 +86,7 @@ class _Calls implements AddDeviceIo {
   @override
   Future<PairOutcome> pair(BandCandidate cand, BandEntry entry,
       PairConfirmation? confirmation) async {
+    if (pairError != null) throw pairError!;
     events.add('pair:${entry.id}');
     pairs.add((entry.id, confirmation));
     return outcomes[_i < outcomes.length ? _i++ : outcomes.length - 1];
@@ -582,6 +584,19 @@ void main() {
       await t.pumpAndSettle();
       expect(calls.pairs.length, 1);
       expect(_result(t), 'cancelled|');
+    });
+
+    // WHY: database/device errors must reach the screen and leave taps retryable.
+    // catches: an exception escaping onTap before its caller can show a result.
+    testWidgets('a thrown pairing error becomes a visible failure and allows retry', (t) async {
+      final calls = _Calls()..pairError = StateError('device rows unavailable');
+      await _tap(t, calls, _cand('ble_hrs'), hasMain: true);
+      expect(_result(t), contains('Could not pair that device: Bad state: device rows unavailable'));
+      expect(calls.flowFor.running, isFalse);
+      calls.pairError = null;
+      await t.tap(find.text('tap'));
+      await t.pumpAndSettle();
+      expect(_result(t), 'pairedSecondary|');
     });
 
     testWidgets('a failure comes back as its sentence', (t) async {

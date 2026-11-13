@@ -104,12 +104,17 @@ class PairSensorScreen extends StatefulWidget {
   @visibleForTesting
   final List<BandCandidate>? debugFound;
 
+  /// Substitute only the radio's pairing result in screen regression tests.
+  @visibleForTesting
+  final Future<PairOutcome> Function(BluetoothDevice)? debugPair;
+
   const PairSensorScreen({
     super.key,
     required this.entry,
     this.onPicked,
     this.onPickedWithKey,
     this.debugFound,
+    this.debugPair,
   });
 
   @override
@@ -354,8 +359,10 @@ class _PairSensorScreenState extends State<PairSensorScreen>
   Future<String?> _pairPlain(
       BluetoothDevice device, String? label, BandIdentity? earlierBand) async {
     final l = AppLocalizations.of(context);
-    final outcome = await HrsLink.pairNotifySensor(widget.entry, device,
-        label: label, earlierBand: earlierBand);
+    final outcome = widget.debugPair != null
+        ? await widget.debugPair!(device)
+        : await HrsLink.pairNotifySensor(widget.entry, device,
+            label: label, earlierBand: earlierBand);
     if (outcome.isBand == null || !mounted) return pairOutcomeText(l, outcome);
     final cand = (
       device: device,
@@ -368,7 +375,7 @@ class _PairSensorScreenState extends State<PairSensorScreen>
         .afterConnect(context, cand, widget.entry, outcome);
     if (!mounted) return null;
     return afterBandFoundText(l, outcome, r,
-        bandPairedNow: context.read<AppState>().isPaired);
+        bandPairedNow: context.read<AppState>().paired?.remoteId == device.remoteId.str);
   }
 
   @override
@@ -402,6 +409,7 @@ class _PairSensorScreenState extends State<PairSensorScreen>
   @override
   Future<void> openBandFlow(BandEntry band,
       {required String remoteId, bool modelKnown = true, bool replacing = false}) async {
+    if (!mounted) return;
     if (!band.isFramed) {
       // A ring pairs only on its own screen, with its key (the same screen
       // "Add a device" opens for it).
@@ -787,8 +795,8 @@ class PairSensorView extends StatelessWidget {
 /// what to do ([AddDeviceFlow.afterConnect]); null says nothing went wrong.
 /// The main-band flow that opened may have paired the band: then
 /// "Nothing was saved" would be false. A ring's own screen reported its own
-/// outcome. [bandPairedNow] is whether a main band is paired once the flow
-/// closed.
+/// outcome. [bandPairedNow] says whether the selected peripheral is now the
+/// main band, not merely whether an earlier main band still exists.
 @visibleForTesting
 String? afterBandFoundText(
   AppLocalizations? l,
