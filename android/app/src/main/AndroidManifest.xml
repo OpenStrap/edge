@@ -96,12 +96,16 @@
          total calories with it, and a missing read fails the whole read. -->
     <uses-permission android:name="android.permission.health.READ_DISTANCE" />
     <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
-    <!-- READ only, and no WRITE counterpart on purpose: body metrics are read
-         INTO the local profile (weight drifts, and the calorie estimate
-         depends on it) and this app has no business writing them back. Health
+    <!-- Body metrics are read INTO the local profile (weight drifts, and the
+         calorie estimate depends on it); height is READ only. Weight has a
+         WRITE below, for a paired scale's own weighings only. Health
          Connect silently returns nothing for an undeclared permission rather
          than failing, so an omission here looks exactly like an empty store. -->
     <uses-permission android:name="android.permission.health.READ_WEIGHT" />
+    <!-- WRITE_WEIGHT: a paired scale's weighings are exported to Health Connect
+         (lib/health/health_weight_export.dart). Only the scale's own readings;
+         the weight read above never goes back out. -->
+    <uses-permission android:name="android.permission.health.WRITE_WEIGHT" />
     <uses-permission android:name="android.permission.health.READ_HEIGHT" />
     <!-- READ only, and there will never be a WRITE counterpart. These come
          from devices CLEARED to take them — a blood-pressure cuff, a CGM, a
