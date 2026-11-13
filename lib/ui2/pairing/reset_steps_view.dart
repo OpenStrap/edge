@@ -23,8 +23,8 @@ bool isWhoopEntry(BandEntry e) =>
 /// added when the device's own steps lack it.
 List<String> resetStepKeysFor(BandEntry e, {bool bondRefused = false}) {
   final r = e.resetSteps;
-  final keys = r != null && r.kind == ResetKind.specific && r.keys!.isNotEmpty
-      ? r.keys!
+  final keys = r?.keys?.isNotEmpty == true
+      ? r!.keys!
       : kGenericResetStepKeys;
   const forget = 'pairResetGenericStep2';
   return bondRefused && !keys.contains(forget) ? [...keys, forget] : keys;
@@ -171,6 +171,13 @@ class PairingModeSection extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: S.x2),
             child: Text(l.pairModeTitle, style: F.head.copyWith(color: p.ink)),
+          ),
+        if (kind == ResetKind.unverified)
+          Padding(
+            padding: const EdgeInsets.only(bottom: S.x2),
+            child: Text(l.pairResetGenericNote,
+                key: ValueKey('pairing-mode-general-note-${entry.id}'),
+                style: F.cap.copyWith(color: p.on(C.orange))),
           ),
         if (kind == ResetKind.noOfficialSite)
           Text(l.pairModeNoSite,
