@@ -121,6 +121,53 @@ that did not exist.
 `Scrubber` is the only drag: it carries the slider role, so increase/decrease
 reach it without a pointer, and `describe` is what those steps say out loud.
 
+### ChartPanel — what a chart reads, always on screen
+
+```dart
+ChartPanel({required String? time, required bool scrubbed, required Color color,
+            required List<ChartPanelCell> cells, List<ChartPanelCell> stats = const [],
+            List<String> timeSpan = const [], VoidCallback? onOpen, String? openLabel})
+ChartPanelCell(String label, {Color? color, String? value, Color? valueColor})
+```
+
+Put it under a chart that has a `Scrubber`, in the same card. It is there at
+rest and while a finger is on the chart, so the chart never changes height under
+the thumb and nothing is readable only while it is held. There is no pop-in.
+
+- **Caption.** `LATEST · <time>` at rest (the newest reading, or on a night the
+  stage at wake), `SELECTED · <time>` while scrubbing. Neither is a judgement.
+  While scrubbing the caption and a 1.5 pt border take the series colour
+  (`p.on(...)`, so they clear 4.5:1 on `card2`); at rest there is no border.
+- **Box.** `card2` fill, `R.rMd`, no shadow, inset in the chart's card. Its rect
+  is the same at rest, scrubbing, on a gap and at any text size. The caption
+  reserves the height of the tallest of `timeSpan` (every time the panel can
+  show), measured once per span, width, scale and locale, so a day name that
+  wraps in one language cannot move the panel.
+- **Cells.** One per series, each its label and the value at that instant.
+  A series with nothing there reads `—`: never a neighbour's value, never an
+  interpolation. One cell is drawn large; several are equal width, one row when
+  they fit and wrapped when they do not.
+- **Stats.** Summary figures of the one series (`7-day avg`, `vs avg` on metric
+  detail), spoken as one `label value` node. A stat with no value is a dash and
+  is not spoken.
+- **Spoken once, by one owner at a time.** While a finger is on the chart the
+  `Scrubber` speaks the whole selected reading (`describe` carries every value
+  the panel shows, a missing one as "No record") and the panel's caption and
+  cells are excluded. At rest nothing is selected, so the panel speaks the
+  `LATEST · <day>, label value, …` reading itself, as one node, and the slider
+  says only "Nothing selected". `Scrubber.describe` and the panel must read the
+  same thing at every position. A screen with two panels for one instant (the
+  sleep night) speaks each chart's reading once, so each value is heard once per
+  chart.
+- **Open the day.** `onOpen` makes the whole panel an `Open <day>` button of at
+  least 48 dp. Pass it only for a day with a value: an action is a promise, and
+  an empty day has no screen behind it.
+
+The caller owns the reading. Metric detail, readiness and the two sleep charts
+each build the cells from the series the painter draws; the sleep charts read
+the stage from the night's timestamped boundaries (not the resample the painter
+draws) and a signal from its nearest sample within 15 minutes, else a dash.
+
 ### Layout primitives
 
 ```dart
@@ -373,7 +420,8 @@ Five rules:
    curve, and it does not take taps. **A mark without a `footnote` is a line
    nobody can read**: the footnote is the mark's only screen-reader form and
    the only thing that can say what it is. Keep the wording flat — a version
-   change is provenance, not something that happened to the user.
+   change is provenance, not something that happened to the user. Multi-day
+   charts (metric detail) use `xMarks`.
 4. **More than one colour means a `legend`.** Use the painters' own, never
    retyped: `Hypnogram.legend(p, l)`, `IntervalLadder.legend` (instance).
    The swatch is the mark's *solved* colour, so the key and the plot can never

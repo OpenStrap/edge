@@ -18,6 +18,9 @@ const _mustTravel = {
   'backup.cadence', 'gesture_double_tap', 'band.strap_name',
   'health_sync', 'phone_steps', 'cycle_tracking_enabled', 'update_checks_enabled',
   'nutrition.barcode_lookup', 'share.map_tiles', 'dev.mode',
+  // The user's opt-in, with when it was given. Restored imports are fenced by
+  // alert_after_ts, so a restored timestamp cannot log old naps.
+  'activity.nap_auto_log_since_sec',
   'coach_api', 'coach_model', 'coach_timeout_seconds',
   'coach_use_chatgpt',
   'ai_morning_enabled', 'ai_morning_min', 'ai_evening_enabled', 'ai_evening_min',
@@ -51,6 +54,10 @@ const _mustTravel = {
   // Serial-scoped ECG safety guards must survive so reconnect still cleans up
   // a possibly active publisher. These are separate from alarm arm receipts.
   'ecg.guard.MG123', 'ecg.wrist.MG123', 'ecg.maverick.MG123',
+  // Weighing export state: the Health store usually survives a restore, so
+  // the marks must too, or every weighing is written again as a duplicate.
+  'health_weight_exported:d1', 'health_weight_attempts:d1',
+  'health_weight_maybe_landed:d1', 'health_weight_trimmed:d1',
   'future.setting',
 };
 
@@ -65,6 +72,8 @@ const _mustStay = {
   'alarm_schedule_cleared', 'alarm_epoch', 'alarm_epoch_confirmed', 'alarm_set_at_ms',
   'alarm_pending_until', 'alarm_latch_alert', 'alarm_probe_pending', 'alarm_fired_at',
   'live.session_draft', 'live_session_checkpoint', 'telemetry_outbox',
+  // Permission and grant are per install.
+  'health_weight_perm_asked', 'health_weight_grant_seen',
 };
 
 // Interpolated keys, including ones hidden behind key-building helpers.
@@ -111,6 +120,16 @@ const _indirectKeys = <String, List<String>>{
     'onboard.skipped_pairing', 'onboard.saw_profile_setup'],
   'lib/ui2/nudges.dart:_lastShownKey(a)': ['nudge.discord.last_shown_ms'],
   'lib/ui2/nudges.dart:_dismissedKey(a)': ['nudge.discord.dismissed'],
+  'lib/health/health_export.dart:kHealthWeightPermAskedPref': [
+    'health_weight_perm_asked'],
+  'lib/health/health_weight_export.dart:healthWeightExportedKey(id)': [
+    'health_weight_exported:d1'],
+  'lib/health/health_weight_export.dart:healthWeightAttemptsKey(id)': [
+    'health_weight_attempts:d1'],
+  'lib/health/health_weight_export.dart:healthWeightMaybeLandedKey(id)': [
+    'health_weight_maybe_landed:d1'],
+  'lib/health/health_weight_export.dart:healthWeightTrimmedKey(id)': [
+    'health_weight_trimmed:d1'],
 };
 
 Map<String, String> _constants(String text) => {
