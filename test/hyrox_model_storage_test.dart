@@ -702,7 +702,7 @@ void main() {
       expect(names, containsAll(['hyrox_session', 'hyrox_segment']));
       final v = await db.rawQuery('PRAGMA user_version');
       expect((v.first.values.first as num).toInt(), LocalDb.schemaVersion);
-      expect(LocalDb.schemaVersion, 61);
+      expect(LocalDb.schemaVersion, 60);
       await LocalDb.close();
     });
 
@@ -726,7 +726,7 @@ void main() {
       final db = await LocalDb.instance;
       final v = await db.rawQuery('PRAGMA user_version');
       expect((v.first.values.first as num).toInt(), LocalDb.schemaVersion,
-          reason: 'the v61 ladder rung must run, not just the repair pass');
+          reason: 'the v60 ladder rung must run, not just the repair pass');
       final names = await LocalDb.tableNames();
       expect(names, containsAll(['hyrox_session', 'hyrox_segment']));
       await LocalDb.close();
@@ -1240,6 +1240,113 @@ void main() {
       expect(after[1].startTs, nowSec - 60);
       await File(path).delete();
       await LocalDb.close();
+    });
+
+    test('a restore cut off after the parent resumes and brings the segments',
+        () async {
+      final db = await freshDb('hx_resume_src.db');
+      final now = DateTime.now();
+      final nowSec = now.millisecondsSinceEpoch ~/ 1000;
+      await HyroxDb.create(
+          db, armedSession('hx_resume_1', createdAt: nowSec * 1000));
+      await HyroxDb.startSegment(
+          db: db,
+          sessionId: 'hx_resume_1',
+          ts: nowSec - 120,
+          boundarySource: 'gesture');
+      final path = await LocalDb.exportDaysDb({dayLabelOf(now)});
+      await LocalDb.close();
+
+      LocalDb.dbName = 'hx_resume_dest.db';
+      final dir = await databaseFactory.getDatabasesPath();
+      await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+      final dest = await LocalDb.instance;
+      await LocalDb.importFromDbFile(path);
+
+      // The restore stopped between the two tables: the parent is on disk,
+      // its segments are not.
+      await dest.delete('hyrox_segment',
+          where: 'session_id = ?', whereArgs: ['hx_resume_1']);
+      expect(await HyroxDb.segments(dest, 'hx_resume_1'), isEmpty);
+
+      final counts = await LocalDb.importFromDbFile(path);
+      expect(counts['hyrox_segment'], 8,
+          reason: 'the parent being current must not hide its missing rows');
+      final back = await HyroxDb.segments(dest, 'hx_resume_1');
+      expect(back, hasLength(8));
+      expect(back[0].startTs, nowSec - 120);
+
+      // A complete race is still protected: a second import writes nothing.
+      final again = await LocalDb.importFromDbFile(path);
+      expect(again['hyrox_segment'] ?? 0, 0);
+      await File(path).delete();
+      await LocalDb.close();
+    });
+
+    test('retention keeps the taps of a race that is still armed or active',
+        () async {
+      final db = await freshDb('hx_prune_taps_test.db');
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      await HyroxDb.create(
+          db, armedSession('hx_prune_1', createdAt: nowSec * 1000));
+      Future<void> tap(int ts) => db.insert('band_events', {
+            'device_id': '',
+            'hex': 'e14_$ts',
+            'event_id': 14,
+            'name': 'E14',
+            'ts': ts,
+            'payload_json': '{}',
+            'captured_at': ts * 1000,
+          });
+      await tap(nowSec + 10);
+      await tap(nowSec - 5000);
+
+      Future<List<int>> left() async => [
+            for (final r in await db.query('band_events',
+                columns: ['ts'], where: 'event_id = 14'))
+              (r['ts'] as num).toInt(),
+          ];
+      await LocalDb.pruneDecodedBeforeRecTs(nowSec + 100000);
+      expect(await left(), [nowSec + 10]);
+
+      await db.update('hyrox_session', {'status': 'discarded'},
+          where: 'id = ?', whereArgs: ['hx_prune_1']);
+      await LocalDb.pruneDecodedBeforeRecTs(nowSec + 100000);
+      expect(await left(), isEmpty);
+      await LocalDb.close();
+    });
+
+    test('a start tap from a strap running behind the phone is not dropped',
+        () {
+      final plan = HyroxPlan.race('hyrox');
+      final segs = [
+        for (var i = 0; i < plan.segments.length; i++)
+          HyroxSegment(
+            sessionId: 's',
+            idx: i,
+            kind: plan.segments[i].kind,
+            station: plan.segments[i].station,
+            roundIndex: plan.segments[i].roundIndex,
+          ),
+      ];
+      // Armed at 10_000 on the phone; the strap is 60 s behind, so a start
+      // tapped 40 s after arming carries a strap time 20 s BEFORE it.
+      final out = deriveBoundaries(
+        taps: [9980, 9982, 9984],
+        segments: segs,
+        plan: plan,
+        sessionCreatedAtSec: 10000,
+      );
+      expect(out, hasLength(1));
+      expect(out.single.atSec, 9980);
+
+      final stale = deriveBoundaries(
+        taps: [9800, 9802, 9804],
+        segments: segs,
+        plan: plan,
+        sessionCreatedAtSec: 10000,
+      );
+      expect(stale, isEmpty);
     });
 
     // CodeRabbit follow-up: removeBoundary must refuse to merge into the final

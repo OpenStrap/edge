@@ -195,7 +195,12 @@ List<ReconcileBoundary> deriveBoundaries({
     if (s.isOpen) openIdx = s.idx;
   }
   // A tap at or before the last recorded boundary is already accounted for.
-  int floor = sessionCreatedAtSec;
+  // Before anything is recorded the floor is the arming time, which is the
+  // PHONE's clock, while the taps are the STRAP's. The query widens its window
+  // by [kClockDriftToleranceSec] to catch a strap running behind, so the floor
+  // has to give the same allowance, or the very start tap it just fetched is
+  // thrown away here.
+  int floor = sessionCreatedAtSec - kClockDriftToleranceSec;
   for (final s in segments) {
     final t = s.startTs;
     if (t != null && t > floor) floor = t;
