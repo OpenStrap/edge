@@ -504,7 +504,8 @@ class _ZonesDetailState extends State<ZonesDetail> {
             style: F.n17.copyWith(color: p.ink2),
           ),
           TextSpan(
-            text: ' ${l?.activityZonesBpmUnit ?? 'bpm'}',
+            // A no-break space, so the unit never lands on a line of its own.
+            text: ' ${l?.activityZonesBpmUnit ?? 'bpm'}',
             style: F.cap.copyWith(color: p.ink3),
           ),
         ]),
