@@ -14683,7 +14683,7 @@
   "presentationS": "s",
   "presentationV": "µV",
   "presentationReadsTheRingDirectlyNoAccountNoKeyExchange": "Reads the ring directly — no account, no key exchange.",
-  "presentationPebble2OrPebble2SEOnlyPairsOnly": "Pebble 2 or Pebble 2 SE only. Pairs only for now — nothing is read or stored yet.",
+  "presentationPebble2OrPebble2SEOnlyPairsOnly": "Pebble 2 or Pebble 2 SE only. Experimental support: syncs and stores steps and sleep, plus heart rate on Pebble 2. The SE has no heart-rate sensor.",
   "presentationTheOriginalFossilSkagenHybridSmartwatchNotTheNewer": "The original Fossil/Skagen hybrid smartwatch, not the newer Hybrid HR. Pairs and connects; nothing derives from it yet.",
   "presentationABudgetActivityBandPairsAndBanksItsRaw": "A budget activity band. Pairs and banks its raw data, but nothing is derived from it yet.",
   "presentationPairsAndBanksItsRawDataNothingIsDecoded": "Pairs and banks its raw data — nothing is decoded yet.",

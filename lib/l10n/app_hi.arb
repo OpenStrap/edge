@@ -3236,7 +3236,7 @@
   "presentationS": "s",
   "presentationV": "µV",
   "presentationReadsTheRingDirectlyNoAccountNoKeyExchange": "रिंग को सीधे पढ़ता है — कोई खाता नहीं, कोई की-एक्सचेंज नहीं।",
-  "presentationPebble2OrPebble2SEOnlyPairsOnly": "सिर्फ़ Pebble 2 या Pebble 2 SE। फ़िलहाल सिर्फ़ पेयर होता है — अभी कुछ भी पढ़ा या सहेजा नहीं जाता।",
+  "presentationPebble2OrPebble2SEOnlyPairsOnly": "सिर्फ़ Pebble 2 या Pebble 2 SE। प्रायोगिक सहायता: कदम और नींद सिंक करके सहेजता है, साथ ही Pebble 2 पर हृदय गति भी। SE में हृदय गति सेंसर नहीं है।",
   "presentationTheOriginalFossilSkagenHybridSmartwatchNotTheNewer": "मूल Fossil/Skagen हाइब्रिड स्मार्टवॉच, नई Hybrid HR नहीं। पेयर और कनेक्ट होती है; अभी इससे कुछ नहीं निकाला जाता।",
   "presentationABudgetActivityBandPairsAndBanksItsRaw": "एक सस्ता एक्टिविटी बैंड। पेयर होता है और अपना कच्चा डेटा सहेजता है, लेकिन अभी इससे कुछ नहीं निकाला जाता।",
   "presentationPairsAndBanksItsRawDataNothingIsDecoded": "पेयर होता है और अपना कच्चा डेटा सहेजता है — अभी कुछ भी डिकोड नहीं होता।",

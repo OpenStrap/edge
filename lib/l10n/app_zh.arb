@@ -3235,7 +3235,7 @@
   "presentationS": "s",
   "presentationV": "µV",
   "presentationReadsTheRingDirectlyNoAccountNoKeyExchange": "直接读取戒指数据——无需账户，无需交换密钥。",
-  "presentationPebble2OrPebble2SEOnlyPairsOnly": "仅限 Pebble 2 或 Pebble 2 SE。目前只能配对——尚不读取或存储任何数据。",
+  "presentationPebble2OrPebble2SEOnlyPairsOnly": "仅限 Pebble 2 或 Pebble 2 SE。实验性支持：同步并保存步数和睡眠，Pebble 2 还支持心率。SE 没有心率传感器。",
   "presentationTheOriginalFossilSkagenHybridSmartwatchNotTheNewer": "初代 Fossil/Skagen 混合智能手表，不是较新的 Hybrid HR。可以配对和连接；暂不从中得出任何数据。",
   "presentationABudgetActivityBandPairsAndBanksItsRaw": "一款入门级活动手环。可以配对并保存原始数据，但暂不从中得出任何数据。",
   "presentationPairsAndBanksItsRawDataNothingIsDecoded": "可以配对并保存原始数据——暂不解码任何内容。",
