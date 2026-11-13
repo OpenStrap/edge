@@ -4554,6 +4554,20 @@ class LocalDb {
     return v == null ? null : int.tryParse(v);
   }
 
+  /// Whether the raw prune has already deleted [day]'s decoded recordings:
+  /// the whole day lies before the [kDecodedPrunedBeforeCursor] cut, which the
+  /// prune only ever sets at a local midnight (a day straddling it is not). False when nothing has been
+  /// pruned yet, so "no recordings" on a fresh install or an unworn night is
+  /// not mistaken for "deleted", and false for a day that was imported.
+  static Future<bool> decodedPrunedFor(String day) async {
+    final cut = await getCursorInt(kDecodedPrunedBeforeCursor);
+    final end = localDayEndSec(day);
+    if (cut == null || end == null || end > cut) return false;
+    // An imported day sits before the cut without ever having had recordings
+    // here, so there was nothing for the prune to remove.
+    return !(await importedDates()).contains(day);
+  }
+
   /// The primary device's durable record frontier (`rec_ts_hw`), or null when
   /// no record has been banked. Builds before the commit guard could persist
   /// '0' from a record-less commit, so a non-positive value reads as unset.
@@ -5598,6 +5612,26 @@ class LocalDb {
           'session_id': sessionId,
           'seq': i,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  }
+
+  /// Replace the sets of one strength session, in log order. Deletes any
+  /// prior rows for this session before inserting the new list.
+  static Future<void> replaceStrengthSets(
+    String sessionId,
+    List<Map<String, Object?>> sets,
+  ) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      await txn.delete('strength_set',
+          where: 'session_id = ?', whereArgs: [sessionId]);
+      for (var i = 0; i < sets.length; i++) {
+        await txn.insert('strength_set', {
+          ...sets[i],
+          'session_id': sessionId,
+          'seq': i,
+        });
       }
     });
   }
@@ -14806,6 +14840,47 @@ class LocalDb {
       whereArgs: [fromTs, toTs],
       orderBy: 'start_ts DESC',
     ), executor: db);
+  }
+
+  /// The most-used finished sessions' activity keys, most-used first — rows
+  /// of `{'type', 'n', 'last_ts'}` for the activity picker's quick row.
+  /// `type` comes back NORMALIZED exactly the way [activityByName] resolves
+  /// it (`lower(replace(type, ' ', '_'))`, the same rule as `Activity.typeKey`),
+  /// so 'Running' and 'running' count as one activity and can never rank an
+  /// activity low or show it twice. [sinceTs] bounds the window (the picker
+  /// passes 90 days so a seasonal sport does not stay pinned at the top
+  /// forever); null counts all history. Live sessions never count, and
+  /// `last_ts` breaks ties so a newly started sport does not sink below an
+  /// old habit. [limit] caps the ranked rows returned — a caller that drops
+  /// unresolvable types itself should fetch more than it displays, or
+  /// unknown types could crowd out every known one before the limit.
+  /// [toTs] bounds the window from above (defaults to now) so a future-dated
+  /// row (clock skew) cannot inflate a count. Only sessions this app started
+  /// count: scored imports (`scored_import`) and WHOOP exports (`whoop`) also
+  /// live in `sessions`, and the quick row's tiles START a session, so
+  /// someone else's recording must not outrank what this user does here.
+  static Future<List<Map<String, dynamic>>> mostUsedActivityTypes({
+    int? sinceTs,
+    int? toTs,
+    int limit = 6,
+  }) async {
+    final db = await instance;
+    final args = <Object?>[];
+    var where = "status = 'done' AND type IS NOT NULL AND type <> '' "
+        "AND source NOT IN ('scored_import', 'whoop') AND start_ts <= ?";
+    args.add(toTs ?? DateTime.now().millisecondsSinceEpoch ~/ 1000);
+    if (sinceTs != null) {
+      where += ' AND start_ts >= ?';
+      args.add(sinceTs);
+    }
+    args.add(limit);
+    return db.rawQuery(
+      "SELECT lower(replace(type, ' ', '_')) AS type, COUNT(*) AS n, "
+      'MAX(start_ts) AS last_ts FROM sessions '
+      'WHERE $where GROUP BY lower(replace(type, \' \', \'_\')) '
+      'ORDER BY n DESC, last_ts DESC, type ASC LIMIT ?',
+      args,
+    );
   }
 
   /// What a session's sensor scored: served empty, not stored empty.

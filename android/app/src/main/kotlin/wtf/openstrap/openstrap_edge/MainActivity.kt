@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterFragmentActivity
+import io.flutter.embedding.engine.FlutterEngineCache
+import io.flutter.plugin.common.MethodChannel
 
 /**
  * Attaches to the single long-lived engine owned by [EdgeApplication] (created lazily
@@ -27,19 +29,39 @@ class MainActivity : FlutterFragmentActivity() {
     companion object {
         @Volatile
         var activityAttached: Boolean = false
+
+        /** Dart side: lib/platform/activity_relaunch.dart. */
+        private const val ACTIVITY_CHANNEL = "openstrap/activity"
     }
 
     override fun getCachedEngineId(): String = EdgeApplication.ENGINE_ID
     override fun shouldDestroyEngineWithHost(): Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Read BEFORE ensureEngine: true means this Activity attaches to a Dart side
+        // that outlived the previous one, screens and all (see the class doc).
+        val engineOutlivedActivity =
+            FlutterEngineCache.getInstance().get(EdgeApplication.ENGINE_ID) != null
         // The shared engine is created lazily now (EdgeApplication.ensureEngine).
         // getCachedEngineId() is consulted during super.onCreate, so the cache
         // entry must exist before it runs.
-        EdgeApplication.ensureEngine(applicationContext)
+        val engine = EdgeApplication.ensureEngine(applicationContext)
         activityAttached = true
         clearPendingHeadlessBoot()
         super.onCreate(savedInstanceState)
+        // Opened again from the launcher after the app was closed: the retained engine
+        // still has whatever screen was on top (issue #650), where iOS — whose process
+        // ends — would start fresh on the saved tab. Ask Dart to close those screens.
+        // Not on a restore (savedInstanceState: Android recreated us and expects the
+        // screen back), and not for notification/widget taps, whose own action routes
+        // them. Rotation and dark mode never get here (configChanges in the manifest).
+        if (engineOutlivedActivity && savedInstanceState == null &&
+            intent?.action == Intent.ACTION_MAIN &&
+            intent?.hasCategory(Intent.CATEGORY_LAUNCHER) == true
+        ) {
+            MethodChannel(engine.dartExecutor.binaryMessenger, ACTIVITY_CHANNEL)
+                .invokeMethod("relaunched", null)
+        }
         CompanionBridge.currentActivity = this
         // Re-arm CDM device-presence observation for an already-associated band
         // (idempotent; no-op below API 31 or when nothing is associated).

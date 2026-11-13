@@ -1026,8 +1026,11 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       // Statistics off the STORED values; the painter gets the dense window.
       final s = valuesOf(pts);
       if (s.isEmpty) {
+        // Mid-sentence, like healthNoMetric: "No resting heart rate trend
+        // yet", not "No Resting…"; German keeps its noun case.
+        final noun = nounInSentence(l, label);
         return StatusCard(
-          l?.healthNoTrendYet(label) ?? 'No $label trend yet',
+          l?.healthNoTrendYet(noun) ?? 'No $noun trend yet',
           l?.healthZeroDaysStored ?? '0 days stored.',
           icon: LucideIcons.chartLine,
         );

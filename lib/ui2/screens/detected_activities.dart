@@ -463,7 +463,7 @@ class _NapProposalEditorState extends State<NapProposalEditor> {
               StatusCard(
                 l?.activityCheckTimes ?? 'Check the times',
                 l?.activityNapWindow ??
-                    'Choose a past window between 5 minutes and 6 hours.',
+                    'Choose a past window between 5 minutes and 3 hours.',
               ),
             BigButton(
               l?.activitySaveConfirm ?? 'Save and confirm',

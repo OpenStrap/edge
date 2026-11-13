@@ -2764,6 +2764,11 @@ class AppState extends ChangeNotifier {
         sleepOnsetSec: onsetSec,
       );
 
+  /// Why [sleepCorrectable] can be false for a day with no substrate: its
+  /// recordings were pruned (true), or there never were any (false).
+  Future<bool> sleepRecordingsPruned(String date) =>
+      LocalDb.decodedPrunedFor(date);
+
   /// Refuses a correction [sleepCorrectable] rules out, before anything is
   /// written: the row would sit in sleep_override unapplied.
   Future<void> _requireSleepSubstrate(

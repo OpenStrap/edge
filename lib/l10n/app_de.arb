@@ -419,7 +419,7 @@
   "aiBriefingEmptyCardBody": "Beim Erstellen hatte kein Wert Daten, daher enthielt der Prompt keine.",
   "napsFellAsleepHelp": "EINGESCHLAFEN UM",
   "napsWokeUpHelp": "AUFGEWACHT UM",
-  "napsInvalidWindow": "Ein Nickerchen muss zwischen 5 Minuten und 6 Stunden dauern. Längere Schlafphasen gehören zum Nachtschlaf und werden dort ausgewertet.",
+  "napsInvalidWindow": "Ein Nickerchen muss zwischen 5 Minuten und 3 Stunden dauern. Längere Schlafphasen gehören zum Nachtschlaf und werden dort ausgewertet.",
   "napsOverlap": "Dieser Zeitraum überschneidet sich mit einem bereits eingetragenen Nickerchen. Entferne zuerst den anderen Eintrag, damit die Zeit nicht doppelt gezählt wird.",
   "napsOverlapsSleep": "Das überschneidet sich mit deinem Hauptschlaf, der diese Zeit schon zählt. Trage nur den Teil nach dem Aufstehen ein oder korrigiere stattdessen die Nacht.",
   "napsNotReanalysed": "Der Tag wurde nicht neu ausgewertet, weil gerade schon eine andere Auswertung lief. Deine Änderung ist gespeichert und wird beim nächsten Mal berücksichtigt.",
@@ -1734,6 +1734,7 @@
   "sleepDetailWindowNoSleep": "Deine Zeiten sind gespeichert, aber die Aufzeichnungen des Bands aus diesen Stunden zeigen keinen Schlaf zum Auswerten.",
   "sleepDetailNightUnrecorded": "Deine Herzfrequenz deutet auf eine Nacht Schlaf hin, aber das Band hat dabei größtenteils zu wenige Bewegungsdaten aufgezeichnet, daher gibt es keine Nacht zum Auswerten.",
   "sleepDetailCorrectionUnavailable": "Die detaillierten Aufzeichnungen dieser Nacht sind nicht mehr auf dem Telefon, daher lässt sich ihr Schlaf nicht mehr korrigieren.",
+  "sleepDetailCorrectionNoRecordings": "Für diese Nacht liegen keine detaillierten Aufzeichnungen auf dem Telefon, daher kann ihr Schlaf nicht korrigiert werden.",
   "sleepDetailCorrectionEveningPruned": "Der Abend vor dieser Nacht ist nicht mehr auf dem Telefon, daher lassen sich nur eine Schlafenszeit nach Mitternacht oder „Kein Schlaf“ übernehmen.",
   "sleepDetailNoHypnogramTitle": "Kein Hypnogramm für diese Nacht",
   "sleepDetailNoHypnogramBody": "Für die Berechnung der Schlafphasen werden Bewegungsdaten und Herzschlag-Abstände benötigt. Mindestens eine dieser Datenquellen fehlt.",
@@ -1940,6 +1941,7 @@
   "activityPickerNoMatchBody": "Der Katalog umfasst etwa siebzig Aktivitäten mit veröffentlichtem Energieverbrauch. Wähle die, die am besten passt.",
   "activityPickerQuickStart": "SCHNELLSTART",
   "activityPickerRecent": "ZULETZT",
+  "activityPickerMostDone": "HÄUFIG GENUTZT",
   "activityPickerCalorieEstimatesTitle": "Kalorienwerte sind Schätzungen",
   "activityPickerMetValue": "{met} MET",
   "activityPickerKcalPer30": "{kcal} kcal pro 30 Min.",
@@ -2598,7 +2600,7 @@
   "activityStart": "Beginn",
   "activityEnd": "Ende",
   "activityCheckTimes": "Zeiten prüfen",
-  "activityNapWindow": "Wähle einen vergangenen Zeitraum zwischen 5 Minuten und 6 Stunden.",
+  "activityNapWindow": "Wähle einen vergangenen Zeitraum zwischen 5 Minuten und 3 Stunden.",
   "activityEditNap": "Nickerchen bearbeiten",
   "activityEditWorkout": "Training bearbeiten",
   "activityNapAlerts": "Erkannte Nickerchen",
@@ -3473,5 +3475,17 @@
       }
     }
   },
-  "pairBandNotSensor": "Dieses Gerät ist ein {label}, also ein Band und kein einfacher Sensor. Es wurde nichts gespeichert."
+  "pairBandNotSensor": "Dieses Gerät ist ein {label}, also ein Band und kein einfacher Sensor. Es wurde nichts gespeichert.",
+  "strengthCustomWeight": "Benutzerdefiniertes Gewicht",
+  "strengthEnterValue": "Wert eingeben",
+  "strengthInvalidNumber": "Ungültige Zahl",
+  "strengthLoadRangeKg": "Muss zwischen 0 und 500 kg liegen",
+  "strengthLoadRangeLb": "Muss zwischen 0 und 1100 lb liegen",
+  "strengthRepsRange": "Muss zwischen 1 und 200 Wdh. liegen",
+  "strengthEditSet": "Satz bearbeiten",
+  "strengthDeleteSet": "Satz löschen",
+  "strengthDeleteSetConfirm": "Diesen Satz löschen?",
+  "strengthBodyweight": "Körpergewicht",
+  "strengthDelete": "Löschen",
+  "strengthSaveFailed": "Änderungen konnten nicht gespeichert werden"
 }
