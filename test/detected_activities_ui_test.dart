@@ -30,6 +30,7 @@ class _Repo extends LocalRepository {
     proposal('workout', ActivityKind.workout),
   ];
   bool fail = false;
+  Object? confirmError;
   String? savedType;
   @override
   Future<List<ActivitySuggestion>> pendingActivities() async {
@@ -57,6 +58,7 @@ class _Repo extends LocalRepository {
     int? endTs,
     String? workoutType,
   }) async {
+    if (confirmError case final e?) throw e;
     if (items.singleWhere((i) => i.id == s.id).revision != s.revision) {
       throw const ActivityReviewException(
         'The proposal changed. Review the new times.',
@@ -181,6 +183,30 @@ void main() {
     await t.tap(find.text('Save and confirm'));
     await t.pumpAndSettle();
     expect(repo.items.single.id, 'nap');
+  });
+
+  testWidgets('a refused confirm shows the reason, not the exception class', (
+    t,
+  ) async {
+    final repo = await pump(t);
+    repo.confirmError = const ManualWindowException(
+      ManualWindowError.overlapsExisting,
+    );
+    await t.tap(find.text('Confirm').last);
+    await t.pumpAndSettle();
+    expect(
+      find.text('That overlaps a workout already in your log.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('ManualWindowException'), findsNothing);
+    expect(repo.items, hasLength(2));
+
+    repo.confirmError = StateError('database is locked');
+    await t.tap(find.text('Confirm').last);
+    await t.pumpAndSettle();
+    expect(find.text('Could not save that — try again.'), findsOneWidget);
+    expect(find.textContaining('StateError'), findsNothing);
+    expect(find.textContaining('database is locked'), findsNothing);
   });
 
   testWidgets('home card stays up when the count fails to load', (t) async {

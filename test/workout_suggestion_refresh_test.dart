@@ -16,7 +16,7 @@ void main() {
     LocalDb.dbName = 'openstrap_workout_suggestion_refresh_test.db';
     final dir = await databaseFactory.getDatabasesPath();
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
-    // Rows are fixtures from 1970; open the review store's cutoff to them.
+    // Open the review store's cutoff to the fixtures below.
     await (await LocalDb.instance)
         .update('activity_review_meta', {'activated_at': 1});
   });
@@ -27,11 +27,14 @@ void main() {
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
+  // Recent, not 1970: an unanswered suggestion only stays listed for a week.
+  final base = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 86400;
+
   Map<String, dynamic> row(int end, int min, int createdAt) => {
-        'id': 'workout:1000',
+        'id': 'workout:$base',
         'date': '2026-10-01',
-        'start_ts': 1000,
-        'end_ts': end,
+        'start_ts': base,
+        'end_ts': base + end,
         'avg_bpm': 130,
         'peak_bpm': 150,
         'duration_min': min,
@@ -41,24 +44,24 @@ void main() {
       };
 
   test('a re-detected bout with the same start updates its end', () async {
-    await LocalDb.putWorkoutSuggestion(row(2200, 20, 1));
-    await LocalDb.putWorkoutSuggestion(row(4600, 60, 2));
+    await LocalDb.putWorkoutSuggestion(row(1200, 20, 1));
+    await LocalDb.putWorkoutSuggestion(row(3600, 60, 2));
     final rows = await LocalDb.activeWorkoutSuggestions();
     expect(rows, hasLength(1));
-    expect(rows.single['end_ts'], 4600);
+    expect(rows.single['end_ts'], base + 3600);
     expect(rows.single['duration_min'], 60);
   });
 
   test('a stale pass with an earlier end does not shrink the span', () async {
-    await LocalDb.putWorkoutSuggestion(row(2200, 20, 3));
+    await LocalDb.putWorkoutSuggestion(row(1200, 20, 3));
     final rows = await LocalDb.activeWorkoutSuggestions();
-    expect(rows.single['end_ts'], 4600);
+    expect(rows.single['end_ts'], base + 3600);
     expect(rows.single['duration_min'], 60);
   });
 
   test('a dismissed suggestion stays dismissed', () async {
-    await LocalDb.dismissWorkoutSuggestion('workout:1000');
-    await LocalDb.putWorkoutSuggestion(row(5000, 66, 3));
+    await LocalDb.dismissWorkoutSuggestion('workout:$base');
+    await LocalDb.putWorkoutSuggestion(row(4000, 66, 3));
     expect(await LocalDb.activeWorkoutSuggestions(), isEmpty);
   });
 

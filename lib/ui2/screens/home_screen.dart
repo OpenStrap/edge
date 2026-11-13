@@ -65,7 +65,7 @@ import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
 import '../profile/alarm.dart'
     show AlarmArmState, alarmArmOf, alarmDoor, alarmGlanceCard;
-import '../profile/devices.dart' show formatDayTime;
+import '../profile/devices.dart' show RePair, formatDayTime;
 import '../profile/profile.dart';
 import '../profile/wearable_numbers.dart'
     show WearableCells, kHomeWearableRows;
@@ -134,6 +134,27 @@ VoidCallback? syncOf(BuildContext c) {
   } catch (_) {
     return null;
   }
+}
+
+/// The card Home shows instead of "Sync the band" when no band is paired, or
+/// null when one is (or there is no AppState above us). Onboarding's "Skip for
+/// now" opens the app with nothing paired; a sync then returns at once, the
+/// tap grace held "Connecting to your band" up for 20 s over nothing, and
+/// nothing on Home pointed at pairing.
+Widget? noBandCard(BuildContext c, AppLocalizations? l) {
+  try {
+    if (c.read<AppState>().isPaired) return null;
+  } catch (_) {
+    return null;
+  }
+  return StatusCard(
+    l?.devicesNoBandPaired ?? 'No band is paired',
+    l?.pairingSkipNote ??
+        'The app opens without a band. Nothing is measured until one is paired.',
+    fix: l?.devicesPairABand ?? 'Pair a band',
+    icon: LucideIcons.watch,
+    onFix: () => goto(c, const RePair()),
+  );
 }
 
 /// Whether the database had to be rebuilt to start this launch, or null in a
@@ -910,6 +931,8 @@ class RingTrio extends StatelessWidget {
   }
 }
 
+String _fixed1OrEmpty(Object? v) => v is num ? displayFixed(v, 1) : '';
+
 /// "Updated 8:12 · 2 → 28" off a `todayHeadlineOf` `recovery_update`, or null.
 String? recoveryUpdatedLine(Object? update, AppLocalizations? l) {
   if (update case {
@@ -1042,7 +1065,7 @@ _RingState _ringOf(HomeRingKind k, HomeData d, AppLocalizations? l) {
           ? _gap(k, l?.homeRingStrain ?? 'Strain', LucideIcons.zap, C.purple,
               d.strain, l?.homeRingNoStrain ?? 'No strain', l, unit: 'days')
           : _RingState(k, l?.homeRingStrain ?? 'Strain', LucideIcons.zap, C.purple,
-              value: v.toStringAsFixed(1), sub: l?.homeStrainOf21 ?? 'of 21', frac: v / 21);
+              value: displayFixed(v, 1), sub: l?.homeStrainOf21 ?? 'of 21', frac: v / 21);
     case HomeRingKind.sleep:
       final v = d.sleepMin.value;
       final need = d.sleepNeedMin.value;
@@ -1389,9 +1412,13 @@ class HomeData {
   static Future<HomeData> loadForDay(LocalRepository repo, String date,
       [AppLocalizations? l]) async {
     final profile = await repo.getProfile();
-    final overview = await repo.getDayOverview(date);
-    final strain = await repo.getDayStrain(date);
-    final sleep = await repo.getDaySleepV2(date);
+    // The three getters read the same stored day: decode it once, not three
+    // times per arrow tap.
+    final (overview, strain, sleep) = await repo.sharingDayReads(() async => (
+          await repo.getDayOverview(date),
+          await repo.getDayStrain(date),
+          await repo.getDaySleepV2(date),
+        ));
     final readiness = metricOf(overview['readiness']);
     // Same lookup [load] does for today, for the same reason: the ring's
     // shortfall explanation needs the stored diagnostic, and a day the
@@ -1410,6 +1437,10 @@ class HomeData {
       calories: metricOf(strain['calories']),
       caloriesTotal: metricOf(strain['calories_total']),
       sleepMin: metricOf(sleep['duration_min']),
+      // The learned need `getDaySleepV2` already carries (absent until one is
+      // learned). Left unset, the ring told a user who has a need that there
+      // was "No target yet" on every day but today.
+      sleepNeedMin: metricOf(sleep['need_min']),
       stepGoal: (profile['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal,
     );
   }
@@ -1518,6 +1549,41 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
+/// What Home's switcher stores for [day]: null when it is today, so "today"
+/// keeps following the clock. Home lives in the shell's IndexedStack and is
+/// never disposed — a literal today's date stored by "Back to today" turned
+/// into yesterday at midnight, and the tab silently became a past-day view
+/// (no plan, no alarm, pull-to-refresh no longer synced).
+String? homeSwitcherDay(String day, {DateTime? now}) =>
+    day == todayLabel(now) ? null : day;
+
+/// How long the app has to be away before Home gives up the day it was on.
+/// A quick switch to another app and back keeps the place; a longer absence
+/// means the past day is no longer what the user came back for.
+const kHomeKeepDayAway = Duration(minutes: 30);
+
+/// Whether Home drops a past day for today on the way back from the
+/// background: after [kHomeKeepDayAway], or when the calendar day changed
+/// while away (a day stepped back onto on Friday evening is not what Saturday
+/// morning opens on). [dayAtHide] null means the leave was never seen, so
+/// the absence is unknown and today wins.
+bool homeReturnsToToday({
+  required String? dayAtHide,
+  required String dayNow,
+  required Duration away,
+}) =>
+    dayAtHide == null || dayAtHide != dayNow || away >= kHomeKeepDayAway;
+
+/// How long the app was away, from both clocks Home keeps: the longer one.
+/// The [monotonic] stopwatch stops while the phone sleeps, so a locked
+/// phone reads short on it; the [wall] clock can be set back while away.
+Duration homeAwayFor({required Duration wall, required Duration monotonic}) =>
+    wall > monotonic ? wall : monotonic;
+
+/// The wall clock Home reads for an absence; tests move it.
+@visibleForTesting
+DateTime Function() debugHomeWallClock = DateTime.now;
+
 class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   HomeData? _d;
   bool _loading = true;
@@ -1525,7 +1591,23 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// The day requested by the switcher, or null for "today" — the same
   /// null-means-today convention [_load] and [HomeData.load] already used
   /// before there was a switcher.
+  ///
+  /// NEVER today's own label: [_goDay] stores today as null. A dated "today"
+  /// does not move at midnight, so a tap on "Back to today" on Friday evening
+  /// opened Saturday morning on Friday's rings with "Back to today" under
+  /// them.
   String? _day;
+
+  /// Brings Home back to today when the app returns from the background.
+  /// See [_onReturnFromBackground].
+  AppLifecycleListener? _lifecycle;
+
+  /// Today's label, the wall time and a running stopwatch, all taken as the
+  /// app went to the background (see [homeAwayFor]). The label catches
+  /// midnight.
+  String? _dayAtHide;
+  DateTime? _hiddenAt;
+  final Stopwatch _away = Stopwatch();
 
   /// `availableDays()` — newest first — for [DayNav]. Refetched with every
   /// load: cheap, and a switcher stepping onto a day that just finished
@@ -1558,7 +1640,58 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   @override
   void dispose() {
     _syncTapTimer?.cancel();
+    _lifecycle?.dispose();
     super.dispose();
+  }
+
+  void _onHide() {
+    _dayAtHide = todayLabel(widget.now ?? debugHomeWallClock());
+    _hiddenAt = debugHomeWallClock();
+    _away
+      ..reset()
+      ..start();
+  }
+
+  /// COMING BACK LATER MEANS TODAY. Home is kept alive in the tab stack, so a
+  /// day stepped back onto used to survive the app going to the background —
+  /// overnight, too — and the next morning opened on that old day while every
+  /// detail screen behind it opened on today. A quick trip to another app and
+  /// back keeps the day (see [homeReturnsToToday]). `onRestart` fires only on
+  /// the way back from hidden (backgrounded), not for Control Center or a
+  /// permission sheet, which leave the app merely inactive.
+  ///
+  /// It also reloads when the switcher was already on today: a day that rolled
+  /// over while the app was backgrounded moves no database revision, so
+  /// nothing else would re-read it.
+  ///
+  /// A past day on screen is dropped before the read, not after it: kept, its
+  /// rings would sit under today's header while the read runs, and stay there
+  /// for good if the read failed, since the error card only shows with no day.
+  void _onReturnFromBackground() {
+    if (!mounted) return;
+    final hiddenAt = _hiddenAt;
+    final wall = hiddenAt == null
+        ? Duration.zero
+        : debugHomeWallClock().difference(hiddenAt);
+    final away = homeAwayFor(wall: wall, monotonic: _away.elapsed);
+    _away.stop();
+    _hiddenAt = null;
+    final back = homeReturnsToToday(
+        dayAtHide: _dayAtHide,
+        dayNow: todayLabel(widget.now ?? debugHomeWallClock()),
+        away: away);
+    _dayAtHide = null;
+    // A past day kept after a short absence needs no read here: if its data
+    // changes, the database revision reloads it like any other day.
+    if (_day != null && !back) return;
+    setState(() {
+      _day = null;
+      if (_d?.dayId != todayLabel(widget.now)) {
+        _d = null;
+        _loading = true;
+      }
+    });
+    _load();
   }
 
   @override
@@ -1569,6 +1702,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       _loading = false;
       return;
     }
+    _lifecycle = AppLifecycleListener(
+        onHide: _onHide, onRestart: _onReturnFromBackground);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
@@ -1611,8 +1746,14 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// already restricts the arrows to [_days] — so this just re-loads for it.
   void _goDay(String day) {
     setState(() {
-      _day = day;
+      _day = homeSwitcherDay(day, now: widget.now);
+      // The day on screen goes with the switch. Kept, it stayed under the new
+      // day's stepper for the whole load with no spinner, and for good if the
+      // load threw: the rings, tiles and greeting date were still the old
+      // day's, and the failure card only renders when there is no day.
+      _d = null;
       _loading = true;
+      _failed = false;
     });
     _load();
   }
@@ -1686,15 +1827,16 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     // install's live pipeline catching up, which has nothing to do with a day
     // the switcher stepped back onto.
     if (pastDay) {
-      return const StatusCard(
-        'No data for this day',
-        'Nothing was recorded on this day.',
+      return StatusCard(
+        l?.homeNoDataThisDayTitle ?? 'No data for this day',
+        l?.homeNoDataThisDayBody ?? 'Nothing was recorded on this day.',
         fix: '',
         icon: LucideIcons.calendarOff,
       );
     }
     final phase = _phaseStatusCard(c, l);
     if (phase != null) return phase;
+    if (noBandCard(c, l) case final noBand?) return noBand;
 
     final sync = syncOf(c);
     return StatusCard(
@@ -1754,7 +1896,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           const Center(child: CircularProgressIndicator())
         else if (_failed)
           StatusCard(
-            l?.homeLoadFailedTitle ?? 'Today could not be read',
+            _day == null
+                ? (l?.homeLoadFailedTitle ?? 'Today could not be read')
+                : (l?.homeDayLoadFailedTitle(prettyDay(_day, l)) ??
+                    '${prettyDay(_day, l)} could not be read'),
             l?.homeLoadFailedBody ??
                 'The stored day failed to load. Nothing was deleted — this is a '
                 'read that went wrong, not missing data.',
@@ -1769,6 +1914,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           Builder(builder: (c) {
             final phase = _phaseStatusCard(c, l);
             if (phase != null) return phase;
+            if (noBandCard(c, l) case final noBand?) return noBand;
             final sync = syncOf(c);
             return StatusCard(
               l?.homeNothingDerivedTitle ?? 'No nights scored yet',
@@ -1778,6 +1924,16 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               onFix: sync == null ? null : () => _tapSync(sync),
             );
           }),
+        // A failed read of a day stepped back onto has no stepper on this
+        // path, so this is the way home.
+        if (_day != null && _day != todayLabel())
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: () => _goDay(todayLabel()),
+              child: Text(l?.homeBackToToday ?? 'Back to today'),
+            ),
+          ),
         if (!_loading && !_failed && widget.data == null) ...[
           const SizedBox(height: S.x3),
           firstWeekCard(c, days: _days.length, strainScored: false),
@@ -1814,10 +1970,14 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     final isToday = _day == null || _day == todayLabel();
 
     // Until recovery can score for the first time: what arrives when.
+    // Also while the readiness note still counts nights: missed nights push
+    // the first score past the day-15 the count alone would show.
+    final recoveryNightsLeft = needMoreNightsFromNote(d.readiness.note);
     final firstWeeks = isToday &&
         widget.data == null &&
         d.readiness.isEmpty &&
-        _days.length <= readinessCompositeMinBaseline;
+        (_days.length <= readinessCompositeMinBaseline ||
+            recoveryNightsLeft != null);
 
     final stale = staleInsightsCard(d.insightsStale, syncOf(c), l);
     // Above the greeting, not below it: if the app had to rebuild the database
@@ -1917,7 +2077,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         // loudest.
         if (firstWeeks) ...[
           const SizedBox(height: S.x3),
-          firstWeekCard(c, days: _days.length, strainScored: false),
+          firstWeekCard(c,
+              days: _days.length,
+              strainScored: false,
+              recoveryNightsLeft: recoveryNightsLeft),
         ],
       ] else ...[
         // ── the three rings ──
@@ -1937,8 +2100,12 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             onOpen: (k) => go(
                 c,
                 switch (k) {
-                  HomeRingKind.recovery => const ReadinessDetail(),
-                  HomeRingKind.strain => const DayStrainDetail(),
+                  // A past day's rings open that day's screens: the number
+                  // tapped and the number shown must be the same day's.
+                  HomeRingKind.recovery =>
+                    ReadinessDetail(day: isToday ? null : _day),
+                  HomeRingKind.strain =>
+                    DayStrainDetail(day: isToday ? null : _day),
                   // The night the ring was drawn from, not last night. Today
                   // stays null even after the switcher steps back onto it:
                   // today's ring is the held-over night, and only the default
@@ -1974,15 +2141,12 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                       (l?.homeReadinessNoReason ?? 'Nothing recorded says why.'),
               fix: l?.homeSeeWhatWasMissing ?? 'See what was missing',
               icon: LucideIcons.batteryCharging,
-              onFix: () => go(c, const ReadinessDetail()),
+              onFix: () =>
+                  go(c, ReadinessDetail(day: isToday ? null : _day)),
             );
           }),
 
         const SizedBox(height: S.x3),
-        if (firstWeeks) ...[
-          firstWeekCard(c, days: _days.length, strainScored: !d.strain.isEmpty),
-          const SizedBox(height: S.x3),
-        ],
         const DetectedActivitiesCard(),
         const CommunityNudge(),
 
@@ -1990,8 +2154,18 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         if (stale != null) ...[const SizedBox(height: S.x3), stale],
 
         // ── at a glance ──
+        // First, in the first weeks too: resting HR, steps and the night's
+        // sleep are real from night one, so they lead and the "what arrives
+        // when" card follows them.
         Section(l?.homeAtAGlance ?? 'At a glance',
             _glance(c, d, isToday: isToday)),
+        if (firstWeeks) ...[
+          const SizedBox(height: S.x3),
+          firstWeekCard(c,
+              days: _days.length,
+              strainScored: !d.strain.isEmpty,
+              recoveryNightsLeft: recoveryNightsLeft),
+        ],
 
         // ── today's plan: only what the app can actually stand behind ──
         // Skipped on a past day — "3,000 steps left" or "aim for 11.4
@@ -2130,6 +2304,12 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     // was held over from an older night. It cannot be an older night any more
     // — the loader refuses those — so every tile in this row is today's and
     // none of them needs a date.
+    //
+    // On a past day every tile is THAT day's, and the trend screen opens on
+    // today's window — tapping "11,204" landed on today's count. A past day's
+    // tile opens the screen for the day it is showing instead.
+    Widget detail(String key) =>
+        isToday || _day == null ? MetricDetail(key) : metricDayScreen(key, _day!);
 
     // Sleep is a RING now, duration and all — the card here was the same
     // number twice on one screen, and the ring is the one that says what the
@@ -2140,7 +2320,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           '${d.rhr.value!.round()}',
           unit: 'bpm',
           sub: l?.homeRestingSub ?? 'Resting',
-          onTap: () => go(c, const MetricDetail('resting_hr'))),
+          onTap: () => go(c, detail('resting_hr'))),
       // "no sleep was recorded" was stated as fact, unconditionally — and it
       // was rendered directly beside a Sleep card showing that night's
       // duration. Sleep duration and nocturnal RHR are gated separately: a
@@ -2180,7 +2360,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
                     '${((d.steps.value! / d.stepGoal) * 100).clamp(0, 999).round()}% of goal',
               ?stepSensorLabel(d.steps, l),
             ].join(' · '),
-      onTap: () => go(c, const MetricDetail('steps')),
+      onTap: () => go(c, detail('steps')),
       trailing: d.steps.value == null || d.stepGoal <= 0
           ? null
           : SizedBox(
@@ -2202,7 +2382,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               ? (l?.homeCaloriesEstimated ?? 'Estimated')
               : (l?.homeCaloriesTotal(thousands(d.caloriesTotal.value)) ??
                   '${thousands(d.caloriesTotal.value)} total'),
-          onTap: () => go(c, const MetricDetail('calories'))),
+          onTap: () => go(c, detail('calories'))),
       // No `why:`. It said "Needs your weight and age" — and the measured run
       // printed that to a profile carrying both, because energy had gone absent
       // for an entirely different reason that the card never asked for.
@@ -2243,7 +2423,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         else if (absent.length > 1) ...[
           const SizedBox(height: S.x3),
           StatusCard(
-            l?.homeSomeDataMissingTitle ?? 'Some of today\'s data is missing',
+            // The glance also renders for a day the switcher stepped back
+            // onto, where "today's" names the wrong day.
+            isToday
+                ? (l?.homeSomeDataMissingTitle ??
+                    'Some of today\'s data is missing')
+                : (l?.homeSomeDayDataMissingTitle ??
+                    'Some of this day\'s data is missing'),
             [
               for (final s in absent)
                 [s.what, s.why, s.fix].where((t) => t.isNotEmpty).join('. '),
@@ -2291,8 +2477,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           C.purple,
           met
               ? (l?.homeStrainTargetMet ?? 'Strain target met')
-              : (l?.homeAimForStrain(aim.toStringAsFixed(1)) ??
-                  'Aim for ${aim.toStringAsFixed(1)} strain'),
+              : (l?.homeAimForStrain(displayFixed(aim, 1)) ??
+                  'Aim for ${displayFixed(aim, 1)} strain'),
           // Built on a wearable's estimated TRIMP: say so.
           [
             l?.homeTraining ?? 'Training',
@@ -2300,8 +2486,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           ].join(' · '),
           met
               ? (l?.actionDone ?? 'Done')
-              : '${(target['low'] as num?)?.toStringAsFixed(1) ?? ''}–'
-                  '${(target['high'] as num?)?.toStringAsFixed(1) ?? ''}',
+              : '${_fixed1OrEmpty(target['low'])}–'
+                  '${_fixed1OrEmpty(target['high'])}',
           met));
     }
 
@@ -2434,7 +2620,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
 /// earlier nights give it a normal range. Read from the analytics constants so
 /// the card cannot drift from the gate.
 Widget firstWeekCard(BuildContext c,
-    {required int days, required bool strainScored}) {
+    {required int days, required bool strainScored, int? recoveryNightsLeft}) {
   final p = P.of(c);
   final l = AppLocalizations.of(c);
   final strainDay = quietHrrMinDays + 1;
@@ -2464,9 +2650,15 @@ Widget firstWeekCard(BuildContext c,
           l?.homeFirstWeekSleep ?? 'Sleep: the morning after your first night'),
       step(strainScored,
           l?.homeFirstWeekStrain(strainDay) ?? 'Strain: from day $strainDay'),
-      step(false,
-          l?.homeFirstWeekRecovery(recoveryNight) ??
-              'Recovery: from night $recoveryNight, once it knows your normal'),
+      // The live countdown when the pipeline says how many nights are left;
+      // the static "from night N" only before it has said anything.
+      step(
+          false,
+          recoveryNightsLeft != null
+              ? (l?.homeRecoveryStartsIn(recoveryNightsLeft) ??
+                  'Recovery starts in $recoveryNightsLeft nights')
+              : (l?.homeFirstWeekRecovery(recoveryNight) ??
+                  'Recovery: from night $recoveryNight, once it knows your normal')),
       const SizedBox(height: S.x1),
       Text(l?.homeFirstWeekSoFar(days) ?? '$days days recorded so far',
           style: F.cap.copyWith(color: p.ink3)),

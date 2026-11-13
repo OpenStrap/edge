@@ -252,6 +252,17 @@ class JournalImportResult {
   final List<RejectedRow> rejected;
 }
 
+/// Strict UTF-8 read of a CSV that a caller may want to hand to a lenient
+/// importer when it is not UTF-8.
+///
+/// `File.readAsString` reports bad bytes as a `FileSystemException`, so a
+/// cp1252 file saved out of a spreadsheet escaped the `on FormatException`
+/// fallbacks in the import router and aborted the whole selection. Decoding
+/// the bytes here throws a `FormatException` instead, before anything is
+/// written.
+Future<String> readCsvText(String path) async =>
+    utf8.decode(await File(path).readAsBytes());
+
 /// Read [path], validate it, and write the accepted rows.
 ///
 /// REPLACES the journal for each date it carries — the file is the corrected
@@ -262,7 +273,7 @@ Future<JournalImportResult> importJournalCsvFile(
   String path, {
   DateTime? today,
 }) async {
-  final text = await File(path).readAsString();
+  final text = await readCsvText(path);
   final parsed = parseJournalCsv(text, today: today);
   for (final row in parsed.rows) {
     await LocalDb.putJournal(row.date, jsonEncode(row.tags), row.note);

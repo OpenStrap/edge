@@ -154,7 +154,7 @@ void main() {
       'efficiency_awakenings': 'ours',
       'sleep_stages': 'device',
       'naps': 'unavailable',
-      'sleep_debt_need_sri': 'ours',
+      'sleep_debt_need_sri': 'unavailable',
       'resting_hr': 'ours',
       'nadir_dip': 'ours',
       'hrv': 'unavailable',
@@ -192,7 +192,9 @@ void main() {
         reason: 'a 40-minute run at 150 bpm');
     expect(v('calories'), inInclusiveRange(200, 1500));
     expect(v('auto_workouts'), 1, reason: 'the run, found off 1-min HR');
-    expect(v('sleep_debt_need_sri'), inInclusiveRange(0, 2));
+    // Four nights hold two weekend nights, and a sleep need is a p75 of at
+    // least three of them, so the debt says what it is waiting for instead.
+    expect(cells['sleep_debt_need_sri']!['reason'], Why.needsThreeNights.name);
     expect(v('resting_hr') - v('baselines_load_illness'), inInclusiveRange(3, 9),
         reason: 'the baseline is the three nights before, 6 bpm lower');
     expect(v('circadian'), inInclusiveRange(0, 24));

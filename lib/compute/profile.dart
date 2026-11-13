@@ -79,6 +79,24 @@ class Profile {
       ageYears != null && weightKg != null && sex != null;
 }
 
+/// The ranges a typed body measurement has to fall in to be believed.
+///
+/// They are typo traps, not a population model: a birth year typed into the
+/// age box (1990) put Tanaka's ceiling at -1185 bpm, and an imperial height
+/// typed as feet.inches ("5.10") stored 13 cm. Anything inside these bounds is
+/// a real person; anything outside is a mis-entry, and scoring it would band
+/// every minute of every day off a body that does not exist.
+const kPlausibleAgeYears = (min: 1, max: 120);
+const kPlausibleHeightCm = (min: 50.0, max: 272.0);
+const kPlausibleWeightKg = (min: 20.0, max: 400.0);
+
+bool plausibleAgeYears(num v) =>
+    v.round() >= kPlausibleAgeYears.min && v.round() <= kPlausibleAgeYears.max;
+bool plausibleHeightCm(num v) =>
+    v >= kPlausibleHeightCm.min && v <= kPlausibleHeightCm.max;
+bool plausibleWeightKg(num v) =>
+    v >= kPlausibleWeightKg.min && v <= kPlausibleWeightKg.max;
+
 /// Body mass index (kg/m²) off a weight and a height, or null without both.
 double? bmiOf(num? weightKg, num? heightCm) =>
     weightKg == null || heightCm == null || heightCm <= 0

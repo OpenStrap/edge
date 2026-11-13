@@ -349,7 +349,7 @@ class CoachActions {
     }
     final known = {for (final f in await repo.getJournalFields()) f.key: f};
     final at = str(a['time']).isEmpty ? null : minuteOfDay(a['time']);
-    final merged = {...await repo.getJournalMetrics(d)};
+    final updates = <String, JournalMetricValue>{};
     final written = <String>[];
     for (final e in raw.entries) {
       final key = str(e.key);
@@ -364,13 +364,13 @@ class CoachActions {
       if (v == null) {
         throw CoachActionError('Field "$key" needs a number.');
       }
-      merged[key] = JournalMetricValue(
+      updates[key] = JournalMetricValue(
         v,
         atMinuteOfDay: spec.hasTime ? at : null,
       );
       written.add(key);
     }
-    await repo.postJournalMetrics(d, merged);
+    await repo.editJournalMetrics(d, (day) => day.addAll(updates));
     return jsonEncode({'saved': true, 'date': d, 'fields': written});
   }
 

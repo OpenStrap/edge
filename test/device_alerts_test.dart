@@ -293,10 +293,24 @@ void main() {
       await first.settled;
       expect(sink.countOf(NotificationService.idCharging), 1);
 
+      // The next day (the once-a-day cap is its own test below).
+      store.values.remove(DeviceAlerts.debugChargeShownDayKey);
       final later = alerts(); // new process, same persisted store
       later.onDeviceState(charging: true, chargingTs: tsAged(3));
       await later.settled;
       expect(sink.countOf(NotificationService.idCharging), 2);
+    });
+
+    test('a second charge session the same day is not shown', () async {
+      final first = alerts();
+      first.onDeviceState(charging: true, chargingTs: tsAged(600));
+      await first.settled;
+      first.onDeviceState(charging: false, chargingTs: tsAged(500));
+      await first.settled;
+      final later = alerts();
+      later.onDeviceState(charging: true, chargingTs: tsAged(3));
+      await later.settled;
+      expect(sink.countOf(NotificationService.idCharging), 1);
     });
 
     test('charging off clears the card even on a fresh process', () async {
@@ -394,6 +408,8 @@ void main() {
 
       // RTC restored. This session is genuinely new, but its timestamp is BELOW
       // the old high-water, so an uncleared identity check would suppress it.
+      // (Next day, so the once-a-day cap is not what is tested here.)
+      store.values.remove(DeviceAlerts.debugChargeShownDayKey);
       final restored = alerts();
       restored.onDeviceState(charging: true, chargingTs: tsAged(5));
       await restored.settled;

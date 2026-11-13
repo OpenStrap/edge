@@ -128,8 +128,9 @@ class ImportedMeasurementImporter {
   }
 
   /// Read the recent window and store what is there. Returns how many rows
-  /// landed; 0 covers an empty store, a denied permission and a locked device
-  /// alike, none of which is an error the user needs a dialog for.
+  /// landed; 0 means the store gave back nothing. A read or write that throws
+  /// propagates, so the caller reports a failure instead of "nothing to
+  /// import" for a store it never managed to read.
   Future<int> sync({DateTime? now}) async {
     final end = now ?? DateTime.now();
     // Health Connect caps third-party reads at 30 days without
@@ -139,17 +140,12 @@ class ImportedMeasurementImporter {
     final start = _isApple
         ? DateTime(end.year - 1, end.month, end.day)
         : end.subtract(const Duration(days: 30));
-    try {
-      await _health.configure();
-      final points = await _health.getHealthDataFromTypes(
-        types: types,
-        startTime: start,
-        endTime: end,
-      );
-      return LocalDb.putImportedMeasurements(rowsFrom(points));
-    } catch (e) {
-      debugPrint('[imported_measurement] read: $e');
-      return 0;
-    }
+    await _health.configure();
+    final points = await _health.getHealthDataFromTypes(
+      types: types,
+      startTime: start,
+      endTime: end,
+    );
+    return LocalDb.putImportedMeasurements(rowsFrom(points));
   }
 }

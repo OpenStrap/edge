@@ -106,6 +106,12 @@ class DeviceAlerts {
   static const String _kLastChargeTs = 'device_alerts.last_charge_event_ts';
   static const String _kLastChargeWall = 'device_alerts.last_charge_wall_sec';
 
+  /// Local day (yyyymmdd) a Charging card was last SHOWN. Charging was the
+  /// loudest alert by volume, so it is shown at most once per local day; a
+  /// later session that day is still tracked (identity, cooldown), just not
+  /// shown.
+  static const String _kChargeShownDay = 'device_alerts.charge_shown_day';
+
   /// Note the asymmetry if the store is ever unavailable: the charging alert
   /// still has the recency window as a second line of defence, but a battery
   /// percentage carries no timestamp, so low-battery has only this key. With a
@@ -118,6 +124,14 @@ class DeviceAlerts {
   static const String debugLastChargeTsKey = _kLastChargeTs;
   @visibleForTesting
   static const String debugLastChargeWallKey = _kLastChargeWall;
+  @visibleForTesting
+  static const String debugChargeShownDayKey = _kChargeShownDay;
+  int? _chargeShownDay;
+
+  static int _localDay(int sec) {
+    final d = DateTime.fromMillisecondsSinceEpoch(sec * 1000);
+    return d.year * 10000 + d.month * 100 + d.day;
+  }
 
   bool _lowArmed = true; // may we raise a low-battery alert?
   bool? _wasCharging; // previous charging state (null = not seen yet)
@@ -162,6 +176,7 @@ class DeviceAlerts {
       final eventTs = await _store.readInt(_kLastChargeTs);
       final wallSec = await _store.readInt(_kLastChargeWall);
       final armed = await _store.readInt(_kLowArmed);
+      _chargeShownDay = await _store.readInt(_kChargeShownDay);
       // Assigned together so the identity pair is never half-applied by a read
       // that throws part-way. (With the read order above the dangerous
       // half — wall set, event ts null, which would disable the identity check
@@ -324,8 +339,16 @@ class DeviceAlerts {
     if (cancelChargingCard) {
       await _io(() => _notes.cancel(NotificationService.idCharging));
     }
+    final today = _localDay(nowSec);
+    final showCharging = announce && _chargeShownDay != today;
+    final shownBefore = _chargeShownDay;
+    if (showCharging) _chargeShownDay = today;
     if (announce) {
-      await _io(() => _notes.show(_event(
+      if (showCharging) {
+        // A card the shared gate dropped (quiet hours, category off) does not
+        // spend today's one: put the latch back. A throw keeps it, since
+        // whether a card appeared is then unknown.
+        final dropped = await _showWasDropped(() => _notes.show(_event(
             osId: NotificationService.idCharging,
             // The strap event's own timestamp IS the identity of this charge
             // session (that is what ChargeAlertPolicy arbitrates on), so a
@@ -335,6 +358,12 @@ class DeviceAlerts {
             kind: 'band_charging:${chargingTs ?? nowSec}',
             title: 'Charging',
           )));
+        if (dropped) {
+          _chargeShownDay = shownBefore;
+        } else {
+          await _io(() => _store.writeInt(_kChargeShownDay, today));
+        }
+      }
       await _io(() => _store.writeInt(_kLastChargeWall, nowSec));
       if (persistEventTs != null) {
         await _io(() => _store.writeInt(_kLastChargeTs, persistEventTs!));

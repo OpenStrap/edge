@@ -8,11 +8,13 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:flutter/services.dart'
+    show Clipboard, ClipboardData, HapticFeedback;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../data/export_retention.dart' show pruneSharedReports;
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../support/issue_report.dart';
@@ -31,6 +33,7 @@ class ReportIssueScreen extends StatefulWidget {
 class _ReportIssueScreenState extends State<ReportIssueScreen> {
   final _title = TextEditingController();
   final _body = TextEditingController();
+  final _contact = TextEditingController();
   ReportCategory _category = ReportCategory.other;
   String? _shot;
   bool _db = false; // OFF by default: 2 weeks of the user's health record
@@ -52,6 +55,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
   void dispose() {
     _title.dispose();
     _body.dispose();
+    _contact.dispose();
     super.dispose();
   }
 
@@ -64,6 +68,7 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
         category: _category,
         title: _title.text.trim(),
         description: _body.text.trim(),
+        contact: _contact.text.trim(),
         screenshotPath: _shot,
         includeDatabase: _db,
         fullDatabase: _full,
@@ -148,12 +153,16 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
     try {
       final r = await collectReport(context.read<AppState>(), _draft(),
           onStage: (st) => _setStep(_stageText(l, st)));
+      await pruneSharedReports(r.zip.parent, current: r.zip);
       _setStep(l.reportStageSharing);
       await Share.shareXFiles([XFile(r.zip.path)],
           subject: 'OpenStrap issue report', sharePositionOrigin: origin);
     } catch (e) {
       if (mounted) setState(() => _error = e is ReportSendError ? e.status : -2);
     } finally {
+      // The zip is not deleted here: the share target can still be reading
+      // it after the sheet returns. pruneSharedReports keeps the newest two,
+      // and collectReport sweeps any older than ten minutes on the next run.
       if (mounted) {
         setState(() {
           _busy = false;
@@ -173,6 +182,14 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
     final l = _l(context);
     final messenger = ScaffoldMessenger.of(context);
     if (_busy) return;
+    // The row is the whole tap target and its title is the ID people come
+    // here to copy, while the delete drops the ticket on the server and the
+    // only copy of its delete token, so one stray tap had no way back.
+    final ok = await confirmRemove(context,
+        title: l.reportDeleteConfirmTitle(r.id),
+        body: l.reportDeleteConfirmBody,
+        remove: l.reportDelete);
+    if (!ok || !mounted || _busy) return;
     setState(() => _busy = true);
     try {
       await deleteReport(r);
@@ -271,6 +288,8 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
                 _field(c, _body, l.reportDescriptionLabel,
                     l.reportDescriptionHint,
                     lines: 4, max: 4000),
+                _field(c, _contact, l.reportContactLabel, l.reportContactHint,
+                    max: 200),
                 settingsGroup(c, l.reportAttachGroup, [
                   SetRow(LucideIcons.image, C.blue,
                       _shot == null
@@ -345,8 +364,13 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
                   StatusCard(l.reportSentTitle, l.reportSentBody(sent.id),
                       icon: LucideIcons.check,
                       fix: l.reportCopyId,
-                      onFix: () =>
-                          Clipboard.setData(ClipboardData(text: sent.id))),
+                      onFix: () async {
+                        final messenger = ScaffoldMessenger.of(c);
+                        await Clipboard.setData(ClipboardData(text: sent.id));
+                        HapticFeedback.selectionClick();
+                        messenger.showSnackBar(
+                            SnackBar(content: Text(l.reportIdCopied(sent.id))));
+                      }),
                 ],
                 if (err != null) ...[
                   const SizedBox(height: S.x5),

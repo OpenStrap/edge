@@ -56,7 +56,7 @@ Future<List<(int, int, int)>> colmiSkinTemps(
   // ring's history (kColmiHistoryDays) later: scan only those captures.
   for (final r in await db.rawQuery(
     'SELECT hex, COALESCE(rec_ts * 1000, captured_at) AS anchor_ms '
-    'FROM raw_archive WHERE device_id = ? '
+    'FROM ${LocalDb.rawArchiveView} WHERE device_id = ? '
     "AND reason = 'colmi_big_0x${kColmiBigTemperature.toRadixString(16)}' "
     'AND captured_at >= ? AND captured_at <= ?',
     [
@@ -143,7 +143,7 @@ const Set<String> kColmiNightRows = {
 Future<bool> colmiSleepUndecoded(String deviceId) async {
   final db = await LocalDb.instance;
   final rows = await db.rawQuery(
-    'SELECT hex FROM raw_archive WHERE device_id = ? AND reason = ? '
+    'SELECT hex FROM ${LocalDb.rawArchiveView} WHERE device_id = ? AND reason = ? '
     'ORDER BY captured_at DESC LIMIT 1',
     [deviceId, 'colmi_cmd_0x${kColmiCmdSetTime.toRadixString(16).padLeft(2, '0')}'],
   );

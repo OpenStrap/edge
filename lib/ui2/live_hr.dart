@@ -83,12 +83,13 @@ class LiveHrCard extends StatelessWidget {
     final l = AppLocalizations.of(c);
     final hr = _preview ? _hr : c.select<AppState, int?>((a) => a.liveHr);
     if (hr == null) {
-      if (_preview) return _absent(paired: true, connected: true);
+      if (_preview) return _absent(l, paired: true, connected: true);
       // SELECTED, not read: with no reading the only thing this widget watched
       // was `liveHr`, which stays null through both pairing and connecting — so
       // the card went on saying "No band is paired" after the band was paired
       // and connected. These are what change in that state.
       return _absent(
+        l,
         paired: c.select<AppState, bool>((a) => a.isPaired),
         connected: c.select<AppState, bool>((a) => a.isConnected),
       );
@@ -176,9 +177,14 @@ class LiveHrCard extends StatelessWidget {
           ),
           const SizedBox(height: S.x2),
           Text(
-            'The last ${trace.length} readings — ${trace.reduce(math.min)}'
-            '–${trace.reduce(math.max)} bpm. Not stored; this is '
-            'the live stream, not a record of your day.',
+            l?.liveHrTraceCaption(
+                  trace.length,
+                  trace.reduce(math.min),
+                  trace.reduce(math.max),
+                ) ??
+                'The last ${trace.length} readings — ${trace.reduce(math.min)}'
+                    '–${trace.reduce(math.max)} bpm. Not stored; this is '
+                    'the live stream, not a record of your day.',
             style: F.over.copyWith(color: p.ink3),
           ),
         ],
@@ -188,22 +194,32 @@ class LiveHrCard extends StatelessWidget {
 
   /// No live reading. Three different facts, and only the one the app can
   /// actually see is stated.
-  Widget _absent({required bool paired, required bool connected}) {
+  // StatusCard's uiText/presentationText only translate strings they already
+  // know, so these go through AppLocalizations here or a translated screen
+  // shows this card in English.
+  Widget _absent(AppLocalizations? l,
+      {required bool paired, required bool connected}) {
+    final seconds = AppState.liveHrMaxAge.inSeconds;
     final (String why, String fix) = !paired
-        ? ('No band is paired.', 'Pair one from Profile to read live beats.')
+        ? (
+            l?.liveHrNotPairedWhy ?? 'No band is paired.',
+            l?.liveHrNotPairedFix ?? 'Pair one from Profile to read live beats.'
+          )
         : !connected
             ? (
-                'Your band is not connected.',
-                'Live beats need an open link — the app connects when you open '
-                    'it with the band in range.'
+                l?.liveHrNotConnectedWhy ?? 'Your band is not connected.',
+                l?.liveHrNotConnectedFix ??
+                    'Live beats need an open link — the app connects when you '
+                        'open it with the band in range.'
               )
             : (
-                'No beat in the last ${AppState.liveHrMaxAge.inSeconds} '
-                    'seconds.',
-                'The band streams while it is on your wrist and the app is '
-                    'open.'
+                l?.liveHrNoRecentBeatWhy(seconds) ??
+                    'No beat in the last $seconds seconds.',
+                l?.liveHrStreamingFix ??
+                    'The band streams while it is on your wrist and the app '
+                        'is open.'
               );
-    return StatusCard('No live reading', why,
+    return StatusCard(l?.liveHrNoReadingTitle ?? 'No live reading', why,
         fix: fix, icon: LucideIcons.heartOff);
   }
 }

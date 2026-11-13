@@ -59,11 +59,10 @@ const List<int> _kSqliteMagic = [
 @visibleForTesting
 int kNoopBackupPageRows = 20000;
 
-/// Plausible unix seconds. A timestamp outside this range is corrupt or
-/// millisecond-scaled, and letting one into the day walk would march it across
-/// decades one day at a time.
-const int _kMinPlausibleTs = 1000000000; // 2001-09-09
-const int _kMaxPlausibleTs = 4102444800; // 2100-01-01
+/// Plausible unix seconds (shared with the CSV path through [NoopIngest]). A
+/// timestamp outside this range is corrupt or millisecond-scaled, and letting
+/// one into the day walk would march it across decades one day at a time.
+const int _kMinPlausibleTs = kNoopMinPlausibleTs;
 
 /// Every table read, and the columns wanted from it. ONE definition: the probe
 /// and the reads both key off this, so a name can no longer be spelled one way
@@ -96,7 +95,7 @@ class NoopBackupImporter {
     }
     Directory? scratch;
     try {
-      final opened = await _repairTruncatedHeader(path);
+      final opened = await repairTruncatedHeader(path);
       scratch = opened.$2;
       final Database src;
       try {
@@ -142,7 +141,8 @@ class NoopBackupImporter {
   /// write (a torn B-tree page, rather than a stale page count) — that surfaces
   /// downstream as [_isCorruptPageError], and [_read] drops just the affected
   /// table rather than the whole import.
-  static Future<(String, Directory?)> _repairTruncatedHeader(
+  @visibleForTesting
+  static Future<(String, Directory?)> repairTruncatedHeader(
     String path,
   ) async {
     final f = await File(path).open();
@@ -176,7 +176,13 @@ class NoopBackupImporter {
     final declaredPages =
         (header[28] << 24) | (header[29] << 16) | (header[30] << 8) | header[31];
     final actualPages = fileLen ~/ pageSize;
-    if (actualPages <= declaredPages) return (path, null); // header agrees
+    // Bytes 18/19 == 2 mark a WAL-mode database. Read-only, without its -wal
+    // and -shm beside it (a backup ships only the main file), SQLite cannot
+    // open it at all: SQLITE_CANTOPEN, "unable to open database file". The
+    // copy is flipped to rollback mode (1/1), which is what
+    // `PRAGMA journal_mode=DELETE` writes; the pages are unchanged.
+    final wal = header[18] == 2 || header[19] == 2;
+    if (actualPages <= declaredPages && !wal) return (path, null); // header agrees
 
     final scratch = await Directory.systemTemp.createTemp('openstrap_noopfix_');
     try {
@@ -184,9 +190,15 @@ class NoopBackupImporter {
       await File(path).copy(repaired); // OS-level copy, not materialised here
       final raf = await File(repaired).open(mode: FileMode.append);
       try {
-        await raf.setPosition(28);
-        final be = ByteData(4)..setUint32(0, actualPages, Endian.big);
-        await raf.writeFrom(be.buffer.asUint8List());
+        if (wal) {
+          await raf.setPosition(18);
+          await raf.writeFrom(const [1, 1]);
+        }
+        if (actualPages > declaredPages) {
+          await raf.setPosition(28);
+          final be = ByteData(4)..setUint32(0, actualPages, Endian.big);
+          await raf.writeFrom(be.buffer.asUint8List());
+        }
       } finally {
         await raf.close();
       }
@@ -298,9 +310,11 @@ class NoopBackupImporter {
       final from = dayStart.millisecondsSinceEpoch ~/ 1000;
       final to = next.millisecondsSinceEpoch ~/ 1000;
 
-      // Order within a day does not matter — [NoopIngest] rebuilds the Substrate
-      // sorted by timestamp — but the DAYS must arrive in ascending order, since
-      // the high-water date is what closes out and derives the previous one.
+      // [NoopIngest] re-sorts by timestamp but keeps rows that share a second in
+      // arrival order, so beats within a second must come in detection order
+      // (the `ts, rowid` order above). The DAYS must also arrive in ascending
+      // order, since the high-water date is what closes out and derives the
+      // previous one.
       await _read(src, tables, columns, ordered, corrupt, 'hrSample', from, to,
           (r) async {
         final ts = _int(r['ts']), v = _int(r['bpm']);
@@ -532,7 +546,7 @@ class NoopBackupImporter {
       try {
         r = await src.rawQuery(
           'SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM $t WHERE ts >= ? AND ts <= ?',
-          [_kMinPlausibleTs, _kMaxPlausibleTs],
+          [_kMinPlausibleTs, noopMaxPlausibleTs()],
         );
       } catch (e) {
         if (!_isCorruptPageError(e)) rethrow;

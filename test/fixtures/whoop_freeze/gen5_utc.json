@@ -2,7 +2,7 @@
  "day_result": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 112,
+   "algo_version": 121,
    "payload_json": {
     "date": "2026-07-13",
     "day_confidence": 0.6,
@@ -148,11 +148,11 @@
        "kind": "DC"
       },
       "confidence": 0.95,
-      "tier": "HIGH",
+      "tier": "RELATIVE",
       "inputs_used": [
        "rr_cleaned"
       ],
-      "note": "Bauer 2006 PRSA DC; needs a long overnight RR record for mortality-grade stability"
+      "note": "Bauer 2006 PRSA DC; relative to own baseline on one device family only"
      },
      "prsa_ac": {
       "value": {
@@ -161,11 +161,11 @@
        "kind": "AC"
       },
       "confidence": 0.95,
-      "tier": "HIGH",
+      "tier": "RELATIVE",
       "inputs_used": [
        "rr_cleaned"
       ],
-      "note": "Bauer 2006 PRSA AC; needs a long overnight RR record for mortality-grade stability"
+      "note": "Bauer 2006 PRSA AC; relative to own baseline on one device family only"
      },
      "readiness_lnrmssd": {
       "value": {
@@ -175,7 +175,7 @@
        "cv_pct": 1.688921,
        "z": -1.056045,
        "swc": 0.033448,
-       "band": "suppressed",
+       "band": "normal",
        "saturation_flag": false
       },
       "confidence": 0.9,
@@ -23017,6 +23017,7 @@
      "resp_rate": 13.51304972588547,
      "skin_temp_z": 3.8092033860986256,
      "skin_temp_adc": 30406.000406834824,
+     "skin_temp_dev_c": 0.11,
      "skin_temp_coverage_frac": 1.0,
      "skin_temp_settled_frac": null,
      "sdnn": 77.77577302925846,
@@ -25075,11 +25076,11 @@
    "readiness": 72.95885235383324,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "04a18b7a1d9c6709f63a2e57f09b9543d50fba673fa34f25eff53f87d5aed316"
+   "payload_sha256": "64bd6e2d3cd9fb8a3762d32513c756dbfe5d33e204538d64f6188eb88b25afff"
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 112,
+   "algo_version": 121,
    "payload_json": {
     "date": "2026-07-14",
     "day_confidence": 0.6,
@@ -25225,11 +25226,11 @@
        "kind": "DC"
       },
       "confidence": 0.95,
-      "tier": "HIGH",
+      "tier": "RELATIVE",
       "inputs_used": [
        "rr_cleaned"
       ],
-      "note": "Bauer 2006 PRSA DC; needs a long overnight RR record for mortality-grade stability"
+      "note": "Bauer 2006 PRSA DC; relative to own baseline on one device family only"
      },
      "prsa_ac": {
       "value": {
@@ -25238,11 +25239,11 @@
        "kind": "AC"
       },
       "confidence": 0.95,
-      "tier": "HIGH",
+      "tier": "RELATIVE",
       "inputs_used": [
        "rr_cleaned"
       ],
-      "note": "Bauer 2006 PRSA AC; needs a long overnight RR record for mortality-grade stability"
+      "note": "Bauer 2006 PRSA AC; relative to own baseline on one device family only"
      },
      "readiness_lnrmssd": {
       "value": {
@@ -47914,6 +47915,7 @@
      "resp_rate": 13.51304972588547,
      "skin_temp_z": 2.581998719140345,
      "skin_temp_adc": 30406.00025889489,
+     "skin_temp_dev_c": 0.11,
      "skin_temp_coverage_frac": 1.0,
      "skin_temp_settled_frac": null,
      "sdnn": 77.77577302925846,
@@ -49475,7 +49477,7 @@
     "naps": {
      "value": [
       {
-       "start": 1784035800,
+       "start": 1784035804,
        "end": 1784038502,
        "duration_min": 45,
        "in_bed_min": 45,
@@ -49507,7 +49509,7 @@
       },
       {
        "is_main": false,
-       "onset_ts": 1784035800,
+       "onset_ts": 1784035804,
        "wake_ts": 1784038502,
        "duration_min": 45,
        "in_bed_min": 45,
@@ -49940,11 +49942,11 @@
    "readiness": 72.95885235383324,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "95d3a74edd5f49f520565b35f64d5835fc799ddfaecfe0dea44bf330934a955a"
+   "payload_sha256": "42d874e0691a2e1f19f3ca870dbf497fd820f6daa556da8bec1cbc7f62b661ca"
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 112,
+   "algo_version": 121,
    "payload_json": {
     "date": "2026-07-15",
     "day_confidence": 0.6,
@@ -50090,11 +50092,11 @@
        "kind": "DC"
       },
       "confidence": 0.95,
-      "tier": "HIGH",
+      "tier": "RELATIVE",
       "inputs_used": [
        "rr_cleaned"
       ],
-      "note": "Bauer 2006 PRSA DC; needs a long overnight RR record for mortality-grade stability"
+      "note": "Bauer 2006 PRSA DC; relative to own baseline on one device family only"
      },
      "prsa_ac": {
       "value": {
@@ -50103,11 +50105,11 @@
        "kind": "AC"
       },
       "confidence": 0.95,
-      "tier": "HIGH",
+      "tier": "RELATIVE",
       "inputs_used": [
        "rr_cleaned"
       ],
-      "note": "Bauer 2006 PRSA AC; needs a long overnight RR record for mortality-grade stability"
+      "note": "Bauer 2006 PRSA AC; relative to own baseline on one device family only"
      },
      "readiness_lnrmssd": {
       "value": {
@@ -71395,6 +71397,7 @@
      "resp_rate": 13.51304972588547,
      "skin_temp_z": 2.083305937349391,
      "skin_temp_adc": 30406.000110954952,
+     "skin_temp_dev_c": 0.1,
      "skin_temp_coverage_frac": 1.0,
      "skin_temp_settled_frac": null,
      "sdnn": 77.77577302925846,
@@ -71433,7 +71436,7 @@
      "trimp_net": null,
      "calories_total": 1595.2893200286808,
      "steps": 17640.0,
-     "dyn_p90": 0.016617360477042792,
+     "dyn_p90": 0.0166173604770428,
      "nap_min": 0.0,
      "hrr_bpm": 16.0
     },
@@ -73227,7 +73230,7 @@
    "readiness": 61.79377627786914,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "fe452b2344a31d1a231891b40d6d563c8cf9b166325c31716e7ed6a29a93e43a"
+   "payload_sha256": "a7d36fabdb957577d3df84059f048e09a85ade8ecce048f891c00de4be9018fd"
   }
  ],
  "metric_series": [
@@ -73689,7 +73692,7 @@
   {
    "date": "2026-07-15",
    "key": "dyn_p90",
-   "value": 0.016617360477042792
+   "value": 0.0166173604770428
   },
   {
    "date": "2026-07-15",
@@ -73865,7 +73868,7 @@
  "metric_series_version": [
   {
    "date": "2026-07-13",
-   "algo_version": 112,
+   "algo_version": 121,
    "source": "band",
    "device_family": "gen5",
    "coverage_devices": "",
@@ -73873,7 +73876,7 @@
   },
   {
    "date": "2026-07-14",
-   "algo_version": 112,
+   "algo_version": 121,
    "source": "band",
    "device_family": "gen5",
    "coverage_devices": "",
@@ -73881,7 +73884,7 @@
   },
   {
    "date": "2026-07-15",
-   "algo_version": 112,
+   "algo_version": 121,
    "source": "band",
    "device_family": "gen5",
    "coverage_devices": "",
@@ -73891,7 +73894,7 @@
  "wake_day_features": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 112,
+   "algo_version": 121,
    "payload_json": {
     "day_id": "2026-07-13",
     "active_min": 90,
@@ -75099,7 +75102,7 @@
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 112,
+   "algo_version": 121,
    "payload_json": {
     "day_id": "2026-07-14",
     "active_min": 239,
@@ -76307,7 +76310,7 @@
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 112,
+   "algo_version": 121,
    "payload_json": {
     "day_id": "2026-07-15",
     "active_min": 40,
@@ -77433,17 +77436,17 @@
    "linked_id": null
   },
   {
-   "id": "nap:1784035800",
+   "id": "nap:1784035804",
    "kind": "nap",
    "day_id": "2026-07-14",
-   "start_ts": 1784035800,
+   "start_ts": 1784035804,
    "end_ts": 1784038502,
-   "detection_start": 1784035800,
+   "detection_start": 1784035804,
    "detection_end": 1784038502,
-   "details_json": "{\"start\":1784035800,\"end\":1784038502,\"duration_min\":45,\"in_bed_min\":45,\"efficiency\":1.0,\"confidence\":0.85}",
+   "details_json": "{\"start\":1784035804,\"end\":1784038502,\"duration_min\":45,\"in_bed_min\":45,\"efficiency\":1.0,\"confidence\":0.85}",
    "status": "confirmed",
    "revision": 0,
-   "linked_id": "2026-07-14:1784035800"
+   "linked_id": "2026-07-14:1784035804"
   },
   {
    "id": "2026-07-15:1784136734",
@@ -77488,10 +77491,10 @@
  "sleep_nap": [
   {
    "day_id": "2026-07-14",
-   "start_ts": 1784035800,
+   "start_ts": 1784035804,
    "end_ts": 1784038502,
    "source": "confirmed",
-   "payload_json": "{\"start\":1784035800,\"end\":1784038502,\"duration_min\":45,\"in_bed_min\":45,\"efficiency\":1.0,\"confidence\":0.85,\"source\":\"confirmed\"}"
+   "payload_json": "{\"start\":1784035804,\"end\":1784038502,\"duration_min\":45,\"in_bed_min\":45,\"efficiency\":1.0,\"confidence\":0.85,\"source\":\"confirmed\"}"
   }
  ],
  "crossday_input": [
@@ -77502,6 +77505,8 @@
    "readiness": 72.95885235383324,
    "resp_rate": 13.51304972588547,
    "skin_temp_z": 3.8092033860986256,
+   "skin_temp_adc": 30406.000406834824,
+   "skin_temp_family": "gen5",
    "trimp": 267.9104825050325,
    "strain": null,
    "steps": 18240.0,
@@ -77712,6 +77717,8 @@
    "readiness": 72.95885235383324,
    "resp_rate": 13.51304972588547,
    "skin_temp_z": 2.581998719140345,
+   "skin_temp_adc": 30406.00025889489,
+   "skin_temp_family": "gen5",
    "trimp": 260.0235516950477,
    "strain": null,
    "steps": 17640.0,
@@ -77922,6 +77929,8 @@
    "readiness": 61.79377627786914,
    "resp_rate": 13.51304972588547,
    "skin_temp_z": 2.083305937349391,
+   "skin_temp_adc": 30406.000110954952,
+   "skin_temp_family": "gen5",
    "trimp": 256.0693413232808,
    "strain": null,
    "steps": 17640.0,

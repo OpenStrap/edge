@@ -17,7 +17,8 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:crypto/crypto.dart' show sha1;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -46,13 +47,17 @@ import '../import/import_container.dart';
 import 'coverage_resolver.dart' show CoverageInterval;
 import 'day_label.dart';
 import 'activity_store.dart';
+import 'attach_copy.dart';
+import 'backup_extras.dart';
 import '../models/activity_suggestion.dart';
 import '../compute/accepted_naps.dart';
 import '../compute/nap_edits.dart' show NapEditKind;
 import '../compute/vendor_sleep.dart' show VendorEpoch, VendorNight;
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
+import '../compute/step_calibration_fit.dart';
 import 'step_calibration.dart';
+import '../sync/reset_gate.dart';
 import 'med_store.dart';
 import 'models.dart';
 import 'nutrition_store.dart';
@@ -212,6 +217,13 @@ List<T> sessionWindowRows<T extends Map<String, Object?>>(List<T> rows) {
 /// widen [derivableSourceSql] and must NOT widen this one.
 const String kPrimaryBandSourceSql = 'source IS NULL';
 
+/// The keyset cursor's start when a restore pages a backup table by rowid.
+/// Below every rowid, not 0: a table keyed on its own INTEGER column has that
+/// column as its rowid, so a row can sit at 0 or below (alarm_schedule's
+/// Monday is weekday 0, and a legacy table can hold a zero counter), and a
+/// cursor that starts at `rowid > 0` never reads it.
+const int _kBeforeEveryRowid = -0x8000000000000000;
+
 class LocalDb {
   static Database? _db;
   static String dbName = 'openstrap.db';
@@ -236,7 +248,19 @@ class LocalDb {
     // object)` — a sustained crash burst (seen in the wild on background event
     // ingest). Reopen whenever the cached handle isn't actually open.
     if (db != null && db.isOpen) return db;
-    return _db = await _openOrRebuild();
+    return _writerOpening ??= _openWriter();
+  }
+
+  static Future<Database>? _writerOpening;
+
+  static Future<Database> _openWriter() async {
+    try {
+      // A reader must never retain a handle to a closed/replaced writer's file.
+      await _retireReader(drainAll: false);
+      return _db = await _openOrRebuild();
+    } finally {
+      _writerOpening = null;
+    }
   }
 
   /// Set when [_openOrRebuild] had to quarantine an unopenable database and
@@ -276,6 +300,8 @@ class LocalDb {
     'cycle_symptom',
     'sleep_override',
     'sleep_nap',
+    // The alarm schedule the user chose; a rebuild re-arms it like a restore.
+    'alarm_schedule',
     // A ring's own hypnogram. Nothing here can re-derive it.
     'vendor_sleep_epoch',
     'workout_suggestions',
@@ -312,6 +338,8 @@ class LocalDb {
     'baselines',
     'step_calibration',
     'step_calibration_day',
+    'live_step_calibration',
+    'live_step_calibration_run',
     'raw_archive',
     'device_coverage',
     // Step windows. Every day's steps are read from here, and the band's live
@@ -400,7 +428,7 @@ class LocalDb {
         // lost. Drop them here; the card is the one surface whose whole job is
         // telling the truth about a data-loss event.
         salvaged = Map.of(
-          await _mergeFromDbFile(
+          await _mergeFromDbFileImpl(
             quarantine,
             only: _salvageTables,
             tolerant: true,
@@ -419,12 +447,175 @@ class LocalDb {
     }
   }
 
-  static Future<void> close() async {
-    if (_db != null) {
-      await _db!.close();
-      _db = null;
+  static Future<void> close() => _withReaderInvalidated(() async {
+    // A cold open may have started before close, even without a screen lease.
+    try {
+      await _writerOpening;
+    } catch (_) {
+      // The opener's caller owns the error. Still close any live handle below.
+    }
+    final db = _db;
+    if (db != null) {
+      await db.close();
+      if (identical(_db, db)) _db = null;
+    }
+  });
+
+  static Database? _reader;
+  static Database? _readerWriter;
+  static Future<Database?>? _readerOpening;
+  static Database? _readerFailedFor;
+  static bool _foreground = false;
+  static int _readerEpoch = 0;
+  static Future<void>? _screenBarrier;
+  static Future<void>? _readerClosing;
+  static final _readLeases = <Completer<void>>{};
+  static final _readerLeases = <Completer<void>>{};
+
+  /// Bare acquisition for diagnostics. Screen queries use [withReadExecutor]
+  /// so teardown can wait across all awaits in a read.
+  static Future<Database> readExecutor() async {
+    while (_screenBarrier != null) {
+      await _screenBarrier;
+    }
+    return _acquireReadExecutor();
+  }
+
+  static Future<Database> _acquireReadExecutor() async {
+    final writer = await (_writerOpening ?? instance);
+    // Includes migrations, repair and any rebuild salvage. Existing leases may
+    // fall back to this writer while a store change waits for them to finish.
+    if (!_foreground || _screenBarrier != null) return writer;
+    final current = _reader;
+    if (current != null && current.isOpen && identical(_readerWriter, writer)) {
+      return current;
+    }
+    if (identical(_readerFailedFor, writer)) return writer;
+    final epoch = _readerEpoch;
+    final opening = _readerOpening ??= _openReader(writer, epoch);
+    final opened = await opening;
+    if (identical(_readerOpening, opening)) _readerOpening = null;
+    return _foreground && epoch == _readerEpoch &&
+            identical(_db, writer) && identical(opened, _reader)
+        ? opened ?? writer
+        : writer;
+  }
+
+  static Future<Database?> _openReader(Database writer, int epoch) async {
+    Database? candidate;
+    try {
+      candidate = await (debugReaderOpener?.call(writer.path) ??
+          openDatabase(writer.path, singleInstance: false));
+      await candidate.execute('PRAGMA query_only=ON');
+      // Read, never change, journal mode. A rollback-journal connection cannot
+      // provide the concurrent committed reads this connection exists for.
+      final mode = await candidate.rawQuery('PRAGMA journal_mode');
+      if (mode.isEmpty || '${mode.first.values.first}'.toLowerCase() != 'wal') {
+        throw StateError('reader requires WAL');
+      }
+      if (!_foreground || epoch != _readerEpoch ||
+          !identical(_db, writer) || !writer.isOpen) {
+        await candidate.close();
+        return null;
+      }
+      _reader = candidate;
+      _readerWriter = writer;
+      return candidate;
+    } catch (_) {
+      if (candidate != null) {
+        try { await candidate.close(); } catch (_) {}
+      }
+      if (epoch == _readerEpoch && identical(_db, writer)) {
+        _readerFailedFor = writer;
+      }
+      return null;
     }
   }
+
+  static Future<T> withReadExecutor<T>(
+    Future<T> Function(DatabaseExecutor db) read,
+  ) async {
+    while (_screenBarrier != null) {
+      await _screenBarrier;
+    }
+    // Register BEFORE acquisition: close also drains a read awaiting its opener
+    // and keeps the writer alive if that opener must fall back after invalidation.
+    final lease = Completer<void>();
+    _readLeases.add(lease);
+    try {
+      var db = await _acquireReadExecutor();
+      if (!db.isOpen || (!identical(db, _db) && !identical(db, _reader))) {
+        db = await instance;
+      }
+      if (identical(db, _reader)) _readerLeases.add(lease);
+      return await read(db);
+    } finally {
+      _readerLeases.remove(lease);
+      _readLeases.remove(lease);
+      lease.complete();
+    }
+  }
+
+  static Future<void> setForeground(bool foreground) {
+    _foreground = foreground;
+    return foreground ? Future<void>.value() : _retireReader();
+  }
+
+  static Future<void> _retireReader({bool drainAll = true}) {
+    _readerEpoch++;
+    _readerFailedFor = null;
+    final reader = _reader;
+    final opening = _readerOpening;
+    final previousClose = _readerClosing;
+    _reader = null;
+    _readerWriter = null;
+    final readerLeases = _readerLeases.toList();
+    final allLeases = drainAll ? _readLeases.toList() : readerLeases;
+    // Track handle retirement separately from acquisition leases: a cold
+    // writer open can itself be awaited by a lease that close is draining.
+    final closing = () async {
+      await previousClose;
+      await Future.wait(readerLeases.map((lease) => lease.future));
+      await opening;
+      if (identical(_readerOpening, opening)) _readerOpening = null;
+      // Read-only handle: Android may already have closed it natively. A failed
+      // close must not block a store change or surface from setForeground.
+      if (reader != null) {
+        try { await reader.close(); } catch (_) {}
+      }
+    }();
+    _readerClosing = closing;
+    return () async {
+      try {
+        await Future.wait([
+          closing,
+          ...allLeases.map((lease) => lease.future),
+        ]);
+      } finally {
+        if (identical(_readerClosing, closing)) _readerClosing = null;
+      }
+    }();
+  }
+
+  /// Block new screen leases while a reset/merge/close changes the store.
+  /// Existing acquisitions finish on the writer if their reader open goes stale.
+  static Future<T> _withReaderInvalidated<T>(Future<T> Function() action) async {
+    final previous = _screenBarrier;
+    final done = Completer<void>();
+    _screenBarrier = done.future;
+    try {
+      if (previous != null) await previous;
+      await _retireReader();
+      return await action();
+    } finally {
+      if (identical(_screenBarrier, done.future)) _screenBarrier = null;
+      done.complete();
+    }
+  }
+
+  /// Replaces only the second connection's open, never the writer's open.
+  @visibleForTesting
+  static Future<Database> Function(String path)? debugReaderOpener;
 
   /// Runs a write against a guaranteed-open handle, reopening ONCE if the
   /// cached handle was closed under us mid-write.
@@ -528,6 +719,9 @@ class LocalDb {
     }
   }
 
+  /// The most the -wal keeps once a checkpoint has emptied it. See [_open].
+  static const int walSizeLimitBytes = 32 << 20;
+
   static Future<Database> _open() async {
     final dir = await getDatabasesPath();
     final path = p.join(dir, dbName);
@@ -556,6 +750,18 @@ class LocalDb {
         } catch (_) {
           /* keep the default journal — this is a perf tweak, not a requirement */
         }
+        // DISK. A checkpoint copies the -wal into the database and the next
+        // write starts over at its head, but the FILE keeps its high-water
+        // mark. One big transaction (a VACUUM writes every page through it, a
+        // backlog drain) left a -wal as large as the database for good. With
+        // a limit the file is truncated back each time it restarts, on this
+        // connection and on an existing install's oversized -wal alike.
+        // Per-connection, and it returns a row: rawQuery, never fatal.
+        try {
+          await db.rawQuery('PRAGMA journal_size_limit=$walSizeLimitBytes');
+        } catch (_) {
+          /* non-fatal */
+        }
         try {
           await db.execute('PRAGMA synchronous=NORMAL');
           // ~40 MB page cache (negative = KiB) so hot b-tree pages stay resident
@@ -571,7 +777,7 @@ class LocalDb {
         await db.execute('CREATE INDEX idx_samples_ts ON samples(ts)');
         await _createEvents(db);
         await _createBandSignals(db);
-        await _createRawArchive(db);
+        await _ensureRawArchiveStore(db);
         await _createDerived(db);
         await _createDayResult(db);
         await _createUserTables(db);
@@ -769,7 +975,7 @@ class LocalDb {
           // the thinning in [thinRawArchiveBefore]) so a future firmware's
           // records can be re-decoded. Also add `millivolts` to band_battery
           // for the battery-health series. Both additive.
-          await _createRawArchive(db);
+          await _createLegacyRawArchive(db);
           await _ensureBandBatteryMillivolts(db);
         }
         if (oldV < 22) {
@@ -881,7 +1087,7 @@ class LocalDb {
               'ALTER TABLE raw_archive RENAME TO _raw_archive_old',
             );
             await db.execute('DROP INDEX IF EXISTS idx_raw_archive_captured');
-            await _createRawArchive(db);
+            await _createLegacyRawArchive(db);
             await db.execute(
               'INSERT OR IGNORE INTO raw_archive '
               '(hex, counter, packet_type, rec_ts, captured_at, reason) '
@@ -890,7 +1096,7 @@ class LocalDb {
             );
             await db.execute('DROP TABLE _raw_archive_old');
           } else {
-            await _createRawArchive(db);
+            await _createLegacyRawArchive(db);
           }
         }
         if (oldV < 33) {
@@ -1019,11 +1225,11 @@ class LocalDb {
           // them in the same pass; and derivation has to see them, which means
           // landing before the next derive, not after it.
           //
-          // Bounded by `redrivableArchiveReasons` precisely so it is not the
+          // Bounded by `_ladderRedriveReasons` precisely so it is not the
           // heavy pass the v42 rung refuses to do here: it is 1,035 short
           // frames on the largest real export, not the 492 MB of v20 hex
           // sitting beside them.
-          await redriveArchivedRecords(db);
+          await redriveArchivedRecords(db, reasons: _ladderRedriveReasons);
         }
         if (oldV < 45) {
           // `band_battery.charge_units` — ADD COLUMN, idempotent, a no-op on a
@@ -1231,6 +1437,15 @@ class LocalDb {
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
+        // This phone's own database only: [_repairOpenSchema] also opens
+        // export copies, where it would write a setting the user never chose.
+        // Best effort — a failure must not get the database quarantined; the
+        // next open retries it.
+        try {
+          await SubstrateArchive.keepLegacyWindowOnce(db);
+        } catch (e) {
+          debugPrint('[db] archive window check skipped: $e');
+        }
       },
       version: schemaVersion,
     );
@@ -1248,9 +1463,11 @@ class LocalDb {
     await _createBandSignals(db);
     await _ensureBandBatteryMillivolts(db);
     await _ensureBandBatteryChargeUnits(db);
-    await _createRawArchive(db);
+    await _ensureRawArchiveStore(db);
     await _createDerived(db);
     await _createDayResult(db);
+    await _ensureDayResultImportedColumn(db);
+    await _createDeriveFingerprint(db);
     await _createUserTables(db);
     await _createSyncState(db);
     await _createSyncCursor(db);
@@ -1333,6 +1550,7 @@ class LocalDb {
     await _addColumnIfMissing(db, 'device', 'battery_pct', 'INTEGER');
     await _addColumnIfMissing(db, 'device', 'battery_ts', 'INTEGER');
     await _createStepCalibration(db);
+    await _ensureLiveStepCalibrationCounterVersion(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
@@ -1426,7 +1644,8 @@ class LocalDb {
   }
 
   /// The column names [table] currently has (empty if the table is absent).
-  static Future<Set<String>> _columnsOf(Database db, String table) async {
+  static Future<Set<String>> _columnsOf(
+      DatabaseExecutor db, String table) async {
     final info = await db.rawQuery('PRAGMA table_info($table)');
     return {
       for (final c in info)
@@ -1693,6 +1912,52 @@ class LocalDb {
       'note': note,
       'updated_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Flip one symptom on [date] against what is STORED, inside one
+  /// transaction. The screen used to toggle against its last loaded snapshot
+  /// and hand the whole list to [putCycleSymptoms]; a second chip tapped before
+  /// the reload landed was computed from the same snapshot, and its REPLACE
+  /// wiped the first. It also passed no note, so every tap erased the day's
+  /// note. Returns the list now stored.
+  static Future<List<String>> toggleCycleSymptom(
+    String date,
+    String symptom,
+  ) async {
+    final db = await instance;
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'cycle_symptom',
+        columns: ['symptoms_json', 'note'],
+        where: 'date = ?',
+        whereArgs: [date],
+        limit: 1,
+      );
+      final row = rows.isEmpty ? null : rows.first;
+      final now = <String>[];
+      final raw = row?['symptoms_json'];
+      if (raw is String) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is List) now.addAll(decoded.whereType<String>());
+        } catch (_) {
+          // A corrupt list is treated as empty rather than blocking the tap.
+        }
+      }
+      final note = row?['note'] as String?;
+      now.contains(symptom) ? now.remove(symptom) : now.add(symptom);
+      if (now.isEmpty && (note == null || note.isEmpty)) {
+        await txn.delete('cycle_symptom', where: 'date = ?', whereArgs: [date]);
+      } else {
+        await txn.insert('cycle_symptom', {
+          'date': date,
+          'symptoms_json': jsonEncode(now),
+          'note': note,
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      return now;
+    });
   }
 
   /// All symptom rows (newest first): {date, symptoms_json, note}.
@@ -2053,6 +2318,82 @@ class LocalDb {
         PRIMARY KEY (day, device_family, wearing)
       )
     ''');
+    // Live 100 Hz pedometer calibration — a DIFFERENT model from
+    // `step_calibration*` above and deliberately in its own tables.
+    //
+    // That pair calibrates the gen5 ON-CHIP counter: a multiplicative factor on
+    // raw ticks, per (device family, wearing). These calibrate the LIVE 100 Hz
+    // pedometer `pedometer()` feeds: a scale per ACTIVITY family (slow / brisk
+    // / jog against the wearer's own count, everyday against the phone), with
+    // its own version namespace. Sharing a table would let one model overwrite
+    // the other's stored value — the same reasoning that keeps
+    // `kLiveStepGainVersion` away from `kStepCalibrationVersion`.
+    //
+    // `live_step_calibration_run` keeps the individual runs, not just the fit,
+    // because re-calibrating is meant to REFINE: the estimator is a ratio of
+    // sums, so a stored history is what lets a second walk outweigh the first
+    // by the steps it carried. Same shape as `step_calibration_day`.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS live_step_calibration (
+        category   TEXT NOT NULL,
+        gain       REAL NOT NULL,
+        n_runs     INTEGER NOT NULL,
+        version    INTEGER NOT NULL,
+        updated_ts INTEGER NOT NULL,
+        PRIMARY KEY (category)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS live_step_calibration_run (
+        category       TEXT NOT NULL,
+        run_ts         INTEGER NOT NULL,
+        reference      TEXT NOT NULL,
+        expected_steps INTEGER NOT NULL,
+        raw_steps      INTEGER NOT NULL,
+        cadence_spm    REAL NOT NULL,
+        -- Nullable on purpose: a routine whose caller never measured these
+        -- stores NULL rather than a fabricated 0.0, which would be
+        -- indistinguishable from a real still reading.
+        p2p_g          REAL,
+        confidence     REAL,
+        -- `kLiveStepCounterVersion` that produced raw_steps. NULL = a row
+        -- banked before runs were tagged, i.e. the original counter.
+        counter_version INTEGER,
+        PRIMARY KEY (category, run_ts)
+      )
+    ''');
+  }
+
+  /// Tag column for calibration runs, and drop the runs and profiles the
+  /// current step counter did not produce.
+  ///
+  /// On the every-open repair path rather than behind a schema version: the
+  /// column is additive, and the clear has to run again after a restore, which
+  /// can merge an older backup's untagged runs back in. Both tables hold a
+  /// handful of rows, so this is cheap.
+  ///
+  /// Cleared rather than kept-and-ignored because a stale run is not evidence
+  /// for anything this build computes, and leaving it would make the
+  /// calibration screen count routines that no longer contribute to the fit.
+  static Future<void> _ensureLiveStepCalibrationCounterVersion(
+    Database db,
+  ) async {
+    await _addColumnIfMissing(
+      db,
+      'live_step_calibration_run',
+      'counter_version',
+      'INTEGER',
+    );
+    await db.delete(
+      'live_step_calibration_run',
+      where: 'counter_version IS NULL OR counter_version != ?',
+      whereArgs: [kLiveStepCounterVersion],
+    );
+    await db.delete(
+      'live_step_calibration',
+      where: 'version IS NULL OR version != ?',
+      whereArgs: [kLiveStepGainVersion],
+    );
   }
 
   /// Idempotent by key. NULL reference_steps = the phone did not cover the day.
@@ -2124,12 +2465,14 @@ class LocalDb {
       'UPDATE device SET wearing = ?, wearing_set_ts = ? '
       'WHERE id = ? AND wearing_set_ts IS NULL';
 
+  /// [executor] includes adoption in the caller's pairing transaction.
   static Future<int> adoptDeviceWearing(
     int wearing,
     int setTs, [
     String id = kPrimaryDeviceId,
+    DatabaseExecutor? executor,
   ]) async {
-    final db = await instance;
+    final db = executor ?? await instance;
     return db.rawUpdate(_adoptWearingSql, [wearing, setTs, id]);
   }
 
@@ -2176,6 +2519,222 @@ class LocalDb {
         'wearing': p.wearing,
         'factor': p.factor,
         'n_days': p.nDays,
+        'version': p.version,
+        'updated_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  // ── live 100 Hz pedometer calibration (per activity family) ───────────────
+
+  /// Admitted calibration runs, newest first. Read back into the pure fit; the
+  /// stored rows are the evidence the gain is a ratio of sums over.
+  static Future<List<StepCalibrationRun>> liveStepCalibrationRuns({
+    DatabaseExecutor? exec,
+  }) async {
+    final db = exec ?? await instance;
+    // Only runs the CURRENT counter scored. The open-time clear removes the
+    // rest, but a restore can merge untagged rows in after that ran, and a
+    // refit in between must not read them. See [kLiveStepCounterVersion].
+    final rows = await db.query(
+      'live_step_calibration_run',
+      where: 'counter_version = ?',
+      whereArgs: [kLiveStepCounterVersion],
+      orderBy: 'run_ts DESC',
+    );
+    final out = <StepCalibrationRun>[];
+    for (final r in rows) {
+      final category = StepCategory.parse(r['category']);
+      // A row whose category or reference this build does not know is SKIPPED,
+      // not guessed: attaching a run to the wrong family would corrupt that
+      // family's fit with another one's evidence.
+      if (category == null) continue;
+      final reference = switch (r['reference']) {
+        'wearerCount' => StepReference.wearerCount,
+        'phonePedometer' => StepReference.phonePedometer,
+        _ => null,
+      };
+      if (reference == null) continue;
+      out.add(StepCalibrationRun(
+        category: category,
+        reference: reference,
+        expectedSteps: (r['expected_steps'] as num?)?.toInt() ?? 0,
+        rawSteps: (r['raw_steps'] as num?)?.toInt() ?? 0,
+        cadenceSpm: (r['cadence_spm'] as num?)?.toDouble() ?? 0,
+        // NULL PASSES THROUGH AS NULL. These two columns are nullable precisely
+        // so a routine whose caller never measured them stores an ABSENCE — and
+        // a `?? 0` here would turn that absence back into a real still reading at
+        // the bottom of the scale, which is the fabrication the nullable column
+        // exists to prevent. `cadence_spm` above keeps its `?? 0` because it is
+        // NOT NULL and 0 there means "no cadence measurable", not a measurement.
+        peakToPeakG: (r['p2p_g'] as num?)?.toDouble(),
+        confidence: (r['confidence'] as num?)?.toDouble(),
+      ));
+    }
+    return out;
+  }
+
+  /// Bank one run. The caller must have admitted it first — a refused run is a
+  /// claim about the routine, not evidence, and storing it would let it weigh on
+  /// every later refit.
+  ///
+  /// Idempotent by (category, run_ts): re-banking the same routine replaces its
+  /// row rather than counting it twice.
+  static Future<void> putLiveStepCalibrationRun(
+    StepCalibrationRun r, {
+    required int runTs,
+    DatabaseExecutor? exec,
+  }) async {
+    final db = exec ?? await instance;
+    await db.insert(
+      'live_step_calibration_run',
+      {
+        'category': r.category.key,
+        'run_ts': runTs,
+        'reference': switch (r.reference) {
+          StepReference.wearerCount => 'wearerCount',
+          StepReference.phonePedometer => 'phonePedometer',
+        },
+        'expected_steps': r.expectedSteps,
+        'raw_steps': r.rawSteps,
+        'cadence_spm': r.cadenceSpm,
+        'p2p_g': r.peakToPeakG,
+        'confidence': r.confidence,
+        'counter_version': kLiveStepCounterVersion,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Bank one accepted calibration run and refit the family it belongs to.
+  ///
+  /// ONE call from the calibration screen, because the two writes must not be
+  /// performed by hand in two places: a run stored without the profile it
+  /// implies — or the reverse — leaves the app correcting with a gain that does
+  /// not match the evidence that produced it, and nothing downstream could tell.
+  ///
+  /// The caller must clear [AppState.invalidateLiveStepCalibration] afterwards,
+  /// or a walk already in progress would bank with the previous gain.
+  ///
+  /// Returns the refitted profile, so the screen can show the wearer the number
+  /// their routine just produced instead of a generic acknowledgement.
+  static Future<LiveStepGainProfile> bankLiveStepCalibrationRun(
+    StepCalibrationRun run, {
+    required int runTs,
+    DateTime? now,
+  }) {
+    // SERIALISED, because two routines for the same category banking at once can
+    // each read a different history snapshot and write their profiles in the
+    // opposite order — leaving the older result in place while the newer run is
+    // already durable. One lock rather than one per category: a save is three
+    // writes and the contention case is a user tapping two routines, so the
+    // simpler invariant is worth more than the parallelism.
+    // ONE transaction: a run that is durable without the profile it implies
+    // (the refit read or the profile write failing after the insert) would be
+    // reported to the wearer as a failed save while later fits quietly used it.
+    final chained = _liveStepGainLock.then((_) async {
+      final db = await instance;
+      return db.transaction((txn) async {
+        await putLiveStepCalibrationRun(run, runTs: runTs, exec: txn);
+        return refitLiveStepGain(run.category, now: now, exec: txn);
+      });
+    });
+    // The chain must survive this save's own failure, or one bad routine would
+    // block every later one.
+    _liveStepGainLock = chained.then((_) {}, onError: (_) {});
+    return chained;
+  }
+
+  /// Serialises calibration saves — see [bankLiveStepCalibrationRun].
+  static Future<void> _liveStepGainLock = Future<void>.value();
+
+  /// Recompute and store one family's gain from every admitted run on record.
+  ///
+  /// Separate from the banking call so a torn state is REPAIRABLE: if a save
+  /// ever leaves a run durable without the profile it implies — a process kill
+  /// between the two writes, a failed refit — running this again derives the
+  /// right answer from the rows, because both sides are idempotent by key and
+  /// the fit is a pure function of the stored evidence.
+  static Future<LiveStepGainProfile> refitLiveStepGain(
+    StepCategory category, {
+    DateTime? now,
+    DatabaseExecutor? exec,
+  }) async {
+    final rows = await liveStepCalibrationRuns(exec: exec);
+    final profile = estimateLiveStepGain(
+      category,
+      rows,
+      now: now ?? DateTime.now(),
+    );
+    await putLiveStepGainProfile(profile, exec: exec);
+    return profile;
+  }
+
+  /// Refit every family that has stored runs. A restore merges the backup's
+  /// runs into this phone's and its profile rows over this phone's, so neither
+  /// side's stored gain describes the combined evidence until this runs.
+  static Future<void> refitAllLiveStepGains({DateTime? now}) {
+    final chained = _liveStepGainLock.then((_) async {
+      final db = await instance;
+      await db.transaction((txn) async {
+        final runs = await liveStepCalibrationRuns(exec: txn);
+        final categories = {for (final r in runs) r.category};
+        for (final c in categories) {
+          await putLiveStepGainProfile(
+            estimateLiveStepGain(c, runs, now: now ?? DateTime.now()),
+            exec: txn,
+          );
+        }
+      });
+    });
+    _liveStepGainLock = chained.then((_) {}, onError: (_) {});
+    return chained;
+  }
+
+  /// The stored gain for one family, or null when none was fitted or the stored
+  /// version is not this code's. Null means "behave exactly as before" — never
+  /// a fabricated 1.0 that hides a mismatch.
+  static Future<LiveStepGainProfile?> liveStepGainProfile(
+    StepCategory category,
+  ) async {
+    final db = await instance;
+    final rows = await db.query(
+      'live_step_calibration',
+      where: 'category = ?',
+      whereArgs: [category.key],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    if ((row['version'] as num?)?.toInt() != kLiveStepGainVersion) return null;
+    final gain = (row['gain'] as num?)?.toDouble();
+    // The row's own clamp is re-checked here: a hand-edited or restored row must
+    // not be able to present a gain the fit would never have produced.
+    if (gain == null || !gain.isFinite) return null;
+    if (gain < gainFloor(category) || gain > gainCeiling(category)) return null;
+    return LiveStepGainProfile(
+      version: kLiveStepGainVersion,
+      category: category,
+      gain: gain,
+      nRuns: (row['n_runs'] as num?)?.toInt() ?? 0,
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(
+        ((row['updated_ts'] as num?)?.toInt() ?? 0) * 1000,
+      ),
+    );
+  }
+
+  static Future<void> putLiveStepGainProfile(
+    LiveStepGainProfile p, {
+    DatabaseExecutor? exec,
+  }) async {
+    final db = exec ?? await instance;
+    await db.insert(
+      'live_step_calibration',
+      {
+        'category': p.category.key,
+        'gain': p.gain,
+        'n_runs': p.nRuns,
         'version': p.version,
         'updated_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
       },
@@ -2393,11 +2952,40 @@ class LocalDb {
   /// of the device's that the new ones overlap, so the two never stack. With
   /// [wholeNights] (a band that only ever sends whole nights) the overlapped
   /// stored night goes entire, its epochs outside the new ones included.
+  ///
+  /// With [resetGeneration] (a sensor session's writes) this runs on the
+  /// commit gate and is refused there once a "delete everything" has started
+  /// since, exactly as [commitSyncBatch] is: [wipeAll] is on the same gate, so
+  /// nothing checked before the reset can land after the wipe.
   static Future<void> putVendorSleepEpochs(
     List<VendorEpoch> epochs, {
     required String deviceId,
     required String source,
     bool wholeNights = false,
+    int? resetGeneration,
+  }) {
+    if (resetGeneration == null) {
+      return _putVendorSleepEpochs(epochs,
+          deviceId: deviceId, source: source, wholeNights: wholeNights);
+    }
+    return _withCommitGate(() {
+      _refuseAfterReset(resetGeneration);
+      return _putVendorSleepEpochs(epochs,
+          deviceId: deviceId, source: source, wholeNights: wholeNights);
+    });
+  }
+
+  static void _refuseAfterReset(int resetGeneration) {
+    if (ResetGate.changedSince(resetGeneration)) {
+      throw StateError('data reset in progress');
+    }
+  }
+
+  static Future<void> _putVendorSleepEpochs(
+    List<VendorEpoch> epochs, {
+    required String deviceId,
+    required String source,
+    required bool wholeNights,
   }) async {
     if (epochs.isEmpty) return;
     final sorted = [...epochs]..sort((a, b) => a.startSec.compareTo(b.startSec));
@@ -2734,6 +3322,7 @@ class LocalDb {
     if (n > 0) deviceRowChanged.add(id);
   }
 
+  /// [executor] includes the upsert in the caller's persistence transaction.
   static Future<void> upsertDevice({
     String id = kPrimaryDeviceId,
     String? adapterId,
@@ -2741,8 +3330,17 @@ class LocalDb {
     String? label,
     String? tier,
     bool clearAdapterId = false,
+    DatabaseExecutor? executor,
   }) async {
-    final db = await instance;
+    if (executor == null) {
+      final db = await instance;
+      // A failed UPDATE must not leave the initial INSERT behind.
+      await db.transaction((txn) => upsertDevice(id: id, adapterId: adapterId,
+          remoteId: remoteId, label: label, tier: tier,
+          clearAdapterId: clearAdapterId, executor: txn));
+      return;
+    }
+    final db = executor;
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     await db.insert('device', {
       'id': id,
@@ -2800,9 +3398,27 @@ class LocalDb {
   /// Forget one device. The MEASUREMENTS it wrote are untouched — "this
   /// removes the source, not the data", which is what the forget dialog
   /// promises and what `decoded_*` keeping its `device_id` makes possible.
+  ///
+  /// Its `signal_priority` rows go with it, in the same transaction. The
+  /// resolver's band-day filter drops a paired non-derivable device by its
+  /// adapter, and a forgotten id has no row to read an adapter from, so a
+  /// surviving user-set rank would make the forgotten device a candidate
+  /// again: it would own every window its `device_coverage` spans, masking
+  /// the band's HR/RR there while its own rows never load on a band day.
+  /// The primary slot keeps its rows — it is refilled by whichever band
+  /// pairs next and is always a candidate anyway.
   static Future<void> deleteDevice([String id = kPrimaryDeviceId]) async {
     final db = await instance;
-    await db.delete('device', where: 'id = ?', whereArgs: [id]);
+    await db.transaction((txn) async {
+      await txn.delete('device', where: 'id = ?', whereArgs: [id]);
+      if (id != kPrimaryDeviceId) {
+        await txn.delete(
+          'signal_priority',
+          where: 'device_id = ?',
+          whereArgs: [id],
+        );
+      }
+    });
   }
 
   // ── OBSERVATIONS (vendor-computed / typed-in / imported scalars) ───────────
@@ -2884,10 +3500,27 @@ class LocalDb {
   /// There is deliberately NO reader here yet. Nothing writes observations
   /// either: the adapter seam that will is phase 4, and wiring an existing
   /// importer into this table today would move numbers users already see.
+  ///
+  /// [resetGeneration]: as for [putVendorSleepEpochs], on the commit gate.
   static Future<int> putObservations(
     List<Observation> rows, {
     String deviceId = kPrimaryDeviceId,
     Map<String, String> cursors = const {},
+    int? resetGeneration,
+  }) {
+    if (resetGeneration == null) {
+      return _putObservations(rows, deviceId: deviceId, cursors: cursors);
+    }
+    return _withCommitGate(() {
+      _refuseAfterReset(resetGeneration);
+      return _putObservations(rows, deviceId: deviceId, cursors: cursors);
+    });
+  }
+
+  static Future<int> _putObservations(
+    List<Observation> rows, {
+    required String deviceId,
+    required Map<String, String> cursors,
   }) async {
     if (rows.isEmpty && cursors.isEmpty) return 0;
     final db = await instance;
@@ -3093,6 +3726,41 @@ class LocalDb {
         where: 'source IN ($marks)',
         whereArgs: [...sources],
       );
+    });
+  }
+
+  /// Drop every imported workout that starts inside [[startSec], [endSec]]
+  /// but whose uuid is not in [present], AND its route, like
+  /// [deleteImportedWorkout]. Returns how many went.
+  ///
+  /// The window is the one the store was just read over: a uuid it no longer
+  /// returns there was deleted in the health app, and the upsert alone would
+  /// keep listing it (and counting it toward the week) forever. Rows outside
+  /// the window are left alone, since the read says nothing about them.
+  static Future<int> deleteImportedWorkoutsMissing(
+    int startSec,
+    int endSec,
+    Set<String> present,
+  ) async {
+    final db = await instance;
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'imported_workout',
+        columns: ['uuid'],
+        where: 'start_ts >= ? AND start_ts <= ?',
+        whereArgs: [startSec, endSec],
+      );
+      final gone = [
+        for (final r in rows)
+          if (!present.contains(r['uuid'])) r['uuid'] as String,
+      ];
+      for (final u in gone) {
+        await txn.delete('imported_workout',
+            where: 'uuid = ?', whereArgs: [u]);
+        await txn.delete('workout_route',
+            where: 'session_id = ?', whereArgs: [u]);
+      }
+      return gone.length;
     });
   }
 
@@ -3677,6 +4345,27 @@ class LocalDb {
     return (r.first['s'] as num?)?.toInt() ?? 0;
   }
 
+  /// [day]'s banked phone windows, so a re-sync can keep the ones for an hour
+  /// the sensor no longer covers (see `PhonePedometer.syncDay`).
+  static Future<List<({int startTs, int endTs, int steps})>>
+      phoneCoverageForDay(String day) async {
+    final db = await instance;
+    final rows = await db.query(
+      'live_coverage',
+      columns: ['start_ts', 'end_ts', 'steps'],
+      where: 'day = ? AND source = ?',
+      whereArgs: [day, kStepSourcePhone],
+    );
+    return [
+      for (final r in rows)
+        (
+          startTs: (r['start_ts'] as num).toInt(),
+          endTs: (r['end_ts'] as num).toInt(),
+          steps: (r['steps'] as num).toInt(),
+        ),
+    ];
+  }
+
   /// Drop every phone-sourced coverage row (the user turned phone steps off).
   /// Band rows are untouched, so days fall back to the band count.
   static Future<int> clearPhoneCoverage() async {
@@ -3875,6 +4564,28 @@ class LocalDb {
     return v == null ? null : int.tryParse(v);
   }
 
+  /// Whether the raw prune has already deleted [day]'s decoded recordings:
+  /// the whole day lies before the [kDecodedPrunedBeforeCursor] cut, which the
+  /// prune only ever sets at a local midnight (a day straddling it is not). False when nothing has been
+  /// pruned yet, so "no recordings" on a fresh install or an unworn night is
+  /// not mistaken for "deleted", and false for a day that was imported.
+  static Future<bool> decodedPrunedFor(String day) async {
+    final cut = await getCursorInt(kDecodedPrunedBeforeCursor);
+    final end = localDayEndSec(day);
+    if (cut == null || end == null || end > cut) return false;
+    // An imported day sits before the cut without ever having had recordings
+    // here, so there was nothing for the prune to remove.
+    return !(await importedDates()).contains(day);
+  }
+
+  /// The primary device's durable record frontier (`rec_ts_hw`), or null when
+  /// no record has been banked. Builds before the commit guard could persist
+  /// '0' from a record-less commit, so a non-positive value reads as unset.
+  static Future<int?> getRecordFrontier() async {
+    final v = await getCursorInt('rec_ts_hw');
+    return (v == null || v <= 0) ? null : v;
+  }
+
   /// Read a cursor int through a specific executor (used inside a transaction so
   /// the read shares the open txn instead of contending on the global handle).
   static Future<int?> _cursorIntVia(DatabaseExecutor ex, String name) async {
@@ -3918,6 +4629,11 @@ class LocalDb {
   /// complete night, so the Today hero + recovery story stop drifting through
   /// the day. Day-tagged so it survives restarts and is ignored on a new day.
   static const String kFrozenHeadlineCursor = 'frozen_headline';
+
+  /// Cursor holding the highest `rec_ts` cutoff the raw prune has applied.
+  /// Only ever raised; the derive engine refuses to re-derive a day whose
+  /// window reaches below it.
+  static const String kDecodedPrunedBeforeCursor = 'decoded_pruned_before';
 
   /// The pinned morning readiness headline (day + value), or null if unset /
   /// unparseable. The `day` must be compared to today's label by the caller — a
@@ -4135,6 +4851,12 @@ class LocalDb {
     // the host supplies it; a signal absent from the map defaults to
     // 2*kBucket (120s) inside [_extendCoverageVia].
     Map<String, int>? coverageToleranceSec,
+    // [ResetGate.generation] when the writing session began. Checked inside
+    // the commit gate, where it cannot be raced: a batch from a session that
+    // started before a "delete everything" is refused even once the reset has
+    // finished and the gate is down again. Null checks only that no reset is
+    // running right now.
+    int? resetGeneration,
   }) =>
       _withCommitGate(() => _commitSyncBatchLocked(
             raws,
@@ -4148,6 +4870,7 @@ class LocalDb {
             deviceFamily: deviceFamily,
             deviceId: deviceId,
             coverageToleranceSec: coverageToleranceSec,
+            resetGeneration: resetGeneration,
           ));
 
   static Future<void> _commitSyncBatchLocked(
@@ -4168,7 +4891,18 @@ class LocalDb {
     // WHICH PHYSICAL DEVICE these rows belong to (see [kPrimaryDeviceId]).
     String deviceId = kPrimaryDeviceId,
     Map<String, int>? coverageToleranceSec,
+    int? resetGeneration,
   }) async {
+    // A batch queued on the gate before "delete everything" started reaches
+    // here only after the wipe ([wipeAll] runs on the same gate). Every
+    // caller re-checks ResetGate before calling, but this one runs LATER than
+    // any of those checks, so it is the one that cannot be raced. Thrown, so
+    // the caller keeps its buffer and never ACKs.
+    if (resetGeneration == null
+        ? ResetGate.active
+        : ResetGate.changedSince(resetGeneration)) {
+      throw StateError('data reset in progress');
+    }
     // NEUTRAL ROWS BELONG TO A NON-PRIMARY DEVICE. "" is the primary band
     // permanently (see kPrimaryDeviceId); a neutral-sample writer is by
     // definition a band with no framed record, which the primary is not.
@@ -4294,15 +5028,19 @@ class LocalDb {
         // aside BEFORE the caller writes the batch-ACK that lets the band trim.
         if (archives != null) {
           for (final a in archives) {
-            batch.insert('raw_archive', {
-              'device_id': deviceId,
-              'counter': a.counter,
-              'hex': a.hex,
-              'packet_type': a.packetType,
-              'rec_ts': a.recTs,
-              'captured_at': a.capturedAt,
-              'reason': a.reason,
-            }, conflictAlgorithm: ConflictAlgorithm.ignore);
+            batch.insert(
+              rawArchiveTable,
+              rawArchiveRow(
+                deviceId: deviceId,
+                hex: a.hex,
+                counter: a.counter,
+                packetType: a.packetType,
+                recTs: a.recTs,
+                capturedAt: a.capturedAt,
+                reason: a.reason,
+              ),
+              conflictAlgorithm: ConflictAlgorithm.ignore,
+            );
             if (++ops >= chunkOps) await flushChunk();
           }
         }
@@ -4384,8 +5122,16 @@ class LocalDb {
           toleranceSec: coverageToleranceSec,
           deviceFamily: deviceFamily,
         );
-        await setCursor(kCounter, '$maxCounter', txn: txn);
-        await setCursor(kRecTs, '$maxRecTs', txn: txn);
+        // Only a real record moves the frontier. A commit that banked none (a
+        // bare HISTORY_END token, gate-dropped archives) on an install with no
+        // cursor yet would otherwise persist '0', which every `?? fallback`
+        // reader takes as a real frontier at the 1970 epoch.
+        if (maxCounter > 0) {
+          await setCursor(kCounter, '$maxCounter', txn: txn);
+        }
+        if (maxRecTs > 0) {
+          await setCursor(kRecTs, '$maxRecTs', txn: txn);
+        }
         if (trimToken != null) {
           await setCursor(cursorKeyFor('strap_trim', deviceId), trimToken,
               txn: txn);
@@ -4399,6 +5145,8 @@ class LocalDb {
           'cursor_advanced counter_hw=$maxCounter rec_ts_hw=$maxRecTs '
           'trim=${trimToken != null}',
         );
+        // Freshness must roll back with the rows and cursor on failure.
+        await _writeCaptureFreshness(txn, raws);
       });
     } finally {
       // ALWAYS restore NORMAL — even if the commit threw — so a leaked FULL does
@@ -4409,7 +5157,6 @@ class LocalDb {
         /* non-fatal — see open-time PRAGMA discipline */
       }
     }
-    await _writeCaptureFreshness(raws);
   }
 
   // ── DERIVED STORE (permanent, rich) ────────────────────────────────────────
@@ -4613,8 +5360,8 @@ class LocalDb {
   /// The dates whose stored [key] is a wearable's estimate, or a row its
   /// column serves as unavailable (`metric_method.class`): not a measurement
   /// a plain trend line may draw.
-  static Future<Set<String>> metricNotOursDates(String key) async {
-    final db = await instance;
+  static Future<Set<String>> metricNotOursDates(String key, {DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
     return {
       for (final r in await db.query('metric_method',
           columns: ['date'],
@@ -4626,8 +5373,8 @@ class LocalDb {
 
   /// The algo version behind each day's `metric_series` scalars, oldest first.
   /// Days with no stamp are simply absent — never guessed at.
-  static Future<List<Map<String, dynamic>>> metricSeriesVersions() async {
-    final db = await instance;
+  static Future<List<Map<String, dynamic>>> metricSeriesVersions({DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
     return db.query('metric_series_version', orderBy: 'date ASC');
   }
 
@@ -4875,6 +5622,26 @@ class LocalDb {
           'session_id': sessionId,
           'seq': i,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  }
+
+  /// Replace the sets of one strength session, in log order. Deletes any
+  /// prior rows for this session before inserting the new list.
+  static Future<void> replaceStrengthSets(
+    String sessionId,
+    List<Map<String, Object?>> sets,
+  ) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      await txn.delete('strength_set',
+          where: 'session_id = ?', whereArgs: [sessionId]);
+      for (var i = 0; i < sets.length; i++) {
+        await txn.insert('strength_set', {
+          ...sets[i],
+          'session_id': sessionId,
+          'seq': i,
+        });
       }
     });
   }
@@ -6419,7 +7186,10 @@ class LocalDb {
     return fallbackSec;
   }
 
-  static Future<void> _writeCaptureFreshness(List<RawRecord> raws) async {
+  static Future<void> _writeCaptureFreshness(
+    DatabaseExecutor txn,
+    List<RawRecord> raws,
+  ) async {
     if (raws.isEmpty) return;
     var latest = 0;
     for (final raw in raws) {
@@ -6427,9 +7197,14 @@ class LocalDb {
       if (recTs > latest) latest = recTs;
     }
     if (latest <= 0) return;
-    final prev = await computeFreshness('capture');
+    final prevRows = await txn.query(
+      'compute_freshness',
+      where: 'key = ?',
+      whereArgs: ['capture'],
+      limit: 1,
+    );
     Map<String, dynamic> payload = const {};
-    final rawJson = prev?['payload_json'];
+    final rawJson = prevRows.isEmpty ? null : prevRows.first['payload_json'];
     if (rawJson is String && rawJson.isNotEmpty) {
       try {
         final d = jsonDecode(rawJson);
@@ -6443,7 +7218,7 @@ class LocalDb {
       'latest_raw_rec_ts': latest,
       'latest_raw_day': _localDayLabelFromEpoch(latest),
     };
-    await putComputeFreshness('capture', jsonEncode(payload));
+    await putComputeFreshness('capture', jsonEncode(payload), txn: txn);
   }
 
   // Canonical LOCAL day label — shared with the UI/coach via day_label.dart so
@@ -7168,20 +7943,10 @@ class LocalDb {
     if (queued > 0) await batch.commit(noResult: true);
   }
 
-  /// Durable archive for historical records we received but could not decode
-  /// (unknown/unsupported version). Thinned to a stated SAMPLE RATE behind the
-  /// retention edge and otherwise kept forever — the point is that a future
-  /// firmware's records survive until we understand the format, and a sample is
-  /// what a decode needs. See [thinRawArchiveBefore] for the numbers. Keyed by
-  /// frame `hex` (content identity), like `events`/`band_events` — NOT by
-  /// `counter`. The strap resets its record counter to ~0 on every reboot, so
-  /// two DISTINCT undecodable frames from different boots can collide on a
-  /// reused counter; a `counter`-PK + IGNORE silently DROPPED the second, in
-  /// the one table whose whole purpose is to never lose a frame. Hashing on the
-  /// bytes means an identical re-flood (missed-ACK redelivery) still dedups,
-  /// while genuinely distinct frames both survive a counter collision. `counter`
-  /// is retained as a plain forensic column.
-  static Future<void> _createRawArchive(Database db) async {
+  /// The `(device_id, hex)`-keyed table the ladder rungs below v58 build and
+  /// re-key ([_rekeyByDeviceIdV51]). Only the ladder creates it now; the open
+  /// pass converts it into [rawArchiveTable] ([_ensureRawArchiveStore]).
+  static Future<void> _createLegacyRawArchive(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS raw_archive (
         device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId',
@@ -7198,6 +7963,314 @@ class LocalDb {
       'CREATE INDEX IF NOT EXISTS idx_raw_archive_captured '
       'ON raw_archive(captured_at DESC)',
     );
+  }
+
+  /// Where archived frames are stored: [_createRawArchiveFrames]. Readers keep
+  /// reading the `raw_archive` view, which gives the frame back as `hex`.
+  static const String rawArchiveTable = 'raw_archive_frames';
+
+  /// A pre-conversion `raw_archive` table, renamed aside on open and moved
+  /// into [rawArchiveTable] in pages by [migrateLegacyRawArchive].
+  static const String _rawArchiveLegacy = 'raw_archive_legacy';
+
+  /// The view every reader goes through ([_ensureRawArchiveView]). NOT named
+  /// `raw_archive`: an older build opening this file after a rollback runs
+  /// `CREATE TABLE IF NOT EXISTS raw_archive` and then `CREATE INDEX IF NOT
+  /// EXISTS idx_raw_archive_captured ON raw_archive`, and SQLite refuses to
+  /// index a view before it looks at the name, so a view under the old name
+  /// failed that open and got the database quarantined. With the name free,
+  /// the old build makes itself an empty table, the index line is a no-op
+  /// (the name is taken by [rawArchiveTable]'s), and the next open of this
+  /// build folds whatever it wrote back in ([_ensureRawArchiveStore]).
+  static const String rawArchiveView = 'raw_archive_view';
+
+  /// The frame as the `raw_archive` view's `hex` column: the stored text for a
+  /// frame kept verbatim, else the bytes in lowercase hex — exactly the
+  /// string [rawArchiveRow] was handed.
+  static const String _rawArchiveHexSql = 'COALESCE(hex, lower(hex(frame)))';
+
+  /// Durable archive for historical records we received but could not decode
+  /// (unknown/unsupported version). Thinned to a stated SAMPLE RATE behind the
+  /// retention edge and otherwise kept forever — the point is that a future
+  /// firmware's records survive until we understand the format, and a sample is
+  /// what a decode needs. See [thinRawArchiveBefore] for the numbers. Keyed by
+  /// frame CONTENT (`hash`), like `events`/`band_events` — NOT by `counter`.
+  /// The strap resets its record counter to ~0 on every reboot, so two
+  /// DISTINCT undecodable frames from different boots can collide on a reused
+  /// counter; a `counter`-PK + IGNORE silently DROPPED the second, in the one
+  /// table whose whole purpose is to never lose a frame. Keying on the bytes
+  /// means an identical re-flood (missed-ACK redelivery) still dedups, while
+  /// genuinely distinct frames both survive a counter collision. `counter` is
+  /// retained as a plain forensic column.
+  ///
+  /// THE BYTES, NOT THEIR HEX, AND KEYED BY A HASH. The table this replaces
+  /// stored each frame as hex TEXT under `PRIMARY KEY (device_id, hex)` on a
+  /// rowid table, so every frame was written twice — once in the row and once
+  /// in the key's autoindex — at two characters a byte: a 2,128-byte WHOOP MG
+  /// v20 frame cost ~9 KB, ~10,500 of them a day. Here it is one BLOB under a
+  /// 20-byte SHA-1 of it, ~4.2 KB a frame (a 2.2 KB row cannot share a 4 KB
+  /// page with a second one, so each takes a page). `frame` is last so a
+  /// scan of the small columns (thinning, stats) never walks its overflow
+  /// pages. A rowid table still: [_mergeFromDbFile] pages restores by rowid.
+  ///
+  /// `hex` keeps the text verbatim, with `frame` NULL, when it is not the
+  /// canonical lowercase hex of some bytes — so nothing is ever rewritten on
+  /// the way in, whatever a caller handed over.
+  static Future<void> _createRawArchiveFrames(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $rawArchiveTable (
+        device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId',
+        hash BLOB NOT NULL,
+        counter INTEGER,
+        packet_type INTEGER NOT NULL,
+        rec_ts INTEGER,
+        captured_at INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        hex TEXT,
+        frame BLOB,
+        UNIQUE (device_id, hash)
+      )
+    ''');
+    // Same name as the old table's index. An older build opening this file
+    // runs `CREATE INDEX IF NOT EXISTS idx_raw_archive_captured ON
+    // raw_archive`, which the existing name turns into a no-op instead of an
+    // attempt to index a view (which fails the open).
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_raw_archive_captured '
+      'ON $rawArchiveTable(captured_at DESC)',
+    );
+    // Every reader filters on reason (the re-drive, the vendor inputs, the
+    // thinning) and most on device too.
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_raw_archive_reason '
+      'ON $rawArchiveTable(reason, device_id)',
+    );
+  }
+
+  /// `raw_archive` as every reader has always seen it, over [rawArchiveTable]
+  /// (and the legacy table while [migrateLegacyRawArchive] is still moving
+  /// it). The INSTEAD OF triggers keep plain inserts and deletes against the
+  /// old name working — an older build after a rollback, a test fixture —
+  /// with the text itself as the key: correct, just without the size saving.
+  /// Everything in this build writes through [rawArchiveRow] instead.
+  static Future<void> _ensureRawArchiveView(DatabaseExecutor db) async {
+    final legacy = await _objectType(db, _rawArchiveLegacy) == 'table';
+    await db.execute('DROP TRIGGER IF EXISTS raw_archive_insert');
+    await db.execute('DROP TRIGGER IF EXISTS raw_archive_delete');
+    // The view's old name, from a build of this layout before the rename.
+    if (await _objectType(db, 'raw_archive') == 'view') {
+      await db.execute('DROP VIEW raw_archive');
+    }
+    await db.execute('DROP VIEW IF EXISTS $rawArchiveView');
+    await db.execute(
+      'CREATE VIEW $rawArchiveView AS '
+      'SELECT device_id, $_rawArchiveHexSql AS hex, counter, packet_type, '
+      'rec_ts, captured_at, reason FROM $rawArchiveTable'
+      '${legacy ? ' UNION ALL SELECT device_id, hex, counter, packet_type, '
+          'rec_ts, captured_at, reason FROM $_rawArchiveLegacy' : ''}',
+    );
+    await db.execute(
+      'CREATE TRIGGER IF NOT EXISTS raw_archive_insert '
+      'INSTEAD OF INSERT ON $rawArchiveView BEGIN '
+      'INSERT OR IGNORE INTO $rawArchiveTable '
+      '(device_id, hash, counter, packet_type, rec_ts, captured_at, reason, hex) '
+      "VALUES (COALESCE(NEW.device_id, '$kPrimaryDeviceId'), "
+      "CAST('text:' || NEW.hex AS BLOB), NEW.counter, NEW.packet_type, "
+      'NEW.rec_ts, NEW.captured_at, NEW.reason, NEW.hex); END',
+    );
+    await db.execute(
+      'CREATE TRIGGER IF NOT EXISTS raw_archive_delete '
+      'INSTEAD OF DELETE ON $rawArchiveView BEGIN '
+      'DELETE FROM $rawArchiveTable WHERE device_id = OLD.device_id '
+      'AND $_rawArchiveHexSql = OLD.hex; '
+      '${legacy ? 'DELETE FROM $_rawArchiveLegacy WHERE device_id = '
+          'OLD.device_id AND hex = OLD.hex; ' : ''}END',
+    );
+  }
+
+  /// `'table'`, `'view'`, … for [name] in sqlite_master, or null.
+  static Future<String?> _objectType(DatabaseExecutor db, String name) async {
+    final rows = await db.rawQuery(
+      'SELECT type FROM sqlite_master WHERE name = ? LIMIT 1',
+      [name],
+    );
+    return rows.isEmpty ? null : rows.first['type'] as String?;
+  }
+
+  /// The archive store, on every open. A database still holding the old
+  /// `raw_archive` TABLE has it renamed aside — O(1), no row touched, so safe
+  /// under the launch watchdog (invariant 11) — and the rows move later, in
+  /// pages, off the open path ([migrateLegacyRawArchive]). The view unions
+  /// both until then, so no reader ever sees a frame missing.
+  static Future<void> _ensureRawArchiveStore(Database db) async {
+    if (await _objectType(db, 'raw_archive') == 'table') {
+      // One transaction: a crash between the rename and the index drop would
+      // leave the frames table without its captured_at index until the
+      // legacy table is gone, because the index name is still taken.
+      await db.transaction((txn) async {
+        // A build from before the v51 rekey, rolled back to, makes this table
+        // without device_id; the view and the move both read it. Filled the
+        // way the v51 rekey filled it: the primary device.
+        if (!(await _columnsOf(txn, 'raw_archive')).contains('device_id')) {
+          await txn.execute(
+            'ALTER TABLE raw_archive ADD COLUMN device_id TEXT NOT NULL '
+            "DEFAULT '$kPrimaryDeviceId'",
+          );
+        }
+        if (await _objectType(txn, _rawArchiveLegacy) == 'table') {
+          // Only reachable if a file was hand-assembled with both; fold the
+          // newer table into the aside one rather than lose either.
+          await txn.execute(
+            'INSERT OR IGNORE INTO $_rawArchiveLegacy '
+            '(device_id, hex, counter, packet_type, rec_ts, captured_at, '
+            'reason) SELECT device_id, hex, counter, packet_type, rec_ts, '
+            'captured_at, reason FROM raw_archive',
+          );
+          await txn.execute('DROP TABLE raw_archive');
+        } else {
+          await txn
+              .execute('ALTER TABLE raw_archive RENAME TO $_rawArchiveLegacy');
+        }
+        // Frees the name for [rawArchiveTable]'s index (see there).
+        await txn.execute('DROP INDEX IF EXISTS idx_raw_archive_captured');
+      });
+    }
+    await _createRawArchiveFrames(db);
+    if (await _objectType(db, rawArchiveView) != 'view' ||
+        await _objectType(db, 'raw_archive') == 'view') {
+      await _ensureRawArchiveView(db);
+    } else if ((await _objectType(db, _rawArchiveLegacy) == 'table') !=
+        (await db.rawQuery(
+          "SELECT 1 FROM sqlite_master WHERE type = 'view' "
+          "AND name = '$rawArchiveView' AND sql LIKE '%$_rawArchiveLegacy%'",
+        ))
+            .isNotEmpty) {
+      // The view and the legacy table disagree (a restore, a crash between
+      // the drop and the rebuild): rebuild the view and its triggers.
+      await db.execute('DROP TRIGGER IF EXISTS raw_archive_insert');
+      await db.execute('DROP TRIGGER IF EXISTS raw_archive_delete');
+      await _ensureRawArchiveView(db);
+    }
+  }
+
+  /// [hex] as bytes when it is canonical lowercase hex (even length, 0-9a-f),
+  /// else null — so `lower(hex(frame))` gives back exactly [hex].
+  static Uint8List? _canonicalHexBytes(String hex) {
+    final n = hex.length;
+    if (n == 0 || n.isOdd) return null;
+    final out = Uint8List(n >> 1);
+    int nibble(int c) {
+      if (c >= 0x30 && c <= 0x39) return c - 0x30;
+      if (c >= 0x61 && c <= 0x66) return c - 0x61 + 10;
+      return -1;
+    }
+
+    for (var i = 0; i < n; i += 2) {
+      final hi = nibble(hex.codeUnitAt(i)), lo = nibble(hex.codeUnitAt(i + 1));
+      if (hi < 0 || lo < 0) return null;
+      out[i >> 1] = (hi << 4) | lo;
+    }
+    return out;
+  }
+
+  /// The [rawArchiveTable] row for one archived frame. Every writer in this
+  /// build goes through here (the drain commit, the fallback path, the
+  /// legacy move, a restore), so the key is always the same function of the
+  /// frame: SHA-1 of the bytes, or of the text when it is kept verbatim.
+  static Map<String, Object?> rawArchiveRow({
+    required String deviceId,
+    required String hex,
+    required int? counter,
+    required int packetType,
+    required int? recTs,
+    required int capturedAt,
+    required String reason,
+  }) {
+    final bytes = _canonicalHexBytes(hex);
+    return {
+      'device_id': deviceId,
+      'hash': Uint8List.fromList(
+        bytes != null
+            ? sha1.convert(bytes).bytes
+            : sha1.convert(utf8.encode('text:$hex')).bytes,
+      ),
+      'counter': counter,
+      'packet_type': packetType,
+      'rec_ts': recTs,
+      'captured_at': capturedAt,
+      'reason': reason,
+      'hex': bytes == null ? hex : null,
+      'frame': bytes,
+    };
+  }
+
+  /// Move the renamed-aside legacy archive into [rawArchiveTable], 500 rows a
+  /// transaction: each page is inserted and deleted from the legacy table in
+  /// the same commit, so a kill between pages loses nothing and repeats
+  /// nothing. Once it is empty the legacy table is dropped and the view
+  /// rebuilt over the new table alone. Returns rows moved; stops after the
+  /// first page past [budget], or when [shouldStop] says a band offload has
+  /// started (its commits would queue behind these pages), and resumes on
+  /// the next call.
+  static Future<int> migrateLegacyRawArchive({
+    Duration? budget,
+    bool Function()? shouldStop,
+  }) async {
+    final db = await instance;
+    if (await _objectType(db, _rawArchiveLegacy) != 'table') return 0;
+    final clock = Stopwatch()..start();
+    var moved = 0;
+    while (true) {
+      final page = await db.rawQuery(
+        'SELECT rowid AS _r, device_id, hex, counter, packet_type, rec_ts, '
+        'captured_at, reason FROM $_rawArchiveLegacy ORDER BY rowid LIMIT 500',
+      );
+      if (page.isEmpty) {
+        await db.transaction((txn) async {
+          if ((await txn.rawQuery(
+                  'SELECT 1 FROM $_rawArchiveLegacy LIMIT 1'))
+              .isNotEmpty) {
+            return; // a row landed since; the next call moves it
+          }
+          await txn.execute('DROP TRIGGER IF EXISTS raw_archive_insert');
+          await txn.execute('DROP TRIGGER IF EXISTS raw_archive_delete');
+          await txn.execute('DROP VIEW IF EXISTS $rawArchiveView');
+          await txn.execute('DROP TABLE $_rawArchiveLegacy');
+          // Rebuilt in the same transaction: between a commit and a rebuild
+          // outside it there is no raw_archive at all, and a reader on
+          // another isolate fails with "no such table".
+          await _ensureRawArchiveView(txn);
+        });
+        return moved;
+      }
+      final hi = (page.last['_r'] as num).toInt();
+      await db.transaction((txn) async {
+        final batch = txn.batch();
+        for (final r in page) {
+          batch.insert(
+            rawArchiveTable,
+            rawArchiveRow(
+              deviceId: r['device_id'] as String? ?? kPrimaryDeviceId,
+              hex: r['hex'] as String,
+              counter: (r['counter'] as num?)?.toInt(),
+              packetType: (r['packet_type'] as num?)?.toInt() ?? 0,
+              recTs: (r['rec_ts'] as num?)?.toInt(),
+              capturedAt: (r['captured_at'] as num?)?.toInt() ?? 0,
+              reason: r['reason'] as String? ?? 'unknown',
+            ),
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+        }
+        batch.rawDelete(
+          'DELETE FROM $_rawArchiveLegacy WHERE rowid <= ?',
+          [hi],
+        );
+        await batch.commit(noResult: true);
+      });
+      moved += page.length;
+      if (budget != null && clock.elapsed > budget) return moved;
+      if (shouldStop?.call() ?? false) return moved;
+    }
   }
 
   /// One compressed, verified bucket of pruned decoded substrate per
@@ -7527,15 +8600,19 @@ class LocalDb {
     String deviceId = kPrimaryDeviceId,
   }) async {
     final db = await instance;
-    await db.insert('raw_archive', {
-      'device_id': deviceId,
-      'counter': a.counter,
-      'hex': a.hex,
-      'packet_type': a.packetType,
-      'rec_ts': a.recTs,
-      'captured_at': a.capturedAt,
-      'reason': a.reason,
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    await db.insert(
+      rawArchiveTable,
+      rawArchiveRow(
+        deviceId: deviceId,
+        hex: a.hex,
+        counter: a.counter,
+        packetType: a.packetType,
+        recTs: a.recTs,
+        capturedAt: a.capturedAt,
+        reason: a.reason,
+      ),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
   }
 
   /// The `raw_archive.reason` values [redriveArchivedRecords] will retry.
@@ -7562,7 +8639,127 @@ class LocalDb {
     // three real exports; it costs nothing to include and is the case this
     // would otherwise have to be rewritten for.
     'undecodable_rec_v24',
+    // gen4 1 Hz records from older firmware, archived by builds that predate
+    // the v12 decode path. The current decoder reads them (the 88-byte form
+    // through the short-frame fallback). Can be large, so the launch-path
+    // ladder rung skips it; [redriveArchiveOnce] replays it from a derive.
+    'undecodable_rec_v12',
   ];
+
+  /// What the oldV<44 ladder rung replays inside `onUpgrade`: the small,
+  /// bounded reasons only. v12 can be a million rows on one install, which
+  /// does not belong on the launch path.
+  static const List<String> _ladderRedriveReasons = [
+    'undecodable_rec_v18',
+    'partial_decode_v18_no_gravity',
+    'undecodable_rec_v24',
+  ];
+
+  /// `compute_freshness` key: [startSec, endSec) windows of days the user
+  /// deleted, which an archive re-drive must not refill.
+  static const String kRedriveExcludedKey = 'redrive_excluded_windows';
+
+  /// `[[start, end], ...]` JSON as windows; null when unreadable.
+  static List<(int, int)>? _parseWindows(Object? json) {
+    try {
+      return [
+        for (final w in jsonDecode(json as String) as List)
+          (((w as List)[0] as num).toInt(), (w[1] as num).toInt()),
+      ];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// [windows] sorted, with overlapping or touching ones merged.
+  static List<(int, int)> _mergeWindows(List<(int, int)> windows) {
+    final sorted = [...windows]..sort((a, b) => a.$1.compareTo(b.$1));
+    final out = <(int, int)>[];
+    for (final w in sorted) {
+      if (out.isNotEmpty && w.$1 <= out.last.$2) {
+        if (w.$2 > out.last.$2) out[out.length - 1] = (out.last.$1, w.$2);
+      } else {
+        out.add(w);
+      }
+    }
+    return out;
+  }
+
+  /// `compute_freshness` key for [redriveArchiveOnce].
+  static const String kArchiveRedriveKey = 'archive_redrive_v12_v1';
+
+  /// Marks a [_redrive] resume position that is a [rawArchiveTable] rowid.
+  static const String _redriveRowidCursor = '\u0000rowid';
+
+  /// One-shot replay of every [redrivableArchiveReasons] row, off the launch
+  /// path (called from a heavy derive). Marked done only after it finishes,
+  /// so an interrupted pass repeats; the replay skips seconds already decoded,
+  /// so a repeat is safe.
+  ///
+  /// Bounded per call by [budget]: a million archived frames take minutes on a
+  /// phone, and a derive holds its latch while this runs. An unfinished pass
+  /// stores where it stopped and the next call resumes there.
+  static Future<int> redriveArchiveOnce({
+    Duration budget = const Duration(seconds: 20),
+  }) async {
+    Map<String, dynamic> state = {};
+    if ((await computeFreshness(kArchiveRedriveKey))?['payload_json']
+        case final String j) {
+      final v = jsonDecode(j);
+      if (v is Map) state = v.cast<String, dynamic>();
+    }
+    if (state['done'] == true) return 0;
+    // Wait for the legacy archive to finish moving: the replay reads the new
+    // store only, and marking it done over a half-moved archive would skip
+    // the rest for good.
+    if (await _objectType(await instance, _rawArchiveLegacy) == 'table') {
+      return 0;
+    }
+    final row = await computeFreshness(kRedriveExcludedKey);
+    final excluded =
+        row == null ? const <(int, int)>[] : _parseWindows(row['payload_json']);
+    // Deleted days we can no longer read back: replaying could refill one,
+    // so the replay waits rather than guess.
+    if (excluded == null) return 0;
+    final r = await _redrive(
+      await instance,
+      reasons: redrivableArchiveReasons,
+      honourDeletions: true,
+      startHex: state['after_hex'] as String? ?? '',
+      startDevice: state['after_device'] as String? ?? '',
+      budget: budget,
+    );
+    final total = ((state['recovered'] as num?)?.toInt() ?? 0) + r.recovered;
+    await putComputeFreshness(
+      kArchiveRedriveKey,
+      jsonEncode({
+        'recovered': total,
+        if (r.resume == null) 'done': true,
+        if (r.resume case (final h, final d)) ...{
+          'after_hex': h,
+          'after_device': d,
+        },
+      }),
+    );
+    return r.recovered;
+  }
+
+  /// Drop an unfinished [redriveArchiveOnce]'s resume point before a VACUUM.
+  /// That position is a [rawArchiveTable] rowid, and the table has no
+  /// INTEGER PRIMARY KEY, so VACUUM is free to renumber it: resuming there
+  /// could skip frames. The replay skips seconds already decoded, so starting
+  /// over from the top only costs time.
+  static Future<void> _resetRedriveResume() async {
+    final row = await computeFreshness(kArchiveRedriveKey);
+    if (row?['payload_json'] case final String j) {
+      final v = jsonDecode(j);
+      if (v is! Map || v['done'] == true || v['after_hex'] == null) return;
+      await putComputeFreshness(
+        kArchiveRedriveKey,
+        jsonEncode({'recovered': v['recovered'] ?? 0}),
+      );
+    }
+  }
 
   /// GATES 4b — replay the archive through the CURRENT decoders, into
   /// `decoded_onehz` / `decoded_rr`. Returns the seconds recovered.
@@ -7590,17 +8787,46 @@ class LocalDb {
   ///    the family will correctly refuse rather than assume gen4.
   ///  * It does not delete, thin or relabel the archived row. The bytes stay
   ///    exactly where they are, under the reason they were captured with.
-  static Future<int> redriveArchivedRecords(Database db) async {
+  static Future<int> redriveArchivedRecords(
+    Database db, {
+    List<String> reasons = redrivableArchiveReasons,
+  }) async =>
+      (await _redrive(db, reasons: reasons)).recovered;
+
+  /// [redriveArchivedRecords] from a resume point, stopping after the first
+  /// page that ends past [budget]. `resume` is null once the archive is done.
+  static Future<({int recovered, (String, String)? resume})> _redrive(
+    Database db, {
+    required List<String> reasons,
+    String startHex = '',
+    String startDevice = '',
+    Duration? budget,
+    bool honourDeletions = false,
+  }) async {
+    final clock = Stopwatch()..start();
     // Both are cheap and both are required: a DB whose ladder has not created
     // the archive yet (or is mid-ladder) must no-op rather than throw — a throw
     // in here rolls the WHOLE upgrade back and quarantines the database.
-    for (final t in const ['raw_archive', 'decoded_onehz']) {
+    // The archive is the `raw_archive` table on the ladder's older layouts,
+    // and [rawArchiveView] over [rawArchiveTable] once converted.
+    final framesLayout = await _objectType(db, rawArchiveView) == 'view';
+    for (final t in [framesLayout ? rawArchiveView : 'raw_archive',
+        'decoded_onehz']) {
       final present = await db.rawQuery(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        "SELECT 1 FROM sqlite_master WHERE type IN ('table', 'view') "
+        'AND name=?',
         [t],
       );
-      if (present.isEmpty) return 0;
+      if (present.isEmpty) return (recovered: 0, resume: null);
     }
+    // The converted store pages on its own rowid (the hex is computed, so
+    // paging on it would sort the archive every page). Its cursor travels in
+    // the same (String, String) slot, marked by [_redriveRowidCursor]; a
+    // position from the old hex-ordered pass restarts at the top, which the
+    // replay's skip-what-is-decoded rule makes safe.
+    var afterRowid = framesLayout && startDevice == _redriveRowidCursor
+        ? int.tryParse(startHex) ?? 0
+        : 0;
     // SELF-DETECTING, because this runs from BOTH sides of the v47 rung: from
     // the oldV<44 ladder step, where `decoded_onehz` is still keyed by rec_ts
     // alone and naming `device_id` would throw inside onUpgrade (quarantining
@@ -7612,34 +8838,52 @@ class LocalDb {
     // rekey (v51): this function runs from the oldV<44 rung too, i.e. BEFORE
     // the v51 rekey, so at that point `raw_archive` is still hex-keyed and the
     // row-value comparison below must fall back to comparing `hex` alone.
-    final preArchiveDeviceKey =
+    final preArchiveDeviceKey = !framesLayout &&
         !(await _columnsOf(db, 'raw_archive')).contains('device_id');
 
-    final marks = List.filled(redrivableArchiveReasons.length, '?').join(',');
-    // Paged on (hex, device_id) — a stable, total order that needs no extra
-    // index and no offset scan. Post-v51, `hex` alone is no longer unique
+    final marks = List.filled(reasons.length, '?').join(',');
+    // Paged on the primary key, (device_id, hex) post-v51 and hex before it —
+    // a stable, total order that needs no extra index and no offset scan.
+    // Post-v51, `hex` alone is no longer unique
     // (two devices can share a byte-identical undecodable frame), so a plain
     // `hex > ?` cursor would silently skip the second device's row.
-    var afterHex = '';
-    var afterDevice = '';
+    var afterHex = framesLayout ? '$afterRowid' : startHex;
+    var afterDevice = framesLayout ? _redriveRowidCursor : startDevice;
     var recovered = 0;
     while (true) {
-      final rows = preArchiveDeviceKey
+      final rows = framesLayout
+          ? await db.rawQuery(
+              'SELECT rowid AS _r, device_id, $_rawArchiveHexSql AS hex, '
+              'counter, packet_type, rec_ts, captured_at '
+              'FROM $rawArchiveTable WHERE reason IN ($marks) AND rowid > ? '
+              'ORDER BY rowid ASC LIMIT 500',
+              [...reasons, afterRowid],
+            )
+          : preArchiveDeviceKey
           ? await db.rawQuery(
               'SELECT hex, counter, packet_type, rec_ts, captured_at '
               'FROM raw_archive WHERE reason IN ($marks) AND hex > ? '
               'ORDER BY hex ASC LIMIT 500',
-              [...redrivableArchiveReasons, afterHex],
+              [...reasons, afterHex],
             )
           : await db.rawQuery(
               'SELECT device_id, hex, counter, packet_type, rec_ts, captured_at '
-              'FROM raw_archive WHERE reason IN ($marks) AND (hex, device_id) > (?, ?) '
-              'ORDER BY hex ASC, device_id ASC LIMIT 500',
-              [...redrivableArchiveReasons, afterHex, afterDevice],
+              // Primary-key order (device_id, hex), so each page continues
+              // down the key's own index instead of re-sorting the archive.
+              'FROM raw_archive WHERE reason IN ($marks) AND (device_id, hex) > (?, ?) '
+              'ORDER BY device_id ASC, hex ASC LIMIT 500',
+              [...reasons, afterDevice, afterHex],
             );
-      if (rows.isEmpty) return recovered;
-      afterHex = rows.last['hex'] as String;
-      afterDevice = preArchiveDeviceKey ? '' : rows.last['device_id'] as String;
+      if (rows.isEmpty) return (recovered: recovered, resume: null);
+      final pageHex = afterHex, pageDevice = afterDevice;
+      if (framesLayout) {
+        afterRowid = (rows.last['_r'] as num).toInt();
+        afterHex = '$afterRowid';
+      } else {
+        afterHex = rows.last['hex'] as String;
+        afterDevice =
+            preArchiveDeviceKey ? '' : rows.last['device_id'] as String;
+      }
 
       // Decode first, keyed by (device, second) each record claims. Two
       // archived frames for the SAME device and second collapse here rather
@@ -7670,7 +8914,12 @@ class LocalDb {
         if (recTs <= 0) continue;
         byDeviceRecTs[(deviceId, recTs)] = (raw, s);
       }
-      if (byDeviceRecTs.isEmpty) continue;
+      if (byDeviceRecTs.isEmpty) {
+        if (budget != null && clock.elapsed > budget) {
+          return (recovered: recovered, resume: (afterHex, afterDevice));
+        }
+        continue;
+      }
 
       // "Already decoded" must be checked PER DEVICE once decoded_onehz
       // carries device_id — otherwise device B's second looks "taken" because
@@ -7710,27 +8959,61 @@ class LocalDb {
         }
       }
 
-      final batch = db.batch();
-      var queued = 0;
-      for (final e in byDeviceRecTs.entries) {
-        if (taken.contains(e.key)) continue;
-        final (raw, sample) = e.value;
+      // Deleted days are read in the SAME transaction as the write, so a
+      // deletion that commits while this page decodes cannot be refilled. An
+      // unreadable list stops the replay at this page. (The ladder path runs
+      // inside onUpgrade's own transaction and has nothing deleted to honour.)
+      var unreadable = false;
+      Future<void> write(DatabaseExecutor ex) async {
+        var excluded = const <(int, int)>[];
+        if (honourDeletions) {
+          final row = await ex.query('compute_freshness',
+              where: 'key = ?', whereArgs: [kRedriveExcludedKey], limit: 1);
+          if (row.isNotEmpty) {
+            final w = _parseWindows(row.first['payload_json']);
+            if (w == null) {
+              unreadable = true;
+              return;
+            }
+            excluded = w;
+          }
+        }
+        final batch = ex.batch();
+        var queued = 0;
+        for (final e in byDeviceRecTs.entries) {
+          if (taken.contains(e.key)) continue;
+          final t = e.key.$2;
+          if (excluded.any((w) => t >= w.$1 && t < w.$2)) continue;
+          final (raw, sample) = e.value;
         // `sample` is handed back as `preferred` so the hex is decoded once,
         // not twice; `_queueDecodedOneHz` returns it straight back out.
         // `deviceFamily` is deliberately omitted — see the doc comment.
-        if (_queueDecodedOneHz(
-              batch,
-              raw,
-              sample,
-              deviceId: e.key.$1,
-              preDeviceKey: preDeviceKey,
-            ) >
-            0) {
-          queued++;
-          recovered++;
+          if (_queueDecodedOneHz(
+                batch,
+                raw,
+                sample,
+                deviceId: e.key.$1,
+                preDeviceKey: preDeviceKey,
+              ) >
+              0) {
+            queued++;
+          }
         }
+        if (queued > 0) await batch.commit(noResult: true);
+        recovered += queued;
       }
-      if (queued > 0) await batch.commit(noResult: true);
+
+      if (honourDeletions) {
+        await db.transaction(write);
+      } else {
+        await write(db);
+      }
+      if (unreadable) {
+        return (recovered: recovered, resume: (pageHex, pageDevice));
+      }
+      if (budget != null && clock.elapsed > budget) {
+        return (recovered: recovered, resume: (afterHex, afterDevice));
+      }
     }
   }
 
@@ -7780,14 +9063,24 @@ class LocalDb {
     DatabaseExecutor txn,
     int beforeMs,
   ) async {
-    return txn.delete(
-      'raw_archive',
-      // `counter` is NOT NULL in practice but the column is nullable, and
-      // `NULL % 60` is NULL — so a counter-less row would never match and would
-      // be kept. Keeping an unsampleable frame is the safe direction.
-      where: 'reason = ? AND captured_at < ? AND counter % ? != 0',
-      whereArgs: [_thinnedArchiveReason, beforeMs, rawArchiveKeepEvery],
-    );
+    var deleted = 0;
+    // The store and, until [migrateLegacyRawArchive] has emptied it, the
+    // renamed-aside legacy table: the same rule over both.
+    for (final t in [
+      rawArchiveTable,
+      if (await _objectType(txn, _rawArchiveLegacy) == 'table')
+        _rawArchiveLegacy,
+    ]) {
+      deleted += await txn.delete(
+        t,
+        // `counter` is NOT NULL in practice but the column is nullable, and
+        // `NULL % 60` is NULL — so a counter-less row would never match and
+        // would be kept. Keeping an unsampleable frame is the safe direction.
+        where: 'reason = ? AND captured_at < ? AND counter % ? != 0',
+        whereArgs: [_thinnedArchiveReason, beforeMs, rawArchiveKeepEvery],
+      );
+    }
+    return deleted;
   }
 
   /// How many undecodable records we've archived, and by reason — for the sync
@@ -7796,11 +9089,11 @@ class LocalDb {
     final db = await instance;
     final count =
         Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM raw_archive'),
+          await db.rawQuery('SELECT COUNT(*) FROM $rawArchiveView'),
         ) ??
         0;
     final byReason = await db.rawQuery(
-      'SELECT reason, COUNT(*) AS n FROM raw_archive '
+      'SELECT reason, COUNT(*) AS n FROM $rawArchiveView '
       'GROUP BY reason ORDER BY n DESC, reason ASC',
     );
     return {
@@ -7875,8 +9168,9 @@ class LocalDb {
     int fromTs,
     int toTs, {
     int limit = 5000,
+    DatabaseExecutor? executor,
   }) async {
-    final db = await instance;
+    final db = executor ?? await instance;
     return db.query(
       'events',
       where: 'ts >= ? AND ts < ?',
@@ -7970,8 +9264,9 @@ class LocalDb {
 
   static Future<Map<String, dynamic>?> syncLedgerEntry([
     String chunkId = 'capture',
+    DatabaseExecutor? txn,
   ]) async {
-    final db = await instance;
+    final db = txn ?? await instance;
     final rows = await db.query(
       'sync_ledger',
       where: 'chunk_id = ?',
@@ -7990,9 +9285,10 @@ class LocalDb {
     int? ackedAt,
     String? lastError,
     Map<String, dynamic>? metaPatch,
+    DatabaseExecutor? txn,
   }) async {
-    final db = await instance;
-    final existing = await syncLedgerEntry(chunkId);
+    final db = txn ?? await instance;
+    final existing = await syncLedgerEntry(chunkId, txn);
     final now = DateTime.now().millisecondsSinceEpoch;
     final meta = <String, dynamic>{};
     if (existing != null) {
@@ -8019,6 +9315,14 @@ class LocalDb {
       'last_error': lastError,
       'meta_json': jsonEncode(meta),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Commit related diagnostic ledger rows together after the trim ACK.
+  static Future<void> syncLedgerTransaction(
+    Future<void> Function(Transaction txn) body,
+  ) async {
+    final db = await instance;
+    await db.transaction(body);
   }
 
   static Future<List<Map<String, dynamic>>> syncLedger() async {
@@ -8413,9 +9717,10 @@ class LocalDb {
     required List<String> signals,
     required int fromSec,
     required int toSec,
+    DatabaseExecutor? executor,
   }) async {
     if (signals.isEmpty || toSec <= fromSec) return const {};
-    final db = await instance;
+    final db = executor ?? await instance;
     final marks = List.filled(signals.length, '?').join(',');
     final rows = await db.rawQuery(
       'SELECT DISTINCT device_id, start_ts, end_ts FROM device_coverage '
@@ -8623,16 +9928,136 @@ class LocalDb {
   /// THIS rather than writing its own `MAX(algo_version)` — the pattern had
   /// already reappeared at five readers and two views, and the ceiling has to
   /// be on all of them or it is on none of them.
-  static const String _servedDayJoin =
-      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result '
-      'WHERE algo_version <= $_servedAlgoCeiling GROUP BY day_id) m '
+  static const String _servedDayJoin = 'JOIN ($_servedVersions) m $_servedOn';
+  static const String _servedVersions =
+      'SELECT day_id, MAX(algo_version) AS v FROM day_result '
+      'WHERE algo_version <= $_servedAlgoCeiling GROUP BY day_id';
+  static const String _servedOn =
       'ON r.day_id = m.day_id AND r.algo_version = m.v';
+
+  /// [_servedDayJoin] for the newest N days only (bind N). A LIMIT on the
+  /// outer query comes after the join and its sort, so SQLite fetched and
+  /// sorted EVERY day's row, bundle and all, to return N: a 30-day read went
+  /// from ~60 ms to 250-600 ms between 30 and 730 days of history. Choosing
+  /// the days first, from the covering index, leaves N rows to fetch.
+  static const String _servedNewestDaysJoin =
+      'JOIN ($_servedVersions ORDER BY day_id DESC LIMIT ?) m $_servedOn';
 
   /// The result row for one day_id at the highest version this build serves
   /// (see [_servedAlgoCeiling]), with a normalized `date` alias for callers.
   /// Null if absent.
-  static Future<Map<String, dynamic>?> dayResult(String dayId) async {
+  /// Minute means of `skin_temp_raw` and `ambient_raw` over the band's own
+  /// rows in [fromSec, toSec), oldest first, minutes holding both only. Feeds
+  /// the WHOOP 4 ambient check ([skinTempAmbientR]).
+  static Future<List<(int, double, double)>> skinTempAmbientMinutes(
+    int fromSec,
+    int toSec,
+  ) async {
     final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT rec_ts / 60 AS m, AVG(skin_temp_raw) AS t, AVG(ambient_raw) AS a '
+      'FROM decoded_onehz WHERE rec_ts >= ? AND rec_ts < ? '
+      'AND skin_temp_raw > 0 AND ambient_raw > 0 '
+      // The primary band's own rows only: the same sensor the night's
+      // skin_temp_z comes from, never a second band or a wearable's mix.
+      'AND $kPrimaryBandSourceSql AND device_id = ? GROUP BY m ORDER BY m',
+      [fromSec, toSec, kPrimaryDeviceId],
+    );
+    return [
+      for (final r in rows)
+        if (r['m'] is num && r['t'] is num && r['a'] is num)
+          (
+            (r['m'] as num).toInt(),
+            (r['t'] as num).toDouble(),
+            (r['a'] as num).toDouble(),
+          ),
+    ];
+  }
+
+  /// `compute_freshness` key holding the band firmware this install has seen.
+  static const String kBandFirmwareKey = 'band_firmware';
+
+  /// Record the firmware the band reported on this connection: the current
+  /// version and when it was last seen, plus one entry per version change, so
+  /// a firmware-specific problem in an exported database can be traced.
+  /// Best-effort; never throws into the BLE path.
+  static Future<void> noteBandFirmware(String fw, {int? nowSec}) =>
+      _updateFreshnessJson(kBandFirmwareKey, (m) {
+        final now = nowSec ?? DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        final history = [
+          for (final e in (m['history'] as List?) ?? const [])
+            if (e is Map) e.cast<String, dynamic>(),
+        ];
+        if (history.isEmpty || history.last['fw'] != fw) {
+          history.add({'fw': fw, 'first_seen': now});
+        }
+        // Bounded: firmware changes a handful of times a year.
+        final kept = history.length > 20
+            ? history.sublist(history.length - 20)
+            : history;
+        return {'fw': fw, 'last_seen': now, 'history': kept};
+      });
+
+  /// `compute_freshness` key marking the raw-free next-night nap cleanup
+  /// (compute/nap_overlap_cleanup.dart) as applied. Cleared by an import.
+  /// v2: the v1 pass skipped every day the readiness backfill had restamped
+  /// at v112+, so installs that already ran it run it once more.
+  static const String kNapNextNightCleanupKey = 'nap_next_night_cleanup_v2';
+
+  /// `compute_freshness` key for [bumpUsageCounter]'s local counts.
+  static const String kUsageCountersKey = 'usage_counters';
+
+  /// Count one local event (`coach_open`, `health_upload_ok`, ...). Stays on
+  /// the phone; it leaves only inside the database a user chose to contribute.
+  /// Best-effort; never throws.
+  static Future<void> bumpUsageCounter(String name) =>
+      _updateFreshnessJson(kUsageCountersKey,
+          (m) => {...m, name: ((m[name] as num?)?.toInt() ?? 0) + 1});
+
+  /// Read-modify-write of one JSON `compute_freshness` row inside a single
+  /// exclusive transaction, so two callers cannot overwrite each other.
+  /// Best-effort; never throws.
+  static Future<void> _updateFreshnessJson(
+    String key,
+    Map<String, dynamic> Function(Map<String, dynamic> current) update,
+  ) async {
+    try {
+      final db = await instance;
+      await db.transaction((txn) async {
+        final rows = await txn.query('compute_freshness',
+            where: 'key = ?', whereArgs: [key], limit: 1);
+        Map<String, dynamic> m = {};
+        if (rows.isNotEmpty && rows.first['payload_json'] is String) {
+          final v = jsonDecode(rows.first['payload_json'] as String);
+          if (v is Map) m = v.cast<String, dynamic>();
+        }
+        await txn.insert('compute_freshness', {
+          'key': key,
+          'payload_json': jsonEncode(update(m)),
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }, exclusive: true);
+    } catch (_) {}
+  }
+
+  /// Replace one stored bundle's JSON in place, same version. For raw-free
+  /// one-shot heals of fields that only live in the bundle.
+  static Future<void> rewriteDayPayload(
+    String dayId,
+    int algoVersion,
+    String payloadJson,
+  ) async {
+    final db = await instance;
+    await db.update(
+      'day_result',
+      {'payload_json': payloadJson},
+      where: 'day_id = ? AND algo_version = ?',
+      whereArgs: [dayId, algoVersion],
+    );
+  }
+
+  static Future<Map<String, dynamic>?> dayResult(String dayId, {DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
     final rows = await db.query(
       'day_result',
       where: 'day_id = ? AND algo_version <= ?',
@@ -8641,6 +10066,42 @@ class LocalDb {
       limit: 1,
     );
     return rows.isEmpty ? null : _withDate(rows.first);
+  }
+
+  /// The two numbers a re-derive needs to keep a stored night on the clock it
+  /// was lived on: the served row's sleep onset instant (ms) and the
+  /// `sleep_onset_sec` clock it froze. Read with json_extract, so the bundle is
+  /// never decoded on the calling isolate — a re-derive runs this for every
+  /// day. Null when the day has no served row, the row is a skip marker, or
+  /// the payload is malformed.
+  static Future<({num? onsetMs, num? onsetClockSec})?> storedNightClock(
+      String dayId) async {
+    final db = await instance;
+    // Nested CASE: json_extract raises on a malformed document and only CASE
+    // branches are evaluated lazily.
+    final rows = await db.rawQuery(
+      'SELECT '
+      "CASE WHEN json_valid(payload_json) THEN CASE WHEN "
+      "json_type(payload_json, '\$.skipped') = 'true' THEN 1 ELSE 0 END "
+      'ELSE 1 END AS bad, '
+      "CASE WHEN json_valid(payload_json) THEN "
+      "json_extract(payload_json, '\$.sleep.window.value.onset_ms') END "
+      'AS onset_ms, '
+      "CASE WHEN json_valid(payload_json) THEN "
+      "json_extract(payload_json, '\$.scalars.sleep_onset_sec') END "
+      'AS onset_clock, skipped '
+      'FROM day_result WHERE day_id = ? AND algo_version <= ? '
+      'ORDER BY algo_version DESC LIMIT 1',
+      [dayId, _servedAlgoCeiling],
+    );
+    if (rows.isEmpty) return null;
+    final r = rows.first;
+    if (r['bad'] == 1 || (r['skipped'] as num?)?.toInt() == 1) return null;
+    final onset = r['onset_ms'], clock = r['onset_clock'];
+    return (
+      onsetMs: onset is num ? onset : null,
+      onsetClockSec: clock is num ? clock : null,
+    );
   }
 
   /// The `readiness_absent_diag` diagnostic off [day]'s stored bundle — per
@@ -8677,13 +10138,13 @@ class LocalDb {
   }
 
   /// The N most recent days (newest day_id first), each at its LATEST version.
-  static Future<List<Map<String, dynamic>>> recentDayResults(int limit) async {
-    final db = await instance;
+  static Future<List<Map<String, dynamic>>> recentDayResults(int limit, {DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
     // For each day_id pick MAX(algo_version), then join back for the full row.
     final rows = await db.rawQuery(
       'SELECT r.* FROM day_result r '
-      '$_servedDayJoin '
-      'ORDER BY r.day_id DESC LIMIT ?',
+      '$_servedNewestDaysJoin '
+      'ORDER BY r.day_id DESC',
       [limit],
     );
     return [for (final r in rows) _withDate(r)];
@@ -8707,8 +10168,55 @@ class LocalDb {
       'SELECT r.day_id, r.algo_version, r.computed_at, r.finalized, '
       'r.skipped, r.partial, r.rhr, r.rmssd, r.readiness '
       'FROM day_result r '
-      '$_servedDayJoin '
-      'ORDER BY r.day_id DESC LIMIT ?',
+      '$_servedNewestDaysJoin '
+      'ORDER BY r.day_id DESC',
+      [limit],
+    );
+    return [for (final r in rows) _withDate(r)];
+  }
+
+  /// The N most recent days at their served version, newest day_id first,
+  /// each carrying `day_id`/`date` plus the numeric `scalars.<key>` value for
+  /// every name in [keys] — extracted IN SQLite, so no payload crosses the
+  /// platform channel and nothing is decoded on the calling isolate.
+  ///
+  /// For a caller that wants a handful of scalars across months of days.
+  /// Doing it with [recentDayResults] moves ~88 KB of payload per day and then
+  /// expands every compact curve back into per-sample maps on the UI isolate
+  /// to read three numbers — the same work that, run over 90 bundles, was
+  /// measured as a multi-second main-isolate hang.
+  ///
+  /// Every served day comes back. A day whose payload is malformed, lacks the
+  /// key, or holds a non-number there gets null for that key — what decoding
+  /// the bundle and reading `scalars[key] is num` gave.
+  static Future<List<Map<String, dynamic>>> recentDayScalars(
+    int limit,
+    List<String> keys,
+  ) async {
+    // The names are spliced into the SQL as JSON paths and column aliases.
+    final plain = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+    for (final k in keys) {
+      if (!plain.hasMatch(k)) {
+        throw ArgumentError.value(k, 'keys', 'not a plain scalar name');
+      }
+    }
+    final db = await instance;
+    // Nested CASE rather than AND: json_type/json_extract RAISE on a malformed
+    // document, and SQLite only promises lazy evaluation for CASE branches —
+    // one corrupt bundle must null its own day, not fail the whole read.
+    final cols = [
+      for (final k in keys)
+        'CASE WHEN json_valid(r.payload_json) THEN '
+            "CASE WHEN json_type(r.payload_json, '\$.scalars.$k') "
+            "IN ('integer', 'real') "
+            "THEN json_extract(r.payload_json, '\$.scalars.$k') END "
+            'END AS "$k"',
+    ];
+    final rows = await db.rawQuery(
+      'SELECT r.day_id${cols.isEmpty ? '' : ', ${cols.join(', ')}'} '
+      'FROM day_result r '
+      '$_servedNewestDaysJoin '
+      'ORDER BY r.day_id DESC',
       [limit],
     );
     return [for (final r in rows) _withDate(r)];
@@ -8742,15 +10250,21 @@ class LocalDb {
   /// round trip. Rows: `{day_id, window_json}`. [before] keeps only days
   /// strictly earlier than that day_id.
   static Future<List<Map<String, dynamic>>> sleepWindowRows(int limit,
-      {String? before}) async {
-    final db = await instance;
+      {String? before, DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
+    // Stream the served versions newest first from the covering day/version
+    // index. CROSS JOIN keeps that stream outside the row lookup, so SQLite
+    // can stop after N non-skipped days instead of fetching and sorting every
+    // day's row (whose skipped column sits after the large payload).
+    // The limit MUST follow skipped: a newer skip must neither consume a slot
+    // nor fall back to an older non-skipped version of the same day.
     return db.rawQuery(
       'SELECT r.day_id AS day_id, r.window_json AS window_json '
-      'FROM day_result r '
-      '$_servedDayJoin '
+      'FROM ($_servedVersions ORDER BY day_id DESC) m '
+      'CROSS JOIN day_result r $_servedOn '
       'WHERE r.skipped = 0 '
-      '${before == null ? '' : 'AND r.day_id < ? '}'
-      'ORDER BY r.day_id DESC LIMIT ?',
+      '${before == null ? '' : 'AND m.day_id < ? '}'
+      'ORDER BY m.day_id DESC LIMIT ?',
       [?before, limit],
     );
   }
@@ -8818,8 +10332,8 @@ class LocalDb {
   /// derived row) and a skip-marker day both render EMPTY, so neither must
   /// bound navigation. Skips are excluded via the `skipped` column, which
   /// `_markDaySkipped` sets alongside the `{skipped:true}` payload.
-  static Future<List<String>> availableDayIds() async {
-    final db = await instance;
+  static Future<List<String>> availableDayIds({DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
     // Latest version per day (matches [dayResult]), then drop skip-markers.
     final rows = await db.rawQuery(
       'SELECT r.day_id FROM day_result r '
@@ -8852,6 +10366,286 @@ class LocalDb {
     return {for (final r in rows) r['day_id'] as String};
   }
 
+  /// Every stored input a derive of [dayId] reads, as one string, or null
+  /// when the derive can depend on the wall clock (a session with no end,
+  /// which activity review treats as running until now). The derivation
+  /// engine hashes this with the profile, the algorithm version, the data
+  /// edge and the baseline history, and skips a day whose hash has not moved
+  /// since a derive that changed nothing it reads (see
+  /// `DerivationEngine._dayInputFingerprint`).
+  ///
+  /// CONSERVATIVE BY CONSTRUCTION: windows are wider than any one the derive
+  /// loads ([fromSec]..[toSec] is the night search through the nap buffer
+  /// with a day of slack either side), whole small tables are read where the
+  /// derive reads part of them, and the only columns left out are write
+  /// stamps (`computed_at`, `updated_at`, `updated_ts`) and the device row's
+  /// battery/last-seen readings, none of which a derive reads. Over-reading
+  /// costs a derive that could have been skipped; under-reading would serve
+  /// a stale day, so anything in doubt is in.
+  static Future<String?> dayInputSignature({
+    required String dayId,
+    required String prevDayId,
+    required String nextDayId,
+    required int fromSec,
+    required int toSec,
+    required String? wearableDeviceId,
+  }) async {
+    final db = await instance;
+    final out = StringBuffer();
+    String rows(List<Map<String, Object?>> rs, {Set<String> drop = const {}}) {
+      final keys = rs.isEmpty
+          ? const <String>[]
+          : (rs.first.keys.where((k) => !drop.contains(k)).toList()..sort());
+      return jsonEncode([
+        for (final r in rs) [for (final k in keys) r[k]],
+      ]);
+    }
+
+    Future<void> add(String label, String sql,
+        [List<Object?> args = const [], Set<String> drop = const {}]) async {
+      out
+        ..write(label)
+        ..write('=')
+        ..write(rows(await db.rawQuery(sql, args), drop: drop))
+        ..write(';');
+    }
+
+    Future<bool> has(String table) async =>
+        (await _objectType(db, table)) != null;
+
+    final days = [prevDayId, dayId, nextDayId];
+    const stamps = {'computed_at', 'updated_at', 'updated_ts'};
+    final openSession = await db.rawQuery(
+      'SELECT 1 FROM sessions WHERE end_ts IS NULL AND start_ts <= ? LIMIT 1',
+      [toSec + 86400],
+    );
+    if (openSession.isNotEmpty) return null;
+
+    final oneHzCols = {
+      for (final c in await db.rawQuery('PRAGMA table_info(decoded_onehz)'))
+        c['name'] as String,
+    }..removeAll(const {'device_id', 'device_family', 'source'});
+    await add(
+      'onehz',
+      'SELECT COUNT(*), TOTAL(rowid), MAX(rowid), '
+          '${[for (final c in oneHzCols.toList()..sort()) 'TOTAL($c)'].join(', ')}, '
+          'TOTAL(LENGTH(device_id)), TOTAL(LENGTH(device_family)), '
+          'TOTAL(LENGTH(source)) '
+          'FROM decoded_onehz WHERE rec_ts BETWEEN ? AND ?',
+      [fromSec, toSec],
+    );
+    await add(
+      'rr',
+      'SELECT COUNT(*), TOTAL(rowid), MAX(rowid), TOTAL(rr_ms), '
+          'TOTAL(rr_ts_ms), TOTAL(LENGTH(device_id)) '
+          'FROM decoded_rr WHERE rec_ts BETWEEN ? AND ?',
+      [fromSec, toSec],
+    );
+    // The wear and charge transitions are read back past the window (the
+    // state already open at its start), so all of them count.
+    await add(
+      'band_events',
+      'SELECT COUNT(*), TOTAL(rowid), MAX(rowid) FROM band_events '
+          'WHERE (ts BETWEEN ? AND ?) OR event_id IN (?, ?, ?, ?)',
+      [
+        fromSec,
+        toSec,
+        proto.EventId.chargingOn,
+        proto.EventId.chargingOff,
+        proto.EventId.wristOn,
+        proto.EventId.wristOff,
+      ],
+    );
+    await add('live_coverage',
+        'SELECT * FROM live_coverage WHERE day = ? ORDER BY rowid', [dayId]);
+    await add(
+      'sessions',
+      'SELECT * FROM sessions WHERE start_ts BETWEEN ? AND ? ORDER BY id',
+      [fromSec - 2 * 86400, toSec + 86400],
+    );
+    for (final t in const [
+      'session_sensor',
+      'session_score_mask',
+      'signal_priority',
+      'step_calibration',
+      'activity_review_meta',
+      'activity_review_days',
+    ]) {
+      if (await has(t)) {
+        await add(t, 'SELECT * FROM $t ORDER BY rowid', const [], stamps);
+      }
+    }
+    final marks = List.filled(days.length, '?').join(',');
+    await add('sleep_override',
+        'SELECT * FROM sleep_override WHERE day_id IN ($marks) ORDER BY day_id',
+        days, stamps);
+    if (await has('sleep_nap')) {
+      await add(
+        'sleep_nap',
+        'SELECT * FROM sleep_nap WHERE day_id IN ($marks) '
+            'OR (start_ts < ? AND end_ts > ?) ORDER BY rowid',
+        [...days, toSec, fromSec],
+        stamps,
+      );
+    }
+    if (await has('activity_suggestions')) {
+      await add(
+        'activity_suggestions',
+        'SELECT * FROM activity_suggestions WHERE day_id IN ($marks) '
+            'OR (detection_start < ? AND detection_end > ?) ORDER BY id',
+        [...days, toSec + 86400, fromSec - 86400],
+        stamps,
+      );
+    }
+    await add(
+      'device',
+      'SELECT * FROM device ORDER BY id',
+      const [],
+      {...stamps, 'last_seen', 'battery_pct', 'battery_ts', 'name'},
+    );
+    await add(
+      'cursor',
+      "SELECT name, value FROM sync_cursor WHERE name IN (?, ?) "
+          "OR name LIKE 'wearable_enabled:%' ORDER BY name",
+      ['active_wearable', kDecodedPrunedBeforeCursor],
+    );
+    await add(
+      'device_coverage',
+      'SELECT * FROM device_coverage WHERE end_ts > ? AND start_ts < ? '
+          'ORDER BY rowid',
+      [fromSec, toSec],
+    );
+    if (await has('vendor_sleep_epoch')) {
+      await add(
+        'vendor_sleep',
+        'SELECT COUNT(*), TOTAL(rowid), MAX(rowid) FROM vendor_sleep_epoch '
+            'WHERE night_onset_ts BETWEEN ? AND ?',
+        [fromSec - 86400, toSec + 86400],
+      );
+    }
+    if (wearableDeviceId != null) {
+      // A wearable's substrate is read without a window (its whole HR
+      // history sets its edge) and from the archive (rings bank replies
+      // there), so all of that device's rows count.
+      await add(
+        'wearable_rows',
+        'SELECT COUNT(*), TOTAL(rowid), MAX(rowid), TOTAL(hr) '
+            'FROM decoded_onehz WHERE device_id = ?',
+        [wearableDeviceId],
+      );
+      // Read off the tables, not the view: the view's hex is built from each
+      // frame's bytes, which was text per frame per day for a length. A
+      // stored blob's hex is exactly twice its bytes, and the columns keep the
+      // view query's names (the signature orders values by them), so the
+      // value — and every stored fingerprint — is the same as before.
+      final legacyArchive = await has(_rawArchiveLegacy);
+      await add(
+        'wearable_archive',
+        'SELECT COUNT(*) AS "COUNT(*)", '
+            'MAX(captured_at) AS "MAX(captured_at)", '
+            'TOTAL(captured_at) AS "TOTAL(captured_at)", '
+            'TOTAL(n) AS "TOTAL(LENGTH(hex))" FROM ('
+            'SELECT captured_at, CASE WHEN hex IS NOT NULL THEN LENGTH(hex) '
+            'ELSE LENGTH(frame) * 2 END AS n FROM $rawArchiveTable '
+            'WHERE device_id = ?'
+            '${legacyArchive ? ' UNION ALL SELECT captured_at, LENGTH(hex) '
+                'FROM $_rawArchiveLegacy WHERE device_id = ?' : ''})',
+        [wearableDeviceId, if (legacyArchive) wearableDeviceId],
+      );
+    }
+    await add(
+      'baselines',
+      "SELECT key, payload_json FROM baselines "
+          "WHERE key IN ('sleep_user_profile', 'movement_floor') ORDER BY key",
+    );
+    await add(
+      'freshness',
+      'SELECT key, payload_json FROM compute_freshness WHERE key = ?',
+      ['quiet_repass:$dayId'],
+    );
+    // The day's own rows and its neighbours' — read back by the carry-forward
+    // guards, tonight's sleep and activity review. Hashed, not inlined.
+    final results = await db.rawQuery(
+      'SELECT day_id, algo_version, finalized, partial, skipped, rhr, rmssd, '
+      'readiness, window_json, payload_json FROM day_result '
+      'WHERE day_id IN ($marks) ORDER BY day_id, algo_version',
+      days,
+    );
+    out.write('day_result=');
+    for (final r in results) {
+      final payload = r['payload_json'];
+      out
+        ..write([
+          for (final k in const [
+            'day_id', 'algo_version', 'finalized', 'partial', 'skipped',
+            'rhr', 'rmssd', 'readiness', 'window_json',
+          ])
+            r[k],
+        ].join(','))
+        ..write(',')
+        ..write(payload is String
+            ? sha1.convert(utf8.encode(payload)).toString()
+            : 'null')
+        ..write('|');
+    }
+    out.write(';');
+    await add(
+      'candidates',
+      'SELECT day_id, algo_version, payload_json FROM sleep_session_candidates '
+          'WHERE day_id = ? ORDER BY algo_version',
+      [dayId],
+    );
+    out
+      ..write('windows=')
+      ..write(rows(await sleepWindowRows(60)))
+      ..write(';');
+    return out.toString();
+  }
+
+  /// The input fingerprint the last derive of [dayId] stored, when that
+  /// derive changed nothing it reads — see `DerivationEngine`'s skip.
+  static Future<String?> deriveFingerprint(String dayId) async {
+    final db = await instance;
+    final r = await db.query(_deriveFingerprintTable,
+        columns: ['fp'], where: 'day_id = ?', whereArgs: [dayId], limit: 1);
+    return r.isEmpty ? null : r.first['fp'] as String?;
+  }
+
+  /// Store (or, with null, clear) [dayId]'s fingerprint. Rows two months
+  /// older than [dayId] go with it: only days still re-deriving are ever
+  /// looked up. Measured from the day, not the wall clock, so a backfill of
+  /// old days does not delete its own rows.
+  static Future<void> putDeriveFingerprint(String dayId, String? fp) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      if (fp == null) {
+        await txn.delete(_deriveFingerprintTable,
+            where: 'day_id = ?', whereArgs: [dayId]);
+        return;
+      }
+      await txn.insert(_deriveFingerprintTable, {'day_id': dayId, 'fp': fp},
+          conflictAlgorithm: ConflictAlgorithm.replace);
+      final t = DateTime.tryParse(dayId);
+      if (t != null) {
+        await txn.delete(_deriveFingerprintTable,
+            where: 'day_id < ?',
+            whereArgs: [dayLabelOf(DateTime(t.year, t.month - 2, t.day))]);
+      }
+    });
+  }
+
+  static const String _deriveFingerprintTable = 'derive_fingerprint';
+
+  /// One row per day: the fingerprint above. Recomputable bookkeeping —
+  /// losing it costs one derive per day — so additive on the open pass with
+  /// no version bump, like the other repair-path tables.
+  static Future<void> _createDeriveFingerprint(Database db) async {
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS $_deriveFingerprintTable '
+      '(day_id TEXT PRIMARY KEY, fp TEXT NOT NULL)',
+    );
+  }
+
   /// The set of day_id labels that are FINALIZED at [algoVersion] (locked). A
   /// finalized day is never recomputed even on a version bump.
   ///
@@ -8859,16 +10653,108 @@ class LocalDb {
   /// no rows for yet, and band rows for it arriving later must still derive
   /// and replace the snapshot ([isMeasuredDayRow]). Every caller intersects
   /// this with days that have raw, so a raw-less import is still left alone.
+  ///
+  /// Read off [_dayResultFinalizedIndex] once [_ensureDayResultImportedFlag]
+  /// has filled `day_result.imported`. The LIKE it replaces read every
+  /// finalized day's whole bundle — and `finalized` itself sits after
+  /// `payload_json` in the row, so even the plain column test walked each
+  /// bundle's overflow pages — several times per derive pass.
   static Future<Set<String>> finalizedDayIds(int algoVersion) async {
     final db = await instance;
+    final indexed = await _ensureDayResultImportedFlag(db);
     final rows = await db.query(
       'day_result',
       columns: ['day_id'],
-      where: 'algo_version = ? AND finalized = 1 '
-          "AND payload_json NOT LIKE '%\"imported\":true%'",
+      where: indexed
+          ? 'algo_version = ? AND finalized = 1 AND imported = 0'
+          : 'algo_version = ? AND finalized = 1 '
+              'AND payload_json NOT LIKE $_importedPayloadLike',
       whereArgs: [algoVersion],
     );
     return {for (final r in rows) r['day_id'] as String};
+  }
+
+  /// The one test for "this bundle is an imported snapshot". The `imported`
+  /// column is computed from it by trigger, so the column and the old scan
+  /// cannot disagree about a row.
+  static const String _importedPayloadLike = "'%\"imported\":true%'";
+
+  /// Covering index for [finalizedDayIds]. Created only once every existing
+  /// row's `imported` is filled, so its presence is also the "backfill done"
+  /// marker: a database restored from a file without it backfills again.
+  static const String _dayResultFinalizedIndex = 'idx_day_result_finalized';
+
+  /// `day_result.imported` and the triggers that keep it equal to
+  /// [_importedPayloadLike] on every insert and payload update — whichever
+  /// path writes the row (derive, import, restore merge, raw SQL). Cheap and
+  /// idempotent: ADD COLUMN with a constant default rewrites nothing, so this
+  /// is safe on the every-open repair path. The backfill of existing rows is
+  /// NOT here; see [_ensureDayResultImportedFlag].
+  static Future<void> _ensureDayResultImportedColumn(Database db) async {
+    if ((await _columnsOf(db, 'day_result')).isEmpty) return;
+    await _addColumnIfMissing(
+      db, 'day_result', 'imported', 'INTEGER NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      'CREATE TRIGGER IF NOT EXISTS trg_day_result_imported_ins '
+      'AFTER INSERT ON day_result BEGIN '
+      'UPDATE day_result '
+      'SET imported = (NEW.payload_json LIKE $_importedPayloadLike) '
+      'WHERE rowid = NEW.rowid; END',
+    );
+    await db.execute(
+      'CREATE TRIGGER IF NOT EXISTS trg_day_result_imported_upd '
+      'AFTER UPDATE OF payload_json ON day_result BEGIN '
+      'UPDATE day_result '
+      'SET imported = (NEW.payload_json LIKE $_importedPayloadLike) '
+      'WHERE rowid = NEW.rowid; END',
+    );
+  }
+
+  /// True once `day_result.imported` is trustworthy for every row and
+  /// [_dayResultFinalizedIndex] exists. The first call on a database that
+  /// predates the column fills it in pages of 200 rows, each its own short
+  /// statement, then builds the index — off `openDatabase`, so a long history
+  /// never runs it under the launch watchdog. Rows written meanwhile are
+  /// already right (the triggers), and re-filling one recomputes the same
+  /// value, so a concurrent derive cannot race it. Any failure leaves the
+  /// index absent and the caller on the old scan; the next call resumes.
+  static Future<bool> _ensureDayResultImportedFlag(Database db) async {
+    Future<bool> ready() async => (await db.rawQuery(
+          "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+          [_dayResultFinalizedIndex],
+        ))
+            .isNotEmpty;
+    if (await ready()) return true;
+    try {
+      if (!(await _columnsOf(db, 'day_result')).contains('imported')) {
+        await _ensureDayResultImportedColumn(db);
+      }
+      var after = 0;
+      while (true) {
+        final page = await db.rawQuery(
+          'SELECT rowid AS r FROM day_result WHERE rowid > ? '
+          'ORDER BY rowid LIMIT 200',
+          [after],
+        );
+        if (page.isEmpty) break;
+        final hi = (page.last['r'] as num).toInt();
+        await db.rawUpdate(
+          'UPDATE day_result '
+          'SET imported = (payload_json LIKE $_importedPayloadLike) '
+          'WHERE rowid > ? AND rowid <= ?',
+          [after, hi],
+        );
+        after = hi;
+      }
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS $_dayResultFinalizedIndex '
+        'ON day_result(algo_version, finalized, imported, day_id)',
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Normalize a day_result row to also carry a `date` key (== day_id) so legacy
@@ -8883,25 +10769,52 @@ class LocalDb {
   /// Uses `VACUUM INTO` (NOT a raw file copy) so the snapshot is transactionally
   /// consistent — a plain copy of a live SQLite file can produce torn pages
   /// (a corrupt export). VACUUM INTO also defragments, so the file is small.
+  /// SQLite older than 3.27 has no VACUUM INTO (Android 8-10: the framework
+  /// ships 3.18/3.22 and sqflite uses it), so there the copy is built table by
+  /// table through [attachCopy] instead, inside one read transaction.
   ///
   /// [includeSubstrateArchive] false empties `substrate_archive` in the COPY
   /// (never the live database). Automatic backups pass false: they keep five
   /// rotating copies, and the archive is already deflated, so gzip cannot
   /// shrink it — a year of history would cost its full size five times over.
   /// A manual export keeps it, which is the lossless copy the user asked for.
+  ///
+  /// [includePrefs] carries settings in export-only tables. Telemetry and
+  /// support exports pass false to keep settings and key signals private.
+  ///
+  /// [into] puts the copy somewhere other than the temp root; the manual
+  /// export uses its own folder so it can prune its old copies without
+  /// touching snapshots other features are still working on.
   static Future<String> exportCopy({
     bool includeSubstrateArchive = true,
+    bool includePrefs = true,
+    Directory? into,
   }) async {
     final db = await instance;
-    final tmp = await getTemporaryDirectory();
+    final tmp = into ?? await getTemporaryDirectory();
     final stamp = DateTime.now().millisecondsSinceEpoch;
     final dest = p.join(tmp.path, 'openstrap_export_$stamp.db');
     final f = File(dest);
     if (await f.exists()) await f.delete(); // VACUUM INTO requires a fresh path
     Database? copy;
     try {
-      await db.execute('VACUUM INTO ?', [dest]);
-      if (!includeSubstrateArchive) {
+      var archiveCopied = true;
+      if (!debugForceAttachExport && await _vacuumIntoSupported(db)) {
+        await db.execute('VACUUM INTO ?', [dest]);
+      } else {
+        // Leave the archive out at copy time: copying it only to delete it
+        // and VACUUM again needs roughly three times its size in free space,
+        // which fails every backup on a nearly full phone.
+        await attachCopy(
+            db.path,
+            dest,
+            (_, table) async =>
+                !includeSubstrateArchive && table == SubstrateArchive.table
+                    ? null
+                    : '');
+        archiveCopied = includeSubstrateArchive;
+      }
+      if (!includeSubstrateArchive && archiveCopied) {
         copy = await openDatabase(dest, singleInstance: false);
         if (debugFailExportStrip) throw StateError('test: strip failed');
         await copy.delete(SubstrateArchive.table);
@@ -8909,6 +10822,7 @@ class LocalDb {
         await copy.close();
         copy = null;
       }
+      if (includePrefs) await writeBackupPrefs(dest);
     } catch (_) {
       // The caller never learns the path of a failed copy, so nobody else
       // could ever delete it: a full copy of the database left in temp.
@@ -8926,6 +10840,76 @@ class LocalDb {
   /// Test seam: fail [exportCopy] after the copy exists, before it is cleaned.
   @visibleForTesting
   static bool debugFailExportStrip = false;
+
+  /// Test seam: take the pre-3.27 [attachCopy] path even on a newer SQLite.
+  @visibleForTesting
+  static bool debugForceAttachExport = false;
+
+  static bool? _vacuumInto;
+
+  static Future<bool> _vacuumIntoSupported(Database db) async {
+    final cached = _vacuumInto;
+    if (cached != null) return cached;
+    final v = await db.rawQuery('SELECT sqlite_version() AS v');
+    return _vacuumInto = sqliteHasVacuumInto(v.first['v'] as String);
+  }
+
+  /// Whether SQLite [version] ("3.22.0") parses `VACUUM INTO` (3.27.0+).
+  @visibleForTesting
+  static bool sqliteHasVacuumInto(String version) {
+    final parts = [
+      for (final x in version.trim().split('.')) int.tryParse(x) ?? 0,
+    ];
+    final major = parts.isNotEmpty ? parts[0] : 0;
+    final minor = parts.length > 1 ? parts[1] : 0;
+    return major > 3 || (major == 3 && minor >= 27);
+  }
+
+  /// The database file plus its `-wal`: what the user's storage settings
+  /// show it costing. After a VACUUM in WAL mode the WAL can be as big as the
+  /// file until a checkpoint truncates it.
+  static Future<int> databaseBytesOnDisk() async {
+    final path = p.join(await getDatabasesPath(), dbName);
+    var total = 0;
+    for (final f in [File(path), File('$path-wal')]) {
+      if (await f.exists()) total += await f.length();
+    }
+    return total;
+  }
+
+  /// Rewrite the file without its free pages, then hand the WAL's copy of
+  /// that rewrite back to the filesystem. The caller gates it (free space,
+  /// nothing else in flight); see [vacuumIfBloated] for why this is a one-off
+  /// VACUUM and not `auto_vacuum`. The checkpoint is a `rawQuery`: the PRAGMA
+  /// returns a row, which `execute` refuses on iOS's sqflite.
+  ///
+  /// True when the WAL was truncated too. A reader still holding a snapshot
+  /// does not make the checkpoint throw: it returns busy = 1 in its first
+  /// column and leaves the WAL as it was, so the row is read, and tried once
+  /// more after a moment.
+  static Future<bool> vacuumAndCheckpoint() async {
+    final db = await instance;
+    await _resetRedriveResume();
+    await db.execute('VACUUM');
+    // VACUUM renumbers every btree root page; see [vacuumIfBloated].
+    await CoachDb.close();
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+      if (checkpointCompleted(
+          await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)'))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Whether a `PRAGMA wal_checkpoint` result row says it finished: its first
+  /// column is 1 when the checkpoint was blocked.
+  @visibleForTesting
+  static bool checkpointCompleted(List<Map<String, Object?>> rows) =>
+      rows.isEmpty || rows.first.values.first != 1;
 
   static Future<int> databaseFileBytes() async {
     final dir = await getDatabasesPath();
@@ -9302,6 +11286,25 @@ class LocalDb {
     }
 
     await db.transaction((txn) async {
+      // `raw_archive` frames are kept, but a later archive re-drive must not
+      // decode them back into a day the user deleted: record the windows.
+      final prevRow = await txn.query('compute_freshness',
+          where: 'key = ?', whereArgs: [kRedriveExcludedKey], limit: 1);
+      // An unreadable earlier list is replaced, not fatal: the deletion
+      // itself must still go through.
+      final excluded = _mergeWindows([
+        ...?(prevRow.isEmpty
+            ? null
+            : _parseWindows(prevRow.first['payload_json'])),
+        for (final dayId in sorted) _localDayWindow(dayId),
+      ]);
+      await txn.insert('compute_freshness', {
+        'key': kRedriveExcludedKey,
+        'payload_json': jsonEncode([
+          for (final w in excluded) [w.$1, w.$2],
+        ]),
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
       // The archived copy of these seconds goes too — "delete this day" is a
       // privacy action, and the archive holds the same data, compressed.
       deleted += await SubstrateArchive.deleteRanges(txn, [
@@ -9430,7 +11433,14 @@ class LocalDb {
   /// run inside `openDatabase` on iOS's CPU watchdog — not somewhere to be on
   /// the tail of a destructive user action). Views are `type='view'` and are
   /// not matched; the sqlite/Android internal tables are skipped by name.
-  static Future<int> wipeAll() async {
+  ///
+  /// Runs on the sync-commit gate, so it cannot interleave with a band batch
+  /// that is mid-commit, and a batch queued behind it sees the reset and
+  /// refuses (see [_commitSyncBatchLocked]).
+  static Future<int> wipeAll() =>
+      _withReaderInvalidated(() => _withCommitGate(_wipeAllLocked));
+
+  static Future<int> _wipeAllLocked() async {
     final db = await instance;
     final rows = await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -9540,6 +11550,27 @@ class LocalDb {
       '$_servedDayJoin '
       "WHERE r.day_id IS NOT NULL AND r.payload_json LIKE '%\"imported\":true%'";
 
+  /// [_importedDatesSql] as a per-row test on the `metric_series` row being
+  /// read: true when that row's day is NOT imported. Same two questions, same
+  /// served-version rule, but asked only of the rows the query actually walks.
+  /// `date NOT IN (_importedDatesSql)` built the whole imported set first, and
+  /// that set is a LIKE over every stored day bundle — two baseline reads on
+  /// Home went from ~2 ms at 30 days of history to ~42 ms each at 730. With
+  /// the newest-first `(key, date)` index walk and a LIMIT, this touches only
+  /// the days returned (plus any imported ones skipped on the way).
+  @visibleForTesting
+  static const String notImportedRowSql =
+      'metric_series.date IS NOT NULL '
+      'AND NOT EXISTS (SELECT 1 FROM metric_series_version v '
+      'WHERE v.date = metric_series.date AND v.source IS NOT NULL '
+      "AND v.source <> 'band') "
+      'AND NOT EXISTS (SELECT 1 FROM day_result r '
+      'WHERE r.day_id = metric_series.date '
+      'AND r.algo_version = (SELECT MAX(x.algo_version) FROM day_result x '
+      'WHERE x.day_id = metric_series.date '
+      'AND x.algo_version <= $_servedAlgoCeiling) '
+      "AND r.payload_json LIKE '%\"imported\":true%')";
+
   /// Day labels whose stored scalars are ANOTHER vendor's derived numbers.
   ///
   /// THE MASK for every baseline read, and the inverse of [isMeasuredDay]:
@@ -9627,12 +11658,12 @@ class LocalDb {
   /// renames on the way through is exactly the situation a restore has to
   /// survive. Plain `.db` files (older backups, and `exportCopy` output) take
   /// the same path they always did.
-  static Future<Map<String, int>> importFromDbFile(String path) async {
+  static Future<ImportSummary> importFromDbFile(String path) async {
     if (!await File(path).exists()) {
       throw const FileSystemException('Backup file not found');
     }
     if (await sniffFile(path) != ImportContainer.gzip) {
-      return _mergeFromDbFile(path);
+      return _restoreFromDbFile(path);
     }
     final work = await Directory.systemTemp.createTemp('openstrap_restore_');
     try {
@@ -9643,7 +11674,7 @@ class LocalDb {
           'That file unpacked to something that is not an OpenStrap database.',
         );
       }
-      return await _mergeFromDbFile(inflated);
+      return await _restoreFromDbFile(inflated);
     } finally {
       // The inflated copy is a full second copy of the database, so it goes
       // whether the import worked or not.
@@ -9653,6 +11684,71 @@ class LocalDb {
         /* the OS reclaims the temp dir eventually */
       }
     }
+  }
+
+  /// Startup defaults alone do not establish an install. Setup, a successful
+  /// prior restore, or hand-entered/history rows do, even without a band.
+  static const _kSettingsImported = 'backup_settings_imported';
+
+  static Future<bool> _backupPrefsFreshInstall(Database db) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    if (prefs.getBool('onboard.completed') == true ||
+        prefs.containsKey('onboarding_choice') ||
+        prefs.containsKey('local_profile_json') ||
+        await getCursor(_kSettingsImported) != null) {
+      return false;
+    }
+    final candidates = {
+      ..._restoreEditedKeys.keys,
+      'decoded_onehz', 'decoded_rr', 'samples', 'day_result', 'observation',
+      'sessions', 'journal', 'substrate_archive', 'raw_archive',
+      'imported_workout', 'imported_measurement', 'lab_result', 'food_entry',
+      'med_dose', 'strength_set', 'cycle_log', 'breathing_session', 'sleep_nap',
+    };
+    // Some stores, including raw_archive, are created lazily.
+    final tables = {for (final row in await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")) row['name']};
+    final probes = [for (final table in candidates)
+        if (tables.contains(table)) 'EXISTS(SELECT 1 FROM $table)'];
+    if (probes.isEmpty) return true;
+    return (await db.rawQuery('SELECT ${probes.join(' OR ')} AS populated'))
+        .single['populated'] == 0;
+  }
+
+  static Future<ImportSummary> _restoreFromDbFile(String path) async {
+    final db = await instance;
+    // Old database-only backups need no preference store. Inspect the copy
+    // before merge, which can make a new phone look established.
+    final src = await openDatabase(path, readOnly: true, singleInstance: false);
+    final bool hasSettings;
+    final bool hasSchedule;
+    try {
+      hasSettings = await _objectType(src, 'backup_prefs') == 'table';
+      hasSchedule = await _objectType(src, 'alarm_schedule') == 'table' &&
+          (await src.rawQuery('SELECT 1 FROM alarm_schedule LIMIT 1'))
+              .isNotEmpty;
+    } finally {
+      await src.close();
+    }
+    final fresh = hasSettings && await _backupPrefsFreshInstall(db);
+    // Cancel-all deletes the schedule rows, so an empty table cannot tell
+    // "cancelled" from "never set": the marker says which, and a cancelled
+    // install keeps it empty. A fresh install has nothing to protect, and a
+    // backup with no schedule rows has nothing to bring back.
+    var cancelled = false;
+    if (hasSchedule && !fresh) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      cancelled = prefs.getBool('alarm_schedule_cleared') == true;
+    }
+    final counts = await _mergeFromDbFile(path,
+        skip: cancelled ? const {'alarm_schedule'} : const {});
+    final summary = await restoreBackupPrefs(path, counts, freshInstall: fresh);
+    // Persist only after settings restore succeeds, including a settings-only
+    // backup without an onboarding choice. A later restore keeps local edits.
+    if (hasSettings) await setCursor(_kSettingsImported, '1');
+    return summary;
   }
 
   /// Merge every table [tables] names from the database file at [path] into
@@ -9672,6 +11768,7 @@ class LocalDb {
       // banked. They were also simply MISSING here until now — nutrition,
       // medication, strength sets, symptoms and routes did not survive a
       // backup/restore round trip at all, the same omission `wipeAll` documents.
+      'alarm_schedule',
       'journal',
       'journal_metric',
       'journal_field_def',
@@ -9744,6 +11841,8 @@ class LocalDb {
       // Calibration observations cannot be rebuilt once raw is pruned.
       'step_calibration',
       'step_calibration_day',
+      'live_step_calibration',
+      'live_step_calibration_run',
       // The devices this phone knows about — so a SECONDARY device's identity
       // survives a backup/restore round trip rather than leaving its rows in
       // `decoded_onehz` pointing at a `device_id` nothing can name. The PRIMARY
@@ -9766,20 +11865,143 @@ class LocalDb {
       'substrate_archive',
   ];
 
+  /// Restore tables whose rows the user edits in place, keyed the way the
+  /// app writes them, with the column that says when (null: none — the local
+  /// row wins). `journal_metric` and `strength_set` are keyed by their SET
+  /// (one day's fields, one session's sets), because the app rewrites each
+  /// as a whole and a row-by-row merge splices two versions together.
+  static const Map<String, (List<String>, String?)> _restoreEditedKeys = {
+    // Keep configured weekdays; a restore fills only absent schedule slots.
+    'alarm_schedule': (['weekday'], null),
+    'journal': (['date'], 'updated_at'),
+    'journal_metric': (['date'], 'updated_at'),
+    'lab_result': (['marker', 'taken_on'], 'updated_at'),
+    'cycle_symptom': (['date'], 'updated_at'),
+    'sleep_override': (['day_id'], 'created_at'),
+    // A dose slot is re-marked in place (taken, skipped, cleared), so an older
+    // backup would flip a dose logged since back to what it said then.
+    'med_dose': (['med_key', 'date', 'slot_min'], 'updated_at'),
+    // A retimed schedule moves its past doses to the new minute, so the
+    // backup's old schedule would leave every dose logged since at a minute
+    // no slot reads, and bring the old reminder back. No edit stamp: local wins.
+    'med_def': (['key'], null),
+    // Edited in place from the food log; `update` restamps `updated_at`.
+    'food_entry': (['id'], 'updated_at'),
+    // Refit from every admissible finalized day, so an older backup's profile
+    // was fit from fewer days and would scale counter steps by a stale factor
+    // until the next refit.
+    'step_calibration': (['device_family', 'wearing'], 'updated_ts'),
+    'cycle_log': (['date'], null),
+    'sessions': (['id'], null),
+    'strength_set': (['session_id'], null),
+  };
+
+  /// `raw_archive` out of a backup, whichever layout wrote it: the frame
+  /// store of this build, the hex-keyed table of an older one, or both (a
+  /// file saved mid-move). Every row is rebuilt through [rawArchiveRow], so a
+  /// frame already here, or in the backup twice, lands once. Paged on rowid,
+  /// like every other table the merge reads. Returns rows offered.
+  static Future<int> _mergeRawArchive(Database src, Database db) async {
+    var copied = 0;
+    Future<void> pageFrom(String table, String hexSql) async {
+      if (await _objectType(src, table) != 'table') return;
+      // Pre-v51 files have no device_id: every row is the primary band's.
+      final hasDevice = (await src.rawQuery('PRAGMA table_info($table)'))
+          .any((c) => c['name'] == 'device_id');
+      final deviceSql =
+          hasDevice ? 'device_id' : "'$kPrimaryDeviceId' AS device_id";
+      var after = _kBeforeEveryRowid;
+      while (true) {
+        final page = await src.rawQuery(
+          'SELECT rowid AS _r, $deviceSql, $hexSql AS hex, counter, '
+          'packet_type, rec_ts, captured_at, reason FROM $table '
+          'WHERE rowid > ? ORDER BY rowid LIMIT 500',
+          [after],
+        );
+        if (page.isEmpty) return;
+        after = (page.last['_r'] as num).toInt();
+        final batch = db.batch();
+        for (final r in page) {
+          final hex = r['hex'];
+          if (hex is! String) continue;
+          batch.insert(
+            rawArchiveTable,
+            rawArchiveRow(
+              deviceId: r['device_id'] as String? ?? kPrimaryDeviceId,
+              hex: hex,
+              counter: (r['counter'] as num?)?.toInt(),
+              packetType: (r['packet_type'] as num?)?.toInt() ?? 0,
+              recTs: (r['rec_ts'] as num?)?.toInt(),
+              capturedAt: (r['captured_at'] as num?)?.toInt() ?? 0,
+              reason: r['reason'] as String? ?? 'unknown',
+            ),
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+          copied++;
+        }
+        await batch.commit(noResult: true);
+      }
+    }
+
+    await pageFrom('raw_archive', 'hex'); // a table only in older files
+    await pageFrom(rawArchiveTable, _rawArchiveHexSql);
+    await pageFrom(_rawArchiveLegacy, 'hex');
+    return copied;
+  }
+
   @visibleForTesting
   static List<String> get restoreTablesForTest => _restoreTables;
 
   @visibleForTesting
   static List<String> get salvageTablesForTest => _salvageTables;
 
+  /// Forces the existing per-row merge for the bulk-restore equivalence tests.
+  @visibleForTesting
+  static bool debugRowByRowMerge = false;
+
+  @visibleForTesting
+  static Future<Map<String, int>> debugMergeRowByRow(String path) async {
+    final previous = debugRowByRowMerge;
+    debugRowByRowMerge = true;
+    try {
+      return await _mergeFromDbFile(path);
+    } finally {
+      debugRowByRowMerge = previous;
+    }
+  }
+
   static Future<Map<String, int>> _mergeFromDbFile(
     String path, {
     List<String>? only,
     bool tolerant = false,
+    Set<String> skip = const {},
+  }) => _withReaderInvalidated(() =>
+      _mergeFromDbFileImpl(path, only: only, tolerant: tolerant, skip: skip));
+
+  static Future<Map<String, int>> _mergeFromDbFileImpl(
+    String path, {
+    List<String>? only,
+    bool tolerant = false,
+    Set<String> skip = const {},
   }) async {
-    final src = await openDatabase(path, readOnly: true);
     final db = await instance;
+    final src = await openDatabase(path, readOnly: true);
     const tables = _restoreTables;
+    const bulkTables = {
+      'decoded_onehz',
+      'decoded_rr',
+      'samples',
+      // Not raw_archive: it has its own merge (_mergeRawArchive), which keeps
+      // the row already on this device instead of replacing it.
+      'events',
+      'band_events',
+      'band_battery',
+      'day_result',
+      'metric_series',
+      'metric_series_version',
+      'metric_method',
+    };
+
     // Columns this app's schema actually has, per table — so a row from a NEWER
     // export carrying extra columns this build doesn't know about is filtered
     // down (dropped) instead of throwing "no such column". A column the source
@@ -9809,18 +12031,321 @@ class LocalDb {
     // version stamp and this device's baselines are the same day's history and
     // get the same protection, or trends and the rolling baselines would be
     // rebuilt from the other export's numbers while day detail serves ours.
-    final finalizedDays = {
-      for (final r in await db.query(
-        'day_result',
-        columns: ['day_id'],
-        where: 'finalized = 1',
-        distinct: true,
-      ))
-        '${r['day_id']}',
-    };
+    final finalizedDays = <String>{};
     var archiveSkipped = 0;
     int? archiveEdgeSec;
+    var impAttached = false;
+    var failed = true;
+
+    // Attempt every cleanup operation. Preserve the original restore error,
+    // but surface a cleanup failure when the copy otherwise succeeded.
+    Future<void> cleanupRestore({
+      List<String> tempTables = const [],
+      bool closeSource = false,
+      required bool preserveError,
+    }) async {
+      Object? firstError;
+      StackTrace? firstStack;
+      Future<void> attempt(Future<void> Function() action) async {
+        try {
+          await action();
+        } catch (error, stack) {
+          firstError ??= error;
+          firstStack ??= stack;
+        }
+      }
+
+      for (final name in tempTables) {
+        await attempt(() => db.execute('DROP TABLE IF EXISTS temp.$name'));
+      }
+      if (closeSource) {
+        if (impAttached) {
+          await attempt(() => db.execute('DETACH DATABASE imp'));
+        }
+        await attempt(src.close);
+      }
+      final error = firstError;
+      if (!preserveError && error != null) {
+        Error.throwWithStackTrace(error, firstStack!);
+      }
+    }
+
+    String quoteSql(String name) => '"${name.replaceAll('"', '""')}"';
+    String sourceColumn(String name) => 's.${quoteSql(name)}';
+    String numericSql(String value) =>
+        "typeof($value) IN ('integer', 'real')";
+
+    Future<bool> mergeBulkTable(String t) async {
+      if (!impAttached || !bulkTables.contains(t)) return false;
+      final exists = await db.rawQuery(
+        "SELECT 1 FROM imp.sqlite_master WHERE type = 'table' AND name = ?",
+        [t],
+      );
+      if (exists.isEmpty) return true;
+
+      if (t == 'day_result') importedDays = <String>{};
+      final destInfo = await db.rawQuery('PRAGMA main.table_info(${quoteSql(t)})');
+      if (destInfo.isEmpty) return false;
+      final sourceInfo = await db.rawQuery('PRAGMA imp.table_info(${quoteSql(t)})');
+      final destColumns = [
+        for (final column in destInfo) column['name'] as String,
+      ];
+      final sourceColumns = {
+        for (final column in sourceInfo) column['name'] as String,
+      };
+      final maxRowid = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT MAX(rowid) FROM imp.${quoteSql(t)}'),
+      );
+      if (maxRowid == null) {
+        counts[t] = 0;
+        return true;
+      }
+
+      if (!sourceColumns.any(destColumns.contains)) return false;
+
+      const deviceKeyed = {'samples', 'decoded_onehz', 'decoded_rr'};
+      final isDeviceKeyed = deviceKeyed.contains(t);
+      final sourceTsMs = sourceColumns.contains('ts_ms')
+          ? sourceColumn('ts_ms')
+          : 'NULL';
+      final sourceDeviceId = sourceColumns.contains('device_id')
+          ? sourceColumn('device_id')
+          : 'NULL';
+      final sourceRecTs = sourceColumns.contains('rec_ts')
+          ? sourceColumn('rec_ts')
+          : 'NULL';
+      final sourceRrTsMs = sourceColumns.contains('rr_ts_ms')
+          ? sourceColumn('rr_ts_ms')
+          : 'NULL';
+      final recoveredRecTs = t == 'decoded_rr'
+          ? 'CASE WHEN $sourceRecTs IS NULL THEN '
+              'CASE WHEN ${numericSql(sourceRrTsMs)} '
+              'THEN CAST($sourceRrTsMs AS INTEGER) / 1000 ELSE NULL END '
+              'ELSE $sourceRecTs END'
+          : sourceRecTs;
+      final keyTime = t == 'samples'
+          ? (sourceColumns.contains('ts') ? sourceColumn('ts') : 'NULL')
+          : t == 'decoded_rr'
+              ? recoveredRecTs
+              : sourceRecTs;
+      final derivedTsMs =
+          'CASE WHEN $sourceTsMs IS NULL THEN CAST($keyTime AS INTEGER) * 1000 '
+          'ELSE $sourceTsMs END';
+      final derivedDeviceId =
+          'CASE WHEN $sourceTsMs IS NULL THEN COALESCE($sourceDeviceId, '
+          "'$kPrimaryDeviceId') ELSE $sourceDeviceId END";
+
+      final expressions = <String, String>{};
+      for (final column in destColumns) {
+        if (sourceColumns.contains(column)) {
+          expressions[column] = sourceColumn(column);
+        }
+      }
+      if (t == 'decoded_onehz') {
+        if (destColumns.contains('on_wrist')) expressions['on_wrist'] = 'NULL';
+        if (destColumns.contains('hr_valid')) expressions['hr_valid'] = 'NULL';
+        if (destColumns.contains('skin_temp_c') &&
+            sourceColumns.contains('skin_temp_c')) {
+          final skinTemp = sourceColumn('skin_temp_c');
+          expressions['skin_temp_c'] =
+              'CASE WHEN ${numericSql(skinTemp)} AND $skinTemp <= -49.995 '
+              'THEN NULL ELSE $skinTemp END';
+        }
+      }
+      if (t == 'decoded_rr' && destColumns.contains('rec_ts')) {
+        expressions['rec_ts'] = recoveredRecTs;
+      }
+      if (isDeviceKeyed && destColumns.contains('device_id')) {
+        expressions['device_id'] = derivedDeviceId;
+      }
+      if (isDeviceKeyed && destColumns.contains('ts_ms')) {
+        expressions['ts_ms'] = derivedTsMs;
+      }
+      final columns = [
+        for (final column in destColumns)
+          if (expressions.containsKey(column)) column,
+      ];
+      if (columns.isEmpty) return false;
+
+      final filters = <String>[];
+      if (t == 'decoded_rr') {
+        // The oracle drops a beat with no rec_ts and no usable rr_ts_ms even
+        // when ts_ms is present; letting it through fails NOT NULL for the
+        // whole chunk.
+        filters.add('NOT ($sourceRecTs IS NULL AND NOT (${numericSql(sourceRrTsMs)}))');
+      }
+      if (isDeviceKeyed) {
+        filters.add('NOT ($sourceTsMs IS NULL AND NOT (${numericSql(keyTime)}))');
+      }
+      if (t == 'day_result') {
+        // The oracle compares interpolated strings, before destination
+        // affinity can coerce a foreign TEXT version such as '0100' to 100.
+        filters.add('NOT EXISTS (SELECT 1 FROM temp._restore_protected_day_results p '
+            'WHERE CAST(p.day_id AS TEXT) = CAST(${sourceColumn('day_id')} AS TEXT) AND '
+            'CAST(p.algo_version AS TEXT) = CAST(${sourceColumn('algo_version')} AS TEXT))');
+      }
+      if (t == 'metric_series' ||
+          t == 'metric_series_version' ||
+          t == 'metric_method') {
+        filters.add('NOT EXISTS (SELECT 1 FROM temp._restore_finalized_days p '
+            'WHERE CAST(p.day_id AS TEXT) = CAST(${sourceColumn('date')} AS TEXT))');
+      }
+      final unbounded = filters.isEmpty ? '1' : filters.join(' AND ');
+      final where = ['s.rowid > ?', 's.rowid <= ?', ...filters].join(' AND ');
+      final selectSql = 'SELECT ${[
+        for (final column in columns)
+          '${expressions[column]} AS ${quoteSql(column)}',
+      ].join(', ')} FROM imp.${quoteSql(t)} s WHERE $where';
+      // Rowid order: when derived keys collide, the later source row wins, as
+      // on the per-row path.
+      final insertSql = 'INSERT OR REPLACE INTO main.${quoteSql(t)} '
+          '(${columns.map(quoteSql).join(', ')}) $selectSql ORDER BY s.rowid';
+
+      // Small enough that a band-sync commit (which must land before the ACK)
+      // never waits long behind one, and a salvage loses little to one
+      // unreadable chunk.
+      const chunkRows = 25000;
+      var failed = true;
+      var copied = 0;
+      try {
+        // Chunk ends by row count, not fixed rowid ranges: a legacy
+        // `rec_ts INTEGER PRIMARY KEY` table has rowids near 1.8e9, which
+        // fixed 25k ranges walked as ~70k mostly empty transactions.
+        final ends = <int>[];
+        for (var lo = _kBeforeEveryRowid;;) {
+          final hi = Sqflite.firstIntValue(await db.rawQuery(
+            'SELECT MAX(r) FROM (SELECT rowid AS r FROM imp.${quoteSql(t)} '
+            'WHERE rowid > ? ORDER BY rowid LIMIT $chunkRows)',
+            [lo],
+          ));
+          if (hi == null) break;
+          ends.add(hi);
+          lo = hi;
+        }
+        if (t == 'decoded_rr') {
+          // The highest beat per second over the WHOLE source, not one chunk:
+          // REPLACE renumbers rowids, so one second's beats can straddle
+          // chunks out of order, and a per-chunk max would clear beats an
+          // earlier chunk just restored.
+          // Unlike the oracle's per-2k-page sweep, this also retains an earlier
+          // high beat when a later oracle page carries only lower indices.
+          await db.execute('DROP TABLE IF EXISTS temp._restore_rr_src_max');
+          await db.execute('''CREATE TEMP TABLE _restore_rr_src_max
+            (d TEXT, k INTEGER, m INTEGER, PRIMARY KEY (d, k))''');
+          // Paged like the copy below, so a band-sync commit can land between
+          // pages instead of waiting out a scan of the whole source.
+          for (var i = 0; i < ends.length; i++) {
+            // REPLACE with a LEFT JOIN rather than an UPSERT: Android 8-10
+            // ship a system SQLite older than ON CONFLICT DO UPDATE.
+            // GROUP BY ordinals, not d/k: a source column of the same name
+            // would win over the alias.
+            await db.execute('''INSERT OR REPLACE INTO temp._restore_rr_src_max
+                (d, k, m)
+              SELECT c.d, c.k, MAX(c.m, COALESCE(x.m, c.m))
+              FROM (SELECT $derivedDeviceId AS d, $derivedTsMs AS k,
+                      MAX(CAST(${sourceColumn('beat_index')} AS INTEGER)) AS m
+                    FROM imp.${quoteSql(t)} s
+                    WHERE s.rowid > ? AND s.rowid <= ? AND $unbounded
+                      AND ${numericSql(sourceColumn('beat_index'))}
+                    GROUP BY 1, 2) c
+              LEFT JOIN temp._restore_rr_src_max x ON x.d = c.d AND x.k = c.k''',
+                [i == 0 ? _kBeforeEveryRowid : ends[i - 1], ends[i]]);
+          }
+        }
+        var lower = _kBeforeEveryRowid;
+        for (final upper in ends) {
+          final first = lower == _kBeforeEveryRowid;
+          await db.transaction((txn) async {
+            if (t == 'day_result' && first) {
+              // Inside the first chunk's transaction, so a day the engine
+              // finalizes while the restore runs is still protected.
+              await txn.execute(
+                  'DROP TABLE IF EXISTS temp._restore_protected_day_results');
+              await txn.execute(
+                  'CREATE TEMP TABLE _restore_protected_day_results AS '
+                  'SELECT day_id, algo_version FROM main.day_result '
+                  'WHERE finalized = 1');
+            }
+            if (t == 'day_result') {
+              final days = await txn.rawQuery(
+                'SELECT DISTINCT ${sourceColumn('day_id')} AS day_id '
+                'FROM imp.${quoteSql(t)} s WHERE $where',
+                [lower, upper],
+              );
+              importedDays?.addAll(
+                days.map((row) => '${row['day_id']}'),
+              );
+            }
+            await txn.execute(insertSql, [lower, upper]);
+            copied += Sqflite.firstIntValue(
+                  await txn.rawQuery('SELECT changes()'),
+                ) ??
+                0;
+            if (t == 'decoded_rr') {
+              // Materialised and driven from the chunk's seconds, so the
+              // delete walks decoded_rr's (device_id, ts_ms, beat_index) key
+              // once per carried second. A correlated EXISTS over the CTE
+              // scanned every local beat against every carried second.
+              await txn.execute('DROP TABLE IF EXISTS temp._restore_rr_carried');
+              await txn.execute('''CREATE TEMP TABLE _restore_rr_carried AS
+                SELECT DISTINCT x.d AS d, x.k AS k, x.m AS m
+                FROM (SELECT $derivedDeviceId AS d, $derivedTsMs AS k
+                      FROM imp.${quoteSql(t)} s WHERE $where
+                        AND ${numericSql(sourceColumn('beat_index'))}) c
+                JOIN temp._restore_rr_src_max x ON x.d = c.d AND x.k = c.k''',
+                  [lower, upper]);
+              await txn.execute('''DELETE FROM main.decoded_rr WHERE rowid IN (
+                SELECT r.rowid FROM temp._restore_rr_carried c
+                JOIN main.decoded_rr r
+                  ON r.device_id = c.d AND r.ts_ms = c.k AND r.beat_index > c.m)''');
+              await txn.execute('DROP TABLE temp._restore_rr_carried');
+            }
+          });
+          lower = upper;
+        }
+        failed = false;
+      } finally {
+        await cleanupRestore(
+          tempTables: [
+            if (t == 'day_result') '_restore_protected_day_results',
+            if (t == 'decoded_rr') ...[
+              '_restore_rr_carried', '_restore_rr_src_max',
+            ],
+          ],
+          preserveError: failed,
+        );
+      }
+      counts[t] = copied;
+      return true;
+    }
+
     try {
+      if (!debugRowByRowMerge) {
+        try {
+          await db.execute('ATTACH DATABASE ? AS imp', [path]);
+          impAttached = true;
+        } on DatabaseException {
+          // A damaged-file salvage can still try the per-row reader. A public
+          // restore must propagate its failure instead of claiming success.
+          if (!tolerant) rethrow;
+        }
+      }
+      await db.transaction((txn) async {
+        finalizedDays.addAll({
+          for (final r in await txn.query(
+            'day_result',
+            columns: ['day_id'],
+            where: 'finalized = 1',
+            distinct: true,
+          ))
+            '${r['day_id']}',
+        });
+        if (impAttached) {
+          await txn.execute('DROP TABLE IF EXISTS temp._restore_finalized_days');
+          await txn.execute('CREATE TEMP TABLE _restore_finalized_days AS '
+              'SELECT day_id FROM main.day_result WHERE finalized = 1');
+        }
+      });
       if ((only ?? tables).contains(SubstrateArchive.table)) {
         try {
           await SubstrateArchive.adoptPolicy(src, db);
@@ -9846,7 +12371,21 @@ class LocalDb {
             : (srcEdge == null || localEdge > srcEdge ? localEdge : srcEdge);
       }
       for (final t in (only ?? tables)) {
+        if (skip.contains(t)) {
+          counts[t] = 0;
+          continue;
+        }
+        if (t == 'raw_archive') {
+          try {
+            counts[t] = await _mergeRawArchive(src, db);
+          } catch (_) {
+            if (!tolerant) rethrow;
+            counts[t] = 0;
+          }
+          continue;
+        }
         try {
+          if (await mergeBulkTable(t)) continue;
           // PAGED SOURCE READ — never `SELECT *` a whole table.
           //
           // This used to be a single `src.query(t)`. sqflite serialises an entire
@@ -9874,7 +12413,7 @@ class LocalDb {
           final isArchive = t == SubstrateArchive.table;
           final pageSize = isArchive ? 8 : 2000;
           const rowidKey = '_rowid';
-          var lastRowid = 0;
+          var lastRowid = _kBeforeEveryRowid;
           final projection = isArchive
               ? SubstrateArchive.metaColumns.join(', ')
               : '*';
@@ -9956,6 +12495,22 @@ class LocalDb {
               ))
                 '${r['day']}',
           };
+          // sync_cursor is this install's own bookkeeping, so a row it already
+          // has wins. A backup's older copy would otherwise lower the prune edge
+          // (which is only ever raised): the derive engine would then stop
+          // treating a restored day whose rows end at the backup moment as
+          // truncated, and overwrite its finalized full-day result from that
+          // partial substrate. The prune edge takes the higher of the two;
+          // every other key the backup has that this install lacks still comes
+          // across, which is what a restore onto a new phone needs.
+          final localCursors = <String, String?>{
+            if (t == 'sync_cursor')
+              for (final r in await db.query(
+                'sync_cursor',
+                columns: ['name', 'value'],
+              ))
+                '${r['name']}': r['value'] as String?,
+          };
           // sleep_user_profile is an accumulator (one fold per finalized
           // night), so the local-wins rule below would let a few local nights
           // throw away a backup's months. The side that folded more nights
@@ -9966,6 +12521,34 @@ class LocalDb {
                       as String?,
                 ).length
               : 0;
+          // Hand-entered rows the user may have edited since the backup was
+          // taken. A plain REPLACE handed every colliding key back to the
+          // backup's older copy: a rewritten journal note, a corrected lab
+          // value or sleep window, a finished workout turned back into the
+          // 'live' one a mid-workout backup caught. So the newer side keeps
+          // the key; a table with no edit stamp keeps the local row, and a
+          // restore only adds what this install has lost.
+          //
+          // Snapshotted BEFORE the table merges, so a key the backup fills in
+          // on page 1 does not read as "local" on page 2.
+          final edited = _restoreEditedKeys[t];
+          final localEdits = <String, int>{};
+          String editKey(Map<String, Object?> r) =>
+              [for (final c in edited!.$1) '${r[c]}'].join('|');
+          if (edited != null) {
+            final keys = edited.$1.join(', ');
+            final stamp = edited.$2 == null
+                ? '0'
+                : 'MAX(COALESCE(${edited.$2}, 0))';
+            for (final r in await db.rawQuery(
+              'SELECT $keys, $stamp AS f FROM $t GROUP BY $keys',
+            )) {
+              localEdits[editKey(r)] = (r['f'] as num?)?.toInt() ?? 0;
+            }
+          }
+          // Sets already replaced wholesale by a newer backup copy — the
+          // local set is cleared once, on the first row, never per page.
+          final replacedSets = <String>{};
           var copied = 0;
           var page = firstPage;
           // ONE TRANSACTION PER PAGE, not per table. The whole-table transaction
@@ -10069,6 +12652,23 @@ class LocalDb {
                   // A newer local correction has already answered this window.
                   if (local.isNotEmpty) continue;
                 }
+                if (edited != null) {
+                  final key = editKey(row);
+                  final mine = localEdits[key];
+                  if (mine != null) {
+                    final stamp = edited.$2;
+                    final theirs =
+                        stamp == null ? null : (row[stamp] as num?)?.toInt();
+                    if (theirs == null || theirs <= mine) continue;
+                    // The backup's day is newer, and a day's fields are a SET:
+                    // patching it row by row would keep a field the backup's
+                    // version had already removed.
+                    if (t == 'journal_metric' && replacedSets.add(key)) {
+                      batch.delete(t, where: 'date = ?', whereArgs: [row['date']]);
+                      if (++ops >= chunkOps) await flush();
+                    }
+                  }
+                }
                 if (t == 'activity_suggestions') {
                   final local = await txn.query(t, where: 'id = ?', whereArgs: [row['id']], limit: 1);
                   if (local.isNotEmpty && (local.single['status'] != 'pending' ||
@@ -10132,6 +12732,37 @@ class LocalDb {
                     }
                   }
                   continue;
+                }
+                // A SENSOR'S HANDLE IS NOT PORTABLE EITHER, for the same
+                // reason, but its row is: it names the `device_id` its
+                // history carries. So the row comes across WITHOUT the
+                // `remote_id`. Kept verbatim, it would never connect, and
+                // because a sensor's id is minted from that handle
+                // (`HrsLink.mintDeviceId`) re-pairing the same strap here
+                // writes a NEW row instead of overwriting it — two such rows
+                // filled the sensor cap and refused every pair until each was
+                // forgotten by hand. Every link already refuses to arm a row
+                // with no handle, and `sensorCapReached` does not count one.
+                // A row this phone already has is its own live pairing and
+                // stays untouched: replacing it would blank a working handle.
+                if (t == 'device') {
+                  final local = await txn.query('device',
+                      columns: ['id'], where: 'id = ?', whereArgs: [row['id']]);
+                  if (local.isNotEmpty) continue;
+                  row['remote_id'] = null;
+                }
+                if (t == 'sync_cursor') {
+                  final name = '${row['name']}';
+                  // Only a successful restore on THIS install establishes it.
+                  if (name == _kSettingsImported) continue;
+                  if (localCursors.containsKey(name)) {
+                    if (name != kDecodedPrunedBeforeCursor) continue;
+                    final mine = int.tryParse('${localCursors[name]}');
+                    final theirs = int.tryParse('${row['value']}');
+                    if (theirs == null || (mine != null && theirs <= mine)) {
+                      continue;
+                    }
+                  }
                 }
                 if (t == 'day_result') {
                   if (protectedKeys.contains(
@@ -10276,8 +12907,16 @@ class LocalDb {
           counts[t] = 0;
         }
       }
+      failed = false;
     } finally {
-      await src.close();
+      await cleanupRestore(
+        tempTables: impAttached ? [
+          '_restore_rr_carried', '_restore_rr_src_max',
+          '_restore_protected_day_results', '_restore_finalized_days',
+        ] : const [],
+        closeSource: true,
+        preserveError: failed,
+      );
     }
     if (counts.values.any((count) => count > 0)) {
       await ActivityStore.suppressImportedAlerts(db);
@@ -10320,9 +12959,16 @@ class LocalDb {
     if ((counts['day_result'] ?? 0) > 0) {
       await putComputeFreshness(kReencodeCursorKey, jsonEncode({}));
     }
+    // Same for the raw-free nap cleanup: imported old days, or legacy nap
+    // edits recomposed into kept days, may carry the next-night nap double
+    // count it removes, so it runs again.
+    if ((counts['day_result'] ?? 0) > 0 || (counts['sleep_nap'] ?? 0) > 0) {
+      await deleteComputeFreshness(kNapNextNightCleanupKey);
+    }
     // Last, so it can never be mistaken for a table row count by anything that
     // walks this map in order.
-    if (importedDays != null) counts['_days'] = importedDays.length;
+    final days = importedDays;
+    if (days != null) counts['_days'] = days.length;
     // Archive buckets that could not be merged (a codec this build does not
     // know) — kept out of the row counts, never silently.
     if (archiveSkipped > 0) counts['_substrate_archive_skipped'] = archiveSkipped;
@@ -10343,11 +12989,7 @@ class LocalDb {
     final tsRow = (await db.rawQuery(
       'SELECT MIN(rec_ts) AS lo, MAX(rec_ts) AS hi FROM decoded_onehz WHERE rec_ts > 0',
     )).first;
-    final decodedOneHz =
-        Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM decoded_onehz'),
-        ) ??
-        0;
+    final decodedOneHz = count;
     final decodedRr =
         Sqflite.firstIntValue(
           await db.rawQuery('SELECT COUNT(*) FROM decoded_rr'),
@@ -10762,12 +13404,13 @@ class LocalDb {
     String key, {
     int? limit,
     bool measuredOnly = false,
+    DatabaseExecutor? executor,
   }) async {
-    final db = await instance;
+    final db = executor ?? await instance;
     return db.query(
       'metric_series',
       where: 'key = ? AND value IS NOT NULL${_validSql(key)}'
-          '${measuredOnly ? ' AND date NOT IN ($_importedDatesSql)' : ''}',
+          '${measuredOnly ? ' AND $notImportedRowSql' : ''}',
       whereArgs: [key],
       orderBy: 'date ASC',
       limit: limit,
@@ -10807,15 +13450,15 @@ class LocalDb {
       'SELECT value FROM metric_series '
       'WHERE key = ? AND value IS NOT NULL '
       '${before != null ? 'AND date < ? ' : ''}'
-      '${measuredOnly ? 'AND date NOT IN ($_importedDatesSql) ' : ''}'
+      '${measuredOnly ? 'AND $notImportedRowSql ' : ''}'
       'ORDER BY date DESC LIMIT ?',
       [key, ?before, n],
     );
     return [for (final r in rows.reversed) (r['value'] as num).toDouble()];
   }
 
-  static Future<Map<String, dynamic>?> baseline(String key) async {
-    final db = await instance;
+  static Future<Map<String, dynamic>?> baseline(String key, {DatabaseExecutor? executor}) async {
+    final db = executor ?? await instance;
     final rows = await db.query(
       'baselines',
       where: 'key = ?',
@@ -10831,13 +13474,32 @@ class LocalDb {
   }
 
   /// A calculation started before a review must never publish over it.
-  static Future<bool> putReviewedBaseline(String key, String payloadJson, int expectedRevision) async {
+  /// [series], when given, is one `metric_series` row derived from this same
+  /// payload, written in the same transaction so the two can never disagree
+  /// (derivation runs in more than one isolate, so two builds can interleave).
+  static Future<bool> putReviewedBaseline(String key, String payloadJson, int expectedRevision,
+      {({String date, String key, double? value})? series}) async {
     return (await instance).transaction((tx) async {
       final rows = await tx.query('activity_review_meta', columns: ['revision']);
       final revision = rows.isEmpty ? 0 : rows.single['revision'] as int;
       if (revision != expectedRevision) return false;
       await tx.insert('baselines', {'key': key, 'payload_json': payloadJson,
         'updated_at': DateTime.now().millisecondsSinceEpoch}, conflictAlgorithm: ConflictAlgorithm.replace);
+      if (series != null) {
+        // An abstained value removes the day's row rather than storing a
+        // null: an absent row already reads "—", and a null row would be a
+        // stored fact about a day nothing measured.
+        final v = series.value;
+        if (v == null) {
+          await tx.delete('metric_series',
+              where: 'date = ? AND key = ?',
+              whereArgs: [series.date, series.key]);
+        } else {
+          await tx.insert('metric_series',
+              {'date': series.date, 'key': series.key, 'value': v},
+              conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+      }
       return true;
     });
   }
@@ -11155,9 +13817,10 @@ class LocalDb {
 
   static Future<void> putComputeFreshness(
     String key,
-    String payloadJson,
-  ) async {
-    final db = await instance;
+    String payloadJson, {
+    DatabaseExecutor? txn,
+  }) async {
+    final db = txn ?? await instance;
     await db.insert('compute_freshness', {
       'key': key,
       'payload_json': payloadJson,
@@ -11167,9 +13830,51 @@ class LocalDb {
 
   static String localDayLabelNow() => todayLabel();
 
+  /// `payload_json` of the exact row [recentDayResultsMeta] served for
+  /// [dayId], or null.
+  static Future<Object?> _servedPayloadJson(
+    String dayId,
+    Object? algoVersion,
+  ) async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT payload_json FROM day_result WHERE day_id = ? AND algo_version = ?',
+      [dayId, algoVersion],
+    );
+    return rows.isEmpty ? null : rows.first['payload_json'];
+  }
+
+  /// The three [rawStats] fields freshness reads. [rawStats] also counts
+  /// `samples` and takes MIN(rec_ts) for the diagnostics screen, which a
+  /// derive pass has no use for.
+  static Future<Map<String, dynamic>> _freshnessRawStats() async {
+    final db = await instance;
+    final hi = (await db.rawQuery(
+      'SELECT MAX(rec_ts) AS hi FROM decoded_onehz WHERE rec_ts > 0',
+    )).first['hi'];
+    final oneHz =
+        Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM decoded_onehz'),
+        ) ??
+        0;
+    final rr =
+        Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM decoded_rr'),
+        ) ??
+        0;
+    return {
+      'max_rec_ts': (hi as num?)?.toInt(),
+      'decoded_onehz': oneHz,
+      'decoded_rr': rr,
+    };
+  }
+
   static Future<void> refreshComputeFreshness() async {
-    final raw = await rawStats();
-    final recent = await recentDayResults(30);
+    final raw = await _freshnessRawStats();
+    // Payload-free: this runs at the end of every derive pass, including the
+    // light one after each BLE drain, on the UI isolate. The loop usually
+    // stops after a row or two, so each bundle is fetched only when visited.
+    final recent = await recentDayResultsMeta(30);
     final rolling = await baseline('rolling');
     final cross = await baseline('crossday');
     final today = localDayLabelNow();
@@ -11192,7 +13897,9 @@ class LocalDb {
       if (dayId == null || dayId.isEmpty) continue;
       if (dayId == today && todayRow == null) todayRow = row;
       final decoded =
-          SeriesCodec.decodePayloadJson(row['payload_json']) ??
+          SeriesCodec.decodePayloadJson(
+            await _servedPayloadJson(dayId, row['algo_version']),
+          ) ??
           const <String, dynamic>{};
       if (decoded['skipped'] == true) continue;
       // #448: today's night is not today's overnight until the drain has
@@ -11220,7 +13927,14 @@ class LocalDb {
           nowSec: nowSec,
         )?.wire;
       }
+      final flags = decoded['flags'];
+      // 'Not sleep' is the user's own verdict on the night, so it needs no
+      // settling and is as final an overnight as a detected absence. Without
+      // this a rejected today was never the overnight day: Home held the
+      // previous night over as "still being worked out" for the rest of it.
+      final rejected = flags is List && flags.contains('SLEEP_REJECTED');
       if (dayId == today &&
+          !rejected &&
           !overnightSettled(
             sleepOffsetSec: wakeSec,
             dataEdgeSec: edgeSec,
@@ -11236,9 +13950,9 @@ class LocalDb {
       if (latestOvernightDay == null) {
         final sleep =
             ((decoded['sleep'] as Map?)?['accounting'] as Map?)?['value'];
-        final flags = decoded['flags'];
         final hasSleep = sleep is Map && sleep['tst_sec'] != null;
-        final noSleep = flags is List && flags.contains('NO_SLEEP_DETECTED');
+        final noSleep = rejected ||
+            (flags is List && flags.contains('NO_SLEEP_DETECTED'));
         if (hasSleep || noSleep) {
           latestOvernightDay = dayId;
           latestOvernightComputedAt = (row['computed_at'] as num?)?.toInt();
@@ -11249,9 +13963,14 @@ class LocalDb {
         latestRecoveryDay = dayId;
         latestRecoveryComputedAt = (row['computed_at'] as num?)?.toInt();
       }
+      // Rows run newest day first, so once one is older than today, today has
+      // no row and cannot turn up further down. Waiting for it walked and
+      // decoded all 30 bundles on every pass whenever today was not derived
+      // yet (just after midnight, a held day, a drain that only moved last
+      // night's tail).
       if (latestOvernightDay != null &&
           latestRecoveryDay != null &&
-          todayRow != null) {
+          (todayRow != null || dayId.compareTo(today) < 0)) {
         break;
       }
     }
@@ -11762,6 +14481,15 @@ class LocalDb {
   }) async {
     final db = await instance;
     await db.transaction((tx) async {
+      // A logged nap is credited whole on top of the main night's TST (nap_min,
+      // total asleep, sleep-need credit), so one typed over the end of the
+      // night — the doze after the alarm — counts those minutes twice.
+      if (source == 'manual' &&
+          await ActivityStore.overlapsMainSleep(tx, startTs, endTs)) {
+        throw const ActivityReviewException(
+          'That overlaps your main sleep, which already counts that time.',
+        );
+      }
       String? snapshot;
       if (source == 'rejected') {
         // A pre-upgrade nap may still live only in its retained day result.
@@ -11820,15 +14548,38 @@ class LocalDb {
       if (restoreSource != null) {
         // Removing a rejection means "Put it back". Keep its original asleep
         // minutes and confidence even after raw recordings have expired.
+        // This is now an explicit decision, even for a legacy snapshot: a
+        // later main-window correction must not suppress it as old detection.
+        restoreSource = 'confirmed';
+        final restored = Map<String, dynamic>.from(jsonDecode(
+          restorePayload ?? rows.single['payload_json'] as String) as Map);
+        restored['source'] = restoreSource;
+        restorePayload = jsonEncode(restored);
         await tx.update('sleep_nap', {
           'source': restoreSource,
           'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          'payload_json': ?restorePayload,
+          'payload_json': restorePayload,
         }, where: 'day_id = ? AND start_ts = ?', whereArgs: [dayId, startTs]);
       } else {
         await tx.delete('sleep_nap', where: 'day_id = ? AND start_ts = ?', whereArgs: [dayId, startTs]);
       }
     });
+  }
+
+  /// Whether [startTs, endTs) overlaps a main sleep already derived — the
+  /// check [putNapEdit] enforces for a logged nap, readable ahead of the write
+  /// so the entry screen can say why in the user's language.
+  static Future<bool> napOverlapsMainSleep(int startTs, int endTs) async =>
+      ActivityStore.overlapsMainSleep(await instance, startTs, endTs);
+
+  /// Drops [dayId]'s `legacy` nap edits overlapping [startSec, endSec). Logged,
+  /// confirmed and rejected edits are left alone.
+  static Future<int> deleteLegacyNapsOverlapping(
+      String dayId, int startSec, int endSec) async {
+    final db = await instance;
+    return db.delete('sleep_nap',
+        where: "day_id = ? AND source = 'legacy' AND start_ts < ? AND end_ts > ?",
+        whereArgs: [dayId, endSec, startSec]);
   }
 
   static Future<List<Map<String, dynamic>>> napEdits(String dayId) async {
@@ -12021,6 +14772,35 @@ class LocalDb {
     });
   }
 
+  /// Move a session's window. Not `putSession`: the row's type correction,
+  /// RPE and private flag must survive. What was measured over the OLD window
+  /// (the frozen HR trace, average HR, zone minutes) belongs to other seconds,
+  /// so it goes; a re-score fills it again if the new window is still on
+  /// record. Returns the number of rows changed.
+  static Future<int> setSessionWindow(String id, int startTs, int? endTs) async {
+    final db = await instance;
+    return db.transaction((tx) async {
+      final n = await tx.update(
+        'sessions',
+        {
+          'start_ts': startTs,
+          'end_ts': endTs,
+          'trace_json': null,
+          'trace_samples': null,
+          'avg_hr': null,
+          'zone_min_json': null,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (n > 0) {
+        await ActivityStore.supersede(tx, ActivityKind.workout, startTs,
+            endTs ?? DateTime.now().millisecondsSinceEpoch ~/ 1000);
+      }
+      return n;
+    });
+  }
+
   /// Update ONLY a session's derived score columns.
   ///
   /// Deliberately not `putSession`: that is INSERT-OR-REPLACE over the whole
@@ -12060,6 +14840,17 @@ class LocalDb {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  /// Whether a [source] session already starts at [startTs], under any id.
+  static Future<bool> hasSessionStartingAt(String source, int startTs) async {
+    final db = await instance;
+    final rows = await db.query('sessions',
+        columns: ['id'],
+        where: 'source = ? AND start_ts = ?',
+        whereArgs: [source, startTs],
+        limit: 1);
+    return rows.isNotEmpty;
   }
 
   static Future<Map<String, dynamic>?> session(String id) async {
@@ -12149,15 +14940,57 @@ class LocalDb {
 
   static Future<List<Map<String, dynamic>>> sessionsInRange(
     int fromTs,
-    int toTs,
-  ) async {
-    final db = await instance;
+    int toTs, {
+    DatabaseExecutor? executor,
+  }) async {
+    final db = executor ?? await instance;
     return withoutFlagOffScores(await db.query(
       'sessions',
       where: 'start_ts >= ? AND start_ts <= ?',
       whereArgs: [fromTs, toTs],
       orderBy: 'start_ts DESC',
-    ));
+    ), executor: db);
+  }
+
+  /// The most-used finished sessions' activity keys, most-used first — rows
+  /// of `{'type', 'n', 'last_ts'}` for the activity picker's quick row.
+  /// `type` comes back NORMALIZED exactly the way [activityByName] resolves
+  /// it (`lower(replace(type, ' ', '_'))`, the same rule as `Activity.typeKey`),
+  /// so 'Running' and 'running' count as one activity and can never rank an
+  /// activity low or show it twice. [sinceTs] bounds the window (the picker
+  /// passes 90 days so a seasonal sport does not stay pinned at the top
+  /// forever); null counts all history. Live sessions never count, and
+  /// `last_ts` breaks ties so a newly started sport does not sink below an
+  /// old habit. [limit] caps the ranked rows returned — a caller that drops
+  /// unresolvable types itself should fetch more than it displays, or
+  /// unknown types could crowd out every known one before the limit.
+  /// [toTs] bounds the window from above (defaults to now) so a future-dated
+  /// row (clock skew) cannot inflate a count. Only sessions this app started
+  /// count: scored imports (`scored_import`) and WHOOP exports (`whoop`) also
+  /// live in `sessions`, and the quick row's tiles START a session, so
+  /// someone else's recording must not outrank what this user does here.
+  static Future<List<Map<String, dynamic>>> mostUsedActivityTypes({
+    int? sinceTs,
+    int? toTs,
+    int limit = 6,
+  }) async {
+    final db = await instance;
+    final args = <Object?>[];
+    var where = "status = 'done' AND type IS NOT NULL AND type <> '' "
+        "AND source NOT IN ('scored_import', 'whoop') AND start_ts <= ?";
+    args.add(toTs ?? DateTime.now().millisecondsSinceEpoch ~/ 1000);
+    if (sinceTs != null) {
+      where += ' AND start_ts >= ?';
+      args.add(sinceTs);
+    }
+    args.add(limit);
+    return db.rawQuery(
+      "SELECT lower(replace(type, ' ', '_')) AS type, COUNT(*) AS n, "
+      'MAX(start_ts) AS last_ts FROM sessions '
+      'WHERE $where GROUP BY lower(replace(type, \' \', \'_\')) '
+      'ORDER BY n DESC, last_ts DESC, type ASC LIMIT ?',
+      args,
+    );
   }
 
   /// What a session's sensor scored: served empty, not stored empty.
@@ -12183,10 +15016,10 @@ class LocalDb {
   /// ponytail: one window scan per session; batch it into one join if a long
   /// session list gets slow.
   static Future<List<Map<String, dynamic>>> withoutFlagOffScores(
-      List<Map<String, dynamic>> rows) async {
+      List<Map<String, dynamic>> rows, {DatabaseExecutor? executor}) async {
     final out = <Map<String, dynamic>>[];
     for (final r in rows) {
-      out.add(await _flagOffOnly(r)
+      out.add(await _flagOffOnly(r, executor: executor)
           ? {...r, for (final c in _sensorScoreColumns) c: null}
           : r);
     }
@@ -12196,7 +15029,8 @@ class LocalDb {
   /// Whether finished session [r]'s window has worn seconds and every one of
   /// them came from a device whose flag is now off (see
   /// [withoutFlagOffScores]).
-  static Future<bool> _flagOffOnly(Map<String, dynamic> r) async {
+  static Future<bool> _flagOffOnly(Map<String, dynamic> r,
+      {DatabaseExecutor? executor}) async {
     final s = (r['start_ts'] as num?)?.toInt();
     final e = (r['end_ts'] as num?)?.toInt();
     if (s == null || e == null || r['status'] != 'done') return false;
@@ -12205,13 +15039,13 @@ class LocalDb {
     // wearable's) and once its raw is pruned.
     // ponytail: a stamped window the band also measured serves empty too,
     // not band-only; rescore it from the band's rows if that matters.
-    if ((await sessionSensorsOf(r['id']))
+    if ((await sessionSensorsOf(r['id'], executor: executor))
         .any((s) => !sessionSensorSources.contains(s))) {
       return true;
     }
     final on = {...sessionSensorSources, ?sessionWearableSource};
     final sources = [
-      for (final x in await (await instance).rawQuery(
+      for (final x in await (executor ?? await instance).rawQuery(
           'SELECT DISTINCT source FROM decoded_onehz '
           'WHERE rec_ts >= ? AND rec_ts <= ? AND hr > 0',
           [s, e]))
@@ -12247,8 +15081,9 @@ class LocalDb {
   }
 
   /// Every workout sensor stamped on session [id] ([stampSessionSensor]).
-  static Future<Set<String>> sessionSensorsOf(Object? id) async => {
-        for (final r in await (await instance).query('session_sensor',
+  static Future<Set<String>> sessionSensorsOf(Object? id,
+      {DatabaseExecutor? executor}) async => {
+        for (final r in await (executor ?? await instance).query('session_sensor',
             columns: ['source'], where: 'session_id = ?', whereArgs: [id]))
           r['source'] as String,
       };
@@ -12821,6 +15656,17 @@ class LocalDb {
     int dataNowSec,
   ) async => SubstrateArchive.evict(await instance, policy, dataNowSec);
 
+  /// The data edge the archive window is measured from: the newest band
+  /// reading, or, on a restored database with an archive but no decoded rows
+  /// yet, the archive's own newest reading — without it a shorter window
+  /// would be saved and nothing ever deleted. Null only with neither.
+  static Future<int?> substrateArchiveEdge() async {
+    final band = await lastDecodedRecTs();
+    if (band != null) return band;
+    final newest = (await substrateArchiveStats())['newest_to_ts'];
+    return newest is num ? newest.toInt() : null;
+  }
+
   /// `{buckets, bytes, raw_bytes, oldest_from_ts, newest_to_ts}` of the
   /// substrate archive.
   static Future<Map<String, Object?>> substrateArchiveStats() async =>
@@ -12878,6 +15724,7 @@ class LocalDb {
     final free = await freelistBytes();
     if (free < minFreeBytes) return 0;
     final db = await instance;
+    await _resetRedriveResume();
     await db.execute('VACUUM');
     // VACUUM rewrites the file and renumbers every btree root page. CoachDb
     // caches the root pages of its allow-listed views to decide what a coach
@@ -12886,6 +15733,14 @@ class LocalDb {
     // ("Query reaches storage outside the coach views") for the rest of the
     // process. The invariant belongs to whoever moves the pages.
     await CoachDb.close();
+    // The VACUUM wrote the whole database through the -wal. Copy it back and
+    // truncate it now, rather than at the next write; the size limit set on
+    // open covers it if a reader holds this checkpoint back.
+    try {
+      await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch (_) {
+      /* non-fatal: the bytes are reclaimed, the -wal shrinks on a later write */
+    }
     return free;
   }
 

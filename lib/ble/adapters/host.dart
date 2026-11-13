@@ -34,6 +34,7 @@ import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 
 import '../../data/db.dart';
 import '../../data/models.dart';
+import '../../sync/reset_gate.dart';
 import '_registry.dart' show DeviceCategory, TimeAnchor;
 import 'adapter.dart';
 
@@ -133,8 +134,10 @@ class BandHost {
     ArchiveRecord? Function(List<int> raw, int capturedAtMs)? buildArchive,
     Map<String, String> Function()? extraCursors,
     int Function()? nowSeconds,
+    int? resetGeneration,
     Future<void> Function(Future<void> Function() commit)? faultCommitForTest,
-  })  : _admitSample = admitSample,
+  })  : _resetGeneration = resetGeneration ?? ResetGate.generation,
+        _admitSample = admitSample,
         _buildArchive = buildArchive,
         _extraCursors = extraCursors,
         _faultCommitForTest = faultCommitForTest,
@@ -200,6 +203,28 @@ class BandHost {
 
   static void _noLog(String _) {}
 
+  /// Every database write below refuses while "delete everything" runs. A
+  /// secondary session (an armed chest strap, an Oura offload) is not stopped
+  /// by the primary band's unpair, so a batch landing after the wipe would
+  /// put a deleted device's rows back into the fresh store. Thrown, not
+  /// skipped, so each site takes its own failure path: the buffer is kept,
+  /// the checkpoint is never confirmed, and the device still holds the data.
+  ///
+  /// Also refused once a reset has run at any point since [_resetGeneration]:
+  /// a session that started before it and was still connecting when the gate
+  /// lowered again would otherwise write the deleted device's rows into the
+  /// fresh store.
+  void _refuseDuringReset() {
+    if (ResetGate.changedSince(_resetGeneration)) {
+      throw StateError('data reset in progress');
+    }
+  }
+
+  /// [ResetGate.generation] when this session began. Defaults to the moment
+  /// the host is built; a link that waits (on the secondary-link slot, on a
+  /// connect) before building it passes the value it read at the start.
+  final int _resetGeneration;
+
   /// Pokes the app's derive scheduler after a wearable's session banked
   /// something. Unset (a headless wake), the session queues the derive in
   /// `compute_jobs` itself, which the scheduler drains when the app opens.
@@ -244,6 +269,7 @@ class BandHost {
       onDone: finish,
       onError: (Object e) {
         onLog('[${adapter.id}] session ended on error: $e');
+        _runFailed = true;
         finish();
       },
       cancelOnError: true,
@@ -285,7 +311,16 @@ class BandHost {
     _runSub = null;
     // A note held behind the vendor writes still joins the final commit.
     await _vendorWrites;
-    await _commit(all: true);
+    if (!await _commit(all: true)) _finalCommitFailed = true;
+    if (_checkpointsInFlight.isNotEmpty) {
+      try {
+        await Future.wait(List.of(_checkpointsInFlight))
+            .timeout(_checkpointSettle);
+      } on TimeoutException {
+        _checkpointFailed = true;
+        onLog('[${adapter.id}] a checkpoint was still unconfirmed at stop.');
+      }
+    }
     await _vendorWrites;
     _reading.value = null;
     // A wearable's day derives off what its sync banked, and nothing on the
@@ -293,7 +328,9 @@ class BandHost {
     if (_stored && adapter.entry.category == DeviceCategory.wearable) {
       _stored = false;
       final poke = onWearableStored;
-      if (poke != null) {
+      if (ResetGate.changedSince(_resetGeneration)) {
+        // Nothing to derive from: the rows it would read were just wiped.
+      } else if (poke != null) {
         poke();
       } else {
         await LocalDb.enqueueDeriveJob(
@@ -320,7 +357,14 @@ class BandHost {
         }
         _publishLive(samples);
       case OffloadCheckpoint():
-        unawaited(_commitThenConfirm(e));
+        // Tracked so [stop] can wait for it: a confirm still in flight when
+        // the result is read is not one that happened.
+        late final Future<void> tracked;
+        tracked = _commitThenConfirm(e).then((_) {}, onError: (Object err) {
+          _checkpointFailed = true;
+          onLog('[${adapter.id}] checkpoint failed: $err');
+        }).whenComplete(() => _checkpointsInFlight.remove(tracked));
+        _checkpointsInFlight.add(tracked);
       case BandNote(:final key, :final value):
         if (key == 'battery' && value is int) {
           unawaited(LocalDb.setDeviceBattery(deviceId, value).catchError((_) {}));
@@ -353,8 +397,12 @@ class BandHost {
           ];
           if (kept.isEmpty) return;
           try {
+            _refuseDuringReset();
             await LocalDb.putVendorSleepEpochs(kept,
-                deviceId: deviceId, source: source, wholeNights: wholeNights);
+                deviceId: deviceId,
+                source: source,
+                wholeNights: wholeNights,
+                resetGeneration: _resetGeneration);
             _stored = true;
           } catch (err) {
             _vendorFailed = true;
@@ -369,6 +417,38 @@ class BandHost {
   /// Sticky for the session: a later bookmark note still covers the file
   /// whose write failed ([notesAfterVendorWrites]).
   bool _vendorFailed = false;
+
+  /// A vendor scalar or hypnogram write failed this session. With
+  /// [notesAfterVendorWrites] every later note is held back, including any
+  /// failure note the adapter sends, so a link that reports its outcome off
+  /// notes has to read this too. Settled once [stop] returns.
+  bool get vendorWriteFailed => _vendorFailed;
+
+  /// The adapter's stream ended on an error rather than finishing.
+  bool _runFailed = false;
+
+  /// A checkpoint's commit failed, or the device refused its confirmation.
+  bool _checkpointFailed = false;
+
+  /// The flush [stop] makes of whatever was still buffered failed.
+  bool _finalCommitFailed = false;
+
+  /// Checkpoints whose commit or confirm has not finished yet.
+  final Set<Future<void>> _checkpointsInFlight = {};
+
+  /// How long [stop] waits for those before counting them as failed. A
+  /// confirm writes to a link that teardown has usually closed, so this
+  /// normally settles at once; the bound keeps a stuck one from holding a
+  /// teardown (or a reset) open.
+  static const Duration _checkpointSettle = Duration(seconds: 5);
+
+  /// This session did not end with everything it received saved and
+  /// confirmed: the adapter's stream ended on an error, a checkpoint's
+  /// commit or confirmation failed, a vendor write failed, or the final
+  /// flush did. A link that reports a sync result reads this along with its
+  /// own notes. Settled once [stop] returns.
+  bool get sessionFailed =>
+      _runFailed || _checkpointFailed || _finalCommitFailed || _vendorFailed;
 
   /// Bank one device's vendor scalars. Returns rows written.
   ///
@@ -399,8 +479,11 @@ class BandHost {
         : {for (final c in e.cursors.entries) '${c.key}:$deviceId': c.value};
     if (rows.isEmpty && cursors.isEmpty) return 0;
     try {
+      _refuseDuringReset();
       final n = await LocalDb.putObservations(rows,
-          deviceId: deviceId, cursors: cursors);
+          deviceId: deviceId,
+          cursors: cursors,
+          resetGeneration: _resetGeneration);
       _stored = true;
       return n;
     } catch (err) {
@@ -477,6 +560,7 @@ class BandHost {
       }
     }
     if (!await _commit(all: true)) {
+      _checkpointFailed = true;
       // The host observed the failed durable commit itself — the most
       // specific persistence signal there is. The adapter can only learn
       // this from the host, so it travels as a note; the adapter's own
@@ -487,7 +571,7 @@ class BandHost {
           'it is.');
       return;
     }
-    await cp.confirm();
+    if (!await cp.confirm()) _checkpointFailed = true;
   }
 
   Future<bool> _commitChain = Future.value(true);
@@ -534,7 +618,9 @@ class BandHost {
         return true;
       }
       try {
+        _refuseDuringReset();
         await LocalDb.commitSyncBatch(const [], const [],
+            resetGeneration: _resetGeneration,
             deviceId: deviceId,
             deviceFamily: adapter.id,
             neutrals: const [],
@@ -567,9 +653,11 @@ class BandHost {
         ),
     ];
     try {
+      _refuseDuringReset();
       Future<void> commit() async => await LocalDb.commitSyncBatch(
             const [],
             const [],
+            resetGeneration: _resetGeneration,
             deviceId: deviceId,
             deviceFamily: adapter.id,
             neutrals: neutrals,
@@ -626,6 +714,7 @@ class BandHost {
     String? deviceFamily,
   }) async {
     try {
+      _refuseDuringReset();
       await LocalDb.commitSyncBatch(
         raws,
         samples,
@@ -635,6 +724,7 @@ class BandHost {
         deviceFamily: deviceFamily,
         deviceId: deviceId,
         onCheckpoint: onLog,
+        resetGeneration: _resetGeneration,
       );
     } catch (e) {
       onLog('[${adapter.id}] native commit failed: $e');

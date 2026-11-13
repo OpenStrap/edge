@@ -12,6 +12,7 @@ import 'package:openstrap_edge/ble/adapters/ble_hrs.dart';
 import 'package:openstrap_edge/ble/adapters/host.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/sync/reset_gate.dart';
 
 const List<int> kBpmOnly = <int>[0x00, 61];
 const List<int> kHrWithTwoRr = <int>[
@@ -175,6 +176,89 @@ void main() {
     );
   });
 
+  test('a session still running during "delete everything" writes nothing '
+      'and never confirms', () async {
+    // A chest strap armed by a workout, or an Oura offload, is not stopped by
+    // the primary band's unpair. Whatever it commits after the wipe would put
+    // a deleted device's rows back into the fresh store.
+    addTearDown(ResetGate.resetForTest);
+    final notes = <String>[];
+    var confirmed = false;
+    final adapter = _CheckpointAdapter(() async {
+      confirmed = true;
+      return true;
+    });
+    final host = BandHost(
+      adapter: adapter,
+      deviceId: deviceId,
+      onNote: (key, _) => notes.add(key),
+    );
+    ResetGate.enter();
+    final link = ReplayBandLink();
+    final future = host.run(link);
+    await link.close();
+    await future;
+    await host.stop();
+    ResetGate.leave();
+
+    expect(confirmed, isFalse,
+        reason: 'the device keeps what was never banked');
+    expect(notes, contains('host_commit_failed'));
+    final db = await LocalDb.instance;
+    expect(await db.query('decoded_onehz'), isEmpty);
+    expect(await db.query('sync_cursor'), isEmpty);
+    expect(await db.query('compute_jobs'), isEmpty,
+        reason: 'no derive is queued over a wiped store');
+  });
+
+  test('a session that began before a reset that has since finished still '
+      'writes nothing', () async {
+    // An Oura sync queued on the secondary-link slot, or a scale connect
+    // still in flight, can outlive the reset: by the time it commits the gate
+    // is down again, and only the generation it started under tells it the
+    // store it was writing for is gone.
+    addTearDown(ResetGate.resetForTest);
+    final notes = <String>[];
+    var confirmed = false;
+    final startedUnder = ResetGate.generation;
+    ResetGate.enter();
+    ResetGate.leave();
+    expect(ResetGate.active, isFalse);
+    final host = BandHost(
+      adapter: _CheckpointAdapter(() async {
+        confirmed = true;
+        return true;
+      }),
+      deviceId: deviceId,
+      onNote: (key, _) => notes.add(key),
+      resetGeneration: startedUnder,
+    );
+    final link = ReplayBandLink();
+    final future = host.run(link);
+    await link.close();
+    await future;
+    await host.stop();
+
+    expect(confirmed, isFalse);
+    expect(notes, contains('host_commit_failed'));
+    final db = await LocalDb.instance;
+    expect(await db.query('decoded_onehz'), isEmpty);
+    expect(await db.query('compute_jobs'), isEmpty);
+  });
+
+  test('a batch already queued on the commit gate refuses once the reset '
+      'has started', () async {
+    addTearDown(ResetGate.resetForTest);
+    await LocalDb.instance;
+    ResetGate.enter();
+    await expectLater(
+        LocalDb.commitSyncBatch(const [], const []), throwsStateError);
+    // The wipe itself runs on the same gate and still completes.
+    await LocalDb.wipeAll();
+    ResetGate.leave();
+    await LocalDb.commitSyncBatch(const [], const []);
+  });
+
   test('the control case: a landed commit confirms and emits no '
       'host_commit_failed', () async {
     final notes = <String>[];
@@ -205,6 +289,51 @@ void main() {
       reason: 'the successful commit durably stored its rows',
     );
   });
+
+  group('sessionFailed', () {
+    Future<BandHost> runOnce(_CheckpointAdapter adapter) async {
+      final host = BandHost(adapter: adapter, deviceId: deviceId);
+      final link = ReplayBandLink();
+      final future = host.run(link);
+      await link.close();
+      await future;
+      await host.stop();
+      return host;
+    }
+
+    test('is false when every row landed and was confirmed', () async {
+      final host = await runOnce(_CheckpointAdapter(() async => true));
+      expect(host.sessionFailed, isFalse);
+    });
+
+    test('is true when the device refused the confirmation', () async {
+      final host = await runOnce(_CheckpointAdapter(() async => false));
+      expect(host.sessionFailed, isTrue);
+    });
+
+    test('is true when the adapter stream ended on an error', () async {
+      final host = await runOnce(
+          _CheckpointAdapter(() async => true, failAtEnd: true));
+      expect(host.sessionFailed, isTrue);
+      expect(host.vendorWriteFailed, isFalse);
+    });
+
+    test('is true when a reset refused the session\'s commits', () async {
+      final adapter = _CheckpointAdapter(() async => true);
+      final host = BandHost(adapter: adapter, deviceId: deviceId);
+      ResetGate.enter();
+      try {
+        final link = ReplayBandLink();
+        final future = host.run(link);
+        await link.close();
+        await future;
+        await host.stop();
+      } finally {
+        ResetGate.leave();
+      }
+      expect(host.sessionFailed, isTrue);
+    });
+  });
 }
 
 /// Minimal adapter for the checkpoint-contract tests: one batch with one
@@ -212,7 +341,8 @@ void main() {
 /// entry is reused so the stored family/source keys stay realistic.
 class _CheckpointAdapter extends BandAdapter {
   final Future<bool> Function() _confirm;
-  _CheckpointAdapter(this._confirm);
+  final bool failAtEnd;
+  _CheckpointAdapter(this._confirm, {this.failAtEnd = false});
 
   @override
   BandEntry get entry => kBleHrs;
@@ -230,5 +360,6 @@ class _CheckpointAdapter extends BandAdapter {
       ),
     ]);
     yield OffloadCheckpoint(_confirm);
+    if (failAtEnd) throw StateError('transfer cut short');
   }
 }

@@ -106,7 +106,9 @@ _Sec _lieAt(int t) {
   if (s < 3600) return (hr: 78, still: false, band: _wake);
   if (s < 7 * 3600 + 600) return (hr: 50, still: true, band: _sleep);
   if (s < 7 * 3600 + 1800) return (hr: 90, still: false, band: _up);
-  if (s < 8 * 3600 + 1800) return (hr: 56, still: true, band: _up);
+  // 75 min, past the hour the nap detector books as the night's own tail when
+  // it starts this soon after the main sleep, so the control still sees a nap.
+  if (s < 8 * 3600 + 2700) return (hr: 56, still: true, band: _up);
   return (hr: 78, still: false, band: _wake);
 }
 

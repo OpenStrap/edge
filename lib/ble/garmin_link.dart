@@ -30,6 +30,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import 'adapters/_registry.dart';
@@ -37,6 +38,7 @@ import 'adapters/adapter.dart' show ReplayBandLink;
 import 'adapters/garmin.dart';
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart';
+import '../sync/reset_gate.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
 
 String _hex(List<int> b) =>
@@ -61,12 +63,8 @@ class GarminLink {
   static final GarminLink instance = GarminLink._();
 
   /// The `device` row for the paired watch, or null.
-  static Future<Map<String, Object?>?> pairedRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kGarmin.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedRow() =>
+      pairedRowOf(kGarmin.id);
 
   /// Forget a paired watch: drop its `device` row. No key to drop — this
   /// family's session has no pairing-time credential this app installs.
@@ -75,6 +73,9 @@ class GarminLink {
       debugPrint('[garmin] refusing to forget the primary band from here.');
       return false;
     }
+    // Before the first await: a sync still reading the row has no
+    // `_deviceId` yet for the check below to match.
+    instance._forgets++;
     if (instance._deviceId == id) await instance.stop();
     await LocalDb.deleteDevice(id);
     return true;
@@ -105,12 +106,17 @@ class GarminLink {
   /// `device.id` of the paired watch. Never [LocalDb.kPrimaryDeviceId].
   String? _deviceId;
 
+  /// Bumped by every forget. A sync that saw it move since it started
+  /// does not connect, whatever its `_deviceId` says.
+  int _forgets = 0;
+
   bool _busy = false;
 
   /// Connect to the paired watch, hold the session for its bounded window,
   /// disconnect.
   ///
-  /// Returns false when nothing is paired or the connect failed. SERIALISED:
+  /// Returns false when nothing is paired, the connect failed, or the watch
+  /// never opened its data channel ([lastSyncRefused]). SERIALISED:
   /// a second call while one is in flight is a no-op rather than a second
   /// radio session over the same peripheral.
   Future<bool> sync() {
@@ -120,6 +126,12 @@ class GarminLink {
   }
 
   Future<bool> _sync() async {
+    // Read before the first await: a "delete everything" that lands while
+    // this sync is parked on the link slot or still connecting must find it
+    // here. The host refuses every write once a reset has run since.
+    final resetGen = ResetGate.generation;
+    final forgets = _forgets;
+    lastSyncRefused = false;
     final row = await pairedRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;
@@ -143,6 +155,16 @@ class GarminLink {
       // released the slot, letting the next queued link connect while this
       // one was still disconnecting.
       return await withSecondaryLinkSlot(() async {
+        // A forget that landed while this sync was parked on the slot has
+        // already stopped it (nulling `_deviceId`) and deleted the row. The
+        // ids captured above would otherwise still connect to the forgotten
+        // device and bank its history under a row that no longer exists.
+        if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
+          return false;
+        }
+        // A forget during the row lookup above found no `_deviceId` to stop.
+        if (_forgets != forgets) return false;
+        BandHost? host;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -160,21 +182,25 @@ class GarminLink {
                 'characteristic under ${kGarminService.substring(0, 8)}.');
             return false;
           }
-          final host = _makeHost(
+          final h = host = _makeHost(
               deviceId,
+              resetGeneration: resetGen,
               GarminAdapter(
                 readFiles: await LocalDb.getCursor(_cursorItem(deviceId)) ?? '',
                 priorSteps: await _priorSteps(deviceId),
                 mlChars: ml,
                 maxWrite: device.mtuNow - 3,
               ));
-          _host = host;
-          await host.run(link);
-          return true;
+          _host = h;
+          await h.run(link);
         } finally {
           // Drop the link and DISCONNECT before the slot is released.
           await stop();
         }
+        // Read only after [stop]: notes ride the host's vendor-write chain,
+        // which stop drains. A connect alone is not a sync. A failed vendor
+        // write holds every later note back, so it is read off the host.
+        return !lastSyncRefused && !host.sessionFailed;
       });
     } catch (e) {
       debugPrint('[garmin] sync failed: $e');
@@ -210,7 +236,10 @@ class GarminLink {
           DateTime.fromMillisecondsSinceEpoch(key): value.toInt(),
       };
 
-  BandHost _makeHost(String deviceId, GarminAdapter adapter) => BandHost(
+  BandHost _makeHost(String deviceId, GarminAdapter adapter,
+          {int? resetGeneration}) =>
+      BandHost(
+        resetGeneration: resetGeneration,
         adapter: adapter,
         deviceId: deviceId,
         onLog: (m) => debugPrint('[garmin] $m'),
@@ -230,8 +259,15 @@ class GarminLink {
   /// The adapter's latest read-file list; written only by a host commit.
   String? _readFiles;
 
+  /// The last session's watch never opened its data channel
+  /// ([kGarminRefusedNote]). Cleared at the start of every session.
+  bool lastSyncRefused = false;
+
   void _handleNote(String key, Object? value) {
     switch (key) {
+      case kGarminRefusedNote:
+        lastSyncRefused = true;
+        debugPrint('[garmin] $key = $value');
       case 'garmin_fit_files':
         // Read back by `_makeHost`'s `extraCursors` at the next commit,
         // never written on its own.
@@ -257,6 +293,7 @@ class GarminLink {
     required int Function() nowSeconds,
   }) async {
     _deviceId = deviceId;
+    lastSyncRefused = false;
     final link = ReplayBandLink();
     final host = _makeHost(
         deviceId,

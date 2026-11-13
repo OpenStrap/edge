@@ -111,6 +111,12 @@ const Map<InputSignal, Duration> kGarminSignals = {
 /// Shown next to every value the watch computed itself.
 const String kGarminAttribution = 'Garmin';
 
+/// The [BandNote] a session ends on when the watch never opened its data
+/// channel: no multi-link characteristic, a refused write, or a declined
+/// registration (`declined:<status>`). Without it the session ends as quietly
+/// as one with no new files.
+const String kGarminRefusedNote = 'garmin_refused';
+
 int _defaultNowSeconds() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
 int _defaultUtcOffsetSeconds() => DateTime.now().timeZoneOffset.inSeconds;
 
@@ -207,6 +213,7 @@ class GarminAdapter extends BandAdapter {
     final pair = garminMlPair(mlChars);
     if (pair == null) {
       link.log('garmin: no multi-link data characteristic; ending the session.');
+      yield const BandNote(kGarminRefusedNote, 'no_multilink');
       return;
     }
     var notifyChar = pair.notify;
@@ -229,6 +236,12 @@ class GarminAdapter extends BandAdapter {
     var badChunks = 0;
     var notReady = 0;
     final file = BytesBuilder(copy: false);
+    // Whether this session read the directory and every file it listed. A
+    // watch that disconnects, closes the channel or runs out the window
+    // part-way ends the stream as quietly as a finished sync does.
+    var listed = false;
+    var drained = false;
+    var skipped = false;
 
     void finish() {
       if (!events.isClosed) events.close();
@@ -256,6 +269,9 @@ class GarminAdapter extends BandAdapter {
 
     Future<void> next() async {
       if (queue.isEmpty) {
+        // Only while the stream is open: once it closed (a disconnect, a
+        // closed handle) the file just finished had nowhere to go.
+        drained = listed && !events.isClosed;
         finish();
       } else {
         await request(queue.removeAt(0));
@@ -285,6 +301,7 @@ class GarminAdapter extends BandAdapter {
         queue
           ..addAll(health.where((x) => read[x.index] != (x.timestamp, x.size)))
           ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        listed = true;
         link.log('garmin: ${queue.length} health file(s) to read.');
       } else if (!events.isClosed) {
         for (final ev in _decodeFit(link, bytes, steps)) {
@@ -321,6 +338,8 @@ class GarminAdapter extends BandAdapter {
           (status.downloadStatus == kGarminDownloadNoSuchIndex ||
               status.downloadStatus == kGarminDownloadNotReadable)) {
         markRead(e);
+      } else {
+        skipped = true; // asked for again next time
       }
       await next();
     }
@@ -338,6 +357,7 @@ class GarminAdapter extends BandAdapter {
       if (chunk.offset != file.length) {
         if (++badChunks >= 3) {
           link.log('garmin: file ${entry?.index ?? 0} out of step; aborted.');
+          skipped = true;
           await ack(kGarminTransferAbort);
           await next();
         } else {
@@ -348,6 +368,7 @@ class GarminAdapter extends BandAdapter {
       final crc = garminCrc16(chunk.data, fileCrc);
       if (crc != chunk.crc) {
         link.log('garmin: file ${entry?.index ?? 0} failed its CRC; aborted.');
+        skipped = true;
         await ack(kGarminTransferCrcMismatch);
         await next();
         return;
@@ -490,6 +511,7 @@ class GarminAdapter extends BandAdapter {
       if (!await link.write(
           writeChar, garminEncodeTx(0, garminCloseAllRequest()))) {
         link.log('garmin: close-all write refused; ending the session.');
+        yield const BandNote(kGarminRefusedNote, 'write_refused');
         return;
       }
       final closed =
@@ -504,6 +526,7 @@ class GarminAdapter extends BandAdapter {
         if (!await link.write(writeChar,
             garminEncodeTx(0, garminRegisterMlRequest(kGarminServiceGfdi)))) {
           link.log('garmin: register-ml write refused; ending the session.');
+          yield const BandNote(kGarminRefusedNote, 'write_refused');
           return;
         }
         reg = await registerDone.future
@@ -518,6 +541,7 @@ class GarminAdapter extends BandAdapter {
         if (moved == null) {
           link.log('garmin: the watch named multi-link characteristic '
               '${alt.toRadixString(16)}, which it does not expose.');
+          yield const BandNote(kGarminRefusedNote, 'no_multilink');
           return;
         }
         link.log('garmin: GFDI in use; registering on '
@@ -531,6 +555,7 @@ class GarminAdapter extends BandAdapter {
       if (reg == null || !reg.accepted) {
         link.log('garmin: the watch declined the GFDI channel (status '
             '${reg?.status ?? "none"}).');
+        yield BandNote(kGarminRefusedNote, 'declined:${reg?.status}');
         return;
       }
       gfdiHandle = reg.handle;
@@ -552,6 +577,12 @@ class GarminAdapter extends BandAdapter {
     }
     if (archived.isNotEmpty) {
       yield SampleBatch(const [], raw: List.of(archived));
+    }
+    // After the archive, so the frames still bank: the host records the
+    // error and the sync reports that it did not finish.
+    if (!drained || skipped) {
+      throw StateError('garmin: the session ended before every file was '
+          'read');
     }
   }
 }

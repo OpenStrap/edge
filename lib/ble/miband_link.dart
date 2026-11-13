@@ -39,6 +39,7 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import '../sync/paired_device.dart' show cleanDeviceLabel;
@@ -47,6 +48,7 @@ import 'adapters/adapter.dart' show ReplayBandLink;
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart' show BandHost;
 import 'adapters/miband234.dart';
+import '../sync/reset_gate.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
 
 /// `sync_cursor` name for one band's activity resume point (Unix seconds).
@@ -96,6 +98,16 @@ List<int>? _unhex(String s) {
   return out;
 }
 
+/// Why a Mi Band session ended before it could read anything.
+enum MiBand234SyncFailure {
+  /// The band answered the handshake with a refusal: the wrong key, or a
+  /// band still bound to another one. Re-pairing installs a key it accepts.
+  keyRejected,
+
+  /// The band stopped answering partway through the handshake.
+  authUnanswered,
+}
+
 /// The live link to a paired Mi Band. One instance; a second concurrent band
 /// is not a thing anyone asked for.
 ///
@@ -110,11 +122,37 @@ class MiBand234Link {
   static final MiBand234Link instance = MiBand234Link._();
 
   /// The `device` row for the paired band, or null.
-  static Future<Map<String, Object?>?> pairedRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kMiBand234.id) return r;
+  static Future<Map<String, Object?>?> pairedRow() =>
+      pairedRowOf(kMiBand234.id);
+
+  /// Every stored pairing key, for "delete everything", which removes the
+  /// `device` rows [forgetBand] would need and so must drop the keys itself.
+  ///
+  /// Also sweeps every stored key of this family by its item prefix: a key
+  /// orphaned by a crash mid-pair has no `device` row, so the row ids alone
+  /// would leave it behind. False when any key may remain — the keychain was
+  /// unreadable or a delete threw — so the reset can say it was incomplete
+  /// instead of reporting a clean wipe with a pairing secret still stored.
+  static Future<bool> dropStoredKeys(Iterable<String> deviceIds) async {
+    final prefix = _keyItem('');
+    final items = {for (final id in deviceIds) _keyItem(id)};
+    var complete = true;
+    try {
+      final all = await _secure.readAll(iOptions: _kApple, mOptions: _kMacos);
+      items.addAll(all.keys.where((k) => k.startsWith(prefix)));
+    } catch (e) {
+      complete = false;
+      debugPrint('[miband234] could not list stored keys: $e');
     }
-    return null;
+    for (final item in items) {
+      try {
+        await _secure.delete(key: item, iOptions: _kApple, mOptions: _kMacos);
+      } catch (e) {
+        complete = false;
+        debugPrint('[miband234] could not drop a stored key: $e');
+      }
+    }
+    return complete;
   }
 
   /// Delete the stored 16-byte pairing key for [deviceId], best-effort.
@@ -165,9 +203,16 @@ class MiBand234Link {
       debugPrint('[miband234] refusing to forget the primary band from here.');
       return false;
     }
+    // Before the first await: a sync still reading this band's row or key
+    // has no `_deviceId` yet for the check below to match, so it learns of
+    // the forget from this instead.
+    instance._forgets++;
     if (instance._deviceId == id) await instance.stop();
     await _dropKey(id);
     await LocalDb.deleteDevice(id);
+    // Nothing resumes from a forgotten id's cursor: a re-pair of the same
+    // band after a forget mints a new id.
+    await LocalDb.deleteCursor(_sinceItem(id));
     return true;
   }
 
@@ -184,6 +229,10 @@ class MiBand234Link {
   /// `device.id` of the paired band. Never [LocalDb.kPrimaryDeviceId]: `''` is
   /// the primary band, permanently (ASSUMPTIONS A1).
   String? _deviceId;
+
+  /// Bumped by every [forgetBand]. A sync that saw it move since it started
+  /// does not connect, whatever its `_deviceId` says.
+  int _forgets = 0;
 
   /// Wall-clock now, in Unix seconds. A field so a replay is deterministic.
   int Function() _now = () => DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -204,6 +253,12 @@ class MiBand234Link {
   }
 
   Future<bool> _sync(Duration window) async {
+    // Read before the first await: a "delete everything" that lands while
+    // this sync is parked on the link slot or still connecting must find it
+    // here. The host refuses every write once a reset has run since.
+    final resetGen = ResetGate.generation;
+    final forgets = _forgets;
+    lastSyncFailure = null;
     final row = await pairedRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;
@@ -223,6 +278,17 @@ class MiBand234Link {
     _deviceId = deviceId;
     try {
       return await withSecondaryLinkSlot(() async {
+        // A forget that landed while this sync was parked on the slot has
+        // already stopped it (nulling `_deviceId`) and deleted the row. The
+        // ids captured above would otherwise still connect to the forgotten
+        // device and bank its history under a row that no longer exists.
+        if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
+          return false;
+        }
+        // A forget during the row or key read above found no `_deviceId` to
+        // stop, so it is seen here instead.
+        if (_forgets != forgets) return false;
+        BandHost? host;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -243,25 +309,29 @@ class MiBand234Link {
             return false;
           }
           _pendingSince = null;
-          final host = _makeHost(
+          final h = host = _makeHost(
               deviceId,
+              resetGeneration: resetGen,
               MiBand234Adapter(
                 key: key,
                 sinceSec: await LocalDb.getCursorInt(_sinceItem(deviceId)),
                 nowSeconds: _now,
               ));
-          _host = host;
+          _host = h;
           // `run()` never completes on its own — the optional channels have
           // no end-of-data signal, unlike the Oura ring's exhausted drain —
           // so this is bounded by [window] rather than awaited to
           // completion.
-          final done = host.run(link);
+          final done = h.run(link);
           await Future.any(
               [done, Future<void>.delayed(window)]);
-          return true;
         } finally {
           await stop();
         }
+        // Read only after [stop]: the note rides the host's vendor-write
+        // chain, which stop drains. A failed vendor write holds every later
+        // note back, the failure note included, so it is read off the host.
+        return lastSyncFailure == null && !host.sessionFailed;
       });
     } catch (e) {
       debugPrint('[miband234] sync failed: $e');
@@ -288,7 +358,10 @@ class MiBand234Link {
 
   /// Build this session's [BandHost]. One place, so [_sync] and
   /// [ingestForTest] cannot drift on what each callback does.
-  BandHost _makeHost(String deviceId, MiBand234Adapter adapter) => BandHost(
+  BandHost _makeHost(String deviceId, MiBand234Adapter adapter,
+          {int? resetGeneration}) =>
+      BandHost(
+        resetGeneration: resetGeneration,
         adapter: adapter,
         deviceId: deviceId,
         onLog: (m) => debugPrint('[miband234] $m'),
@@ -298,6 +371,11 @@ class MiBand234Link {
         notesAfterVendorWrites: true,
         onNote: (key, value) {
           if (key == 'miband_since' && value is int) _pendingSince = value;
+          if (key == kMiBandAuthFailedNote) {
+            lastSyncFailure = value is int && value != 0x01
+                ? MiBand234SyncFailure.keyRejected
+                : MiBand234SyncFailure.authUnanswered;
+          }
         },
         // Read at commit time: the cursor lands with the rows it covers, or
         // not at all.
@@ -310,6 +388,12 @@ class MiBand234Link {
 
   /// The newest `miband_since` the adapter reported, not yet committed.
   int? _pendingSince;
+
+  /// Why the last session ended without authenticating, or null. A refused
+  /// handshake ends the adapter's stream quietly, so without this a band that
+  /// rejects the key reads as a sync that worked, and the remedy (re-pair)
+  /// never reaches the user. Cleared at the start of every session.
+  MiBand234SyncFailure? lastSyncFailure;
 
   /// Bank one optional-channel notification verbatim, undecoded (owner
   /// rulings R1-R3). The leading byte is [MiBand234Adapter]'s own archive
@@ -365,6 +449,7 @@ class MiBand234Link {
     _now = nowSeconds ?? _now;
     _deviceId = deviceId;
     _pendingSince = null;
+    lastSyncFailure = null;
     final link = ReplayBandLink();
     for (final (uuid, v) in extra) {
       link.feed(uuid, v, atSec: _now());
@@ -412,6 +497,76 @@ class MiBand234Link {
   }
 }
 
+/// The id a re-pair keeps, or null to mint one: the id of the Mi Band row
+/// already paired to [remoteId], never the primary band's.
+///
+/// A device_id is the storage key for everything this band banks and for its
+/// `miband_since` cursor, and every reader resolves "the Mi Band" as the first
+/// row with this adapter. Minting a fresh id on each pairing left the old row
+/// behind: syncs went to the new id while the active-wearable cursor, which
+/// only moves when its row disappears, kept naming the old one, and the stale
+/// row held one of the two secondary-sensor slots.
+///
+/// ONLY THE SAME BAND REUSES ITS ROW. The id names a stored key, and pairing
+/// writes the new key under it before the band has proved it. A different
+/// band reusing a working band's id would, on any failure after it took the
+/// key, leave the working band's row pointing at a key that band never had.
+/// A different band gets a fresh id, and its pairing forgets the old row only
+/// once it succeeds.
+String? miBandReusableDeviceId(
+    Iterable<Map<String, Object?>> rows, String remoteId) {
+  for (final r in rows) {
+    final id = r['id'];
+    if (r['adapter_id'] == kMiBand234.id &&
+        id is String &&
+        id != LocalDb.kPrimaryDeviceId &&
+        r['remote_id'] == remoteId) {
+      return id;
+    }
+  }
+  return null;
+}
+
+/// What a failed pairing does with the key stored under its device id.
+enum MiBandFailedPairKey {
+  /// A freshly minted id's key: an orphan, nothing points at it.
+  drop,
+
+  /// The same band's previous key, read before this attempt overwrote it:
+  /// the band never took the new one, so the old pairing still works.
+  restore,
+
+  /// The same band already acknowledged the new key and answers to nothing
+  /// else, so the new key stays.
+  keep,
+}
+
+/// The decision behind [pairMiBand234]'s failure path. [reused] is true only
+/// when the id came from [miBandReusableDeviceId], so the band that took the
+/// key is the band the row points at.
+MiBandFailedPairKey miBandFailedPairKey({
+  required bool reused,
+  required bool keyInstalled,
+  required bool hadPriorKey,
+}) {
+  if (!reused) return MiBandFailedPairKey.drop;
+  if (keyInstalled) return MiBandFailedPairKey.keep;
+  return hadPriorKey ? MiBandFailedPairKey.restore : MiBandFailedPairKey.drop;
+}
+
+/// Mi Band rows other than [keepId]: duplicates an earlier pairing left
+/// behind before re-pairs reused the id. Never the primary band's row.
+List<String> staleMiBandRowIds(
+        Iterable<Map<String, Object?>> rows, String keepId) =>
+    [
+      for (final r in rows)
+        if (r['adapter_id'] == kMiBand234.id &&
+            r['id'] is String &&
+            r['id'] != keepId &&
+            r['id'] != LocalDb.kPrimaryDeviceId)
+          r['id'] as String,
+    ];
+
 /// Pair [device] as this phone's Mi Band 2 or 3. Null on success, or a
 /// sentence the user can act on.
 ///
@@ -423,8 +578,31 @@ class MiBand234Link {
 Future<String?> pairMiBand234(BluetoothDevice device) async {
   final rnd = Random.secure();
   final key = List<int>.generate(16, (_) => rnd.nextInt(256));
-  final deviceId =
+  final reusedId =
+      miBandReusableDeviceId(await LocalDb.deviceRows(), device.remoteId.str);
+  final deviceId = reusedId ??
       'miband234-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
+  // The key the working pairing depends on, read before this attempt
+  // overwrites it (the new key is stored before the band proves it), so a
+  // failed re-pair can put it back. A read that fails stops here rather than
+  // overwrite a key this run could not see.
+  List<int>? priorKey;
+  if (reusedId != null) {
+    try {
+      final hex = await _secure.read(
+        key: _keyItem(reusedId),
+        iOptions: _kApple,
+        mOptions: _kMacos,
+      );
+      priorKey = hex == null ? null : _unhex(hex);
+    } catch (e) {
+      debugPrint('[miband234 pair] the keychain was unavailable: $e');
+      return 'The phone’s keychain is locked. Unlock the phone and try again.';
+    }
+  }
+  // Set once the band acknowledged the new key: from then on it answers to
+  // nothing else, so the old key is worth nothing to restore.
+  var keyInstalled = false;
   GattBandLink? link;
   // Set true only on the one path that writes the `device` row. Every OTHER
   // exit — a refused command, a silent band, a caught exception, even the
@@ -526,6 +704,7 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
             if (installed == null || installed[2] != 0x01) {
               return _kUnpairFirst;
             }
+            keyInstalled = true;
             List<int>? challengeFrame;
             for (final request in kMiBand234ChallengeRequests) {
               if (!await localLink.write(kHuami234AuthChar, request)) {
@@ -583,6 +762,17 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
             // no quality to rank. NULL is a refusal, not a default.
           );
           paired = true;
+          // Any other Mi Band row: one an older pairing left behind, or the
+          // band this one replaces (one Mi Band syncs at a time). Best effort:
+          // the band is paired either way.
+          try {
+            for (final id
+                in staleMiBandRowIds(await LocalDb.deviceRows(), deviceId)) {
+              await MiBand234Link.forgetBand(id);
+            }
+          } catch (e) {
+            debugPrint('[miband234 pair] could not drop a stale row: $e');
+          }
           return null;
         } finally {
           link?.close();
@@ -597,6 +787,33 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
     return 'Could not connect to that device.';
   } finally {
     // Touches no radio, so it stays outside the slot.
-    if (!paired) await MiBand234Link._dropKey(deviceId);
+    //
+    // A freshly minted id's key is an orphan once pairing failed. A reused
+    // id (always the same band) had a key the working pairing depends on, so
+    // it is put back, unless the band already took the new key, in which
+    // case the new one is the only key it will answer to.
+    if (!paired) {
+      switch (miBandFailedPairKey(
+        reused: reusedId != null,
+        keyInstalled: keyInstalled,
+        hadPriorKey: priorKey != null,
+      )) {
+        case MiBandFailedPairKey.drop:
+          await MiBand234Link._dropKey(deviceId);
+        case MiBandFailedPairKey.keep:
+          break;
+        case MiBandFailedPairKey.restore:
+          try {
+            await _secure.write(
+              key: _keyItem(deviceId),
+              value: _hex(priorKey!),
+              iOptions: _kApple,
+              mOptions: _kMacos,
+            );
+          } catch (e) {
+            debugPrint('[miband234 pair] could not restore the prior key: $e');
+          }
+      }
+    }
   }
 }

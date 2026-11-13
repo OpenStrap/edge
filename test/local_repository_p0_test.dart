@@ -47,6 +47,7 @@ void main() {
       ..clear()
       ..addAll({'track_cycle': true});
     final db = await LocalDb.instance;
+    await db.delete('journal');
     await db.delete('journal_metric');
     await db.delete('cycle_log');
     await db.delete('day_result');
@@ -309,6 +310,111 @@ void main() {
     final rows = (j['numeric_insights'] as List).cast<Map<String, dynamic>>();
     expect(rows.where((r) => r['outcome'] == 'efficiency'), isEmpty);
     expect(rows, isEmpty);
+  });
+
+  // ── MIND-02 (edge keys) ──────────────────────────────────────────────────
+  test(
+    "an evening's alcohol is paired with the night that FOLLOWED, even when "
+    'the next day has no journal entry',
+    () async {
+      // Alcohol logged every other evening only. Efficiency for date D is the
+      // night that ended on the morning of D, so the truth here is
+      // efficiency[D+1] = 95 - 3 * alcohol[D]. The logged day's own
+      // efficiency comes from an un-logged evening and is unrelated.
+      // March, not June: the test above marks June's efficiency as a
+      // wearable estimate in metric_method, which setUp does not clear.
+      String label(int i) =>
+          '2026-03-${(1 + i).toString().padLeft(2, '0')}';
+      for (var i = 0; i < 30; i += 2) {
+        final units = (i ~/ 2) % 5;
+        await LocalDb.putJournalMetrics(label(i), {
+          'alcohol_units': JournalMetricValue(units.toDouble()),
+        });
+        await LocalDb.putMetricSeriesValue(
+          label(i + 1),
+          'efficiency',
+          95.0 - 3 * units,
+        );
+        // Same-day value: an unrelated pattern, the wrong night.
+        await LocalDb.putMetricSeriesValue(
+          label(i),
+          'efficiency',
+          80.0 + ((i * 7) % 11),
+        );
+      }
+
+      final j = await repo.getJournalInsights(range: 'all');
+      final rows = (j['numeric_insights'] as List).cast<Map<String, dynamic>>();
+      final alcohol = rows.where(
+        (r) => r['field'] == 'alcohol_units' && r['outcome'] == 'efficiency',
+      );
+      expect(
+        alcohol,
+        isNotEmpty,
+        reason: 'alcohol was paired with the night before it was drunk, or '
+            'every pairing was dropped because the next day had no entry',
+      );
+      expect(alcohol.first['rho'] as double, lessThan(-0.9));
+      expect(alcohol.first['n'], 15);
+      expect(alcohol.first['helped'], isFalse);
+    },
+  );
+
+  test(
+    'a tagged evening is paired with the night that FOLLOWED, even when the '
+    'next day has no journal entry',
+    () async {
+      // Journal rows only on Fridays (alcohol) and Tuesdays (nothing tagged),
+      // nightly HRV every day, ~20 ms lower on the night after drinking. The
+      // night that follows each entry (Saturday / Wednesday) is never
+      // journaled, so the outcome axis has to reach past the journal rows.
+      final start = DateTime.utc(2025, 1, 3); // a Friday
+      String label(DateTime d) =>
+          '${d.year.toString().padLeft(4, '0')}-'
+          '${d.month.toString().padLeft(2, '0')}-'
+          '${d.day.toString().padLeft(2, '0')}';
+      for (var i = 0; i < 120; i++) {
+        final d = start.add(Duration(days: i));
+        final afterDrinking = d.weekday == DateTime.saturday;
+        await LocalDb.putMetricSeriesValue(
+          label(d),
+          'rmssd',
+          (afterDrinking ? 42.0 : 62.0) + (i * 7) % 5,
+        );
+        if (d.weekday == DateTime.friday) {
+          await LocalDb.putJournal(label(d), '["alcohol"]', '');
+        } else if (d.weekday == DateTime.tuesday) {
+          await LocalDb.putJournal(label(d), '[]', '');
+        }
+      }
+
+      final j = await repo.getJournalInsights(range: 'all');
+      final rows = (j['insights'] as List).cast<Map<String, dynamic>>();
+      final alcohol = rows.where(
+        (r) => r['tag'] == 'alcohol' && r['outcome'] == 'rmssd',
+      );
+      expect(
+        alcohol,
+        isNotEmpty,
+        reason: 'the night after a tagged evening was dropped because that '
+            'day had no journal row of its own',
+      );
+      expect(alcohol.first['delta_pct'] as double, lessThan(-20));
+      expect(alcohol.first['helped'], isFalse);
+      expect(alcohol.first['n_with'], greaterThanOrEqualTo(15));
+    },
+  );
+
+  test('the alignment caption reads the lag the correlation used', () {
+    expect(journalFieldLag('caffeine_mg'), 1);
+    expect(journalFieldLag('caffeine_last_min'), 1);
+    expect(journalFieldLag('alcohol_units'), 1);
+    expect(journalFieldLag('water_ml'), 1);
+    expect(journalFieldLag('screens_min'), 1);
+    expect(journalFieldLag('mood'), 0);
+    expect(journalFieldLag('sleep_quality'), 0);
+    // An unclassified custom field: neither direction is claimed.
+    expect(journalFieldLag('my_custom_field'), isNull);
   });
 
   // ── MIND-12 ──────────────────────────────────────────────────────────────

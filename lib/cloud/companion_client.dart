@@ -109,12 +109,14 @@ class CompanionClient {
     String? userId,
     int? consentVersion,
     String? appVersion,
+    String? sha256,
   }) async {
     if (!configured) return false;
     try {
       final r = await _http
           .post(
             _u('/health/upload', {
+              ...?sha256 == null ? null : {'sha256': sha256},
               'device_id': deviceId,
               'gz': '1',
               ...?userId == null ? null : {'user_id': userId},

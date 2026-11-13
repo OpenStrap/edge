@@ -182,6 +182,28 @@ void main() {
     });
 
     test(
+        'the plist-driven items skip the 16-bit member UUID, so the picker '
+        'holds one FD4B descriptor labelled for gen5, not a second "Band" one',
+        () {
+      // Info.plist must declare FD4B (Apple requires every criterion there),
+      // and every non-sensor entry of that array becomes a picker item. Without
+      // this filter FD4B became a generic "Band" item ahead of the gen5
+      // fallback appended with the same descriptor.
+      final itemsStart = swift.indexOf('var items = services.map');
+      final servicesStart = swift.lastIndexOf('let services =', itemsStart);
+      expect(servicesStart, greaterThanOrEqualTo(0));
+      final servicesDecl = swift.substring(servicesStart, itemsStart);
+      expect(
+        servicesDecl,
+        contains('.filter { \$0.uppercased() != AccessorySetup.whoopMemberUUID16 }'),
+      );
+      expect(
+        'items.append(makeItem("WHOOP 5.0 / MG")'.allMatches(swift),
+        hasLength(1),
+      );
+    });
+
+    test(
         'no bare name-substring descriptor exists — it crashed every '
         '"search for devices" tap once (TestFlight v0.9.29, '
         'A3457926-FD0D-48A7-9C6B-DCC6958276BF)', () {

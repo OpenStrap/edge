@@ -63,6 +63,10 @@ const String kColmiAttribution = 'Colmi';
 /// Days of history walked per session (today plus six).
 const int kColmiHistoryDays = 7;
 
+/// The [BandNote] a session carries when the ring answered neither its clock
+/// nor its battery request: nothing on the other end is listening.
+const String kColmiNoReplyNote = 'colmi_no_reply';
+
 class ColmiAdapter extends BandAdapter {
   /// Wall-clock now, in Unix seconds. Injected so a replay is deterministic.
   final int Function() nowSeconds;
@@ -107,9 +111,11 @@ class ColmiAdapter extends BandAdapter {
       // No reply keeps the big-data sleep request, which is what every ring
       // that answers it needs.
       var newSleep = true;
+      var answered = false;
       if (await link.write(kColmiWriteChar, colmiSetTimeRequest(now))) {
         final got = await _walk(a, kColmiCmdSetTime, (_) => true, link.log);
         if (got.isNotEmpty) {
+          answered = true;
           newSleep = colmiNewSleepProtocol(got.last) ?? true;
           yield SampleBatch(const [], raw: got);
         }
@@ -120,8 +126,15 @@ class ColmiAdapter extends BandAdapter {
         final got = await _walk(a, kColmiCmdBattery, (_) => true, link.log);
         final pct = got.isEmpty ? null : colmiBatteryPct(got.last);
         if (pct != null) yield BandNote('battery', pct);
-        if (got.isNotEmpty) yield SampleBatch(const [], raw: got);
+        if (got.isNotEmpty) {
+          answered = true;
+          yield SampleBatch(const [], raw: got);
+        }
       }
+      // Every ring that is listening answers both. One that answered
+      // neither ends the session as quietly as one with nothing new, so it
+      // is said out loud for the link to report.
+      if (!answered) yield const BandNote(kColmiNoReplyNote);
 
       final samples = <NeutralSample>[];
       final steps = <DateTime, int>{};

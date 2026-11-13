@@ -77,6 +77,14 @@ const Map<InputSignal, Duration> kUltrahumanSignals = {
   InputSignal.deviceSpo2: Duration(days: 1),
 };
 
+/// The [BandNote] key a drain ends on when it stopped short: the ring
+/// refused a history request (`request_refused`), answered one with a
+/// failure result before any record was banked (`result_failed:0x..`), never
+/// answered anything at all (`no_reply`), or a batch never landed
+/// (`unconfirmed`). Without it the drain ends quietly and reads as a sync
+/// that worked.
+const String kUltrahumanDrainFailedNote = 'ultrahuman_drain_failed';
+
 /// One session. Not const: it holds the cursor to resume from, which belongs
 /// to the host (see `ultrahuman_link.dart`) the same way Oura's cursor and
 /// anchor do.
@@ -183,11 +191,13 @@ class UltrahumanAdapter extends BandAdapter {
 
       // A misbehaving ring answering forever would otherwise spin here.
       var request = true;
+      var banked = false;
       for (var pull = 0; pull < 5000; pull++) {
         if (request &&
             !await link.write(
                 kUltrahumanWriteChar, ultrahumanCmdGetRecordings(cursor))) {
           link.log('ultrahuman: history request refused; ending the drain.');
+          yield const BandNote(kUltrahumanDrainFailedNote, 'request_refused');
           return;
         }
         final got = await _collectPull(inbox, cursor, latest);
@@ -203,6 +213,7 @@ class UltrahumanAdapter extends BandAdapter {
             if (hr != null) samples.add(hr);
           }
           yield SampleBatch(samples, raw: got.raw);
+          banked = true;
 
           // The ring's own index of the last record received, not a count
           // from where we asked: a dropped frame or a skipped index cannot
@@ -225,6 +236,7 @@ class UltrahumanAdapter extends BandAdapter {
           if (!confirmed) {
             link.log('ultrahuman: batch was not confirmed; leaving the cursor '
                 'where it is.');
+            yield const BandNote(kUltrahumanDrainFailedNote, 'unconfirmed');
             return;
           }
           cursor = newCursor;
@@ -241,12 +253,27 @@ class UltrahumanAdapter extends BandAdapter {
           // failed. The cursor stays where they left it.
           link.log('ultrahuman: the ring answered with result '
               '0x${got.failedResult!.toRadixString(16)}; ending the drain.');
+          // With nothing banked this session the ring refused the history
+          // outright; that is not a sync that worked.
+          if (!banked) {
+            yield BandNote(kUltrahumanDrainFailedNote,
+                'result_failed:0x${got.failedResult!.toRadixString(16)}');
+          }
           return;
         }
         if (got.reachedLatest) return;
         if (got.records.isEmpty) {
           // Empty, or a reply gap with nothing in it: stop and keep the cursor.
           link.log('ultrahuman: nothing more from $cursor.');
+          // Silent on both index requests and on the first pull: the ring
+          // never answered at all. An empty ok frame is a ring with nothing
+          // new and stays a success; only a total silence is a failure.
+          if (pull == 0 &&
+              got.replyGap &&
+              earliest == null &&
+              latest == null) {
+            yield const BandNote(kUltrahumanDrainFailedNote, 'no_reply');
+          }
           return;
         }
         // Still streaming: keep reading the same answer. Otherwise the ring
@@ -287,7 +314,7 @@ class UltrahumanAdapter extends BandAdapter {
     final span = latest == null ? null : _u16(latest - from);
     while (records.length < _kMaxRecordsPerBatch) {
       final r = await inbox.next(kUltrahumanOpGetRecordings, replyTimeout);
-      if (r == null) return _Pull(records, raw); // reply gap
+      if (r == null) return _Pull(records, raw, replyGap: true);
       if (r.failed) return _Pull(records, raw, failedResult: r.result);
       if (r.empty || r.count == 0) return _Pull(records, raw);
       var reached = false;
@@ -463,8 +490,15 @@ class _Pull {
   final int? failedResult;
   final bool reachedLatest;
   final bool streaming;
+
+  /// The pull ended because nothing more arrived inside the reply window,
+  /// not on a frame from the ring.
+  final bool replyGap;
   const _Pull(this.records, this.raw,
-      {this.failedResult, this.reachedLatest = false, this.streaming = false});
+      {this.failedResult,
+      this.reachedLatest = false,
+      this.streaming = false,
+      this.replyGap = false});
 }
 
 /// Response frames off the notify characteristic, buffered so a reply landing

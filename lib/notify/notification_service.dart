@@ -26,11 +26,18 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show Locale;
+import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:geolocator/geolocator.dart' show Geolocator;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../l10n/app_localizations.dart';
+import '../l10n/display_text.dart';
+import '../state/locale_controller.dart';
 import 'notification_event.dart';
 import 'notification_ids.dart';
 
@@ -368,6 +375,36 @@ class NotificationService {
   Future<bool> Function()? debugRequestPermission;
   @visibleForTesting
   Future<bool> Function()? debugProbePermission;
+  @visibleForTesting
+  Future<void> Function()? debugOpenSettings;
+
+  /// Open the OS page where the user can switch our notifications back on.
+  /// After a denial neither platform will show the request dialog again (iOS
+  /// returns the stored answer silently; Android 13+ stops after two refusals),
+  /// so this is the only thing a "turn them on" button can usefully do.
+  /// Android goes straight to the app's notification page; anywhere that
+  /// fails, and on iOS, it opens the app's settings page. Never throws.
+  Future<void> openSystemSettings() async {
+    final hook = debugOpenSettings;
+    if (hook != null) return hook();
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        final pkg = (await PackageInfo.fromPlatform()).packageName;
+        await AndroidIntent(
+          action: 'android.settings.APP_NOTIFICATION_SETTINGS',
+          arguments: {'android.provider.extra.APP_PACKAGE': pkg},
+        ).launch();
+        return;
+      } catch (e) {
+        debugPrint('[notify] open notification settings: $e');
+      }
+    }
+    try {
+      await Geolocator.openAppSettings();
+    } catch (e) {
+      debugPrint('[notify] open app settings: $e');
+    }
+  }
 
   /// Non-mutating: whether notifications are currently enabled, WITHOUT ever
   /// showing the OS authorization prompt. Safe to call from any context,
@@ -390,6 +427,34 @@ class NotificationService {
       return true; // other platforms (macOS/Linux) — no gating here
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Every producer writes its copy in English, and the OS renders it as-is:
+  /// a user on a translated UI got English on the lock screen, which is the
+  /// only place these events are ever shown. Translate at this one boundary,
+  /// in the language the app is set to — read from the saved setting when the
+  /// UI isn't running (see [LocaleController.presentationLanguageCode]).
+  /// Never throws — an untranslatable string goes out in English rather than
+  /// being dropped.
+  static Future<String> osText(String text) async =>
+      osTextIn(await _osLocalizations(), text);
+
+  static Future<AppLocalizations?> _osLocalizations() async {
+    try {
+      return lookupAppLocalizations(
+          Locale(await LocaleController.presentationLanguageCode()));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String osTextIn(AppLocalizations? l, String text) {
+    if (l == null) return text;
+    try {
+      return localizedNotificationText(l, text);
+    } catch (_) {
+      return text;
     }
   }
 
@@ -441,8 +506,8 @@ class NotificationService {
       // NotificationEvent.osId).
       await _plugin.show(
         e.osId ?? await NotificationIds.instance.idFor(e),
-        e.title,
-        e.body.isEmpty ? null : e.body,
+        await osText(e.title),
+        e.body.isEmpty ? null : await osText(e.body),
         _details(e.category),
         payload: e.route,
       );
@@ -507,8 +572,8 @@ class NotificationService {
       }
       await _plugin.zonedSchedule(
         id,
-        title,
-        body,
+        await osText(title),
+        await osText(body),
         when,
         _details(category),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
@@ -536,8 +601,8 @@ class NotificationService {
       await ensureTimezone();
       await _plugin.zonedSchedule(
         id,
-        title,
-        body,
+        await osText(title),
+        await osText(body),
         _nextInstanceOf(hour, minute, weekday: weekday),
         _details(category),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
@@ -571,8 +636,8 @@ class NotificationService {
       final when = tz.TZDateTime.from(at, tz.local);
       await _plugin.zonedSchedule(
         id,
-        title,
-        body,
+        await osText(title),
+        await osText(body),
         when,
         _details(category),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,

@@ -9,10 +9,12 @@
 // [ImportOutcome] carries what the source cost us and [WelcomeView] renders it.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:path_provider/path_provider.dart';
@@ -75,6 +77,11 @@ class ImportOutcome {
   /// re-importing corrects the (marker, date) rows it names.
   final int labRows;
 
+  final int prefsRestored;
+  /// Settings rows the backup held but could not be read; skipped.
+  final int prefsRefused;
+  final List<String> needsReentry;
+
   /// Journal or lab CSV lines that were REJECTED, never clamped — "line 12:
   /// note is 40122 characters". Shown up to a cap, because a validation the
   /// user cannot see is a silent drop.
@@ -101,6 +108,9 @@ class ImportOutcome {
     this.archiveBucketsRestored = 0,
     this.journalRows = 0,
     this.labRows = 0,
+    this.prefsRestored = 0,
+    this.prefsRefused = 0,
+    this.needsReentry = const [],
     this.rejectedRows = const [],
     this.error,
     this.rollupError,
@@ -113,6 +123,17 @@ class ImportOutcome {
       corruptTables.isNotEmpty ||
       archiveBucketsSkipped > 0;
 
+  /// Rows landed, but part of the import was refused or left half-done. On a
+  /// first run this report is the only place the user ever hears about it, so
+  /// the gate waits for them instead of moving on to pairing.
+  bool get needsReading =>
+      lostSomething ||
+      needsReentry.isNotEmpty ||
+      prefsRefused > 0 ||
+      rejectedRows.isNotEmpty ||
+      readError != null ||
+      rollupError != null;
+
   /// Nothing at all landed. A zero under a green tick is a no-op that reads as
   /// a success, which is the one thing an import report must never do.
   bool get nothingLanded =>
@@ -121,7 +142,8 @@ class ImportOutcome {
       skippedDays == 0 &&
       journalRows == 0 &&
       labRows == 0 &&
-      archiveBucketsRestored == 0;
+      archiveBucketsRestored == 0 &&
+      prefsRestored == 0;
 }
 
 /// Raised when an encrypted backup was picked and the user closed the
@@ -254,6 +276,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   bool _busy = false;
   ImportOutcome? _outcome;
 
+  /// Rows landed but the report has something to say. Onboarding is finished
+  /// only once the user moves on, because finishing it swaps this screen for
+  /// pairing in the same frame and the report is never drawn.
+  bool _holding = false;
+
   Future<void> _import() async {
     final app = context.read<AppState>();
     FilePickerResult? picked;
@@ -273,6 +300,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         .toList();
     if (paths.isEmpty) return; // cancelled — not a failure, say nothing
 
+    // A retry after a partial import keeps what is held: that history has
+    // already landed, so cancelling or failing the retry must not take the
+    // report and Continue away or put "new" on record.
+    final held = _outcome;
     setState(() {
       _busy = true;
       _outcome = null;
@@ -281,13 +312,15 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       final outcome = await runImport(app, paths,
           askPassphrase: () => askBackupPassphrase(context));
       if (!mounted) return;
-      setState(() => _outcome = outcome);
-      // Anything that landed counts as bringing history in — a workouts-only
-      // vendor export writes sessions and no days, and the gate used to sit
-      // there as though the import had not happened.
-      if (!outcome.nothingLanded) await app.completeImportOnboard();
+      final hold = await settleOnboardImport(app, outcome);
+      if (!mounted) return;
+      setState(() {
+        _outcome = outcome;
+        _holding = _holding || hold;
+      });
     } on PassphraseCancelled {
       // Closing the prompt is a decision, not a failure. Say nothing.
+      if (mounted) setState(() => _outcome = held);
     } catch (e) {
       if (mounted) {
         setState(() =>
@@ -299,12 +332,31 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   }
 
   @override
-  Widget build(BuildContext c) => WelcomeView(
-        busy: _busy,
-        outcome: _outcome,
-        onNew: () => context.read<AppState>().chooseNewUser(),
-        onImport: _import,
-      );
+  Widget build(BuildContext c) {
+    final app = context.read<AppState>();
+    return WelcomeView(
+      busy: _busy,
+      outcome: _outcome,
+      // History already landed, so "Set up my band" from here is the same
+      // step as Continue, and the choice on record stays 'imported'.
+      onNew: _holding ? app.completeImportOnboard : app.chooseNewUser,
+      onImport: _import,
+      onContinue: _holding ? app.completeImportOnboard : null,
+    );
+  }
+}
+
+/// Finish onboarding after an import, unless the report has to be read first.
+/// Returns true when it held back so the caller can offer Continue.
+///
+/// Anything that landed counts as bringing history in — a workouts-only
+/// vendor export writes sessions and no days, and the gate used to sit there
+/// as though the import had not happened.
+Future<bool> settleOnboardImport(AppState app, ImportOutcome outcome) async {
+  if (outcome.nothingLanded) return false;
+  if (outcome.needsReading) return true;
+  await app.completeImportOnboard();
+  return false;
 }
 
 /// Route [paths] to the importer that understands them and normalise the
@@ -324,7 +376,8 @@ Future<ImportOutcome> runImport(
   final sources = <String>[];
   var days = 0, workouts = 0, skipped = 0, late = 0, stranded = 0;
   var journalRows = 0;
-  var labRows = 0;
+  var labRows = 0, prefsRestored = 0, prefsRefused = 0;
+  final needsReentry = <String>{};
   final corruptTables = <String>{};
   var archiveSkipped = 0, archiveRestored = 0;
   final rejected = <String>[];
@@ -370,21 +423,33 @@ Future<ImportOutcome> runImport(
   // multi-select and this used to return inside the winning branch, so a
   // backup selected alongside a vendor CSV imported the backup and threw the
   // CSV away without a word.
-  final db = [...plain.where(_isDbBackup), ...decrypted];
+  final ownDb = <String>{};
   // Raw-vs-vendor is decided by what the file HOLDS, not by what it is called.
   // See [isNoopExport]: routing on the extension sent NOOP's raw-sensor `.csv`
   // to the vendor importer and WHOOP's `.zip` to the NOOP one — both files
   // fine, both refused, both with advice for the other file.
   final raw = <String>[];
   final csv = <String>[];
-  for (final p in plain) {
-    if (_isDbBackup(p)) continue;
-    (await isNoopExport(p) ? raw : csv).add(p);
-  }
+  final db = <String>[];
 
   if (decrypted.isNotEmpty) sources.add('Encrypted backup');
-  if (plain.any(_isDbBackup)) sources.add('OpenStrap backup');
   try {
+    // Inside the cleanup boundary: a throw while sniffing must not leave a
+    // decrypted backup in the temp directory.
+    for (final p in plain) {
+      final own = await isEdgeBackup(p);
+      if (own == true) {
+        ownDb.add(p);
+      } else if (own == null) {
+        // Inspection failed: not claimable as ours, and not a NOOP export
+        // either, so the vendor path's generic message is the honest one.
+        csv.add(p);
+      } else {
+        (await isNoopExport(p) ? raw : csv).add(p);
+      }
+    }
+    if (ownDb.isNotEmpty) sources.add('OpenStrap backup');
+    db.addAll([...plain.where(ownDb.contains), ...decrypted]);
     for (final p in db) {
       days += await app.importEdgeBackup(p);
       // The rows are in and the rollup rebuild threw. AppState's own note:
@@ -393,6 +458,9 @@ Future<ImportOutcome> runImport(
       rollupError ??= app.importRollupError;
       archiveSkipped += app.lastImportArchiveSkipped;
       archiveRestored += app.lastImportArchiveRestored;
+      prefsRestored += app.lastImportPrefsRestored;
+      prefsRefused += app.lastImportPrefsRefused;
+      needsReentry.addAll(app.lastImportNeedsReentry);
     }
   } finally {
     // The decrypted copy is the whole health record in plaintext. It exists
@@ -429,7 +497,13 @@ Future<ImportOutcome> runImport(
     // comes back as `FileSystemException: Failed to decode data using encoding
     // 'utf-8'`, which no catch below was going to turn into advice. The vendor
     // path unwraps archives (and gzip) properly, so hand them straight over.
-    if (await sniffFile(p) != ImportContainer.text) {
+    // An unreadable file is the vendor path's to report (it is caught below
+    // and named); throwing here would lose the counts already landed.
+    ImportContainer? kind;
+    try {
+      kind = await sniffFile(p);
+    } catch (_) {}
+    if (kind != ImportContainer.text) {
       vendor.add(p);
       continue;
     }
@@ -449,7 +523,13 @@ Future<ImportOutcome> runImport(
     } on FormatException {
       // Text, but not UTF-8 — a latin1/cp1252 CSV out of a spreadsheet. The
       // sniff above cannot see that, and the vendor importer decodes leniently.
-      vendor.add(p);
+      // Our own journal or lab export is not something the vendor importer
+      // reads, though: it would drop it without a word, so name it instead.
+      if (await _isOwnCsvExport(p)) {
+        rejected.add(_notUtf8(p));
+      } else {
+        vendor.add(p);
+      }
       continue;
     }
     try {
@@ -461,7 +541,11 @@ Future<ImportOutcome> runImport(
     } on LabCsvFormatException {
       vendor.add(p);
     } on FormatException {
-      vendor.add(p);
+      if (await _isOwnCsvExport(p)) {
+        rejected.add(_notUtf8(p));
+      } else {
+        vendor.add(p);
+      }
     }
   }
 
@@ -481,7 +565,15 @@ Future<ImportOutcome> runImport(
         skipped += r.skippedExistingDays;
       }
     } catch (e) {
-      if (db.isEmpty && raw.isEmpty && journalRows == 0 && labRows == 0) rethrow;
+      // Something already named (a journal export that isn't UTF-8) keeps its
+      // note: a rethrow would replace it with the vendor error alone.
+      if (db.isEmpty &&
+          raw.isEmpty &&
+          journalRows == 0 &&
+          labRows == 0 &&
+          rejected.isEmpty) {
+        rethrow;
+      }
       readError = '$e';
     }
   }
@@ -498,6 +590,9 @@ Future<ImportOutcome> runImport(
     archiveBucketsRestored: archiveRestored,
     journalRows: journalRows,
     labRows: labRows,
+    prefsRestored: prefsRestored,
+    prefsRefused: prefsRefused,
+    needsReentry: needsReentry.toList(),
     rejectedRows: rejected,
     rollupError: rollupError,
     // A file that would not decrypt is reported the same way a file that would
@@ -505,6 +600,28 @@ Future<ImportOutcome> runImport(
     readError: readError ?? cryptoError,
   );
 }
+
+/// Whether [path]'s header row is the one our journal or lab-results export
+/// writes, read leniently so a file re-saved in a non-UTF-8 encoding still
+/// matches.
+Future<bool> _isOwnCsvExport(String path) async {
+  try {
+    final text = latin1.decode(await File(path).readAsBytes());
+    final first = text.split(RegExp(r'\r?\n')).first.replaceAll('\u00ef\u00bb\u00bf', '');
+    final header = [
+      for (final h in first.split(','))
+        h.replaceAll('"', '').trim().toLowerCase(),
+    ];
+    return listEquals(header, kJournalCsvHeader) ||
+        listEquals(header, kLabCsvHeader);
+  } catch (_) {
+    return false;
+  }
+}
+
+String _notUtf8(String path) =>
+    '${path.split(Platform.pathSeparator).last}: not saved as UTF-8 — '
+    'save it as "CSV UTF-8" and import it again';
 
 /// True when [path] starts with the encrypted-backup magic. Four bytes, so a
 /// mis-picked file costs one read and not a key derivation.
@@ -543,24 +660,15 @@ Future<String> decryptToTemp(String path, String passphrase) async {
   return dest;
 }
 
-bool _isDbBackup(String path) {
-  final p = path.toLowerCase();
-  // `.db.unopenable-<ms>` is what a corrupt-database rebuild quarantines the
-  // old file as, and the rebuilt card points the user straight at it. Matching
-  // only the `.db` suffix handed that SQLite file to the vendor-CSV importer.
-  // `.db.gz` is what the app's own automatic backup writes (auto_backup.dart's
-  // kBackupExtension). Leaving it out sent a user restoring their own backup
-  // down the vendor-CSV path, which is the one import that has to work.
-  return p.endsWith('.db') ||
-      p.endsWith('.db.gz') ||
-      p.contains('.db.unopenable-');
-}
-
 class WelcomeView extends StatelessWidget {
   final bool busy;
   final ImportOutcome? outcome;
   final VoidCallback onNew;
   final VoidCallback onImport;
+
+  /// Shown under the report when the import landed but the report has to be
+  /// read before the gate moves on to pairing.
+  final VoidCallback? onContinue;
 
   const WelcomeView({
     super.key,
@@ -568,6 +676,7 @@ class WelcomeView extends StatelessWidget {
     required this.onImport,
     this.busy = false,
     this.outcome,
+    this.onContinue,
   });
 
   @override
@@ -595,11 +704,15 @@ class WelcomeView extends StatelessWidget {
             Pill(l?.pillLocalNoCloud ?? 'Local · no cloud', C.green,
                 icon: LucideIcons.shieldCheck),
             const SizedBox(height: S.x8),
-            BigButton(l?.welcomeSetUpMyBand ?? 'Set up my band',
-                icon: LucideIcons.bluetooth,
-                color: C.green,
-                onTap: busy ? null : onNew),
-            const SizedBox(height: S.x3),
+            // With a report to read, the only way on is Continue below it, so
+            // nobody leaves before seeing what was rejected.
+            if (onContinue == null) ...[
+              BigButton(l?.welcomeSetUpMyBand ?? 'Set up my band',
+                  icon: LucideIcons.bluetooth,
+                  color: C.green,
+                  onTap: busy ? null : onNew),
+              const SizedBox(height: S.x3),
+            ],
             // One primary path. Importing first is a real choice but a rarer
             // one, so it is a text link rather than a second button of equal
             // weight beside "Set up my band".
@@ -632,6 +745,13 @@ class WelcomeView extends StatelessWidget {
             if (o != null) ...[
               const SizedBox(height: S.x6),
               ImportReport(o),
+              if (onContinue != null) ...[
+                const SizedBox(height: S.x4),
+                BigButton(l?.actionContinue ?? 'Continue',
+                    icon: LucideIcons.arrowRight,
+                    color: C.green,
+                    onTap: busy ? null : onContinue),
+              ],
             ],
           ],
         ),
@@ -646,6 +766,40 @@ class WelcomeView extends StatelessWidget {
 class ImportReport extends StatelessWidget {
   final ImportOutcome o;
   const ImportReport(this.o, {super.key});
+
+  Widget _prefsSkipped(ImportOutcome o, AppLocalizations? l) => StatusCard(
+    l?.welcomeSettingsSkipped(o.prefsRefused) ??
+        '${o.prefsRefused} setting${o.prefsRefused == 1 ? ' in the backup could not be read and was' : 's in the backup could not be read and were'} skipped',
+    l?.welcomeSettingsSkippedBody ??
+        'Those keep this phone\'s values.',
+    icon: LucideIcons.fileWarning,
+  );
+
+  Widget _keyReentry(AppLocalizations? l, List<String> keys) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    if (keys.contains('coach_api_key')) StatusCard(
+      l?.coachApiKeyLabel ?? 'API key',
+      l?.welcomeCoachKeyReentry ??
+          'Your coach API key stays in secure storage and was not backed up. '
+              'Enter it again in AI settings to use the coach on this phone.',
+      icon: LucideIcons.keyRound,
+    ),
+    if (keys.length > 1) const SizedBox(height: S.x3),
+    if (keys.contains('coach_base_url')) StatusCard(
+      l?.coachBaseUrlLabel ?? 'Base URL',
+      l?.welcomeCoachServerReentry ??
+          'Your custom coach server address was not backed up, because an '
+              'address can hold a key. Enter it again in AI settings.',
+      icon: LucideIcons.keyRound,
+    ),
+    if (keys.contains('coach_chatgpt')) StatusCard(
+      'ChatGPT',
+      l?.welcomeCoachChatGptReentry ??
+          'Your ChatGPT sign-in stays in secure storage and was not backed up. '
+              'Sign in again in AI settings to use the coach on this phone.',
+      icon: LucideIcons.keyRound,
+    ),
+  ]);
 
   @override
   Widget build(BuildContext c) {
@@ -681,11 +835,13 @@ class ImportReport extends StatelessWidget {
       // can still have skipped archive buckets it could not read. That is the
       // one part of the answer the user can act on, so it is not swallowed
       // by the empty case.
-      if (o.archiveBucketsSkipped == 0) return nothing;
+      if (o.archiveBucketsSkipped == 0 && o.needsReentry.isEmpty && o.prefsRefused == 0) return nothing;
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         nothing,
         const SizedBox(height: S.x3),
-        StatusCard(
+        if (o.needsReentry.isNotEmpty) _keyReentry(l, o.needsReentry),
+        if (o.prefsRefused > 0) _prefsSkipped(o, l),
+        if (o.archiveBucketsSkipped > 0) StatusCard(
           l?.welcomePartOfFileNotUsedTitle ??
               'Part of that file could not be used',
           _archiveSkipped(o, l),
@@ -728,11 +884,15 @@ class ImportReport extends StatelessWidget {
                 '${o.archiveBucketsRestored} day'
                 '${o.archiveBucketsRestored == 1 ? '' : 's'}'
         : null;
-    final headline = [days, journal, labs, workouts, skipped, archive].firstWhere((c) => c != null)!;
+    final settings = o.prefsRestored > 0
+        ? l?.welcomeSettingsRestored(o.prefsRestored) ??
+            '${o.prefsRestored} settings restored'
+        : null;
+    final headline = [days, journal, labs, workouts, skipped, archive, settings].firstWhere((c) => c != null)!;
     // journal is NEVER folded in here — when it isn't the headline, days > 0
     // means it gets its own "N journal days REPLACED" line below instead (a
     // different fact: a journal CSV always replaces, on any day it names).
-    final also = [labs, workouts, skipped, archive].whereType<String>().where((c) => c != headline).toList();
+    final also = [labs, workouts, skipped, archive, settings].whereType<String>().where((c) => c != headline).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Surface(
         child: Row(children: [
@@ -753,6 +913,14 @@ class ImportReport extends StatelessWidget {
           ),
         ]),
       ),
+      if (o.needsReentry.isNotEmpty) ...[
+        const SizedBox(height: S.x3),
+        _keyReentry(l, o.needsReentry),
+      ],
+      if (o.prefsRefused > 0) ...[
+        const SizedBox(height: S.x3),
+        _prefsSkipped(o, l),
+      ],
       // REJECTED, never clamped. A row outside its declared range is not
       // salvageable by trimming it — that would store a value the user never
       // wrote — so it is refused by line number and the other 300 land.

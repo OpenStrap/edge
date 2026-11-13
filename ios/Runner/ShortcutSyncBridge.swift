@@ -46,6 +46,19 @@ struct ShortcutSyncReply {
   }
 }
 
+enum ShortcutBuzzReply: String {
+  case buzzed, notConnected, failed, timedOut
+
+  var message: String {
+    switch self {
+    case .buzzed: return "Band buzzed."
+    case .notConnected: return "Not buzzed: Edge isn't connected to your band right now."
+    case .failed: return "Not buzzed: Edge could not send the buzz."
+    case .timedOut: return "Not buzzed: Edge did not answer in time."
+    }
+  }
+}
+
 @MainActor
 final class ShortcutSyncBridge {
   static let shared = ShortcutSyncBridge()
@@ -125,6 +138,44 @@ final class ShortcutSyncBridge {
       }
     } onCancel: {
       Task { @MainActor in self.cancel(id: id) }
+    }
+  }
+
+  /// One reply, whichever of the Dart answer and the deadline lands first.
+  private final class BuzzWait {
+    var continuation: CheckedContinuation<ShortcutBuzzReply, Never>?
+    func finish(_ reply: ShortcutBuzzReply) {
+      continuation?.resume(returning: reply)
+      continuation = nil
+    }
+  }
+
+  /// Buzzes over the link the running app already holds. Short deadline: a
+  /// buzz that lands late (a rest timer already over) is worse than none, and
+  /// Dart never connects just to deliver one.
+  func buzz(timeout: TimeInterval = 5) async -> ShortcutBuzzReply {
+    let deadline = ProcessInfo.processInfo.systemUptime + timeout
+    // A launch for this intent may still be bringing the Dart side up.
+    while !ready || send == nil {
+      let left = deadline - ProcessInfo.processInfo.systemUptime
+      guard left > 0, !Task.isCancelled else { return .timedOut }
+      try? await Task.sleep(nanoseconds: UInt64(min(0.1, left) * 1_000_000_000))
+    }
+    guard let send else { return .timedOut }
+    let left = max(0, deadline - ProcessInfo.processInfo.systemUptime)
+    let wait = BuzzWait()
+    return await withCheckedContinuation { continuation in
+      wait.continuation = continuation
+      let watchdog = Task { @MainActor in
+        try? await Task.sleep(nanoseconds: UInt64(left * 1_000_000_000))
+        wait.finish(.timedOut)
+      }
+      send("buzz", nil) { reply in
+        MainActor.assumeIsolated {
+          watchdog.cancel()
+          wait.finish((reply as? String).flatMap(ShortcutBuzzReply.init(rawValue:)) ?? .failed)
+        }
+      }
     }
   }
 

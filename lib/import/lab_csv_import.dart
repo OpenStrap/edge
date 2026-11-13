@@ -17,14 +17,12 @@
 // marker's canonical unit, and silently reinterpreting one unit as another is
 // a fabrication.
 
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 
 import '../data/db.dart';
 import '../data/lab_catalogue.dart';
 import 'journal_csv_import.dart'
-    show RejectedRow, isValidDayLabel, parseCsv;
+    show RejectedRow, isValidDayLabel, parseCsv, readCsvText;
 
 /// Exactly the columns `csv_export.dart` emits for the labs set.
 const List<String> kLabCsvHeader = ['taken_on', 'marker', 'value', 'unit', 'note'];
@@ -177,7 +175,7 @@ class LabImportResult {
 /// (marker, taken_on) pair the file carries, matching `putLabResult`'s own
 /// upsert semantics.
 Future<LabImportResult> importLabCsvFile(String path, {DateTime? today}) async {
-  final text = await File(path).readAsString();
+  final text = await readCsvText(path);
   final parsed = parseLabCsv(text, today: today);
   final customKeys = {for (final d in await LocalDb.labMarkerDefs()) d['key'].toString()};
 

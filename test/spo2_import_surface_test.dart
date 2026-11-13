@@ -60,6 +60,27 @@ void main() {
         (payload['flags'] as List).contains('IMPORTED_WHOOP_BETA'), isTrue);
   });
 
+  test('a re-import clears a calories row an older import filed as active',
+      () async {
+    final dir = await Directory.systemTemp.createTemp('calories_reimport');
+    addTearDown(() => dir.delete(recursive: true));
+    const wake = '2026-03-13 07:15:00';
+    final day = localDateLabel(
+        DateTime.parse(wake).millisecondsSinceEpoch ~/ 1000);
+    final db = await LocalDb.instance;
+    await db.insert('metric_series', {'date': day, 'key': 'calories', 'value': 2400.0},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    final f = File('${dir.path}/day.csv');
+    f.writeAsStringSync(
+      'Cycle start time,Wake onset,Sleep onset,Energy burned (cal)\n'
+      '$wake,$wake,2026-03-12 23:10:00,2400\n',
+    );
+    await WhoopImporter.importFiles([f.path]);
+    final rows = await db.query('metric_series',
+        where: 'date = ? AND key = ?', whereArgs: [day, 'calories']);
+    expect(rows.where((r) => r['value'] != null), isEmpty);
+  });
+
   test('an out-of-range blood oxygen cell is dropped, not charted', () async {
     final dir = await Directory.systemTemp.createTemp('spo2_range');
     addTearDown(() => dir.delete(recursive: true));

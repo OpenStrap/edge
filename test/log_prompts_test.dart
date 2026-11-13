@@ -133,11 +133,29 @@ void main() {
     });
 
     test('never inside the quiet window, whatever the bedtime says', () {
-      // 01:00 bedtime. Minus an hour is midnight, which is the middle of the
-      // window the user asked not to be interrupted in.
-      final t = NotificationCenter.checkInMinute(on, 25 * 60)!;
+      // 01:00 bedtime, as the coach reports it: a minute-of-day, so 60.
+      // Minus an hour is midnight, which is the middle of the window the user
+      // asked not to be interrupted in.
+      final t = NotificationCenter.checkInMinute(on, 60.0)!;
       expect(t, 21 * 60 + 30); // quietStart 22:00, minus the half-hour margin
       expect(on.inQuietHours(t), isFalse);
+    });
+
+    test('a bedtime after midnight is late, not the 17:00 floor', () {
+      // The coach's bedtime is always in [0, 1440): 00:15 arrives as 15.
+      expect(NotificationCenter.checkInMinute(on, 15.0), 21 * 60 + 30);
+      expect(NotificationCenter.checkInMinute(on, 30.0), 21 * 60 + 30);
+      // Later bedtime never means an earlier prompt than a 23:15 sleeper's.
+      expect(NotificationCenter.checkInMinute(on, 23 * 60 + 15.0),
+          21 * 60 + 30);
+
+      // With quiet hours off the prompt follows the bedtime, held before
+      // midnight.
+      const loud = NotificationPrefs(checkInEnabled: true, quietEnabled: false);
+      expect(NotificationCenter.checkInMinute(loud, 30.0), 23 * 60 + 30);
+      expect(NotificationCenter.checkInMinute(loud, 15.0), 23 * 60 + 15);
+      expect(NotificationCenter.checkInMinute(loud, 60.0), 24 * 60 - 1);
+      expect(NotificationCenter.checkInMinute(loud, 90.0), 24 * 60 - 1);
     });
 
     test('never before the day has happened', () {

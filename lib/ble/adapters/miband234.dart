@@ -102,6 +102,12 @@ const Map<InputSignal, Duration> kMiBand234Signals = {
 /// Shown next to every value this band computed itself.
 const String kMiBandAttribution = 'Mi Band';
 
+/// The [BandNote] key a session ends on when the band refuses to
+/// authenticate. Its value is the refusing status byte (0x04: the wrong key,
+/// or a band still bound to another one), or null when the band never
+/// answered the handshake.
+const String kMiBandAuthFailedNote = 'miband_auth_failed';
+
 /// One connection to a Mi Band 2 or 3.
 class MiBand234Adapter extends BandAdapter {
   /// The 16-byte key this phone generated and either has, or is about to,
@@ -159,7 +165,15 @@ class MiBand234Adapter extends BandAdapter {
           onError: (Object _) => inbox.close(),
         );
     try {
-      if (!await _authenticate(link, inbox)) return;
+      final refusal = await _authenticate(link, inbox);
+      if (refusal != null) {
+        // The session ending quietly looked exactly like a sync that
+        // worked. The note lets the link tell "re-pair the band" apart from
+        // "the band did not answer"; the value is the status byte the band
+        // refused with, or null when it never answered.
+        yield BandNote(kMiBandAuthFailedNote, refusal.status);
+        return;
+      }
       yield* _fetchHistory(link);
       yield* _subscribeOptional(link);
     } finally {
@@ -167,12 +181,15 @@ class MiBand234Adapter extends BandAdapter {
     }
   }
 
-  /// Install-then-prove. False on any refusal — a session that carries on
-  /// unauthenticated would sit waiting on channels the band will never answer.
-  Future<bool> _authenticate(BandLink link, _Inbox<Uint8List> inbox) async {
+  /// Install-then-prove. Null on success, a refusal otherwise — a session
+  /// that carries on unauthenticated would sit waiting on channels the band
+  /// will never answer.
+  Future<({int? status})?> _authenticate(
+      BandLink link, _Inbox<Uint8List> inbox) async {
+    const unanswered = (status: null);
     if (needsKeyWrite) {
       if (!await link.write(kHuami234AuthChar, miBand234KeyInstall(key))) {
-        return false;
+        return unanswered;
       }
       final sent = await inbox.firstWhere(
         (f) => f.length >= 3 && f[0] == 0x10 && f[1] == 0x01,
@@ -181,12 +198,12 @@ class MiBand234Adapter extends BandAdapter {
       if (sent == null || sent[2] != 0x01) {
         link.log('miband234: key install refused or unanswered '
             '(status ${sent == null ? "none" : sent[2]}).');
-        return false;
+        return (status: sent?[2]);
       }
     }
     Uint8List? challengeFrame;
     for (final request in kMiBand234ChallengeRequests) {
-      if (!await link.write(kHuami234AuthChar, request)) return false;
+      if (!await link.write(kHuami234AuthChar, request)) return unanswered;
       challengeFrame = await inbox.firstWhere(
         (f) => f.length >= 3 && f[0] == 0x10 && f[1] == 0x02,
         replyTimeout,
@@ -200,12 +217,12 @@ class MiBand234Adapter extends BandAdapter {
     }
     if (challengeFrame == null) {
       link.log('miband234: no usable authentication challenge.');
-      return false;
+      return unanswered;
     }
     final answer =
         miBand234AuthResponse(key, challengeFrame.sublist(3, 19));
     if (!await link.write(kHuami234AuthChar, miBand234AuthAnswer(answer))) {
-      return false;
+      return unanswered;
     }
     final result = await inbox.firstWhere(
       (f) => f.length >= 3 && f[0] == 0x10 && f[1] == 0x03,
@@ -217,9 +234,9 @@ class MiBand234Adapter extends BandAdapter {
       // stopped answering mid-handshake.
       link.log('miband234: authentication refused '
           '(status ${result == null ? "none" : result[2]}).');
-      return false;
+      return (status: result?[2]);
     }
-    return true;
+    return null;
   }
 
   /// Best-effort subscribe to whatever optional channel this unit exposes,

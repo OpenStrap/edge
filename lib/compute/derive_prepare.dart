@@ -38,6 +38,11 @@ class PreparedDerivationDay {
   final int tonightSleepOnsetSec;
   final int tonightSleepOffsetSec;
 
+  /// The next day is being derived in this same pass and has no stored
+  /// window yet, so tonight's sleep is unknown only for now. Such a day is not
+  /// finalized this pass: the next pass reads the window and locks it then.
+  final bool tonightPending;
+
   /// M5: the resolved exclusive-owner spans, one entry per anchor signal
   /// (`hr1Hz`, `rrIntervals`), over the union window `_prepareTargetDay`
   /// resolved once. Empty (never populated) on the import path — a bulk
@@ -73,6 +78,7 @@ class PreparedDerivationDay {
     this.sleepSource = 'auto',
     this.tonightSleepOnsetSec = 0,
     this.tonightSleepOffsetSec = 0,
+    this.tonightPending = false,
     this.ownership = const {},
     this.priority = const {},
   }) : napSub = napSub ?? daySub;
@@ -92,6 +98,7 @@ class PreparedDerivationDay {
     'nap_sub': napSub.toJson(),
     'tonight_sleep_onset_sec': tonightSleepOnsetSec,
     'tonight_sleep_offset_sec': tonightSleepOffsetSec,
+    'tonight_pending': tonightPending,
     // ponytail: `ownership` is NOT round-tripped here. Grepped for real
     // callers of PreparedDerivationDay.toJson()/fromJson() outside this file
     // — none exist (only `candidate.toPreparedDay(...)` at
@@ -120,6 +127,7 @@ class PreparedDerivationDay {
           (m['tonight_sleep_onset_sec'] as num?)?.toInt() ?? 0,
       tonightSleepOffsetSec:
           (m['tonight_sleep_offset_sec'] as num?)?.toInt() ?? 0,
+      tonightPending: m['tonight_pending'] == true,
       daySub: daySub,
       sleepSub: Substrate.fromJson(
         ((m['sleep_sub'] as Map?) ?? const {}).cast<String, dynamic>(),
@@ -260,6 +268,7 @@ class SleepSessionCandidate {
     Substrate? napSub,
     int tonightSleepOnsetSec = 0,
     int tonightSleepOffsetSec = 0,
+    bool tonightPending = false,
     Map<InputSignal, List<OwnedSpan>> ownership = const {},
     Map<InputSignal, List<String>> priority = const {},
   }) => PreparedDerivationDay(
@@ -286,6 +295,7 @@ class SleepSessionCandidate {
     sleepSub: sleepSub,
     tonightSleepOnsetSec: tonightSleepOnsetSec,
     tonightSleepOffsetSec: tonightSleepOffsetSec,
+    tonightPending: tonightPending,
     ownership: ownership,
     priority: priority,
   );

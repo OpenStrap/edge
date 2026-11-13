@@ -95,7 +95,7 @@ void main() {
       'efficiency_awakenings': 'ours',
       'sleep_stages': 'device',
       'naps': 'unavailable',
-      'sleep_debt_need_sri': 'ours',
+      'sleep_debt_need_sri': 'unavailable',
       'resting_hr': 'ours',
       'nadir_dip': 'ours',
       'hrv': 'device',
@@ -131,8 +131,9 @@ void main() {
         reason: 'a 40-minute run at 150 bpm');
     expect(v('calories'), inInclusiveRange(200, 1500));
     expect(v('auto_workouts'), 1, reason: 'the run, found off 1-min HR');
-    expect(v('sleep_debt_need_sri'), inInclusiveRange(0, 2));
-    expect(cells['sleep_debt_need_sri']!['method'], 'device_stages');
+    // Four nights hold two weekend nights, and a sleep need is a p75 of at
+    // least three of them, so the debt says what it is waiting for instead.
+    expect(cells['sleep_debt_need_sri']!['reason'], Why.needsThreeNights.name);
     // The baseline is the nights BEFORE the day: theirs, 6 bpm under today's.
     final prior = [
       for (final d in _dayIds.where((d) => d != _dayId))
@@ -184,7 +185,8 @@ void main() {
     expect(past['circadian']!['class'], 'unavailable');
     final third = await crossDayAsOf('2026-10-03');
     expect(((third['recent'] as List).last as Map)['date'], '2026-10-03');
-    expect(at(third, ['sleep_debt', 'value', 'debt_hours']), isNotNull);
+    // Three nights, but only one of them a weekend night: still no debt.
+    expect(at(third, ['sleep_debt', 'value', 'debt_hours']), isNull);
 
     // Estimated only where the watch gives nothing.
     expect(v('movement'), inInclusiveRange(40, 50),
@@ -205,18 +207,18 @@ void main() {
     expect((full['scalars'] as Map)['awakenings'], 1);
     expect(v('efficiency_awakenings'),
         closeTo(100 * _truth.tstMin / night, 0.1));
-    // Sleep need and regularity on the device's epochs: four nights on the
-    // same clock regularise to 100, and with no debt and no nap the need is
-    // the habitual night, the stored one within a quarter hour.
+    // Regularity on the device's epochs: four nights on the same clock
+    // regularise to 100.
     final xm = await crossDayAsOf(_dayId);
     expect(((xm['regularity'] as Map)['value'] as Map)['sri'], 100);
-    expect(((xm['sleep_debt'] as Map)['value'] as Map)['debt_hours'], 0);
-    expect(
-        ((((xm['sleep_coach'] as Map)['need'] as Map)['value'] as Map)[
-                    'need_sec'] as num) /
-                60 -
-            ((full['scalars'] as Map)['tst_min'] as num),
-        inInclusiveRange(-15, 15));
+    // Two of the four nights are weekend nights, under the three a sleep need
+    // is taken from, so the debt abstains rather than quote one night.
+    expect(((xm['sleep_debt'] as Map)['value'] as Map)['debt_hours'], isNull);
+    // And with no sleep need to anchor it, the coach waits for the same
+    // nights and says so.
+    final need = (xm['sleep_coach'] as Map)['need'] as Map;
+    expect(need['value'], '—');
+    expect(need['note'], startsWith('need_baseline:'));
 
     // Last, since it spoils the stored inputs: inputs another algorithm
     // version wrote are never rebuilt into a past day's rollup.

@@ -314,6 +314,58 @@ void main() {
       await LocalDb.deleteDevice('garmin-gone');
       expect(await activeWearableId(), _watch);
     });
+
+    test('pairing a replacement of the active wearable makes it active',
+        () async {
+      await LocalDb.setCursor(kActiveWearableCursor, _watch);
+      // A workout strap or a different kind of wearable leaves it alone.
+      expect(await adoptReplacementWearable(_strap), isFalse);
+      await LocalDb.upsertDevice(
+          id: 'colmi-other', adapterId: 'colmi', label: 'ring');
+      expect(await adoptReplacementWearable('colmi-other'), isFalse);
+      expect(await activeWearableId(), _watch);
+      // A second watch (a new remote id, so a new row): syncs go to it, so
+      // derivation follows.
+      await LocalDb.upsertDevice(
+          id: 'garmin-new',
+          adapterId: 'garmin',
+          remoteId: 'AA:BB:CC:00:00:09',
+          label: 'garmin');
+      expect(await adoptReplacementWearable('garmin-new'), isTrue);
+      expect(await activeWearableId(), 'garmin-new');
+      // Choosing no wearable is not overridden by a pairing.
+      await LocalDb.setCursor(kActiveWearableCursor, kNoActiveWearable);
+      expect(await adoptReplacementWearable(_watch), isFalse);
+      expect(await activeWearableId(), isNull);
+
+      await LocalDb.deleteDevice('garmin-new');
+      await LocalDb.deleteDevice('colmi-other');
+      await LocalDb.setCursor(kActiveWearableCursor, _watch);
+    });
+
+    test('the link syncs the adopted watch even when the old one banks later',
+        () async {
+      await LocalDb.setCursor(kActiveWearableCursor, _watch);
+      await LocalDb.upsertDevice(
+          id: 'garmin-new',
+          adapterId: 'garmin',
+          remoteId: 'AA:BB:CC:00:00:09',
+          label: 'garmin');
+      expect(await adoptReplacementWearable('garmin-new'), isTrue);
+      // The old watch was still connected and banked once more after the
+      // pairing, so it is now the most recently seen Garmin row.
+      final db = await LocalDb.instance;
+      await db.rawUpdate('UPDATE device SET last_seen = ? WHERE id = ?',
+          [DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600, _watch]);
+      expect((await LocalDb.deviceRows()).first['id'], _watch);
+      expect((await GarminLink.pairedRow())?['id'], 'garmin-new');
+      // With no active wearable of this kind, the newest row still wins.
+      await LocalDb.setCursor(kActiveWearableCursor, kNoActiveWearable);
+      expect((await GarminLink.pairedRow())?['id'], _watch);
+
+      await LocalDb.deleteDevice('garmin-new');
+      await LocalDb.setCursor(kActiveWearableCursor, _watch);
+    });
   });
 
   group('a WHOOP band and a Garmin watch on the same days', () {

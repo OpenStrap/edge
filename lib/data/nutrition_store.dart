@@ -456,6 +456,50 @@ class NutritionWindow {
   NutrientMean get meanFibre => _mean((d) => d.fibre);
 }
 
+/// Eaten against burned over the SAME days.
+///
+/// The balance used to be the seven-day eaten mean minus today's burn so far.
+/// Today's burn is a running total — basal is pro-rated over the minutes the
+/// day has covered — so at 08:00 a maintenance week read as a ~1,700 kcal
+/// surplus that only shrank to the truth near midnight. Only a counted day
+/// with a derived total burn goes in, and today never counts, so both sides
+/// are whole days and the difference means something.
+class EnergyBalance {
+  const EnergyBalance(this.eaten, this.burned, this.days);
+  final double eaten;
+  final double burned;
+  final int days;
+  double get balance => eaten - burned;
+}
+
+/// Worn minutes a day needs before its total burn counts as a whole day.
+/// The basal floor is pro-rated over the minutes the band recorded, so a day
+/// it spent half off the wrist burns half a BMR and reads as a surplus.
+/// About an hour off the wrist (a charge) still counts.
+const int kWholeDayWornMin = 1380;
+
+/// [burnedByDate] maps a local day label to that day's total burn, and
+/// [wornMinByDate] to its worn minutes. A day without a whole day's wear
+/// drops out of both sides. Null when no counted day is left — the card then
+/// has nothing honest to subtract.
+EnergyBalance? weeklyEnergyBalance(
+  NutritionWindow w,
+  Map<String, double> burnedByDate,
+  Map<String, double> wornMinByDate,
+) {
+  var eaten = 0.0, burned = 0.0, n = 0;
+  for (final d in w.counted) {
+    final b = burnedByDate[d.date];
+    final worn = wornMinByDate[d.date];
+    if (b == null || worn == null || worn < kWholeDayWornMin) continue;
+    if (!d.kcal.complete) continue;
+    eaten += d.kcal.value!;
+    burned += b;
+    n++;
+  }
+  return n == 0 ? null : EnergyBalance(eaten / n, burned / n, n);
+}
+
 // ══════════════════ STORE ══════════════════
 
 class NutritionDb {

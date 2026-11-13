@@ -22,9 +22,18 @@ final class WatchBridge: NSObject, WCSessionDelegate {
   private static let intKeys = [
     "readiness", "readiness_tier", "hrv", "hrv_baseline", "sleep_min",
     "sleep_need_min", "rhr", "updated_at", "batt_pct", "batt_at",
+    "ring_recovery_state",
   ]
-  private static let doubleKeys = ["strain"]
-  private static let stringKeys = ["readiness_band", "coach_line", "batt_name"]
+  // The resolved recovery ring and the held-over reason carry what the bare
+  // `readiness` int cannot: -1 is written for a calibrating baseline, a
+  // provisional score that is still finishing, and a night held over alike.
+  // Without them the wrist could only say "Not scored" while the phone and
+  // both widgets say why.
+  private static let doubleKeys = ["strain", "ring_recovery_frac"]
+  private static let stringKeys = [
+    "readiness_band", "coach_line", "batt_name", "overnight_why",
+    "ring_recovery_value", "ring_recovery_sub", "ring_recovery_why",
+  ]
   private static let boolKeys = ["has_data", "batt_charging", "theme_dark"]
 
   private var appGroupId: String {

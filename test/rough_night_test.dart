@@ -172,6 +172,29 @@ void main() {
     });
   });
 
+  group('where the attribution is written', () {
+    // The correlation engine pairs a behaviour tag dated D with the night
+    // ending D+1. A cause picked on the wake day for the night it ended must
+    // go on the evening before, or it explains the next night instead.
+    test('behaviour tags go on the evening before the night', () {
+      final days = roughNightTagDays('2026-10-10', ['alcohol', 'late meal']);
+      expect(days, {
+        '2026-10-09': ['alcohol', 'late meal'],
+      });
+    });
+
+    test('retrospective tags stay on the night itself', () {
+      final days = roughNightTagDays('2026-10-10', ['alcohol', 'sick']);
+      expect(days['2026-10-09'], ['alcohol']);
+      expect(days['2026-10-10'], ['sick']);
+    });
+
+    test('crosses a month boundary', () {
+      expect(roughNightTagDays('2026-11-01', ['caffeine']).keys,
+          ['2026-10-31']);
+    });
+  });
+
   group('what the card says', () {
     const night = RoughNight(
       day: '2026-08-15',

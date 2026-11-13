@@ -21,6 +21,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/prefs.dart';
 import '../ui2.dart';
+import '../pairing/whoop_firmware_warning.dart';
 
 /// Onboarding steps the user deliberately walked past.
 ///
@@ -202,6 +203,8 @@ class PairingView extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(S.x4, S.x8, S.x4, S.x8),
           children: [
+            const WhoopFirmwareWarning(),
+            const SizedBox(height: S.x5),
             Icon(
                 blocked == null
                     ? LucideIcons.bluetooth
@@ -254,7 +257,7 @@ class PairingView extends StatelessWidget {
       PairPhase.bluetoothBlocked => localizedBandStatus(
           c, bandStatusFor(connection: 'disconnected', blocker: blocker))
         .title,
-      PairPhase.idle => l?.pairingIdleTitle ?? 'Wake the band and hold it close',
+      PairPhase.idle => l?.pairingIdleTitle ?? 'Put your band in pairing mode',
       PairPhase.scanning => l?.pairingScanningTitle ?? 'Looking for your band',
       PairPhase.notFound => l?.pairingNotFoundTitle ?? 'No band in range',
       PairPhase.bondRefused =>
@@ -272,8 +275,8 @@ class PairingView extends StatelessWidget {
           c, bandStatusFor(connection: 'disconnected', blocker: blocker))
         .reason,
       PairPhase.idle => l?.pairingIdleBody ??
-          'Take the band off the charger, put it on your wrist and keep the '
-              'phone within arm’s reach.',
+          'Take the band off your wrist and tap the top firmly until it '
+              'flashes blue. Keep your phone nearby.',
       PairPhase.scanning => l?.pairingScanningBody ??
           'A band that has just come off the charger can take up to half a '
               'minute to start advertising.',
@@ -325,7 +328,11 @@ class PairingView extends StatelessWidget {
                 'Forget the band in Bluetooth settings first',
             l?.pairingBondRefusedAdviceBody ??
                 'In the phone’s Bluetooth settings, forget the band, then scan again here. Only the system can clear the old pairing record.',
-            fix: l?.pairingBondRefusedAdviceFix ?? 'Open Bluetooth settings',
+            // Advice, not a link: there is no public way to open the
+            // Bluetooth pane on iOS, and a blue "Open Bluetooth settings" with
+            // nothing behind it was a dead tap on the screen meant to unstick.
+            fix: l?.pairingBondRefusedAdviceFix ??
+                'Then come back and tap Try again',
             icon: LucideIcons.unlink,
           ),
           if (detail.isNotEmpty) ...[
@@ -339,7 +346,7 @@ class PairingView extends StatelessWidget {
             l?.pairingFailedAdviceTitle ??
                 'The band was found but the session did not finish',
             l?.pairingFailedAdviceBody ??
-                'Scanning again from a metre away normally works.',
+                'Put the band in pairing mode (flashing blue), then tap Try again.',
             icon: LucideIcons.triangleAlert,
           ),
           if (detail.isNotEmpty) ...[

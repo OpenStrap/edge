@@ -92,7 +92,7 @@ void main() {
       'efficiency_awakenings': 'ours',
       'sleep_stages': 'device',
       'naps': 'unavailable',
-      'sleep_debt_need_sri': 'ours',
+      'sleep_debt_need_sri': 'unavailable',
       'resting_hr': 'ours',
       'nadir_dip': 'ours',
       'hrv': 'device',
@@ -123,9 +123,9 @@ void main() {
     expect((v('resting_hr') - _truth.nightHrNadir).abs(), lessThanOrEqualTo(6));
     expect(v('nadir_dip'), inInclusiveRange(40, v('resting_hr')));
     expect(v('baselines_load_illness'), closeTo(v('resting_hr'), 3));
-    expect(v('sleep_debt_need_sri'), inInclusiveRange(0, 2));
-    // Off the ring's staged nights, as on every device that stages its own.
-    expect(cells['sleep_debt_need_sri']!['method'], 'device_stages');
+    // Four nights hold two weekend nights, and a sleep need is a p75 of at
+    // least three of them, so the debt says what it is waiting for instead.
+    expect(cells['sleep_debt_need_sri']!['reason'], Why.needsThreeNights.name);
     expect(v('circadian'), inInclusiveRange(0, 24));
 
     // The night is the ring's own hypnogram; our HR-led window sits beside
@@ -189,18 +189,18 @@ void main() {
     expect((full['scalars'] as Map)['awakenings'], 1);
     expect(v('efficiency_awakenings'),
         closeTo(100 * _truth.tstMin / night, 0.1));
-    // Sleep need and regularity on the device's epochs: four nights on the
-    // same clock regularise to 100, and with no debt and no nap the need is
-    // the habitual night, the stored one within a quarter hour.
+    // Regularity on the device's epochs: four nights on the same clock
+    // regularise to 100.
     final xm = await crossDayAsOf(_dayId);
     expect(((xm['regularity'] as Map)['value'] as Map)['sri'], 100);
-    expect(((xm['sleep_debt'] as Map)['value'] as Map)['debt_hours'], 0);
-    expect(
-        ((((xm['sleep_coach'] as Map)['need'] as Map)['value'] as Map)[
-                    'need_sec'] as num) /
-                60 -
-            ((full['scalars'] as Map)['tst_min'] as num),
-        inInclusiveRange(-15, 15));
+    // Two of the four nights are weekend nights, under the three a sleep need
+    // is taken from, so the debt abstains rather than quote one night.
+    expect(((xm['sleep_debt'] as Map)['value'] as Map)['debt_hours'], isNull);
+    // And with no sleep need to anchor it, the coach waits for the same
+    // nights and says so.
+    final need = (xm['sleep_coach'] as Map)['need'] as Map;
+    expect(need['value'], '—');
+    expect(need['note'], startsWith('need_baseline:'));
   }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('with 14 nights behind it, readiness is ours: the partial composite '
@@ -254,7 +254,7 @@ void main() {
     // counts from.
     final db = await LocalDb.instance;
     final stamps = await db.rawQuery(
-        "SELECT DISTINCT rec_ts FROM raw_archive WHERE reason LIKE 'colmi_big_%' "
+        "SELECT DISTINCT rec_ts FROM ${LocalDb.rawArchiveView} WHERE reason LIKE 'colmi_big_%' "
         "AND device_id = 'colmi-synthetic'");
     expect(stamps.map((r) => r['rec_ts']),
         [SyntheticDay.sec(DateTime(2026, 10, 4, 22, 30))]);
@@ -267,7 +267,7 @@ void main() {
     final reply = colmiBigDataRequest(
         kColmiBigTemperature, [0, 30, for (var k = 0; k < 48; k++) 150]);
     final db = await LocalDb.instance;
-    await db.insert('raw_archive', {
+    await db.insert(LocalDb.rawArchiveView, {
       'device_id': 'colmi-midnight',
       'hex': [for (final b in reply) b.toRadixString(16).padLeft(2, '0')]
           .join(),

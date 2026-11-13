@@ -368,6 +368,7 @@ class SyncController {
       // not mistake that for a stuck drain (spin-guard/backlogRemains below
       // read frontierAfter too).
       final frontierBefore = await LocalDb.getCursorInt('rec_ts_hw');
+      final dropsBefore = engine.historyGateDrops;
       if (kickFirst || i > 0) {
         await engine.requestHistorySync();
       }
@@ -419,7 +420,11 @@ class SyncController {
       // it says nothing about the drain. Wait on the same task again — only
       // its own terminals end it, and the stop rules below judge a task that
       // has.
-      if (!report.complete && engine.offloadActive) {
+      // `ended` first: the claim is released only after the terminal's abort
+      // write, so offloadActive still reads true for a task that is over —
+      // a band that accepts every request and never starts one was asked 20
+      // times per burst, every burst.
+      if (!report.complete && !report.ended && engine.offloadActive) {
         _log('Backfill continuation ${i + 1}/$maxSessions — the history task '
             'is still running; waiting on it again.');
         continue;
@@ -439,6 +444,17 @@ class SyncController {
           'Backfill stop — frontier did not advance and no backlog remains '
           '(strap newest=$strapNewest, frontier=$frontierAfter).',
         );
+        break;
+      }
+      if (!frontierAdvanced &&
+          report.records == 0 &&
+          engine.historyGateDrops == dropsBefore) {
+        // Batches with no records in them (a strap writing no 1 Hz data, e.g.
+        // off-wrist) are not a stale block: there is nothing to drain through.
+        // Gate drops are: a frozen-clock block's records are rejected below the
+        // frontier and never counted, but the trim still walks past them.
+        _log('Backfill stop — batches carried no records; frontier stuck '
+            '(strap newest=$strapNewest, frontier=$frontierAfter).');
         break;
       }
       if (!frontierAdvanced) {
@@ -491,6 +507,66 @@ class SyncController {
         _log('$where: quiet link (${quiet}s, no stream armed) — probe '
             '${ok ? 'answered, reusing the link' : 'unanswered, reconnecting'}.');
         return ok;
+    }
+  }
+
+  /// Verify a first pairing before the host saves it. A picker grant is only
+  /// permission to reach a peripheral; the engine must complete its bootstrap
+  /// (including the required subscriptions and gen5 HELLO) before [confirm].
+  /// No reconnect loop is started for an unconfirmed band. On failure retain
+  /// its ASK grant so Retry can use it, but retire native restore intent.
+  Future<bool> connectForPairing(
+    PairedDevice candidate, {
+    required Future<void> Function() confirm,
+  }) async {
+    if (busy || _reconnecting || paired != null || _isDisposed || ResetGate.active) {
+      return false;
+    }
+    final generation = _reconnectGeneration;
+    final resetGeneration = ResetGate.generation;
+    bool current() => !_isDisposed &&
+        generation == _reconnectGeneration &&
+        !ResetGate.changedSince(resetGeneration);
+    var confirmed = false;
+    _setBusy(true);
+    BandOwnership.markForegroundIntent(true);
+    IosBleRestore.foregroundActive = true;
+    try {
+      background = false;
+      engine.setBackground(false);
+      _scheduler.setBackground(false);
+      await _ensureForegroundLease();
+      await IosBleRestore.setOwnsBand(true);
+      if (!current()) return false;
+      _log('===== PAIRING VERIFICATION =====');
+      final ready = await engine.connectToRemoteId(candidate.remoteId,
+          generationHint: candidate.generation);
+      if (!ready || !engine.isConnected || !current()) {
+        _log('Pairing: bootstrap did not complete; pairing not confirmed.');
+        return false;
+      }
+      await confirm();
+      if (!current() || paired?.remoteId != candidate.remoteId) return false;
+      confirmed = true;
+      return true;
+    } finally {
+      try {
+        if (!confirmed) {
+          // No unpair/removeAccessory here: removing an ASK grant also
+          // removes the system bond. A failed setup must remain retryable.
+          try {
+            await engine.disconnect();
+          } catch (e) {
+            _log('Pairing cleanup: disconnect failed: $e');
+          }
+          await IosBleRestore.disarmOne(candidate.remoteId);
+          IosBleRestore.foregroundActive = false;
+          BandOwnership.markForegroundIntent(false);
+          _releaseForegroundLease();
+        }
+      } finally {
+        _setBusy(false);
+      }
     }
   }
 

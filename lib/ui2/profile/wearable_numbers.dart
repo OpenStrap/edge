@@ -22,6 +22,7 @@ import '../../compute/inputs/validation_bands.dart' show kTruthBandRows;
 import '../../data/day_label.dart' show todayLabel;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
+import '../../l10n/decimal_text.dart';
 import '../../state/prefs.dart';
 import '../ui2.dart';
 import 'profile.dart';
@@ -267,7 +268,7 @@ String whyText(AppLocalizations l, String? reason, String device) =>
     'skin_temp' => device
         ? (fixed1(v), l.wearableUnitCelsius)
         : ('${v > 0 ? '+' : ''}${fixed1(v)}', l.wearableUnitSd),
-    'strain' => (fixed1(v), ''),
+    'strain' => (displayFixed(v, 1), ''),
     'calories' => (int0(v), l.wearableUnitKcal),
     // A ring's movement is the share of the night's records with steps in
     // them; a watch's is minutes in a heart-rate zone.

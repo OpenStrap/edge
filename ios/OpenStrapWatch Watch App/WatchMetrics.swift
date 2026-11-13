@@ -40,11 +40,24 @@ struct WatchMetrics {
   var battPct: Int        // strap battery %, -1 = unknown
   var updatedAt: Int      // epoch sec
   var themeDark: Bool     // mirror the app's Ember-on-Paper (false) / Char (true)
+  /// The recovery ring exactly as Dart resolved it for the widgets
+  /// (`ring_recovery_*`). `readiness` is -1 for a calibrating baseline, a
+  /// provisional score still finishing and a held-over night alike; this is
+  /// what tells them apart. A payload from an app that predates these keys
+  /// reads as absent with no reason, which is the old "Not scored".
+  var recoveryState: Int  // 0 measured · 1 calibrating/provisional · 2 absent
+  var recoveryValue: String
+  var recoverySub: String
+  var recoveryWhy: String
+  var recoveryFrac: Double  // negative = nothing honest to sweep
+  /// Why the overnight figures are not today's own; "" when they are.
+  var overnightWhy: String
 
   static let empty = WatchMetrics(
     hasData: false, readiness: -1, tier: -1, band: "", strain: -1, sleepMin: -1,
     needMin: -1, hrv: -1, hrvBaseline: -1, rhr: -1, coachLine: "", battPct: -1,
-    updatedAt: 0, themeDark: true)
+    updatedAt: 0, themeDark: true, recoveryState: 2, recoveryValue: "",
+    recoverySub: "", recoveryWhy: "", recoveryFrac: -1, overnightWhy: "")
 
   static func load() -> WatchMetrics {
     let d = UserDefaults.standard
@@ -62,7 +75,27 @@ struct WatchMetrics {
       coachLine: d.string(forKey: "coach_line") ?? "",
       battPct: d.object(forKey: "batt_pct") as? Int ?? -1,
       updatedAt: d.object(forKey: "updated_at") as? Int ?? 0,
-      themeDark: d.object(forKey: "theme_dark") as? Bool ?? true)
+      themeDark: d.object(forKey: "theme_dark") as? Bool ?? true,
+      recoveryState: d.object(forKey: "ring_recovery_state") as? Int ?? 2,
+      recoveryValue: d.string(forKey: "ring_recovery_value") ?? "",
+      recoverySub: d.string(forKey: "ring_recovery_sub") ?? "",
+      recoveryWhy: d.string(forKey: "ring_recovery_why") ?? "",
+      recoveryFrac: d.object(forKey: "ring_recovery_frac") as? Double ?? -1,
+      overnightWhy: d.string(forKey: "overnight_why") ?? "")
+  }
+
+  /// No final score yet, but the phone has progress to show: baseline nights
+  /// banked ("Calibrating" · "2 of 4 nights") or a provisional number that is
+  /// "Finishing up". Drawn muted, never as a reading.
+  var recoveryPending: Bool {
+    readiness < 0 && recoveryState == 1 && !recoveryValue.isEmpty
+  }
+
+  /// The reason behind a bare "Not scored": the held-over sentence first (the
+  /// same order the overnight widget uses), then the ring's own reason.
+  var notScoredWhy: String {
+    guard readiness < 0, !recoveryPending else { return "" }
+    return overnightWhy.isEmpty ? recoveryWhy : overnightWhy
   }
 
   /// Is this still today's answer? An unknown timestamp is not a claim of

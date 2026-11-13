@@ -17,11 +17,13 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
+import '../compute/inputs/canonical.dart' show pairedRowOf;
 import '../data/db.dart';
 import 'adapters/_registry.dart';
 import 'adapters/coros.dart';
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart';
+import '../sync/reset_gate.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
 
 /// The live link to a paired Coros watch. One instance; a second concurrent
@@ -54,12 +56,8 @@ class CorosLink {
   String? _firmware;
 
   /// The `device` row for the paired watch, or null.
-  static Future<Map<String, Object?>?> pairedRow() async {
-    for (final r in await LocalDb.deviceRows()) {
-      if (r['adapter_id'] == kCoros.id) return r;
-    }
-    return null;
-  }
+  static Future<Map<String, Object?>?> pairedRow() =>
+      pairedRowOf(kCoros.id);
 
   /// Forget a paired watch: drop its `device` row. No key to drop — this
   /// family needs none.
@@ -68,6 +66,9 @@ class CorosLink {
       debugPrint('[coros] refusing to forget the primary band from here.');
       return false;
     }
+    // Before the first await: a sync still reading the row has no
+    // `_deviceId` yet for the check below to match.
+    instance._forgets++;
     if (instance._deviceId == id) await instance.stop();
     await LocalDb.deleteDevice(id);
     return true;
@@ -86,6 +87,10 @@ class CorosLink {
   /// `device.id` of the paired watch. Never [LocalDb.kPrimaryDeviceId].
   String? _deviceId;
 
+  /// Bumped by every forget. A sync that saw it move since it started
+  /// does not connect, whatever its `_deviceId` says.
+  int _forgets = 0;
+
   bool _busy = false;
 
   /// Connect to the paired watch, hold the session for [_sessionWindow],
@@ -101,6 +106,11 @@ class CorosLink {
   }
 
   Future<bool> _sync() async {
+    // Read before the first await: a "delete everything" that lands while
+    // this sync is parked on the link slot or still connecting must find it
+    // here. The host refuses every write once a reset has run since.
+    final resetGen = ResetGate.generation;
+    final forgets = _forgets;
     final row = await pairedRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;
@@ -124,6 +134,16 @@ class CorosLink {
       // released the slot, letting the next queued link connect while this
       // one was still disconnecting.
       return await withSecondaryLinkSlot(() async {
+        // A forget that landed while this sync was parked on the slot has
+        // already stopped it (nulling `_deviceId`) and deleted the row. The
+        // ids captured above would otherwise still connect to the forgotten
+        // device and bank its history under a row that no longer exists.
+        if (_deviceId != deviceId || ResetGate.changedSince(resetGen)) {
+          return false;
+        }
+        // A forget during the row lookup above found no `_deviceId` to stop.
+        if (_forgets != forgets) return false;
+        BandHost? host;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -143,22 +163,24 @@ class CorosLink {
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
           }
-          final host = BandHost(
+          final h = host = BandHost(
+            resetGeneration: resetGen,
             adapter: const CorosAdapter(),
             deviceId: deviceId,
             onLog: (m) => debugPrint('[coros] $m'),
             onNote: _handleNote,
           );
-          _host = host;
+          _host = h;
           // The adapter holds this open for as long as the link lives, so
           // this session is bounded here, not by anything the watch or the
           // adapter itself signals.
-          await host.run(link).timeout(_sessionWindow, onTimeout: () {});
-          return true;
+          await h.run(link).timeout(_sessionWindow, onTimeout: () {});
         } finally {
           // Drop the link and DISCONNECT before the slot is released.
           await stop();
         }
+        // Read only after [stop], which makes the session's final flush.
+        return !host.sessionFailed;
       });
     } catch (e) {
       debugPrint('[coros] sync failed: $e');

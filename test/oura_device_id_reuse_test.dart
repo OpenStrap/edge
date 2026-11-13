@@ -33,4 +33,73 @@ void main() {
       expect(ouraReusableDeviceId({'id': LocalDb.kPrimaryDeviceId}), isNull);
     });
   });
+
+  _failedPairKeyTests();
+}
+
+// What a failed pairing leaves in the keychain under the id it used.
+void _failedPairKeyTests() {
+  group('ouraFailedPairKey', () {
+    test('a freshly minted id always drops its orphaned key', () {
+      for (final same in [false, true]) {
+        for (final installed in [false, true]) {
+          for (final prior in [false, true]) {
+            expect(
+              ouraFailedPairKey(
+                  reused: false,
+                  sameRing: same,
+                  keyInstalled: installed,
+                  hadPriorKey: prior),
+              OuraFailedPairKey.drop,
+            );
+          }
+        }
+      }
+    });
+
+    test('the paired ring failing before it took the key gets its key back',
+        () {
+      expect(
+        ouraFailedPairKey(
+            reused: true, sameRing: true, keyInstalled: false, hadPriorKey: true),
+        OuraFailedPairKey.restore,
+      );
+      expect(
+        ouraFailedPairKey(
+            reused: true,
+            sameRing: true,
+            keyInstalled: false,
+            hadPriorKey: false),
+        OuraFailedPairKey.drop,
+      );
+    });
+
+    test('the paired ring that took the new key keeps it', () {
+      expect(
+        ouraFailedPairKey(
+            reused: true, sameRing: true, keyInstalled: true, hadPriorKey: true),
+        OuraFailedPairKey.keep,
+      );
+    });
+
+    // A second ring took the key and then stopped answering mid-challenge.
+    // The paired ring never saw the new key and still answers to its own, so
+    // keeping the new one would leave its row refused on every later sync.
+    test('a different ring that took the key does not overwrite the paired one',
+        () {
+      expect(
+        ouraFailedPairKey(
+            reused: true, sameRing: false, keyInstalled: true, hadPriorKey: true),
+        OuraFailedPairKey.restore,
+      );
+      expect(
+        ouraFailedPairKey(
+            reused: true,
+            sameRing: false,
+            keyInstalled: true,
+            hadPriorKey: false),
+        OuraFailedPairKey.drop,
+      );
+    });
+  });
 }

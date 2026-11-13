@@ -113,4 +113,73 @@ void main() {
       reason: 'the streak restarted; two old refusals must not carry over',
     );
   });
+
+  test(
+    'after give-up the remedy backs off instead of bouncing every 3 refusals '
+    'all night',
+    () {
+      final e = NoDurableProgressEscalation(remedyAfter: 3, giveUpAfter: 3);
+      for (var i = 0; i < 9; i++) {
+        e.trimRefused();
+      }
+      expect(e.remedies, 3);
+      expect(e.shouldSurfaceGiveUp(), isTrue);
+
+      // 300 more refusals: the flat threshold would fire 100 more remedies.
+      var remedies = 0;
+      for (var i = 0; i < 300; i++) {
+        if (e.trimRefused()) remedies++;
+      }
+      // 6 + 12 + 24 + 48 + 96 = 186, then every 192 → 5 remedies in 300.
+      expect(remedies, 5);
+      expect(e.nextRemedyThreshold, 3 << 6, reason: 'capped');
+      expect(e.shouldSurfaceGiveUp(), isFalse, reason: 'still latched');
+    },
+  );
+
+  test('the threshold is flat until give-up, and a trim ACK resets the backoff',
+      () {
+    final e = NoDurableProgressEscalation(remedyAfter: 3, giveUpAfter: 3);
+    expect(e.nextRemedyThreshold, 3);
+    for (var i = 0; i < 6; i++) {
+      e.trimRefused();
+    }
+    expect(e.nextRemedyThreshold, 3, reason: 'two remedies, not given up yet');
+    for (var i = 0; i < 3; i++) {
+      e.trimRefused();
+    }
+    expect(e.nextRemedyThreshold, 6);
+    e.trimAcked();
+    expect(e.nextRemedyThreshold, 3);
+  });
+
+  test(
+    're-offers of one refused HISTORY_END count once — the band re-sends it '
+    'every ~2.5 s, and counting each one ran the remedy 7.5 s into one burst',
+    () {
+      final e = NoDurableProgressEscalation(remedyAfter: 3, giveUpAfter: 3);
+      // Burst 1, offered five times without a result in between.
+      for (var i = 0; i < 5; i++) {
+        expect(e.trimRefused(burst: 1), isFalse, reason: 're-offer $i');
+      }
+      expect(e.refusals, 1);
+      expect(e.remedies, 0);
+      // Two more distinct bursts make the streak of three.
+      expect(e.trimRefused(burst: 2), isFalse);
+      expect(e.trimRefused(burst: 2), isFalse);
+      expect(e.trimRefused(burst: 3), isTrue);
+      expect(e.remedies, 1);
+      // A re-offer of the burst that triggered the remedy is not a new one.
+      expect(e.trimRefused(burst: 3), isFalse);
+      expect(e.refusals, 0);
+    },
+  );
+
+  test('a trim ACK forgets the last refused burst', () {
+    final e = NoDurableProgressEscalation(remedyAfter: 3);
+    e.trimRefused(burst: 7);
+    e.trimAcked();
+    e.trimRefused(burst: 7);
+    expect(e.refusals, 1, reason: 'counted again after real progress');
+  });
 }

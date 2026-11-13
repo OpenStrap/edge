@@ -135,49 +135,71 @@ void main() {
       expect(writes, 1);
     });
 
-    test('failed priority sleep never invokes the bulk callback', () async {
-      var priorityWrites = 0;
-      var bulkWrites = 0;
+    test(
+      'failed priority sleep still runs bulk without claiming the night',
+      () async {
+        // Health Connect grants Sleep separately: with it denied this write
+        // fails every pass, and holding bulk behind it kept heart rate, RHR,
+        // HRV, energy and workouts out of the store indefinitely.
+        var priorityWrites = 0;
+        final bulkPriorityDates = <String?>[];
+
+        final result = await exportPrioritySleepBeforeBulk(
+          newestFirstDays: [MapEntry('2026-08-05', _overnightBundle())],
+          write: (bundle) async {
+            priorityWrites++;
+            return false;
+          },
+          exportBulk: (androidSleepAlreadyWritten) async {
+            bulkPriorityDates.add(androidSleepAlreadyWritten);
+          },
+        );
+
+        expect(result.date, '2026-08-05');
+        expect(result.succeeded, isFalse);
+        expect(priorityWrites, 1);
+        expect(
+          bulkPriorityDates,
+          [null],
+          reason: 'bulk must retry the sleep itself, not skip it as written',
+        );
+      },
+    );
+
+    test('thrown priority sleep still runs bulk without claiming the night',
+        () async {
+      final bulkPriorityDates = <String?>[];
 
       final result = await exportPrioritySleepBeforeBulk(
         newestFirstDays: [MapEntry('2026-08-05', _overnightBundle())],
-        write: (bundle) async {
-          priorityWrites++;
-          return false;
-        },
+        write: (bundle) async => throw StateError('priority write failed'),
         exportBulk: (androidSleepAlreadyWritten) async {
-          bulkWrites++;
+          bulkPriorityDates.add(androidSleepAlreadyWritten);
         },
       );
 
       expect(result.date, '2026-08-05');
       expect(result.succeeded, isFalse);
-      expect(priorityWrites, 1);
-      expect(bulkWrites, 0);
+      expect(bulkPriorityDates, [null]);
     });
 
-    test('thrown priority sleep never invokes the bulk callback', () async {
-      var bulkWrites = 0;
-
-      await expectLater(
-        exportPrioritySleepBeforeBulk(
-          newestFirstDays: [MapEntry('2026-08-05', _overnightBundle())],
-          write: (bundle) async => throw StateError('priority write failed'),
-          exportBulk: (androidSleepAlreadyWritten) async {
-            bulkWrites++;
-          },
-        ),
-        throwsA(isA<StateError>()),
+    test('the priority day never holds bulk behind its own backoff', () {
+      final source = File('lib/health/health_export.dart').readAsStringSync();
+      final priorityPath = source.substring(
+        source.indexOf('Future<int> exportPriorityOrBulk() async {'),
+        source.indexOf('exportBulk = (String? androidSleepAlreadyWritten)'),
       );
 
-      expect(bulkWrites, 0);
+      expect(priorityPath, isNot(contains('return 0;')));
+      expect(priorityPath, contains('shouldAttemptHealthBulkExport('));
+      expect(priorityPath, isNot(contains('shouldAttemptHealthExport(')));
     });
 
     test('priority success leaves shared retry state for the bulk export', () {
       final source = File('lib/health/health_export.dart').readAsStringSync();
       final priorityCallback = source.substring(
         source.indexOf(
-          'final priorityResult = await exportPrioritySleepBeforeBulk(',
+          'await exportPrioritySleepBeforeBulk(',
         ),
         source.indexOf('exportBulk = (String? androidSleepAlreadyWritten)'),
       );
@@ -270,22 +292,133 @@ void main() {
       // copy, which is the truncation and the duplicate bars both.
       expect(night.start.isBefore(dayStart), isTrue);
 
-      final window = sleepCleanupWindow(
-        dayStart: dayStart,
-        dayEnd: dayEnd,
-        night: night,
-      );
+      final window = sleepCleanupWindow(dayStart: dayStart, night: night)!;
       expect(window.start, DateTime(2026, 8, 4, 12));
       expect(window.end, DateTime(2026, 8, 5, 12), reason:
           'noon-to-noon only — the old calendar-day union reached into the '
           'previous night and deleted samples nothing ever rewrites');
 
-      // No night to write — nothing to widen for, and the day window still has
-      // to be swept so stale samples from an earlier export go.
-      final none = sleepCleanupWindow(dayStart: dayStart, dayEnd: dayEnd);
-      expect(none.start, dayStart);
-      expect(none.end, dayEnd);
+      // No night to write — stale samples from an earlier export still have
+      // to go, but only from the noon-to-noon window this day's night owns.
+      // HealthKit deletes on overlap, and tomorrow's night starts this
+      // evening: a calendar-day sweep deleted its in-bed and pre-midnight
+      // stages.
+      final none = sleepCleanupWindow(dayStart: dayStart)!;
+      expect(none.start, DateTime(2026, 8, 4, 12));
+      expect(none.end, DateTime(2026, 8, 5, 12));
+      final tomorrowsNightStart = DateTime(2026, 8, 5, 23, 10);
+      expect(none.end.isBefore(tomorrowsNightStart), isTrue);
+      expect(none.end.isBefore(dayEnd), isTrue);
+
+      // Yesterday's night woke after noon: start after it.
+      final clamped = sleepCleanupWindow(
+        dayStart: dayStart,
+        previousWake: DateTime(2026, 8, 4, 22),
+      )!;
+      expect(clamped.start, DateTime(2026, 8, 4, 22, 0, 1));
+      expect(
+        sleepCleanupWindow(
+          dayStart: dayStart,
+          previousWake: DateTime(2026, 8, 5, 13),
+        ),
+        isNull,
+      );
     });
+
+    test("a night's HealthKit window stops short of yesterday's after-noon wake", () {
+      // Saturday's night ran 03:00-13:00. Sunday's runs Sat 23:30-Sun 07:30,
+      // so its noon-to-noon window starts Sat 12:00 and overlaps Saturday's
+      // in-bed envelope by an hour. HealthKit deletes on overlap, and
+      // Saturday is already behind the export cursor.
+      final dayStart = DateTime(2026, 8, 9);
+      final night = HealthSleepSession(
+        start: DateTime(2026, 8, 8, 23, 30),
+        end: DateTime(2026, 8, 9, 7, 30),
+        stages: const [],
+      );
+      final saturdayWake = DateTime(2026, 8, 8, 13);
+
+      final window = sleepCleanupWindow(
+        dayStart: dayStart,
+        night: night,
+        previousWake: saturdayWake,
+      )!;
+      expect(window.start, DateTime(2026, 8, 8, 13, 0, 1));
+      expect(window.end, DateTime(2026, 8, 9, 12));
+      expect(window.start.isAfter(saturdayWake), isTrue);
+      expect(window.start.isAfter(night.start), isFalse);
+
+      // A morning wake yesterday is outside the window: unchanged.
+      final normal = sleepCleanupWindow(
+        dayStart: dayStart,
+        night: night,
+        previousWake: DateTime(2026, 8, 8, 7),
+      )!;
+      expect(normal.start, DateTime(2026, 8, 8, 12));
+      expect(normal.end, DateTime(2026, 8, 9, 12));
+
+      // A "previous wake" at or after this night's onset is not a separate
+      // night ending before this one; never clamp past the onset.
+      final overlapping = sleepCleanupWindow(
+        dayStart: dayStart,
+        night: night,
+        previousWake: DateTime(2026, 8, 9, 1),
+      )!;
+      expect(overlapping.start, DateTime(2026, 8, 8, 12));
+    });
+
+    test(
+      'Apple replace on a no-night day leaves the next night alone',
+      () async {
+        const channel = MethodChannel('openstrap/test_healthkit_sleep_none');
+        final calls = <MethodCall>[];
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+              calls.add(call);
+              return true;
+            });
+        addTearDown(() {
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, null);
+        });
+        final exporter = HealthKitSleepSessionExporter(
+          writer: MethodChannelHealthKitSleepSessionWriter(channel: channel),
+        );
+        final noWindow = _overnightBundle()..remove('sleep');
+
+        expect(
+          await exporter.replace(
+            bundle: noWindow,
+            dayStart: DateTime(2026, 8, 5),
+            previousWake: DateTime(2026, 8, 4, 7),
+          ),
+          isTrue,
+        );
+        final args = (calls.single.arguments as Map).cast<String, Object?>();
+        expect(
+          args['cleanupStartTime'],
+          DateTime(2026, 8, 4, 12).millisecondsSinceEpoch,
+        );
+        expect(
+          args['cleanupEndTime'],
+          DateTime(2026, 8, 5, 12).millisecondsSinceEpoch,
+          reason: 'a calendar-day sweep overlaps tomorrow\'s night, which '
+              'starts this evening, and HealthKit deletes on overlap',
+        );
+
+        // Nothing left to clear: no native call, and not a failure.
+        calls.clear();
+        expect(
+          await exporter.replace(
+            bundle: noWindow,
+            dayStart: DateTime(2026, 8, 5),
+            previousWake: DateTime(2026, 8, 5, 13),
+          ),
+          isTrue,
+        );
+        expect(calls, isEmpty);
+      },
+    );
 
     test('Apple and Android share one hypnogram stage vocabulary', () {
       expect(healthSleepStageOf('wake'), HealthSleepStage.awake);
@@ -912,7 +1045,6 @@ void main() {
         await exporter.replace(
           bundle: bundle,
           dayStart: DateTime(2026, 8, 5),
-          dayEnd: DateTime(2026, 8, 6),
         ),
         isTrue,
       );
@@ -949,7 +1081,6 @@ void main() {
           await exporter.replace(
             bundle: _overnightBundle(),
             dayStart: DateTime(2026, 8, 5),
-            dayEnd: DateTime(2026, 8, 6),
           ),
           isTrue,
         );

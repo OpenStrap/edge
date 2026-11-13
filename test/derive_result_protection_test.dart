@@ -511,6 +511,18 @@ void main() {
       );
     });
 
+    test('a user-set window with too little recorded is not a regression, '
+        'so the correction replaces the auto night it was correcting', () {
+      expect(
+        DerivationEngine.nightSubstrateRegressed(
+          userSetWindow: true,
+          sleepSubEmpty: true,
+          nightScalarsNull: true,
+        ),
+        isFalse,
+      );
+    });
+
     test('real night scalars computed is not a regression', () {
       expect(
         DerivationEngine.nightSubstrateRegressed(

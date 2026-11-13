@@ -25,11 +25,13 @@ class SleepTab extends StatelessWidget {
     final l = AppLocalizations.of(c);
     return SleepDetail(
       embedded: true,
-      footer: [
+      todayFooter: [
         Section(
           l?.sleepTabPlanTitle ?? 'Your sleep plan',
           const WellnessScreen(sleepPlanOnly: true),
         ),
+      ],
+      footer: [
         Section(
           l?.sleepTabMoreTitle ?? 'Alarm and body clock',
           Column(children: [

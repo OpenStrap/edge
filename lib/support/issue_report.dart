@@ -85,6 +85,10 @@ String describeReportFile(AppLocalizations l, String path) => switch (path) {
 class ReportDraft {
   final ReportCategory category;
   final String title, description;
+
+  /// Email or handle for a reply. Only in the encrypted user.txt, never in
+  /// the plaintext server meta.
+  final String contact;
   final String? screenshotPath;
   /// The last-2-weeks slice (uploadable).
   final bool includeDatabase;
@@ -95,6 +99,7 @@ class ReportDraft {
     required this.category,
     required this.title,
     required this.description,
+    this.contact = '',
     this.screenshotPath,
     this.includeDatabase = false,
     this.fullDatabase = false,
@@ -146,7 +151,9 @@ Future<File> writeReportZip(
     'logs/sync.log': utf8.encode(syncLog),
     'logs/telemetry.json': utf8.encode(pretty.convert(telemetry)),
     'user.txt': utf8.encode('Category: ${draft.category.name}\n'
-        'Title: ${draft.title}\n\n${draft.description}\n'),
+        'Title: ${draft.title}\n'
+        '${draft.contact.isEmpty ? '' : 'Contact: ${draft.contact}\n'}'
+        '\n${draft.description}\n'),
     'screenshot.${draft.screenshotExt}': ?screenshot,
   };
   final zip = ZipFileEncoder()..create(path);
@@ -203,8 +210,35 @@ Future<File> gzipFile(String path, String to) async {
   return File(to);
 }
 
+const _kReportPrefix = 'openstrap_report_';
+
 String _tmp(String dir, String ext) =>
-    '$dir/openstrap_report_${DateTime.now().microsecondsSinceEpoch}$ext';
+    '$dir/$_kReportPrefix${DateTime.now().microsecondsSinceEpoch}$ext';
+
+/// Delete report files left in [dir] by earlier runs: a Share locally whose
+/// cleanup never ran, or a run the OS killed mid-build. Each run writes a new
+/// name, and with the full database each one is a plaintext copy of the whole
+/// health record, so without this they pile up in the cache dir. Files newer
+/// than [olderThan] are left alone in case another build is still using them.
+Future<int> sweepStaleReports(String dir,
+    {Duration olderThan = const Duration(minutes: 10), DateTime? now}) async {
+  final cutoff = (now ?? DateTime.now()).subtract(olderThan);
+  var n = 0;
+  try {
+    await for (final e in Directory(dir).list(followLinks: false)) {
+      if (e is! File) continue;
+      final name = e.uri.pathSegments.last;
+      if (!name.startsWith(_kReportPrefix)) continue;
+      try {
+        if (e.lastModifiedSync().isBefore(cutoff)) {
+          await e.delete();
+          n++;
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return n;
+}
 
 /// Gather everything from the running app and write the archive to a temp
 /// file (the caller deletes it). Built on disk, so even the full database
@@ -292,11 +326,15 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
     ].reversed.take(20).toList(),
   };
   onStage?.call(ReportStage.logs);
-  final syncLog = await _recentLog();
+  // No log file (older iOS builds never wrote one): fall back to the lines
+  // this session kept in memory, oldest first.
+  var syncLog = await _recentLog();
+  if (syncLog.isEmpty) syncLog = app.logLines.reversed.join('\n');
   final shot = draft.screenshotPath == null
       ? null
       : await File(draft.screenshotPath!).readAsBytes();
   final tmp = (await getTemporaryDirectory()).path;
+  await sweepStaleReports(tmp);
   final slice = draft.includeDatabase && !draft.fullDatabase;
   Future<File> zipWith(File? dbGz, int? rawDays) {
     onStage?.call(ReportStage.packing);
@@ -328,7 +366,8 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
     if (draft.fullDatabase) {
       onStage?.call(ReportStage.database);
       // The existing export path: a VACUUM INTO snapshot, not a file copy.
-      path = await LocalDb.exportCopy(includeSubstrateArchive: false);
+      path = await LocalDb.exportCopy(
+          includeSubstrateArchive: false, includePrefs: false);
     } else {
       onStage?.call(ReportStage.slice);
       path = await exportRecentSlice(rawDays: days);

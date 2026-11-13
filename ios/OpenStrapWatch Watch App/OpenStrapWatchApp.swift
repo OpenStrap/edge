@@ -155,35 +155,63 @@ struct WatchGlanceView: View {
   /// READINESS out of 100 and the wrist must not rename it. With no score there
   /// is no arc: an arc trimmed to zero is a ring pinned at empty, which reads
   /// as "your readiness is 0".
+  /// A pending score (calibrating, or provisional and "Finishing up") keeps the
+  /// phone's muted treatment: arc and value in the muted ink, because the
+  /// colour is the signal that this is not a reading yet.
   private var readinessHero: some View {
-    let arc = p.readinessArc(m.tier)
-    return ZStack {
-      Circle().stroke(p.divider, lineWidth: 11)
-      if m.readinessFraction > 0 {
-        Circle()
-          .trim(from: 0, to: m.readinessFraction)
-          .stroke(arc, style: StrokeStyle(lineWidth: 11, lineCap: .round))
-          .rotationEffect(.degrees(-90))
-      }
-      VStack(spacing: -2) {
-        if m.readiness >= 0 {
-          Text("\(m.readiness)")
-            .font(.system(size: 40, weight: .bold, design: .rounded))
-            .foregroundStyle(p.ink)
-        } else {
-          Text("Not scored")
-            .font(.system(size: 13, weight: .semibold, design: .rounded))
-            .foregroundStyle(p.inkSoft)
+    let pending = m.recoveryPending
+    let arc = pending ? p.inkMuted : p.readinessArc(m.tier)
+    let frac = pending ? m.recoveryFrac : m.readinessFraction
+    let numeric = pending && Int(m.recoveryValue) != nil
+    let label: String = {
+      if m.readiness >= 0 && !m.band.isEmpty { return m.band.uppercased() }
+      if pending && !m.recoverySub.isEmpty { return m.recoverySub.uppercased() }
+      return "READINESS"
+    }()
+    return VStack(spacing: 6) {
+      ZStack {
+        Circle().stroke(p.divider, lineWidth: 11)
+        if frac > 0 {
+          Circle()
+            .trim(from: 0, to: min(frac, 1))
+            .stroke(arc, style: StrokeStyle(lineWidth: 11, lineCap: .round))
+            .rotationEffect(.degrees(-90))
         }
-        Text(m.readiness >= 0 && !m.band.isEmpty ? m.band.uppercased() : "READINESS")
-          .font(.system(size: 9, weight: .semibold, design: .rounded))
-          .tracking(1.2)
-          .minimumScaleFactor(0.7)
-          .lineLimit(1)
-          .foregroundStyle(p.inkMuted)
+        VStack(spacing: -2) {
+          if m.readiness >= 0 {
+            Text("\(m.readiness)")
+              .font(.system(size: 40, weight: .bold, design: .rounded))
+              .foregroundStyle(p.ink)
+          } else if pending {
+            Text(m.recoveryValue)
+              .font(.system(size: numeric ? 40 : 13, weight: numeric ? .bold : .semibold,
+                            design: .rounded))
+              .minimumScaleFactor(0.7)
+              .lineLimit(1)
+              .foregroundStyle(p.inkMuted)
+          } else {
+            Text("Not scored")
+              .font(.system(size: 13, weight: .semibold, design: .rounded))
+              .foregroundStyle(p.inkSoft)
+          }
+          Text(label)
+            .font(.system(size: 9, weight: .semibold, design: .rounded))
+            .tracking(1.2)
+            .minimumScaleFactor(0.7)
+            .lineLimit(1)
+            .foregroundStyle(p.inkMuted)
+        }
+        .padding(.horizontal, 14)
+      }
+      .frame(width: 118, height: 118)
+      if !m.notScoredWhy.isEmpty {
+        Text(m.notScoredWhy)
+          .font(.system(size: 11))
+          .multilineTextAlignment(.center)
+          .foregroundStyle(p.inkSoft)
+          .fixedSize(horizontal: false, vertical: true)
       }
     }
-    .frame(width: 118, height: 118)
     .padding(.vertical, 2)
   }
 

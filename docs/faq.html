@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FAQ — Edge</title>
+<meta name="description" content="Common questions about Edge (OpenStrap): installing, pairing, the 14-night baseline, importing data and more.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="site">
+    <a class="brand" href="index.html">Edge</a>
+    <nav class="pages">
+      <a href="faq.html" aria-current="page">FAQ</a>
+      <a href="legal.html">Legal</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="terms.html">Terms</a>
+      <a href="notice.html">Notice</a>
+    </nav>
+  </header>
+
+  <main>
+
+    <h1>Frequently asked questions</h1>
+    <p class="updated">Last updated: October 28, 2026</p>
+
+    <h2>Getting started</h2>
+
+    <h3>How do I install Edge?</h3>
+    <p>On iPhone, join the <a href="https://testflight.apple.com/join/2BVSwq65">TestFlight beta</a>.
+      On Android, download the APK from
+      <a href="https://github.com/OpenStrap/edge/releases/latest">the latest release</a>.
+      One app works with WHOOP 4.0, 5.0 and MG.</p>
+
+    <h3>How do I update?</h3>
+    <p>On iPhone, the TestFlight app installs new builds (you get an email when one is ready).
+      If automatic updates are off, open TestFlight and tap Update.
+      On Android, open the newer APK and it installs over the old one, keeping your data.</p>
+
+    <h3>Will my TestFlight access expire?</h3>
+    <p>Each TestFlight build lasts 90 days. New builds are published before that, and your
+      access carries over to them.</p>
+
+    <h3>Android says the app was blocked by Play Protect</h3>
+    <p>Play Protect warns about apps installed from outside the Play Store that ask for
+      sensitive permissions. Edge's optional feature that buzzes the band for phone
+      notifications needs notification access, which triggers the warning. The APK on
+      the releases page is the one built from this repository's source.</p>
+
+    <h3>How can I check a build is the real one?</h3>
+    <p>Releases are built by GitHub Actions from the tagged source and published on the
+      <a href="https://github.com/OpenStrap/edge/releases">releases page</a>, which lists a
+      checksum for each file. Only install builds from there or from the TestFlight link above.</p>
+
+    <h2>Pairing and syncing</h2>
+
+    <h3>My band won't pair, or it says connected but no data arrives</h3>
+    <ol>
+      <li>Forget the band in Edge and in your phone's Bluetooth settings.</li>
+      <li>Take the band off your wrist and wait for the green light to go off.</li>
+      <li>Tap the top of the band firmly until it flashes blue (pairing mode).</li>
+      <li>Pair again from Edge.</li>
+    </ol>
+    <p>If it keeps happening, send a report from <strong>Profile &rarr; Settings &rarr; Report an issue</strong>
+      so the logs reach us.</p>
+
+    <h3>Can I use the official WHOOP app at the same time?</h3>
+    <p>Don't. The band sends its data to one app at a time, so two apps compete for it.
+      The official app can also install firmware updates on the band; Edge is tested on the
+      firmware your band has now, so keep the band away from it.</p>
+
+    <h3>Does Edge need to stay open?</h3>
+    <p>No. Edge keeps syncing in the background. If you force-close it, it catches up the
+      next time it opens, which can take a few minutes after a long gap.</p>
+
+    <h2>Scores</h2>
+
+    <h3>Why don't I have a recovery score yet?</h3>
+    <p>Edge learns your personal baseline from its own measurements, which takes about
+      14 nights of wear. Until then, recovery stays empty instead of showing a number it
+      can't stand behind.</p>
+
+    <h3>I imported my WHOOP history. Why do I still have to wait 14 nights?</h3>
+    <p>Your WHOOP history is imported and shows up in your history and trends. But those
+      numbers were calculated by WHOOP's own methods, which measure HRV and resting heart
+      rate differently. Using them as your baseline would compare every new night from Edge
+      against a different method and skew your scores, so the baseline comes from Edge's own
+      nights.</p>
+
+    <h2>Your data</h2>
+
+    <h3>Can I import my WHOOP or NOOP data?</h3>
+    <p>Yes, from <strong>Profile &rarr; Export and backup &rarr; Import a file</strong>.
+      A WHOOP data export brings in your daily recovery, sleep and strain. A NOOP export
+      brings in its recorded sensor data, which Edge then scores itself.</p>
+
+    <h3>I'm getting a new phone. How do I keep my data?</h3>
+    <p>Everything lives on your phone, so deleting the app deletes your data. Before you
+      switch, go to <strong>Profile &rarr; Export and backup</strong> and export the database or an
+      encrypted backup, move the file to the new phone, import it there with
+      <strong>Import a file</strong>, then pair your band again. The backup holds your data but not
+      your profile or settings, so enter those again on the new phone.</p>
+
+    <h3>Does my data leave my phone?</h3>
+    <p>Your health data stays on your phone unless you choose to send it, for example to
+      Apple Health or Health Connect, an AI coach you set up, or an issue report. Two other
+      things can leave it: anonymous crash reports, only while <strong>Settings &rarr; Crash
+      reports</strong> is on, and barcodes you scan in the food log, which are looked up on
+      Open Food Facts (turn that off with <strong>Settings &rarr; Look barcodes up online</strong>).
+      Neither includes your health data. The <a href="privacy.html">privacy policy</a> has the
+      detail.</p>
+
+  </main>
+
+  <footer class="site">
+    <p>
+      <a href="https://github.com/OpenStrap/edge">GitHub</a> &middot;
+      <a href="faq.html">FAQ</a> &middot;
+      <a href="legal.html">Legal</a> &middot;
+      <a href="privacy.html">Privacy</a> &middot;
+      <a href="notice.html">Notice</a>
+    </p>
+    <p class="fineprint">
+      OpenStrap is independent and not affiliated with or endorsed by WHOOP, Oura, Garmin
+      or any device maker. Product names are trademarks of their owners and are used
+      only to describe compatibility. AGPL-3.0 licensed.
+    </p>
+  </footer>
+</div>
+</body>
+</html>

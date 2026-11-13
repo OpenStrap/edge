@@ -32,6 +32,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart';
 
 /// What the first bytes of the picked file say it is.
 enum ImportContainer {
@@ -145,6 +146,68 @@ bool noopCsvFirstRecordMatches(String text, {bool truncated = false}) {
     return f.length >= 15 && ts != null && ts > 1000000000 && ts < 4100000000;
   }
   return false;
+}
+
+/// True when [path] is a database THIS app wrote: an export, an auto-backup,
+/// or a quarantined copy — judged by CONTENT when the name does not say so.
+///
+/// The router used to go by name alone (`.db`, `.db.gz`, `.db.unopenable-`).
+/// A backup that came back off Drive, a mail attachment or a file manager
+/// under any other name is still a SQLite file, so it fell through to
+/// [isNoopExport], which claims every SQLite file, and the user restoring
+/// their own history was told "That database is not a NOOP backup" (#606).
+/// `LocalDb.importFromDbFile` already reads by magic bytes for the same
+/// reason; this makes the router agree with it.
+///
+/// A name that says it is ours is still believed without opening the file, so
+/// a damaged backup reaches the backup importer and gets ITS message.
+///
+/// Null means the inspection itself failed (the file would not open or
+/// query), which is not the same as "not ours": the caller must not hand it to
+/// [isNoopExport], which claims every SQLite file.
+Future<bool?> isEdgeBackup(String path) async {
+  final lower = path.toLowerCase();
+  if (lower.endsWith('.db') ||
+      lower.endsWith('.db.gz') ||
+      lower.contains('.db.unopenable-')) {
+    return true;
+  }
+  // Never throws: this runs while a decrypted backup may be sitting in the
+  // temp directory, before the caller's cleanup is armed. An unreadable file
+  // is reported as null, and the caller shows the generic unreadable-file path.
+  ResolvedNoopDatabase? resolved;
+  try {
+    final kind = await sniffFile(path);
+    if (kind != ImportContainer.sqlite && kind != ImportContainer.gzip) {
+      return false;
+    }
+    // Unwraps the gzip; null when it does not hold a database.
+    resolved = await resolveNoopDatabase(path);
+    if (resolved == null) return false;
+    final src = await openDatabase(resolved.path,
+        readOnly: true, singleInstance: false);
+    try {
+      final tables = {
+        for (final r in await src
+            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
+          r['name'],
+      };
+      // `hrSample` is NOOP's spine. Ours is the raw ledger, the baselines and
+      // a per-day result table TOGETHER: one generic name such as `samples`
+      // in somebody else's database must not get its rows merged into the
+      // user's history.
+      return !tables.contains('hrSample') &&
+          tables.contains('samples') &&
+          tables.contains('baselines') &&
+          (tables.contains('day_result') || tables.contains('derived_day'));
+    } finally {
+      await src.close();
+    }
+  } catch (_) {
+    return null;
+  } finally {
+    await resolved?.dispose();
+  }
 }
 
 /// True when [path] is a NOOP export — judged by CONTENT, not by name.
@@ -683,43 +746,46 @@ Future<List<String>> _extractCsvMembers(
     );
   }
 
-  if (archive.files.length > _kMaxArchiveMembers) {
-    throw ImportFormatException(
-      '“$name” holds ${archive.files.length} entries, which is far more than '
-      'any $flavor export — refusing to unpack it.',
-    );
-  }
-
-  final csvFiles = [
-    for (final f in archive.files)
-      if (f.isFile && _isCsvMember(f.name)) f,
-  ];
-
-  final declaredBytes =
-      csvFiles.fold<int>(0, (sum, f) => sum + (f.size > 0 ? f.size : 0));
-  if (declaredBytes > _kMaxUncompressedBytes) {
-    throw ImportFormatException(
-      '“$name” unpacks to more than '
-      '${(declaredBytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB of '
-      'CSV, which is not something we can import.',
-    );
-  }
-
-  if (csvFiles.isEmpty) {
-    throw ImportFormatException(
-      '“$name” is an archive with no CSV files inside '
-      '(${archive.files.length} entr${archive.files.length == 1 ? 'y' : 'ies'}). '
-      'Pick the $flavor CSV export instead.',
-    );
-  }
-
-  final out = <String>[];
-  final used = <String>{};
+  // Every exit from here on closes `input`, including the refusals: an
+  // ordinary wrong pick (a ZIP of photos) otherwise left a descriptor open on
+  // the picked file for the life of the process, one per retry.
   try {
+    if (archive.files.length > _kMaxArchiveMembers) {
+      throw ImportFormatException(
+        '“$name” holds ${archive.files.length} entries, which is far more than '
+        'any $flavor export — refusing to unpack it.',
+      );
+    }
+
+    final csvFiles = [
+      for (final f in archive.files)
+        if (f.isFile && _isCsvMember(f.name)) f,
+    ];
+
+    final declaredBytes =
+        csvFiles.fold<int>(0, (sum, f) => sum + (f.size > 0 ? f.size : 0));
+    if (declaredBytes > _kMaxUncompressedBytes) {
+      throw ImportFormatException(
+        '“$name” unpacks to more than '
+        '${(declaredBytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB of '
+        'CSV, which is not something we can import.',
+      );
+    }
+
+    if (csvFiles.isEmpty) {
+      throw ImportFormatException(
+        '“$name” is an archive with no CSV files inside '
+        '(${archive.files.length} entr${archive.files.length == 1 ? 'y' : 'ies'}). '
+        'Pick the $flavor CSV export instead.',
+      );
+    }
+
+    final out = <String>[];
+    final used = <String>{};
     for (final f in csvFiles) {
-    // Members can share a basename (`daily/data.csv`, `workouts/data.csv`).
-    // Flattening them onto one destination silently dropped one file and
-    // parsed the survivor twice.
+      // Members can share a basename (`daily/data.csv`, `workouts/data.csv`).
+      // Flattening them onto one destination silently dropped one file and
+      // parsed the survivor twice.
       var base = p.basename(f.name);
       if (!used.add(base)) {
         final stem = p.basenameWithoutExtension(base);
@@ -740,8 +806,8 @@ Future<List<String>> _extractCsvMembers(
       }
       out.add(destPath);
     }
+    return out;
   } finally {
     await input.close();
   }
-  return out;
 }

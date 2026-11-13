@@ -15,6 +15,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../compute/derivation_engine.dart' show kAlgoVersion, DerivationEngine;
 import '../compute/profile.dart';
 import '../compute/substrate.dart' show localDateLabel;
@@ -56,7 +59,42 @@ class _Row {
   }
 }
 
+const String _kDeletedWorkoutsPref = 'whoop_import_deleted_workouts';
+
 class WhoopImporter {
+  /// Every imported workout's session id starts with this, followed by its
+  /// start epoch — the same CSV row always lands on the same id. A row first
+  /// imported before the export's zone column was honoured keeps the id of
+  /// the instant it was read at then, after its window is corrected.
+  static const String workoutIdPrefix = 'whoop_';
+
+  /// Imported workout ids the user has DELETED here. The export still has
+  /// them, so without this list the next import would bring each one back.
+  static Future<Set<String>> deletedWorkoutIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    return {...(prefs.getStringList(_kDeletedWorkoutsPref) ?? const [])};
+  }
+
+  // Serialized: each write replaces the whole list, so two overlapping calls
+  // would each drop the other's id.
+  static Future<void> _deletedWrites = Future.value();
+
+  /// [startTs] is the row's start as stored. A row an earlier re-import moved
+  /// onto its right instant kept its old id, and once the phone's zone matches
+  /// the export's the import computes the id from that instant instead, so
+  /// both go on the list.
+  static Future<void> rememberDeletedWorkout(String id, {int? startTs}) =>
+      _deletedWrites = _deletedWrites.catchError((_) {}).then((_) async {
+        final prefs = await SharedPreferences.getInstance();
+        final set = await deletedWorkoutIds();
+        final add = {
+          id,
+          if (startTs != null) '$workoutIdPrefix$startTs',
+        }.difference(set);
+        if (add.isEmpty) return;
+        await prefs.setStringList(_kDeletedWorkoutsPref, [...set, ...add]);
+      });
+
   /// Column aliases for the energy field. The unit is read from whichever of
   /// these actually matched — never inferred from the value (see [_kcal]).
   static const List<String> _energyCols = [
@@ -132,6 +170,12 @@ class WhoopImporter {
     // file's data. Merge is "new non-null value wins, else keep prior" so the
     // outcome doesn't depend on file order.
     final pendingDays = <String, Map<String, dynamic>>{};
+    Set<String> deletedWorkouts;
+    try {
+      deletedWorkouts = await deletedWorkoutIds();
+    } catch (_) {
+      deletedWorkouts = const {};
+    }
     for (final path in csvPaths) {
       final rows = await _readCsv(path);
       if (rows.isEmpty) continue;
@@ -158,7 +202,7 @@ class WhoopImporter {
         final row = _Row(col, f);
 
         if (kind == _Kind.workout) {
-          if (await _writeWorkout(row)) workouts++;
+          if (await _writeWorkout(row, deletedWorkouts)) workouts++;
         } else if (kind == _Kind.day) {
           final extracted = _extractDayFields(row);
           if (extracted == null) continue;
@@ -219,11 +263,18 @@ class WhoopImporter {
     // sleeps.csv lists naps as their own rows, filed under the same date as
     // the night that ended that morning. A nap is not the day's sleep.
     if (get(['nap']).toLowerCase() == 'true') return null;
-    final wakeTs = _parseTs(get(['wake onset', 'sleep onset', 'cycle start time']));
-    final cycleStart = _parseTs(get(['cycle start time', 'sleep onset']));
+    final zone = get(_zoneCols);
+    final wakeTs = parseExportTs(
+        get(['wake onset', 'sleep onset', 'cycle start time']), zone: zone);
+    final cycleStart =
+        parseExportTs(get(['cycle start time', 'sleep onset']), zone: zone);
     final anchor = wakeTs ?? cycleStart;
     if (anchor == null) return null;
-    final date = localDateLabel(anchor);
+    // File the day under the date the user lived it in the export's own zone,
+    // not under whatever zone the phone is in at import time: a night slept in
+    // Paris and imported in Los Angeles still belongs to the Paris morning.
+    final off = zoneOffset(zone);
+    final date = off == null ? localDateLabel(anchor) : _wallDateLabel(anchor, off);
 
     num? n(List<String> names) => double.tryParse(get(names));
     return (date, {
@@ -231,7 +282,12 @@ class WhoopImporter {
       'rhr': n(['resting heart rate (bpm)', 'resting heart rate']),
       'rmssd': n(['heart rate variability (ms)', 'heart rate variability (rmssd) (ms)']),
       'strain': n(['day strain', 'strain']),
-      'calories': _kcal(get(_energyCols), row.header(_energyCols)),
+      // The cycle's 'Energy burned' is WHOOP's whole-day expenditure, resting
+      // metabolism included. That is `calories_total` (TDEE) here, not
+      // `calories` (active energy over the wake span): filed as active, Health
+      // export wrote the full ~2,500 kcal as ACTIVE_ENERGY_BURNED every day.
+      // WHOOP's export has no active/basal split, so active stays absent.
+      'caloriesTotal': _kcal(get(_energyCols), row.header(_energyCols)),
       'resp': n(['respiratory rate (rpm)', 'respiratory rate']),
       'spo2': _pct(n(['blood oxygen %', 'blood oxygen']), 70),
       'asleepMin': n(['asleep duration (min)', 'asleep duration (minutes)']),
@@ -244,8 +300,8 @@ class WhoopImporter {
       // need, a different number; _pick takes the first column that exists,
       // so listing it here stored performance as efficiency.
       'effPct': n(['sleep efficiency %']),
-      'sleepOnset': _parseTs(get(['sleep onset'])),
-      'sleepWake': _parseTs(get(['wake onset'])),
+      'sleepOnset': parseExportTs(get(['sleep onset']), zone: zone),
+      'sleepWake': parseExportTs(get(['wake onset']), zone: zone),
     });
   }
 
@@ -266,7 +322,7 @@ class WhoopImporter {
     final rhr = f['rhr'] as num?;
     final rmssd = f['rmssd'] as num?;
     final strain = f['strain'] as num?;
-    final calories = f['calories'] as num?;
+    final caloriesTotal = f['caloriesTotal'] as num?;
     final resp = f['resp'] as num?;
     final spo2 = f['spo2'] as num?;
     final asleepMin = f['asleepMin'] as num?;
@@ -338,7 +394,7 @@ class WhoopImporter {
         'readiness': recovery,
         'strain': strain,
         'resp_rate': resp,
-        'calories': calories,
+        'calories_total': caloriesTotal,
         'spo2': spo2,
         // no skin_temp_z: WHOOP exports absolute °C and every reader of that
         // key treats it as SDs off your own baseline (33 °C showed as +33 SD).
@@ -375,7 +431,10 @@ class WhoopImporter {
         'readiness': d(recovery),
         'strain': d(strain),
         'resp_rate': d(resp),
-        'calories': d(calories),
+        'calories_total': d(caloriesTotal),
+        // Earlier imports filed this total under `calories` (active energy);
+        // the series row is only replaced for keys written, so clear it.
+        'calories': null,
         'spo2': d(spo2),
         'tst_min': d(asleepMin),
         'rem_min': d(remMin),
@@ -387,18 +446,66 @@ class WhoopImporter {
     return _DayWrite.written;
   }
 
-  static Future<bool> _writeWorkout(_Row row) async {
+  static Future<bool> _writeWorkout(_Row row, Set<String> deleted) async {
     String get(List<String> names) => row.get(names);
-    final start = _parseTs(get(['workout start time', 'start time']));
-    final end = _parseTs(get(['workout end time', 'end time']));
+    final zone = get(_zoneCols);
+    final start =
+        parseExportTs(get(['workout start time', 'start time']), zone: zone);
+    final end = parseExportTs(get(['workout end time', 'end time']), zone: zone);
     if (start == null) return false;
     num? n(List<String> names) => double.tryParse(get(names));
-    final id = 'whoop_$start';
+    final id = '$workoutIdPrefix$start';
+    // A re-import (a newer export picking up recent days) carries every old
+    // workout again. putSession is INSERT-OR-REPLACE over the whole row, so
+    // rewriting one already here would revert the user's type correction,
+    // wipe their RPE and clear its private flag — and the export below would
+    // then write a workout they had made private into the health store. What
+    // the export says about a past workout does not change; keep the row.
+    // A deleted one stays deleted.
+    if (deleted.contains(id) || await LocalDb.session(id) != null) {
+      return false;
+    }
+    // Imports before the export's own zone was honoured read these times in
+    // the phone's zone, so a workout recorded elsewhere is already here under
+    // that wrong instant's id. Inserting at the corrected id would show it
+    // twice (and write it to Health twice); move the old row onto the right
+    // instant instead, under its old id so its edits, tombstone and child rows
+    // stay attached. Only when its window is still exactly what that import
+    // wrote — a row the user retimed, or one healed by an earlier re-import,
+    // is left alone.
+    final legacyStart =
+        parseExportTs(get(['workout start time', 'start time']));
+    if (legacyStart != null && legacyStart != start) {
+      final legacyId = '$workoutIdPrefix$legacyStart';
+      if (deleted.contains(legacyId)) return false;
+      final legacy = await LocalDb.session(legacyId);
+      if (legacy != null) {
+        final legacyEnd = parseExportTs(get(['workout end time', 'end time']));
+        final oldStart = (legacy['start_ts'] as num?)?.toInt();
+        final oldEnd = (legacy['end_ts'] as num?)?.toInt();
+        if (oldStart == legacyStart &&
+            oldEnd == legacyEnd &&
+            legacy['source'] == 'whoop' &&
+            await LocalDb.setSessionWindow(legacyId, start, end) > 0) {
+          unawaited(() async {
+            if (oldEnd != null) {
+              await HealthExporter.deleteWorkoutWindow(legacyStart, oldEnd);
+            }
+            await HealthExporter.exportWorkoutId(legacyId);
+          }());
+        }
+        return false;
+      }
+    }
+    // A row moved onto this instant by an earlier re-import keeps its old id,
+    // so the id check above misses it once the phone's zone matches the
+    // export's.
+    if (await LocalDb.hasSessionStartingAt('whoop', start)) return false;
     await LocalDb.putSession({
       'id': id,
       'start_ts': start,
       'end_ts': end,
-      'type': _slug(get(['activity name', 'activity'])),
+      'type': activityTypeKey(get(['activity name', 'activity'])),
       'status': 'done',
       'source': 'whoop',
       'calories': _kcal(get(_energyCols), row.header(_energyCols))?.toDouble(),
@@ -429,23 +536,66 @@ class WhoopImporter {
     return _Kind.unknown;
   }
 
+  /// The export writes wall-clock times with no offset ("2024-03-09 23:10:00")
+  /// and puts the offset they were recorded in in a separate column.
+  static const List<String> _zoneCols = ['cycle timezone', 'timezone'];
+
+  /// "UTC+01:00" / "UTC-0800" / "GMT+5:30" / "+01:00" / "UTC" → its offset
+  /// from UTC; null for anything else (blank, an IANA name we can't resolve
+  /// without a tz database), which falls back to the phone's own zone.
+  @visibleForTesting
+  static Duration? zoneOffset(String tz) {
+    final t = tz.trim().toUpperCase();
+    if (t == 'UTC' || t == 'GMT' || t == 'Z') return Duration.zero;
+    final m = RegExp(r'^(?:UTC|GMT)?\s*([+-])(\d{1,2})(?::?(\d{2}))?$').firstMatch(t);
+    if (m == null) return null;
+    final h = int.parse(m.group(2)!);
+    final min = int.parse(m.group(3) ?? '0');
+    if (h > 14 || min > 59) return null;
+    final d = Duration(hours: h, minutes: min);
+    return m.group(1) == '-' ? -d : d;
+  }
+
+  static String _wallDateLabel(int epochSec, Duration off) {
+    final w = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000, isUtc: true)
+        .add(off);
+    String two(int x) => x.toString().padLeft(2, '0');
+    return '${w.year.toString().padLeft(4, '0')}-${two(w.month)}-${two(w.day)}';
+  }
+
   /// Lenient timestamp → unix seconds. Handles ISO ("2024-01-15T06:30:12Z" /
   /// "+00:00"), the export's "2024-01-15 06:30:12", and "+0000" offsets.
-  static int? _parseTs(String s) {
+  ///
+  /// An offset-less time is read in [zone] (the row's "Cycle timezone") when
+  /// that parses. Reading it in the phone's current zone instead put every
+  /// night or workout recorded elsewhere at the wrong instant — a Paris night
+  /// imported in Los Angeles landed in Apple Health nine hours late.
+  @visibleForTesting
+  static int? parseExportTs(String s, {String zone = ''}) {
     if (s.isEmpty) return null;
     var t = s.trim();
     // Normalise "+0000" → "+00:00" so DateTime.parse accepts it.
     final m = RegExp(r'([+-]\d{2})(\d{2})$').firstMatch(t);
     if (m != null) t = '${t.substring(0, m.start)}${m.group(1)}:${m.group(2)}';
+    final off = zoneOffset(zone);
+    final hasOwnOffset = RegExp(r'(Z|[+-]\d{2}:\d{2})$').hasMatch(t);
+    if (off != null && !hasOwnOffset) {
+      final asUtc = DateTime.tryParse('${t}Z');
+      if (asUtc != null) return asUtc.subtract(off).millisecondsSinceEpoch ~/ 1000;
+    }
     final dt = DateTime.tryParse(t);
     if (dt != null) return dt.millisecondsSinceEpoch ~/ 1000;
-    // Fallback: pull a yyyy-mm-dd and treat as local midnight.
+    // Fallback: pull a yyyy-mm-dd and treat as midnight in the row's zone
+    // (local midnight when it has none).
     final d = RegExp(r'(\d{4})-(\d{2})-(\d{2})').firstMatch(t);
     if (d != null) {
-      return DateTime(int.parse(d.group(1)!), int.parse(d.group(2)!),
-                  int.parse(d.group(3)!))
-              .millisecondsSinceEpoch ~/
-          1000;
+      final y = int.parse(d.group(1)!);
+      final mo = int.parse(d.group(2)!);
+      final da = int.parse(d.group(3)!);
+      final mid = off != null
+          ? DateTime.utc(y, mo, da).subtract(off)
+          : DateTime(y, mo, da);
+      return mid.millisecondsSinceEpoch ~/ 1000;
     }
     return null;
   }
@@ -469,9 +619,26 @@ class WhoopImporter {
     return null;
   }
 
-  static String _slug(String s) {
-    final t = s.trim().toLowerCase();
-    return t.isEmpty ? 'other' : t;
+  /// WHOOP activity names spelt as this app's stored `sessions.type` keys
+  /// (`Activity.typeKey`: lower case, spaces as underscores). Storing WHOOP's
+  /// raw name kept the space in 'mountain biking' and WHOOP's own words for
+  /// things the catalogue names differently, so the health export fell
+  /// through to OTHER for every weightlifting session (#184 again, through
+  /// the importer) and the workout list found no catalogue entry for them.
+  static const Map<String, String> _whoopActivityAliases = {
+    'weightlifting': 'weight_training',
+    'strength_trainer': 'weight_training',
+    'functional_fitness': 'functional',
+    'spin': 'indoor_bike',
+    'hiking/rucking': 'hiking',
+    'rock_climbing': 'climbing',
+  };
+
+  @visibleForTesting
+  static String activityTypeKey(String s) {
+    final t = s.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+    if (t.isEmpty) return 'other';
+    return _whoopActivityAliases[t] ?? t;
   }
 
   /// Read a CSV via the repo's one RFC 4180 parser ([parseCsv],

@@ -21,8 +21,11 @@ void main() {
   final shown = <NotificationEvent>[];
   final original = NotificationCenter.instance.presentSink;
   // One fixed clock for the seed AND the pass: labels taken from the real
-  // clock at load time go stale if the run crosses midnight.
-  const today = '2026-03-10';
+  // clock at load time go stale if the run crosses midnight. It is read once
+  // from the real clock rather than fixed: the fired-key store prunes claims
+  // older than its retention against the real clock, so a fixed date ages out
+  // and the second pass can claim it again.
+  final today = todayLabel();
   final yesterday = dayLabelBefore(today, 1)!;
   Future<void> runPass() =>
       DerivationEngine().runNotificationsForTest(today: today);

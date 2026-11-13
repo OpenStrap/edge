@@ -9,6 +9,7 @@
 // the model's take on it is written when the deep link is opened (or
 // opportunistically on the next foreground).
 
+import '../coach/coach_config.dart';
 import '../notify/notification_prefs.dart';
 import '../notify/notification_service.dart';
 import '../notify/tap_router.dart';
@@ -37,8 +38,15 @@ class AiReminderSlot {
   });
 }
 
+/// Whether the briefing slots may be armed for [config]. This is the same test
+/// the briefings themselves use, not "a key is stored": a model on this device
+/// or the local network (Ollama, LM Studio, a tailnet host) needs no key, and
+/// gating on the key alone left those users with briefings that generated but
+/// never announced themselves.
+bool aiRemindersConfigured(CoachConfig? config) => config?.configured ?? false;
+
 /// The full desired schedule for the AI nudges. Briefing slots exist only when
-/// a BYOK key is configured (a notification into an "add your key" wall would
+/// the coach is configured (a notification into an "add your key" wall would
 /// be a nag, not a feature); the journal prompt needs no key (manual mode).
 ///
 /// [sweepHeadline] is the nightly sweep's strongest finding for today, or null

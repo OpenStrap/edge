@@ -5,11 +5,14 @@
 // invariant). Runs the REAL LocalDb over an in-memory
 // sqlite via sqflite_common_ffi.
 
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/models.dart';
 
@@ -240,6 +243,96 @@ void main() {
     expect(row['hr'], 199);
   });
 
+  test('archived old-firmware v12 frames decode on re-drive (88-byte form)',
+      () async {
+    // A v12 1 Hz record at the 88-byte length older firmware sends: the
+    // v24/v12 field map (counter @3, ts @7, subsec @11, hr @17, accel f32
+    // @36/40/44), one byte short of the 89 the strict parser wants.
+    Uint8List v12(int counter, int ts, int hr) {
+      final b = Uint8List(88);
+      final d = ByteData.sublistView(b);
+      b[0] = 0x2F;
+      b[1] = 12;
+      d.setUint32(3, counter, Endian.little);
+      d.setUint32(7, ts, Endian.little);
+      d.setUint16(11, 0x0102, Endian.little);
+      b[17] = hr;
+      d.setFloat32(36, 0.0, Endian.little);
+      d.setFloat32(40, 0.0, Endian.little);
+      d.setFloat32(44, 1.0, Endian.little);
+      return b;
+    }
+
+    String hex(Uint8List b) =>
+        b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+
+    const t0 = 1751000000;
+    for (var i = 0; i < 3; i++) {
+      await LocalDb.archiveRawRecord(ArchiveRecord(
+        counter: 900000 + i,
+        hex: hex(v12(900000 + i, t0 + i, 60 + i)),
+        packetType: 0x2F,
+        capturedAt: 1751000100000,
+        reason: 'undecodable_rec_v12',
+      ));
+    }
+    expect(LocalDb.redrivableArchiveReasons, contains('undecodable_rec_v12'));
+
+    // Out of budget after the first page: it stops there and the next call
+    // resumes, finds nothing left and marks itself done.
+    expect(await LocalDb.redriveArchiveOnce(budget: Duration.zero), 3);
+    final mid = await LocalDb.computeFreshness(LocalDb.kArchiveRedriveKey);
+    expect(mid!['payload_json'] as String, isNot(contains('"done"')));
+    expect(await LocalDb.redriveArchiveOnce(), 0);
+    final end = await LocalDb.computeFreshness(LocalDb.kArchiveRedriveKey);
+    expect(end!['payload_json'] as String, contains('"done":true'));
+    expect(await LocalDb.redriveArchiveOnce(), 0);
+
+    final db = await LocalDb.instance;
+    final rows = await db.rawQuery(
+      'SELECT rec_ts, hr, az FROM decoded_onehz WHERE rec_ts BETWEEN ? AND ? '
+      'ORDER BY rec_ts',
+      const [t0, t0 + 2],
+    );
+    expect([for (final r in rows) r['hr']], [60, 61, 62]);
+    expect((rows.first['az'] as num).toDouble(), closeTo(1.0, 1e-6));
+    // The archive keeps its bytes.
+    final stats = await LocalDb.rawArchiveStats();
+    expect((stats['by_reason'] as Map)['undecodable_rec_v12'], 3);
+  });
+
+  test('re-drive never refills a day the user deleted', () async {
+    // A recovered v12 second on a day the user then deletes, archived again.
+    final b = Uint8List(88);
+    final d = ByteData.sublistView(b);
+    b[0] = 0x2F;
+    b[1] = 12;
+    const ts = 1752000000;
+    d.setUint32(3, 910000, Endian.little);
+    d.setUint32(7, ts, Endian.little);
+    b[17] = 70;
+    d.setFloat32(44, 1.0, Endian.little);
+    await LocalDb.archiveRawRecord(ArchiveRecord(
+      counter: 910000,
+      hex: b.map((x) => x.toRadixString(16).padLeft(2, '0')).join(),
+      packetType: 0x2F,
+      capturedAt: 1752000100000,
+      reason: 'undecodable_rec_v12',
+    ));
+    final day = dayLabelOf(DateTime.fromMillisecondsSinceEpoch(ts * 1000));
+    await LocalDb.deleteDays({day});
+    await LocalDb.deleteDays({day}); // twice: windows merge, not pile up
+    await LocalDb.deleteComputeFreshness(LocalDb.kArchiveRedriveKey);
+    await LocalDb.redriveArchiveOnce();
+    final db = await LocalDb.instance;
+    expect(
+        await db.rawQuery(
+            'SELECT 1 FROM decoded_onehz WHERE rec_ts = ?', const [ts]),
+        isEmpty);
+    final w = await LocalDb.computeFreshness(LocalDb.kRedriveExcludedKey);
+    expect((jsonDecode(w!['payload_json'] as String) as List), hasLength(1));
+  });
+
   // The REAL exports, through the REAL ladder — the same harness shape as
   // `device_family_migration_test.dart`. Skipped when the env var is unset;
   // those files are not in the repo.
@@ -267,7 +360,7 @@ void main() {
         // Opening runs the whole ladder, v44 included.
         final db = await LocalDb.instance;
         final archived = (await db.rawQuery(
-          'SELECT COUNT(*) AS n FROM raw_archive WHERE reason IN '
+          'SELECT COUNT(*) AS n FROM ${LocalDb.rawArchiveView} WHERE reason IN '
           '(${List.filled(LocalDb.redrivableArchiveReasons.length, '?').join(',')})',
           LocalDb.redrivableArchiveReasons,
         )).first['n'];
@@ -284,4 +377,38 @@ void main() {
       }
     }, timeout: const Timeout(Duration(minutes: 20)));
   }
+
+
+  test('a VACUUM drops an unfinished replay\'s rowid resume point', () async {
+    await LocalDb.putComputeFreshness(
+      LocalDb.kArchiveRedriveKey,
+      jsonEncode({'recovered': 5, 'after_hex': '42', 'after_device': 'x'}),
+    );
+    await LocalDb.vacuumAndCheckpoint();
+    final state = jsonDecode((await LocalDb.computeFreshness(
+        LocalDb.kArchiveRedriveKey))!['payload_json'] as String) as Map;
+    expect(state, {'recovered': 5});
+
+    // A finished replay stays finished.
+    await LocalDb.putComputeFreshness(
+        LocalDb.kArchiveRedriveKey, jsonEncode({'recovered': 5, 'done': true}));
+    await LocalDb.vacuumAndCheckpoint();
+    final done = jsonDecode((await LocalDb.computeFreshness(
+        LocalDb.kArchiveRedriveKey))!['payload_json'] as String) as Map;
+    expect(done['done'], true);
+    await LocalDb.deleteComputeFreshness(LocalDb.kArchiveRedriveKey);
+  });
+
+  test('a blocked WAL checkpoint is not reported as done', () {
+    expect(
+        LocalDb.checkpointCompleted([
+          {'busy': 1, 'log': 40, 'checkpointed': 12},
+        ]),
+        isFalse);
+    expect(
+        LocalDb.checkpointCompleted([
+          {'busy': 0, 'log': 0, 'checkpointed': 0},
+        ]),
+        isTrue);
+  });
 }

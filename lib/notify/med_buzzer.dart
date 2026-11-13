@@ -18,13 +18,25 @@
 import 'dart:async';
 
 class MedBuzzer {
-  MedBuzzer({required this.buzz, required this.isConnected});
+  MedBuzzer({
+    required this.buzz,
+    required this.isConnected,
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now;
 
   /// Sends one short haptic to the strap (no-op if the link isn't ready).
   final Future<void> Function() buzz;
 
   /// Whether the strap is currently connected (checked lazily at fire time).
   final bool Function() isConnected;
+
+  final DateTime Function() _now;
+
+  /// How late (wall-clock) a fire may land and still buzz. Dart timers run on
+  /// the monotonic clock, which stops while the device is suspended, so a timer
+  /// armed hours ahead can expire hours after its slot — at night, for a dose
+  /// the notification already covered. Past this, the slot is dropped silently.
+  static const lateTolerance = Duration(minutes: 10);
 
   Timer? _timer;
   List<DateTime> _slots = const []; // absolute instants, ascending
@@ -35,7 +47,7 @@ class MedBuzzer {
   /// Past instants are skipped, not fired late: a buzz for a dose window that
   /// already passed is noise about a decision the user already made.
   void configure({required List<DateTime> slotInstants}) {
-    final now = DateTime.now();
+    final now = _now();
     _slots = slotInstants.where((t) => t.isAfter(now)).toList()..sort();
     _reschedule();
   }
@@ -43,9 +55,15 @@ class MedBuzzer {
   void _reschedule() {
     _timer?.cancel();
     _timer = null;
+    if (_slots.isEmpty) return; // also guards the const [] left by dispose()
+
+    final now = _now();
+    // Drop slots already too late to buzz. Without this, one late fire after a
+    // suspend would re-arm the next missed slot at zero delay and every missed
+    // dose would buzz back to back.
+    _slots.removeWhere((t) => now.difference(t) > lateTolerance);
     if (_slots.isEmpty) return;
 
-    final now = DateTime.now();
     final next = _slots.first;
     var delay = next.difference(now);
     if (delay.isNegative) delay = Duration.zero;
@@ -56,8 +74,10 @@ class MedBuzzer {
   Future<void> _fire() async {
     // Consume the slot whether or not the buzz landed — the link being down at
     // the dose instant is not a reason to re-buzz minutes later.
-    if (_slots.isNotEmpty) _slots.removeAt(0);
-    if (isConnected()) {
+    if (_slots.isEmpty) return;
+    final slot = _slots.removeAt(0);
+    final onTime = _now().difference(slot) <= lateTolerance;
+    if (onTime && isConnected()) {
       try {
         await buzz();
       } catch (_) {/* link dropped mid-write — best effort */}

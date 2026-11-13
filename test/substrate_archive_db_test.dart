@@ -10,6 +10,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/data/auto_backup.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
@@ -89,10 +90,14 @@ Future<void> _clear() async {
     'decoded_onehz',
     'decoded_rr',
     'substrate_archive',
-    'compute_freshness',
   ]) {
     await db.delete(t);
   }
+  // Everything but the marker every opened phone database carries: without it
+  // an export here would read as a backup from before the 90-day default.
+  await db.delete('compute_freshness',
+      where: 'key != ?',
+      whereArgs: ['substrate_archive_policy_default_checked']);
   SubstrateArchive.debugCorruptEncode = false;
   SubstrateArchive.debugBeforeBucket = null;
   SubstrateArchive.debugThrowInBucket = null;
@@ -237,6 +242,8 @@ void _expectSameRows(
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
   late Directory tmp;
   final policy = const SubstrateArchivePolicy(365);
   const cutoff = _d0 + 2 * _day; // start of day 3
@@ -435,6 +442,18 @@ void main() {
     expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
     expect(await _live('decoded_rr', 'rec_ts < ?', [cutoff]), isEmpty);
     expect(await (await _db()).query('substrate_archive'), isEmpty);
+  });
+
+  test('with no decoded rows left, the window is measured from the archive',
+      () async {
+    await _seed();
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
+    final db = await _db();
+    await db.delete('decoded_onehz');
+    expect(await LocalDb.lastDecodedRecTs(), isNull);
+    final newest =
+        (await LocalDb.substrateArchiveStats())['newest_to_ts'] as int;
+    expect(await LocalDb.substrateArchiveEdge(), newest);
   });
 
   test('evictSubstrateArchive drops buckets older than keepDays; -1 keeps '
@@ -1000,13 +1019,15 @@ void main() {
       await LocalDb.pruneDecodedBeforeRecTs(cutoff);
       final snapshot = await LocalDb.exportCopy();
       final db = await _db();
-      // A fresh phone: no policy row and no archive of its own.
+      // A fresh phone: no policy row, no archive and no readings of its own.
       await db.delete(
         'compute_freshness',
         where: 'key = ?',
         whereArgs: [SubstrateArchive.policyKey],
       );
       await db.delete('substrate_archive');
+      await db.delete('decoded_onehz');
+      await db.delete('decoded_rr');
       await LocalDb.importFromDbFile(snapshot);
       expect(
         await LocalDb.substrateArchivePolicy(),
@@ -1021,6 +1042,31 @@ void main() {
         const SubstrateArchivePolicy(30),
       );
     });
+  });
+
+  test('a backup\'s Off policy is not adopted over live readings with no '
+      'archive yet', () async {
+    await _seed();
+    await LocalDb.setSubstrateArchivePolicy(const SubstrateArchivePolicy(0));
+    final offBackup = await LocalDb.exportCopy();
+    final db = await _db();
+    // This phone: readings, no archive yet, no stored setting.
+    await db.delete('compute_freshness',
+        where: 'key = ?', whereArgs: [SubstrateArchive.policyKey]);
+    await db.delete('substrate_archive');
+    final live = (await db.query('decoded_onehz')).length;
+    expect(live, greaterThan(0));
+
+    await LocalDb.importFromDbFile(offBackup);
+    expect(
+      await db.query('compute_freshness',
+          where: 'key = ?', whereArgs: [SubstrateArchive.policyKey]),
+      isEmpty,
+    );
+    // The next prune archives them instead of deleting them outright.
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff);
+    expect(await db.query('substrate_archive'), isNotEmpty);
+    await File(offBackup).delete();
   });
 
   test('a backup\'s Off policy never deletes this phone\'s archive; on a '
@@ -1053,8 +1099,11 @@ void main() {
       isEmpty,
     );
 
-    // A fresh phone adopts it — and then takes no archive rows in.
+    // A fresh phone (no archive, no readings) adopts it — and then takes no
+    // archive rows in.
     await db.delete('substrate_archive');
+    await db.delete('decoded_onehz');
+    await db.delete('decoded_rr');
     await LocalDb.importFromDbFile(offBackup);
     expect(
       await LocalDb.substrateArchivePolicy(),
@@ -1194,6 +1243,94 @@ void main() {
     expect(leftovers(), isEmpty);
   });
 
+  test('VACUUM INTO is gated on SQLite 3.27', () {
+    expect(LocalDb.sqliteHasVacuumInto('3.18.2'), isFalse); // Android 8
+    expect(LocalDb.sqliteHasVacuumInto('3.22.0'), isFalse); // Android 9-10
+    expect(LocalDb.sqliteHasVacuumInto('3.26.0'), isFalse);
+    expect(LocalDb.sqliteHasVacuumInto('3.27.0'), isTrue);
+    expect(LocalDb.sqliteHasVacuumInto('3.28.0'), isTrue); // Android 11
+    expect(LocalDb.sqliteHasVacuumInto('3.45.1'), isTrue);
+  });
+
+  test('the pre-3.27 export copies the same schema and rows as VACUUM INTO',
+      () async {
+    await _seed();
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
+    Future<(Map<String, String>, Map<String, int>, Object?)> shape(
+        String path) async {
+      final db = await databaseFactory.openDatabase(path,
+          options: OpenDatabaseOptions(singleInstance: false));
+      try {
+        final schema = {
+          for (final r in await db.rawQuery(
+              "SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL "
+              "AND name NOT LIKE 'sqlite_%'"))
+            r['name'] as String: r['sql'] as String,
+        };
+        final counts = <String, int>{};
+        for (final r in await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")) {
+          final t = r['name'] as String;
+          counts[t] = (await db.rawQuery('SELECT COUNT(*) AS n FROM "$t"'))
+              .first['n'] as int;
+        }
+        final v = (await db.rawQuery('PRAGMA user_version')).first.values.first;
+        return (schema, counts, v);
+      } finally {
+        await db.close();
+      }
+    }
+
+    final vacuum = await LocalDb.exportCopy();
+    LocalDb.debugForceAttachExport = true;
+    try {
+      final attached = await LocalDb.exportCopy();
+      final stripped =
+          await LocalDb.exportCopy(includeSubstrateArchive: false);
+      final a = await shape(vacuum);
+      final b = await shape(attached);
+      expect(b.$1, a.$1);
+      expect(b.$2, a.$2);
+      expect(b.$3, a.$3);
+      expect(a.$2['substrate_archive'], greaterThan(0));
+      expect(a.$2['decoded_onehz'], greaterThan(0));
+      final c = await shape(stripped);
+      expect(c.$2['substrate_archive'], 0);
+      expect(c.$2['decoded_onehz'], a.$2['decoded_onehz']);
+    } finally {
+      LocalDb.debugForceAttachExport = false;
+    }
+  });
+
+  test('the pre-3.27 export leaves the archive out instead of stripping it',
+      () async {
+    await _seed();
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
+    LocalDb.debugForceAttachExport = true;
+    // The strip-and-VACUUM step must not run on this path at all.
+    LocalDb.debugFailExportStrip = true;
+    try {
+      final path = await LocalDb.exportCopy(includeSubstrateArchive: false);
+      final db = await databaseFactory.openDatabase(path,
+          options: OpenDatabaseOptions(singleInstance: false));
+      try {
+        final n = (await db.rawQuery(
+                'SELECT COUNT(*) AS n FROM ${SubstrateArchive.table}'))
+            .first['n'] as int;
+        expect(n, 0);
+        final rows = (await db.rawQuery(
+                'SELECT COUNT(*) AS n FROM decoded_onehz'))
+            .first['n'] as int;
+        expect(rows, greaterThan(0));
+      } finally {
+        await db.close();
+      }
+    } finally {
+      LocalDb.debugFailExportStrip = false;
+      LocalDb.debugForceAttachExport = false;
+    }
+  });
+
   test('page queries seek on the primary key', () async {
     final db = await _db();
     for (final sql in [
@@ -1282,7 +1419,7 @@ void main() {
     ]) {
       expect(
         src(auto),
-        contains('exportCopy(includeSubstrateArchive: false)'),
+        matches(RegExp(r'exportCopy\([^)]*includeSubstrateArchive:\s*false')),
         reason: auto,
       );
     }

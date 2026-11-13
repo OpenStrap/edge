@@ -3,12 +3,16 @@
 // sync must queue, and the words its numbers are shown with. Each case runs
 // the real Garmin link, host and sqlite (GarminLink.ingestForTest).
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/ble/adapters/_registry.dart' show kGarminNotifyChar;
+import 'package:openstrap_edge/ble/adapters/adapter.dart' show ReplayBandLink;
+import 'package:openstrap_edge/ble/adapters/garmin.dart' show GarminAdapter;
 import 'package:openstrap_edge/ble/adapters/host.dart';
 import 'package:openstrap_edge/ble/garmin_link.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
@@ -71,6 +75,41 @@ const Profile _profile =
 
 Future<num> _served(String row) async =>
     (await dayCells(_day))![row]!['value'] as num;
+
+/// Drives the real [GarminAdapter] against [script] and returns the error
+/// its stream ended on, or null. [dropAfterWrites] closes the link once the
+/// phone has written that many frames, as a watch walking out of range does.
+Future<Object?> _adapterOutcome(GarminWatchScript script,
+    {int? dropAfterWrites}) async {
+  final link = ReplayBandLink();
+  final adapter = GarminAdapter(
+    nowSeconds: () => _sec(DateTime(2026, 10, 4, 22, 30)),
+    handshakeTimeout: const Duration(milliseconds: 200),
+    configWait: const Duration(milliseconds: 50),
+    sessionWindow: const Duration(seconds: 10),
+    registerTimeout: const Duration(milliseconds: 200),
+    notReadyDelay: const Duration(milliseconds: 10),
+  );
+  Object? error;
+  final done = Completer<void>();
+  adapter.run(link).listen((_) {}, onError: (Object e) => error = e,
+      onDone: done.complete);
+  var served = 0;
+  for (var spin = 0; spin < 4000 && !done.isCompleted; spin++) {
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+    if (dropAfterWrites != null && link.writes.length >= dropAfterWrites) {
+      await link.close();
+      break;
+    }
+    while (served < link.writes.length) {
+      for (final n in script.reply(link.writes[served++].$2)) {
+        link.feed(kGarminNotifyChar, n, atSec: 0);
+      }
+    }
+  }
+  await done.future.timeout(const Duration(seconds: 5));
+  return error;
+}
 
 void main() {
   setUpAll(() async {
@@ -361,5 +400,24 @@ void main() {
     // The band's day never becomes the watch's: not "yet".
     expect(find.text(l.wearableBandDayTitle), findsOneWidget);
     expect(find.text(l.wearableNoDayTitle), findsNothing);
+  });
+
+  group('a download the watch did not finish', () {
+    Map<int, (int, int, Uint8List)> files() => {
+          1: (kGarminFitMonitor, _sec(DateTime(2026, 10, 4, 12)),
+              _monitorFile(DateTime(2026, 10, 4, 12), 96, 14.5)),
+        };
+
+    test('a full session ends cleanly', () async {
+      expect(await _adapterOutcome(GarminWatchScript(files())), isNull);
+    });
+
+    test('a watch that drops part-way ends the session on an error, so the '
+        'sync is not reported as done', () async {
+      expect(
+          await _adapterOutcome(GarminWatchScript(files()),
+              dropAfterWrites: 4),
+          isA<StateError>());
+    });
   });
 }

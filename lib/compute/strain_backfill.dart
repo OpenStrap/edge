@@ -31,6 +31,7 @@
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import '../data/day_label.dart';
@@ -136,7 +137,7 @@ Future<StrainBackfillResult> backfillStrainScale({
   final days = <String>[
     for (final r in strainRows) ?(r['date'] as String?),
   ]..sort();
-  final cutoff = _shiftDays(days.last, -rawRetentionDays);
+  final cutoff = strainRescaleCutoff(days.last);
 
   var seriesDays = 0;
   var bundleDays = 0;
@@ -280,6 +281,16 @@ Map<String, dynamic>? _decode(Object? json) {
   }
 }
 
-/// Shift a 'YYYY-MM-DD' label by [days] calendar days.
-String _shiftDays(String day, int days) =>
-    dayLabelOf(DateTime.parse(day).add(Duration(days: days)));
+/// The first day still treated as having raw, [rawRetentionDays] CALENDAR days
+/// before the data edge [lastDay].
+///
+/// Calendar arithmetic, matching the pruner's cut on local day labels. An
+/// absolute `Duration` walk back from local midnight across a 23 h
+/// spring-forward day lands at 23:00 the day before, so the cutoff came out a
+/// day early and that day — already pruned — was skipped as "still has raw",
+/// then the one-shot marked itself done and left it on the old scale for good.
+/// A malformed label falls back to itself, which skips every day: leaving a
+/// day for a re-derive is the safe side.
+@visibleForTesting
+String strainRescaleCutoff(String lastDay) =>
+    dayLabelBefore(lastDay, rawRetentionDays) ?? lastDay;

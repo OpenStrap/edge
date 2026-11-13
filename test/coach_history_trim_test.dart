@@ -11,6 +11,8 @@
 // turn larger than the whole byte budget walked the history down to exactly one
 // element and left it there — and if that survivor was the `tool` half of a
 // pair, the very orphan the method exists to prevent was what got sent.
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/coach/coach_config.dart';
 import 'package:openstrap_edge/coach/coach_engine.dart';
@@ -61,11 +63,11 @@ void main() {
         {'role': 'assistant', 'content': 'You slept well.'},
       ]);
 
-      engine.debugTrimHistory();
-
-      if (engine.debugHistory.isNotEmpty) {
-        expect(engine.debugHistory.first['role'], isNot('tool'));
-      }
+      // The current turn is never dropped, and an assistant message alone
+      // bigger than the budget cannot be shrunk, so this fails loudly
+      // instead of sending a request that has lost the question.
+      expect(engine.debugTrimHistory, throwsA(isA<CoachException>()));
+      expect(engine.debugHistory.first['role'], 'user');
     });
 
     test('a history already under the ceiling is left completely alone', () {
@@ -101,6 +103,63 @@ void main() {
 
       expect(engine.debugHistory, isNotEmpty);
       expect(engine.debugHistory.first['role'], 'user');
+    });
+  });
+
+  group('CoachEngine history trimming keeps the current question', () {
+    // One clipped run_sql result: 16k of JSON whose quotes jsonEncode escapes
+    // again when the history is measured.
+    Map<String, dynamic> sqlResult(int i) => {
+          'role': 'tool',
+          'tool_call_id': 'c$i',
+          'name': 'run_sql',
+          'content': '{"r":"${'"' * 2000}${'x' * 14000}"}',
+        };
+    List<Map<String, dynamic>> toolHeavyTurn(String q, int calls) => [
+          {'role': 'user', 'content': q},
+          for (var i = 0; i < calls; i++) ...[
+            {
+              'role': 'assistant',
+              'content': '',
+              'tool_calls': [
+                {'id': 'c$i', 'type': 'function'}
+              ],
+            },
+            sqlResult(i),
+          ],
+        ];
+
+    test('a tool-heavy turn over budget keeps its question and its pairing',
+        () {
+      engine.debugHistory
+          .addAll(toolHeavyTurn('compare sleep, hrv and strain', 8));
+
+      engine.debugTrimHistory();
+
+      final h = engine.debugHistory;
+      expect(h.first,
+          containsPair('content', 'compare sleep, hrv and strain'));
+      expect(h.where((m) => m['role'] == 'tool'), hasLength(8));
+      expect(h.where((m) => m['role'] == 'assistant'), hasLength(8));
+      // The newest result is the one the model is about to read.
+      expect(h.last['content'], sqlResult(7)['content']);
+      final encoded = h.fold<int>(0, (n, m) => n + jsonEncode(m).length);
+      expect(encoded, lessThanOrEqualTo(CoachEngine.kMaxHistoryChars));
+    });
+
+    test('older turns are dropped before the current turn is touched', () {
+      engine.debugHistory
+        ..addAll(toolHeavyTurn('old question', 4))
+        ..add({'role': 'assistant', 'content': 'old answer'})
+        ..addAll(toolHeavyTurn('new question', 4));
+
+      engine.debugTrimHistory();
+
+      final h = engine.debugHistory;
+      expect(h.first, containsPair('content', 'new question'));
+      expect(h.where((m) => m['role'] == 'tool'), hasLength(4));
+      expect(h.where((m) => m['role'] == 'tool').map((m) => m['content']),
+          everyElement(startsWith('{"r":')));
     });
   });
 }

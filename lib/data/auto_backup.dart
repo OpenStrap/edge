@@ -341,7 +341,7 @@ Future<BackupOutcome> _runBackup({
   final when = now ?? DateTime.now();
   try {
     final destination = storage ?? await _storage();
-    // `exportCopy` is VACUUM INTO — a transactionally consistent snapshot,
+    // `exportCopy` is a transactionally consistent snapshot,
     // not a file copy of a database that may be mid-write.
     // Destination FIRST. Exporting before checking meant a failure here left a
     // full copy of the database sitting in temp, once per attempt.

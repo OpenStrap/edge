@@ -100,23 +100,35 @@ class ActivityStore {
     }
   }
 
-  Future<List<ActivitySuggestion>> pending() async {
+  /// How long an unanswered suggestion stays in the review list. Nearly half
+  /// of all suggestions were never answered and piled up; past a week nobody
+  /// remembers whether a bout was a workout. The rows stay, unchanged.
+  static const int pendingShownForSec = 7 * 86400;
+
+  static int _pendingFloorTs([int? nowTs]) =>
+      (nowTs ?? DateTime.now().millisecondsSinceEpoch ~/ 1000) -
+      pendingShownForSec;
+
+  Future<List<ActivitySuggestion>> pending({int? nowTs}) async {
     await migrateLegacy();
     return [
       for (final r in await db.query(
         'activity_suggestions',
-        where: "status = 'pending'",
+        where: "status = 'pending' AND end_ts >= ?",
+        whereArgs: [_pendingFloorTs(nowTs)],
         orderBy: 'start_ts DESC, id ASC',
       ))
         ActivitySuggestion.fromRow(r),
     ];
   }
 
-  Future<int> pendingCount() async {
+  Future<int> pendingCount({int? nowTs}) async {
     await migrateLegacy();
     return Sqflite.firstIntValue(
           await db.rawQuery(
-            "SELECT COUNT(*) FROM activity_suggestions WHERE status = 'pending'",
+            "SELECT COUNT(*) FROM activity_suggestions "
+            "WHERE status = 'pending' AND end_ts >= ?",
+            [_pendingFloorTs(nowTs)],
           ),
         ) ??
         0;
@@ -165,6 +177,17 @@ class ActivityStore {
         final start = ((c['start_ts'] ?? c['start']) as num).toInt();
         final end = ((c['end_ts'] ?? c['end']) as num).toInt();
         if (end <= start) continue;
+        // A nap candidate over kMaxNapSec (3 h) is a sleep fragment, not a
+        // nap: never offer it for review — retire any pending rows it
+        // overlaps instead of keeping or re-creating them.
+        if (kind == ActivityKind.nap && end - start > kMaxNapSec) {
+          await tx.rawUpdate(
+            "UPDATE activity_suggestions SET status = 'superseded' "
+            "WHERE kind = ? AND status = 'pending' AND start_ts < ? AND end_ts > ?",
+            [kind.name, end, start],
+          );
+          continue;
+        }
         final matches = await tx.query(
           'activity_suggestions',
           where:
@@ -286,6 +309,64 @@ class ActivityStore {
       whereArgs: [e, s],
     );
     if (naps.isNotEmpty) return true;
+    for (final b in await _nightsAround(tx, s, e)) {
+      // Before its first recompute, a pre-upgrade nap still lives only in the
+      // day bundle. It is already logged and takes precedence just as a nap
+      // that has been copied into the accepted-record table does.
+      final legacy = (b['naps'] as Map?)?['value'];
+      if (legacy is List) {
+        for (final nap in legacy.whereType<Map>()) {
+          final ns = nap['start'] as num?, ne = nap['end'] as num?;
+          if (ns != null && ne != null && s < ne && e > ns) return true;
+        }
+      }
+      if (_mainSleepOverlaps(b, s, e)) return true;
+    }
+    return (await _overlappingSessions(tx, s, e)).isNotEmpty;
+  }
+
+  /// Whether [s, e) overlaps a main sleep the derived history already holds —
+  /// the night that ends on [s]'s date, or the one that begins that evening
+  /// and belongs to tomorrow. A nap logged inside one is time the night's TST
+  /// already counts, and every reader sums naps on top of it.
+  static Future<bool> overlapsMainSleep(
+    DatabaseExecutor tx,
+    int s,
+    int e,
+  ) async {
+    for (final b in await _nightsAround(tx, s, e)) {
+      if (_mainSleepOverlaps(b, s, e)) return true;
+    }
+    return false;
+  }
+
+  /// The main-sleep windows (epoch ms) of the nights around [s, e) — the
+  /// night ending on [s]'s date and the one beginning that evening. Used to
+  /// PROTECT night samples when a nap window is deleted from the health
+  /// store after the night shifted onto it.
+  static Future<List<({int onsetMs, int offsetMs})>> mainSleepWindowsAround(
+    DatabaseExecutor tx,
+    int s,
+    int e,
+  ) async {
+    final out = <({int onsetMs, int offsetMs})>[];
+    for (final b in await _nightsAround(tx, s, e)) {
+      final w = ((b['sleep'] as Map?)?['window'] as Map?)?['value'];
+      if (w is Map) {
+        final on = w['onset_ms'], off = w['offset_ms'];
+        if (on is num && off is num && off > on) {
+          out.add((onsetMs: on.toInt(), offsetMs: off.toInt()));
+        }
+      }
+    }
+    return out;
+  }
+
+  static Future<List<Map>> _nightsAround(
+    DatabaseExecutor tx,
+    int s,
+    int e,
+  ) async {
     final day = dayLabelOf(DateTime.fromMillisecondsSinceEpoch(s * 1000));
     final end = DateTime.fromMillisecondsSinceEpoch(e * 1000);
     // An evening interval can overlap the main sleep owned by tomorrow's
@@ -297,27 +378,17 @@ class ActivityStore {
         (SELECT MAX(r.algo_version) FROM day_result r WHERE r.day_id = d.day_id AND r.algo_version <= ?)''',
       [day, next, kAlgoVersion],
     );
-    for (final r in nights) {
-      final b = jsonDecode(r['payload_json'] as String) as Map;
-      // Before its first recompute, a pre-upgrade nap still lives only in the
-      // day bundle. It is already logged and takes precedence just as a nap
-      // that has been copied into the accepted-record table does.
-      final legacy = (b['naps'] as Map?)?['value'];
-      if (legacy is List) {
-        for (final nap in legacy.whereType<Map>()) {
-          final ns = nap['start'] as num?, ne = nap['end'] as num?;
-          if (ns != null && ne != null && s < ne && e > ns) return true;
-        }
-      }
-      final value = ((b['sleep'] as Map?)?['window'] as Map?)?['value'];
-      // Absent metric envelopes store '—', not a window object.
-      final w = value is Map ? value : null;
-      final ns = w?['onset_ms'] as num?, ne = w?['offset_ms'] as num?;
-      if (ns != null && ne != null && s * 1000 < ne && e * 1000 > ns) {
-        return true;
-      }
-    }
-    return (await _overlappingSessions(tx, s, e)).isNotEmpty;
+    return [
+      for (final r in nights) jsonDecode(r['payload_json'] as String) as Map,
+    ];
+  }
+
+  static bool _mainSleepOverlaps(Map bundle, int s, int e) {
+    final value = ((bundle['sleep'] as Map?)?['window'] as Map?)?['value'];
+    // Absent metric envelopes store '—', not a window object.
+    final w = value is Map ? value : null;
+    final ns = w?['onset_ms'] as num?, ne = w?['offset_ms'] as num?;
+    return ns != null && ne != null && s * 1000 < ne && e * 1000 > ns;
   }
 
   static Future<void> supersede(
@@ -427,7 +498,7 @@ class ActivityStore {
     } else {
       if (!manualNapWindowIsValid(startTs, endTs)) {
         throw const ActivityReviewException(
-          'A nap must last between 5 minutes and 6 hours.',
+          'A nap must last between 5 minutes and 3 hours.',
         );
       }
       if (await _overlapsSleep(tx, startTs, endTs)) {

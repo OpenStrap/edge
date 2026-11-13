@@ -49,7 +49,7 @@ import '../profile/devices.dart'
     show DeviceFilter, DeviceOption, signalCandidates;
 import '../profile/wearable_numbers.dart' show deviceScoreLabel, observationTitle;
 import '../ui2.dart';
-import 'home_screen.dart' show clockOfTs, repoOf;
+import 'home_screen.dart' show clockOfTs, prettyDay, repoOf;
 import 'metric_detail.dart' show dayNavRow, detailScaffold, pickDay;
 
 /// One thing that happened, at a time it is known to have happened at.
@@ -749,6 +749,11 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
   bool _loading = true;
   String? _day;
 
+  /// The last read threw. Without it a failed day step drew the previous
+  /// day's timeline under the new date, and a failed first read drew an empty
+  /// day.
+  bool _failed = false;
+
   /// The devices that could serve `hr` on this screen — registry-only, no
   /// query. Empty on every single-device install, which keeps the filter row
   /// absent (M6 §7.3).
@@ -840,10 +845,13 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
           _deviceBounded = false,
           _deviceOldest = null,
           _loading = false,
+          _failed = false,
         ));
       }
     } catch (_) {
-      if (mounted && token == _loadToken) setState(() => _loading = false);
+      if (mounted && token == _loadToken) {
+        setState(() => (_loading = false, _failed = true));
+      }
     }
   }
 
@@ -905,6 +913,7 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
     setState(() {
       _day = day;
       _loading = true;
+      _failed = false;
     });
     _load();
   }
@@ -919,6 +928,23 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
       if (_loading) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
+      ] else if (_failed) ...[
+        const SizedBox(height: S.x2),
+        StatusCard(
+          (_day ?? d.day) == null
+              ? (l?.wellnessLoadFailedTitle ?? 'This could not be read')
+              : (l?.homeDayLoadFailedTitle(prettyDay(_day ?? d.day, l)) ??
+                  '${prettyDay(_day ?? d.day, l)} could not be read'),
+          l?.homeLoadFailedBody ??
+              'The stored day failed to load. Nothing was deleted — this is a '
+                  'read that went wrong, not missing data.',
+          fix: l?.homeTryAgain ?? 'Try again',
+          icon: LucideIcons.databaseZap,
+          onFix: () {
+            setState(() => (_loading = true, _failed = false));
+            _load();
+          },
+        ),
       ] else ...[
         if (_candidates.length >= 2) ...[
           const SizedBox(height: S.x2),

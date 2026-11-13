@@ -1,3 +1,4 @@
+import 'dart:async';
 // THE STRAP-BUZZ RELAY, RENDERED — and the label it has to derive.
 //
 // The point of this screen is that the app ships a notification-listener
@@ -9,6 +10,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:notification_listener_service/notification_event.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:openstrap_edge/notify/notification_relay.dart';
@@ -151,6 +153,102 @@ void main() {
       }
       expect(relay.seenPackages.length, NotificationRelay.maxSeen);
       expect(relay.seenPackages.first, 'com.chatty.79');
+    });
+  });
+
+  group('quiet hours', () {
+    ServiceNotificationEvent post(String pkg) => ServiceNotificationEvent(
+          id: 1,
+          title: '',
+          canReply: false,
+          haveExtraPicture: false,
+          hasRemoved: false,
+          packageName: pkg,
+          content: '',
+          onGoing: false,
+          timestamp: 0,
+          appIcon: null,
+          extrasPicture: null,
+          largeIcon: null,
+        );
+
+    test('a post inside quiet hours does not buzz the strap', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues(const {});
+      var buzzes = 0;
+      final relay = NotificationRelay(
+        buzz: () async {
+          buzzes++;
+        },
+        isConnected: () => true,
+        quietNow: () async => true,
+      );
+      relay.packages.add('com.whatsapp');
+      relay.debugOnNotification(post('com.whatsapp'));
+      await Future<void>.delayed(Duration.zero);
+      expect(buzzes, 0);
+    });
+
+    test('outside quiet hours it still buzzes', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues(const {});
+      var buzzes = 0;
+      final relay = NotificationRelay(
+        buzz: () async {
+          buzzes++;
+        },
+        isConnected: () => true,
+        quietNow: () async => false,
+      );
+      relay.packages.add('com.whatsapp');
+      relay.debugOnNotification(post('com.whatsapp'));
+      await Future<void>.delayed(Duration.zero);
+      expect(buzzes, 1);
+    });
+
+    test('an app switched off during the quiet-hours read does not buzz',
+        () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues(const {});
+      var buzzes = 0;
+      final read = Completer<bool>();
+      final relay = NotificationRelay(
+        buzz: () async {
+          buzzes++;
+        },
+        isConnected: () => true,
+        quietNow: () => read.future,
+      );
+      relay.packages.add('com.whatsapp');
+      relay.debugOnNotification(post('com.whatsapp'));
+      relay.packages.remove('com.whatsapp');
+      read.complete(false);
+      await Future<void>.delayed(Duration.zero);
+      expect(buzzes, 0);
+    });
+
+    test('the default reads the app quiet-hours setting', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final t = DateTime.now();
+      final m = t.hour * 60 + t.minute;
+      // A window covering every minute but the one before now, so now is inside
+      // it even if the clock ticks over before the check.
+      SharedPreferences.setMockInitialValues({
+        'notif_quiet_enabled': true,
+        'notif_quiet_start': m,
+        'notif_quiet_end': (m + 1439) % 1440,
+      });
+      var buzzes = 0;
+      final relay = NotificationRelay(
+        buzz: () async {
+          buzzes++;
+        },
+        isConnected: () => true,
+      );
+      relay.packages.add('com.whatsapp');
+      relay.debugOnNotification(post('com.whatsapp'));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(buzzes, 0);
     });
   });
 

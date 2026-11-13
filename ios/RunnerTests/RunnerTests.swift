@@ -40,6 +40,20 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(runs, 1)
   }
 
+  func testBuzzRelaysDartAnswerAndTimesOutWithoutOne() async {
+    var methods: [String] = []
+    let bridge = ShortcutSyncBridge { method, _, reply in
+      methods.append(method)
+      if methods.count == 1 { reply("notConnected") }
+    }
+    XCTAssertEqual(await bridge.buzz(timeout: 0.2), .timedOut)
+    XCTAssertTrue(methods.isEmpty)
+    ready(bridge)
+    XCTAssertEqual(await bridge.buzz(timeout: 1), .notConnected)
+    XCTAssertEqual(await bridge.buzz(timeout: 0.2), .timedOut)
+    XCTAssertEqual(methods, ["buzz", "buzz"])
+  }
+
   func testOverlappingRequestsDoNotStartAnotherSync() async throws {
     var reply: FlutterResult?
     let bridge = ShortcutSyncBridge { _, _, result in reply = result }
@@ -164,4 +178,34 @@ class RunnerTests: XCTestCase {
     }
   }
 
+  func testSiriSaysWhyANumberIsHeldBackInsteadOfAskingForASync() {
+    func suite(_ kv: [String: Any]) -> UserDefaults {
+      let d = UserDefaults(suiteName: "siri.pending.\(UUID().uuidString)")!
+      for (k, v) in kv { d.set(v, forKey: k) }
+      return d
+    }
+    let line = { (kv: [String: Any], ring: String, noun: String, held: Bool) in
+      OpenStrapShared.pendingLine(ring: ring, noun: noun, heldOver: held, in: suite(kv))
+    }
+    XCTAssertEqual(
+      line(["ring_recovery_state": 1, "ring_recovery_value": "Calibrating",
+            "ring_recovery_sub": "2 of 4 nights", "overnight_why": ""],
+           "recovery", "Readiness", true),
+      "Readiness is still calibrating, 2 of 4 nights so far.")
+    // A provisional score stays unspoken.
+    let provisional = line(["ring_recovery_state": 1, "ring_recovery_value": "71",
+                            "ring_recovery_sub": "Finishing up"],
+                           "recovery", "Readiness", true)
+    XCTAssertEqual(provisional, "Readiness is still finishing up. Ask again a little later.")
+    XCTAssertFalse(provisional?.contains("71") ?? true)
+    XCTAssertEqual(
+      line(["ring_sleep_state": 2, "overnight_why": "Last night is still being worked out."],
+           "sleep", "Sleep", true),
+      "Last night is still being worked out.")
+    // The day's strain is never held over with the night.
+    XCTAssertNil(line(["overnight_why": "Last night is still being worked out."],
+                      "strain", "Strain", false))
+    // A snapshot from before the ring keys existed still gets the sync advice.
+    XCTAssertNil(line([:], "recovery", "Readiness", true))
+  }
 }

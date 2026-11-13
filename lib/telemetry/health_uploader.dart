@@ -10,6 +10,7 @@ import 'dart:io';
 
 import 'package:battery_plus/battery_plus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -104,7 +105,8 @@ class HealthUploader {
       // year of already-compressed raw history read into memory and re-gzipped
       // here would be both a bigger upload than anyone consented to and a
       // memory spike on the phone.
-      final path = await LocalDb.exportCopy(includeSubstrateArchive: false);
+      final path = await LocalDb.exportCopy(
+          includeSubstrateArchive: false, includePrefs: false);
       final file = File(path);
       try {
         final bytes = await file.readAsBytes();
@@ -119,7 +121,13 @@ class HealthUploader {
           userId: userId,
           consentVersion: consentVersion,
           appVersion: appVersion,
+          // Integrity of what was sent, so the server can record it.
+          sha256: sha256.convert(gz).toString(),
         );
+        // Counted locally (into the next contributed database), so a broken
+        // uploader shows up as failures instead of as silence.
+        await LocalDb.bumpUsageCounter(
+            ok ? 'health_upload_ok' : 'health_upload_failed');
         if (ok) {
           await prefs.setInt(_kLastUpload, now);
           return true;

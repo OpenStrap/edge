@@ -57,15 +57,17 @@ class AndroidBackground {
   }
 
   /// Whether the app is already exempt from battery optimizations (Doze).
-  /// Returns true on iOS / errors-as-unknown default to false on Android.
-  static Future<bool> isIgnoringBatteryOptimizations() async {
+  /// Returns true on iOS, and null on Android when the check itself failed:
+  /// an unknown state is not "not exempt", and must not ask the user to fix
+  /// something that may already be fine.
+  static Future<bool?> isIgnoringBatteryOptimizations() async {
     if (!Platform.isAndroid) return true;
     try {
       return await _ch.invokeMethod<bool>('isIgnoringBatteryOptimizations') ==
           true;
     } catch (e) {
       debugPrint('[android-bg] battery-opt check failed: $e');
-      return false;
+      return null;
     }
   }
 
@@ -131,9 +133,18 @@ class AndroidBackground {
   /// so this option simply won't surface on those now-ancient devices;
   /// acceptable given how old API <28 is at this point.)
   static Future<bool> needsOemAutostartSettings() async {
-    final m = await manufacturerHint();
-    if (m == null || !aggressiveOemManufacturers.any(m.contains)) return false;
+    if (!await hasOemAutostartSettings()) return false;
     return isBackgroundRestricted();
+  }
+
+  /// Whether this device's OEM keeps a separate autostart allowlist at all,
+  /// from the manufacturer alone. For the Settings row, which is a place to
+  /// go rather than a nag: the stock restriction flag above says nothing
+  /// about that allowlist, and on these phones it is often false while the
+  /// allowlist still kills the app.
+  static Future<bool> hasOemAutostartSettings() async {
+    final m = await manufacturerHint();
+    return m != null && aggressiveOemManufacturers.any(m.contains);
   }
 
   /// Open this OEM's autostart/protected-apps allowlist screen (a second,

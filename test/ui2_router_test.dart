@@ -32,6 +32,8 @@ import 'package:openstrap_edge/ui2/onboarding/welcome.dart'
     show isEncryptedBackup;
 import 'package:openstrap_edge/ui2/screens/log_workout.dart'
     show WorkoutSuggestionScreen;
+import 'package:openstrap_edge/ui2/screens/detected_activities.dart'
+    show DetectedActivitiesScreen;
 import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'package:openstrap_edge/ui2/profile/profile.dart';
 import 'package:openstrap_edge/ui2/screens/nutrition_screen.dart'
@@ -158,7 +160,7 @@ void main() {
         kRouteBreathing: ShellDomain.health,
         kRouteMeds: ShellDomain.health,
         kRouteWorkoutSuggestion: ShellDomain.today,
-        kRouteDetectedActivities: ShellDomain.today,
+        kRouteDetectedActivities: ShellDomain.activity,
         kRouteWater: ShellDomain.activity,
         kRouteWorkoutIdle: ShellDomain.activity,
         kRouteAlarm: ShellDomain.sleep,
@@ -196,6 +198,21 @@ void main() {
           isNull);
     });
 
+    test('the detected-nap deep link lands on the Activity tab, focused', () {
+      // "Did you nap?" has to open the review over the Activity tab — where
+      // the suggestion cards live — not over Home, with the nap's own card
+      // scrolled into view.
+      const id = '2026-08-19:nap:1755625800';
+      final route = activitySuggestionRoute(id, 'nap');
+      expect(domainForRoute(route), ShellDomain.activity);
+      final screen = screenForRoute(route);
+      expect(screen, isA<DetectedActivitiesScreen>());
+      expect((screen! as DetectedActivitiesScreen).focusId, id);
+      // A detected workout rides the same route and the same domain.
+      expect(domainForRoute(activitySuggestionRoute(id, 'workout')),
+          ShellDomain.activity);
+    });
+
     test('the tab index the shell persists round-trips through the enum', () {
       for (final d in ShellDomain.values) {
         expect(ShellDomain.values[d.index], d);
@@ -216,6 +233,20 @@ void main() {
       // platform channel is not guaranteed to name the bond.
       expect(classifyPairError(Exception('link lost'), bondRefusals: 2),
           PairPhase.bondRefused);
+    });
+
+    // Nothing in the app can open the phone's Bluetooth pane (iOS has no public
+    // URL for it), so the card's blue line must be advice, not a link that
+    // does nothing when tapped.
+    testWidgets('the refused-bond card does not promise a settings link',
+        (tester) async {
+      _tallView(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: PairingView(phase: PairPhase.bondRefused, onPair: () {}),
+      ));
+      expect(find.text('Open Bluetooth settings'), findsNothing);
+      expect(find.text('Then come back and tap Try again'), findsOneWidget);
     });
 
     test('anything else keeps its real message and stays generic', () {
@@ -308,8 +339,9 @@ void main() {
 
       expect(saved, isNotNull);
       expect(saved!['sex'], 'f');
-      // The three optional fields were left blank, so they are ABSENT — not
-      // zero, and not a default body.
+      // The three optional fields opened blank and stayed blank, so they are
+      // ABSENT — not zero, not a default body, and not a null over a value
+      // that arrived while setup was open.
       expect(saved!.containsKey('age'), isFalse);
       expect(saved!.containsKey('height_cm'), isFalse);
       expect(saved!.containsKey('weight_kg'), isFalse);
@@ -333,6 +365,26 @@ void main() {
       expect(saved!['age'], 34);
       expect(saved!['weight_kg'], 78.4);
       expect(saved!.containsKey('height_cm'), isFalse);
+    });
+
+    testWidgets('clearing a stored value writes null over it', (tester) async {
+      _tallView(tester);
+      Map<String, dynamic>? saved;
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: ProfileSetupView(
+            initial: const {'sex': 'm', 'weight_kg': 78.4, 'age': 34},
+            onSave: (f) async => saved = f),
+      ));
+      await tester.enterText(find.byType(TextField).at(2), '');
+      await tester.pump();
+      await tester.tap(find.text('Continue'));
+      await tester.pump();
+
+      // Merged into the stored profile, a missing key would keep 78.4.
+      expect(saved!.containsKey('weight_kg'), isTrue);
+      expect(saved!['weight_kg'], isNull);
+      expect(saved!['age'], 34);
     });
 
     testWidgets('a number it cannot read stops the save instead of dropping it',
@@ -360,9 +412,9 @@ void main() {
       expect(Typed.of('  ').blank, isTrue);
       expect(Typed.of('  ').bad, isFalse);
       expect(Typed.of('78.4').value, 78.4);
-      // A comma decimal is 1.5 to half of Europe and 15 to the other half, and
-      // a unit suffix is not a number at all. Neither is guessed at.
-      for (final s in ['78 kg', '1,5', '1,200', 'twelve']) {
+      // "1,200" is 1.2 to half of Europe and 1200 to the other half, and a
+      // unit suffix is not a number at all. Neither is guessed at.
+      for (final s in ['78 kg', '1,200', 'twelve']) {
         expect(Typed.of(s).bad, isTrue, reason: s);
         expect(Typed.of(s).value, isNull, reason: s);
       }

@@ -151,7 +151,9 @@ void main() {
     final (rows, link) = await _drive(
       kMiScaleComposition,
       reply: (u, v) => switch ((u == kMiScaleHistoryChar, v.first)) {
-        (true, 0x01) => [(kMiScaleHistoryChar, [0x01, 2, 0])],
+        // The XMTZC05HM's real count reply is 7 bytes (captured on hardware);
+        // weights and stamps below are made up.
+        (true, 0x01) => [(kMiScaleHistoryChar, [0x01, 2, 0, 1, 0, 0, 0])],
         (true, 0x02) => [
             (kMiScaleHistoryChar, [
               ..._bc(0x22, 480, 14000, DateTime.utc(2026, 10, 2, 7)),

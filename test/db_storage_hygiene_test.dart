@@ -6,6 +6,11 @@
 //     pruned. They are keyed (day_id, algo_version), so every kAlgoVersion
 //     bump wrote a whole new generation beside the old one and nothing
 //     removed it.
+//  3. A VACUUM does not leave the -wal the size of the whole database: in WAL
+//     mode it writes every page through the -wal, and without a size limit
+//     the file is reused but never shrunk, doubling what the app holds.
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -152,6 +157,31 @@ void main() {
       "WHERE day_id = '2026-07-28' ORDER BY algo_version",
     )).map((r) => r['algo_version'] as int).toList();
     expect(recent, [49, 50]);
+  });
+
+  test('the -wal is size-limited, so a VACUUM does not leave it the size of '
+      'the database', () async {
+    final db = await LocalDb.instance;
+    final limit =
+        (await db.rawQuery('PRAGMA journal_size_limit')).first.values.first;
+    expect(limit, LocalDb.walSizeLimitBytes);
+
+    // 48 MB to keep and 16 MB to free: the VACUUM then writes ~48 MB of pages
+    // through the -wal, more than the limit.
+    await db.execute('CREATE TABLE wal_probe (b BLOB)');
+    for (var i = 0; i < 64; i++) {
+      await db.rawInsert('INSERT INTO wal_probe VALUES (randomblob(1048576))');
+    }
+    await db.delete('wal_probe', where: 'rowid > 48');
+    expect(await LocalDb.vacuumIfBloated(minFreeBytes: 1), greaterThan(0));
+
+    final wal = File(
+      p.join(await databaseFactory.getDatabasesPath(), '${LocalDb.dbName}-wal'),
+    );
+    final walBytes = wal.existsSync() ? wal.lengthSync() : 0;
+    expect(walBytes, lessThanOrEqualTo(LocalDb.walSizeLimitBytes),
+        reason: 'the -wal kept ${walBytes >> 20} MB after the VACUUM');
+    await db.execute('DROP TABLE wal_probe');
   });
 }
 

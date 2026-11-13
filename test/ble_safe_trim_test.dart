@@ -316,6 +316,74 @@ void main() {
       );
     });
 
+    // #601: records stamped before the absolute floor (a band revived after
+    // years flat, or an RTC that reset and logged before the next SET_CLOCK)
+    // can never become plausible — SET_CLOCK does not re-stamp flash and a
+    // reconnect re-delivers the same chunk. Refusing their trim wedged the
+    // drain on that chunk forever. Once their bytes are archived they are
+    // durable, so the trim is safe.
+    test('an all-below-floor drop burst whose drops are archived may ACK', () {
+      expect(
+        TrimAckPolicy.evaluate(
+          sessionCurrent: true,
+          burstDiscarded: false,
+          commitDurable: true,
+          hadDurableRows: false,
+          droppedThisBurst: 300,
+          droppedBelowFloorThisBurst: 300,
+          gateDropArchives: 300,
+        ),
+        TrimAckVerdict.send,
+      );
+    });
+
+    test('a drop burst with ANY future/window drop still refuses', () {
+      expect(
+        TrimAckPolicy.evaluate(
+          sessionCurrent: true,
+          burstDiscarded: false,
+          commitDurable: true,
+          hadDurableRows: false,
+          droppedThisBurst: 300,
+          droppedBelowFloorThisBurst: 299,
+          gateDropArchives: 300,
+        ),
+        TrimAckVerdict.blockedNoDurableProgress,
+        reason: 'a wandering clock can come back; those bytes must stay on '
+            'the band',
+      );
+    });
+
+    test('below-floor drops that were not all archived still refuse', () {
+      expect(
+        TrimAckPolicy.evaluate(
+          sessionCurrent: true,
+          burstDiscarded: false,
+          commitDurable: true,
+          hadDurableRows: false,
+          droppedThisBurst: 300,
+          droppedBelowFloorThisBurst: 300,
+          gateDropArchives: 0,
+        ),
+        TrimAckVerdict.blockedNoDurableProgress,
+      );
+    });
+
+    test('below-floor drops never outrank a failed commit', () {
+      expect(
+        TrimAckPolicy.evaluate(
+          sessionCurrent: true,
+          burstDiscarded: false,
+          commitDurable: false,
+          hadDurableRows: false,
+          droppedThisBurst: 5,
+          droppedBelowFloorThisBurst: 5,
+          gateDropArchives: 5,
+        ),
+        TrimAckVerdict.blockedCommitFailed,
+      );
+    });
+
     test('empty burst with zero drops may still ACK (console-only)', () {
       expect(
         TrimAckPolicy.evaluate(
@@ -567,5 +635,121 @@ void main() {
         expect(ClockPolicy.acceptsClockRead(corrupt, wallNow), isFalse);
       },
     );
+  });
+
+  group('a HISTORY_END judges the whole burst, not just what is still '
+      'buffered', () {
+    ArchiveRecord gateDrop(int counter) => ArchiveRecord(
+      counter: counter,
+      hex: _hex(counter),
+      packetType: 0x2f,
+      capturedAt: 1780000000000 + counter,
+      reason: kGateDroppedReason,
+    );
+
+    test('rows a mid-burst flush banked still count as durable progress',
+        () async {
+      final d = _drainWith(
+          (raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {});
+      d.beginBurst();
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
+      d.onUndecodableRecord(gateDrop(2)); // a session-window drop
+      expect(await d.flush(), isTrue); // awaitComplete's timeout flush
+      expect(d.bufferedTotal, 0);
+
+      // The END arrives with an empty buffer and one drop this burst. The
+      // good row is already stored, so the trim must not be refused.
+      expect(d.burstHasDurableProgress, isTrue);
+      expect(
+        TrimAckPolicy.evaluate(
+          sessionCurrent: true,
+          burstDiscarded: false,
+          commitDurable: true,
+          hadDurableRows: d.burstHasDurableProgress,
+          droppedThisBurst: 1,
+          gateDropArchives: d.burstGateDropArchives,
+        ),
+        TrimAckVerdict.send,
+      );
+      expect(await d.commit(_tokenA), isTrue);
+      expect(d.lastTrimAdvanced, isTrue,
+          reason: 'the burst banked rows, just before its END commit');
+    });
+
+    test('below-floor drops flushed mid-burst still satisfy the #601 '
+        'all-archived exemption', () async {
+      final d = _drainWith(
+          (raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {});
+      d.beginBurst();
+      d.onUndecodableRecord(gateDrop(1));
+      d.onUndecodableRecord(gateDrop(2));
+      expect(await d.flush(), isTrue);
+      d.onUndecodableRecord(gateDrop(3));
+
+      expect(d.burstHasDurableProgress, isFalse);
+      expect(d.burstGateDropArchives, 3);
+      expect(
+        TrimAckPolicy.evaluate(
+          sessionCurrent: true,
+          burstDiscarded: false,
+          commitDurable: true,
+          hadDurableRows: d.burstHasDurableProgress,
+          droppedThisBurst: 3,
+          droppedBelowFloorThisBurst: 3,
+          gateDropArchives: d.burstGateDropArchives,
+        ),
+        TrimAckVerdict.send,
+      );
+    });
+
+    test('a drop-only burst is still refused, and flushed counts never carry '
+        'into the next burst', () async {
+      final d = _drainWith(
+          (raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {});
+      d.beginBurst();
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
+      expect(await d.flush(), isTrue);
+      d.beginBurst(); // the band's next HISTORY_START
+      d.onUndecodableRecord(gateDrop(2));
+      expect(await d.flush(), isTrue);
+
+      expect(d.burstHasDurableProgress, isFalse);
+      expect(
+        TrimAckPolicy.evaluate(
+          sessionCurrent: true,
+          burstDiscarded: false,
+          commitDurable: true,
+          hadDurableRows: d.burstHasDurableProgress,
+          droppedThisBurst: 1,
+          gateDropArchives: d.burstGateDropArchives,
+        ),
+        TrimAckVerdict.blockedNoDurableProgress,
+      );
+    });
+
+    test('a token commit consumes the flushed counts', () async {
+      final d = _drainWith(
+          (raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {});
+      d.beginBurst();
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
+      expect(await d.flush(), isTrue);
+      expect(await d.commit(_tokenA), isTrue);
+      expect(d.burstHasDurableProgress, isFalse);
+      expect(d.burstGateDropArchives, 0);
+    });
+
+    test('a failed flush is not counted as banked', () async {
+      final d = _drainWith(
+          (raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {
+        throw StateError('rollback');
+      });
+      d.beginBurst();
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
+      expect(await d.flush(), isFalse);
+      // Re-buffered, so it still shows as progress — from the buffer.
+      expect(d.bufferedRecords, 1);
+      d.discardOpenChunk();
+      expect(d.burstHasDurableProgress, isFalse);
+    });
   });
 }

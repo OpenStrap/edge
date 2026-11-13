@@ -76,9 +76,16 @@ class TaskerReceiver : BroadcastReceiver() {
         prefs.edit()
             .putBoolean(PENDING_BUZZ_KEY, true)
             .putInt(PENDING_PATTERN_KEY, pattern)
-            .apply()
+            // A buzz is a time-bound cue (rest timer over, reminder). Without
+            // the request time a queued buzz would fire on whatever reconnect
+            // comes next, possibly hours later; Dart drops it once stale.
+            .putLong(PENDING_AT_KEY, System.currentTimeMillis())
+            // commit, not apply: if the service start below is refused the
+            // flag is the only record of this buzz, and the next app launch
+            // replays it from disk.
+            .commit()
 
-        EdgeTrackingService.start(context)
+        EdgeTrackingService.startFromBackground(context, TAG)
     }
 
     companion object {
@@ -89,6 +96,7 @@ class TaskerReceiver : BroadcastReceiver() {
         const val EXTRA_TOKEN = "token"
         const val PENDING_BUZZ_KEY = "pending_tasker_buzz"
         const val PENDING_PATTERN_KEY = "pending_tasker_buzz_pattern"
+        const val PENDING_AT_KEY = "pending_tasker_buzz_at_ms"
         const val DEFAULT_PATTERN = 2
         private const val MIN_INTERVAL_MS = 1500L
 

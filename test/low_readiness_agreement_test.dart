@@ -52,8 +52,15 @@ void main() {
   // Today's night, scored (so the ring shows today's overnight), with NO
   // readiness of its own; the crossday rollup says today is settled.
   Future<void> seed({required bool nullRow}) async {
-    final wakeSec =
-        DateTime.now().millisecondsSinceEpoch ~/ 1000 - 13 * 3600;
+    // 13 h back has settled, but on an afternoon run it lands in the small
+    // hours, where a wake is never pinned (kMinPinWakeHour) and the test
+    // failed on the clock rather than the code. Such a run uses the previous
+    // morning instead, which is further back still.
+    var wake = DateTime.now().subtract(const Duration(hours: 13));
+    if (wake.hour < kMinPinWakeHour) {
+      wake = DateTime(wake.year, wake.month, wake.day - 1, 11);
+    }
+    final wakeSec = wake.millisecondsSinceEpoch ~/ 1000;
     final db = await LocalDb.instance;
     await db.delete('day_result');
     await db.delete('metric_series');

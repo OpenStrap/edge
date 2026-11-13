@@ -33,6 +33,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../coach/coach_config.dart';
+import '../../coach/coach_engine.dart' show CoachSessionMeta;
 import '../../data/day_label.dart';
 import '../../ecg/ecg_controller.dart';
 import '../../ecg/ecg_models.dart';
@@ -52,6 +53,7 @@ import '../activity/poster.dart'
     show PosterCard, PosterFormat, PosterStatRow, kPosterMapH, kPosterMapW;
 import '../activity/setup.dart' show ActivitySetup;
 import '../activity/tiles.dart';
+import '../pairing/whoop_firmware_warning.dart';
 import '../activity/share.dart' show ShareSheet, shareOrigin;
 import '../activity/summary.dart';
 import '../onboarding/welcome.dart' show ImportOutcome, ImportReport;
@@ -209,6 +211,7 @@ Map<String, Widget> componentCases() => {
       'ecg_reading_row': Surface(
           pad: EdgeInsets.zero,
           child: EcgReadingRow(reading: _ecgDemoReading, onTap: () {})),
+      'whoop_firmware_warning': const WhoopFirmwareWarning(),
       'signal': const SignalCard(
           LucideIcons.heartPulse, C.blue, 'Resting heart rate', '52',
           unit: 'bpm', sub: '4 BELOW YOUR BASELINE'),
@@ -394,6 +397,33 @@ Map<String, Widget> _coachFigureCases() => {
       'sleep_min': 432,
       'skin_temp_z': -0.4,
     },
+  ),
+  // A reply carrying a markdown image: it has to draw the inert placeholder,
+  // never a fetched picture.
+  'coach_answer_text': const CoachAnswerText(
+    'Your **resting HR** sat 3 bpm under your usual this week.\n\n'
+    '![chart](https://example.invalid/hr.png)\n\n'
+    '- sleep held at 7 h 12 min\n- strain eased off midweek',
+  ),
+  // The band rename sheet's body, outside the dialog route that hosts it.
+  'rename_band_dialog': const RenameBandDialog(current: 'WHOOP 4A1B2C'),
+  // The past-chats list, open and while a reply is still coming in (locked:
+  // no open, no delete control).
+  'coach_chat_list': CoachChatList(
+    sessions: [
+      CoachSessionMeta('a', 'Why was my HRV low?', 0,
+          'Two short nights in a row pulled it under your usual.'),
+      CoachSessionMeta('b', '', 0, 'Plan a lighter week'),
+    ],
+    locked: false,
+    onOpen: (_) {},
+    onDelete: (_) async {},
+  ),
+  'coach_chat_list_locked': CoachChatList(
+    sessions: [CoachSessionMeta('a', 'Why was my HRV low?', 0, '')],
+    locked: true,
+    onOpen: (_) {},
+    onDelete: (_) async {},
   ),
 };
 

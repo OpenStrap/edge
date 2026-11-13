@@ -28,7 +28,9 @@ class FileLog {
     if (_init) return;
     _init = true;
     try {
-      final dir = await getExternalStorageDirectory() ??
+      // External storage exists only on Android; on iOS the call throws, and
+      // this catch used to switch the log off there entirely.
+      final dir = (Platform.isAndroid ? await getExternalStorageDirectory() : null) ??
           await getApplicationDocumentsDirectory();
       _file = File('${dir.path}/openstrap_sync.log');
     } catch (_) {

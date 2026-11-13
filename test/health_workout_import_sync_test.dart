@@ -8,6 +8,7 @@
 
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health/health.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -16,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/health/auto_workout_import.dart';
 import 'package:openstrap_edge/health/health_workout_import.dart';
 
 HealthDataPoint _w(
@@ -54,6 +56,35 @@ class _FakeHealth extends Health {
     List<RecordingMethod> recordingMethodsToFilter = const [],
   }) async =>
       points;
+}
+
+/// A store that refuses the read after the permission check passed, the way
+/// Health Connect does on a quota limit or a revoked companion grant.
+class _ThrowingHealth extends Health {
+  int reads = 0;
+
+  @override
+  Future<void> configure() async {}
+
+  @override
+  Future<bool?> hasPermissions(
+    List<HealthDataType> types, {
+    List<HealthDataAccess>? permissions,
+  }) async =>
+      true;
+
+  @override
+  Future<List<HealthDataPoint>> getHealthDataFromTypes({
+    required List<HealthDataType> types,
+    required DateTime startTime,
+    required DateTime endTime,
+    List<RecordingMethod> recordingMethodsToFilter = const [],
+  }) async {
+    reads++;
+    throw PlatformException(
+        code: 'SecurityException',
+        message: "Caller doesn't have android.permission.health.READ_DISTANCE");
+  }
 }
 
 /// Records what the permission request asked for.
@@ -245,5 +276,94 @@ void main() {
           HealthDataType.TOTAL_CALORIES_BURNED,
           HealthDataType.STEPS,
         ]));
+  });
+
+  test('a read that throws surfaces as an error, not as an empty store',
+      () async {
+    // Returning zero here sent the Import button down "holds no workouts",
+    // styled as a normal result, for a store that was never read.
+    final importer =
+        HealthWorkoutImporter(health: _ThrowingHealth(), isApple: false);
+    await expectLater(importer.sync(), throwsA(isA<PlatformException>()));
+  });
+
+  test('the auto pass does not report a thrown read as a pass that ran',
+      () async {
+    final health = _ThrowingHealth();
+    final out = await AutoWorkoutImport.maybeRun(
+      importer: HealthWorkoutImporter(health: health, isApple: false),
+      nowFn: () => DateTime(2026, 10, 1, 12),
+    );
+    expect(health.reads, 1);
+    expect(out, AutoImportOutcome.skipped);
+  });
+
+  group('a workout deleted in the health app leaves the history', () {
+    // Android window is 30 days back from `now`; _w's workouts start
+    // 2026-08-01 09:00, inside it.
+    final now = DateTime(2026, 8, 10, 12);
+    int sec(DateTime d) => d.millisecondsSinceEpoch ~/ 1000;
+    Map<String, Object?> row(String uuid, DateTime at) => ImportedWorkoutRow(
+          uuid: uuid,
+          startTs: sec(at),
+          endTs: sec(at) + 3600,
+          kind: 'running',
+          source: 'Garmin Connect',
+        ).toRow();
+    Map<String, Object?> pt(String sid) => {
+          'session_id': sid,
+          'seq': 0,
+          'ts_ms': 1,
+          'lat': 51.5,
+          'lng': -0.1,
+        };
+
+    test('a uuid the store no longer returns is dropped with its route',
+        () async {
+      // Two watches recorded the same run; both were imported, then the
+      // Garmin copy was deleted in the Fitness app.
+      await LocalDb.putImportedWorkouts([
+        row('watch', DateTime(2026, 8, 1, 9)),
+        row('garmin', DateTime(2026, 8, 1, 9)),
+      ]);
+      await LocalDb.appendRoutePoints('garmin', [pt('garmin')]);
+
+      await HealthWorkoutImporter(
+        health: _FakeHealth([_w('watch')]),
+        isApple: false,
+      ).sync(now: now);
+
+      final stored = await LocalDb.importedWorkouts();
+      expect(stored.map((r) => r['uuid']), ['watch']);
+      expect(await LocalDb.routePoints('garmin'), isEmpty);
+    });
+
+    test('rows outside the read window are left alone', () async {
+      await LocalDb.putImportedWorkouts([
+        row('old', DateTime(2026, 6, 1, 9)),
+      ]);
+
+      await HealthWorkoutImporter(
+        health: _FakeHealth([_w('watch')]),
+        isApple: false,
+      ).sync(now: now);
+
+      final stored = await LocalDb.importedWorkouts();
+      expect(stored.map((r) => r['uuid']).toSet(), {'watch', 'old'});
+    });
+
+    test('an empty read (a denied HealthKit read) deletes nothing', () async {
+      await LocalDb.putImportedWorkouts([
+        row('garmin', DateTime(2026, 8, 1, 9)),
+      ]);
+
+      await HealthWorkoutImporter(
+        health: _FakeHealth(const []),
+        isApple: false,
+      ).sync(now: now);
+
+      final stored = await LocalDb.importedWorkouts();
+      expect(stored.map((r) => r['uuid']), ['garmin']);
+    });
   });
 }

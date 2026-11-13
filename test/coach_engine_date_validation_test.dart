@@ -19,11 +19,20 @@ import 'package:openstrap_edge/data/local_repository.dart';
 
 class _FakeRepo extends LocalRepository {
   String? journalDate;
+  List<String>? journalTags;
+  String? journalNote;
   String? cycleDate;
+  final List<Map<String, dynamic>> journal = [];
+
+  @override
+  Future<List<Map<String, dynamic>>> getJournal({String range = '30d'}) async =>
+      journal;
 
   @override
   Future<void> postJournal(String date, List<String> tags, String note) async {
     journalDate = date;
+    journalTags = tags;
+    journalNote = note;
   }
 
   @override
@@ -102,6 +111,27 @@ void main() {
       expect(repo.journalDate, isNull);
       final toolResult = engine.debugHistory.firstWhere((m) => m['role'] == 'tool');
       expect(toolResult['content'], contains('is not a day'));
+    });
+
+    // postJournal replaces the day's whole row, so writing only what this
+    // utterance carried erased the tags and note already logged that day.
+    test('merges into what the day already holds', () async {
+      final repo = _FakeRepo()
+        ..journal.addAll([
+          {'date': '2026-08-13', 'tags': ['other-day'], 'note': 'not this one'},
+          {
+            'date': '2026-08-14',
+            'tags': ['alcohol', 'late_meal'],
+            'note': 'dinner out',
+          },
+        ]);
+      await run('log_journal', {
+        'date': '2026-08-14',
+        'tags': ['caffeine', 'alcohol'],
+        'note': 'coffee in the afternoon',
+      }, repo);
+      expect(repo.journalTags, ['alcohol', 'late_meal', 'caffeine']);
+      expect(repo.journalNote, 'dinner out\ncoffee in the afternoon');
     });
   });
 

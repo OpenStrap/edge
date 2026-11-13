@@ -14,6 +14,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:openstrap_analytics/onehz.dart' show journalFieldLagDays;
 
 import '../state/clock_format.dart';
 import 'day_label.dart';
@@ -222,6 +223,32 @@ const kJournalFields = <JournalFieldSpec>[
     step: 0.1,
   ),
 ];
+
+/// Outcome lag per journal field, keyed by THIS app's field keys (MIND-02).
+///
+/// Analytics' [journalFieldLagDays] is keyed by generic names ('caffeine',
+/// 'alcohol', 'water', 'screen_time'), none of which is a key this app stores
+/// ('caffeine_mg', 'alcohol_units', ...). An unmatched key falls back to lag 0,
+/// which pairs today's coffee and drinks with the night that ended before they
+/// happened. Behaviour lands on the night that follows (+1); a retrospective
+/// self-report describes the night that just finished (0). The analytics map is
+/// spread in first so a custom field that happens to use one of its names keeps
+/// that classification.
+const Map<String, int> kJournalFieldLagDays = {
+  ...journalFieldLagDays,
+  'caffeine_mg': 1,
+  // The synthetic last-cup clock time carries caffeine's own lag.
+  'caffeine_last_min': 1,
+  'alcohol_units': 1,
+  'water_ml': 1,
+  'screens_min': 1,
+  // mood / sleep_quality / energy / stress / soreness share analytics' names
+  // and come in through the spread at lag 0.
+};
+
+/// The lag the correlation pairs [key] at, or null for a field neither
+/// classification covers (it is still paired at 0, but no night is claimed).
+int? journalFieldLag(String key) => kJournalFieldLagDays[key];
 
 /// Half-life of the weight trend, in days.
 ///

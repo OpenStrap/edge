@@ -85,10 +85,13 @@ const String kWithheldKey = 'withheld';
 /// Read-only snapshot of what the store knows for [period]. Only fields that
 /// exist end up in the map — the prompt builder and the "based on" UI both walk
 /// this map, so what the model saw and what the user sees are the same thing.
+/// [wallNow] is the real clock for the sweep's partial-day check, separate
+/// from [now] (the day being read) so a caller can pin both.
 Future<Map<String, dynamic>> collectBriefingInputs(
   LocalRepository repo,
   BriefingPeriod period, {
   DateTime? now,
+  DateTime? wallNow,
 }) async {
   final t = await repo.getToday();
   final daily = _map(t['daily']) ?? const {};
@@ -176,7 +179,8 @@ Future<Map<String, dynamic>> collectBriefingInputs(
     // nightly_sweep.dart for the bar one has to clear, and note that an empty
     // map here is the normal, correct answer on most days.
     return sweepInputs(
-      sweepFindings(await collectSweepSeries(repo, now ?? DateTime.now())),
+      sweepFindings(await collectSweepSeries(repo, now ?? DateTime.now(),
+          wallNow: wallNow)),
       recommendedBedtime: await _recommendedBedtime(repo),
     );
   }
@@ -187,19 +191,24 @@ Future<Map<String, dynamic>> collectBriefingInputs(
 /// speaks (it maps those onto series keys itself). Deliberately short: every
 /// one of these is a number the user already has a screen for, so a finding
 /// about it can be checked.
-const Map<String, ({String key, String label, String unit, int dp})>
+///
+/// `cumulative` marks a value that grows through the day, so the current day's
+/// stored point is only the total so far.
+const Map<String,
+        ({String key, String label, String unit, int dp, bool cumulative})>
     kSweepMetrics = {
-  'recovery': (key: 'readiness', label: 'recovery', unit: '', dp: 0),
-  'resting_hr': (key: 'rhr', label: 'resting heart rate', unit: 'bpm', dp: 0),
-  'hrv': (key: 'rmssd', label: 'HRV', unit: 'ms', dp: 0),
-  'strain': (key: 'strain', label: 'strain', unit: '', dp: 1),
-  'steps': (key: 'steps', label: 'steps', unit: '', dp: 0),
-  'sleep': (key: 'tst_min', label: 'time asleep', unit: 'min', dp: 0),
+  'recovery': (key: 'readiness', label: 'recovery', unit: '', dp: 0, cumulative: false),
+  'resting_hr': (key: 'rhr', label: 'resting heart rate', unit: 'bpm', dp: 0, cumulative: false),
+  'hrv': (key: 'rmssd', label: 'HRV', unit: 'ms', dp: 0, cumulative: false),
+  'strain': (key: 'strain', label: 'strain', unit: '', dp: 1, cumulative: true),
+  'steps': (key: 'steps', label: 'steps', unit: '', dp: 0, cumulative: true),
+  'sleep': (key: 'tst_min', label: 'time asleep', unit: 'min', dp: 0, cumulative: false),
   'efficiency': (
     key: 'efficiency',
     label: 'sleep efficiency',
     unit: '%',
-    dp: 0
+    dp: 0,
+    cumulative: false
   ),
 };
 
@@ -210,11 +219,17 @@ const Map<String, ({String key, String label, String unit, int dp})>
 /// The window stops at the most recent algo-version break. Values either side
 /// of one are not comparable, and a version bump reported as "the lowest in 60
 /// days" would be a finding about us, not about the user.
+///
+/// [wallNow] is the real clock (defaults to now). When the day being read has
+/// not ended by it, cumulative metrics are marked partial.
 Future<List<SweepSeries>> collectSweepSeries(
   LocalRepository repo,
-  DateTime now,
-) async {
+  DateTime now, {
+  DateTime? wallNow,
+}) async {
   final today = todayLabel(now);
+  final inProgress =
+      today.compareTo(todayLabel(wallNow ?? DateTime.now())) >= 0;
   final out = <SweepSeries>[];
   for (final e in kSweepMetrics.entries) {
     try {
@@ -257,6 +272,7 @@ Future<List<SweepSeries>> collectSweepSeries(
         decimals: m.dp,
         today: todayValue,
         history: history,
+        partial: m.cumulative && inProgress,
       ));
     } catch (_) {/* a series we cannot read is a series with no finding */}
   }
@@ -490,7 +506,8 @@ class BriefingEngine {
 
   /// Generate (or re-generate) the briefing for [period] today, cache it, and
   /// return it. Throws [CoachException] on provider errors / missing key.
-  Future<Briefing> generate(BriefingPeriod period, {DateTime? now}) async {
+  Future<Briefing> generate(BriefingPeriod period,
+      {DateTime? now, DateTime? wallNow}) async {
     if (!configured) {
       throw CoachException('Add your AI key to enable briefings.');
     }
@@ -499,7 +516,8 @@ class BriefingEngine {
     final effectiveNow = now ?? DateTime.now();
     final day = todayLabel(effectiveNow);
     final tod = partOfDay(effectiveNow);
-    final inputs = await collectBriefingInputs(repo, period, now: effectiveNow);
+    final inputs = await collectBriefingInputs(repo, period,
+        now: effectiveNow, wallNow: wallNow);
     // NOTHING TO SAY IS AN ANSWER. The evening sweep hands back an empty map on
     // any day where nothing was unusual for this user, which is most days. No
     // model is called — there is no question to ask — so nothing leaves the

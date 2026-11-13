@@ -37,6 +37,7 @@ object NativeChannels {
     private const val DEVICE_ACTIONS_CHANNEL = "openstrap/device_actions"
     private const val ANDROID_BG_CHANNEL = "openstrap/android_background"
     private const val BLE_NATIVE_CHANNEL = "openstrap/ble_native"
+    private const val STORAGE_CHANNEL = "openstrap/storage"
     const val TASKER_CHANNEL = "openstrap/tasker"
     const val ACTION_DOUBLE_TAP = "wtf.openstrap.openstrap_edge.DOUBLE_TAP"
     private const val TASKER_TOKEN_KEY = "tasker_auth_token"
@@ -87,6 +88,9 @@ object NativeChannels {
                         result.success(null)
                     }
                     "stop" -> {
+                        // Dart only sends this on unpair, so the watchdog has
+                        // nothing left to keep alive.
+                        KeepAliveWorker.cancel(app)
                         app.stopService(Intent(app, EdgeTrackingService::class.java))
                         result.success(null)
                     }
@@ -180,6 +184,24 @@ object NativeChannels {
                 }
             }
 
+        // Free space on the volume holding the database, for "Compact database".
+        MethodChannel(engine.dartExecutor.binaryMessenger, STORAGE_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "freeBytes" -> {
+                        val path = call.argument<String>("path") ?: app.filesDir.path
+                        result.success(
+                            try {
+                                android.os.StatFs(path).availableBytes
+                            } catch (e: IllegalArgumentException) {
+                                null
+                            }
+                        )
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
         // Band-gesture actions. All no-risk OS APIs: media-key dispatch (works for any
         // player, no permission), system media volume, ringtone + vibrate, torch.
         MethodChannel(engine.dartExecutor.binaryMessenger, DEVICE_ACTIONS_CHANNEL)
@@ -211,18 +233,27 @@ object NativeChannels {
                 when (call.method) {
                     "peek_pending_buzz" -> {
                         val pending = prefs.getBoolean(TaskerReceiver.PENDING_BUZZ_KEY, false)
-                        result.success(
-                            if (pending) {
-                                prefs.getInt(TaskerReceiver.PENDING_PATTERN_KEY, TaskerReceiver.DEFAULT_PATTERN)
-                            } else {
-                                null
-                            }
-                        )
+                        if (!pending) {
+                            result.success(null)
+                        } else {
+                            val args = java.util.HashMap<String, Any?>()
+                            args["pattern"] = prefs.getInt(TaskerReceiver.PENDING_PATTERN_KEY, TaskerReceiver.DEFAULT_PATTERN)
+                            // Absent on a flag queued by an older build; Dart
+                            // treats that as stale rather than guessing an age.
+                            args["requestedAtMs"] =
+                                if (prefs.contains(TaskerReceiver.PENDING_AT_KEY)) {
+                                    prefs.getLong(TaskerReceiver.PENDING_AT_KEY, 0L)
+                                } else {
+                                    null
+                                }
+                            result.success(args)
+                        }
                     }
                     "clear_pending_buzz" -> {
                         prefs.edit()
                             .remove(TaskerReceiver.PENDING_BUZZ_KEY)
                             .remove(TaskerReceiver.PENDING_PATTERN_KEY)
+                            .remove(TaskerReceiver.PENDING_AT_KEY)
                             .apply()
                         result.success(null)
                     }

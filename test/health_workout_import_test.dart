@@ -173,4 +173,54 @@ void main() {
       expect(rows.single['alt'], isNull);
     });
   });
+
+  group('routesToStore', () {
+    List<Object?> pt() => [
+          [51.5, -0.12, 12.0, 1000],
+        ];
+
+    test('a dropped workout\'s route is not stored', () {
+      // HealthKit hands back the route of every workout in the window. A 26 h
+      // ultra is dropped by workoutsFrom, so its GPS track would land under a
+      // session_id no imported_workout row points at, and nothing deletes it.
+      final ultra = _w(
+        uuid: 'ultra',
+        from: DateTime(2026, 8, 1, 6),
+        to: DateTime(2026, 8, 2, 8),
+      );
+      final kept = workoutsFrom([ultra, _w(uuid: 'run')]);
+      final keep = {for (final r in kept) r.uuid};
+      expect(keep, {'run'});
+
+      final routes = routesToStore([
+        {'uuid': 'ultra', 'points': pt()},
+        {'uuid': 'run', 'points': pt()},
+      ], keep);
+      expect(routes.map((e) => e.key), ['run']);
+      expect(routes.single.value.single['session_id'], 'run');
+    });
+
+    test('routes for workouts outside the kept set are dropped', () {
+      // Our own exports and tombstoned deletes never reach the kept set.
+      expect(
+        routesToStore([
+          {'uuid': 'own', 'points': pt()},
+          {'uuid': 'deleted', 'points': pt()},
+        ], {'run'}),
+        isEmpty,
+      );
+    });
+
+    test('malformed entries and empty routes are skipped', () {
+      expect(
+        routesToStore([
+          null,
+          'x',
+          {'uuid': '', 'points': pt()},
+          {'uuid': 'run', 'points': const []},
+        ], {'run', ''}),
+        isEmpty,
+      );
+    });
+  });
 }

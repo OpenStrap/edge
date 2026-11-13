@@ -327,6 +327,10 @@ void main() {
   );
 
   testWidgets('category search accepts original and Russian blurb', (t) async {
+    // The firmware warning banner sits above the list; a tall surface keeps
+    // the filtered row built instead of lazily off-screen.
+    await t.binding.setSurfaceSize(const Size(800, 3000));
+    addTearDown(() => t.binding.setSurfaceSize(null));
     await t.pumpWidget(page(const DevicePickerScreen()));
     await t.pumpAndSettle();
     final entry = kBleHrs;
@@ -410,6 +414,8 @@ void main() {
             400,
             scrollable: find.byType(Scrollable).first,
           );
+          await t.ensureVisible(find.text(en.coachListModels));
+          await t.pumpAndSettle();
           await t.tap(find.text(en.coachListModels));
           await t.pumpAndSettle();
           const raw =

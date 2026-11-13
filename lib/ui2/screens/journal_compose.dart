@@ -18,9 +18,11 @@ import 'package:provider/provider.dart';
 
 import '../../ai/journal_ai.dart';
 import '../../coach/coach_config.dart';
+import '../../compute/inputs/measurement_inputs.dart' show weighingChain, weighings;
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart';
+import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
@@ -51,6 +53,7 @@ class _JournalComposeState extends State<JournalCompose> {
   Map<String, JournalMetricValue> _loadedValues = const {};
   Set<String> _loadedTags = const {};
   bool _loading = true;
+  bool _loadFailed = false;
   bool _saving = false;
 
   @override
@@ -71,9 +74,24 @@ class _JournalComposeState extends State<JournalCompose> {
       setState(() => _loading = false);
       return;
     }
-    final specs = await repo.getJournalFields();
-    final values = await repo.getJournalMetrics(_date);
-    final entries = await repo.getJournal(range: '30d');
+    final List<JournalFieldSpec> specs;
+    final Map<String, JournalMetricValue> values;
+    final List<Map<String, dynamic>> entries;
+    try {
+      specs = await repo.getJournalFields();
+      values = await repo.getJournalMetrics(_date);
+      entries = await repo.getJournal(range: '30d');
+    } catch (_) {
+      // A locked or swapped-out database used to leave the form on its
+      // spinner for good. Say so and offer a retry instead.
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadFailed = true;
+        });
+      }
+      return;
+    }
     Map<String, dynamic>? today;
     for (final e in entries) {
       if (e['date'] == _date) today = e;
@@ -87,6 +105,7 @@ class _JournalComposeState extends State<JournalCompose> {
       _loadedTags = {..._tags};
       _note.text = (today?['note'] as String?) ?? '';
       _loading = false;
+      _loadFailed = false;
     });
   }
 
@@ -207,21 +226,46 @@ class _JournalComposeState extends State<JournalCompose> {
     final repo = context.read<AppState>().repo;
     if (repo == null) return;
     setState(() => _saving = true);
+    try {
+      await _write(repo);
+    } catch (_) {
+      // Any throw here used to escape unhandled and leave Save spinning with
+      // no message. The form keeps the user's edits so a retry writes them;
+      // the retry re-reads the day, so metrics a failed run already wrote are
+      // not doubled.
+      if (!mounted) return;
+      setState(() => _saving = false);
+      final l = AppLocalizations.of(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(l?.journalComposeEntrySaveFailed ??
+                'Not saved — your entry is still here. Try again.')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    // Today's "How was today?" is already armed; a rated day moves it to
+    // tomorrow, and only a re-arm does that.
+    unawaited(context.read<AppState>().refreshAiReminders());
+    Navigator.of(context).pop(true);
+  }
+
+  Future<void> _write(LocalRepository repo) async {
     // Both writes REPLACE the day, and the strap's double-tap (a glass of
     // water, a moment tag) writes the same day while this screen is open.
     // Re-read and lay only this screen's own edits over it, or Save puts the
     // snapshot from when the screen opened back and the tap is lost.
-    final metrics = {...await repo.getJournalMetrics(_date)};
-    for (final k in {..._loadedValues.keys, ..._values.keys}) {
-      final v = _values[k];
-      if (v == _loadedValues[k]) continue;
-      if (v == null) {
-        metrics.remove(k);
-      } else {
-        metrics[k] = v;
+    await repo.editJournalMetrics(_date, (metrics) {
+      for (final k in {..._loadedValues.keys, ..._values.keys}) {
+        final v = _values[k];
+        if (v == _loadedValues[k]) continue;
+        if (v == null) {
+          metrics.remove(k);
+        } else {
+          metrics[k] = v;
+        }
       }
-    }
-    await repo.postJournalMetrics(_date, metrics);
+    });
     final tags = <String>{};
     for (final e in await repo.getJournal(range: '30d')) {
       if (e['date'] == _date) {
@@ -232,11 +276,6 @@ class _JournalComposeState extends State<JournalCompose> {
       ..removeAll(_loadedTags.difference(_tags))
       ..addAll(_tags);
     await repo.postJournal(_date, tags.toList(), _note.text.trim());
-    if (!mounted) return;
-    // Today's "How was today?" is already armed; a rated day moves it to
-    // tomorrow, and only a re-arm does that.
-    unawaited(context.read<AppState>().refreshAiReminders());
-    Navigator.of(context).pop(true);
   }
 
   @override
@@ -253,6 +292,35 @@ class _JournalComposeState extends State<JournalCompose> {
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
+                  : _loadFailed
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(S.x6),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              l?.journalComposeLoadFailed ??
+                                  "Could not open this day's journal.",
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: S.x4),
+                            BigButton(
+                              l?.journalComposeTryAgain ?? 'Try again',
+                              icon: LucideIcons.refreshCw,
+                              color: C.domMind,
+                              onTap: () {
+                                setState(() {
+                                  _loading = true;
+                                  _loadFailed = false;
+                                });
+                                _load();
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
                   : ListView(
                       padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x8),
                       children: [
@@ -357,9 +425,8 @@ class _JournalComposeState extends State<JournalCompose> {
                                       size: 16, color: p.on(C.domMind)),
                                   const SizedBox(width: S.x1),
                                   Text(
-                                    // Not localized yet — a new entry point,
-                                    // not a copy pass over the whole screen.
-                                    'Talk it through with AI',
+                                    l?.journalComposeTalkItThroughWithAi ??
+                                        'Talk it through with AI',
                                     style: F.over
                                         .copyWith(color: p.on(C.domMind)),
                                   ),
@@ -650,6 +717,9 @@ class OsTextField extends StatelessWidget {
               maxLines: lines,
               minLines: 1,
               keyboardType: keyboard,
+              // iOS number pads have no return key: tapping anywhere else is
+              // the only way to put the keyboard away.
+              onTapOutside: (_) => FocusScope.of(c).unfocus(),
               style: F.body.copyWith(color: p.ink),
               cursorColor: p.on(C.domMind),
               decoration: InputDecoration(
@@ -851,6 +921,52 @@ class _WeightRow extends StatelessWidget {
   }
 }
 
+/// Per-day weight for the trend: the journal's [manual] value and the scale
+/// [scaled] weighings (see `weighings`: flag-on, in band), bucketed by LOCAL
+/// day, the day's latest weighing standing for it. When a day has both, the
+/// later one wins: the journal's time of day against the weighing's, and a
+/// journal value with no time loses to the scale. Days with neither are absent.
+/// Scale weighings dated after [nowMs] (a band clock set ahead) are dropped.
+/// The chain runs over every weighing in [scaled]; only those at or after
+/// [fromMs] are plotted, so the window's start does not decide which readings
+/// anchor the chain (and the same data charts the same on every day).
+@visibleForTesting
+Map<String, double> weightByDay(
+  Map<String, Map<String, JournalMetricValue>> manual,
+  List<({double kg, int atMs})> scaled, {
+  int? nowMs,
+  int fromMs = 0,
+}) {
+  final until = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+  bool ok(double v) => v.isFinite && v > 0;
+  final out = <String, double>{};
+  for (final e in manual.entries) {
+    final v = e.value['weight_kg'];
+    if (v != null && ok(v.value)) out[e.key] = v.value;
+  }
+  // A scale weighs whoever steps on it, and banding against TODAY's profile
+  // weight would drop a long loss's old readings. So chain instead (see
+  // weighingChain): off-band weighings are someone else's unless they persist.
+  final chain = weighingChain(
+    scaled.where((w) => ok(w.kg) && w.atMs <= until),
+  );
+  final at = <String, int>{};
+  for (final w in chain) {
+    if (w.atMs < fromMs) continue;
+    final t = DateTime.fromMillisecondsSinceEpoch(w.atMs);
+    final day = dayLabelOf(t);
+    if (at[day] != null && at[day]! >= w.atMs) continue;
+    final m = t.hour * 60 + t.minute;
+    final jm = manual[day]?['weight_kg']?.atMinuteOfDay;
+    if (out.containsKey(day) && !at.containsKey(day) && jm != null && jm > m) {
+      continue;
+    }
+    at[day] = w.atMs;
+    out[day] = w.kg;
+  }
+  return out;
+}
+
 /// The trend, and only the trend.
 ///
 /// One line, no headline number, no delta, no arrow, no target and no colour
@@ -878,22 +994,27 @@ class _WeightTrendState extends State<_WeightTrend> {
       // Day arithmetic, not a subtracted duration: a DST day is 23 or 25 hours
       // long and `now - 180 days` lands on the wrong calendar date across one.
       final now = DateTime.now();
-      final since = dayLabelOf(
-        DateTime(now.year, now.month, now.day - (kWeightTrendDays - 1)),
+      final start = DateTime(
+        now.year,
+        now.month,
+        now.day - (kWeightTrendDays - 1),
       );
+      final since = dayLabelOf(start);
       final rows = await LocalDb.journalMetricsByDay(sinceDaysEpoch: since);
+      // Its own guard: a failing scale read must not blank the manual trend.
+      var scale = const <({double kg, int atMs})>[];
+      try {
+        // All history, not just the window: the chain's anchor must not
+        // depend on where the window starts (see weightByDay).
+        scale = await weighings();
+      } catch (e) {
+        debugPrint('weight trend: scale read failed: $e');
+      }
       if (!mounted) return;
       setState(() {
-        _byDay = {
-          for (final e in rows.entries)
-            // The `when` does real work — a non-finite or non-positive weight
-            // is not a weight — and the null-aware element form has nowhere to
-            // put a guard.
-            // ignore: use_null_aware_elements
-            if (e.value['weight_kg']?.value case final v?
-                when v.isFinite && v > 0)
-              e.key: v,
-        };
+        // Local midnight, matching the local-day buckets; parsing the label
+        // would read it as UTC midnight.
+        _byDay = weightByDay(rows, scale, fromMs: start.millisecondsSinceEpoch);
         _loading = false;
       });
     } catch (_) {
@@ -956,7 +1077,7 @@ class _WeightTrendState extends State<_WeightTrend> {
           yAxis: axis,
           xLabels: [days.first, days.last],
           footnote: l?.journalComposeTrendFootnote ??
-              'Entered by you. Days with no entry are left empty.',
+              'Entered by you or your scale. Days with no entry are left empty.',
           series: vals,
           empty: axis == null ? const NoData() : null,
           child: axis == null
@@ -1183,6 +1304,8 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
                     const SizedBox(width: S.x2),
                     Pressable(
                       onTap: _busy ? null : () => unawaited(_send()),
+                      semanticLabel:
+                          AppLocalizations.of(c)?.coachSendLabel ?? 'Send',
                       child: Container(
                         width: 44,
                         height: 44,
@@ -1207,7 +1330,8 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x4),
                 child: BigButton(
-                  'Add to journal',
+                  AppLocalizations.of(c)?.journalComposeAddToJournal ??
+                      'Add to journal',
                   icon: LucideIcons.check,
                   color: C.domMind,
                   onTap: last == null

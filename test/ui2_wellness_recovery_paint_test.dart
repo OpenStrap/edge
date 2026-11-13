@@ -292,6 +292,47 @@ void main() {
       }, timeout: const Timeout(Duration(seconds: 60)));
     }
   }
+
+  // A WITHHELD rollup (`getInsights` -> `{'stale': reason}`) after an update
+  // that changed how days are computed. Home says the insights are being
+  // rebuilt; this tab used to say there were not enough nights yet and that
+  // nothing recorded why tonight has no need.
+  testWidgets('withheld rollup: says it is being rebuilt, not cold start',
+      (t) async {
+    await _openRecovery(
+      t,
+      dark: false,
+      scale: 1.0,
+      repo: _Repo(insights: const {
+        'stale': {'kind': 'algo_version', 'algo_version': 1},
+      }),
+    );
+
+    expect(find.text('No breakdown to show'), findsOneWidget);
+    expect(find.text('Your cross-day insights are being rebuilt'),
+        findsOneWidget);
+    expect(find.text('No recovery breakdown yet'), findsNothing);
+    expect(find.text('No sleep need yet'), findsNothing);
+    expect(find.textContaining('enough nights'), findsNothing);
+    _expectCardPainted(t);
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  // The plan is the Sleep tab's footer, so its debt link used to push a whole
+  // second SleepDetail over the one already on screen — same night, plus the
+  // Tonight section the tab leaves out on purpose. It scrolls back up instead.
+  testWidgets('the debt link stays on the Sleep tab instead of pushing it again',
+      (t) async {
+    await _openRecovery(t, dark: false, scale: 1.0, repo: _Repo());
+
+    final link = find.text('See what last night cost you');
+    expect(link, findsOneWidget);
+    await t.tap(link);
+    await _frames(t);
+
+    expect(find.byType(SleepDetail), findsNothing);
+    expect(find.text('See what last night cost you'), findsOneWidget);
+    expect(find.byType(BackButton), findsNothing);
+  }, timeout: const Timeout(Duration(seconds: 60)));
 }
 
 /// TWO framework-internal assertions this harness causes and the screen does

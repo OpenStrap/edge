@@ -61,6 +61,13 @@ enum ManualWindowError {
   /// The window intersects one already in the log. Overlap would double-count
   /// the same minutes and confuse `savedSpans` auto-detect exclusion.
   overlapsExisting,
+
+  /// Retiming a scored session whose new window has no 1 Hz heart rate left
+  /// behind it (pruned past retention, or never on the band — a WHOOP import).
+  /// The rescore would come back empty and the replace-write would blank the
+  /// banked strain, calories, HR, zones and trace with nothing to rebuild
+  /// them from, so the edit is refused instead.
+  scoreNotRecomputable,
 }
 
 extension ManualWindowErrorMessage on ManualWindowError {
@@ -73,6 +80,9 @@ extension ManualWindowErrorMessage on ManualWindowError {
         ManualWindowError.inFuture => "That window hasn't happened yet.",
         ManualWindowError.overlapsExisting =>
           'That overlaps a workout already in your log.',
+        ManualWindowError.scoreNotRecomputable =>
+          "The heart rate behind this workout is no longer stored, so moving "
+              "its times would erase its strain and calories.",
       };
 }
 

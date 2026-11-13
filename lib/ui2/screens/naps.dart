@@ -32,6 +32,7 @@ import '../../compute/nap_edits.dart';
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/local_repository.dart';
+import '../../health/health_nap_export.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart' show whyFromNote;
 import '../../state/app_state.dart';
@@ -111,6 +112,10 @@ class _NapsScreenState extends State<NapsScreen> {
   bool _busy = false;
   String? _failed;
 
+  /// The last read threw. Shown as a retryable card: uncaught, `_d` stayed
+  /// null and the screen sat on its spinner with no way out.
+  bool _loadFailed = false;
+
   @override
   void initState() {
     super.initState();
@@ -118,18 +123,41 @@ class _NapsScreenState extends State<NapsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+  /// False when a read threw — a busy or locked database is enough. [_edit]
+  /// needs that answer: comparing against a list that was never re-read would
+  /// call a stale screen the engine's verdict.
+  Future<bool> _load() async {
     final repo = repoOf(context);
-    if (repo == null) return;
+    if (repo == null) return true;
     final token = ++_loadToken;
-    final d = await NapsData.load(repo, want: _day);
-    if (mounted && token == _loadToken) setState(() => _d = d);
+    try {
+      final d = await NapsData.load(repo, want: _day);
+      if (mounted && token == _loadToken) {
+        setState(() {
+          _d = d;
+          _loadFailed = false;
+        });
+      }
+      return true;
+    } catch (_) {
+      if (mounted && token == _loadToken) setState(() => _loadFailed = true);
+      return false;
+    }
+  }
+
+  void _retry() {
+    setState(() {
+      _loadFailed = false;
+      _d = null;
+    });
+    _load();
   }
 
   void _goDay(String day) {
     setState(() {
       _day = day;
       _d = null;
+      _loadFailed = false;
     });
     _load();
   }
@@ -159,10 +187,12 @@ class _NapsScreenState extends State<NapsScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-    if (mounted) await _load();
+    final reloaded = mounted && await _load();
     if (!mounted) return;
     final after = _d?.naps.map((n) => n['start']).toList();
-    if (failed != null || '$before' == '$after') {
+    // A reload that threw left `_d` as the pre-edit list, so before == after
+    // says nothing about the edit; the read-failed card covers that case.
+    if (failed != null || (reloaded && '$before' == '$after')) {
       final l = AppLocalizations.of(context);
       setState(() => _failed = failed ??
           l?.napsNotReanalysed ??
@@ -172,6 +202,9 @@ class _NapsScreenState extends State<NapsScreen> {
   }
 
   Future<void> _remove(String day, Map<String, dynamic> nap) => _edit(() async {
+        // DB edit + Health delete in one critical section, so a concurrently
+        // running per-day export cannot write this nap back after the delete.
+        await HealthNapExporter.shared.synchronized(() async {
         final start = nap['start'] as int, end = nap['end'] as int;
         // Their own entry is DELETED; the detector's is SUPPRESSED. Storing a
         // rejection for something the user typed would leave two rows fighting
@@ -183,10 +216,22 @@ class _NapsScreenState extends State<NapsScreen> {
           await LocalDb.putNapEdit(
               dayId: day, startTs: start, endTs: end, source: 'rejected');
         }
+        // The window is no longer a confirmed nap, so its Apple Health
+        // samples go too. A failed native delete is queued by the exporter
+        // (health_nap_pending_deletes) and retried by the next per-day
+        // export pass, so the false result needs no handling here.
+        await HealthNapExporter.deleteExportedNap(
+            startTs: start, endTs: end, dayId: day);
+        });
       });
 
-  Future<void> _restore(String day, int start) =>
-      _edit(() => LocalDb.deleteNapEdit(day, start));
+  Future<void> _restore(String day, int start) => _edit(() async {
+        await HealthNapExporter.shared.synchronized(() async {
+          await LocalDb.deleteNapEdit(day, start);
+          // "Put it back" restores the row as 'confirmed' — re-export it.
+          await HealthNapExporter.exportNapRow(dayId: day, startTs: start);
+        });
+      });
 
   /// Two pickers on the day being shown. Deliberately not a duration: people
   /// remember when they lay down and when they got up, not how long it was.
@@ -221,9 +266,15 @@ class _NapsScreenState extends State<NapsScreen> {
     // Both refusals are the shared rules, not a second copy written here.
     if (!manualNapWindowIsValid(s, e)) {
       setState(() => _failed = l?.napsInvalidWindow ??
-          'A nap is between 5 minutes and 6 hours. '
+          'A nap is between 5 minutes and 3 hours. '
               'Anything longer is a sleep, and it belongs in the night where the '
               'stages can be read.');
+      return;
+    }
+    if (!manualNapWindowHasEnded(
+        e, DateTime.now().millisecondsSinceEpoch ~/ 1000)) {
+      setState(() => _failed = l?.napsInFuture ??
+          "That nap hasn't finished yet. Log it once you're awake.");
       return;
     }
     if (napOverlapsExisting(s, e, _d?.naps ?? const [])) {
@@ -232,8 +283,22 @@ class _NapsScreenState extends State<NapsScreen> {
               'Remove that one first, rather than counting the same hour twice.');
       return;
     }
-    await _edit(() => LocalDb.putNapEdit(
-        dayId: day, startTs: s, endTs: e, source: 'manual'));
+    if (await LocalDb.napOverlapsMainSleep(s, e)) {
+      if (!mounted) return;
+      setState(() => _failed = l?.napsOverlapsSleep ??
+          'That overlaps your main sleep, which already counts that time. '
+              'Log only the part after you got up, or correct the night instead.');
+      return;
+    }
+    if (!mounted) return;
+    await _edit(() async {
+      await HealthNapExporter.shared.synchronized(() async {
+        await LocalDb.putNapEdit(
+            dayId: day, startTs: s, endTs: e, source: 'manual');
+        await HealthNapExporter.exportConfirmedNap(
+            dayId: day, startTs: s, endTs: e);
+      });
+    });
   }
 
   @override
@@ -241,6 +306,28 @@ class _NapsScreenState extends State<NapsScreen> {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final d = _d;
+    if (_loadFailed) {
+      return detailScaffold(c, l?.napsTitle ?? 'Naps', [
+        const SizedBox(height: S.x4),
+        StatusCard(
+          l?.wellnessLoadFailedTitle ?? 'This could not be read',
+          l?.wellnessLoadFailedBody ??
+              'Reading your stored data failed. Nothing was deleted — this is '
+                  'a read that went wrong, not missing data.',
+          fix: l?.homeTryAgain ?? 'Try again',
+          icon: LucideIcons.databaseZap,
+          onFix: _retry,
+        ),
+        // An edit can land on disk and then fail its re-read; what the edit
+        // itself said still has to reach the screen.
+        if (_failed != null) ...[
+          const SizedBox(height: S.x3),
+          StatusCard(l?.napsNotAppliedTitle ?? 'That has not been applied',
+              _failed!,
+              icon: LucideIcons.triangleAlert),
+        ],
+      ]);
+    }
     if (d == null) {
       return detailScaffold(c, l?.napsTitle ?? 'Naps', const [
         Padding(

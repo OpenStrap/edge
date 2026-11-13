@@ -31,6 +31,7 @@ void main() {
     bool Function()? disposed,
     bool healthSync = false,
     Future<int> Function()? runHealthExport,
+    Future<void> Function()? reclaim,
   }) =>
       DeriveCoordinator(
         // Every test installs a debug hook for the engine calls, so any real
@@ -52,7 +53,7 @@ void main() {
         healthSyncEnabled: () => healthSync,
         telemetryConsent: () => false,
         healthShareConsent: () => false,
-        maybeReclaimDiskSpace: () async => reclaims++,
+        maybeReclaimDiskSpace: reclaim ?? () async => reclaims++,
       );
 
   test('constructing the coordinator and its scheduler never touches derive',
@@ -114,6 +115,27 @@ void main() {
     expect(notifies, notifiesBeforeRescan + 1,
         reason: 'a rescan that refreshed days notifies once more');
     expect(reclaims, 1);
+  });
+
+  test('a heavy pass ends only after the disk reclaim does', () async {
+    // The scheduler starts its next job when a pass returns. The reclaim
+    // holds the derive latch, so a job started under it would derive nothing.
+    final reclaim = Completer<void>();
+    final coordinator = make(reclaim: () => reclaim.future);
+    addTearDown(coordinator.dispose);
+    coordinator.debugDeriveRun = (profile, {heavy = false, onDayDone}) async => 0;
+    coordinator.debugRescanRecent = (_) async => 0;
+
+    var finished = false;
+    final heavy =
+        coordinator.afterDrain(heavy: true).then((_) => finished = true);
+    for (var i = 0; i < 5; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(finished, isFalse);
+    reclaim.complete();
+    await heavy;
+    expect(finished, isTrue);
   });
 
   test('a rescan that throws is logged and the pass carries on', () async {

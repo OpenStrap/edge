@@ -277,7 +277,21 @@ object CompanionBridge {
  */
 @RequiresApi(Build.VERSION_CODES.S)
 class EdgeCompanionService : CompanionDeviceService() {
-    companion object { private const val TAG = "EdgeCompanionService" }
+    companion object {
+        private const val TAG = "EdgeCompanionService"
+
+        /**
+         * Unpairing never disassociates the band from CompanionDeviceManager, so
+         * the OS keeps delivering appearances for a band the user forgot (and
+         * ensureObserving re-arms every association on each app open). Without
+         * the paired check, every reappearance of a forgotten band brought back
+         * the tracking notification and booted a headless engine with nothing to
+         * connect to. Same gate BootReceiver and KeepAliveWorker use.
+         */
+        @JvmStatic
+        internal fun shouldStartOnAppear(running: Boolean, paired: Boolean): Boolean =
+            paired && !running
+    }
 
     // API 31–32 signature.
     @Deprecated("Deprecated in API 33; still the delivery path on 31–32")
@@ -306,7 +320,10 @@ class EdgeCompanionService : CompanionDeviceService() {
         // mid-workout) must not churn an already-running service — a restart just
         // rebuilds and re-posts the notification. `running` is exact in-process,
         // and a dead process initializes it false, so the cold path still starts.
-        if (EdgeTrackingService.running) return
+        if (!shouldStartOnAppear(
+                EdgeTrackingService.running,
+                KeepAliveWorker.hasPairedDevice(this),
+            )) return
         try {
             EdgeTrackingService.start(this)
         } catch (e: Exception) {

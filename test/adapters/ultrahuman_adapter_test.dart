@@ -92,6 +92,7 @@ Future<(List<BandEvent>, ReplayBandLink)> _drive(
   List<List<int>> Function(int writeIndex, List<int> value) reply, {
   bool confirmBatches = true,
   List<(String, List<int>)> extraFeeds = const [],
+  Duration spinDelay = Duration.zero,
 }) async {
   final link = ReplayBandLink();
   for (final (uuid, value) in extraFeeds) {
@@ -108,7 +109,7 @@ Future<(List<BandEvent>, ReplayBandLink)> _drive(
       );
   var served = 0;
   for (var spin = 0; spin < 400 && !done.isCompleted; spin++) {
-    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(spinDelay);
     while (served < link.writes.length) {
       final w = link.writes[served];
       for (final f in reply(served, w.$2)) {
@@ -580,6 +581,46 @@ void main() {
     });
     expect(events.whereType<SampleBatch>(), isEmpty);
     expect(events.whereType<OffloadCheckpoint>(), isEmpty);
+    // The ring refused the history outright: said out loud, not a quiet end
+    // the link would report as a sync that worked.
+    expect(
+        events
+            .whereType<BandNote>()
+            .where((n) => n.key == kUltrahumanDrainFailedNote)
+            .map((n) => n.value),
+        ['result_failed:0x${kUltrahumanResultFail.toRadixString(16)}']);
+  });
+
+  test('a ring that never answers anything ends with a no_reply note',
+      () async {
+    // Real time between spins: the link must outlive both unanswered index
+    // requests, or the drain ends on a closed link instead.
+    final (events, _) = await _drive(_adapter(), (i, v) => const [],
+        spinDelay: const Duration(milliseconds: 5));
+    expect(events.whereType<SampleBatch>(), isEmpty);
+    expect(
+        events
+            .whereType<BandNote>()
+            .where((n) => n.key == kUltrahumanDrainFailedNote)
+            .map((n) => n.value),
+        ['no_reply']);
+  });
+
+  test('an empty ok answer is a ring with nothing new, not a failure',
+      () async {
+    final (events, _) = await _drive(_adapter(), (i, v) {
+      if (v.first == kUltrahumanOpGetRecordings) {
+        return [
+          _response(kUltrahumanOpGetRecordings, kUltrahumanResultOk, const [])
+        ];
+      }
+      return const [];
+    }, spinDelay: const Duration(milliseconds: 5));
+    expect(
+        events
+            .whereType<BandNote>()
+            .any((n) => n.key == kUltrahumanDrainFailedNote),
+        isFalse);
   });
 
   test('a fail frame after good ones banks the good records instead of '
@@ -613,6 +654,13 @@ void main() {
     // The failure still ends the drain — only one pull is ever sent.
     expect(link.writes.where((w) => w.$2.first == kUltrahumanOpGetRecordings),
         hasLength(1));
+    // Records landed this session, so the late failure is not reported as
+    // a failed sync; the cursor resumes from them next time.
+    expect(
+        events
+            .whereType<BandNote>()
+            .any((n) => n.key == kUltrahumanDrainFailedNote),
+        isFalse);
   });
 
   test('an unconfirmed batch leaves the cursor where it was', () async {
@@ -638,6 +686,40 @@ void main() {
         isFalse);
     expect(link.writes.where((w) => w.$2.first == kUltrahumanOpGetRecordings),
         hasLength(1));
+    // Said out loud, so the link does not report this as a sync that worked.
+    expect(
+        events
+            .whereType<BandNote>()
+            .where((n) => n.key == kUltrahumanDrainFailedNote)
+            .map((n) => n.value),
+        ['unconfirmed']);
+  });
+
+  test('a refused history request ends the drain with a failure note, not '
+      'quietly', () async {
+    final link = ReplayBandLink()..writeSucceeds = false;
+    final events = await _adapter().run(link).toList();
+    expect(
+        events
+            .whereType<BandNote>()
+            .where((n) => n.key == kUltrahumanDrainFailedNote)
+            .map((n) => n.value),
+        ['request_refused']);
+  });
+
+  test('a ring with nothing new ends without a failure note', () async {
+    final (events, _) = await _drive(_adapter(startIndex: 3), (i, v) {
+      if (v.first == kUltrahumanOpGetEarliestIndex) {
+        return _index(kUltrahumanOpGetEarliestIndex, 1);
+      }
+      if (v.first == kUltrahumanOpGetLatestIndex) {
+        return _index(kUltrahumanOpGetLatestIndex, 2);
+      }
+      return const [];
+    });
+    expect(
+        events.whereType<BandNote>().any((n) => n.key == kUltrahumanDrainFailedNote),
+        isFalse);
   });
 
   test('battery reaches the host as a note, never as a sample', () async {

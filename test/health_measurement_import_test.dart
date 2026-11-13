@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health/health.dart';
 import 'package:openstrap_edge/health/health_measurement_import.dart';
@@ -20,6 +21,20 @@ HealthDataPoint _p(
       sourceDeviceId: 'dev',
       sourceName: source,
     );
+
+class _ThrowingHealth extends Health {
+  @override
+  Future<void> configure() async {}
+
+  @override
+  Future<List<HealthDataPoint>> getHealthDataFromTypes({
+    required List<HealthDataType> types,
+    required DateTime startTime,
+    required DateTime endTime,
+    List<RecordingMethod> recordingMethodsToFilter = const [],
+  }) async =>
+      throw PlatformException(code: 'RemoteException', message: 'quota');
+}
 
 void main() {
   test('a cuff reading keeps the cuff\'s name', () {
@@ -80,5 +95,13 @@ void main() {
       _p(HealthDataType.BODY_TEMPERATURE, 36.8, uuid: 't', source: '  '),
     ]);
     expect(rows.single['source'], 'Unknown app');
+  });
+
+  test('a read that throws surfaces as an error, not as "nothing came back"',
+      () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final importer =
+        ImportedMeasurementImporter(health: _ThrowingHealth(), isApple: false);
+    await expectLater(importer.sync(), throwsA(isA<PlatformException>()));
   });
 }

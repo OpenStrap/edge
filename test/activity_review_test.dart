@@ -61,11 +61,13 @@ void main() {
     int? version,
     List<dynamic> naps = const [],
     String? source = 'band',
+    Map<String, num>? mainWindow,
   }) async {
     await LocalDb.putDayResult(
       dayId: day,
       algoVersion: version ?? kAlgoVersion,
       payloadJson: jsonEncode({
+        if (mainWindow != null) 'sleep': {'window': {'value': mainWindow}},
         'scalars': {'rhr': 53, 'readiness': 74, 'nap_min': 0},
         'naps': {'value': naps, 'count': naps.length},
         'sleep_periods': {
@@ -170,6 +172,15 @@ void main() {
     await LocalDb.importFromDbFile(path);
     expect(await store.mayNotifyNew(proposal, nowTs: now), isFalse);
     expect(await store.pending(), hasLength(1));
+  });
+
+  test('an unanswered suggestion leaves the review list after a week',
+      () async {
+    await detectNap();
+    expect(await store.pending(nowTs: now), hasLength(1));
+    final later = now + ActivityStore.pendingShownForSec + 7200;
+    expect(await store.pending(nowTs: later), isEmpty);
+    expect(await store.pendingCount(nowTs: later), 0);
   });
 
   test(
@@ -483,6 +494,65 @@ void main() {
     expect(await store.pending(), isEmpty);
   });
 
+  test('a corrected main window excludes a captured legacy nap on every write', () async {
+    await db.update('activity_review_meta', {'activated_at': now});
+    await dayResult(version: kAlgoVersion - 1, naps: [nap()], source: null);
+    await dayResult(mainWindow: {
+      'onset_ms': (start - 6 * 3600) * 1000,
+      'offset_ms': (start + 3600) * 1000,
+    });
+    Future<void> check() async {
+      final saved = jsonDecode((await LocalDb.dayResult(day))!['payload_json'] as String);
+      expect(saved['naps']['value'], isEmpty);
+      expect(saved['scalars']['nap_min'], 0);
+      expect(saved['sleep_periods']['total_asleep_min'], 420);
+      expect((await LocalDb.metricSeries('nap_min')).single['value'], 0);
+      expect((await LocalDb.napEdits(day)).single['source'], 'legacy');
+    }
+    await check();
+    // The durable review path has no raw input and must compose identically.
+    await ActivityStore.markDayChanged(db, day);
+    await LocalDb.applyPendingActivityReviews();
+    await check();
+  });
+
+  test('a partially overlapping captured nap survives persistence and review', () async {
+    await db.update('activity_review_meta', {'activated_at': now});
+    await dayResult(version: kAlgoVersion - 1, naps: [nap()], source: null);
+    await dayResult(mainWindow: {
+      'onset_ms': (start - 6 * 3600) * 1000,
+      'offset_ms': (start + 900) * 1000,
+    });
+    Future<void> check() async {
+      final saved = jsonDecode((await LocalDb.dayResult(day))!['payload_json'] as String);
+      expect(saved['naps']['value'], hasLength(1));
+      expect(saved['scalars']['nap_min'], 24);
+      expect(saved['sleep_periods']['total_asleep_min'], 444);
+      expect((await LocalDb.metricSeries('nap_min')).single['value'], 24);
+      expect((await LocalDb.napEdits(day)).single['source'], 'legacy');
+    }
+    await check();
+    await ActivityStore.markDayChanged(db, day);
+    await LocalDb.applyPendingActivityReviews();
+    await check();
+  });
+
+  test('putting a legacy nap back records an explicit confirmation', () async {
+    await db.update('activity_review_meta', {'activated_at': now});
+    await dayResult(version: kAlgoVersion - 1, naps: [nap()], source: null);
+    await dayResult(mainWindow: {
+      'onset_ms': (start - 6 * 3600) * 1000,
+      'offset_ms': (start + 3600) * 1000,
+    });
+    await LocalDb.putNapEdit(dayId: day, startTs: start, endTs: start + 1800, source: 'rejected');
+    await LocalDb.deleteNapEdit(day, start);
+    await LocalDb.applyPendingActivityReviews();
+    final saved = jsonDecode((await LocalDb.dayResult(day))!['payload_json'] as String);
+    expect((await LocalDb.napEdits(day)).single['source'], 'confirmed');
+    expect(saved['naps']['value'], hasLength(1));
+    expect(saved['scalars']['nap_min'], 24);
+  });
+
   test('older refresh cannot clear a newer durable review job', () async {
     final s = await detectNap();
     await store.discard(s);
@@ -607,21 +677,28 @@ void main() {
     () async {
       tz_data.initializeTimeZones();
       final rome = tz.getLocation('Europe/Rome');
-      final a = tz.TZDateTime(rome, 2025, 10, 26, 1, 30);
-      final b = tz.TZDateTime(rome, 2025, 10, 26, 3, 30);
-      final st = a.millisecondsSinceEpoch ~/ 1000,
-          en = b.millisecondsSinceEpoch ~/ 1000;
-      expect(en - st, 3 * 3600); // repeated hour is real elapsed sleep time
+      // Anchors are UTC instants, not wall times: on the Rome fall-back day
+      // (2025-10-26) the wall hour 01:00-01:59 occurs twice, and whether a
+      // TZDateTime picks the first or second occurrence differs between
+      // tzdata versions (CI vs Windows ICU) — elapsed-time math must not
+      // depend on it. 22:30Z == 00:30 CEST local; +2 h crosses the fold.
+      final st = DateTime.utc(2025, 10, 25, 22, 30).millisecondsSinceEpoch ~/
+          1000;
+      final en = st + 2 * 3600; // 2 h elapsed across the fold (01:30 CET local)
+      expect(en - st, 2 * 3600); // repeated hour is real elapsed sleep time
+      expect(tz.TZDateTime(rome, 2025, 10, 26, 0, 30).millisecondsSinceEpoch ~/
+              1000,
+          st); // sanity: the UTC anchor really is 00:30 local in Rome
       await db.update('activity_review_meta', {'activated_at': st - 86400});
       final proposal = (await store.reconcile(ActivityKind.nap, [
-        {'start': st, 'end': en, 'duration_min': 150},
+        {'start': st, 'end': en, 'duration_min': 120},
       ])).single;
-      await repo.confirmActivity(proposal, startTs: st - 2 * 3600, endTs: en);
+      await repo.confirmActivity(proposal, startTs: st - 3600, endTs: en);
       final label = dayLabelOf(
-        DateTime.fromMillisecondsSinceEpoch((st - 2 * 3600) * 1000),
+        DateTime.fromMillisecondsSinceEpoch((st - 3600) * 1000),
       );
       final row = (await LocalDb.napEdits(label)).single;
-      expect((row['end_ts'] as int) - (row['start_ts'] as int), 5 * 3600);
+      expect((row['end_ts'] as int) - (row['start_ts'] as int), 3 * 3600);
       // both the detected and the edited start's local day get revised; they
       // are two days only where the host zone puts midnight between them
       final days = (await db.query('activity_review_days'))

@@ -492,6 +492,20 @@ void main() {
           isTrue);
     });
 
+    // Only bites where the device clock observes DST (e.g.
+    // TZ=America/New_York): 2027-03-13 → 03-15 spans the 23 h spring-forward
+    // day, so the two local midnights are 47 h apart.
+    test('two calendar days back is stale across a spring-forward night', () {
+      expect(
+          WidgetService.isStale(at('2027-03-13'),
+              now: DateTime(2027, 3, 15, 9)),
+          isTrue);
+      expect(
+          WidgetService.isStale(at('2027-03-14'),
+              now: DateTime(2027, 3, 15, 23, 59)),
+          isFalse);
+    });
+
     test('an unknown age is not a claim of staleness', () {
       expect(
           WidgetService.isStale(TodayData.fromJson({'daily': const {}}),

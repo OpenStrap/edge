@@ -118,6 +118,19 @@ class LabMarker {
   /// as "fine".
   bool? inRange(double value, {String? sex}) => rangeFor(sex)?.contains(value);
 
+  /// Whether a result stored under [stored] can be judged against [ranges],
+  /// which are written in [unit]. A CSV import keeps whatever unit the row
+  /// carried, so 5.4 mmol/L glucose can sit next to a 70–99 mg/dL interval;
+  /// comparing across units would paint a normal value as out of range (or an
+  /// abnormal one as fine), and converting would be a guess. No stored unit
+  /// means the result was entered in the catalogue's own unit. The match is
+  /// exact on purpose: a mismatch only costs the verdict, a false match
+  /// costs a wrong one.
+  bool judgesUnit(Object? stored) {
+    final u = stored?.toString().trim() ?? '';
+    return u.isEmpty || u == unit;
+  }
+
   String format(double v) => v.toStringAsFixed(decimals);
   String formatWithUnit(double v) => '${format(v)} $unit';
 }
