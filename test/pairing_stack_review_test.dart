@@ -257,7 +257,7 @@ void main() {
     final app = _App();
     addTearDown(app.dispose);
     final probe = Completer<String?>();
-    await _screen(t, app, DevicePickerScreen(debugScanHeldBackReason: () => probe.future));
+    await _screen(t, app, DevicePickerScreen(includeBand: false, debugScanHeldBackReason: () => probe.future));
     final view = t.widget<DevicePickerView>(find.byType(DevicePickerView));
     view.onScan!();
     view.onOpenEntry!(kWhoopGen4);
