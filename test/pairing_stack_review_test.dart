@@ -30,6 +30,7 @@ class _App extends AppState {
   Completer<BluetoothDevice?>? scanned;
   String? scannedGeneration;
   String? scannedRemoteId;
+  Object? pickerError;
   var replacements = 0;
   var pickers = 0;
   @override
@@ -48,7 +49,15 @@ class _App extends AppState {
   @override
   Future<void> replaceWith(BluetoothDevice device) async => replacements++;
   @override
-  Future<void> replaceViaAccessorySetup() async => pickers++;
+  Future<void> replaceViaAccessorySetup() async {
+    pickers++;
+    if (pickerError != null) throw pickerError!;
+  }
+  @override
+  Future<void> pairViaAccessorySetup({String? serial}) async {
+    pickers++;
+    if (pickerError != null) throw pickerError!;
+  }
   @override
   Future<void> refreshSensors() async {}
 }
@@ -285,6 +294,113 @@ void main() {
     expect(t.widget<PairingView>(find.byType(PairingView)).phase, PairPhase.notFound);
     expect(t.widget<PairingView>(find.byType(PairingView)).resetEntry, isNull);
     expect(find.text('WHOOP 4'), findsNothing);
+  });
+
+  for (final replacing in [true, false]) {
+    // WHY: ASK can select a different generation from the row that opened it.
+    // CLAIM(pairing-help-model); catches: using the tapped entry after ASK failure.
+    testWidgets('ASK failure never assumes the tapped generation (replace=$replacing)', (t) async {
+      final app = _App()
+        ..supported = (Completer<bool>()..complete(true))
+        ..pickerError = StateError('bootstrap failed');
+      addTearDown(app.dispose);
+      await _screen(t, app, PairingScreen(entry: kWhoopGen4, replacing: replacing));
+      await t.tap(find.text('Find my band'));
+      await t.pumpAndSettle();
+      final view = t.widget<PairingView>(find.byType(PairingView));
+      expect(view.phase, PairPhase.failed);
+      expect(view.resetEntry, isNull);
+      expect(find.text('WHOOP 4'), findsNothing);
+    });
+  }
+
+  // WHY: iOS cannot scan an accessory before ASK grants access to it.
+  // CLAIM(replacement-without-scan); catches: requiring a nearby WHOOP row.
+  testWidgets('add device can replace the main band without a scan result', (t) async {
+    final app = _App()..supported = (Completer<bool>()..complete(true));
+    addTearDown(app.dispose);
+    await _screen(t, app, DevicePickerScreen(includeBand: false,
+        debugScanHeldBackReason: () async => 'No scan needed'));
+    await t.pumpAndSettle();
+    expect(find.text('Replace my band'), findsOneWidget);
+    await t.tap(find.text('Replace my band'));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('replace-confirm-yes')));
+    await t.pumpAndSettle();
+    final screen = t.widget<PairingScreen>(find.byType(PairingScreen));
+    expect(screen.replacing, isTrue);
+    expect(screen.remoteId, isNull);
+    expect(screen.modelKnown, isFalse);
+    await t.tap(find.text('Find my band'));
+    await t.pumpAndSettle();
+    expect(app.pickers, 1);
+    expect(app.scannedGeneration, isNull);
+    expect(app.paired?.remoteId, 'old');
+  });
+
+  // WHY: backing out of a ring's authenticated pairing saved nothing.
+  // CLAIM(unframed-pairing-result); catches: treating all unframed handoffs as success.
+  testWidgets('ring handoff cancellation keeps the original candidate', (t) async {
+    final app = _App();
+    addTearDown(app.dispose);
+    final candidate = (device: BluetoothDevice.fromId('ring'), label: 'Candidate ring',
+        rssi: -50, entryId: 'ble_hrs', alsoBand: null);
+    final entered = Completer<void>();
+    await _screen(t, app, PairSensorScreen(entry: kBleHrs, debugFound: [candidate],
+        debugPair: (_) async {
+          entered.complete();
+          return const PairOutcome.band(kOura);
+        }));
+    await t.pumpAndSettle();
+    var done = false;
+    final pick = t.widget<PairSensorView>(find.byType(PairSensorView)).onPick!
+        as Future<void> Function(BandCandidate);
+    final pairing = pick(candidate).whenComplete(() => done = true);
+    await _ioUntil(t, () => entered.isCompleted);
+    await t.pumpAndSettle();
+    await t.tap(find.text('Pair Oura Ring'));
+    await t.pumpAndSettle();
+    expect(find.byType(PairSensorScreen, skipOffstage: false), findsNWidgets(2));
+    Navigator.of(t.element(find.byType(PairSensorScreen).last)).pop();
+    await t.pumpAndSettle();
+    await _ioUntil(t, () => done);
+    await pairing;
+    expect(find.textContaining('Nothing was saved'), findsOneWidget);
+    expect(find.text('Candidate ring'), findsOneWidget);
+  });
+
+  // WHY: requiring an explicit result must still accept a successful child pair.
+  // CLAIM(unframed-pairing-result); catches: always returning cancellation after handoff.
+  testWidgets('wearable child returns success only after its pairing succeeds', (t) async {
+    final app = _App();
+    addTearDown(app.dispose);
+    final candidate = (device: BluetoothDevice.fromId('ring'), label: 'Ring',
+        rssi: -50, entryId: 'oura', alsoBand: null);
+    BandFlowResult? result;
+    final pairedIds = <String>[];
+    await _screen(t, app, Builder(builder: (c) => TextButton(
+      onPressed: () async {
+        result = await Navigator.of(c).push(MaterialPageRoute<BandFlowResult>(
+          builder: (_) => PairSensorScreen(entry: kOura, returnOnPair: true,
+            debugFound: [candidate], onPicked: (device) async {
+              pairedIds.add(device.remoteId.str);
+              return null;
+            }),
+        ));
+      }, child: const Text('Open wearable'))));
+    await t.tap(find.text('Open wearable'));
+    await t.pumpAndSettle();
+    expect(result, isNull);
+    var done = false;
+    final pick = t.widget<PairSensorView>(find.byType(PairSensorView)).onPick!
+        as Future<void> Function(BandCandidate);
+    final pairing = pick(candidate).whenComplete(() => done = true);
+    await _ioUntil(t, () => done);
+    await pairing;
+    await t.pumpAndSettle();
+    expect(pairedIds, ['ring']);
+    expect(result, BandFlowResult.pairedWearable);
+    expect(find.byType(PairSensorScreen), findsNothing);
   });
 
   // WHY: an old primary still existing does not prove a replacement succeeded.

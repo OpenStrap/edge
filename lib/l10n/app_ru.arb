@@ -8286,5 +8286,6 @@
   },
   "pairSearchDevices": "Найти устройства",
   "pairPrimaryCannotBeSensor": "Это уже ваш основной браслет. Его нельзя также подключить как датчик для тренировок.",
-  "capReasonSkinTempProvisional": "Предварительная оценка; нужны данные за несколько ночей"
+  "capReasonSkinTempProvisional": "Предварительная оценка; нужны данные за несколько ночей",
+  "pairReplaceMyBand": "Заменить мой браслет"
 }

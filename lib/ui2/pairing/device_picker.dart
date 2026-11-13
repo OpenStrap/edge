@@ -199,7 +199,11 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
   /// A device found by the live scan was tapped. [AddDeviceFlow] decides what
   /// it is (a band or a sensor), asks the user where that matters, and calls
   /// back here to do the pairing.
-  Future<void> _pickNearby(BandCandidate cand) async {
+  Future<void> _pickNearby(BandCandidate cand) => _runTap(cand);
+
+  Future<void> _replaceBand() => _runTap(null);
+
+  Future<void> _runTap(BandCandidate? cand) async {
     // One flow at a time: a second tap while a sheet, a confirm or the
     // unpair of the old band is still running starts nothing.
     if (_locked || _flow.running) return;
@@ -211,7 +215,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
     });
     final AddDeviceResult result;
     try {
-      result = await _flow.onTap(context, cand);
+      result = cand == null
+          ? await _flow.replaceMainBand(context)
+          : await _flow.onTap(context, cand);
     } finally {
       if (mounted) setState(() => _locked = false);
     }
@@ -247,9 +253,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
   String? get mainBandName => context.read<AppState>().strapName;
 
   @override
-  Future<void> openBandFlow(BandEntry band,
-          {required String remoteId, bool modelKnown = true, bool replacing = false}) =>
-      _openEntry(band, remoteId: remoteId, modelKnown: modelKnown, replacing: replacing);
+  Future<BandFlowResult> openBandFlow(BandEntry band,
+          {required String? remoteId, bool modelKnown = true, bool replacing = false}) =>
+      _openEntry(band, remoteId: remoteId, modelKnown: modelKnown, replacing: replacing, returnOnPair: true);
 
   @override
   Future<void> stopScan() => HrsLink.stopScanIfRunning(this);
@@ -343,21 +349,21 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
   /// A category or brand row, tapped deliberately rather than found live; or
   /// a scanned band handed over by [AddDeviceFlow] ([remoteId], [modelKnown]
   /// as [AddDeviceIo.openBandFlow]).
-  Future<void> _openEntry(BandEntry entry,
-      {String? remoteId, bool modelKnown = true, bool replacing = false}) async {
+  Future<BandFlowResult> _openEntry(BandEntry entry,
+      {String? remoteId, bool modelKnown = true, bool replacing = false, bool returnOnPair = false}) async {
     if (entry.isFramed) {
       // The pushed screen covers this one without disposing it, so this
       // screen's 15 s scan would keep the scan lock — and "Find my band"
       // would sit queued behind the rest of it, spinner already running,
       // before its own scan even starts. Nothing here can show its results.
       await HrsLink.stopScanIfRunning(this);
-      if (!mounted) return;
+      if (!mounted) return BandFlowResult.closed;
       await Navigator.of(context).push(MaterialPageRoute<void>(
         builder: (_) => PairingScreen(
             entry: entry, modelKnown: modelKnown, remoteId: remoteId, replacing: replacing),
       ));
       if (mounted) await _afterPair();
-      return;
+      return BandFlowResult.closed;
     }
     // `.where(...).firstOrNull`, never `firstWhere`: the category list comes
     // from `kBandRegistry` and the pairing steps from `kPairableSensors`, two
@@ -370,7 +376,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
       setState(() => _problem = AppLocalizations.of(context)
               ?.devicePickerCannotPairFromHere ??
           'That device cannot be paired from this screen.');
-      return;
+      return BandFlowResult.closed;
     }
     // Re-checked on every tap: this screen stays open after a pair, and the
     // onboarding and re-pair routes reach it without `addSensor`'s check.
@@ -379,14 +385,15 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
     if (await refuseIfSensorCapReached(context,
             adapterId: sensor.entry.id, anyOfAdapter: true) ||
         !mounted) {
-      return;
+      return BandFlowResult.closed;
     }
     // Same as the framed branch: the sensor's own scan queues behind ours.
     await HrsLink.stopScanIfRunning(this);
-    if (!mounted) return;
-    await Navigator.of(context).push(MaterialPageRoute<void>(
+    if (!mounted) return BandFlowResult.closed;
+    final result = await Navigator.of(context).push(MaterialPageRoute<BandFlowResult>(
       builder: (_) => PairSensorScreen(
         entry: sensor.entry,
+        returnOnPair: returnOnPair,
         onPicked: sensor.pick,
         // The ring alone can be paired with the key its own app installed —
         // see `pairOuraRingWithKey`.
@@ -396,6 +403,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
       ),
     );
     if (mounted) await _afterPair();
+    return result ?? BandFlowResult.closed;
   }
 
   Future<void> _afterPair() async {
@@ -454,6 +462,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
       ],
       onScan: _heldBack == null ? _start : _scan,
       onPickNearby: _pickNearby,
+      onReplaceBand: hasMainBand ? _replaceBand : null,
       onOpenEntry: _browseEntry,
       kindSelection: _kind,
       notice: _notice,
@@ -482,6 +491,7 @@ class DevicePickerView extends StatelessWidget {
   final List<({BandEntry entry, String blurb, IconData icon})> categories;
 
   final VoidCallback? onScan;
+  final VoidCallback? onReplaceBand;
   final void Function(BandCandidate)? onPickNearby;
   final void Function(BandEntry)? onOpenEntry;
   final VoidCallback? onSkip;
@@ -512,6 +522,7 @@ class DevicePickerView extends StatelessWidget {
     this.busyRemoteId,
     this.categories = const [],
     this.onScan,
+    this.onReplaceBand,
     this.onPickNearby,
     this.onOpenEntry,
     this.onSkip,
@@ -577,6 +588,12 @@ class DevicePickerView extends StatelessWidget {
                 ],
                 Text(subtitle, style: F.body.copyWith(color: p.ink3)),
                 const SizedBox(height: S.x4),
+                if (onReplaceBand != null) ...[
+                  BigButton(l?.pairReplaceMyBand ?? 'Replace my band',
+                      key: const ValueKey('device-picker-replace-band'),
+                      soft: true, onTap: busy ? null : onReplaceBand),
+                  const SizedBox(height: S.x4),
+                ],
                 _SearchField(controller: query),
                 if (kindSelection != null && groups.length > 1) ...[
                   const SizedBox(height: S.x3),

@@ -17116,5 +17116,6 @@
   "napAutoLogSaveFailed": "That setting could not be saved. Try again.",
   "pairSearchDevices": "Search for devices",
   "pairPrimaryCannotBeSensor": "This is already your main band. It cannot also be paired as a workout sensor.",
-  "capReasonSkinTempProvisional": "Provisional estimate; needs a few nights"
+  "capReasonSkinTempProvisional": "Provisional estimate; needs a few nights",
+  "pairReplaceMyBand": "Replace my band"
 }

@@ -108,6 +108,9 @@ class PairSensorScreen extends StatefulWidget {
   @visibleForTesting
   final Future<PairOutcome> Function(BluetoothDevice)? debugPair;
 
+  /// A handoff needs a successful pair result, not just a closed route.
+  final bool returnOnPair;
+
   const PairSensorScreen({
     super.key,
     required this.entry,
@@ -115,6 +118,7 @@ class PairSensorScreen extends StatefulWidget {
     this.onPickedWithKey,
     this.debugFound,
     this.debugPair,
+    this.returnOnPair = false,
   });
 
   @override
@@ -350,6 +354,10 @@ class _PairSensorScreenState extends State<PairSensorScreen>
     // The key belonged to the device just paired; a second pair from this
     // screen must not silently reuse it.
     if (failure == null) _key.clear();
+    if (failure == null && widget.returnOnPair) {
+      Navigator.of(context).pop(BandFlowResult.pairedWearable);
+      return;
+    }
     if (failure == null) await _load();
   }
 
@@ -412,29 +420,31 @@ class _PairSensorScreenState extends State<PairSensorScreen>
   Future<String?> mainBandBlockedReason() => HrsLink.scanHeldBackReason();
 
   @override
-  Future<void> openBandFlow(BandEntry band,
-      {required String remoteId, bool modelKnown = true, bool replacing = false}) async {
-    if (!mounted) return;
+  Future<BandFlowResult> openBandFlow(BandEntry band,
+      {required String? remoteId, bool modelKnown = true, bool replacing = false}) async {
+    if (!mounted) return BandFlowResult.closed;
     if (!band.isFramed) {
       // A ring pairs only on its own screen, with its key (the same screen
       // "Add a device" opens for it).
       final sensor =
           kPairableSensors.where((s) => s.entry.id == band.id).firstOrNull;
-      if (sensor == null) return;
-      await Navigator.of(context).push(MaterialPageRoute<void>(
+      if (sensor == null) return BandFlowResult.closed;
+      final result = await Navigator.of(context).push(MaterialPageRoute<BandFlowResult>(
         builder: (_) => PairSensorScreen(
           entry: band,
+          returnOnPair: true,
           onPicked: sensor.pick,
           onPickedWithKey:
               band.id == kOura.id ? pairOuraRingWithTypedKey : null,
         ),
       ));
-      return;
+      return result ?? BandFlowResult.closed;
     }
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) =>
           PairingScreen(entry: modelKnown ? band : null, remoteId: remoteId, replacing: replacing),
     ));
+    return BandFlowResult.closed;
   }
 
   Future<void> _forget(String id) async {
@@ -813,7 +823,7 @@ String? afterBandFoundText(
       AddDeviceOutcome.pairedSecondary || AddDeviceOutcome.pairedOther => null,
       AddDeviceOutcome.failed || AddDeviceOutcome.bandFlowHeldBack => r.message,
       AddDeviceOutcome.openedBandFlow
-          when bandPairedNow || outcome.isBand?.isFramed == false =>
+          when bandPairedNow =>
         null,
       // Backed out, or the band flow did not pair it: nothing was saved.
       AddDeviceOutcome.cancelled ||

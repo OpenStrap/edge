@@ -86,7 +86,7 @@ Future<void> handleHeadlessAlarmEvent(int id, {int? tsSec}) async {
 /// instead of deduping on a stale epoch.
 @visibleForTesting
 Future<void> headlessArmAndConfirm(Future<AlarmArmResult> Function() arm,
-    Future<bool> Function(int sinceMs) latchedSince) async {
+    Future<bool> Function(int sinceMs) latchedSince, {String? remoteId}) async {
   final armedAtMs = DateTime.now().millisecondsSinceEpoch;
   final result = await arm();
   final prefs = await SharedPreferences.getInstance();
@@ -97,9 +97,12 @@ Future<void> headlessArmAndConfirm(Future<AlarmArmResult> Function() arm,
     // The strap's own reply already named this wake time: no wait needed.
     final confirmed = result.echoed ||
         await awaitAlarmLatch(() => latchedSince(armedAtMs));
-    await prefs.setInt('alarm_epoch', result.epoch!);
+    if (!await prefs.setInt('alarm_epoch', result.epoch!)) {
+      throw StateError('Could not save the armed alarm.');
+    }
     await prefs.setInt('alarm_set_at_ms', armedAtMs);
     await prefs.setBool('alarm_epoch_confirmed', confirmed);
+    if (remoteId != null) await prefs.setString(kAlarmRemoteId, remoteId);
   }
 }
 
@@ -246,7 +249,7 @@ Future<void> prepareHeadlessLink(BleEngine engine, PairedDevice paired) async {
   ]);
   final preSyncPrefs = await SharedPreferences.getInstance();
   final armedWindow = armedSmartWakeWindow(
-    epoch: preSyncPrefs.getInt('alarm_epoch'),
+    epoch: persistedAlarmEpoch(preSyncPrefs, paired.remoteId),
     schedule: preSyncSchedule,
   );
   final plan = await HighFreqWakeWindow.planNow(
@@ -285,13 +288,15 @@ Future<void> rearmHeadlessAlarm(BleEngine engine) async {
         AlarmScheduleEntry.fromRow(r),
     ]);
     final prefs = await SharedPreferences.getInstance();
+    final remoteId = (await PairedDevice.load())?.remoteId;
     await headlessArmAndConfirm(
       () => armNextScheduledOccurrence(
         engine: engine,
         schedule: schedule,
-        currentArmedEpoch: prefs.getInt('alarm_epoch'),
+        currentArmedEpoch: persistedAlarmEpoch(prefs, remoteId),
       ),
       LocalDb.alarmSetConfirmedSince,
+      remoteId: remoteId,
     );
   } catch (e) {
     debugPrint('[bgsync] alarm re-arm skipped: $e');

@@ -3777,5 +3777,6 @@
   "whoopFirmwareWarningDetails": "Berichte zur WHOOP 5.0 / MG Firmware 50.43.1.0 und 50.43.2.0 beschreiben einen blockierten Datenzugriff. Bluetooth kann sich weiterhin verbinden. OpenStrap kann das von WHOOP signierte Mitgliedschafts-Token nicht ausstellen, das betroffene Bänder entsperrt. Wir arbeiten an einer Lösung, aber es gibt noch keine Abhilfe.",
   "pairSearchDevices": "Nach Geräten suchen",
   "pairPrimaryCannotBeSensor": "Dies ist bereits dein Hauptarmband. Es kann nicht zusätzlich als Trainingssensor gekoppelt werden.",
-  "capReasonSkinTempProvisional": "Vorläufige Schätzung; benötigt einige Nächte"
+  "capReasonSkinTempProvisional": "Vorläufige Schätzung; benötigt einige Nächte",
+  "pairReplaceMyBand": "Mein Band ersetzen"
 }

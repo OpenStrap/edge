@@ -521,11 +521,14 @@ class SyncController {
   /// (including the required subscriptions and gen5 HELLO) before [confirm].
   /// No reconnect loop is started for an unconfirmed band. On failure retain
   /// its ASK grant so Retry can use it, but retire native restore intent.
+  /// [onStarted] runs only after admission, before departure can fail. A false
+  /// result without this callback means the prior live state is untouched.
   Future<bool> connectForPairing(
     PairedDevice candidate, {
     required Future<void> Function() confirm,
     String? replacingRemoteId,
     Future<void> Function()? prepare,
+    void Function()? onStarted,
   }) async {
     final existing = paired;
     final allowed = replacingRemoteId == null
@@ -535,6 +538,7 @@ class SyncController {
         !allowed || _isDisposed || ResetGate.active) {
       return false;
     }
+    onStarted?.call();
     var generation = _reconnectGeneration;
     final resetGeneration = ResetGate.generation;
     bool current() => !_isDisposed &&

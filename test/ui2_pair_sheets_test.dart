@@ -86,6 +86,7 @@ class _Calls implements AddDeviceIo {
   @override
   String? get mainBandName => _hasMain ? bandName : null;
 
+  BandFlowResult bandFlowResult = BandFlowResult.closed;
   Completer<void>? openGate;
   final replacementFlags = <bool>[];
   @override
@@ -99,13 +100,14 @@ class _Calls implements AddDeviceIo {
 
   final openedWith = <(String remoteId, bool modelKnown)>[];
   @override
-  Future<void> openBandFlow(BandEntry band,
-      {required String remoteId, bool modelKnown = true, bool replacing = false}) async {
+  Future<BandFlowResult> openBandFlow(BandEntry band,
+      {required String? remoteId, bool modelKnown = true, bool replacing = false}) async {
     events.add('open:${band.id}');
     replacementFlags.add(replacing);
     await openGate?.future;
     opened.add(band.id);
-    openedWith.add((remoteId, modelKnown));
+    openedWith.add((remoteId!, modelKnown));
+    return bandFlowResult;
   }
 
   @override
@@ -733,7 +735,7 @@ void main() {
     });
 
     testWidgets('a ring (a band in its own right) gets the band sheet, and its own screen does the pairing', (t) async {
-      final calls = _Calls();
+      final calls = _Calls()..bandFlowResult = BandFlowResult.pairedWearable;
       await _tap(t, calls, _cand('oura', label: 'Oura Ring'));
       expect(find.text('This is a ring'), findsOneWidget);
       // Not a WHOOP, so there is no main-band choice: one button.
@@ -746,6 +748,7 @@ void main() {
       // The ring needs its own key screen, so it never pairs from here.
       expect(calls.pairs, isEmpty);
       expect(calls.opened, ['oura']);
+      expect(_result(t), 'pairedOther|');
     });
   });
 
@@ -764,7 +767,7 @@ void main() {
       await t.pumpAndSettle();
       expect(calls.pairs, isEmpty);
       expect(calls.opened, ['oura']);
-      expect(_result(t), 'openedBandFlow|');
+      expect(_result(t), 'cancelled|');
     });
 
     testWidgets('a connect that finds the ring does the same', (t) async {
@@ -779,7 +782,7 @@ void main() {
       await t.pumpAndSettle();
       expect(calls.pairs.length, 1, reason: 'only the first connect');
       expect(calls.opened, ['oura']);
-      expect(_result(t), 'openedBandFlow|');
+      expect(_result(t), 'cancelled|');
     });
   });
 
@@ -834,11 +837,11 @@ void main() {
       expect(afterBandFoundText(l, found, opened, bandPairedNow: false),
           contains('Nothing was saved'));
     });
-    test('a ring’s own screen reported its own outcome', () {
+    test('a ring handoff needs an explicit successful pair result', () {
       expect(
           afterBandFoundText(l, PairOutcome.band(kOura), opened,
               bandPairedNow: false),
-          isNull);
+          contains('Nothing was saved'));
     });
     test('backed out, or failed, as before', () {
       expect(
@@ -1011,6 +1014,9 @@ void main() {
     await t.tap(find.text('Pair Colmi ring'));
     await t.pumpAndSettle();
     expect(calls.pairs.map((p) => p.$1), ['colmi']);
+    // WHY: a ring is not workout-only; CLAIM(wearable-pair-result).
+    // catches: treating the presence of confirmation as a workout sensor.
+    expect(_result(t), 'pairedOther|');
   });
 
   for (final sensor in kPairableSensors.where((s) => s.pick != null)) {
