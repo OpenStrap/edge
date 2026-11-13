@@ -42,8 +42,9 @@ import '../ble/hrs_link.dart';
 import '../ble/polar_pmd_link.dart';
 import '../ble/live_step_runs.dart';
 import '../ble/ble_state.dart'
-    show AlarmConfirmation, AlarmEffect, LiveStreamOwners;
+    show AlarmConfirmation, AlarmEffect, BleUnavailableException, LiveStreamOwners;
 import '../ble/ios_ble_restore.dart';
+import '../ble/scale_presence.dart' show ScalePresenceWatcher;
 import '../ble/session_link.dart' show SessionLink;
 import '../ble/colmi_link.dart' show ColmiLink;
 import '../ble/coros_link.dart' show CorosLink;
@@ -71,6 +72,7 @@ import '../compute/inputs/measurement_inputs.dart'
         profileWithWeighing,
         profileWithoutStaleWeighing;
 import '../compute/profile.dart';
+import '../data/backup_extras.dart';
 import '../data/day_label.dart';
 import '../data/journal_fields.dart'
     show JournalMetricValue, kJournalFieldsByKey;
@@ -309,7 +311,6 @@ class AppState extends ChangeNotifier {
     log: _log,
     background: _background,
     offloadActive: () => _deriveScheduler.offloadActive,
-    useHmmStages: sleepHmmStagesEnabled,
   );
   late final DeriveCoordinator _deriveCoordinator = DeriveCoordinator(
     derive: () => _derive,
@@ -555,7 +556,7 @@ class AppState extends ChangeNotifier {
   String? _onboardChoice;
   String? get onboardChoice => _onboardChoice;
 
-  Future<void> _loadProfile() async {
+  Future<void> _loadProfile({bool loadOnboardChoice = true}) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_kProfile);
     if (raw != null) {
@@ -565,12 +566,11 @@ class AppState extends ChangeNotifier {
         /* ignore corrupt blob */
       }
     }
-    _onboardChoice = prefs.getString(_kOnboard);
+    if (loadOnboardChoice) _onboardChoice = prefs.getString(_kOnboard);
     // The companion-URL override is loaded in _initCompanion (single source of
     // truth for every network call — announcements, OTA, telemetry, import).
     healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
     phoneStepsEnabled = prefs.getBool(_kPhoneSteps) ?? false;
-    sleepHmmStagesEnabled = prefs.getBool(_kSleepHmmStages) ?? false;
     // Steps only exist if a real pedometer measured them, so kick the phone
     // pull early. This is BEST-EFFORT and establishes no ordering: it is
     // unawaited, so a derive pass can read `live_coverage` while the sync is
@@ -731,7 +731,41 @@ class AppState extends ChangeNotifier {
   /// Days of stored raw history the last backup import added or filled in.
   int lastImportArchiveRestored = 0;
 
+  List<String> lastImportNeedsReentry = const [];
+  int lastImportPrefsRestored = 0;
+  int lastImportPrefsRefused = 0;
+
+  /// Settings an import wrote take effect now, without a restart.
+  Future<void> _adoptRestoredSettings(ImportSummary counts) async {
+    lastImportNeedsReentry = counts.needsReentry;
+    lastImportPrefsRestored = counts.keysWritten.length;
+    lastImportPrefsRefused = counts.refusedPrefs.length;
+    if (counts.keysWritten.isEmpty) return;
+    await Prefs.reload();
+    // Keep the active import on its report until Continue is chosen.
+    await _loadProfile(loadOnboardChoice: false);
+    final prefs = await SharedPreferences.getInstance();
+    CompanionClient.overrideUrl = prefs.getString(_kCompanionUrl);
+    await gestureSettings.bootstrap();
+    await notificationRelay.reloadFromPrefs();
+    _deviceAlerts.refreshThreshold();
+    await armWaterReminder();
+    // Restored reminder choices take effect now; the coach and locale
+    // listeners only fire when those change.
+    unawaited(_ensureRemindersScheduled());
+    try {
+      await coachConfig?.load(trusted: true)
+          .timeout(const Duration(seconds: 6));
+    } catch (e) {
+      _log('[import] coach settings reload failed: $e');
+    }
+    settingsRestoredSignal.value++;
+  }
+
   Future<int> importEdgeBackup(String path) async {
+    lastImportNeedsReentry = const [];
+    lastImportPrefsRestored = 0;
+    lastImportPrefsRefused = 0;
     importRollupError = null;
     lastImportArchiveSkipped = 0;
     lastImportArchiveRestored = 0;
@@ -742,12 +776,17 @@ class AppState extends ChangeNotifier {
     // Invalidated however the import ends: it commits page by page, so a later
     // page that throws can still leave merged calibration runs behind, and the
     // refit can fail after a clean import. The cache holds runs, not profiles.
-    final Map<String, int> counts;
+    final ImportSummary counts;
     try {
       counts = await LocalDb.importFromDbFile(path);
+      await _adoptRestoredSettings(counts);
       await LocalDb.refitAllLiveStepGains();
     } finally {
       invalidateLiveStepCalibration();
+      // Table rows can arrive without settings, including from older backups.
+      // Reload even after a partial merge, then use normal arm/dedupe handling.
+      await _loadAlarmSchedule();
+      if (isConnected) await _armNextAlarmOccurrence();
     }
     // An import can MERGE calibration rows (`live_step_calibration`) in from the
     // backup without this process knowing, and the cached fit is the only thing
@@ -793,12 +832,6 @@ class AppState extends ChangeNotifier {
   // switch from callers that never see this class.
   static const String _kHealthSync = kHealthSyncPref;
 
-  /// EXPERIMENTAL, default OFF (PR #628 review): re-stage the sleep window
-  /// with the HMM/Viterbi classifier in the derivation pipeline. Not a medical
-  /// device — the sleep detail screen carries the matching disclaimer.
-  bool sleepHmmStagesEnabled = false;
-  static const String _kSleepHmmStages = 'sleep_hmm_stages';
-
   /// "Apple Health" (iOS) or "Health Connect" (Android).
   String get healthStoreName => HealthExporter.storeName;
   bool get healthIsApple => HealthExporter.isApple;
@@ -825,15 +858,6 @@ class AppState extends ChangeNotifier {
   /// per-app access manually. Re-checks state when they come back.
   Future<void> openHealthConnect() async {
     await _healthExport.openSettings();
-  }
-
-  /// Toggle the experimental HMM sleep staging. Default off; changes take
-  /// effect on the next derivation pass.
-  Future<void> setSleepHmmStages(bool on) async {
-    sleepHmmStagesEnabled = on;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kSleepHmmStages, on);
-    notifyListeners();
   }
 
   /// Toggle continuous export. Enabling requests permission + does a first sync.
@@ -1427,7 +1451,6 @@ class AppState extends ChangeNotifier {
       telemetryConsent = false;
       healthShareConsent = false;
       consentChosen = false;
-      sleepHmmStagesEnabled = false;
       TelemetryService.instance.applyConsent(false);
       HealthUploader.instance.deviceId = null; // maybeUpload bails without one
       deviceId = '';
@@ -2023,6 +2046,15 @@ class AppState extends ChangeNotifier {
   /// cancelled there, but an already-suspended `await` cannot be, so every
   /// continuation past an await in this class needs to re-check this.
   bool _disposed = false;
+  ScalePresenceWatcher? _scaleWatcher;
+
+  /// Android: start the scale watcher (idempotent). Also called when the app
+  /// resumes, so a process that was launched headless (boot wake) and opened
+  /// later gets it too.
+  void startScaleWatcher() {
+    if (_disposed || !Platform.isAndroid) return;
+    (_scaleWatcher ??= ScalePresenceWatcher()).start();
+  }
 
   /// Central disposal guard.
   ///
@@ -2041,6 +2073,7 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    unawaited(_scaleWatcher?.stop());
     _deriveCoordinator.cancelActivityReviewRetry();
     if (IosShortcutSync.foregroundSync == syncForShortcut) {
       IosShortcutSync.foregroundSync = null;
@@ -2771,6 +2804,11 @@ class AppState extends ChangeNotifier {
         sleepOnsetSec: onsetSec,
       );
 
+  /// Why [sleepCorrectable] can be false for a day with no substrate: its
+  /// recordings were pruned (true), or there never were any (false).
+  Future<bool> sleepRecordingsPruned(String date) =>
+      LocalDb.decodedPrunedFor(date);
+
   /// Refuses a correction [sleepCorrectable] rules out, before anything is
   /// written: the row would sit in sleep_override unapplied.
   Future<void> _requireSleepSubstrate(
@@ -3071,6 +3109,8 @@ class AppState extends ChangeNotifier {
     // A scale's newest weighing becomes the profile's weight: after each
     // session, and now for one a background pass took.
     SessionLink.onSessionDone = adoptWeighing;
+    // Android: hear a paired scale wake up and sync it without a Devices tap.
+    if (!_background) startScaleWatcher();
     // In the background: its re-derive must not hold the shell's launch.
     unawaited(adoptWeighing().catchError(
         (Object e) => debugPrint('[AppState] adoptWeighing failed: $e')));
@@ -4519,7 +4559,8 @@ class AppState extends ChangeNotifier {
     // structurally blank for everyone who paired once, and every per-family
     // metric abstains for a reason that is our bookkeeping, not the band's.
     // Change-gated: this handler fires ~1 Hz during live HR.
-    if (s.generation != null && s.generation != _lastSeenGeneration) {
+    if (!_pairingInProgress &&
+        s.generation != null && s.generation != _lastSeenGeneration) {
       _lastSeenGeneration = s.generation;
       unawaited(LocalDb.upsertDevice(adapterId: s.generation));
     }
@@ -4642,8 +4683,8 @@ class AppState extends ChangeNotifier {
   Future<bool> accessorySetupSupported() => AccessorySetup.isSupported();
 
   /// iOS 18+ pairing: show the ASK picker, persist the provisioned band by its
-  /// CoreBluetooth UUID (== flutter_blue_plus remoteId), then open the session. Throws
-  /// if the user cancels or no accessory is provisioned. The picker is skipped (returns
+  /// CoreBluetooth UUID (== flutter_blue_plus remoteId) AFTER a working bootstrap,
+  /// then open the session. Throws if setup fails. The picker is skipped (returns
   /// the known id) if a WHOOP is already provisioned via ASK.
   Future<void> pairViaAccessorySetup({String? serial}) async {
     final remoteId = await AccessorySetup.showPicker();
@@ -4659,20 +4700,40 @@ class AppState extends ChangeNotifier {
     await _persistPaired(d.remoteId.str, serial);
   }
 
+  bool _pairingInProgress = false;
+
   Future<void> _persistPaired(String remoteId, String? serial) async {
-    // Which band this is, if the link has already said. Passed HERE and not at
-    // the two call sites (`pairWith`, `pairViaAccessorySetup`) so neither can
-    // forget it — and COALESCE'd inside `upsertDevice`, so a null leaves
-    // whatever the row already knows.
-    //
-    // It is null on a FIRST pair, always: `DeviceState.generation` is only set
-    // at service discovery and pairing runs before any session exists. That is
-    // why `_onEngineState` stamps it too — this line alone would leave
-    // `device.adapter_id` blank on every install that pairs once and never
-    // re-pairs.
-    await PairedDevice.save(remoteId, serial ?? device.serial,
-        generation: device.generation);
-    paired = await PairedDevice.load();
+    if (_pairingInProgress) throw Exception('Pairing is already in progress.');
+    final existing = paired;
+    if (existing != null) {
+      if (existing.remoteId != remoteId) {
+        throw Exception('Forget the current band before pairing another.');
+      }
+      await openSession();
+      if (!engine.isConnected) throw Exception('Connection setup did not complete.');
+      return;
+    }
+    _pairingInProgress = true;
+    try {
+      final confirmed = await _sync.connectForPairing(
+        PairedDevice(remoteId, serial),
+        confirm: () async {
+          // Only READY proves we can talk to this band. Until then neither
+          // the persisted record nor isPaired may advance onboarding. Save
+          // the identity THIS bootstrap discovered, not a stale device hint.
+          await PairedDevice.save(remoteId, serial ?? device.serial,
+              generation: device.generation);
+          paired = await PairedDevice.load();
+        },
+      );
+      if (!confirmed) {
+        final blocker = engine.bluetoothBlocker;
+        if (blocker != null) throw BleUnavailableException(blocker);
+        throw Exception('Connection setup did not complete.');
+      }
+    } finally {
+      _pairingInProgress = false;
+    }
     // Now that there's a band to alert about, ask for notification permission
     // (a natural moment; battery/charging alerts depend on it). Best-effort.
     unawaited(NotificationService.instance.ensurePermission());
@@ -4837,9 +4898,9 @@ class AppState extends ChangeNotifier {
 
   /// One-time 49→50 seed: a legacy single-alarm value with nothing yet in
   /// `alarm_schedule` becomes that weekday's slot. Safe to call on every
-  /// launch — it is a no-op the moment ANY row exists, including a schedule
-  /// the user has since cleared via Cancel-all, which must stay cleared
-  /// rather than resurrect the old value.
+  /// launch — it is a no-op the moment ANY row exists, and after Cancel-all
+  /// (which deletes the rows) `_savedAlarm` is null, so a schedule the user
+  /// cleared stays cleared rather than resurrecting the old value.
   Future<void> _seedAlarmScheduleFromLegacyIfNeeded() async {
     try {
       if (_savedAlarm == null) return;
@@ -4900,6 +4961,8 @@ class AppState extends ChangeNotifier {
       enabled: next.enabled,
       smartWindowMinutes: next.smartWindowMinutes,
     );
+    // The user chose a slot: the schedule is no longer "cancelled".
+    await (await SharedPreferences.getInstance()).remove('alarm_schedule_cleared');
     await _loadAlarmSchedule();
     notifyListeners();
     // The 7pm "no alarm set for tonight" check keys off the schedule: a night
@@ -5181,7 +5244,6 @@ class AppState extends ChangeNotifier {
         baselineHrOverride: baselineHr,
         windowEnd: armed.windowEnd,
         now: now,
-        baselineHr: baselineHr,
       );
       if (!detected) return;
       _smartWakeFiredForEpoch = epoch; // set BEFORE the write — see below
@@ -5559,6 +5621,11 @@ class AppState extends ChangeNotifier {
     // An arm that landed during the await owns the persisted epoch now.
     if (_armGen == gen) await prefs.remove('alarm_epoch');
     if (_armGen == gen) await prefs.remove('alarm_epoch_confirmed');
+    // 'alarm_schedule_cleared' tells an import that an empty schedule means
+    // "cancelled", not "never set". Marked BEFORE the rows go: a crash
+    // between the two leaves a marker over rows (harmless), never an empty
+    // table an import could refill.
+    await prefs.setBool('alarm_schedule_cleared', true);
     await LocalDb.clearAlarmSchedule();
     _schedule = fillDefaultAlarmSchedule(const []);
     notifyListeners();

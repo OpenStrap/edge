@@ -229,4 +229,21 @@ void main() {
       );
     });
   });
+
+  test('a held IMU ON (gen4 drain running) still lets HR through, and the '
+      'bundle goes out once the hold lifts', () {
+    expect(
+      nextLiveStreamStep(applied: _off, desired: _both, holdImuOn: true),
+      LiveStreamStep.hrOn,
+    );
+    expect(
+      nextLiveStreamStep(
+          applied: _hrOnly, desired: _both, imuFresh: true, holdImuOn: true),
+      isNull,
+    );
+    expect(
+      nextLiveStreamStep(applied: _hrOnly, desired: _both, imuFresh: true),
+      LiveStreamStep.imuOn,
+    );
+  });
 }

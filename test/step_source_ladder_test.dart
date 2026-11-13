@@ -298,6 +298,17 @@ void main() {
       expect(spans.last['end_ts'], gen5.tsSec.last);
     });
 
+    test('a short tracked walk does not hide a bigger on-chip day', () {
+      final (steps, scalars) = _derive(
+        gen5,
+        liveStepsReal: 53,
+        liveStepsFromStrap: 53,
+      );
+      expect(scalars['steps'], 622.0);
+      expect(steps['source'], 'strap_counter');
+      expect(steps['real_measured'], 53);
+    });
+
     test('a learned factor scales the counter and is disclosed only when '
         'the counter is the answer', () {
       const bicep = StepCalibrationProfile(

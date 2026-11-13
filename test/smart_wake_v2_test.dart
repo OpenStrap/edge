@@ -462,7 +462,6 @@ void main() {
 
     test('v2: late-window protection suppresses buzz when HR near baseline', () {
       final baseline = still(48, 90);
-      final recent = still(50, 60); // +2 bpm — would normally pass +4? No, +2 < 4.
       // Use a case that WOULD pass without protection: +5 bpm but in last 5 min
       final recentElevated = still(53, 60); // +5 bpm
       final windowEnd = DateTime(2026, 10, 26, 6, 30);
