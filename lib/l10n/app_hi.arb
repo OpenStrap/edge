@@ -2864,6 +2864,20 @@
       }
     }
   },
+  "welcomeCoachKeyReentry": "आपके कोच की API कुंजी सुरक्षित स्टोरेज में रहती है और बैकअप में शामिल नहीं की गई। इस फ़ोन पर कोच इस्तेमाल करने के लिए इसे AI सेटिंग में फिर से दर्ज करें।",
+  "welcomeSettingsSkipped": "{n, plural, =1{बैकअप की 1 सेटिंग पढ़ी नहीं जा सकी और छोड़ दी गई} other{बैकअप की {n} सेटिंग्स पढ़ी नहीं जा सकीं और छोड़ दी गईं}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "welcomeSettingsSkippedBody": "उनके लिए इस फ़ोन के मान बने रहेंगे।",
+  "welcomeCoachChatGptReentry": "आपका ChatGPT साइन-इन सुरक्षित स्टोरेज में रहता है और बैकअप में शामिल नहीं किया गया। इस फ़ोन पर कोच इस्तेमाल करने के लिए AI सेटिंग में फिर से साइन इन करें।",
+  "welcomeCoachServerReentry": "आपका कस्टम कोच सर्वर पता बैकअप नहीं हुआ, क्योंकि पते में कुंजी हो सकती है। इसे AI सेटिंग्स में फिर से दर्ज करें।",
+  "welcomeSettingsRestored": "{n} सेटिंग बहाल हुईं",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
+  },
   "strengthCustomWeight": "कस्टम वज़न",
   "strengthEnterValue": "एक मान दर्ज करें",
   "strengthInvalidNumber": "अमान्य संख्या",
@@ -2878,5 +2892,8 @@
   "strengthSaveFailed": "परिवर्तन सहेजने में विफल",
   "reportContactLabel": "संपर्क (वैकल्पिक)",
   "reportContactHint": "ईमेल या Discord, केवल अगर आप जवाब चाहते हैं",
-  "pairBandNotSensor": "यह डिवाइस {label} है, यानी एक बैंड, साधारण सेंसर नहीं। कुछ भी सहेजा नहीं गया।"
+  "pairBandNotSensor": "यह डिवाइस {label} है, यानी एक बैंड, साधारण सेंसर नहीं। कुछ भी सहेजा नहीं गया।",
+  "whoopFirmwareWarningTitle": "WHOOP उपयोगकर्ता: WHOOP ऐप से दोबारा कनेक्ट न करें",
+  "whoopFirmwareWarningAction": "अगर आप OpenStrap या कोई दूसरा ओपन-सोर्स ऐप इस्तेमाल करते हैं, या बाद में किसी पर जाने की सोच रहे हैं, तो अपना बैंड आधिकारिक WHOOP ऐप से दोबारा कनेक्ट न करें। वह फ़र्मवेयर अपडेट अपने-आप इंस्टॉल कर सकता है। WHOOP ऐप को अनइंस्टॉल या अक्षम कर दें, ताकि वह आपके बैंड को अपडेट न कर सके।",
+  "whoopFirmwareWarningDetails": "WHOOP 5.0 / MG के फ़र्मवेयर 50.43.1.0 और 50.43.2.0 के बारे में रिपोर्टें बताती हैं कि डेटा तक पहुँच रोक दी जाती है। ब्लूटूथ फिर भी कनेक्ट हो सकता है। प्रभावित बैंड को अनलॉक करने के लिए WHOOP द्वारा साइन किया गया मेंबरशिप टोकन चाहिए, जिसे OpenStrap जारी नहीं कर सकता। हम समाधान पर काम कर रहे हैं, लेकिन अभी कोई उपाय उपलब्ध नहीं है।"
 }

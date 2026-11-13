@@ -7907,6 +7907,20 @@
       }
     }
   },
+  "welcomeCoachKeyReentry": "API-ключ тренера остаётся в защищённом хранилище и не включён в резервную копию. Введите его снова в настройках ИИ, чтобы пользоваться тренером на этом телефоне.",
+  "welcomeSettingsSkipped": "{n, plural, one{{n} настройку из резервной копии не удалось прочитать, она пропущена} few{{n} настройки из резервной копии не удалось прочитать, они пропущены} many{{n} настроек из резервной копии не удалось прочитать, они пропущены} other{{n} настройки из резервной копии не удалось прочитать, они пропущены}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "welcomeSettingsSkippedBody": "Для них остаются значения этого телефона.",
+  "welcomeCoachChatGptReentry": "Данные входа в ChatGPT остаются в защищённом хранилище и не включены в резервную копию. Войдите снова в настройках ИИ, чтобы пользоваться тренером на этом телефоне.",
+  "welcomeCoachServerReentry": "Адрес вашего собственного сервера коуча не сохранён в резервной копии, потому что адрес может содержать ключ. Введите его снова в настройках ИИ.",
+  "welcomeSettingsRestored": "Восстановлено настроек: {n}",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
+  },
   "strengthCustomWeight": "Свой вес",
   "strengthEnterValue": "Введите значение",
   "strengthInvalidNumber": "Неверное число",
