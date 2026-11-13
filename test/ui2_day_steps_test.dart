@@ -147,6 +147,19 @@ void main() {
     expect(find.textContaining('has no step counter'), findsNothing);
   });
 
+  test('the no-counter hint follows the live band, not the day it loaded', () {
+    expect(generationHasNoCounter('gen4'), isTrue);
+    expect(generationHasNoCounter('gen5'), isFalse);
+    expect(generationHasNoCounter(null), isFalse);
+    // Unpaired since the day loaded: the live answer wins.
+    expect(bandStillHasNoCounter(true, false), isFalse);
+    // Paired since: likewise.
+    expect(bandStillHasNoCounter(false, true), isTrue);
+    // No app state to ask: what the day loaded with.
+    expect(bandStillHasNoCounter(true, null), isTrue);
+    expect(bandStillHasNoCounter(false, null), isFalse);
+  });
+
   testWidgets('a day counted only by the strap\'s on-chip counter says the '
       'TIMES are missing, not the steps', (t) async {
     await _pump(
