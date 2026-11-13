@@ -86,7 +86,9 @@ const int kMaxWeighingsPerRun = 200;
 /// Bound on the exported set per device (newest kept).
 const int kMaxExportedWeighings = 2000;
 
-/// Bound on the aged-out exported history per device (newest kept).
+/// Bound on the aged-out exported history per device (newest kept). Past
+/// kMaxExportedWeighings + kMaxTrimmedWeighings weighings on one scale the
+/// oldest aged-out instant is forgotten, and a reset would send it again.
 const int kMaxTrimmedWeighings = 10000;
 
 /// Failed attempts after which a weighing is no longer retried. Mirrors
@@ -383,6 +385,7 @@ Future<int> exportScaleWeighings({
         final trimmed = _decodeSet(
           prefs.getString(healthWeightTrimmedKey(id)),
         );
+        var persistedTrimmed = {...trimmed};
         Future<void> save() async {
           // What the bound drops from the exported set is remembered, so an
           // old exported weighing is not sent again as if it were new.
@@ -391,6 +394,12 @@ Future<int> exportScaleWeighings({
           if (evicted.isNotEmpty) {
             trimmed.addAll(evicted);
             exported.removeAll(evicted);
+          }
+          // Also when a removal changed it (a reset deleted a trimmed sample
+          // and its replacement failed): a stale mark would read as exported.
+          if (trimmed.length != persistedTrimmed.length ||
+              !trimmed.containsAll(persistedTrimmed)) {
+            persistedTrimmed = {...trimmed};
             await prefs.setString(
               healthWeightTrimmedKey(id),
               jsonEncode(_bounded(trimmed, kMaxTrimmedWeighings)),

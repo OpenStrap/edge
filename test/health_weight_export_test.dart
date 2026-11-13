@@ -314,6 +314,26 @@ void main() {
       expect(f.writes.toSet(), {100, 20000});
     });
 
+    test('a reset that deletes a trimmed weighing and fails to rewrite it '
+        'leaves it pending after a restart', () async {
+      final f = _Fx()..weights = {100: 70};
+      SharedPreferences.setMockInitialValues({
+        healthWeightExportedKey('d1'): [
+          for (var i = 0; i < kMaxExportedWeighings; i++) 10000 + i,
+        ].toString(),
+        healthWeightTrimmedKey('d1'): '[100]',
+      });
+      f.failAt.add(100);
+      await f.run(reset: true);
+      expect(f.deletes, [100]);
+      // The persisted state, not memory, decides what a new run sends.
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(healthWeightTrimmedKey('d1')), '[]');
+      final g = _Fx()..weights = {100: 70};
+      expect(await g.run(forceRetry: true), 1);
+      expect(g.writes, [100]);
+    });
+
     test('what the bound drops from the exported set is remembered', () async {
       final f = _Fx()
         ..weights = {
