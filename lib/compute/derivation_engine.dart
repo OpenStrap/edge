@@ -1852,7 +1852,12 @@ import 'vendor_sleep.dart';
 // more than the windowed live/phone sources, instead of only when they counted
 // nothing, so a short tracked walk no longer hides the day's chip total.
 // gen4 (no counter) is unchanged. Edge-only.
-const int kAlgoVersion = 120;
+// 120 → 121 (nap cap 3 h): naps are capped at kMaxNapSec on every path —
+// detected bouts via dropOversizedNaps AND stored edits replayed through
+// applyNapEdits — so a pre-cap manual nap longer than 3 h no longer counts
+// into naps/nap_min. Days derived at v120 keep their stale naps without this
+// bump.
+const int kAlgoVersion = 121;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -10082,7 +10087,9 @@ class DerivationEngine {
     List<NapEdit> napEdits,
     String note,
   ) {
-    final merged = applyNapEdits(const [], napEdits);
+    // Cap stored edits too: a manual nap logged before the 3 h cap must not
+    // survive a re-derive as a counted nap.
+    final merged = dropOversizedNaps(applyNapEdits(const [], napEdits));
     if (merged.isEmpty) {
       _writeUnknownNaps(bundle, note);
       return null;
@@ -10269,9 +10276,17 @@ class DerivationEngine {
             'confidence': nap.confidence,
           },
       ];
-      candidates?.addAll(detected.where((n) => !napEdits.any((e) =>
+      // A nap longer than kMaxNapSec (3 h) is a sleep, not a nap — drop it
+      // before it can reach the suggestions, `nap_min`, sleep need or the
+      // timeline. Entry-time paths share the same constant via
+      // manualNapWindowIsValid; stored edits are capped again at the merge
+      // below so pre-cap rows cannot survive a re-derive.
+      final capped = dropOversizedNaps(detected);
+      candidates?.addAll(capped.where((n) => !napEdits.any((e) =>
         e.overlaps(n['start'] as int, n['end'] as int))));
-      final merged = applyNapEdits(const [], napEdits);
+      // Cap stored edits too: a manual nap logged before the 3 h cap must not
+      // survive a re-derive as a counted nap.
+      final merged = dropOversizedNaps(applyNapEdits(const [], napEdits));
 
       bundle['naps'] = <String, dynamic>{
         'value': merged,

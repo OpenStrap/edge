@@ -37,6 +37,7 @@ import 'db.dart';
 import 'activity_store.dart';
 import '../models/activity_suggestion.dart';
 import '../health/health_export.dart';
+import '../health/health_nap_export.dart';
 import '../import/whoop_import.dart' show WhoopImporter;
 import 'journal_fields.dart';
 import '../ble/adapters/_registry.dart' show kBandRegistry;
@@ -90,9 +91,21 @@ class LocalRepositoryImpl extends LocalRepository {
         sessionId: 'suggestion:${suggestion.id}', suggestion: suggestion);
       await HealthExporter.exportWorkoutId('suggestion:${suggestion.id}');
     } else {
-      await ActivityStore(await LocalDb.instance).confirm(suggestion,
-        startTs: start, endTs: end,
-        edited: start != suggestion.startTs || end != suggestion.endTs);
+      // DB write + Health write in one critical section: a concurrently
+      // running per-day export must not read the pre-confirm state and write
+      // the nap after a removal, and vice versa.
+      await HealthNapExporter.shared.synchronized(() async {
+        await ActivityStore(await LocalDb.instance).confirm(suggestion,
+          startTs: start, endTs: end,
+          edited: start != suggestion.startTs || end != suggestion.endTs);
+        // A nap the user just confirmed goes to Apple Health right away (iOS);
+        // the exporter re-checks the row and the main-sleep overlap itself.
+        await HealthNapExporter.exportConfirmedNap(
+          dayId: dayLabelOf(DateTime.fromMillisecondsSinceEpoch(start * 1000)),
+          startTs: start,
+          endTs: end,
+        );
+      });
     }
     await onActivitiesChanged?.call();
   }
