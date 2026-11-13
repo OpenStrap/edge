@@ -7237,7 +7237,7 @@
   "@homeDriverTemp": {
     "description": "Readiness driver name: skin temperature, shown in the Why? row on Home."
   },
-  "homeDbRebuiltTitle": "สร้างฐานข้อมูลใหม่เพื่อให้แอปเริ่มทำงาน",
+  "homeDbRebuiltTitle": "สร้างฐานข้อมูลของคุณใหม่แล้ว",
   "@homeDbRebuiltTitle": {
     "description": "Title of the card shown when the local database had to be rebuilt to start the app."
   },
@@ -7279,15 +7279,15 @@
   "@homeWorkoutHoldTitle": {
     "description": "Title of the card shown on Home while a workout session is live and derivation is paused."
   },
-  "homeWorkoutHoldBody": "พักการประมวลผลวันนี้ไว้ขณะออกกำลังกาย สายรัดยังบันทึกอยู่ จบการออกกำลังกายจากแถบด้านล่างเพื่อให้ข้อมูลวันนี้เติมเข้ามา",
+  "homeWorkoutHoldBody": "ข้อมูลวันนี้จะเติมเข้ามาเมื่อคุณจบการออกกำลังกาย",
   "@homeWorkoutHoldBody": {
     "description": "Body of the card shown on Home while a workout session is live and derivation is paused."
   },
-  "homeInsightsRebuildingTitle": "กำลังสร้างข้อสังเกตข้ามวันใหม่",
+  "homeInsightsRebuildingTitle": "กำลังอัปเดตแนวโน้มของคุณ",
   "@homeInsightsRebuildingTitle": {
     "description": "Title of the card shown when the cross-day insights rollup was withheld rather than shown."
   },
-  "homeInsightsRebuildingAlgoVersion": "อัปเดตล่าสุดเปลี่ยนวิธีคำนวณข้อมูลเหล่านี้",
+  "homeInsightsRebuildingAlgoVersion": "กำลังอัปเดตหลังแอปอัปเดตล่าสุด",
   "@homeInsightsRebuildingAlgoVersion": {
     "description": "Reason the cross-day rollup is being rebuilt: the algorithm version changed."
   },
@@ -7312,10 +7312,6 @@
   "homeSyncBand": "ซิงค์สายรัด",
   "@homeSyncBand": {
     "description": "Call-to-action button label: sync the band."
-  },
-  "homeWhyLabel": "เพราะอะไร?",
-  "@homeWhyLabel": {
-    "description": "Short label introducing the readiness driver list on Home."
   },
   "homeCalibrating": "กำลังเรียนรู้ช่วงปกติของคุณ",
   "@homeCalibrating": {
@@ -7345,7 +7341,7 @@
       }
     }
   },
-  "homeGapNoReason": "ไม่มีข้อมูลระบุว่าเหตุใดจึงไม่มีค่านี้",
+  "homeGapNoReason": "ไม่มีการบันทึกเหตุผล",
   "@homeGapNoReason": {
     "description": "Fallback reason shown when a ring is empty and nothing explains why."
   },
@@ -7373,23 +7369,123 @@
   "@homeSleepGapFallback": {
     "description": "Fallback reason the sleep ring is empty: no night long enough to score."
   },
+  "homeSleepPctOf": "{pct}% ของ {target}",
+  "@homeSleepPctOf": {
+    "description": "Sleep ring subtitle once a night is scored: percent of the learned sleep need.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String",
+        "example": "8h 00m"
+      }
+    }
+  },
+  "homeSleepPctOfDefault": "{pct}% ของ {target} (เป้าหมายเริ่มต้น)",
+  "@homeSleepPctOfDefault": {
+    "description": "Sleep ring subtitle once a night is scored, when no need has been learned yet: percent of the 8 h default target, labelled as a default.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String",
+        "example": "8h 00m"
+      }
+    }
+  },
+  "homeSleepPctCompact": "{pct}% ของ {target}",
+  "@homeSleepPctCompact": {
+    "description": "Short sleep caption against a learned target.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultCompact": "{pct}% ของ {target} · เป้าหมายเริ่มต้น",
+  "@homeSleepPctDefaultCompact": {
+    "description": "Short sleep caption that keeps an explicit default-target qualifier.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultTight": "{pct}% ของ {target} เริ่มต้น",
+  "@homeSleepPctDefaultTight": {
+    "description": "Tightest sleep caption when the target is the default: still names the target as the default.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryTitle": "การฟื้นตัวต่ำ",
+  "@homeWhyRecoveryTitle": {
+    "description": "Title of the Home card row that explains a low recovery score."
+  },
+  "homeWhyRecoveryPlain": "การฟื้นตัว {score} จาก 100",
+  "@homeWhyRecoveryPlain": {
+    "description": "Body of the low-recovery row when no input is known to drag the score: just the score out of 100.",
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWhySleepTitle": "นอนน้อยกว่าที่ต้องการ",
+  "@homeWhySleepTitle": {
+    "description": "Title of the Home card row shown when sleep is well short of the person's need."
+  },
+  "homeWhySleepBody": "การนอนที่คำนวณคะแนนได้ต่ำกว่าที่คุณต้องการ",
+  "@homeWhySleepBody": {
+    "description": "Body of the short-sleep row when the time asleep or the need is not available to quote."
+  },
+  "homeWhySleepDetail": "นอนหลับ {asleep} น้อยกว่าที่คุณต้องการ {need} อยู่ {gap}",
+  "@homeWhySleepDetail": {
+    "description": "Body of the short-sleep row: time asleep and how far under the need it was.",
+    "placeholders": {
+      "asleep": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      },
+      "need": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyStrainTitle": "ความหนักเกินเป้าหมาย",
+  "@homeWhyStrainTitle": {
+    "description": "Title of the Home card row shown when strain is above today's target range."
+  },
+  "homeWhyStrainBody": "ความหนัก {strain} เกินเป้าหมายของวันนี้ที่ {range}",
+  "@homeWhyStrainBody": {
+    "description": "Body of the high-strain row: today's strain and the target range.",
+    "placeholders": {
+      "strain": {
+        "type": "String"
+      },
+      "range": {
+        "type": "String"
+      }
+    }
+  },
   "homeStrainOf21": "จาก 21",
   "@homeStrainOf21": {
     "description": "Strain ring subtitle: out of the fixed 21-point scale."
-  },
-  "homeSleepNoTarget": "ยังไม่มีเป้าหมาย",
-  "@homeSleepNoTarget": {
-    "description": "Sleep ring subtitle when no computed sleep-need target exists yet."
-  },
-  "homeOfSpan": "จาก {duration}",
-  "@homeOfSpan": {
-    "description": "Sleep ring subtitle: duration measured against a computed sleep-need target.",
-    "placeholders": {
-      "duration": {
-        "type": "String",
-        "example": "7h 45m"
-      }
-    }
   },
   "homeLoadFailedTitle": "อ่านข้อมูลวันนี้ไม่ได้",
   "@homeLoadFailedTitle": {
@@ -7479,7 +7575,7 @@
   "@homeNothingTodayTitle": {
     "description": "Title shown when there is history but nothing recorded for today."
   },
-  "homeNothingTodayBody": "คืนล่าสุดที่แอปคำนวณคะแนนคือ {day} ยังไม่มีข้อมูลเข้ามาหลังจากนั้น",
+  "homeNothingTodayBody": "คืนล่าสุดที่คำนวณคะแนน: {day}",
   "@homeNothingTodayBody": {
     "description": "Body shown when there is history but nothing recorded for today, naming the last scored night.",
     "placeholders": {
@@ -7515,7 +7611,7 @@
       }
     }
   },
-  "homeReadinessNoReason": "ไม่มีข้อมูลระบุเหตุผล",
+  "homeReadinessNoReason": "ไม่มีการบันทึกเหตุผล",
   "@homeReadinessNoReason": {
     "description": "Fallback body of the readiness-not-scored card when no reason is recorded."
   },
@@ -7565,29 +7661,17 @@
       }
     }
   },
-  "homeIllnessBodyNoZ": "อัตราการเต้นหัวใจขณะพักสูงกว่าปกติในหลายคืนล่าสุด ติดตามสัญญาณเดียว จึงแสดงรูปแบบ ไม่ใช่สาเหตุ",
+  "homeIllnessBodyNoZ": "ข้อมูลช่วงคืนล่าสุดแสดงอัตราการเต้นหัวใจขณะพักสูงกว่าปกติ เป็นรูปแบบ ไม่ใช่สาเหตุ",
   "@homeIllnessBodyNoZ": {
     "description": "Illness watch body text when no standardised-deviation figure is available."
   },
-  "homeIllnessBodyAbove": "หลายคืนล่าสุดแสดงอัตราการเต้นหัวใจขณะพักสูงกว่าปกติ คืนนั้นสูงกว่าอยู่ {z} เท่าของความผันผวนระหว่างคืน เป็นรูปแบบ ไม่ใช่สาเหตุ",
+  "homeIllnessBodyAbove": "ข้อมูลช่วงคืนล่าสุดแสดงอัตราการเต้นหัวใจขณะพักสูงกว่าปกติ คืนนั้นก็สูงกว่าเช่นกัน เป็นรูปแบบ ไม่ใช่สาเหตุ",
   "@homeIllnessBodyAbove": {
-    "description": "Illness watch body text when the flagged night's heart rate sat above baseline, with the deviation amount.",
-    "placeholders": {
-      "z": {
-        "type": "String",
-        "example": "1.8"
-      }
-    }
+    "description": "Illness watch body text when the flagged night's heart rate sat above baseline, with the deviation amount."
   },
-  "homeIllnessBodyBelow": "หลายคืนล่าสุดรวมกันแสดงอัตราการเต้นหัวใจขณะพักสูงกว่าปกติ แม้คืนนั้นเพียงคืนเดียวจะต่ำกว่าอยู่ {z} เท่าของความผันผวนระหว่างคืน เป็นรูปแบบ ไม่ใช่สาเหตุ",
+  "homeIllnessBodyBelow": "ข้อมูลช่วงคืนล่าสุดรวมกันแสดงอัตราการเต้นหัวใจขณะพักสูงกว่าปกติ แม้คืนนั้นเพียงคืนเดียวจะต่ำกว่า เป็นรูปแบบ ไม่ใช่สาเหตุ",
   "@homeIllnessBodyBelow": {
-    "description": "Illness watch body text when the flagged night's heart rate sat below baseline, with the deviation amount.",
-    "placeholders": {
-      "z": {
-        "type": "String",
-        "example": "1.8"
-      }
-    }
+    "description": "Illness watch body text when the flagged night's heart rate sat below baseline, with the deviation amount."
   },
   "homeIllnessAdvice": "ควรสังเกตหากเป็นต่อเนื่องเกินสองสามวัน",
   "@homeIllnessAdvice": {
@@ -15567,7 +15651,7 @@
       }
     }
   },
-  "homeCoachSetUpChip": "ถามเกี่ยวกับข้อมูลของคุณ: ตั้งค่าโค้ช",
+  "homeCoachSetUpChip": "ตั้งค่าโค้ช",
   "@homeCoachSetUpChip": {
     "description": "Today tab chip when no coach model is configured."
   },

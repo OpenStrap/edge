@@ -7391,7 +7391,7 @@
   "@homeDriverTemp": {
     "description": "Readiness driver name: skin temperature, shown in the Why? row on Home."
   },
-  "homeDbRebuiltTitle": "Your database was rebuilt to start the app",
+  "homeDbRebuiltTitle": "Your database was rebuilt",
   "@homeDbRebuiltTitle": {
     "description": "Title of the card shown when the local database had to be rebuilt to start the app."
   },
@@ -7433,15 +7433,15 @@
   "@homeWorkoutHoldTitle": {
     "description": "Title of the card shown on Home while a workout session is live and derivation is paused."
   },
-  "homeWorkoutHoldBody": "Today is paused while a workout runs. The band keeps recording; finish the workout from the bar below and today fills in.",
+  "homeWorkoutHoldBody": "Today fills in when you finish the workout.",
   "@homeWorkoutHoldBody": {
     "description": "Body of the card shown on Home while a workout session is live and derivation is paused."
   },
-  "homeInsightsRebuildingTitle": "Your cross-day insights are being rebuilt",
+  "homeInsightsRebuildingTitle": "Updating your trends",
   "@homeInsightsRebuildingTitle": {
     "description": "Title of the card shown when the cross-day insights rollup was withheld rather than shown."
   },
-  "homeInsightsRebuildingAlgoVersion": "How these are computed changed with the last update.",
+  "homeInsightsRebuildingAlgoVersion": "Updating after the latest app update.",
   "@homeInsightsRebuildingAlgoVersion": {
     "description": "Reason the cross-day rollup is being rebuilt: the algorithm version changed."
   },
@@ -7466,10 +7466,6 @@
   "homeSyncBand": "Sync the band",
   "@homeSyncBand": {
     "description": "Call-to-action button label: sync the band."
-  },
-  "homeWhyLabel": "Why?",
-  "@homeWhyLabel": {
-    "description": "Short label introducing the readiness driver list on Home."
   },
   "homeCalibrating": "Learning your usual",
   "@homeCalibrating": {
@@ -7499,7 +7495,7 @@
       }
     }
   },
-  "homeGapNoReason": "Nothing recorded says why this is missing.",
+  "homeGapNoReason": "No reason recorded.",
   "@homeGapNoReason": {
     "description": "Fallback reason shown when a ring is empty and nothing explains why."
   },
@@ -7527,23 +7523,123 @@
   "@homeSleepGapFallback": {
     "description": "Fallback reason the sleep ring is empty: no night long enough to score."
   },
+  "homeSleepPctOf": "{pct}% of {target}",
+  "@homeSleepPctOf": {
+    "description": "Sleep ring subtitle once a night is scored: percent of the learned sleep need.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String",
+        "example": "8h 00m"
+      }
+    }
+  },
+  "homeSleepPctOfDefault": "{pct}% of {target} (default)",
+  "@homeSleepPctOfDefault": {
+    "description": "Sleep ring subtitle once a night is scored, when no need has been learned yet: percent of the 8 h default target, labelled as a default.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String",
+        "example": "8h 00m"
+      }
+    }
+  },
+  "homeSleepPctCompact": "{pct}% of {target}",
+  "@homeSleepPctCompact": {
+    "description": "Short sleep caption against a learned target.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultCompact": "{pct}% of {target} · default target",
+  "@homeSleepPctDefaultCompact": {
+    "description": "Short sleep caption that keeps an explicit default-target qualifier.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultTight": "{pct}% of default {target}",
+  "@homeSleepPctDefaultTight": {
+    "description": "Tightest sleep caption when the target is the default: still names the target as the default.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryTitle": "Recovery is low",
+  "@homeWhyRecoveryTitle": {
+    "description": "Title of the Home card row that explains a low recovery score."
+  },
+  "homeWhyRecoveryPlain": "Recovery {score} of 100",
+  "@homeWhyRecoveryPlain": {
+    "description": "Body of the low-recovery row when no input is known to drag the score: just the score out of 100.",
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWhySleepTitle": "Sleep is short of need",
+  "@homeWhySleepTitle": {
+    "description": "Title of the Home card row shown when sleep is well short of the person's need."
+  },
+  "homeWhySleepBody": "Your scored sleep was below your need.",
+  "@homeWhySleepBody": {
+    "description": "Body of the short-sleep row when the time asleep or the need is not available to quote."
+  },
+  "homeWhySleepDetail": "{asleep} asleep, {gap} under your {need} need.",
+  "@homeWhySleepDetail": {
+    "description": "Body of the short-sleep row: time asleep and how far under the need it was.",
+    "placeholders": {
+      "asleep": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      },
+      "need": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyStrainTitle": "Strain is above target",
+  "@homeWhyStrainTitle": {
+    "description": "Title of the Home card row shown when strain is above today's target range."
+  },
+  "homeWhyStrainBody": "Strain {strain}, above today’s target of {range}.",
+  "@homeWhyStrainBody": {
+    "description": "Body of the high-strain row: today's strain and the target range.",
+    "placeholders": {
+      "strain": {
+        "type": "String"
+      },
+      "range": {
+        "type": "String"
+      }
+    }
+  },
   "homeStrainOf21": "of 21",
   "@homeStrainOf21": {
     "description": "Strain ring subtitle: out of the fixed 21-point scale."
-  },
-  "homeSleepNoTarget": "No target yet",
-  "@homeSleepNoTarget": {
-    "description": "Sleep ring subtitle when no computed sleep-need target exists yet."
-  },
-  "homeOfSpan": "of {duration}",
-  "@homeOfSpan": {
-    "description": "Sleep ring subtitle: duration measured against a computed sleep-need target.",
-    "placeholders": {
-      "duration": {
-        "type": "String",
-        "example": "7h 45m"
-      }
-    }
   },
   "homeLoadFailedTitle": "Today could not be read",
   "@homeLoadFailedTitle": {
@@ -7633,7 +7729,7 @@
   "@homeNothingTodayTitle": {
     "description": "Title shown when there is history but nothing recorded for today."
   },
-  "homeNothingTodayBody": "The last night this app scored was {day}. Nothing has reached it since.",
+  "homeNothingTodayBody": "Last scored night: {day}.",
   "@homeNothingTodayBody": {
     "description": "Body shown when there is history but nothing recorded for today, naming the last scored night.",
     "placeholders": {
@@ -7669,7 +7765,7 @@
       }
     }
   },
-  "homeReadinessNoReason": "Nothing recorded says why.",
+  "homeReadinessNoReason": "No reason recorded.",
   "@homeReadinessNoReason": {
     "description": "Fallback body of the readiness-not-scored card when no reason is recorded."
   },
@@ -7719,29 +7815,17 @@
       }
     }
   },
-  "homeIllnessBodyNoZ": "Your resting heart rate has run above your usual over recent nights. This tracks one signal, so it shows a pattern, not a cause.",
+  "homeIllnessBodyNoZ": "Your resting heart rate has been above your usual over recent nights. A pattern, not a cause.",
   "@homeIllnessBodyNoZ": {
     "description": "Illness watch body text when no standardised-deviation figure is available."
   },
-  "homeIllnessBodyAbove": "Recent nights put your resting heart rate above your usual. That night was {z}× your normal night-to-night swing above it. A pattern, not a cause.",
+  "homeIllnessBodyAbove": "Recent nights put your resting heart rate above your usual. That night was above it too. A pattern, not a cause.",
   "@homeIllnessBodyAbove": {
-    "description": "Illness watch body text when the flagged night's heart rate sat above baseline, with the deviation amount.",
-    "placeholders": {
-      "z": {
-        "type": "String",
-        "example": "1.8"
-      }
-    }
+    "description": "Illness watch body text when the flagged night's heart rate sat above baseline."
   },
-  "homeIllnessBodyBelow": "Recent nights together put your resting heart rate above your usual, even though that night on its own was {z}× your normal night-to-night swing below it. A pattern, not a cause.",
+  "homeIllnessBodyBelow": "Recent nights together put your resting heart rate above your usual, though that night alone was below it. A pattern, not a cause.",
   "@homeIllnessBodyBelow": {
-    "description": "Illness watch body text when the flagged night's heart rate sat below baseline, with the deviation amount.",
-    "placeholders": {
-      "z": {
-        "type": "String",
-        "example": "1.8"
-      }
-    }
+    "description": "Illness watch body text when the flagged night's heart rate sat below baseline."
   },
   "homeIllnessAdvice": "Worth noting if it continues past a couple of days.",
   "@homeIllnessAdvice": {
@@ -15727,7 +15811,7 @@
       }
     }
   },
-  "homeCoachSetUpChip": "Ask questions about your data: set up the coach",
+  "homeCoachSetUpChip": "Set up the coach",
   "@homeCoachSetUpChip": {
     "description": "Today tab chip when no coach model is configured."
   },
