@@ -111,6 +111,10 @@ Finder get _verticalScroll => find.byWidgetPredicate(
 Future<ScrollPosition> _mount(WidgetTester t, _Rig r, double scale) async {
   await r.mount(t, scale);
   final plot = r.plot();
+  if (plot.evaluate().isEmpty) {
+    await t.scrollUntilVisible(plot, 120);
+    await t.pumpAndSettle();
+  }
   expect(plot, findsOneWidget, reason: '${r.name}: the chart is on screen');
   await t.ensureVisible(plot);
   await t.pumpAndSettle();
