@@ -1,5 +1,5 @@
-// Install an image you supply yourself (WHOOP 5, opt-in builds). Developer
-// group only. English-only on purpose: it is not a user-facing feature.
+// Install an image you supply yourself. Reached from a WHOOP 5 band's own
+// device page only.
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';

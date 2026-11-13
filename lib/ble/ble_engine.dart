@@ -5118,10 +5118,9 @@ class BleEngine {
     return ok;
   }
 
-  /// Image update is offered for gen5 only, on builds that opt in, on a live
-  /// link with no history offload in flight.
+  /// Image update is offered for gen5 only, on a live link with no history
+  /// offload in flight.
   bool get canFlashFirmware =>
-      kFirmwareFlashEnabled &&
       (_session?.connected ?? false) &&
       (_session?.band.isGen5 ?? false) &&
       !_offloadActive;
@@ -5170,7 +5169,6 @@ class BleEngine {
   // Link-only half of [canFlashFirmware] (offload is allowed to be set by
   // our own claim once a transfer has started).
   bool get canFlashFirmwareLink =>
-      kFirmwareFlashEnabled &&
       (_session?.connected ?? false) &&
       (_session?.band.isGen5 ?? false);
 

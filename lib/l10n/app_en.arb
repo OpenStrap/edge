@@ -988,6 +988,14 @@
   "@devicesFindItByFeel": {
     "description": "Row sub."
   },
+  "devicesInstallImage": "Install an image",
+  "@devicesInstallImage": {
+    "description": "Row title on a WHOOP 5 band's device page: install an image file the user supplies."
+  },
+  "devicesInstallImageSub": "Use at your own risk",
+  "@devicesInstallImageSub": {
+    "description": "Row sub: the user takes the risk."
+  },
   "devicesForgetThisBand": "Forget this band",
   "@devicesForgetThisBand": {
     "description": "Row title: danger action."

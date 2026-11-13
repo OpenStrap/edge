@@ -224,6 +224,8 @@
   "devicesBandExperimentalSub": "该腕带已被解码，但这里没有人实际佩戴过。它的数据未经硬件核实，仅根据协议核实。",
   "devicesBuzzTheBand": "让腕带振动",
   "devicesFindItByFeel": "凭感觉找到它",
+  "devicesInstallImage": "安装镜像",
+  "devicesInstallImageSub": "风险自负",
   "devicesForgetThisBand": "忘记此腕带",
   "pairSensorAddASensor": "添加传感器",
   "pairSensorWhatThisAdds": "这将添加什么",

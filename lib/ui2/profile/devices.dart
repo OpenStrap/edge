@@ -85,6 +85,7 @@ import '../../sync/paired_device.dart' show cleanDeviceLabel;
 import '../../state/app_state.dart';
 import '../../state/clock_format.dart' show formatClockOf;
 import '../pairing/device_picker.dart' show DevicePickerScreen;
+import 'firmware_flash_screen.dart' show FirmwareFlashScreen;
 import '../onboarding/profile_setup.dart' show formatDay;
 import '../ui2.dart';
 import 'profile.dart';
@@ -1913,6 +1914,9 @@ class _DeviceDetailState extends State<DeviceDetail> {
       health: _health,
       forecast: _forecast,
       onFind: app?.buzzBand,
+      onInstallImage: (s.isBand && s.family == 'gen5')
+          ? () => goto(c, const FirmwareFlashScreen())
+          : null,
       liveHr: s.isBand ? app?.liveHr : null,
       onRename: (app != null && app.isConnected)
           ? () => _renameBand(c, app, s.name)
@@ -2347,9 +2351,14 @@ class DeviceDetailView extends StatelessWidget {
   /// nothing.
   final BatteryForecast? forecast;
 
+  /// Opens the image-install screen. Non-null only on a WHOOP 5 band's page;
+  /// null hides the row.
+  final VoidCallback? onInstallImage;
+
   const DeviceDetailView(this.s,
       {super.key,
       this.onFind,
+      this.onInstallImage,
       this.onForget,
       this.onSync,
       this.onRename,
@@ -2625,6 +2634,16 @@ class DeviceDetailView extends StatelessWidget {
                             sub: l?.devicesFindItByFeel ?? 'Find it by feel',
                             chevron: false,
                             onTap: onFind),
+                      ],
+                      if (onInstallImage != null) ...[
+                        Divider(color: p.line, height: 1),
+                        SetRow(
+                            LucideIcons.upload,
+                            C.red,
+                            l?.devicesInstallImage ?? 'Install an image',
+                            sub: l?.devicesInstallImageSub ??
+                                'Use at your own risk',
+                            onTap: onInstallImage),
                       ],
                     ]),
                   ),

@@ -973,6 +973,8 @@
     "description": "Row title."
   },
   "devicesFindItByFeel": "หาตำแหน่งจากแรงสั่น",
+  "devicesInstallImage": "ติดตั้งอิมเมจ",
+  "devicesInstallImageSub": "ใช้ด้วยความเสี่ยงของคุณเอง",
   "@devicesFindItByFeel": {
     "description": "Row sub."
   },

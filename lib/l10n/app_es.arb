@@ -224,6 +224,8 @@
   "devicesBandExperimentalSub": "Esta banda está decodificada pero nadie aquí ha usado una. Sus números no se han verificado con el hardware, solo con el protocolo.",
   "devicesBuzzTheBand": "Hacer vibrar la banda",
   "devicesFindItByFeel": "Encuéntrala al tacto",
+  "devicesInstallImage": "Instalar una imagen",
+  "devicesInstallImageSub": "Bajo tu propio riesgo",
   "devicesForgetThisBand": "Olvidar esta banda",
   "pairSensorAddASensor": "Añadir un sensor",
   "pairSensorWhatThisAdds": "Qué añade esto",

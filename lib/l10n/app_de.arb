@@ -233,6 +233,8 @@
   "devicesBandExperimentalSub": "Das Protokoll dieses Bands wurde entschlüsselt, aber bisher nicht mit echter Hardware getestet. Die Werte wurden nur anhand des Protokolls geprüft.",
   "devicesBuzzTheBand": "Band vibrieren lassen",
   "devicesFindItByFeel": "Per Vibration wiederfinden",
+  "devicesInstallImage": "Image installieren",
+  "devicesInstallImageSub": "Auf eigenes Risiko",
   "devicesForgetThisBand": "Dieses Band entfernen",
   "pairSensorAddASensor": "Sensor hinzufügen",
   "pairSensorWhatThisAdds": "Was das bringt",

@@ -224,6 +224,8 @@
   "devicesBandExperimentalSub": "Ce bracelet est décodé mais personne ici n’en a porté un. Ses chiffres n’ont pas été vérifiés sur le matériel, seulement sur le protocole.",
   "devicesBuzzTheBand": "Faire vibrer le bracelet",
   "devicesFindItByFeel": "Trouvez-le au toucher",
+  "devicesInstallImage": "Installer une image",
+  "devicesInstallImageSub": "À vos risques et périls",
   "devicesForgetThisBand": "Oublier ce bracelet",
   "pairSensorAddASensor": "Ajouter un capteur",
   "pairSensorWhatThisAdds": "Ce que cela ajoute",

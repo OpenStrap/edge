@@ -350,6 +350,8 @@
   "devicesBandExperimentalSub": "Данные браслета декодируются, но никто из участников проекта его не носил. Показатели проверены только по протоколу, а не на реальном устройстве.",
   "devicesBuzzTheBand": "Вибрация браслета",
   "devicesFindItByFeel": "Найти по вибрации",
+  "devicesInstallImage": "Установить образ",
+  "devicesInstallImageSub": "На ваш страх и риск",
   "devicesForgetThisBand": "Удалить браслет",
   "pairSensorAddASensor": "Добавить датчик",
   "pairSensorWhatThisAdds": "Что это даёт",

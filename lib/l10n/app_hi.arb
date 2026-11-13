@@ -224,6 +224,8 @@
   "devicesBandExperimentalSub": "यह बैंड डिकोड किया गया है लेकिन यहां किसी ने इसे पहना नहीं है। इसके आंकड़े हार्डवेयर पर नहीं, केवल प्रोटोकॉल पर जांचे गए हैं।",
   "devicesBuzzTheBand": "बैंड को बज़ करें",
   "devicesFindItByFeel": "इसे महसूस करके खोजें",
+  "devicesInstallImage": "इमेज इंस्टॉल करें",
+  "devicesInstallImageSub": "अपने जोखिम पर उपयोग करें",
   "devicesForgetThisBand": "इस बैंड को भूल जाएं",
   "pairSensorAddASensor": "सेंसर जोड़ें",
   "pairSensorWhatThisAdds": "यह क्या जोड़ता है",
