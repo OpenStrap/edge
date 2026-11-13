@@ -12,7 +12,6 @@
 // the database.
 
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -24,8 +23,6 @@ import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/ui2/activity/day_strain.dart';
 import 'package:openstrap_edge/ui2/activity/zones.dart';
-import 'package:openstrap_edge/ui2/screens/cycle_screen.dart';
-import 'package:openstrap_edge/ui2/screens/day_steps.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
