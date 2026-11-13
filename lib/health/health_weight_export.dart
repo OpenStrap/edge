@@ -157,6 +157,13 @@ Future<int> writeWeighings({
     if (mayContinue != null && !await mayContinue()) break;
     if ((attempts[w.atMs] ?? 0) >= kMaxWeightAttempts) continue;
     final at = DateTime.fromMillisecondsSinceEpoch(w.atMs);
+    // Already in Health and the delete would take a neighbour's sample too:
+    // keep what is there rather than stack a duplicate.
+    if (resend &&
+        exported.contains(w.atMs) &&
+        !(deleteSafe?.call(w.atMs) ?? true)) {
+      continue;
+    }
     var ok = true;
     if (resend && (deleteSafe?.call(w.atMs) ?? true)) {
       // A delete that cannot clear the instant must not be written on top of.
@@ -250,17 +257,19 @@ Future<int> exportScaleWeighings({
       final id = row['id'] as String?;
       if (id == null) continue;
       try {
-        if (reset) {
-          await prefs.remove(healthWeightExportedKey(id));
-          await prefs.remove(healthWeightAttemptsKey(id));
-          await (deleteCursor ?? LocalDb.deleteCursor)(
-            healthWeightCursorName(id),
-          );
-        }
         if (adapter == null ||
             categoryOf(adapter) != DeviceCategory.healthMeasurement ||
             !await enabledFn(adapter)) {
           continue;
+        }
+        // The exported set is kept on reset (a disabled scale keeps its state,
+        // and an unsafe resend keeps its mark); only attempts and the old
+        // cursor are cleared.
+        if (reset) {
+          await prefs.remove(healthWeightAttemptsKey(id));
+          await (deleteCursor ?? LocalDb.deleteCursor)(
+            healthWeightCursorName(id),
+          );
         }
         if (forceRetry && !reset) {
           await prefs.remove(healthWeightAttemptsKey(id));
@@ -341,11 +350,11 @@ Future<int> exportScaleWeighings({
 
         // A full set means older entries were trimmed: do not resurrect them
         // (a failed one still under the cap is pending, not trimmed).
-        final floor = exported.length >= kMaxExportedWeighings
+        final floor = !reset && exported.length >= kMaxExportedWeighings
             ? exported.reduce((a, b) => a < b ? a : b)
             : 0;
         final pending = [
-          for (final w in exportableWeighings(d.raw, exported: exported))
+          for (final w in exportableWeighings(d.raw, exported: reset ? const {} : exported))
             if ((attempts[w.atMs] ?? 0) < kMaxWeightAttempts &&
                 (w.atMs >= floor || attempts.containsKey(w.atMs)))
               w,

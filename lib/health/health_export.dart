@@ -497,6 +497,10 @@ class HealthExporter {
   /// Cleared at the start of every [_workoutLock] hold.
   bool _storeHung = false;
 
+  /// Weighing instants whose native write timed out (it may still land).
+  /// The next write of the same instant deletes our sample there first.
+  final _timedOutWeightWrites = <int>{};
+
   /// Native deletes still running. [Future.timeout] doesn't cancel the
   /// plugin call, so a delete that timed out can still land after a later
   /// pass wrote into its range and take those samples with it.
@@ -1259,7 +1263,20 @@ class HealthExporter {
           deleteOwn: (a, b) => _deleteOwnSamples(HealthDataType.WEIGHT, a, b),
           write: (kg, at) async {
             if (_storeHung) return false;
+            final key = at.millisecondsSinceEpoch;
             try {
+              // An earlier write of this instant timed out and may have
+              // landed: clear it first so the retry cannot duplicate it.
+              if (_timedOutWeightWrites.contains(key)) {
+                if (!await _deleteOwnSamples(
+                  HealthDataType.WEIGHT,
+                  at.subtract(kHealthWeightMatchWindow),
+                  at.add(kHealthWeightMatchWindow),
+                )) {
+                  return false;
+                }
+                _timedOutWeightWrites.remove(key);
+              }
               return await _health
                   .writeHealthData(
                     value: kg,
@@ -1270,7 +1287,10 @@ class HealthExporter {
                   )
                   .timeout(_deleteTimeout);
             } catch (e) {
-              if (e is TimeoutException) _storeHung = true;
+              if (e is TimeoutException) {
+                _storeHung = true;
+                _timedOutWeightWrites.add(key);
+              }
               debugPrint('[health] write WEIGHT: $e');
               return false;
             }

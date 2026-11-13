@@ -393,6 +393,26 @@ void main() {
     );
   });
 
+  group('reset keeps state it did not replace', () {
+    test('two exported weighings within the window are not re-sent', () async {
+      final f = _Fx()..weights = {1000: 70, 1300: 70};
+      expect(await f.run(), 2);
+      expect(await f.run(reset: true), 0);
+      expect(f.writes, [1000, 1300]);
+      expect(await f.run(), 0); // still marked exported
+    });
+
+    test('a disabled scale keeps its exported set across a reset', () async {
+      final f = _Fx()..weights = {1000: 70};
+      await f.run();
+      f.enabled = false;
+      await f.run(reset: true);
+      f.enabled = true;
+      expect(await f.run(), 0);
+      expect(f.writes, [1000]);
+    });
+  });
+
   group('weightWritePermitted', () {
     test('a throwing check is UNKNOWN: still asks once and writes', () async {
       var asked = false;
