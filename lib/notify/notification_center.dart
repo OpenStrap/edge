@@ -927,8 +927,9 @@ class NotificationCenter {
   ///
   /// The evening and journal cancels stay unconditional: they are what clears
   /// yesterday's slot when today has nothing to say, and what clears whatever
-  /// an older build left. The morning cancel is conditional on the
-  /// announced-today guard below.
+  /// an older build left. The morning cancel happens unless today's occurrence
+  /// is both in the plan AND already announced (then the pending one is
+  /// preserved, not re-armed).
   ///
   /// Dedupe-key prefix for "today's morning-briefing occurrence was already
   /// announced (armed)". Date-prefixed like the emit path's fired keys, so
@@ -955,11 +956,6 @@ class NotificationCenter {
     // would schedule another alert for the same day.
     final morningAnnounced = await const FiredKeyStore()
         .hasFired('$morningBriefAnnouncedPrefix$today');
-    if (!morningAnnounced) {
-      await svc.cancel(NotificationService.idMorningBrief);
-    }
-    await svc.cancel(NotificationService.idEveningBrief);
-    await svc.cancel(NotificationService.idJournalLog);
     final plan = aiReminderPlan(
       ai,
       remindersEnabled: prefs.remindersEnabled,
@@ -971,6 +967,18 @@ class NotificationCenter {
       sweepHeadline: sweepHeadline,
       quiet: prefs,
     ).where((s) => NotificationService.maySchedule(s.id)).toList();
+    // Cancel the pending morning briefing whenever it is not being preserved:
+    // when the plan excludes it (switch off, no data, quiet hours) the cancel
+    // must happen EVEN IF today's occurrence was already announced — a disabled
+    // preference wins over the anti-repeat guard — and when it will be armed
+    // fresh below, the cancel clears whatever an older build left.
+    final morningInPlan =
+        plan.any((s) => s.id == NotificationService.idMorningBrief);
+    if (!morningInPlan || !morningAnnounced) {
+      await svc.cancel(NotificationService.idMorningBrief);
+    }
+    await svc.cancel(NotificationService.idEveningBrief);
+    await svc.cancel(NotificationService.idJournalLog);
     if (plan.isEmpty) return;
     await svc.ensureTimezone();
     final nowMin = now.hour * 60 + now.minute;
@@ -990,7 +998,7 @@ class NotificationCenter {
           at = late;
         }
       }
-      await svc.scheduleOnce(
+      final armed = await svc.scheduleOnce(
         id: s.id,
         category: NotifCategory.reminders,
         title: s.title,
@@ -998,7 +1006,10 @@ class NotificationCenter {
         at: at,
         route: s.route,
       );
-      if (s.id == NotificationService.idMorningBrief) {
+      // Record the daily guard only when the OS actually accepted the
+      // registration — a denied permission or a failed zonedSchedule must not
+      // suppress the briefing for the rest of the day.
+      if (armed && s.id == NotificationService.idMorningBrief) {
         await const FiredKeyStore()
             .recordFired('$morningBriefAnnouncedPrefix$today');
       }

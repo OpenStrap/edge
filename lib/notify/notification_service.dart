@@ -622,7 +622,13 @@ class NotificationService {
   /// This is how the weekly lookback is armed — once, for a week that actually
   /// found something. (It also still carries the "time to move" nudge's call,
   /// which [schedulableIds] now refuses.)
-  Future<void> scheduleOnce({
+  ///
+  /// Returns whether the one-shot was actually REGISTERED with the OS: false
+  /// when the id is not schedulable, when permission is denied, or when the
+  /// plugin throws. Callers that record "this was armed" state (e.g. the
+  /// morning-briefing daily guard) must key off this — recording on a refused
+  /// or failed registration would suppress the alert for the rest of the day.
+  Future<bool> scheduleOnce({
     required int id,
     required NotifCategory category,
     required String title,
@@ -631,8 +637,8 @@ class NotificationService {
     String? route,
   }) async {
     try {
-      if (!_maySchedule(id)) return;
-      if (!await ensurePermission(allowPrompt: false)) return;
+      if (!_maySchedule(id)) return false;
+      if (!await ensurePermission(allowPrompt: false)) return false;
       final when = tz.TZDateTime.from(at, tz.local);
       await _plugin.zonedSchedule(
         id,
@@ -645,7 +651,10 @@ class NotificationService {
             UILocalNotificationDateInterpretation.absoluteTime,
         payload: route,
       );
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> cancel(int id) async {
