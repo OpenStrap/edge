@@ -72,6 +72,7 @@ import '../compute/inputs/measurement_inputs.dart'
         profileWithWeighing,
         profileWithoutStaleWeighing;
 import '../compute/profile.dart';
+import '../data/backup_extras.dart';
 import '../data/day_label.dart';
 import '../data/journal_fields.dart'
     show JournalMetricValue, kJournalFieldsByKey;
@@ -555,7 +556,7 @@ class AppState extends ChangeNotifier {
   String? _onboardChoice;
   String? get onboardChoice => _onboardChoice;
 
-  Future<void> _loadProfile() async {
+  Future<void> _loadProfile({bool loadOnboardChoice = true}) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_kProfile);
     if (raw != null) {
@@ -565,7 +566,7 @@ class AppState extends ChangeNotifier {
         /* ignore corrupt blob */
       }
     }
-    _onboardChoice = prefs.getString(_kOnboard);
+    if (loadOnboardChoice) _onboardChoice = prefs.getString(_kOnboard);
     // The companion-URL override is loaded in _initCompanion (single source of
     // truth for every network call — announcements, OTA, telemetry, import).
     healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
@@ -730,7 +731,41 @@ class AppState extends ChangeNotifier {
   /// Days of stored raw history the last backup import added or filled in.
   int lastImportArchiveRestored = 0;
 
+  List<String> lastImportNeedsReentry = const [];
+  int lastImportPrefsRestored = 0;
+  int lastImportPrefsRefused = 0;
+
+  /// Settings an import wrote take effect now, without a restart.
+  Future<void> _adoptRestoredSettings(ImportSummary counts) async {
+    lastImportNeedsReentry = counts.needsReentry;
+    lastImportPrefsRestored = counts.keysWritten.length;
+    lastImportPrefsRefused = counts.refusedPrefs.length;
+    if (counts.keysWritten.isEmpty) return;
+    await Prefs.reload();
+    // Keep the active import on its report until Continue is chosen.
+    await _loadProfile(loadOnboardChoice: false);
+    final prefs = await SharedPreferences.getInstance();
+    CompanionClient.overrideUrl = prefs.getString(_kCompanionUrl);
+    await gestureSettings.bootstrap();
+    await notificationRelay.reloadFromPrefs();
+    _deviceAlerts.refreshThreshold();
+    await armWaterReminder();
+    // Restored reminder choices take effect now; the coach and locale
+    // listeners only fire when those change.
+    unawaited(_ensureRemindersScheduled());
+    try {
+      await coachConfig?.load(trusted: true)
+          .timeout(const Duration(seconds: 6));
+    } catch (e) {
+      _log('[import] coach settings reload failed: $e');
+    }
+    settingsRestoredSignal.value++;
+  }
+
   Future<int> importEdgeBackup(String path) async {
+    lastImportNeedsReentry = const [];
+    lastImportPrefsRestored = 0;
+    lastImportPrefsRefused = 0;
     importRollupError = null;
     lastImportArchiveSkipped = 0;
     lastImportArchiveRestored = 0;
@@ -741,12 +776,17 @@ class AppState extends ChangeNotifier {
     // Invalidated however the import ends: it commits page by page, so a later
     // page that throws can still leave merged calibration runs behind, and the
     // refit can fail after a clean import. The cache holds runs, not profiles.
-    final Map<String, int> counts;
+    final ImportSummary counts;
     try {
       counts = await LocalDb.importFromDbFile(path);
+      await _adoptRestoredSettings(counts);
       await LocalDb.refitAllLiveStepGains();
     } finally {
       invalidateLiveStepCalibration();
+      // Table rows can arrive without settings, including from older backups.
+      // Reload even after a partial merge, then use normal arm/dedupe handling.
+      await _loadAlarmSchedule();
+      if (isConnected) await _armNextAlarmOccurrence();
     }
     // An import can MERGE calibration rows (`live_step_calibration`) in from the
     // backup without this process knowing, and the cached fit is the only thing
@@ -4857,9 +4897,9 @@ class AppState extends ChangeNotifier {
 
   /// One-time 49→50 seed: a legacy single-alarm value with nothing yet in
   /// `alarm_schedule` becomes that weekday's slot. Safe to call on every
-  /// launch — it is a no-op the moment ANY row exists, including a schedule
-  /// the user has since cleared via Cancel-all, which must stay cleared
-  /// rather than resurrect the old value.
+  /// launch — it is a no-op the moment ANY row exists, and after Cancel-all
+  /// (which deletes the rows) `_savedAlarm` is null, so a schedule the user
+  /// cleared stays cleared rather than resurrecting the old value.
   Future<void> _seedAlarmScheduleFromLegacyIfNeeded() async {
     try {
       if (_savedAlarm == null) return;
@@ -4920,6 +4960,8 @@ class AppState extends ChangeNotifier {
       enabled: next.enabled,
       smartWindowMinutes: next.smartWindowMinutes,
     );
+    // The user chose a slot: the schedule is no longer "cancelled".
+    await (await SharedPreferences.getInstance()).remove('alarm_schedule_cleared');
     await _loadAlarmSchedule();
     notifyListeners();
     // The 7pm "no alarm set for tonight" check keys off the schedule: a night
@@ -5425,6 +5467,11 @@ class AppState extends ChangeNotifier {
     // An arm that landed during the await owns the persisted epoch now.
     if (_armGen == gen) await prefs.remove('alarm_epoch');
     if (_armGen == gen) await prefs.remove('alarm_epoch_confirmed');
+    // 'alarm_schedule_cleared' tells an import that an empty schedule means
+    // "cancelled", not "never set". Marked BEFORE the rows go: a crash
+    // between the two leaves a marker over rows (harmless), never an empty
+    // table an import could refill.
+    await prefs.setBool('alarm_schedule_cleared', true);
     await LocalDb.clearAlarmSchedule();
     _schedule = fillDefaultAlarmSchedule(const []);
     notifyListeners();

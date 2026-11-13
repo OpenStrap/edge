@@ -366,7 +366,8 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
     if (draft.fullDatabase) {
       onStage?.call(ReportStage.database);
       // The existing export path: a VACUUM INTO snapshot, not a file copy.
-      path = await LocalDb.exportCopy(includeSubstrateArchive: false);
+      path = await LocalDb.exportCopy(
+          includeSubstrateArchive: false, includePrefs: false);
     } else {
       onStage?.call(ReportStage.slice);
       path = await exportRecentSlice(rawDays: days);
