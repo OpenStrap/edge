@@ -690,6 +690,9 @@ void main() {
       expect(find.text('This is a ring'), findsOneWidget);
       // Not a WHOOP, so there is no main-band choice: one button.
       expect(find.text('Pair it as my band'), findsNothing);
+      // The comparison table and unverified guidance can put this below the fold.
+      await t.ensureVisible(find.text('Pair Oura Ring'));
+      await t.pumpAndSettle();
       await t.tap(find.text('Pair Oura Ring'));
       await t.pumpAndSettle();
       // The ring needs its own key screen, so it never pairs from here.
@@ -706,6 +709,9 @@ void main() {
       final calls = _Calls();
       await _tap(t, calls, ouraAsStrap);
       expect(find.text('This is a ring'), findsOneWidget);
+      // The comparison table and unverified guidance can put this below the fold.
+      await t.ensureVisible(find.text('Pair Oura Ring'));
+      await t.pumpAndSettle();
       await t.tap(find.text('Pair Oura Ring'));
       await t.pumpAndSettle();
       expect(calls.pairs, isEmpty);
@@ -716,6 +722,9 @@ void main() {
     testWidgets('a connect that finds the ring does the same', (t) async {
       final calls = _Calls([PairOutcome.band(kOura)]);
       await _tap(t, calls, _cand('ble_hrs', label: 'HRM'), hasMain: true);
+      await t.ensureVisible(find.text('Pair Oura Ring'));
+      await t.pumpAndSettle();
+      // The comparison table and unverified guidance can put this below the fold.
       await t.ensureVisible(find.text('Pair Oura Ring'));
       await t.pumpAndSettle();
       await t.tap(find.text('Pair Oura Ring'));
