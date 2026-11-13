@@ -129,7 +129,6 @@ void expectNoSecretIn(String path, Iterable<String> secrets) {
 Map<String, String> policyMap(String name) => switch (name) {
   'kPrefsNotBackedUp' => kPrefsNotBackedUp,
   'kSecretsNotBackedUp' => kSecretsNotBackedUp,
-  'kPrefFamiliesNotBackedUp' => kPrefFamiliesNotBackedUp,
   _ => throw ArgumentError.value(name),
 };
 

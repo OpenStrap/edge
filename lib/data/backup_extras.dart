@@ -50,24 +50,10 @@ const Map<String, String> kPrefsNotBackedUp = {
   'alarm_probe_pending': 'legacy pending hardware probe; never resume on another band',
   'alarm_fired_at': 'last fire event from the old band, not the chosen schedule',
   'health_upload_last_ts': 'upload cursor for this installation',
-  'health_weight_perm_asked': 'records that this phone already asked for '
-      'WEIGHT write access; the new phone has not asked yet',
-  'health_weight_grant_seen': 'last WEIGHT grant observed on this phone; '
-      'the grant belongs to its Health store',
-};
-
-/// Per-item families that stay on the phone: (prefix, reason). Each describes
-/// what this phone's Health store holds, which a restore onto another phone
-/// cannot carry. Exported and attempt marks would claim samples that are not
-/// there, and a maybe-landed marker would clear a sample the new store never
-/// received.
-const Map<String, String> kPrefFamiliesNotBackedUp = {
-  'health_weight_exported:': 'weighings already written to this phone\'s '
-      'Health store; the new store is empty, so they must be sent again',
-  'health_weight_attempts:': 'failure counts against this phone\'s Health '
-      'store, not the new one',
-  'health_weight_maybe_landed:': 'writes that timed out on this phone\'s '
-      'Health store; the retry clears a sample only this store may hold',
+  'health_weight_perm_asked': 'WEIGHT write access is asked per install; '
+      'the new install has not asked yet',
+  'health_weight_grant_seen': 'the WEIGHT grant is per install; the new '
+      'install observes its own',
 };
 
 const Map<String, String> kSecretsNotBackedUp = {
@@ -199,6 +185,12 @@ const List<(String, String, String)> kPrefTypeFamilies = [
   ('notif_osnext:', '', 'int'),
   ('nudge.', '.dismissed', 'bool'),
   ('nudge.', '.last_shown_ms', 'int'),
+  // Per-scale weighing export state. Travels: the Health store usually
+  // survives a restore, and re-sending every weighing would stack duplicates.
+  ('health_weight_exported:', '', 'string'),
+  ('health_weight_attempts:', '', 'string'),
+  ('health_weight_maybe_landed:', '', 'string'),
+  ('health_weight_trimmed:', '', 'string'),
 ];
 
 /// The stored type the app reads [key] with, or null when it is not known.
@@ -211,12 +203,7 @@ String? expectedPrefType(String key) {
   return null;
 }
 
-bool _backedUp(String key) =>
-    !kPrefsNotBackedUp.containsKey(key) &&
-    !kPrefFamiliesNotBackedUp.keys.any(key.startsWith);
-
-/// Whether [key] travels in a backup (exact exclusions and families).
-bool prefBackedUp(String key) => _backedUp(key);
+bool _backedUp(String key) => !kPrefsNotBackedUp.containsKey(key);
 
 (String, String)? _encode(Object? value) => switch (value) {
   bool b => ('bool', '$b'),

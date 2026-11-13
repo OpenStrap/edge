@@ -285,18 +285,48 @@ void main() {
       expect(f.writes, [5000]);
     });
 
-    test('exported floor does not swallow a failed pending weighing', () async {
+    test('a full exported set: trimmed history stays unsent, a failed one retries',
+        () async {
       final f = _Fx()..weights = {100: 70, 200: 70};
       SharedPreferences.setMockInitialValues({
         healthWeightExportedKey('d1'): [
           for (var i = 0; i < kMaxExportedWeighings; i++) 10000 + i,
         ].toString(),
+        healthWeightTrimmedKey('d1'): '[200]',
         healthWeightAttemptsKey('d1'): '{"100":2}',
       });
-      // 100 is below the floor but failed before: retried. 200 is below the
-      // floor with no attempt record: treated as trimmed, not resurrected.
+      // 100 failed before and is retried. 200 was exported and aged out: it is
+      // in the trimmed record, so it is not sent again.
       await f.run();
       expect(f.writes, [100]);
+    });
+
+    test('a backfilled older weighing below the exported history is still sent',
+        () async {
+      final f = _Fx()..weights = {100: 70, 20000: 71};
+      SharedPreferences.setMockInitialValues({
+        healthWeightExportedKey('d1'): [
+          for (var i = 0; i < kMaxExportedWeighings; i++) 10000 + i,
+        ].toString(),
+      });
+      // 100 has no export record anywhere: it arrived late, so it goes out.
+      await f.run();
+      expect(f.writes.toSet(), {100, 20000});
+    });
+
+    test('what the bound drops from the exported set is remembered', () async {
+      final f = _Fx()
+        ..weights = {
+          for (var i = 0; i < kMaxExportedWeighings + 3; i++) 10000 + i * 1000: 70,
+        };
+      while (await f.run() > 0) {} // the per-run cap spreads it over drains
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(healthWeightTrimmedKey('d1')),
+          '[10000,11000,12000]');
+      // Nothing is sent a second time, trimmed or not.
+      f.writes.clear();
+      await f.run();
+      expect(f.writes, isEmpty);
     });
 
     test('attempt entries for vanished weighings are pruned', () async {
@@ -393,6 +423,22 @@ void main() {
         expect(f.writes.toSet(), {1000, 1300, 5000});
       },
     );
+  });
+
+  group('a disabled scale still guards the delete', () {
+    test('reset does not delete beside a disabled scale\'s sample', () async {
+      final f = _Fx()
+        ..devices = [
+          {'id': 'd1', 'adapter_id': 'thermometer'},
+          {'id': 'd2', 'adapter_id': 'miscale2'},
+        ]
+        // d2 is switched off; its sample 300 ms away is still in Health.
+        ..enabledFn = ((a) async => a == 'thermometer')
+        ..loader = ((id) async => id == 'd1' ? {1000: 70} : {1300: 71});
+      await f.run(reset: true);
+      expect(f.deletes, isEmpty);
+      expect(f.writes, [1000]);
+    });
   });
 
   group('timed-out and half-done writes', () {

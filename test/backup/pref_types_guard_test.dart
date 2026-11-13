@@ -43,6 +43,9 @@ const _dynamicReads = <String, List<String>>{
   'health_weight_export.dart|healthWeightMaybeLandedKey(id|string': [
     'health_weight_maybe_landed:d1',
   ],
+  'health_weight_export.dart|healthWeightTrimmedKey(id|string': [
+    'health_weight_trimmed:d1',
+  ],
   'nudges.dart|_dismissedKey(a|bool': ['nudge.pairing.dismissed'],
   'nudges.dart|_lastShownKey(a|int': ['nudge.pairing.last_shown_ms'],
   // The typed wrappers; each caller passes a literal or a const that is
@@ -159,7 +162,7 @@ void main() {
   test('every backed-up key that is read has its type in the table', () {
     final wrong = <String>[];
     void check(String key, String type, String where) {
-      if (!prefBackedUp(key)) return;
+      if (kPrefsNotBackedUp.containsKey(key)) return;
       final want = expectedPrefType(key);
       if (want != type) wrong.add('$key read as $type at $where; table: $want');
     }

@@ -60,6 +60,13 @@ String healthWeightAttemptsKey(String deviceId) =>
 String healthWeightMaybeLandedKey(String deviceId) =>
     'health_weight_maybe_landed:$deviceId';
 
+/// Per-device persisted set (JSON list) of weighing instants that were
+/// exported and then aged out of the bounded exported set. Kept apart from the
+/// never-exported instants so a late older weighing (backfill) is still sent
+/// while an old exported one is not sent again.
+String healthWeightTrimmedKey(String deviceId) =>
+    'health_weight_trimmed:$deviceId';
+
 /// Superseded high-water cursor (LocalDb cursor). Never read any more; only
 /// cleared on reset.
 String healthWeightCursorName(String deviceId) =>
@@ -78,6 +85,9 @@ const int kMaxWeighingsPerRun = 200;
 
 /// Bound on the exported set per device (newest kept).
 const int kMaxExportedWeighings = 2000;
+
+/// Bound on the aged-out exported history per device (newest kept).
+const int kMaxTrimmedWeighings = 10000;
 
 /// Failed attempts after which a weighing is no longer retried. Mirrors
 /// HealthExporter's `_kMaxExportAttempts`.
@@ -131,11 +141,9 @@ Map<int, int> _decodeAttempts(String? s) {
 }
 
 /// Keeps only the newest [kMaxExportedWeighings] entries.
-List<int> _bounded(Set<int> s) {
+List<int> _bounded(Set<int> s, [int max = kMaxExportedWeighings]) {
   final l = s.toList()..sort();
-  return l.length > kMaxExportedWeighings
-      ? l.sublist(l.length - kMaxExportedWeighings)
-      : l;
+  return l.length > max ? l.sublist(l.length - max) : l;
 }
 
 /// Write [weighings] (ascending). A failed weighing is skipped and its
@@ -164,6 +172,7 @@ Future<int> writeWeighings({
   bool resend = false,
   bool Function(int atMs)? deleteSafe,
   Set<int>? maybeLanded,
+  Set<int>? trimmed,
 }) async {
   var written = 0;
   final landed = maybeLanded ?? <int>{};
@@ -175,7 +184,7 @@ Future<int> writeWeighings({
     // Already in Health and the delete would take a neighbour's sample too:
     // keep what is there rather than stack a duplicate.
     if (resend &&
-        exported.contains(w.atMs) &&
+        (exported.contains(w.atMs) || (trimmed?.contains(w.atMs) ?? false)) &&
         !(deleteSafe?.call(w.atMs) ?? true)) {
       continue;
     }
@@ -206,11 +215,15 @@ Future<int> writeWeighings({
     if (ok) {
       written++;
       exported.add(w.atMs);
+      trimmed?.remove(w.atMs);
       attempts.remove(w.atMs);
     } else {
       // Our sample was deleted and the replacement did not go in: it is no
       // longer in Health, so it must not stay marked as exported.
-      if (deleted) exported.remove(w.atMs);
+      if (deleted) {
+        exported.remove(w.atMs);
+        trimmed?.remove(w.atMs);
+      }
       if (stopped?.call() ?? false) {
         await save();
         break;
@@ -288,14 +301,27 @@ Future<int> exportScaleWeighings({
     final prefs = await SharedPreferences.getInstance();
     final enabledFn = isEnabled ?? wearableEnabled;
     final devices = <_ScaleDevice>[];
+    // Scales switched off still have samples in Health: their instants take
+    // part in the collision check only, never in an export.
+    final disabledScales = <_ScaleDevice>[];
     for (final row in await (loadDevices ?? LocalDb.deviceRows)()) {
       final adapter = row['adapter_id'] as String?;
       final id = row['id'] as String?;
       if (id == null) continue;
       try {
         if (adapter == null ||
-            categoryOf(adapter) != DeviceCategory.healthMeasurement ||
-            !await enabledFn(adapter)) {
+            categoryOf(adapter) != DeviceCategory.healthMeasurement) {
+          continue;
+        }
+        if (!await enabledFn(adapter)) {
+          disabledScales.add(
+            _ScaleDevice(
+              id,
+              adapter,
+              await (loadWeights ??
+                  (d) => LocalDb.deviceObservationValues(d, 'weight'))(id),
+            ),
+          );
           continue;
         }
         // The exported set is kept on reset (a disabled scale keeps its state,
@@ -322,7 +348,7 @@ Future<int> exportScaleWeighings({
     // Every scale's instants: a delete by time range must not take another
     // weighing's sample with it.
     bool deleteSafeFor(String id, int atMs) {
-      for (final d in devices) {
+      for (final d in [...devices, ...disabledScales]) {
         for (final ts in d.raw.keys) {
           if (d.id == id && ts == atMs) continue;
           if ((ts - atMs).abs() <= kHealthWeightMatchWindow.inMilliseconds) {
@@ -354,7 +380,22 @@ Future<int> exportScaleWeighings({
         final maybeLanded = _decodeSet(
           prefs.getString(healthWeightMaybeLandedKey(id)),
         );
+        final trimmed = _decodeSet(
+          prefs.getString(healthWeightTrimmedKey(id)),
+        );
         Future<void> save() async {
+          // What the bound drops from the exported set is remembered, so an
+          // old exported weighing is not sent again as if it were new.
+          final keep = _bounded(exported).toSet();
+          final evicted = exported.difference(keep);
+          if (evicted.isNotEmpty) {
+            trimmed.addAll(evicted);
+            exported.removeAll(evicted);
+            await prefs.setString(
+              healthWeightTrimmedKey(id),
+              jsonEncode(_bounded(trimmed, kMaxTrimmedWeighings)),
+            );
+          }
           await prefs.setString(
             healthWeightMaybeLandedKey(id),
             jsonEncode(_bounded(maybeLanded)),
@@ -391,16 +432,14 @@ Future<int> exportScaleWeighings({
         }
         if (attemptsDirty) await save();
 
-        // A full set means older entries were trimmed: do not resurrect them
-        // (a failed one still under the cap is pending, not trimmed).
-        final floor = !reset && exported.length >= kMaxExportedWeighings
-            ? exported.reduce((a, b) => a < b ? a : b)
-            : 0;
+        // Exported history that aged out of the bounded set is in [trimmed],
+        // so a never-exported older weighing (backfill) is still pending.
         final pending = [
-          for (final w in exportableWeighings(d.raw, exported: reset ? const {} : exported))
-            if ((attempts[w.atMs] ?? 0) < kMaxWeightAttempts &&
-                (w.atMs >= floor || attempts.containsKey(w.atMs)))
-              w,
+          for (final w in exportableWeighings(
+            d.raw,
+            exported: reset ? const {} : {...exported, ...trimmed},
+          ))
+            if ((attempts[w.atMs] ?? 0) < kMaxWeightAttempts) w,
         ].take(budget).toList();
         if (pending.isEmpty) continue;
         budget -= pending.length;
@@ -420,6 +459,7 @@ Future<int> exportScaleWeighings({
           resend: reset,
           deleteSafe: (ts) => deleteSafeFor(id, ts),
           maybeLanded: maybeLanded,
+          trimmed: trimmed,
           mayContinue: () async {
             if (syncEnabled != null && !await syncEnabled()) {
               syncOff = true;
