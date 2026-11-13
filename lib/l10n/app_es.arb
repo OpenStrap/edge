@@ -3237,7 +3237,7 @@
   "presentationS": "s",
   "presentationV": "µV",
   "presentationReadsTheRingDirectlyNoAccountNoKeyExchange": "Lee el anillo directamente, sin cuenta ni intercambio de claves.",
-  "presentationPebble2OrPebble2SEOnlyPairsOnly": "Solo Pebble 2 o Pebble 2 SE. Por ahora solo se empareja; todavía no se lee ni se guarda nada.",
+  "presentationPebble2OrPebble2SEOnlyPairsOnly": "Solo Pebble 2 o Pebble 2 SE. Compatibilidad experimental: sincroniza y guarda pasos y sueño, además de la frecuencia cardiaca en Pebble 2. El SE no tiene sensor de frecuencia cardiaca.",
   "presentationTheOriginalFossilSkagenHybridSmartwatchNotTheNewer": "El reloj híbrido Fossil/Skagen original, no el Hybrid HR más reciente. Se empareja y se conecta; todavía no se deriva nada de él.",
   "presentationABudgetActivityBandPairsAndBanksItsRaw": "Una banda de actividad económica. Se empareja y guarda sus datos en bruto, pero todavía no se deriva nada de ellos.",
   "presentationPairsAndBanksItsRawDataNothingIsDecoded": "Se empareja y guarda sus datos en bruto; todavía no se decodifica nada.",

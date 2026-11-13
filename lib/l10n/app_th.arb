@@ -14523,7 +14523,7 @@
   "presentationS": "วิ",
   "presentationV": "µV",
   "presentationReadsTheRingDirectlyNoAccountNoKeyExchange": "อ่านจากแหวนโดยตรง ไม่ต้องมีบัญชีหรือแลกเปลี่ยนคีย์",
-  "presentationPebble2OrPebble2SEOnlyPairsOnly": "เฉพาะ Pebble 2 หรือ Pebble 2 SE ขณะนี้จับคู่ได้เท่านั้น ยังไม่อ่านหรือเก็บข้อมูล",
+  "presentationPebble2OrPebble2SEOnlyPairsOnly": "เฉพาะ Pebble 2 หรือ Pebble 2 SE การรองรับยังอยู่ในขั้นทดลอง: ซิงค์และบันทึกจำนวนก้าวกับการนอนหลับ รวมถึงอัตราการเต้นของหัวใจบน Pebble 2 รุ่น SE ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ",
   "presentationTheOriginalFossilSkagenHybridSmartwatchNotTheNewer": "นาฬิกาไฮบริด Fossil/Skagen รุ่นดั้งเดิม ไม่ใช่ Hybrid HR รุ่นใหม่ จับคู่และเชื่อมต่อได้ แต่ยังไม่คำนวณค่าจากข้อมูล",
   "presentationABudgetActivityBandPairsAndBanksItsRaw": "สายรัดกิจกรรมราคาประหยัด จับคู่และเก็บข้อมูลดิบได้ แต่ยังไม่คำนวณค่า",
   "presentationPairsAndBanksItsRawDataNothingIsDecoded": "จับคู่และเก็บข้อมูลดิบได้ ยังไม่ถอดรหัส",
