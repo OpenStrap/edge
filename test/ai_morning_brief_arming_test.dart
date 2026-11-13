@@ -1,5 +1,6 @@
-// The morning briefing must be armed for tomorrow by a pass that runs after
-// its time today; the nightly sweep must not roll over.
+// The morning briefing arms for TODAY only — ahead of its slot, or inside the
+// late-fire grace window just past it — so a later pass never arms tomorrow's
+// occurrence off today's data readiness; the nightly sweep is today-only too.
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -26,9 +27,19 @@ void main() {
     ];
   }
 
-  test('morning briefing is armed whatever time the last pass ran', () {
-    for (final now in [6 * 60, 8 * 60, 9 * 60, 12 * 60, 21 * 60, 23 * 60 + 59]) {
+  test('morning briefing arms for today only: ahead of the slot or in grace', () {
+    // Slot is 08:00; the grace window reaches 11:00.
+    for (final now in [6 * 60, 7 * 60 + 59, 8 * 60, 9 * 60, 10 * 60 + 59]) {
       expect(armedAt(now), contains(NotificationService.idMorningBrief),
+          reason: 'pass at minute $now');
+    }
+  });
+
+  test('past the grace window the morning slot is NOT armed for tomorrow', () {
+    // A pass at 14:00 must not arm tomorrow 08:00: tomorrow's readiness is
+    // established by tomorrow's own pass, not reused from today.
+    for (final now in [11 * 60, 12 * 60, 21 * 60, 23 * 60 + 59]) {
+      expect(armedAt(now), isNot(contains(NotificationService.idMorningBrief)),
           reason: 'pass at minute $now');
     }
   });

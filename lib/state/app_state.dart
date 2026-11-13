@@ -2968,6 +2968,11 @@ class AppState extends ChangeNotifier {
       }
       notifyListeners();
       _deriveScheduler.markStoredData();
+      // A sync that just stored last night's data is exactly when the morning
+      // briefing's readiness gate can flip to true — re-arm the AI reminders
+      // now, on every durable store path, so a morning sync arms the slot
+      // even when no foreground pass or alarm event follows.
+      unawaited(_ensureRemindersScheduled());
     }());
   }
 
@@ -3385,7 +3390,10 @@ class AppState extends ChangeNotifier {
   Future<bool> _lastNightDataReady(List<Map<String, dynamic>> recent) async {
     try {
       final today = todayLabel();
-      final s = lastSynced ?? await LocalDb.latestSample();
+      // Query the DB first: the cached `lastSynced` is only refreshed at
+      // startup and on wipe, so it can hold yesterday's sample and would hide
+      // a freshly synced one from the `??` fallback.
+      final s = await LocalDb.latestSample() ?? lastSynced;
       if (s != null &&
           s.tsEpoch > 0 &&
           dayLabelOf(DateTime.fromMillisecondsSinceEpoch(s.tsEpoch * 1000)) ==
