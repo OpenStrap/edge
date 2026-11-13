@@ -144,6 +144,7 @@ void main() {
               label: 'New sensor',
               rssi: -50,
               entryId: entry.id,
+              alsoBand: null,
             ),
           ],
         ),

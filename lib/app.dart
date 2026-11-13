@@ -7,13 +7,16 @@ import 'package:provider/provider.dart';
 import 'ai/briefing.dart' show BriefingPeriod;
 import 'coach/coach_config.dart';
 import 'data/db.dart';
+import 'data/backup_extras.dart' show settingsRestoredSignal;
 import 'l10n/app_localizations.dart';
 import 'notify/notification_service.dart';
 import 'notify/tap_router.dart';
+import 'platform/activity_relaunch.dart';
 import 'state/app_state.dart';
 import 'state/clock_format.dart';
 import 'state/locale_controller.dart';
 import 'state/prefs.dart';
+import 'state/units_controller.dart';
 import 'telemetry/telemetry_service.dart';
 import 'theme/theme_controller.dart';
 import 'theme/theme_switcher.dart';
@@ -61,6 +64,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    settingsRestoredSignal.addListener(_onSettingsRestored);
     unawaited(LocalDb.setForeground(
         screenReadsForeground(WidgetsBinding.instance.lifecycleState)));
     // Hand the BYOK provider config to AppState (briefing generation + the
@@ -75,8 +79,34 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
     });
   }
 
+  void _onSettingsRestored() {
+    if (!mounted) return;
+    unawaited(_reloadRestoredSetting('theme_choice',
+        context.read<ThemeController>().reloadFromPrefs));
+    unawaited(_reloadRestoredSetting('locale_override',
+        context.read<LocaleController>().reloadFromPrefs));
+    unawaited(_reloadRestoredSetting('units_system',
+        context.read<UnitsController>().reloadFromPrefs));
+    unawaited(_reloadRestoredSetting('clock_format',
+        context.read<ClockFormatController>().reloadFromPrefs));
+  }
+
+  Future<void> _reloadRestoredSetting(
+      String key, Future<void> Function() reload) async {
+    try {
+      await reload();
+    } catch (error, stack) {
+      // Controllers parse before replacing their value, so a malformed pref
+      // leaves the current/default choice active while other reloads continue.
+      debugPrint('[import] $key reload failed: $error');
+      TelemetryService.instance.recordNonFatal(error, stack,
+          reason: 'restored $key reload failed');
+    }
+  }
+
   @override
   void dispose() {
+    settingsRestoredSignal.removeListener(_onSettingsRestored);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -437,14 +467,18 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
       // Water is a journal field logged beside food, and food is a section of
       // Activity.
       kRouteWater => ShellDomain.activity,
-      // The movement/sedentary nudges, recovery-ready and step-goal notes,
-      // and the detected-activity reviews: all about what is on Today.
+      // The movement/sedentary nudges, recovery-ready and step-goal notes:
+      // all about what is on Today.
       kRouteMovement ||
       kRouteRecovery ||
       kRouteSteps ||
-      kRouteDetectedActivities ||
       kRouteWorkoutSuggestion =>
         ShellDomain.today,
+      // The detected-activity reviews (naps and workouts alike). The
+      // suggestion cards they are about live on the Activity tab, so the
+      // pushed review sits over Activity — the tap lands where the content
+      // is, not on Home (issue #113's promise, extended to naps).
+      kRouteDetectedActivities => ShellDomain.activity,
       // The forgotten-workout nudge. Activity is the destination itself — the
       // live session bar with its finish control is pinned to the shell there
       // — so screenForRoute stays null for it.
@@ -519,12 +553,10 @@ class _ShellState extends State<_Shell> {
   late ShellDomain _domain = restoredShellTab();
 
   /// AppShell owns its own selection and takes only an `initial`, so a
-  /// programmatic jump re-keys it.
-  // ponytail: re-keying rebuilds the tab stack, so a deep link loses the
-  // scroll position of whatever tab was open. Deep links are rare and arrive
-  // from outside the app; give AppShell an external controller if that ever
-  // stops being true.
-  int _rev = 0;
+  /// programmatic jump drives it through this notifier instead of re-keying:
+  /// recreating AppShell would rebuild the tab stack and lose every visited
+  /// tab's state (scroll position included) on a notification deep link.
+  late final ValueNotifier<ShellDomain> _selection;
 
   AppState? _app;
 
@@ -534,8 +566,12 @@ class _ShellState extends State<_Shell> {
     // A tapped notification asks for a tab via AppState.navRequest. Jump there,
     // then clear the request so it isn't replayed on rebuild.
     _app = context.read<AppState>();
+    _selection = ValueNotifier(_domain);
     _app!.navRequest.addListener(_consumeSoon);
     _app!.screenRequest.addListener(_consumeSoon);
+    // Android relaunch from the launcher: close screens left open on the
+    // engine that outlived the closed Activity (#650).
+    ActivityRelaunch.listen(_relaunchNavigator);
     // Cold launch from a tapped notification: the route may already be set
     // before this shell mounted (so the listener never fired). Consume it once
     // attached.
@@ -547,6 +583,9 @@ class _ShellState extends State<_Shell> {
       _consume();
     });
   }
+
+  NavigatorState? _relaunchNavigator() =>
+      mounted ? Navigator.of(context) : null;
 
   bool _pending = false;
 
@@ -591,17 +630,18 @@ class _ShellState extends State<_Shell> {
 
   void _go(ShellDomain d) {
     if (d == _domain) return;
-    setState(() {
-      _domain = d;
-      _rev++;
-    });
+    setState(() => _domain = d);
     Prefs.setInt(Prefs.shellTabV2, d.index);
+    // AppShell follows this without being recreated, so tab state survives.
+    _selection.value = d;
   }
 
   @override
   void dispose() {
     _app?.navRequest.removeListener(_consumeSoon);
     _app?.screenRequest.removeListener(_consumeSoon);
+    ActivityRelaunch.stop(_relaunchNavigator);
+    _selection.dispose();
     super.dispose();
   }
 
@@ -611,12 +651,16 @@ class _ShellState extends State<_Shell> {
     // AppState tick.
     final live = context.select<AppState, bool>((a) => a.activeWorkout != null);
     return AppShell(
-      key: ValueKey(_rev),
       initial: _domain,
+      selection: _selection,
       banner: live ? const _LiveSessionBar() : null,
       onSelect: (d) {
         _domain = d;
         Prefs.setInt(Prefs.shellTabV2, d.index);
+        // Manual tab changes (and Back) must update the notifier too:
+        // otherwise it goes stale and a later _go to that stale value fires
+        // no change event, so AppShell would not follow the deep link.
+        _selection.value = d;
       },
       builder: (c, d) => switch (d) {
         ShellDomain.today => const HomeScreen(),
