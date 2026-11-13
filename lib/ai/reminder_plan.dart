@@ -60,8 +60,13 @@ int morningBriefSlotMin(int morningMin, double? typicalWakeMinOfDay) {
   if (typicalWakeMinOfDay == null || !typicalWakeMinOfDay.isFinite) {
     return floor;
   }
-  final afterWake =
-      (typicalWakeMinOfDay.round() + kMorningBriefAfterWakeMin) % 1440;
+  final raw = typicalWakeMinOfDay.round() + kMorningBriefAfterWakeMin;
+  final afterWake = raw % 1440;
+  // A wake+30 that wraps past midnight lands after the wake BY DEFINITION, so
+  // the wrapped minute-of-day wins — comparing only the wrapped value against
+  // the floor would pick the floor (e.g. 08:00) even though it fires HOURS
+  // BEFORE a 23:50 wake.
+  if (raw >= 1440) return afterWake;
   return afterWake > floor ? afterWake : floor;
 }
 

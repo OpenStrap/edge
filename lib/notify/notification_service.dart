@@ -657,21 +657,30 @@ class NotificationService {
     }
   }
 
-  Future<void> cancel(int id) async {
+  /// Returns whether the cancel actually reached the plugin. False on a
+  /// plugin error — callers that treat "slot cleared" as fact must key off
+  /// this; a swallowed failure leaves the stale notification armed.
+  Future<bool> cancel(int id) async {
     try {
       await _plugin.cancel(id);
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Ids of the currently PENDING (armed, not yet fired) OS notifications.
   /// A one-shot that already fired is no longer in this list — that is the
   /// only way Dart can tell "armed" from "delivered" for a scheduled slot.
-  Future<Set<int>> pendingIds() async {
+  /// NULL means the query FAILED: an unknown pending state must not be read
+  /// as "not pending" (which would suppress a briefing for the day) nor as
+  /// "delivered".
+  Future<Set<int>?> pendingIds() async {
     try {
       final reqs = await _plugin.pendingNotificationRequests();
       return reqs.map((r) => r.id).toSet();
     } catch (_) {
-      return const {};
+      return null;
     }
   }
 

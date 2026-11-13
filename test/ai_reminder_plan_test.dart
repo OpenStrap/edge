@@ -341,6 +341,12 @@ void main() {
       expect(morningBriefSlotMin(8 * 60, 9 * 60 + 30), 10 * 60);
     });
 
+    test('a wake+30 wrapping past midnight wins over the floor', () {
+      // Wake 23:50 -> wake+30 = 00:20 next day. The wrapped 00:20 is after
+      // the wake by definition; the floor 08:00 would fire BEFORE the wake.
+      expect(morningBriefSlotMin(8 * 60, 23 * 60 + 50), 20);
+    });
+
     test('the slot lands inside the plan, quiet-hours cap still applies', () {
       final slot = aiReminderPlan(
         const AiPrefs(),

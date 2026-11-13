@@ -1003,8 +1003,13 @@ class NotificationCenter {
     final morningAnnounced =
         await const FiredKeyStore().hasFired(announcedKey);
     // Pending vs delivered: a one-shot that already fired is no longer pending.
-    final hasPendingMorning = (await svc.pendingIds())
-        .contains(NotificationService.idMorningBrief);
+    // A FAILED query (null) is an unknown state — assume pending, so it is
+    // never read as "not pending" (which would suppress the briefing) nor as
+    // "delivered".
+    final pending = await svc.pendingIds();
+    final pendingKnown = pending != null;
+    final hasPendingMorning =
+        pending?.contains(NotificationService.idMorningBrief) ?? true;
     // The slot minute is encoded in the fired-store key (not a separate prefs
     // int), so a changed requested time (user setting or wake-derived)
     // replaces the pending one instead of being preserved by the anti-repeat
@@ -1024,8 +1029,10 @@ class NotificationCenter {
       // pending), the guard stays, so a re-enable inside the grace window
       // cannot alert a second time; and if nothing was ever armed there is no
       // key to release anyway.
-      await svc.cancel(NotificationService.idMorningBrief);
-      if (hasPendingMorning) {
+      // A failed cancel leaves the stale alert armed — then the announced key
+      // must NOT be released (the registration may still be pending).
+      final cancelled = await svc.cancel(NotificationService.idMorningBrief);
+      if (cancelled && pendingKnown && hasPendingMorning) {
         await const FiredKeyStore().release(announcedKey);
       }
     } else if (morningAnnounced && (!hasPendingMorning || slotArmed)) {
@@ -1040,8 +1047,10 @@ class NotificationCenter {
       // no longer matches the plan. Clear the guard when cancelling an
       // undelivered registration, and record it again ONLY if the replacement
       // registration succeeds — a failed replacement must stay retryable.
-      await svc.cancel(NotificationService.idMorningBrief);
-      if (morningAnnounced && hasPendingMorning) {
+      // (If the cancel itself failed, the pending post is still there; the
+      // re-arm below replaces it by id, so arming is still safe.)
+      final cancelled = await svc.cancel(NotificationService.idMorningBrief);
+      if (cancelled && morningAnnounced && hasPendingMorning) {
         await const FiredKeyStore().release(announcedKey);
       }
     }

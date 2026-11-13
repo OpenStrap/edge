@@ -3270,9 +3270,21 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// Serializes whole reminder passes. The readiness read inside a pass and
+  /// the (internally serialized) scheduling must run in the same order:
+  /// without this chain, an older `lastNightDataReady: false` pass can reach
+  /// the scheduler after a newer ready pass and cancel the briefing it armed.
+  Future<void> _reminderChain = Future.value();
+
   /// (Re)register standing scheduled reminders per the user's prefs. Idempotent;
   /// safe to call repeatedly (cancels + re-schedules). Best-effort.
-  Future<void> _ensureRemindersScheduled() async {
+  Future<void> _ensureRemindersScheduled() {
+    final pass = _reminderChain.then((_) => _ensureRemindersScheduledLocked());
+    _reminderChain = pass.catch((_) {});
+    return pass;
+  }
+
+  Future<void> _ensureRemindersScheduledLocked() async {
     try {
       final prefs = await NotificationPrefs.load();
       // ONE crossday read feeds every schedule that hangs off the rollup:
@@ -3390,9 +3402,18 @@ class AppState extends ChangeNotifier {
   Future<bool> _lastNightDataReady(List<Map<String, dynamic>> recent) async {
     try {
       final today = todayLabel();
+      // The crossday pipeline flags today's row `unsettled` while the night is
+      // still settling — same rows the weekly lookback skips. A same-day band
+      // sample is NOT sufficient while that row is unsettled: the overnight
+      // is still building and the briefing cannot be generated yet.
+      if (recent.isNotEmpty) {
+        final last = recent.last;
+        if (last['date'] == today && last['unsettled'] == true) return false;
+      }
       // Query the DB first: the cached `lastSynced` is only refreshed at
       // startup and on wipe, so it can hold yesterday's sample and would hide
-      // a freshly synced one from the `??` fallback.
+      // a freshly synced one from the `??` fallback. latestSample() is
+      // primary-band only, so a peripheral sensor cannot unlock the briefing.
       final s = await LocalDb.latestSample() ?? lastSynced;
       if (s != null &&
           s.tsEpoch > 0 &&
@@ -3400,9 +3421,7 @@ class AppState extends ChangeNotifier {
               today) {
         return true;
       }
-      // The crossday pipeline flags today's row `unsettled` while the night is
-      // still settling — same rows the weekly lookback skips. A row that is
-      // not settled yet is not "last night's data arrived".
+      // Cloud sources without raw samples: a settled derived row for today.
       if (recent.isEmpty) return false;
       final last = recent.last;
       return last['date'] == today && last['unsettled'] != true;
