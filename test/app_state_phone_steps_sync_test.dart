@@ -204,12 +204,18 @@ void main() {
     });
     expect(await rig.app.syncPhoneSteps(days: 1), 0,
         reason: 'the hung read is given up on');
+    // The short timeout only exists to give up on the read that never answers.
+    // The fresh read does real database work, so it must not race a tight one.
+    AppState.phoneStepsReadTimeout = const Duration(seconds: 30);
     final fresh = await rig.app.syncPhoneSteps(days: 1);
     expect(fresh, 1, reason: 'the slot was freed, so this one really reads');
     final banked = await LocalDb.phoneStepsForDay(todayLabel());
     expect(banked, greaterThan(0));
     stuck.complete();
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    // Let the retired read run to its end; nothing to await on from here.
+    for (var i = 0; i < 20; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
     expect(await LocalDb.phoneStepsForDay(todayLabel()), banked,
         reason: 'the retired read banks nothing when it finally returns');
   }, paired: false));
