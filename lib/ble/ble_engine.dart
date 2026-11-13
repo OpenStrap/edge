@@ -6313,6 +6313,11 @@ class BleEngine {
         // battery figure as if they were read, which is the same imputation
         // the quarantine above exists to stop. The revision and the body
         // length are the two things true at any layout.
+        //
+        // Firmware is CLEARED, not kept: a version from an earlier HELLO must
+        // not survive to drive the 50.43 lock status for this one. The rev-3
+        // reader below stays diagnostics-only.
+        state.firmware = null;
         _log('[HELLO gen5] revision ${h.helloRevision} is not the revision-1 '
             'layout these offsets read (body ${h.rawHex.length ~/ 2}B) — '
             'serial, battery, charge and wrist state are NOT published or '
