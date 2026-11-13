@@ -148,6 +148,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
   }
 
   Future<void> _start() async {
+    if (_locked || _scanning) return;
     final held = await HrsLink.scanHeldBackReason();
     if (!mounted) return;
     if (held != null) {
@@ -193,7 +194,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
   Future<void> _pickNearby(BandCandidate cand) async {
     // One flow at a time: a second tap while a sheet, a confirm or the
     // unpair of the old band is still running starts nothing.
-    if (_flow.running) return;
+    if (_locked || _flow.running) return;
     final l = AppLocalizations.of(context);
     setState(() {
       _problem = null;
@@ -248,18 +249,30 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
   /// A category tile, tapped deliberately: the same confirmation a nearby row
   /// gets (a workout sensor and no band asks first), then the entry's own
   /// screen, whose connect-time band refusals go through the same flow.
-  Future<void> _browseEntry(BandEntry entry) async {
-    if (_flow.running) return;
-    if (!await _flow.confirmBrowse(context, entry)) return;
-    if (!mounted) return;
-    await _openEntry(entry);
+  Future<void> _browseEntry(BandEntry entry,
+      {bool modelKnown = false, bool confirmed = false}) async {
+    if (_locked || _flow.running) return;
+    setState(() => _locked = true);
+    final l = AppLocalizations.of(context);
+    try {
+      if (!confirmed && !await _flow.confirmBrowse(context, entry)) return;
+      if (!mounted) return;
+      await _openEntry(entry, modelKnown: modelKnown);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _problem = l?.pairSensorCouldNotPair(e.toString()) ??
+            'Could not pair that device: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _locked = false);
+    }
   }
 
   @override
-  void pickBand(BandEntry entry) => unawaited(_openEntry(entry));
+  void pickBand(BandEntry entry) => unawaited(_browseEntry(entry, modelKnown: true));
 
   @override
-  void strapOnlyConfirmed() => unawaited(_openEntry(kBleHrs));
+  void strapOnlyConfirmed() => unawaited(_browseEntry(kBleHrs, confirmed: true));
 
   /// The pairing operation itself, for [AddDeviceFlow].
   @override
@@ -330,7 +343,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
       if (!mounted) return;
       await Navigator.of(context).push(MaterialPageRoute<void>(
         builder: (_) => PairingScreen(
-            entry: modelKnown ? entry : null, remoteId: remoteId, replacing: replacing),
+            entry: entry, modelKnown: modelKnown, remoteId: remoteId, replacing: replacing),
       ));
       if (mounted) await _afterPair();
       return;
@@ -428,7 +441,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
               icon: _categoryIcon(e),
             ),
       ],
-      onScan: _scan,
+      onScan: _heldBack == null ? _start : _scan,
       onPickNearby: _pickNearby,
       onOpenEntry: _browseEntry,
       kindSelection: _kind,
@@ -524,7 +537,7 @@ class DevicePickerView extends StatelessWidget {
     // one kind is left, and a hidden selection would hide every row.
     final groups = {for (final k in kinds) ?pairFilterOf(k)};
     final selected = kindSelection?.value;
-    final group = groups.contains(selected) ? selected : null;
+    final group = groups.length > 1 && groups.contains(selected) ? selected : null;
     final shownFound = group == null
         ? found
         : [for (final f in found) if (_groupOf(f) == group) f];
@@ -581,6 +594,14 @@ class DevicePickerView extends StatelessWidget {
                     busyRemoteId: busyRemoteId,
                     onTap: locked ? null : onPickNearby,
                   ),
+                if (heldBack == null && onScan != null) ...[
+                  const SizedBox(height: S.x3),
+                  BigButton(l?.pairSearchDevices ?? 'Search for devices',
+                      key: const ValueKey('device-picker-scan'),
+                      icon: LucideIcons.search,
+                      soft: true,
+                      onTap: busy || scanning ? null : onScan),
+                ],
                 if (problem != null) ...[
                   const SizedBox(height: S.x4),
                   StatusCard(

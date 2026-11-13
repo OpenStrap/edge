@@ -34,10 +34,13 @@ void main() {
   final src = File('lib/state/app_state.dart').readAsStringSync();
   final bg = File('lib/sync/background_sync.dart').readAsStringSync();
 
-  test('both ingest callbacks refuse while a reset is in flight', () {
+  // WHY: adding replacement isolation must retain the reset gate as well.
+  // Both flags are required on every non-ACK ingest path below. The actual
+  // ACK callback's replacement refusal is exercised by app_state_sync_commit_test.
+  test('both ingest callbacks refuse during reset or band replacement', () {
     // The singles path.
     final onRecord = RegExp(
-      r'Future<void> _onRecord\([^)]*\) async \{\s*\n\s*if \(_resetting\) return;',
+      r'Future<void> _onRecord\([^)]*\) async \{\s*\n\s*if \(_resetting \|\| _replacingBand\) return;',
     );
     expect(onRecord.hasMatch(src), isTrue,
         reason: '_onRecord must refuse before it writes');
@@ -45,7 +48,7 @@ void main() {
     // The drain path, which is wired straight to LocalDb and so bypasses every
     // check AppState makes unless the closure carries one itself.
     final batch = RegExp(
-      r'onRecordsBatch: \([^)]*\) async \{\s*\n\s*if \(_resetting\) return;',
+      r'onRecordsBatch: \([^)]*\) async \{\s*\n\s*if \(_resetting \|\| _replacingBand\) return;',
     );
     expect(batch.hasMatch(src), isTrue,
         reason: 'onRecordsBatch must refuse before it writes');
@@ -58,7 +61,7 @@ void main() {
     // event notification landing after ResetGate.enter() but before the
     // band disconnects would resurrect deleted data.
     final onLiveEvent = RegExp(
-      r'void _onLiveEvent\([^)]*\) \{\s*\n\s*if \(_resetting\) return;',
+      r'void _onLiveEvent\([^)]*\) \{\s*\n\s*if \(_resetting \|\| _replacingBand\) return;',
     );
     expect(onLiveEvent.hasMatch(src), isTrue,
         reason: '_onLiveEvent must refuse before it writes');
@@ -71,7 +74,7 @@ void main() {
     // notification landing after ResetGate.enter() but before the band
     // disconnects would resurrect a deleted device/band_battery row.
     final onEngineState = RegExp(
-      r'void _onEngineState\([^)]*\) \{\s*\n\s*if \(_resetting\) return;',
+      r'void _onEngineState\([^)]*\) \{\s*\n\s*if \(_resetting \|\| _replacingBand\) return;',
     );
     expect(onEngineState.hasMatch(src), isTrue,
         reason: '_onEngineState must refuse before it writes');

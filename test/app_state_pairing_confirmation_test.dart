@@ -2,6 +2,7 @@
 // Pair through the real AppState entry point with only the radio replaced,
 // so a failed first connect cannot persist a pairing or advance onboarding.
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -251,6 +252,63 @@ void main() {
   );
   group('replacement keeps the old pairing until READY', () {
     const replacementId = 'AA:BB:CC:DD:EE:99';
+
+    // WHY: a lost band's retry must finish before candidate bootstrap starts.
+    // catches: rejecting replacement because the old loop is reconnecting,
+    // or clearing its flag without waiting for its in-flight connect.
+    for (final success in [true, false]) {
+      test('replacement retires an in-flight reconnect (success=$success)',
+          syncCase((rig, timers) async {
+        await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+        await rig.openAndSettle();
+        rig.engine.events.clear();
+        final oldConnect = rig.holdConnect();
+        rig.engine.drop();
+        await rig.waitFor(() => rig.engine.count('connect') == 1);
+        var completed = false;
+        rig.engine.connectScript.addAll([true, success, false, true]);
+        final replacement = rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+        final observed = success
+            ? replacement.then((_) => completed = true)
+            : expectLater(replacement, throwsA(isA<Exception>())).then((_) => completed = true);
+        await settleMs(40);
+        expect(completed, isFalse, reason: 'old connect still owns the radio');
+        expect(rig.engine.only('connect'), ['connect:$kRemoteId:gen4']);
+        oldConnect.complete();
+        await observed;
+        expect(rig.engine.only('connect').take(2), [
+          'connect:$kRemoteId:gen4', 'connect:$replacementId:-',
+        ]);
+        expect((await PairedDevice.load())?.remoteId, success ? replacementId : kRemoteId);
+        expect(timers.activePeriodic(kSuperviseEvery), hasLength(1));
+        if (!success) {
+          // Recovery is supervised even if its first attempt cannot reach the old band.
+          timers.activePeriodic(kSuperviseEvery).single.fire();
+          await rig.waitFor(() => rig.engine.only('connect').length >= 4);
+        }
+      }));
+    }
+
+    // WHY: replacement suppresses the old disconnect callback, including its
+    // pedometer finalization. A 20-second tail is still recorded walking data.
+    // catches: resetting the pedometer at new-session start without banking it.
+    test('replacement banks the old band partial gait minute',
+        syncCase((rig, timers) async {
+      const startMs = 1786233600000;
+      for (var frame = 0; frame < 100; frame++) {
+        rig.app.debugFeedLiveAccel([
+          for (var i = 0; i < 20; i++)
+            1 + 0.45 * math.sin(2 * math.pi * 2 * (frame * 20 + i) / 100),
+        ], atMs: startMs + frame * 200, recTs: startMs ~/ 1000);
+      }
+      await rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+      final rows = await (await LocalDb.instance).query('live_coverage');
+      expect(rows, hasLength(1));
+      expect(rows.single['start_ts'], startMs ~/ 1000);
+      // The last frame arrives at 19.8 s; coverage stores whole epoch seconds.
+      expect(rows.single['end_ts'], startMs ~/ 1000 + 19);
+      expect(rows.single['steps'], greaterThan(0));
+    }));
 
     test('held bootstrap keeps old identity; READY switches without losing history',
         syncCase((rig, timers) async {

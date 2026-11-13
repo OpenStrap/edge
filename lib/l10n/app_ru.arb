@@ -8213,5 +8213,6 @@
         "type": "String"
       }
     }
-  }
+  },
+  "pairSearchDevices": "Найти устройства"
 }

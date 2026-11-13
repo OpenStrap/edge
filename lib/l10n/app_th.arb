@@ -16840,5 +16840,6 @@
         "type": "String"
       }
     }
-  }
+  },
+  "pairSearchDevices": "ค้นหาอุปกรณ์"
 }
