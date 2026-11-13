@@ -131,6 +131,20 @@ void main() {
       DayStepsData(spans: [_span(0, 60, 1200)], total: 1200, phone: 1200),
     );
     expect(find.textContaining('has no step counter'), findsNothing);
+    // An older day a WHOOP 5.0's own counter published, viewed with a WHOOP
+    // 4.0 paired now: that band could count, so the hint would be false.
+    await _pump(
+      t,
+      DayStepsData(
+        spans: [_span(0, 60, 1200)],
+        total: 1200,
+        phone: 1200,
+        dayTotal: 6012,
+        daySource: 'strap_counter',
+        bandHasNoCounter: true,
+      ),
+    );
+    expect(find.textContaining('has no step counter'), findsNothing);
   });
 
   testWidgets('a day counted only by the strap\'s on-chip counter says the '

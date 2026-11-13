@@ -459,7 +459,9 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
   /// its own. Only ever on a day the band did not count: a day it did count
   /// already shows that it can.
   String _withNoCounterHint(BuildContext c, DayStepsData d, String text) {
-    if (!d.bandHasNoCounter) return text;
+    // A day whose total came off a strap's own counter was counted by a
+    // band that HAS one (an earlier WHOOP 5.0 / MG): the hint would be false.
+    if (!d.bandHasNoCounter || d.daySource == 'strap_counter') return text;
     final hint = AppLocalizations.of(c)?.dayStepsWhoop4NoCounter ??
         'A WHOOP 4.0 has no step counter of its own, so it only counts steps '
             'while this app is receiving its live data.';
