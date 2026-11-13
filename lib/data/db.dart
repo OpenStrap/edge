@@ -10051,6 +10051,19 @@ class LocalDb {
         return {'fw': fw, 'last_seen': now, 'history': kept};
       });
 
+  /// The firmware [noteBandFirmware] last recorded, or null when no band has
+  /// reported one on this install. Best-effort; never throws.
+  static Future<String?> bandFirmware() async {
+    try {
+      final raw = (await computeFreshness(kBandFirmwareKey))?['payload_json'];
+      final m = raw is String ? jsonDecode(raw) : null;
+      final fw = m is Map ? m['fw'] : null;
+      return fw is String && fw.isNotEmpty ? fw : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// `compute_freshness` key marking the raw-free next-night nap cleanup
   /// (compute/nap_overlap_cleanup.dart) as applied. Cleared by an import.
   /// v2: the v1 pass skipped every day the readiness backfill had restamped
