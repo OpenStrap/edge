@@ -1005,18 +1005,16 @@ class NotificationCenter {
     // Pending vs delivered: a one-shot that already fired is no longer pending.
     final hasPendingMorning = (await svc.pendingIds())
         .contains(NotificationService.idMorningBrief);
-    // The slot minute the pending registration was armed for, so a changed
-    // requested time (user setting or wake-derived) replaces the pending one
-    // instead of being preserved by the anti-repeat guard.
-    final armedSlotKey = 'morning_brief_slot:$today';
-    int? armedSlot;
-    try {
-      final p = await SharedPreferences.getInstance();
-      await p.reload();
-      armedSlot = p.getInt(armedSlotKey);
-    } catch (_) {}
+    // The slot minute is encoded in the fired-store key (not a separate prefs
+    // int), so a changed requested time (user setting or wake-derived)
+    // replaces the pending one instead of being preserved by the anti-repeat
+    // guard. Date-prefixed like the announced key, so the store prunes itself.
     final slotMin =
         morningSlot == null ? null : morningSlot.hour * 60 + morningSlot.minute;
+    final slotKey =
+        slotMin == null ? null : 'morning_brief_slot:$today:$slotMin';
+    final slotArmed =
+        slotKey == null ? false : await const FiredKeyStore().hasFired(slotKey);
     var morningPreserved = false;
     if (morningSlot == null) {
       // Not armed by this pass (switch off, no data, quiet hours): cancel any
@@ -1029,15 +1027,11 @@ class NotificationCenter {
       await svc.cancel(NotificationService.idMorningBrief);
       if (hasPendingMorning) {
         await const FiredKeyStore().release(announcedKey);
-        try {
-          final p = await SharedPreferences.getInstance();
-          await p.remove(armedSlotKey);
-        } catch (_) {}
       }
     } else if (morningAnnounced &&
         ((slotMin! <= nowMin && !hasPendingMorning) || // delivered already
-            (hasPendingMorning && armedSlot == slotMin))) {
-      // Delivered occurrence, or pending one matching the current plan slot:
+            (hasPendingMorning && slotArmed))) {
+      // Delivered occurrence, or pending one armed for the current plan slot:
       // neither is cancelled nor re-armed.
       morningPreserved = true;
     } else {
@@ -1078,10 +1072,7 @@ class NotificationCenter {
       // suppress the briefing for the rest of the day.
       if (armed && s.id == NotificationService.idMorningBrief) {
         await const FiredKeyStore().recordFired(announcedKey);
-        try {
-          final p = await SharedPreferences.getInstance();
-          await p.setInt(armedSlotKey, s.hour * 60 + s.minute);
-        } catch (_) {}
+        await const FiredKeyStore().recordFired(slotKey!);
       }
     }
   }
