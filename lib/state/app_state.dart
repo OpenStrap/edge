@@ -4739,12 +4739,16 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void _resetBandIdentity() {
+  /// Forget what the link knows about the band it was on, so a new bootstrap
+  /// starts clean. The remembered strap name is a separate, persisted thing:
+  /// it is also what the old band is shown under while it is still the paired
+  /// one, so a replacement that has not committed must leave it alone.
+  void _resetBandIdentity({bool clearSavedName = true}) {
     device.reset();
     pairedIsMaverick = false;
     _lastSeenGeneration = null;
     _lastSeenStrapNameRaw = null;
-    Prefs.setString(_kStrapName, '');
+    if (clearSavedName) Prefs.setString(_kStrapName, '');
   }
 
   Future<void> _persistPaired(String remoteId, String? serial,
@@ -4762,13 +4766,15 @@ class AppState extends ChangeNotifier {
       return;
     }
     if (replacing && existing == null) throw StateError('There is no band to replace.');
-    if (replacing && existing!.remoteId == remoteId) return;
+    if (replacing && existing!.remoteId == remoteId) {
+      throw const SameBandSelectedException();
+    }
     final epoch = _pairingEpoch;
     _pairingInProgress = true;
     _replacingBand = replacing;
     var committed = false;
     try {
-      if (replacing) _resetBandIdentity();
+      if (replacing) _resetBandIdentity(clearSavedName: false);
       final confirmed = await _sync.connectForPairing(
         PairedDevice(remoteId, serial),
         replacingRemoteId: replacing ? existing?.remoteId : null,
@@ -4786,6 +4792,9 @@ class AppState extends ChangeNotifier {
           }
           paired = await PairedDevice.load();
           committed = paired?.remoteId == remoteId;
+          // The old band's name belongs to the old band; the new one banks
+          // its own as soon as it reports it.
+          if (committed && replacing) Prefs.setString(_kStrapName, '');
         },
       );
       if (!confirmed) {
@@ -4799,7 +4808,7 @@ class AppState extends ChangeNotifier {
       if (replacing && !committed && epoch == _pairingEpoch &&
           paired?.remoteId == existing?.remoteId) {
         _replacingBand = false;
-        _resetBandIdentity();
+        _resetBandIdentity(clearSavedName: false);
         try {
           await IosBleRestore.provisioned(existing!.remoteId);
           await openSession();
@@ -6191,4 +6200,14 @@ class SleepCorrectionUnavailable implements Exception {
   String toString() => eveningPruned
       ? 'the evening before $day is no longer recorded'
       : 'no recordings left to re-analyse $day';
+}
+
+/// The band picked to replace the paired one IS the paired one. Nothing was
+/// touched. Said out loud because returning quietly made the pairing screen
+/// report "Paired" for a replacement that never happened.
+class SameBandSelectedException implements Exception {
+  const SameBandSelectedException();
+  @override
+  String toString() =>
+      'That band is already paired. Choose a different band to replace it.';
 }
