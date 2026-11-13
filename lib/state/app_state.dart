@@ -3137,7 +3137,7 @@ class AppState extends ChangeNotifier {
     _lastRecTs = await LocalDb.getRecordFrontier() ?? lastSynced?.tsEpoch;
     await LocalDb.refreshComputeFreshness();
     final alarmPrefs = await SharedPreferences.getInstance();
-    _savedAlarm = alarmPrefs.getInt('alarm_epoch');
+    _savedAlarm = persistedAlarmEpoch(alarmPrefs, paired?.remoteId);
     final firedSec = alarmPrefs.getInt('alarm_fired_at');
     if (firedSec != null) {
       _alarmFiredAt = DateTime.fromMillisecondsSinceEpoch(firedSec * 1000);
@@ -4794,11 +4794,12 @@ class AppState extends ChangeNotifier {
   int _pairingEpoch = 0;
   bool _pairingInProgress = false;
 
-  /// Verify and save the replacement before retiring the old phone approval.
-  /// A failed attempt keeps the old pairing and attempts to reconnect it.
+  /// Substitute the native approval-retirement transport in lock tests.
   @visibleForTesting
   Future<void> Function(String remoteId)? debugRetireBandApproval;
 
+  /// Verify and save the replacement before retiring the old phone approval.
+  /// A failed attempt keeps the old pairing and attempts to reconnect it.
   Future<void> replaceWith(BluetoothDevice d) =>
       _persistPaired(d.remoteId.str, null, replacing: true);
 
@@ -4865,10 +4866,12 @@ class AppState extends ChangeNotifier {
     _pairingInProgress = true;
     _replacingBand = replacing;
     var committed = false;
+    var started = false;
     try {
       final confirmed = await _sync.connectForPairing(
         PairedDevice(remoteId, serial),
         replacingRemoteId: replacing ? existing?.remoteId : null,
+        onStarted: () => started = true,
         prepare: replacing ? () async {
           // Replacement suppresses disconnect callbacks; bank the old band's
           // still-filling minute before the new session clears its pedometer.
@@ -4881,6 +4884,18 @@ class AppState extends ChangeNotifier {
           // the identity THIS bootstrap discovered, not a stale device hint.
           if (epoch != _pairingEpoch || _resetting) {
             throw StateError('Pairing was cancelled.');
+          }
+          if (replacing) {
+            // CLAIM(alarm-band-ownership): bind legacy epochs before switching
+            // identity, so a failed remove cannot arm the replacement on paper.
+            final prefs = await SharedPreferences.getInstance();
+            if (prefs.getInt('alarm_epoch') != null &&
+                (prefs.getString(kAlarmRemoteId) == null ||
+                    prefs.getString(kAlarmRemoteId) == existing!.remoteId)) {
+              if (!await prefs.setString(kAlarmRemoteId, existing!.remoteId)) {
+                throw StateError('Could not preserve alarm ownership.');
+              }
+            }
           }
           await PairedDevice.save(remoteId, serial ?? device.serial,
               generation: device.generation);
@@ -4904,10 +4919,17 @@ class AppState extends ChangeNotifier {
         if (blocker != null) throw BleUnavailableException(blocker);
         throw Exception('Connection setup did not complete.');
       }
+      if (replacing && committed) {
+        // CLAIM(pairing-retirement-lock): retirement can revoke approval; a
+        // second replacement must wait until both native calls finish.
+        await IosBleRestore.disarmOne(existing!.remoteId);
+        await (debugRetireBandApproval?.call(existing.remoteId) ??
+            AccessorySetup.removeBand(existing.remoteId));
+      }
     } catch (error, stack) {
       // PairedDevice.save rolls back its transaction and preference mirror.
       // Only reconnect while the old pairing still owns this attempt.
-      if (replacing && !committed && epoch == _pairingEpoch &&
+      if (replacing && started && !committed && epoch == _pairingEpoch &&
           paired?.remoteId == existing?.remoteId) {
         _replacingBand = false;
         _resetBandIdentity(clearSavedName: false);
@@ -4924,13 +4946,7 @@ class AppState extends ChangeNotifier {
       _replacingBand = false;
       _pairingInProgress = false;
     }
-    if (replacing && committed) {
-      // Never use unpair/removeAll here: the new primary is already durable.
-      await IosBleRestore.disarmOne(existing!.remoteId);
-      await (debugRetireBandApproval?.call(existing.remoteId) ??
-          AccessorySetup.removeBand(existing.remoteId));
-      _onEngineState(LocalDb.kPrimaryDeviceId, device);
-    }
+    if (replacing && committed) _onEngineState(LocalDb.kPrimaryDeviceId, device);
     // Now that there's a band to alert about, ask for notification permission
     // (a natural moment; battery/charging alerts depend on it). Best-effort.
     unawaited(NotificationService.instance.ensurePermission());
@@ -5212,7 +5228,7 @@ class AppState extends ChangeNotifier {
       // comparing, or a stale in-memory `_savedAlarm` makes this issue a
       // needless duplicate setAlarm write on every connect.
       final prefs = await SharedPreferences.getInstance();
-      final onDisk = prefs.getInt('alarm_epoch');
+      final onDisk = persistedAlarmEpoch(prefs, paired?.remoteId);
       if (onDisk != _savedAlarm) {
         _savedAlarm = onDisk;
         // Adopting another process's arm: a retry still in flight for the
@@ -5410,12 +5426,17 @@ class AppState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     // A newer arm (or a clear) during the await owns what is persisted now.
     if (_disposed || _armGen != gen) return;
-    await prefs.setInt('alarm_epoch', epoch);
+    if (!await prefs.setInt('alarm_epoch', epoch)) {
+      throw StateError('Could not save the armed alarm.');
+    }
     if (_disposed || _armGen != gen) return;
     await prefs.setInt('alarm_set_at_ms', setAtMs);
     if (_disposed || _armGen != gen) return;
     // Not confirmed yet — event 56 (below, in _handleAlarmEvent) flips this.
     await prefs.setBool('alarm_epoch_confirmed', echoed);
+    if (_disposed || _armGen != gen) return;
+    final remoteId = paired?.remoteId;
+    if (remoteId != null) await prefs.setString(kAlarmRemoteId, remoteId);
     if (_disposed || _armGen != gen) return;
     if (echoed) {
       await _finishEchoConfirmed(prefs, gen);

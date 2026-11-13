@@ -374,6 +374,40 @@ void main() {
     expect(find.text('Candidate ring'), findsOneWidget);
   });
 
+  // WHY: requiring an explicit result must still accept a successful child pair.
+  // CLAIM(unframed-pairing-result); catches: always returning cancellation after handoff.
+  testWidgets('wearable child returns success only after its pairing succeeds', (t) async {
+    final app = _App();
+    addTearDown(app.dispose);
+    final candidate = (device: BluetoothDevice.fromId('ring'), label: 'Ring',
+        rssi: -50, entryId: 'oura', alsoBand: null);
+    BandFlowResult? result;
+    final pairedIds = <String>[];
+    await _screen(t, app, Builder(builder: (c) => TextButton(
+      onPressed: () async {
+        result = await Navigator.of(c).push(MaterialPageRoute<BandFlowResult>(
+          builder: (_) => PairSensorScreen(entry: kOura, returnOnPair: true,
+            debugFound: [candidate], onPicked: (device) async {
+              pairedIds.add(device.remoteId.str);
+              return null;
+            }),
+        ));
+      }, child: const Text('Open wearable'))));
+    await t.tap(find.text('Open wearable'));
+    await t.pumpAndSettle();
+    expect(result, isNull);
+    var done = false;
+    final pick = t.widget<PairSensorView>(find.byType(PairSensorView)).onPick!
+        as Future<void> Function(BandCandidate);
+    final pairing = pick(candidate).whenComplete(() => done = true);
+    await _ioUntil(t, () => done);
+    await pairing;
+    await t.pumpAndSettle();
+    expect(pairedIds, ['ring']);
+    expect(result, BandFlowResult.pairedWearable);
+    expect(find.byType(PairSensorScreen), findsNothing);
+  });
+
   // WHY: an old primary still existing does not prove a replacement succeeded.
   // catches: using AppState.isPaired instead of comparing the selected identity.
   for (final systemPickerSaved in [false, true]) {
