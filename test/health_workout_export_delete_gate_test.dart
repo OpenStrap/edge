@@ -90,16 +90,12 @@ void main() {
     // first test failed there while passing in CI (Linux).
     late _FakeHealthStore store;
 
-    setUp(() => HealthExporter.isAppleOverride = false);
-    tearDown(() {
-      store.remove();
-      HealthExporter.isAppleOverride = null;
-    });
+    tearDown(() => store.remove());
 
     test('a failed delete does not write a duplicate on top of it', () async {
       store = _FakeHealthStore(deleteResult: false)..install();
 
-      final ok = await HealthExporter().exportWorkout(_session());
+      final ok = await HealthExporter(isApple: false).exportWorkout(_session());
 
       expect(ok, isFalse, reason: 'the caller must retry this workout');
       expect(store.calls, contains('delete'));
@@ -117,7 +113,7 @@ void main() {
       store = _FakeHealthStore(deleteResult: true, deleteThrows: true)
         ..install();
 
-      final ok = await HealthExporter().exportWorkout(_session());
+      final ok = await HealthExporter(isApple: false).exportWorkout(_session());
 
       expect(ok, isFalse);
       expect(store.calls, isNot(contains('writeWorkoutData')));
@@ -126,7 +122,7 @@ void main() {
     test('a successful delete still writes', () async {
       store = _FakeHealthStore(deleteResult: true)..install();
 
-      final ok = await HealthExporter().exportWorkout(_session());
+      final ok = await HealthExporter(isApple: false).exportWorkout(_session());
 
       expect(ok, isTrue);
       expect(store.calls, containsAllInOrder(['delete', 'writeWorkoutData']));
@@ -137,7 +133,7 @@ void main() {
         'though it looks like any other finished row', () async {
       store = _FakeHealthStore(deleteResult: true)..install();
 
-      final ok = await HealthExporter().exportWorkout({
+      final ok = await HealthExporter(isApple: false).exportWorkout({
         ..._session(),
         'end_ts_fabricated': 1,
       });
@@ -161,7 +157,7 @@ void main() {
     test('a private session clears its window and is never written', () async {
       store = _FakeHealthStore(deleteResult: true)..install();
 
-      await HealthExporter().exportWorkout({..._session(), 'private': 1});
+      await HealthExporter(isApple: false).exportWorkout({..._session(), 'private': 1});
 
       expect(store.calls, contains('delete'),
           reason: 'the stop-time export wrote it before the flag landed');
@@ -179,7 +175,7 @@ void main() {
     test('are never written to the health store', () async {
       store = _FakeHealthStore(deleteResult: true)..install();
 
-      final ok = await HealthExporter().exportWorkout(
+      final ok = await HealthExporter(isApple: false).exportWorkout(
           {..._session(), 'source': kScoredImportSessionSource});
 
       expect(ok, isFalse);
@@ -190,7 +186,7 @@ void main() {
     test('an ordinary manual session still is', () async {
       store = _FakeHealthStore(deleteResult: true)..install();
 
-      final ok = await HealthExporter()
+      final ok = await HealthExporter(isApple: false)
           .exportWorkout({..._session(), 'source': 'manual'});
 
       expect(ok, isTrue);

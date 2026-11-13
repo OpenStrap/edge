@@ -538,10 +538,14 @@ class HealthExporter {
   /// behind the purge: exportAll keeps it pending without spending an attempt.
   bool _dayHeldForPurge = false;
 
+  final bool? _isAppleOverride;
+
   HealthExporter({
     HealthConnectHeartRateWriter? androidHeartRate,
     @visibleForTesting Duration deleteTimeout = const Duration(seconds: 30),
-  }) : _androidHeartRate =
+    @visibleForTesting bool? isApple,
+  }) : _isAppleOverride = isApple,
+       _androidHeartRate =
            androidHeartRate ?? MethodChannelHealthConnectHeartRateWriter(),
        _deleteTimeout = deleteTimeout;
 
@@ -626,21 +630,19 @@ class HealthExporter {
   }
 
   /// True on iOS/macOS (Apple Health); false on Android (Health Connect).
-  static bool get isApple =>
-      isAppleOverride ?? (Platform.isIOS || Platform.isMacOS);
+  static bool get isApple => Platform.isIOS || Platform.isMacOS;
 
-  /// Pins [isApple] in a test. The host VM is macOS on a Mac and Linux in CI,
-  /// so a test of one store's behaviour otherwise passes or fails depending on
-  /// whose machine runs it. null = the real platform.
-  @visibleForTesting
-  static bool? isAppleOverride;
+  /// [isApple], or what a test pinned through the constructor. The host VM is
+  /// macOS on a Mac and Linux in CI, so a test of one store's behaviour
+  /// otherwise passes or fails depending on whose machine runs it.
+  bool get _apple => _isAppleOverride ?? isApple;
 
   /// Display name of the platform health store.
   static String get storeName => isApple ? 'Apple Health' : 'Health Connect';
 
   /// HealthKit only stores SDNN; Health Connect stores RMSSD — write whichever
   /// the platform supports (both are real, from cleaned RR).
-  HealthDataType get _hrvType => isApple
+  HealthDataType get _hrvType => _apple
       ? HealthDataType.HEART_RATE_VARIABILITY_SDNN
       : HealthDataType.HEART_RATE_VARIABILITY_RMSSD;
 
@@ -659,7 +661,7 @@ class HealthExporter {
     // and [_rewriteTypes].
     HealthDataType.STEPS,
     for (final t in _sleepHealthTypes)
-      if (t != _foreignSleepEnvelope(isApple)) t,
+      if (t != _foreignSleepEnvelope(_apple)) t,
     HealthDataType.WORKOUT,
   ];
 
@@ -683,7 +685,7 @@ class HealthExporter {
   ///   * HEART_RATE is removed on Apple too: the minute-HR block clears it
   ///     itself, only over the minutes it still has rows for.
   List<HealthDataType> get _rewriteTypes => [
-    for (final t in healthDeleteTypes(isApplePlatform: isApple))
+    for (final t in healthDeleteTypes(isApplePlatform: _apple))
       if (t != HealthDataType.STEPS && t != HealthDataType.HEART_RATE) t,
   ];
 
@@ -733,7 +735,7 @@ class HealthExporter {
     try {
       return healthDeleteClearedRange(
         deleted: await _nativeDelete(type, start, end),
-        ios: isApple,
+        ios: _apple,
       );
     } catch (e) {
       if (e is TimeoutException) _storeHung = true;
@@ -912,7 +914,7 @@ class HealthExporter {
         setCursor: (name, value) => LocalDb.setCursor(name, value),
         // Same platform flag the delete types use — the epoch rewrite is an
         // Apple-HealthKit concern only.
-        isApplePlatform: isApple,
+        isApplePlatform: _apple,
       );
       if (reset) {
         await LocalDb.setCursor('health_export_through', '');
@@ -930,7 +932,7 @@ class HealthExporter {
           try {
             return healthDeleteClearedRange(
               deleted: await _nativeDelete(HealthDataType.STEPS, start, end),
-              ios: isApple,
+              ios: _apple,
             );
           } on TimeoutException {
             _storeHung = true;
@@ -1253,7 +1255,7 @@ class HealthExporter {
         success = false;
       }
     }
-    if (isApple) {
+    if (_apple) {
       try {
         if (!await _appleSleep.replace(
           bundle: b,
@@ -1425,7 +1427,7 @@ class HealthExporter {
     );
     await writeAt(
       _hrvType,
-      healthHrvExportValue(b, apple: isApple),
+      healthHrvExportValue(b, apple: _apple),
       HealthDataUnit.MILLISECOND,
       mid,
     );
@@ -1661,7 +1663,7 @@ class HealthExporter {
         activityType: _activity(r['type']?.toString()),
         start: DateTime.fromMillisecondsSinceEpoch(st * 1000),
         end: DateTime.fromMillisecondsSinceEpoch(en * 1000),
-        totalEnergyBurned: healthWorkoutEnergyKcal(r, isApplePlatform: isApple),
+        totalEnergyBurned: healthWorkoutEnergyKcal(r, isApplePlatform: _apple),
         title: healthWorkoutTitleForType(r['type']?.toString()),
       );
     } catch (e) {
@@ -1732,7 +1734,7 @@ class HealthExporter {
   // (the HRV type, the delete list, the store name) keys off the same getter,
   // and a divergence here would hand macOS the Health Connect spellings.
   HealthWorkoutActivityType _activity(String? type) =>
-      healthActivityForType(type, ios: isApple);
+      healthActivityForType(type, ios: _apple);
 
   /// Decode a stored day bundle, normalizing the compact curve format back to
   /// plain [{t,v}] lists. Hypnogram segments are never encoded (no `t` key), so
