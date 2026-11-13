@@ -3504,6 +3504,7 @@
   "strengthSaveFailed": "Änderungen konnten nicht gespeichert werden",
   "napAutoLogTitle": "Eindeutige Nickerchen automatisch eintragen",
   "napAutoLogSub": "Ein erkanntes Nickerchen mit starken Anzeichen wird ohne Nachfrage eingetragen. Du kannst es weiterhin bearbeiten oder entfernen",
+  "napAutoLogSaveFailed": "Die Einstellung konnte nicht gespeichert werden. Versuche es erneut.",
   "settingsStepCalibration": "Schrittkalibrierung",
   "settingsStepCalibrationSub": "Lernt, wie stark dein Band deine Schritte zu hoch oder zu niedrig zählt, und korrigiert das auf dem Smartphone. Nichts wird auf das Band geschrieben und nichts verlässt das Gerät",
   "stepCalTitle": "Schrittkalibrierung",

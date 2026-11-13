@@ -80,6 +80,16 @@ class Prefs {
     }
   }
 
+  /// [setBoolAcked] for an int: false when there is no storage or the platform
+  /// refused the write, never a throw.
+  static Future<bool> setIntAcked(String key, int value) async {
+    try {
+      return await _sp?.setInt(key, value) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ── selection keys (one namespace; keep them disjoint) ──────────────────────
   /// The five-tab bar's index (Home, Health, Nutrition, Workout, Wellness).
   /// Read once to migrate, never written.

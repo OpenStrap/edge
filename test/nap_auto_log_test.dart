@@ -52,10 +52,15 @@ void main() {
   Future<ActivitySuggestion> detect(double confidence) async =>
       (await store.reconcile(ActivityKind.nap, [nap(confidence)])).single;
 
-  Future<void> run({int? since, int? edge}) => store.autoLogNaps(
+  Future<void> run({
+    int? since,
+    int? edge,
+    List<Map<String, dynamic>>? current,
+  }) => store.autoLogNaps(
     sinceSec: since,
     dataEdgeSec: edge ?? now,
     settleSec: settle,
+    current: current ?? [nap(0.85)],
   );
 
   Future<List<Map<String, Object?>>> logged() => db.query('sleep_nap');
@@ -82,12 +87,43 @@ void main() {
     expect((await store.get(s.id))!.status, ActivityReviewStatus.confirmed);
   });
 
+  test('reports how many it logged, so the caller can apply the review',
+      () async {
+    await detect(0.85);
+    final first = await store.autoLogNaps(
+      sinceSec: start - 1,
+      dataEdgeSec: now,
+      settleSec: settle,
+      current: [nap(0.85)],
+    );
+    final again = await store.autoLogNaps(
+      sinceSec: start - 1,
+      dataEdgeSec: now,
+      settleSec: settle,
+      current: [nap(0.85)],
+    );
+    expect(first, 1);
+    expect(again, 0);
+  });
+
   test('a tap-confirmed nap is not marked as auto-logged', () async {
     final s = await detect(0.85);
     await store.confirm(s, startTs: start, endTs: end);
     final payload =
         jsonDecode((await logged()).single['payload_json'] as String) as Map;
     expect(payload.containsKey('auto_logged'), isFalse);
+  });
+
+  test('on: a pending nap this pass no longer detects is never logged',
+      () async {
+    final s = await detect(0.85);
+    await run(since: start - 1, current: const []);
+    // A different nap elsewhere in the day does not vouch for it either.
+    await run(since: start - 1, current: [
+      {'start': end + 7200, 'end': end + 9000, 'confidence': 0.9},
+    ]);
+    expect(await logged(), isEmpty);
+    expect((await store.get(s.id))!.status, ActivityReviewStatus.pending);
   });
 
   test('on: a nap below the bar stays a suggestion', () async {
@@ -123,11 +159,10 @@ void main() {
   test('on: a nap synced more than a week late is still logged', () async {
     final oldStart = now - 9 * 86400;
     await db.update('activity_review_meta', {'activated_at': oldStart - 1});
-    await store.reconcile(ActivityKind.nap, [
-      {...nap(0.85), 'start': oldStart, 'end': oldStart + 1800},
-    ]);
+    final old = {...nap(0.85), 'start': oldStart, 'end': oldStart + 1800};
+    await store.reconcile(ActivityKind.nap, [old]);
     expect(await store.pending(), isEmpty, reason: 'past the review list');
-    await run(since: oldStart - 1);
+    await run(since: oldStart - 1, current: [old]);
     expect(await logged(), hasLength(1));
   });
 

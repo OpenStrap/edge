@@ -2894,6 +2894,7 @@
   "reportContactHint": "E-mail ou Discord, seulement si vous voulez une réponse",
   "napAutoLogTitle": "Enregistrer automatiquement les siestes nettes",
   "napAutoLogSub": "Une sieste détectée avec des indices solides est ajoutée sans demander. Vous pouvez toujours la modifier ou la supprimer",
+  "napAutoLogSaveFailed": "Le réglage n’a pas pu être enregistré. Réessayez.",
   "pairBandNotSensor": "Cet appareil est un {label}, c’est-à-dire un bracelet, pas un simple capteur. Rien n’a été enregistré.",
   "whoopFirmwareWarningTitle": "Utilisateurs WHOOP : ne vous reconnectez pas à l’application WHOOP",
   "whoopFirmwareWarningAction": "Si vous utilisez OpenStrap ou une autre application open source, ou si vous comptez y passer plus tard, ne reconnectez pas votre bracelet à l’application WHOOP officielle. Elle peut installer des mises à jour du firmware automatiquement. Désinstallez ou désactivez l’application WHOOP pour l’empêcher de mettre à jour votre bracelet.",

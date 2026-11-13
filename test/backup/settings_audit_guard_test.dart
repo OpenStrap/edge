@@ -18,6 +18,9 @@ const _mustTravel = {
   'backup.cadence', 'gesture_double_tap', 'band.strap_name',
   'health_sync', 'phone_steps', 'cycle_tracking_enabled', 'update_checks_enabled',
   'nutrition.barcode_lookup', 'share.map_tiles', 'dev.mode',
+  // The user's opt-in, with when it was given. Restored imports are fenced by
+  // alert_after_ts, so a restored timestamp cannot log old naps.
+  'activity.nap_auto_log_since_sec',
   'coach_api', 'coach_model', 'coach_timeout_seconds',
   'coach_use_chatgpt',
   'ai_morning_enabled', 'ai_morning_min', 'ai_evening_enabled', 'ai_evening_min',

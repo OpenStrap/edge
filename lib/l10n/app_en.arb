@@ -16400,5 +16400,6 @@
   "strengthSaveFailed": "Failed to save changes",
   "@strengthSaveFailed": {"description": "Strength set editor copy."},
   "napAutoLogTitle": "Log clear naps automatically",
-  "napAutoLogSub": "A detected nap with strong evidence is added without asking. You can still edit or remove it"
+  "napAutoLogSub": "A detected nap with strong evidence is added without asking. You can still edit or remove it",
+  "napAutoLogSaveFailed": "That setting could not be saved. Try again."
 }

@@ -221,12 +221,29 @@ class _NapAutoLogRowState extends State<NapAutoLogRow> {
                 'You can still edit or remove it',
         value: on ? (l?.stateOn ?? 'On') : (l?.stateOff ?? 'Off'),
         chevron: false,
-        onTap: () => setState(() => Prefs.setInt(
-              Prefs.napAutoLogSinceSec,
-              on ? 0 : DateTime.now().millisecondsSinceEpoch ~/ 1000,
-            )),
+        onTap: () => _toggle(c, on),
       ),
     );
+  }
+
+  /// SharedPreferences updates its cache before the platform confirms and
+  /// never rolls it back, so a refused write would read as On for the rest of
+  /// the session and be Off again at the next launch. Say so, and put the
+  /// cache back.
+  Future<void> _toggle(BuildContext c, bool on) async {
+    final before = Prefs.getInt(Prefs.napAutoLogSinceSec, 0);
+    final messenger = ScaffoldMessenger.maybeOf(c);
+    final text = AppLocalizations.of(c)?.napAutoLogSaveFailed ??
+        'That setting could not be saved. Try again.';
+    final ok = await Prefs.setIntAcked(
+      Prefs.napAutoLogSinceSec,
+      on ? 0 : DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    );
+    if (!ok) {
+      Prefs.setInt(Prefs.napAutoLogSinceSec, before);
+      messenger?.showSnackBar(SnackBar(content: Text(text)));
+    }
+    if (mounted) setState(() {});
   }
 }
 

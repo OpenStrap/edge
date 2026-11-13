@@ -562,12 +562,27 @@ class ActivityStore {
   /// the data edge is [settleSec] past its end, so sleep that resumes after a
   /// short arousal can still be bridged into it first. A nap that cannot be
   /// confirmed (it overlaps saved sleep, or changed underneath) stays pending.
-  Future<void> autoLogNaps({
+  /// Returns how many were logged.
+  ///
+  /// [current] is the nap candidates this pass detected. Only a pending row
+  /// that overlaps one of them is a candidate: [reconcile] only retires rows
+  /// that overlap a re-detection, so a nap a later pass no longer finds stays
+  /// pending, and must not be confirmed behind the user's back.
+  Future<int> autoLogNaps({
     required int? sinceSec,
     required int dataEdgeSec,
     required int settleSec,
+    required List<Map<String, dynamic>> current,
   }) async {
-    if (sinceSec == null) return;
+    if (sinceSec == null) return 0;
+    final spans = <(int, int)>[
+      for (final c in current)
+        (
+          ((c['start_ts'] ?? c['start']) as num).toInt(),
+          ((c['end_ts'] ?? c['end']) as num).toInt(),
+        ),
+    ];
+    if (spans.isEmpty) return 0;
     await migrateLegacy();
     // Imported history is never logged for the user: the same line
     // [mayNotifyNew] draws for prompts.
@@ -582,16 +597,20 @@ class ActivityStore {
       whereArgs: [math.max(sinceSec, importedThrough)],
       orderBy: 'start_ts ASC, id ASC',
     );
+    var logged = 0;
     for (final s in rows.map(ActivitySuggestion.fromRow)) {
       if (!napAutoLoggable(s, sinceSec) || s.endTs + settleSec > dataEdgeSec) {
         continue;
       }
+      if (!spans.any((c) => s.startTs < c.$2 && s.endTs > c.$1)) continue;
       try {
         await confirm(s, startTs: s.startTs, endTs: s.endTs, auto: true);
+        logged++;
       } on ActivityReviewException {
         // Left for the user to review.
       }
     }
+    return logged;
   }
 
   static Future<void> _changed(DatabaseExecutor tx, String day) async {
