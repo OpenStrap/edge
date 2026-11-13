@@ -33,7 +33,6 @@ void main() {
     // 07:30 habitual wake → preSyncAt = 07:30 − 135min = 05:15
     final targetWake = DateTime(2026, 10, 26, 7, 30);
     final preSyncAt = DateTime(2026, 10, 26, 5, 15);
-    final windowStart = DateTime(2026, 10, 26, 6, 0); // 07:30 − 90min
     final rows = [for (var i = 0; i < 5; i++) dayRow(7, 30)];
 
     test('preSyncAt = targetWake − (lease + preSyncLead) = 05:15', () {
