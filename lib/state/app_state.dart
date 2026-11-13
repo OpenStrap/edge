@@ -4113,6 +4113,9 @@ class AppState extends ChangeNotifier {
     }
     final runs = _gaitRuns.runs;
     _resetLivePedometer();
+    // CLAIM(orphan-checkpoint-preserved): no live runs means nothing was banked;
+    // retain a killed session's checkpoint for recovery after the next connect.
+    if (runs.isEmpty) return;
     try {
       await _bankGaitRuns(runs, resetGeneration: resetGeneration);
     } catch (_) {
