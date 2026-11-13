@@ -681,6 +681,22 @@ void main() {
       expect(find.text('Calibration'), findsOneWidget);
       expect(find.text('WHOOP 5'), findsOneWidget);
     });
+
+    testWidgets('the install-an-image row shows only when handed a callback',
+        (tester) async {
+      _tallView(tester);
+      Future<void> pump(VoidCallback? install) => tester.pumpWidget(MaterialApp(
+            theme: buildTheme(Brightness.light),
+            home: DeviceDetailView(band('gen5'),
+                onFind: () {}, onInstallImage: install),
+          ));
+      await pump(null);
+      expect(find.text('Install an image'), findsNothing);
+      var opened = false;
+      await pump(() => opened = true);
+      await tester.tap(find.text('Install an image'));
+      expect(opened, isTrue);
+    });
   });
 
   // An encrypted backup comes back off iCloud Drive or a mail attachment with
