@@ -16805,5 +16805,14 @@
   "@strengthSaveFailed": {"description": "Strength set editor copy."},
   "napAutoLogTitle": "Log clear naps automatically",
   "napAutoLogSub": "A detected nap with strong evidence is added without asking. You can still edit or remove it",
-  "napAutoLogSaveFailed": "That setting could not be saved. Try again."
+  "napAutoLogSaveFailed": "That setting could not be saved. Try again.",
+  "healthWearNotUpdatedSince": "not updated since {time}",
+  "@healthWearNotUpdatedSince": {
+    "description": "Wear-time row: the figure is from an earlier derive that the latest one could not refresh. time is a clock time, e.g. 11:05 AM",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  }
 }
