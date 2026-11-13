@@ -66,6 +66,8 @@ void main() {
     testWidgets('with a median, ${scale}x text', (t) async {
       await _pump(t, median: 29, scale: scale);
       expect(find.textContaining('of about 29'), findsOneWidget);
+      // The phase name wraps at large text instead of ending in an ellipsis.
+      expect(t.widget<Pill>(find.byType(Pill).first).wrap, scale > 1.3);
     });
   }
 }

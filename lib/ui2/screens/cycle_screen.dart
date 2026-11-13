@@ -493,7 +493,10 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
                 l?.cycleDayInThisCycle ?? 'DAY IN THIS CYCLE',
                 style: F.over.copyWith(color: p.ink3),
               ),
-              if (d.phase != 'unknown') Pill(_phaseLabel(l, d.phase), C.pink),
+              if (d.phase != 'unknown')
+                // Wraps at large text rather than cutting a long phase name
+                // short with an ellipsis; one line at default sizes.
+                Pill(_phaseLabel(l, d.phase), C.pink, wrap: bigText(c)),
             ],
           ),
           const SizedBox(height: S.x2),
