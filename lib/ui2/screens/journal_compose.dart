@@ -18,6 +18,7 @@ import 'package:provider/provider.dart';
 
 import '../../ai/journal_ai.dart';
 import '../../coach/coach_config.dart';
+import '../../compute/inputs/measurement_inputs.dart' show weighingChain, weighings;
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart';
@@ -920,6 +921,52 @@ class _WeightRow extends StatelessWidget {
   }
 }
 
+/// Per-day weight for the trend: the journal's [manual] value and the scale
+/// [scaled] weighings (see `weighings`: flag-on, in band), bucketed by LOCAL
+/// day, the day's latest weighing standing for it. When a day has both, the
+/// later one wins: the journal's time of day against the weighing's, and a
+/// journal value with no time loses to the scale. Days with neither are absent.
+/// Scale weighings dated after [nowMs] (a band clock set ahead) are dropped.
+/// The chain runs over every weighing in [scaled]; only those at or after
+/// [fromMs] are plotted, so the window's start does not decide which readings
+/// anchor the chain (and the same data charts the same on every day).
+@visibleForTesting
+Map<String, double> weightByDay(
+  Map<String, Map<String, JournalMetricValue>> manual,
+  List<({double kg, int atMs})> scaled, {
+  int? nowMs,
+  int fromMs = 0,
+}) {
+  final until = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+  bool ok(double v) => v.isFinite && v > 0;
+  final out = <String, double>{};
+  for (final e in manual.entries) {
+    final v = e.value['weight_kg'];
+    if (v != null && ok(v.value)) out[e.key] = v.value;
+  }
+  // A scale weighs whoever steps on it, and banding against TODAY's profile
+  // weight would drop a long loss's old readings. So chain instead (see
+  // weighingChain): off-band weighings are someone else's unless they persist.
+  final chain = weighingChain(
+    scaled.where((w) => ok(w.kg) && w.atMs <= until),
+  );
+  final at = <String, int>{};
+  for (final w in chain) {
+    if (w.atMs < fromMs) continue;
+    final t = DateTime.fromMillisecondsSinceEpoch(w.atMs);
+    final day = dayLabelOf(t);
+    if (at[day] != null && at[day]! >= w.atMs) continue;
+    final m = t.hour * 60 + t.minute;
+    final jm = manual[day]?['weight_kg']?.atMinuteOfDay;
+    if (out.containsKey(day) && !at.containsKey(day) && jm != null && jm > m) {
+      continue;
+    }
+    at[day] = w.atMs;
+    out[day] = w.kg;
+  }
+  return out;
+}
+
 /// The trend, and only the trend.
 ///
 /// One line, no headline number, no delta, no arrow, no target and no colour
@@ -947,22 +994,27 @@ class _WeightTrendState extends State<_WeightTrend> {
       // Day arithmetic, not a subtracted duration: a DST day is 23 or 25 hours
       // long and `now - 180 days` lands on the wrong calendar date across one.
       final now = DateTime.now();
-      final since = dayLabelOf(
-        DateTime(now.year, now.month, now.day - (kWeightTrendDays - 1)),
+      final start = DateTime(
+        now.year,
+        now.month,
+        now.day - (kWeightTrendDays - 1),
       );
+      final since = dayLabelOf(start);
       final rows = await LocalDb.journalMetricsByDay(sinceDaysEpoch: since);
+      // Its own guard: a failing scale read must not blank the manual trend.
+      var scale = const <({double kg, int atMs})>[];
+      try {
+        // All history, not just the window: the chain's anchor must not
+        // depend on where the window starts (see weightByDay).
+        scale = await weighings();
+      } catch (e) {
+        debugPrint('weight trend: scale read failed: $e');
+      }
       if (!mounted) return;
       setState(() {
-        _byDay = {
-          for (final e in rows.entries)
-            // The `when` does real work — a non-finite or non-positive weight
-            // is not a weight — and the null-aware element form has nowhere to
-            // put a guard.
-            // ignore: use_null_aware_elements
-            if (e.value['weight_kg']?.value case final v?
-                when v.isFinite && v > 0)
-              e.key: v,
-        };
+        // Local midnight, matching the local-day buckets; parsing the label
+        // would read it as UTC midnight.
+        _byDay = weightByDay(rows, scale, fromMs: start.millisecondsSinceEpoch);
         _loading = false;
       });
     } catch (_) {
@@ -1025,7 +1077,7 @@ class _WeightTrendState extends State<_WeightTrend> {
           yAxis: axis,
           xLabels: [days.first, days.last],
           footnote: l?.journalComposeTrendFootnote ??
-              'Entered by you. Days with no entry are left empty.',
+              'Entered by you or your scale. Days with no entry are left empty.',
           series: vals,
           empty: axis == null ? const NoData() : null,
           child: axis == null
