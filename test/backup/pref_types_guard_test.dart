@@ -34,6 +34,18 @@ const _dynamicReads = <String, List<String>>{
   'notification_ids.dart|slotKey|int': ['notif_osid:health:2026-09-21:x'],
   'notification_ids.dart|ownerKey|string': ['notif_osslot:health:3'],
   'notification_ids.dart|k|int': ['notif_osid:health:2026-09-21:x'],
+  'health_weight_export.dart|healthWeightExportedKey(id|string': [
+    'health_weight_exported:d1',
+  ],
+  'health_weight_export.dart|healthWeightAttemptsKey(id|string': [
+    'health_weight_attempts:d1',
+  ],
+  'health_weight_export.dart|healthWeightMaybeLandedKey(id|string': [
+    'health_weight_maybe_landed:d1',
+  ],
+  'health_weight_export.dart|healthWeightTrimmedKey(id|string': [
+    'health_weight_trimmed:d1',
+  ],
   'nudges.dart|_dismissedKey(a|bool': ['nudge.pairing.dismissed'],
   'nudges.dart|_lastShownKey(a|int': ['nudge.pairing.last_shown_ms'],
   // The typed wrappers; each caller passes a literal or a const that is

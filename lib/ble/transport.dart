@@ -21,12 +21,19 @@ extension BleEngineTransport on BleEngine {
   /// this one radio scanner, and the `isScanning == false` await below is
   /// satisfied by ITS `stopScan` too — an unserialised scan silently ends
   /// having seen nothing and reports "No band found".
+  ///
+  /// [remoteId] and [generation] narrow it to the band the user chose
+  /// ([ScanAcceptPolicy.fitsChoice]): any other WHOOP in range is passed over,
+  /// never paired in its place.
   Future<BluetoothDevice?> scan({
     Duration timeout = const Duration(seconds: 12),
+    String? remoteId,
+    String? generation,
   }) =>
-      withScanLock(() => _scanLocked(timeout));
+      withScanLock(() => _scanLocked(timeout, remoteId, generation));
 
-  Future<BluetoothDevice?> _scanLocked(Duration timeout) async {
+  Future<BluetoothDevice?> _scanLocked(
+      Duration timeout, String? remoteId, String? generation) async {
     // A phone-level blocker is NOT "nothing answered". Returning null for a
     // revoked Bluetooth permission classified it as `notFound` upstream, which
     // told the user to walk closer to a band that was never the problem — the
@@ -77,6 +84,9 @@ extension BleEngineTransport on BleEngine {
         // not a matchable service UUID; WHOOP 5's `fd4b` member UUID needs no
         // such fallback, so it supplies none.
         if (found == null &&
+            ScanAcceptPolicy.fitsChoice(r.device.remoteId.str,
+                r.advertisementData.serviceUuids.map((g) => g.str),
+                wantRemoteId: remoteId, wantGeneration: generation) &&
             (kFramedBands.any((e) => e.nameMatcher?.call(name) ?? false) ||
                 advNames.any((s) =>
                     s == kWhoopMemberUuid16 ||

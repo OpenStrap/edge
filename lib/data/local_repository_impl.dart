@@ -29,6 +29,7 @@ import '../compute/manual_session.dart';
 import '../compute/onehz_pipeline.dart' show kUnknownAbsenceNote, needInputNote;
 import '../compute/profile.dart';
 import '../compute/quiet_level.dart';
+import '../compute/vendor_sleep.dart' show vendorHypnogram;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
@@ -2334,10 +2335,7 @@ class LocalRepositoryImpl extends LocalRepository {
         'stage_min': minutes,
         // Same point shape as our own night: each stage from its start,
         // closed by a final point at wake.
-        'hypnogram': [
-          for (final e in n.epochs) {'t': e.startSec, 'stage': e.stage},
-          {'t': n.offsetSec, 'stage': n.epochs.last.stage},
-        ],
+        'hypnogram': vendorHypnogram(n.epochs, n.offsetSec),
       });
     }
     return out;
