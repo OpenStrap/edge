@@ -4,6 +4,7 @@
 // stage chart.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show SemanticsNode;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
@@ -134,7 +135,50 @@ void main() {
           (w) => w is Scrubber && w.label == 'Recovery');
       await t.tapAt(t.getBottomRight(strip) - const Offset(1, 1));
       await t.pumpAndSettle();
-      expect(find.textContaining('· 20 · Rest today'), findsOneWidget);
+      // The panel under the chart replaced the pop-in line: the touched day
+      // (the last bar is today) and its score and band.
+      final panel = find.byKey(const ValueKey('chart-panel'));
+      expect(find.descendant(of: panel, matching: find.text('SELECTED · Today')),
+          findsOneWidget);
+      expect(
+          find.descendant(of: panel, matching: find.text('20 · Rest today')),
+          findsOneWidget);
+    });
+
+    testWidgets('the reading is spoken once: by the panel at rest, by the '
+        'slider while a day is selected', (t) async {
+      final handle = t.ensureSemantics();
+      final s = <double?>[for (var i = 0; i < 20; i++) 50, 80, 20];
+      await _host(t, ReadinessDetail(data: data(s)), height: 2400, screen: true);
+      int times(String what) {
+        var n = 0;
+        void walk(SemanticsNode x) {
+          final d = x.getSemanticsData();
+          for (final y in [d.label, d.value]) {
+            n += what.allMatches(y).length;
+          }
+          x.visitChildren((c) {
+            walk(c);
+            return true;
+          });
+        }
+
+        walk(t.binding.renderViews.first.owner!.semanticsOwner!.rootSemanticsNode!);
+        return n;
+      }
+
+      final latest = find.semantics.byLabel(RegExp(r'^LATEST'));
+      expect(latest.evaluate().single.label,
+          'LATEST · Today, Recovery 20 · Rest today');
+      expect(times('20 · Rest today'), 1, reason: 'at rest: the panel only');
+      final strip = find.byWidgetPredicate(
+          (w) => w is Scrubber && w.label == 'Recovery');
+      await t.tapAt(t.getBottomRight(strip) - const Offset(1, 1));
+      await t.pumpAndSettle();
+      expect(latest, findsNothing);
+      expect(find.semantics.byLabel(RegExp(r'^SELECTED')), findsNothing);
+      expect(times('20 · Rest today'), 1, reason: 'selected: the slider only');
+      handle.dispose();
     });
 
     testWidgets('under two weeks there is no band, and one line says why',

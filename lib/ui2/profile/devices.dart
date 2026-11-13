@@ -89,6 +89,7 @@ import '../pairing/pair_text.dart' show pairL10n, slotPill;
 import '../../ble/slot_comparison.dart' show DeviceSlot;
 import '../pairing/device_slot_card.dart'
     show DeviceSlotCard, pairedDeviceSlot;
+import 'firmware_flash_screen.dart' show FirmwareFlashScreen;
 import '../onboarding/profile_setup.dart' show formatDay;
 import '../ui2.dart';
 import 'profile.dart';
@@ -961,6 +962,11 @@ double? sensorRowBatteryPct(Map<String, Object?> r) =>
 DateTime? sensorRowLastData(Map<String, Object?> r) => r['last_seen'] == null
     ? null
     : DateTime.fromMillisecondsSinceEpoch((r['last_seen'] as num).toInt() * 1000);
+
+/// The band's family now: what the link reports, else what was stored at
+/// pairing, else the snapshot the page was opened with.
+String? currentBandFamily(String? snapshot, {String? live, String? stored}) =>
+    live ?? stored ?? snapshot;
 
 /// [s] with the battery and last-data values its `device` row holds now.
 ///
@@ -2030,13 +2036,19 @@ class _DeviceDetailState extends State<DeviceDetail> {
         ? widget.s
         : refreshedSensorSource(
             widget.s, c.select<AppState, List<Map<String, Object?>>>((a) => a.sensors));
+    // The page can open before the band has said which generation it is; the
+    // snapshot would then hide the gen5 rows for good. Read it live.
+    final family = s.isBand
+        ? currentBandFamily(s.family,
+            live: app?.device.generation, stored: app?.paired?.generation)
+        : s.family;
     return DeviceDetailView(
       s,
       status: app?.engine.bandStatus,
       wornOn: _wornOn,
       wornOnUnknown: _wornOnUnknown,
       // Only the gen5 counter is calibrated per wearing location.
-      onWearing: s.family != 'gen5'
+      onWearing: family != 'gen5'
           ? null
           : () async {
               final w = await _pickWearing(c);
@@ -2050,6 +2062,9 @@ class _DeviceDetailState extends State<DeviceDetail> {
       health: _health,
       forecast: _forecast,
       onFind: app?.buzzBand,
+      onInstallImage: (s.isBand && family == 'gen5')
+          ? () => goto(c, const FirmwareFlashScreen())
+          : null,
       liveHr: s.isBand ? app?.liveHr : null,
       onRename: (app != null && app.isConnected)
           ? () => _renameBand(c, app, s.name)
@@ -2484,9 +2499,14 @@ class DeviceDetailView extends StatelessWidget {
   /// nothing.
   final BatteryForecast? forecast;
 
+  /// Opens the image-install screen. Non-null only on a WHOOP 5 band's page;
+  /// null hides the row.
+  final VoidCallback? onInstallImage;
+
   const DeviceDetailView(this.s,
       {super.key,
       this.onFind,
+      this.onInstallImage,
       this.onForget,
       this.onSync,
       this.onRename,
@@ -2773,6 +2793,16 @@ class DeviceDetailView extends StatelessWidget {
                             sub: l?.devicesFindItByFeel ?? 'Find it by feel',
                             chevron: false,
                             onTap: onFind),
+                      ],
+                      if (onInstallImage != null) ...[
+                        Divider(color: p.line, height: 1),
+                        SetRow(
+                            LucideIcons.upload,
+                            C.red,
+                            l?.devicesInstallImage ?? 'Install an image',
+                            sub: l?.devicesInstallImageSub ??
+                                'Use at your own risk',
+                            onTap: onInstallImage),
                       ],
                     ]),
                   ),

@@ -6,8 +6,10 @@ import '../../compute/manual_session.dart'
     show ManualWindowErrorMessage, ManualWindowException;
 import '../../compute/nap_edits.dart';
 import '../../models/activity_suggestion.dart';
+import '../../state/prefs.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/catalogue.dart';
+import '../profile/profile.dart' show SetRow;
 import '../ui2.dart';
 import 'home_screen.dart';
 import 'log_workout.dart';
@@ -183,6 +185,7 @@ class _DetectedActivitiesScreenState extends State<DetectedActivitiesScreen>
                               : () => _act(s, discard: true),
                         ),
                       ),
+                  const NapAutoLogRow(),
                 ],
               ),
             ),
@@ -190,6 +193,57 @@ class _DetectedActivitiesScreenState extends State<DetectedActivitiesScreen>
         ),
       ),
     );
+  }
+}
+
+/// The opt-in switch for logging clear naps without asking (#625). Off by
+/// default. Turning it on stores the moment it was turned on, so only naps
+/// that end after that are logged for the user.
+class NapAutoLogRow extends StatefulWidget {
+  const NapAutoLogRow({super.key});
+
+  @override
+  State<NapAutoLogRow> createState() => _NapAutoLogRowState();
+}
+
+class _NapAutoLogRowState extends State<NapAutoLogRow> {
+  @override
+  Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    final on = Prefs.getInt(Prefs.napAutoLogSinceSec, 0) > 0;
+    return Surface(
+      child: SetRow(
+        LucideIcons.moon,
+        C.domHealth,
+        l?.napAutoLogTitle ?? 'Log clear naps automatically',
+        sub: l?.napAutoLogSub ??
+            'A detected nap with strong evidence is added without asking. '
+                'You can still edit or remove it',
+        value: on ? (l?.stateOn ?? 'On') : (l?.stateOff ?? 'Off'),
+        chevron: false,
+        onTap: () => _toggle(c, on),
+      ),
+    );
+  }
+
+  /// SharedPreferences updates its cache before the platform confirms and
+  /// never rolls it back, so a refused write would read as On for the rest of
+  /// the session and be Off again at the next launch. Say so, and put the
+  /// cache back.
+  Future<void> _toggle(BuildContext c, bool on) async {
+    final before = Prefs.getInt(Prefs.napAutoLogSinceSec, 0);
+    final messenger = ScaffoldMessenger.maybeOf(c);
+    final text = AppLocalizations.of(c)?.napAutoLogSaveFailed ??
+        'That setting could not be saved. Try again.';
+    final ok = await Prefs.setIntAcked(
+      Prefs.napAutoLogSinceSec,
+      on ? 0 : DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    );
+    if (!ok) {
+      Prefs.setInt(Prefs.napAutoLogSinceSec, before);
+      messenger?.showSnackBar(SnackBar(content: Text(text)));
+    }
+    if (mounted) setState(() {});
   }
 }
 
