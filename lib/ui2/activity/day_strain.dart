@@ -27,7 +27,7 @@ import '../../l10n/app_localizations.dart';
 import '../../l10n/date_text.dart';
 import '../../l10n/decimal_text.dart';
 import '../../models/metric.dart' show whyFromNote;
-import '../screens/home_screen.dart' show clockOfTs, repoOf;
+import '../screens/home_screen.dart' show asOfText, repoOf;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
 import 'catalogue.dart' show zonesWhy;
@@ -98,6 +98,9 @@ class DayStrainData {
   });
 
   bool get hasCurve => curve.any((v) => v != null);
+
+  /// The local label of the day this screen shows (today when [day] is null).
+  String get shownDay => day == null ? todayLabel() : dayLabelOf(day!);
 
   /// Lays the curve's epoch-second points onto the fixed 00:00–24:00 axis,
   /// one slot per WALL-CLOCK minute of the first point's local day.
@@ -339,8 +342,9 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
                 (
                   d.wearAsOf == null
                       ? (l?.dayStrainWorn ?? 'Worn')
-                      : (l?.dayStrainWornUntil(clockOfTs(d.wearAsOf)) ??
-                          'Worn until ${clockOfTs(d.wearAsOf)}'),
+                      : (l?.dayStrainWornUntil(
+                              asOfText(d.wearAsOf!, d.shownDay, l)) ??
+                          'Worn until ${asOfText(d.wearAsOf!, d.shownDay, l)}'),
                   '${d.wornMin} min',
                   C.teal,
                 ),
