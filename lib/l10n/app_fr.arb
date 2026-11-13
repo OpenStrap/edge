@@ -391,7 +391,7 @@
   "aiBriefingEmptyCardBody": "Aucune métrique n'avait de valeur au moment de la rédaction, donc l'invite n'en contenait aucune.",
   "napsFellAsleepHelp": "QUAND VOUS VOUS ÊTES ENDORMI",
   "napsWokeUpHelp": "QUAND VOUS VOUS ÊTES RÉVEILLÉ",
-  "napsInvalidWindow": "Une sieste dure entre 5 minutes et 6 heures. Au-delà, il s'agit d'un sommeil, et cela appartient à la nuit, où les phases peuvent être lues.",
+  "napsInvalidWindow": "Une sieste dure entre 5 minutes et 3 heures. Au-delà, il s'agit d'un sommeil, et cela appartient à la nuit, où les phases peuvent être lues.",
   "napsOverlap": "Cela chevauche une sieste déjà enregistrée ce jour-là. Supprimez d'abord celle-ci plutôt que de compter la même heure deux fois.",
   "napsOverlapsSleep": "Cela chevauche votre sommeil principal, qui compte déjà ce temps. Enregistrez seulement la partie après votre lever, ou corrigez plutôt la nuit.",
   "napsNotReanalysed": "La journée n'a pas été réanalysée — une autre analyse était déjà en cours. Votre modification est enregistrée et s'appliquera la prochaine fois.",
@@ -1671,6 +1671,7 @@
   "sleepDetailWindowNoSleep": "Vos horaires sont enregistrés, mais les enregistrements du bracelet pour ces heures ne montrent aucun sommeil à évaluer.",
   "sleepDetailNightUnrecorded": "Votre fréquence cardiaque indique une nuit de sommeil, mais le bracelet a enregistré trop peu de données de mouvement pendant la majeure partie : il n'y a donc pas de nuit à évaluer.",
   "sleepDetailCorrectionUnavailable": "Les enregistrements détaillés de cette nuit ne sont plus sur le téléphone, son sommeil ne peut donc plus être corrigé.",
+  "sleepDetailCorrectionNoRecordings": "Cette nuit n’a pas d’enregistrements détaillés sur le téléphone, son sommeil ne peut donc pas être corrigé.",
   "sleepDetailCorrectionEveningPruned": "La soirée précédant cette nuit n’est plus sur le téléphone : on peut seulement indiquer une heure de coucher après minuit, ou marquer la nuit comme n’étant pas du sommeil.",
   "sleepDetailNoHypnogramTitle": "Aucun hypnogramme pour cette nuit",
   "sleepDetailNoHypnogramBody": "L'analyse des phases nécessite le mouvement et le rythme cardiaque. L'un des deux manquait.",
@@ -1867,6 +1868,7 @@
   "activityPickerNoMatchBody": "Le catalogue couvre environ soixante-dix activités avec un coût énergétique publié. Choisissez la plus proche.",
   "activityPickerQuickStart": "DÉMARRAGE RAPIDE",
   "activityPickerRecent": "RÉCENTES",
+  "activityPickerMostDone": "PLUS UTILISÉES",
   "activityPickerCalorieEstimatesTitle": "Les calories sont des estimations",
   "activityPickerMetValue": "{met} MET",
   "activityPickerKcalPer30": "{kcal} kcal / 30 min",
@@ -2862,6 +2864,32 @@
       }
     }
   },
+  "welcomeCoachKeyReentry": "Votre clé API du coach reste dans le stockage sécurisé et n’a pas été sauvegardée. Saisissez-la à nouveau dans les réglages de l’IA pour utiliser le coach sur ce téléphone.",
+  "welcomeSettingsSkipped": "{n, plural, =1{1 réglage de la sauvegarde était illisible et a été ignoré} other{{n} réglages de la sauvegarde étaient illisibles et ont été ignorés}}",
+  "@welcomeSettingsSkipped": {
+    "description": "Import report: settings rows in the backup that could not be read",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "welcomeSettingsSkippedBody": "Ils gardent les valeurs de ce téléphone.",
+  "welcomeCoachChatGptReentry": "Votre connexion à ChatGPT reste dans le stockage sécurisé et n’a pas été sauvegardée. Connectez-vous à nouveau dans les réglages de l’IA pour utiliser le coach sur ce téléphone.",
+  "welcomeCoachServerReentry": "L’adresse de votre serveur de coach personnalisé n’a pas été sauvegardée, car une adresse peut contenir une clé. Saisissez-la à nouveau dans les réglages de l’IA.",
+  "welcomeSettingsRestored": "{n} réglages restaurés",
+  "@welcomeSettingsRestored": {
+    "description": "Import report: number of restored app preferences",
+    "placeholders": {"n": {"type": "int"}}
+  },
+  "strengthCustomWeight": "Poids personnalisé",
+  "strengthEnterValue": "Saisissez une valeur",
+  "strengthInvalidNumber": "Nombre invalide",
+  "strengthLoadRangeKg": "Doit être compris entre 0 et 500 kg",
+  "strengthLoadRangeLb": "Doit être compris entre 0 et 1100 lb",
+  "strengthRepsRange": "Doit être compris entre 1 et 200 répétitions",
+  "strengthEditSet": "Modifier la série",
+  "strengthDeleteSet": "Supprimer la série",
+  "strengthDeleteSetConfirm": "Supprimer cette série ?",
+  "strengthBodyweight": "Poids du corps",
+  "strengthDelete": "Supprimer",
+  "strengthSaveFailed": "Échec de l'enregistrement des modifications",
   "reportContactLabel": "Contact (facultatif)",
   "reportContactHint": "E-mail ou Discord, seulement si vous voulez une réponse",
   "pairBandNotSensor": "Cet appareil est un {label}, c’est-à-dire un bracelet, pas un simple capteur. Rien n’a été enregistré.",
@@ -2928,5 +2956,8 @@
   "pairBandSubtitle": "Choisissez celui que vous portez. Nous le chercherons à proximité.",
   "pairStrapOnlyLink": "J’ai seulement une ceinture cardiaque",
   "pairWhoopRowLine": "Sommeil, récupération, effort, fréquence cardiaque et plus",
-  "pairSetUpTitle": "Configuration"
+  "pairSetUpTitle": "Configuration",
+  "whoopFirmwareWarningTitle": "Utilisateurs WHOOP : ne vous reconnectez pas à l’application WHOOP",
+  "whoopFirmwareWarningAction": "Si vous utilisez OpenStrap ou une autre application open source, ou si vous comptez y passer plus tard, ne reconnectez pas votre bracelet à l’application WHOOP officielle. Elle peut installer des mises à jour du firmware automatiquement. Désinstallez ou désactivez l’application WHOOP pour l’empêcher de mettre à jour votre bracelet.",
+  "whoopFirmwareWarningDetails": "Des signalements concernant les firmwares 50.43.1.0 et 50.43.2.0 des WHOOP 5.0 / MG décrivent un accès aux données bloqué. Le Bluetooth peut encore se connecter. OpenStrap ne peut pas émettre le jeton d’abonnement signé par WHOOP nécessaire pour déverrouiller les bracelets concernés. Nous travaillons sur une solution, mais aucun correctif n’est encore disponible."
 }

@@ -239,7 +239,7 @@ class PairingView extends StatelessWidget {
     PairPhase.failed,
   };
 
-  /// The failure screen with a device's reset steps (G3).
+  /// The failure screen with a device's reset steps.
   Widget _resetScaffold(BuildContext c, BandEntry entry) {
     final p = P.of(c);
     final l = pairL10n(c);

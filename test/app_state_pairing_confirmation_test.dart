@@ -8,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ios_ble_restore.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/notify/notification_service.dart';
+import 'package:openstrap_edge/state/app_state.dart' show SameBandSelectedException;
+import 'package:openstrap_edge/state/prefs.dart' show Prefs;
 import 'package:openstrap_edge/sync/band_ownership.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
 // ignore: depend_on_referenced_packages
@@ -292,6 +294,41 @@ void main() {
         expect(await _history(), before);
       }));
     }
+
+    test('a replacement that fails keeps the old band\'s saved name',
+        syncCase((rig, timers) async {
+      // WHY: the name is what the old band is shown under until a
+      // replacement commits; wiping it first left the band nameless.
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await Prefs.ensureLoaded();
+      Prefs.setString('band.strap_name', 'Old Strap');
+      rig.engine.connectScript.add(StateError('bootstrap refused'));
+      await expectLater(rig.app.replaceWith(BluetoothDevice.fromId(replacementId)),
+          throwsA(isA<Object>()));
+      expect(Prefs.getString('band.strap_name', ''), 'Old Strap');
+    }));
+
+    test('a committed replacement clears the old band\'s saved name',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await Prefs.ensureLoaded();
+      Prefs.setString('band.strap_name', 'Old Strap');
+      await rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+      expect((await PairedDevice.load())?.remoteId, replacementId);
+      expect(Prefs.getString('band.strap_name', ''), '');
+    }));
+
+    test('replacing a band with itself says so and changes nothing',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await Prefs.ensureLoaded();
+      Prefs.setString('band.strap_name', 'Old Strap');
+      await expectLater(rig.app.replaceWith(BluetoothDevice.fromId(kRemoteId)),
+          throwsA(isA<SameBandSelectedException>()));
+      expect((await PairedDevice.load())?.remoteId, kRemoteId);
+      expect(Prefs.getString('band.strap_name', ''), 'Old Strap');
+      expect(rig.engine.events.where((e) => e.startsWith('connect:')), isEmpty);
+    }));
 
     test('failed replacement save rolls back to the old pairing',
         syncCase((rig, timers) async {
