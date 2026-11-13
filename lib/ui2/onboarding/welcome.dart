@@ -423,21 +423,33 @@ Future<ImportOutcome> runImport(
   // multi-select and this used to return inside the winning branch, so a
   // backup selected alongside a vendor CSV imported the backup and threw the
   // CSV away without a word.
-  final db = [...plain.where(_isDbBackup), ...decrypted];
+  final ownDb = <String>{};
   // Raw-vs-vendor is decided by what the file HOLDS, not by what it is called.
   // See [isNoopExport]: routing on the extension sent NOOP's raw-sensor `.csv`
   // to the vendor importer and WHOOP's `.zip` to the NOOP one — both files
   // fine, both refused, both with advice for the other file.
   final raw = <String>[];
   final csv = <String>[];
-  for (final p in plain) {
-    if (_isDbBackup(p)) continue;
-    (await isNoopExport(p) ? raw : csv).add(p);
-  }
+  final db = <String>[];
 
   if (decrypted.isNotEmpty) sources.add('Encrypted backup');
-  if (plain.any(_isDbBackup)) sources.add('OpenStrap backup');
   try {
+    // Inside the cleanup boundary: a throw while sniffing must not leave a
+    // decrypted backup in the temp directory.
+    for (final p in plain) {
+      final own = await isEdgeBackup(p);
+      if (own == true) {
+        ownDb.add(p);
+      } else if (own == null) {
+        // Inspection failed: not claimable as ours, and not a NOOP export
+        // either, so the vendor path's generic message is the honest one.
+        csv.add(p);
+      } else {
+        (await isNoopExport(p) ? raw : csv).add(p);
+      }
+    }
+    if (ownDb.isNotEmpty) sources.add('OpenStrap backup');
+    db.addAll([...plain.where(ownDb.contains), ...decrypted]);
     for (final p in db) {
       days += await app.importEdgeBackup(p);
       // The rows are in and the rollup rebuild threw. AppState's own note:
@@ -485,7 +497,13 @@ Future<ImportOutcome> runImport(
     // comes back as `FileSystemException: Failed to decode data using encoding
     // 'utf-8'`, which no catch below was going to turn into advice. The vendor
     // path unwraps archives (and gzip) properly, so hand them straight over.
-    if (await sniffFile(p) != ImportContainer.text) {
+    // An unreadable file is the vendor path's to report (it is caught below
+    // and named); throwing here would lose the counts already landed.
+    ImportContainer? kind;
+    try {
+      kind = await sniffFile(p);
+    } catch (_) {}
+    if (kind != ImportContainer.text) {
       vendor.add(p);
       continue;
     }
@@ -640,19 +658,6 @@ Future<String> decryptToTemp(String path, String passphrase) async {
   await Isolate.run(
       () => decryptBackupFile(File(path), File(dest), passphrase));
   return dest;
-}
-
-bool _isDbBackup(String path) {
-  final p = path.toLowerCase();
-  // `.db.unopenable-<ms>` is what a corrupt-database rebuild quarantines the
-  // old file as, and the rebuilt card points the user straight at it. Matching
-  // only the `.db` suffix handed that SQLite file to the vendor-CSV importer.
-  // `.db.gz` is what the app's own automatic backup writes (auto_backup.dart's
-  // kBackupExtension). Leaving it out sent a user restoring their own backup
-  // down the vendor-CSV path, which is the one import that has to work.
-  return p.endsWith('.db') ||
-      p.endsWith('.db.gz') ||
-      p.contains('.db.unopenable-');
 }
 
 class WelcomeView extends StatelessWidget {
