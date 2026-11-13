@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health/health.dart';
 import 'package:openstrap_edge/health/health_export.dart'
@@ -391,6 +393,58 @@ void main() {
         expect(f.writes.toSet(), {1000, 1300, 5000});
       },
     );
+  });
+
+  group('timed-out and half-done writes', () {
+    test('a write that timed out is cleared before the retry, across a restart',
+        () async {
+      final f = _Fx()
+        ..weights = {1000: 70}
+        ..onWrite = (_, _) async => throw TimeoutException('hung');
+      expect(await f.run(), 0);
+      expect(f.deletes, isEmpty);
+      // New exporter instance, same prefs: the marker was persisted.
+      final g = _Fx()..weights = {1000: 70};
+      expect(await g.run(forceRetry: true), 1);
+      expect(g.deletes, [1000]);
+      expect(g.writes, [1000]);
+      // Cleared once written: a later reset-free pass does not delete again.
+      final h = _Fx()..weights = {1000: 70, 5000: 71};
+      await h.run();
+      expect(h.deletes, isEmpty);
+    });
+
+    test('a timed-out instant never deletes a neighbour sample', () async {
+      final f = _Fx()
+        ..devices = [
+          {'id': 'd1', 'adapter_id': 'thermometer'},
+          {'id': 'd2', 'adapter_id': 'thermometer'},
+        ]
+        ..loader = ((id) async => id == 'd1' ? {1000: 70} : {1300: 71})
+        ..onWrite = (_, at) async {
+          if (at.millisecondsSinceEpoch == 1000) {
+            throw TimeoutException('hung');
+          }
+        };
+      await f.run();
+      f.onWrite = null;
+      await f.run(forceRetry: true);
+      expect(f.deletes, isEmpty);
+      expect(f.writes, isNot(contains(1000)));
+    });
+
+    test('reset: delete ok but write fails leaves it pending, not exported',
+        () async {
+      final f = _Fx()..weights = {1000: 70};
+      await f.run();
+      f.failAt.add(1000);
+      await f.run(reset: true);
+      expect(f.deletes, [1000]);
+      f.failAt.clear();
+      f.writes.clear();
+      expect(await f.run(forceRetry: true), 1);
+      expect(f.writes, [1000]);
+    });
   });
 
   group('reset keeps state it did not replace', () {

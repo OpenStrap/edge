@@ -34,6 +34,7 @@
 // the scale's device id), so a weight read from the store has no row to export.
 // observation_isolation_test keeps raw table access inside db.dart, so the
 // source_kind column is not filtered here.
+import 'dart:async' show TimeoutException;
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -52,6 +53,12 @@ String healthWeightExportedKey(String deviceId) =>
 /// Per-device persisted failure counts (JSON map ts_ms -> attempts).
 String healthWeightAttemptsKey(String deviceId) =>
     'health_weight_attempts:$deviceId';
+
+/// Per-device persisted set (JSON list) of weighing instants whose native
+/// write timed out and may still have landed. Kept across restarts so a retry
+/// clears our sample there first instead of stacking a duplicate.
+String healthWeightMaybeLandedKey(String deviceId) =>
+    'health_weight_maybe_landed:$deviceId';
 
 /// Superseded high-water cursor (LocalDb cursor). Never read any more; only
 /// cleared on reset.
@@ -137,7 +144,13 @@ List<int> _bounded(Set<int> s) {
 /// [stopped] (store hung) ends the run without counting the failure that
 /// tripped it. [mayContinue] is asked before EACH weighing; false ends the run
 /// (opt-out mid-drain). With [resend] our own sample at the instant is deleted
-/// first, unless [deleteSafe] says another sample shares the window.
+/// first, unless [deleteSafe] says another sample shares the window. A delete
+/// that succeeds but whose write then fails takes the instant out of
+/// [exported], so it is pending again rather than recorded as in Health.
+/// A [write] that throws [TimeoutException] may have landed: the instant goes
+/// into [maybeLanded] and the next attempt clears our sample there first, but
+/// only when [deleteSafe] allows it (otherwise it is left and retried, bounded
+/// by the attempt cap, never deleting a neighbour's sample).
 /// Returns how many were written.
 Future<int> writeWeighings({
   required List<Weighing> weighings,
@@ -150,8 +163,10 @@ Future<int> writeWeighings({
   Future<bool> Function()? mayContinue,
   bool resend = false,
   bool Function(int atMs)? deleteSafe,
+  Set<int>? maybeLanded,
 }) async {
   var written = 0;
+  final landed = maybeLanded ?? <int>{};
   for (final w in weighings) {
     if (stopped?.call() ?? false) break;
     if (mayContinue != null && !await mayContinue()) break;
@@ -165,20 +180,41 @@ Future<int> writeWeighings({
       continue;
     }
     var ok = true;
-    if (resend && (deleteSafe?.call(w.atMs) ?? true)) {
+    var deleted = false;
+    final safe = deleteSafe?.call(w.atMs) ?? true;
+    if ((resend || landed.contains(w.atMs)) && safe) {
       // A delete that cannot clear the instant must not be written on top of.
       ok = await deleteOwn(
         at.subtract(kHealthWeightMatchWindow),
         at.add(kHealthWeightMatchWindow),
       );
+      deleted = ok;
+      if (ok) landed.remove(w.atMs);
+    } else if (landed.contains(w.atMs)) {
+      // A possible survivor of a timed-out write, and the delete would take a
+      // neighbour's sample too: leave it and retry later.
+      ok = false;
     }
-    if (ok) ok = await write(w.kg, at);
+    if (ok) {
+      try {
+        ok = await write(w.kg, at);
+      } on TimeoutException {
+        ok = false;
+        landed.add(w.atMs);
+      }
+    }
     if (ok) {
       written++;
       exported.add(w.atMs);
       attempts.remove(w.atMs);
     } else {
-      if (stopped?.call() ?? false) break;
+      // Our sample was deleted and the replacement did not go in: it is no
+      // longer in Health, so it must not stay marked as exported.
+      if (deleted) exported.remove(w.atMs);
+      if (stopped?.call() ?? false) {
+        await save();
+        break;
+      }
       attempts[w.atMs] = (attempts[w.atMs] ?? 0) + 1;
     }
     await save();
@@ -315,7 +351,14 @@ Future<int> exportScaleWeighings({
         final attempts = _decodeAttempts(
           prefs.getString(healthWeightAttemptsKey(id)),
         );
+        final maybeLanded = _decodeSet(
+          prefs.getString(healthWeightMaybeLandedKey(id)),
+        );
         Future<void> save() async {
+          await prefs.setString(
+            healthWeightMaybeLandedKey(id),
+            jsonEncode(_bounded(maybeLanded)),
+          );
           await prefs.setString(
             healthWeightExportedKey(id),
             jsonEncode(_bounded(exported)),
@@ -376,6 +419,7 @@ Future<int> exportScaleWeighings({
           stopped: stopped,
           resend: reset,
           deleteSafe: (ts) => deleteSafeFor(id, ts),
+          maybeLanded: maybeLanded,
           mayContinue: () async {
             if (syncEnabled != null && !await syncEnabled()) {
               syncOff = true;
