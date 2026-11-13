@@ -533,8 +533,14 @@ class NotificationService {
   /// ahead, else tomorrow. For arming a slot whose BODY is about one specific
   /// day (the nightly sweep) as a one-shot; the caller checks which day it
   /// landed on.
-  DateTime nextDailyInstant(int hour, int minute) =>
-      _nextInstanceOf(hour, minute);
+  ///
+  /// [now] pins the instant the occurrence is resolved against, so a caller
+  /// that already decided something at one clock reading gets an occurrence
+  /// from that same reading instead of a second one taken a moment later.
+  DateTime nextDailyInstant(int hour, int minute, {DateTime? now}) =>
+      now == null
+          ? _nextInstanceOf(hour, minute)
+          : nextInstanceOf(tz.TZDateTime.from(now, tz.local), hour, minute);
 
   /// Shared gate for every scheduled slot — see [schedulableIds].
   bool _maySchedule(int id) {

@@ -1102,7 +1102,7 @@ class NotificationCenter {
       if (s.id == NotificationService.idMorningBrief && morningPreserved) {
         continue;
       }
-      var at = svc.nextDailyInstant(s.hour, s.minute);
+      var at = svc.nextDailyInstant(s.hour, s.minute, now: now);
       if (s.id == NotificationService.idMorningBrief) {
         final late = morningBriefLateFire(slotMin, now);
         if (late != null) {
@@ -1126,7 +1126,7 @@ class NotificationCenter {
       // suppress the briefing for the rest of the day.
       if (armed && s.id == NotificationService.idMorningBrief) {
         await const FiredKeyStore().recordFired(announcedKey);
-        await const FiredKeyStore().recordFired(slotKey!);
+        await const FiredKeyStore().replaceUnderPrefix(slotDayPrefix, slotKey!);
       }
     }
   }

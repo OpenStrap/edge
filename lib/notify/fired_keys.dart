@@ -243,6 +243,14 @@ class FiredKeyStore {
     return null;
   }
 
+  /// Make [key] the only claim under [prefix]: whatever sibling a failed
+  /// cancel left behind is given back first, so a later change back to that
+  /// sibling cannot read it as the current one.
+  Future<void> replaceUnderPrefix(String prefix, String key) async {
+    await releasePrefix(prefix);
+    await recordFired(key);
+  }
+
   /// Give back every claim whose key starts with [prefix] (table row and prefs
   /// mirror). For key families where one value supersedes another, so a stale
   /// sibling cannot be read as the current one. Best-effort; never throws.

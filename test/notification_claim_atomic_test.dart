@@ -304,5 +304,23 @@ void main() {
       expect(await store.hasFired(slotB), isFalse);
       expect(await store.hasFired(announced), isTrue);
     });
+
+    test('replaceUnderPrefix leaves the new slot key as the only one', () async {
+      const store = FiredKeyStore();
+      final day = _dayOffset(0);
+      final prefix = '${NotificationCenter.morningBriefSlotPrefix}$day:';
+      final slotA = '${prefix}480';
+      final slotB = '${prefix}510';
+      final announced = '${NotificationCenter.morningBriefAnnouncedPrefix}$day';
+      // A failed cancel while moving A to B left A's key in place.
+      expect(await store.claim(slotA), isTrue);
+      expect(await store.claim(announced), isTrue);
+
+      await store.replaceUnderPrefix(prefix, slotB);
+
+      expect(await store.hasFired(slotA), isFalse);
+      expect(await store.hasFired(slotB), isTrue);
+      expect(await store.hasFired(announced), isTrue);
+    });
   });
 }
