@@ -35,6 +35,7 @@ const _mustTravel = {
   'notif_relay_enabled', 'notif_relay_packages',
   'ui.shell_tab.v2', 'ui.recap_range', 'ui.workouts_range',
   'ui.wearable_show_estimates', 'ui.wearable_side_by_side',
+  'sleep_hmm_stages',
   'rough_night.ask', 'rough_night.dismissed',
   // Existing history/dedupe state travels to avoid repeated alerts/imports.
   'ai.journal_done_day', 'last_recovery_notif_day', 'last_stepgoal_day',
@@ -114,6 +115,7 @@ const _indirectKeys = <String, List<String>>{
     'health_import_profile_at', 'health_import_workouts_at'],
   'lib/notify/notification_prefs.dart:_kBatteryPct': ['notif_battery_pct'],
   'lib/state/app_state.dart:_kHealthSync': ['health_sync'],
+  'lib/state/app_state.dart:kSleepHmmStagesPref': ['sleep_hmm_stages'],
   'lib/sync/paired_device.dart:_kWornOn': ['paired_worn_on'],
   'lib/sync/paired_device.dart:key': [
     'paired_remote_id', 'paired_serial', 'paired_generation'],
