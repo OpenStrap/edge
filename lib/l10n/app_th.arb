@@ -16631,5 +16631,7 @@
     "description": "Shown instead of steps for a generic device with no maker’s page."
   },
   "pairOuraExistingKeyGuidance": "ใช้แอป Oura อยู่แล้วใช่ไหม คงการจับคู่แหวนในแอปนั้นไว้ แล้วจับคู่ด้วยคีย์เดิมของแหวน ข้ามขั้นตอนรีเซ็ตด้านล่าง รีเซ็ตเฉพาะเมื่อต้องการคีย์ใหม่เท่านั้น",
+  "healthWearNotUpdatedSince": "ไม่ได้อัปเดตตั้งแต่ {time}",
+  "dayStrainWornAsOf": "สวมใส่ ข้อมูล ณ {time}",
   "dayStepsWhoop4NoCounter": "WHOOP 4.0 ไม่มีตัวนับก้าวในตัว จึงนับก้าวได้เฉพาะตอนที่แอปนี้กำลังรับข้อมูลสดจากสายรัดเท่านั้น"
 }
