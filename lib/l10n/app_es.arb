@@ -3416,5 +3416,7 @@
   "pairSearchDevices": "Buscar dispositivos",
   "pairPrimaryCannotBeSensor": "Esta ya es tu pulsera principal. No se puede emparejar también como sensor de entrenamiento.",
   "pairReplaceMyBand": "Reemplazar mi pulsera",
-  "dayStepsWhoop4NoCounter": "Una WHOOP 4.0 no tiene contador de pasos propio, así que solo cuenta pasos mientras esta app recibe sus datos en vivo."
+  "dayStepsWhoop4NoCounter": "Una WHOOP 4.0 no tiene contador de pasos propio, así que solo cuenta pasos mientras esta app recibe sus datos en vivo.",
+  "healthWearNotUpdatedSince": "sin actualizar desde {time}",
+  "dayStrainWornAsOf": "Llevada, a las {time}"
 }
