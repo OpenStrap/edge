@@ -979,6 +979,13 @@ class AppState extends ChangeNotifier {
     phoneStepsLastTotal = null;
     phoneStepsToday = 0;
     _phoneStepsDay = null;
+    // A read still in flight belongs to the old setting. Drop the shared slot
+    // and bump the token so turning the feature back on starts a fresh read
+    // instead of joining the stopped one, and the old read cannot clear the
+    // new slot or touch state when it ends.
+    _phoneStepsToken++;
+    _phoneStepsSync = null;
+    _phoneStepsSyncDays = 0;
     // Stop the sensor BEFORE dropping the rows: on Android the counter keeps
     // accumulating into its own on-device store, so clearing `live_coverage`
     // alone would leave this app counting a user who just asked it to stop.
@@ -1064,7 +1071,8 @@ class AppState extends ChangeNotifier {
     }
     final token = ++_phoneStepsToken;
     _phoneStepsSyncDays = days;
-    final future = _readPhoneSteps(days, token).timeout(
+    var banked = 0; // days this read stored before it was retired, if it is
+    final future = _readPhoneSteps(days, token, () => banked++).timeout(
       phoneStepsReadTimeout,
       onTimeout: () {
         debugPrint('[phone_steps] read still running after '
@@ -1073,6 +1081,15 @@ class AppState extends ChangeNotifier {
         // not write older rows over a newer read's.
         _phoneStepsToken++;
         _phonePedometer.abandonInFlight();
+        // Days it already stored are real: queue derivation for them, since
+        // the retired read never reaches its own `markStoredData`.
+        if (banked > 0 &&
+            phoneStepsEnabled &&
+            !_disposed &&
+            !ResetGate.active) {
+          _deriveScheduler.markStoredData();
+          notifyListeners();
+        }
         return 0;
       },
     );
@@ -1088,14 +1105,16 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<int> _readPhoneSteps(int days, int token) async {
+  Future<int> _readPhoneSteps(
+      int days, int token, void Function() onDayBanked) async {
     bool stale() =>
         token != _phoneStepsToken ||
         !phoneStepsEnabled ||
         _disposed ||
         ResetGate.active;
     try {
-      final r = await _phonePedometer.syncRecent(days: days);
+      final r =
+          await _phonePedometer.syncRecent(days: days, onDayBanked: onDayBanked);
       if (stale()) return 0;
       phoneStepsLastSyncedDays = r.daysRead;
       phoneStepsLastTotal = r.totalSteps;

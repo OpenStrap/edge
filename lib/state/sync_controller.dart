@@ -1043,7 +1043,14 @@ class SyncController {
       // A connected flag can outlive its GATT notifications. Apply the same
       // bounded probe/reconnect policy used on resume before awaiting history.
       final historyStuck = engine.historyStuckThisSession;
-      if (historyStuck || !await _linkUsableAfterResume('Sync now')) {
+      final usable = !historyStuck && await _linkUsableAfterResume('Sync now');
+      // An install can claim the link while the probe waits; the entry check
+      // above cannot see that, and the recovery below drops the session.
+      if (engine.firmwareFlashActive) {
+        _log('Sync now: an image install started — not touching the link.');
+        return;
+      }
+      if (!usable) {
         if (historyStuck) {
           _log('Sync now: history is stuck on this connection — reconnecting.');
         }

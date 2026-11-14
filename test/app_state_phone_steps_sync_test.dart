@@ -186,7 +186,10 @@ void main() {
       syncCase((rig, timers) async {
     rig.app.phoneStepsEnabled = true;
     final saved = AppState.phoneStepsReadTimeout;
-    AppState.phoneStepsReadTimeout = const Duration(milliseconds: 80);
+    // One-shot timers of a second or more are fake here, so the timeout fires
+    // exactly when the test says and never races the real clock.
+    const giveUp = Duration(seconds: 2);
+    AppState.phoneStepsReadTimeout = giveUp;
     addTearDown(() => AppState.phoneStepsReadTimeout = saved);
     final stuck = Completer<void>();
     var reads = 0;
@@ -202,10 +205,10 @@ void main() {
       }
       return null;
     });
-    expect(await rig.app.syncPhoneSteps(days: 1), 0,
-        reason: 'the hung read is given up on');
-    // The short timeout only exists to give up on the read that never answers.
-    // The fresh read does real database work, so it must not race a tight one.
+    final first = rig.app.syncPhoneSteps(days: 1);
+    await rig.waitFor(() => reads == 1);
+    timers.activeOneShot(giveUp).single.fire();
+    expect(await first, 0, reason: 'the hung read is given up on');
     AppState.phoneStepsReadTimeout = const Duration(seconds: 30);
     final fresh = await rig.app.syncPhoneSteps(days: 1);
     expect(fresh, 1, reason: 'the slot was freed, so this one really reads');
@@ -246,4 +249,101 @@ void main() {
     expect(await LocalDb.phoneStepsForDay(todayLabel()), 0,
         reason: 'the read started before the reset must not repopulate it');
   }, paired: false));
+
+  test('disabling phone steps drops the shared read, so turning it back on '
+      'starts a fresh one', syncCase((rig, timers) async {
+    rig.app.phoneStepsEnabled = true;
+    final gate = Completer<void>();
+    var reads = 0;
+    sensor((call) async {
+      if (call.method == 'authorized') return true;
+      if (call.method == 'stepsInInterval') {
+        reads++;
+        await gate.future;
+        return 3;
+      }
+      return null;
+    });
+    final old = rig.app.syncPhoneSteps(days: 6);
+    await rig.waitFor(() => reads > 0);
+    await rig.app.disablePhoneSteps();
+    rig.app.phoneStepsEnabled = true;
+    final before = reads;
+    final fresh = rig.app.syncPhoneSteps(days: 6);
+    await rig.waitFor(() => reads > before);
+    gate.complete();
+    expect(await old, 0, reason: 'the stopped read banks nothing');
+    expect(await fresh, greaterThan(0),
+        reason: 'the re-enabled read ran its own walk');
+  }, paired: false));
+
+  test('days saved before a hung read timed out still queue derivation',
+      syncCase((rig, timers) async {
+    rig.app.phoneStepsEnabled = true;
+    final saved = AppState.phoneStepsReadTimeout;
+    const giveUp = Duration(seconds: 2);
+    AppState.phoneStepsReadTimeout = giveUp;
+    addTearDown(() => AppState.phoneStepsReadTimeout = saved);
+    final now = DateTime.now();
+    final todayStartMs =
+        DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
+    final never = Completer<void>();
+    var yesterdayHit = false;
+    sensor((call) async {
+      if (call.method == 'authorized') return true;
+      if (call.method == 'stepsInInterval') {
+        final from = (call.arguments as Map)['fromMs'] as int;
+        if (from < todayStartMs) {
+          yesterdayHit = true;
+          await never.future; // yesterday hangs
+        }
+        return 4;
+      }
+      return null;
+    });
+    final read = rig.app.syncPhoneSteps(days: 2);
+    await rig.waitFor(() => yesterdayHit);
+    timers.activeOneShot(giveUp).single.fire();
+    expect(await read, 0, reason: 'the read as a whole gave up');
+    expect(await LocalDb.phoneStepsForDay(todayLabel()), greaterThan(0),
+        reason: "today's rows were saved before the hang");
+    await rig.jobQueued('derive_light');
+    never.complete();
+  }, paired: false));
+
+  test('a retired read that was still preparing banks nothing', () async {
+    final stuck = Completer<void>();
+    var asked = 0;
+    sensor((call) async {
+      if (call.method == 'authorized') {
+        asked++;
+        await stuck.future;
+        return true;
+      }
+      if (call.method == 'stepsInInterval') return 9;
+      return null;
+    });
+    final ped = PhonePedometer();
+    final read = ped.syncRecent(days: 1);
+    while (asked == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    ped.abandonInFlight(); // retired while it is still checking permission
+    stuck.complete();
+    final r = await read;
+    expect(r.daysRead, 0);
+    expect(await LocalDb.phoneStepsForDay(todayLabel()), 0);
+  });
+
+  test('the phone write is refused inside the commit gate once it is stale',
+      () async {
+    final day = todayLabel();
+    final w = [(startTs: 1000, endTs: 2000, steps: 11)];
+    expect(await LocalDb.replacePhoneCoverageForDay(day, w, stillValid: () => false),
+        isFalse);
+    expect(await LocalDb.phoneStepsForDay(day), 0);
+    expect(await LocalDb.replacePhoneCoverageForDay(day, w, stillValid: () => true),
+        isTrue);
+    expect(await LocalDb.phoneStepsForDay(day), 11);
+  });
 }

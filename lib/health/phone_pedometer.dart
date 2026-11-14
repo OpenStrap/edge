@@ -392,11 +392,11 @@ class PhonePedometer {
         return null;
       }
 
-      if (epoch != _epoch || ResetGate.changedSince(resetGen)) {
-        return null; // stopped or reset mid-walk, see [stop]
-      }
-      await LocalDb.replacePhoneCoverageForDay(dayId, windows);
-      return total;
+      bool valid() => epoch == _epoch && !ResetGate.changedSince(resetGen);
+      if (!valid()) return null; // stopped or reset mid-walk, see [stop]
+      final wrote = await LocalDb.replacePhoneCoverageForDay(dayId, windows,
+          stillValid: valid);
+      return wrote ? total : null;
     } catch (e) {
       debugPrint('[phone_pedometer] syncDay $dayId: $e');
       return null;
@@ -433,19 +433,24 @@ class PhonePedometer {
   /// success even when the user denied READ.
   Future<({int daysRead, int totalSteps})> syncRecent({
     int days = routineSyncDays,
+    void Function()? onDayBanked,
   }) async {
-    if (_stepReader == null) {
-      await _purgeImportedHealthStoreRows();
-      if (!await hasPermission()) return (daysRead: 0, totalSteps: 0);
-    }
-    final now = DateTime.now();
+    // Taken BEFORE the preparation below: a read retired (or a reset that ran)
+    // while it awaits would otherwise capture the NEW values on resuming and
+    // go on to bank days next to its replacement.
     final epoch = _epoch;
     final resetGen = ResetGate.generation;
+    bool current() => epoch == _epoch && !ResetGate.changedSince(resetGen);
+    if (_stepReader == null) {
+      await _purgeImportedHealthStoreRows();
+      if (!current()) return (daysRead: 0, totalSteps: 0);
+      if (!await hasPermission()) return (daysRead: 0, totalSteps: 0);
+      if (!current()) return (daysRead: 0, totalSteps: 0);
+    }
+    final now = DateTime.now();
     var ok = 0;
     var total = 0;
-    for (var d = 0;
-        d < days && epoch == _epoch && !ResetGate.changedSince(resetGen);
-        d++) {
+    for (var d = 0; d < days && current(); d++) {
       // Calendar subtraction, NOT `Duration(days: d)` — the latter lands on
       // 23:00 or 01:00 across a DST transition rather than local midnight,
       // which would mislabel the day and start its hour walk at the wrong
@@ -455,6 +460,7 @@ class PhonePedometer {
       if (n != null) {
         ok++;
         total += n;
+        onDayBanked?.call();
       }
     }
     return (daysRead: ok, totalSteps: total);

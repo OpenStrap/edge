@@ -56,6 +56,7 @@ class _Engine implements BleEngine {
   bool liveArmed = false;
   bool historyStuck = false;
   bool flashActive = false;
+  Completer<bool>? probeGate;
   int? newestTs;
 
   /// A history task the band has not ended yet.
@@ -143,6 +144,8 @@ class _Engine implements BleEngine {
   @override
   Future<bool> probeLink({Duration timeout = const Duration(seconds: 5)}) async {
     trace.add('probe');
+    final gate = probeGate;
+    if (gate != null) return gate.future;
     return probeAnswer;
   }
 
@@ -719,6 +722,22 @@ void main() {
       expect(r.engine.count('connect'), 0);
       expect(r.engine.count('requestForegroundSync'), 0);
       expect(r.logged('image install is using the link'), isTrue);
+    }));
+
+    test('an image install that starts during the link probe is not torn down',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.quiet = const Duration(minutes: 5);
+      final probe = r.engine.probeGate = Completer<bool>();
+      final sync = r.c.syncNow();
+      await until(() => r.engine.count('probe') == 1);
+      r.engine.flashActive = true; // claimed while the probe is in flight
+      probe.complete(false); // the probe says reconnect
+      await sync;
+      expect(r.engine.count('disconnect'), 0);
+      expect(r.engine.count('connect'), 0);
+      expect(r.engine.count('requestForegroundSync'), 0);
+      expect(r.logged('an image install started'), isTrue);
     }));
 
     test('manual sync probes a quiet link and reuses it if the band replies',
