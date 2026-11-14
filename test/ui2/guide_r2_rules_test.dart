@@ -155,6 +155,16 @@ void main() {
       final m = await pumpR2Scene(t, scene);
       try {
         await settleLiveGuide(t, frames: 18);
+        final ready = t.state<LiveGuideOverlayState>(find.byType(LiveGuideOverlay));
+        // Main's long Sleep list needs more discovery frames than next's cards.
+        // Measure the drag after automatic discovery has finished, so a search
+        // jump cannot be mistaken for scrolling caused by the card's pointer.
+        for (var frame = 0; frame < 120 && (ready.isSearching || ready.revealProgress < 1); frame++) {
+          await settleLiveGuide(t, frames: 1);
+        }
+        expect(ready.isSearching, isFalse, reason: 'the initial search completes');
+        expect(ready.revealProgress, 1, reason: 'the final step reveal completes before dragging');
+        await settleLiveGuide(t, frames: 2);
         final initial = t.getRect(find.byKey(GuideStepCard.cardKey));
         final positions = [for (final e in builtElements(m.app.runner.routes.page!))
           if (e is StatefulElement && e.state is ScrollableState)
@@ -178,6 +188,10 @@ void main() {
           final overlay = t.state<LiveGuideOverlayState>(find.byType(LiveGuideOverlay));
           final target = overlay.targetRect!;
           expect(card.overlaps(target), isFalse);
+          expect(find.byKey(LiveGuideOverlay.tapPillKey), findsOneWidget,
+              reason: '${scene.id}: target=$target card=$card changes=$changes '
+                  'reveal=${overlay.revealProgress} search=${overlay.isSearching} '
+                  'step=${m.run.currentStep?.id}');
           expect(card.overlaps(t.getRect(find.byKey(LiveGuideOverlay.tapPillKey))), isFalse);
         }
         expect(moved, isTrue, reason: 'T7: at least one pointer drag really moved the card');

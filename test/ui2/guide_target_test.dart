@@ -150,7 +150,9 @@ void main() {
       Pressable(semanticLabel: 'Delete session', onTap: () {}, child: const Text('Delete session')),
     ]));
     expect(GuideTarget.label((_) => 'Delete session').resolve(root, l), isA<TargetAmbiguous>());
-    final found = GuideTarget.firstLabel((_) => 'Delete session').resolve(root, l) as TargetFound;
+    final resolution = GuideTarget.firstLabel((_) => 'Delete session').resolve(root, l);
+    expect(resolution, isA<TargetFound>());
+    final found = resolution as TargetFound;
     expect(found.rect, skLocalRect(t, find.byKey(first), find.byKey(_root)));
     expect(everyControlLabelled(root, (_) => 'Delete session', l), hasLength(2));
   });

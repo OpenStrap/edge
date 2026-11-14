@@ -366,6 +366,8 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
   @visibleForTesting
   double get revealProgress => _reveal.value;
   @visibleForTesting
+  bool get isSearching => _searchingPage != null;
+  @visibleForTesting
   bool get isYielding => _yielding;
 
   /// True while the guide must not show: the last plan found no page, or the
