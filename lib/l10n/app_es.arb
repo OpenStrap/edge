@@ -3000,6 +3000,10 @@
       }
     }
   },
+  "sleepDetailMedicalDisclaimer": "Algoritmo experimental de investigación. No es un dispositivo médico. Consulta a un médico si tienes trastornos del sueño.",
+  "@sleepDetailMedicalDisclaimer": {
+    "description": "Disclaimer shown on the sleep detail screen."
+  },
   "welcomeCoachKeyReentry": "Tu clave de API del asistente permanece en el almacenamiento seguro y no se incluyó en la copia. Vuelve a introducirla en los ajustes de IA para usar el asistente en este teléfono.",
   "welcomeSettingsSkipped": "{n, plural, =1{1 ajuste de la copia no se pudo leer y se omitió} other{{n} ajustes de la copia no se pudieron leer y se omitieron}}",
   "@welcomeSettingsSkipped": {

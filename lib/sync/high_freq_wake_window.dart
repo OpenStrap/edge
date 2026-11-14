@@ -8,16 +8,74 @@ class HighFreqWakePlan {
   final String source;
   final int sampleCount;
 
+  /// Time at which the band prompt lease should start — [preSyncLead] before
+  /// the smart-wake window opens — so the app wakes periodically and backfills
+  /// `decoded_onehz` with the last ~3h of nocturnal data before the window
+  /// opens. The smart-wake DETECTION still only runs inside the actual window
+  /// (checked by `inSmartWakeWindow` in `_checkSmartWake`); this only extends
+  /// the DATA COLLECTION lease, not the buzz window.
+  ///
+  /// Set whenever the plan has a target (habitual or scheduled), including
+  /// before it opens and after it closed, so a caller can say when the lease
+  /// will start. Null only when there is no plan at all (too little sleep
+  /// history); [shouldEnable] says whether the lease applies right now.
+  final DateTime? preSyncAt;
+
+  /// The total duration the band prompt lease should cover: from [preSyncAt]
+  /// (when set) or the shipped window start, until [targetWake]. Used by
+  /// callers to compute the lease duration for `BandPromptRequest.smartWake`.
+  ///
+  /// [HighFreqWakeWindow.lease] is qualified on purpose: this getter lives on
+  /// [HighFreqWakePlan], which does NOT inherit it — an unqualified `lease`
+  /// here does not resolve (it is a static on the other class).
+  Duration? get effectiveLease {
+    if (targetWake == null) return null;
+    final start = preSyncAt ??
+        targetWake!.subtract(HighFreqWakeWindow.lease);
+    return targetWake!.difference(start);
+  }
+
+  /// The lease to hand the band when it is programmed at [now]: what is left
+  /// until [targetWake], never more than [effectiveLease]. Programming the
+  /// full [effectiveLease] on a late connect or refresh (after [preSyncAt])
+  /// would keep the band prompting past the wake time.
+  Duration? leaseFrom(DateTime now) {
+    final full = effectiveLease;
+    final target = targetWake;
+    if (full == null || target == null) return null;
+    final remaining = target.difference(now);
+    if (remaining.isNegative) return Duration.zero;
+    return remaining < full ? remaining : full;
+  }
+
   const HighFreqWakePlan({
     required this.shouldEnable,
     required this.targetWake,
     required this.source,
     required this.sampleCount,
+    this.preSyncAt,
   });
 }
 
 class HighFreqWakeWindow {
   static const Duration lease = Duration(minutes: 90);
+
+  /// Extra time the band prompt lease extends BEFORE the smart-wake window
+  /// opens, so the app wakes periodically and backfills `decoded_onehz` with
+  /// the last ~3h of nocturnal data. Without this, the 10th-percentile HR
+  /// baseline (smart_wake v2, Q2) has no data to compute from when the window
+  /// opens — the band was offline or the app was suspended all night.
+  ///
+  /// The band prompt is the ONLY reliable cross-platform wake mechanism at a
+  /// specific wall-clock time (iOS BGTask/BGAppRefresh are opportunistic and
+  /// never guaranteed; Android has no periodic background scheduler since the
+  /// WorkManager tombstone). Extending the existing 61s prompt lease 45 min
+  /// earlier costs ~45 extra BLE wake cycles per night — negligible battery
+  /// impact, and it reuses infrastructure that already works.
+  ///
+  /// preSyncAt = targetWake − (lease + preSyncLead).
+  static const Duration preSyncLead = Duration(minutes: 45);
+
   static const int historyDays = 14;
   static const int minSamples = 3;
 
@@ -77,12 +135,21 @@ class HighFreqWakeWindow {
               habitualWakeMinute % 60,
             )
           : todayTarget;
-      final windowStart = targetWake.subtract(lease);
+      // Pre-sync lead: extend the band prompt lease 45 min before the window
+      // opens so the app wakes periodically and backfills decoded_onehz with
+      // the last ~3h of nocturnal data. The smart-wake DETECTION still only
+      // runs inside the actual window (inSmartWakeWindow check in
+      // _checkSmartWake); this only extends the DATA COLLECTION lease.
+      final preSyncAt = targetWake.subtract(lease + preSyncLead);
+      // shouldEnable covers the FULL extended lease (preSyncAt → targetWake),
+      // not just the smart-wake window. The band prompts continuously; each
+      // prompt triggers _startHistoricalRefresh() which fills decoded_onehz.
       habitualPlan = HighFreqWakePlan(
-        shouldEnable: !now.isBefore(windowStart) && now.isBefore(targetWake),
+        shouldEnable: !now.isBefore(preSyncAt) && now.isBefore(targetWake),
         targetWake: targetWake,
         source: 'habitual_wake',
         sampleCount: wakeMinutes.length,
+        preSyncAt: preSyncAt,
       );
     }
 
@@ -92,13 +159,18 @@ class HighFreqWakeWindow {
     if (scheduledWindowEnd != null &&
         scheduledWindowMinutes > 0 &&
         habitualPlan?.shouldEnable != true) {
-      final scheduledStart = scheduledWindowEnd.subtract(lease);
-      if (!now.isBefore(scheduledStart) && now.isBefore(scheduledWindowEnd)) {
+      // The armed window's own length, not the 90-minute default: a longer
+      // window would otherwise open with less than [preSyncLead] of backfill,
+      // a shorter one would start prompting too early.
+      final preSyncAt = scheduledWindowEnd
+          .subtract(Duration(minutes: scheduledWindowMinutes) + preSyncLead);
+      if (!now.isBefore(preSyncAt) && now.isBefore(scheduledWindowEnd)) {
         return HighFreqWakePlan(
           shouldEnable: true,
           targetWake: scheduledWindowEnd,
           source: 'scheduled_alarm',
           sampleCount: wakeMinutes.length,
+          preSyncAt: preSyncAt,
         );
       }
     }
