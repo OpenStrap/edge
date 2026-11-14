@@ -3387,5 +3387,6 @@
   "stepCalDoneGait": "已保存。你数了 {count} 步，腕带记录了 {band} 步。今后这类走路将按 {pct}% 进行校正。",
   "stepCalDoneHousehold": "已保存。在腕带记录的 {band} 步中，你的手机记录了 {count} 步。居家活动现在将按 {gain} 进行缩放。",
   "healthWearNotUpdatedSince": "自 {time} 起未更新",
-  "dayStrainWornAsOf": "佩戴（截至 {time} 的数据）"
+  "dayStrainWornAsOf": "佩戴（截至 {time} 的数据）",
+  "dayStepsWhoop4NoCounter": "WHOOP 4.0 没有自带计步器，因此只有在本应用接收其实时数据时才会计步。"
 }
