@@ -117,16 +117,23 @@ class PairingScreen extends StatefulWidget {
   final VoidCallback? onSkip;
 
   /// The band the user chose on the list; its reset steps show when pairing
-  /// does not finish, and a WHOOP advertising the other generation is passed
-  /// over. Null (no model known) shows the plain failure cards.
+  /// does not finish. With [modelKnown], a WHOOP advertising the other
+  /// generation is passed over. Null shows the plain failure cards.
   final BandEntry? entry;
+
+  /// False for the shared WHOOP category, whose representative supplies help
+  /// but does not establish the generation of the band being sought.
+  final bool modelKnown;
 
   /// The one band the user tapped in a scan, by remote id; null pairs the
   /// first matching band in range. Android's scan honours it; the iOS
   /// accessory picker chooses on its own sheet.
   final String? remoteId;
 
-  const PairingScreen({super.key, this.onSkip, this.entry, this.remoteId});
+  /// Keep the existing pairing until the new bootstrap succeeds.
+  final bool replacing;
+
+  const PairingScreen({super.key, this.onSkip, this.entry, this.remoteId, this.replacing = false, this.modelKnown = true});
 
   @override
   State<PairingScreen> createState() => _PairingScreenState();
@@ -136,6 +143,7 @@ class _PairingScreenState extends State<PairingScreen> {
   PairPhase _phase = PairPhase.idle;
   String _detail = '';
   BleBlocker? _blocker;
+  bool _usedAccessoryPicker = false;
 
   Future<void> _pair() async {
     final app = context.read<AppState>();
@@ -145,16 +153,28 @@ class _PairingScreenState extends State<PairingScreen> {
       _blocker = null;
     });
     try {
-      if (await app.accessorySetupSupported()) {
-        await app.pairViaAccessorySetup();
+      final accessorySetup = await app.accessorySetupSupported();
+      if (!mounted) return;
+      _usedAccessoryPicker = accessorySetup;
+      if (accessorySetup) {
+        if (widget.replacing) {
+          await app.replaceViaAccessorySetup();
+        } else {
+          await app.pairViaAccessorySetup();
+        }
       } else {
         final found = await app.scanForBand(
-            remoteId: widget.remoteId, generation: widget.entry?.id);
+            remoteId: widget.remoteId, generation: widget.modelKnown ? widget.entry?.id : null);
+        if (!mounted) return;
         if (found == null) {
           if (mounted) setState(() => _phase = PairPhase.notFound);
           return;
         }
-        await app.pairWith(found);
+        if (widget.replacing) {
+          await app.replaceWith(found);
+        } else {
+          await app.pairWith(found);
+        }
       }
       if (!mounted) return;
       setState(() => _phase = PairPhase.paired);
@@ -183,7 +203,7 @@ class _PairingScreenState extends State<PairingScreen> {
         blocker: _blocker,
         onPair: _pair,
         onSkip: widget.onSkip,
-        resetEntry: widget.entry,
+        resetEntry: widget.modelKnown && !_usedAccessoryPicker ? widget.entry : null,
         onPickDifferent: Navigator.of(c).canPop()
             ? () => Navigator.of(c).maybePop()
             : null,

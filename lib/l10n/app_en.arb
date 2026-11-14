@@ -14683,7 +14683,7 @@
   "presentationS": "s",
   "presentationV": "µV",
   "presentationReadsTheRingDirectlyNoAccountNoKeyExchange": "Reads the ring directly — no account, no key exchange.",
-  "presentationPebble2OrPebble2SEOnlyPairsOnly": "Pebble 2 or Pebble 2 SE only. Pairs only for now — nothing is read or stored yet.",
+  "presentationPebble2OrPebble2SEOnlyPairsOnly": "Pebble 2 or Pebble 2 SE only. Experimental support: syncs and stores steps and sleep, plus heart rate on Pebble 2. The SE has no heart-rate sensor.",
   "presentationTheOriginalFossilSkagenHybridSmartwatchNotTheNewer": "The original Fossil/Skagen hybrid smartwatch, not the newer Hybrid HR. Pairs and connects; nothing derives from it yet.",
   "presentationABudgetActivityBandPairsAndBanksItsRaw": "A budget activity band. Pairs and banks its raw data, but nothing is derived from it yet.",
   "presentationPairsAndBanksItsRawDataNothingIsDecoded": "Pairs and banks its raw data — nothing is decoded yet.",
@@ -16765,6 +16765,139 @@
   "@pairOuraExistingKeyGuidance": {
     "description": "Before any Oura reset steps: existing-key users keep the ring paired in Oura and skip resets; reset only for a new key."
   },
+  "pairAddDevice": "Add a device",
+  "@pairAddDevice": {
+    "description": "Label of the button that starts adding a device (band or sensor is decided after the scan)."
+  },
+  "pairKindAll": "All",
+  "@pairKindAll": {
+    "description": "Filter pill that shows every device in the list."
+  },
+  "pairKindStrap": "Chest straps & armbands",
+  "@pairKindStrap": {
+    "description": "Filter pill: heart-rate straps and armbands."
+  },
+  "pairKindRing": "Rings",
+  "@pairKindRing": {
+    "description": "Filter pill for smart rings."
+  },
+  "pairKindWatch": "Watches",
+  "@pairKindWatch": {
+    "description": "Filter pill for watches."
+  },
+  "pairGoBack": "Go back",
+  "@pairGoBack": {
+    "description": "Link that closes a confirm sheet without pairing."
+  },
+  "pairAddDeviceSub": "Rings, watches and heart-rate straps",
+  "@pairAddDeviceSub": {
+    "description": "Line under the Add a device row in Settings."
+  },
+  "pairAddDeviceSubtitle": "Each device shows where it fits: every day, or workouts only.",
+  "@pairAddDeviceSubtitle": {
+    "description": "Lead of the Add a device screen."
+  },
+  "pairBandFoundBody": "It does much more every day than during workouts only. Which do you want?",
+  "@pairBandFoundBody": {
+    "description": "WHOOP sheet lead when no band is paired yet."
+  },
+  "pairBandFoundBodyHasBand": "You already have a band. Only one can be your band at a time.",
+  "@pairBandFoundBodyHasBand": {
+    "description": "WHOOP sheet lead when a band is already paired."
+  },
+  "pairIdentifiedBody": "It looked like a heart-rate strap, but when we connected it identified itself as {label}. Nothing was saved.",
+  "@pairIdentifiedBody": {
+    "description": "Body of the sheet shown when a device picked as a sensor identifies itself as a band after connecting. Nothing was saved.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "pairAsMyBand": "Pair it as my band",
+  "@pairAsMyBand": {
+    "description": "Button that pairs the device as the user’s main band."
+  },
+  "pairSecondaryPaired": "Paired for workouts only.",
+  "@pairSecondaryPaired": {
+    "description": "Shown after a device is paired for workouts only."
+  },
+  "pairBandNow": "Your band now: {name}. Your data stays when you switch.",
+  "@pairBandNow": {
+    "description": "Note under the table when a band is already paired. {name} is that band’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceBand": "Pair this band, then disconnect {name}",
+  "@pairReplaceBand": {
+    "description": "Main button when a band is already paired: unpair it and pair the tapped one. {name} is the paired band’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceConfirmTitle": "Replace {name} after this band connects?",
+  "@pairReplaceConfirmTitle": {
+    "description": "Confirm dialog before replacing the band. {name} is the paired band’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceConfirmBody": "Your current band stays paired if setup fails or you cancel. Data already saved on this phone stays. Anything still unsynced on the old band is not synced to this phone after the switch.",
+  "@pairReplaceConfirmBody": {
+    "description": "Confirm dialog body: replacing the band keeps the data."
+  },
+  "pairReplaceConfirmYes": "Pair replacement",
+  "@pairReplaceConfirmYes": {
+    "description": "Confirm dialog button: unpair the old band and pair the new one."
+  },
+  "pairCurrentBandFallback": "your band",
+  "@pairCurrentBandFallback": {
+    "description": "Stands in for the paired band’s name when it has none, inside a sentence."
+  },
+  "pairWearableLead": "It can fill your days with sleep, recovery and heart rate.",
+  "@pairWearableLead": {
+    "description": "Sheet lead for a ring or watch."
+  },
+  "pairWearableNote": "Fills days without your WHOOP. Experimental, so switch it on in Devices.",
+  "@pairWearableNote": {
+    "description": "Note under a ring’s or watch’s table on the pairing sheet. “Devices” is the device list in Settings."
+  },
+  "pairStrapLead": "It adds heart rate while you work out. It does not record sleep, recovery or daily strain.",
+  "@pairStrapLead": {
+    "description": "Sheet lead for a heart-rate strap or sensor."
+  },
+  "pairStrapNote": "Both need “Use during workouts” on.",
+  "@pairStrapNote": {
+    "description": "Note under a strap’s table: both workout rows need the switch. Quotes deviceUseWorkoutsTitle."
+  },
+  "pairDeviceNamed": "Pair {name}",
+  "@pairDeviceNamed": {
+    "description": "Main button on a ring’s, watch’s or strap’s sheet. {name} is the device.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairUseForWorkouts": "Use it for workouts only",
+  "@pairUseForWorkouts": {
+    "description": "Text link on a WHOOP sheet: keep it for workouts only, not as the main band."
+  },
+  "pairReplaceUnpairFailed": "Your new band is paired, but your old band could not be removed.",
+  "@pairReplaceUnpairFailed": {
+    "description": "Shown when unpairing the old band failed during “Unpair (your band) and pair this one”; nothing else ran."
+  },
+  "pairWearableLeadPebble": "Pebble 2 can fill your days with sleep, recovery and heart rate. Pebble 2 SE shows the watch’s own sleep and steps. It has no heart-rate sensor, so this app cannot calculate daily strain or estimate recovery from it.",
+  "@pairWearableLeadPebble": {
+    "description": "Pebble-family pairing lead: SE shows the watch’s own sleep and steps; no HR sensor means no app-calculated daily strain or recovery estimate from the SE alone."
+  },
   "welcomeCoachKeyReentry": "Your coach API key stays in secure storage and was not backed up. Enter it again in AI settings to use the coach on this phone.",
   "welcomeSettingsSkipped": "{n, plural, =1{1 setting in the backup could not be read and was skipped} other{{n} settings in the backup could not be read and were skipped}}",
   "@welcomeSettingsSkipped": {
@@ -16807,7 +16940,7 @@
   "@bandStatusFirmwareLockedTitle": {
     "description": "BandStatus card title: band firmware 50.43 withholds all data until a WHOOP membership token is on it"
   },
-  "bandStatusFirmwareLockedReason": "This band runs WHOOP firmware 50.43, which can connect and answer the app but send no recordings or live heart rate until a WHOOP-signed membership token is on it. That is the most likely reason no data is arriving. OpenStrap cannot issue that token. Everything already saved here is safe.",
+  "bandStatusFirmwareLockedReason": "This band runs WHOOP firmware 50.43, which can connect and answer the app but send no recordings or live heart rate until a WHOOP-signed membership token is on it. That is one possible reason no data is arriving. OpenStrap cannot issue that token. Everything already saved here is safe.",
   "@bandStatusFirmwareLockedReason": {
     "description": "BandStatus card body: band firmware 50.43 withholds all data until a WHOOP membership token is on it"
   },
@@ -16822,6 +16955,9 @@
   "napAutoLogTitle": "Log clear naps automatically",
   "napAutoLogSub": "A detected nap with strong evidence is added without asking. You can still edit or remove it",
   "napAutoLogSaveFailed": "That setting could not be saved. Try again.",
+  "pairSearchDevices": "Search for devices",
+  "pairPrimaryCannotBeSensor": "This is already your main band. It cannot also be paired as a workout sensor.",
+  "pairReplaceMyBand": "Replace my band",
   "healthWearNotUpdatedSince": "not updated since {time}",
   "@healthWearNotUpdatedSince": {
     "description": "Wear-time row: the figure is from an earlier derive that the latest one could not refresh. time is a clock time, e.g. 11:05 AM",

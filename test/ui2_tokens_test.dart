@@ -276,6 +276,8 @@ const _notComponents = {
   // asserts the copy is not truncated and nothing overflows.
   'StartCard',
   // Pairing pieces are exercised on routes by the pairing widget tests.
+  'PairNote', 'CategoryFilterPills', 'PairChoiceSheet',
+  // Pairing pieces are exercised on routes by the pairing widget tests.
   'TroubleConnectingCard', 'ResetStepsView', 'PairingModeSection', 'PairStepRow', 'TextLinkButton', 'ChoiceRow',
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
