@@ -8161,5 +8161,19 @@
   "pairModeNoSite": "Это универсальное устройство без единого производителя, поэтому инструкции производителя нет.",
   "pairOuraExistingKeyGuidance": "Уже пользуетесь приложением Oura? Оставьте кольцо сопряжённым в этом приложении и выполните сопряжение с его текущим ключом. Пропустите шаги сброса ниже. Сбрасывайте кольцо только для получения нового ключа.",
   "healthWearNotUpdatedSince": "не обновлялось с {time}",
-  "dayStrainWornUntil": "Ношение до {time}"
+  "@healthWearNotUpdatedSince": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "dayStrainWornUntil": "Ношение до {time}",
+  "@dayStrainWornUntil": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  }
 }
