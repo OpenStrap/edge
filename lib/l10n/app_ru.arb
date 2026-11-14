@@ -8069,7 +8069,11 @@
   "welcomeSettingsSkipped": "{n, plural, one{{n} настройку из резервной копии не удалось прочитать, она пропущена} few{{n} настройки из резервной копии не удалось прочитать, они пропущены} many{{n} настроек из резервной копии не удалось прочитать, они пропущены} other{{n} настройки из резервной копии не удалось прочитать, они пропущены}}",
   "@welcomeSettingsSkipped": {
     "description": "Import report: settings rows in the backup that could not be read",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "welcomeSettingsSkippedBody": "Для них остаются значения этого телефона.",
   "welcomeCoachChatGptReentry": "Данные входа в ChatGPT остаются в защищённом хранилище и не включены в резервную копию. Войдите снова в настройках ИИ, чтобы пользоваться тренером на этом телефоне.",
@@ -8077,7 +8081,11 @@
   "welcomeSettingsRestored": "Восстановлено настроек: {n}",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "strengthCustomWeight": "Свой вес",
   "strengthEnterValue": "Введите значение",
@@ -8311,5 +8319,13 @@
         "type": "String"
       }
     }
+  },
+  "settingsSleepHmmRowTitle": "Экспериментальное определение стадий сна (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "Исследовательский алгоритм, не медицинское устройство. Выключено по умолчанию; применяется со следующей синхронизации",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }
 }

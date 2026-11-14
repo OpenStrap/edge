@@ -2979,7 +2979,11 @@
   "welcomeSettingsSkipped": "{n, plural, =1{बैकअप की 1 सेटिंग पढ़ी नहीं जा सकी और छोड़ दी गई} other{बैकअप की {n} सेटिंग्स पढ़ी नहीं जा सकीं और छोड़ दी गईं}}",
   "@welcomeSettingsSkipped": {
     "description": "Import report: settings rows in the backup that could not be read",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "welcomeSettingsSkippedBody": "उनके लिए इस फ़ोन के मान बने रहेंगे।",
   "welcomeCoachChatGptReentry": "आपका ChatGPT साइन-इन सुरक्षित स्टोरेज में रहता है और बैकअप में शामिल नहीं किया गया। इस फ़ोन पर कोच इस्तेमाल करने के लिए AI सेटिंग में फिर से साइन इन करें।",
@@ -2987,7 +2991,11 @@
   "welcomeSettingsRestored": "{n} सेटिंग बहाल हुईं",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "strengthCustomWeight": "कस्टम वज़न",
   "strengthEnterValue": "एक मान दर्ज करें",
@@ -3488,5 +3496,13 @@
   "dayStrainWornAsOf": "पहना, {time} तक का आंकड़ा",
   "bandStatusFirmwareLockedTitle": "बैंड का फ़र्मवेयर शायद उसका डेटा रोक रहा है",
   "bandStatusFirmwareLockedReason": "यह बैंड WHOOP फ़र्मवेयर 50.43 पर चल रहा है, जो कनेक्ट होकर ऐप को जवाब दे सकता है, लेकिन जब तक बैंड पर WHOOP द्वारा साइन किया गया सदस्यता टोकन न हो, तब तक हो सकता है कि कोई रिकॉर्डिंग या लाइव हृदय गति न भेजे। डेटा न आने का एक संभावित कारण यह हो सकता है। OpenStrap वह टोकन जारी नहीं कर सकता। यहाँ पहले से सहेजा गया सब कुछ सुरक्षित है।",
-  "bandStatusFirmwareLockedFix": "अगर वजह फ़र्मवेयर है, तो ऐप इसे बदल नहीं सकता और बैंड के फिर से रिकॉर्डिंग भेजते ही यह संदेश हट जाएगा"
+  "bandStatusFirmwareLockedFix": "अगर वजह फ़र्मवेयर है, तो ऐप इसे बदल नहीं सकता और बैंड के फिर से रिकॉर्डिंग भेजते ही यह संदेश हट जाएगा",
+  "settingsSleepHmmRowTitle": "प्रायोगिक नींद चरण विश्लेषण (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "यह एक शोध एल्गोरिदम है, चिकित्सा उपकरण नहीं। यह डिफ़ॉल्ट रूप से बंद है और अगली सिंक से लागू होगा।",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
+  }
 }

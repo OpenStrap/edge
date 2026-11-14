@@ -2979,7 +2979,11 @@
   "welcomeSettingsSkipped": "{n, plural, other{备份中有 {n} 项设置无法读取，已跳过}}",
   "@welcomeSettingsSkipped": {
     "description": "Import report: settings rows in the backup that could not be read",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "welcomeSettingsSkippedBody": "这些设置保留本机的值。",
   "welcomeCoachChatGptReentry": "你的 ChatGPT 登录信息保留在安全存储中，未包含在备份内。请在 AI 设置中重新登录，以便在此手机上使用教练。",
@@ -2987,7 +2991,11 @@
   "welcomeSettingsRestored": "已恢复 {n} 项设置",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "strengthCustomWeight": "自定义重量",
   "strengthEnterValue": "输入数值",
@@ -3488,5 +3496,13 @@
   "dayStrainWornAsOf": "佩戴（截至 {time} 的数据）",
   "bandStatusFirmwareLockedTitle": "手环固件可能正在扣留它的数据",
   "bandStatusFirmwareLockedReason": "这个手环运行的是 WHOOP 固件 50.43：它可以连接并响应应用，但在手环上没有 WHOOP 签名的会员令牌之前，可能不会发送任何记录或实时心率。这可能是收不到数据的原因之一。OpenStrap 无法签发这个令牌。已保存在这里的所有数据都是安全的。",
-  "bandStatusFirmwareLockedFix": "如果是固件的原因，应用无法更改，手环重新发送记录后此提示会自动消失"
+  "bandStatusFirmwareLockedFix": "如果是固件的原因，应用无法更改，手环重新发送记录后此提示会自动消失",
+  "settingsSleepHmmRowTitle": "实验性睡眠分期 (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "研究算法，非医疗设备。默认关闭；下次同步后生效",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
+  }
 }

@@ -572,6 +572,7 @@ class AppState extends ChangeNotifier {
     // truth for every network call — announcements, OTA, telemetry, import).
     healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
     phoneStepsEnabled = prefs.getBool(_kPhoneSteps) ?? false;
+    sleepHmmStagesEnabled = prefs.getBool(kSleepHmmStagesPref) ?? false;
     // Pull early without delaying launch. syncPhoneSteps queues a fresh light
     // derive AFTER the sensor rows land, including when an earlier band pass
     // already finished. The screen must not wait for another BLE drain.
@@ -830,6 +831,18 @@ class AppState extends ChangeNotifier {
   // Shared with `HealthExporter.exportWorkoutId`, which has to honour this
   // switch from callers that never see this class.
   static const String _kHealthSync = kHealthSyncPref;
+
+  /// EXPERIMENTAL, default off: the derivation engine re-stages the sleep
+  /// window with the HMM classifier (it reads the pref itself on every pass).
+  bool sleepHmmStagesEnabled = false;
+
+  /// Toggle the experimental HMM sleep staging; applies from the next derive.
+  Future<void> setSleepHmmStages(bool on) async {
+    sleepHmmStagesEnabled = on;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kSleepHmmStagesPref, on);
+    notifyListeners();
+  }
 
   /// "Apple Health" (iOS) or "Health Connect" (Android).
   String get healthStoreName => HealthExporter.storeName;
@@ -1552,6 +1565,7 @@ class AppState extends ChangeNotifier {
       telemetryConsent = false;
       healthShareConsent = false;
       consentChosen = false;
+      sleepHmmStagesEnabled = false;
       TelemetryService.instance.applyConsent(false);
       HealthUploader.instance.deviceId = null; // maybeUpload bails without one
       deviceId = '';

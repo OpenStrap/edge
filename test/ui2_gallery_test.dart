@@ -56,6 +56,8 @@ void main() {
       devMode: true,
       onGallery: () => opened = true,
     )));
+    await tester.scrollUntilVisible(find.text('Developer'), 300,
+        scrollable: find.byType(Scrollable).first);
     expect(find.text('Developer'), findsOneWidget);
     await tester.ensureVisible(find.text('Component gallery'));
     await tester.pumpAndSettle();

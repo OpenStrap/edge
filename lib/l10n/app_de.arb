@@ -3710,7 +3710,11 @@
   "welcomeSettingsSkipped": "{n, plural, =1{1 Einstellung in der Sicherung war nicht lesbar und wurde übersprungen} other{{n} Einstellungen in der Sicherung waren nicht lesbar und wurden übersprungen}}",
   "@welcomeSettingsSkipped": {
     "description": "Import report: settings rows in the backup that could not be read",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "welcomeSettingsSkippedBody": "Dafür bleiben die Werte dieses Telefons.",
   "welcomeCoachChatGptReentry": "Deine ChatGPT-Anmeldung bleibt im sicheren Speicher und wurde nicht gesichert. Melde dich in den KI-Einstellungen erneut an, um den Coach auf diesem Telefon zu nutzen.",
@@ -3718,7 +3722,11 @@
   "welcomeSettingsRestored": "{n} Einstellungen wiederhergestellt",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "strengthCustomWeight": "Benutzerdefiniertes Gewicht",
   "strengthEnterValue": "Wert eingeben",
@@ -3788,5 +3796,13 @@
   "dayStrainWornAsOf": "Getragen, Stand {time}",
   "bandStatusFirmwareLockedTitle": "Die Firmware des Bands hält wahrscheinlich seine Daten zurück",
   "bandStatusFirmwareLockedReason": "Dieses Band läuft mit WHOOP-Firmware 50.43. Sie kann sich verbinden und der App antworten, aber keine Aufzeichnungen und keine Live-Herzfrequenz senden, solange kein von WHOOP signiertes Mitgliedschafts-Token auf dem Band ist. Das ist ein möglicher Grund, warum keine Daten ankommen. OpenStrap kann dieses Token nicht ausstellen. Alles, was hier schon gespeichert ist, bleibt erhalten.",
-  "bandStatusFirmwareLockedFix": "Liegt es an der Firmware, lässt sich das in der App nicht ändern, und der Hinweis verschwindet, sobald das Band wieder Aufzeichnungen sendet"
+  "bandStatusFirmwareLockedFix": "Liegt es an der Firmware, lässt sich das in der App nicht ändern, und der Hinweis verschwindet, sobald das Band wieder Aufzeichnungen sendet",
+  "settingsSleepHmmRowTitle": "Experimentelles Schlaf-Staging (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "Forschungsalgorithmus, kein Medizinprodukt. Standard aus; gilt ab dem nächsten Sync",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
+  }
 }

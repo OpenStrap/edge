@@ -3008,7 +3008,11 @@
   "welcomeSettingsSkipped": "{n, plural, =1{1 ajuste de la copia no se pudo leer y se omitió} other{{n} ajustes de la copia no se pudieron leer y se omitieron}}",
   "@welcomeSettingsSkipped": {
     "description": "Import report: settings rows in the backup that could not be read",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "welcomeSettingsSkippedBody": "Esos conservan los valores de este teléfono.",
   "welcomeCoachChatGptReentry": "Tu sesión de ChatGPT permanece en el almacenamiento seguro y no se incluyó en la copia. Vuelve a iniciar sesión en los ajustes de IA para usar el asistente en este teléfono.",
@@ -3016,7 +3020,11 @@
   "welcomeSettingsRestored": "{n} ajustes restaurados",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "strengthCustomWeight": "Peso personalizado",
   "strengthEnterValue": "Introduce un valor",
@@ -3488,5 +3496,13 @@
   "dayStrainWornAsOf": "Llevada, a las {time}",
   "bandStatusFirmwareLockedTitle": "Probablemente el firmware de la banda está reteniendo sus datos",
   "bandStatusFirmwareLockedReason": "Esta banda usa el firmware 50.43 de WHOOP, que puede conectarse y responder a la app sin enviar registros ni frecuencia cardíaca en vivo hasta que haya en ella un token de membresía firmado por WHOOP. Es una posible razón de que no lleguen datos. OpenStrap no puede emitir ese token. Todo lo que ya está guardado aquí está a salvo.",
-  "bandStatusFirmwareLockedFix": "Si es el firmware, la app no puede cambiarlo y el aviso desaparece cuando la banda vuelva a enviar registros"
+  "bandStatusFirmwareLockedFix": "Si es el firmware, la app no puede cambiarlo y el aviso desaparece cuando la banda vuelva a enviar registros",
+  "settingsSleepHmmRowTitle": "Clasificación del sueño experimental (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "Algoritmo de investigación, no un dispositivo médico. Desactivado por defecto; se aplica desde la próxima sincronización",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
+  }
 }

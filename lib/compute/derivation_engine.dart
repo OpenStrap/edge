@@ -3105,9 +3105,26 @@ class CompactResult {
   int get freedBytes => beforeBytes > afterBytes ? beforeBytes - afterBytes : 0;
 }
 
+/// The experimental HMM sleep staging switch (Settings), default off.
+const kSleepHmmStagesPref = 'sleep_hmm_stages';
+
 class DerivationEngine {
   DerivationEngine({this.log, this.background = false, this.offloadActive});
   final void Function(String)? log;
+
+  /// EXPERIMENTAL, default off: re-stage the sleep window with the HMM
+  /// classifier inside [deriveDayBundle]. Read from the pref on every pass so
+  /// the foreground engine and every headless one agree, and a toggle takes
+  /// effect without a relaunch. Any failure reads as off.
+  static Future<bool> _hmmStagesOn() async {
+    try {
+      return (await SharedPreferences.getInstance())
+              .getBool(kSleepHmmStagesPref) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// True while a band offload is draining. The scheduler never STARTS a
   /// derive during one, but one can start mid-pass; the raw prune checks this
@@ -3380,6 +3397,7 @@ class DerivationEngine {
       ..sort();
     final head = [
       'v${debugFingerprintAlgoVersion ?? kAlgoVersion}',
+      if (await _hmmStagesOn()) 'hmm',
       dataNowSec,
       // The edges a day is aged against (band and wearable; see
       // [_agingEdgeFor]), from the pass's own memo.
@@ -5955,6 +5973,7 @@ class DerivationEngine {
       // guess — sleep-onset latency only means what people think it means on a
       // forced window.
       sleepSource: day.sleepSource,
+      useHmmStages: await _hmmStagesOn(),
     );
     final withHistory = _attachHistory(input, history);
 
