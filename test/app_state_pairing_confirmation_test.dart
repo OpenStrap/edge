@@ -450,6 +450,31 @@ void main() {
           reason: 'the old band must not be reconnected after the save');
     }));
 
+    // WHY: the primary peripheral must never also be a secondary sensor. A
+    // candidate that already has a workout-only row would be saved as primary
+    // with that row (and its link) still alive.
+    // catches: replacing onto a band that is already a secondary sensor.
+    test('replacement refuses a candidate that is already a secondary sensor',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      await LocalDb.upsertDevice(
+          id: 'ble_hrs-$replacementId',
+          adapterId: 'ble_hrs',
+          remoteId: replacementId,
+          label: 'Chest strap');
+      rig.engine.events.clear();
+      await expectLater(
+          rig.app.replaceWith(BluetoothDevice.fromId(replacementId)),
+          throwsA(isA<Exception>()));
+      expect((await PairedDevice.load())?.remoteId, kRemoteId,
+          reason: 'the current band stays paired');
+      expect(rig.engine.only('connect'), isEmpty,
+          reason: 'nothing starts before the refusal');
+      expect((await LocalDb.deviceRows()).where((r) => r['remote_id'] == replacementId),
+          hasLength(1), reason: 'the sensor row is untouched');
+    }));
+
     // WHY: an upgraded install can hold an armed epoch with no owner tag, which
     // every band reads as its own. After a forget, a new band would be treated
     // as already armed and never receive SET_ALARM.
@@ -546,6 +571,31 @@ void main() {
       expect(ResetGate.active, isFalse);
       expect((await PairedDevice.load())?.remoteId, kRemoteId,
           reason: 'the replacement must not be saved after the reset');
+    }));
+
+    // WHY: setAlarm waits for the band's reply. If the band is forgotten while
+    // it waits, the arm must not be saved afterwards: with no paired band the
+    // epoch would be written ownerless, and any later band reads it as its own.
+    // catches: persisting an arm for a band that is no longer paired.
+    test('an alarm arm pending while the band is forgotten is not recorded',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('alarm_epoch');
+      await prefs.remove(kAlarmRemoteId);
+      final gate = Completer<void>();
+      rig.engine.armGate = gate;
+      final arming = rig.app.setAlarm(DateTime.now().add(const Duration(hours: 8)));
+      await rig.waitFor(() => rig.engine.events.any((e) => e.startsWith('armAlarm')));
+      await rig.app.unpair();
+      rig.engine.armGate = null;
+      gate.complete();
+      await arming;
+      expect(prefs.getInt('alarm_epoch'), isNull,
+          reason: 'an ownerless epoch would be read as armed by the next band');
+      expect(persistedAlarmEpoch(prefs, replacementId), isNull);
+      expect(rig.app.alarmEpoch, isNull);
     }));
 
     // WHY: a lost band's retry must finish before candidate bootstrap starts.
