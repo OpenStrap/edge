@@ -16803,6 +16803,10 @@
   "@strengthDelete": {"description": "Strength set editor copy."},
   "strengthSaveFailed": "Failed to save changes",
   "@strengthSaveFailed": {"description": "Strength set editor copy."},
+  "dayStepsWhoop4NoCounter": "A WHOOP 4.0 has no step counter of its own, so it only counts steps while this app is receiving its live data.",
+  "@dayStepsWhoop4NoCounter": {
+    "description": "Steps screen: appended when the paired band is a WHOOP 4.0 and it counted nothing that day, because it has no on-chip step counter"
+  },
   "napAutoLogTitle": "Log clear naps automatically",
   "napAutoLogSub": "A detected nap with strong evidence is added without asking. You can still edit or remove it",
   "napAutoLogSaveFailed": "That setting could not be saved. Try again."
