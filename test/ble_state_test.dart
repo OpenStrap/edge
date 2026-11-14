@@ -740,6 +740,20 @@ void main() {
       }
     });
 
+    test('the firmware lock card calls the token a possible reason, not the likely one',
+        () {
+      // The app does not probe for a membership token and nothing here was
+      // checked against hardware, so the card must not rank the lock as the
+      // most likely cause of missing data.
+      final s = bandStatusFor(
+        connection: 'connected',
+        strapNeedsReboot: true,
+        bandFirmware: '50.43.2.0',
+      );
+      expect(s.reason, contains('possible'));
+      expect(s.reason.toLowerCase(), isNot(contains('most likely')));
+    });
+
     test('a quarantined batch on 50.43 stays syncStuck, not the firmware lock',
         () {
       // A quarantined batch is data that DID arrive, which a locked band does

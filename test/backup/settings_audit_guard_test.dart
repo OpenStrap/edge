@@ -70,6 +70,7 @@ const _mustStay = {
   'coach_chatgpt_host_id', 'coach_chatgpt_welcomed', 'coach_base_url', 'companion_url',
   'backup.folder', 'backup.last_run_ms', 'backup.last_error', 'health_upload_last_ts',
   'alarm_schedule_cleared', 'alarm_epoch', 'alarm_epoch_confirmed', 'alarm_set_at_ms',
+  'alarm_remote_id',
   'alarm_pending_until', 'alarm_latch_alert', 'alarm_probe_pending', 'alarm_fired_at',
   'live.session_draft', 'live_session_checkpoint', 'telemetry_outbox',
   // Permission and grant are per install.
@@ -113,6 +114,8 @@ const _indirectKeys = <String, List<String>>{
     'health_import_profile_at', 'health_import_workouts_at'],
   'lib/notify/notification_prefs.dart:_kBatteryPct': ['notif_battery_pct'],
   'lib/state/app_state.dart:_kHealthSync': ['health_sync'],
+  'lib/state/app_state.dart:kAlarmRemoteId': ['alarm_remote_id'],
+  'lib/sync/background_sync.dart:kAlarmRemoteId': ['alarm_remote_id'],
   'lib/sync/paired_device.dart:_kWornOn': ['paired_worn_on'],
   'lib/sync/paired_device.dart:key': [
     'paired_remote_id', 'paired_serial', 'paired_generation'],
