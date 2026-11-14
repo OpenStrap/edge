@@ -8225,5 +8225,21 @@
   "pairSearchDevices": "Найти устройства",
   "pairPrimaryCannotBeSensor": "Это уже ваш основной браслет. Его нельзя также подключить как датчик для тренировок.",
   "pairReplaceMyBand": "Заменить мой браслет",
-  "dayStepsWhoop4NoCounter": "У WHOOP 4.0 нет собственного шагомера, поэтому он считает шаги только пока это приложение получает его данные в реальном времени."
+  "dayStepsWhoop4NoCounter": "У WHOOP 4.0 нет собственного шагомера, поэтому он считает шаги только пока это приложение получает его данные в реальном времени.",
+  "healthWearNotUpdatedSince": "не обновлялось с {time}",
+  "@healthWearNotUpdatedSince": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "dayStrainWornAsOf": "Ношение, данные на {time}",
+  "@dayStrainWornAsOf": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  }
 }
