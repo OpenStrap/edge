@@ -38,8 +38,16 @@ Future<bool> bindAlarmEpochToBand(SharedPreferences prefs, String remoteId) asyn
 /// epoch is removed first, then the owner is written, then the new epoch.
 /// Every write is checked; on a failure this throws and no new epoch is saved.
 /// Both the foreground and the headless writer use it.
-Future<void> saveArmedAlarmEpoch(
-    SharedPreferences prefs, int epoch, String? remoteId) async {
+///
+/// [stillCurrent] answers "has a newer arm or a clear superseded this one?".
+/// It is asked before anything is written and again, synchronously, right
+/// before the epoch write: the removes/writes above await, and a clear or a
+/// newer arm that ran in those gaps must not have its result overwritten by
+/// this older epoch. Returns false when superseded (nothing more is written).
+Future<bool> saveArmedAlarmEpoch(
+    SharedPreferences prefs, int epoch, String? remoteId,
+    {bool Function()? stillCurrent}) async {
+  if (stillCurrent != null && !stillCurrent()) return false;
   if (remoteId != null && prefs.getString(kAlarmRemoteId) != remoteId) {
     if (prefs.getInt('alarm_epoch') != null &&
         !await prefs.remove('alarm_epoch')) {
@@ -49,9 +57,11 @@ Future<void> saveArmedAlarmEpoch(
       throw StateError('Could not record which band holds the alarm.');
     }
   }
+  if (stillCurrent != null && !stillCurrent()) return false;
   if (!await prefs.setInt('alarm_epoch', epoch)) {
     throw StateError('Could not save the armed alarm.');
   }
+  return true;
 }
 
 /// One weekday's slot in the schedule. Immutable — callers build a new one to

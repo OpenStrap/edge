@@ -16736,7 +16736,7 @@
   "@pairStrapLead": {
     "description": "Sheet lead for a heart-rate strap or sensor."
   },
-  "pairStrapNote": "ทั้งสองอย่างต้องเปิด “ใช้ระหว่างออกกำลังกาย”",
+  "pairStrapNote": "เปิด “ใช้ระหว่างออกกำลังกาย” เพื่อบันทึกอัตราการเต้นของหัวใจระหว่างออกกำลังกาย",
   "@pairStrapNote": {
     "description": "Note under a strap’s table: both workout rows need the switch. Quotes deviceUseWorkoutsTitle."
   },
@@ -16757,7 +16757,7 @@
   "@pairReplaceUnpairFailed": {
     "description": "Shown when unpairing the old band failed during “Unpair (your band) and pair this one”; nothing else ran."
   },
-  "pairWearableLeadPebble": "Pebble 2 เติมข้อมูลการนอน การฟื้นตัว และอัตราการเต้นของหัวใจให้แต่ละวันได้ Pebble 2 SE แสดงข้อมูลการนอนและจำนวนก้าวที่นาฬิกาบันทึกเอง รุ่นนี้ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ แอปจึงคำนวณภาระร่างกายรายวันหรือประเมินการฟื้นตัวจากข้อมูลของรุ่นนี้ไม่ได้",
+  "pairWearableLeadPebble": "Pebble 2 เติมข้อมูลการนอนและอัตราการเต้นของหัวใจให้แต่ละวันได้ Pebble 2 SE แสดงข้อมูลการนอนและจำนวนก้าวที่นาฬิกาบันทึกเอง รุ่นนี้ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ แอปจึงคำนวณภาระร่างกายรายวันหรือประเมินการฟื้นตัวจากข้อมูลของรุ่นนี้ไม่ได้",
   "pairMainBandWhoopOnly": "สายรัดหลัก: WHOOP 4.0 หรือ WHOOP 5.0/MG เท่านั้น อุปกรณ์อื่นเพิ่มเป็นอุปกรณ์เสริมได้",
   "@pairMainBandWhoopOnly": {
     "description": "Plain statement on the pairing screens: only WHOOP can be the main band; other devices are added as additional devices."
