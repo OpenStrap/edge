@@ -57,6 +57,7 @@ class _Engine implements BleEngine {
   bool historyStuck = false;
   bool flashActive = false;
   Completer<bool>? probeGate;
+  Completer<void>? disconnectGate;
   int? newestTs;
 
   /// A history task the band has not ended yet.
@@ -105,6 +106,9 @@ class _Engine implements BleEngine {
   Future<void> disconnect() async {
     trace.add('disconnect');
     link = false;
+    final gate = disconnectGate;
+    disconnectGate = null; // only the first disconnect waits
+    if (gate != null) await gate.future;
   }
 
   @override
@@ -755,6 +759,21 @@ void main() {
           reason: 'the stale sync did not drop the link again');
       expect(r.engine.count('connect'), 0, reason: 'and did not reopen it');
       expect(r.logged('the session changed while the link was probed'), isTrue);
+    }));
+
+    test('a session ended while the recovery disconnect is awaited is not '
+        'reopened', _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.quiet = const Duration(minutes: 5);
+      r.engine.probeAnswer = false;
+      final gate = r.engine.disconnectGate = Completer<void>();
+      final sync = r.c.syncNow();
+      await until(() => r.engine.count('disconnect') == 1);
+      await r.c.endSession(); // the user ends the session mid-recovery
+      gate.complete();
+      await sync;
+      expect(r.engine.count('connect'), 0,
+          reason: 'the stale recovery did not reopen the session');
     }));
 
     test('manual sync probes a quiet link and reuses it if the band replies',
