@@ -572,11 +572,9 @@ class AppState extends ChangeNotifier {
     // truth for every network call — announcements, OTA, telemetry, import).
     healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
     phoneStepsEnabled = prefs.getBool(_kPhoneSteps) ?? false;
-    // Steps only exist if a real pedometer measured them, so kick the phone
-    // pull early. This is BEST-EFFORT and establishes no ordering: it is
-    // unawaited, so a derive pass can read `live_coverage` while the sync is
-    // still in flight and that day then derives without phone steps. It
-    // self-heals on the next light pass.
+    // Pull early without delaying launch. syncPhoneSteps queues a fresh light
+    // derive AFTER the sensor rows land, including when an earlier band pass
+    // already finished. The screen must not wait for another BLE drain.
     //
     // ROUTINE window only (2 days, ~48 platform round trips). Each hourly
     // bucket is one platform call, so the 7-day backfill window is up to 168 of
@@ -981,6 +979,13 @@ class AppState extends ChangeNotifier {
     phoneStepsLastTotal = null;
     phoneStepsToday = 0;
     _phoneStepsDay = null;
+    // A read still in flight belongs to the old setting. Drop the shared slot
+    // and bump the token so turning the feature back on starts a fresh read
+    // instead of joining the stopped one, and the old read cannot clear the
+    // new slot or touch state when it ends.
+    _phoneStepsToken++;
+    _phoneStepsSync = null;
+    _phoneStepsSyncDays = 0;
     // Stop the sensor BEFORE dropping the rows: on Android the counter keeps
     // accumulating into its own on-device store, so clearing `live_coverage`
     // alone would leave this app counting a user who just asked it to stop.
@@ -1024,6 +1029,7 @@ class AppState extends ChangeNotifier {
     try {
       final day = todayLabel();
       final n = await LocalDb.phoneStepsForDay(day);
+      if (_disposed || !phoneStepsEnabled || ResetGate.active) return;
       if (n != phoneStepsToday || day != _phoneStepsDay) {
         phoneStepsToday = n;
         _phoneStepsDay = day;
@@ -1034,19 +1040,113 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<int>? _phoneStepsSync;
+  int _phoneStepsSyncDays = 0;
+  int _phoneStepsToken = 0;
+
+  /// How long one phone step read may hold the shared slot. Longer than the
+  /// manual sync's own wait, so a tap gives up first and this reclaims the slot
+  /// afterwards. A platform call that never returns would otherwise block every
+  /// later refresh and backfill until the app restarts.
+  @visibleForTesting
+  static Duration phoneStepsReadTimeout = const Duration(seconds: 90);
+
   /// Pull the last [days] days of phone step counts into `live_coverage`.
   ///
-  /// Idempotent (delete-then-insert per day, scoped to the phone source), so
-  /// calling it repeatedly — on launch, after a sync, from a background pass —
-  /// can never accumulate. Best-effort; never throws.
+  /// Share overlapping reads so a slower, older sensor walk cannot overwrite a
+  /// newer one. A larger explicit backfill waits for the routine read, then
+  /// runs its full window. A read that outlives [phoneStepsReadTimeout] is
+  /// retired (it can no longer bank rows or touch state) and frees the slot.
+  /// Queue derivation after the rows land: screens read
+  /// day_result/metric_series, not phoneStepsToday. Best-effort; never throws.
   Future<int> syncPhoneSteps({
     int days = PhonePedometer.routineSyncDays,
   }) async {
+    if (!phoneStepsEnabled || _disposed || ResetGate.active) return 0;
+    final running = _phoneStepsSync;
+    if (running != null) {
+      if (days <= _phoneStepsSyncDays) return running;
+      await running;
+      return syncPhoneSteps(days: days);
+    }
+    final token = ++_phoneStepsToken;
+    _phoneStepsSyncDays = days;
+    final progress = _PhoneReadProgress();
+    final future = _readPhoneSteps(days, token, progress).timeout(
+      phoneStepsReadTimeout,
+      onTimeout: () {
+        // Only a read that still owns the slot may be retired. A timer from an
+        // older read that outlived a disable and re-enable must not retire the
+        // newer read that replaced it.
+        if (token != _phoneStepsToken) return 0;
+        debugPrint('[phone_steps] read still running after '
+            '${phoneStepsReadTimeout.inSeconds}s; abandoning it');
+        // Retire the stuck read BEFORE the slot frees: a late completion must
+        // not write older rows over a newer read's.
+        _phoneStepsToken++;
+        progress.retired = true;
+        _phonePedometer.abandonInFlight();
+        // Days it already stored are real: queue derivation for them, since
+        // the retired read never reaches its own derive request.
+        _queuePhoneDerive(progress);
+        return 0;
+      },
+    );
+    _phoneStepsSync = future;
     try {
-      final r = await _phonePedometer.syncRecent(days: days);
+      return await future;
+    } finally {
+      // Only the read that owns the slot may clear it.
+      if (identical(_phoneStepsSync, future)) {
+        _phoneStepsSync = null;
+        _phoneStepsSyncDays = 0;
+      }
+    }
+  }
+
+  /// Queue derivation for the days a phone read stored. Today is covered by the
+  /// light pass; a day BEFORE today that changed needs a heavy one, because the
+  /// light pass only targets today or the latest pending day.
+  void _queuePhoneDerive(_PhoneReadProgress progress) {
+    if (progress.days == 0 ||
+        !phoneStepsEnabled ||
+        _disposed ||
+        ResetGate.active) {
+      return;
+    }
+    _deriveScheduler.markStoredData();
+    if (progress.pastDayChanged) _deriveScheduler.requestHeavy();
+    notifyListeners();
+  }
+
+  Future<int> _readPhoneSteps(
+      int days, int token, _PhoneReadProgress progress) async {
+    bool stale() =>
+        token != _phoneStepsToken ||
+        !phoneStepsEnabled ||
+        _disposed ||
+        ResetGate.active;
+    try {
+      final r = await _phonePedometer.syncRecent(
+        days: days,
+        onDayBanked: (day, changed) {
+          progress.days++;
+          if (changed && day != todayLabel()) progress.pastDayChanged = true;
+          // A day committing after its read was retired is still real.
+          if (progress.retired) _queuePhoneDerive(progress);
+        },
+      );
+      if (stale()) return 0;
       phoneStepsLastSyncedDays = r.daysRead;
       phoneStepsLastTotal = r.totalSteps;
       await _refreshPhoneStepsToday();
+      if (stale()) return 0;
+      if (r.daysRead > 0) {
+        // Use the normal durable queue: capture, workout and background holds
+        // still apply, and a read finishing during derive gets a later pass.
+        _queuePhoneDerive(progress);
+        if (progress.days == 0) _deriveScheduler.markStoredData();
+      }
       notifyListeners();
       return r.daysRead;
     } catch (e) {
@@ -6400,6 +6500,14 @@ class SleepCorrectionUnavailable implements Exception {
   String toString() => eveningPruned
       ? 'the evening before $day is no longer recorded'
       : 'no recordings left to re-analyse $day';
+}
+
+/// What one phone step read has stored so far, shared with the timeout that
+/// may retire it.
+class _PhoneReadProgress {
+  int days = 0;
+  bool pastDayChanged = false;
+  bool retired = false;
 }
 
 /// The band picked to replace the paired one IS the paired one. Nothing was

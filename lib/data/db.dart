@@ -4356,27 +4356,36 @@ class LocalDb {
   /// `resolveDaySteps`'s confirmed-still check uses to veto a wrist
   /// false-positive over the same window. Only a negative count (never
   /// produced by the reader) or an inverted window is dropped.
-  static Future<void> replacePhoneCoverageForDay(
+  static Future<bool> replacePhoneCoverageForDay(
     String day,
-    List<({int startTs, int endTs, int steps})> windows,
-  ) async {
-    final db = await instance;
-    await db.transaction((txn) async {
-      await txn.delete(
-        'live_coverage',
-        where: 'day = ? AND source = ?',
-        whereArgs: [day, kStepSourcePhone],
-      );
-      for (final w in windows) {
-        if (w.steps < 0 || w.endTs <= w.startTs) continue;
-        await txn.insert('live_coverage', {
-          'start_ts': w.startTs,
-          'end_ts': w.endTs,
-          'steps': w.steps,
-          'day': day,
-          'source': kStepSourcePhone,
-        });
-      }
+    List<({int startTs, int endTs, int steps})> windows, {
+    bool Function()? stillValid,
+  }) {
+    // Through the commit gate the wipe also uses, and re-checked INSIDE it:
+    // a reset queued while this write waited for the database finishes first,
+    // and the check then refuses the write instead of repopulating the store.
+    return _withCommitGate(() async {
+      if (stillValid != null && !stillValid()) return false;
+      final db = await instance;
+      if (stillValid != null && !stillValid()) return false;
+      await db.transaction((txn) async {
+        await txn.delete(
+          'live_coverage',
+          where: 'day = ? AND source = ?',
+          whereArgs: [day, kStepSourcePhone],
+        );
+        for (final w in windows) {
+          if (w.steps < 0 || w.endTs <= w.startTs) continue;
+          await txn.insert('live_coverage', {
+            'start_ts': w.startTs,
+            'end_ts': w.endTs,
+            'steps': w.steps,
+            'day': day,
+            'source': kStepSourcePhone,
+          });
+        }
+      });
+      return true;
     });
   }
 

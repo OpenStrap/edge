@@ -1261,6 +1261,10 @@ class _ConnectedEngine extends BleEngine {
   @override
   bool get isConnected => true;
 
+  // A link with fresh traffic: manual sync trusts it instead of probing.
+  @override
+  Duration get sinceLastRx => Duration.zero;
+
   @override
   Future<void> requestHistorySync() async => historyRequests++;
 
