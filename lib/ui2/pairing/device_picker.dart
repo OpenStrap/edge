@@ -56,6 +56,7 @@ import '../ui2.dart';
 import 'add_device_flow.dart';
 import 'pair_band_view.dart';
 import 'category_filter_pills.dart';
+import 'pair_dispatch.dart';
 import 'pair_text.dart'
     show PairFilter, pairFilterOf, pairL10n, slotPill;
 import 'whoop_firmware_warning.dart';
@@ -342,17 +343,10 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
     await HrsLink.stopScanIfRunning(this);
     PairOutcome outcome;
     try {
-      if (sensor.pick != null) {
-        final failure = await sensor.pick!(cand.device);
-        outcome = failure == null
-            ? const PairOutcome.saved()
-            : PairOutcome.failed(failure);
-      } else {
-        outcome = await HrsLink.pairNotifySensor(sensor.entry, cand.device,
-            label: cand.label,
-            earlierBand: cand.alsoBand,
-            confirmation: confirmation);
-      }
+      outcome = await pairRegisteredEntry(sensor.entry, cand.device,
+          label: cand.label,
+          earlierBand: cand.alsoBand,
+          confirmation: confirmation);
     } catch (e) {
       outcome = PairOutcome.failed(
           l?.pairSensorCouldNotPair(e.toString()) ?? 'Could not pair that device: $e');
@@ -366,6 +360,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
   /// as [AddDeviceIo.openBandFlow]).
   Future<BandFlowResult> _openEntry(BandEntry entry,
       {String? remoteId, bool modelKnown = true, bool replacing = false, bool returnOnPair = false}) async {
+    // A handoff from AddDeviceFlow awaits the scan shutdown first; the user may
+    // have left meanwhile, and neither branch below may touch a disposed context.
+    if (!mounted) return BandFlowResult.closed;
     if (entry.isFramed) {
       // The pushed screen covers this one without disposing it, so this
       // screen's 15 s scan would keep the scan lock — and "Find my band"
