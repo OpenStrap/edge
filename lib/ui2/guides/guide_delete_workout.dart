@@ -7,14 +7,18 @@
 // There is no delete on a session's summary: the bin is an icon with only a
 // semantics label (workout_screen.dart:1113). The row shows it only for a
 // session with an id. With several sessions the label is several controls: the
-// target is then ambiguous and the run says so (the missing-target help). One
+// target is the topmost bin (firstLabel; a plain label was ambiguous). One
 // 'any' variant.
 
 import 'guide.dart';
+import 'guide_navigation.dart';
+import 'guide_content.dart';
 import 'guide_target.dart';
 
-final _historyTab = GuideTarget.label((l) => l.workoutTabHistory);
-final _bin = GuideTarget.label((l) => l.workoutDeleteSessionLabel);
+final _historyTab = GuideTarget.label(((l) => l.workoutTabHistory));
+// Several sessions each have a bin with this label; the guide points at the topmost
+// (owner, device: a plain label was "ambiguous" on a real history and showed nothing).
+final _bin = GuideTarget.firstLabel(((l) => l.workoutDeleteSessionLabel));
 
 Guide get deleteWorkoutGuide => Guide(
       id: 'delete-workout',
@@ -24,6 +28,7 @@ Guide get deleteWorkoutGuide => Guide(
         GuideVariant(steps: [
           GuideStep(
             id: 'open-history',
+            node: GuideNode.activityOverview,
             target: _historyTab,
             anchor: _historyTab,
             action: GuideAction.tap,
@@ -31,8 +36,10 @@ Guide get deleteWorkoutGuide => Guide(
           ),
           GuideStep(
             id: 'delete-session',
+            node: GuideNode.activityHistory,
             target: _bin,
-            anchor: GuideTarget.label((l) => l.workoutTrackedLabel),
+            anchor: GuideTarget.label(((l) => l.workoutTrackedLabel)),
+            alsoTap: [EveryLabelled([((l) => l.workoutDeleteSessionLabel)])], // every session has a bin
             action: GuideAction.tap,
             caption: (l) => l.guideDeleteStep2(l.workoutDeleteSessionLabel),
           ),

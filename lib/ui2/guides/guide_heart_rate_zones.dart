@@ -12,6 +12,7 @@
 // One path serves both band generations (the screens are band-independent).
 
 import 'guide.dart';
+import 'guide_navigation.dart';
 import 'guide_target.dart';
 
 /// The Strain ring on the Today tab. Also step 1's anchor: the label is on no
@@ -37,6 +38,7 @@ Guide get heartRateZonesGuide => Guide(
         GuideVariant(steps: [
           GuideStep(
             id: 'open-strain',
+            node: GuideNode.today,
             target: _strainRing,
             anchor: _strainRing,
             action: GuideAction.tap,
@@ -44,6 +46,7 @@ Guide get heartRateZonesGuide => Guide(
           ),
           GuideStep(
             id: 'open-zones',
+            node: GuideNode.dayStrain,
             target: _howTheseAreSet,
             anchor: _howTheseAreSet,
             action: GuideAction.scrollThenTap,
@@ -51,6 +54,7 @@ Guide get heartRateZonesGuide => Guide(
           ),
           GuideStep(
             id: 'set-own-zones',
+            node: GuideNode.zones,
             target: _ownZonesLink,
             anchor: GuideTarget.label((l) => l.activityZonesTitle),
             // The mock-up keeps "Your zones" legible: it is what the link edits.

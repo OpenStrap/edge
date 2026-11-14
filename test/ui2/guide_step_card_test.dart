@@ -248,6 +248,26 @@ void main() {
       expect(calls.exits, isEmpty);
     });
 
+    testWidgets('the distance back is shown beside the off-path text, in taps, in every locale', (t) async {
+      // why: owner review R6: "N taps back" ALONGSIDE the explanation, and "tap" (a "step" is
+      // a numbered guide step). catches: a distance that replaces the body, the old wording.
+      await _pumpCard(t, const GuideCardOffPath(tapsBack: 2));
+      expect(find.text(_l.guideOffPathBody), findsOneWidget);
+      expect(find.text('2 taps back'), findsOneWidget);
+      expect(find.byKey(GuideStepCard.tapsBackKey), findsOneWidget);
+      await _pumpCard(t, const GuideCardOffPath());
+      expect(find.byKey(GuideStepCard.tapsBackKey), findsNothing, reason: 'no route, no distance');
+      final seen = <String>{};
+      for (final locale in AppLocalizations.supportedLocales) {
+        final l = lookupAppLocalizations(locale);
+        final one = l.guideTapsBack(1), two = l.guideTapsBack(2);
+        expect(two, contains('2'), reason: '$locale');
+        expect(one, isNot(two), reason: '$locale plural');
+        expect(seen.add(two), isTrue, reason: '$locale is translated, not a copy of another locale');
+      }
+      expect(lookupAppLocalizations(const Locale('en')).guideTapsBack(3), isNot(contains('step')));
+    });
+
     testWidgets('without a step to go back to, "Back to the guide" is not offered', (t) async {
       // why: a Back that goes nowhere is worse than no button (lastIndex null).
       await _pumpCard(t, const GuideCardOffPath(), withBack: false);

@@ -38,6 +38,7 @@
 //    the drawn envelope is pixel-identical to the full series and every spike
 //    survives. Naive stride decimation would drop them.
 
+import 'skeleton/guide_plot.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/decimal_text.dart';
 import '../state/locale_controller.dart';
@@ -381,7 +382,9 @@ Path _polyline(List<Offset> pts, {required bool smooth}) {
 ///
 /// [t] is a 0…1 draw-in progress — pass `animate(context, t)` so reduced
 /// motion lands on a fully drawn chart instead of a partial one.
-class LineChart extends CustomPainter {
+class LineChart extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => color;
   final List<double?> d;
   final Color color;
   final bool dots;
@@ -503,7 +506,9 @@ class LineChart extends CustomPainter {
 ///
 /// [d] is dense like [LineChart.d]: a `null` bucket was never measured and no
 /// bar is drawn for it, which is a hole in the row rather than a zero.
-class Bars extends CustomPainter {
+class Bars extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => color;
   final List<double?> d;
   final Color color;
   final int highlight;
@@ -600,7 +605,9 @@ class Bars extends CustomPainter {
 }
 
 /// The score dial. One value, one arc.
-class Ring extends CustomPainter {
+class Ring extends CustomPainter implements GuideRing {
+  @override
+  Color get guideLineColor => color;
   final double v;
   final Color color, track;
   final double stroke, t;
@@ -650,7 +657,9 @@ class RingArc {
 }
 
 /// The sleep dial once a night is scored, with one shared spiral geometry.
-class StageRing extends CustomPainter {
+class StageRing extends CustomPainter implements GuideRing {
+  @override
+  Color get guideLineColor => arcs.isEmpty ? track : arcs.first.color;
   final List<RingArc> arcs;
   final Color track;
   final double stroke, t;
@@ -692,7 +701,9 @@ class StageRing extends CustomPainter {
 /// that is still filling (a baseline calibrating night by night), so "not
 /// solid yet" is literally true of the shape, not just a softer tint of the
 /// same arc [Ring] draws for a finished measurement.
-class DashedRing extends CustomPainter {
+class DashedRing extends CustomPainter implements GuideRing {
+  @override
+  Color get guideLineColor => color;
   final double v;
   final Color color, track;
   final double stroke;
@@ -736,7 +747,9 @@ class DashedRing extends CustomPainter {
 }
 
 /// The small flat ring used in macro/nutrient clusters.
-class MacroRing extends CustomPainter {
+class MacroRing extends CustomPainter implements GuideRing {
+  @override
+  Color get guideLineColor => color;
   final double v;
   final Color color, track;
 
@@ -793,7 +806,9 @@ extension SleepStageX on SleepStage {
 ///
 /// [stages] is one entry per epoch, in order. It comes from the stager; this
 /// painter has no opinion about what a night looks like.
-class Hypnogram extends CustomPainter {
+class Hypnogram extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => cols(p)[SleepStage.light]!;
   final List<SleepStage> stages;
   final double t;
 
@@ -1099,7 +1114,9 @@ class ZoneRows extends StatelessWidget {
 /// mirror image of the rows. It used to read correctly only because the
 /// noon-anchored formatter the one caller passes is symmetric at three ticks —
 /// at five it printed 6 AM against the 6 PM row.
-class Actogram extends CustomPainter {
+class Actogram extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => color;
   final List<List<double>?> days;
   final Color color;
 
@@ -1135,7 +1152,9 @@ class Actogram extends CustomPainter {
 /// seven, which is the only thing that stopped this painter from being the
 /// three-row month grid as well: same cells, same absence rule, same file. A
 /// column of seven lays out exactly as it always did.
-class HeatMap extends CustomPainter {
+class HeatMap extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => color;
   final List<List<double?>> weeks;
   final Color color, track;
 
@@ -1200,7 +1219,9 @@ class HeatMap extends CustomPainter {
 /// visual reading off it would be wrong. It draws its own gridlines at the
 /// axis ticks for the same reason: `ChartFrame` rules the full width, and the
 /// square is narrower than that.
-class Poincare extends CustomPainter {
+class Poincare extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => color;
   final List<double> nn;
   final Color color;
 
@@ -1281,7 +1302,9 @@ class Poincare extends CustomPainter {
 /// lanes had different rates or different coverage. Resample every lane onto
 /// the night's grid before handing it over; nothing here can recover the
 /// mapping afterwards.
-class NightStack extends CustomPainter {
+class NightStack extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => colors.isEmpty ? C.domSleep : colors.first;
   final List<List<double?>> series;
   final List<Color> colors;
 
@@ -1363,7 +1386,9 @@ class NightStack extends CustomPainter {
 /// minute that was watched and was still keeps the hairline at the foot of the
 /// movement strip. Without that line an hour sitting at a desk and an hour
 /// with the band on the charger drew identically.
-class DayLanes extends CustomPainter {
+class DayLanes extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => work.isNotEmpty ? work.first.$3 : rest.isNotEmpty ? rest.first.$3 : C.domMove;
   /// Stretches with nothing recorded in them, as (from, to) fractions.
   final List<(double, double)> gaps;
 

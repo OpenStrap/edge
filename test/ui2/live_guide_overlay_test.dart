@@ -17,7 +17,9 @@ import 'package:openstrap_edge/ui2/guides/guide_step_card.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
 import 'package:openstrap_edge/ui2/skeleton/skeleton.dart';
-import 'package:openstrap_edge/ui2/grammar.dart' show NavBar, Pressable;
+import 'package:openstrap_edge/ui2/grammar.dart' show NavBar, Pressable, ScreenTitle, Surface;
+
+import 'package:openstrap_edge/ui2/guides/guide_dim.dart' show GuideDimScope;
 
 import '../support/live_guide_stage.dart';
 
@@ -236,12 +238,33 @@ void main() {
       expect(t.takeException(), isNull);
     });
 
-    testWidgets('an idle guide schedules no frames', (t) async {
+    testWidgets('an idle guide schedules no frames when nothing on screen is a placeholder', (t) async {
       // why: the overlay re-plans after each frame; the loop must settle
-      // (PR 1 'markers follow layout' made the same promise for the frame view).
+      // (PR 1 'markers follow layout' made the same promise for the frame view). The pulse
+      // is the only reason for a frame and it runs only while a placeholder is shown
+      // (owner review R1): the Details page has the target card and one neighbour only.
+      // catches: a pulse that runs for the whole guide.
+      final stage = await pumpLiveStage(t);
+      await _settleReveal(t);
+      await pushStagePage(t, stage, StagePages(stage.taps).details());
+      await _settleReveal(t);
+      expect(_overlay(t).hasPlaceholders, isFalse);
+      await t.pumpAndSettle(const Duration(milliseconds: 100), EnginePhase.sendSemanticsUpdate, const Duration(seconds: 2));
+    });
+
+    testWidgets('an idle guide with placeholders pulses without moving the card or replanning', (t) async {
+      // WHY: the owner's pulse needs frames, while idle geometry stays stable.
+      // # catches: replanning or moving the instruction card on every pulse tick.
       await pumpLiveStage(t);
       await _settleReveal(t);
-      await t.pumpAndSettle(const Duration(milliseconds: 100), EnginePhase.sendSemanticsUpdate, const Duration(seconds: 2));
+      final overlay = _overlay(t);
+      final plans = overlay.planningCount;
+      final card = t.getRect(find.byKey(GuideStepCard.cardKey));
+      await t.pump(const Duration(milliseconds: 400));
+      await t.pump(const Duration(milliseconds: 400));
+      expect(t.binding.hasScheduledFrame, isTrue, reason: 'the shared pulse keeps repainting');
+      expect(overlay.planningCount, lessThanOrEqualTo(plans + 1));
+      expect(t.getRect(find.byKey(GuideStepCard.cardKey)), card);
     });
   });
 
@@ -280,43 +303,42 @@ void main() {
     });
   });
 
-  group('progressive reveal', () {
-    testWidgets('sections fade in from the top over the reveal time, then the outline and pill appear', (t) async {
-      // why: CLAIM(overlay-reveal). Spec: "progressively ... over ~600 ms per
-      // step (revealedShapes), then the outline and pill appear".
+  group('dim fade', () {
+    double fadeOf(WidgetTester t) => GuideDimScope.controllerOf(t.element(find.byType(LiveGuideOverlay)))!.fade;
+
+    testWidgets('the placeholders are there at once; the dim fades in linearly over 800 ms; then the outline and pill appear', (t) async {
+      // why: CLAIM(dim-fade-linear), owner 2026-11-14: "on page load placeholders appear at
+      // once; the dim fades in linearly over 800 ms". Replaces the progressive per-unit
+      // reveal (whole units from the top over 600 ms).
+      // catches: a plan revealed unit by unit (shape count grows), a fade that is not
+      // linear (eased, stepped), a duration other than 800 ms, markers before the end.
+      expect(kGuideRevealDuration, const Duration(milliseconds: 800));
       await pumpLiveStage(t);
       await t.pump();
       await t.pump();
       final s = _overlay(t);
-      expect(s.revealProgress, lessThan(.2), reason: 'a new step starts hidden');
+      final first = s.paintedShapes.map((x) => '${x.kind.name}@${x.rect}').toList();
+      expect(first, isNotEmpty, reason: 'the plan is on screen in the first frames');
+      expect(fadeOf(t), lessThan(.1), reason: 'the dim starts clear');
       expect(find.byKey(LiveGuideOverlay.outlineKey), findsNothing);
       expect(find.byKey(LiveGuideOverlay.tapPillKey), findsNothing);
-      final fewShapes = s.paintedShapes.length;
+      final start = fadeOf(t);
 
-      await t.pump(kGuideRevealDuration ~/ 2);
-      expect(s.revealProgress, closeTo(.5, .15));
-      final halfShapes = s.paintedShapes.length;
-      expect(halfShapes, greaterThanOrEqualTo(fewShapes));
-      expect(find.byKey(LiveGuideOverlay.outlineKey), findsNothing, reason: 'markers wait for the full reveal');
-
+      var last = start;
+      for (var ms = 200; ms <= 600; ms += 200) {
+        await t.pump(const Duration(milliseconds: 200));
+        expect(fadeOf(t), closeTo(start + ms / 800, .06), reason: 'linear: $ms ms in');
+        expect(fadeOf(t), greaterThan(last));
+        last = fadeOf(t);
+        expect(s.paintedShapes.map((x) => '${x.kind.name}@${x.rect}').toList(), first,
+          reason: 'the shapes do not change while the dim ramps');
+      }
       await t.pump(kGuideRevealDuration);
       await t.pump();
+      expect(fadeOf(t), 1);
       expect(s.revealProgress, 1);
-      expect(s.paintedShapes.length, greaterThan(halfShapes), reason: 'more of the page is covered at the end');
       expect(find.byKey(LiveGuideOverlay.outlineKey), findsOneWidget);
       expect(find.byKey(LiveGuideOverlay.tapPillKey), findsOneWidget);
-    });
-
-    testWidgets('a revealed prefix is whole sections from the top (never half a card)', (t) async {
-      // why: revealedShapes reveals whole units; the overlay must paint through it.
-      await pumpLiveStage(t);
-      await t.pump();
-      await t.pump();
-      await t.pump(kGuideRevealDuration ~/ 2);
-      final sections = {for (final s in _overlay(t).paintedShapes) s.section};
-      if (sections.isNotEmpty) {
-        expect(sections, {for (var i = 0; i <= sections.reduce((a, b) => a > b ? a : b); i++) i}, reason: 'contiguous from the top');
-      }
     });
 
     testWidgets('a new step restarts the reveal', (t) async {
@@ -328,6 +350,7 @@ void main() {
       await t.pump();
       await t.pump();
       expect(_overlay(t).revealProgress, lessThan(.2));
+      expect(fadeOf(t), lessThan(.2), reason: 'the dim of the new step starts clear');
       expect(find.byKey(LiveGuideOverlay.outlineKey), findsNothing);
     });
   });
@@ -369,23 +392,28 @@ void main() {
   });
 
   group('pointer rules', () {
-    // why: S9 / CLAIM(overlay-pass-through). Exercise drag recognizers, not
-    // just taps: the target hole passes drags and the surrounding shield
-    // absorbs them. Removing the overlay proves the covered recognizer works.
-    testWidgets('target drags pass through and unrelated drags are absorbed', (t) async {
+    // why: S9 / CLAIM(overlay-pass-through), per layer (structural r2: input per
+    // layer holds for EVERY guide, the legacy absorb-everything shield is gone).
+    // The target passes drags; a DIMMED control passes them too (exactly one drag, run
+    // unchanged); a drag that starts on SKELETON ink is not a drag on that control.
+    // # catches: a guide that still absorbs every non-target drag (legacy look), or a
+    // dimmed control that loses the real gesture.
+    testWidgets('drags per layer: target and dimmed controls pass, skeleton look-alikes do not', (t) async {
       final stage = await pumpLiveStage(t, guide: _occludedGuide());
-      var targetDrags = 0, otherDrags = 0;
-      Widget area(Key key, VoidCallback onEnd) => GestureDetector(
-        key: key, behavior: HitTestBehavior.opaque,
+      var targetDrags = 0, otherDrags = 0, lookalikeDrags = 0;
+      Widget area(Key key, VoidCallback onEnd, [String label = 'area']) => GestureDetector(
+        key: key, behavior: HitTestBehavior.opaque, onTap: () {},
         onVerticalDragEnd: (_) => onEnd(),
-        child: const SizedBox(width: 240, height: 100),
+        child: Surface(child: SizedBox(height: 44, child: Center(child: Text(label)))),
       );
-      await pushStagePage(t, stage, Scaffold(body: Column(children: [
-        const SizedBox(height: 120),
-        area(stageFinish, () => targetDrags++),
-        const SizedBox(height: 20),
-        area(stageOtherAction, () => otherDrags++),
-        const SizedBox(height: 200),
+      await pushStagePage(t, stage, Scaffold(body: ListView(children: [
+        const ScreenTitle('Drags'),
+        const SizedBox(height: 60),
+        area(stageElsewhereAction, () => lookalikeDrags++, 'Far above'),
+        const SizedBox(height: 12),
+        area(stageOtherAction, () => otherDrags++, 'Next to it'),
+        const SizedBox(height: 12),
+        area(stageFinish, () => targetDrags++, 'Finish'),
       ])));
       await _settleReveal(t);
       await t.drag(find.byKey(stageFinish), const Offset(0, 60));
@@ -394,11 +422,14 @@ void main() {
       expect(stage.run.state, isA<GuideAtStep>(), reason: 'a drag is not completion');
       await t.drag(find.byKey(stageOtherAction), const Offset(0, 60), warnIfMissed: false);
       await t.pump();
-      expect(otherDrags, 0);
-      stage.entry!.remove();
+      expect(otherDrags, 1, reason: 'dimmed content stays draggable, exactly once');
+      final shapes = _overlay(t).paintedShapes;
+      expect(_anyShapeOverlaps(shapes.where((x) => x.kind != SkeletonKind.dim), _rectOf(t, find.byKey(stageElsewhereAction))), isTrue,
+        reason: 'positive control: the card two above the target is a placeholder');
+      await t.drag(find.byKey(stageElsewhereAction), const Offset(0, 60), warnIfMissed: false);
       await t.pump();
-      await t.drag(find.byKey(stageOtherAction), const Offset(0, 60));
-      expect(otherDrags, 1, reason: 'positive control without the shield');
+      expect(lookalikeDrags, 0, reason: 'skeleton ink takes the pointer');
+      expect(stage.run.state, isA<GuideAtStep>());
     });
 
     testWidgets('a tap on the target reaches the real control, which does what it always does', (t) async {
@@ -413,20 +444,40 @@ void main() {
       expect(find.byKey(stageDetailsTitle), findsOneWidget, reason: 'the real navigation happened');
     });
 
-    testWidgets('taps anywhere else on the page are absorbed (with a positive control without the overlay)', (t) async {
-      // why: spec "taps elsewhere are absorbed" - a skeleton you can still press
-      // through is a trap. Positive control: the very same tap works once the
-      // overlay is gone, so the 0 above is the overlay's doing.
+    testWidgets('taps per layer: dimmed controls work once, skeleton look-alikes are blocked, with positive controls', (t) async {
+      // why: owner decision "input per layer" for EVERY guide (structural r2): dimmed
+      // content is clickable (the real control, exactly once); skeleton is not. The
+      // legacy "every other tap is absorbed" rule is retired with the legacy look.
+      // Positive control: the look-alike works once the overlay is gone.
       final stage = await pumpLiveStage(t);
       await _settleReveal(t);
+      // The window rule (owner, 2026-11-14): the card above the target's card is dimmed, the
+      // cards further away are placeholders.
+      await pushStagePage(t, stage, Scaffold(body: ListView(children: [
+        const ScreenTitle('Stage home', key: stageHomeTitle),
+        Pressable(key: stageElsewhereAction, onTap: () => stage.taps.elsewhere++, child: const Surface(child: Text('Far above'))),
+        const SizedBox(height: 12),
+        Pressable(key: stageOtherAction, onTap: () => stage.taps.otherAction++, child: const Surface(child: Text('Next to it'))),
+        const SizedBox(height: 12),
+        Pressable(key: stageOpenDetails, onTap: () => stage.taps.openDetails++, child: const Surface(child: Text('Open details'))),
+      ])));
+      await _settleReveal(t);
+      final shapes = _overlay(t).paintedShapes;
+      expect(_anyShapeOverlaps(shapes.where((x) => x.kind != SkeletonKind.dim), _rectOf(t, find.byKey(stageElsewhereAction))), isTrue,
+        reason: 'positive control: the card two above the target is a placeholder');
+      expect(_anyShapeOverlaps(shapes.where((x) => x.kind == SkeletonKind.dim), _rectOf(t, find.byKey(stageOtherAction))), isTrue,
+        reason: 'positive control: the card right above the target is dimmed');
       await t.tap(find.byKey(stageOtherAction), warnIfMissed: false);
-      await t.tap(find.text('Second card text'), warnIfMissed: false);
-      await t.pump();
-      expect(stage.taps.otherAction, 0);
+      await t.pump(const Duration(milliseconds: 400));
+      expect(stage.taps.otherAction, 1, reason: 'a dimmed control receives its real tap exactly once');
+      await t.tap(find.byKey(stageElsewhereAction), warnIfMissed: false);
+      await t.longPress(find.byKey(stageElsewhereAction), warnIfMissed: false);
+      await t.pump(const Duration(milliseconds: 400));
+      expect(stage.taps.elsewhere, 0, reason: 'a placeholder absorbs the tap');
       stage.entry!.remove();
       await t.pump();
-      await t.tap(find.byKey(stageOtherAction));
-      expect(stage.taps.otherAction, 1, reason: 'positive control: the control works without the overlay');
+      await t.tap(find.byKey(stageElsewhereAction));
+      expect(stage.taps.elsewhere, 1, reason: 'positive control: the control works without the overlay');
     });
 
     testWidgets('the card\'s Exit works and asks the owner of the run to end it, once', (t) async {
@@ -492,7 +543,8 @@ void main() {
       expect(stage.run.state, isA<GuideOffPath>());
       expect(find.byKey(GuideStepCard.offPathKey), findsOneWidget);
       expect(find.text(_en.guideOffPathTitle), findsOneWidget);
-      expect(_overlay(t).paintedShapes, isEmpty);
+      // Off the path everything is DIMMED (owner decision 3), never skeleton: no ink absorbs a tap.
+      expect(_overlay(t).paintedShapes.where((s) => s.kind != SkeletonKind.dim), isEmpty);
       expect(find.byKey(LiveGuideOverlay.outlineKey), findsNothing);
       await t.tap(find.byKey(stageElsewhereAction));
       expect(stage.taps.elsewhere, 1, reason: 'the page underneath is usable');

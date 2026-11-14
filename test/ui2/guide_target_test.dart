@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
+import 'package:openstrap_edge/ui2/guides/guide_delete_workout.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
@@ -232,6 +233,28 @@ void main() {
         ),
       );
       expect(GuideTarget.label((_) => 'Strain').resolve(root, l), isA<TargetFound>());
+    });
+
+    testWidgets('the Delete a workout guide resolves its bin on a real history of several rows', (t) async {
+      // why: owner, on device: step 2 highlighted NOTHING. Each real session row (_HistoryRow) is a
+      // tappable Surface holding an icon-only bin whose only name is its semantics label; with 2+
+      // sessions a plain label() is ambiguous and the run showed no target. Fails if the guide's bin
+      // goes back to label() (ambiguous) or stops resolving the icon-only bin inside a tappable row.
+      Widget row(String title) => Surface(
+            onTap: () {},
+            child: Row(children: [
+              Expanded(child: Text(title)),
+              Pressable(
+                semanticLabel: 'Delete this session',
+                onTap: () {},
+                child: const Padding(padding: EdgeInsets.all(S.x1), child: Icon(Icons.delete_outline, size: 17)),
+              ),
+            ]),
+          );
+      final (root, l) = await _pumpIn(t, const Locale('en'), (_) => Column(children: [row('Run'), row('Swim'), row('Ride')]));
+      final bin = deleteWorkoutGuide.variants.single.steps.last.target.resolve(root, l);
+      expect(bin, isA<TargetFound>(), reason: 'got ${bin.runtimeType}');
+      expect((bin as TargetFound).rect.top, lessThan(80), reason: 'the first row, not a later one');
     });
 
     testWidgets('a control whose Text appears twice inside the SAME Pressable counts once', (t) async {

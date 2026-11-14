@@ -75,3 +75,17 @@ Rect visibleBoundsInRoot(RenderObject object, RenderBox root) {
   }
   return visible;
 }
+
+/// Iterable form of the existing onstage walk for guide planning.
+Iterable<Element> onstageElements(Element root) {
+  final elements = <Element>[];
+  visitOnstage(root, elements.add);
+  return elements;
+}
+
+/// Iterable form that includes built lazy-list children outside the viewport.
+Iterable<Element> builtElements(Element root) {
+  final elements = <Element>[];
+  visitBuilt(root, elements.add);
+  return elements;
+}

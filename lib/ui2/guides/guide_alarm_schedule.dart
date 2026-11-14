@@ -13,6 +13,8 @@
 // stays on step 2.
 
 import 'guide.dart';
+import 'guide_navigation.dart';
+import 'guide_content.dart';
 import 'guide_target.dart';
 
 final _alarmRow = GuideTarget.label((l) => l.settingsAlarmRowTitle);
@@ -27,20 +29,24 @@ Guide get alarmScheduleGuide => Guide(
         GuideVariant(steps: [
           GuideStep(
             id: 'open-alarm',
+            node: GuideNode.sleep,
             target: _alarmRow,
-            anchor: GuideTarget.label((l) => l.sleepDetailNavTitle),
+            anchor: GuideTarget.firstLabel((l) => l.sleepDetailMedicalDisclaimer),
             action: GuideAction.scrollThenTap,
             caption: (l) => l.guideAlarmStep1(l.tabSleep, l.sleepTabMoreTitle, l.settingsAlarmRowTitle),
           ),
           GuideStep(
             id: 'pick-day',
+            node: GuideNode.alarm,
             target: _tuesday,
+            alsoTap: [LabelledContent([(l) => l.wellnessMon, (l) => l.wellnessTue, (l) => l.wellnessWed, (l) => l.wellnessThu, (l) => l.wellnessFri, (l) => l.wellnessSat, (l) => l.wellnessSun])],
             anchor: GuideTarget.label((l) => l.alarmScheduleGroup),
             action: GuideAction.tap,
             caption: (l) => l.guideAlarmStep2(l.alarmScheduleGroup, l.wellnessTue),
           ),
           GuideStep(
             id: 'set-wake-time',
+            node: GuideNode.alarm,
             target: _wakeTime,
             anchor: _wakeTime,
             action: GuideAction.tap,

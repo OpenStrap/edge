@@ -9,6 +9,7 @@
 // One 'any' variant.
 
 import 'guide.dart';
+import 'guide_navigation.dart';
 import 'guide_target.dart';
 
 /// The button's text flips with the source, so both labels.
@@ -26,6 +27,7 @@ Guide get fixSleepTimesGuide => Guide(
         GuideVariant(steps: [
           GuideStep(
             id: 'change-times',
+            node: GuideNode.sleep,
             target: _timesButton,
             anchor: _timesButton,
             action: GuideAction.tap,
@@ -33,6 +35,7 @@ Guide get fixSleepTimesGuide => Guide(
           ),
           GuideStep(
             id: 'back-to-automatic',
+            node: GuideNode.sleep,
             target: _backToAutomatic,
             anchor: _backToAutomatic,
             action: GuideAction.tap,

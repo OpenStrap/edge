@@ -66,10 +66,10 @@ Future<void> _startFromHelp(WidgetTester t, LiveGuideApp app, String guideId) as
   await t.pump();
   expect(row.hitTestable(), findsOneWidget, reason: 'the Help row is visible before the user taps it');
   await t.tap(row);
-  await settleLiveGuide(t, frames: 12);
+  await settleLiveGuide(t, frames: 18);
 }
 
-Future<void> _reveal(WidgetTester t) => settleLiveGuide(t, frames: 12);
+Future<void> _reveal(WidgetTester t) => settleLiveGuide(t, frames: 18);
 
 Future<int> _dbChanges() async => ((await (await LocalDb.instance)
     .rawQuery('SELECT total_changes() AS n')).single['n'] as num).toInt();
@@ -192,7 +192,9 @@ void main() {
     final userPrefs = await t.runAsync(prefsSnapshot);
     final userDb = await t.runAsync(_dbChanges);
     expect(userPrefs, isNot(prefs), reason: 'ordinary navigation still saves the selected tab');
-    await app.runner.backToGuide();
+    final walk = app.runner.backToGuide();
+    await _reveal(t); // the walk waits for frames between its hops
+    await walk;
     await _reveal(t);
     expect(find.byType(WorkoutScreen), findsOneWidget);
     expect(run.state, isA<GuideAtStep>());
@@ -338,16 +340,17 @@ void main() {
       expect(_step(app), 0);
     });
 
-    testWidgets('taps on other real controls of the page are absorbed (the Recovery ring does not open)', (t) async {
-      // why: spec "taps elsewhere are absorbed" on the real Today, whose rings are
-      // real buttons.
+    testWidgets('taps on other real controls of the page pass through on the dim pilot (the Recovery ring opens, the run goes off path)', (t) async {
+      // why: r2 owner decision (input per layer): dimmed content is clickable and
+      // does its normal thing; the off-path card is the recovery. Changed from the
+      // old "absorbed" rule because heart-rate-zones is a dim-look pilot guide.
       final app = await pumpLiveGuideApp(t);
       await _startFromHelp(t, app, 'heart-rate-zones');
       final l = _l(t);
       await t.tap(_label(l.homeRingRecovery), warnIfMissed: false);
       await _reveal(t);
-      expect(find.byType(ReadinessDetail), findsNothing);
-      expect(_step(app), 0);
+      expect(find.byType(ReadinessDetail), findsOneWidget);
+      expect(app.runner.activeRun?.state, isA<GuideOffPath>());
     });
 
     for (final locale in const [Locale('en'), Locale('de'), Locale('ru'), Locale('zh'), Locale('th'), Locale('hi'), Locale('fr'), Locale('es')]) {

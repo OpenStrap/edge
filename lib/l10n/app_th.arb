@@ -16769,7 +16769,7 @@
   "guideLogPastMissingTitle": "ไม่เห็น \"{log}\" ใช่ไหม",
   "guideLogPastMissingBody": "อยู่ล่างสุดของ **{history}** ต่อจากรายการของคุณ เลื่อนลงไปให้สุด",
   "guideDontSeeIt": "ไม่เห็นหรือ?",
-  "guideExit": "ออก",
+  "guideExit": "ออกจากคำแนะนำ",
   "guideExitLabel": "ออกจากคู่มือ",
   "guideOffPathTitle": "คุณออกนอกเส้นทางแล้ว",
   "guideOffPathBody": "หน้าจอนี้ไม่ได้อยู่ในคู่มือ",
@@ -17083,5 +17083,36 @@
   "capReasonSkinTempProvisional": "ค่าประมาณที่ยังเป็นข้อมูลเบื้องต้น ต้องมีข้อมูลหลายคืน",
   "pairReplaceMyBand": "เปลี่ยนสายรัดของฉัน",
   "healthWearNotUpdatedSince": "ไม่ได้อัปเดตตั้งแต่ {time}",
-  "dayStrainWornAsOf": "สวมใส่ ข้อมูล ณ {time}"
+  "dayStrainWornAsOf": "สวมใส่ ข้อมูล ณ {time}",
+  "guideTapsBack": "{count, plural, other{{count} แตะเพื่อกลับ}}",
+  "@guideTapsBack": {
+    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "guideTabProxy": "กลับไปที่แท็บ {tab}",
+  "@guideTabProxy": {
+    "description": "Screen-reader label of the highlighted tab-bar tab while a guide runs: the step is on that tab.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "The tab's name, as the tab bar prints it."
+      }
+    }
+  },
+  "guideBackProxy": "กลับไปที่คำแนะนำ",
+  "@guideBackProxy": {
+    "description": "Screen-reader label of the highlighted control that leads back to the guide's path while the user is off the path."
+  },
+  "guideMoveCardUp": "ย้ายการ์ดคำแนะนำขึ้น",
+  "@guideMoveCardUp": {
+    "description": "Screen-reader action on the guide's step card: move the card up the screen (the alternative to dragging it)."
+  },
+  "guideMoveCardDown": "ย้ายการ์ดคำแนะนำลง",
+  "@guideMoveCardDown": {
+    "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  }
 }

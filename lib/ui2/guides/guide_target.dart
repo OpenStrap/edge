@@ -101,6 +101,9 @@ sealed class GuideTarget {
       _LabelTarget(alternatives, within);
 
   /// By Key: the keyed widget's own render box; no growing.
+  factory GuideTarget.firstLabel(String Function(AppLocalizations) label, {GuideTarget? within}) =>
+      _LabelTarget([label], within, firstOfMany: true);
+
   factory GuideTarget.key(Key key) => _KeyTarget(key);
 
   /// Resolve in the laid-out tree under [root], in [root]'s coordinates.
@@ -151,7 +154,8 @@ final class _KeyTarget extends GuideTarget {
 final class _LabelTarget extends GuideTarget {
   final List<String Function(AppLocalizations l)> alternatives;
   final GuideTarget? within;
-  const _LabelTarget(this.alternatives, this.within);
+  final bool firstOfMany;
+  const _LabelTarget(this.alternatives, this.within, {this.firstOfMany = false});
 
   @override
   _Lookup _lookup(Element root, RenderBox rootBox, Element scope, AppLocalizations l) {
@@ -190,32 +194,86 @@ final class _LabelTarget extends GuideTarget {
     });
     if (matches.isEmpty) return _miss(searchIn, 'nothing on screen reads $quoted');
 
-    // One control = one nearest tappable Pressable, else one outermost matching
-    // Semantics, else the match itself. CLAIM(one-control-once): a Text and the
-    // Semantics label of the same control never count twice [guide_target_test].
-    final matchSet = matches.toSet();
-    final controls = <Element, Element>{}; // control element -> first match
-    for (final m in matches) {
-      Element? pressable;
-      Element? outermostSemantics = matchSet.contains(m) && m.widget is Semantics ? m : null;
-      m.visitAncestorElements((a) {
-        if (a.widget is Pressable && (a.widget as Pressable).onTap != null) {
-          pressable = a;
-          return false;
-        }
-        if (matchSet.contains(a) && a.widget is Semantics) outermostSemantics = a;
-        return !identical(a, root);
-      });
-      controls.putIfAbsent(pressable ?? outermostSemantics ?? m, () => m);
-    }
-    if (controls.length > 1) {
+    final controls = _controlsOf(root, matches);
+    if (controls.length > 1 && !firstOfMany) {
       return _Miss(TargetAmbiguous(this, controls.length, '${controls.length} controls read $quoted'));
     }
-    final control = controls.keys.single;
-    final box = laidOutBox(control) ?? laidOutBox(controls.values.single);
+    final control = controls.keys.first;
+    final box = laidOutBox(control) ?? laidOutBox(controls.values.first);
     if (box == null) return _miss(searchIn, '$quoted has no laid-out box');
     return _Hit(control, rectInRoot(box, rootBox));
   }
+}
+
+/// One control per match: the nearest tappable Pressable, else the outermost
+/// matching Semantics, else the match itself; a control inside another matched
+/// control is dropped. Control element -> its first match.
+Map<Element, Element> _controlsOf(Element root, List<Element> matches) {
+  // One control = one nearest tappable Pressable, else one outermost matching
+  // Semantics, else the match itself. CLAIM(one-control-once): a Text and the
+  // Semantics label of the same control never count twice [guide_target_test].
+  final matchSet = matches.toSet();
+  final controls = <Element, Element>{}; // control element -> first match
+  for (final m in matches) {
+    Element? pressable;
+    Element? outermostSemantics = matchSet.contains(m) && m.widget is Semantics ? m : null;
+    m.visitAncestorElements((a) {
+      if (a.widget is Pressable && (a.widget as Pressable).onTap != null) {
+        pressable = a;
+        return false;
+      }
+      if (matchSet.contains(a) && a.widget is Semantics) outermostSemantics = a;
+      return !identical(a, root);
+    });
+    controls.putIfAbsent(pressable ?? outermostSemantics ?? m, () => m);
+  }
+  // A Semantics label WRAPPING the control that also prints it (day_review.dart's
+  // `reviewButton`: Semantics > Opacity > BigButton > Text) is that control, not a
+  // second one: drop every control that sits inside another matched control.
+  // CLAIM(one-control-once): ↳ [guide_target_test 'a labelled wrapper around a pressable text is one control'].
+  final nested = <Element>{};
+  for (final outer in controls.keys) {
+    for (final inner in controls.keys) {
+      if (identical(outer, inner)) continue;
+      var inside = false;
+      inner.visitAncestorElements((a) {
+        if (identical(a, outer)) inside = true;
+        return !inside && !identical(a, root);
+      });
+      if (inside) nested.add(inner);
+    }
+  }
+  nested.forEach(controls.remove);
+  return controls;
+}
+
+/// EVERY control on the page that reads [label] (a Text or Semantics label equal
+/// to it, after trimming, ignoring case), each once: the per-row "Discard"s, the
+/// bin of every session. [GuideTarget.label] reports these as ambiguous and
+/// [GuideTarget.firstLabel] picks one; a caption that says "every row has its own"
+/// needs them all.
+List<TargetFound> everyControlLabelled(Element root, String Function(AppLocalizations) label, AppLocalizations l) {
+  final rootBox = laidOutBox(root);
+  final wanted = label(l).trim().toUpperCase();
+  if (rootBox == null || wanted.isEmpty) return const [];
+  final matches = <Element>[];
+  for (final e in onstageElements(root)) {
+    final widget = e.widget;
+    final text = switch (widget) {
+      Text() => widget.data ?? widget.textSpan?.toPlainText(),
+      Semantics() => widget.properties.label,
+      _ => null,
+    };
+    if (text != null && text.trim().toUpperCase() == wanted) matches.add(e);
+  }
+  final found = <TargetFound>[];
+  for (final entry in _controlsOf(root, matches).entries) {
+    final box = laidOutBox(entry.key) ?? laidOutBox(entry.value);
+    if (box == null) continue;
+    final rect = rectInRoot(box, rootBox).intersect(visibleBoundsInRoot(box, rootBox));
+    if (!rect.isEmpty) found.add(TargetFound(rect, renderObject: box));
+  }
+  return found;
 }
 
 /// Every [ScrollableState] under [scope] (onstage), outer before inner.

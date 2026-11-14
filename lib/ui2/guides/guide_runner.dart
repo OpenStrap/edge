@@ -31,7 +31,12 @@ import '../../l10n/app_localizations.dart';
 import 'live_guide_overlay.dart';
 
 import '../app_shell.dart' show ShellDomain;
+import 'package:flutter/gestures.dart';
+import '../grammar.dart' show Pressable, SubTabs;
+import 'guide_navigation.dart';
+import 'tree_geometry.dart';
 import 'guide.dart';
+import 'guide_dim.dart';
 import 'guide_run.dart';
 import 'guide_routes.dart';
 
@@ -77,6 +82,10 @@ class GuideRunner extends ChangeNotifier {
   final GlobalKey<NavigatorState> navigatorKey;
 
   final GuideRouteObserver routes;
+
+  /// The plan the run's components draw from; the app root provides it through
+  /// [GuideDimScope]. The overlay writes it on every plan; the components read it.
+  final dim = GuideDimController();
 
   GuideRunner({required this.navigatorKey, GuideRouteObserver? routes})
       : routes = routes ?? GuideRouteObserver();
@@ -187,8 +196,12 @@ class GuideRunner extends ChangeNotifier {
         run.observe(page, l);
         if (run.state is GuideAtStep) return;
       }
+      if (run.state is GuideFinished) return;
       if (!nav.canPop()) {
-        _selectStart(run.guide.start);
+        // Only an off-path run has a place to go back to; a finished run has none.
+        if (run.state case GuideOffPath(:final lastIndex)) {
+          await _walkHops(run, lastIndex ?? 0, l);
+        }
         return;
       }
       final before = routes.topRoute;
@@ -196,6 +209,90 @@ class GuideRunner extends ChangeNotifier {
       if (!handled || before?.isActive != false || identical(before, routes.topRoute)) return;
       await WidgetsBinding.instance.endOfFrame;
     }
+  }
+
+  /// The most hops one press of "Back to the guide" walks. The deepest route in the
+  /// tree is a tab, its sub-tab and a page; more means the tree and the app disagree.
+  static const _maxHops = 6;
+
+  /// Walks the card's own hop list ([GuideRouteObserver.routeTo]: the retained sub-tab
+  /// counts) in one go, so the "N taps back" the card shows is what one press does.
+  /// Stops when a step matches, when a hop cannot be made by the runner (a pushed
+  /// page), or when a hop changed nothing. If nothing moved the run, it selects the
+  /// guide's start again. CLAIM(back-walks-all-hops) [guide_r3_routing_test 'R2'].
+  Future<void> _walkHops(GuideRun run, int index, AppLocalizations? l) async {
+    final node = run.variant.steps[index].node;
+    // After every hop the walk waits for the screen to change and looks again: the card's
+    // count is a forecast (the shell's tab selection can show another sub-tab than the one
+    // parked), the next control only exists once the screen has changed.
+    var moved = false;
+    GuideHop? previous;
+    for (var i = 0; node != null && i < _maxHops && identical(_run, run); i++) {
+      final page = routes.page;
+      final hop = routes.routeTo(node).firstOrNull;
+      if (page == null || hop == null) break;
+      // The same hop again means the last press changed nothing: stop, don't spin.
+      if (previous != null && previous.node == hop.node && previous.kind == hop.kind) break;
+      if (!_makeHop(hop, page)) break;
+      previous = hop;
+      moved = true;
+      // One frame shows the new screen, the next lets the guide's overlay plan it (its
+      // input layer must let the next control through before the next tap is made).
+      await WidgetsBinding.instance.endOfFrame;
+      await WidgetsBinding.instance.endOfFrame;
+      while (routes.isTransitioning && identical(_run, run)) {
+        await WidgetsBinding.instance.endOfFrame;
+      }
+      final now = routes.page;
+      if (now != null && l != null) run.observe(now, l);
+      if (run.state is GuideAtStep) return;
+    }
+    if (moved || !identical(_run, run)) return;
+    final tab = node == null ? null : GuideNavigation.tabIndex(node);
+    if (tab != null && tab < ShellDomain.values.length) {
+      _shell?.selectTab(ShellDomain.values[tab]);
+    } else {
+      _selectStart(run.guide.start);
+    }
+  }
+
+  /// Does one hop with the app's own controls; false when it is not one the runner can make.
+  bool _makeHop(GuideHop hop, Element page) {
+    switch (hop.kind) {
+      case GuideHopKind.subTab:
+        // A real tap on the sub-tab's own control, as a user would make it: no closure of
+        // the screen is called from here.
+        final index = GuideNavigation.subTabIndex(hop.node);
+        if (index == null) return false;
+        for (final e in onstageElements(page)) {
+          if (e.widget is! SubTabs) continue;
+          final controls = onstageElements(e).where((c) => c.widget is Pressable && laidOutBox(c) != null).toList();
+          return index < controls.length && _tap(controls[index], page);
+        }
+        return false;
+      case GuideHopKind.tab || GuideHopKind.page:
+        final tab = GuideNavigation.tabIndex(hop.node);
+        if (tab == null || tab >= ShellDomain.values.length || _shell == null) return false;
+        _shell!.selectTab(ShellDomain.values[tab]);
+        return true;
+      case GuideHopKind.back:
+        return false;
+    }
+  }
+
+  /// A pointer down and up at the visible centre of [control], if the tap would reach it.
+  bool _tap(Element control, Element page) {
+    final box = laidOutBox(control), root = laidOutBox(page);
+    if (box == null || root == null || !control.mounted) return false;
+    final visible = rectInRoot(box, root).intersect(visibleBoundsInRoot(box, root));
+    if (visible.isEmpty) return false;
+    final position = root.localToGlobal(visible.center);
+    final result = HitTestResult();
+    WidgetsBinding.instance.hitTestInView(result, position, View.of(control).viewId);
+    if (!result.path.any((entry) => identical(entry.target, box))) return false;
+    GestureBinding.instance.handlePointerEvent(PointerDownEvent(pointer: -3, position: position));
+    GestureBinding.instance.handlePointerEvent(PointerUpEvent(pointer: -3, position: position));
+    return true;
   }
 
   /// Ends the active run (no-op without one).
@@ -215,6 +312,7 @@ class GuideRunner extends ChangeNotifier {
   @override
   void dispose() {
     exit();
+    dim.dispose();
     super.dispose();
   }
 }

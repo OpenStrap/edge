@@ -17,11 +17,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/guides/guide.dart';
+import 'package:openstrap_edge/ui2/guides/guide_dim.dart';
 import 'package:openstrap_edge/ui2/guides/guide_run.dart';
 import 'package:openstrap_edge/ui2/guides/guide_routes.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
+import 'package:openstrap_edge/ui2/skeleton/unit_paint.dart' show GuideScrollBehavior;
 
 const stageOpenDetails = ValueKey('stage-open-details');
 const stageOtherAction = ValueKey('stage-other-action');
@@ -178,6 +180,7 @@ class LiveStage {
   final GlobalKey<NavigatorState> navigatorKey;
   final GuideRun run;
   final routes = GuideRouteObserver();
+  final dim = GuideDimController();
   final List<VoidCallback> exits = [];
   int exitCount = 0, backToGuideCount = 0;
   OverlayEntry? entry;
@@ -205,7 +208,8 @@ Future<LiveStage> pumpLiveStage(
   final variant = (g.variantFor(null) as GuideVariantFound).variant;
   final stage = LiveStage(taps, key, GuideRun(guide: g, variant: variant));
   addTearDown(stage.run.dispose);
-  await t.pumpWidget(MaterialApp(
+  addTearDown(stage.dim.dispose);
+  await t.pumpWidget(GuideDimScope(controller: stage.dim, child: MaterialApp(scrollBehavior: const GuideScrollBehavior(),
     navigatorKey: key,
     navigatorObservers: [stage.routes],
     debugShowCheckedModeBanner: false,
@@ -214,7 +218,7 @@ Future<LiveStage> pumpLiveStage(
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     home: StagePages(taps, detailsGap: detailsGap).home(),
-  ));
+  )));
   await t.pump();
   if (insertOverlay) {
     stage.entry = OverlayEntry(

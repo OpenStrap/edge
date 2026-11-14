@@ -11,6 +11,8 @@
 // the target is absent and the missing-target help (footer 2) says where to look.
 
 import 'guide.dart';
+import 'guide_navigation.dart';
+import 'guide_content.dart';
 import 'guide_target.dart';
 
 final _card = GuideTarget.label((l) => l.activityReviewTitle);
@@ -24,6 +26,7 @@ Guide get removeDetectedGuide => Guide(
         GuideVariant(steps: [
           GuideStep(
             id: 'open-detected',
+            node: GuideNode.today,
             target: _card,
             anchor: _card,
             action: GuideAction.tap,
@@ -31,8 +34,10 @@ Guide get removeDetectedGuide => Guide(
           ),
           GuideStep(
             id: 'discard',
+            node: GuideNode.review,
             target: _notANap,
             anchor: _notANap,
+            alsoTap: [EveryLabelled([(l) => l.napsNotANapLabel, (l) => l.activityNotAWorkout])],
             action: GuideAction.tap,
             caption: (l) => l.guideRemoveStep2(l.napsNotANapLabel, l.activityNotAWorkout),
           ),

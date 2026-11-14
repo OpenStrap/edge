@@ -10,6 +10,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../l10n/app_localizations.dart';
 import 'guide_target.dart';
+import 'guide_navigation.dart';
 
 enum BandGeneration { whoop4, whoop5 }
 
@@ -20,6 +21,14 @@ enum GuideAction { tap, scrollThenTap }
 /// so step 1's screen is on top.
 enum GuideStart { today, sleep, activity, health, settings }
 
+/// Caption-named content resolved afresh from the live tree. Implementations
+/// may select a collection (for example every currently built activity row).
+/// The live overlay resolves a step's [GuideStep.alsoTap] and [GuideStep.alsoRead]
+/// afresh on every plan and keeps what they return in full colour.
+abstract interface class GuideContent {
+  List<TargetFound> resolve(Element root, AppLocalizations l);
+}
+
 class GuideStep {
   /// Stable across releases and locales (progress, deep links and the phase-4
   /// "which step am I on" logic key on it). Unique within a guide variant.
@@ -27,25 +36,38 @@ class GuideStep {
 
   final GuideTarget target;
 
-  /// Identifies the route this step belongs to: the step is ACTIVE when this
-  /// resolves on the current screen (and not on the others' screens).
+  /// Declared destination; optional only for custom/legacy guide fixtures.
+  final GuideNode? node;
+
+  /// Selects between actions on the same declared node once content arrives.
+  /// In custom guides without a node, it also identifies the page.
   final GuideTarget anchor;
 
   /// Extra units kept readable besides the target's (step 3 keeps "Your zones").
   final List<GuideTarget> alsoKeep;
+  /// P7: caption-offered controls kept full colour. All page input passes
+  /// through independently of this visual declaration (owner amendment A/C).
+  final List<GuideContent> alsoTap;
+
+  /// P8: caption-named information kept full colour.
+  final List<GuideContent> alsoRead;
   final GuideAction action;
   final String Function(AppLocalizations l) caption;
 
   const GuideStep({
     required this.id,
     required this.target,
+    this.node,
     required this.anchor,
     this.alsoKeep = const [],
+    this.alsoTap = const [],
+    this.alsoRead = const [],
     required this.action,
     required this.caption,
   });
 
-  /// True when [anchor] resolves (found) under [root].
+  /// Anchor presence for compatibility/review fixtures. The live run uses its
+  /// declared navigation node, including loading states.
   bool isActive(Element root, AppLocalizations l) => anchor.resolve(root, l) is TargetFound;
 }
 

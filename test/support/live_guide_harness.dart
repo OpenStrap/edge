@@ -23,8 +23,10 @@ import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/state/units_controller.dart';
 import 'package:openstrap_edge/theme/theme_controller.dart';
+import 'package:openstrap_edge/ui2/guides/guide_dim.dart';
 import 'package:openstrap_edge/ui2/guides/guide_runner.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
+import 'package:openstrap_edge/ui2/skeleton/unit_paint.dart' show GuideScrollBehavior;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -152,6 +154,16 @@ class LiveGuideApp {
   LiveGuideApp(this.state, this.runner, this.navigatorKey);
 
   NavigatorState get navigator => navigatorKey.currentState!;
+
+  bool _disposed = false;
+
+  /// Release owned timers before widget-test invariant checks. Tear-down may
+  /// call this again after an explicit screenshot cleanup.
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    state.dispose();
+  }
 }
 
 /// Mounts [home] (default: the real [AppMainShell]) under the providers the
@@ -165,14 +177,17 @@ Future<LiveGuideApp> pumpLiveGuideApp(
   Size size = const Size(390, 844),
   GuideRunner? runner,
   LocalRepository? repo,
+  Brightness brightness = Brightness.light,
+  double devicePixelRatio = 1,
+  GlobalKey? captureKey,
 }) async {
   SharedPreferences.setMockInitialValues(const {});
   await Prefs.ensureLoaded();
   // Prefs caches its own instance across tests, while setMockInitialValues
   // replaces the plugin singleton. Seed its synchronous tab read explicitly.
   Prefs.setInt(Prefs.shellTabV2, 0);
-  t.view.physicalSize = size;
-  t.view.devicePixelRatio = 1;
+  t.view.physicalSize = size * devicePixelRatio;
+  t.view.devicePixelRatio = devicePixelRatio;
   addTearDown(t.view.reset);
 
   // Sleep correction controls require retained input. Seed only a test DB row;
@@ -190,32 +205,36 @@ Future<LiveGuideApp> pumpLiveGuideApp(
   final key = GlobalKey<NavigatorState>();
   final guideRunner = runner ?? GuideRunner(navigatorKey: key);
   final state = AppState.forTesting();
-  addTearDown(state.dispose);
   state.repo = repo ?? GuideFakeRepo();
   final app = LiveGuideApp(state, guideRunner, runner?.navigatorKey ?? key);
+  addTearDown(app.dispose);
 
   await t.pumpWidget(MultiProvider(
     providers: [
       ChangeNotifierProvider<AppState>.value(value: state),
       ChangeNotifierProvider<UnitsController>(create: (_) => UnitsController.seed(UnitSystem.metric)),
       ChangeNotifierProvider<ThemeController>.value(
-          value: ThemeController.seed(AppThemeChoice.light, Brightness.light)),
+          value: ThemeController.seed(
+            brightness == Brightness.dark ? AppThemeChoice.dark : AppThemeChoice.light, brightness)),
       ChangeNotifierProvider<GuideRunner>.value(value: guideRunner),
     ],
-    child: MaterialApp(
-      navigatorKey: app.navigatorKey,
-      navigatorObservers: [guideRunner.routes],
-      debugShowCheckedModeBanner: false,
-      theme: buildTheme(Brightness.light),
-      locale: locale,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
-        child: child!,
+    child: GuideDimScope(controller: guideRunner.dim, child: RepaintBoundary(
+      key: captureKey,
+      child: MaterialApp(scrollBehavior: const GuideScrollBehavior(),
+        navigatorKey: app.navigatorKey,
+        navigatorObservers: [guideRunner.routes],
+        debugShowCheckedModeBanner: false,
+        theme: buildTheme(brightness),
+        locale: locale,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
+        home: home ?? const AppMainShell(),
       ),
-      home: home ?? const AppMainShell(),
-    ),
+    )),
   ));
   await settleLiveGuide(t);
   return app;

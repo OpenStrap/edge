@@ -9,6 +9,7 @@
 // generation.
 
 import 'guide.dart';
+import 'guide_navigation.dart';
 import 'guide_target.dart';
 
 final _napsButton = GuideTarget.label((l) => l.sleepDetailEditNaps);
@@ -22,6 +23,7 @@ Guide get addNapGuide => Guide(
         GuideVariant(steps: [
           GuideStep(
             id: 'open-naps',
+            node: GuideNode.sleep,
             target: _napsButton,
             anchor: _napsButton,
             action: GuideAction.tap,
@@ -29,6 +31,7 @@ Guide get addNapGuide => Guide(
           ),
           GuideStep(
             id: 'log-nap',
+            node: GuideNode.naps,
             target: _logANap,
             anchor: _logANap,
             action: GuideAction.tap,

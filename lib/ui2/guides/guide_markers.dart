@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 // GUIDE MARKERS: the parts of a guide step that are drawn the same way on every
 // renderer: the "tap" / "scroll" pill, where the pill goes, which content of the
 // screen is still legible (and so must not be covered), the bold-quoted caption
@@ -13,7 +15,9 @@ import 'package:flutter/rendering.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../skeleton/skeleton.dart';
+import '../skeleton/unit_paint.dart' show isIconParagraph;
 import '../theme.dart';
+import '../grammar.dart' show ScreenTitle, NavBar;
 import 'tree_geometry.dart';
 
 /// Gap between the target and its outline, in pixels.
@@ -78,8 +82,13 @@ List<Rect> legibleContent(Element root, {required List<Rect> keep}) {
         final key = (r.top * 2).round();
         byLine[key] = byLine[key]?.expandToInclude(r) ?? r;
       }
+      // An icon glyph is dimmed with the component that holds it: it is legible (and
+      // the card must keep clear of it) only inside what the guide keeps.
+      final icon = isIconParagraph(ro);
       for (final local in byLine.values) {
-        found.add(rectInRoot(ro, rootBox, local).intersect(visible));
+        final r = rectInRoot(ro, rootBox, local).intersect(visible);
+        if (icon && !keep.any((k) => k.overlaps(r))) continue;
+        found.add(r);
       }
       return;
     }
@@ -216,4 +225,44 @@ class GuideFooterCard extends StatelessWidget {
       ),
     );
   }
+}
+
+final _clockText = RegExp(r'^\d{1,2}:\d{2}(:\d{2})?$');
+
+/// A running timer is set in a big number; a chart's axis labels ("00:00", "12:00",
+/// "24:00") are small and must not make the card they sit on count as live status
+/// (on Day strain they kept the whole top card undimmed).
+const _kTimerLineHeight = 24.0;
+
+/// The page's live status lines (owner, finish scene): the topmost text line with
+/// the line right under it (a screen's title and subtitle) and every clock-shaped
+/// text (a running timer). The card and the paint keep clear of them. Rects are in
+/// [root]'s coordinates.
+List<Rect> liveStatusRects(Element root) {
+  final rootBox = laidOutBox(root);
+  if (rootBox == null) return const [];
+  final lines = <(Rect, String, bool)>[];
+  for (final e in onstageElements(root)) {
+    final ro = e is RenderObjectElement ? e.renderObject : null;
+    if (ro is! RenderParagraph || !ro.hasSize) continue;
+    final text = ro.text.toPlainText();
+    if (text.isEmpty) continue;
+    var card = false, scrolling = false, header = false;
+    e.visitAncestorElements((a) {
+      final w = a.widget;
+      card |= isGuideCard(w);
+      scrolling |= w is Scrollable;
+      header |= w is ScreenTitle || w is NavBar || w.runtimeType.toString() == 'HeaderRows';
+      return !identical(a, root);
+    });
+    final visible = visibleBoundsInRoot(ro, rootBox);
+    final rect = rectInRoot(ro, rootBox).intersect(visible);
+    if (!rect.isEmpty) lines.add((rect, text.trim(), !card && (header || !scrolling)));
+  }
+  final headers = lines.where((l) => l.$3);
+  final top = headers.isEmpty ? double.negativeInfinity : headers.map((l) => l.$1.top).reduce(math.min);
+  return [
+    for (final (rect, text, header) in lines)
+      if (header && rect.top < top + 28 || _clockText.hasMatch(text) && rect.height >= _kTimerLineHeight) rect,
+  ];
 }

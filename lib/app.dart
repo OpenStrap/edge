@@ -45,6 +45,8 @@ import 'ui2/screens/workout_screen.dart';
 import 'ui2/ui2.dart';
 import 'ui2/guides/guide_runner.dart';
 import 'ui2/profile/settings.dart' show MoreSettings;
+import 'ui2/guides/guide_dim.dart';
+import 'ui2/skeleton/unit_paint.dart' show GuideScrollBehavior;
 
 class OpenStrapApp extends StatefulWidget {
   const OpenStrapApp({super.key});
@@ -185,7 +187,10 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
         MediaQuery.alwaysUse24HourFormatOf(context));
     return ChangeNotifierProvider<GuideRunner>.value(
       value: _guideRunner,
-      child: MaterialApp(
+      // A guide run's dim and skeleton are painted by the components themselves;
+      // the scope carries the plan (guides/guide_dim.dart).
+      child: GuideDimScope(controller: _guideRunner.dim, child: MaterialApp(
+      scrollBehavior: const GuideScrollBehavior(),
       navigatorKey: _navigatorKey,
       title: 'OpenStrap',
       debugShowCheckedModeBanner: false,
@@ -224,7 +229,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
           child: ThemeSwitchOverlay(key: themeSwitchKey, child: child!)),
       navigatorObservers: [TelemetryNavigatorObserver(), _guideRunner.routes],
       home: const _Gate(),
-    ));
+    )));
   }
 }
 

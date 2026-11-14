@@ -50,7 +50,8 @@ final class GuideCardOnStep extends GuideCardModel {
 }
 
 final class GuideCardOffPath extends GuideCardModel {
-  const GuideCardOffPath();
+  final int? tapsBack;
+  const GuideCardOffPath({this.tapsBack});
 }
 
 final class GuideCardDone extends GuideCardModel {
@@ -84,6 +85,7 @@ class GuideStepCard extends StatefulWidget {
   static const exitKey = ValueKey('guide-card-exit');
   static const offPathKey = ValueKey('guide-card-off-path');
   static const backToGuideKey = ValueKey('guide-card-back-to-guide');
+  static const tapsBackKey = ValueKey('guide-card-taps-back');
   static const doneKey = ValueKey('guide-card-done');
   static ValueKey<String> footerKey(int index) => ValueKey('guide-card-footer-$index');
 
@@ -148,6 +150,11 @@ class _GuideStepCardState extends State<GuideStepCard> {
         content.add(Column(key: GuideStepCard.offPathKey, crossAxisAlignment: CrossAxisAlignment.start, children: [
           title(l.guideOffPathTitle), const SizedBox(height: S.x1),
           Text(l.guideOffPathBody, style: F.body.copyWith(color: p.ink2)),
+          if (model.tapsBack != null) ...[
+            const SizedBox(height: S.x1),
+            Text(l.guideTapsBack(model.tapsBack!), key: GuideStepCard.tapsBackKey,
+              style: F.body.copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
+          ],
         ]));
       case GuideCardDone():
         content.add(Column(key: GuideStepCard.doneKey, crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -174,7 +181,7 @@ class _GuideStepCardState extends State<GuideStepCard> {
       child: ExcludeSemantics(child: Pressable(key: GuideStepCard.exitKey, onTap: widget.onExit,
         child: Text(l.guideExit, style: F.cap.copyWith(color: p.ink2))))));
     return Material(
-      key: GuideStepCard.cardKey, color: p.card, borderRadius: R.rLg,
+      key: GuideStepCard.cardKey, color: p.card, borderRadius: R.rLg, elevation: 6, shadowColor: p.shadow,
       child: DecoratedBox(
         decoration: BoxDecoration(border: Border.all(color: p.line), borderRadius: R.rLg),
         child: Padding(padding: const EdgeInsets.all(S.x4),
@@ -214,6 +221,12 @@ Rect placeGuideCard({
   required Size cardSize,
   required List<Rect> keepClear,
   List<Rect> avoid = const [],
+  /// The user's chosen top for this run; a safe one is kept, an unsafe one
+  /// yields (never the other way round) to target/pill, then to [avoid].
+  double? preferredTop,
+  /// Dim look: when neither edge is clear, sit in the gap between the things to
+  /// avoid instead of covering the least of them.
+  bool seekGap = false,
 }) {
   final width = math.min(cardSize.width, bounds.width);
   final height = math.min(cardSize.height, bounds.height);
@@ -224,6 +237,35 @@ Rect placeGuideCard({
     final intersection = candidate.intersect(rect);
     return sum + (intersection.isEmpty ? 0 : intersection.width * intersection.height);
   });
+  bool clear(Rect r) => overlap(r, keepClear) == 0 && overlap(r, avoid) == 0;
+  // The clear position nearest to [from] (flush against a rect to keep clear of).
+  Rect? nearestClear(double from) {
+    Rect? best;
+    for (final r in [...keepClear, ...avoid]) {
+      for (final candidate in [r.bottom, r.top - height]) {
+        final cy = candidate.clamp(top.top, math.max(top.top, bottom.top)).toDouble();
+        final box = Rect.fromLTWH(x, cy, width, height);
+        if (clear(box) && (best == null || (cy - from).abs() < (best.top - from).abs())) best = box;
+      }
+    }
+    return best;
+  }
+  if (preferredTop != null) {
+    final y = preferredTop.clamp(top.top, math.max(top.top, bottom.top)).toDouble();
+    final preferred = Rect.fromLTWH(x, y, width, height);
+    if (clear(preferred)) return preferred;
+    // The preference is unsafe: the nearer edge position if it is clear, else the
+    // clear position nearest to the preference.
+    final nearEdge = (y - top.top).abs() <= (bottom.top - y).abs() ? top : bottom;
+    if (clear(nearEdge)) return nearEdge;
+    if (nearestClear(y) case final found?) return found;
+  } else if (seekGap) {
+    if (clear(bottom)) return bottom;
+    if (clear(top)) return top;
+    // Neither edge is clear (e.g. a live title above and the target below): sit
+    // between them, as near the bottom as possible.
+    if (nearestClear(bottom.top) case final found?) return found;
+  }
   final bottomKeep = overlap(bottom, keepClear), topKeep = overlap(top, keepClear);
   if (bottomKeep < topKeep) return bottom;
   if (topKeep < bottomKeep) return top;

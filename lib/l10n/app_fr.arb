@@ -2979,7 +2979,11 @@
   "welcomeSettingsSkipped": "{n, plural, =1{1 réglage de la sauvegarde était illisible et a été ignoré} other{{n} réglages de la sauvegarde étaient illisibles et ont été ignorés}}",
   "@welcomeSettingsSkipped": {
     "description": "Import report: settings rows in the backup that could not be read",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "welcomeSettingsSkippedBody": "Ils gardent les valeurs de ce téléphone.",
   "welcomeCoachChatGptReentry": "Votre connexion à ChatGPT reste dans le stockage sécurisé et n’a pas été sauvegardée. Connectez-vous à nouveau dans les réglages de l’IA pour utiliser le coach sur ce téléphone.",
@@ -2987,7 +2991,11 @@
   "welcomeSettingsRestored": "{n} réglages restaurés",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "strengthCustomWeight": "Poids personnalisé",
   "strengthEnterValue": "Saisissez une valeur",
@@ -3567,5 +3575,18 @@
   "dayStrainWornAsOf": "Porté, à {time}",
   "bandStatusFirmwareLockedTitle": "Le firmware du bracelet retient probablement ses données",
   "bandStatusFirmwareLockedReason": "Ce bracelet utilise le firmware WHOOP 50.43, qui peut se connecter et répondre à l’application sans envoyer ni enregistrements ni fréquence cardiaque en direct tant qu’un jeton d’abonnement signé par WHOOP n’est pas présent sur le bracelet. C’est une raison possible pour laquelle aucune donnée n’arrive. OpenStrap ne peut pas émettre ce jeton. Tout ce qui est déjà enregistré ici est en sécurité.",
-  "bandStatusFirmwareLockedFix": "Si c’est le firmware, l’application n’y peut rien et ce message disparaît dès que le bracelet renvoie des enregistrements"
+  "bandStatusFirmwareLockedFix": "Si c’est le firmware, l’application n’y peut rien et ce message disparaît dès que le bracelet renvoie des enregistrements",
+  "guideTabProxy": "Guide : ouvrir l’onglet {tab}",
+  "guideBackProxy": "Guide : retour au chemin",
+  "guideMoveCardUp": "Déplacer la carte vers le haut",
+  "guideMoveCardDown": "Déplacer la carte vers le bas",
+  "guideTapsBack": "{count, plural, one{1 appui en arrière} other{{count} appuis en arrière}}",
+  "@guideTapsBack": {
+    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

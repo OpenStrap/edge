@@ -11,6 +11,8 @@
 // live screen runs a periodic timer, so checks pump frames and never settle.
 
 import 'guide.dart';
+import 'guide_navigation.dart';
+import 'guide_content.dart';
 import 'guide_target.dart';
 
 final _startCard = GuideTarget.label((l) => l.workoutStartSessionLabel);
@@ -27,6 +29,7 @@ Guide get startStopWorkoutGuide => Guide(
         GuideVariant(steps: [
           GuideStep(
             id: 'start-card',
+            node: GuideNode.activityOverview,
             target: _startCard,
             anchor: _startCard,
             action: GuideAction.tap,
@@ -34,20 +37,31 @@ Guide get startStopWorkoutGuide => Guide(
           ),
           GuideStep(
             id: 'choose-activity',
+            node: GuideNode.picker,
             target: _search,
             anchor: _search,
+            alsoTap: [PressableRows()], // "or tap one in the list"
             action: GuideAction.tap,
             caption: (l) => l.guideStartStep2(l.activityPickerSearchLabel),
           ),
           GuideStep(
             id: 'start',
+            node: GuideNode.setup,
             target: _start,
             anchor: _start,
+            alsoRead: [ // "Check the details"
+              LabelledContent([
+                ((l) => l.activitySetupRouteLabel),
+                ((l) => l.activitySetupHeartRateLabel),
+                ((l) => l.activitySetupPrivateLabel),
+              ]),
+            ],
             action: GuideAction.tap,
             caption: (l) => l.guideStartStep3(l.activitySetupStart),
           ),
           GuideStep(
             id: 'finish',
+            node: GuideNode.live,
             target: _finish,
             anchor: _finish,
             action: GuideAction.tap,

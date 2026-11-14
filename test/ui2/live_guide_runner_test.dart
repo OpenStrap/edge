@@ -371,6 +371,29 @@ void main() {
       expect(run.state, isA<GuideAtStep>().having((s) => s.index, 'index', 1));
     });
 
+    testWidgets('a finished run has nothing to return to: Back to the guide completes and leaves the stack alone', (t) async {
+      // why: owner review R7. The walk read the run's state with an unchecked cast to
+      // GuideOffPath; a finished run (Done card) is neither at a step nor off path.
+      // catches: a TypeError out of the walk, or popping routes under a finished run.
+      final h = await _pump(t);
+      final run = ((await h.runner.start(stageGuide(), band: null)) as GuideStarted).run;
+      await _frames(t);
+      await pushStagePage(t, h.stage, StagePages(h.stage.taps).details());
+      await _frames(t);
+      await t.tap(find.byKey(stageFinish));
+      await _frames(t);
+      expect(run.state, isA<GuideFinished>());
+      await pushStagePage(t, h.stage, StagePages(h.stage.taps).other());
+      await _frames(t);
+      final depth = h.stage.navigator.canPop();
+      final back = h.runner.backToGuide();
+      await _frames(t);
+      await expectLater(back.timeout(const Duration(seconds: 5)), completes);
+      expect(depth, isTrue);
+      expect(h.stage.navigator.canPop(), isTrue, reason: 'the stack is untouched');
+      expect(run.state, isA<GuideFinished>());
+    });
+
     testWidgets('when the shell root itself is off the path, it selects the guide\'s start again and completes', (t) async {
       // why: the user left by switching tab (no route to pop). The way back is the
       // start; the future must complete (bounded) rather than pop forever.
