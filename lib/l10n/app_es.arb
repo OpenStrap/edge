@@ -3415,5 +3415,6 @@
   "whoopFirmwareWarningDetails": "Hay informes de que el firmware 50.43.1.0 y 50.43.2.0 de WHOOP 5.0 / MG bloquea el acceso a los datos. Es posible que el Bluetooth siga conectándose. OpenStrap no puede emitir el token de membresía firmado por WHOOP que se necesita para desbloquear las bandas afectadas. Estamos trabajando en una solución, pero todavía no hay ningún arreglo disponible.",
   "pairSearchDevices": "Buscar dispositivos",
   "pairPrimaryCannotBeSensor": "Esta ya es tu pulsera principal. No se puede emparejar también como sensor de entrenamiento.",
-  "pairReplaceMyBand": "Reemplazar mi pulsera"
+  "pairReplaceMyBand": "Reemplazar mi pulsera",
+  "dayStepsWhoop4NoCounter": "Una WHOOP 4.0 no tiene contador de pasos propio, así que solo cuenta pasos mientras esta app recibe sus datos en vivo."
 }

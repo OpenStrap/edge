@@ -3415,5 +3415,6 @@
   "whoopFirmwareWarningDetails": "Des signalements concernant les firmwares 50.43.1.0 et 50.43.2.0 des WHOOP 5.0 / MG décrivent un accès aux données bloqué. Le Bluetooth peut encore se connecter. OpenStrap ne peut pas émettre le jeton d’abonnement signé par WHOOP nécessaire pour déverrouiller les bracelets concernés. Nous travaillons sur une solution, mais aucun correctif n’est encore disponible.",
   "pairSearchDevices": "Rechercher des appareils",
   "pairPrimaryCannotBeSensor": "C’est déjà votre bracelet principal. Il ne peut pas aussi être jumelé comme capteur d’entraînement.",
-  "pairReplaceMyBand": "Remplacer mon bracelet"
+  "pairReplaceMyBand": "Remplacer mon bracelet",
+  "dayStepsWhoop4NoCounter": "Un WHOOP 4.0 n’a pas de podomètre intégré : il ne compte les pas que lorsque cette application reçoit ses données en direct."
 }
