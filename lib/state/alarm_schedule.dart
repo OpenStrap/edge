@@ -22,6 +22,38 @@ int? persistedAlarmEpoch(SharedPreferences prefs, String? remoteId) {
   return owner == null || owner == remoteId ? prefs.getInt('alarm_epoch') : null;
 }
 
+/// CLAIM(alarm-band-ownership): tag an untagged (legacy) or this band's own
+/// armed epoch with [remoteId] before that band's identity is replaced or
+/// forgotten, so a later, different band can never read it as its own arm.
+/// True when there is nothing to bind or the write landed.
+Future<bool> bindAlarmEpochToBand(SharedPreferences prefs, String remoteId) async {
+  if (prefs.getInt('alarm_epoch') == null) return true;
+  final owner = prefs.getString(kAlarmRemoteId);
+  if (owner != null && owner != remoteId) return true;
+  return prefs.setString(kAlarmRemoteId, remoteId);
+}
+
+/// Persist the armed [epoch] under its owner, in an order that never leaves a
+/// window where the epoch reads as another band's arm: a previous owner's
+/// epoch is removed first, then the owner is written, then the new epoch.
+/// Every write is checked; on a failure this throws and no new epoch is saved.
+/// Both the foreground and the headless writer use it.
+Future<void> saveArmedAlarmEpoch(
+    SharedPreferences prefs, int epoch, String? remoteId) async {
+  if (remoteId != null && prefs.getString(kAlarmRemoteId) != remoteId) {
+    if (prefs.getInt('alarm_epoch') != null &&
+        !await prefs.remove('alarm_epoch')) {
+      throw StateError('Could not clear the previous alarm.');
+    }
+    if (!await prefs.setString(kAlarmRemoteId, remoteId)) {
+      throw StateError('Could not record which band holds the alarm.');
+    }
+  }
+  if (!await prefs.setInt('alarm_epoch', epoch)) {
+    throw StateError('Could not save the armed alarm.');
+  }
+}
+
 /// One weekday's slot in the schedule. Immutable — callers build a new one to
 /// change a field.
 class AlarmScheduleEntry {

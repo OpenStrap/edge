@@ -16,6 +16,7 @@ import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/pairing/device_picker.dart' show DevicePickerView;
 import 'package:openstrap_edge/ui2/pairing/pair_text.dart' show PairFilter;
 import 'package:openstrap_edge/ui2/profile/pair_sensor.dart' show afterBandFoundText;
+import 'package:openstrap_edge/ui2/pairing/pair_choice_sheet.dart';
 import 'package:openstrap_edge/ui2/pairing/pair_sheets.dart';
 
 import 'support/pair_ui_support.dart';
@@ -413,7 +414,7 @@ void main() {
       await t.tap(find.text('Pair this band, then disconnect Jordan’s WHOOP'));
       await t.pumpAndSettle();
       expect(find.text('Replace Jordan’s WHOOP after this band connects?'), findsOneWidget);
-      expect(find.text('Your current band stays paired if setup fails or you cancel. Your data stays.'), findsOneWidget);
+      expect(find.text('Your current band stays paired if setup fails or you cancel. Data already saved on this phone stays. Anything still unsynced on the old band is not synced to this phone after the switch.'), findsOneWidget);
       expect(calls.events, isEmpty, reason: 'nothing happens before the one confirm');
       await t.tap(find.text('Pair replacement'));
       await t.pumpAndSettle();
@@ -1078,6 +1079,38 @@ void main() {
       expect(calls.pairs.single.$1, 'ble_hrs');
       expect(calls.pairs.single.$2!.bandEntryId, 'gen5');
       expect(_result(t), 'pairedSecondary|');
+    });
+  });
+
+  group('the choice sheet respects the top safe area', () {
+    testWidgets('a tall sheet stops below the status bar', (t) async {
+      // 120 physical px at dpr 2 = a 60 px status bar / notch.
+      t.view.padding = const FakeViewPadding(top: 120);
+      await pumpPair(
+        t,
+        Builder(
+          builder: (c) => TextButton(
+            onPressed: () => showPairChoiceSheet(
+              c,
+              PairChoiceSheet(
+                deviceIcon: LucideIcons.watch,
+                deviceName: 'A band',
+                title: 'Pair this band',
+                lead: List.filled(40, 'A long instruction line.').join(' '),
+                primaryLabel: 'Pair',
+                backLabel: 'Back',
+              ),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+        size: const Size(412, 500),
+        textScale: 2,
+      );
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+      expect(t.getTopLeft(find.byType(PairChoiceSheet)).dy, greaterThanOrEqualTo(60),
+          reason: 'the sheet must not slide under the system bar');
     });
   });
 }

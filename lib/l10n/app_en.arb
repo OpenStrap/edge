@@ -16849,7 +16849,7 @@
       }
     }
   },
-  "pairReplaceConfirmBody": "Your current band stays paired if setup fails or you cancel. Your data stays.",
+  "pairReplaceConfirmBody": "Your current band stays paired if setup fails or you cancel. Data already saved on this phone stays. Anything still unsynced on the old band is not synced to this phone after the switch.",
   "@pairReplaceConfirmBody": {
     "description": "Confirm dialog body: replacing the band keeps the data."
   },

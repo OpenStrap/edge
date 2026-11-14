@@ -4801,6 +4801,11 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   Future<void> Function(String remoteId)? debugRetireBandApproval;
 
+  /// Test hook: replaces the read-back of the identity a replacement just
+  /// saved, so a failing read after a successful save can be exercised.
+  @visibleForTesting
+  Future<PairedDevice?> Function()? debugLoadPaired;
+
   /// Verify and save the replacement before retiring the old phone approval.
   /// A failed attempt keeps the old pairing and attempts to reconnect it.
   Future<void> replaceWith(BluetoothDevice d) =>
@@ -4865,6 +4870,17 @@ class AppState extends ChangeNotifier {
     if (replacing && existing!.remoteId == remoteId) {
       throw const SameBandSelectedException();
     }
+    // The primary peripheral must never also hold a secondary connection. A
+    // candidate that is already a workout sensor here would be saved as the
+    // primary with its secondary row and link still alive, and the sensor
+    // link would reconnect the same peripheral. Refuse before anything starts.
+    if (replacing &&
+        (await LocalDb.deviceRows()).any((r) =>
+            r['remote_id'] == remoteId &&
+            r['id'] != LocalDb.kPrimaryDeviceId)) {
+      throw Exception(
+          'That device is already paired as a sensor. Forget it there first.');
+    }
     final epoch = _pairingEpoch;
     _pairingInProgress = true;
     _replacingBand = replacing;
@@ -4892,12 +4908,8 @@ class AppState extends ChangeNotifier {
             // CLAIM(alarm-band-ownership): bind legacy epochs before switching
             // identity, so a failed remove cannot arm the replacement on paper.
             final prefs = await SharedPreferences.getInstance();
-            if (prefs.getInt('alarm_epoch') != null &&
-                (prefs.getString(kAlarmRemoteId) == null ||
-                    prefs.getString(kAlarmRemoteId) == existing!.remoteId)) {
-              if (!await prefs.setString(kAlarmRemoteId, existing!.remoteId)) {
-                throw StateError('Could not preserve alarm ownership.');
-              }
+            if (!await bindAlarmEpochToBand(prefs, existing!.remoteId)) {
+              throw StateError('Could not preserve alarm ownership.');
             }
           }
           // The ownership write above can outlive a completed forget/reset;
@@ -4910,7 +4922,28 @@ class AppState extends ChangeNotifier {
           if (epoch != _pairingEpoch || _resetting) {
             throw StateError('Pairing was cancelled.');
           }
-          paired = await PairedDevice.load();
+          // `save` returned, so the new band is durable. A failed read-back
+          // must not be mistaken for a failed save: the catch below would
+          // reconnect the OLD band while storage already names the new one,
+          // and the next launch would disagree with this process. Publish
+          // what was just written instead.
+          final savedSerial = cleanDeviceLabel(serial ?? device.serial);
+          final savedGeneration = device.generation;
+          PairedDevice? reloaded;
+          var reloadFailed = false;
+          try {
+            reloaded = await (debugLoadPaired ?? PairedDevice.load)();
+          } catch (e) {
+            reloadFailed = true;
+            _log('Paired band saved, but reading it back failed: $e');
+          }
+          paired = reloadFailed
+              ? PairedDevice(remoteId, savedSerial,
+                  generation: (savedGeneration == 'gen4' ||
+                          savedGeneration == 'gen5')
+                      ? savedGeneration
+                      : null)
+              : reloaded;
           committed = paired?.remoteId == remoteId;
           // The old band's name belongs to the old band; the new one banks
           // its own as soon as it reports it.
@@ -4996,6 +5029,19 @@ class AppState extends ChangeNotifier {
   Future<void> unpair() async {
     _pairingEpoch++;
     await _sync.unpairSession();
+    // CLAIM(alarm-band-ownership): an untagged arm belongs to the band being
+    // forgotten. Without a tag a later, different band reads it as its own and
+    // is treated as already armed without ever receiving SET_ALARM.
+    final forgotten = paired?.remoteId ?? (await PairedDevice.load())?.remoteId;
+    if (forgotten != null) {
+      final alarmPrefs = await SharedPreferences.getInstance();
+      if (!await bindAlarmEpochToBand(alarmPrefs, forgotten)) {
+        // Forgetting must still work. Drop the epoch rather than leave an
+        // arm another band could adopt.
+        _log('[alarm] could not tag the forgotten band\'s alarm; clearing it');
+        await alarmPrefs.remove('alarm_epoch');
+      }
+    }
     await PairedDevice.clear();
     pairedIsMaverick = false;
     // Everything the old band told us about itself. The engine's DeviceState
@@ -5434,17 +5480,12 @@ class AppState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     // A newer arm (or a clear) during the await owns what is persisted now.
     if (_disposed || _armGen != gen) return;
-    if (!await prefs.setInt('alarm_epoch', epoch)) {
-      throw StateError('Could not save the armed alarm.');
-    }
+    await saveArmedAlarmEpoch(prefs, epoch, paired?.remoteId);
     if (_disposed || _armGen != gen) return;
     await prefs.setInt('alarm_set_at_ms', setAtMs);
     if (_disposed || _armGen != gen) return;
     // Not confirmed yet — event 56 (below, in _handleAlarmEvent) flips this.
     await prefs.setBool('alarm_epoch_confirmed', echoed);
-    if (_disposed || _armGen != gen) return;
-    final remoteId = paired?.remoteId;
-    if (remoteId != null) await prefs.setString(kAlarmRemoteId, remoteId);
     if (_disposed || _armGen != gen) return;
     if (echoed) {
       await _finishEchoConfirmed(prefs, gen);

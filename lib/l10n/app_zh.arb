@@ -3050,7 +3050,7 @@
   "pairBandNow": "当前手环：{name}。更换后你的数据仍会保留。",
   "pairReplaceBand": "先配对此手环，再断开 {name}",
   "pairReplaceConfirmTitle": "此手环连接成功后替换 {name}？",
-  "pairReplaceConfirmBody": "如果设置失败或取消，当前手环仍保持配对。数据会保留。",
+  "pairReplaceConfirmBody": "如果设置失败或取消，当前手环仍保持配对。已保存在这部手机上的数据会保留。旧手环上尚未同步的数据，在更换后不会再同步到这部手机。",
   "pairReplaceConfirmYes": "配对新手环",
   "pairCurrentBandFallback": "你的手环",
   "pairWearableLead": "它可以为你的每一天补上睡眠、恢复和心率。",
