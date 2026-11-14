@@ -3408,7 +3408,7 @@
   "pairStrapNote": "Les deux nécessitent « Utiliser pendant les entraînements » activé.",
   "pairDeviceNamed": "Associer {name}",
   "pairUseForWorkouts": "L’utiliser seulement pour les entraînements",
-  "pairReplaceUnpairFailed": "Impossible de dissocier votre bracelet, le nouveau n’a donc pas été associé. Réessayez.",
+  "pairReplaceUnpairFailed": "Votre nouveau bracelet est associé, mais l’ancien n’a pas pu être retiré.",
   "pairWearableLeadPebble": "Pebble 2 peut compléter vos journées avec le sommeil, la récupération et la fréquence cardiaque. Pebble 2 SE affiche le sommeil et les pas enregistrés par la montre. Elle n’a pas de capteur de fréquence cardiaque, donc cette app ne peut pas calculer la charge quotidienne ni estimer la récupération à partir de ses données.",
   "pairMainBandWhoopOnly": "Bracelet principal : uniquement WHOOP 4.0 ou WHOOP 5.0/MG. Les autres appareils peuvent être ajoutés comme appareils supplémentaires.",
   "pairBandTitle": "Associez votre bracelet",
@@ -3478,5 +3478,6 @@
   "pairSearchDevices": "Rechercher des appareils",
   "pairPrimaryCannotBeSensor": "C’est déjà votre bracelet principal. Il ne peut pas aussi être jumelé comme capteur d’entraînement.",
   "capReasonSkinTempProvisional": "Estimation provisoire ; nécessite quelques nuits",
-  "pairReplaceMyBand": "Remplacer mon bracelet"
+  "pairReplaceMyBand": "Remplacer mon bracelet",
+  "dayStepsWhoop4NoCounter": "Un WHOOP 4.0 n’a pas de podomètre intégré : il ne compte les pas que lorsque cette application reçoit ses données en direct."
 }

@@ -16753,7 +16753,7 @@
   "@pairUseForWorkouts": {
     "description": "Text link on a WHOOP sheet: keep it for workouts only, not as the main band."
   },
-  "pairReplaceUnpairFailed": "ยกเลิกการจับคู่สายรัดของคุณไม่สำเร็จ จึงยังไม่ได้จับคู่สายรัดใหม่ ลองอีกครั้ง",
+  "pairReplaceUnpairFailed": "จับคู่สายรัดใหม่แล้ว แต่ลบสายรัดเดิมไม่สำเร็จ",
   "@pairReplaceUnpairFailed": {
     "description": "Shown when unpairing the old band failed during “Unpair (your band) and pair this one”; nothing else ran."
   },
@@ -16928,5 +16928,6 @@
   "pairSearchDevices": "ค้นหาอุปกรณ์",
   "pairPrimaryCannotBeSensor": "นี่คือสายรัดหลักของคุณอยู่แล้ว จึงไม่สามารถจับคู่เป็นเซ็นเซอร์ออกกำลังกายด้วยได้",
   "capReasonSkinTempProvisional": "ค่าประมาณที่ยังเป็นข้อมูลเบื้องต้น ต้องมีข้อมูลหลายคืน",
-  "pairReplaceMyBand": "เปลี่ยนสายรัดของฉัน"
+  "pairReplaceMyBand": "เปลี่ยนสายรัดของฉัน",
+  "dayStepsWhoop4NoCounter": "WHOOP 4.0 ไม่มีตัวนับก้าวในตัว จึงนับก้าวได้เฉพาะตอนที่แอปนี้กำลังรับข้อมูลสดจากสายรัดเท่านั้น"
 }

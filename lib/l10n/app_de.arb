@@ -3638,7 +3638,7 @@
   "pairStrapNote": "Für beides muss „Beim Training nutzen“ an sein.",
   "pairDeviceNamed": "{name} koppeln",
   "pairUseForWorkouts": "Nur fürs Training nutzen",
-  "pairReplaceUnpairFailed": "Dein Band ließ sich nicht trennen, daher wurde das neue nicht gekoppelt. Versuche es erneut.",
+  "pairReplaceUnpairFailed": "Dein neues Band ist gekoppelt, aber das alte Band konnte nicht entfernt werden.",
   "pairWearableLeadPebble": "Pebble 2 kann deine Tage mit Schlaf, Erholung und Herzfrequenz füllen. Pebble 2 SE zeigt die eigenen Schlaf- und Schrittdaten der Uhr. Sie hat keinen Herzfrequenzsensor, daher kann diese App daraus weder die tägliche Belastung berechnen noch die Erholung schätzen.",
   "pairMainBandWhoopOnly": "Hauptband: nur WHOOP 4.0 oder WHOOP 5.0/MG. Andere Geräte lassen sich als zusätzliche Geräte hinzufügen.",
   "pairBandTitle": "Band koppeln",
@@ -3778,5 +3778,6 @@
   "pairSearchDevices": "Nach Geräten suchen",
   "pairPrimaryCannotBeSensor": "Dies ist bereits dein Hauptarmband. Es kann nicht zusätzlich als Trainingssensor gekoppelt werden.",
   "capReasonSkinTempProvisional": "Vorläufige Schätzung; benötigt einige Nächte",
-  "pairReplaceMyBand": "Mein Band ersetzen"
+  "pairReplaceMyBand": "Mein Band ersetzen",
+  "dayStepsWhoop4NoCounter": "Ein WHOOP 4.0 hat keinen eigenen Schrittzähler und zählt Schritte nur, solange diese App seine Live-Daten empfängt."
 }
