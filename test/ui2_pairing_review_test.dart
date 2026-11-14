@@ -15,7 +15,7 @@ import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'support/pair_ui_support.dart';
 
 const _ouraKey = 'Already use the Oura app? Keep the ring in that app and pair with its existing key. Skip the reset steps below. Only reset it if you want a new key.';
-const _pebbleLead = 'Pebble 2 can fill your days with sleep, recovery and heart rate. Pebble 2 SE shows the watch’s own sleep and steps. It has no heart-rate sensor, so this app cannot calculate daily strain or estimate recovery from it.';
+const _pebbleLead = 'Pebble 2 can fill your days with sleep and heart rate. Pebble 2 SE shows the watch’s own sleep and steps. It has no heart-rate sensor, so this app cannot calculate daily strain or estimate recovery from it.';
 const _strapLead = 'It adds heart rate while you work out. It does not record sleep, recovery or daily strain.';
 
 Future<void> _openBand(WidgetTester t, BandEntry entry) async {
