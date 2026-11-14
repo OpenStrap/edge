@@ -68,6 +68,7 @@ import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
 import '../onboarding/pairing.dart' show PairingScreen;
 import '../pairing/add_device_flow.dart';
+import '../pairing/pair_dispatch.dart';
 import '../pairing/pair_outcome_text.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
@@ -405,7 +406,7 @@ class _PairSensorScreenState extends State<PairSensorScreen>
   Future<PairOutcome> pair(BandCandidate cand, BandEntry entry,
       PairConfirmation? confirmation) async {
     try {
-      return await HrsLink.pairNotifySensor(entry, cand.device,
+      return await pairRegisteredEntry(entry, cand.device,
           label: cand.label,
           earlierBand: cand.alsoBand,
           confirmation: confirmation);
