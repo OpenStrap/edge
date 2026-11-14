@@ -730,12 +730,17 @@ void main() {
         expect(s.condition, BandCondition.firmwareLocked, reason: '$flags');
         expect(s.isFault, isTrue);
         expect(s.reason, contains('50.43'));
-        // The flags cannot tell the lock from a real strap or clock fault, so
-        // the text must not tell the user that charging or re-pairing is
-        // pointless; it only says the app cannot change a firmware lock.
+        // This card replaces the charge / re-pair advice, so the fix line
+        // says only that the app cannot change a firmware lock and that the
+        // status clears once recordings arrive. It neither recommends nor
+        // dismisses charging or re-pairing.
         expect(s.fix, contains('nothing in the app changes it'));
-        expect(s.fix, contains('worth a try'));
-        expect(s.fix, isNot(contains('will not help')));
+        expect(s.fix, contains('clears once the band sends recordings again'));
+        final fix = s.fix!.toLowerCase();
+        expect(fix, isNot(contains('charg')));
+        expect(fix, isNot(contains('pair')));
+        expect(fix, isNot(contains('worth a try')));
+        expect(fix, isNot(contains('will not help')));
         expect(s.title, contains('probably'));
       }
     });
