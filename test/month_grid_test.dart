@@ -17,7 +17,12 @@ void main() {
     List<ChartPoint> pts(List<double> vs) => [
           for (var i = 0; i < vs.length; i++)
             (
-              t: DateTime.now().subtract(Duration(days: i)).millisecondsSinceEpoch ~/
+              // Calendar days at noon, not i×24 h back from now: late in the
+              // evening after a DST change, a 24 h step lands two points on
+              // the same day.
+              t: DateTime(DateTime.now().year, DateTime.now().month,
+                          DateTime.now().day - i, 12)
+                      .millisecondsSinceEpoch ~/
                   1000,
               v: vs[i],
             ),
