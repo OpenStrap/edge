@@ -14,6 +14,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/app.dart' show AppMainShell;
+import 'package:openstrap_edge/ble/ble_engine.dart' show BleEngine;
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
@@ -21,6 +22,7 @@ import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/models/activity_suggestion.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/state/prefs.dart';
+import 'package:openstrap_edge/state/locale_controller.dart';
 import 'package:openstrap_edge/state/units_controller.dart';
 import 'package:openstrap_edge/theme/theme_controller.dart';
 import 'package:openstrap_edge/ui2/guides/guide_dim.dart';
@@ -177,6 +179,7 @@ Future<LiveGuideApp> pumpLiveGuideApp(
   Size size = const Size(390, 844),
   GuideRunner? runner,
   LocalRepository? repo,
+  BleEngine? engine,
   Brightness brightness = Brightness.light,
   double devicePixelRatio = 1,
   GlobalKey? captureKey,
@@ -204,7 +207,7 @@ Future<LiveGuideApp> pumpLiveGuideApp(
 
   final key = GlobalKey<NavigatorState>();
   final guideRunner = runner ?? GuideRunner(navigatorKey: key);
-  final state = AppState.forTesting();
+  final state = AppState.forTesting(engine: engine);
   state.repo = repo ?? GuideFakeRepo();
   final app = LiveGuideApp(state, guideRunner, runner?.navigatorKey ?? key);
   addTearDown(app.dispose);
@@ -212,6 +215,7 @@ Future<LiveGuideApp> pumpLiveGuideApp(
   await t.pumpWidget(MultiProvider(
     providers: [
       ChangeNotifierProvider<AppState>.value(value: state),
+      ChangeNotifierProvider<LocaleController>(create: (_) => LocaleController.seed(locale.languageCode)),
       ChangeNotifierProvider<UnitsController>(create: (_) => UnitsController.seed(UnitSystem.metric)),
       ChangeNotifierProvider<ThemeController>.value(
           value: ThemeController.seed(
