@@ -549,6 +549,30 @@ void main() {
       expect(rig.engine.only('connect'), contains('connect:$replacementId:-'));
     }));
 
+    // WHY: a replacement awaits the alarm-ownership write inside its confirm
+    // step. A reset can finish in that await: it empties the store without
+    // bumping the pairing epoch, and the gate is back down by the time the save
+    // would run. Only the reset GENERATION shows it happened.
+    // catches: saving a replacement into a store a reset just emptied.
+    test('a reset that finishes during the alarm ownership write cancels the replacement',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(kAlarmRemoteId);
+      await prefs.setInt('alarm_epoch', 1893456000); // makes confirm write the owner
+      final store = SharedPreferencesStorePlatform.instance;
+      SharedPreferencesStorePlatform.instance = _ResetDuring(store, 'flutter.$kAlarmRemoteId');
+      addTearDown(() => SharedPreferencesStorePlatform.instance = store);
+      await expectLater(
+          rig.app.replaceWith(BluetoothDevice.fromId(replacementId)),
+          throwsA(isA<StateError>().having(
+              (e) => e.message, 'message', contains('Pairing was cancelled'))));
+      expect(ResetGate.active, isFalse);
+      expect((await PairedDevice.load())?.remoteId, kRemoteId,
+          reason: 'the replacement must not be saved after the reset');
+    }));
+
     // WHY: a lost band's retry must finish before candidate bootstrap starts.
     // catches: rejecting replacement because the old loop is reconnecting,
     // or clearing its flag without waiting for its in-flight connect.
@@ -944,4 +968,27 @@ class _AlarmRemoveFailure extends SharedPreferencesStorePlatform {
   @override
   Future<bool> setValue(String type, String key, Object value) =>
       delegate.setValue(type, key, value);
+}
+
+// A store that lets a whole reset (enter + leave) complete inside one write.
+class _ResetDuring extends SharedPreferencesStorePlatform {
+  _ResetDuring(this.delegate, this.key);
+  final SharedPreferencesStorePlatform delegate;
+  final String key;
+  var _done = false;
+  @override
+  Future<Map<String, Object>> getAll() => delegate.getAll();
+  @override
+  Future<bool> clear() => delegate.clear();
+  @override
+  Future<bool> remove(String key) => delegate.remove(key);
+  @override
+  Future<bool> setValue(String type, String key, Object value) async {
+    if (!_done && key == this.key) {
+      _done = true;
+      ResetGate.enter();
+      ResetGate.leave();
+    }
+    return delegate.setValue(type, key, value);
+  }
 }
