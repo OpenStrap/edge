@@ -16,6 +16,7 @@ import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/pairing/device_picker.dart' show DevicePickerView;
 import 'package:openstrap_edge/ui2/pairing/pair_text.dart' show PairFilter;
 import 'package:openstrap_edge/ui2/profile/pair_sensor.dart' show afterBandFoundText;
+import 'package:openstrap_edge/ble/slot_comparison.dart';
 import 'package:openstrap_edge/ui2/pairing/pair_choice_sheet.dart';
 import 'package:openstrap_edge/ui2/pairing/pair_sheets.dart';
 
@@ -1096,6 +1097,9 @@ void main() {
                 deviceIcon: LucideIcons.watch,
                 deviceName: 'A band',
                 title: 'Pair this band',
+                comparison: const SlotComparison(
+                    everyDay: SlotSide(sends: {}, doesNotSend: {}),
+                    workoutsOnly: SlotSide(sends: {}, doesNotSend: {})),
                 lead: List.filled(40, 'A long instruction line.').join(' '),
                 primaryLabel: 'Pair',
                 backLabel: 'Back',
