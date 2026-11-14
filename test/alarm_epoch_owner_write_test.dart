@@ -66,6 +66,29 @@ void main() {
           reason: 'the owner is only changed after the old epoch is gone');
     });
 
+    test('a clear that lands during the owner change stops the older epoch', () async {
+      final prefs = await prefsWith({'alarm_epoch': 100, kAlarmRemoteId: 'A'});
+      var current = true;
+      SharedPreferencesStorePlatform.instance = _OnWrite(
+          SharedPreferencesStorePlatform.instance,
+          'flutter.$kAlarmRemoteId',
+          () => current = false); // a clear/newer arm starts during the write
+      final saved = await saveArmedAlarmEpoch(prefs, 200, 'B',
+          stillCurrent: () => current);
+      expect(saved, isFalse);
+      expect(prefs.getInt('alarm_epoch'), isNull,
+          reason: 'the superseded epoch must not be written after the clear');
+    });
+
+    test('superseded before anything is written: nothing is touched', () async {
+      final prefs = await prefsWith({'alarm_epoch': 100, kAlarmRemoteId: 'A'});
+      final saved = await saveArmedAlarmEpoch(prefs, 200, 'B',
+          stillCurrent: () => false);
+      expect(saved, isFalse);
+      expect(prefs.getInt('alarm_epoch'), 100);
+      expect(prefs.getString(kAlarmRemoteId), 'A');
+    });
+
     test('with no paired band the epoch is saved untagged, as before', () async {
       final prefs = await prefsWith({});
       await saveArmedAlarmEpoch(prefs, 200, null);
@@ -101,4 +124,23 @@ void main() {
       expect(ran, isTrue);
     });
   });
+}
+
+// Runs [onWrite] when the matching key is written, then lets the write through.
+class _OnWrite extends SharedPreferencesStorePlatform {
+  _OnWrite(this.delegate, this.key, this.onWrite);
+  final SharedPreferencesStorePlatform delegate;
+  final String key;
+  final void Function() onWrite;
+  @override
+  Future<Map<String, Object>> getAll() => delegate.getAll();
+  @override
+  Future<bool> clear() => delegate.clear();
+  @override
+  Future<bool> remove(String key) => delegate.remove(key);
+  @override
+  Future<bool> setValue(String type, String key, Object value) {
+    if (key == this.key) onWrite();
+    return delegate.setValue(type, key, value);
+  }
 }
