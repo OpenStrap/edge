@@ -1057,16 +1057,86 @@ class SyncController {
     }
   }
 
-  /// "Sync the band". On a link that is already up in the foreground,
-  /// [openSession] just reuses it and joins an offload nobody asked the band
-  /// for, so the tap pulled nothing: ask for one over the current link, then
-  /// finalize whatever landed. Floored like [foregroundCatchUp]: on a band
-  /// that just drained, a few quick taps would each come back empty, and the
-  /// empty-sync detector reads three of those as a lost clock and backs the
-  /// periodic pull off.
-  Future<void> syncNow() async {
-    if (background || !engine.isConnected) return openSession();
+  Future<void>? _manualSync;
+
+  /// Refresh both enabled data sources on an explicit tap. Repeated taps share
+  /// one operation; the phone read runs alongside BLE, never in its ACK path.
+  Future<void> syncNow() {
+    if (_isDisposed || ResetGate.active) return Future<void>.value();
+    return _manualSync ??= _runManualSync().whenComplete(() {
+      _manualSync = null;
+    });
+  }
+
+  /// How long a manual sync waits on the phone's step read before moving on.
+  /// A hung platform call would otherwise hold the single-flight slot for
+  /// good: every later tap would join the stuck future and the heavy finalize
+  /// would never be requested.
+  static const Duration manualPhoneStepsTimeout = Duration(seconds: 60);
+
+  Future<void> _refreshPhoneStepsForManualSync() async {
+    if (!_phoneStepsEnabled()) return;
     try {
+      await _syncPhoneSteps().timeout(manualPhoneStepsTimeout);
+    } on TimeoutException {
+      _log('Phone step refresh timed out after '
+          '${manualPhoneStepsTimeout.inSeconds}s; carrying on without it.');
+    } catch (e) {
+      _log('Phone step refresh failed: $e');
+    }
+  }
+
+  Future<void> _runManualSync() async {
+    final steps = _refreshPhoneStepsForManualSync();
+    var finalize = false;
+    try {
+      // An image install owns the link: a Sync now tap must not probe it,
+      // drop it, or open a session over it.
+      if (engine.firmwareFlashActive) {
+        _log('Sync now: an image install is using the link — not touching it.');
+        return;
+      }
+      if (background || !engine.isConnected) {
+        await openSession();
+        return;
+      }
+      finalize = true;
+      // A connected flag can outlive its GATT notifications. Apply the same
+      // bounded probe/reconnect policy used on resume before awaiting history.
+      // endSession / unpairSession retire the reconnect generation; a reset
+      // moves the reset generation. Both are read BEFORE the probe, which
+      // cannot be cancelled and may outlive the session that asked for it.
+      final generation = _reconnectGeneration;
+      final resetGen = ResetGate.generation;
+      final historyStuck = engine.historyStuckThisSession;
+      final usable = !historyStuck && await _linkUsableAfterResume('Sync now');
+      if (_isDisposed ||
+          generation != _reconnectGeneration ||
+          ResetGate.changedSince(resetGen)) {
+        _log('Sync now: the session changed while the link was probed — '
+            'leaving it alone.');
+        return;
+      }
+      // An install can claim the link while the probe waits; the entry check
+      // above cannot see that, and the recovery below drops the session.
+      if (engine.firmwareFlashActive) {
+        _log('Sync now: an image install started — not touching the link.');
+        return;
+      }
+      if (!usable) {
+        if (historyStuck) {
+          _log('Sync now: history is stuck on this connection — reconnecting.');
+        }
+        await engine.disconnect();
+        // The disconnect is awaited too: a session the user ended meanwhile
+        // must not be reopened by this stale recovery.
+        if (!_isDisposed &&
+            generation == _reconnectGeneration &&
+            !ResetGate.changedSince(resetGen)) {
+          await openSession();
+        }
+        return;
+      }
       final running = _syncBurst;
       if (running != null) {
         await running;
@@ -1077,8 +1147,12 @@ class SyncController {
       }
     } catch (e) {
       _log('Sync failed: $e');
+    } finally {
+      await steps;
+      if (finalize && !_isDisposed && !ResetGate.active) {
+        _scheduler.requestHeavy();
+      }
     }
-    _scheduler.requestHeavy();
   }
 
   Future<SyncReport> syncForShortcut(ShortcutSyncTask task) async {
