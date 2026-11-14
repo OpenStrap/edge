@@ -14,19 +14,20 @@ void main() {
     // Dated backwards from NOW, because `denseDays` lays a window out ending
     // today — a fixture pinned to a calendar date silently loses however many
     // days have passed since somebody wrote it.
-    List<ChartPoint> pts(List<double> vs) => [
-          for (var i = 0; i < vs.length; i++)
-            (
-              // Calendar days at noon, not i×24 h back from now: late in the
-              // evening after a DST change, a 24 h step lands two points on
-              // the same day.
-              t: DateTime(DateTime.now().year, DateTime.now().month,
-                          DateTime.now().day - i, 12)
-                      .millisecondsSinceEpoch ~/
-                  1000,
-              v: vs[i],
-            ),
-        ];
+    List<ChartPoint> pts(List<double> vs) {
+      // Calendar days at noon, not i×24 h back from now: late in the evening
+      // after a DST change, a 24 h step lands two points on the same day.
+      final now = DateTime.now();
+      return [
+        for (var i = 0; i < vs.length; i++)
+          (
+            t: DateTime(now.year, now.month, now.day - i, 12)
+                    .millisecondsSinceEpoch ~/
+                1000,
+            v: vs[i],
+          ),
+      ];
+    }
 
     test('too little history is no colour at all, not a pale one', () {
       final short = List<double>.generate(kGridMinHistory - 1, (i) => 40 + i * 1.0);
