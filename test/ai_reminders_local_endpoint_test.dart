@@ -19,6 +19,7 @@ void main() {
           const AiPrefs(morningEnabled: true, eveningEnabled: true),
           remindersEnabled: true,
           aiConfigured: aiRemindersConfigured(cfg),
+          lastNightDataReady: true,
           journalDoneToday: false,
           sweepHeadline: 'HRV well below your usual',
         ))

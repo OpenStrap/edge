@@ -211,6 +211,9 @@ const _notComponents = {
   'NotificationSettings', 'NotificationSettingsView', 'EditProfile',
   'EditProfileView', 'DataScreen', 'AlarmScreen', 'AlarmScreenView',
   'ReportIssueScreen',
+  // Developer-only route: drives a live image transfer to the strap, so a
+  // gallery case would start one.
+  'FirmwareFlashScreen',
   // Owns a live calibration routine: a ticker over the band's step stream and
   // phone pedometer reads, and it writes calibration rows when it finishes.
   'StepCalibrationScreen',
@@ -287,6 +290,8 @@ const _notComponents = {
   // GuideRun). HelpScreen is a screen. Pumped by test/ui2/guide_step_card_test.dart,
   // live_guide_overlay_test.dart and help_screen_test.dart.
   'GuideStepCard', 'LiveGuideOverlay', 'HelpScreen',
+  // Pairing pieces are exercised on routes by the pairing widget tests.
+  'TroubleConnectingCard', 'ResetStepsView', 'PairingModeSection', 'PairStepRow', 'TextLinkButton', 'ChoiceRow',
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
   'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',

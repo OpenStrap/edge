@@ -7,13 +7,16 @@ import 'package:provider/provider.dart';
 import 'ai/briefing.dart' show BriefingPeriod;
 import 'coach/coach_config.dart';
 import 'data/db.dart';
+import 'data/backup_extras.dart' show settingsRestoredSignal;
 import 'l10n/app_localizations.dart';
 import 'notify/notification_service.dart';
 import 'notify/tap_router.dart';
+import 'platform/activity_relaunch.dart';
 import 'state/app_state.dart';
 import 'state/clock_format.dart';
 import 'state/locale_controller.dart';
 import 'state/prefs.dart';
+import 'state/units_controller.dart';
 import 'telemetry/telemetry_service.dart';
 import 'theme/theme_controller.dart';
 import 'theme/theme_switcher.dart';
@@ -65,6 +68,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    settingsRestoredSignal.addListener(_onSettingsRestored);
     unawaited(LocalDb.setForeground(
         screenReadsForeground(WidgetsBinding.instance.lifecycleState)));
     // Hand the BYOK provider config to AppState (briefing generation + the
@@ -79,8 +83,34 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
     });
   }
 
+  void _onSettingsRestored() {
+    if (!mounted) return;
+    unawaited(_reloadRestoredSetting('theme_choice',
+        context.read<ThemeController>().reloadFromPrefs));
+    unawaited(_reloadRestoredSetting('locale_override',
+        context.read<LocaleController>().reloadFromPrefs));
+    unawaited(_reloadRestoredSetting('units_system',
+        context.read<UnitsController>().reloadFromPrefs));
+    unawaited(_reloadRestoredSetting('clock_format',
+        context.read<ClockFormatController>().reloadFromPrefs));
+  }
+
+  Future<void> _reloadRestoredSetting(
+      String key, Future<void> Function() reload) async {
+    try {
+      await reload();
+    } catch (error, stack) {
+      // Controllers parse before replacing their value, so a malformed pref
+      // leaves the current/default choice active while other reloads continue.
+      debugPrint('[import] $key reload failed: $error');
+      TelemetryService.instance.recordNonFatal(error, stack,
+          reason: 'restored $key reload failed');
+    }
+  }
+
   @override
   void dispose() {
+    settingsRestoredSignal.removeListener(_onSettingsRestored);
     WidgetsBinding.instance.removeObserver(this);
     _guideRunner.dispose();
     super.dispose();
@@ -559,6 +589,9 @@ class _ShellState extends State<AppMainShell> {
     _guideRunner?.attachShell(_guideShell!);
     _app!.navRequest.addListener(_consumeSoon);
     _app!.screenRequest.addListener(_consumeSoon);
+    // Android relaunch from the launcher: close screens left open on the
+    // engine that outlived the closed Activity (#650).
+    ActivityRelaunch.listen(_relaunchNavigator);
     // Cold launch from a tapped notification: the route may already be set
     // before this shell mounted (so the listener never fired). Consume it once
     // attached.
@@ -570,6 +603,9 @@ class _ShellState extends State<AppMainShell> {
       _consume();
     });
   }
+
+  NavigatorState? _relaunchNavigator() =>
+      mounted ? Navigator.of(context) : null;
 
   bool _pending = false;
 
@@ -632,6 +668,7 @@ class _ShellState extends State<AppMainShell> {
     if (_guideShell != null) _guideRunner?.detachShell(_guideShell!);
     _app?.navRequest.removeListener(_consumeSoon);
     _app?.screenRequest.removeListener(_consumeSoon);
+    ActivityRelaunch.stop(_relaunchNavigator);
     _selection.dispose();
     super.dispose();
   }
