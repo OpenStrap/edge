@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../ble/adapters/_registry.dart';
+import '../../ble/slot_comparison.dart';
 import '../../l10n/display_text.dart';
 import '../ui2.dart';
 import 'category_filter_pills.dart';
@@ -158,6 +159,7 @@ class _BandRow extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final l = pairL10n(c);
+    final slot = slotComparisonFor(entry).slot;
     return Surface(
       key: ValueKey('band-row-${entry.id}'),
       onTap: onTap,
@@ -181,6 +183,10 @@ class _BandRow extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(l.pairWhoopRowLine,
                       style: F.cap.copyWith(color: p.ink2)),
+                ],
+                if (slot != null) ...[
+                  const SizedBox(height: S.x2),
+                  slotPill(l, slot),
                 ],
               ]),
         ),

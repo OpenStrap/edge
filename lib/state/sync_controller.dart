@@ -571,7 +571,17 @@ class SyncController {
         if (superseded != null) {
           try {
             await superseded.timeout(const Duration(seconds: 15));
-          } catch (_) {}
+          } on TimeoutException {
+            // A timeout is NOT "the burst stopped": a slow commit can keep it
+            // alive, and it would resume on the candidate's session (its
+            // isConnected check passes) and request history from the wrong
+            // band. Stop here; the caller keeps the old pairing and recovers.
+            _log('Pairing: the previous sync burst is still running; '
+                'not connecting the candidate under it.');
+            return false;
+          } catch (_) {
+            // The burst failed: it is over either way.
+          }
         }
         if (!current()) return false;
       }

@@ -34,7 +34,7 @@ Finder _row(BandEntry e) => find.byKey(ValueKey('band-row-${e.id}'));
 
 void main() {
   group('which devices the first run offers', () {
-    test('only the WHOOP bands (DT12)', () {
+    test('only the WHOOP bands', () {
       final ids = [for (final e in firstRunBandEntries()) e.id];
       expect(ids, ['gen4', 'gen5']);
       // Other bands pair as additional devices from "Add a device"; sensors,
@@ -104,6 +104,16 @@ void main() {
       expect(find.text('Main band: WHOOP 4.0 or WHOOP 5.0/MG only. Other devices can be added as additional devices.'), findsOneWidget);
     });
 
+    testWidgets('each row carries the Every day chip', (t) async {
+      await pumpPair(t, view(), size: const Size(412, 2400));
+      for (final e in firstRunBandEntries()) {
+        expect(find.descendant(of: _row(e), matching: find.text('Every day')), findsOneWidget,
+            reason: e.id);
+        expect(find.descendant(of: _row(e), matching: find.text('Workouts only')), findsNothing,
+            reason: e.id);
+      }
+    });
+
     testWidgets('never says what a band would NOT send, nor primary/secondary/tier', (t) async {
       await pumpPair(t, view(), size: const Size(412, 2400));
       for (final w in ['Doesn’t send', 'primary', 'Primary', 'secondary', 'Secondary', 'Tier', 'Experimental']) {
@@ -157,6 +167,7 @@ void main() {
       expect(find.text('This is a heart-rate sensor'), findsOneWidget);
       expect(find.text('Pair Bluetooth heart rate sensor'), findsOneWidget);
       expect(find.text('Go back'), findsOneWidget);
+      expect(find.text('Sleep'), findsWidgets);
     });
 
     testWidgets('Go back closes the sheet and pairs nothing', (t) async {
@@ -218,6 +229,9 @@ void main() {
       expect(find.text('Skip for now'), findsNothing);
       var skipped = 0;
       await pumpPair(t, view(onSkip: () => skipped++), size: const Size(412, 2400));
+      // The first-run help and comparison chips can put Skip below the fold.
+      await t.ensureVisible(find.text('Skip for now'));
+      await t.pumpAndSettle();
       await t.tap(find.text('Skip for now'));
       expect(skipped, 1);
     });

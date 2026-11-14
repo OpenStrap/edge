@@ -4,8 +4,10 @@
 // only in words, so there is one sheet.
 import 'package:flutter/material.dart';
 
+import '../../ble/slot_comparison.dart';
 import '../ui2.dart';
 import 'pair_widgets.dart';
+import 'slot_comparison_view.dart';
 
 /// What the user picked on a [PairChoiceSheet].
 enum PairChoice { primary, secondary, back }
@@ -17,7 +19,10 @@ class PairChoiceSheet extends StatelessWidget {
 
   final String title;
   final String? lead;
+  final SlotComparison comparison;
 
+  /// The column the device goes into; washed on the table.
+  final DeviceSlot? focus;
 
   /// Icon-and-caption notes under the table.
   final List<Widget> notes;
@@ -38,6 +43,8 @@ class PairChoiceSheet extends StatelessWidget {
     required this.deviceName,
     required this.title,
     this.lead,
+    required this.comparison,
+    this.focus,
     this.notes = const [],
     this.pairingMode,
     required this.primaryLabel,
@@ -82,6 +89,7 @@ class PairChoiceSheet extends StatelessWidget {
                 Text(lead!, style: F.body.copyWith(color: p.ink2)),
               ],
               const SizedBox(height: S.x4),
+              SlotTable(comparison: comparison, focus: focus),
               ...notes,
               if (pairingMode != null) ...[
                 const SizedBox(height: S.x5),

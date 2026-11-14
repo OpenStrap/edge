@@ -16785,8 +16785,152 @@
   "@pairSetUpTitle": {
     "description": "Top bar title of the first-run pairing screen."
   },
+  "capLabelSleep": "การนอน",
+  "@capLabelSleep": {
+    "description": "Name of a thing a device sends: sleep."
+  },
+  "capLabelRecovery": "การฟื้นตัว",
+  "@capLabelRecovery": {
+    "description": "Name of a thing a device sends: the morning recovery score."
+  },
+  "capLabelStrain": "ความหนัก",
+  "@capLabelStrain": {
+    "description": "Name of a thing a device sends: strain."
+  },
+  "capLabelHrv": "ความแปรปรวนของอัตราการเต้นหัวใจ",
+  "@capLabelHrv": {
+    "description": "Name of a thing a device sends: heart-rate variability."
+  },
+  "capLabelSkinTemperature": "อุณหภูมิผิว",
+  "@capLabelSkinTemperature": {
+    "description": "Name of a thing a device sends: skin temperature."
+  },
+  "capLabelBloodOxygen": "ออกซิเจนในเลือด",
+  "@capLabelBloodOxygen": {
+    "description": "Name of a thing a device sends: blood oxygen (only a device’s own reading)."
+  },
+  "capLabelWorkoutHeartRate": "อัตราการเต้นหัวใจขณะออกกำลังกาย",
+  "@capLabelWorkoutHeartRate": {
+    "description": "Table row: heart rate during a workout."
+  },
+  "capLabelWorkoutBeatToBeat": "ช่วงเวลาระหว่างจังหวะหัวใจขณะออกกำลังกาย",
+  "@capLabelWorkoutBeatToBeat": {
+    "description": "Table row: beat-to-beat timing during a workout."
+  },
+  "capLabelSteps": "ก้าว",
+  "@capLabelSteps": {
+    "description": "Name of a thing a device sends: steps."
+  },
+  "capReasonSkinTempNights": "หลังจากผ่านไปสองสามคืน",
+  "@capReasonSkinTempNights": {
+    "description": "Caption under Skin temperature: it needs a few nights first."
+  },
+  "capReasonEstimated": "เป็นค่าประมาณ ไม่ใช่ค่าที่วัดได้โดยตรง",
+  "@capReasonEstimated": {
+    "description": "Why a value is conditional: it is an estimate, not a direct reading."
+  },
+  "capReasonEarly": "ค่าประมาณช่วงแรก จะแม่นยำขึ้นในช่วงสัปดาห์แรกๆ",
+  "@capReasonEarly": {
+    "description": "Why a value is conditional: it is an early estimate that firms up over the first weeks."
+  },
+  "capVendorReported": "ค่าที่อุปกรณ์วัดเอง",
+  "@capVendorReported": {
+    "description": "Tag on a value that is the device’s own reading, not calculated by this app."
+  },
+  "slotSendsHeading": "ส่ง",
+  "@slotSendsHeading": {
+    "description": "Heading above the list of what a device sends."
+  },
+  "slotDoesntSendHeading": "ไม่ส่ง",
+  "@slotDoesntSendHeading": {
+    "description": "Heading above the list of what a secondary sensor does not send."
+  },
+  "pairSectionTitle": "จับคู่อุปกรณ์",
+  "@pairSectionTitle": {
+    "description": "Heading of the section in My sources that holds pairing."
+  },
+  "pairCardBandBody": "เฉพาะ WHOOP 4.0 หรือ WHOOP 5.0/MG การนอน การฟื้นตัว และความหนัก ตลอดวัน",
+  "@pairCardBandBody": {
+    "description": "Body of the Your band card in Settings."
+  },
+  "pairUnpairBand": "ยกเลิกการจับคู่สายรัด",
+  "@pairUnpairBand": {
+    "description": "Red outline button that starts forgetting the paired band (a confirm dialog follows)."
+  },
+  "capLabelHeartRate": "อัตราการเต้นของหัวใจและขณะพัก",
+  "@capLabelHeartRate": {
+    "description": "Table row: heart rate and resting heart rate, as one capability."
+  },
+  "capLabelRespiration": "การหายใจ",
+  "@capLabelRespiration": {
+    "description": "Table row: breathing rate."
+  },
+  "capReasonFirstNights": "เป็นค่าประมาณใน 14 คืนแรก",
+  "@capReasonFirstNights": {
+    "description": "Caption under Recovery for a ring or watch: its recovery is an estimate until 14 nights of baseline."
+  },
+  "capReasonOwnStagesRing": "จากระยะการนอนที่แหวนบันทึกเอง",
+  "@capReasonOwnStagesRing": {
+    "description": "Caption under Sleep for a ring: the sleep stages are the ring’s own."
+  },
+  "capReasonOwnStages": "จากระยะการนอนที่อุปกรณ์บันทึกเอง",
+  "@capReasonOwnStages": {
+    "description": "Caption under Sleep for a watch or fitness band: the sleep stages are the device’s own."
+  },
+  "capReasonLiveSessions": "ระหว่างเซสชันสด",
+  "@capReasonLiveSessions": {
+    "description": "Caption under Steps for WHOOP 4: it counts steps only while the app has a live connection."
+  },
+  "slotEveryDay": "ทุกวัน",
+  "@slotEveryDay": {
+    "description": "Column and chip: the device is used every day (the main band, or the ring/watch that fills days)."
+  },
+  "slotWorkoutsOnly": "เฉพาะตอนออกกำลังกาย",
+  "@slotWorkoutsOnly": {
+    "description": "Column and chip: the device is used only during workouts."
+  },
+  "pairWearableCardNote": "เติมวันที่ไม่มี WHOOP ของคุณ ยังเป็นฟีเจอร์ทดลอง จึงต้องเปิดเองด้านล่าง",
+  "@pairWearableCardNote": {
+    "description": "Note under a ring’s or watch’s table on its device page; the switch is below it."
+  },
+  "pairWhatItSends": "สิ่งที่ส่งมา",
+  "@pairWhatItSends": {
+    "description": "Heading above the table on a device page."
+  },
+  "capReasonUnconfirmed": "หากอุปกรณ์นี้ส่งข้อมูลนี้ ยังไม่ได้ยืนยัน",
+  "@capReasonUnconfirmed": {
+    "description": "Caption under a row the device may or may not send; nobody has confirmed it does."
+  },
+  "capReasonPebble2Only": "เฉพาะ Pebble 2 รุ่น 2 SE ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ",
+  "capReasonPebble2OnlyEstimated": "เฉพาะ Pebble 2 และเป็นค่าประมาณ ไม่ใช่ค่าที่วัดได้โดยตรง รุ่น 2 SE ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ",
+  "slotColumnReason": "{column}: {reason}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  },
   "pairSearchDevices": "ค้นหาอุปกรณ์",
   "pairPrimaryCannotBeSensor": "นี่คือสายรัดหลักของคุณอยู่แล้ว จึงไม่สามารถจับคู่เป็นเซ็นเซอร์ออกกำลังกายด้วยได้",
+  "capReasonSkinTempProvisional": "ค่าประมาณที่ยังเป็นข้อมูลเบื้องต้น ต้องมีข้อมูลหลายคืน",
   "pairReplaceMyBand": "เปลี่ยนสายรัดของฉัน",
   "dayStepsWhoop4NoCounter": "WHOOP 4.0 ไม่มีตัวนับก้าวในตัว จึงนับก้าวได้เฉพาะตอนที่แอปนี้กำลังรับข้อมูลสดจากสายรัดเท่านั้น",
   "healthWearNotUpdatedSince": "ไม่ได้อัปเดตตั้งแต่ {time}",
