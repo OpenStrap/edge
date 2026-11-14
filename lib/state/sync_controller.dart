@@ -1128,7 +1128,13 @@ class SyncController {
           _log('Sync now: history is stuck on this connection — reconnecting.');
         }
         await engine.disconnect();
-        if (!_isDisposed && !ResetGate.active) await openSession();
+        // The disconnect is awaited too: a session the user ended meanwhile
+        // must not be reopened by this stale recovery.
+        if (!_isDisposed &&
+            generation == _reconnectGeneration &&
+            !ResetGate.changedSince(resetGen)) {
+          await openSession();
+        }
         return;
       }
       final running = _syncBurst;
