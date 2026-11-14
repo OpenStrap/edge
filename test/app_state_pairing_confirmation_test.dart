@@ -14,6 +14,7 @@ import 'package:openstrap_edge/ble/ios_ble_restore.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/notify/notification_service.dart';
 import 'package:openstrap_edge/state/app_state.dart' show SameBandSelectedException;
+import 'package:openstrap_edge/state/alarm_schedule.dart' show kAlarmRemoteId, persistedAlarmEpoch;
 import 'package:openstrap_edge/state/prefs.dart' show Prefs;
 import 'package:openstrap_edge/sync/band_ownership.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
@@ -424,6 +425,49 @@ void main() {
       expect(rig.engine.only('connect'),
           isNot(contains('connect:$kRemoteId:gen4')),
           reason: 'the old band must not be reconnected after the save');
+    }));
+
+    // WHY: the primary peripheral must never also be a secondary sensor. A
+    // candidate that already has a workout-only row would be saved as primary
+    // with that row (and its link) still alive.
+    // catches: replacing onto a band that is already a secondary sensor.
+    test('replacement refuses a candidate that is already a secondary sensor',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      await LocalDb.upsertDevice(
+          id: 'ble_hrs-$replacementId',
+          adapterId: 'ble_hrs',
+          remoteId: replacementId,
+          label: 'Chest strap');
+      rig.engine.events.clear();
+      await expectLater(
+          rig.app.replaceWith(BluetoothDevice.fromId(replacementId)),
+          throwsA(isA<Exception>()));
+      expect((await PairedDevice.load())?.remoteId, kRemoteId,
+          reason: 'the current band stays paired');
+      expect(rig.engine.only('connect'), isEmpty,
+          reason: 'nothing starts before the refusal');
+      expect((await LocalDb.deviceRows()).where((r) => r['remote_id'] == replacementId),
+          hasLength(1), reason: 'the sensor row is untouched');
+    }));
+
+    // WHY: an untagged legacy arm belongs to the band being forgotten. If it
+    // stays untagged a later, different band reads it as its own.
+    // catches: forgetting a band and leaving its alarm readable by the next one.
+    test('forgetting a band tags its untagged alarm so another band cannot adopt it',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(kAlarmRemoteId);
+      await prefs.setInt('alarm_epoch', 1893456000);
+      await rig.app.unpair();
+      expect(prefs.getString(kAlarmRemoteId), kRemoteId);
+      expect(persistedAlarmEpoch(prefs, replacementId), isNull,
+          reason: 'a different band is not treated as armed');
+      expect(persistedAlarmEpoch(prefs, kRemoteId), 1893456000,
+          reason: 'the forgotten band keeps its own arm record');
     }));
 
     // WHY: a lost band's retry must finish before candidate bootstrap starts.
