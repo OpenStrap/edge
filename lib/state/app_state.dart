@@ -3764,6 +3764,12 @@ class AppState extends ChangeNotifier {
   /// something a source ladder can rank.
   final GaitRuns _gaitRuns = GaitRuns();
 
+  /// The reset generation the buffered [_gaitRuns] were first collected under.
+  /// Finalization must judge them by THIS, not by the generation current when
+  /// it happens to run: a reset between collection and finalization would
+  /// otherwise be invisible and a deleted session's steps could be banked back.
+  int? _gaitRunsGeneration;
+
   /// Admitted calibration runs for the live 100 Hz pedometer, cached per
   /// session.
   ///
@@ -3830,6 +3836,7 @@ class AppState extends ChangeNotifier {
     final endTs = _bandTsAt(endMs);
     final floorTs = _bandTsAt(_liveFirstIngestMs ?? endMs);
     if (endTs == null || floorTs == null) return;
+    _gaitRunsGeneration ??= ResetGate.generation;
     _gaitRuns.addChunk(
       endTs: endTs,
       // The chunk covers the time it SAMPLED, not the wall time it took to
@@ -4082,6 +4089,7 @@ class AppState extends ChangeNotifier {
     _liveFirstIngestMs = null;
     _liveLastIngestMs = null;
     _gaitRuns.clear();
+    _gaitRunsGeneration = null;
   }
 
   /// End-of-session: bank the REAL 100 Hz step spans into `live_coverage`.
@@ -4094,7 +4102,6 @@ class AppState extends ChangeNotifier {
   /// No cadence calibration any more — its only consumer was the deleted 1 Hz
   /// `dailyStepEstimate` (see kAlgoVersion v55).
   Future<void> _finalizeLivePedometer() async {
-    final resetGeneration = ResetGate.generation;
     // The still-filling partial minute is real signal that was about to be
     // discarded: count it over the time it actually sampled — but only if that
     // time says it arrived fast enough to count (GATE 2). The tail has its own
@@ -4112,6 +4119,9 @@ class AppState extends ChangeNotifier {
       _addGaitChunk(_liveLastIngestMs!, _magMin.length, ana.pedometer(_magMin));
     }
     final runs = _gaitRuns.runs;
+    // Collected under this generation, not the one current now (see
+    // [_gaitRunsGeneration]). Nothing collected: nothing to bank either way.
+    final resetGeneration = _gaitRunsGeneration ?? ResetGate.generation;
     _resetLivePedometer();
     // CLAIM(orphan-checkpoint-preserved): no live runs means nothing was banked;
     // retain a killed session's checkpoint for recovery after the next connect.
@@ -4884,6 +4894,11 @@ class AppState extends ChangeNotifier {
       throw const SameBandSelectedException();
     }
     final epoch = _pairingEpoch;
+    // A reset empties the store without bumping the pairing epoch (only forget
+    // does), and lowers the gate once it is done. Capture the generation too,
+    // or a save that was queued behind a finished reset writes into the
+    // emptied store and resurrects a pairing.
+    final resetGen = ResetGate.generation;
     _pairingInProgress = true;
     _replacingBand = replacing;
     var committed = false;
@@ -4914,7 +4929,7 @@ class AppState extends ChangeNotifier {
           // Only READY proves we can talk to this band. Until then neither
           // the persisted record nor isPaired may advance onboarding. Save
           // the identity THIS bootstrap discovered, not a stale device hint.
-          if (epoch != _pairingEpoch || _resetting) {
+          if (epoch != _pairingEpoch || ResetGate.changedSince(resetGen)) {
             throw StateError('Pairing was cancelled.');
           }
           if (replacing) {
@@ -4927,12 +4942,12 @@ class AppState extends ChangeNotifier {
           }
           // The ownership write above can outlive a completed forget/reset;
           // PairedDevice must not start a new save after that cancellation.
-          if (epoch != _pairingEpoch || _resetting) {
+          if (epoch != _pairingEpoch || ResetGate.changedSince(resetGen)) {
             throw StateError('Pairing was cancelled.');
           }
           await PairedDevice.save(remoteId, serial ?? device.serial,
               generation: device.generation);
-          if (epoch != _pairingEpoch || _resetting) {
+          if (epoch != _pairingEpoch || ResetGate.changedSince(resetGen)) {
             throw StateError('Pairing was cancelled.');
           }
           // `save` returned, so the new band is durable. A failed read-back
