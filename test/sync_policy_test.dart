@@ -633,6 +633,18 @@ void main() {
       expect(d.observe(5000, 2000, 600), isFalse); // advanced → re-seed
       expect(d.observe(5000, 3000, 1200), isFalse);
     });
+    test('nothing ever banked (fresh pair) still trips — the band holds data '
+        'and never sends it', () {
+      final d = StuckStrapDetector();
+      expect(d.observe(5000, null, 0), isFalse); // seed
+      expect(d.observe(5000, null, 540), isFalse);
+      expect(d.observe(5000, null, 600), isTrue);
+    });
+    test('no band range yet is never stuck', () {
+      final d = StuckStrapDetector();
+      d.observe(null, null, 0);
+      expect(d.observe(null, null, 6000), isFalse);
+    });
     test('caught up (within the behind-gap) is not stuck', () {
       final d = StuckStrapDetector();
       d.observe(1200, 1000, 0);

@@ -570,6 +570,31 @@ void main() {
       expect(rig.link[2].body.first, 0x01, reason: 'gen4 IMU body is a bare byte');
     });
 
+    test('a history claim landing mid-arm holds the rest of the bundle until '
+        'the offload ends', () async {
+      final rig = _Rig(band: BandProfile.gen4);
+      final pass = rig.setOwners(fg);
+      await rig.settle(); // inside the arm's opening gap
+      rig.engine.debugSetOffloadActive(true);
+      await pass;
+      expect(rig.ops, [(_hr, 1)]);
+      rig.engine.debugSetOffloadActive(false);
+      await rig.reconcile();
+      expect(rig.opcodes, contains(_imu));
+    });
+
+    test('a keep-alive reassert waits for the offload to end', () async {
+      final rig = _Rig(band: BandProfile.gen4);
+      await rig.setOwners(fg);
+      final before = rig.ops.length;
+      rig.engine.debugSetOffloadActive(true);
+      await rig.engine.debugReassertLiveStreams();
+      expect(rig.ops.length, before, reason: 'no R10/IMU re-arm mid-drain');
+      rig.engine.debugSetOffloadActive(false);
+      await rig.reconcile();
+      expect(rig.ops.sublist(before), contains((_r10, 1)));
+    });
+
     test('full → off: optical mode, optical save, R10/R11, IMU, then HR', () async {
       final rig = _Rig(band: BandProfile.gen4);
       await rig.setOwners(fg);

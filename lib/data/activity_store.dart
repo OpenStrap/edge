@@ -177,6 +177,17 @@ class ActivityStore {
         final start = ((c['start_ts'] ?? c['start']) as num).toInt();
         final end = ((c['end_ts'] ?? c['end']) as num).toInt();
         if (end <= start) continue;
+        // A nap candidate over kMaxNapSec (3 h) is a sleep fragment, not a
+        // nap: never offer it for review — retire any pending rows it
+        // overlaps instead of keeping or re-creating them.
+        if (kind == ActivityKind.nap && end - start > kMaxNapSec) {
+          await tx.rawUpdate(
+            "UPDATE activity_suggestions SET status = 'superseded' "
+            "WHERE kind = ? AND status = 'pending' AND start_ts < ? AND end_ts > ?",
+            [kind.name, end, start],
+          );
+          continue;
+        }
         final matches = await tx.query(
           'activity_suggestions',
           where:
@@ -329,6 +340,28 @@ class ActivityStore {
     return false;
   }
 
+  /// The main-sleep windows (epoch ms) of the nights around [s, e) — the
+  /// night ending on [s]'s date and the one beginning that evening. Used to
+  /// PROTECT night samples when a nap window is deleted from the health
+  /// store after the night shifted onto it.
+  static Future<List<({int onsetMs, int offsetMs})>> mainSleepWindowsAround(
+    DatabaseExecutor tx,
+    int s,
+    int e,
+  ) async {
+    final out = <({int onsetMs, int offsetMs})>[];
+    for (final b in await _nightsAround(tx, s, e)) {
+      final w = ((b['sleep'] as Map?)?['window'] as Map?)?['value'];
+      if (w is Map) {
+        final on = w['onset_ms'], off = w['offset_ms'];
+        if (on is num && off is num && off > on) {
+          out.add((onsetMs: on.toInt(), offsetMs: off.toInt()));
+        }
+      }
+    }
+    return out;
+  }
+
   static Future<List<Map>> _nightsAround(
     DatabaseExecutor tx,
     int s,
@@ -465,7 +498,7 @@ class ActivityStore {
     } else {
       if (!manualNapWindowIsValid(startTs, endTs)) {
         throw const ActivityReviewException(
-          'A nap must last between 5 minutes and 6 hours.',
+          'A nap must last between 5 minutes and 3 hours.',
         );
       }
       if (await _overlapsSleep(tx, startTs, endTs)) {

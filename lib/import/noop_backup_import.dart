@@ -95,7 +95,7 @@ class NoopBackupImporter {
     }
     Directory? scratch;
     try {
-      final opened = await _repairTruncatedHeader(path);
+      final opened = await repairTruncatedHeader(path);
       scratch = opened.$2;
       final Database src;
       try {
@@ -141,7 +141,8 @@ class NoopBackupImporter {
   /// write (a torn B-tree page, rather than a stale page count) — that surfaces
   /// downstream as [_isCorruptPageError], and [_read] drops just the affected
   /// table rather than the whole import.
-  static Future<(String, Directory?)> _repairTruncatedHeader(
+  @visibleForTesting
+  static Future<(String, Directory?)> repairTruncatedHeader(
     String path,
   ) async {
     final f = await File(path).open();
@@ -175,7 +176,13 @@ class NoopBackupImporter {
     final declaredPages =
         (header[28] << 24) | (header[29] << 16) | (header[30] << 8) | header[31];
     final actualPages = fileLen ~/ pageSize;
-    if (actualPages <= declaredPages) return (path, null); // header agrees
+    // Bytes 18/19 == 2 mark a WAL-mode database. Read-only, without its -wal
+    // and -shm beside it (a backup ships only the main file), SQLite cannot
+    // open it at all: SQLITE_CANTOPEN, "unable to open database file". The
+    // copy is flipped to rollback mode (1/1), which is what
+    // `PRAGMA journal_mode=DELETE` writes; the pages are unchanged.
+    final wal = header[18] == 2 || header[19] == 2;
+    if (actualPages <= declaredPages && !wal) return (path, null); // header agrees
 
     final scratch = await Directory.systemTemp.createTemp('openstrap_noopfix_');
     try {
@@ -183,9 +190,15 @@ class NoopBackupImporter {
       await File(path).copy(repaired); // OS-level copy, not materialised here
       final raf = await File(repaired).open(mode: FileMode.append);
       try {
-        await raf.setPosition(28);
-        final be = ByteData(4)..setUint32(0, actualPages, Endian.big);
-        await raf.writeFrom(be.buffer.asUint8List());
+        if (wal) {
+          await raf.setPosition(18);
+          await raf.writeFrom(const [1, 1]);
+        }
+        if (actualPages > declaredPages) {
+          await raf.setPosition(28);
+          final be = ByteData(4)..setUint32(0, actualPages, Endian.big);
+          await raf.writeFrom(be.buffer.asUint8List());
+        }
       } finally {
         await raf.close();
       }

@@ -121,10 +121,40 @@ class LoggedSet {
   final double? loadKg;
   final int? rpe;
   final int? restSec;
+  final int? holdSec;
+  final String note;
   final DateTime at;
 
   const LoggedSet(this.exerciseKey, this.reps,
-      {this.loadKg, this.rpe, this.restSec, required this.at});
+      {this.loadKg,
+      this.rpe,
+      this.restSec,
+      this.holdSec,
+      this.note = '',
+      required this.at});
+
+  LoggedSet copyWith({
+    String? exerciseKey,
+    int? reps,
+    double? loadKg,
+    bool clearLoadKg = false,
+    int? rpe,
+    bool clearRpe = false,
+    int? restSec,
+    int? holdSec,
+    String? note,
+    DateTime? at,
+  }) =>
+      LoggedSet(
+        exerciseKey ?? this.exerciseKey,
+        reps ?? this.reps,
+        loadKg: clearLoadKg ? null : (loadKg ?? this.loadKg),
+        rpe: clearRpe ? null : (rpe ?? this.rpe),
+        restSec: restSec ?? this.restSec,
+        holdSec: holdSec ?? this.holdSec,
+        note: note ?? this.note,
+        at: at ?? this.at,
+      );
 
   /// Volume for this set, or null when the load was never recorded.
   double? get volume => loadKg == null ? null : loadKg! * reps;
@@ -192,6 +222,395 @@ class StrengthLog {
 
   List<LoggedSet> forExercise(String key) =>
       [for (final s in sets) if (s.exerciseKey == key) s];
+}
+
+/// Convert logged strength sets to database rows for storage.
+List<Map<String, Object?>> strengthSetsToRows(List<LoggedSet> sets) {
+  final perExercise = <String, int>{};
+  return [
+    for (final s in sets)
+      {
+        'exercise_key': s.exerciseKey,
+        'set_index':
+            perExercise[s.exerciseKey] = (perExercise[s.exerciseKey] ?? 0) + 1,
+        'reps': s.reps,
+        'load_kg': s.loadKg,
+        'rpe': s.rpe,
+        'rest_sec': s.restSec,
+        'hold_sec': s.holdSec,
+        'note': s.note,
+        'at_ts': s.at.millisecondsSinceEpoch ~/ 1000,
+      },
+  ];
+}
+
+class EditSetResult {
+  final double? loadKg;
+  final int reps;
+  final int? rpe;
+  final bool deleted;
+
+  const EditSetResult({
+    this.loadKg,
+    required this.reps,
+    this.rpe,
+    this.deleted = false,
+  });
+  const EditSetResult.delete()
+      : loadKg = null,
+        reps = 0,
+        rpe = null,
+        deleted = true;
+}
+
+String formatStrengthWeight(double v, [UnitsController? u]) {
+  final displayVal = u != null ? u.weightValue(v) : v;
+  final rounded = double.parse(displayVal.toStringAsFixed(2));
+  if (rounded == rounded.roundToDouble()) {
+    return '${rounded.round()}';
+  }
+  return rounded
+      .toStringAsFixed(2)
+      .replaceFirst(RegExp(r'0+$'), '')
+      .replaceFirst(RegExp(r'\.$'), '');
+}
+
+const kMaxStrengthKg = 500.0;
+const kMaxStrengthLb = 1100.0;
+const kMaxStrengthReps = 200;
+
+/// Cap on a set's load, in the user's display unit.
+bool strengthLoadInRange(double kg, UnitsController? u) {
+  final imperial = u?.isImperial ?? false;
+  return kg >= 0 &&
+      (imperial ? u!.weightValue(kg) <= kMaxStrengthLb + 1e-6 : kg <= kMaxStrengthKg);
+}
+
+String strengthLoadRangeText(BuildContext c, UnitsController? u) => uiText(
+    c, (u?.isImperial ?? false) ? 'Must be 0–1100 lb' : 'Must be 0–500 kg');
+
+/// Imperial loads show and step on half-pound increments.
+double roundLbHalf(double lb) => (lb * 2).roundToDouble() / 2;
+
+/// One stepper press on a load in kg, clamped to the cap. Imperial steps in
+/// whole display-unit increments (re-derived from the stored kg each time), so
+/// repeated 5 lb presses land on 135, 140, 145 rather than drifting.
+double stepStrengthLoad(double kg, double deltaKg, UnitsController? u) {
+  if (deltaKg == 0) return kg;
+  if (u != null && u.isImperial) {
+    final lb = roundLbHalf(u.weightValue(kg));
+    final next = (lb + (deltaKg > 0 ? 5.0 : -5.0)).clamp(0.0, kMaxStrengthLb);
+    return u.weightToKg(next.toString()) ?? kg;
+  }
+  return double.parse((kg + deltaKg).clamp(0.0, kMaxStrengthKg).toStringAsFixed(2));
+}
+
+Future<EditSetResult?> showEditSetDialog(
+  BuildContext context, {
+  required LoggedSet set,
+  required int setIndex,
+  UnitsController? units,
+}) async {
+  final p = P.of(context);
+  final l = AppLocalizations.of(context);
+  final imperial = units?.isImperial ?? false;
+  final unitLabel = units?.weightUnit ?? 'kg';
+
+  var isBodyweight = set.loadKg == null;
+  final initialWeightText =
+      set.loadKg != null ? formatStrengthWeight(set.loadKg!, units) : '';
+  final weightCtrl = TextEditingController(text: initialWeightText);
+  final repsCtrl = TextEditingController(text: '${set.reps}');
+  int? selectedRpe = set.rpe;
+  String? weightError;
+  String? repsError;
+
+  final result = await showDialog<EditSetResult>(
+    context: context,
+    builder: (dc) => StatefulBuilder(
+      builder: (ctx, setDialogState) {
+        void submit() {
+          setDialogState(() {
+            weightError = null;
+            repsError = null;
+          });
+
+          double? parsedKg;
+          if (!isBodyweight) {
+            final wText = weightCtrl.text.trim();
+            if (wText.isEmpty) {
+              setDialogState(
+                  () => weightError = uiText(context, 'Enter a value'));
+              return;
+            }
+            if (set.loadKg != null && wText == initialWeightText) {
+              parsedKg = set.loadKg;
+            } else {
+              parsedKg = units != null
+                  ? units.weightToKg(wText)
+                  : parseTypedNumber(wText);
+            }
+            if (parsedKg == null) {
+              setDialogState(
+                  () => weightError = uiText(context, 'Invalid number'));
+              return;
+            }
+            if (!strengthLoadInRange(parsedKg, units)) {
+              setDialogState(
+                  () => weightError = strengthLoadRangeText(context, units));
+              return;
+            }
+          }
+
+          final rText = repsCtrl.text.trim();
+          final parsedReps = int.tryParse(rText);
+          if (parsedReps == null || parsedReps < 1 || parsedReps > kMaxStrengthReps) {
+            setDialogState(
+                () => repsError = uiText(context, 'Must be 1–200 reps'));
+            return;
+          }
+
+          Navigator.of(dc).pop(EditSetResult(
+            loadKg: isBodyweight ? null : parsedKg,
+            reps: parsedReps,
+            rpe: selectedRpe,
+          ));
+        }
+
+        return AlertDialog(
+          backgroundColor: p.card,
+          title: Text(
+            uiText(context, 'Edit set'),
+            style: F.head.copyWith(color: p.ink),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!isBodyweight) ...[
+                  TextField(
+                    controller: weightCtrl,
+                    autofocus: true,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    style: F.body.copyWith(color: p.ink),
+                    cursorColor: p.on(C.purple),
+                    decoration: InputDecoration(
+                      labelText:
+                          '${l?.activityLiveWeightLabel ?? 'Weight'} ($unitLabel)',
+                      labelStyle: F.over.copyWith(color: p.ink3),
+                      suffixText: unitLabel,
+                      suffixStyle: F.body.copyWith(color: p.ink3),
+                      errorText: weightError,
+                      enabledBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: p.line),
+                      ),
+                      focusedBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: p.on(C.purple)),
+                      ),
+                    ),
+                    onSubmitted: (_) => submit(),
+                  ),
+                  const SizedBox(height: S.x3),
+                ],
+                Pressable(
+                  onTap: () {
+                    setDialogState(() {
+                      isBodyweight = !isBodyweight;
+                      weightError = null;
+                      if (!isBodyweight && weightCtrl.text.isEmpty) {
+                        weightCtrl.text = set.loadKg != null
+                            ? formatStrengthWeight(set.loadKg!, units)
+                            : (imperial ? '135' : '60');
+                      }
+                    });
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isBodyweight
+                            ? LucideIcons.checkSquare
+                            : LucideIcons.square,
+                        size: 16,
+                        color: isBodyweight ? p.on(C.purple) : p.ink3,
+                      ),
+                      const SizedBox(width: S.x2),
+                      Text(
+                        uiText(context, 'Bodyweight'),
+                        style: F.body.copyWith(
+                          color: isBodyweight ? p.ink : p.ink2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: S.x4),
+                TextField(
+                  controller: repsCtrl,
+                  keyboardType: TextInputType.number,
+                  style: F.body.copyWith(color: p.ink),
+                  cursorColor: p.on(C.purple),
+                  decoration: InputDecoration(
+                    labelText: l?.activityLiveRepsLabel ?? 'Reps',
+                    labelStyle: F.over.copyWith(color: p.ink3),
+                    errorText: repsError,
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: p.line),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: p.on(C.purple)),
+                    ),
+                  ),
+                  onSubmitted: (_) => submit(),
+                ),
+                const SizedBox(height: S.x4),
+                Row(
+                  children: [
+                    Text(
+                      l?.activityLiveEffortRpeHeader ?? 'EFFORT (RPE)',
+                      style: F.over.copyWith(color: p.ink3),
+                    ),
+                    const Spacer(),
+                    if (selectedRpe != null)
+                      Pressable(
+                        onTap: () => setDialogState(() => selectedRpe = null),
+                        child: Text(
+                          l?.journalComposeClear ?? 'Clear',
+                          style: F.cap.copyWith(color: p.ink3),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: S.x2),
+                Row(
+                  children: List.generate(5, (i) {
+                    final v = i + 6;
+                    final on = selectedRpe == v;
+                    const cols = [C.green, C.teal, C.blue, C.orange, C.red];
+                    return Expanded(
+                      child: Pressable(
+                        semanticLabel: 'RPE $v',
+                        onTap: () => setDialogState(() {
+                          selectedRpe = selectedRpe == v ? null : v;
+                        }),
+                        child: Container(
+                          margin: EdgeInsets.only(right: i == 4 ? 0 : S.x2),
+                          height: 38,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: on ? p.fill(cols[i]) : p.wash(cols[i]),
+                            borderRadius: R.rMd,
+                          ),
+                          child: Text(
+                            '$v',
+                            style: F.head.copyWith(
+                              color: on ? p.inkOnFill : p.on(cols[i]),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: S.x2,
+              runSpacing: S.x2,
+              children: [
+                Pressable(
+                  onTap: () async {
+                    final confirm = await showDialog<bool>(
+                      context: ctx,
+                      builder: (confCtx) => AlertDialog(
+                        backgroundColor: p.card,
+                        title: Text(
+                          uiText(context, 'Delete set'),
+                          style: F.head.copyWith(color: p.ink),
+                        ),
+                        content: Text(
+                          uiText(context, 'Delete this set?'),
+                          style: F.body.copyWith(color: p.ink2),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(confCtx).pop(false),
+                            child: Text(
+                              l?.actionCancel ?? 'Cancel',
+                              style: F.body.copyWith(color: p.ink2),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(confCtx).pop(true),
+                            child: Text(
+                              uiText(context, 'Delete'),
+                              style: F.body.copyWith(
+                                color: p.on(C.red),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true && dc.mounted) {
+                      Navigator.of(dc).pop(const EditSetResult.delete());
+                    }
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: S.x2, vertical: S.x2),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(LucideIcons.trash2, size: 16, color: p.on(C.red)),
+                        const SizedBox(width: S.x1),
+                        Text(
+                          uiText(context, 'Delete'),
+                          style: F.body.copyWith(color: p.on(C.red)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dc).pop(),
+                      child: Text(
+                        l?.actionCancel ?? 'Cancel',
+                        style: F.body.copyWith(color: p.ink2),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: submit,
+                      child: Text(
+                        l?.actionSave ?? 'Save',
+                        style: F.body.copyWith(
+                          color: p.on(C.purple),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    ),
+  );
+
+  // Controllers are not disposed: the dialog's exit animation still builds them.
+  return result;
 }
 
 /// Epley 1RM estimate — ALWAYS an estimate, never shown without saying so.
@@ -1030,7 +1449,23 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     setState(() => _saving = true);
     var ok = false;
     try {
-      await widget.onRetrySave!();
+      final saved = await widget.onRetrySave!();
+      if (saved.sessionId != null) {
+        try {
+          await LocalDb.replaceStrengthSets(
+            saved.sessionId!,
+            strengthSetsToRows(r.strength.sets),
+          );
+        } catch (_) {}
+      }
+      if (mounted) {
+        setState(() {
+          _rated = saved.copyWith(
+            rpe: _rated?.rpe ?? saved.rpe,
+            strength: r.strength,
+          );
+        });
+      }
       ok = true;
     } catch (_) {
       ok = false;
@@ -2035,7 +2470,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   for (var i = 0;
                       i < r.strength.forExercise(key).length;
                       i++) ...[
-                    _setRow(p, i + 1, r.strength.forExercise(key)[i]),
+                    _setRow(
+                        p, i + 1, r.strength.forExercise(key)[i], key, i),
                     if (i < r.strength.forExercise(key).length - 1)
                       Divider(color: p.line, height: 1),
                   ],
@@ -2177,22 +2613,103 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     }
   }
 
-  Widget _setRow(P p, int n, LoggedSet s) {
+  Future<void> _editSet(LoggedSet s, int n,
+      [String? exerciseKey, int? setIndexInExercise]) async {
+    final res = await showEditSetDialog(
+      context,
+      set: s,
+      setIndex: n,
+      units: _u,
+    );
+    if (!mounted || res == null) return;
+    final updated = List<LoggedSet>.of(r.strength.sets);
+    var idx = -1;
+    if (exerciseKey != null && setIndexInExercise != null) {
+      var count = 0;
+      for (var j = 0; j < updated.length; j++) {
+        if (updated[j].exerciseKey == exerciseKey) {
+          if (count == setIndexInExercise) {
+            idx = j;
+            break;
+          }
+          count++;
+        }
+      }
+    }
+    if (idx < 0) idx = updated.indexOf(s);
+    if (idx < 0) return;
+    if (res.deleted) {
+      updated.removeAt(idx);
+    } else {
+      updated[idx] = updated[idx].copyWith(
+        loadKg: res.loadKg,
+        clearLoadKg: res.loadKg == null,
+        reps: res.reps,
+        rpe: res.rpe,
+        clearRpe: res.rpe == null,
+      );
+    }
+    setState(() => _rated = r.copyWith(strength: StrengthLog(updated)));
+
+    final sid = r.sessionId;
+    if (sid != null) {
+      try {
+        await LocalDb.replaceStrengthSets(
+          sid,
+          strengthSetsToRows(updated),
+        );
+      } catch (_) {
+        if (mounted) {
+          final l = AppLocalizations.of(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(uiText(context, 'Failed to save changes')),
+              action: SnackBarAction(
+                label: l?.reportSaveRetry ?? 'Try again',
+                onPressed: () async {
+                  try {
+                    await LocalDb.replaceStrengthSets(
+                      sid,
+                      strengthSetsToRows(updated),
+                    );
+                  } catch (_) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content:
+                              Text(uiText(context, 'Failed to save changes')),
+                        ),
+                      );
+                    }
+                  }
+                },
+              ),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Widget _setRow(P p, int n, LoggedSet s,
+      [String? exerciseKey, int? setIndexInExercise]) {
     final l = AppLocalizations.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: S.x3),
-      child: Row(children: [
-        Container(
-          width: 24,
-          height: 24,
-          alignment: Alignment.center,
-          decoration:
-              BoxDecoration(color: p.wash(C.purple), borderRadius: R.rSm),
-          child: Text('$n', style: F.over.copyWith(color: p.on(C.purple))),
-        ),
-        const SizedBox(width: S.x3),
-        Expanded(
-          child: Text(
+    return Pressable(
+      onTap: () => _editSet(s, n, exerciseKey, setIndexInExercise),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x3),
+        child: Row(children: [
+          Container(
+            width: 24,
+            height: 24,
+            alignment: Alignment.center,
+            decoration:
+                BoxDecoration(color: p.wash(C.purple), borderRadius: R.rSm),
+            child: Text('$n', style: F.over.copyWith(color: p.on(C.purple))),
+          ),
+          const SizedBox(width: S.x3),
+          Expanded(
+            child: Text(
               s.loadKg == null
                   ? (l?.activitySummaryBodyweightReps(s.reps) ??
                       '${s.reps} reps · bodyweight')
@@ -2200,9 +2717,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               style: F.body.copyWith(color: p.ink),
             ),
           ),
-        if (s.rpe != null)
-          Text(l?.activitySummaryRpeValue(s.rpe!) ?? 'RPE ${s.rpe}',
-              style: F.cap.copyWith(color: p.ink3)),
+          if (s.rpe != null)
+            Text(l?.activitySummaryRpeValue(s.rpe!) ?? 'RPE ${s.rpe}',
+                style: F.cap.copyWith(color: p.ink3)),
           if (s.volume != null) ...[
             const SizedBox(width: S.x3),
             Text(
@@ -2212,7 +2729,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   .copyWith(color: p.ink2, fontWeight: FontWeight.w600),
             ),
           ],
-        ],
+          const SizedBox(width: S.x2),
+          Icon(LucideIcons.pencil, size: 13, color: p.ink3),
+        ]),
       ),
     );
   }

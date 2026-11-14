@@ -313,8 +313,9 @@ void main() {
 
   test('the wipe runs on the sync-commit gate', () {
     final db = File('lib/data/db.dart').readAsStringSync();
-    expect(db.contains('static Future<int> wipeAll() => '
-        '_withCommitGate(_wipeAllLocked);'), isTrue);
+    expect(db.contains('static Future<int> wipeAll() =>\n'
+        '      _withReaderInvalidated(() => _withCommitGate(_wipeAllLocked));'),
+        isTrue);
   });
 
   test('an unbalanced leave cannot drive the gate below shut', () {

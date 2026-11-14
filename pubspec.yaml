@@ -262,7 +262,13 @@ dependencies:
       # REPIN: protocol feat/multidevice-verified-decoders head (multi-device
       # decoders; WHOOP decode untouched, pinned by whoop_freeze_golden_test).
       # Re-point at the merge commit once it lands on protocol main.
-      ref: 89080bcfac7767b3a871fd3a7d9307f5f30dad26
+      # REPIN: protocol main @ b4fde6a (#81: Mi Body Composition Scale 2 answers
+      # the history request with a 7-byte count). The range from 89080bc is 41
+      # commits: #81, the AGPL license/docs (#80), and #82 decoder-hardening
+      # (R10 gated on packet type, hello/battery parsing, reassembler
+      # truncation semantics, removal of deprecated gen5 APIs). #81 sits on top
+      # of #82, so it cannot be pinned alone.
+      ref: b4fde6ab5589e53154b808f8b2bbb4d01d9c15b5
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
