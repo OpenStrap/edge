@@ -3039,7 +3039,7 @@
   "whoopFirmwareWarningDetails": "有报告称，WHOOP 5.0 / MG 固件 50.43.1.0 和 50.43.2.0 会阻止访问数据。蓝牙可能仍能连接。解锁受影响的手环需要由 WHOOP 签名的会员令牌，OpenStrap 无法签发。我们正在寻找解决办法，但目前还没有可用的修复。",
   "bandStatusFirmwareLockedTitle": "手环固件可能正在扣留它的数据",
   "bandStatusFirmwareLockedReason": "这个手环运行的是 WHOOP 固件 50.43：它可以连接并响应应用，但在手环上没有 WHOOP 签名的会员令牌之前，可能不会发送任何记录或实时心率。这是收不到数据最可能的原因。OpenStrap 无法签发这个令牌。已保存在这里的所有数据都是安全的。",
-  "bandStatusFirmwareLockedFix": "如果是固件的原因，应用无法更改，手环重新发送数据后此提示会自动消失。如果仍然没有数据，充电或重新配对仍然值得一试",
+  "bandStatusFirmwareLockedFix": "如果是固件的原因，应用无法更改，手环重新发送记录后此提示会自动消失。如果仍然没有数据，充电或重新配对仍然值得一试",
   "alarmNextLabel": "下一次",
   "alarmScheduleGroup": "每周计划",
   "alarmWakeTimeRowTitle": "起床时间",

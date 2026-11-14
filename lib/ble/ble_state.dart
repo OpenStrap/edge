@@ -388,7 +388,7 @@ BandStatus bandStatusFor({
           'reason no data is arriving. OpenStrap cannot issue that token. '
           'Everything already saved here is safe.',
       fix: 'If it is the firmware, nothing in the app changes it, and this '
-          'clears once the band sends data again. If nothing arrives, '
+          'clears once the band sends recordings again. If nothing arrives, '
           'charging the band or re-pairing is still worth a try',
     );
   }
