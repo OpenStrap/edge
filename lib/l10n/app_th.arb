@@ -14523,7 +14523,7 @@
   "presentationS": "วิ",
   "presentationV": "µV",
   "presentationReadsTheRingDirectlyNoAccountNoKeyExchange": "อ่านจากแหวนโดยตรง ไม่ต้องมีบัญชีหรือแลกเปลี่ยนคีย์",
-  "presentationPebble2OrPebble2SEOnlyPairsOnly": "เฉพาะ Pebble 2 หรือ Pebble 2 SE ขณะนี้จับคู่ได้เท่านั้น ยังไม่อ่านหรือเก็บข้อมูล",
+  "presentationPebble2OrPebble2SEOnlyPairsOnly": "เฉพาะ Pebble 2 หรือ Pebble 2 SE การรองรับยังอยู่ในขั้นทดลอง: ซิงค์และบันทึกจำนวนก้าวกับการนอนหลับ รวมถึงอัตราการเต้นของหัวใจบน Pebble 2 รุ่น SE ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ",
   "presentationTheOriginalFossilSkagenHybridSmartwatchNotTheNewer": "นาฬิกาไฮบริด Fossil/Skagen รุ่นดั้งเดิม ไม่ใช่ Hybrid HR รุ่นใหม่ จับคู่และเชื่อมต่อได้ แต่ยังไม่คำนวณค่าจากข้อมูล",
   "presentationABudgetActivityBandPairsAndBanksItsRaw": "สายรัดกิจกรรมราคาประหยัด จับคู่และเก็บข้อมูลดิบได้ แต่ยังไม่คำนวณค่า",
   "presentationPairsAndBanksItsRawDataNothingIsDecoded": "จับคู่และเก็บข้อมูลดิบได้ ยังไม่ถอดรหัส",
@@ -16628,7 +16628,140 @@
     "description": "Shown instead of steps for a generic device with no maker’s page."
   },
   "pairOuraExistingKeyGuidance": "ใช้แอป Oura อยู่แล้วใช่ไหม คงการจับคู่แหวนในแอปนั้นไว้ แล้วจับคู่ด้วยคีย์เดิมของแหวน ข้ามขั้นตอนรีเซ็ตด้านล่าง รีเซ็ตเฉพาะเมื่อต้องการคีย์ใหม่เท่านั้น",
+  "pairAddDevice": "เพิ่มอุปกรณ์",
+  "@pairAddDevice": {
+    "description": "Label of the button that starts adding a device (band or sensor is decided after the scan)."
+  },
+  "pairKindAll": "ทั้งหมด",
+  "@pairKindAll": {
+    "description": "Filter pill that shows every device in the list."
+  },
+  "pairKindStrap": "สายคาดอกและสายรัดต้นแขน",
+  "@pairKindStrap": {
+    "description": "Filter pill: heart-rate straps and armbands."
+  },
+  "pairKindRing": "แหวน",
+  "@pairKindRing": {
+    "description": "Filter pill for smart rings."
+  },
+  "pairKindWatch": "นาฬิกา",
+  "@pairKindWatch": {
+    "description": "Filter pill for watches."
+  },
+  "pairGoBack": "ย้อนกลับ",
+  "@pairGoBack": {
+    "description": "Link that closes a confirm sheet without pairing."
+  },
+  "pairAddDeviceSub": "แหวน นาฬิกา และสายวัดชีพจร",
+  "@pairAddDeviceSub": {
+    "description": "Line under the Add a device row in Settings."
+  },
+  "pairAddDeviceSubtitle": "แต่ละอุปกรณ์จะบอกว่าเหมาะกับแบบไหน: ทุกวัน หรือเฉพาะตอนออกกำลังกาย",
+  "@pairAddDeviceSubtitle": {
+    "description": "Lead of the Add a device screen."
+  },
+  "pairBandFoundBody": "ใช้ทุกวันได้ข้อมูลมากกว่าใช้เฉพาะตอนออกกำลังกายมาก คุณต้องการแบบไหน",
+  "@pairBandFoundBody": {
+    "description": "WHOOP sheet lead when no band is paired yet."
+  },
+  "pairBandFoundBodyHasBand": "คุณมีสายรัดอยู่แล้ว ใช้เป็นสายรัดหลักได้ทีละหนึ่งเส้นเท่านั้น",
+  "@pairBandFoundBodyHasBand": {
+    "description": "WHOOP sheet lead when a band is already paired."
+  },
+  "pairIdentifiedBody": "อุปกรณ์นี้ดูเหมือนสายคาดวัดหัวใจ แต่เมื่อเชื่อมต่อแล้วกลับระบุตัวเองว่าเป็น {label} ไม่ได้บันทึกอะไรไว้",
+  "@pairIdentifiedBody": {
+    "description": "Body of the sheet shown when a device picked as a sensor identifies itself as a band after connecting. Nothing was saved.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "pairAsMyBand": "จับคู่เป็นสายรัดของฉัน",
+  "@pairAsMyBand": {
+    "description": "Button that pairs the device as the user’s main band."
+  },
+  "pairSecondaryPaired": "จับคู่แล้วสำหรับใช้เฉพาะตอนออกกำลังกาย",
+  "@pairSecondaryPaired": {
+    "description": "Shown after a device is paired for workouts only."
+  },
+  "pairBandNow": "สายรัดปัจจุบันของคุณ: {name} ข้อมูลของคุณยังอยู่เมื่อเปลี่ยน",
+  "@pairBandNow": {
+    "description": "Note under the table when a band is already paired. {name} is that band’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceBand": "จับคู่สายรัดนี้ แล้วจึงตัดการเชื่อมต่อ {name}",
+  "@pairReplaceBand": {
+    "description": "Main button when a band is already paired: unpair it and pair the tapped one. {name} is the paired band’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceConfirmTitle": "แทนที่ {name} หลังจากสายรัดนี้เชื่อมต่อสำเร็จหรือไม่",
+  "@pairReplaceConfirmTitle": {
+    "description": "Confirm dialog before replacing the band. {name} is the paired band’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceConfirmBody": "หากตั้งค่าล้มเหลวหรือยกเลิก สายรัดเดิมจะยังคงจับคู่ ข้อมูลที่บันทึกไว้ในโทรศัพท์เครื่องนี้แล้วจะยังอยู่ ส่วนข้อมูลที่ยังไม่ได้ซิงก์ที่ค้างอยู่บนสายรัดเดิมจะไม่ถูกซิงก์มายังโทรศัพท์เครื่องนี้หลังการเปลี่ยน",
+  "@pairReplaceConfirmBody": {
+    "description": "Confirm dialog body: replacing the band keeps the data."
+  },
+  "pairReplaceConfirmYes": "จับคู่สายรัดใหม่",
+  "@pairReplaceConfirmYes": {
+    "description": "Confirm dialog button: unpair the old band and pair the new one."
+  },
+  "pairCurrentBandFallback": "สายรัดของคุณ",
+  "@pairCurrentBandFallback": {
+    "description": "Stands in for the paired band’s name when it has none, inside a sentence."
+  },
+  "pairWearableLead": "อุปกรณ์นี้เติมข้อมูลการนอน การฟื้นตัว และอัตราการเต้นของหัวใจให้แต่ละวันได้",
+  "@pairWearableLead": {
+    "description": "Sheet lead for a ring or watch."
+  },
+  "pairWearableNote": "เติมวันที่ไม่มี WHOOP ของคุณ ยังเป็นฟีเจอร์ทดลอง จึงต้องเปิดเองในอุปกรณ์",
+  "@pairWearableNote": {
+    "description": "Note under a ring’s or watch’s table on the pairing sheet. “Devices” is the device list in Settings."
+  },
+  "pairStrapLead": "เพิ่มอัตราการเต้นของหัวใจขณะออกกำลังกาย ไม่บันทึกการนอน การฟื้นตัว หรือความหนักรายวัน",
+  "@pairStrapLead": {
+    "description": "Sheet lead for a heart-rate strap or sensor."
+  },
+  "pairStrapNote": "ทั้งสองอย่างต้องเปิด “ใช้ระหว่างออกกำลังกาย”",
+  "@pairStrapNote": {
+    "description": "Note under a strap’s table: both workout rows need the switch. Quotes deviceUseWorkoutsTitle."
+  },
+  "pairDeviceNamed": "จับคู่ {name}",
+  "@pairDeviceNamed": {
+    "description": "Main button on a ring’s, watch’s or strap’s sheet. {name} is the device.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairUseForWorkouts": "ใช้เฉพาะตอนออกกำลังกาย",
+  "@pairUseForWorkouts": {
+    "description": "Text link on a WHOOP sheet: keep it for workouts only, not as the main band."
+  },
+  "pairReplaceUnpairFailed": "จับคู่สายรัดใหม่แล้ว แต่ลบสายรัดเดิมไม่สำเร็จ",
+  "@pairReplaceUnpairFailed": {
+    "description": "Shown when unpairing the old band failed during “Unpair (your band) and pair this one”; nothing else ran."
+  },
+  "pairWearableLeadPebble": "Pebble 2 เติมข้อมูลการนอน การฟื้นตัว และอัตราการเต้นของหัวใจให้แต่ละวันได้ Pebble 2 SE แสดงข้อมูลการนอนและจำนวนก้าวที่นาฬิกาบันทึกเอง รุ่นนี้ไม่มีเซ็นเซอร์วัดอัตราการเต้นของหัวใจ แอปจึงคำนวณภาระร่างกายรายวันหรือประเมินการฟื้นตัวจากข้อมูลของรุ่นนี้ไม่ได้",
+  "pairSearchDevices": "ค้นหาอุปกรณ์",
+  "pairPrimaryCannotBeSensor": "นี่คือสายรัดหลักของคุณอยู่แล้ว จึงไม่สามารถจับคู่เป็นเซ็นเซอร์ออกกำลังกายด้วยได้",
+  "pairReplaceMyBand": "เปลี่ยนสายรัดของฉัน",
+  "dayStepsWhoop4NoCounter": "WHOOP 4.0 ไม่มีตัวนับก้าวในตัว จึงนับก้าวได้เฉพาะตอนที่แอปนี้กำลังรับข้อมูลสดจากสายรัดเท่านั้น",
   "healthWearNotUpdatedSince": "ไม่ได้อัปเดตตั้งแต่ {time}",
-  "dayStrainWornAsOf": "สวมใส่ ข้อมูล ณ {time}",
-  "dayStepsWhoop4NoCounter": "WHOOP 4.0 ไม่มีตัวนับก้าวในตัว จึงนับก้าวได้เฉพาะตอนที่แอปนี้กำลังรับข้อมูลสดจากสายรัดเท่านั้น"
+  "dayStrainWornAsOf": "สวมใส่ ข้อมูล ณ {time}"
 }

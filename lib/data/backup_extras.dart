@@ -43,6 +43,7 @@ const Map<String, String> kPrefsNotBackedUp = {
   'alarm_schedule_cleared': 'records that Cancel-all ran on this phone, so an '
       'import cannot bring a cancelled alarm back',
   'alarm_epoch': 'arm belongs to the old band; the restored schedule must arm again',
+  'alarm_remote_id': 'identifies the band that received this phone’s alarm; restored schedules arm again',
   'alarm_epoch_confirmed': 'confirmation belongs to an arm on the old band',
   'alarm_set_at_ms': 'confirmation replay floor for the old band arm',
   'alarm_pending_until': 'pending confirmation window for the old band arm',

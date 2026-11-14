@@ -1840,7 +1840,7 @@ class AppState extends ChangeNotifier {
       // Gated for the same reason as [_onRecord] — this one is wired straight
       // to LocalDb, so it bypasses every check AppState makes.
       onRecordsBatch: (raws, samples) async {
-        if (_resetting) return; // see [_resetting]
+        if (_resetting || _replacingBand) return; // candidate is not the primary yet
         await LocalDb.insertRecordsBatch(raws, samples);
       },
       // RESUMABLE SYNC: atomic commit of decoded rows + continuation cursor
@@ -1862,8 +1862,8 @@ class AppState extends ChangeNotifier {
           // real data loss on a band the user may not be deleting after all if
           // the reset then fails. A throw blocks the ACK and the records stay
           // on the strap.
-          if (ResetGate.active) {
-            throw StateError('data reset in progress — refusing to commit');
+          if (ResetGate.active || _replacingBand) {
+            throw StateError('data reset or band replacement in progress — refusing to commit');
           }
           await _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
               archives: archives,
@@ -1877,7 +1877,7 @@ class AppState extends ChangeNotifier {
       },
       // Pre-setup fallback only: the drain path archives inside commitSyncBatch.
       onArchiveRecord: (raw) async {
-        if (_resetting) return; // see [_resetting]
+        if (_resetting || _replacingBand) return; // candidate is not the primary yet
         await LocalDb.archiveRawRecord(raw);
       },
       cursorReader: (base) =>
@@ -3032,7 +3032,7 @@ class AppState extends ChangeNotifier {
     proto.BandProfile profile,
     String deviceId,
   ) {
-    if (_resetting) return; // see [_resetting]
+    if (_resetting || _replacingBand) return; // candidate is not the primary yet
     LocalDb.insertEvent(id, ts, hex, deviceId: deviceId, profile: profile);
     // M3: gesture dispatch and the alarm handler stay unscoped — neither is
     // device-scoped in M3's scope, and a double-tap on either band should
@@ -3137,7 +3137,7 @@ class AppState extends ChangeNotifier {
     _lastRecTs = await LocalDb.getRecordFrontier() ?? lastSynced?.tsEpoch;
     await LocalDb.refreshComputeFreshness();
     final alarmPrefs = await SharedPreferences.getInstance();
-    _savedAlarm = alarmPrefs.getInt('alarm_epoch');
+    _savedAlarm = persistedAlarmEpoch(alarmPrefs, paired?.remoteId);
     final firedSec = alarmPrefs.getInt('alarm_fired_at');
     if (firedSec != null) {
       _alarmFiredAt = DateTime.fromMillisecondsSinceEpoch(firedSec * 1000);
@@ -3648,7 +3648,7 @@ class AppState extends ChangeNotifier {
   // Historical singles only now (live frames go through _onLiveFrame and are
   // never persisted). Just write the raw record (+ optional decoded sample).
   Future<void> _onRecord(Sample? sample, RawRecord raw) async {
-    if (_resetting) return; // see [_resetting]
+    if (_resetting || _replacingBand) return; // candidate is not the primary yet
     final ts = raw.recTs ?? sample?.tsEpoch;
     // AFTER the write, and gated on the write SAYING it wrote. `_lastRecTs` is
     // the DATA EDGE — what is banked — and it only ever moves forward, so
@@ -3764,6 +3764,12 @@ class AppState extends ChangeNotifier {
   /// something a source ladder can rank.
   final GaitRuns _gaitRuns = GaitRuns();
 
+  /// The reset generation the buffered [_gaitRuns] were first collected under.
+  /// Finalization must judge them by THIS, not by the generation current when
+  /// it happens to run: a reset between collection and finalization would
+  /// otherwise be invisible and a deleted session's steps could be banked back.
+  int? _gaitRunsGeneration;
+
   /// Admitted calibration runs for the live 100 Hz pedometer, cached per
   /// session.
   ///
@@ -3781,12 +3787,16 @@ class AppState extends ChangeNotifier {
   /// save would have every later walk fit the previous gain.
   int _liveStepCalibrationGeneration = 0;
 
+  @visibleForTesting
+  Future<List<StepCalibrationRun>> Function()? debugReadLiveStepCalibration;
+
   Future<List<StepCalibrationRun>> _liveStepCalibrationRuns() async {
     while (true) {
       final cached = _liveStepCalibration;
       if (cached != null) return cached;
       final generation = _liveStepCalibrationGeneration;
-      final rows = await LocalDb.liveStepCalibrationRuns();
+      final rows = await (debugReadLiveStepCalibration?.call() ??
+          LocalDb.liveStepCalibrationRuns());
       // Invalidated while the read was in flight: these rows may predate the
       // save that invalidated them, so read again rather than hand the caller
       // the previous calibration.
@@ -3826,6 +3836,7 @@ class AppState extends ChangeNotifier {
     final endTs = _bandTsAt(endMs);
     final floorTs = _bandTsAt(_liveFirstIngestMs ?? endMs);
     if (endTs == null || floorTs == null) return;
+    _gaitRunsGeneration ??= ResetGate.generation;
     _gaitRuns.addChunk(
       endTs: endTs,
       // The chunk covers the time it SAMPLED, not the wall time it took to
@@ -4078,6 +4089,7 @@ class AppState extends ChangeNotifier {
     _liveFirstIngestMs = null;
     _liveLastIngestMs = null;
     _gaitRuns.clear();
+    _gaitRunsGeneration = null;
   }
 
   /// End-of-session: bank the REAL 100 Hz step spans into `live_coverage`.
@@ -4107,8 +4119,21 @@ class AppState extends ChangeNotifier {
       _addGaitChunk(_liveLastIngestMs!, _magMin.length, ana.pedometer(_magMin));
     }
     final runs = _gaitRuns.runs;
+    // Collected under this generation, not the one current now (see
+    // [_gaitRunsGeneration]). Nothing collected: nothing to bank either way.
+    final resetGeneration = _gaitRunsGeneration ?? ResetGate.generation;
     _resetLivePedometer();
-    await _bankGaitRuns(runs);
+    // CLAIM(orphan-checkpoint-preserved): no live runs means nothing was banked;
+    // retain a killed session's checkpoint for recovery after the next connect.
+    if (runs.isEmpty) return;
+    try {
+      await _bankGaitRuns(runs, resetGeneration: resetGeneration);
+    } catch (_) {
+      // Reset cancelled this session; disconnect finalization is unawaited.
+      if (!ResetGate.changedSince(resetGeneration)) rethrow;
+      return;
+    }
+    if (ResetGate.changedSince(resetGeneration)) return;
     // The session ended cleanly and is now durably recorded — the checkpoint
     // that would otherwise let a killed-process session recover is no longer
     // needed.
@@ -4123,7 +4148,8 @@ class AppState extends ChangeNotifier {
   /// documents as the gain's home. Two formulas, or one formula applied at both
   /// ends, is the silent x1.23 this method's history records; one shared
   /// function with one factor per run is the invariant that prevents it.
-  Future<void> _bankGaitRuns(List<LiveStepRun> runs) async {
+  Future<void> _bankGaitRuns(List<LiveStepRun> runs,
+      {required int resetGeneration}) async {
     if (runs.isEmpty) return;
     final calibration = await _liveStepCalibrationRuns();
     for (final run in runs) {
@@ -4149,6 +4175,7 @@ class AppState extends ChangeNotifier {
         steps,
         day,
         source: kStepSourceStrap,
+        resetGeneration: resetGeneration,
       );
       // AGENTS.md §4.7 — the other two callers of `addLiveCoverage` are
       // enumerated here so this capability cannot be wired into one path and
@@ -4174,10 +4201,12 @@ class AppState extends ChangeNotifier {
   static const String _kLiveSessionCheckpoint = 'live_session_checkpoint';
 
   Future<void> _checkpointLiveSession() async {
+    final resetGeneration = ResetGate.generation;
     if (_gaitRuns.isEmpty) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final calibration = await _liveStepCalibrationRuns();
+      if (ResetGate.changedSince(resetGeneration)) return;
       await prefs.setString(
         _kLiveSessionCheckpoint,
         // Runs are stored gain-applied, i.e. exactly the numbers
@@ -4235,6 +4264,7 @@ class AppState extends ChangeNotifier {
       });
 
   Future<void> _recoverOrphanedLiveSessionOnce() async {
+    final resetGeneration = ResetGate.generation;
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_kLiveSessionCheckpoint);
@@ -4297,6 +4327,7 @@ class AppState extends ChangeNotifier {
           s[2],
           day,
           source: kStepSourceStrap,
+          resetGeneration: resetGeneration,
         );
         recovered += s[2];
       }
@@ -4612,7 +4643,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _onEngineState(String deviceId, DeviceState s) {
-    if (_resetting) return; // see [_resetting]
+    if (_resetting || _replacingBand) return; // candidate is not the primary yet
     _appendLiveHr(deviceId, s.liveHr, s.liveHrAt);
     // Bank the name the moment the band says it, so it survives the
     // disconnect. Written through `cleanDeviceLabel` for the same reason the
@@ -4770,12 +4801,87 @@ class AppState extends ChangeNotifier {
     await _persistPaired(d.remoteId.str, serial);
   }
 
+  /// AppState owns the replacement lifetime and cancellation epoch.
+  bool _replacingBand = false;
+  bool _replacementPickerInProgress = false;
+  int _pairingEpoch = 0;
   bool _pairingInProgress = false;
 
-  Future<void> _persistPaired(String remoteId, String? serial) async {
-    if (_pairingInProgress) throw Exception('Pairing is already in progress.');
+  /// Substitute the native approval-retirement transport in lock tests.
+  @visibleForTesting
+  Future<void> Function(String remoteId)? debugRetireBandApproval;
+
+  /// Test hook: replaces the read-back of the identity a replacement just
+  /// saved, so a failing read after a successful save can be exercised.
+  @visibleForTesting
+  Future<PairedDevice?> Function()? debugLoadPaired;
+
+  /// Test hook: runs right after the picker's accessory was provisioned, so a
+  /// forget can be made to land inside that await.
+  @visibleForTesting
+  Future<void> Function()? debugAfterReplacementProvisioned;
+
+  /// Verify and save the replacement before retiring the old phone approval.
+  /// A failed attempt keeps the old pairing and attempts to reconnect it.
+  Future<void> replaceWith(BluetoothDevice d) =>
+      _persistPaired(d.remoteId.str, null, replacing: true);
+
+  /// The system sheet chooses the replacement on iOS 18+. The tapped scan
+  /// identity is not enforced by ASK. Picker errors retain the old pairing.
+  Future<void> replaceViaAccessorySetup() async {
+    if (_pairingInProgress || _replacementPickerInProgress) {
+      throw StateError('Pairing is already in progress.');
+    }
+    final old = paired;
+    if (old == null) throw StateError('There is no band to replace.');
+    final epoch = _pairingEpoch;
+    _replacementPickerInProgress = true;
+    try {
+      await IosBleRestore.releaseCentralForPicker();
+      final id = await AccessorySetup.showPicker(addAnother: true);
+      if (epoch != _pairingEpoch || paired?.remoteId != old.remoteId) {
+        throw StateError('The current pairing changed.');
+      }
+      await IosBleRestore.provisioned(id);
+      await debugAfterReplacementProvisioned?.call();
+      // The provisioning await can outlive a forget/reset that started after
+      // the check above. _persistPaired captures the CURRENT epoch as its own,
+      // so a stale picker result would otherwise enter replacement, and its
+      // save could recreate the pairing the user just cancelled.
+      if (epoch != _pairingEpoch || paired?.remoteId != old.remoteId) {
+        throw StateError('The current pairing changed.');
+      }
+      _replacementPickerInProgress = false;
+      await _persistPaired(id, null, replacing: true);
+    } finally {
+      _replacementPickerInProgress = false;
+      // A dismissed/refused picker must not leave background restore disabled.
+      final current = paired;
+      if (current != null) await IosBleRestore.provisioned(current.remoteId);
+    }
+  }
+
+  /// Forget what the link knows about the band it was on, so a new bootstrap
+  /// starts clean. The remembered strap name is a separate, persisted thing:
+  /// it is also what the old band is shown under while it is still the paired
+  /// one, so a replacement that has not committed must leave it alone.
+  void _resetBandIdentity({bool clearSavedName = true}) {
+    _clearLiveHrTrace(LocalDb.kPrimaryDeviceId);
+    device.reset();
+    pairedIsMaverick = false;
+    _lastSeenGeneration = null;
+    _lastSeenStrapNameRaw = null;
+    if (clearSavedName) Prefs.setString(_kStrapName, '');
+  }
+
+  Future<void> _persistPaired(String remoteId, String? serial,
+      {bool replacing = false}) async {
+    if (_pairingInProgress || _replacementPickerInProgress) {
+      throw StateError('Pairing is already in progress.');
+    }
     final existing = paired;
-    if (existing != null) {
+    final existingIsMaverick = pairedIsMaverick;
+    if (existing != null && !replacing) {
       if (existing.remoteId != remoteId) {
         throw Exception('Forget the current band before pairing another.');
       }
@@ -4783,17 +4889,87 @@ class AppState extends ChangeNotifier {
       if (!engine.isConnected) throw Exception('Connection setup did not complete.');
       return;
     }
+    if (replacing && existing == null) throw StateError('There is no band to replace.');
+    if (replacing && existing!.remoteId == remoteId) {
+      throw const SameBandSelectedException();
+    }
+    final epoch = _pairingEpoch;
+    // A reset empties the store without bumping the pairing epoch (only forget
+    // does), and lowers the gate once it is done. Capture the generation too,
+    // or a save that was queued behind a finished reset writes into the
+    // emptied store and resurrects a pairing.
+    final resetGen = ResetGate.generation;
     _pairingInProgress = true;
+    _replacingBand = replacing;
+    var committed = false;
+    var started = false;
     try {
       final confirmed = await _sync.connectForPairing(
         PairedDevice(remoteId, serial),
+        replacingRemoteId: replacing ? existing?.remoteId : null,
+        onStarted: () => started = true,
+        prepare: replacing ? () async {
+          // Replacement suppresses disconnect callbacks; bank the old band's
+          // still-filling minute before the new session clears its pedometer.
+          await _finalizeLivePedometer();
+          _resetBandIdentity(clearSavedName: false);
+        } : null,
         confirm: () async {
           // Only READY proves we can talk to this band. Until then neither
           // the persisted record nor isPaired may advance onboarding. Save
           // the identity THIS bootstrap discovered, not a stale device hint.
+          if (epoch != _pairingEpoch || ResetGate.changedSince(resetGen)) {
+            throw StateError('Pairing was cancelled.');
+          }
+          if (replacing) {
+            // CLAIM(alarm-band-ownership): bind legacy epochs before switching
+            // identity, so a failed remove cannot arm the replacement on paper.
+            final prefs = await SharedPreferences.getInstance();
+            if (!await bindAlarmEpochToBand(prefs, existing!.remoteId)) {
+              throw StateError('Could not preserve alarm ownership.');
+            }
+          }
+          // The ownership write above can outlive a completed forget/reset;
+          // PairedDevice must not start a new save after that cancellation.
+          if (epoch != _pairingEpoch || ResetGate.changedSince(resetGen)) {
+            throw StateError('Pairing was cancelled.');
+          }
           await PairedDevice.save(remoteId, serial ?? device.serial,
               generation: device.generation);
-          paired = await PairedDevice.load();
+          if (epoch != _pairingEpoch || ResetGate.changedSince(resetGen)) {
+            throw StateError('Pairing was cancelled.');
+          }
+          // `save` returned, so the new band is durable. A failed read-back
+          // must not be mistaken for a failed save: the catch below would
+          // reconnect the OLD band while storage already names the new one,
+          // and the next launch would disagree with this process. Publish
+          // what was just written instead.
+          final savedSerial = cleanDeviceLabel(serial ?? device.serial);
+          final savedGeneration = device.generation;
+          PairedDevice? reloaded;
+          var reloadFailed = false;
+          try {
+            reloaded = await (debugLoadPaired ?? PairedDevice.load)();
+          } catch (e) {
+            reloadFailed = true;
+            _log('Paired band saved, but reading it back failed: $e');
+          }
+          paired = reloadFailed
+              ? PairedDevice(remoteId, savedSerial,
+                  generation: (savedGeneration == 'gen4' ||
+                          savedGeneration == 'gen5')
+                      ? savedGeneration
+                      : null)
+              : reloaded;
+          committed = paired?.remoteId == remoteId;
+          // The old band's name belongs to the old band; the new one banks
+          // its own as soon as it reports it.
+          if (committed && replacing) {
+            Prefs.setString(_kStrapName, '');
+            // An epoch confirms the OLD physical band, never the replacement.
+            // Clear persistence before openSession can reload it and skip SET.
+            await _clearArmedAlarmState();
+          }
         },
       );
       if (!confirmed) {
@@ -4801,9 +4977,34 @@ class AppState extends ChangeNotifier {
         if (blocker != null) throw BleUnavailableException(blocker);
         throw Exception('Connection setup did not complete.');
       }
+      if (replacing && committed) {
+        // CLAIM(pairing-retirement-lock): retirement can revoke approval; a
+        // second replacement must wait until both native calls finish.
+        await IosBleRestore.disarmOne(existing!.remoteId);
+        await (debugRetireBandApproval?.call(existing.remoteId) ??
+            AccessorySetup.removeBand(existing.remoteId));
+      }
+    } catch (error, stack) {
+      // PairedDevice.save rolls back its transaction and preference mirror.
+      // Only reconnect while the old pairing still owns this attempt.
+      if (replacing && started && !committed && epoch == _pairingEpoch &&
+          paired?.remoteId == existing?.remoteId) {
+        _replacingBand = false;
+        _resetBandIdentity(clearSavedName: false);
+        pairedIsMaverick = existingIsMaverick;
+        try {
+          await IosBleRestore.provisioned(existing!.remoteId);
+          await openSession();
+        } catch (restoreError) {
+          _log('Replacement failed; old band is still paired: $restoreError');
+        }
+      }
+      Error.throwWithStackTrace(error, stack);
     } finally {
+      _replacingBand = false;
       _pairingInProgress = false;
     }
+    if (replacing && committed) _onEngineState(LocalDb.kPrimaryDeviceId, device);
     // Now that there's a band to alert about, ask for notification permission
     // (a natural moment; battery/charging alerts depend on it). Best-effort.
     unawaited(NotificationService.instance.ensurePermission());
@@ -4843,7 +5044,23 @@ class AppState extends ChangeNotifier {
       AndroidBackground.openOemAutostartSettings();
 
   Future<void> unpair() async {
+    _pairingEpoch++;
     await _sync.unpairSession();
+    // CLAIM(alarm-band-ownership): the armed alarm belonged to the band being
+    // forgotten. An upgraded install can hold an epoch with no owner tag, which
+    // every band reads as its own: a new band would be treated as already armed
+    // and never receive SET_ALARM. Drop it, in memory too.
+    final forgotten = paired?.remoteId ?? (await PairedDevice.load())?.remoteId;
+    await _clearArmedAlarmState();
+    if (forgotten != null) {
+      // The clear swallows platform errors. If the epoch is still on disk,
+      // tag it with the forgotten band so no other band can adopt it.
+      final alarmPrefs = await SharedPreferences.getInstance();
+      if (alarmPrefs.getInt('alarm_epoch') != null &&
+          !await bindAlarmEpochToBand(alarmPrefs, forgotten)) {
+        _log('[alarm] could not clear or tag the forgotten band\'s alarm');
+      }
+    }
     await PairedDevice.clear();
     pairedIsMaverick = false;
     // Everything the old band told us about itself. The engine's DeviceState
@@ -5084,7 +5301,7 @@ class AppState extends ChangeNotifier {
       // comparing, or a stale in-memory `_savedAlarm` makes this issue a
       // needless duplicate setAlarm write on every connect.
       final prefs = await SharedPreferences.getInstance();
-      final onDisk = prefs.getInt('alarm_epoch');
+      final onDisk = persistedAlarmEpoch(prefs, paired?.remoteId);
       if (onDisk != _savedAlarm) {
         _savedAlarm = onDisk;
         // Adopting another process's arm: a retry still in flight for the
@@ -5282,12 +5499,21 @@ class AppState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     // A newer arm (or a clear) during the await owns what is persisted now.
     if (_disposed || _armGen != gen) return;
-    await prefs.setInt('alarm_epoch', epoch);
+    if (!await prefs.setInt('alarm_epoch', epoch)) {
+      throw StateError('Could not save the armed alarm.');
+    }
     if (_disposed || _armGen != gen) return;
     await prefs.setInt('alarm_set_at_ms', setAtMs);
     if (_disposed || _armGen != gen) return;
     // Not confirmed yet — event 56 (below, in _handleAlarmEvent) flips this.
     await prefs.setBool('alarm_epoch_confirmed', echoed);
+    if (_disposed || _armGen != gen) return;
+    final remoteId = paired?.remoteId;
+    // After a replacement the key can still name the OLD band: an unchecked
+    // failed write would report success with the new epoch under the old owner.
+    if (remoteId != null && !await prefs.setString(kAlarmRemoteId, remoteId)) {
+      throw StateError('Could not record which band holds the alarm.');
+    }
     if (_disposed || _armGen != gen) return;
     if (echoed) {
       await _finishEchoConfirmed(prefs, gen);
@@ -5643,24 +5869,22 @@ class AppState extends ChangeNotifier {
   /// Drop the armed-alarm state (in-memory + persisted). [AlarmConfirmation]'s
   /// `firedAt` deliberately survives `disable()`, so the fired-notification's
   /// dedupeKey still resolves after this runs.
-  void _clearArmedAlarmState() {
+  Future<void> _clearArmedAlarmState() async {
     _savedAlarm = null;
     final gen = ++_armGen;
     device.alarmEpoch = null;
     _alarm.disable();
     _alarmGraceTimer?.cancel();
-    unawaited(() async {
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        // An arm that landed during the await owns the persisted epoch now.
-        if (_armGen != gen) return;
-        await prefs.remove('alarm_epoch');
-        if (_armGen != gen) return;
-        await prefs.remove('alarm_epoch_confirmed');
-      } catch (e) {
-        _log('[alarm] clearing the persisted epoch failed: $e');
-      }
-    }());
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // An arm that landed during the await owns the persisted epoch now.
+      if (_armGen != gen) return;
+      await prefs.remove('alarm_epoch');
+      if (_armGen != gen) return;
+      await prefs.remove('alarm_epoch_confirmed');
+    } catch (e) {
+      _log('[alarm] clearing the persisted epoch failed: $e');
+    }
   }
 
   Future<void> _notifyAlarmFired() async {
@@ -6176,4 +6400,14 @@ class SleepCorrectionUnavailable implements Exception {
   String toString() => eveningPruned
       ? 'the evening before $day is no longer recorded'
       : 'no recordings left to re-analyse $day';
+}
+
+/// The band picked to replace the paired one IS the paired one. Nothing was
+/// touched. Said out loud because returning quietly made the pairing screen
+/// report "Paired" for a replacement that never happened.
+class SameBandSelectedException implements Exception {
+  const SameBandSelectedException();
+  @override
+  String toString() =>
+      'That band is already paired. Choose a different band to replace it.';
 }
