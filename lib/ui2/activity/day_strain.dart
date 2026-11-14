@@ -342,9 +342,9 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
                 (
                   d.wearAsOf == null
                       ? (l?.dayStrainWorn ?? 'Worn')
-                      : (l?.dayStrainWornUntil(
+                      : (l?.dayStrainWornAsOf(
                               asOfText(d.wearAsOf!, d.shownDay, l)) ??
-                          'Worn until ${asOfText(d.wearAsOf!, d.shownDay, l)}'),
+                          'Worn as of ${asOfText(d.wearAsOf!, d.shownDay, l)}'),
                   '${d.wornMin} min',
                   C.teal,
                 ),

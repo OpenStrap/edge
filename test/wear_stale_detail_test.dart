@@ -193,7 +193,7 @@ void main() {
         DayStrainData(wornMin: 300, coveragePct: 90, wearAsOf: edge),
         1,
       );
-      expect(find.text('Worn until ${clockOfTs(edge)}'), findsOneWidget);
+      expect(find.text('Worn as of ${clockOfTs(edge)}'), findsOneWidget);
       expect(find.text('Worn'), findsNothing);
       // The pump is the overflow assertion at the largest iOS text size.
       await show(
@@ -214,7 +214,7 @@ void main() {
         1,
       );
       expect(
-        find.text('Worn until ${prettyDay('2026-07-15')} ${clockOfTs(nextDay)}'),
+        find.text('Worn as of ${prettyDay('2026-07-15')} ${clockOfTs(nextDay)}'),
         findsOneWidget,
       );
     });
@@ -222,7 +222,7 @@ void main() {
     testWidgets('a current one is plain "Worn"', (t) async {
       await show(t, const DayStrainData(wornMin: 300, coveragePct: 90), 1);
       expect(find.text('Worn'), findsOneWidget);
-      expect(find.textContaining('Worn until'), findsNothing);
+      expect(find.textContaining('Worn as of'), findsNothing);
     });
   });
 }

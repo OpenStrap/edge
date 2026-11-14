@@ -8168,8 +8168,8 @@
       }
     }
   },
-  "dayStrainWornUntil": "Ношение до {time}",
-  "@dayStrainWornUntil": {
+  "dayStrainWornAsOf": "Ношение, данные на {time}",
+  "@dayStrainWornAsOf": {
     "placeholders": {
       "time": {
         "type": "String"
