@@ -34,7 +34,6 @@ void main() {
     final write = fn.indexOf('await _deriveDay(');
     expect(check, greaterThan(lock));
     expect(check, lessThan(write));
-    final ingest = File('lib/import/noop_ingest.dart').readAsStringSync();
-    expect('resetGeneration: _resetGen'.allMatches(ingest).length, 2);
+    // Session coverage forwarding is exercised by noop_step_coverage_reset_test.
   });
 }
