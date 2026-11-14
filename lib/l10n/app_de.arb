@@ -3629,7 +3629,7 @@
   "pairBandNow": "Dein Band jetzt: {name}. Deine Daten bleiben beim Wechsel erhalten.",
   "pairReplaceBand": "Dieses Band koppeln, dann {name} trennen",
   "pairReplaceConfirmTitle": "{name} nach erfolgreicher Verbindung ersetzen?",
-  "pairReplaceConfirmBody": "Dein bisheriges Band bleibt bei Fehlern oder Abbruch gekoppelt. Deine Daten bleiben erhalten.",
+  "pairReplaceConfirmBody": "Dein bisheriges Band bleibt bei Fehlern oder Abbruch gekoppelt. Daten, die bereits auf diesem Telefon gespeichert sind, bleiben erhalten. Was auf dem alten Band noch nicht synchronisiert wurde, wird nach dem Wechsel nicht mehr auf dieses Telefon übertragen.",
   "pairReplaceConfirmYes": "Ersatz koppeln",
   "pairCurrentBandFallback": "dein Band",
   "pairWearableLead": "Es kann deine Tage mit Schlaf, Erholung und Herzfrequenz füllen.",

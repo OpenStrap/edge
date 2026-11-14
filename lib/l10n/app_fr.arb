@@ -3399,7 +3399,7 @@
   "pairBandNow": "Votre bracelet actuel : {name}. Vos données restent quand vous changez.",
   "pairReplaceBand": "Associer ce bracelet, puis déconnecter {name}",
   "pairReplaceConfirmTitle": "Remplacer {name} après la connexion de ce bracelet ?",
-  "pairReplaceConfirmBody": "Votre bracelet actuel reste associé si la configuration échoue ou si vous annulez. Vos données restent.",
+  "pairReplaceConfirmBody": "Votre bracelet actuel reste associé si la configuration échoue ou si vous annulez. Les données déjà enregistrées sur ce téléphone restent. Les données non synchronisées restées sur l’ancien bracelet ne seront pas synchronisées avec ce téléphone après le remplacement.",
   "pairReplaceConfirmYes": "Associer le remplacement",
   "pairCurrentBandFallback": "votre bracelet",
   "pairWearableLead": "Il peut compléter vos journées avec le sommeil, la récupération et la fréquence cardiaque.",
