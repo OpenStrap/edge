@@ -3408,7 +3408,7 @@
   "pairStrapNote": "Les deux nécessitent « Utiliser pendant les entraînements » activé.",
   "pairDeviceNamed": "Associer {name}",
   "pairUseForWorkouts": "L’utiliser seulement pour les entraînements",
-  "pairReplaceUnpairFailed": "Impossible de dissocier votre bracelet, le nouveau n’a donc pas été associé. Réessayez.",
+  "pairReplaceUnpairFailed": "Votre nouveau bracelet est associé, mais l’ancien n’a pas pu être retiré.",
   "pairWearableLeadPebble": "Pebble 2 peut compléter vos journées avec le sommeil, la récupération et la fréquence cardiaque. Pebble 2 SE affiche le sommeil et les pas enregistrés par la montre. Elle n’a pas de capteur de fréquence cardiaque, donc cette app ne peut pas calculer la charge quotidienne ni estimer la récupération à partir de ses données.",
   "whoopFirmwareWarningTitle": "Utilisateurs WHOOP : ne vous reconnectez pas à l’application WHOOP",
   "whoopFirmwareWarningAction": "Si vous utilisez OpenStrap ou une autre application open source, ou si vous comptez y passer plus tard, ne reconnectez pas votre bracelet à l’application WHOOP officielle. Elle peut installer des mises à jour du firmware automatiquement. Désinstallez ou désactivez l’application WHOOP pour l’empêcher de mettre à jour votre bracelet.",

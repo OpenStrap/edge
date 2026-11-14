@@ -16753,7 +16753,7 @@
   "@pairUseForWorkouts": {
     "description": "Text link on a WHOOP sheet: keep it for workouts only, not as the main band."
   },
-  "pairReplaceUnpairFailed": "ยกเลิกการจับคู่สายรัดของคุณไม่สำเร็จ จึงยังไม่ได้จับคู่สายรัดใหม่ ลองอีกครั้ง",
+  "pairReplaceUnpairFailed": "จับคู่สายรัดใหม่แล้ว แต่ลบสายรัดเดิมไม่สำเร็จ",
   "@pairReplaceUnpairFailed": {
     "description": "Shown when unpairing the old band failed during “Unpair (your band) and pair this one”; nothing else ran."
   },

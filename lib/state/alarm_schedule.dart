@@ -22,6 +22,17 @@ int? persistedAlarmEpoch(SharedPreferences prefs, String? remoteId) {
   return owner == null || owner == remoteId ? prefs.getInt('alarm_epoch') : null;
 }
 
+/// CLAIM(alarm-band-ownership): tag an untagged (legacy) or this band's own
+/// armed epoch with [remoteId] before that band's identity is replaced or
+/// forgotten, so a later, different band can never read it as its own arm.
+/// True when there is nothing to bind or the write landed.
+Future<bool> bindAlarmEpochToBand(SharedPreferences prefs, String remoteId) async {
+  if (prefs.getInt('alarm_epoch') == null) return true;
+  final owner = prefs.getString(kAlarmRemoteId);
+  if (owner != null && owner != remoteId) return true;
+  return prefs.setString(kAlarmRemoteId, remoteId);
+}
+
 /// One weekday's slot in the schedule. Immutable — callers build a new one to
 /// change a field.
 class AlarmScheduleEntry {

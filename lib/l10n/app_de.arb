@@ -3638,7 +3638,7 @@
   "pairStrapNote": "Für beides muss „Beim Training nutzen“ an sein.",
   "pairDeviceNamed": "{name} koppeln",
   "pairUseForWorkouts": "Nur fürs Training nutzen",
-  "pairReplaceUnpairFailed": "Dein Band ließ sich nicht trennen, daher wurde das neue nicht gekoppelt. Versuche es erneut.",
+  "pairReplaceUnpairFailed": "Dein neues Band ist gekoppelt, aber das alte Band konnte nicht entfernt werden.",
   "pairWearableLeadPebble": "Pebble 2 kann deine Tage mit Schlaf, Erholung und Herzfrequenz füllen. Pebble 2 SE zeigt die eigenen Schlaf- und Schrittdaten der Uhr. Sie hat keinen Herzfrequenzsensor, daher kann diese App daraus weder die tägliche Belastung berechnen noch die Erholung schätzen.",
   "welcomeCoachKeyReentry": "Dein API-Schlüssel für den Coach bleibt im sicheren Speicher und wurde nicht gesichert. Gib ihn in den KI-Einstellungen erneut ein, um den Coach auf diesem Telefon zu nutzen.",
   "welcomeSettingsSkipped": "{n, plural, =1{1 Einstellung in der Sicherung war nicht lesbar und wurde übersprungen} other{{n} Einstellungen in der Sicherung waren nicht lesbar und wurden übersprungen}}",

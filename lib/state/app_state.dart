@@ -4806,6 +4806,11 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   Future<PairedDevice?> Function()? debugLoadPaired;
 
+  /// Test hook: runs right after the picker's accessory was provisioned, so a
+  /// forget can be made to land inside that await.
+  @visibleForTesting
+  Future<void> Function()? debugAfterReplacementProvisioned;
+
   /// Verify and save the replacement before retiring the old phone approval.
   /// A failed attempt keeps the old pairing and attempts to reconnect it.
   Future<void> replaceWith(BluetoothDevice d) =>
@@ -4828,6 +4833,14 @@ class AppState extends ChangeNotifier {
         throw StateError('The current pairing changed.');
       }
       await IosBleRestore.provisioned(id);
+      await debugAfterReplacementProvisioned?.call();
+      // The provisioning await can outlive a forget/reset that started after
+      // the check above. _persistPaired captures the CURRENT epoch as its own,
+      // so a stale picker result would otherwise enter replacement, and its
+      // save could recreate the pairing the user just cancelled.
+      if (epoch != _pairingEpoch || paired?.remoteId != old.remoteId) {
+        throw StateError('The current pairing changed.');
+      }
       _replacementPickerInProgress = false;
       await _persistPaired(id, null, replacing: true);
     } finally {
@@ -4897,12 +4910,8 @@ class AppState extends ChangeNotifier {
             // CLAIM(alarm-band-ownership): bind legacy epochs before switching
             // identity, so a failed remove cannot arm the replacement on paper.
             final prefs = await SharedPreferences.getInstance();
-            if (prefs.getInt('alarm_epoch') != null &&
-                (prefs.getString(kAlarmRemoteId) == null ||
-                    prefs.getString(kAlarmRemoteId) == existing!.remoteId)) {
-              if (!await prefs.setString(kAlarmRemoteId, existing!.remoteId)) {
-                throw StateError('Could not preserve alarm ownership.');
-              }
+            if (!await bindAlarmEpochToBand(prefs, existing!.remoteId)) {
+              throw StateError('Could not preserve alarm ownership.');
             }
           }
           // The ownership write above can outlive a completed forget/reset;
@@ -5022,6 +5031,21 @@ class AppState extends ChangeNotifier {
   Future<void> unpair() async {
     _pairingEpoch++;
     await _sync.unpairSession();
+    // CLAIM(alarm-band-ownership): the armed alarm belonged to the band being
+    // forgotten. An upgraded install can hold an epoch with no owner tag, which
+    // every band reads as its own: a new band would be treated as already armed
+    // and never receive SET_ALARM. Drop it, in memory too.
+    final forgotten = paired?.remoteId ?? (await PairedDevice.load())?.remoteId;
+    await _clearArmedAlarmState();
+    if (forgotten != null) {
+      // The clear swallows platform errors. If the epoch is still on disk,
+      // tag it with the forgotten band so no other band can adopt it.
+      final alarmPrefs = await SharedPreferences.getInstance();
+      if (alarmPrefs.getInt('alarm_epoch') != null &&
+          !await bindAlarmEpochToBand(alarmPrefs, forgotten)) {
+        _log('[alarm] could not clear or tag the forgotten band\'s alarm');
+      }
+    }
     await PairedDevice.clear();
     pairedIsMaverick = false;
     // Everything the old band told us about itself. The engine's DeviceState
@@ -5470,7 +5494,11 @@ class AppState extends ChangeNotifier {
     await prefs.setBool('alarm_epoch_confirmed', echoed);
     if (_disposed || _armGen != gen) return;
     final remoteId = paired?.remoteId;
-    if (remoteId != null) await prefs.setString(kAlarmRemoteId, remoteId);
+    // After a replacement the key can still name the OLD band: an unchecked
+    // failed write would report success with the new epoch under the old owner.
+    if (remoteId != null && !await prefs.setString(kAlarmRemoteId, remoteId)) {
+      throw StateError('Could not record which band holds the alarm.');
+    }
     if (_disposed || _armGen != gen) return;
     if (echoed) {
       await _finishEchoConfirmed(prefs, gen);

@@ -14,6 +14,7 @@ import 'package:openstrap_edge/ble/ios_ble_restore.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/notify/notification_service.dart';
 import 'package:openstrap_edge/state/app_state.dart' show SameBandSelectedException;
+import 'package:openstrap_edge/state/alarm_schedule.dart' show kAlarmRemoteId, persistedAlarmEpoch;
 import 'package:openstrap_edge/state/prefs.dart' show Prefs;
 import 'package:openstrap_edge/sync/band_ownership.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
@@ -354,9 +355,32 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('alarm_remote_id', 'retired-band');
       rig.engine.events.clear();
-      await rearmHeadlessAlarm(rig.engine);
+      await rearmHeadlessAlarm(rig.engine, PairedDevice(kRemoteId, kSerial));
       expect(rig.engine.count('armAlarm'), 1);
       expect(prefs.getString('alarm_remote_id'), kRemoteId);
+    }));
+
+    // WHY: a foreground replacement can commit another band while a headless
+    // sync is still running. SET_ALARM went to the SESSION's band, so the epoch
+    // must be recorded under that band, never under the pairing loaded after.
+    // catches: reloading the current pairing inside rearmHeadlessAlarm.
+    test('headless re-arm records the alarm under the session band, not the current pairing',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      final tomorrow = DateTime.now().add(const Duration(days: 1));
+      await rig.app.setScheduleDay(weekday: tomorrow.weekday - 1,
+          hour: 7, minute: 0, enabled: true);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('alarm_epoch');
+      await prefs.setString('alarm_remote_id', 'retired-band');
+      rig.engine.events.clear();
+      // The persisted pairing is kRemoteId; the session that armed was another.
+      await rearmHeadlessAlarm(rig.engine, PairedDevice(replacementId, null));
+      expect(rig.engine.count('armAlarm'), 1);
+      expect(prefs.getString('alarm_remote_id'), replacementId,
+          reason: 'recorded under the band that received SET_ALARM');
+      expect((await PairedDevice.load())?.remoteId, kRemoteId);
     }));
 
     // WHY: a replacement can leave the old link before its prepare callback.
@@ -424,6 +448,80 @@ void main() {
       expect(rig.engine.only('connect'),
           isNot(contains('connect:$kRemoteId:gen4')),
           reason: 'the old band must not be reconnected after the save');
+    }));
+
+    // WHY: an upgraded install can hold an armed epoch with no owner tag, which
+    // every band reads as its own. After a forget, a new band would be treated
+    // as already armed and never receive SET_ALARM.
+    // catches: forgetting a band and leaving its armed alarm readable.
+    test('forgetting a band drops its armed alarm so the next band is armed afresh',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(kAlarmRemoteId);
+      await prefs.setInt('alarm_epoch', 1893456000);
+      await rig.app.unpair();
+      expect(prefs.getInt('alarm_epoch'), isNull);
+      expect(rig.app.alarmEpoch, isNull);
+      expect(persistedAlarmEpoch(prefs, replacementId), isNull,
+          reason: 'a different band is not treated as armed');
+    }));
+
+    // WHY: the provisioning await can outlive a forget that started after the
+    // first check; _persistPaired would capture the NEW epoch as its own and
+    // could recreate the pairing the user just cancelled.
+    // catches: a stale picker result entering replacement after unpair().
+    test('a forget during picker provisioning stops the replacement',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      const channel = MethodChannel('openstrap/accessory_setup');
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'showPicker') return replacementId;
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      // The forget STARTS inside the provisioning await and is still running
+      // (the old pairing is still visible) when replacement would proceed.
+      Future<void>? forgetting;
+      rig.app.debugAfterReplacementProvisioned = () async {
+        forgetting = rig.app.unpair();
+      };
+      rig.engine.events.clear();
+      await expectLater(
+          rig.app.replaceViaAccessorySetup(),
+          throwsA(isA<StateError>().having(
+              (e) => e.message, 'message', contains('current pairing changed'))));
+      await forgetting;
+      expect(await PairedDevice.load(), isNull,
+          reason: 'the forgotten pairing is not recreated');
+      expect(rig.app.isPaired, isFalse);
+      expect(rig.engine.only('connect'), isNot(contains('connect:$replacementId:-')));
+    }));
+
+    // WHY: the old band's sync burst must be over before the candidate
+    // connects, or it can ask the NEW band for history.
+    // catches: connecting the candidate while the superseded burst still runs.
+    test('replacement waits for the superseded sync burst before connecting',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      rig.engine.events.clear();
+      final gate = Completer<void>();
+      rig.engine.syncGate = gate;
+      final burst = rig.app.syncNow();
+      await rig.waitFor(() => rig.engine.events.any((e) => e.startsWith('runSync')));
+      final replacing = rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+      await settleMs(60);
+      expect(rig.engine.only('connect'), isNot(contains('connect:$replacementId:-')),
+          reason: 'the candidate must not connect while the old burst runs');
+      rig.engine.syncGate = null;
+      gate.complete();
+      await burst;
+      await replacing;
+      expect(rig.engine.only('connect'), contains('connect:$replacementId:-'));
     }));
 
     // WHY: a lost band's retry must finish before candidate bootstrap starts.

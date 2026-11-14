@@ -563,6 +563,16 @@ class SyncController {
         _attemptStartedAt = null;
         engine.clearReconnecting();
         await engine.disconnect();
+        // The old band's sync burst wakes within a poll interval of the
+        // teardown. If the candidate connected first it could reach its loop
+        // head and ask the NEW band for history. The old runSync resolves on
+        // link drop, so this wait is short; bound it anyway.
+        final superseded = _syncBurst;
+        if (superseded != null) {
+          try {
+            await superseded.timeout(const Duration(seconds: 15));
+          } catch (_) {}
+        }
         if (!current()) return false;
       }
       await prepare?.call();
