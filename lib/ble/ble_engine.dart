@@ -1790,9 +1790,10 @@ class BleEngine {
     bool listening = false,
     bool? liveReady,
     bool armDrains = true,
+    String remoteId = 'AA:BB:CC:DD:EE:FF',
   }) {
     final session = _Session(
-      BluetoothDevice(remoteId: const DeviceIdentifier('AA:BB:CC:DD:EE:FF')),
+      BluetoothDevice(remoteId: DeviceIdentifier(remoteId)),
     );
     session.connected = true;
     session.sawConnected = true;
@@ -3138,11 +3139,19 @@ class BleEngine {
       _emptySync = EmptySyncTracker();
       final bandId = session.device.remoteId.str;
       final down = _linkDownAt;
-      if (bandId != _stuckStrapBand ||
+      final bandChanged = bandId != _stuckStrapBand;
+      if (bandChanged ||
           (down != null &&
               _monotonicSecs() - down > kStuckOfflineResetSeconds)) {
         _stuckStrap = StuckStrapDetector();
         _stuckStrapBand = bandId;
+      }
+      // Band-specific fault flags belong to the band that raised them: left
+      // set, band A's would name band B's 50.43 firmware lock (bandStatusFor)
+      // until band B banked records. A same-band reconnect keeps them.
+      if (bandChanged) {
+        state.strapNeedsReboot = false;
+        state.syncClockLost = false;
       }
       _frameCorruption = FrameCorruptionDetector();
       _crcFailuresThisSession = 0;
