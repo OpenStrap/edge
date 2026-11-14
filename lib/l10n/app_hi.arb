@@ -2971,6 +2971,10 @@
       }
     }
   },
+  "sleepDetailMedicalDisclaimer": "प्रायोगिक शोध एल्गोरिदम। यह चिकित्सा उपकरण नहीं है। नींद से जुड़ी समस्याओं के लिए किसी चिकित्सक से परामर्श करें।",
+  "@sleepDetailMedicalDisclaimer": {
+    "description": "Disclaimer shown on the sleep detail screen."
+  },
   "welcomeCoachKeyReentry": "आपके कोच की API कुंजी सुरक्षित स्टोरेज में रहती है और बैकअप में शामिल नहीं की गई। इस फ़ोन पर कोच इस्तेमाल करने के लिए इसे AI सेटिंग में फिर से दर्ज करें।",
   "welcomeSettingsSkipped": "{n, plural, =1{बैकअप की 1 सेटिंग पढ़ी नहीं जा सकी और छोड़ दी गई} other{बैकअप की {n} सेटिंग्स पढ़ी नहीं जा सकीं और छोड़ दी गईं}}",
   "@welcomeSettingsSkipped": {
@@ -3113,9 +3117,101 @@
   "pairModeTitle": "इसे पेयरिंग मोड में डालें",
   "pairModeNoSite": "यह किसी एक निर्माता का नहीं, एक सामान्य डिवाइस है, इसलिए निर्माता के कोई चरण नहीं हैं।",
   "pairOuraExistingKeyGuidance": "क्या आप पहले से Oura ऐप इस्तेमाल करते हैं? रिंग को उस ऐप में पेयर रहने दें और उसकी मौजूदा कुंजी से पेयर करें। नीचे दिए रीसेट के चरण छोड़ दें। केवल नई कुंजी चाहिए तो ही रीसेट करें।",
+  "pairAddDevice": "डिवाइस जोड़ें",
+  "pairKindAll": "सभी",
+  "pairKindStrap": "चेस्ट स्ट्रैप और आर्मबैंड",
+  "pairKindRing": "रिंग",
+  "pairKindWatch": "घड़ियाँ",
+  "pairGoBack": "वापस जाएँ",
+  "pairAddDeviceSub": "रिंग, घड़ियाँ और हार्ट-रेट स्ट्रैप",
+  "pairAddDeviceSubtitle": "हर डिवाइस दिखाता है कि वह कहाँ फ़िट होता है: हर दिन, या केवल वर्कआउट में।",
+  "pairBandFoundBody": "यह सिर्फ़ वर्कआउट की तुलना में हर दिन कहीं ज़्यादा करता है। आप क्या चाहते हैं?",
+  "pairBandFoundBodyHasBand": "आपके पास पहले से एक बैंड है। एक समय में केवल एक ही आपका बैंड हो सकता है।",
+  "pairIdentifiedBody": "यह हार्ट-रेट स्ट्रैप जैसा दिखा, लेकिन कनेक्ट होने पर इसने खुद को {label} बताया। कुछ भी सहेजा नहीं गया।",
+  "pairAsMyBand": "इसे मेरे बैंड के रूप में पेयर करें",
+  "pairSecondaryPaired": "केवल वर्कआउट के लिए पेयर किया गया।",
+  "pairBandNow": "अभी आपका बैंड: {name}। बदलने पर आपका डेटा बना रहता है।",
+  "pairReplaceBand": "यह बैंड पेयर करें, फिर {name} को डिस्कनेक्ट करें",
+  "pairReplaceConfirmTitle": "यह बैंड कनेक्ट होने के बाद {name} को बदलें?",
+  "pairReplaceConfirmBody": "सेटअप विफल होने या रद्द करने पर आपका मौजूदा बैंड पेयर रहेगा। इस फ़ोन पर पहले से सहेजा गया डेटा बना रहेगा। पुराने बैंड पर जो डेटा अभी सिंक नहीं हुआ है, वह बदलाव के बाद इस फ़ोन पर सिंक नहीं होगा।",
+  "pairReplaceConfirmYes": "नया बैंड पेयर करें",
+  "pairCurrentBandFallback": "आपका बैंड",
+  "pairWearableLead": "यह आपके दिनों को नींद, रिकवरी और हृदय गति से भर सकता है।",
+  "pairWearableNote": "आपके WHOOP के बिना वाले दिनों को भरता है। प्रायोगिक है, इसलिए इसे डिवाइस में चालू करें।",
+  "pairStrapLead": "यह वर्कआउट के दौरान हृदय गति जोड़ता है। यह नींद, रिकवरी या दैनिक शारीरिक परिश्रम रिकॉर्ड नहीं करता।",
+  "pairStrapNote": "वर्कआउट के दौरान हृदय गति रिकॉर्ड करने के लिए “वर्कआउट के दौरान इस्तेमाल करें” चालू करें।",
+  "pairDeviceNamed": "{name} पेयर करें",
+  "pairUseForWorkouts": "इसे केवल वर्कआउट के लिए इस्तेमाल करें",
+  "pairReplaceUnpairFailed": "आपका नया बैंड पेयर हो गया है, लेकिन पुराना बैंड हटाया नहीं जा सका।",
+  "pairWearableLeadPebble": "Pebble 2 आपके दिनों को नींद और हृदय गति से भर सकता है। Pebble 2 SE घड़ी की अपनी नींद और कदमों की रीडिंग दिखाता है। उसमें हृदय गति सेंसर नहीं है, इसलिए यह ऐप उसके डेटा से रोज़ का शारीरिक भार नहीं निकाल सकता और न ही रिकवरी का अनुमान लगा सकता है।",
+  "pairMainBandWhoopOnly": "मुख्य बैंड: केवल WHOOP 4.0 या WHOOP 5.0/MG। दूसरे डिवाइस अतिरिक्त डिवाइस के रूप में जोड़े जा सकते हैं।",
+  "pairBandTitle": "अपना बैंड पेयर करें",
+  "pairBandSubtitle": "वही चुनें जो आप पहनते हैं। हम उसे आस-पास खोजेंगे।",
+  "pairStrapOnlyLink": "मेरे पास सिर्फ़ हार्ट-रेट स्ट्रैप है",
+  "pairWhoopRowLine": "नींद, रिकवरी, शारीरिक परिश्रम, हृदय गति और बहुत कुछ",
+  "pairSetUpTitle": "सेट अप",
+  "capLabelSleep": "नींद",
+  "capLabelRecovery": "रिकवरी",
+  "capLabelStrain": "शारीरिक परिश्रम",
+  "capLabelHrv": "हृदय गति में उतार-चढ़ाव (HRV)",
+  "capLabelSkinTemperature": "त्वचा का तापमान",
+  "capLabelBloodOxygen": "रक्त में ऑक्सीजन",
+  "capLabelWorkoutHeartRate": "वर्कआउट के दौरान हृदय गति",
+  "capLabelWorkoutBeatToBeat": "वर्कआउट के दौरान धड़कन-दर-धड़कन का समय",
+  "capLabelSteps": "कदम",
+  "capReasonSkinTempNights": "कुछ रातों के बाद",
+  "capReasonEstimated": "अनुमान है, सीधी माप नहीं",
+  "capReasonEarly": "शुरुआती अनुमान; पहले कुछ हफ़्तों में यह बेहतर होता जाता है",
+  "capVendorReported": "डिवाइस की अपनी माप",
+  "slotSendsHeading": "भेजता है",
+  "slotDoesntSendHeading": "नहीं भेजता",
+  "pairSectionTitle": "डिवाइस पेयर करें",
+  "pairCardBandBody": "केवल WHOOP 4.0 या WHOOP 5.0/MG। नींद, रिकवरी और शारीरिक परिश्रम, चौबीसों घंटे।",
+  "pairUnpairBand": "बैंड अनपेयर करें",
+  "capLabelHeartRate": "हृदय गति और आराम की हृदय गति",
+  "capLabelRespiration": "श्वसन",
+  "capReasonFirstNights": "पहली 14 रातों तक अनुमानित",
+  "capReasonOwnStagesRing": "रिंग के अपने नींद चरणों से",
+  "capReasonOwnStages": "डिवाइस के अपने नींद चरणों से",
+  "capReasonLiveSessions": "लाइव सत्रों के दौरान",
+  "slotEveryDay": "हर दिन",
+  "slotWorkoutsOnly": "केवल वर्कआउट",
+  "pairWearableCardNote": "आपके WHOOP के बिना वाले दिनों को भरता है। प्रायोगिक है, इसलिए इसे नीचे चालू करें।",
+  "pairWhatItSends": "यह क्या भेजता है",
+  "capReasonUnconfirmed": "अगर यह डिवाइस इसे भेजता है, पुष्टि नहीं हुई",
+  "capReasonPebble2Only": "केवल Pebble 2। 2 SE में हृदय गति सेंसर नहीं है।",
+  "capReasonPebble2OnlyEstimated": "केवल Pebble 2, और यह अनुमान है, सीधी माप नहीं। 2 SE में हृदय गति सेंसर नहीं है।",
+  "slotColumnReason": "{column}: {reason}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  },
   "whoopFirmwareWarningTitle": "WHOOP उपयोगकर्ता: WHOOP ऐप से दोबारा कनेक्ट न करें",
   "whoopFirmwareWarningAction": "अगर आप OpenStrap या कोई दूसरा ओपन-सोर्स ऐप इस्तेमाल करते हैं, या बाद में किसी पर जाने की सोच रहे हैं, तो अपना बैंड आधिकारिक WHOOP ऐप से दोबारा कनेक्ट न करें। वह फ़र्मवेयर अपडेट अपने-आप इंस्टॉल कर सकता है। WHOOP ऐप को अनइंस्टॉल या अक्षम कर दें, ताकि वह आपके बैंड को अपडेट न कर सके।",
   "whoopFirmwareWarningDetails": "WHOOP 5.0 / MG के फ़र्मवेयर 50.43.1.0 और 50.43.2.0 के बारे में रिपोर्टें बताती हैं कि डेटा तक पहुँच रोक दी जाती है। ब्लूटूथ फिर भी कनेक्ट हो सकता है। प्रभावित बैंड को अनलॉक करने के लिए WHOOP द्वारा साइन किया गया मेंबरशिप टोकन चाहिए, जिसे OpenStrap जारी नहीं कर सकता। हम समाधान पर काम कर रहे हैं, लेकिन अभी कोई उपाय उपलब्ध नहीं है।",
+  "pairSearchDevices": "डिवाइस खोजें",
+  "pairPrimaryCannotBeSensor": "यह पहले से आपका मुख्य बैंड है। इसे वर्कआउट सेंसर के रूप में भी पेयर नहीं किया जा सकता।",
+  "capReasonSkinTempProvisional": "अस्थायी अनुमान; कुछ रातों का डेटा चाहिए",
   "alarmNextLabel": "अगला",
   "alarmScheduleGroup": "साप्ताहिक शेड्यूल",
   "alarmWakeTimeRowTitle": "जागने का समय",
@@ -3286,7 +3382,7 @@
   "presentationS": "s",
   "presentationV": "µV",
   "presentationReadsTheRingDirectlyNoAccountNoKeyExchange": "रिंग को सीधे पढ़ता है — कोई खाता नहीं, कोई की-एक्सचेंज नहीं।",
-  "presentationPebble2OrPebble2SEOnlyPairsOnly": "सिर्फ़ Pebble 2 या Pebble 2 SE। फ़िलहाल सिर्फ़ पेयर होता है — अभी कुछ भी पढ़ा या सहेजा नहीं जाता।",
+  "presentationPebble2OrPebble2SEOnlyPairsOnly": "सिर्फ़ Pebble 2 या Pebble 2 SE। प्रायोगिक सहायता: कदम और नींद सिंक करके सहेजता है, साथ ही Pebble 2 पर हृदय गति भी। SE में हृदय गति सेंसर नहीं है।",
   "presentationTheOriginalFossilSkagenHybridSmartwatchNotTheNewer": "मूल Fossil/Skagen हाइब्रिड स्मार्टवॉच, नई Hybrid HR नहीं। पेयर और कनेक्ट होती है; अभी इससे कुछ नहीं निकाला जाता।",
   "presentationABudgetActivityBandPairsAndBanksItsRaw": "एक सस्ता एक्टिविटी बैंड। पेयर होता है और अपना कच्चा डेटा सहेजता है, लेकिन अभी इससे कुछ नहीं निकाला जाता।",
   "presentationPairsAndBanksItsRawDataNothingIsDecoded": "पेयर होता है और अपना कच्चा डेटा सहेजता है — अभी कुछ भी डिकोड नहीं होता।",
@@ -3465,5 +3561,11 @@
   "stepCalSaveFailed": "वह कैलिब्रेशन सहेजा नहीं जा सका।",
   "stepCalDoneGait": "सहेजा गया। आपने {count} कदम गिने और बैंड ने {band} कदम देखे। अब से इस तरह की चाल {pct}% से ठीक की जाएगी।",
   "stepCalDoneHousehold": "सहेजा गया। बैंड द्वारा देखे गए {band} कदमों में से आपके फ़ोन ने {count} कदम गिने। घर के कामों की हलचल अब {gain} के अनुपात में समायोजित होगी।",
-  "dayStepsWhoop4NoCounter": "WHOOP 4.0 में अपना कोई स्टेप काउंटर नहीं है, इसलिए यह कदम तभी गिनता है जब यह ऐप उसका लाइव डेटा प्राप्त कर रहा हो।"
+  "pairReplaceMyBand": "मेरा बैंड बदलें",
+  "dayStepsWhoop4NoCounter": "WHOOP 4.0 में अपना कोई स्टेप काउंटर नहीं है, इसलिए यह कदम तभी गिनता है जब यह ऐप उसका लाइव डेटा प्राप्त कर रहा हो।",
+  "healthWearNotUpdatedSince": "{time} से अपडेट नहीं हुआ",
+  "dayStrainWornAsOf": "पहना, {time} तक का आंकड़ा",
+  "bandStatusFirmwareLockedTitle": "बैंड का फ़र्मवेयर शायद उसका डेटा रोक रहा है",
+  "bandStatusFirmwareLockedReason": "यह बैंड WHOOP फ़र्मवेयर 50.43 पर चल रहा है, जो कनेक्ट होकर ऐप को जवाब दे सकता है, लेकिन जब तक बैंड पर WHOOP द्वारा साइन किया गया सदस्यता टोकन न हो, तब तक हो सकता है कि कोई रिकॉर्डिंग या लाइव हृदय गति न भेजे। डेटा न आने का एक संभावित कारण यह हो सकता है। OpenStrap वह टोकन जारी नहीं कर सकता। यहाँ पहले से सहेजा गया सब कुछ सुरक्षित है।",
+  "bandStatusFirmwareLockedFix": "अगर वजह फ़र्मवेयर है, तो ऐप इसे बदल नहीं सकता और बैंड के फिर से रिकॉर्डिंग भेजते ही यह संदेश हट जाएगा"
 }

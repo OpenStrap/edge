@@ -149,10 +149,11 @@ class _Rig {
   }
 
   /// A fresh fake link (a reconnect after a failed connect tore it down).
-  void relink({bool armDrains = true}) {
+  void relink({bool armDrains = true, String remoteId = 'AA:BB:CC:DD:EE:FF'}) {
     engine.debugInstallFakeLink(
       band: BandProfile.gen5,
       armDrains: armDrains,
+      remoteId: remoteId,
       onWrite: (frame) async {
         final inner = parseFrame(frame, profile: BandProfile.gen5)!.inner;
         commands.add((seq: inner[1], opcode: inner[2], body: inner.sublist(3)));
@@ -1529,6 +1530,32 @@ void main() {
         ScanAcceptPolicy.accepts(['0000180f-0000-1000-8000-00805f9b34fb']),
         isNull,
       );
+    });
+  });
+
+  group('band fault flags belong to the band that raised them', () {
+    // Band A's flags would otherwise name band B's 50.43 firmware lock until
+    // band B banked records.
+    test('a different band clears strapNeedsReboot/syncClockLost; the same '
+        'band keeps them', () {
+      fakeAsync((async) {
+        final rig = _Rig()..answerAll();
+        expect(_run(rig, async), isTrue);
+        rig.engine.state
+          ..strapNeedsReboot = true
+          ..syncClockLost = true;
+
+        rig.relink();
+        expect(_run(rig, async), isTrue);
+        expect(rig.engine.state.strapNeedsReboot, isTrue,
+            reason: 'a same-band reconnect is not evidence the fault cleared');
+        expect(rig.engine.state.syncClockLost, isTrue);
+
+        rig.relink(remoteId: '11:22:33:44:55:66');
+        expect(_run(rig, async), isTrue);
+        expect(rig.engine.state.strapNeedsReboot, isFalse);
+        expect(rig.engine.state.syncClockLost, isFalse);
+      });
     });
   });
 }

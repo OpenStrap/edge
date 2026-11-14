@@ -998,151 +998,151 @@
   },
   "flashWarning": "Installing an image you supply yourself can permanently damage your strap, void its warranty and stop it working. It cannot be undone from this app. OpenStrap does not provide, review or endorse any image, and OpenStrap and its contributors accept no responsibility or liability for any loss or damage. You do this entirely at your own risk.",
   "@flashWarning": {
-      "description": "Install-an-image screen (WHOOP 5): Warning"
+    "description": "Install-an-image screen (WHOOP 5): Warning"
   },
   "flashAccept": "I understand and accept the risk",
   "@flashAccept": {
-      "description": "Install-an-image screen (WHOOP 5): Accept"
+    "description": "Install-an-image screen (WHOOP 5): Accept"
   },
   "flashFileInfo": "{name}\n{bytes} bytes\nsha256 {sha}",
   "@flashFileInfo": {
-      "description": "Install-an-image screen (WHOOP 5): FileInfo",
-      "placeholders": {
-          "name": {
-              "type": "String"
-          },
-          "bytes": {
-              "type": "int"
-          },
-          "sha": {
-              "type": "String"
-          }
+    "description": "Install-an-image screen (WHOOP 5): FileInfo",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "bytes": {
+        "type": "int"
+      },
+      "sha": {
+        "type": "String"
       }
+    }
   },
   "flashChoose": "Choose image file",
   "@flashChoose": {
-      "description": "Install-an-image screen (WHOOP 5): Choose"
+    "description": "Install-an-image screen (WHOOP 5): Choose"
   },
   "flashChooseAnother": "Choose another",
   "@flashChooseAnother": {
-      "description": "Install-an-image screen (WHOOP 5): ChooseAnother"
+    "description": "Install-an-image screen (WHOOP 5): ChooseAnother"
   },
   "flashSend": "Send to strap",
   "@flashSend": {
-      "description": "Install-an-image screen (WHOOP 5): Send"
+    "description": "Install-an-image screen (WHOOP 5): Send"
   },
   "flashStop": "Stop",
   "@flashStop": {
-      "description": "Install-an-image screen (WHOOP 5): Stop"
+    "description": "Install-an-image screen (WHOOP 5): Stop"
   },
   "flashProgress": "{done} of {total} blocks sent. Keep the app open and the strap close.",
   "@flashProgress": {
-      "description": "Install-an-image screen (WHOOP 5): Progress",
-      "placeholders": {
-          "done": {
-              "type": "int"
-          },
-          "total": {
-              "type": "int"
-          }
+    "description": "Install-an-image screen (WHOOP 5): Progress",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
       }
+    }
   },
   "flashCommitting": "Sending the commit…",
   "@flashCommitting": {
-      "description": "Install-an-image screen (WHOOP 5): Committing"
+    "description": "Install-an-image screen (WHOOP 5): Committing"
   },
   "flashCommitted": "The strap accepted the image. That does not confirm it is running. Check the strap's firmware version after it restarts.",
   "@flashCommitted": {
-      "description": "Install-an-image screen (WHOOP 5): Committed"
+    "description": "Install-an-image screen (WHOOP 5): Committed"
   },
   "flashCommitUnknown": "The commit was sent but the strap did not answer. It may or may not have been applied. Do not try again. Check the strap's firmware version after it restarts.",
   "@flashCommitUnknown": {
-      "description": "Install-an-image screen (WHOOP 5): CommitUnknown"
+    "description": "Install-an-image screen (WHOOP 5): CommitUnknown"
   },
   "flashBlockNoImage": "Choose an image file first.",
   "@flashBlockNoImage": {
-      "description": "Install-an-image screen (WHOOP 5): BlockNoImage"
+    "description": "Install-an-image screen (WHOOP 5): BlockNoImage"
   },
   "flashBlockTooLarge": "That file is too large for an image.",
   "@flashBlockTooLarge": {
-      "description": "Install-an-image screen (WHOOP 5): BlockTooLarge"
+    "description": "Install-an-image screen (WHOOP 5): BlockTooLarge"
   },
   "flashBlockNoLink": "Connect a WHOOP 5 and wait for any sync to finish.",
   "@flashBlockNoLink": {
-      "description": "Install-an-image screen (WHOOP 5): BlockNoLink"
+    "description": "Install-an-image screen (WHOOP 5): BlockNoLink"
   },
   "flashBlockBatteryUnknown": "Battery level unknown. Wait for it to be read.",
   "@flashBlockBatteryUnknown": {
-      "description": "Install-an-image screen (WHOOP 5): BlockBatteryUnknown"
+    "description": "Install-an-image screen (WHOOP 5): BlockBatteryUnknown"
   },
   "flashBlockBatteryLow": "Battery is {pct}%. Charge to at least {min}% first.",
   "@flashBlockBatteryLow": {
-      "description": "Install-an-image screen (WHOOP 5): BlockBatteryLow",
-      "placeholders": {
-          "pct": {
-              "type": "int"
-          },
-          "min": {
-              "type": "int"
-          }
+    "description": "Install-an-image screen (WHOOP 5): BlockBatteryLow",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "min": {
+        "type": "int"
       }
+    }
   },
   "flashFailTakeover": "Could not take over the connection.",
   "@flashFailTakeover": {
-      "description": "Install-an-image screen (WHOOP 5): FailTakeover"
+    "description": "Install-an-image screen (WHOOP 5): FailTakeover"
   },
   "flashFailStart": "The strap did not accept the start of the update.",
   "@flashFailStart": {
-      "description": "Install-an-image screen (WHOOP 5): FailStart"
+    "description": "Install-an-image screen (WHOOP 5): FailStart"
   },
   "flashFailData": "The strap rejected data at byte {offset}. Nothing was committed.",
   "@flashFailData": {
-      "description": "Install-an-image screen (WHOOP 5): FailData",
-      "placeholders": {
-          "offset": {
-              "type": "int"
-          }
+    "description": "Install-an-image screen (WHOOP 5): FailData",
+    "placeholders": {
+      "offset": {
+        "type": "int"
       }
+    }
   },
   "flashFailVerify": "The strap did not verify the image. Nothing was committed.",
   "@flashFailVerify": {
-      "description": "Install-an-image screen (WHOOP 5): FailVerify"
+    "description": "Install-an-image screen (WHOOP 5): FailVerify"
   },
   "flashFailCancelled": "Cancelled. Nothing was committed.",
   "@flashFailCancelled": {
-      "description": "Install-an-image screen (WHOOP 5): FailCancelled"
+    "description": "Install-an-image screen (WHOOP 5): FailCancelled"
   },
   "flashFailCommitRejected": "The strap did not accept the commit.",
   "@flashFailCommitRejected": {
-      "description": "Install-an-image screen (WHOOP 5): FailCommitRejected"
+    "description": "Install-an-image screen (WHOOP 5): FailCommitRejected"
   },
   "flashPickUnreadable": "That file could not be read.",
   "@flashPickUnreadable": {
-      "description": "Install-an-image screen (WHOOP 5): PickUnreadable"
+    "description": "Install-an-image screen (WHOOP 5): PickUnreadable"
   },
   "flashConfirmTitle": "Install this image?",
   "@flashConfirmTitle": {
-      "description": "Install-an-image screen (WHOOP 5): ConfirmTitle"
+    "description": "Install-an-image screen (WHOOP 5): ConfirmTitle"
   },
   "flashConfirmBody": "The strap has the file and verified it. Nothing is installed until you press Sure, and that cannot be undone.\n\n{name}\nsha256 {sha}",
   "@flashConfirmBody": {
-      "description": "Install-an-image screen (WHOOP 5): ConfirmBody",
-      "placeholders": {
-          "name": {
-              "type": "String"
-          },
-          "sha": {
-              "type": "String"
-          }
+    "description": "Install-an-image screen (WHOOP 5): ConfirmBody",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "sha": {
+        "type": "String"
       }
+    }
   },
   "flashConfirmSure": "Sure",
   "@flashConfirmSure": {
-      "description": "Install-an-image screen (WHOOP 5): ConfirmSure"
+    "description": "Install-an-image screen (WHOOP 5): ConfirmSure"
   },
   "flashConfirmCancel": "Cancel",
   "@flashConfirmCancel": {
-      "description": "Install-an-image screen (WHOOP 5): ConfirmCancel"
+    "description": "Install-an-image screen (WHOOP 5): ConfirmCancel"
   },
   "flashAcknowledge": "I checked the firmware version. Allow another install.",
   "@flashAcknowledge": {
@@ -14683,7 +14683,7 @@
   "presentationS": "s",
   "presentationV": "µV",
   "presentationReadsTheRingDirectlyNoAccountNoKeyExchange": "Reads the ring directly — no account, no key exchange.",
-  "presentationPebble2OrPebble2SEOnlyPairsOnly": "Pebble 2 or Pebble 2 SE only. Pairs only for now — nothing is read or stored yet.",
+  "presentationPebble2OrPebble2SEOnlyPairsOnly": "Pebble 2 or Pebble 2 SE only. Experimental support: syncs and stores steps and sleep, plus heart rate on Pebble 2. The SE has no heart-rate sensor.",
   "presentationTheOriginalFossilSkagenHybridSmartwatchNotTheNewer": "The original Fossil/Skagen hybrid smartwatch, not the newer Hybrid HR. Pairs and connects; nothing derives from it yet.",
   "presentationABudgetActivityBandPairsAndBanksItsRaw": "A budget activity band. Pairs and banks its raw data, but nothing is derived from it yet.",
   "presentationPairsAndBanksItsRawDataNothingIsDecoded": "Pairs and banks its raw data — nothing is decoded yet.",
@@ -17438,7 +17438,11 @@
   "welcomeSettingsSkipped": "{n, plural, =1{1 setting in the backup could not be read and was skipped} other{{n} settings in the backup could not be read and were skipped}}",
   "@welcomeSettingsSkipped": {
     "description": "Import report: settings rows in the backup that could not be read",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "welcomeSettingsSkippedBody": "Those keep this phone's values.",
   "welcomeCoachChatGptReentry": "Your ChatGPT sign-in stays in secure storage and was not backed up. Sign in again in AI settings to use the coach on this phone.",
@@ -17446,37 +17450,411 @@
   "welcomeSettingsRestored": "{n} settings restored",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "strengthCustomWeight": "Custom weight",
-  "@strengthCustomWeight": {"description": "Strength set editor copy."},
+  "@strengthCustomWeight": {
+    "description": "Strength set editor copy."
+  },
   "strengthEnterValue": "Enter a value",
-  "@strengthEnterValue": {"description": "Strength set editor copy."},
+  "@strengthEnterValue": {
+    "description": "Strength set editor copy."
+  },
   "strengthInvalidNumber": "Invalid number",
-  "@strengthInvalidNumber": {"description": "Strength set editor copy."},
+  "@strengthInvalidNumber": {
+    "description": "Strength set editor copy."
+  },
   "strengthLoadRangeKg": "Must be 0–500 kg",
-  "@strengthLoadRangeKg": {"description": "Strength set editor copy."},
+  "@strengthLoadRangeKg": {
+    "description": "Strength set editor copy."
+  },
   "strengthLoadRangeLb": "Must be 0–1100 lb",
-  "@strengthLoadRangeLb": {"description": "Strength set editor copy."},
+  "@strengthLoadRangeLb": {
+    "description": "Strength set editor copy."
+  },
   "strengthRepsRange": "Must be 1–200 reps",
-  "@strengthRepsRange": {"description": "Strength set editor copy."},
+  "@strengthRepsRange": {
+    "description": "Strength set editor copy."
+  },
   "strengthEditSet": "Edit set",
-  "@strengthEditSet": {"description": "Strength set editor copy."},
+  "@strengthEditSet": {
+    "description": "Strength set editor copy."
+  },
   "strengthDeleteSet": "Delete set",
-  "@strengthDeleteSet": {"description": "Strength set editor copy."},
+  "@strengthDeleteSet": {
+    "description": "Strength set editor copy."
+  },
   "strengthDeleteSetConfirm": "Delete this set?",
-  "@strengthDeleteSetConfirm": {"description": "Strength set editor copy."},
+  "@strengthDeleteSetConfirm": {
+    "description": "Strength set editor copy."
+  },
   "strengthBodyweight": "Bodyweight",
-  "@strengthBodyweight": {"description": "Strength set editor copy."},
+  "@strengthBodyweight": {
+    "description": "Strength set editor copy."
+  },
   "strengthDelete": "Delete",
-  "@strengthDelete": {"description": "Strength set editor copy."},
+  "@strengthDelete": {
+    "description": "Strength set editor copy."
+  },
   "strengthSaveFailed": "Failed to save changes",
-  "@strengthSaveFailed": {"description": "Strength set editor copy."},
+  "@strengthSaveFailed": {
+    "description": "Strength set editor copy."
+  },
   "dayStepsWhoop4NoCounter": "A WHOOP 4.0 has no step counter of its own, so it only counts steps while this app is receiving its live data.",
   "@dayStepsWhoop4NoCounter": {
     "description": "Steps screen: appended when the paired band is a WHOOP 4.0 and it counted nothing that day, because it has no on-chip step counter"
   },
   "napAutoLogTitle": "Log clear naps automatically",
   "napAutoLogSub": "A detected nap with strong evidence is added without asking. You can still edit or remove it",
-  "napAutoLogSaveFailed": "That setting could not be saved. Try again."
+  "napAutoLogSaveFailed": "That setting could not be saved. Try again.",
+  "sleepDetailMedicalDisclaimer": "Experimental research algorithm. Not a medical device. Consult a physician for sleep disorders.",
+  "@sleepDetailMedicalDisclaimer": {
+    "description": "Disclaimer shown on the sleep detail screen."
+  },
+  "pairAddDevice": "Add a device",
+  "@pairAddDevice": {
+    "description": "Label of the button that starts adding a device (band or sensor is decided after the scan)."
+  },
+  "pairKindAll": "All",
+  "@pairKindAll": {
+    "description": "Filter pill that shows every device in the list."
+  },
+  "pairKindStrap": "Chest straps & armbands",
+  "@pairKindStrap": {
+    "description": "Filter pill: heart-rate straps and armbands."
+  },
+  "pairKindRing": "Rings",
+  "@pairKindRing": {
+    "description": "Filter pill for smart rings."
+  },
+  "pairKindWatch": "Watches",
+  "@pairKindWatch": {
+    "description": "Filter pill for watches."
+  },
+  "pairGoBack": "Go back",
+  "@pairGoBack": {
+    "description": "Link that closes a confirm sheet without pairing."
+  },
+  "pairAddDeviceSub": "Rings, watches and heart-rate straps",
+  "@pairAddDeviceSub": {
+    "description": "Line under the Add a device row in Settings."
+  },
+  "pairAddDeviceSubtitle": "Each device shows where it fits: every day, or workouts only.",
+  "@pairAddDeviceSubtitle": {
+    "description": "Lead of the Add a device screen."
+  },
+  "pairBandFoundBody": "It does much more every day than during workouts only. Which do you want?",
+  "@pairBandFoundBody": {
+    "description": "WHOOP sheet lead when no band is paired yet."
+  },
+  "pairBandFoundBodyHasBand": "You already have a band. Only one can be your band at a time.",
+  "@pairBandFoundBodyHasBand": {
+    "description": "WHOOP sheet lead when a band is already paired."
+  },
+  "pairIdentifiedBody": "It looked like a heart-rate strap, but when we connected it identified itself as {label}. Nothing was saved.",
+  "@pairIdentifiedBody": {
+    "description": "Body of the sheet shown when a device picked as a sensor identifies itself as a band after connecting. Nothing was saved.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "pairAsMyBand": "Pair it as my band",
+  "@pairAsMyBand": {
+    "description": "Button that pairs the device as the user’s main band."
+  },
+  "pairSecondaryPaired": "Paired for workouts only.",
+  "@pairSecondaryPaired": {
+    "description": "Shown after a device is paired for workouts only."
+  },
+  "pairBandNow": "Your band now: {name}. Your data stays when you switch.",
+  "@pairBandNow": {
+    "description": "Note under the table when a band is already paired. {name} is that band’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceBand": "Pair this band, then disconnect {name}",
+  "@pairReplaceBand": {
+    "description": "Main button when a band is already paired: unpair it and pair the tapped one. {name} is the paired band’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceConfirmTitle": "Replace {name} after this band connects?",
+  "@pairReplaceConfirmTitle": {
+    "description": "Confirm dialog before replacing the band. {name} is the paired band’s name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairReplaceConfirmBody": "Your current band stays paired if setup fails or you cancel. Data already saved on this phone stays. Anything still unsynced on the old band is not synced to this phone after the switch.",
+  "@pairReplaceConfirmBody": {
+    "description": "Confirm dialog body: replacing the band keeps the data."
+  },
+  "pairReplaceConfirmYes": "Pair replacement",
+  "@pairReplaceConfirmYes": {
+    "description": "Confirm dialog button: unpair the old band and pair the new one."
+  },
+  "pairCurrentBandFallback": "your band",
+  "@pairCurrentBandFallback": {
+    "description": "Stands in for the paired band’s name when it has none, inside a sentence."
+  },
+  "pairWearableLead": "It can fill your days with sleep, recovery and heart rate.",
+  "@pairWearableLead": {
+    "description": "Sheet lead for a ring or watch."
+  },
+  "pairWearableNote": "Fills days without your WHOOP. Experimental, so switch it on in Devices.",
+  "@pairWearableNote": {
+    "description": "Note under a ring’s or watch’s table on the pairing sheet. “Devices” is the device list in Settings."
+  },
+  "pairStrapLead": "It adds heart rate while you work out. It does not record sleep, recovery or daily strain.",
+  "@pairStrapLead": {
+    "description": "Sheet lead for a heart-rate strap or sensor."
+  },
+  "pairStrapNote": "Turn on “Use during workouts” to record heart rate while you work out.",
+  "@pairStrapNote": {
+    "description": "Note on a strap’s sheet: workout recording needs the switch. Quotes deviceUseWorkoutsTitle."
+  },
+  "pairDeviceNamed": "Pair {name}",
+  "@pairDeviceNamed": {
+    "description": "Main button on a ring’s, watch’s or strap’s sheet. {name} is the device.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "pairUseForWorkouts": "Use it for workouts only",
+  "@pairUseForWorkouts": {
+    "description": "Text link on a WHOOP sheet: keep it for workouts only, not as the main band."
+  },
+  "pairReplaceUnpairFailed": "Your new band is paired, but your old band could not be removed.",
+  "@pairReplaceUnpairFailed": {
+    "description": "Shown when unpairing the old band failed during “Unpair (your band) and pair this one”; nothing else ran."
+  },
+  "pairWearableLeadPebble": "Pebble 2 can fill your days with sleep and heart rate. Pebble 2 SE shows the watch’s own sleep and steps. It has no heart-rate sensor, so this app cannot calculate daily strain or estimate recovery from it.",
+  "@pairWearableLeadPebble": {
+    "description": "Pebble-family pairing lead: SE shows the watch’s own sleep and steps; no HR sensor means no app-calculated daily strain or recovery estimate from the SE alone."
+  },
+  "pairMainBandWhoopOnly": "Main band: WHOOP 4.0 or WHOOP 5.0/MG only. Other devices can be added as additional devices.",
+  "@pairMainBandWhoopOnly": {
+    "description": "Plain statement on the pairing screens: only WHOOP can be the main band; other devices are added as additional devices."
+  },
+  "pairBandTitle": "Pair your band",
+  "@pairBandTitle": {
+    "description": "Title of the first-run list of bands."
+  },
+  "pairBandSubtitle": "Pick the one you wear. We will look for it nearby.",
+  "@pairBandSubtitle": {
+    "description": "Subtitle of the first-run list of bands."
+  },
+  "pairStrapOnlyLink": "I only have a heart-rate strap",
+  "@pairStrapOnlyLink": {
+    "description": "Text link under the band list for someone with only a heart-rate strap."
+  },
+  "pairWhoopRowLine": "Sleep, recovery, strain, heart rate and more",
+  "@pairWhoopRowLine": {
+    "description": "Line under each WHOOP on the first-run list."
+  },
+  "pairSetUpTitle": "Set up",
+  "@pairSetUpTitle": {
+    "description": "Top bar title of the first-run pairing screen."
+  },
+  "capLabelSleep": "Sleep",
+  "@capLabelSleep": {
+    "description": "Name of a thing a device sends: sleep."
+  },
+  "capLabelRecovery": "Recovery",
+  "@capLabelRecovery": {
+    "description": "Name of a thing a device sends: the morning recovery score."
+  },
+  "capLabelStrain": "Strain",
+  "@capLabelStrain": {
+    "description": "Name of a thing a device sends: strain."
+  },
+  "capLabelHrv": "Heart-rate variability",
+  "@capLabelHrv": {
+    "description": "Name of a thing a device sends: heart-rate variability."
+  },
+  "capLabelSkinTemperature": "Skin temperature",
+  "@capLabelSkinTemperature": {
+    "description": "Name of a thing a device sends: skin temperature."
+  },
+  "capLabelBloodOxygen": "Blood oxygen",
+  "@capLabelBloodOxygen": {
+    "description": "Name of a thing a device sends: blood oxygen (only a device’s own reading)."
+  },
+  "capLabelWorkoutHeartRate": "Heart rate during workouts",
+  "@capLabelWorkoutHeartRate": {
+    "description": "Table row: heart rate during a workout."
+  },
+  "capLabelWorkoutBeatToBeat": "Beat-to-beat timing during workouts",
+  "@capLabelWorkoutBeatToBeat": {
+    "description": "Table row: beat-to-beat timing during a workout."
+  },
+  "capLabelSteps": "Steps",
+  "@capLabelSteps": {
+    "description": "Name of a thing a device sends: steps."
+  },
+  "capReasonSkinTempNights": "After a few nights",
+  "@capReasonSkinTempNights": {
+    "description": "Caption under Skin temperature: it needs a few nights first."
+  },
+  "capReasonEstimated": "An estimate, not a direct reading",
+  "@capReasonEstimated": {
+    "description": "Why a value is conditional: it is an estimate, not a direct reading."
+  },
+  "capReasonEarly": "Early estimate; it firms up over the first weeks",
+  "@capReasonEarly": {
+    "description": "Why a value is conditional: it is an early estimate that firms up over the first weeks."
+  },
+  "capVendorReported": "The device’s own reading",
+  "@capVendorReported": {
+    "description": "Tag on a value that is the device’s own reading, not calculated by this app."
+  },
+  "slotSendsHeading": "Sends",
+  "@slotSendsHeading": {
+    "description": "Heading above the list of what a device sends."
+  },
+  "slotDoesntSendHeading": "Doesn’t send",
+  "@slotDoesntSendHeading": {
+    "description": "Heading above the list of what a secondary sensor does not send."
+  },
+  "pairSectionTitle": "Pair a device",
+  "@pairSectionTitle": {
+    "description": "Heading of the section in My sources that holds pairing."
+  },
+  "pairCardBandBody": "WHOOP 4.0 or WHOOP 5.0/MG only. Sleep, recovery and strain, around the clock.",
+  "@pairCardBandBody": {
+    "description": "Body of the Your band card in Settings."
+  },
+  "pairUnpairBand": "Unpair band",
+  "@pairUnpairBand": {
+    "description": "Red outline button that starts forgetting the paired band (a confirm dialog follows)."
+  },
+  "capLabelHeartRate": "Heart rate and resting heart rate",
+  "@capLabelHeartRate": {
+    "description": "Table row: heart rate and resting heart rate, as one capability."
+  },
+  "capLabelRespiration": "Respiration",
+  "@capLabelRespiration": {
+    "description": "Table row: breathing rate."
+  },
+  "capReasonFirstNights": "Estimated for the first 14 nights",
+  "@capReasonFirstNights": {
+    "description": "Caption under Recovery for a ring or watch: its recovery is an estimate until 14 nights of baseline."
+  },
+  "capReasonOwnStagesRing": "From the ring’s own sleep stages",
+  "@capReasonOwnStagesRing": {
+    "description": "Caption under Sleep for a ring: the sleep stages are the ring’s own."
+  },
+  "capReasonOwnStages": "From the device’s own sleep stages",
+  "@capReasonOwnStages": {
+    "description": "Caption under Sleep for a watch or fitness band: the sleep stages are the device’s own."
+  },
+  "capReasonLiveSessions": "During live sessions",
+  "@capReasonLiveSessions": {
+    "description": "Caption under Steps for WHOOP 4: it counts steps only while the app has a live connection."
+  },
+  "slotEveryDay": "Every day",
+  "@slotEveryDay": {
+    "description": "Column and chip: the device is used every day (the main band, or the ring/watch that fills days)."
+  },
+  "slotWorkoutsOnly": "Workouts only",
+  "@slotWorkoutsOnly": {
+    "description": "Column and chip: the device is used only during workouts."
+  },
+  "pairWearableCardNote": "Fills days without your WHOOP. Experimental, so switch it on below.",
+  "@pairWearableCardNote": {
+    "description": "Note under a ring’s or watch’s table on its device page; the switch is below it."
+  },
+  "pairWhatItSends": "What it sends",
+  "@pairWhatItSends": {
+    "description": "Heading above the table on a device page."
+  },
+  "capReasonUnconfirmed": "If this device sends it, not confirmed",
+  "@capReasonUnconfirmed": {
+    "description": "Caption under a row the device may or may not send; nobody has confirmed it does."
+  },
+  "capReasonPebble2Only": "Pebble 2 only. The 2 SE has no heart-rate sensor.",
+  "@capReasonPebble2Only": {
+    "description": "Caption under the heart rate, strain and recovery rows for Pebble: the shared Pebble entry covers the 2 SE, which has no heart-rate sensor."
+  },
+  "capReasonPebble2OnlyEstimated": "Pebble 2 only, and an estimate, not a direct reading. The 2 SE has no heart-rate sensor.",
+  "@capReasonPebble2OnlyEstimated": {
+    "description": "Caption under Pebble's recovery row: Pebble 2 only (the 2 SE has no heart-rate sensor), and recovery is an estimate."
+  },
+  "slotColumnReason": "{column}: {reason}",
+  "@slotColumnReason": {
+    "description": "Capability caption naming the column it applies to.",
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotCapabilityStatus": {
+    "description": "Accessible table result with capability, column and sends status.",
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "bandStatusFirmwareLockedTitle": "The band’s firmware is probably holding back its data",
+  "@bandStatusFirmwareLockedTitle": {
+    "description": "BandStatus card title: band firmware 50.43 withholds all data until a WHOOP membership token is on it"
+  },
+  "bandStatusFirmwareLockedReason": "This band runs WHOOP firmware 50.43, which can connect and answer the app but send no recordings or live heart rate until a WHOOP-signed membership token is on it. That is one possible reason no data is arriving. OpenStrap cannot issue that token. Everything already saved here is safe.",
+  "@bandStatusFirmwareLockedReason": {
+    "description": "BandStatus card body: band firmware 50.43 withholds all data until a WHOOP membership token is on it"
+  },
+  "bandStatusFirmwareLockedFix": "If it is the firmware, nothing in the app changes it, and this clears once the band sends recordings again",
+  "@bandStatusFirmwareLockedFix": {
+    "description": "BandStatus fix action: band firmware 50.43 withholds all data until a WHOOP membership token is on it"
+  },
+  "pairSearchDevices": "Search for devices",
+  "pairPrimaryCannotBeSensor": "This is already your main band. It cannot also be paired as a workout sensor.",
+  "capReasonSkinTempProvisional": "Provisional estimate; needs a few nights",
+  "pairReplaceMyBand": "Replace my band",
+  "healthWearNotUpdatedSince": "not updated since {time}",
+  "@healthWearNotUpdatedSince": {
+    "description": "Wear-time row: the figure is from an earlier derive that the latest one could not refresh. time is a clock time, e.g. 11:05 AM",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "dayStrainWornAsOf": "Worn as of {time}",
+  "@dayStrainWornAsOf": {
+    "description": "Day strain: label over a wear figure from an earlier derive that the latest one could not refresh. Says when the figure was computed, not that the band came off then. time is a clock time, e.g. 11:05 AM",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  }
 }

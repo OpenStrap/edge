@@ -2971,6 +2971,10 @@
       }
     }
   },
+  "sleepDetailMedicalDisclaimer": "Algorithme expérimental de recherche. Ce n'est pas un dispositif médical. Consultez un médecin en cas de troubles du sommeil.",
+  "@sleepDetailMedicalDisclaimer": {
+    "description": "Disclaimer shown on the sleep detail screen."
+  },
   "welcomeCoachKeyReentry": "Votre clé API du coach reste dans le stockage sécurisé et n’a pas été sauvegardée. Saisissez-la à nouveau dans les réglages de l’IA pour utiliser le coach sur ce téléphone.",
   "welcomeSettingsSkipped": "{n, plural, =1{1 réglage de la sauvegarde était illisible et a été ignoré} other{{n} réglages de la sauvegarde étaient illisibles et ont été ignorés}}",
   "@welcomeSettingsSkipped": {
@@ -3248,7 +3252,7 @@
   "presentationS": "s",
   "presentationV": "µV",
   "presentationReadsTheRingDirectlyNoAccountNoKeyExchange": "Lit la bague directement — sans compte ni échange de clés.",
-  "presentationPebble2OrPebble2SEOnlyPairsOnly": "Pebble 2 ou Pebble 2 SE uniquement. Jumelage seulement pour l’instant — rien n’est encore lu ni enregistré.",
+  "presentationPebble2OrPebble2SEOnlyPairsOnly": "Pebble 2 ou Pebble 2 SE uniquement. Prise en charge expérimentale : synchronise et enregistre les pas et le sommeil, ainsi que la fréquence cardiaque sur Pebble 2. La SE n’a pas de capteur de fréquence cardiaque.",
   "presentationTheOriginalFossilSkagenHybridSmartwatchNotTheNewer": "La montre connectée hybride Fossil/Skagen d’origine, pas la plus récente Hybrid HR. Se jumelle et se connecte ; rien n’en est encore dérivé.",
   "presentationABudgetActivityBandPairsAndBanksItsRaw": "Un bracelet d’activité d’entrée de gamme. Se jumelle et conserve ses données brutes, mais rien n’en est encore dérivé.",
   "presentationPairsAndBanksItsRawDataNothingIsDecoded": "Se jumelle et conserve ses données brutes — rien n’est encore décodé.",
@@ -3462,8 +3466,106 @@
   "pairModeTitle": "Mettez-le en mode association",
   "pairModeNoSite": "Un appareil générique sans fabricant unique : il n’y a donc pas d’étapes du fabricant.",
   "pairOuraExistingKeyGuidance": "Vous utilisez déjà l’application Oura ? Gardez l’anneau associé dans cette application et associez-le avec sa clé actuelle. Passez les étapes de réinitialisation ci-dessous. Réinitialisez-le uniquement si vous voulez une nouvelle clé.",
+  "pairAddDevice": "Ajouter un appareil",
+  "pairKindAll": "Tous",
+  "pairKindStrap": "Ceintures et brassards",
+  "pairKindRing": "Bagues",
+  "pairKindWatch": "Montres",
+  "pairGoBack": "Retour",
+  "pairAddDeviceSub": "Bagues, montres et ceintures cardio",
+  "pairAddDeviceSubtitle": "Chaque appareil indique où il s’intègre : tous les jours, ou seulement pendant les entraînements.",
+  "pairBandFoundBody": "Il en fait bien plus tous les jours que pendant les entraînements seulement. Que préférez-vous ?",
+  "pairBandFoundBodyHasBand": "Vous avez déjà un bracelet. Un seul peut être votre bracelet à la fois.",
+  "pairIdentifiedBody": "Cela ressemblait à une ceinture cardiaque, mais à la connexion l’appareil s’est identifié comme {label}. Rien n’a été enregistré.",
+  "pairAsMyBand": "L’associer comme mon bracelet",
+  "pairSecondaryPaired": "Associé pour les entraînements uniquement.",
+  "pairBandNow": "Votre bracelet actuel : {name}. Vos données restent quand vous changez.",
+  "pairReplaceBand": "Associer ce bracelet, puis déconnecter {name}",
+  "pairReplaceConfirmTitle": "Remplacer {name} après la connexion de ce bracelet ?",
+  "pairReplaceConfirmBody": "Votre bracelet actuel reste associé si la configuration échoue ou si vous annulez. Les données déjà enregistrées sur ce téléphone restent. Les données non synchronisées restées sur l’ancien bracelet ne seront pas synchronisées avec ce téléphone après le remplacement.",
+  "pairReplaceConfirmYes": "Associer le remplacement",
+  "pairCurrentBandFallback": "votre bracelet",
+  "pairWearableLead": "Il peut compléter vos journées avec le sommeil, la récupération et la fréquence cardiaque.",
+  "pairWearableNote": "Complète les jours sans votre WHOOP. Expérimental : activez-le dans Appareils.",
+  "pairStrapLead": "Il ajoute la fréquence cardiaque pendant l’entraînement. Il n’enregistre ni le sommeil, ni la récupération, ni l’effort quotidien.",
+  "pairStrapNote": "Activez « Utiliser pendant les entraînements » pour enregistrer la fréquence cardiaque pendant vos entraînements.",
+  "pairDeviceNamed": "Associer {name}",
+  "pairUseForWorkouts": "L’utiliser seulement pour les entraînements",
+  "pairReplaceUnpairFailed": "Votre nouveau bracelet est associé, mais l’ancien n’a pas pu être retiré.",
+  "pairWearableLeadPebble": "Pebble 2 peut compléter vos journées avec le sommeil et la fréquence cardiaque. Pebble 2 SE affiche le sommeil et les pas enregistrés par la montre. Elle n’a pas de capteur de fréquence cardiaque, donc cette app ne peut pas calculer la charge quotidienne ni estimer la récupération à partir de ses données.",
+  "pairMainBandWhoopOnly": "Bracelet principal : uniquement WHOOP 4.0 ou WHOOP 5.0/MG. Les autres appareils peuvent être ajoutés comme appareils supplémentaires.",
+  "pairBandTitle": "Associez votre bracelet",
+  "pairBandSubtitle": "Choisissez celui que vous portez. Nous le chercherons à proximité.",
+  "pairStrapOnlyLink": "J’ai seulement une ceinture cardiaque",
+  "pairWhoopRowLine": "Sommeil, récupération, effort, fréquence cardiaque et plus",
+  "pairSetUpTitle": "Configuration",
+  "capLabelSleep": "Sommeil",
+  "capLabelRecovery": "Récupération",
+  "capLabelStrain": "Effort",
+  "capLabelHrv": "Variabilité de la fréquence cardiaque",
+  "capLabelSkinTemperature": "Température de la peau",
+  "capLabelBloodOxygen": "Oxygène dans le sang",
+  "capLabelWorkoutHeartRate": "Fréquence cardiaque pendant les séances",
+  "capLabelWorkoutBeatToBeat": "Intervalle entre les battements pendant les séances",
+  "capLabelSteps": "Pas",
+  "capReasonSkinTempNights": "Après quelques nuits",
+  "capReasonEstimated": "Une estimation, pas une mesure directe",
+  "capReasonEarly": "Estimation initiale ; elle s’affine au fil des premières semaines",
+  "capVendorReported": "La mesure propre à l’appareil",
+  "slotSendsHeading": "Envoie",
+  "slotDoesntSendHeading": "N’envoie pas",
+  "pairSectionTitle": "Associer un appareil",
+  "pairCardBandBody": "WHOOP 4.0 ou WHOOP 5.0/MG uniquement. Sommeil, récupération et effort, 24 h sur 24.",
+  "pairUnpairBand": "Dissocier le bracelet",
+  "capLabelHeartRate": "Fréquence cardiaque et au repos",
+  "capLabelRespiration": "Respiration",
+  "capReasonFirstNights": "Estimée pendant les 14 premières nuits",
+  "capReasonOwnStagesRing": "D’après les phases de sommeil de la bague",
+  "capReasonOwnStages": "D’après les phases de sommeil de l’appareil",
+  "capReasonLiveSessions": "Pendant les sessions en direct",
+  "slotEveryDay": "Tous les jours",
+  "slotWorkoutsOnly": "Entraînements seulement",
+  "pairWearableCardNote": "Complète les jours sans votre WHOOP. Expérimental : activez-le ci-dessous.",
+  "pairWhatItSends": "Ce qu’il envoie",
+  "capReasonUnconfirmed": "Si cet appareil l’envoie, non confirmé",
+  "capReasonPebble2Only": "Pebble 2 uniquement. La 2 SE n’a pas de capteur de fréquence cardiaque.",
+  "capReasonPebble2OnlyEstimated": "Pebble 2 uniquement, et c’est une estimation, pas une mesure directe. La 2 SE n’a pas de capteur de fréquence cardiaque.",
+  "slotColumnReason": "{column} : {reason}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}, {column} : {status}",
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  },
   "whoopFirmwareWarningTitle": "Utilisateurs WHOOP : ne vous reconnectez pas à l’application WHOOP",
   "whoopFirmwareWarningAction": "Si vous utilisez OpenStrap ou une autre application open source, ou si vous comptez y passer plus tard, ne reconnectez pas votre bracelet à l’application WHOOP officielle. Elle peut installer des mises à jour du firmware automatiquement. Désinstallez ou désactivez l’application WHOOP pour l’empêcher de mettre à jour votre bracelet.",
   "whoopFirmwareWarningDetails": "Des signalements concernant les firmwares 50.43.1.0 et 50.43.2.0 des WHOOP 5.0 / MG décrivent un accès aux données bloqué. Le Bluetooth peut encore se connecter. OpenStrap ne peut pas émettre le jeton d’abonnement signé par WHOOP nécessaire pour déverrouiller les bracelets concernés. Nous travaillons sur une solution, mais aucun correctif n’est encore disponible.",
-  "dayStepsWhoop4NoCounter": "Un WHOOP 4.0 n’a pas de podomètre intégré : il ne compte les pas que lorsque cette application reçoit ses données en direct."
+  "pairSearchDevices": "Rechercher des appareils",
+  "pairPrimaryCannotBeSensor": "C’est déjà votre bracelet principal. Il ne peut pas aussi être jumelé comme capteur d’entraînement.",
+  "capReasonSkinTempProvisional": "Estimation provisoire ; nécessite quelques nuits",
+  "pairReplaceMyBand": "Remplacer mon bracelet",
+  "dayStepsWhoop4NoCounter": "Un WHOOP 4.0 n’a pas de podomètre intégré : il ne compte les pas que lorsque cette application reçoit ses données en direct.",
+  "healthWearNotUpdatedSince": "pas mis à jour depuis {time}",
+  "dayStrainWornAsOf": "Porté, à {time}",
+  "bandStatusFirmwareLockedTitle": "Le firmware du bracelet retient probablement ses données",
+  "bandStatusFirmwareLockedReason": "Ce bracelet utilise le firmware WHOOP 50.43, qui peut se connecter et répondre à l’application sans envoyer ni enregistrements ni fréquence cardiaque en direct tant qu’un jeton d’abonnement signé par WHOOP n’est pas présent sur le bracelet. C’est une raison possible pour laquelle aucune donnée n’arrive. OpenStrap ne peut pas émettre ce jeton. Tout ce qui est déjà enregistré ici est en sécurité.",
+  "bandStatusFirmwareLockedFix": "Si c’est le firmware, l’application n’y peut rien et ce message disparaît dès que le bracelet renvoie des enregistrements"
 }

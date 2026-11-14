@@ -4323,17 +4323,24 @@ class LocalDb {
     // phone is the primary device's own pedometer, so it keeps `''` too —
     // `source` is what tells wrist from pocket.
     String deviceId = kPrimaryDeviceId,
+    // The generation when the caller's session began, before async reads.
+    int? resetGeneration,
   }) async {
+    final generation = resetGeneration ?? ResetGate.generation;
     final w = sanitizeCoverageWindow(startTs, endTs, steps);
     if (w == null) return;
-    final db = await instance;
-    await db.insert('live_coverage', {
-      'start_ts': w.startTs,
-      'end_ts': w.endTs,
-      'steps': steps,
-      'day': day,
-      'source': source,
-      'device_id': deviceId,
+    // The wipe uses this gate too: a check before queuing can still race it.
+    await _withCommitGate(() async {
+      _refuseAfterReset(generation);
+      final db = await instance;
+      await db.insert('live_coverage', {
+        'start_ts': w.startTs,
+        'end_ts': w.endTs,
+        'steps': steps,
+        'day': day,
+        'source': source,
+        'device_id': deviceId,
+      });
     });
   }
 
@@ -4349,27 +4356,36 @@ class LocalDb {
   /// `resolveDaySteps`'s confirmed-still check uses to veto a wrist
   /// false-positive over the same window. Only a negative count (never
   /// produced by the reader) or an inverted window is dropped.
-  static Future<void> replacePhoneCoverageForDay(
+  static Future<bool> replacePhoneCoverageForDay(
     String day,
-    List<({int startTs, int endTs, int steps})> windows,
-  ) async {
-    final db = await instance;
-    await db.transaction((txn) async {
-      await txn.delete(
-        'live_coverage',
-        where: 'day = ? AND source = ?',
-        whereArgs: [day, kStepSourcePhone],
-      );
-      for (final w in windows) {
-        if (w.steps < 0 || w.endTs <= w.startTs) continue;
-        await txn.insert('live_coverage', {
-          'start_ts': w.startTs,
-          'end_ts': w.endTs,
-          'steps': w.steps,
-          'day': day,
-          'source': kStepSourcePhone,
-        });
-      }
+    List<({int startTs, int endTs, int steps})> windows, {
+    bool Function()? stillValid,
+  }) {
+    // Through the commit gate the wipe also uses, and re-checked INSIDE it:
+    // a reset queued while this write waited for the database finishes first,
+    // and the check then refuses the write instead of repopulating the store.
+    return _withCommitGate(() async {
+      if (stillValid != null && !stillValid()) return false;
+      final db = await instance;
+      if (stillValid != null && !stillValid()) return false;
+      await db.transaction((txn) async {
+        await txn.delete(
+          'live_coverage',
+          where: 'day = ? AND source = ?',
+          whereArgs: [day, kStepSourcePhone],
+        );
+        for (final w in windows) {
+          if (w.steps < 0 || w.endTs <= w.startTs) continue;
+          await txn.insert('live_coverage', {
+            'start_ts': w.startTs,
+            'end_ts': w.endTs,
+            'steps': w.steps,
+            'day': day,
+            'source': kStepSourcePhone,
+          });
+        }
+      });
+      return true;
     });
   }
 
@@ -4502,6 +4518,9 @@ class LocalDb {
   /// import reporting success while banking nothing for those days. Band clips
   /// against band. Phone coverage needs no clipping at all: it is replaced
   /// wholesale per day (see [replacePhoneCoverageForDay]).
+  @visibleForTesting
+  static Future<void> Function()? debugAfterCoverageRead;
+
   static Future<List<List<int>>> coverageWindowsOverlapping(
     int loSec,
     int hiSec, {
@@ -4513,6 +4532,7 @@ class LocalDb {
       where: 'end_ts >= ? AND start_ts < ? AND source = ?',
       whereArgs: [loSec, hiSec, source],
     );
+    await debugAfterCoverageRead?.call();
     return [
       for (final r in rows)
         [(r['start_ts'] as num).toInt(), (r['end_ts'] as num).toInt()],

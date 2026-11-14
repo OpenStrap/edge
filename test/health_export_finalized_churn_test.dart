@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/health/health_export.dart';
@@ -24,6 +25,11 @@ void main() {
   }
 
   setUpAll(() async {
+    // The Apple nap writer reads its settings from here. Unmocked, it threw
+    // MissingPluginException on a macOS host (where the exporter takes the
+    // Apple path), every day reported "export incomplete", and the first
+    // pass exported 0 instead of 2.
+    SharedPreferences.setMockInitialValues({});
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     LocalDb.dbName = 'openstrap_health_churn_test.db';

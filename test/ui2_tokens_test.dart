@@ -290,8 +290,18 @@ const _notComponents = {
   // GuideRun). HelpScreen is a screen. Pumped by test/ui2/guide_step_card_test.dart,
   // live_guide_overlay_test.dart and help_screen_test.dart.
   'GuideStepCard', 'LiveGuideOverlay', 'HelpScreen',
-  // Pairing pieces are exercised on routes by the pairing widget tests.
-  'TroubleConnectingCard', 'ResetStepsView', 'PairingModeSection', 'PairStepRow', 'TextLinkButton', 'ChoiceRow',
+  // The pairing screens' building blocks (lib/ui2/pairing): each is one
+  // swappable piece of a pairing screen, driven by registry data and pumped,
+  // state by state, by ui2_pairing_blocks_test.dart,
+  // ui2_pairing_help_reset_test.dart, ui2_pair_band_view_test.dart and
+  // ui2_device_slot_card_test.dart. A
+  // gallery cell is too narrow for the slot table and the sheets, and the
+  // sheets open over a route.
+  'SlotTable', 'SlotMark', 'PairNote', 'CategoryFilterPills',
+  'TroubleConnectingCard', 'ResetStepsView', 'PairingModeSection',
+  'PairBandView',
+  'PairChoiceSheet', 'PairStepRow', 'TextLinkButton', 'ChoiceRow',
+  'DeviceSlotCard',
   // tabs and drill-downs
   'HomeScreen', 'HealthScreen', 'WorkoutScreen', 'NutritionScreen',
   'WellnessScreen', 'CycleTab', 'MetricDetail', 'ReadinessDetail',
