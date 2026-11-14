@@ -740,6 +740,23 @@ void main() {
       expect(r.logged('an image install started'), isTrue);
     }));
 
+    test('a session ended during the link probe is not reopened or dropped again',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.quiet = const Duration(minutes: 5);
+      final probe = r.engine.probeGate = Completer<bool>();
+      final sync = r.c.syncNow();
+      await until(() => r.engine.count('probe') == 1);
+      await r.c.endSession();
+      final disconnects = r.engine.count('disconnect');
+      probe.complete(false); // the probe says reconnect
+      await sync;
+      expect(r.engine.count('disconnect'), disconnects,
+          reason: 'the stale sync did not drop the link again');
+      expect(r.engine.count('connect'), 0, reason: 'and did not reopen it');
+      expect(r.logged('the session changed while the link was probed'), isTrue);
+    }));
+
     test('manual sync probes a quiet link and reuses it if the band replies',
         _rigCase((r, timers) async {
       r.engine.link = true;

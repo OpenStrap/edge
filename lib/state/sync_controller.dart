@@ -1042,8 +1042,20 @@ class SyncController {
       finalize = true;
       // A connected flag can outlive its GATT notifications. Apply the same
       // bounded probe/reconnect policy used on resume before awaiting history.
+      // endSession / unpairSession retire the reconnect generation; a reset
+      // moves the reset generation. Both are read BEFORE the probe, which
+      // cannot be cancelled and may outlive the session that asked for it.
+      final generation = _reconnectGeneration;
+      final resetGen = ResetGate.generation;
       final historyStuck = engine.historyStuckThisSession;
       final usable = !historyStuck && await _linkUsableAfterResume('Sync now');
+      if (_isDisposed ||
+          generation != _reconnectGeneration ||
+          ResetGate.changedSince(resetGen)) {
+        _log('Sync now: the session changed while the link was probed — '
+            'leaving it alone.');
+        return;
+      }
       // An install can claim the link while the probe waits; the entry check
       // above cannot see that, and the recovery below drops the session.
       if (engine.firmwareFlashActive) {

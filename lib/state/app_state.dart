@@ -1071,25 +1071,24 @@ class AppState extends ChangeNotifier {
     }
     final token = ++_phoneStepsToken;
     _phoneStepsSyncDays = days;
-    var banked = 0; // days this read stored before it was retired, if it is
-    final future = _readPhoneSteps(days, token, () => banked++).timeout(
+    final progress = _PhoneReadProgress();
+    final future = _readPhoneSteps(days, token, progress).timeout(
       phoneStepsReadTimeout,
       onTimeout: () {
+        // Only a read that still owns the slot may be retired. A timer from an
+        // older read that outlived a disable and re-enable must not retire the
+        // newer read that replaced it.
+        if (token != _phoneStepsToken) return 0;
         debugPrint('[phone_steps] read still running after '
             '${phoneStepsReadTimeout.inSeconds}s; abandoning it');
         // Retire the stuck read BEFORE the slot frees: a late completion must
         // not write older rows over a newer read's.
         _phoneStepsToken++;
+        progress.retired = true;
         _phonePedometer.abandonInFlight();
         // Days it already stored are real: queue derivation for them, since
-        // the retired read never reaches its own `markStoredData`.
-        if (banked > 0 &&
-            phoneStepsEnabled &&
-            !_disposed &&
-            !ResetGate.active) {
-          _deriveScheduler.markStoredData();
-          notifyListeners();
-        }
+        // the retired read never reaches its own derive request.
+        _queuePhoneDerive(progress);
         return 0;
       },
     );
@@ -1105,16 +1104,38 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Queue derivation for the days a phone read stored. Today is covered by the
+  /// light pass; a day BEFORE today that changed needs a heavy one, because the
+  /// light pass only targets today or the latest pending day.
+  void _queuePhoneDerive(_PhoneReadProgress progress) {
+    if (progress.days == 0 ||
+        !phoneStepsEnabled ||
+        _disposed ||
+        ResetGate.active) {
+      return;
+    }
+    _deriveScheduler.markStoredData();
+    if (progress.pastDayChanged) _deriveScheduler.requestHeavy();
+    notifyListeners();
+  }
+
   Future<int> _readPhoneSteps(
-      int days, int token, void Function() onDayBanked) async {
+      int days, int token, _PhoneReadProgress progress) async {
     bool stale() =>
         token != _phoneStepsToken ||
         !phoneStepsEnabled ||
         _disposed ||
         ResetGate.active;
     try {
-      final r =
-          await _phonePedometer.syncRecent(days: days, onDayBanked: onDayBanked);
+      final r = await _phonePedometer.syncRecent(
+        days: days,
+        onDayBanked: (day, changed) {
+          progress.days++;
+          if (changed && day != todayLabel()) progress.pastDayChanged = true;
+          // A day committing after its read was retired is still real.
+          if (progress.retired) _queuePhoneDerive(progress);
+        },
+      );
       if (stale()) return 0;
       phoneStepsLastSyncedDays = r.daysRead;
       phoneStepsLastTotal = r.totalSteps;
@@ -1123,7 +1144,8 @@ class AppState extends ChangeNotifier {
       if (r.daysRead > 0) {
         // Use the normal durable queue: capture, workout and background holds
         // still apply, and a read finishing during derive gets a later pass.
-        _deriveScheduler.markStoredData();
+        _queuePhoneDerive(progress);
+        if (progress.days == 0) _deriveScheduler.markStoredData();
       }
       notifyListeners();
       return r.daysRead;
@@ -6254,4 +6276,12 @@ class SleepCorrectionUnavailable implements Exception {
   String toString() => eveningPruned
       ? 'the evening before $day is no longer recorded'
       : 'no recordings left to re-analyse $day';
+}
+
+/// What one phone step read has stored so far, shared with the timeout that
+/// may retire it.
+class _PhoneReadProgress {
+  int days = 0;
+  bool pastDayChanged = false;
+  bool retired = false;
 }

@@ -271,7 +271,14 @@ class PhonePedometer {
   /// short read would LOWER a previously complete day. And because
   /// [LocalDb.liveStepsForDay] prefers phone rows outright, the truncated total
   /// would also keep suppressing the band fallback.
-  Future<int?> syncDay(DateTime dayStartLocal) async {
+  ///
+  /// [onWritten] runs right after the day's rows are committed, with the day
+  /// and whether its phone total moved. It runs even when the caller has since
+  /// stopped waiting for this read: the rows exist either way.
+  Future<int?> syncDay(
+    DateTime dayStartLocal, {
+    void Function(String dayId, bool changed)? onWritten,
+  }) async {
     final dayId = dayLabelOf(dayStartLocal);
     final epoch = _epoch;
     // A reset wipes `live_coverage`; a read that started before it must not
@@ -394,9 +401,12 @@ class PhonePedometer {
 
       bool valid() => epoch == _epoch && !ResetGate.changedSince(resetGen);
       if (!valid()) return null; // stopped or reset mid-walk, see [stop]
+      final before = await LocalDb.phoneStepsForDay(dayId);
       final wrote = await LocalDb.replacePhoneCoverageForDay(dayId, windows,
           stillValid: valid);
-      return wrote ? total : null;
+      if (!wrote) return null;
+      onWritten?.call(dayId, before != total);
+      return total;
     } catch (e) {
       debugPrint('[phone_pedometer] syncDay $dayId: $e');
       return null;
@@ -433,7 +443,7 @@ class PhonePedometer {
   /// success even when the user denied READ.
   Future<({int daysRead, int totalSteps})> syncRecent({
     int days = routineSyncDays,
-    void Function()? onDayBanked,
+    void Function(String dayId, bool changed)? onDayBanked,
   }) async {
     // Taken BEFORE the preparation below: a read retired (or a reset that ran)
     // while it awaits would otherwise capture the NEW values on resuming and
@@ -456,11 +466,10 @@ class PhonePedometer {
       // which would mislabel the day and start its hour walk at the wrong
       // offset. DateTime normalises an out-of-range day field for us.
       final day = DateTime(now.year, now.month, now.day - d);
-      final n = await syncDay(day);
+      final n = await syncDay(day, onWritten: onDayBanked);
       if (n != null) {
         ok++;
         total += n;
-        onDayBanked?.call();
       }
     }
     return (daysRead: ok, totalSteps: total);

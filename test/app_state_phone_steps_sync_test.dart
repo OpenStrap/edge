@@ -126,7 +126,9 @@ void main() {
     expect(await larger, 2);
     expect(authorizations, 2);
     expect(rig.app.phoneStepsLastSyncedDays, 2);
-    await rig.jobQueued('derive_light');
+    // Yesterday was banked for the first time, so a heavy pass is requested:
+    // the light one only ever targets today.
+    await rig.jobQueued('derive_heavy');
   }, paired: false));
 
   test('failed reads keep banked counts, queue no derive, and allow retry',
@@ -346,4 +348,58 @@ void main() {
         isTrue);
     expect(await LocalDb.phoneStepsForDay(day), 11);
   });
+
+  test('an older read timing out does not retire the read that replaced it',
+      syncCase((rig, timers) async {
+    rig.app.phoneStepsEnabled = true;
+    final saved = AppState.phoneStepsReadTimeout;
+    const giveUp = Duration(seconds: 2);
+    AppState.phoneStepsReadTimeout = giveUp;
+    addTearDown(() => AppState.phoneStepsReadTimeout = saved);
+    final stuck = Completer<void>();
+    final second = Completer<void>();
+    var reads = 0;
+    sensor((call) async {
+      if (call.method == 'authorized') return true;
+      if (call.method == 'stepsInInterval') {
+        final mine = ++reads;
+        if (mine == 1) {
+          await stuck.future;
+          return 900;
+        }
+        await second.future;
+        return 6;
+      }
+      return null;
+    });
+    final a = rig.app.syncPhoneSteps(days: 1);
+    await rig.waitFor(() => reads == 1);
+    await rig.app.disablePhoneSteps();
+    rig.app.phoneStepsEnabled = true;
+    final b = rig.app.syncPhoneSteps(days: 1);
+    await rig.waitFor(() => reads == 2);
+    // A's timer fires while B owns the slot.
+    timers.activeOneShot(giveUp).first.fire();
+    expect(await a, 0);
+    second.complete();
+    expect(await b, 1, reason: 'B was not retired by A\'s timeout');
+    expect(await LocalDb.phoneStepsForDay(todayLabel()), greaterThan(0));
+    stuck.complete();
+  }, paired: false));
+
+  test('a phone read that changes an earlier day queues a heavy derive; one '
+      'that only touches today does not', syncCase((rig, timers) async {
+    rig.app.phoneStepsEnabled = true;
+    sensor((call) async {
+      if (call.method == 'authorized') return true;
+      if (call.method == 'stepsInInterval') return 5;
+      return null;
+    });
+    expect(await rig.app.syncPhoneSteps(days: 1), 1);
+    await rig.jobQueued('derive_light');
+    expect(await rig.jobTypes(), isNot(contains('derive_heavy')),
+        reason: 'only today moved, the light pass covers it');
+    expect(await rig.app.syncPhoneSteps(days: 2), 2);
+    await rig.jobQueued('derive_heavy');
+  }, paired: false));
 }
