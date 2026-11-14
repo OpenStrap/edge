@@ -3389,5 +3389,7 @@
   "bandStatusFirmwareLockedTitle": "Le firmware du bracelet retient probablement ses données",
   "bandStatusFirmwareLockedReason": "Ce bracelet utilise le firmware WHOOP 50.43, qui peut se connecter et répondre à l’application sans envoyer ni enregistrements ni fréquence cardiaque en direct tant qu’un jeton d’abonnement signé par WHOOP n’est pas présent sur le bracelet. C’est la raison la plus probable pour laquelle aucune donnée n’arrive. OpenStrap ne peut pas émettre ce jeton. Tout ce qui est déjà enregistré ici est en sécurité.",
   "bandStatusFirmwareLockedFix": "Si c’est le firmware, l’application n’y peut rien et ce message disparaît dès que le bracelet renvoie des données. Si rien n’arrive, essayez quand même de le recharger ou de le jumeler à nouveau",
+  "healthWearNotUpdatedSince": "pas mis à jour depuis {time}",
+  "dayStrainWornAsOf": "Porté, à {time}",
   "dayStepsWhoop4NoCounter": "Un WHOOP 4.0 n’a pas de podomètre intégré : il ne compte les pas que lorsque cette application reçoit ses données en direct."
 }

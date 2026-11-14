@@ -3689,5 +3689,7 @@
   "bandStatusFirmwareLockedTitle": "Die Firmware des Bands hält wahrscheinlich seine Daten zurück",
   "bandStatusFirmwareLockedReason": "Dieses Band läuft mit WHOOP-Firmware 50.43. Sie kann sich verbinden und der App antworten, aber keine Aufzeichnungen und keine Live-Herzfrequenz senden, solange kein von WHOOP signiertes Mitgliedschafts-Token auf dem Band ist. Das ist der wahrscheinlichste Grund, warum keine Daten ankommen. OpenStrap kann dieses Token nicht ausstellen. Alles, was hier schon gespeichert ist, bleibt erhalten.",
   "bandStatusFirmwareLockedFix": "Liegt es an der Firmware, lässt sich das in der App nicht ändern, und der Hinweis verschwindet, sobald das Band wieder Daten sendet. Kommen keine Daten an, lohnt sich trotzdem ein Versuch mit Laden oder neu koppeln",
+  "healthWearNotUpdatedSince": "nicht aktualisiert seit {time}",
+  "dayStrainWornAsOf": "Getragen, Stand {time}",
   "dayStepsWhoop4NoCounter": "Ein WHOOP 4.0 hat keinen eigenen Schrittzähler und zählt Schritte nur, solange diese App seine Live-Daten empfängt."
 }
