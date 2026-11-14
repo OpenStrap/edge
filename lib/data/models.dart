@@ -419,6 +419,9 @@ class DeviceState {
   /// EmptySyncTracker tripped: ≥3 consecutive console-only offloads — the strap's
   /// RTC has likely lost sync.
   bool syncClockLost = false;
+  /// Firmware the gen5 HELLO reported on this connection (`50.43.2.0`), null
+  /// until one has. Read by `bandStatusFor` to name a firmware data lock.
+  String? firmware;
   /// StuckStrapDetector tripped: frontier frozen while the strap is ahead — a
   /// defensive reboot/clock-reset was attempted.
   bool strapNeedsReboot = false;
@@ -475,6 +478,7 @@ class DeviceState {
     bondRefusals = 0;
     autoReconnectPaused = false;
     syncClockLost = false;
+    firmware = null;
     strapNeedsReboot = false;
     syncChunkQuarantined = false;
     dataRangeOldest = null;
