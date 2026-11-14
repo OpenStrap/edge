@@ -4201,8 +4201,13 @@ class AppState extends ChangeNotifier {
   static const String _kLiveSessionCheckpoint = 'live_session_checkpoint';
 
   Future<void> _checkpointLiveSession() async {
-    final resetGeneration = ResetGate.generation;
     if (_gaitRuns.isEmpty) return;
+    // The runs were collected under THEIR generation, not the one current now:
+    // a reset that began or finished since must not have its deleted steps
+    // written back (and recovered after the next connect). Refused up front
+    // and again after the reads below.
+    final resetGeneration = _gaitRunsGeneration ?? ResetGate.generation;
+    if (ResetGate.changedSince(resetGeneration)) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final calibration = await _liveStepCalibrationRuns();
@@ -5329,6 +5334,10 @@ class AppState extends ChangeNotifier {
         }
         notifyListeners();
       }
+      // The band that receives this SET. unpair()/replacement can finish while
+      // the write waits for its reply; the result then belongs to a band that
+      // is no longer the paired one (see [_onArmed]).
+      final armedFor = paired?.remoteId;
       final result = await armNextScheduledOccurrence(
         engine: engine,
         schedule: _schedule,
@@ -5346,7 +5355,7 @@ class AppState extends ChangeNotifier {
       final epoch = result.epoch;
       if (epoch == null) return true;
       await _onArmed(DateTime.fromMillisecondsSinceEpoch(epoch * 1000), epoch,
-          echoed: result.echoed);
+          echoed: result.echoed, armedFor: armedFor);
       return true;
     } catch (e) {
       _log('[alarm] weekly-schedule arm failed: $e');
@@ -5474,6 +5483,7 @@ class AppState extends ChangeNotifier {
     // rich 20-byte firing form (a hardcoded 0 subsec would still fire, but the
     // engine owns the exact on-wire layout). Persist the wall instant the
     // engine reports armed (null = write never reached the band).
+    final armedFor = paired?.remoteId;
     final (:armed, :echoed) = await engine.armAlarm(when);
     if (armed == null) {
       // Do NOT persist or start the confirmation machine, or we'd strand a
@@ -5487,7 +5497,7 @@ class AppState extends ChangeNotifier {
       throw Exception('Alarm not set');
     }
     await _onArmed(armed, armed.millisecondsSinceEpoch ~/ 1000,
-        echoed: echoed);
+        echoed: echoed, armedFor: armedFor);
   }
 
   /// Shared bookkeeping for anything that just armed the band: optimistic
@@ -5498,7 +5508,19 @@ class AppState extends ChangeNotifier {
   ///
   /// [echoed]: the strap's reply already reported this exact wake time, so the
   /// arm is confirmed now; event 56 stays as later corroboration.
-  Future<void> _onArmed(DateTime when, int epoch, {bool echoed = false}) async {
+  ///
+  /// [armedFor] is the band that received the SET, captured BEFORE the write.
+  /// If it is no longer the paired band (a forget or replacement finished while
+  /// the reply was pending), this arm is dropped: persisting it would save an
+  /// ownerless epoch that any later band reads as its own and is then never
+  /// armed.
+  Future<void> _onArmed(DateTime when, int epoch,
+      {bool echoed = false, required String? armedFor}) async {
+    if (armedFor != paired?.remoteId) {
+      _log('[alarm] the band that took this alarm is no longer paired; '
+          'not recording it.');
+      return;
+    }
     final gen = ++_armGen;
     _savedAlarm = epoch;
     device.alarmEpoch = epoch; // optimistic display
@@ -5510,7 +5532,12 @@ class AppState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     // A newer arm (or a clear) during the await owns what is persisted now.
     if (_disposed || _armGen != gen) return;
-    await saveArmedAlarmEpoch(prefs, epoch, paired?.remoteId);
+    // Asked again right before the epoch write: the helper awaits, and a clear
+    // or newer arm in those gaps must not be overwritten by this older epoch.
+    if (!await saveArmedAlarmEpoch(prefs, epoch, armedFor,
+        stillCurrent: () => !_disposed && _armGen == gen)) {
+      return;
+    }
     if (_disposed || _armGen != gen) return;
     await prefs.setInt('alarm_set_at_ms', setAtMs);
     if (_disposed || _armGen != gen) return;
