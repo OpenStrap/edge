@@ -43,6 +43,8 @@ import 'ui2/screens/sleep_tab.dart';
 import 'ui2/screens/wellness_screen.dart';
 import 'ui2/screens/workout_screen.dart';
 import 'ui2/ui2.dart';
+import 'ui2/guides/guide_runner.dart';
+import 'ui2/profile/settings.dart' show MoreSettings;
 
 class OpenStrapApp extends StatefulWidget {
   const OpenStrapApp({super.key});
@@ -60,6 +62,8 @@ bool screenReadsForeground(AppLifecycleState? state) =>
     state != AppLifecycleState.detached;
 
 class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver {
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  late final _guideRunner = GuideRunner(navigatorKey: _navigatorKey);
   @override
   void initState() {
     super.initState();
@@ -108,6 +112,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   void dispose() {
     settingsRestoredSignal.removeListener(_onSettingsRestored);
     WidgetsBinding.instance.removeObserver(this);
+    _guideRunner.dispose();
     super.dispose();
   }
 
@@ -178,7 +183,10 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
     locale.useForPresentation();
     final twelveHour = !context.watch<ClockFormatController>().resolve24h(
         MediaQuery.alwaysUse24HourFormatOf(context));
-    return MaterialApp(
+    return ChangeNotifierProvider<GuideRunner>.value(
+      value: _guideRunner,
+      child: MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'OpenStrap',
       debugShowCheckedModeBanner: false,
       // The palette is the design system's, the CHOICE is still the user's.
@@ -214,9 +222,9 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       },
       builder: (context, child) => _ClockScope(
           child: ThemeSwitchOverlay(key: themeSwitchKey, child: child!)),
-      navigatorObservers: [TelemetryNavigatorObserver()],
+      navigatorObservers: [TelemetryNavigatorObserver(), _guideRunner.routes],
       home: const _Gate(),
-    );
+    ));
   }
 }
 
@@ -341,7 +349,7 @@ class _Gate extends StatelessWidget {
               onBack: () => context.read<AppState>().backToWelcome()),
           AppRoute.profile => ProfileSetupScreen(
               onDone: () => OnboardingBypass.mark(OnboardingBypass.kProfile)),
-          AppRoute.shell => const _Shell(),
+          AppRoute.shell => const AppMainShell(),
         };
         // Cold-start splash: covers the whole loading phase and cross-fades out
         // the instant AppState finishes initializing, even mid-play. Shown once
@@ -542,13 +550,16 @@ Widget? screenForRoute(String route) => switch (routePath(route)) {
       _ => null,
     };
 
-class _Shell extends StatefulWidget {
-  const _Shell();
+/// The signed-in app: [AppShell] with the four real tabs, the deep-link
+/// plumbing and the running-workout bar. Public so integration tests (live
+/// guides) mount the very shell the app runs, not a copy of its tab mapping.
+class AppMainShell extends StatefulWidget {
+  const AppMainShell({super.key});
   @override
-  State<_Shell> createState() => _ShellState();
+  State<AppMainShell> createState() => _ShellState();
 }
 
-class _ShellState extends State<_Shell> {
+class _ShellState extends State<AppMainShell> {
   /// Restore the last-selected tab so a relaunch lands where the user left off.
   late ShellDomain _domain = restoredShellTab();
 
@@ -559,6 +570,9 @@ class _ShellState extends State<_Shell> {
   late final ValueNotifier<ShellDomain> _selection;
 
   AppState? _app;
+  GuideRunner? _guideRunner;
+  GuideShellLink? _guideShell;
+  bool _persistSelection = true;
 
   @override
   void initState() {
@@ -567,6 +581,12 @@ class _ShellState extends State<_Shell> {
     // then clear the request so it isn't replayed on rebuild.
     _app = context.read<AppState>();
     _selection = ValueNotifier(_domain);
+    _guideRunner = context.read<GuideRunner?>();
+    // Guide navigation is temporary; only the user's own tab changes persist.
+    _guideShell = GuideShellLink(selectTab: (d) => _go(d, persist: false), openSettings: () async {
+      if (mounted) await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const MoreSettings()));
+    });
+    _guideRunner?.attachShell(_guideShell!);
     _app!.navRequest.addListener(_consumeSoon);
     _app!.screenRequest.addListener(_consumeSoon);
     // Android relaunch from the launcher: close screens left open on the
@@ -628,16 +648,24 @@ class _ShellState extends State<_Shell> {
     if (tab >= 0) _go(domainForTab(tab));
   }
 
-  void _go(ShellDomain d) {
+  void _go(ShellDomain d, {bool persist = true}) {
     if (d == _domain) return;
     setState(() => _domain = d);
-    Prefs.setInt(Prefs.shellTabV2, d.index);
-    // AppShell follows this without being recreated, so tab state survives.
-    _selection.value = d;
+    if (persist) Prefs.setInt(Prefs.shellTabV2, d.index);
+    // AppShell reports notifier-driven changes through onSelect as well.
+    // Keep guide write suppression scoped to that synchronous notification.
+    final previous = _persistSelection;
+    _persistSelection = persist;
+    try {
+      _selection.value = d;
+    } finally {
+      _persistSelection = previous;
+    }
   }
 
   @override
   void dispose() {
+    if (_guideShell != null) _guideRunner?.detachShell(_guideShell!);
     _app?.navRequest.removeListener(_consumeSoon);
     _app?.screenRequest.removeListener(_consumeSoon);
     ActivityRelaunch.stop(_relaunchNavigator);
@@ -656,7 +684,7 @@ class _ShellState extends State<_Shell> {
       banner: live ? const _LiveSessionBar() : null,
       onSelect: (d) {
         _domain = d;
-        Prefs.setInt(Prefs.shellTabV2, d.index);
+        if (_persistSelection) Prefs.setInt(Prefs.shellTabV2, d.index);
         // Manual tab changes (and Back) must update the notifier too:
         // otherwise it goes stale and a later _go to that stale value fires
         // no change event, so AppShell would not follow the deep link.

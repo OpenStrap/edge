@@ -275,6 +275,21 @@ const _notComponents = {
   // `start_session_card_test.dart`, which renders it at a real phone width and
   // asserts the copy is not truncated and nothing overflows.
   'StartCard',
+  // The skeleton overlay (lib/ui2/skeleton). Its gallery cases wait for the Help
+  // list (gallery.dart is not edited in phases 1-2); until then
+  // test/ui2/skeleton_*_test.dart pump them. SkeletonBar/SkeletonBlock would fit
+  // a cell; they wait only because gallery.dart is not edited in these phases.
+  // (The guide review views GuideStepView/GuideView are test tooling, not in lib.)
+  // GuideMarkerPill and GuideFooterCard (lib/ui2/guides/guide_markers.dart) are
+  // parts of a guide step drawn by the live overlay and the review views; they are
+  // pumped by test/ui2/guide_view_test.dart and the live-guide tests, and a gallery
+  // cell would show a yellow pill / a footer card with nothing to point at.
+  'SkeletonBar', 'SkeletonBlock', 'Skeletonize', 'GuideMarkerPill', 'GuideFooterCard',
+  // Live guides: the card and the overlay exist only while a guide runs over the
+  // user's own screens (a cell cannot hold a full-screen overlay; the card needs a
+  // GuideRun). HelpScreen is a screen. Pumped by test/ui2/guide_step_card_test.dart,
+  // live_guide_overlay_test.dart and help_screen_test.dart.
+  'GuideStepCard', 'LiveGuideOverlay', 'HelpScreen',
   // Pairing pieces are exercised on routes by the pairing widget tests.
   'TroubleConnectingCard', 'ResetStepsView', 'PairingModeSection', 'PairStepRow', 'TextLinkButton', 'ChoiceRow',
   // tabs and drill-downs
