@@ -470,15 +470,15 @@ class _ZonesDetailState extends State<ZonesDetail> {
                     ],
                   ),
                 ),
-                Text(
-                  // One beat below the next edge, as [ZoneRows.range] prints
-                  // it, so no bpm sits in two zones.
-                  z.zone == 5 ? '${z.lo}+' : '${z.lo}–${z.hi > z.lo ? z.hi - 1 : z.hi}',
-                  style: F.n17.copyWith(color: p.ink2),
-                ),
                 const SizedBox(width: S.x2),
-                Text(l?.activityZonesBpmUnit ?? 'bpm',
-                    style: F.cap.copyWith(color: p.ink3)),
+                // At large text the range may wrap (after its dash, or
+                // before the unit) instead of overflowing the row. Only
+                // there: flexed at 1x it would take half the row from the
+                // zone name. One Text.rich so the unit stays with its number.
+                if (bigText(context))
+                  Flexible(child: _range(z, p, l))
+                else
+                  _range(z, p, l),
               ],
             ),
           ],
@@ -491,6 +491,26 @@ class _ZonesDetailState extends State<ZonesDetail> {
       ),
     );
   }
+
+  /// One zone's bpm range with its unit, as one run of text.
+  Widget _range(ZoneRow z, P p, AppLocalizations? l) => Text.rich(
+        TextSpan(children: [
+          TextSpan(
+            // One beat below the next edge, as [ZoneRows.range] prints it, so
+            // no bpm sits in two zones.
+            text: z.zone == 5
+                ? '${z.lo}+'
+                : '${z.lo}–${z.hi > z.lo ? z.hi - 1 : z.hi}',
+            style: F.n17.copyWith(color: p.ink2),
+          ),
+          TextSpan(
+            // A no-break space, so the unit never lands on a line of its own.
+            text: ' ${l?.activityZonesBpmUnit ?? 'bpm'}',
+            style: F.cap.copyWith(color: p.ink3),
+          ),
+        ]),
+        textAlign: TextAlign.end,
+      );
 
   /// WHERE THESE EDGES CAME FROM — the whole point of the screen. Three
   /// different claims, three different sentences, never a shared hedge.
