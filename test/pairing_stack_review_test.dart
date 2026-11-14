@@ -29,6 +29,7 @@ class _App extends AppState {
   Completer<bool>? supported;
   Completer<BluetoothDevice?>? scanned;
   String? scannedGeneration;
+  String? scannedRemoteId;
   Object? pickerError;
   var replacements = 0;
   var pickers = 0;
@@ -41,6 +42,7 @@ class _App extends AppState {
     String? generation,
   }) async {
     scannedGeneration = generation;
+    scannedRemoteId = remoteId;
     return scanned == null ? null : await scanned!.future;
   }
 
@@ -153,42 +155,29 @@ void main() {
     expect(find.text('Bluetooth thermometer'), findsOneWidget);
   });
 
-  // WHY: callbacks may already be queued before the disabled rows rebuild.
-  // catches: guarding only _flow.running, which category navigation never sets.
-  testWidgets(
-    'category and nearby taps share a lock until navigation returns',
-    (t) async {
-      final app = _App();
-      addTearDown(app.dispose);
-      await _screen(t, app, const DevicePickerScreen());
-      final view = t.widget<DevicePickerView>(find.byType(DevicePickerView));
-      view.onOpenEntry!(kWhoopGen4);
-      view.onOpenEntry!(kWhoopGen4);
-      view.onPickNearby!((
-        device: BluetoothDevice.fromId('new'),
-        label: 'WHOOP',
-        rssi: -50,
-        entryId: 'gen5',
-        alsoBand: null,
-      ));
-      await t.pumpAndSettle();
-      expect(find.byType(PairingScreen, skipOffstage: false), findsOneWidget);
-      expect(find.byType(BottomSheet), findsNothing);
-      Navigator.of(t.element(find.byType(PairingScreen))).pop();
-      await t.pumpAndSettle();
-      final unlocked = t.widget<DevicePickerView>(
-        find.byType(DevicePickerView),
-      );
-      expect(unlocked.locked, isFalse);
-      unlocked.onOpenEntry!(kWhoopGen4);
-      await t.pumpAndSettle();
-      expect(
-        find.byType(PairingScreen),
-        findsOneWidget,
-        reason: 'next deliberate tap is accepted',
-      );
-    },
-  );
+  // WHY: first-run callbacks may already be queued before navigation covers
+  // the picker. Returning from the route must allow the next deliberate tap.
+  testWidgets('first-run taps stay locked until navigation returns', (t) async {
+    final app = _App();
+    addTearDown(app.dispose);
+    await _screen(t, app, const DevicePickerScreen());
+    final dynamic host = t.state(find.byType(DevicePickerScreen));
+    host.pickBand(kWhoopGen4);
+    host.pickBand(kWhoopGen4);
+    host.strapOnlyConfirmed();
+    await t.pumpAndSettle();
+    expect(find.byType(PairingScreen, skipOffstage: false), findsOneWidget);
+    expect(find.byType(BottomSheet), findsNothing);
+    Navigator.of(t.element(find.byType(PairingScreen))).pop();
+    await t.pumpAndSettle();
+    host.pickBand(kWhoopGen4);
+    await t.pumpAndSettle();
+    expect(
+      find.byType(PairingScreen),
+      findsOneWidget,
+      reason: 'next deliberate tap is accepted',
+    );
+  });
 
   // WHY: the host callbacks used by first-run must obey the same lock as
   // category and nearby taps, without losing the selected WHOOP model.
@@ -211,17 +200,19 @@ void main() {
     expect(app.scannedGeneration, 'gen5');
   });
 
-  // WHY: the single WHOOP category stands for gen4 and gen5 while still
-  // carrying WHOOP reset help. Only a scanned candidate establishes its model.
-  // catches: forwarding the category representative gen4 as a scan filter.
-  testWidgets('WHOOP category keeps help while scanning across generations', (
+  // WHY: a name-only candidate establishes the remote id, but not a model.
+  // The representative entry supplies safe help without filtering out gen5.
+  testWidgets('name-only WHOOP handoff keeps help and the exact candidate', (
     t,
   ) async {
     final app = _App();
     addTearDown(app.dispose);
     await _screen(t, app, const DevicePickerScreen());
-    t.widget<DevicePickerView>(find.byType(DevicePickerView)).onOpenEntry!(
+    final io = t.state(find.byType(DevicePickerScreen)) as AddDeviceIo;
+    final opened = io.openBandFlow(
       kWhoopGen4,
+      remoteId: 'picked',
+      modelKnown: false,
     );
     await t.pumpAndSettle();
     expect(
@@ -231,6 +222,10 @@ void main() {
     await t.tap(find.text('Find my band'));
     await t.pumpAndSettle();
     expect(app.scannedGeneration, isNull);
+    expect(app.scannedRemoteId, 'picked');
+    Navigator.of(t.element(find.byType(PairingScreen))).pop();
+    await t.pumpAndSettle();
+    await opened;
   });
 
   for (final waitingOnSupport in [false, true]) {
@@ -271,7 +266,7 @@ void main() {
     final app = _App();
     addTearDown(app.dispose);
     final probe = Completer<String?>();
-    await _screen(t, app, DevicePickerScreen(debugScanHeldBackReason: () => probe.future));
+    await _screen(t, app, DevicePickerScreen(includeBand: false, debugScanHeldBackReason: () => probe.future));
     final view = t.widget<DevicePickerView>(find.byType(DevicePickerView));
     view.onScan!();
     view.onOpenEntry!(kWhoopGen4);

@@ -16873,9 +16873,9 @@
   "@pairStrapLead": {
     "description": "Sheet lead for a heart-rate strap or sensor."
   },
-  "pairStrapNote": "Both need “Use during workouts” on.",
+  "pairStrapNote": "Turn on “Use during workouts” to record heart rate while you work out.",
   "@pairStrapNote": {
-    "description": "Note under a strap’s table: both workout rows need the switch. Quotes deviceUseWorkoutsTitle."
+    "description": "Note on a strap’s sheet: workout recording needs the switch. Quotes deviceUseWorkoutsTitle."
   },
   "pairDeviceNamed": "Pair {name}",
   "@pairDeviceNamed": {
@@ -16894,9 +16894,33 @@
   "@pairReplaceUnpairFailed": {
     "description": "Shown when unpairing the old band failed during “Unpair (your band) and pair this one”; nothing else ran."
   },
-  "pairWearableLeadPebble": "Pebble 2 can fill your days with sleep, recovery and heart rate. Pebble 2 SE shows the watch’s own sleep and steps. It has no heart-rate sensor, so this app cannot calculate daily strain or estimate recovery from it.",
+  "pairWearableLeadPebble": "Pebble 2 can fill your days with sleep and heart rate. Pebble 2 SE shows the watch’s own sleep and steps. It has no heart-rate sensor, so this app cannot calculate daily strain or estimate recovery from it.",
   "@pairWearableLeadPebble": {
     "description": "Pebble-family pairing lead: SE shows the watch’s own sleep and steps; no HR sensor means no app-calculated daily strain or recovery estimate from the SE alone."
+  },
+  "pairMainBandWhoopOnly": "Main band: WHOOP 4.0 or WHOOP 5.0/MG only. Other devices can be added as additional devices.",
+  "@pairMainBandWhoopOnly": {
+    "description": "Plain statement on the pairing screens: only WHOOP can be the main band; other devices are added as additional devices."
+  },
+  "pairBandTitle": "Pair your band",
+  "@pairBandTitle": {
+    "description": "Title of the first-run list of bands."
+  },
+  "pairBandSubtitle": "Pick the one you wear. We will look for it nearby.",
+  "@pairBandSubtitle": {
+    "description": "Subtitle of the first-run list of bands."
+  },
+  "pairStrapOnlyLink": "I only have a heart-rate strap",
+  "@pairStrapOnlyLink": {
+    "description": "Text link under the band list for someone with only a heart-rate strap."
+  },
+  "pairWhoopRowLine": "Sleep, recovery, strain, heart rate and more",
+  "@pairWhoopRowLine": {
+    "description": "Line under each WHOOP on the first-run list."
+  },
+  "pairSetUpTitle": "Set up",
+  "@pairSetUpTitle": {
+    "description": "Top bar title of the first-run pairing screen."
   },
   "welcomeCoachKeyReentry": "Your coach API key stays in secure storage and was not backed up. Enter it again in AI settings to use the coach on this phone.",
   "welcomeSettingsSkipped": "{n, plural, =1{1 setting in the backup could not be read and was skipped} other{{n} settings in the backup could not be read and were skipped}}",

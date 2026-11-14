@@ -441,6 +441,46 @@ void main() {
       expect(await db.query('live_coverage'), isNotEmpty);
     });
 
+    test('control: without a reset the walk is checkpointed', () async {
+      SharedPreferences.setMockInitialValues({});
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      const recTs = 1787100000;
+      for (var f = 0; f < 700; f++) {
+        app.debugFeedLiveAccel(_walkFrame(f, 10),
+            recTs: recTs, atMs: recTs * 1000 + f * 100);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey('live_session_checkpoint'), isTrue);
+    });
+
+    test('a reset after the steps were collected is not checkpointed back',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      const recTs = 1787000000;
+      // One full walking minute: runs are buffered and a first checkpoint lands.
+      for (var f = 0; f < 700; f++) {
+        app.debugFeedLiveAccel(_walkFrame(f, 10),
+            recTs: recTs, atMs: recTs * 1000 + f * 100);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('live_session_checkpoint');
+      ResetGate.enter();
+      ResetGate.leave();
+      // The next minute completes AFTER the reset; the buffered runs predate it.
+      for (var f = 700; f < 1400; f++) {
+        app.debugFeedLiveAccel(_walkFrame(f, 10),
+            recTs: recTs, atMs: recTs * 1000 + f * 100);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(prefs.containsKey('live_session_checkpoint'), isFalse,
+          reason: 'runs from before the reset must not be written back');
+    });
+
     test('a reset after the steps were collected keeps them out of storage',
         () async {
       final app = await walked();

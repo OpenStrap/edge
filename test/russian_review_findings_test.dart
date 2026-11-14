@@ -335,7 +335,7 @@ void main() {
     addTearDown(app.dispose);
     await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
       value: app,
-      child: page(const DevicePickerScreen()),
+      child: page(const DevicePickerScreen(includeBand: false)),
     ));
     await t.pumpAndSettle();
     final entry = kBleHrs;

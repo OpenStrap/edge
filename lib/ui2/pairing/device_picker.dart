@@ -54,6 +54,7 @@ import '../../state/app_state.dart';
 import '../onboarding/pairing.dart' show PairingScreen;
 import '../ui2.dart';
 import 'add_device_flow.dart';
+import 'pair_band_view.dart';
 import 'category_filter_pills.dart';
 import 'pair_dispatch.dart';
 import 'pair_text.dart'
@@ -67,6 +68,21 @@ import '../profile/devices.dart'
         sensorIcon;
 import '../profile/pair_sensor.dart' show PairSensorScreen;
 import '../profile/profile.dart' show SetRow;
+
+/// Refreshes the sensor list once a pairing has been SAVED. The pairing is
+/// already durable here, so a failing refresh must not surface as "could not
+/// pair" (the caller's catch would say exactly that). The list reloads on its
+/// next load. Returns whether the refresh worked.
+@visibleForTesting
+Future<bool> refreshAfterPair(Future<void> Function() refresh) async {
+  try {
+    await refresh();
+    return true;
+  } catch (e) {
+    debugPrint('[pair] sensor list refresh failed after a saved pairing: $e');
+    return false;
+  }
+}
 
 class DevicePickerScreen extends StatefulWidget {
   /// Walk past pairing entirely. Non-null only at true first-run onboarding
@@ -100,7 +116,7 @@ class DevicePickerScreen extends StatefulWidget {
 }
 
 class _DevicePickerScreenState extends State<DevicePickerScreen>
-    implements AddDeviceIo {
+    implements AddDeviceIo, PairBandHost {
   final _query = TextEditingController();
   String _q = '';
 
@@ -284,8 +300,10 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
     }
   }
 
+  @override
   void pickBand(BandEntry entry) => unawaited(_browseEntry(entry, modelKnown: true));
 
+  @override
   void strapOnlyConfirmed() => unawaited(_browseEntry(kBleHrs, confirmed: true));
 
   /// The pairing operation itself, for [AddDeviceFlow].
@@ -401,7 +419,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
 
   Future<void> _afterPair() async {
     // Neither sub-flow tells AppState a `device` row changed underneath it.
-    if (mounted) await context.read<AppState>().refreshSensors();
+    if (mounted) await refreshAfterPair(context.read<AppState>().refreshSensors);
     // A framed pair changes `AppState.isPaired`, which nothing here watches
     // directly — the pushed `PairingScreen` closes itself on success, and the
     // gate (or `RePair`) reacts to the flag underneath.
@@ -416,7 +434,13 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
   @override
   Widget build(BuildContext c) {
     final l = AppLocalizations.of(c);
-    final entries = [if (widget.includeBand) kWhoopGen4, ..._notifyEntries];
+    if (widget.includeBand) {
+      return PairBandView(
+        entries: firstRunBandEntries(), host: this, onSkip: widget.onSkip,
+        onBack: widget.onBack, problem: _problem,
+      );
+    }
+    final entries = _notifyEntries;
     return DevicePickerView(
       query: _query,
       title: l?.pairAddDevice ?? 'Add a device',
