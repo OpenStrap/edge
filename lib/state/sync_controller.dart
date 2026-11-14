@@ -95,6 +95,8 @@ class SyncController {
   bool _reconnecting = false;
   DateTime? _attemptStartedAt;
   int _reconnectGeneration = 0;
+  Completer<void>? _reconnectFinished;
+  Completer<void>? _reconnectRetired;
   Timer? _reconnectSupervisor;
   Timer? _backfillTimer;
   BandLease? _foregroundLease;
@@ -195,7 +197,7 @@ class SyncController {
   /// Stop supervising. Called from `dispose` and from every path that stops
   /// wanting a link at all (unpair / endSession) — otherwise the tick outlives
   /// its purpose and keeps poking the engine every few minutes forever.
-  void _stopReconnectSupervisor() {
+  void _stopReconnectSupervisor({bool waitForAttempt = false}) {
     _reconnectSupervisor?.cancel();
     _reconnectSupervisor = null;
     // Cancelling the timer is not enough: a `_reconnect()` can still be parked
@@ -206,6 +208,10 @@ class SyncController {
     // reconnecting and re-running the whole post-connect block underneath the
     // new session.
     _reconnectGeneration++;
+    final retired = _reconnectRetired;
+    if (retired != null && !retired.isCompleted) retired.complete();
+    // Pairing waits for the real attempt before releasing its running flag.
+    if (waitForAttempt) return;
     _reconnecting = false;
     _attemptStartedAt = null;
     engine.clearReconnecting();
@@ -515,14 +521,25 @@ class SyncController {
   /// (including the required subscriptions and gen5 HELLO) before [confirm].
   /// No reconnect loop is started for an unconfirmed band. On failure retain
   /// its ASK grant so Retry can use it, but retire native restore intent.
+  /// [onStarted] runs only after admission, before departure can fail. A false
+  /// result without this callback means the prior live state is untouched.
   Future<bool> connectForPairing(
     PairedDevice candidate, {
     required Future<void> Function() confirm,
+    String? replacingRemoteId,
+    Future<void> Function()? prepare,
+    void Function()? onStarted,
   }) async {
-    if (busy || _reconnecting || paired != null || _isDisposed || ResetGate.active) {
+    final existing = paired;
+    final allowed = replacingRemoteId == null
+        ? existing == null
+        : existing?.remoteId == replacingRemoteId;
+    if (busy || (_reconnecting && replacingRemoteId == null) ||
+        !allowed || _isDisposed || ResetGate.active) {
       return false;
     }
-    final generation = _reconnectGeneration;
+    onStarted?.call();
+    var generation = _reconnectGeneration;
     final resetGeneration = ResetGate.generation;
     bool current() => !_isDisposed &&
         generation == _reconnectGeneration &&
@@ -532,6 +549,34 @@ class SyncController {
     BandOwnership.markForegroundIntent(true);
     IosBleRestore.foregroundActive = true;
     try {
+      if (replacingRemoteId != null) {
+        _keepAlive = false;
+        _stopBackfillTimer();
+        final finished = _reconnectFinished;
+        _stopReconnectSupervisor(waitForAttempt: true);
+        generation = _reconnectGeneration;
+        // The engine serializes GATT operations, but that alone cannot stop an
+        // old loop's post-connect work from running against the new band.
+        if (finished != null) await finished.future;
+        if (!current() || paired?.remoteId != existing?.remoteId) return false;
+        _reconnecting = false;
+        _attemptStartedAt = null;
+        engine.clearReconnecting();
+        await engine.disconnect();
+        // The old band's sync burst wakes within a poll interval of the
+        // teardown. If the candidate connected first it could reach its loop
+        // head and ask the NEW band for history. The old runSync resolves on
+        // link drop, so this wait is short; bound it anyway.
+        final superseded = _syncBurst;
+        if (superseded != null) {
+          try {
+            await superseded.timeout(const Duration(seconds: 15));
+          } catch (_) {}
+        }
+        if (!current()) return false;
+      }
+      await prepare?.call();
+      if (!current()) return false;
       background = false;
       engine.setBackground(false);
       _scheduler.setBackground(false);
@@ -545,6 +590,8 @@ class SyncController {
         _log('Pairing: bootstrap did not complete; pairing not confirmed.');
         return false;
       }
+      // A forget or another primary change during bootstrap wins.
+      if (paired?.remoteId != existing?.remoteId) return false;
       await confirm();
       if (!current() || paired?.remoteId != candidate.remoteId) return false;
       confirmed = true;
@@ -757,7 +804,7 @@ class SyncController {
   }
 
   Future<void> _reconnect() async {
-    if (_reconnecting || paired == null) return;
+    if (_reconnecting || busy || paired == null) return;
     // Bond-refusal give-up: a band that keeps refusing the bond will never accept
     // commands, so the auto-reconnect loop is paused (surfaced as needsRepairGuide).
     // A manual user connect / re-pair clears the pause on the next successful bond.
@@ -768,6 +815,9 @@ class SyncController {
     _reconnecting = true;
     _attemptStartedAt = DateTime.now();
     final generation = ++_reconnectGeneration;
+    final finished = _reconnectFinished = Completer<void>();
+    final retired = _reconnectRetired = Completer<void>();
+    bool current() => _keepAlive && generation == _reconnectGeneration;
     BandOwnership.markForegroundIntent(true);
     _log('[OWNERSHIP] reconnect intent on (${BandOwnership.debugState})');
     try {
@@ -811,24 +861,34 @@ class SyncController {
         if (osPending) {
           connected = await engine.waitForOsAutoConnect(
             paired!.remoteId,
-            keepWaiting: () => _keepAlive && !engine.isConnected,
+            keepWaiting: () => current() && !engine.isConnected,
           );
-          if (connected && _keepAlive) {
+          if (!current()) break;
+          if (connected) {
             // Mark band ownership before the actual GATT setup so a headless
             // wake can't fight this reconnect for the peripheral.
             await _ensureForegroundLease();
+            if (!current()) break;
             connected = await engine.connectToRemoteId(paired!.remoteId,
               generationHint: paired!.generation);
           } else {
             connected = false;
           }
         } else {
-          await Future.delayed(engine.reconnectDelay(attempt));
-          if (!_keepAlive) break;
+          final delayed = Completer<void>();
+          final timer = Timer(engine.reconnectDelay(attempt), delayed.complete);
+          try {
+            await Future.any([delayed.future, retired.future]);
+          } finally {
+            timer.cancel();
+          }
+          if (!current()) break;
           await _ensureForegroundLease();
+          if (!current()) break;
           connected = await engine.connectToRemoteId(paired!.remoteId,
               generationHint: paired!.generation);
         }
+        if (!current()) break;
         if (connected) {
           // Reclaim the band from the iOS restore central so it stops competing.
           if (Platform.isIOS) {
@@ -930,6 +990,7 @@ class SyncController {
         // the loop exited via a successful connect (phase is `listening`).
         engine.clearReconnecting();
       }
+      finished.complete();
     }
   }
 

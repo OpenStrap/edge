@@ -43,7 +43,8 @@ import '../../compute/findings.dart'
         kReadinessEasyBelow,
         kReadinessGoodFrom,
         kReadinessRestBelow;
-import '../../data/day_label.dart' show todayLabel, calendarDaysBetween;
+import '../../data/day_label.dart'
+    show calendarDaysBetween, dayLabelOf, todayLabel;
 import '../../compute/onehz_pipeline.dart'
     show readinessInputShortfallNote, readinessUnstableBaselineNote;
 import '../../data/db.dart' show DbRebuild, LocalDb;
@@ -685,6 +686,17 @@ String clock(num? minOfDay) =>
     minOfDay == null ? '' : formatMinuteOfDay(minOfDay.round());
 
 /// Epoch seconds → "11:08 PM" / "23:08" in the device zone.
+/// When a carried wear figure was last computed (#450), as seen from the day
+/// on screen ([shownDay], a local label): a clock alone when it fell on that
+/// day, otherwise the date too. A past day's carried wear can date from a
+/// later day's sync, and "08:00" under that past day would name the wrong one.
+String asOfText(num ts, String shownDay, [AppLocalizations? l]) {
+  final day = dayLabelOf(DateTime.fromMillisecondsSinceEpoch(ts.round() * 1000));
+  return day == shownDay
+      ? clockOfTs(ts)
+      : '${prettyDay(day, l)} ${clockOfTs(ts)}';
+}
+
 String clockOfTs(num? ts) {
   if (ts == null) return '';
   return formatClockOf(DateTime.fromMillisecondsSinceEpoch(ts.round() * 1000));

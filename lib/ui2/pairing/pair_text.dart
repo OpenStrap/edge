@@ -12,6 +12,26 @@ import '../../l10n/app_localizations.dart';
 AppLocalizations pairL10n(BuildContext c) =>
     AppLocalizations.of(c) ?? lookupAppLocalizations(const Locale('en'));
 
+/// The filter pills' groups (K3): what the user would call the device.
+/// A WHOOP is its own group; a Mi Band sits with the watches. Scales and
+/// thermometers have no group and show under All only.
+enum PairFilter { whoop, rings, watches, straps }
+
+PairFilter? pairFilterOf(DeviceKind k) => switch (k) {
+  DeviceKind.strap => PairFilter.whoop,
+  DeviceKind.ring => PairFilter.rings,
+  DeviceKind.watch || DeviceKind.band => PairFilter.watches,
+  DeviceKind.chestStrap || DeviceKind.armband => PairFilter.straps,
+  DeviceKind.scale || DeviceKind.thermometer || DeviceKind.other => null,
+};
+
+String pairFilterLabel(AppLocalizations l, PairFilter f) => switch (f) {
+  PairFilter.whoop => 'WHOOP',
+  PairFilter.rings => l.pairKindRing,
+  PairFilter.watches => l.pairKindWatch,
+  PairFilter.straps => l.pairKindStrap,
+};
+
 /// The sheet title for [e]: "This is a WHOOP band", "This is a ring", ….
 String deviceSheetTitle(AppLocalizations l, BandEntry e) => switch (e.kind) {
   _ when e.canBeMainDevice => l.pairThisIsWhoop,

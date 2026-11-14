@@ -14,11 +14,12 @@ Future<void> pumpPair(
   double textScale = 1,
   Size size = const Size(412, 915),
   bool settle = true,
+  Widget Function(Widget)? wrap,
 }) async {
   t.view.physicalSize = size * 2;
   t.view.devicePixelRatio = 2;
   addTearDown(t.view.reset);
-  await t.pumpWidget(MaterialApp(
+  final app = MaterialApp(
     debugShowCheckedModeBanner: false,
     locale: locale,
     localizationsDelegates: const [
@@ -34,7 +35,8 @@ Future<void> pumpPair(
       child: child!,
     ),
     home: home,
-  ));
+  );
+  await t.pumpWidget(wrap?.call(app) ?? app);
   if (settle) {
     await t.pumpAndSettle();
   } else {
