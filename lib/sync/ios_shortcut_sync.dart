@@ -297,7 +297,7 @@ class IosShortcutSync {
       task.update('syncing');
       await prepareHeadlessLink(engine, paired);
       // The band holds one armed epoch; this may be the only connect it gets.
-      await rearmHeadlessAlarm(engine);
+      await rearmHeadlessAlarm(engine, paired);
       if (task.stopped) return task.expired;
       for (var session = 0; session < 20 && !task.stopped; session++) {
         final report = await engine.runSync(timeout: task.remaining);

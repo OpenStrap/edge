@@ -1505,33 +1505,105 @@
   "homeDriverRhr": "Ruhepuls",
   "homeDriverResp": "Atemfrequenz",
   "homeDriverTemp": "Hauttemperatur",
-  "homeDbRebuiltTitle": "Die Datenbank musste für den App-Start neu erstellt werden",
+  "homeDbRebuiltTitle": "Deine Datenbank wurde neu aufgebaut",
   "homeDbRebuiltNothingRecovered": "Es konnte nichts wiederhergestellt werden.",
   "homeDbRebuiltRecovered": "Wiederhergestellt: {list}.",
   "homeDbRebuiltEmpty": "Leer: {list}.",
   "homeDbRebuiltKept": "Die ursprüngliche Datei bleibt unter {path} erhalten. Es wurde nichts gelöscht.",
   "homeWorkoutHoldTitle": "Ein Training läuft noch",
-  "homeWorkoutHoldBody": "Der heutige Tag wartet, solange ein Training läuft: Das Band zeichnet weiter auf, berechnet wird aber erst nach dem Ende. Beende das Training über die Leiste unten, dann wird der Tag ausgewertet – Synchronisieren allein reicht nicht.",
-  "homeInsightsRebuildingTitle": "Deine tagesübergreifenden Auswertungen werden neu berechnet",
-  "homeInsightsRebuildingAlgoVersion": "Die Berechnung hat sich mit dem letzten Update geändert.",
+  "homeWorkoutHoldBody": "Heute füllt sich, sobald du das Training beendest.",
+  "homeInsightsRebuildingTitle": "Deine Trends werden aktualisiert",
+  "homeInsightsRebuildingAlgoVersion": "Wird nach dem letzten App-Update aktualisiert.",
   "homeInsightsStaleOverWeek": "Die letzte Auswertung wurde vor über einer Woche erstellt – zu alt, um sich darauf zu verlassen.",
   "homeInsightsStaleOnDay": "Die letzte Auswertung wurde am {day} erstellt – zu alt, um sich darauf zu verlassen.",
   "homeInsightsNoVersionStamp": "Die gespeicherte Auswertung hat keine Versionsangabe.",
   "homeSyncBand": "Band synchronisieren",
-  "homeWhyLabel": "Warum?",
   "homeCalibrating": "Wird kalibriert",
   "homeCalibratingNights": "{have} von {need} Nächten",
   "homeCalibratingDays": "{have} von {need} Tagen",
-  "homeGapNoReason": "Aus den gespeicherten Daten geht nicht hervor, warum das fehlt.",
+  "homeGapNoReason": "Kein Grund erfasst.",
   "homeRingRecovery": "Erholung",
   "homeRingStrain": "Strain",
   "homeRingSleep": "Schlaf",
   "homeRingNoStrain": "Kein Strain",
   "homeRingNoSleep": "Kein Schlaf",
   "homeSleepGapFallback": "Es wurde keine Nacht aufgezeichnet, die lang genug für eine Auswertung war.",
+  "homeSleepPctOf": "{pct} % von {target}",
+  "homeSleepPctOfDefault": "{pct} % von {target} (Standard)",
+  "homeSleepPctCompact": "{pct} % von {target}",
+  "@homeSleepPctCompact": {
+    "description": "Short sleep caption against a learned target.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultCompact": "{pct} % von {target} · Standardziel",
+  "@homeSleepPctDefaultCompact": {
+    "description": "Short sleep caption that keeps an explicit default-target qualifier.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultTight": "{pct} % von {target} (Standard)",
+  "@homeSleepPctDefaultTight": {
+    "description": "Tightest sleep caption when the target is the default: still names the target as the default.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryTitle": "Erholung ist niedrig",
+  "homeWhyRecoveryPlain": "Erholung {score} von 100",
+  "@homeWhyRecoveryPlain": {
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWhySleepTitle": "Schlaf reicht nicht aus",
+  "homeWhySleepBody": "Dein bewerteter Schlaf lag unter deinem Bedarf.",
+  "homeWhySleepDetail": "{asleep} geschlafen, {gap} unter deinem Bedarf von {need}.",
+  "@homeWhySleepDetail": {
+    "placeholders": {
+      "asleep": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      },
+      "need": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyStrainTitle": "Belastung über dem Ziel",
+  "homeWhyStrainBody": "Strain {strain}, über dem heutigen Ziel von {range}.",
+  "@homeWhyStrainBody": {
+    "placeholders": {
+      "strain": {
+        "type": "String"
+      },
+      "range": {
+        "type": "String"
+      }
+    }
+  },
   "homeStrainOf21": "von 21",
-  "homeSleepNoTarget": "Noch kein Ziel",
-  "homeOfSpan": "von {duration}",
   "homeLoadFailedTitle": "Der heutige Tag konnte nicht geladen werden",
   "homeLoadFailedBody": "Der gespeicherte Tag konnte nicht geladen werden. Es wurde nichts gelöscht – das ist ein Ladefehler, es fehlen keine Daten.",
   "homeDayLoadFailedTitle": "{day} konnte nicht geladen werden",
@@ -1551,13 +1623,13 @@
   "homeAskCoach": "Coach fragen",
   "homeProfileSettings": "Profil und Einstellungen",
   "homeNothingTodayTitle": "Für heute nichts aufgezeichnet",
-  "homeNothingTodayBody": "Die zuletzt ausgewertete Nacht war {day}. Seitdem ist nichts Neues angekommen.",
+  "homeNothingTodayBody": "Zuletzt ausgewertete Nacht: {day}.",
   "homeNoDataThisDayTitle": "Keine Daten für diesen Tag",
   "homeNoDataThisDayBody": "An diesem Tag wurde nichts aufgezeichnet.",
   "homeSomeDayDataMissingTitle": "Einige Daten dieses Tages fehlen",
   "homeReadinessNotScoredTitle": "Heute keine Erholung berechnet",
   "homeReadinessNeedBody": "{need}, um zu wissen, was für dich normal ist.",
-  "homeReadinessNoReason": "Aus den gespeicherten Daten geht nicht hervor, warum.",
+  "homeReadinessNoReason": "Kein Grund erfasst.",
   "homeSeeWhatWasMissing": "Anzeigen, was gefehlt hat",
   "homeAtAGlance": "Auf einen Blick",
   "homeTodaysPlan": "Plan für heute",
@@ -1568,9 +1640,9 @@
   "homeIllnessRedTitle": "Die letzten Nächte ergeben zusammen einen erhöhten Ruhepuls",
   "homeIllnessAmberSameNight": "Letzte Nacht lag außerhalb deines Normalbereichs",
   "homeIllnessAmberOtherNight": "{day} lag außerhalb deines Normalbereichs",
-  "homeIllnessBodyNoZ": "Deine nächtlichen Ruhepulswerte der letzten Nächte ergeben zusammen einen Anstieg über deine Baseline. Hier wird nur ein einziges Signal ausgewertet. Es zeigt ein Muster, aber keine Ursache.",
-  "homeIllnessBodyAbove": "Deine nächtlichen Ruhepulswerte der letzten Nächte ergeben zusammen einen Anstieg über deine Baseline; in dieser Nacht lag der Wert {z} Standardabweichungen darüber. Hier wird nur ein einziges Signal ausgewertet. Es zeigt ein Muster, aber keine Ursache.",
-  "homeIllnessBodyBelow": "Deine nächtlichen Ruhepulswerte der letzten Nächte ergeben zusammen einen Anstieg über deine Baseline; in dieser Nacht lag der Wert {z} Standardabweichungen darunter. Hier wird nur ein einziges Signal ausgewertet. Es zeigt ein Muster, aber keine Ursache.",
+  "homeIllnessBodyNoZ": "Dein Ruhepuls lag in den letzten Nächten über deinem Üblichen. Ein Muster, keine Ursache.",
+  "homeIllnessBodyAbove": "Die letzten Nächte haben deinen Ruhepuls über dein Übliches gebracht. Auch diese Nacht lag darüber. Ein Muster, keine Ursache.",
+  "homeIllnessBodyBelow": "Die letzten Nächte zusammen haben deinen Ruhepuls über dein Übliches gebracht, auch wenn diese Nacht allein darunter lag. Ein Muster, keine Ursache.",
   "homeIllnessAdvice": "Behalte es im Blick, falls es länger als ein paar Tage anhält.",
   "homeHeartRate": "Herzfrequenz",
   "homeRestingSub": "In Ruhe",
@@ -3015,7 +3087,7 @@
   "presentationS": "s",
   "presentationV": "µV",
   "presentationReadsTheRingDirectlyNoAccountNoKeyExchange": "Liest den Ring direkt aus – kein Konto, kein Schlüsselaustausch.",
-  "presentationPebble2OrPebble2SEOnlyPairsOnly": "Nur Pebble 2 oder Pebble 2 SE. Vorerst nur Kopplung – noch wird nichts gelesen oder gespeichert.",
+  "presentationPebble2OrPebble2SEOnlyPairsOnly": "Nur Pebble 2 oder Pebble 2 SE. Experimentelle Unterstützung: synchronisiert und speichert Schritte und Schlaf sowie die Herzfrequenz bei der Pebble 2. Die SE hat keinen Herzfrequenzsensor.",
   "presentationTheOriginalFossilSkagenHybridSmartwatchNotTheNewer": "Die ursprüngliche Hybrid-Smartwatch von Fossil/Skagen, nicht die neuere Hybrid HR. Koppelt und verbindet sich; noch wird nichts daraus berechnet.",
   "presentationABudgetActivityBandPairsAndBanksItsRaw": "Ein günstiges Aktivitätsband. Koppelt und speichert seine Rohdaten, aber noch wird nichts daraus berechnet.",
   "presentationPairsAndBanksItsRawDataNothingIsDecoded": "Koppelt und speichert seine Rohdaten – noch wird nichts dekodiert.",
@@ -3312,7 +3384,7 @@
   "homeFirstWeekRecovery": "Erholung: ab Nacht {night}, sobald dein Normalwert bekannt ist",
   "homeFirstWeekSoFar": "{count, plural, =1{Bisher 1 Tag aufgezeichnet} other{Bisher {count} Tage aufgezeichnet}}",
   "homeFirstWeekDone": "Erledigt: {step}",
-  "homeCoachSetUpChip": "Stell Fragen zu deinen Daten: Coach einrichten",
+  "homeCoachSetUpChip": "Coach einrichten",
   "profileSetupCycleSub": "Trag deine Periode unter „Gesundheit“ ein. Das lässt sich später ändern.",
   "homeRecoverySleeping": "Schläft…",
   "homeRecoveryAfterWake": "Die Erholung wird nach dem Aufwachen bewertet.",
@@ -3514,6 +3586,126 @@
     "description": "Disclaimer shown on the sleep detail screen."
   },
   "pairBandNotSensor": "Dieses Gerät ist ein {label}, also ein Band und kein einfacher Sensor. Es wurde nichts gespeichert.",
+  "pairResetWhoop5Step1": "Nimm das Band vom Handgelenk und warte, bis die grünen Lichter ausgehen.",
+  "pairResetWhoop5Step2": "Halte das Band an den Seiten und tippe mit zwei Fingern fest auf die Oberseite, bis nur noch Blau blinkt. Wenn Blau und Weiß zusammen leuchten, tippe weiter, bis nur noch Blau übrig ist.",
+  "pairResetWhoop5Step3": "Wenn die WHOOP-App auf diesem Telefon ist, beende sie zwangsweise.",
+  "pairResetWhoop5Step4": "Komm hierher zurück und versuche es noch einmal.",
+  "pairResetGenericStep1": "Öffne die App des Herstellers und entferne dieses Gerät dort.",
+  "pairResetGenericStep2": "Suche das Gerät in den Bluetooth-Einstellungen deines Telefons und wähle „Ignorieren“ bzw. „Vergessen“.",
+  "pairResetGenericStep3": "Starte das Gerät neu, halte es nah an dieses Telefon und versuche es noch einmal.",
+  "pairResetGenericNote": "Das sind allgemeine Tipps. Die genauen Schritte für dieses Gerät haben wir noch nicht geprüft.",
+  "pairResetOfficialLink": "Hilfeseite des Herstellers öffnen",
+  "pairResetTitleBand": "Dein Band ist woanders gekoppelt",
+  "pairResetTitleRing": "Dein Ring ist woanders gekoppelt",
+  "pairResetBody": "Wir konnten {name} nicht fertig koppeln. Vermutlich ist es noch mit einem anderen Handy oder einer anderen App verbunden.",
+  "pairResetHeading": "So setzt du es zurück",
+  "pairResetWhoopTakeover": "Wenn du es hier koppelst, wird es von der WHOOP-App getrennt.",
+  "pairResetOfficialSub": "{host} · öffnet sich im Browser",
+  "pairLinkOpenFailed": "Der Link ließ sich nicht öffnen. Die Adresse lautet {url}",
+  "pairPickDifferentBand": "Anderes Band wählen",
+  "pairThisIsWhoop": "Das ist ein WHOOP-Band",
+  "pairThisIsRing": "Das ist ein Ring",
+  "pairThisIsWatch": "Das ist eine Uhr",
+  "pairThisIsFitnessBand": "Das ist ein Fitnessarmband",
+  "pairThisIsStrap": "Das ist ein Herzfrequenzgurt",
+  "pairThisIsSensor": "Das ist ein Herzfrequenzsensor",
+  "pairTroubleTitle": "Probleme beim Verbinden?",
+  "pairTroubleBody": "Versetze das Band in den Kopplungsmodus und versuche es erneut. Klappt es immer noch nicht? Frag uns.",
+  "pairTroubleModeLink": "Kopplungsmodus von {device}",
+  "pairTroubleDiscord": "Auf Discord fragen",
+  "pairTroubleDiscordSub": "Die OpenStrap-Community",
+  "pairModeTitle": "In den Kopplungsmodus versetzen",
+  "pairModeNoSite": "Ein generisches Gerät ohne einzelnen Hersteller, daher gibt es keine Herstelleranleitung.",
+  "pairOuraExistingKeyGuidance": "Nutzt du schon die Oura-App? Lass den Ring in der App gekoppelt und kopple ihn mit seinem vorhandenen Schlüssel. Überspringe die Schritte zum Zurücksetzen unten. Setze ihn nur zurück, wenn du einen neuen Schlüssel möchtest.",
+  "pairAddDevice": "Gerät hinzufügen",
+  "pairKindAll": "Alle",
+  "pairKindStrap": "Brustgurte & Armsensoren",
+  "pairKindRing": "Ringe",
+  "pairKindWatch": "Uhren",
+  "pairGoBack": "Zurück",
+  "pairAddDeviceSub": "Ringe, Uhren und Herzfrequenzgurte",
+  "pairAddDeviceSubtitle": "Bei jedem Gerät steht, wofür es passt: jeden Tag oder nur beim Training.",
+  "pairBandFoundBody": "Jeden Tag kann es viel mehr als nur beim Training. Was möchtest du?",
+  "pairBandFoundBodyHasBand": "Du hast schon ein Band. Es kann immer nur eines dein Band sein.",
+  "pairIdentifiedBody": "Es sah wie ein Herzfrequenzgurt aus, hat sich beim Verbinden aber als {label} gemeldet. Es wurde nichts gespeichert.",
+  "pairAsMyBand": "Als mein Band koppeln",
+  "pairSecondaryPaired": "Fürs Training gekoppelt.",
+  "pairBandNow": "Dein Band jetzt: {name}. Deine Daten bleiben beim Wechsel erhalten.",
+  "pairReplaceBand": "Dieses Band koppeln, dann {name} trennen",
+  "pairReplaceConfirmTitle": "{name} nach erfolgreicher Verbindung ersetzen?",
+  "pairReplaceConfirmBody": "Dein bisheriges Band bleibt bei Fehlern oder Abbruch gekoppelt. Daten, die bereits auf diesem Telefon gespeichert sind, bleiben erhalten. Was auf dem alten Band noch nicht synchronisiert wurde, wird nach dem Wechsel nicht mehr auf dieses Telefon übertragen.",
+  "pairReplaceConfirmYes": "Ersatz koppeln",
+  "pairCurrentBandFallback": "dein Band",
+  "pairWearableLead": "Es kann deine Tage mit Schlaf, Erholung und Herzfrequenz füllen.",
+  "pairWearableNote": "Füllt Tage ohne dein WHOOP. Experimentell, also schalte es unter Geräte ein.",
+  "pairStrapLead": "Es liefert Herzfrequenz beim Training. Schlaf, Erholung und tägliche Belastung zeichnet es nicht auf.",
+  "pairStrapNote": "Schalte „Beim Training nutzen“ ein, damit die Herzfrequenz beim Training aufgezeichnet wird.",
+  "pairDeviceNamed": "{name} koppeln",
+  "pairUseForWorkouts": "Nur fürs Training nutzen",
+  "pairReplaceUnpairFailed": "Dein neues Band ist gekoppelt, aber das alte Band konnte nicht entfernt werden.",
+  "pairWearableLeadPebble": "Pebble 2 kann deine Tage mit Schlaf und Herzfrequenz füllen. Pebble 2 SE zeigt die eigenen Schlaf- und Schrittdaten der Uhr. Sie hat keinen Herzfrequenzsensor, daher kann diese App daraus weder die tägliche Belastung berechnen noch die Erholung schätzen.",
+  "pairMainBandWhoopOnly": "Hauptband: nur WHOOP 4.0 oder WHOOP 5.0/MG. Andere Geräte lassen sich als zusätzliche Geräte hinzufügen.",
+  "pairBandTitle": "Band koppeln",
+  "pairBandSubtitle": "Wähle das, das du trägst. Wir suchen es in der Nähe.",
+  "pairStrapOnlyLink": "Ich habe nur einen Herzfrequenzgurt",
+  "pairWhoopRowLine": "Schlaf, Erholung, Belastung, Herzfrequenz und mehr",
+  "pairSetUpTitle": "Einrichten",
+  "capLabelSleep": "Schlaf",
+  "capLabelRecovery": "Erholung",
+  "capLabelStrain": "Belastung",
+  "capLabelHrv": "Herzfrequenzvariabilität",
+  "capLabelSkinTemperature": "Hauttemperatur",
+  "capLabelBloodOxygen": "Blutsauerstoff",
+  "capLabelWorkoutHeartRate": "Herzfrequenz beim Training",
+  "capLabelWorkoutBeatToBeat": "Abstand von Herzschlag zu Herzschlag beim Training",
+  "capLabelSteps": "Schritte",
+  "capReasonSkinTempNights": "Nach ein paar Nächten",
+  "capReasonEstimated": "Eine Schätzung, keine direkte Messung",
+  "capReasonEarly": "Erste Schätzung; wird in den ersten Wochen genauer",
+  "capVendorReported": "Eigener Messwert des Geräts",
+  "slotSendsHeading": "Liefert",
+  "slotDoesntSendHeading": "Liefert nicht",
+  "pairSectionTitle": "Gerät koppeln",
+  "pairCardBandBody": "Nur WHOOP 4.0 oder WHOOP 5.0/MG. Schlaf, Erholung und Belastung rund um die Uhr.",
+  "pairUnpairBand": "Band trennen",
+  "capLabelHeartRate": "Herzfrequenz und Ruhepuls",
+  "capLabelRespiration": "Atmung",
+  "capReasonFirstNights": "In den ersten 14 Nächten geschätzt",
+  "capReasonOwnStagesRing": "Aus den eigenen Schlafphasen des Rings",
+  "capReasonOwnStages": "Aus den eigenen Schlafphasen des Geräts",
+  "capReasonLiveSessions": "Während Live-Sitzungen",
+  "slotEveryDay": "Jeden Tag",
+  "slotWorkoutsOnly": "Nur Training",
+  "pairWearableCardNote": "Füllt Tage ohne dein WHOOP. Experimentell, also schalte es unten ein.",
+  "pairWhatItSends": "Was es sendet",
+  "capReasonUnconfirmed": "Falls das Gerät es sendet, nicht bestätigt",
+  "capReasonPebble2Only": "Nur Pebble 2. Die 2 SE hat keinen Herzfrequenzsensor.",
+  "capReasonPebble2OnlyEstimated": "Nur Pebble 2, und eine Schätzung, keine direkte Messung. Die 2 SE hat keinen Herzfrequenzsensor.",
+  "slotColumnReason": "{column}: {reason}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  },
   "welcomeCoachKeyReentry": "Dein API-Schlüssel für den Coach bleibt im sicheren Speicher und wurde nicht gesichert. Gib ihn in den KI-Einstellungen erneut ein, um den Coach auf diesem Telefon zu nutzen.",
   "welcomeSettingsSkipped": "{n, plural, =1{1 Einstellung in der Sicherung war nicht lesbar und wurde übersprungen} other{{n} Einstellungen in der Sicherung waren nicht lesbar und wurden übersprungen}}",
   "@welcomeSettingsSkipped": {
@@ -3586,5 +3778,15 @@
   "stepCalDoneHousehold": "Gespeichert. Dein Smartphone hat {count} der {band} Schritte gezählt, die das Band erkannt hat. Bewegung im Haushalt wird jetzt auf {gain} skaliert.",
   "whoopFirmwareWarningTitle": "WHOOP-Nutzer: Verbinde dich nicht wieder mit der WHOOP-App",
   "whoopFirmwareWarningAction": "Wenn du OpenStrap oder eine andere Open-Source-App nutzt oder später zu einer wechseln möchtest, verbinde dein Band nicht wieder mit der offiziellen WHOOP-App. Sie kann Firmware-Updates automatisch installieren. Deinstalliere oder deaktiviere die WHOOP-App, damit sie dein Band nicht aktualisiert.",
-  "whoopFirmwareWarningDetails": "Berichte zur WHOOP 5.0 / MG Firmware 50.43.1.0 und 50.43.2.0 beschreiben einen blockierten Datenzugriff. Bluetooth kann sich weiterhin verbinden. OpenStrap kann das von WHOOP signierte Mitgliedschafts-Token nicht ausstellen, das betroffene Bänder entsperrt. Wir arbeiten an einer Lösung, aber es gibt noch keine Abhilfe."
+  "whoopFirmwareWarningDetails": "Berichte zur WHOOP 5.0 / MG Firmware 50.43.1.0 und 50.43.2.0 beschreiben einen blockierten Datenzugriff. Bluetooth kann sich weiterhin verbinden. OpenStrap kann das von WHOOP signierte Mitgliedschafts-Token nicht ausstellen, das betroffene Bänder entsperrt. Wir arbeiten an einer Lösung, aber es gibt noch keine Abhilfe.",
+  "pairSearchDevices": "Nach Geräten suchen",
+  "pairPrimaryCannotBeSensor": "Dies ist bereits dein Hauptarmband. Es kann nicht zusätzlich als Trainingssensor gekoppelt werden.",
+  "capReasonSkinTempProvisional": "Vorläufige Schätzung; benötigt einige Nächte",
+  "pairReplaceMyBand": "Mein Band ersetzen",
+  "dayStepsWhoop4NoCounter": "Ein WHOOP 4.0 hat keinen eigenen Schrittzähler und zählt Schritte nur, solange diese App seine Live-Daten empfängt.",
+  "healthWearNotUpdatedSince": "nicht aktualisiert seit {time}",
+  "dayStrainWornAsOf": "Getragen, Stand {time}",
+  "bandStatusFirmwareLockedTitle": "Die Firmware des Bands hält wahrscheinlich seine Daten zurück",
+  "bandStatusFirmwareLockedReason": "Dieses Band läuft mit WHOOP-Firmware 50.43. Sie kann sich verbinden und der App antworten, aber keine Aufzeichnungen und keine Live-Herzfrequenz senden, solange kein von WHOOP signiertes Mitgliedschafts-Token auf dem Band ist. Das ist ein möglicher Grund, warum keine Daten ankommen. OpenStrap kann dieses Token nicht ausstellen. Alles, was hier schon gespeichert ist, bleibt erhalten.",
+  "bandStatusFirmwareLockedFix": "Liegt es an der Firmware, lässt sich das in der App nicht ändern, und der Hinweis verschwindet, sobald das Band wieder Aufzeichnungen sendet"
 }

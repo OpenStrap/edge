@@ -1458,33 +1458,106 @@
   "homeDriverRhr": "静息心率",
   "homeDriverResp": "呼吸频率",
   "homeDriverTemp": "皮肤温度",
-  "homeDbRebuiltTitle": "为启动应用，你的数据库已被重建",
+  "homeCoachSetUpChip": "设置教练",
+  "homeDbRebuiltTitle": "你的数据库已重建",
   "homeDbRebuiltNothingRecovered": "没有任何数据可以恢复。",
   "homeDbRebuiltRecovered": "已恢复：{list}。",
   "homeDbRebuiltEmpty": "为空：{list}。",
   "homeDbRebuiltKept": "原始文件仍保存在 {path}，没有任何内容被删除。",
   "homeWorkoutHoldTitle": "有一项运动仍在进行中",
-  "homeWorkoutHoldBody": "运动进行期间，今日数据处于暂停状态：腕带仍在记录，但数值要等到运动结束后才会计算。请在下方的进度条中结束运动，今日数据便会补全——仅同步是不够的。",
-  "homeInsightsRebuildingTitle": "你的跨日汇总数据正在重建",
-  "homeInsightsRebuildingAlgoVersion": "计算方式已随最新更新发生变化。",
+  "homeWorkoutHoldBody": "结束运动后，今天的数据就会补全。",
+  "homeInsightsRebuildingTitle": "正在更新你的趋势",
+  "homeInsightsRebuildingAlgoVersion": "正在根据最近的应用更新进行更新。",
   "homeInsightsStaleOverWeek": "上次汇总是一周多以前生成的，太旧了，不宜依赖。",
   "homeInsightsStaleOnDay": "上次汇总是在 {day} 生成的，太旧了，不宜依赖。",
   "homeInsightsNoVersionStamp": "已保存的汇总没有版本标记。",
   "homeSyncBand": "同步腕带",
-  "homeWhyLabel": "为什么？",
   "homeCalibrating": "校准中",
   "homeCalibratingNights": "已有 {have}/{need} 晚",
   "homeCalibratingDays": "已有 {have}/{need} 天",
-  "homeGapNoReason": "没有记录说明缺失的原因。",
+  "homeGapNoReason": "未记录原因。",
   "homeRingRecovery": "恢复",
   "homeRingStrain": "消耗",
   "homeRingSleep": "睡眠",
   "homeRingNoStrain": "暂无消耗数据",
   "homeRingNoSleep": "暂无睡眠数据",
   "homeSleepGapFallback": "没有记录到时长足以评分的夜晚。",
+  "homeSleepPctOf": "{target} 的 {pct}%",
+  "homeSleepPctOfDefault": "{target} 的 {pct}%（默认）",
+  "homeSleepPctCompact": "{target} 的 {pct}%",
+  "@homeSleepPctCompact": {
+    "description": "Short sleep caption against a learned target.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultCompact": "{target} 的 {pct}% · 默认目标",
+  "@homeSleepPctDefaultCompact": {
+    "description": "Short sleep caption that keeps an explicit default-target qualifier.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSleepPctDefaultTight": "默认 {target} 的 {pct}%",
+  "@homeSleepPctDefaultTight": {
+    "description": "Tightest sleep caption when the target is the default: still names the target as the default.",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyRecoveryTitle": "恢复状态偏低",
+  "homeWhyRecoveryPlain": "恢复 {score}/100",
+  "@homeWhyRecoveryPlain": {
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWhySleepTitle": "睡眠不足",
+  "homeWhySleepBody": "已评分的睡眠时长低于你的需求。",
+  "homeWhySleepDetail": "睡了 {asleep}，比所需的 {need} 少 {gap}。",
+  "@homeWhySleepDetail": {
+    "placeholders": {
+      "asleep": {
+        "type": "String"
+      },
+      "gap": {
+        "type": "String"
+      },
+      "need": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhyStrainTitle": "负荷超过目标",
+  "homeWhyStrainBody": "消耗 {strain}，高于今天的目标 {range}。",
+  "@homeWhyStrainBody": {
+    "placeholders": {
+      "strain": {
+        "type": "String"
+      },
+      "range": {
+        "type": "String"
+      }
+    }
+  },
   "homeStrainOf21": "满分 21",
-  "homeSleepNoTarget": "暂无目标",
-  "homeOfSpan": "共 {duration}",
   "homeLoadFailedTitle": "今日数据读取失败",
   "homeLoadFailedBody": "已保存的当日数据加载失败。没有任何内容被删除——这是读取出错，不是数据丢失。",
   "homeDayLoadFailedTitle": "{day}的数据读取失败",
@@ -1496,13 +1569,13 @@
   "homeAskCoach": "咨询教练",
   "homeProfileSettings": "个人资料与设置",
   "homeNothingTodayTitle": "今天没有记录到数据",
-  "homeNothingTodayBody": "应用评分的最后一晚是 {day}。此后没有收到任何新数据。",
+  "homeNothingTodayBody": "最近一次评分的夜晚：{day}。",
   "homeNoDataThisDayTitle": "这一天没有数据",
   "homeNoDataThisDayBody": "这一天没有记录到任何数据。",
   "homeSomeDayDataMissingTitle": "这一天的部分数据缺失",
   "homeReadinessNotScoredTitle": "今天的恢复度未评分",
   "homeReadinessNeedBody": "{need}，才能了解你的正常水平。",
-  "homeReadinessNoReason": "没有记录说明原因。",
+  "homeReadinessNoReason": "未记录原因。",
   "homeSeeWhatWasMissing": "查看缺失的内容",
   "homeAtAGlance": "概览",
   "homeTodaysPlan": "今日计划",
@@ -1511,9 +1584,9 @@
   "homeIllnessRedTitle": "最近几晚累计显示静息心率偏高",
   "homeIllnessAmberSameNight": "昨晚超出了你的正常范围",
   "homeIllnessAmberOtherNight": "{day} 超出了你的正常范围",
-  "homeIllnessBodyNoZ": "你最近几晚的夜间静息心率累计显示高于自身基线。这只反映了单一信号，说明存在某种趋势，但并不能说明原因。",
-  "homeIllnessBodyAbove": "你最近几晚的夜间静息心率累计显示高于自身基线；那一晚高出基线 {z} 个标准差。这只反映了单一信号，说明存在某种趋势，但并不能说明原因。",
-  "homeIllnessBodyBelow": "你最近几晚的夜间静息心率累计显示高于自身基线；那一晚低于基线 {z} 个标准差。这只反映了单一信号，说明存在某种趋势，但并不能说明原因。",
+  "homeIllnessBodyNoZ": "近期夜间的数据显示你的静息心率高于平时。这是一种趋势，不是原因。",
+  "homeIllnessBodyAbove": "近期夜间的数据显示你的静息心率高于平时，那一晚也高于平时。这是一种趋势，不是原因。",
+  "homeIllnessBodyBelow": "近期夜间的数据合起来显示你的静息心率高于平时，尽管那一晚单独看低于平时。这是一种趋势，不是原因。",
   "homeIllnessAdvice": "如果持续几天，值得留意。",
   "homeHeartRate": "心率",
   "homeRestingSub": "静息",
@@ -2934,9 +3007,130 @@
   "napAutoLogSub": "证据充分的小睡会直接记录，不再询问。之后仍可编辑或删除",
   "napAutoLogSaveFailed": "无法保存该设置，请重试。",
   "pairBandNotSensor": "这台设备是 {label}，是手环，不是普通传感器。没有保存任何内容。",
+  "pairResetWhoop5Step1": "把手环从手腕上取下，等绿灯熄灭。",
+  "pairResetWhoop5Step2": "握住手环两侧，用两根手指用力连续轻敲顶部，直到只有蓝灯闪烁。如果蓝灯和白灯同时出现，请继续敲，直到只剩蓝灯。",
+  "pairResetWhoop5Step3": "如果这部手机上装有 WHOOP 应用，请将其强制退出。",
+  "pairResetWhoop5Step4": "回到这里再试一次。",
+  "pairResetGenericStep1": "打开厂商的应用，把这台设备从里面移除。",
+  "pairResetGenericStep2": "在手机的蓝牙设置里找到这台设备，选择“忽略”或“取消配对”。",
+  "pairResetGenericStep3": "重启设备，把它靠近这部手机，再试一次。",
+  "pairResetGenericNote": "这些是通用建议。我们还没有核实这台设备的具体步骤。",
+  "pairResetOfficialLink": "打开厂商的帮助页面",
+  "pairResetTitleBand": "你的手环已和别处配对",
+  "pairResetTitleRing": "你的戒指已和别处配对",
+  "pairResetBody": "我们没能完成 {name} 的配对。它很可能仍连着另一部手机或另一个应用。",
+  "pairResetHeading": "如何重置",
+  "pairResetWhoopTakeover": "在这里配对会使它与 WHOOP 应用断开。",
+  "pairResetOfficialSub": "{host} · 在浏览器中打开",
+  "pairLinkOpenFailed": "无法打开链接。地址是 {url}",
+  "pairPickDifferentBand": "换一个手环",
+  "pairThisIsWhoop": "这是 WHOOP 手环",
+  "pairThisIsRing": "这是一枚戒指",
+  "pairThisIsWatch": "这是一块手表",
+  "pairThisIsFitnessBand": "这是一款运动手环",
+  "pairThisIsStrap": "这是一条心率带",
+  "pairThisIsSensor": "这是一个心率传感器",
+  "pairTroubleTitle": "连接遇到问题？",
+  "pairTroubleBody": "让手环进入配对模式，然后重试。还是不行？来问我们。",
+  "pairTroubleModeLink": "{device} 配对模式",
+  "pairTroubleDiscord": "在 Discord 提问",
+  "pairTroubleDiscordSub": "OpenStrap 社区",
+  "pairModeTitle": "让它进入配对模式",
+  "pairModeNoSite": "这是没有单一厂商的通用设备，因此没有厂商步骤可循。",
+  "pairOuraExistingKeyGuidance": "已经在用 Oura 应用？请保留戒指在该应用中的配对，并使用戒指现有的密钥配对。跳过下面的重置步骤。只有想使用新密钥时才重置戒指。",
+  "pairAddDevice": "添加设备",
+  "pairKindAll": "全部",
+  "pairKindStrap": "胸带和臂带",
+  "pairKindRing": "戒指",
+  "pairKindWatch": "手表",
+  "pairGoBack": "返回",
+  "pairAddDeviceSub": "戒指、手表和心率带",
+  "pairAddDeviceSubtitle": "每个设备都会标明适合的用法：每天，或仅运动时。",
+  "pairBandFoundBody": "每天佩戴比仅在运动时使用能提供多得多的数据。你想怎么用？",
+  "pairBandFoundBodyHasBand": "你已经有一个手环。同一时间只能有一个作为你的手环。",
+  "pairIdentifiedBody": "它看起来像心率带，但连接后它表明自己是 {label}。没有保存任何内容。",
+  "pairAsMyBand": "配对为我的手环",
+  "pairSecondaryPaired": "已配对，仅在运动时使用。",
+  "pairBandNow": "当前手环：{name}。更换后你的数据仍会保留。",
+  "pairReplaceBand": "先配对此手环，再断开 {name}",
+  "pairReplaceConfirmTitle": "此手环连接成功后替换 {name}？",
+  "pairReplaceConfirmBody": "如果设置失败或取消，当前手环仍保持配对。已保存在这部手机上的数据会保留。旧手环上尚未同步的数据，在更换后不会再同步到这部手机。",
+  "pairReplaceConfirmYes": "配对新手环",
+  "pairCurrentBandFallback": "你的手环",
+  "pairWearableLead": "它可以为你的每一天补上睡眠、恢复和心率。",
+  "pairWearableNote": "填补没有 WHOOP 数据的日子。这是实验功能，请在“设备”中开启。",
+  "pairStrapLead": "它在你运动时提供心率，不记录睡眠、恢复或每日负荷。",
+  "pairStrapNote": "开启“在锻炼时使用”，即可在锻炼时记录心率。",
+  "pairDeviceNamed": "配对 {name}",
+  "pairUseForWorkouts": "仅在运动时使用",
+  "pairReplaceUnpairFailed": "新手环已配对，但无法移除旧手环。",
+  "pairWearableLeadPebble": "Pebble 2 可以为你的每一天补上睡眠和心率。Pebble 2 SE 显示手表自身记录的睡眠和步数。它没有心率传感器，因此本应用无法根据它的数据计算每日身体负荷或估算恢复。",
+  "pairMainBandWhoopOnly": "主手环：仅支持 WHOOP 4.0 或 WHOOP 5.0/MG。其他设备可作为附加设备添加。",
+  "pairBandTitle": "配对你的手环",
+  "pairBandSubtitle": "选择你佩戴的那一个，我们会在附近寻找它。",
+  "pairStrapOnlyLink": "我只有心率带",
+  "pairWhoopRowLine": "睡眠、恢复、负荷、心率等",
+  "pairSetUpTitle": "设置",
+  "capLabelSleep": "睡眠",
+  "capLabelRecovery": "恢复",
+  "capLabelStrain": "负荷",
+  "capLabelHrv": "心率变异性",
+  "capLabelSkinTemperature": "皮肤温度",
+  "capLabelBloodOxygen": "血氧",
+  "capLabelWorkoutHeartRate": "锻炼时的心率",
+  "capLabelWorkoutBeatToBeat": "锻炼时的逐次心跳间隔",
+  "capLabelSteps": "步数",
+  "capReasonSkinTempNights": "几晚之后",
+  "capReasonEstimated": "估算值，不是直接测量",
+  "capReasonEarly": "初步估算，前几周会越来越准",
+  "capVendorReported": "设备自己的读数",
+  "slotSendsHeading": "提供",
+  "slotDoesntSendHeading": "不提供",
+  "pairSectionTitle": "配对设备",
+  "pairCardBandBody": "仅限 WHOOP 4.0 或 WHOOP 5.0/MG。全天候记录睡眠、恢复和负荷。",
+  "pairUnpairBand": "取消配对手环",
+  "capLabelHeartRate": "心率和静息心率",
+  "capLabelRespiration": "呼吸",
+  "capReasonFirstNights": "前 14 晚为估算值",
+  "capReasonOwnStagesRing": "来自戒指自身的睡眠分期",
+  "capReasonOwnStages": "来自设备自身的睡眠分期",
+  "capReasonLiveSessions": "仅在实时连接期间",
+  "slotEveryDay": "每天",
+  "slotWorkoutsOnly": "仅运动时",
+  "pairWearableCardNote": "填补没有 WHOOP 数据的日子。这是实验功能，请在下方开启。",
+  "pairWhatItSends": "它提供的数据",
+  "capReasonUnconfirmed": "如果此设备发送该数据，尚未确认",
+  "capReasonPebble2Only": "仅限 Pebble 2。2 SE 没有心率传感器。",
+  "capReasonPebble2OnlyEstimated": "仅限 Pebble 2，且是估算值，不是直接测量。2 SE 没有心率传感器。",
+  "slotColumnReason": "{column}：{reason}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}，{column}：{status}",
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  },
   "whoopFirmwareWarningTitle": "WHOOP 用户：请勿重新连接 WHOOP 应用",
   "whoopFirmwareWarningAction": "如果你在使用 OpenStrap 或其他开源应用，或打算以后改用，请不要再把手环连接到 WHOOP 官方应用。它可能会自动安装固件更新。请卸载或停用 WHOOP 应用，以免它更新你的手环。",
   "whoopFirmwareWarningDetails": "有报告称，WHOOP 5.0 / MG 固件 50.43.1.0 和 50.43.2.0 会阻止访问数据。蓝牙可能仍能连接。解锁受影响的手环需要由 WHOOP 签名的会员令牌，OpenStrap 无法签发。我们正在寻找解决办法，但目前还没有可用的修复。",
+  "pairSearchDevices": "搜索设备",
   "alarmNextLabel": "下一次",
   "alarmScheduleGroup": "每周计划",
   "alarmWakeTimeRowTitle": "起床时间",
@@ -3107,7 +3301,7 @@
   "presentationS": "s",
   "presentationV": "µV",
   "presentationReadsTheRingDirectlyNoAccountNoKeyExchange": "直接读取戒指数据——无需账户，无需交换密钥。",
-  "presentationPebble2OrPebble2SEOnlyPairsOnly": "仅限 Pebble 2 或 Pebble 2 SE。目前只能配对——尚不读取或存储任何数据。",
+  "presentationPebble2OrPebble2SEOnlyPairsOnly": "仅限 Pebble 2 或 Pebble 2 SE。实验性支持：同步并保存步数和睡眠，Pebble 2 还支持心率。SE 没有心率传感器。",
   "presentationTheOriginalFossilSkagenHybridSmartwatchNotTheNewer": "初代 Fossil/Skagen 混合智能手表，不是较新的 Hybrid HR。可以配对和连接；暂不从中得出任何数据。",
   "presentationABudgetActivityBandPairsAndBanksItsRaw": "一款入门级活动手环。可以配对并保存原始数据，但暂不从中得出任何数据。",
   "presentationPairsAndBanksItsRawDataNothingIsDecoded": "可以配对并保存原始数据——暂不解码任何内容。",
@@ -3237,7 +3431,6 @@
   "homeFirstWeekRecovery": "恢复：从第 {night} 晚起，了解你的正常水平之后",
   "homeFirstWeekSoFar": "{count, plural, other{目前已记录 {count} 天}}",
   "homeFirstWeekDone": "已完成：{step}",
-  "homeCoachSetUpChip": "就你的数据提问：设置教练",
   "homeRecoverySleeping": "睡眠中…",
   "homeRecoveryAfterWake": "恢复会在你醒来后评分。",
   "homeRecoveryFinishingUp": "即将完成",
@@ -3286,5 +3479,14 @@
   "stepCalRoutineTooShort": "这项测试在计时结束前就停止了。请坚持到它完成。",
   "stepCalSaveFailed": "无法保存此次校准。",
   "stepCalDoneGait": "已保存。你数了 {count} 步，腕带记录了 {band} 步。今后这类走路将按 {pct}% 进行校正。",
-  "stepCalDoneHousehold": "已保存。在腕带记录的 {band} 步中，你的手机记录了 {count} 步。居家活动现在将按 {gain} 进行缩放。"
+  "stepCalDoneHousehold": "已保存。在腕带记录的 {band} 步中，你的手机记录了 {count} 步。居家活动现在将按 {gain} 进行缩放。",
+  "pairPrimaryCannotBeSensor": "这已经是你的主手环，不能同时配对为运动传感器。",
+  "capReasonSkinTempProvisional": "暂定估算；需要几晚的数据",
+  "pairReplaceMyBand": "更换我的手环",
+  "dayStepsWhoop4NoCounter": "WHOOP 4.0 没有自带计步器，因此只有在本应用接收其实时数据时才会计步。",
+  "healthWearNotUpdatedSince": "自 {time} 起未更新",
+  "dayStrainWornAsOf": "佩戴（截至 {time} 的数据）",
+  "bandStatusFirmwareLockedTitle": "手环固件可能正在扣留它的数据",
+  "bandStatusFirmwareLockedReason": "这个手环运行的是 WHOOP 固件 50.43：它可以连接并响应应用，但在手环上没有 WHOOP 签名的会员令牌之前，可能不会发送任何记录或实时心率。这可能是收不到数据的原因之一。OpenStrap 无法签发这个令牌。已保存在这里的所有数据都是安全的。",
+  "bandStatusFirmwareLockedFix": "如果是固件的原因，应用无法更改，手环重新发送记录后此提示会自动消失"
 }

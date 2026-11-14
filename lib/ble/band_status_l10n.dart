@@ -70,6 +70,13 @@ BandStatus localizedBandStatus(BuildContext c, BandStatus s) {
         l?.bandStatusClockLostReason ?? s.reason,
         fix: l?.bandStatusClockLostFix ?? s.fix,
       );
+    case BandCondition.firmwareLocked:
+      return BandStatus(
+        s.condition,
+        l?.bandStatusFirmwareLockedTitle ?? s.title,
+        l?.bandStatusFirmwareLockedReason ?? s.reason,
+        fix: l?.bandStatusFirmwareLockedFix ?? s.fix,
+      );
     case BandCondition.connected:
       return BandStatus(
         s.condition,

@@ -27,6 +27,7 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_edge/ble/live_step_runs.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/sync/reset_gate.dart';
 
 /// One 100 Hz frame of walking-shaped |a|(g): a ~2 Hz gait oscillation riding
 /// the 1 g gravity baseline, which is what the AN-2554 counter expects. Indexed
@@ -413,5 +414,84 @@ void main() {
     await app.debugFinalizeLivePedometer();
     final db = await LocalDb.instance;
     expect(await db.query('live_coverage'), isEmpty);
+  });
+
+  // A reset between collecting steps and finalizing them must not let the
+  // finalizer re-bank the deleted session: it judges the runs by the
+  // generation they were COLLECTED under, not the one current when it runs.
+  group('a reset between collection and finalization', () {
+    Future<AppState> walked() async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      const recTs = 1786900000;
+      for (var f = 0; f < 1200; f++) {
+        app.debugFeedLiveAccel(
+          _walkFrame(f, 10),
+          recTs: recTs,
+          atMs: recTs * 1000 + f * 100,
+        );
+      }
+      return app;
+    }
+
+    test('control: with no reset the walk is banked', () async {
+      final app = await walked();
+      await app.debugFinalizeLivePedometer();
+      final db = await LocalDb.instance;
+      expect(await db.query('live_coverage'), isNotEmpty);
+    });
+
+    test('control: without a reset the walk is checkpointed', () async {
+      SharedPreferences.setMockInitialValues({});
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      const recTs = 1787100000;
+      for (var f = 0; f < 700; f++) {
+        app.debugFeedLiveAccel(_walkFrame(f, 10),
+            recTs: recTs, atMs: recTs * 1000 + f * 100);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey('live_session_checkpoint'), isTrue);
+    });
+
+    test('a reset after the steps were collected is not checkpointed back',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      const recTs = 1787000000;
+      // One full walking minute: runs are buffered and a first checkpoint lands.
+      for (var f = 0; f < 700; f++) {
+        app.debugFeedLiveAccel(_walkFrame(f, 10),
+            recTs: recTs, atMs: recTs * 1000 + f * 100);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('live_session_checkpoint');
+      ResetGate.enter();
+      ResetGate.leave();
+      // The next minute completes AFTER the reset; the buffered runs predate it.
+      for (var f = 700; f < 1400; f++) {
+        app.debugFeedLiveAccel(_walkFrame(f, 10),
+            recTs: recTs, atMs: recTs * 1000 + f * 100);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(prefs.containsKey('live_session_checkpoint'), isFalse,
+          reason: 'runs from before the reset must not be written back');
+    });
+
+    test('a reset after the steps were collected keeps them out of storage',
+        () async {
+      final app = await walked();
+      ResetGate.enter();
+      ResetGate.leave();
+      // The reset is over (nothing is active); only the generation moved.
+      expect(ResetGate.active, isFalse);
+      await app.debugFinalizeLivePedometer();
+      final db = await LocalDb.instance;
+      expect(await db.query('live_coverage'), isEmpty,
+          reason: 'steps collected before the reset must not come back');
+    });
   });
 }

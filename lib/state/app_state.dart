@@ -146,6 +146,7 @@ import '../telemetry/health_uploader.dart';
 import '../widget/widget_service.dart';
 import '../sync/file_log.dart';
 import 'breathing_controller.dart';
+import 'coalescing_runner.dart';
 import 'package:uuid/uuid.dart';
 
 export 'derive_coordinator.dart' show DeriveRunHook;
@@ -571,11 +572,9 @@ class AppState extends ChangeNotifier {
     // truth for every network call — announcements, OTA, telemetry, import).
     healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
     phoneStepsEnabled = prefs.getBool(_kPhoneSteps) ?? false;
-    // Steps only exist if a real pedometer measured them, so kick the phone
-    // pull early. This is BEST-EFFORT and establishes no ordering: it is
-    // unawaited, so a derive pass can read `live_coverage` while the sync is
-    // still in flight and that day then derives without phone steps. It
-    // self-heals on the next light pass.
+    // Pull early without delaying launch. syncPhoneSteps queues a fresh light
+    // derive AFTER the sensor rows land, including when an earlier band pass
+    // already finished. The screen must not wait for another BLE drain.
     //
     // ROUTINE window only (2 days, ~48 platform round trips). Each hourly
     // bucket is one platform call, so the 7-day backfill window is up to 168 of
@@ -980,6 +979,13 @@ class AppState extends ChangeNotifier {
     phoneStepsLastTotal = null;
     phoneStepsToday = 0;
     _phoneStepsDay = null;
+    // A read still in flight belongs to the old setting. Drop the shared slot
+    // and bump the token so turning the feature back on starts a fresh read
+    // instead of joining the stopped one, and the old read cannot clear the
+    // new slot or touch state when it ends.
+    _phoneStepsToken++;
+    _phoneStepsSync = null;
+    _phoneStepsSyncDays = 0;
     // Stop the sensor BEFORE dropping the rows: on Android the counter keeps
     // accumulating into its own on-device store, so clearing `live_coverage`
     // alone would leave this app counting a user who just asked it to stop.
@@ -1023,6 +1029,7 @@ class AppState extends ChangeNotifier {
     try {
       final day = todayLabel();
       final n = await LocalDb.phoneStepsForDay(day);
+      if (_disposed || !phoneStepsEnabled || ResetGate.active) return;
       if (n != phoneStepsToday || day != _phoneStepsDay) {
         phoneStepsToday = n;
         _phoneStepsDay = day;
@@ -1033,19 +1040,113 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<int>? _phoneStepsSync;
+  int _phoneStepsSyncDays = 0;
+  int _phoneStepsToken = 0;
+
+  /// How long one phone step read may hold the shared slot. Longer than the
+  /// manual sync's own wait, so a tap gives up first and this reclaims the slot
+  /// afterwards. A platform call that never returns would otherwise block every
+  /// later refresh and backfill until the app restarts.
+  @visibleForTesting
+  static Duration phoneStepsReadTimeout = const Duration(seconds: 90);
+
   /// Pull the last [days] days of phone step counts into `live_coverage`.
   ///
-  /// Idempotent (delete-then-insert per day, scoped to the phone source), so
-  /// calling it repeatedly — on launch, after a sync, from a background pass —
-  /// can never accumulate. Best-effort; never throws.
+  /// Share overlapping reads so a slower, older sensor walk cannot overwrite a
+  /// newer one. A larger explicit backfill waits for the routine read, then
+  /// runs its full window. A read that outlives [phoneStepsReadTimeout] is
+  /// retired (it can no longer bank rows or touch state) and frees the slot.
+  /// Queue derivation after the rows land: screens read
+  /// day_result/metric_series, not phoneStepsToday. Best-effort; never throws.
   Future<int> syncPhoneSteps({
     int days = PhonePedometer.routineSyncDays,
   }) async {
+    if (!phoneStepsEnabled || _disposed || ResetGate.active) return 0;
+    final running = _phoneStepsSync;
+    if (running != null) {
+      if (days <= _phoneStepsSyncDays) return running;
+      await running;
+      return syncPhoneSteps(days: days);
+    }
+    final token = ++_phoneStepsToken;
+    _phoneStepsSyncDays = days;
+    final progress = _PhoneReadProgress();
+    final future = _readPhoneSteps(days, token, progress).timeout(
+      phoneStepsReadTimeout,
+      onTimeout: () {
+        // Only a read that still owns the slot may be retired. A timer from an
+        // older read that outlived a disable and re-enable must not retire the
+        // newer read that replaced it.
+        if (token != _phoneStepsToken) return 0;
+        debugPrint('[phone_steps] read still running after '
+            '${phoneStepsReadTimeout.inSeconds}s; abandoning it');
+        // Retire the stuck read BEFORE the slot frees: a late completion must
+        // not write older rows over a newer read's.
+        _phoneStepsToken++;
+        progress.retired = true;
+        _phonePedometer.abandonInFlight();
+        // Days it already stored are real: queue derivation for them, since
+        // the retired read never reaches its own derive request.
+        _queuePhoneDerive(progress);
+        return 0;
+      },
+    );
+    _phoneStepsSync = future;
     try {
-      final r = await _phonePedometer.syncRecent(days: days);
+      return await future;
+    } finally {
+      // Only the read that owns the slot may clear it.
+      if (identical(_phoneStepsSync, future)) {
+        _phoneStepsSync = null;
+        _phoneStepsSyncDays = 0;
+      }
+    }
+  }
+
+  /// Queue derivation for the days a phone read stored. Today is covered by the
+  /// light pass; a day BEFORE today that changed needs a heavy one, because the
+  /// light pass only targets today or the latest pending day.
+  void _queuePhoneDerive(_PhoneReadProgress progress) {
+    if (progress.days == 0 ||
+        !phoneStepsEnabled ||
+        _disposed ||
+        ResetGate.active) {
+      return;
+    }
+    _deriveScheduler.markStoredData();
+    if (progress.pastDayChanged) _deriveScheduler.requestHeavy();
+    notifyListeners();
+  }
+
+  Future<int> _readPhoneSteps(
+      int days, int token, _PhoneReadProgress progress) async {
+    bool stale() =>
+        token != _phoneStepsToken ||
+        !phoneStepsEnabled ||
+        _disposed ||
+        ResetGate.active;
+    try {
+      final r = await _phonePedometer.syncRecent(
+        days: days,
+        onDayBanked: (day, changed) {
+          progress.days++;
+          if (changed && day != todayLabel()) progress.pastDayChanged = true;
+          // A day committing after its read was retired is still real.
+          if (progress.retired) _queuePhoneDerive(progress);
+        },
+      );
+      if (stale()) return 0;
       phoneStepsLastSyncedDays = r.daysRead;
       phoneStepsLastTotal = r.totalSteps;
       await _refreshPhoneStepsToday();
+      if (stale()) return 0;
+      if (r.daysRead > 0) {
+        // Use the normal durable queue: capture, workout and background holds
+        // still apply, and a read finishing during derive gets a later pass.
+        _queuePhoneDerive(progress);
+        if (progress.days == 0) _deriveScheduler.markStoredData();
+      }
       notifyListeners();
       return r.daysRead;
     } catch (e) {
@@ -1839,7 +1940,7 @@ class AppState extends ChangeNotifier {
       // Gated for the same reason as [_onRecord] — this one is wired straight
       // to LocalDb, so it bypasses every check AppState makes.
       onRecordsBatch: (raws, samples) async {
-        if (_resetting) return; // see [_resetting]
+        if (_resetting || _replacingBand) return; // candidate is not the primary yet
         await LocalDb.insertRecordsBatch(raws, samples);
       },
       // RESUMABLE SYNC: atomic commit of decoded rows + continuation cursor
@@ -1861,8 +1962,8 @@ class AppState extends ChangeNotifier {
           // real data loss on a band the user may not be deleting after all if
           // the reset then fails. A throw blocks the ACK and the records stay
           // on the strap.
-          if (ResetGate.active) {
-            throw StateError('data reset in progress — refusing to commit');
+          if (ResetGate.active || _replacingBand) {
+            throw StateError('data reset or band replacement in progress — refusing to commit');
           }
           await _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
               archives: archives,
@@ -1876,7 +1977,7 @@ class AppState extends ChangeNotifier {
       },
       // Pre-setup fallback only: the drain path archives inside commitSyncBatch.
       onArchiveRecord: (raw) async {
-        if (_resetting) return; // see [_resetting]
+        if (_resetting || _replacingBand) return; // candidate is not the primary yet
         await LocalDb.archiveRawRecord(raw);
       },
       cursorReader: (base) =>
@@ -3013,6 +3114,11 @@ class AppState extends ChangeNotifier {
       }
       notifyListeners();
       _deriveScheduler.markStoredData();
+      // A sync that just stored last night's data is exactly when the morning
+      // briefing's readiness gate can flip to true — re-arm the AI reminders
+      // now, on every durable store path, so a morning sync arms the slot
+      // even when no foreground pass or alarm event follows.
+      unawaited(_ensureRemindersScheduled());
     }());
   }
 
@@ -3026,7 +3132,7 @@ class AppState extends ChangeNotifier {
     proto.BandProfile profile,
     String deviceId,
   ) {
-    if (_resetting) return; // see [_resetting]
+    if (_resetting || _replacingBand) return; // candidate is not the primary yet
     LocalDb.insertEvent(id, ts, hex, deviceId: deviceId, profile: profile);
     // M3: gesture dispatch and the alarm handler stay unscoped — neither is
     // device-scoped in M3's scope, and a double-tap on either band should
@@ -3131,7 +3237,7 @@ class AppState extends ChangeNotifier {
     _lastRecTs = await LocalDb.getRecordFrontier() ?? lastSynced?.tsEpoch;
     await LocalDb.refreshComputeFreshness();
     final alarmPrefs = await SharedPreferences.getInstance();
-    _savedAlarm = alarmPrefs.getInt('alarm_epoch');
+    _savedAlarm = persistedAlarmEpoch(alarmPrefs, paired?.remoteId);
     final firedSec = alarmPrefs.getInt('alarm_fired_at');
     if (firedSec != null) {
       _alarmFiredAt = DateTime.fromMillisecondsSinceEpoch(firedSec * 1000);
@@ -3311,9 +3417,22 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// Serializes whole reminder passes. The readiness read inside a pass and
+  /// the (internally serialized) scheduling must run in the same order:
+  /// without this chain, an older `lastNightDataReady: false` pass can reach
+  /// the scheduler after a newer ready pass and cancel the briefing it armed.
+  ///
+  /// Requests that arrive while a pass is queued but not yet started join it
+  /// (it reads its inputs when it starts), so a drain's many store paths cost
+  /// at most one running pass and one waiting pass, not one pass per batch.
+  late final CoalescingRunner _reminderRunner =
+      CoalescingRunner(_ensureRemindersScheduledLocked);
+
   /// (Re)register standing scheduled reminders per the user's prefs. Idempotent;
   /// safe to call repeatedly (cancels + re-schedules). Best-effort.
-  Future<void> _ensureRemindersScheduled() async {
+  Future<void> _ensureRemindersScheduled() => _reminderRunner.run();
+
+  Future<void> _ensureRemindersScheduledLocked() async {
     try {
       final prefs = await NotificationPrefs.load();
       // ONE crossday read feeds every schedule that hangs off the rollup:
@@ -3363,7 +3482,9 @@ class AppState extends ChangeNotifier {
         prefs,
         ai,
         aiConfigured: aiRemindersConfigured(coachConfig),
+        lastNightDataReady: await _lastNightDataReady(cd.recent),
         bedtimeMinOfDay: cd.bedtimeMin,
+        typicalWakeMinOfDay: cd.wakeMin,
         journalDoneToday: BriefingStore.journalDoneToday(),
         sweepHeadline: await _sweepHeadlineNow(),
       );
@@ -3373,27 +3494,35 @@ class AppState extends ChangeNotifier {
   }
 
   /// Everything the reminder scheduler needs from the crossday rollup, in ONE
-  /// read: the Sleep Coach's recommended bedtime (local minutes past midnight,
-  /// or null when not yet learned) and the per-day `recent[]` rows the weekly
-  /// lookback's finding summarizes. Read in one place because three schedules
-  /// hang off it — check-in, wind-down, nightly sweep, weekly lookback — and
-  /// a second copy of this parse is a second thing to get wrong.
-  Future<({double? bedtimeMin, List<Map<String, dynamic>> recent})>
-      _readCrossdaySummary() async {
+  /// read: the Sleep Coach's recommended bedtime and typical wake (local
+  /// minutes past midnight, or null when not yet learned) and the per-day
+  /// `recent[]` rows the weekly lookback's finding summarizes. Read in one
+  /// place because three schedules hang off it — check-in, wind-down, nightly
+  /// sweep, weekly lookback — and a second copy of this parse is a second
+  /// thing to get wrong.
+  Future<
+      ({double? bedtimeMin,
+      double? wakeMin,
+      List<Map<String, dynamic>> recent})> _readCrossdaySummary() async {
     try {
       final cd = await LocalDb.baseline('crossday');
       final m = cd?['payload_json'];
       if (m is! String) {
-        return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
+        return (bedtimeMin: null, wakeMin: null, recent: const <Map<String, dynamic>>[]);
       }
       final j = jsonDecode(m);
       if (j is! Map) {
-        return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
+        return (bedtimeMin: null, wakeMin: null, recent: const <Map<String, dynamic>>[]);
       }
-      final bt = (j['sleep_coach'] as Map?)?['bedtime'];
+      final coach = (j['sleep_coach'] as Map?)?.cast<String, dynamic>();
+      final bt = coach?['bedtime'];
       final v = bt is Map ? bt['value'] : null;
       final bedtime =
           (v is Map ? (v['bedtime_min_of_day'] as num?) : null)?.toDouble();
+      final wk = coach?['wake'];
+      final wv = wk is Map ? wk['value'] : null;
+      final wake =
+          (wv is Map ? (wv['wake_min_of_day'] as num?) : null)?.toDouble();
       // Same rows `DerivationEngine._runNotifications` consumes for the daily
       // exception — {date, rhr, unsettled, illness, anomaly, temp}.
       final rawRecent = j['recent'];
@@ -3402,11 +3531,51 @@ class AppState extends ChangeNotifier {
           for (final r in rawRecent)
             if (r is Map) r.cast<String, dynamic>(),
       ];
-      return (bedtimeMin: bedtime, recent: recent);
+      return (bedtimeMin: bedtime, wakeMin: wake, recent: recent);
     } catch (_) {
-      // No rollup → no learned bedtime and an empty week: every consumer has
-      // its own honest silence for that.
-      return (bedtimeMin: null, recent: const <Map<String, dynamic>>[]);
+      // No rollup → no learned bedtime/wake and an empty week: every consumer
+      // has its own honest silence for that.
+      return (bedtimeMin: null, wakeMin: null, recent: const <Map<String, dynamic>>[]);
+    }
+  }
+
+  /// Whether data for the night that just ended has actually arrived: a synced
+  /// band sample from TODAY (local day label), or — for sources that write
+  /// derived days without raw samples, e.g. a cloud ring — a crossday row
+  /// already derived for today. This is the morning briefing's arm gate: the
+  /// notification promises last night's sleep, so it is armed only when that
+  /// data exists. False on a read failure too — the next pass (sync
+  /// completion, foreground resume) re-arms as soon as the data lands, and a
+  /// silently missing briefing beats one the deep link cannot back.
+  Future<bool> _lastNightDataReady(List<Map<String, dynamic>> recent) async {
+    try {
+      final today = todayLabel();
+      // The crossday pipeline flags today's row `unsettled` while the night is
+      // still settling — same rows the weekly lookback skips. A same-day band
+      // sample is NOT sufficient while that row is unsettled: the overnight
+      // is still building and the briefing cannot be generated yet.
+      if (recent.isNotEmpty) {
+        final last = recent.last;
+        if (last['date'] == today && last['unsettled'] == true) return false;
+      }
+      // Query the DB first: the cached `lastSynced` is only refreshed at
+      // startup and on wipe, so it can hold yesterday's sample and would hide
+      // a freshly synced one from the `??` fallback. latestSample() is
+      // primary-band only, so a peripheral sensor cannot unlock the briefing.
+      final s = await LocalDb.latestSample() ?? lastSynced;
+      if (s != null &&
+          s.tsEpoch > 0 &&
+          dayLabelOf(DateTime.fromMillisecondsSinceEpoch(s.tsEpoch * 1000)) ==
+              today) {
+        return true;
+      }
+      // Cloud sources without raw samples: a settled derived row for today.
+      if (recent.isEmpty) return false;
+      final last = recent.last;
+      return last['date'] == today && last['unsettled'] != true;
+    } catch (e) {
+      _log('[notify] last-night data check skipped: $e');
+      return false;
     }
   }
 
@@ -3580,7 +3749,7 @@ class AppState extends ChangeNotifier {
   // Historical singles only now (live frames go through _onLiveFrame and are
   // never persisted). Just write the raw record (+ optional decoded sample).
   Future<void> _onRecord(Sample? sample, RawRecord raw) async {
-    if (_resetting) return; // see [_resetting]
+    if (_resetting || _replacingBand) return; // candidate is not the primary yet
     final ts = raw.recTs ?? sample?.tsEpoch;
     // AFTER the write, and gated on the write SAYING it wrote. `_lastRecTs` is
     // the DATA EDGE — what is banked — and it only ever moves forward, so
@@ -3696,6 +3865,12 @@ class AppState extends ChangeNotifier {
   /// something a source ladder can rank.
   final GaitRuns _gaitRuns = GaitRuns();
 
+  /// The reset generation the buffered [_gaitRuns] were first collected under.
+  /// Finalization must judge them by THIS, not by the generation current when
+  /// it happens to run: a reset between collection and finalization would
+  /// otherwise be invisible and a deleted session's steps could be banked back.
+  int? _gaitRunsGeneration;
+
   /// Admitted calibration runs for the live 100 Hz pedometer, cached per
   /// session.
   ///
@@ -3713,12 +3888,16 @@ class AppState extends ChangeNotifier {
   /// save would have every later walk fit the previous gain.
   int _liveStepCalibrationGeneration = 0;
 
+  @visibleForTesting
+  Future<List<StepCalibrationRun>> Function()? debugReadLiveStepCalibration;
+
   Future<List<StepCalibrationRun>> _liveStepCalibrationRuns() async {
     while (true) {
       final cached = _liveStepCalibration;
       if (cached != null) return cached;
       final generation = _liveStepCalibrationGeneration;
-      final rows = await LocalDb.liveStepCalibrationRuns();
+      final rows = await (debugReadLiveStepCalibration?.call() ??
+          LocalDb.liveStepCalibrationRuns());
       // Invalidated while the read was in flight: these rows may predate the
       // save that invalidated them, so read again rather than hand the caller
       // the previous calibration.
@@ -3758,6 +3937,7 @@ class AppState extends ChangeNotifier {
     final endTs = _bandTsAt(endMs);
     final floorTs = _bandTsAt(_liveFirstIngestMs ?? endMs);
     if (endTs == null || floorTs == null) return;
+    _gaitRunsGeneration ??= ResetGate.generation;
     _gaitRuns.addChunk(
       endTs: endTs,
       // The chunk covers the time it SAMPLED, not the wall time it took to
@@ -4010,6 +4190,7 @@ class AppState extends ChangeNotifier {
     _liveFirstIngestMs = null;
     _liveLastIngestMs = null;
     _gaitRuns.clear();
+    _gaitRunsGeneration = null;
   }
 
   /// End-of-session: bank the REAL 100 Hz step spans into `live_coverage`.
@@ -4039,8 +4220,21 @@ class AppState extends ChangeNotifier {
       _addGaitChunk(_liveLastIngestMs!, _magMin.length, ana.pedometer(_magMin));
     }
     final runs = _gaitRuns.runs;
+    // Collected under this generation, not the one current now (see
+    // [_gaitRunsGeneration]). Nothing collected: nothing to bank either way.
+    final resetGeneration = _gaitRunsGeneration ?? ResetGate.generation;
     _resetLivePedometer();
-    await _bankGaitRuns(runs);
+    // CLAIM(orphan-checkpoint-preserved): no live runs means nothing was banked;
+    // retain a killed session's checkpoint for recovery after the next connect.
+    if (runs.isEmpty) return;
+    try {
+      await _bankGaitRuns(runs, resetGeneration: resetGeneration);
+    } catch (_) {
+      // Reset cancelled this session; disconnect finalization is unawaited.
+      if (!ResetGate.changedSince(resetGeneration)) rethrow;
+      return;
+    }
+    if (ResetGate.changedSince(resetGeneration)) return;
     // The session ended cleanly and is now durably recorded — the checkpoint
     // that would otherwise let a killed-process session recover is no longer
     // needed.
@@ -4055,7 +4249,8 @@ class AppState extends ChangeNotifier {
   /// documents as the gain's home. Two formulas, or one formula applied at both
   /// ends, is the silent x1.23 this method's history records; one shared
   /// function with one factor per run is the invariant that prevents it.
-  Future<void> _bankGaitRuns(List<LiveStepRun> runs) async {
+  Future<void> _bankGaitRuns(List<LiveStepRun> runs,
+      {required int resetGeneration}) async {
     if (runs.isEmpty) return;
     final calibration = await _liveStepCalibrationRuns();
     for (final run in runs) {
@@ -4081,6 +4276,7 @@ class AppState extends ChangeNotifier {
         steps,
         day,
         source: kStepSourceStrap,
+        resetGeneration: resetGeneration,
       );
       // AGENTS.md §4.7 — the other two callers of `addLiveCoverage` are
       // enumerated here so this capability cannot be wired into one path and
@@ -4107,9 +4303,16 @@ class AppState extends ChangeNotifier {
 
   Future<void> _checkpointLiveSession() async {
     if (_gaitRuns.isEmpty) return;
+    // The runs were collected under THEIR generation, not the one current now:
+    // a reset that began or finished since must not have its deleted steps
+    // written back (and recovered after the next connect). Refused up front
+    // and again after the reads below.
+    final resetGeneration = _gaitRunsGeneration ?? ResetGate.generation;
+    if (ResetGate.changedSince(resetGeneration)) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final calibration = await _liveStepCalibrationRuns();
+      if (ResetGate.changedSince(resetGeneration)) return;
       await prefs.setString(
         _kLiveSessionCheckpoint,
         // Runs are stored gain-applied, i.e. exactly the numbers
@@ -4167,6 +4370,7 @@ class AppState extends ChangeNotifier {
       });
 
   Future<void> _recoverOrphanedLiveSessionOnce() async {
+    final resetGeneration = ResetGate.generation;
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_kLiveSessionCheckpoint);
@@ -4229,6 +4433,7 @@ class AppState extends ChangeNotifier {
           s[2],
           day,
           source: kStepSourceStrap,
+          resetGeneration: resetGeneration,
         );
         recovered += s[2];
       }
@@ -4544,7 +4749,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _onEngineState(String deviceId, DeviceState s) {
-    if (_resetting) return; // see [_resetting]
+    if (_resetting || _replacingBand) return; // candidate is not the primary yet
     _appendLiveHr(deviceId, s.liveHr, s.liveHrAt);
     // Bank the name the moment the band says it, so it survives the
     // disconnect. Written through `cleanDeviceLabel` for the same reason the
@@ -4702,12 +4907,87 @@ class AppState extends ChangeNotifier {
     await _persistPaired(d.remoteId.str, serial);
   }
 
+  /// AppState owns the replacement lifetime and cancellation epoch.
+  bool _replacingBand = false;
+  bool _replacementPickerInProgress = false;
+  int _pairingEpoch = 0;
   bool _pairingInProgress = false;
 
-  Future<void> _persistPaired(String remoteId, String? serial) async {
-    if (_pairingInProgress) throw Exception('Pairing is already in progress.');
+  /// Substitute the native approval-retirement transport in lock tests.
+  @visibleForTesting
+  Future<void> Function(String remoteId)? debugRetireBandApproval;
+
+  /// Test hook: replaces the read-back of the identity a replacement just
+  /// saved, so a failing read after a successful save can be exercised.
+  @visibleForTesting
+  Future<PairedDevice?> Function()? debugLoadPaired;
+
+  /// Test hook: runs right after the picker's accessory was provisioned, so a
+  /// forget can be made to land inside that await.
+  @visibleForTesting
+  Future<void> Function()? debugAfterReplacementProvisioned;
+
+  /// Verify and save the replacement before retiring the old phone approval.
+  /// A failed attempt keeps the old pairing and attempts to reconnect it.
+  Future<void> replaceWith(BluetoothDevice d) =>
+      _persistPaired(d.remoteId.str, null, replacing: true);
+
+  /// The system sheet chooses the replacement on iOS 18+. The tapped scan
+  /// identity is not enforced by ASK. Picker errors retain the old pairing.
+  Future<void> replaceViaAccessorySetup() async {
+    if (_pairingInProgress || _replacementPickerInProgress) {
+      throw StateError('Pairing is already in progress.');
+    }
+    final old = paired;
+    if (old == null) throw StateError('There is no band to replace.');
+    final epoch = _pairingEpoch;
+    _replacementPickerInProgress = true;
+    try {
+      await IosBleRestore.releaseCentralForPicker();
+      final id = await AccessorySetup.showPicker(addAnother: true);
+      if (epoch != _pairingEpoch || paired?.remoteId != old.remoteId) {
+        throw StateError('The current pairing changed.');
+      }
+      await IosBleRestore.provisioned(id);
+      await debugAfterReplacementProvisioned?.call();
+      // The provisioning await can outlive a forget/reset that started after
+      // the check above. _persistPaired captures the CURRENT epoch as its own,
+      // so a stale picker result would otherwise enter replacement, and its
+      // save could recreate the pairing the user just cancelled.
+      if (epoch != _pairingEpoch || paired?.remoteId != old.remoteId) {
+        throw StateError('The current pairing changed.');
+      }
+      _replacementPickerInProgress = false;
+      await _persistPaired(id, null, replacing: true);
+    } finally {
+      _replacementPickerInProgress = false;
+      // A dismissed/refused picker must not leave background restore disabled.
+      final current = paired;
+      if (current != null) await IosBleRestore.provisioned(current.remoteId);
+    }
+  }
+
+  /// Forget what the link knows about the band it was on, so a new bootstrap
+  /// starts clean. The remembered strap name is a separate, persisted thing:
+  /// it is also what the old band is shown under while it is still the paired
+  /// one, so a replacement that has not committed must leave it alone.
+  void _resetBandIdentity({bool clearSavedName = true}) {
+    _clearLiveHrTrace(LocalDb.kPrimaryDeviceId);
+    device.reset();
+    pairedIsMaverick = false;
+    _lastSeenGeneration = null;
+    _lastSeenStrapNameRaw = null;
+    if (clearSavedName) Prefs.setString(_kStrapName, '');
+  }
+
+  Future<void> _persistPaired(String remoteId, String? serial,
+      {bool replacing = false}) async {
+    if (_pairingInProgress || _replacementPickerInProgress) {
+      throw StateError('Pairing is already in progress.');
+    }
     final existing = paired;
-    if (existing != null) {
+    final existingIsMaverick = pairedIsMaverick;
+    if (existing != null && !replacing) {
       if (existing.remoteId != remoteId) {
         throw Exception('Forget the current band before pairing another.');
       }
@@ -4715,17 +4995,98 @@ class AppState extends ChangeNotifier {
       if (!engine.isConnected) throw Exception('Connection setup did not complete.');
       return;
     }
+    if (replacing && existing == null) throw StateError('There is no band to replace.');
+    if (replacing && existing!.remoteId == remoteId) {
+      throw const SameBandSelectedException();
+    }
+    final epoch = _pairingEpoch;
+    // A reset empties the store without bumping the pairing epoch (only forget
+    // does), and lowers the gate once it is done. Capture the generation too,
+    // or a save that was queued behind a finished reset writes into the
+    // emptied store and resurrects a pairing.
+    final resetGen = ResetGate.generation;
     _pairingInProgress = true;
+    _replacingBand = replacing;
+    var committed = false;
+    var started = false;
     try {
+      // The primary peripheral must never also hold a secondary connection. A
+      // candidate that is already a workout sensor here would be saved as the
+      // primary with its secondary row and link still alive, and the sensor
+      // link would reconnect the same peripheral. Refuse before anything starts.
+      if (replacing &&
+          (await LocalDb.deviceRows()).any((r) =>
+              r['remote_id'] == remoteId &&
+              r['id'] != LocalDb.kPrimaryDeviceId)) {
+        throw Exception(
+            'That device is already paired as a sensor. Forget it there first.');
+      }
       final confirmed = await _sync.connectForPairing(
         PairedDevice(remoteId, serial),
+        replacingRemoteId: replacing ? existing?.remoteId : null,
+        onStarted: () => started = true,
+        prepare: replacing ? () async {
+          // Replacement suppresses disconnect callbacks; bank the old band's
+          // still-filling minute before the new session clears its pedometer.
+          await _finalizeLivePedometer();
+          _resetBandIdentity(clearSavedName: false);
+        } : null,
         confirm: () async {
           // Only READY proves we can talk to this band. Until then neither
           // the persisted record nor isPaired may advance onboarding. Save
           // the identity THIS bootstrap discovered, not a stale device hint.
+          if (epoch != _pairingEpoch || ResetGate.changedSince(resetGen)) {
+            throw StateError('Pairing was cancelled.');
+          }
+          if (replacing) {
+            // CLAIM(alarm-band-ownership): bind legacy epochs before switching
+            // identity, so a failed remove cannot arm the replacement on paper.
+            final prefs = await SharedPreferences.getInstance();
+            if (!await bindAlarmEpochToBand(prefs, existing!.remoteId)) {
+              throw StateError('Could not preserve alarm ownership.');
+            }
+          }
+          // The ownership write above can outlive a completed forget/reset;
+          // PairedDevice must not start a new save after that cancellation.
+          if (epoch != _pairingEpoch || ResetGate.changedSince(resetGen)) {
+            throw StateError('Pairing was cancelled.');
+          }
           await PairedDevice.save(remoteId, serial ?? device.serial,
               generation: device.generation);
-          paired = await PairedDevice.load();
+          if (epoch != _pairingEpoch || ResetGate.changedSince(resetGen)) {
+            throw StateError('Pairing was cancelled.');
+          }
+          // `save` returned, so the new band is durable. A failed read-back
+          // must not be mistaken for a failed save: the catch below would
+          // reconnect the OLD band while storage already names the new one,
+          // and the next launch would disagree with this process. Publish
+          // what was just written instead.
+          final savedSerial = cleanDeviceLabel(serial ?? device.serial);
+          final savedGeneration = device.generation;
+          PairedDevice? reloaded;
+          var reloadFailed = false;
+          try {
+            reloaded = await (debugLoadPaired ?? PairedDevice.load)();
+          } catch (e) {
+            reloadFailed = true;
+            _log('Paired band saved, but reading it back failed: $e');
+          }
+          paired = reloadFailed
+              ? PairedDevice(remoteId, savedSerial,
+                  generation: (savedGeneration == 'gen4' ||
+                          savedGeneration == 'gen5')
+                      ? savedGeneration
+                      : null)
+              : reloaded;
+          committed = paired?.remoteId == remoteId;
+          // The old band's name belongs to the old band; the new one banks
+          // its own as soon as it reports it.
+          if (committed && replacing) {
+            Prefs.setString(_kStrapName, '');
+            // An epoch confirms the OLD physical band, never the replacement.
+            // Clear persistence before openSession can reload it and skip SET.
+            await _clearArmedAlarmState();
+          }
         },
       );
       if (!confirmed) {
@@ -4733,9 +5094,34 @@ class AppState extends ChangeNotifier {
         if (blocker != null) throw BleUnavailableException(blocker);
         throw Exception('Connection setup did not complete.');
       }
+      if (replacing && committed) {
+        // CLAIM(pairing-retirement-lock): retirement can revoke approval; a
+        // second replacement must wait until both native calls finish.
+        await IosBleRestore.disarmOne(existing!.remoteId);
+        await (debugRetireBandApproval?.call(existing.remoteId) ??
+            AccessorySetup.removeBand(existing.remoteId));
+      }
+    } catch (error, stack) {
+      // PairedDevice.save rolls back its transaction and preference mirror.
+      // Only reconnect while the old pairing still owns this attempt.
+      if (replacing && started && !committed && epoch == _pairingEpoch &&
+          paired?.remoteId == existing?.remoteId) {
+        _replacingBand = false;
+        _resetBandIdentity(clearSavedName: false);
+        pairedIsMaverick = existingIsMaverick;
+        try {
+          await IosBleRestore.provisioned(existing!.remoteId);
+          await openSession();
+        } catch (restoreError) {
+          _log('Replacement failed; old band is still paired: $restoreError');
+        }
+      }
+      Error.throwWithStackTrace(error, stack);
     } finally {
+      _replacingBand = false;
       _pairingInProgress = false;
     }
+    if (replacing && committed) _onEngineState(LocalDb.kPrimaryDeviceId, device);
     // Now that there's a band to alert about, ask for notification permission
     // (a natural moment; battery/charging alerts depend on it). Best-effort.
     unawaited(NotificationService.instance.ensurePermission());
@@ -4775,7 +5161,23 @@ class AppState extends ChangeNotifier {
       AndroidBackground.openOemAutostartSettings();
 
   Future<void> unpair() async {
+    _pairingEpoch++;
     await _sync.unpairSession();
+    // CLAIM(alarm-band-ownership): the armed alarm belonged to the band being
+    // forgotten. An upgraded install can hold an epoch with no owner tag, which
+    // every band reads as its own: a new band would be treated as already armed
+    // and never receive SET_ALARM. Drop it, in memory too.
+    final forgotten = paired?.remoteId ?? (await PairedDevice.load())?.remoteId;
+    await _clearArmedAlarmState();
+    if (forgotten != null) {
+      // The clear swallows platform errors. If the epoch is still on disk,
+      // tag it with the forgotten band so no other band can adopt it.
+      final alarmPrefs = await SharedPreferences.getInstance();
+      if (alarmPrefs.getInt('alarm_epoch') != null &&
+          !await bindAlarmEpochToBand(alarmPrefs, forgotten)) {
+        _log('[alarm] could not clear or tag the forgotten band\'s alarm');
+      }
+    }
     await PairedDevice.clear();
     pairedIsMaverick = false;
     // Everything the old band told us about itself. The engine's DeviceState
@@ -5016,7 +5418,7 @@ class AppState extends ChangeNotifier {
       // comparing, or a stale in-memory `_savedAlarm` makes this issue a
       // needless duplicate setAlarm write on every connect.
       final prefs = await SharedPreferences.getInstance();
-      final onDisk = prefs.getInt('alarm_epoch');
+      final onDisk = persistedAlarmEpoch(prefs, paired?.remoteId);
       if (onDisk != _savedAlarm) {
         _savedAlarm = onDisk;
         // Adopting another process's arm: a retry still in flight for the
@@ -5033,6 +5435,10 @@ class AppState extends ChangeNotifier {
         }
         notifyListeners();
       }
+      // The band that receives this SET. unpair()/replacement can finish while
+      // the write waits for its reply; the result then belongs to a band that
+      // is no longer the paired one (see [_onArmed]).
+      final armedFor = paired?.remoteId;
       final result = await armNextScheduledOccurrence(
         engine: engine,
         schedule: _schedule,
@@ -5050,7 +5456,7 @@ class AppState extends ChangeNotifier {
       final epoch = result.epoch;
       if (epoch == null) return true;
       await _onArmed(DateTime.fromMillisecondsSinceEpoch(epoch * 1000), epoch,
-          echoed: result.echoed);
+          echoed: result.echoed, armedFor: armedFor);
       return true;
     } catch (e) {
       _log('[alarm] weekly-schedule arm failed: $e');
@@ -5170,6 +5576,18 @@ class AppState extends ChangeNotifier {
       if (epoch == null || epoch == _smartWakeFiredForEpoch) return;
       final armed = armedSmartWakeWindow(epoch: epoch, schedule: _schedule);
       if (armed == null) return;
+      // The arm this detection belongs to. Every asynchronous step below can
+      // outlive it (alarm cleared or re-armed, app torn down), so the buzz is
+      // gated on it still being current right before it goes out.
+      final armGen = _armGen;
+      bool stillCurrent() => smartWakeStillCurrent(
+            armedGen: armGen,
+            currentGen: _armGen,
+            epoch: epoch,
+            currentEpoch: alarmEpoch,
+            disposed: _disposed,
+            connected: isConnected,
+          );
       final now = DateTime.now();
       if (!inSmartWakeWindow(
           windowEnd: armed.windowEnd, minutes: armed.minutes, now: now)) {
@@ -5254,6 +5672,7 @@ class AppState extends ChangeNotifier {
         now: now,
       );
       if (!detected) return;
+      if (!stillCurrent()) return;
       _smartWakeFiredForEpoch = epoch; // set BEFORE the write — see below
       // Marked fired before the write goes out on purpose: a write that
       // throws must not retry every 30 s for the rest of the window (that
@@ -5269,6 +5688,20 @@ class AppState extends ChangeNotifier {
         await p.setInt('smart_wake_fired_epoch', epoch);
       } catch (e) {
         _log('[smart-wake] persisting the fired latch failed: $e');
+      }
+      if (!stillCurrent()) {
+        // Cleared or re-armed while the latch was being written: no buzz, and
+        // the latch for an occurrence that no longer exists goes too (unless a
+        // newer arm has since written its own).
+        if (_smartWakeFiredForEpoch == epoch) _smartWakeFiredForEpoch = null;
+        try {
+          final p = await SharedPreferences.getInstance();
+          if (p.getInt('smart_wake_fired_epoch') == epoch) {
+            await p.remove('smart_wake_fired_epoch');
+          }
+        } catch (_) {/* best-effort */}
+        _log('[smart-wake] early buzz dropped: the alarm changed underneath.');
+        return;
       }
       await engine.runAlarm();
       _log('[smart-wake] light sleep detected inside the window — early buzz.');
@@ -5341,6 +5774,7 @@ class AppState extends ChangeNotifier {
     // rich 20-byte firing form (a hardcoded 0 subsec would still fire, but the
     // engine owns the exact on-wire layout). Persist the wall instant the
     // engine reports armed (null = write never reached the band).
+    final armedFor = paired?.remoteId;
     final (:armed, :echoed) = await engine.armAlarm(when);
     if (armed == null) {
       // Do NOT persist or start the confirmation machine, or we'd strand a
@@ -5354,7 +5788,7 @@ class AppState extends ChangeNotifier {
       throw Exception('Alarm not set');
     }
     await _onArmed(armed, armed.millisecondsSinceEpoch ~/ 1000,
-        echoed: echoed);
+        echoed: echoed, armedFor: armedFor);
   }
 
   /// Shared bookkeeping for anything that just armed the band: optimistic
@@ -5365,7 +5799,19 @@ class AppState extends ChangeNotifier {
   ///
   /// [echoed]: the strap's reply already reported this exact wake time, so the
   /// arm is confirmed now; event 56 stays as later corroboration.
-  Future<void> _onArmed(DateTime when, int epoch, {bool echoed = false}) async {
+  ///
+  /// [armedFor] is the band that received the SET, captured BEFORE the write.
+  /// If it is no longer the paired band (a forget or replacement finished while
+  /// the reply was pending), this arm is dropped: persisting it would save an
+  /// ownerless epoch that any later band reads as its own and is then never
+  /// armed.
+  Future<void> _onArmed(DateTime when, int epoch,
+      {bool echoed = false, required String? armedFor}) async {
+    if (armedFor != paired?.remoteId) {
+      _log('[alarm] the band that took this alarm is no longer paired; '
+          'not recording it.');
+      return;
+    }
     final gen = ++_armGen;
     _savedAlarm = epoch;
     device.alarmEpoch = epoch; // optimistic display
@@ -5377,7 +5823,12 @@ class AppState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     // A newer arm (or a clear) during the await owns what is persisted now.
     if (_disposed || _armGen != gen) return;
-    await prefs.setInt('alarm_epoch', epoch);
+    // Asked again right before the epoch write: the helper awaits, and a clear
+    // or newer arm in those gaps must not be overwritten by this older epoch.
+    if (!await saveArmedAlarmEpoch(prefs, epoch, armedFor,
+        stillCurrent: () => !_disposed && _armGen == gen)) {
+      return;
+    }
     if (_disposed || _armGen != gen) return;
     await prefs.setInt('alarm_set_at_ms', setAtMs);
     if (_disposed || _armGen != gen) return;
@@ -5740,7 +6191,7 @@ class AppState extends ChangeNotifier {
   /// Drop the armed-alarm state (in-memory + persisted). [AlarmConfirmation]'s
   /// `firedAt` deliberately survives `disable()`, so the fired-notification's
   /// dedupeKey still resolves after this runs.
-  void _clearArmedAlarmState() {
+  Future<void> _clearArmedAlarmState() async {
     _savedAlarm = null;
     // A re-arm of the same occurrence in this process must be able to buzz
     // again; the persisted latch goes below, the in-memory one goes now.
@@ -5749,22 +6200,20 @@ class AppState extends ChangeNotifier {
     device.alarmEpoch = null;
     _alarm.disable();
     _alarmGraceTimer?.cancel();
-    unawaited(() async {
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        // An arm that landed during the await owns the persisted epoch now.
-        if (_armGen != gen) return;
-        await prefs.remove('alarm_epoch');
-        if (_armGen != gen) return;
-        await prefs.remove('alarm_epoch_confirmed');
-        // A newer arm may have latched its own early buzz while the removes
-        // above were in flight; its latch is not ours to clear.
-        if (_armGen != gen) return;
-        await prefs.remove('smart_wake_fired_epoch');
-      } catch (e) {
-        _log('[alarm] clearing the persisted epoch failed: $e');
-      }
-    }());
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // An arm that landed during the await owns the persisted epoch now.
+      if (_armGen != gen) return;
+      await prefs.remove('alarm_epoch');
+      if (_armGen != gen) return;
+      await prefs.remove('alarm_epoch_confirmed');
+      // A newer arm may have latched its own early buzz while the removes
+      // above were in flight; its latch is not ours to clear.
+      if (_armGen != gen) return;
+      await prefs.remove('smart_wake_fired_epoch');
+    } catch (e) {
+      _log('[alarm] clearing the persisted epoch failed: $e');
+    }
   }
 
   Future<void> _notifyAlarmFired() async {
@@ -6285,4 +6734,22 @@ class SleepCorrectionUnavailable implements Exception {
   String toString() => eveningPruned
       ? 'the evening before $day is no longer recorded'
       : 'no recordings left to re-analyse $day';
+}
+
+/// What one phone step read has stored so far, shared with the timeout that
+/// may retire it.
+class _PhoneReadProgress {
+  int days = 0;
+  bool pastDayChanged = false;
+  bool retired = false;
+}
+
+/// The band picked to replace the paired one IS the paired one. Nothing was
+/// touched. Said out loud because returning quietly made the pairing screen
+/// report "Paired" for a replacement that never happened.
+class SameBandSelectedException implements Exception {
+  const SameBandSelectedException();
+  @override
+  String toString() =>
+      'That band is already paired. Choose a different band to replace it.';
 }
