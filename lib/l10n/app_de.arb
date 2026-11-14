@@ -3722,5 +3722,7 @@
   "pairSearchDevices": "Nach Geräten suchen",
   "pairPrimaryCannotBeSensor": "Dies ist bereits dein Hauptarmband. Es kann nicht zusätzlich als Trainingssensor gekoppelt werden.",
   "pairReplaceMyBand": "Mein Band ersetzen",
-  "dayStepsWhoop4NoCounter": "Ein WHOOP 4.0 hat keinen eigenen Schrittzähler und zählt Schritte nur, solange diese App seine Live-Daten empfängt."
+  "dayStepsWhoop4NoCounter": "Ein WHOOP 4.0 hat keinen eigenen Schrittzähler und zählt Schritte nur, solange diese App seine Live-Daten empfängt.",
+  "healthWearNotUpdatedSince": "nicht aktualisiert seit {time}",
+  "dayStrainWornAsOf": "Getragen, Stand {time}"
 }
