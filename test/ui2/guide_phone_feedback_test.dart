@@ -122,8 +122,8 @@ void main() {
   });
 
   // why: on the phone NOTHING on Day strain was dimmed. The phone's top card is a Surface
-  // holding a chart (with "00:00 / 12:00 / 24:00" axis labels), a LATEST panel, text and the
-  // metrics row; the axis labels counted as a running timer and kept the whole card lit.
+  // holding a chart (with "00:00 / 12:00 / 24:00" axis labels), text and metrics.
+  // Clock-shaped axis labels must not count as a running timer and keep it lit.
   // The target ("How these are set") sits in the Time in zones Section below it, so this card
   // is the card ABOVE the target's card and must be dimmed whole, as one unit.
   // catches: a card kept lit by clock-shaped text or by touching the NavBar's box, a dim over
@@ -141,7 +141,7 @@ void main() {
     final card = t.getRect(find.ancestor(of: title, matching: find.byType(Surface)).last);
     final over = _over(o, card.deflate(1)).toList();
     expect(over.map((s) => s.kind), [SkeletonKind.dim], reason: 'one dim layer over the card, nothing else: $over');
-    expect(over.single.rect, card, reason: 'over the card\'s whole drawn box: chart, LATEST panel, description, value row');
+    expect(over.single.rect, card, reason: 'over the card\'s whole drawn box: chart, description, value row');
     for (final inside in ['Peak HR', 'Worn']) {
       expect(find.textContaining(inside), findsWidgets, reason: 'positive control: $inside is in the card');
     }
@@ -163,11 +163,8 @@ void main() {
     return 'placeholder';
   }
 
-  // why: the owner's Home screenshot: the ring card was not dimmed, the day selector's next-day
-  // box was dimmed apart from its bar (a seam). Now: the target's card (rings and the Recovery
-  // row) is lit; the card below is dimmed; the day selector is one dimmed bar; a control after
-  // the window is a placeholder.
-  // catches: the day selector as separate boxes, a window that dims the target's own card.
+  // WHY: the target's own card stays lit and the next main card dims as one unit.
+  // # catches: dimming the ring card or leaving the detected-activities card bright.
   testWidgets('heart-rate-zones step 1 on Home: own card lit and next card dim', (t) async {
     final key = GlobalKey();
     await _start(t, 'heart-rate-zones', key);
@@ -179,12 +176,9 @@ void main() {
 
   });
 
-  // why: the owner's Sleep screenshot: Recalculate / Not sleep lit next to the target, a darker
-  // rectangle inside the dimmed Naps row, chevron boxes dimmed apart from their accordion.
-  // Now the accordion is one card: the target's card (the night with its actions and Naps) is lit
-  // as a whole, the next accordion is dimmed whole (one layer, chevron included), those after it
-  // are placeholders that keep their titles.
-  // catches: an accordion that is not one unit, inner boxes dimmed again.
+  // WHY: main's window-edit Surface is the target card; Stages is a later Section.
+  // They must use the same card-window rule as the other screens.
+  // # catches: dimming the edit action, nested dims or leaving the next section lit.
   testWidgets('fix-sleep-times step 1 on Sleep: window card lit and Stages dimmed', (t) async {
     final key = GlobalKey();
     await _start(t, 'fix-sleep-times', key);
