@@ -405,15 +405,18 @@ class _PairSensorScreenState extends State<PairSensorScreen>
   @override
   Future<PairOutcome> pair(BandCandidate cand, BandEntry entry,
       PairConfirmation? confirmation) async {
+    // Read before the await: if pairing throws after this screen is gone, the
+    // catch below must not touch a disposed context.
+    final l = AppLocalizations.of(context);
     try {
       return await pairRegisteredEntry(entry, cand.device,
           label: cand.label,
           earlierBand: cand.alsoBand,
           confirmation: confirmation);
     } catch (e) {
-      return PairOutcome.failed(AppLocalizations.of(context)
-              ?.pairSensorCouldNotPair(e.toString()) ??
-          'Could not pair that device: $e');
+      return PairOutcome.failed(
+          l?.pairSensorCouldNotPair(e.toString()) ??
+              'Could not pair that device: $e');
     }
   }
 

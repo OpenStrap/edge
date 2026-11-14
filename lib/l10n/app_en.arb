@@ -16873,9 +16873,9 @@
   "@pairStrapLead": {
     "description": "Sheet lead for a heart-rate strap or sensor."
   },
-  "pairStrapNote": "Both need “Use during workouts” on.",
+  "pairStrapNote": "Turn on “Use during workouts” to record heart rate while you work out.",
   "@pairStrapNote": {
-    "description": "Note under a strap’s table: both workout rows need the switch. Quotes deviceUseWorkoutsTitle."
+    "description": "Note on a strap’s sheet: workout recording needs the switch. Quotes deviceUseWorkoutsTitle."
   },
   "pairDeviceNamed": "Pair {name}",
   "@pairDeviceNamed": {
@@ -16894,7 +16894,7 @@
   "@pairReplaceUnpairFailed": {
     "description": "Shown when unpairing the old band failed during “Unpair (your band) and pair this one”; nothing else ran."
   },
-  "pairWearableLeadPebble": "Pebble 2 can fill your days with sleep, recovery and heart rate. Pebble 2 SE shows the watch’s own sleep and steps. It has no heart-rate sensor, so this app cannot calculate daily strain or estimate recovery from it.",
+  "pairWearableLeadPebble": "Pebble 2 can fill your days with sleep and heart rate. Pebble 2 SE shows the watch’s own sleep and steps. It has no heart-rate sensor, so this app cannot calculate daily strain or estimate recovery from it.",
   "@pairWearableLeadPebble": {
     "description": "Pebble-family pairing lead: SE shows the watch’s own sleep and steps; no HR sensor means no app-calculated daily strain or recovery estimate from the SE alone."
   },

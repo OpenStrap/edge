@@ -117,6 +117,8 @@ Future<PairChoice?> showPairChoiceSheet(BuildContext c, PairChoiceSheet sheet) {
     context: c,
     backgroundColor: p.card,
     isScrollControlled: true,
+    // Honours Reduce Motion like every other modal sheet in ui2.
+    sheetAnimationStyle: sheetMotion(c),
     // A full-height sheet must not slide under the status bar or a notch.
     useSafeArea: true,
     showDragHandle: true,
