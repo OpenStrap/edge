@@ -3088,7 +3088,7 @@
   "pairStrapNote": "Ambos necesitan «Usar durante los entrenamientos» activado.",
   "pairDeviceNamed": "Emparejar {name}",
   "pairUseForWorkouts": "Usarla solo para entrenamientos",
-  "pairReplaceUnpairFailed": "No se pudo desemparejar tu pulsera, así que no se emparejó la nueva. Inténtalo de nuevo.",
+  "pairReplaceUnpairFailed": "Tu pulsera nueva está emparejada, pero no se pudo quitar la anterior.",
   "pairWearableLeadPebble": "Pebble 2 puede completar tus días con sueño, recuperación y frecuencia cardiaca. Pebble 2 SE muestra el sueño y los pasos registrados por el propio reloj. No tiene sensor de frecuencia cardiaca, por lo que esta app no puede calcular la carga diaria ni estimar la recuperación a partir de sus datos.",
   "pairMainBandWhoopOnly": "Pulsera principal: solo WHOOP 4.0 o WHOOP 5.0/MG. Los demás dispositivos se pueden añadir como dispositivos adicionales.",
   "pairBandTitle": "Empareja tu pulsera",

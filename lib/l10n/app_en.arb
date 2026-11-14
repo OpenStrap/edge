@@ -16890,7 +16890,7 @@
   "@pairUseForWorkouts": {
     "description": "Text link on a WHOOP sheet: keep it for workouts only, not as the main band."
   },
-  "pairReplaceUnpairFailed": "Could not unpair your band, so the new one was not paired. Try again.",
+  "pairReplaceUnpairFailed": "Your new band is paired, but your old band could not be removed.",
   "@pairReplaceUnpairFailed": {
     "description": "Shown when unpairing the old band failed during “Unpair (your band) and pair this one”; nothing else ran."
   },

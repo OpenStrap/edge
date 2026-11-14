@@ -4806,6 +4806,11 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   Future<PairedDevice?> Function()? debugLoadPaired;
 
+  /// Test hook: runs right after the picker's accessory was provisioned, so a
+  /// forget can be made to land inside that await.
+  @visibleForTesting
+  Future<void> Function()? debugAfterReplacementProvisioned;
+
   /// Verify and save the replacement before retiring the old phone approval.
   /// A failed attempt keeps the old pairing and attempts to reconnect it.
   Future<void> replaceWith(BluetoothDevice d) =>
@@ -4828,6 +4833,14 @@ class AppState extends ChangeNotifier {
         throw StateError('The current pairing changed.');
       }
       await IosBleRestore.provisioned(id);
+      await debugAfterReplacementProvisioned?.call();
+      // The provisioning await can outlive a forget/reset that started after
+      // the check above. _persistPaired captures the CURRENT epoch as its own,
+      // so a stale picker result would otherwise enter replacement, and its
+      // save could recreate the pairing the user just cancelled.
+      if (epoch != _pairingEpoch || paired?.remoteId != old.remoteId) {
+        throw StateError('The current pairing changed.');
+      }
       _replacementPickerInProgress = false;
       await _persistPaired(id, null, replacing: true);
     } finally {
@@ -5029,17 +5042,19 @@ class AppState extends ChangeNotifier {
   Future<void> unpair() async {
     _pairingEpoch++;
     await _sync.unpairSession();
-    // CLAIM(alarm-band-ownership): an untagged arm belongs to the band being
-    // forgotten. Without a tag a later, different band reads it as its own and
-    // is treated as already armed without ever receiving SET_ALARM.
+    // CLAIM(alarm-band-ownership): the armed alarm belonged to the band being
+    // forgotten. An upgraded install can hold an epoch with no owner tag, which
+    // every band reads as its own: a new band would be treated as already armed
+    // and never receive SET_ALARM. Drop it, in memory too.
     final forgotten = paired?.remoteId ?? (await PairedDevice.load())?.remoteId;
+    await _clearArmedAlarmState();
     if (forgotten != null) {
+      // The clear swallows platform errors. If the epoch is still on disk,
+      // tag it with the forgotten band so no other band can adopt it.
       final alarmPrefs = await SharedPreferences.getInstance();
-      if (!await bindAlarmEpochToBand(alarmPrefs, forgotten)) {
-        // Forgetting must still work. Drop the epoch rather than leave an
-        // arm another band could adopt.
-        _log('[alarm] could not tag the forgotten band\'s alarm; clearing it');
-        await alarmPrefs.remove('alarm_epoch');
+      if (alarmPrefs.getInt('alarm_epoch') != null &&
+          !await bindAlarmEpochToBand(alarmPrefs, forgotten)) {
+        _log('[alarm] could not clear or tag the forgotten band\'s alarm');
       }
     }
     await PairedDevice.clear();

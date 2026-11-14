@@ -331,6 +331,9 @@ class _PairSensorScreenState extends State<PairSensorScreen>
     // and a connect racing a live scan is the classic Android GATT-133. Read
     // `l` above the await, because `context` after one is the lint's point.
     await HrsLink.stopScanIfRunning(this);
+    // The screen may have been left while the scan shut down. _pairPlain reads
+    // localizations through `context`, which is disposed by now.
+    if (!mounted) return;
     String? failure;
     final typedKey = _key.text.trim();
     try {
