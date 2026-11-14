@@ -3388,7 +3388,7 @@
   "whoopFirmwareWarningDetails": "Hay informes de que el firmware 50.43.1.0 y 50.43.2.0 de WHOOP 5.0 / MG bloquea el acceso a los datos. Es posible que el Bluetooth siga conectándose. OpenStrap no puede emitir el token de membresía firmado por WHOOP que se necesita para desbloquear las bandas afectadas. Estamos trabajando en una solución, pero todavía no hay ningún arreglo disponible.",
   "bandStatusFirmwareLockedTitle": "Probablemente el firmware de la banda está reteniendo sus datos",
   "bandStatusFirmwareLockedReason": "Esta banda usa el firmware 50.43 de WHOOP, que puede conectarse y responder a la app sin enviar registros ni frecuencia cardíaca en vivo hasta que haya en ella un token de membresía firmado por WHOOP. Es una posible razón de que no lleguen datos. OpenStrap no puede emitir ese token. Todo lo que ya está guardado aquí está a salvo.",
-  "bandStatusFirmwareLockedFix": "Si es el firmware, la app no puede cambiarlo y el aviso desaparece cuando la banda vuelva a enviar registros. Si no llega nada, vale la pena probar a cargarla o volver a emparejarla",
+  "bandStatusFirmwareLockedFix": "Si es el firmware, la app no puede cambiarlo y el aviso desaparece cuando la banda vuelva a enviar registros",
   "healthWearNotUpdatedSince": "sin actualizar desde {time}",
   "dayStrainWornAsOf": "Llevada, a las {time}",
   "dayStepsWhoop4NoCounter": "Una WHOOP 4.0 no tiene contador de pasos propio, así que solo cuenta pasos mientras esta app recibe sus datos en vivo.",
