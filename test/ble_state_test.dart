@@ -740,6 +740,28 @@ void main() {
       }
     });
 
+    test('a quarantined batch on 50.43 stays syncStuck, not the firmware lock',
+        () {
+      // A quarantined batch is data that DID arrive, which a locked band does
+      // not send, so the transfer diagnosis wins over the firmware one.
+      for (final flags in [
+        (stuck: true, clock: false),
+        (stuck: false, clock: true),
+      ]) {
+        expect(
+          bandStatusFor(
+            connection: 'connected',
+            syncChunkQuarantined: true,
+            strapNeedsReboot: flags.stuck,
+            syncClockLost: flags.clock,
+            bandFirmware: '50.43.2.0',
+          ).condition,
+          BandCondition.syncStuck,
+          reason: '$flags',
+        );
+      }
+    });
+
     test('firmware alone is not a fault, and other firmware keeps its advice',
         () {
       // A token-unlocked 50.43 band that is syncing shows as connected.
