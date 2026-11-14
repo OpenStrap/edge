@@ -16815,9 +16815,9 @@
       }
     }
   },
-  "dayStrainWornUntil": "Worn until {time}",
-  "@dayStrainWornUntil": {
-    "description": "Day strain: label over a wear figure from an earlier derive that the latest one could not refresh. time is a clock time, e.g. 11:05 AM",
+  "dayStrainWornAsOf": "Worn as of {time}",
+  "@dayStrainWornAsOf": {
+    "description": "Day strain: label over a wear figure from an earlier derive that the latest one could not refresh. Says when the figure was computed, not that the band came off then. time is a clock time, e.g. 11:05 AM",
     "placeholders": {
       "time": {
         "type": "String"

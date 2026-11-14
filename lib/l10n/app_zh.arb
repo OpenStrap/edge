@@ -3387,5 +3387,5 @@
   "stepCalDoneGait": "已保存。你数了 {count} 步，腕带记录了 {band} 步。今后这类走路将按 {pct}% 进行校正。",
   "stepCalDoneHousehold": "已保存。在腕带记录的 {band} 步中，你的手机记录了 {count} 步。居家活动现在将按 {gain} 进行缩放。",
   "healthWearNotUpdatedSince": "自 {time} 起未更新",
-  "dayStrainWornUntil": "佩戴至 {time}"
+  "dayStrainWornAsOf": "佩戴（截至 {time} 的数据）"
 }
