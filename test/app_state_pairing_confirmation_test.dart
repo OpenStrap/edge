@@ -323,7 +323,7 @@ void main() {
           syncCase((rig, timers) async {
         await rig.openAndSettle();
         final tomorrow = DateTime.now().add(const Duration(days: 1));
-        await rig.app.setScheduleDay(weekday: tomorrow.weekday,
+        await rig.app.setScheduleDay(weekday: tomorrow.weekday - 1,
             hour: 7, minute: 0, enabled: true);
         final epoch = rig.app.alarmEpoch;
         final schedule = await LocalDb.alarmScheduleRows();
@@ -349,7 +349,7 @@ void main() {
       await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
       await rig.openAndSettle();
       final tomorrow = DateTime.now().add(const Duration(days: 1));
-      await rig.app.setScheduleDay(weekday: tomorrow.weekday,
+      await rig.app.setScheduleDay(weekday: tomorrow.weekday - 1,
           hour: 7, minute: 0, enabled: true);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('alarm_remote_id', 'retired-band');
@@ -389,7 +389,7 @@ void main() {
       await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
       await rig.openAndSettle();
       final tomorrow = DateTime.now().add(const Duration(days: 1));
-      await rig.app.setScheduleDay(weekday: tomorrow.weekday,
+      await rig.app.setScheduleDay(weekday: tomorrow.weekday - 1,
           hour: 7, minute: 0, enabled: true);
       final store = SharedPreferencesStorePlatform.instance;
       final held = _HeldPreferences(store, key: 'alarm_remote_id');
@@ -579,7 +579,7 @@ void main() {
           syncCase((rig, timers) async {
         await rig.openAndSettle();
         final tomorrow = DateTime.now().add(const Duration(days: 1));
-        await rig.app.setScheduleDay(weekday: tomorrow.weekday,
+        await rig.app.setScheduleDay(weekday: tomorrow.weekday - 1,
             hour: 7, minute: 0, enabled: true);
         final epoch = rig.app.alarmEpoch;
         expect(epoch, isNotNull);
