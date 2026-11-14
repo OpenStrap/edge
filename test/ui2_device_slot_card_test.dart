@@ -100,10 +100,10 @@ void main() {
       expect(find.byIcon(LucideIcons.minus), findsNothing);
     });
 
-    testWidgets('a strap’s note: both need “Use during workouts” on; no Experimental word', (t) async {
+    testWidgets('a strap’s note: it names the switch and stands alone; no Experimental word', (t) async {
       // WHY: a workout sensor records nothing until the switch is on (default off).
       await pumpPair(t, _card(kBleHrs, DeviceSlot.workoutsOnly), size: const Size(412, 1100));
-      expect(find.text('Both need “Use during workouts” on.'), findsOneWidget);
+      expect(find.text('Turn on “Use during workouts” to record heart rate while you work out.'), findsOneWidget);
       expect(find.textContaining('Experimental'), findsNothing);
       expect(find.textContaining('Tier'), findsNothing);
     });
@@ -121,11 +121,11 @@ void main() {
       expect(_opacityOf(t, 'everyDay'), 1);
       const note = 'Fills days without your WHOOP. Experimental, so switch it on below.';
       expect(find.text(note), findsOneWidget);
-      expect(find.text('Both need “Use during workouts” on.'), findsNothing);
+      expect(find.text('Turn on “Use during workouts” to record heart rate while you work out.'), findsNothing);
       // Orange, not the grey of the strap's note.
       final grey = t.widget<Text>(find.text(note)).style!.color;
       await pumpPair(t, _card(kBleHrs, DeviceSlot.workoutsOnly), size: const Size(412, 1100));
-      final strapNote = t.widget<Text>(find.text('Both need “Use during workouts” on.')).style!.color;
+      final strapNote = t.widget<Text>(find.text('Turn on “Use during workouts” to record heart rate while you work out.')).style!.color;
       expect(grey, isNot(strapNote));
     });
 

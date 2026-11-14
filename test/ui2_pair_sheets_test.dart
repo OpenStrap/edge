@@ -211,7 +211,7 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text('This is a heart-rate sensor'), findsOneWidget);
       expect(find.text('It adds heart rate while you work out. It does not record sleep, recovery or daily strain.'), findsOneWidget);
-      expect(find.text('Both need “Use during workouts” on.'), findsOneWidget);
+      expect(find.text('Turn on “Use during workouts” to record heart rate while you work out.'), findsOneWidget);
       expect(find.text('Workouts only: If this device sends it, not confirmed'), findsOneWidget);
       expect(find.text('Pair Bluetooth heart rate sensor'), findsOneWidget);
       expect(find.text('Go back'), findsOneWidget);

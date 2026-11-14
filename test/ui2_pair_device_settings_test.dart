@@ -125,6 +125,42 @@ void main() {
       expect(find.textContaining('every metric in the app will abstain'), findsNothing);
     });
 
+    testWidgets('no band, a connected ring: does not say every metric abstains', (t) async {
+      // WHY: an active ring fills the everyday columns; telling the user that
+      // heart rate, sleep and recovery abstain would contradict their own data.
+      const ring = HealthSource(
+        name: 'Oura Ring',
+        kind: 'Ring',
+        tier: SourceTier.wristOptical,
+        icon: Icons.circle,
+        connected: true,
+        deviceId: 'oura-1',
+        family: 'oura',
+      );
+      await pumpPair(t, view(const [ring], onPair: () {}, onAdd: () {}),
+          size: const Size(412, 1400));
+      expect(find.byKey(const ValueKey('no-band-consequence')), findsNothing);
+      expect(find.textContaining('every metric in the app will abstain'), findsNothing);
+      expect(find.textContaining('The phone counts steps and nothing else'), findsNothing);
+    });
+
+    testWidgets('no band, a connected chest strap: is not mistaken for phone steps', (t) async {
+      // WHY: phoneCounting used to be true for ANY connected non-band source.
+      const strap = HealthSource(
+        name: 'Chest strap',
+        kind: 'Heart-rate strap',
+        tier: SourceTier.beatToBeat,
+        icon: Icons.favorite,
+        connected: true,
+        deviceId: 'hrs-1',
+        family: 'ble_hrs',
+      );
+      await pumpPair(t, view(const [strap], onPair: () {}, onAdd: () {}),
+          size: const Size(412, 1400));
+      expect(find.textContaining('The phone counts steps and nothing else'), findsNothing);
+      expect(find.textContaining('every metric in the app will abstain'), findsOneWidget);
+    });
+
     testWidgets('a paired band: no consequence line', (t) async {
       await pumpPair(t, view([_band()], onUnpair: () {}), size: const Size(412, 1400));
       expect(find.byKey(const ValueKey('no-band-consequence')), findsNothing);

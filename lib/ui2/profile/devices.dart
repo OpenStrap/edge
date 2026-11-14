@@ -1604,7 +1604,16 @@ extension _PairSection on MyDevicesView {
     // What having no band costs. The phone row is listed whenever its toggle
     // is on, so "a source exists" is not the test: only steps actually being
     // banked is (see the note above `hasBand`).
-    final phoneCounting = sources.any((s) => !s.isBand && s.connected);
+    // Only the PHONE counts here: a connected ring or strap is not phone
+    // steps, so it must not select the "phone counts steps" message.
+    final phoneCounting =
+        sources.any((s) => s.tier == SourceTier.phone && s.connected);
+    // A connected ring or watch fills the everyday columns without a band, so
+    // "every metric abstains" would be wrong while one is active.
+    final everyDayWearable = sources.any((s) =>
+        !s.isBand &&
+        s.connected &&
+        slotDeviceOf(s)?.slot == DeviceSlot.everyDay);
     final al = AppLocalizations.of(c);
     final children = <Widget>[
       // ONE card for the band, paired or not, so the section keeps its
@@ -1617,7 +1626,7 @@ extension _PairSection on MyDevicesView {
               : null,
           onPair: onPair,
           onUnpair: onUnpair,
-          consequence: hasBand
+          consequence: hasBand || everyDayWearable
               ? null
               : phoneCounting
                   ? (al?.devicesPhoneCountingBody ??
