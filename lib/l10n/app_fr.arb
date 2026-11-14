@@ -2971,6 +2971,10 @@
       }
     }
   },
+  "sleepDetailMedicalDisclaimer": "Algorithme expérimental de recherche. Ce n'est pas un dispositif médical. Consultez un médecin en cas de troubles du sommeil.",
+  "@sleepDetailMedicalDisclaimer": {
+    "description": "Disclaimer shown on the sleep detail screen."
+  },
   "welcomeCoachKeyReentry": "Votre clé API du coach reste dans le stockage sécurisé et n’a pas été sauvegardée. Saisissez-la à nouveau dans les réglages de l’IA pour utiliser le coach sur ce téléphone.",
   "welcomeSettingsSkipped": "{n, plural, =1{1 réglage de la sauvegarde était illisible et a été ignoré} other{{n} réglages de la sauvegarde étaient illisibles et ont été ignorés}}",
   "@welcomeSettingsSkipped": {

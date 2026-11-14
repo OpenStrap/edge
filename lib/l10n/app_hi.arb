@@ -2971,6 +2971,10 @@
       }
     }
   },
+  "sleepDetailMedicalDisclaimer": "प्रायोगिक शोध एल्गोरिदम। यह चिकित्सा उपकरण नहीं है। नींद से जुड़ी समस्याओं के लिए किसी चिकित्सक से परामर्श करें।",
+  "@sleepDetailMedicalDisclaimer": {
+    "description": "Disclaimer shown on the sleep detail screen."
+  },
   "welcomeCoachKeyReentry": "आपके कोच की API कुंजी सुरक्षित स्टोरेज में रहती है और बैकअप में शामिल नहीं की गई। इस फ़ोन पर कोच इस्तेमाल करने के लिए इसे AI सेटिंग में फिर से दर्ज करें।",
   "welcomeSettingsSkipped": "{n, plural, =1{बैकअप की 1 सेटिंग पढ़ी नहीं जा सकी और छोड़ दी गई} other{बैकअप की {n} सेटिंग्स पढ़ी नहीं जा सकीं और छोड़ दी गईं}}",
   "@welcomeSettingsSkipped": {

@@ -3581,6 +3581,10 @@
       }
     }
   },
+  "sleepDetailMedicalDisclaimer": "Experimenteller Forschungsalgorithmus. Kein Medizinprodukt. Bei Schlafstörungen einen Arzt konsultieren.",
+  "@sleepDetailMedicalDisclaimer": {
+    "description": "Disclaimer shown on the sleep detail screen."
+  },
   "pairBandNotSensor": "Dieses Gerät ist ein {label}, also ein Band und kein einfacher Sensor. Es wurde nichts gespeichert.",
   "pairResetWhoop5Step1": "Nimm das Band vom Handgelenk und warte, bis die grünen Lichter ausgehen.",
   "pairResetWhoop5Step2": "Halte das Band an den Seiten und tippe mit zwei Fingern fest auf die Oberseite, bis nur noch Blau blinkt. Wenn Blau und Weiß zusammen leuchten, tippe weiter, bis nur noch Blau übrig ist.",
