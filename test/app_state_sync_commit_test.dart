@@ -11,6 +11,7 @@ import 'dart:async';
 // ignore: depend_on_referenced_packages
 import 'package:flutter_blue_plus_platform_interface/flutter_blue_plus_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' show BluetoothDevice;
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/models.dart';
 import 'package:openstrap_edge/state/app_state.dart';
@@ -25,6 +26,9 @@ import 'support/app_state_sync_harness.dart';
 const _db = 'app_state_sync_commit.db';
 
 base class _AdapterOn extends FlutterBluePlusPlatform {
+  final connections = StreamController<BmConnectionStateResponse>.broadcast();
+  @override
+  Stream<BmConnectionStateResponse> get onConnectionStateChanged => connections.stream;
   @override
   Future<BmBluetoothAdapterState> getAdapterState(
     BmBluetoothAdapterStateRequest request,
@@ -139,6 +143,24 @@ void main() {
       expect(r.records, 0);
       expect(await LocalDb.getCursorInt('rec_ts_hw'), isNull);
     });
+  });
+
+  // WHY: candidate history belongs to the band only after replacement commits.
+  // catches: ACKing a candidate batch into the old primary store.
+  test('replacement refuses candidate commits and leaves the cursor unchanged', () async {
+    final app = await _realApp();
+    addTearDown(app.dispose);
+    await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+    app.paired = await PairedDevice.load();
+    final before = await (await LocalDb.instance).query('decoded_onehz');
+    final replacement = app.replaceWith(BluetoothDevice.fromId('candidate'));
+    final failed = expectLater(replacement, throwsA(isA<Object>()));
+    await expectLater(app.engine.onCommitBatch!(
+        [_raw(1750000100)], [null], '0011223344556677'), throwsStateError);
+    await failed;
+    expect(await (await LocalDb.instance).query('decoded_onehz'), before);
+    expect(await LocalDb.getCursorInt('rec_ts_hw'), isNull);
+    expect((await PairedDevice.load())?.remoteId, kRemoteId);
   });
 
   group('the stored-data callback', () {

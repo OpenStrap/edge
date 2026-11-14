@@ -136,4 +136,17 @@ void main() {
       }
     });
   });
+
+  group('nextDailyInstant resolves against the clock it is given', () {
+    setUpAll(() => tz.setLocalLocation(ny));
+
+    test('a pass that read 07:59 still gets today, one that read 08:01 tomorrow',
+        () {
+      final svc = NotificationService.instance;
+      final before = tz.TZDateTime(ny, 2026, 6, 10, 7, 59, 59);
+      final after = tz.TZDateTime(ny, 2026, 6, 10, 8, 0, 1);
+      expect(svc.nextDailyInstant(8, 0, now: before).day, 10);
+      expect(svc.nextDailyInstant(8, 0, now: after).day, 11);
+    });
+  });
 }

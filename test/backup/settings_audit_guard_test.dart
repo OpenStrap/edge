@@ -70,6 +70,7 @@ const _mustStay = {
   'coach_chatgpt_host_id', 'coach_chatgpt_welcomed', 'coach_base_url', 'companion_url',
   'backup.folder', 'backup.last_run_ms', 'backup.last_error', 'health_upload_last_ts',
   'alarm_schedule_cleared', 'alarm_epoch', 'alarm_epoch_confirmed', 'alarm_set_at_ms',
+  'alarm_remote_id',
   'alarm_pending_until', 'alarm_latch_alert', 'alarm_probe_pending', 'alarm_fired_at',
   'smart_wake_fired_epoch',
   'live.session_draft', 'live_session_checkpoint', 'telemetry_outbox',

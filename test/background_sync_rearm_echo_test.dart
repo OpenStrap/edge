@@ -4,6 +4,7 @@
 // from the engine's reply through armNextScheduledOccurrence to the prefs
 // (the unit test of headlessArmAndConfirm alone passes a hand-made result).
 
+import 'package:openstrap_edge/sync/paired_device.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/data/db.dart';
@@ -77,7 +78,7 @@ void main() {
       },
     );
 
-    await rearmHeadlessAlarm(engine);
+    await rearmHeadlessAlarm(engine, PairedDevice('test-band', null));
 
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getInt('alarm_epoch'), epoch);

@@ -360,6 +360,20 @@ double? medianValidHr(List<SmartWakeSample> samples) {
   return _median(hrs);
 }
 
+/// Whether the detection that is about to buzz still belongs to the arm it
+/// started under. The check runs on several asynchronous reads and the latch
+/// write, and in that time the user can clear the alarm, a newer arm can land,
+/// or the screen/app can be torn down: a stale detection must not buzz.
+bool smartWakeStillCurrent({
+  required int armedGen,
+  required int currentGen,
+  required int epoch,
+  required int? currentEpoch,
+  required bool disposed,
+  required bool connected,
+}) =>
+    !disposed && connected && armedGen == currentGen && epoch == currentEpoch;
+
 // ── likelyLightSleep v2 (Q1+Q2+Q3+Q4 integrated) ─────────────────────────────
 
 /// True when the last few minutes show a lightening-sleep signature —
@@ -448,10 +462,15 @@ bool likelyLightSleep({
       : 0.0;
   final trendThreshold = math.max(0.02, enmoMedian3h * 0.5) *
       profile.trendThresholdFactor;
-  if (enmoTrendExceeded(recent,
-      threshold: trendThreshold,
-      windowMinutes: profile.trendWindowMinutes)) {
-    return false;
+  // The 3-minute trend is the floor for every profile. A longer window
+  // (alcohol/workout nights) only ADDS a veto: judged alone, its half-means
+  // can average a rise away that the 3-minute window plainly shows, and the
+  // same night would then buzz under a profile the identity profile refuses.
+  for (final minutes in {3, profile.trendWindowMinutes}) {
+    if (enmoTrendExceeded(recent,
+        threshold: trendThreshold, windowMinutes: minutes)) {
+      return false;
+    }
   }
 
   return true;

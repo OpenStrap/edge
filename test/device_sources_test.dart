@@ -79,7 +79,7 @@ void main() {
       home: MyDevicesView(sources: const [], onAddSensor: () {}),
     ));
     await t.pumpAndSettle();
-    expect(find.text('Add a sensor'), findsOneWidget);
+    expect(find.text('Add a device'), findsOneWidget);
     const t1 = SourceTier.beatToBeat;
     final rung = find.text('Tier ${t1.rank} · ${t1.label}');
     await t.scrollUntilVisible(rung, 300, scrollable: find.byType(Scrollable).first);
@@ -95,7 +95,7 @@ void main() {
     ));
     await t.pumpAndSettle();
     // The card that offers to pair a BAND is still there, because one is not.
-    expect(find.text('Pair a band'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pair-band-card')), findsOneWidget);
     expect(find.text('Polar H10'), findsOneWidget);
   });
 

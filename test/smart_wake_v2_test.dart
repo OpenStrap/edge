@@ -675,4 +675,85 @@ void main() {
       expect(p.trendThresholdFactor, 1.0);
     });
   });
+
+  group('a longer trend window never relaxes the 3-minute movement veto', () {
+    // ENMO 0.04 for 120 s, still for 90 s, then 0.03 for 90 s. The trailing
+    // 3 minutes rise by 0.03 (over the 0.02 bar); the 5-minute half-means
+    // (0.032 then 0.018) average that rise away.
+    List<SmartWakeSample> tail() => [
+          ...withEnmo(55, 0.04, 120),
+          ...withEnmo(55, 0.0, 90),
+          ...withEnmo(55, 0.03, 90),
+        ];
+    const workout = ConfounderProfile(trendWindowMinutes: 5);
+
+    test('the identity profile rejects it', () {
+      expect(
+        likelyLightSleep(
+            baseline: still(50, 90), recent: tail(), baselineHrOverride: 50),
+        isFalse,
+      );
+    });
+
+    test('a 5-minute-window profile rejects it too', () {
+      expect(
+        likelyLightSleep(
+            baseline: still(50, 90),
+            recent: tail(),
+            profile: workout,
+            baselineHrOverride: 50),
+        isFalse,
+      );
+    });
+
+    test('the 5-minute window still adds its own veto', () {
+      // A rise only visible across 5 minutes (flat in the last 3) is refused
+      // under the 5-minute profile and not under the identity one.
+      final slow = [
+        ...withEnmo(55, 0.0, 120),
+        ...withEnmo(55, 0.05, 180),
+      ];
+      expect(
+        likelyLightSleep(
+            baseline: still(50, 90), recent: slow, baselineHrOverride: 50),
+        isTrue, // flat across the trailing 3 minutes
+      );
+      expect(
+        likelyLightSleep(
+            baseline: still(50, 90),
+            recent: slow,
+            profile: workout,
+            baselineHrOverride: 50),
+        isFalse, // the 5-minute window sees the rise
+      );
+    });
+  });
+
+  group('smartWakeStillCurrent', () {
+    bool check({
+      int armedGen = 4,
+      int currentGen = 4,
+      int epoch = 1000,
+      int? currentEpoch = 1000,
+      bool disposed = false,
+      bool connected = true,
+    }) =>
+        smartWakeStillCurrent(
+          armedGen: armedGen,
+          currentGen: currentGen,
+          epoch: epoch,
+          currentEpoch: currentEpoch,
+          disposed: disposed,
+          connected: connected,
+        );
+
+    test('the same arm is current', () => expect(check(), isTrue));
+    test('a newer arm is not', () => expect(check(currentGen: 5), isFalse));
+    test('a cleared alarm is not',
+        () => expect(check(currentEpoch: null), isFalse));
+    test('a different epoch is not',
+        () => expect(check(currentEpoch: 2000), isFalse));
+    test('a torn-down app is not', () => expect(check(disposed: true), isFalse));
+    test('a dropped link is not', () => expect(check(connected: false), isFalse));
+  });
 }

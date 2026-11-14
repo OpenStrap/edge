@@ -309,7 +309,7 @@ void main() {
     );
 
     expect(find.text('No breakdown to show'), findsOneWidget);
-    expect(find.text('Your cross-day insights are being rebuilt'),
+    expect(find.text('Updating your trends'),
         findsOneWidget);
     expect(find.text('No recovery breakdown yet'), findsNothing);
     expect(find.text('No sleep need yet'), findsNothing);

@@ -297,12 +297,23 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
                         p.track,
                         stroke: 14, t: animate(c, 1)),
                   ),
-                  Column(mainAxisSize: MainAxisSize.min, children: [
-                    Text('${v.round()}',
-                        style: F.n48.copyWith(
-                            color: d.provisional ? p.ink3 : p.ink)),
-                    Text(band.label, style: F.cap.copyWith(color: p.ink3)),
-                  ]),
+                  // The ring is a fixed 150 pt; at large text the score and
+                  // its band label were 260 pt taller than its inside and ran
+                  // out of it. They scale down to the ring's inner width
+                  // instead (stroke 14 each side, plus breathing room).
+                  Padding(
+                    padding: const EdgeInsets.all(22),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Text('${v.round()}',
+                            style: F.n48.copyWith(
+                                color: d.provisional ? p.ink3 : p.ink)),
+                        Text(band.label,
+                            style: F.cap.copyWith(color: p.ink3)),
+                      ]),
+                    ),
+                  ),
                 ]),
               ),
               if (recoveryStateLine(d.head, l) case final note?) ...[

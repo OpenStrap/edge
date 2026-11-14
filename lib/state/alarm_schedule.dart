@@ -7,8 +7,62 @@
 // storage/UI indexing choice, not a replacement for `DateTime.weekday`
 // (1=Mon..7=Sun), which every conversion below still goes through explicitly.
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../ble/ble_engine.dart';
 import '../ble/ble_state.dart' show AlarmConfirmation;
+
+/// The physical band that received the persisted SET_ALARM.
+const kAlarmRemoteId = 'alarm_remote_id';
+
+/// CLAIM(alarm-band-ownership): a tagged arm is usable only by its band.
+/// Legacy arms are bound before replacement commits [replacement alarm tests].
+int? persistedAlarmEpoch(SharedPreferences prefs, String? remoteId) {
+  final owner = prefs.getString(kAlarmRemoteId);
+  return owner == null || owner == remoteId ? prefs.getInt('alarm_epoch') : null;
+}
+
+/// CLAIM(alarm-band-ownership): tag an untagged (legacy) or this band's own
+/// armed epoch with [remoteId] before that band's identity is replaced or
+/// forgotten, so a later, different band can never read it as its own arm.
+/// True when there is nothing to bind or the write landed.
+Future<bool> bindAlarmEpochToBand(SharedPreferences prefs, String remoteId) async {
+  if (prefs.getInt('alarm_epoch') == null) return true;
+  final owner = prefs.getString(kAlarmRemoteId);
+  if (owner != null && owner != remoteId) return true;
+  return prefs.setString(kAlarmRemoteId, remoteId);
+}
+
+/// Persist the armed [epoch] under its owner, in an order that never leaves a
+/// window where the epoch reads as another band's arm: a previous owner's
+/// epoch is removed first, then the owner is written, then the new epoch.
+/// Every write is checked; on a failure this throws and no new epoch is saved.
+/// Both the foreground and the headless writer use it.
+///
+/// [stillCurrent] answers "has a newer arm or a clear superseded this one?".
+/// It is asked before anything is written and again, synchronously, right
+/// before the epoch write: the removes/writes above await, and a clear or a
+/// newer arm that ran in those gaps must not have its result overwritten by
+/// this older epoch. Returns false when superseded (nothing more is written).
+Future<bool> saveArmedAlarmEpoch(
+    SharedPreferences prefs, int epoch, String? remoteId,
+    {bool Function()? stillCurrent}) async {
+  if (stillCurrent != null && !stillCurrent()) return false;
+  if (remoteId != null && prefs.getString(kAlarmRemoteId) != remoteId) {
+    if (prefs.getInt('alarm_epoch') != null &&
+        !await prefs.remove('alarm_epoch')) {
+      throw StateError('Could not clear the previous alarm.');
+    }
+    if (!await prefs.setString(kAlarmRemoteId, remoteId)) {
+      throw StateError('Could not record which band holds the alarm.');
+    }
+  }
+  if (stillCurrent != null && !stillCurrent()) return false;
+  if (!await prefs.setInt('alarm_epoch', epoch)) {
+    throw StateError('Could not save the armed alarm.');
+  }
+  return true;
+}
 
 /// One weekday's slot in the schedule. Immutable — callers build a new one to
 /// change a field.

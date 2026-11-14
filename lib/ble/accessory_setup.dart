@@ -114,6 +114,15 @@ class AccessorySetup {
     } catch (_) {}
   }
 
+  /// Retire only the old band after the replacement is durable. Best-effort;
+  /// a failed native removal leaves its approval, never clears the new one.
+  static Future<void> removeBand(String id) async {
+    if (!Platform.isIOS) return;
+    try {
+      await _ch.invokeMethod('removeBand', id.toUpperCase());
+    } catch (_) {}
+  }
+
   /// Deprovision every ASK band, sensors kept (called on unpair). Best-effort.
   static Future<void> removeAll() async {
     if (!Platform.isIOS) return;

@@ -11,10 +11,12 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/sync/background_sync.dart';
+import 'package:openstrap_edge/sync/paired_device.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Future<void> _noRearm(BleEngine _) async {}
+final _paired = PairedDevice('test-band', null);
+Future<void> _noRearm(BleEngine engine, PairedDevice paired) async {}
 
 int _wallNow() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
@@ -110,7 +112,7 @@ void main() {
     expect(engine.offloadActive, isTrue);
     final before = opcodes.length;
 
-    await finishHeadlessDrain(engine, rearm: _noRearm);
+    await finishHeadlessDrain(engine, _paired, rearm: _noRearm);
     final after = opcodes.sublist(before);
     expect(after, [Cmd.abortHistoricalTransmits],
         reason: 'exactly one opcode-20 write, nothing else');
@@ -118,13 +120,13 @@ void main() {
 
     // Idempotent: nothing left to end.
     final again = opcodes.length;
-    await finishHeadlessDrain(engine, rearm: _noRearm);
+    await finishHeadlessDrain(engine, _paired, rearm: _noRearm);
     expect(opcodes.length, again);
   });
 
   test('with no task running it writes nothing', () async {
     install();
-    await finishHeadlessDrain(engine, rearm: _noRearm);
+    await finishHeadlessDrain(engine, _paired, rearm: _noRearm);
     expect(opcodes, isEmpty);
     expect(engine.offloadActive, isFalse);
   });
@@ -146,7 +148,7 @@ void main() {
 
       // The headless path settles — nothing is transferring, but the retry
       // is still pending.
-      finishHeadlessDrain(engine, rearm: _noRearm);
+      finishHeadlessDrain(engine, _paired, rearm: _noRearm);
       async.elapse(Duration.zero);
       final at = opcodes.length;
 
@@ -189,7 +191,7 @@ void main() {
       rx(_historyComplete());
       async.elapse(Duration.zero);
       var settled = false;
-      finishHeadlessDrain(engine, rearm: _noRearm).then((_) => settled = true);
+      finishHeadlessDrain(engine, _paired, rearm: _noRearm).then((_) => settled = true);
       async.elapse(Duration.zero);
       final at = opcodes.length;
       releaseCommit();
@@ -214,7 +216,7 @@ void main() {
     bool? heldAtRearm;
     bool? refreshAtRearm;
     late List<int> writesBeforeRearm;
-    await finishHeadlessDrain(engine, rearm: (e) async {
+    await finishHeadlessDrain(engine, _paired, rearm: (e, p) async {
       writesBeforeRearm = opcodes.sublist(before);
       activeAtRearm = e.offloadActive;
       heldAtRearm = e.offloadSnapshot['history_held'] as bool;
@@ -234,7 +236,7 @@ void main() {
     install();
     // The Shortcut path re-arms right after connect, then keeps draining on
     // the same link with requestHistorySync — it never settles.
-    await rearmHeadlessAlarm(engine);
+    await rearmHeadlessAlarm(engine, _paired);
     expect(engine.offloadSnapshot['history_held'], isFalse);
     expect(await engine.debugStartHistoricalRefresh(), isTrue);
     expect(opcodes, contains(Cmd.sendHistoricalData));
