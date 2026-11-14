@@ -275,6 +275,13 @@ class SyncFakeEngine extends BleEngine {
   }
 
   @override
+  Future<({DateTime? armed, bool echoed})> armAlarm(DateTime when,
+      {int index = 0, List<int>? haptics}) async {
+    events.add('armAlarm:${when.millisecondsSinceEpoch ~/ 1000}');
+    return (armed: when, echoed: true);
+  }
+
+  @override
   Future<void> getStrapName() async => events.add('getStrapName');
 
   @override

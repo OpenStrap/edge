@@ -86,7 +86,7 @@ Future<void> handleHeadlessAlarmEvent(int id, {int? tsSec}) async {
 /// instead of deduping on a stale epoch.
 @visibleForTesting
 Future<void> headlessArmAndConfirm(Future<AlarmArmResult> Function() arm,
-    Future<bool> Function(int sinceMs) latchedSince) async {
+    Future<bool> Function(int sinceMs) latchedSince, {String? remoteId}) async {
   final armedAtMs = DateTime.now().millisecondsSinceEpoch;
   final result = await arm();
   final prefs = await SharedPreferences.getInstance();
@@ -97,9 +97,12 @@ Future<void> headlessArmAndConfirm(Future<AlarmArmResult> Function() arm,
     // The strap's own reply already named this wake time: no wait needed.
     final confirmed = result.echoed ||
         await awaitAlarmLatch(() => latchedSince(armedAtMs));
-    await prefs.setInt('alarm_epoch', result.epoch!);
+    if (!await prefs.setInt('alarm_epoch', result.epoch!)) {
+      throw StateError('Could not save the armed alarm.');
+    }
     await prefs.setInt('alarm_set_at_ms', armedAtMs);
     await prefs.setBool('alarm_epoch_confirmed', confirmed);
+    if (remoteId != null) await prefs.setString(kAlarmRemoteId, remoteId);
   }
 }
 
@@ -246,7 +249,7 @@ Future<void> prepareHeadlessLink(BleEngine engine, PairedDevice paired) async {
   ]);
   final preSyncPrefs = await SharedPreferences.getInstance();
   final armedWindow = armedSmartWakeWindow(
-    epoch: preSyncPrefs.getInt('alarm_epoch'),
+    epoch: persistedAlarmEpoch(preSyncPrefs, paired.remoteId),
     schedule: preSyncSchedule,
   );
   final plan = await HighFreqWakeWindow.planNow(
@@ -271,7 +274,11 @@ Future<void> prepareHeadlessLink(BleEngine engine, PairedDevice paired) async {
 /// Arms the next weekly-schedule occurrence on a headless connection. The band
 /// holds one armed epoch, so every connect path has to re-arm or the day after
 /// a fired alarm stays unarmed. Never throws.
-Future<void> rearmHeadlessAlarm(BleEngine engine) async {
+/// [paired] is the band THIS headless session connected to. Never reload the
+/// current pairing here: a foreground replacement can commit another band while
+/// the sync runs, and SET_ALARM went to the session's band, so the epoch must be
+/// recorded under that band.
+Future<void> rearmHeadlessAlarm(BleEngine engine, PairedDevice paired) async {
   // Feature 1's arming engine, headless half: "on every successful
   // connect AND after each headless sync". No AppState here, so the
   // schedule read and the `alarm_epoch` persistence go straight through
@@ -285,13 +292,15 @@ Future<void> rearmHeadlessAlarm(BleEngine engine) async {
         AlarmScheduleEntry.fromRow(r),
     ]);
     final prefs = await SharedPreferences.getInstance();
+    final remoteId = paired.remoteId;
     await headlessArmAndConfirm(
       () => armNextScheduledOccurrence(
         engine: engine,
         schedule: schedule,
-        currentArmedEpoch: prefs.getInt('alarm_epoch'),
+        currentArmedEpoch: persistedAlarmEpoch(prefs, remoteId),
       ),
       LocalDb.alarmSetConfirmedSince,
+      remoteId: remoteId,
     );
   } catch (e) {
     debugPrint('[bgsync] alarm re-arm skipped: $e');
@@ -363,7 +372,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       // still running, before the alarm writes. No live streams (battery):
       // connect → listen → store → ACK → derive → disconnect.
       await engine.runSync();
-      await finishHeadlessDrain(engine);
+      await finishHeadlessDrain(engine, paired);
     } finally {
       await disconnectHeadless(engine);
     }
@@ -498,15 +507,16 @@ const String _kLastStalenessNotifiedMs = 'last_staleness_notified_ms';
 /// foreground app's do.
 @visibleForTesting
 Future<void> finishHeadlessDrain(
-  BleEngine engine, {
-  Future<void> Function(BleEngine) rearm = rearmHeadlessAlarm,
+  BleEngine engine,
+  PairedDevice paired, {
+  Future<void> Function(BleEngine, PairedDevice) rearm = rearmHeadlessAlarm,
 }) async {
   if (engine.offloadActive) {
     debugPrint('[bgsync] drain still active after the wait — ending the '
         'history task before configuration writes.');
   }
   await engine.endHistoryForLink(reason: 'headless_config_writes');
-  await rearm(engine);
+  await rearm(engine, paired);
 }
 
 /// Connect a headless engine. A connect that FAILS can still have taken in

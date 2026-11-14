@@ -366,10 +366,9 @@ void main() {
       expect(BandOwnership.foregroundIntent, isFalse);
     }));
 
-    test('a connect that was in flight when endSession retired the loop and '
-        'then answers true still runs the post-connect setup and a drain (the '
-        'generation is only checked at the loop head and in the finally), but '
-        'arms no backfill timer and leaves no intent or lease behind',
+    // WHY: a retired loop no longer owns the link. A late successful connect
+    // must not configure or drain whichever band is now being paired.
+    test('a retired connect that answers true skips post-connect work',
         syncCase((rig, timers) async {
       await _open(rig);
       final gate = rig.holdConnect();
@@ -379,16 +378,16 @@ void main() {
       rig.engine.events.clear();
       gate.complete();
       await rig.waitFor(() => _logged(rig, 'was superseded'));
-      await rig.waitFor(() => rig.engine.count('runSync') == 1);
       await rig.quiesce();
-      expect(rig.engine.count('getBattery'), 1);
-      expect(rig.engine.count('reconcile'), 1);
+      expect(rig.engine.count('runSync'), 0);
+      expect(rig.engine.count('getBattery'), 0);
+      expect(rig.engine.count('reconcile'), 0);
       expect(rig.engine.count('requestHistorySync'), 0);
       expect(timers.activePeriodic(kBackfillEvery), isEmpty);
       expect(BandOwnership.foregroundIntent, isFalse);
       expect(BandOwnership.owner, isNull);
       expect(rig.engine.count('disconnect'), 0,
-          reason: 'nothing drops the stray link the retired connect won');
+          reason: 'the retiring owner handles teardown; the old loop cannot touch a successor');
     }));
 
     test('endSession then openSession while the old attempt is parked: the '
