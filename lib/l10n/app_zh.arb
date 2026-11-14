@@ -3479,5 +3479,7 @@
   "pairPrimaryCannotBeSensor": "这已经是你的主手环，不能同时配对为运动传感器。",
   "capReasonSkinTempProvisional": "暂定估算；需要几晚的数据",
   "pairReplaceMyBand": "更换我的手环",
-  "dayStepsWhoop4NoCounter": "WHOOP 4.0 没有自带计步器，因此只有在本应用接收其实时数据时才会计步。"
+  "dayStepsWhoop4NoCounter": "WHOOP 4.0 没有自带计步器，因此只有在本应用接收其实时数据时才会计步。",
+  "healthWearNotUpdatedSince": "自 {time} 起未更新",
+  "dayStrainWornAsOf": "佩戴（截至 {time} 的数据）"
 }
