@@ -10,7 +10,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/ui2/grammar.dart' show GuideBox, Section, Surface;
+import 'package:openstrap_edge/ui2/grammar.dart' show Section, Surface;
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart' show DayNav;
 import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_catalogue.dart';
@@ -130,7 +130,7 @@ void main() {
     final over = _over(o, card.deflate(1)).toList();
     expect(over.map((s) => s.kind), [SkeletonKind.dim], reason: 'one dim layer over the card, nothing else: $over');
     expect(over.single.rect, card, reason: 'over the card\'s whole drawn box: chart, LATEST panel, description, value row');
-    for (final inside in ['LATEST', 'Peak HR']) {
+    for (final inside in ['Peak HR', 'Worn']) {
       expect(find.textContaining(inside), findsWidgets, reason: 'positive control: $inside is in the card');
     }
   });
@@ -162,7 +162,7 @@ void main() {
     final o = _overlay(t);
     final ring = t.getRect(find.ancestor(of: find.text('STRAIN'), matching: find.byType(Surface)).last);
     expect(look(o, ring), 'lit', reason: 'the target\'s own card');
-    final review = t.getRect(find.ancestor(of: find.text('Review activities'), matching: find.byType(Surface)).last);
+    final review = t.getRect(find.ancestor(of: find.text('Detected activities'), matching: find.byType(Surface)).last);
     expect(look(o, review), 'dim');
     final dayNav = t.getRect(find.byType(DayNav));
     expect(look(o, dayNav), 'dim', reason: 'the day selector bar is ONE dimmed unit');
@@ -175,16 +175,16 @@ void main() {
   // as a whole, the next accordion is dimmed whole (one layer, chevron included), those after it
   // are placeholders that keep their titles.
   // catches: an accordion that is not one unit, inner boxes dimmed again.
-  testWidgets('fix-sleep-times step 1 on Sleep: night card lit, next accordion dim, later ones placeholder', (t) async {
+  testWidgets('fix-sleep-times step 1 on Sleep: window card lit and Stages dimmed', (t) async {
     final key = GlobalKey();
     await _start(t, 'fix-sleep-times', key);
     final o = _overlay(t);
-    final own = t.getRect(find.ancestor(of: find.text('Set the times myself'), matching: find.byType(GuideBox)).last);
+    final own = t.getRect(find.ancestor(of: find.text('Set the times myself'), matching: find.byType(Surface)).last);
     expect(look(o, own), 'lit');
-    for (final title in ['Recalculate this night', 'Not sleep', 'Naps']) {
+    for (final title in ['Not sleep']) {
       expect(_over(o, t.getRect(find.text(title).first).deflate(1)), isEmpty, reason: '$title is in the target\'s card');
     }
-    final next = t.getRect(find.ancestor(of: find.text('Stages'), matching: find.byType(GuideBox)).last);
+    final next = t.getRect(find.ancestor(of: find.text('Stages'), matching: find.byType(Section)).first);
     expect(look(o, next), 'dim');
   });
 

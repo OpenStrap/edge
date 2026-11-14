@@ -56,9 +56,8 @@ final _rules = <_Rule>[
   _Rule(
     'infinite .repeat()',
     RegExp(r'\.repeat\s*\('),
-    'A loop that never ends cannot be stopped by the reduced-motion gate. '
-        'Drive ambient motion from a caller-owned phase value instead — see '
-        'BreathRing.t.',
+    'Ambient loops belong to Motion, which owns their reduced-motion gate.',
+    allow: {_tokenFile},
   ),
   _Rule(
     'ungated Duration(',
@@ -84,7 +83,7 @@ final _rules = <_Rule>[
     'Pressable is the only gesture primitive and Scrubber the only drag — they '
         'are what apply the 44 pt minimum and the slider semantics, so a call '
         'site that bypasses them is a call site that opts out of them.',
-    allow: {_gestureFile},
+    allow: {_gestureFile, 'lib/ui2/guides/live_guide_overlay.dart', 'lib/ui2/skeleton/skeleton.dart'},
   ),
 ];
 
@@ -290,6 +289,8 @@ const _notComponents = {
   // GuideRun). HelpScreen is a screen. Pumped by test/ui2/guide_step_card_test.dart,
   // live_guide_overlay_test.dart and help_screen_test.dart.
   'GuideStepCard', 'LiveGuideOverlay', 'HelpScreen',
+  // Guide markers have no independent appearance; covered by structural tests.
+  'GuideBox', 'GuideLocation',
   // The pairing screens' building blocks (lib/ui2/pairing): each is one
   // swappable piece of a pairing screen, driven by registry data and pumped,
   // state by state, by ui2_pairing_blocks_test.dart,

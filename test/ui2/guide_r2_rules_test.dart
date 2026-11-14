@@ -34,7 +34,7 @@ void main() {
       for (final e in kGuideCatalogue) for (final v in e.guide.variants)
         for (final s in v.steps) '${e.guide.id}/${s.id}',
     ]..sort());
-    expect(r2Scenes.length, 22);
+    expect(r2Scenes.length, 21);
     expect(r2Scenes.map((s) => s.guide).toSet().length, 8);
   });
 

@@ -402,11 +402,21 @@ void main() {
       await _startFromHelp(t, app, 'log-past-workout');
       final l = _l(t);
       expect(_step(app), 0);
+      // History can be horizontally clipped at main's current text scale.
+      await t.ensureVisible(_label(l.workoutTabHistory));
+      await _reveal(t);
+      expect(_label(l.workoutTabHistory).hitTestable(), findsOneWidget);
       await t.tap(_label(l.workoutTabHistory));
       await _reveal(t);
       expect(_step(app), 1);
       expect(find.byKey(LiveGuideOverlay.scrollMarkerKey), findsOneWidget);
       expect(_label(l.workoutLogPastFix), findsOneWidget);
+      // Main's History list can build this card in its cache before its label
+      // reaches the viewport. Follow the scroll prompt before tapping it.
+      await t.ensureVisible(_label(l.workoutLogPastFix));
+      await _reveal(t);
+      expect(_label(l.workoutLogPastFix).hitTestable(), findsOneWidget,
+          reason: 'the revealed History action must receive a real pointer');
       await t.tap(_label(l.workoutLogPastFix));
       await _reveal(t);
       expect(_step(app), 2);

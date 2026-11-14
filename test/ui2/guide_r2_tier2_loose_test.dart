@@ -1,6 +1,5 @@
 // Tier 2 review fix F3 (r2-review-opus-tier2.md): the loose-text layer and the planner see the same text.
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/grammar.dart';
 import 'package:openstrap_edge/ui2/guides/guide_dim.dart';

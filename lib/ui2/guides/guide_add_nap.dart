@@ -25,7 +25,8 @@ Guide get addNapGuide => Guide(
             id: 'open-naps',
             node: GuideNode.sleep,
             target: _napsButton,
-            anchor: _napsButton,
+            // The title is built before the lazy Naps action in long locales.
+            anchor: GuideTarget.label((l) => l.sleepDetailNavTitle),
             action: GuideAction.tap,
             caption: (l) => l.guideAddNapStep1(l.tabSleep, l.sleepDetailEditNaps),
           ),

@@ -76,16 +76,29 @@ Rect visibleBoundsInRoot(RenderObject object, RenderBox root) {
   return visible;
 }
 
-/// Iterable form of the existing onstage walk for guide planning.
-Iterable<Element> onstageElements(Element root) {
-  final elements = <Element>[];
-  visitOnstage(root, elements.add);
-  return elements;
+/// Iterable form of the existing onstage walk for guide planning. A caller
+/// locating a page can stop without first collecting every descendant.
+Iterable<Element> onstageElements(Element root) sync* {
+  yield root;
+  final children = <Element>[];
+  root.debugVisitOnstageChildren(children.add);
+  for (final child in children) {
+    yield* onstageElements(child);
+  }
 }
 
-/// Iterable form that includes built lazy-list children outside the viewport.
-Iterable<Element> builtElements(Element root) {
-  final elements = <Element>[];
-  visitBuilt(root, elements.add);
-  return elements;
+/// Includes built lazy-list children outside the viewport, like [visitBuilt].
+Iterable<Element> builtElements(Element root) sync* {
+  yield root;
+  final children = <Element>[];
+  final w = root.widget;
+  if (root is SliverMultiBoxAdaptorElement || w is Viewport ||
+      w is ShrinkWrappingViewport || w is SliverMainAxisGroup) {
+    root.visitChildren(children.add);
+  } else {
+    root.debugVisitOnstageChildren(children.add);
+  }
+  for (final child in children) {
+    yield* builtElements(child);
+  }
 }

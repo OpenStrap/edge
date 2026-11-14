@@ -100,10 +100,12 @@ sealed class GuideTarget {
   }) =>
       _LabelTarget(alternatives, within);
 
-  /// By Key: the keyed widget's own render box; no growing.
+  /// Selects the first repeated control in layout order, such as a History bin.
+  /// The ordinary label API keeps reporting ambiguity [guide_target_test].
   factory GuideTarget.firstLabel(String Function(AppLocalizations) label, {GuideTarget? within}) =>
       _LabelTarget([label], within, firstOfMany: true);
 
+  /// By Key: the keyed widget's own render box; no growing.
   factory GuideTarget.key(Key key) => _KeyTarget(key);
 
   /// Resolve in the laid-out tree under [root], in [root]'s coordinates.

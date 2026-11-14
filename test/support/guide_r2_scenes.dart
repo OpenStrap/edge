@@ -11,13 +11,11 @@ import 'package:openstrap_edge/ui2/activity/live.dart';
 import 'package:openstrap_edge/ui2/activity/picker.dart';
 import 'package:openstrap_edge/ui2/activity/setup.dart';
 import 'package:openstrap_edge/ui2/activity/zones.dart';
-import 'package:openstrap_edge/ui2/app_shell.dart';
 import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_catalogue.dart';
 import 'package:openstrap_edge/ui2/guides/guide_run.dart';
 import 'package:openstrap_edge/ui2/guides/guide_runner.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
-import 'guide_search.dart';
 import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
 import 'package:openstrap_edge/ui2/profile/alarm.dart';
 import 'package:openstrap_edge/ui2/screens/detected_activities.dart';
@@ -39,9 +37,9 @@ Finder r2Tab(int index, {bool hidden = false}) => find.descendant(
 class R2Scene {
   final String guide, step;
   final Widget Function()? page;
-  final bool history, staged, manual;
+  final bool history, manual;
   const R2Scene(this.guide, this.step, {this.page, this.history = false,
-    this.staged = false, this.manual = false});
+    this.manual = false});
   String get id => '$guide/$step';
   bool get shell => page == null;
 }
@@ -94,10 +92,10 @@ class R2Mounted {
 }
 
 // Shell scenes use the shipped runner; pushed scenes install the actual
-// overlay/run after page preparation under the real shell. Staging Discard
-// prepares a fixture; the dedicated pointer tests prove input pass-through.
+// overlay/run after page preparation under the real shell. Dedicated pointer
+// tests prove input pass-through.
 Future<R2Mounted> pumpR2Scene(WidgetTester t, R2Scene scene, {Size size = r2Size, Brightness brightness = Brightness.light,
-  bool singlePending = true, GuideFakeRepo? repo}) async {
+  GuideFakeRepo? repo}) async {
   final guide = r2Guide(scene.guide);
   repo ??= GuideFakeRepo(sleepSource: scene.manual ? 'manual' : 'auto');
   final app = await pumpLiveGuideApp(t, size: size, repo: repo, brightness: brightness);

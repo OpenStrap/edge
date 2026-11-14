@@ -141,6 +141,20 @@ void main() {
     });
   });
 
+  // WHY: a real History page can have multiple sessions with the same bin label.
+  // A guide must pick the first bin while the normal label API stays ambiguous.
+  testWidgets('firstLabel picks the topmost of several real controls', (t) async {
+    const first = ValueKey('first-bin');
+    final (root, l) = await _pumpIn(t, const Locale('en'), (_) => Column(children: [
+      Pressable(key: first, semanticLabel: 'Delete session', onTap: () {}, child: const Text('Delete session')),
+      Pressable(semanticLabel: 'Delete session', onTap: () {}, child: const Text('Delete session')),
+    ]));
+    expect(GuideTarget.label((_) => 'Delete session').resolve(root, l), isA<TargetAmbiguous>());
+    final found = GuideTarget.firstLabel((_) => 'Delete session').resolve(root, l) as TargetFound;
+    expect(found.rect, skLocalRect(t, find.byKey(first), find.byKey(_root)));
+    expect(everyControlLabelled(root, (_) => 'Delete session', l), hasLength(2));
+  });
+
   group('by Key', () {
     testWidgets('resolves to the keyed widget exactly, without growing to a Pressable', (t) async {
       // why: a Key target means "this exact widget"; growing would outline

@@ -284,12 +284,12 @@ void main() {
     // step: (alsoTap, alsoRead) and why.
     const expected = <String, (bool, bool)>{
       'alarm-schedule/open-alarm': (false, false), // one row to tap
-      'alarm-schedule/pick-day': (true, false), // "Tap the tab of the day you want": seven day tabs
+      'alarm-schedule/pick-day': (true, false), // "tap a day": seven weekday rows
       'alarm-schedule/set-wake-time': (false, false), // one row
       'add-nap/open-naps': (false, false), // one button
       'add-nap/log-nap': (false, false), // one button; the two questions are the app's dialogs
       'remove-detected/open-detected': (false, false), // one card
-      'remove-detected/discard': (true, false), // "Every item has its own Discard"; the row is kept with its Discard
+      'remove-detected/discard': (true, false), // "Not a nap" / "Not a workout": both choices
       'fix-sleep-times/change-times': (false, false), // anyLabel already covers both labels of ONE button
       'fix-sleep-times/back-to-automatic': (false, false), // one button
       'delete-workout/open-history': (false, false), // one sub-tab
@@ -317,7 +317,7 @@ void main() {
     // WHY: a declaration that resolves to nothing on the real screen keeps nothing legible.
     // # catches: alsoTap pointing at keys/labels the screen does not print, or at too little
     // (one day tab instead of seven).
-    testWidgets('r2 alarm pick-day alsoTap resolves to all seven day tabs', (t) async {
+    testWidgets('r2 alarm pick-day alsoTap resolves to all seven weekday rows', (t) async {
       final scene = r2Scenes.firstWhere((s) => s.id == 'alarm-schedule/pick-day');
       final m = await pumpR2Scene(t, scene);
       try {
@@ -327,9 +327,9 @@ void main() {
         final found = [for (final c in step.alsoTap) ...c.resolve(page, r2Locale)];
         final tabs = [for (var d = 0; d < 7; d++)
           if (GuideTarget.label((l) => [l.wellnessMon, l.wellnessTue, l.wellnessWed, l.wellnessThu, l.wellnessFri, l.wellnessSat, l.wellnessSun][d]).resolve(page, r2Locale) case TargetFound(:final rect)) rect];
-        expect(tabs, hasLength(7), reason: 'positive control: the screen has seven day tabs');
+        expect(tabs, hasLength(7), reason: 'positive control: the screen has seven weekday rows');
         for (final tab in tabs) {
-          expect(found.any((f) => f.rect.overlaps(tab)), isTrue, reason: 'day tab $tab is declared');
+          expect(found.any((f) => f.rect.overlaps(tab)), isTrue, reason: 'weekday row $tab is declared');
         }
       } finally { await disposeR2(t, m); }
     });
@@ -346,9 +346,11 @@ void main() {
         final found = [for (final c in step.alsoTap) ...c.resolve(page, r2Locale)];
         expect(found, hasLength(2), reason: 'one nap and one workout in the main fixture');
         for (final label in [r2Locale.napsNotANapLabel, r2Locale.activityNotAWorkout]) {
-          final controls = _controlsLabelled(page, label);
-          expect(controls, hasLength(1));
-          expect(found.any((f) => f.rect.overlaps(controls.single)), isTrue);
+          final text = find.text(label);
+          expect(text, findsOneWidget);
+          final box = t.getRect(text);
+          expect(found.any((f) => f.rect.overlaps(box)), isTrue,
+              reason: 'the real $label action is declared');
         }
       } finally { await disposeR2(t, m); }
     });
