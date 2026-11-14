@@ -1808,21 +1808,28 @@ class MetricRow extends StatelessWidget {
         if (sub.isNotEmpty) Text(sub, style: F.over.copyWith(color: p.ink3)),
       ],
     );
+    final big = bigText(c);
+    final valueText = Text(
+      value,
+      style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+      // At large text the value has a line of its own (see below), and a
+      // value that is a WORD ('What applies to you' → a phrase) can still be
+      // wider than that line. It wraps there rather than overflowing the row.
+      maxLines: big ? null : 1,
+      overflow: big ? null : TextOverflow.ellipsis,
+    );
     final amount = Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.baseline,
       textBaseline: TextBaseline.alphabetic,
       children: [
-        // NOT Flexible. Sharing the row's flex with the name gave the value
-        // a quarter of the width and no more, so 'Respiratory rate' shipped
-        // reading `1… br/min` — a truncated measurement, which this row is
-        // supposed to never do. It is the name that gives way now.
-        Text(
-          value,
-          style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
+        // NOT Flexible on the one-line row. Sharing the row's flex with the
+        // name gave the value a quarter of the width and no more, so
+        // 'Respiratory rate' shipped reading `1… br/min` — a truncated
+        // measurement, which this row is supposed to never do. It is the name
+        // that gives way there. On the large-text layout the value is alone
+        // on its line, so flexing there only lets a too-long one wrap.
+        if (big) Flexible(child: valueText) else valueText,
         if (unit.isNotEmpty) ...[
           const SizedBox(width: 2),
           Text(displayUnit, style: F.over.copyWith(color: p.ink3)),
@@ -1871,7 +1878,7 @@ class MetricRow extends StatelessWidget {
               .trim(),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x2),
-        child: bigText(c)
+        child: big
             // A dense row cannot stay one line at accessibility sizes without
             // truncating the measurement, and a truncated measurement is worse
             // than a taller row.
