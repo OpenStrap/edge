@@ -37,6 +37,7 @@ import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart' show whyFromNote;
 import '../../state/app_state.dart';
 import '../ui2.dart';
+import 'detected_activities.dart' show NapAutoLogRow;
 import 'home_screen.dart' show clockOfTs, hm, repoOf;
 import 'metric_detail.dart' show dayNavRow, detailScaffold, pickDay;
 
@@ -406,6 +407,8 @@ class _NapsScreenState extends State<NapsScreen> {
           color: C.domHealth,
           onTap: _busy || day == null ? null : () => _log(day),
         ),
+        const SizedBox(height: S.x3),
+        const NapAutoLogRow(),
         if (d.rejected.isNotEmpty) ...[
           Section(
             l?.napsRemovedSection ?? 'Removed',

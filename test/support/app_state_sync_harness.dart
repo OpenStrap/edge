@@ -170,6 +170,9 @@ class SyncFakeEngine extends BleEngine {
   /// Holds every runSync until completed.
   Completer<void>? syncGate;
 
+  /// Holds every armAlarm reply until completed.
+  Completer<void>? armGate;
+
   /// Runs inside runSync before it answers (to move the durable frontier).
   Future<void> Function()? onRunSync;
 
@@ -272,6 +275,14 @@ class SyncFakeEngine extends BleEngine {
       throw once;
     }
     if (batteryThrows != null) throw batteryThrows!;
+  }
+
+  @override
+  Future<({DateTime? armed, bool echoed})> armAlarm(DateTime when,
+      {int index = 0, List<int>? haptics}) async {
+    events.add('armAlarm:${when.millisecondsSinceEpoch ~/ 1000}');
+    if (armGate != null) await armGate!.future;
+    return (armed: when, echoed: true);
   }
 
   @override

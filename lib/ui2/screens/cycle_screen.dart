@@ -479,14 +479,24 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          // A Wrap, not a Row with a Spacer: at large text sizes or in a
+          // longer language the label and the phase pill do not fit one
+          // line, and the row overflowed. Side by side when they fit, the
+          // pill on its own line when they don't.
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: S.x2,
+            runSpacing: S.x2,
             children: [
               Text(
                 l?.cycleDayInThisCycle ?? 'DAY IN THIS CYCLE',
                 style: F.over.copyWith(color: p.ink3),
               ),
-              const Spacer(),
-              if (d.phase != 'unknown') Pill(_phaseLabel(l, d.phase), C.pink),
+              if (d.phase != 'unknown')
+                // Wraps at large text rather than cutting a long phase name
+                // short with an ellipsis; one line at default sizes.
+                Pill(_phaseLabel(l, d.phase), C.pink, wrap: bigText(c)),
             ],
           ),
           const SizedBox(height: S.x2),
@@ -496,13 +506,18 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
             children: [
               Text('${d.cycleDay}', style: F.n34.copyWith(color: p.ink)),
               const SizedBox(width: S.x2),
-              Text(
-                d.medianLength == null
-                    ? (l?.cycleCountedFromLastStart ??
-                          'counted from your last logged start')
-                    : (l?.cycleOfAboutDays(d.medianLength!.round()) ??
-                          'of about ${d.medianLength!.round()}'),
-                style: F.cap.copyWith(color: p.ink3),
+              // Wraps under itself rather than running off the card:
+              // "counted from your last logged start" is most of a line at
+              // the default size already.
+              Flexible(
+                child: Text(
+                  d.medianLength == null
+                      ? (l?.cycleCountedFromLastStart ??
+                            'counted from your last logged start')
+                      : (l?.cycleOfAboutDays(d.medianLength!.round()) ??
+                            'of about ${d.medianLength!.round()}'),
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
               ),
             ],
           ),

@@ -29,6 +29,7 @@ import '../compute/manual_session.dart';
 import '../compute/onehz_pipeline.dart' show kUnknownAbsenceNote, needInputNote;
 import '../compute/profile.dart';
 import '../compute/quiet_level.dart';
+import '../compute/vendor_sleep.dart' show vendorHypnogram;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
@@ -1468,6 +1469,14 @@ class LocalRepositoryImpl extends LocalRepository {
       'first_on': w?['first_on'],
       'last_on': w?['last_on'],
       'longest_off_min': w?['longest_off_min'],
+      // #450. The data edge this wear was computed at, when it is older than
+      // the row it sits in: the derive's second half failed and the engine
+      // carried the previous wear forward. Absent on a complete derive, so a
+      // screen never shows an age that is not there. Not gated on the block:
+      // the stamp exists only when wear was carried, whichever field above
+      // the figure ends up read from.
+      if (b['wear_edge_sec'] is num)
+        'as_of': (b['wear_edge_sec'] as num).toInt(),
       'hourly': const [],
     };
   }
@@ -2334,10 +2343,7 @@ class LocalRepositoryImpl extends LocalRepository {
         'stage_min': minutes,
         // Same point shape as our own night: each stage from its start,
         // closed by a final point at wake.
-        'hypnogram': [
-          for (final e in n.epochs) {'t': e.startSec, 'stage': e.stage},
-          {'t': n.offsetSec, 'stage': n.epochs.last.stage},
-        ],
+        'hypnogram': vendorHypnogram(n.epochs, n.offsetSec),
       });
     }
     return out;

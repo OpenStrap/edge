@@ -15,11 +15,17 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ble/adapters/_registry.dart' show BandEntry, ResetKind;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart';
 import '../../l10n/app_localizations.dart';
+import '../../l10n/display_text.dart' show localizedText;
 import '../../state/app_state.dart';
 import '../../state/prefs.dart';
+import '../pairing/pair_help.dart';
+import '../pairing/pair_text.dart';
+import '../pairing/pair_widgets.dart';
+import '../pairing/reset_steps_view.dart';
 import '../ui2.dart';
 import '../pairing/whoop_firmware_warning.dart';
 
@@ -110,7 +116,24 @@ class PairingScreen extends StatefulWidget {
   /// Walk past pairing and open the app anyway. Supplied by the router.
   final VoidCallback? onSkip;
 
-  const PairingScreen({super.key, this.onSkip});
+  /// The band the user chose on the list; its reset steps show when pairing
+  /// does not finish. With [modelKnown], a WHOOP advertising the other
+  /// generation is passed over. Null shows the plain failure cards.
+  final BandEntry? entry;
+
+  /// False for the shared WHOOP category, whose representative supplies help
+  /// but does not establish the generation of the band being sought.
+  final bool modelKnown;
+
+  /// The one band the user tapped in a scan, by remote id; null pairs the
+  /// first matching band in range. Android's scan honours it; the iOS
+  /// accessory picker chooses on its own sheet.
+  final String? remoteId;
+
+  /// Keep the existing pairing until the new bootstrap succeeds.
+  final bool replacing;
+
+  const PairingScreen({super.key, this.onSkip, this.entry, this.remoteId, this.replacing = false, this.modelKnown = true});
 
   @override
   State<PairingScreen> createState() => _PairingScreenState();
@@ -120,6 +143,7 @@ class _PairingScreenState extends State<PairingScreen> {
   PairPhase _phase = PairPhase.idle;
   String _detail = '';
   BleBlocker? _blocker;
+  bool _usedAccessoryPicker = false;
 
   Future<void> _pair() async {
     final app = context.read<AppState>();
@@ -129,15 +153,28 @@ class _PairingScreenState extends State<PairingScreen> {
       _blocker = null;
     });
     try {
-      if (await app.accessorySetupSupported()) {
-        await app.pairViaAccessorySetup();
+      final accessorySetup = await app.accessorySetupSupported();
+      if (!mounted) return;
+      _usedAccessoryPicker = accessorySetup;
+      if (accessorySetup) {
+        if (widget.replacing) {
+          await app.replaceViaAccessorySetup();
+        } else {
+          await app.pairViaAccessorySetup();
+        }
       } else {
-        final found = await app.scanForBand();
+        final found = await app.scanForBand(
+            remoteId: widget.remoteId, generation: widget.modelKnown ? widget.entry?.id : null);
+        if (!mounted) return;
         if (found == null) {
           if (mounted) setState(() => _phase = PairPhase.notFound);
           return;
         }
-        await app.pairWith(found);
+        if (widget.replacing) {
+          await app.replaceWith(found);
+        } else {
+          await app.pairWith(found);
+        }
       }
       if (!mounted) return;
       setState(() => _phase = PairPhase.paired);
@@ -166,6 +203,10 @@ class _PairingScreenState extends State<PairingScreen> {
         blocker: _blocker,
         onPair: _pair,
         onSkip: widget.onSkip,
+        resetEntry: widget.modelKnown && !_usedAccessoryPicker ? widget.entry : null,
+        onPickDifferent: Navigator.of(c).canPop()
+            ? () => Navigator.of(c).maybePop()
+            : null,
       );
 }
 
@@ -178,6 +219,17 @@ class PairingView extends StatelessWidget {
   /// Which phone-side blocker, when [phase] is `bluetoothBlocked`.
   final BleBlocker? blocker;
 
+  /// The band being paired. When set, a pairing that could not finish
+  /// (not found, refused, failed) shows this device's reset steps and a way
+  /// to ask for help instead of the generic advice card.
+  final BandEntry? resetEntry;
+
+  /// "Pick a different band". Null hides the link.
+  final VoidCallback? onPickDifferent;
+
+  /// How the "Trouble connecting?" card and the maker's-page row open a link.
+  final PairLinkOpener openLink;
+
   const PairingView({
     super.key,
     required this.phase,
@@ -185,10 +237,100 @@ class PairingView extends StatelessWidget {
     this.detail = '',
     this.blocker,
     this.onSkip,
+    this.resetEntry,
+    this.onPickDifferent,
+    this.openLink = const SystemLinkOpener(),
   });
+
+  static const _resetPhases = {
+    PairPhase.notFound,
+    PairPhase.bondRefused,
+    PairPhase.failed,
+  };
+
+  /// The failure screen with a device's reset steps.
+  Widget _resetScaffold(BuildContext c, BandEntry entry) {
+    final p = P.of(c);
+    final l = pairL10n(c);
+    final label = localizedText(AppLocalizations.of(c), entry.label);
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(S.x4, S.x6, S.x4, S.x8),
+          children: [
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Container(
+                width: 56,
+                height: 56,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                    color: p.wash(C.orange), borderRadius: R.rMd),
+                child: Icon(LucideIcons.triangleAlert,
+                    size: 28, color: p.on(C.orange)),
+              ),
+            ),
+            const SizedBox(height: S.x4),
+            Text(resetTitle(l, entry), style: F.t1.copyWith(color: p.ink)),
+            const SizedBox(height: S.x2),
+            Text(l.pairResetBody(label), style: F.body.copyWith(color: p.ink2)),
+            const SizedBox(height: S.x4),
+            ResetStepsView(
+                entry: entry,
+                openLink: openLink,
+                bondRefused: phase == PairPhase.bondRefused),
+            if (phase == PairPhase.failed && detail.isNotEmpty) ...[
+              const SizedBox(height: S.x3),
+              _Detail(detail),
+            ],
+            const SizedBox(height: S.x4),
+            BigButton(_cta(c, phase),
+                icon: LucideIcons.refreshCw, color: C.green, onTap: onPair),
+            const SizedBox(height: S.x4),
+            // The maker's page sits in the steps above when they are general
+            // ones; the card does not offer it twice.
+            TroubleConnectingCard(
+                entries: [
+                  if (entry.resetSteps?.kind != ResetKind.unverified) entry,
+                ],
+                openLink: openLink,
+                showSteps: false),
+            if (onPickDifferent != null)
+              TextLinkButton(l.pairPickDifferentBand, onTap: onPickDifferent),
+            ..._skip(c),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// "Skip for now" and its note; nothing when there is no way to skip.
+  List<Widget> _skip(BuildContext c) {
+    final p = P.of(c);
+    if (onSkip == null || phase == PairPhase.paired) return const [];
+    return [
+      const SizedBox(height: S.x3),
+      // Never disabled, not even mid-scan: waiting out a scan you
+      // already know will fail is exactly the trap this exists for.
+      BigButton(AppLocalizations.of(c)?.pairingSkipForNow ?? 'Skip for now',
+          color: C.blue, soft: true, onTap: onSkip),
+      const SizedBox(height: S.x2),
+      Text(
+        AppLocalizations.of(c)?.pairingSkipNote ??
+            'The app opens without a band. Nothing is measured until one is '
+                'paired.',
+        style: F.cap.copyWith(color: p.ink3),
+      ),
+    ];
+  }
 
   @override
   Widget build(BuildContext c) {
+    final reset = resetEntry;
+    if (reset != null && _resetPhases.contains(phase)) {
+      return _resetScaffold(c, reset);
+    }
     final p = P.of(c);
     final busy = phase == PairPhase.scanning;
     // The copy for this one lives in the BLE layer, so this screen and the
@@ -231,20 +373,7 @@ class PairingView extends StatelessWidget {
                 icon: LucideIcons.radio,
                 color: C.blue,
                 onTap: busy ? null : onPair),
-            if (onSkip != null && phase != PairPhase.paired) ...[
-              const SizedBox(height: S.x3),
-              // Never disabled, not even mid-scan: waiting out a scan you
-              // already know will fail is exactly the trap this exists for.
-              BigButton(AppLocalizations.of(c)?.pairingSkipForNow ?? 'Skip for now',
-                  color: C.blue, soft: true, onTap: onSkip),
-              const SizedBox(height: S.x2),
-              Text(
-                AppLocalizations.of(c)?.pairingSkipNote ??
-                    'The app opens without a band. Nothing is measured until one '
-                        'is paired.',
-                style: F.cap.copyWith(color: p.ink3),
-              ),
-            ],
+            ..._skip(c),
           ],
         ),
       ),

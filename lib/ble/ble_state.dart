@@ -223,6 +223,10 @@ enum BandCondition {
   /// Syncs complete carrying no sensor data — the band's clock has lost sync.
   clockLost,
 
+  /// The band is on a firmware that withholds all data until a WHOOP-signed
+  /// membership token is on it (edge#673), and no data is arriving.
+  firmwareLocked,
+
   connected,
   connecting,
   scanning,
@@ -271,6 +275,16 @@ class BandStatus {
 bool isLinkAuthRefusal(int? code) =>
     code == 5 || code == 8 || code == 15 || code == 137;
 
+/// True for WHOOP 5.0 / MG firmware 50.43.x, which keeps answering commands
+/// but sends no history or live data until a WHOOP-signed membership token is
+/// on the band (edge#673; reported on 50.43.1.0 and 50.43.2.0).
+/// [firmware] is `Gen5HelloInfo.firmwareVersion` (`major.minor.build.x`).
+// ponytail: a version prefix, not a probe for the token itself. A later
+// firmware with the same lock needs adding here; one that lifts it on 50.43
+// still only shows this while the data flags below are tripped.
+bool isDataLockedFirmware(String? firmware) =>
+    firmware != null && firmware.startsWith('50.43.');
+
 /// Fold the phone-level blocker and the band's own diagnostic flags into one
 /// state. Pure; [connection] is `DeviceState.connection`.
 ///
@@ -287,6 +301,7 @@ BandStatus bandStatusFor({
   bool strapNeedsReboot = false,
   bool syncClockLost = false,
   int bondRefusals = 0,
+  String? bandFirmware,
 }) {
   const repairFix = 'Forget the band in the phone’s Bluetooth settings, '
       'then pair it again here';
@@ -353,6 +368,27 @@ BandStatus bandStatusFor({
           'nothing is lost — but the band cannot move on until the '
           'confirmation lands.',
       fix: 'Reconnect the band; if it repeats tomorrow, pair it again',
+    );
+  }
+  // The same two "no data is arriving" flags, explained by the firmware
+  // instead: a charger cycle or a re-pair cannot help a band that withholds
+  // its data by design, and both flags clear once records bank again. The
+  // flags cannot tell the lock from a real strap or clock fault, so the text
+  // says "probably", never "is". It sits BELOW the quarantine check on
+  // purpose: a quarantined batch is data that DID arrive, which a locked band
+  // does not send, so that diagnosis is the more specific one.
+  if ((strapNeedsReboot || syncClockLost) &&
+      isDataLockedFirmware(bandFirmware)) {
+    return const BandStatus(
+      BandCondition.firmwareLocked,
+      'The band’s firmware is probably holding back its data',
+      'This band runs WHOOP firmware 50.43, which can connect and answer the '
+          'app but send no recordings or live heart rate until a '
+          'WHOOP-signed membership token is on it. That is one possible '
+          'reason no data is arriving. OpenStrap cannot issue that token. '
+          'Everything already saved here is safe.',
+      fix: 'If it is the firmware, nothing in the app changes it, and this '
+          'clears once the band sends recordings again',
     );
   }
   if (strapNeedsReboot) {
@@ -1924,6 +1960,17 @@ class ScanAcceptPolicy {
     }
     return null;
   }
+
+  /// Whether a scan result may be the band the user chose: the remote id
+  /// [wantRemoteId] when one was named, and no advertised generation other
+  /// than [wantGeneration]. A name-only or 16-bit-only match names no
+  /// generation, so it may still be either and passes.
+  static bool fitsChoice(String remoteId, Iterable<String> serviceUuids,
+      {String? wantRemoteId, String? wantGeneration}) {
+    if (wantRemoteId != null && remoteId != wantRemoteId) return false;
+    final adv = accepts(serviceUuids);
+    return wantGeneration == null || adv == null || adv == wantGeneration;
+  }
 }
 
 /// Which connect order a link gets, decided BEFORE discovery has run.
@@ -2423,3 +2470,4 @@ class NotifyDiag {
     return 'frames[$frames] chunks[$list]$more';
   }
 }
+

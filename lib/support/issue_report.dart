@@ -178,7 +178,9 @@ Future<File> writeReportZip(
 }
 
 /// The plaintext `meta` field the Worker shows in the tracker. Nothing in it
-/// is health data.
+/// is health data. The band's generation and firmware ride here so a ticket
+/// can be triaged without decrypting it: most "no data" reports turn on them
+/// (a WHOOP 5.0 / MG on 50.43.x withholds all data, edge#673).
 Map<String, Object?> reportServerMeta(
         ReportDraft d, Map<String, Object?> meta) =>
     {
@@ -191,6 +193,8 @@ Map<String, Object?> reportServerMeta(
       'platform': meta['platform'],
       'osVersion': meta['osVersion'],
       'deviceModel': meta['deviceModel'],
+      'bandGeneration': ?meta['bandGeneration'],
+      'bandFirmware': ?meta['bandFirmware'],
       'hasDatabase': d.includeDatabase && !d.fullDatabase,
       'hasScreenshot': d.screenshotPath != null,
       if (d.includeDatabase && !d.fullDatabase) 'rawDays': ?meta['rawDays'],
@@ -256,6 +260,15 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
   final s = await t.staticDevice();
   final now = DateTime.now();
   final build = s['app_build'];
+  final d = app.device;
+  final bandGeneration = app.paired?.generation ?? d.generation;
+  // Only gen5 HELLOs record a firmware, and the record is per install, not
+  // per band: after a swap to a WHOOP 4.0, or with no band paired, it would
+  // name a band that is no longer the one reporting.
+  // ponytail: two gen5 bands in turn still share one record; keying it by
+  // serial is the upgrade if that ever misleads a ticket.
+  final bandFirmware =
+      bandGeneration == 'gen5' ? await LocalDb.bandFirmware() : null;
   final meta = <String, Object?>{
     'appVersion': '${s['app_version'] ?? '?'}${build == null ? '' : '+$build'}',
     'algoVersion': kAlgoVersion,
@@ -269,12 +282,14 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
     'tzOffsetMinutes': now.timeZoneOffset.inMinutes,
     'installId': app.deviceId,
     'createdAt': _iso(now),
+    'bandGeneration': bandGeneration,
+    'bandFirmware': bandFirmware,
   };
-  final d = app.device;
   final device = <String, Object?>{
     'band': {
       'paired': app.isPaired,
-      'generation': app.paired?.generation ?? d.generation,
+      'generation': bandGeneration,
+      'firmware': bandFirmware,
       'connection': d.connection,
       'batteryPct': d.batteryPct,
       'charging': d.charging,
@@ -283,8 +298,6 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
       'lastSyncedRecord': app.lastSynced?.tsEpoch,
       'bandDataOldest': d.dataRangeOldest,
       'bandDataNewest': d.dataRangeNewest,
-      // Firmware is not held in app state; the HELLO lines in logs/sync.log
-      // carry it.
     },
     'sensors': [
       for (final r in app.sensors)
@@ -317,6 +330,7 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
     'syncClockLost': d.syncClockLost,
     'strapNeedsReboot': d.strapNeedsReboot,
     'syncChunkQuarantined': d.syncChunkQuarantined,
+    'bandFirmware': d.firmware,
     'initError': app.initError,
     'importRollupError': app.importRollupError,
     'lastBackupError': app.lastBackupError,

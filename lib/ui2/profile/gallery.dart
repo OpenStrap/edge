@@ -46,6 +46,7 @@ import '../../compute/findings.dart';
 import '../../models/metric.dart';
 import '../../models/activity_suggestion.dart';
 import '../screens/detected_activities.dart';
+import '../screens/slot_scrub.dart';
 import '../activity/catalogue.dart';
 import '../activity/live.dart';
 import '../activity/picker.dart' show ActivityPicker, ActivityRow;
@@ -90,11 +91,6 @@ const _tooShort = <double?>[50, 51, 50];
 const _ringsMeasured = HomeData(
   dayId: '2026-08-16',
   readiness: Metric(value: 72, confidence: .8, tier: MetricTier.high),
-  drivers: [
-    {'label': 'hrv'},
-    {'label': 'rhr'},
-    {'label': 'resp'},
-  ],
   strain: Metric(value: 14.2, confidence: .6, tier: MetricTier.estimate),
   sleepMin: Metric(
       value: 465, unit: 'min', confidence: .8, tier: MetricTier.estimate),
@@ -835,6 +831,8 @@ Map<String, Widget> extraCases() => {
           startTs: 1787157000, endTs: 1787164200, revision: 0,
           status: ActivityReviewStatus.pending, details: const {}),
         onConfirm: () {}, onEdit: () {}, onDiscard: () {}),
+      // Inert here: a tap on the real row changes the real setting.
+      'nap_auto_log_row': const IgnorePointer(child: NapAutoLogRow()),
       'nap_row': const MetricRow(LucideIcons.sun, C.indigo, 'Daytime sleep',
           '1h 12m',
           sub: '2 naps · Sunday, 16 August'),
@@ -902,6 +900,76 @@ Map<String, Widget> extraCases() => {
           ),
         );
       }),
+      // The panel under a chart: at rest (LATEST), then while a finger is on
+      // the chart (SELECTED), the second with a day that has no reading.
+      'chart_panel': Builder(builder: (c) {
+        final p = P.of(c);
+        return Surface(
+          child: Column(children: [
+            ChartPanel(
+              time: 'Today',
+              timeSpan: const ['Today', 'Wednesday, 28 September'],
+              scrubbed: false,
+              color: p.on(C.red),
+              cells: [
+                ChartPanelCell('Resting heart rate',
+                    color: p.on(C.red), value: '52 bpm'),
+              ],
+              stats: const [
+                ChartPanelCell('7-day avg', value: '54 bpm'),
+                ChartPanelCell('vs avg', value: '−2 bpm'),
+              ],
+              onOpen: () {},
+              openLabel: 'Open Today',
+            ),
+            const SizedBox(height: S.x3),
+            ChartPanel(
+              time: 'Wednesday, 28 September',
+              timeSpan: const ['Today', 'Wednesday, 28 September'],
+              scrubbed: true,
+              color: p.on(C.red),
+              cells: [
+                ChartPanelCell('Resting heart rate', color: p.on(C.red)),
+              ],
+              stats: const [
+                ChartPanelCell('7-day avg', value: '54 bpm'),
+                ChartPanelCell('vs avg'),
+              ],
+            ),
+          ]),
+        );
+      }),
+      // A day-per-slot chart with its scroll-first scrubber and panel: bars,
+      // one empty day (a dash when touched), LATEST at rest.
+      'slot_scrub': Builder(builder: (c) {
+        final p = P.of(c);
+        final series = <double?>[30, 55, null, 70, 40, 65, 80];
+        return Surface(
+          child: SlotScrub(
+            series: series,
+            anchor: DateTime.now(),
+            bars: true,
+            label: 'Heart effort by day',
+            color: p.on(C.purple),
+            format: (v) => '${v.round()} points',
+            builder: (c, pick, scrub, panel) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: 88,
+                  child: scrub(CustomPaint(
+                    size: Size.infinite,
+                    painter: Bars(series, p.on(C.purple),
+                        highlight: pick ?? -1),
+                  )),
+                ),
+                const SizedBox(height: S.x3),
+                panel,
+              ],
+            ),
+          ),
+        );
+      }),
       'chart_ring': Builder(builder: (c) {
         final p = P.of(c);
         return Surface(
@@ -913,6 +981,43 @@ Map<String, Widget> extraCases() => {
             child: CustomPaint(
                 size: Size.infinite,
                 painter: Ring(.72, p.on(C.green), p.track)),
+          ),
+        );
+      }),
+      // Past 100% a ring is an eased spiral, one lap inside the last with a
+      // thin separator; the sleep ring is the same spiral split into stages.
+      'chart_ring_spiral': Builder(builder: (c) {
+        final p = P.of(c);
+        return Surface(
+          child: ChartFrame(
+            title: 'Sleep',
+            unit: '113% of 8h 00m (default)',
+            height: 120,
+            child: CustomPaint(
+                size: Size.infinite,
+                painter: StageRing(
+                    [
+                      RingArc(Hypnogram.cols(p)[SleepStage.deep]!, .15),
+                      RingArc(Hypnogram.cols(p)[SleepStage.rem]!, .2),
+                      RingArc(Hypnogram.cols(p)[SleepStage.light]!, .7),
+                      RingArc(Hypnogram.cols(p)[SleepStage.awake]!, .08),
+                    ],
+                    p.track,
+                    background: p.card)),
+          ),
+        );
+      }),
+      'chart_ring_overflow': Builder(builder: (c) {
+        final p = P.of(c);
+        return Surface(
+          child: ChartFrame(
+            title: 'Strain',
+            unit: '150% of target',
+            height: 120,
+            child: CustomPaint(
+                size: Size.infinite,
+                painter: Ring(1.5, p.on(C.purple), p.track,
+                    solid: true, background: p.card)),
           ),
         );
       }),

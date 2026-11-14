@@ -27,7 +27,7 @@ import '../../l10n/app_localizations.dart';
 import '../../l10n/date_text.dart';
 import '../../l10n/decimal_text.dart';
 import '../../models/metric.dart' show whyFromNote;
-import '../screens/home_screen.dart' show repoOf;
+import '../screens/home_screen.dart' show asOfText, repoOf;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
 import 'catalogue.dart' show zonesWhy;
@@ -72,6 +72,10 @@ class DayStrainData {
 
   final int? peakHr, wornMin, coveragePct;
 
+  /// When [wornMin] and [coveragePct] were last computed, if an earlier
+  /// derive's wear was carried forward (#450). Null when they are current.
+  final int? wearAsOf;
+
   /// WHY the day has no strain, as the bundle said it — never a sentence
   /// written on this screen. Null means nothing came back with the absence, and
   /// the screen then says exactly that.
@@ -89,10 +93,14 @@ class DayStrainData {
     this.peakHr,
     this.wornMin,
     this.coveragePct,
+    this.wearAsOf,
     this.note,
   });
 
   bool get hasCurve => curve.any((v) => v != null);
+
+  /// The local label of the day this screen shows (today when [day] is null).
+  String get shownDay => day == null ? todayLabel() : dayLabelOf(day!);
 
   /// Lays the curve's epoch-second points onto the fixed 00:00–24:00 axis,
   /// one slot per WALL-CLOCK minute of the first point's local day.
@@ -174,6 +182,7 @@ class DayStrainData {
       peakHr: hr is Map ? (hr['max'] as num?)?.toInt() : null,
       wornMin: (wear['worn_min'] as num?)?.toInt(),
       coveragePct: (wear['coverage_pct'] as num?)?.toInt(),
+      wearAsOf: (wear['as_of'] as num?)?.toInt(),
       // The headline absence's reason, at the top level of the payload — the
       // same string as `absent.strain`.
       note: s['note'] as String?,
@@ -328,7 +337,17 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
               if (d.peakHr != null)
                 (l?.dayStrainPeakHr ?? 'Peak HR', '${d.peakHr} bpm', C.red),
               if (d.wornMin != null)
-                (l?.dayStrainWorn ?? 'Worn', '${d.wornMin} min', C.teal),
+                // #450: a carried figure says where it stops, or a frozen
+                // morning reads as the whole day so far.
+                (
+                  d.wearAsOf == null
+                      ? (l?.dayStrainWorn ?? 'Worn')
+                      : (l?.dayStrainWornAsOf(
+                              asOfText(d.wearAsOf!, d.shownDay, l)) ??
+                          'Worn as of ${asOfText(d.wearAsOf!, d.shownDay, l)}'),
+                  '${d.wornMin} min',
+                  C.teal,
+                ),
             ]),
           ],
         ]),

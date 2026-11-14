@@ -52,6 +52,12 @@ class _Engine implements BleEngine {
   Future<void> Function()? batteryHook;
   bool foregroundSyncAllowed = true;
   bool probeAnswer = true;
+  Duration quiet = Duration.zero;
+  bool liveArmed = false;
+  bool historyStuck = false;
+  bool flashActive = false;
+  Completer<bool>? probeGate;
+  Completer<void>? disconnectGate;
   int? newestTs;
 
   /// A history task the band has not ended yet.
@@ -64,11 +70,13 @@ class _Engine implements BleEngine {
   @override
   bool get isConnected => link;
   @override
-  Duration get sinceLastRx => Duration.zero;
+  Duration get sinceLastRx => quiet;
   @override
-  bool get liveEnabled => false;
+  bool get liveEnabled => liveArmed;
   @override
-  bool get historyStuckThisSession => false;
+  bool get historyStuckThisSession => historyStuck;
+  @override
+  bool get firmwareFlashActive => flashActive;
   @override
   int get historyGateDrops => 0;
   @override
@@ -98,6 +106,9 @@ class _Engine implements BleEngine {
   Future<void> disconnect() async {
     trace.add('disconnect');
     link = false;
+    final gate = disconnectGate;
+    disconnectGate = null; // only the first disconnect waits
+    if (gate != null) await gate.future;
   }
 
   @override
@@ -137,6 +148,8 @@ class _Engine implements BleEngine {
   @override
   Future<bool> probeLink({Duration timeout = const Duration(seconds: 5)}) async {
     trace.add('probe');
+    final gate = probeGate;
+    if (gate != null) return gate.future;
     return probeAnswer;
   }
 
@@ -205,7 +218,11 @@ class _Rig {
       initError: () => initError,
       deriveScheduler: () => scheduler,
       phoneStepsEnabled: () => phoneSteps,
-      syncPhoneSteps: () async => trace.add('steps'),
+      syncPhoneSteps: () async {
+        trace.add('steps');
+        await phoneStepsGate?.future;
+        if (phoneStepsError != null) throw phoneStepsError!;
+      },
       ecgOnAppPaused: () async => trace.add('ecg.pause'),
       nudgeLive: () => trace.add('nudge'),
       recoverOrphanedLiveSession: () async => trace.add('recover'),
@@ -228,6 +245,8 @@ class _Rig {
   bool initialized = true;
   String? initError;
   bool phoneSteps = false;
+  Completer<void>? phoneStepsGate;
+  Object? phoneStepsError;
 
   bool logged(String text) => logs.any((l) => l.contains(text));
 
@@ -606,6 +625,178 @@ void main() {
         'sched.stored',
         'sched.heavy',
       ]);
+    }));
+
+    test('manual sync starts phone steps and BLE together, joins repeated taps, '
+        'and finalizes after the phone read', _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.phoneSteps = true;
+      final ble = r.engine.syncGate = Completer<void>();
+      final steps = r.phoneStepsGate = Completer<void>();
+      final first = r.c.syncNow();
+      final second = r.c.syncNow();
+      // The BLE sync is held, so the phone read can only have started if the
+      // two really run side by side.
+      await until(() =>
+          r.engine.count('runSync') == 1 && r.engine.count('steps') == 1);
+      expect(r.trace, isNot(contains('sched.heavy')));
+      ble.complete();
+      steps.complete();
+      await Future.wait([first, second]);
+      expect(r.engine.count('runSync'), 1,
+          reason: 'the second tap joined the first');
+      expect(r.engine.count('steps'), 1,
+          reason: 'one phone read for both taps');
+      expect(r.trace.last, 'sched.heavy');
+      r.engine.syncGate = null;
+      r.trace.clear();
+      await r.c.syncNow();
+      expect(r.engine.count('steps'), 1,
+          reason: 'the single-flight slot clears for the next tap');
+    }));
+
+    test('phone read failure does not prevent band sync or the next tap',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.phoneSteps = true;
+      r.phoneStepsError = StateError('sensor unavailable');
+      await r.c.syncNow();
+      expect(r.engine.count('runSync'), 1);
+      expect(r.logged('Phone step refresh failed:'), isTrue);
+      expect(r.trace.last, 'sched.heavy');
+      r.phoneStepsError = null;
+      await r.c.syncNow();
+      expect(r.engine.count('steps'), 2);
+      expect(r.engine.count('runSync'), 2);
+    }));
+
+    test('a hung phone step read is given up on and does not wedge the next tap',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.phoneSteps = true;
+      r.phoneStepsGate = Completer<void>(); // never completes
+      final first = r.c.syncNow();
+      await until(() => r.engine.count('runSync') == 1);
+      expect(r.trace, isNot(contains('sched.heavy')));
+      timers
+          .activeOneShot(SyncController.manualPhoneStepsTimeout)
+          .single
+          .fire();
+      await first;
+      expect(r.logged('Phone step refresh timed out'), isTrue);
+      expect(r.trace.last, 'sched.heavy');
+      r.phoneStepsGate = null;
+      await r.c.syncNow();
+      expect(r.engine.count('steps'), 2,
+          reason: 'the single-flight slot cleared after the timeout');
+    }));
+
+    test('manual sync reconnects a silent link with a live stream armed',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.liveArmed = true;
+      r.engine.quiet = const Duration(seconds: 31);
+      await r.c.syncNow();
+      await until(() => r.engine.count('runSync') == 1);
+      expect(r.trace.indexOf('disconnect'), lessThan(r.trace.indexOf('connect')));
+      expect(r.engine.count('requestForegroundSync'), 0);
+      expect(r.logged('Sync now: no BLE data'), isTrue);
+    }));
+
+    test('manual sync reconnects terminal history even when live data is fresh',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.historyStuck = true;
+      await r.c.syncNow();
+      await until(() => r.engine.count('connect') == 1);
+      expect(r.engine.count('disconnect'), 1);
+      expect(r.engine.count('requestForegroundSync'), 0);
+      expect(r.logged('Sync now: history is stuck on this connection'), isTrue);
+    }));
+
+    test('manual sync leaves the link alone during an image install',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.flashActive = true;
+      r.engine.quiet = const Duration(minutes: 5);
+      r.engine.historyStuck = true;
+      await r.c.syncNow();
+      expect(r.engine.count('probe'), 0);
+      expect(r.engine.count('disconnect'), 0);
+      expect(r.engine.count('connect'), 0);
+      expect(r.engine.count('requestForegroundSync'), 0);
+      expect(r.logged('image install is using the link'), isTrue);
+    }));
+
+    test('an image install that starts during the link probe is not torn down',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.quiet = const Duration(minutes: 5);
+      final probe = r.engine.probeGate = Completer<bool>();
+      final sync = r.c.syncNow();
+      await until(() => r.engine.count('probe') == 1);
+      r.engine.flashActive = true; // claimed while the probe is in flight
+      probe.complete(false); // the probe says reconnect
+      await sync;
+      expect(r.engine.count('disconnect'), 0);
+      expect(r.engine.count('connect'), 0);
+      expect(r.engine.count('requestForegroundSync'), 0);
+      expect(r.logged('an image install started'), isTrue);
+    }));
+
+    test('a session ended during the link probe is not reopened or dropped again',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.quiet = const Duration(minutes: 5);
+      final probe = r.engine.probeGate = Completer<bool>();
+      final sync = r.c.syncNow();
+      await until(() => r.engine.count('probe') == 1);
+      await r.c.endSession();
+      final disconnects = r.engine.count('disconnect');
+      probe.complete(false); // the probe says reconnect
+      await sync;
+      expect(r.engine.count('disconnect'), disconnects,
+          reason: 'the stale sync did not drop the link again');
+      expect(r.engine.count('connect'), 0, reason: 'and did not reopen it');
+      expect(r.logged('the session changed while the link was probed'), isTrue);
+    }));
+
+    test('a session ended while the recovery disconnect is awaited is not '
+        'reopened', _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.quiet = const Duration(minutes: 5);
+      r.engine.probeAnswer = false;
+      final gate = r.engine.disconnectGate = Completer<void>();
+      final sync = r.c.syncNow();
+      await until(() => r.engine.count('disconnect') == 1);
+      await r.c.endSession(); // the user ends the session mid-recovery
+      gate.complete();
+      await sync;
+      expect(r.engine.count('connect'), 0,
+          reason: 'the stale recovery did not reopen the session');
+    }));
+
+    test('manual sync probes a quiet link and reuses it if the band replies',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.quiet = const Duration(minutes: 5);
+      await r.c.syncNow();
+      expect(r.engine.count('probe'), 1);
+      expect(r.engine.count('disconnect'), 0);
+      expect(r.engine.count('requestForegroundSync'), 1);
+    }));
+
+    test('an unanswered manual-sync probe reconnects instead of awaiting '
+        'history on the dead link', _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.quiet = const Duration(minutes: 5);
+      r.engine.probeAnswer = false;
+      await r.c.syncNow();
+      await until(() => r.engine.count('runSync') == 1);
+      expect(r.engine.count('probe'), 1);
+      expect(r.engine.count('disconnect'), 1);
+      expect(r.engine.count('connect'), 1);
+      expect(r.engine.count('requestForegroundSync'), 0);
     }));
 
     test('syncNow while backgrounded or unlinked opens a session instead',

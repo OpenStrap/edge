@@ -29,6 +29,7 @@ import '../ui2.dart';
 import 'advanced.dart';
 import 'ecg.dart' show EcgEntryCard, pairedIsMaverickOf;
 import 'findings_log.dart';
+import 'slot_scrub.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'metric_detail.dart';
@@ -1167,6 +1168,11 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final resp = respBlock is Map ? respBlock['value'] as num? : null;
     final worn = v.wear['worn_min'] as num?;
     final coverage = v.wear['coverage_pct'] as num?;
+    // #450: the latest derive could not refresh wear, so this is an earlier
+    // one's figure. Say so rather than let a frozen morning read as now.
+    final wearAsOf = v.wear['as_of'] as num?;
+    final wearAsOfText =
+        wearAsOf == null ? '' : asOfText(wearAsOf, v.day ?? todayLabel(), l);
     final skinTemp = metricOf(d.today['skin_temp']);
     // WHOOP 5 reads in real °C, so its row says degrees, not SDs.
     final tempDevC = ((d.today['skin_temp'] as Map?)?['dev_c'] as num?)
@@ -1219,12 +1225,17 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         MetricRow(LucideIcons.watch, C.green, l?.healthRowWearTime ?? 'Wear time',
             hm(worn),
             // `83.33333333333333% of the day` shipped. It is a percentage.
-            sub: coverage == null
-                ? dayWord
-                : (l?.healthCoverageOf(coverage.round(),
-                        isToday ? (l.healthTheDay) : dayWord) ??
-                    '${coverage.round()}% of '
-                        '${isToday ? 'the day' : dayWord}'),
+            sub: [
+              coverage == null
+                  ? dayWord
+                  : (l?.healthCoverageOf(coverage.round(),
+                          isToday ? (l.healthTheDay) : dayWord) ??
+                      '${coverage.round()}% of '
+                          '${isToday ? 'the day' : dayWord}'),
+              if (wearAsOf != null)
+                l?.healthWearNotUpdatedSince(wearAsOfText) ??
+                    'not updated since $wearAsOfText',
+            ].join(' · '),
             onTap: () => go(c, const MetricDetail('wear'))),
     ];
 
@@ -1266,9 +1277,14 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               'ms',
               l?.healthTimeFrequencyNonLinear ?? 'Time, frequency and non-linear',
               C.green,
-              preview: _hrvPreview(c, d),
               onTap: () => go(c, const Investigate('hrv'))),
         ),
+      // The chart is its own card, outside the deep dive's tap target: a touch
+      // on it reads a night, and only the card above opens Investigate.
+      if (rmssd != null) ...[
+        const SizedBox(height: S.x3),
+        Surface(child: _hrvPreview(c, d)),
+      ],
 
       // The research charts, all behind one door.
       const SizedBox(height: S.x3),
@@ -1282,7 +1298,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     ]);
   }
 
-  /// The HRV preview inside the deep-dive card. Framed like every other chart:
+  /// The HRV preview. Framed like every other chart:
   /// what it is, what it is measured in, what the heights mean, and how far
   /// back it reaches — all read off the series actually drawn.
   Widget _hrvPreview(BuildContext c, HealthData d) {
@@ -1292,31 +1308,54 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     // used to be the newest thirty STORED nights, which after a sync gap could
     // span two months while both axis labels — counted off the array — claimed
     // it spanned thirty. Nights with no record are holes, not joined across.
+    final end = DateTime.now();
     final win = denseDays(pts, days);
     final have = [for (final v in win) ?v];
     final axis = AxisSpec.of(have, ticks: 2);
     final p = P.of(c);
     final l = AppLocalizations.of(c);
-    return ChartFrame(
-      title: l?.healthRmssdOfLastNights(have.length, days) ??
-          'HRV, ${have.length} of the last $days nights',
-      unit: 'ms',
-      height: 48,
-      yAxis: axis,
-      xLabels: have.length < 2
-          ? const []
-          : [
-              l?.healthNightsAgo(days - 1) ?? '${days - 1} nights ago',
-              l?.healthSubLastNight ?? 'Last night',
-            ],
-      empty: have.length < 2
-          ? NoData(
-              message: l?.healthOneNightNotTrend ?? 'One night is not a trend yet')
-          : null,
+    final heading = l?.healthHeartRateVariability ?? 'Heart rate variability';
+    return SlotScrub(
       series: win,
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: LineChart(win, p.on(C.green), t: animate(c, 1), axis: axis),
+      anchor: end,
+      bars: false,
+      label: heading,
+      color: p.on(C.green),
+      format: (v) => '${v.round()} ms',
+      // The axis calls the last slot "Last night"; so do the panel and slider.
+      dayWord: (i) =>
+          i == win.length - 1 ? (l?.healthSubLastNight ?? 'Last night') : null,
+      builder: (c, pick, scrub, panel) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ChartFrame(
+            title: l?.healthRmssdOfLastNights(have.length, days) ??
+                'HRV, ${have.length} of the last $days nights',
+            unit: 'ms',
+            height: 48,
+            yAxis: axis,
+            xLabels: have.length < 2
+                ? const []
+                : [
+                    l?.healthNightsAgo(days - 1) ?? '${days - 1} nights ago',
+                    l?.healthSubLastNight ?? 'Last night',
+                  ],
+            empty: have.length < 2
+                ? NoData(
+                    message: l?.healthOneNightNotTrend ??
+                        'One night is not a trend yet')
+                : null,
+            series: win,
+            child: scrub(CustomPaint(
+              size: Size.infinite,
+              painter: LineChart(win, p.on(C.green),
+                  t: animate(c, 1),
+                  axis: axis,
+                  selectedX: pick == null ? null : pick / (win.length - 1)),
+            )),
+          ),
+          if (have.length >= 2) ...[const SizedBox(height: S.x3), panel],
+        ],
       ),
     );
   }

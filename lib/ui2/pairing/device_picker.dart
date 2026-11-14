@@ -38,20 +38,52 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart';
+import '../../ble/band_identity.dart' show PairConfirmation, PairOutcome;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart'
-    show BleUnavailableException, bandStatusFor, classifyBleBlocker;
+    show
+        BleUnavailableException,
+        bandStatusFor,
+        classifyBleBlocker,
+        kMaxConcurrentSecondaryLinks;
 import '../../ble/hrs_link.dart';
 import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
+import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../onboarding/pairing.dart' show PairingScreen;
 import '../ui2.dart';
+import 'add_device_flow.dart';
+import 'pair_band_view.dart';
+import 'category_filter_pills.dart';
+import 'pair_dispatch.dart';
+import 'pair_text.dart'
+    show PairFilter, pairFilterOf, pairL10n, slotPill;
 import 'whoop_firmware_warning.dart';
+import '../../ble/slot_comparison.dart' show slotComparisonFor;
 import '../profile/devices.dart'
-    show kPairableSensors, refuseIfSensorCapReached, sensorIcon;
+    show
+        kPairableSensors,
+        refuseIfSensorCapReached,
+        sensorCapReached,
+        sensorIcon;
 import '../profile/pair_sensor.dart' show PairSensorScreen;
 import '../profile/profile.dart' show SetRow;
+
+/// Refreshes the sensor list once a pairing has been SAVED. The pairing is
+/// already durable here, so a failing refresh must not surface as "could not
+/// pair" (the caller's catch would say exactly that). The list reloads on its
+/// next load. Returns whether the refresh worked.
+@visibleForTesting
+Future<bool> refreshAfterPair(Future<void> Function() refresh) async {
+  try {
+    await refresh();
+    return true;
+  } catch (e) {
+    debugPrint('[pair] sensor list refresh failed after a saved pairing: $e');
+    return false;
+  }
+}
 
 class DevicePickerScreen extends StatefulWidget {
   /// Walk past pairing entirely. Non-null only at true first-run onboarding
@@ -70,14 +102,22 @@ class DevicePickerScreen extends StatefulWidget {
   /// not something to offer beside a chest strap in the same list.
   final bool includeBand;
 
+  @visibleForTesting
+  final Future<String?> Function()? debugScanHeldBackReason;
+
   const DevicePickerScreen(
-      {super.key, this.onSkip, this.onBack, this.includeBand = true});
+      {super.key,
+      this.onSkip,
+      this.onBack,
+      this.includeBand = true,
+      this.debugScanHeldBackReason});
 
   @override
   State<DevicePickerScreen> createState() => _DevicePickerScreenState();
 }
 
-class _DevicePickerScreenState extends State<DevicePickerScreen> {
+class _DevicePickerScreenState extends State<DevicePickerScreen>
+    implements AddDeviceIo, PairBandHost {
   final _query = TextEditingController();
   String _q = '';
 
@@ -86,9 +126,21 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
   String? _heldBack;
   String? _problem;
 
+  /// The filter pill chosen over the results (null = All) and the good-news
+  /// line shown after a secondary sensor paired.
+  final _kind = ValueNotifier<PairFilter?>(null);
+  String? _notice;
+
   /// Remote id of whichever candidate — nearby row or category tile — is
   /// mid-pair, so the rest of the screen can stop accepting taps rather
   /// than starting a second pairing attempt underneath the first.
+  /// The one flow every tap goes through, so a second tap mid-flow is
+  /// refused ([AddDeviceFlow.running]).
+  late final AddDeviceFlow _flow = AddDeviceFlow(this);
+
+  /// True while [_flow] runs; disables the list (see [DevicePickerView.locked]).
+  bool _locked = false;
+
   String? _busy;
 
   static List<BandEntry> get _notifyEntries =>
@@ -98,12 +150,16 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
   void initState() {
     super.initState();
     _query.addListener(() => setState(() => _q = _query.text));
-    unawaited(_start());
+    _kind.addListener(() => setState(() {}));
+    // The first-run band list does not scan: on iOS a scan creates the central
+    // that keeps the system pairing sheet from opening.
+    if (!widget.includeBand) unawaited(_start());
   }
 
   @override
   void dispose() {
     _query.dispose();
+    _kind.dispose();
     // Ends THIS screen's scan early if it is the one running — see
     // `PairSensorScreen.dispose` for why this is never a bare
     // `FlutterBluePlus.stopScan()`, and `HrsLink._scanOwner` for why the
@@ -115,8 +171,10 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
   }
 
   Future<void> _start() async {
-    final held = await HrsLink.scanHeldBackReason();
-    if (!mounted) return;
+    if (_locked || _scanning) return;
+    final held = await (widget.debugScanHeldBackReason?.call() ??
+        HrsLink.scanHeldBackReason());
+    if (!mounted || _locked || _scanning) return;
     if (held != null) {
       setState(() => _heldBack = held);
       return;
@@ -133,7 +191,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
     });
     try {
       await HrsLink.scanForAny(
-        _notifyEntries,
+        addDeviceScanEntries(),
         owner: this,
         onResults: (c) {
           if (mounted) setState(() => _found = c);
@@ -154,76 +212,170 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
     }
   }
 
-  /// Pair a candidate found by the live "Nearby" scan directly — one tap,
-  /// no intermediate screen, because the scan already told us which
-  /// registry entry it is.
-  Future<void> _pickNearby(BandCandidate cand) async {
+  /// A device found by the live scan was tapped. [AddDeviceFlow] decides what
+  /// it is (a band or a sensor), asks the user where that matters, and calls
+  /// back here to do the pairing.
+  Future<void> _pickNearby(BandCandidate cand) => _runTap(cand);
+
+  Future<void> _replaceBand() => _runTap(null);
+
+  Future<void> _runTap(BandCandidate? cand) async {
+    // One flow at a time: a second tap while a sheet, a confirm or the
+    // unpair of the old band is still running starts nothing.
+    if (_locked || _flow.running) return;
+    final l = AppLocalizations.of(context);
+    setState(() {
+      _problem = null;
+      _notice = null;
+      _locked = true;
+    });
+    final AddDeviceResult result;
+    try {
+      result = cand == null
+          ? await _flow.replaceMainBand(context)
+          : await _flow.onTap(context, cand);
+    } finally {
+      if (mounted) setState(() => _locked = false);
+    }
+    if (!mounted) return;
+    switch (result.outcome) {
+      case AddDeviceOutcome.pairedSecondary:
+      case AddDeviceOutcome.pairedOther:
+        setState(() {
+          _found = const [];
+          if (result.outcome == AddDeviceOutcome.pairedSecondary) {
+            _notice = l?.pairSecondaryPaired ?? 'You paired a secondary sensor.';
+          }
+        });
+        await _afterPair();
+      case AddDeviceOutcome.failed:
+        setState(() => _problem = result.message);
+      case AddDeviceOutcome.bandFlowHeldBack:
+        // The same restart guidance a held-back scan shows.
+        setState(() => _heldBack = result.message);
+      case AddDeviceOutcome.cancelled:
+      case AddDeviceOutcome.openedBandFlow:
+        break;
+    }
+  }
+
+  @override
+  bool get hasMainBand => context.read<AppState>().isPaired;
+
+  @override
+  String? get mainBandRemoteId => context.read<AppState>().paired?.remoteId;
+
+  @override
+  String? get mainBandName => context.read<AppState>().strapName;
+
+  @override
+  Future<BandFlowResult> openBandFlow(BandEntry band,
+          {required String? remoteId, bool modelKnown = true, bool replacing = false}) =>
+      _openEntry(band, remoteId: remoteId, modelKnown: modelKnown, replacing: replacing, returnOnPair: true);
+
+  @override
+  Future<void> stopScan() => HrsLink.stopScanIfRunning(this);
+
+  @override
+  Future<String?> mainBandBlockedReason() => HrsLink.scanHeldBackReason();
+
+  /// A category tile, tapped deliberately: the same confirmation a nearby row
+  /// gets (a workout sensor and no band asks first), then the entry's own
+  /// screen, whose connect-time band refusals go through the same flow.
+  Future<void> _browseEntry(BandEntry entry,
+      {bool modelKnown = false, bool confirmed = false}) async {
+    if (_locked || _flow.running) return;
+    setState(() => _locked = true);
+    final l = AppLocalizations.of(context);
+    try {
+      if (!confirmed && !await _flow.confirmBrowse(context, entry)) return;
+      if (!mounted) return;
+      await _openEntry(entry, modelKnown: modelKnown);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _problem = l?.pairSensorCouldNotPair(e.toString()) ??
+            'Could not pair that device: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _locked = false);
+    }
+  }
+
+  @override
+  void pickBand(BandEntry entry) => unawaited(_browseEntry(entry, modelKnown: true));
+
+  @override
+  void strapOnlyConfirmed() => unawaited(_browseEntry(kBleHrs, confirmed: true));
+
+  /// The pairing operation itself, for [AddDeviceFlow].
+  @override
+  Future<PairOutcome> pair(
+      BandCandidate cand, BandEntry entry, PairConfirmation? confirmation) async {
     final sensor =
-        kPairableSensors.where((s) => s.entry.id == cand.entryId).firstOrNull;
-    if (sensor == null) return; // Framed entries never reach this list.
-    // Only the ring's own screen asks for the key it may already hold; a
-    // direct pair here would install a new one and steer the user to a reset.
-    if (sensor.entry.id == kOura.id) return _openEntry(sensor.entry);
+        kPairableSensors.where((s) => s.entry.id == entry.id).firstOrNull;
+    final l = AppLocalizations.of(context);
+    if (sensor == null) {
+      return PairOutcome.failed(l?.devicePickerCannotPairFromHere ??
+          'That device cannot be paired from this screen.');
+    }
     // Re-checked on every pair: this screen stays open after one for the
     // next, so `addSensor`'s check at the door does not bound a visit.
     // The minted id is the row only `pairNotifySensor` writes; a `pick`
-    // callback mints its own, so it is checked by adapter alone.
-    if (await refuseIfSensorCapReached(context,
-            repairingId: sensor.pick == null
-                ? HrsLink.mintDeviceId(sensor.entry, cand.device.remoteId.str)
-                : null,
-            adapterId: sensor.entry.id) ||
-        !mounted) {
-      return;
+    // callback mints its own, so it is checked by adapter alone. The reason
+    // shows as this pair's failure, like any other.
+    if (sensorCapReached(await LocalDb.deviceRows(),
+        repairingId: sensor.pick == null
+            ? HrsLink.mintDeviceId(sensor.entry, cand.device.remoteId.str)
+            : null,
+        adapterId: sensor.entry.id)) {
+      return PairOutcome.failed(
+          l?.devicesSensorLimit(kMaxConcurrentSecondaryLinks) ??
+              'This phone will pair at most $kMaxConcurrentSecondaryLinks '
+                  'sensors alongside your band. Remove one to add another.');
     }
-    setState(() {
-      _busy = cand.device.remoteId.str;
-      _problem = null;
-    });
+    if (!mounted) return const PairOutcome.failed('');
+    setState(() => _busy = cand.device.remoteId.str);
     // OUR OWN SCAN, ENDED FIRST. It runs for a 15 s window and the user has
     // tapped a row several seconds into it, so without this the radio keeps
     // scanning through the connect — and every `onResults` batch reorders the
-    // list under the finger that is already committed to one row. `PairSensor`
-    // does not do this because it has one entry and a shorter list; here the
-    // reorder is visible.
-    //
-    // AWAITED, so the connect below starts on a radio that has really stopped
-    // scanning rather than one still tearing the scan down. Read before the
-    // await, because `context` after one is the lint's whole point.
-    final l = AppLocalizations.of(context);
+    // list under the finger that is already committed to one row. AWAITED, so
+    // the connect below starts on a radio that has really stopped scanning.
     await HrsLink.stopScanIfRunning(this);
-    String? failure;
+    PairOutcome outcome;
     try {
-      failure = sensor.pick != null
-          ? await sensor.pick!(cand.device)
-          : await HrsLink.pairNotifySensor(sensor.entry, cand.device,
-              label: cand.label);
+      outcome = await pairRegisteredEntry(sensor.entry, cand.device,
+          label: cand.label,
+          earlierBand: cand.alsoBand,
+          confirmation: confirmation);
     } catch (e) {
-      failure = l?.pairSensorCouldNotPair(e.toString()) ?? 'Could not pair that device: $e';
+      outcome = PairOutcome.failed(
+          l?.pairSensorCouldNotPair(e.toString()) ?? 'Could not pair that device: $e');
     }
-    if (!mounted) return;
-    setState(() {
-      _busy = null;
-      _problem = failure;
-      if (failure == null) _found = const [];
-    });
-    if (failure == null) await _afterPair();
+    if (mounted) setState(() => _busy = null);
+    return outcome;
   }
 
-  /// A category or brand row, tapped deliberately rather than found live.
-  Future<void> _openEntry(BandEntry entry) async {
+  /// A category or brand row, tapped deliberately rather than found live; or
+  /// a scanned band handed over by [AddDeviceFlow] ([remoteId], [modelKnown]
+  /// as [AddDeviceIo.openBandFlow]).
+  Future<BandFlowResult> _openEntry(BandEntry entry,
+      {String? remoteId, bool modelKnown = true, bool replacing = false, bool returnOnPair = false}) async {
+    // A handoff from AddDeviceFlow awaits the scan shutdown first; the user may
+    // have left meanwhile, and neither branch below may touch a disposed context.
+    if (!mounted) return BandFlowResult.closed;
     if (entry.isFramed) {
       // The pushed screen covers this one without disposing it, so this
       // screen's 15 s scan would keep the scan lock — and "Find my band"
       // would sit queued behind the rest of it, spinner already running,
       // before its own scan even starts. Nothing here can show its results.
       await HrsLink.stopScanIfRunning(this);
-      if (!mounted) return;
+      if (!mounted) return BandFlowResult.closed;
       await Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => const PairingScreen(),
+        builder: (_) => PairingScreen(
+            entry: entry, modelKnown: modelKnown, remoteId: remoteId, replacing: replacing),
       ));
       if (mounted) await _afterPair();
-      return;
+      return BandFlowResult.closed;
     }
     // `.where(...).firstOrNull`, never `firstWhere`: the category list comes
     // from `kBandRegistry` and the pairing steps from `kPairableSensors`, two
@@ -236,7 +388,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       setState(() => _problem = AppLocalizations.of(context)
               ?.devicePickerCannotPairFromHere ??
           'That device cannot be paired from this screen.');
-      return;
+      return BandFlowResult.closed;
     }
     // Re-checked on every tap: this screen stays open after a pair, and the
     // onboarding and re-pair routes reach it without `addSensor`'s check.
@@ -245,14 +397,15 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
     if (await refuseIfSensorCapReached(context,
             adapterId: sensor.entry.id, anyOfAdapter: true) ||
         !mounted) {
-      return;
+      return BandFlowResult.closed;
     }
     // Same as the framed branch: the sensor's own scan queues behind ours.
     await HrsLink.stopScanIfRunning(this);
-    if (!mounted) return;
-    await Navigator.of(context).push(MaterialPageRoute<void>(
+    if (!mounted) return BandFlowResult.closed;
+    final result = await Navigator.of(context).push(MaterialPageRoute<BandFlowResult>(
       builder: (_) => PairSensorScreen(
         entry: sensor.entry,
+        returnOnPair: returnOnPair,
         onPicked: sensor.pick,
         // The ring alone can be paired with the key its own app installed —
         // see `pairOuraRingWithKey`.
@@ -262,11 +415,12 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       ),
     );
     if (mounted) await _afterPair();
+    return result ?? BandFlowResult.closed;
   }
 
   Future<void> _afterPair() async {
     // Neither sub-flow tells AppState a `device` row changed underneath it.
-    if (mounted) await context.read<AppState>().refreshSensors();
+    if (mounted) await refreshAfterPair(context.read<AppState>().refreshSensors);
     // A framed pair changes `AppState.isPaired`, which nothing here watches
     // directly — the pushed `PairingScreen` closes itself on success, and the
     // gate (or `RePair`) reacts to the flag underneath.
@@ -281,21 +435,25 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
   @override
   Widget build(BuildContext c) {
     final l = AppLocalizations.of(c);
-    final entries = [
-      if (widget.includeBand) kWhoopGen4,
-      ..._notifyEntries,
-    ];
+    if (widget.includeBand) {
+      return PairBandView(
+        entries: firstRunBandEntries(), host: this, onSkip: widget.onSkip,
+        onBack: widget.onBack, problem: _problem,
+      );
+    }
+    final entries = _notifyEntries;
     return DevicePickerView(
       query: _query,
-      title: l?.devicePickerTitle ?? 'Connect your devices',
-      subtitle:
-          l?.devicePickerSubtitle ?? 'Bring whatever you use. You can add more anytime.',
+      title: l?.pairAddDevice ?? 'Add a device',
+      subtitle: l?.pairAddDeviceSubtitle ??
+          'Scan once. After the scan we tell you whether a device is a band or a sensor.',
       found: _found,
       showWhoopWarning: widget.includeBand,
       scanning: _scanning,
       heldBack: _heldBack,
       problem: _problem,
       busyRemoteId: _busy,
+      locked: _locked,
       categories: [
         for (final e in entries)
           if ((_matches(
@@ -314,9 +472,12 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
               icon: _categoryIcon(e),
             ),
       ],
-      onScan: _scan,
+      onScan: _heldBack == null ? _start : _scan,
       onPickNearby: _pickNearby,
-      onOpenEntry: _openEntry,
+      onReplaceBand: hasMainBand ? _replaceBand : null,
+      onOpenEntry: _browseEntry,
+      kindSelection: _kind,
+      notice: _notice,
       onSkip: widget.onSkip,
       onBack: widget.onBack,
     );
@@ -342,10 +503,23 @@ class DevicePickerView extends StatelessWidget {
   final List<({BandEntry entry, String blurb, IconData icon})> categories;
 
   final VoidCallback? onScan;
+  final VoidCallback? onReplaceBand;
   final void Function(BandCandidate)? onPickNearby;
   final void Function(BandEntry)? onOpenEntry;
   final VoidCallback? onSkip;
   final VoidCallback? onBack;
+
+  /// The filter pills over the results: the chosen kind (null = All) and
+  /// its setter. Null [kindSelection] draws no pills. The owner listens and
+  /// rebuilds this view when it changes.
+  final ValueNotifier<PairFilter?>? kindSelection;
+
+  /// A good-news line shown above the results, e.g. after a sensor paired.
+  final String? notice;
+
+  /// A pairing flow is running (a sheet, a confirm, the old band's unpair):
+  /// every row and the scan button wait for it.
+  final bool locked;
 
   const DevicePickerView({
     super.key,
@@ -360,17 +534,54 @@ class DevicePickerView extends StatelessWidget {
     this.busyRemoteId,
     this.categories = const [],
     this.onScan,
+    this.onReplaceBand,
     this.onPickNearby,
     this.onOpenEntry,
     this.onSkip,
     this.onBack,
+    this.kindSelection,
+    this.notice,
+    this.locked = false,
   });
+
+  static DeviceKind? _kindOf(String entryId) =>
+      kBandRegistry.where((e) => e.id == entryId).firstOrNull?.kind;
+
+  /// What a found device physically is: the band it turned out to be when
+  /// it passed itself off as a heart-rate sensor, else its own entry's kind.
+  static DeviceKind? _foundKind(BandCandidate f) =>
+      f.alsoBand?.entry.kind ?? _kindOf(f.entryId);
+
+  static PairFilter? _groupOf(BandCandidate f) {
+    final k = _foundKind(f);
+    return k == null ? null : pairFilterOf(k);
+  }
 
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
-    final busy = busyRemoteId != null;
+    final busy = busyRemoteId != null || locked;
+    // The pills read the whole list; the filter narrows what is drawn.
+    final kinds = [
+      for (final f in found) ?_foundKind(f),
+      for (final e in this.categories) e.entry.kind,
+    ];
+    // A kind the search has emptied out is no filter: the pills hide when
+    // one kind is left, and a hidden selection would hide every row.
+    final groups = {for (final k in kinds) ?pairFilterOf(k)};
+    final selected = kindSelection?.value;
+    final group = groups.length > 1 && groups.contains(selected) ? selected : null;
+    final shownFound = group == null
+        ? found
+        : [for (final f in found) if (_groupOf(f) == group) f];
+    // Shadows the field on purpose: the rows below keep their original text.
+    final categories = group == null
+        ? this.categories
+        : [
+            for (final e in this.categories)
+              if (pairFilterOf(e.entry.kind) == group) e,
+          ];
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -389,8 +600,24 @@ class DevicePickerView extends StatelessWidget {
                 ],
                 Text(subtitle, style: F.body.copyWith(color: p.ink3)),
                 const SizedBox(height: S.x4),
+                if (onReplaceBand != null) ...[
+                  BigButton(l?.pairReplaceMyBand ?? 'Replace my band',
+                      key: const ValueKey('device-picker-replace-band'),
+                      soft: true, onTap: busy ? null : onReplaceBand),
+                  const SizedBox(height: S.x4),
+                ],
                 _SearchField(controller: query),
+                if (kindSelection != null && groups.length > 1) ...[
+                  const SizedBox(height: S.x3),
+                  CategoryFilterPills(
+                      kinds: kinds, selection: kindSelection!),
+                ],
                 const SizedBox(height: S.x5),
+                if (notice != null) ...[
+                  StatusCard(notice!, '',
+                      icon: LucideIcons.circleCheck),
+                  const SizedBox(height: S.x4),
+                ],
                 if (heldBack != null)
                   StatusCard(
                     l?.pairSensorSearchWouldHideSheet ??
@@ -402,11 +629,19 @@ class DevicePickerView extends StatelessWidget {
                   )
                 else
                   _NearbySection(
-                    found: found,
+                    found: shownFound,
                     scanning: scanning,
                     busyRemoteId: busyRemoteId,
-                    onTap: onPickNearby,
+                    onTap: locked ? null : onPickNearby,
                   ),
+                if (heldBack == null && onScan != null) ...[
+                  const SizedBox(height: S.x3),
+                  BigButton(l?.pairSearchDevices ?? 'Search for devices',
+                      key: const ValueKey('device-picker-scan'),
+                      icon: LucideIcons.search,
+                      soft: true,
+                      onTap: busy || scanning ? null : onScan),
+                ],
                 if (problem != null) ...[
                   const SizedBox(height: S.x4),
                   StatusCard(
@@ -432,6 +667,7 @@ class DevicePickerView extends StatelessWidget {
                                 ? null
                                 : () => onOpenEntry?.call(categories[i].entry),
                           ),
+                          ?_slotChip(c, categories[i].entry),
                           if (i < categories.length - 1)
                             Divider(color: p.line, height: 1),
                             ],
@@ -580,7 +816,9 @@ class _NearbySection extends StatelessWidget {
         ? (l?.devicesConnected ?? 'Connected')
         : '${cand.rssi} dBm';
     final idle = cand.label == null ? '…$tail · $signal' : signal;
-    return SetRow(
+    // Where it fits, read off the band it turned out to be when it passed
+    // itself off as a heart-rate sensor.
+    final row = SetRow(
       sensorIcon(cand.entryId),
       C.green,
       cand.label ?? cand.entryId,
@@ -599,7 +837,28 @@ class _NearbySection extends StatelessWidget {
       chevron: !busy,
       onTap: busy || onTap == null ? null : () => onTap!(cand),
     );
+    final entry = cand.alsoBand?.entry ??
+        kBandRegistry.where((e) => e.id == cand.entryId).firstOrNull;
+    final chip = entry == null ? null : _slotChip(c, entry);
+    if (chip == null) return row;
+    return Column(children: [row, chip]);
   }
+}
+
+/// The "Every day" / "Workouts only" chip under a device row, or null when
+/// the device fits neither column.
+
+Widget? _slotChip(BuildContext c, BandEntry e) {
+  final slot = slotComparisonFor(e).slot;
+  if (slot == null) return null;
+  return Align(
+    key: ValueKey('row-slot-${e.id}'),
+    alignment: AlignmentDirectional.centerStart,
+    child: Padding(
+      padding: const EdgeInsets.only(bottom: S.x3),
+      child: slotPill(pairL10n(c), slot),
+    ),
+  );
 }
 
 /// The one-line description under each device in the picker, localised.

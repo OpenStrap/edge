@@ -35,6 +35,7 @@ import '../l10n/decimal_text.dart' show parseTypedNumber;
 import '../l10n/presentation_text.dart';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -177,6 +178,8 @@ class Scrubber extends StatelessWidget {
     // either direction places the cursor rather than doing nothing.
     final up = ((v ?? -step) + step).clamp(0.0, 1.0);
     final down = ((v ?? 1 + step) - step).clamp(0.0, 1.0);
+    // A local function so the heavy-work guard can follow the callback.
+    void end() => onEnd?.call();
     return Semantics(
       label: label,
       slider: true,
@@ -201,22 +204,464 @@ class Scrubber extends StatelessWidget {
               behavior: HitTestBehavior.opaque,
               onLongPressStart: (e) => set(e.localPosition),
               onLongPressMoveUpdate: (e) => set(e.localPosition),
-              onLongPressEnd: (_) => onEnd?.call(),
-              onLongPressCancel: () => onEnd?.call(),
+              onLongPressEnd: (_) => end(),
+              onLongPressCancel: end,
               child: child,
             );
           }
-          return Listener(
-            // Opaque, like Pressable. A `Listener` defers to its child by
-            // default, so the strip was only touchable where the painter
-            // happened to claim a hit — which is a coincidence, not a target.
+          // Decide dominance before accepting the arena: a diagonal move can
+          // cross horizontal slop while still belonging to the page scroll.
+          // Raw recognizers don't inherit the device's touch slop the way
+          // GestureDetector does, so hand it over explicitly.
+          final gs = MediaQuery.maybeGestureSettingsOf(c);
+          return RawGestureDetector(
             behavior: HitTestBehavior.opaque,
-            onPointerDown: (e) => set(e.localPosition),
-            onPointerMove: (e) => set(e.localPosition),
+            gestures: {
+              TapGestureRecognizer: GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+                () => TapGestureRecognizer(),
+                (r) => r
+                  ..gestureSettings = gs
+                  ..onTapUp = (e) => set(e.localPosition),
+              ),
+              _ScrubDragRecognizer: GestureRecognizerFactoryWithHandlers<_ScrubDragRecognizer>(
+                () => _ScrubDragRecognizer(),
+                (r) {
+                  r.gestureSettings = gs;
+                  r.dragStartBehavior = DragStartBehavior.down;
+                  r.onlyAcceptDragOnThreshold = true;
+                  r.onStart = (e) => set(e.localPosition);
+                  r.onUpdate = (e) => set(e.localPosition);
+                  r.onEnd = (_) => end();
+                  r.onCancel = end;
+                },
+              ),
+              LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+                () => LongPressGestureRecognizer(),
+                (r) {
+                  r.gestureSettings = gs;
+                  r.onLongPressStart = (e) => set(e.localPosition);
+                  r.onLongPressMoveUpdate = (e) => set(e.localPosition);
+                  r.onLongPressEnd = (_) => end();
+                  r.onLongPressCancel = end;
+                },
+              ),
+            },
             child: child,
           );
         },
       ),
+    );
+  }
+}
+
+/// Owns the pending pointer displacement; Flutter owns the drag after intent
+/// is accepted. A long press uses its separate recognizer and stays free-axis.
+class _ScrubDragRecognizer extends HorizontalDragGestureRecognizer {
+  Offset _pending = Offset.zero;
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    _pending = Offset.zero;
+    super.addAllowedPointer(event);
+  }
+
+  @override
+  void handleEvent(PointerEvent event) {
+    if (event is PointerMoveEvent) _pending += event.delta;
+    if (event is PointerPanZoomUpdateEvent) _pending = event.pan;
+    super.handleEvent(event);
+  }
+
+  @override
+  bool hasSufficientGlobalDistanceToAccept(PointerDeviceKind kind, double? slop) =>
+      super.hasSufficientGlobalDistanceToAccept(kind, slop) &&
+      _pending.dx.abs() > 1.5 * _pending.dy.abs();
+}
+
+/// One cell of a [ChartPanel]: a label and what the series reads at the shown
+/// instant. A null [value] reads a dash — nothing was recorded there, and the
+/// panel never fills it from a neighbour.
+@immutable
+class ChartPanelCell {
+  final String label;
+
+  /// The series colour: the swatch beside the label.
+  final Color? color;
+  final String? value;
+
+  /// The value's own ink; the plain ink when null.
+  final Color? valueColor;
+
+  /// Keep the swatch's width when [color] is null, so a cell whose colour
+  /// depends on its value does not rewrap its label between values.
+  final bool reserveSwatch;
+  const ChartPanelCell(this.label,
+      {this.color, this.value, this.valueColor, this.reserveSwatch = false});
+}
+
+/// ── CHART PANEL ── what a chart reads at one instant, always on screen ────
+///
+/// An inset box under the chart that is there at rest (`LATEST · <day>`, the
+/// newest reading) and while a finger is on the chart (`SELECTED · <day>`), so
+/// the chart never changes height under the thumb and nothing is readable only
+/// while it is held. Every series is listed with its value at that instant; a
+/// series with nothing there reads a dash — never a neighbour's value, never an
+/// interpolation.
+///
+/// One semantic owner at a time. While a finger is on the chart the slider
+/// ([Scrubber.describe]) speaks the whole selected reading, so the caption and
+/// the cells are excluded. At rest the slider has nothing selected, so the
+/// panel speaks the LATEST reading itself: the caption and every cell as one
+/// `LATEST · <day>, label value, …` node. Either way each shown value is
+/// spoken once. What the slider does not say is spoken here always: each of
+/// [stats] as one `label value` node, and [onOpen] as an `Open <day>` button.
+class ChartPanel extends StatelessWidget {
+  /// The caption's time: a day or a clock time. Null reads a dash.
+  final String? time;
+
+  /// A finger is on the chart: SELECTED, with a border and caption in [color].
+  final bool scrubbed;
+
+  /// The series colour for the caption and the border while [scrubbed].
+  final Color color;
+
+  /// The series read at [time]. A single cell is drawn large.
+  final List<ChartPanelCell> cells;
+
+  /// Summary figures of that one series (a 7-day average), spoken `label value`.
+  final List<ChartPanelCell> stats;
+
+  /// Every [time] the panel can show. The caption reserves the height of the
+  /// tallest of them, so a scrub never reflows the panel.
+  final List<String> timeSpan;
+
+  /// Opens the shown day; null on a day with no value, and then the panel
+  /// offers nothing to press and draws no chevron. When it is set the panel
+  /// ends its value line in a chevron.
+  final VoidCallback? onOpen;
+  final String? openLabel;
+
+  /// An optional small line under the cells (which devices fed the shown day).
+  /// Never spoken on its own: at rest it ends the resting reading; while
+  /// scrubbed the slider owns it.
+  final String? note;
+
+  /// Keep the note's line height even when [note] is empty, so the panel does
+  /// not change size between days with and without one.
+  final bool reserveNote;
+
+  const ChartPanel({
+    super.key,
+    required this.time,
+    required this.scrubbed,
+    required this.color,
+    required this.cells,
+    this.stats = const [],
+    this.timeSpan = const [],
+    this.onOpen,
+    this.openLabel,
+    this.note,
+    this.reserveNote = false,
+  });
+
+  static const panelKey = ValueKey('chart-panel');
+  static const captionKey = ValueKey('chart-panel-caption');
+  static const valueKey = ValueKey('chart-panel-value');
+  static const noteKey = ValueKey('chart-panel-note');
+  static const absent = '—';
+
+  /// The tallest caption of a span, per (span, width, style, scale, direction,
+  /// strings): measured once, not on every pointer move.
+  static final _captionHeights = <Object, double>{};
+
+  static const _border = 1.5;
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final big = cells.length == 1;
+    // Container counts the border as padding; take it off so a scrub moves
+    // nothing inside the panel.
+    final inset = scrubbed ? _border : 0.0;
+    final panel = Container(
+      key: panelKey,
+      decoration: BoxDecoration(
+        color: p.card2,
+        borderRadius: R.rMd,
+        border: scrubbed ? Border.all(color: color, width: _border) : null,
+      ),
+      padding: EdgeInsets.symmetric(
+          horizontal: S.x3 - inset, vertical: S.x2 - inset),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            container: !scrubbed,
+            label: scrubbed ? null : _reading(c),
+            child: ExcludeSemantics(child: _caption(c, p)),
+          ),
+          const SizedBox(height: S.x1),
+          _withOpenMark(
+            c,
+            p,
+            big: big,
+            child: _equal(c, [
+              for (final x in cells)
+                ExcludeSemantics(child: _cell(c, p, x, big: big)),
+            ]),
+          ),
+          if (stats.isNotEmpty) ...[
+            const SizedBox(height: S.x2),
+            _equal(c, [
+              for (final x in stats)
+                KeyedSubtree(
+                  key: ValueKey('chart-panel-stat:${x.label}'),
+                  child: Semantics(
+                    container: true,
+                    label: '${x.label} ${x.value ?? _none(c)}',
+                    child: ExcludeSemantics(child: _cell(c, p, x)),
+                  ),
+                ),
+            ]),
+          ],
+          if (reserveNote || (note ?? '').isNotEmpty) ...[
+            const SizedBox(height: S.x1),
+            ExcludeSemantics(
+              child: Text(
+                (note ?? '').isEmpty ? ' ' : note!,
+                key: noteKey,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: F.over.copyWith(color: p.ink3),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+    if (onOpen == null) return panel;
+    return Semantics(
+      container: true,
+      button: true,
+      label: openLabel,
+      onTap: onOpen,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onOpen,
+        child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: S.tap), child: panel),
+      ),
+    );
+  }
+
+  /// What a screen reader says for a value that was not recorded.
+  static String _none(BuildContext c) =>
+      AppLocalizations.of(c)?.metricDetailNoRecordLabel ?? 'No record';
+
+  /// The resting reading as one sentence: the caption, then each cell.
+  String _reading(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    final none = _none(c);
+    final reading = [
+      '${l?.chartPanelLatest ?? 'LATEST'} · ${time ?? absent}',
+      for (final x in cells) '${x.label} ${x.value ?? none}',
+    ].join(', ');
+    return (note ?? '').isEmpty ? reading : '$reading · $note';
+  }
+
+  Widget _caption(BuildContext c, P p) {
+    final l = AppLocalizations.of(c);
+    final latest = l?.chartPanelLatest ?? 'LATEST';
+    final selected = l?.chartPanelSelected ?? 'SELECTED';
+    final measure = F.over.copyWith(fontWeight: FontWeight.w700);
+    final style = measure.copyWith(color: scrubbed ? color : p.ink2);
+    final scaler = MediaQuery.textScalerOf(c);
+    final dir = Directionality.of(c);
+    final now = time ?? absent;
+    return LayoutBuilder(builder: (_, box) {
+      double tallest(Iterable<String> times) {
+        var h = 0.0;
+        for (final mode in [latest, selected]) {
+          for (final at in times) {
+            final tp = TextPainter(
+              text: TextSpan(text: '$mode · $at', style: measure),
+              textDirection: dir,
+              textScaler: scaler,
+            )..layout(maxWidth: box.maxWidth);
+            h = math.max(h, tp.height);
+            tp.dispose();
+          }
+        }
+        return h;
+      }
+
+      final key = (
+        measure, scaler, box.maxWidth, dir, '$latest|$selected',
+        Object.hashAll(timeSpan), timeSpan.length
+      );
+      var height = _captionHeights[key];
+      if (height == null) {
+        height = tallest(timeSpan);
+        if (_captionHeights.length > 64) _captionHeights.clear();
+        _captionHeights[key] = height;
+      }
+      // A caption the span does not hold is measured alone.
+      if (!timeSpan.contains(now)) height = math.max(height, tallest([now]));
+      return ConstrainedBox(
+        constraints: BoxConstraints(minHeight: height),
+        child: Text('${scrubbed ? selected : latest} · $now',
+            key: captionKey, style: style),
+      );
+    });
+  }
+
+  /// The cells with a chevron at the trailing edge, centred on the value line,
+  /// when the day opens. A panel that offers to open ([openLabel]) keeps the
+  /// chevron's width on a day that cannot, so scrubbing onto a gap day never
+  /// rewraps a label or changes the height. The chevron is only a picture:
+  /// the panel already speaks `Open <day>`.
+  Widget _withOpenMark(BuildContext c, P p,
+      {required bool big, required Widget child}) {
+    if (onOpen == null && openLabel == null) return child;
+    const size = 18.0;
+    final tp = TextPainter(
+      text: TextSpan(
+          text: absent,
+          style: (big ? F.n34 : F.cap).copyWith(
+              fontWeight: big ? FontWeight.w700 : FontWeight.w600,
+              fontFeatures: const [FontFeature.tabularFigures()])),
+      textDirection: Directionality.of(c),
+      textScaler: MediaQuery.textScalerOf(c),
+    )..layout();
+    final line = tp.height;
+    tp.dispose();
+    final rtl = Directionality.of(c) == TextDirection.rtl;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(child: child),
+        const SizedBox(width: S.x2),
+        SizedBox(
+          width: size,
+          height: line,
+          child: onOpen == null
+              ? null
+              : OverflowBox(
+                  minHeight: size,
+                  maxHeight: size,
+                  child: ExcludeSemantics(
+                    child: Icon(
+                        rtl ? LucideIcons.chevronLeft : LucideIcons.chevronRight,
+                        size: size,
+                        color: p.ink3),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  /// Equal-width cells: one row when they fit, wrapped when they do not.
+  Widget _equal(BuildContext c, List<Widget> items) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    final scale = math.max(1.0, MediaQuery.textScalerOf(c).scale(1));
+    const gap = S.x3;
+    final minW = 92.0 * scale;
+    return LayoutBuilder(builder: (_, box) {
+      final w = box.maxWidth;
+      final cols = w.isFinite
+          ? ((w + gap) / (minW + gap)).floor().clamp(1, items.length)
+          : items.length;
+      final cellW = w.isFinite ? ((w - gap * (cols - 1)) / cols) - .01 : minW;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var r = 0; r * cols < items.length; r++) ...[
+            if (r > 0) const SizedBox(height: S.x2),
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var k = 0; k < cols; k++) ...[
+                    if (k > 0) const SizedBox(width: gap),
+                    SizedBox(
+                        width: cellW,
+                        child: r * cols + k < items.length
+                            ? items[r * cols + k]
+                            : null),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ],
+      );
+    });
+  }
+
+  Widget _cell(BuildContext c, P p, ChartPanelCell cell, {bool big = false}) {
+    final present = cell.value != null;
+    final style = (big ? F.n34 : F.cap).copyWith(
+        color: present ? (cell.valueColor ?? p.ink) : p.ink3,
+        fontWeight: big ? FontWeight.w700 : FontWeight.w600,
+        fontFeatures: const [FontFeature.tabularFigures()]);
+    // A dash is as tall as a number, so a gap does not shorten the panel.
+    final tp = TextPainter(
+      text: TextSpan(text: absent, style: style),
+      textDirection: Directionality.of(c),
+      textScaler: MediaQuery.textScalerOf(c),
+    )..layout();
+    final height = tp.height;
+    tp.dispose();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (cell.color != null || cell.reserveSwatch) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 2.5),
+              child: SizedBox(
+                width: 9,
+                height: 9,
+                child: cell.color == null
+                    ? null
+                    : DecoratedBox(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: cell.color,
+                          border: Border.all(color: p.line, width: .5),
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(width: S.x1),
+          ],
+          // A label is a constant, so it wraps rather than clipping.
+          Expanded(
+            child: Text(cell.label,
+                style: F.over.copyWith(
+                    color: p.ink3, fontWeight: FontWeight.w600)),
+          ),
+        ]),
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: height),
+            child: Row(key: big ? valueKey : null, children: [
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(cell.value ?? absent, maxLines: 1, style: style),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1363,21 +1808,28 @@ class MetricRow extends StatelessWidget {
         if (sub.isNotEmpty) Text(sub, style: F.over.copyWith(color: p.ink3)),
       ],
     );
+    final big = bigText(c);
+    final valueText = Text(
+      value,
+      style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
+      // At large text the value has a line of its own (see below), and a
+      // value that is a WORD ('What applies to you' → a phrase) can still be
+      // wider than that line. It wraps there rather than overflowing the row.
+      maxLines: big ? null : 1,
+      overflow: big ? null : TextOverflow.ellipsis,
+    );
     final amount = Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.baseline,
       textBaseline: TextBaseline.alphabetic,
       children: [
-        // NOT Flexible. Sharing the row's flex with the name gave the value
-        // a quarter of the width and no more, so 'Respiratory rate' shipped
-        // reading `1… br/min` — a truncated measurement, which this row is
-        // supposed to never do. It is the name that gives way now.
-        Text(
-          value,
-          style: F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
+        // NOT Flexible on the one-line row. Sharing the row's flex with the
+        // name gave the value a quarter of the width and no more, so
+        // 'Respiratory rate' shipped reading `1… br/min` — a truncated
+        // measurement, which this row is supposed to never do. It is the name
+        // that gives way there. On the large-text layout the value is alone
+        // on its line, so flexing there only lets a too-long one wrap.
+        if (big) Flexible(child: valueText) else valueText,
         if (unit.isNotEmpty) ...[
           const SizedBox(width: 2),
           Text(displayUnit, style: F.over.copyWith(color: p.ink3)),
@@ -1426,7 +1878,7 @@ class MetricRow extends StatelessWidget {
               .trim(),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x2),
-        child: bigText(c)
+        child: big
             // A dense row cannot stay one line at accessibility sizes without
             // truncating the measurement, and a truncated measurement is worse
             // than a taller row.

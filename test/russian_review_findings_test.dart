@@ -327,11 +327,16 @@ void main() {
   );
 
   testWidgets('category search accepts original and Russian blurb', (t) async {
-    // The firmware warning banner sits above the list; a tall surface keeps
-    // the filtered row built instead of lazily off-screen.
+    // A tall surface keeps the filtered category row built during search.
     await t.binding.setSurfaceSize(const Size(800, 3000));
     addTearDown(() => t.binding.setSurfaceSize(null));
-    await t.pumpWidget(page(const DevicePickerScreen()));
+    // The replacement action reads the pairing owner while building the list.
+    final app = SensorApp(const []);
+    addTearDown(app.dispose);
+    await t.pumpWidget(ChangeNotifierProvider<AppState>.value(
+      value: app,
+      child: page(const DevicePickerScreen(includeBand: false)),
+    ));
     await t.pumpAndSettle();
     final entry = kBleHrs;
     for (final query in [
@@ -509,6 +514,10 @@ void main() {
                   ? ru.metricDetailRankFromBand(axisDay(ts), 12, band)
                   : ru.metricDetailRankFrom(axisDay(ts), 12));
         expect(expected, contains('выше, чем в 12% ваших дней'));
+        // The scrub panel under the chart is always on screen now, which moves
+        // this line below the 600 px test viewport; bring it into view.
+        await t.ensureVisible(find.text(expected, skipOffstage: false));
+        await t.pumpAndSettle();
         expect(find.text(expected), findsOneWidget);
         expect(t.takeException(), isNull);
       });

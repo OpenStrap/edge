@@ -397,6 +397,9 @@ void main() {
         enabled: true, smartWindowMinutes: 20);
     await setPrefs({
       'alarm_epoch': epoch,
+      // CLAIM(alarm-band-ownership): a BLE receipt cannot travel to another phone.
+      // catches: exporting the owner while correctly excluding the armed epoch.
+      'alarm_remote_id': 'old-phone-band',
       'alarm_epoch_confirmed': true,
       'alarm_set_at_ms': now.millisecondsSinceEpoch,
       'alarm_pending_until': ['$epoch', '${next.millisecondsSinceEpoch}'],

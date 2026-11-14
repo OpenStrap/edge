@@ -872,15 +872,42 @@ class NotificationCenter {
   /// about a day it did not happen on. Nothing is armed instead — this re-runs
   /// on the next foreground pass, which is where the finding is recomputed.
   ///
-  /// The morning briefing's body names no day, so it rolls to tomorrow. With
-  /// the same today-only rule it was armed only by a pass before its time:
-  /// a user whose last foreground of the day came after 08:00 (and on
-  /// Android the foreground service keeps the process alive overnight, so
-  /// init never re-runs) got no briefing the next morning.
+  /// The morning briefing is armed for TODAY's occurrence only: while its
+  /// slot is still ahead, or inside the late-fire grace window just past it.
+  /// A pass later in the day must NOT arm tomorrow — tomorrow's readiness is
+  /// established by tomorrow's own pass, and arming ahead would let the OS
+  /// fire a briefing whose overnight data never arrived. (Before the
+  /// last-night-data gate, rolling to tomorrow was the fix for a user whose
+  /// last foreground pass came after the slot; the data gate makes that safe
+  /// to drop.)
   @visibleForTesting
   static bool aiSlotArmable(int id, int slotMin, int nowMin) {
-    if (id == NotificationService.idMorningBrief) return true;
+    if (id == NotificationService.idMorningBrief) {
+      return slotMin > nowMin || nowMin < slotMin + morningBriefLateGraceMin;
+    }
     return slotMin > nowMin;
+  }
+
+  /// How long after its slot the morning briefing may still fire "late"
+  /// instead of rolling to tomorrow — see [morningBriefLateFire]. Covers the
+  /// pass that runs when the morning sync lands just after the slot time.
+  static const int morningBriefLateGraceMin = 3 * 60;
+
+  /// When a morning-briefing pass at [now] finds the slot already past today,
+  /// the instant to fire at instead of rolling to tomorrow: [now] + 2 min,
+  /// but only within [morningBriefLateGraceMin] of the slot. Beyond that the
+  /// briefing is tomorrow's — announcing last night at 14:00 is the recap
+  /// problem all over again. Null means "roll to tomorrow" as before.
+  ///
+  /// Only reachable when the slot was armed at all, i.e. last-night data was
+  /// already there — this never fires a briefing the data cannot back.
+  @visibleForTesting
+  static DateTime? morningBriefLateFire(int slotMin, DateTime now) {
+    final nowMin = now.hour * 60 + now.minute;
+    if (slotMin <= nowMin && nowMin < slotMin + morningBriefLateGraceMin) {
+      return now.add(const Duration(minutes: 2));
+    }
+    return null;
   }
 
   /// Re-assert the three AI slots (morning briefing, nightly sweep, pre-sleep
@@ -889,48 +916,224 @@ class NotificationCenter {
   /// The nightly sweep earns the interruption the same way the weekly
   /// lookback does — [sweepHeadline] is a finding that already exists,
   /// computed on-device before this is called, and it IS the notification's
-  /// body. The morning briefing is armed for a BYOK user with the switch on;
-  /// its body is static. The journal prompt is a nudge with no finding behind
-  /// it; [aiReminderPlan] still describes it (it is the plan, not the policy)
-  /// and [NotificationService.maySchedule] still refuses it, quietly, right
-  /// here.
+  /// body. The morning briefing is armed for a BYOK user with the switch on
+  /// AND last night's data actually present ([lastNightDataReady] — a briefing
+  /// announced before the band has synced is a promise the deep link cannot
+  /// keep); its slot follows the typical wake when that is known
+  /// ([typicalWakeMinOfDay]). Its body is static. The journal prompt is a
+  /// nudge with no finding behind it; [aiReminderPlan] still describes it (it
+  /// is the plan, not the policy) and [NotificationService.maySchedule] still
+  /// refuses it, quietly, right here.
   ///
-  /// The cancels stay unconditional: they are what clears yesterday's slot when
-  /// today has nothing to say, and what clears whatever an older build left.
+  /// The evening and journal cancels stay unconditional: they are what clears
+  /// yesterday's slot when today has nothing to say, and what clears whatever
+  /// an older build left. The morning cancel is the exception — see below.
+  ///
+  /// Dedupe-key prefix for "today's morning-briefing occurrence is armed (or
+  /// was delivered)". Date-prefixed like the emit path's fired keys, so
+  /// tomorrow is a fresh key and the store prunes itself.
+  static const String morningBriefAnnouncedPrefix = 'morning_brief_announced:';
+
+  /// Dedupe-key prefix for "the morning slot armed for this minute today".
+  /// `<prefix><date>:<minute>`. Only ONE slot is current at a time, so a
+  /// replacement releases every slot key of the day — a stale key for an
+  /// earlier minute would otherwise read as "armed for the current slot" when
+  /// the user moves the time A to B and back to A, and preserve B's pending post.
+  static const String morningBriefSlotPrefix = 'morning_brief_slot:';
+
+  /// What a pass does with the morning briefing, given what it can see. Pure so
+  /// the failure-mode rules are testable without the OS scheduler.
+  ///
+  /// [pendingKnown] false means the pending query FAILED. Then an
+  /// already-announced day is left alone: with the post's state unknown it may
+  /// already have been delivered, and replacing it would announce a second
+  /// time. The next pass with a readable pending list picks up a moved slot.
+  static MorningBriefAction morningBriefAction({
+    required bool slotPlanned,
+    required bool announced,
+    required bool pendingKnown,
+    required bool hasPending,
+    required bool slotArmed,
+  }) {
+    if (!slotPlanned) return MorningBriefAction.cancel;
+    if (announced && (!pendingKnown || !hasPending || slotArmed)) {
+      return MorningBriefAction.preserve;
+    }
+    return MorningBriefAction.rearm;
+  }
+
+  /// Public entry point — serialized through [_synchronized] exactly like
+  /// [scheduleStandingReminders]: the guard read, the cancels, the registration
+  /// and the guard write must run as ONE critical section, or two overlapping
+  /// passes (foreground resume racing a sync-completion callback) can both read
+  /// "not announced", one cancel the other's pending registration, and leave
+  /// the day without a briefing.
   Future<void> scheduleAiReminders(
     NotificationPrefs prefs,
     AiPrefs ai, {
     required bool aiConfigured,
+    required bool lastNightDataReady,
     double? bedtimeMinOfDay,
+    double? typicalWakeMinOfDay,
+    required bool journalDoneToday,
+    String? sweepHeadline,
+  }) =>
+      _synchronized(() => _scheduleAiReminders(
+            prefs,
+            ai,
+            aiConfigured: aiConfigured,
+            lastNightDataReady: lastNightDataReady,
+            bedtimeMinOfDay: bedtimeMinOfDay,
+            typicalWakeMinOfDay: typicalWakeMinOfDay,
+            journalDoneToday: journalDoneToday,
+            sweepHeadline: sweepHeadline,
+          ));
+
+  Future<void> _scheduleAiReminders(
+    NotificationPrefs prefs,
+    AiPrefs ai, {
+    required bool aiConfigured,
+    required bool lastNightDataReady,
+    double? bedtimeMinOfDay,
+    double? typicalWakeMinOfDay,
     required bool journalDoneToday,
     String? sweepHeadline,
   }) async {
     final svc = NotificationService.instance;
-    await svc.cancel(NotificationService.idMorningBrief);
-    await svc.cancel(NotificationService.idEveningBrief);
-    await svc.cancel(NotificationService.idJournalLog);
     final plan = aiReminderPlan(
       ai,
       remindersEnabled: prefs.remindersEnabled,
       aiConfigured: aiConfigured,
+      lastNightDataReady: lastNightDataReady,
       bedtimeMinOfDay: bedtimeMinOfDay,
+      typicalWakeMinOfDay: typicalWakeMinOfDay,
       journalDoneToday: journalDoneToday,
       sweepHeadline: sweepHeadline,
       quiet: prefs,
     ).where((s) => NotificationService.maySchedule(s.id)).toList();
-    if (plan.isEmpty) return;
-    await svc.ensureTimezone();
-    final nowMin = DateTime.now().hour * 60 + DateTime.now().minute;
+    AiReminderSlot? morningSlot;
     for (final s in plan) {
-      if (!aiSlotArmable(s.id, s.hour * 60 + s.minute, nowMin)) continue;
-      await svc.scheduleOnce(
+      if (s.id == NotificationService.idMorningBrief) morningSlot = s;
+    }
+    await svc.ensureTimezone();
+    final today = todayLabel(DateTime.now());
+    // A morning occurrence already announced today must not be re-armed by a
+    // later pass: re-showing the OS id only replaces a pending post, and a
+    // one-shot that already fired is gone from the pending list, so without
+    // this persistent guard every pass inside the grace window would schedule
+    // another alert for the same day.
+    final announcedKey = '$morningBriefAnnouncedPrefix$today';
+    final morningAnnounced =
+        await const FiredKeyStore().hasFired(announcedKey);
+    // Pending vs delivered: a one-shot that already fired is no longer pending.
+    // A FAILED query (null) is an unknown state — assume pending, so it is
+    // never read as "not pending" (which would suppress the briefing) nor as
+    // "delivered".
+    final pending = await svc.pendingIds();
+    final pendingKnown = pending != null;
+    final hasPendingMorning =
+        pending?.contains(NotificationService.idMorningBrief) ?? true;
+    // The slot minute is encoded in the fired-store key (not a separate prefs
+    // int), so a changed requested time (user setting or wake-derived)
+    // replaces the pending one instead of being preserved by the anti-repeat
+    // guard. Date-prefixed like the announced key, so the store prunes itself.
+    final slotMin =
+        morningSlot == null ? null : morningSlot.hour * 60 + morningSlot.minute;
+    final slotDayPrefix = '$morningBriefSlotPrefix$today:';
+    final slotKey = slotMin == null ? null : '$slotDayPrefix$slotMin';
+    final slotArmed =
+        slotKey == null ? false : await const FiredKeyStore().hasFired(slotKey);
+    var morningPreserved = false;
+    final action = morningBriefAction(
+      slotPlanned: morningSlot != null,
+      announced: morningAnnounced,
+      pendingKnown: pendingKnown,
+      hasPending: hasPendingMorning,
+      slotArmed: slotArmed,
+    );
+    if (action == MorningBriefAction.cancel) {
+      // Not armed by this pass (switch off, no data, quiet hours): cancel any
+      // pending one — a disabled preference wins over the anti-repeat guard —
+      // but release the announced key ONLY when that registration was still
+      // undelivered (pending). If the occurrence already fired (no longer
+      // pending), the guard stays, so a re-enable inside the grace window
+      // cannot alert a second time; and if nothing was ever armed there is no
+      // key to release anyway.
+      // A failed cancel leaves the stale alert armed — then the announced key
+      // must NOT be released (the registration may still be pending).
+      final cancelled = await svc.cancel(NotificationService.idMorningBrief);
+      if (cancelled && pendingKnown && hasPendingMorning) {
+        await const FiredKeyStore().release(announcedKey);
+        await const FiredKeyStore().releasePrefix(slotDayPrefix);
+      }
+    } else if (action == MorningBriefAction.preserve) {
+      // Delivery is read off the PREVIOUSLY armed occurrence, not the new plan
+      // slot: announced + no longer pending means it already fired — that guard
+      // stays even if the user moves the slot later today. Announced + still
+      // pending + armed for the current plan slot means preserve the pending
+      // one. Neither is cancelled nor re-armed.
+      morningPreserved = true;
+    } else {
+      // Re-arm below: fresh arm, or replacing an undelivered pending whose slot
+      // no longer matches the plan. Clear the guard when cancelling an
+      // undelivered registration, and record it again ONLY if the replacement
+      // registration succeeds — a failed replacement must stay retryable.
+      // (If the cancel itself failed, the pending post is still there; the
+      // re-arm below replaces it by id, so arming is still safe.)
+      final cancelled = await svc.cancel(NotificationService.idMorningBrief);
+      if (cancelled && morningAnnounced && pendingKnown && hasPendingMorning) {
+        await const FiredKeyStore().release(announcedKey);
+        // The old slot's key goes with it: only the slot armed below is current.
+        await const FiredKeyStore().releasePrefix(slotDayPrefix);
+      }
+    }
+    await svc.cancel(NotificationService.idEveningBrief);
+    await svc.cancel(NotificationService.idJournalLog);
+    if (plan.isEmpty) return;
+    // Read the clock after the LAST await (guard reads, pending query, cancels)
+    // so the armability check, the late-fire window and the occurrence
+    // resolution all use one instant: a pass that captured `now` at 07:59:59
+    // must not arm tomorrow's occurrence with today's readiness.
+    final now = DateTime.now();
+    final nowMin = now.hour * 60 + now.minute;
+    for (final s in plan) {
+      final slotMin = s.hour * 60 + s.minute;
+      if (!aiSlotArmable(s.id, slotMin, nowMin)) continue;
+      if (s.id == NotificationService.idMorningBrief && morningPreserved) {
+        continue;
+      }
+      var at = svc.nextDailyInstant(s.hour, s.minute, now: now);
+      if (s.id == NotificationService.idMorningBrief) {
+        final late = morningBriefLateFire(slotMin, now);
+        if (late != null) {
+          // The plan checked the SLOT against quiet hours, but the late-fire
+          // instant is a different minute — check it itself, and never arm a
+          // catch-up that lands inside the protected window.
+          if (prefs.inQuietHours(late.hour * 60 + late.minute)) continue;
+          at = late;
+        }
+      }
+      final armed = await svc.scheduleOnce(
         id: s.id,
         category: NotifCategory.reminders,
         title: s.title,
         body: s.body,
-        at: svc.nextDailyInstant(s.hour, s.minute),
+        at: at,
         route: s.route,
       );
+      // Record the daily guard only when the OS actually accepted the
+      // registration — a denied permission or a failed zonedSchedule must not
+      // suppress the briefing for the rest of the day.
+      if (armed && s.id == NotificationService.idMorningBrief) {
+        await const FiredKeyStore().recordFired(announcedKey);
+        // Replace the day's slot keys even if the preceding cancel failed —
+        // only the slot armed here is current; a stale slot key would make a
+        // later change back to the old time preserve the wrong pending post.
+        await const FiredKeyStore().replaceUnderPrefix(slotDayPrefix, slotKey!);
+      }
     }
   }
 }
+
+/// See [NotificationCenter.morningBriefAction].
+enum MorningBriefAction { cancel, preserve, rearm }
