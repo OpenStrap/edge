@@ -50,6 +50,8 @@ const Map<String, String> kPrefsNotBackedUp = {
   'alarm_latch_alert': 'pending latch alert for the old band arm',
   'alarm_probe_pending': 'legacy pending hardware probe; never resume on another band',
   'alarm_fired_at': 'last fire event from the old band, not the chosen schedule',
+  'smart_wake_fired_epoch': 'records that the early buzz fired for one arm on the old band; '
+      'a restored latch would suppress the buzz on the next night\'s arm',
   'health_upload_last_ts': 'upload cursor for this installation',
   'health_weight_perm_asked': 'WEIGHT write access is asked per install; '
       'the new install has not asked yet',

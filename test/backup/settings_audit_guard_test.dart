@@ -73,6 +73,7 @@ const _mustStay = {
   'alarm_schedule_cleared', 'alarm_epoch', 'alarm_epoch_confirmed', 'alarm_set_at_ms',
   'alarm_remote_id',
   'alarm_pending_until', 'alarm_latch_alert', 'alarm_probe_pending', 'alarm_fired_at',
+  'smart_wake_fired_epoch',
   'live.session_draft', 'live_session_checkpoint', 'telemetry_outbox',
   // Permission and grant are per install.
   'health_weight_perm_asked', 'health_weight_grant_seen',

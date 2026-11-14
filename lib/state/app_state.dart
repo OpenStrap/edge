@@ -3256,6 +3256,7 @@ class AppState extends ChangeNotifier {
     if (firedSec != null) {
       _alarmFiredAt = DateTime.fromMillisecondsSinceEpoch(firedSec * 1000);
     }
+    _smartWakeFiredForEpoch = alarmPrefs.getInt('smart_wake_fired_epoch');
     // Seed the confirmation machine from what the last session (foreground OR
     // headless — background_sync.dart writes the same two keys) actually
     // learned, so a relaunch doesn't forget a confirmed headless arm and
@@ -5480,10 +5481,99 @@ class AppState extends ChangeNotifier {
   /// The armed epoch (unix sec) a Smart Wake Window early-fire already ran
   /// for, so a re-arm of the SAME occurrence on every 30 s tick does not buzz
   /// the band again on every tick once light sleep is first seen.
+  /// Persisted as `smart_wake_fired_epoch` (loaded in [_init], cleared in
+  /// [_clearArmedAlarmState]) so a process relaunch mid-window — iOS kills
+  /// the app between BG tasks — cannot re-buzz an occurrence that already
+  /// fired.
   int? _smartWakeFiredForEpoch;
+
+  /// The journal-derived confounder profile for the current wake window,
+  /// computed once when the window opens and cached for its duration.
+  /// Re-reading the journal on every 30 s tick would be wasteful — the
+  /// user logs the previous day, which does not change mid-window.
+  ///
+  /// SAFETY/ETHICS: this profile is internal only. It is never surfaced to
+  /// the user (no UI, no notification naming the confounder), per the
+  /// guardrail in lib/ui2/screens/rough_night.dart: "a wrong 'looks like a
+  /// drinking night' is an accusation on a phone somebody else can see."
+  ConfounderProfile? _smartWakeProfile;
+
+  /// The day label the cached [_smartWakeProfile] was computed for, so a
+  /// new calendar day (DST change, midnight rollover mid-window) triggers
+  /// a re-read instead of serving a stale profile.
+  String? _smartWakeProfileDay;
+
+  /// Median HR over [samples] — the tertiary baseline fallback (shipped
+  /// v1 behavior). Defined here rather than exported from smart_wake.dart
+  /// because it operates on the same SmartWakeSample list but is only
+  /// needed on this fallback path.
+  /// Build (or return the cached) confounder profile for [now]'s wake
+  /// window. Reads the journal for the calendar day BEFORE the window —
+  /// alcohol, caffeine, stress and workout are consumed during the day
+  /// and affect the night that follows.
+  ///
+  /// On any failure (DB error, missing tables) this returns the identity
+  /// profile — no adjustment, never a penalty. A failed journal read must
+  /// not disable smart wake; it only means the detector runs with default
+  /// thresholds, exactly as v1 did.
+  Future<ConfounderProfile> _smartWakeConfounderProfile(
+      DateTime windowEnd) async {
+    // The local calendar day before the window's own wake day, by calendar
+    // arithmetic: subtracting 24 elapsed hours lands on the wrong date around
+    // a DST change, and a window that crosses midnight belongs to the day it
+    // ends on, not the day the tick happens to fall on.
+    final day = dayLabelOf(
+        DateTime(windowEnd.year, windowEnd.month, windowEnd.day - 1));
+    if (_smartWakeProfile != null && _smartWakeProfileDay == day) {
+      return _smartWakeProfile!;
+    }
+    try {
+      final journalRows = await LocalDb.journalRows(sinceDaysEpoch: day);
+      final tags = <String>{};
+      for (final r in journalRows) {
+        if (r['date'] == day) {
+          final raw = r['tags_json'];
+          if (raw is String) {
+            // tags_json is a JSON-encoded list of strings.
+            try {
+              final decoded = jsonDecode(raw);
+              if (decoded is List) {
+                for (final t in decoded) {
+                  if (t is String && t.isNotEmpty) tags.add(t);
+                }
+              }
+            } catch (_) {
+              // Malformed tags_json — skip, never crash the check.
+            }
+          }
+        }
+      }
+      final metrics = await LocalDb.journalMetricsForDay(day);
+      final profile = confounderProfile(tags: tags, metrics: metrics);
+      _smartWakeProfile = profile;
+      _smartWakeProfileDay = day;
+      // Nothing derived from the journal goes in the log: thresholds would
+      // let a reader of a shared report work the tags back out.
+      _log('[smart-wake] journal profile read');
+      return profile;
+    } catch (e) {
+      _log('[smart-wake] confounder profile read failed (defaults): $e');
+      return ConfounderProfile.identity;
+    }
+  }
 
   /// Smart Wake Window's periodic check, run from [BleEngine.onKeepAlive] —
   /// the engine's existing 30 s keep-alive tick, not a new timer.
+  ///
+  /// DATA PATH for the 3h baseline: while the smart-wake plan is enabled, the
+  /// band is programmed (applyHighFreqWakeWindow, extended lease from
+  /// preSyncAt = targetWake − 135 min) to send HIGH_FREQ_SYNC_PROMPT every
+  /// 61 s; each prompt event triggers a one-shot historical offload
+  /// (EventId.highFreqSyncPrompt → _startHistoricalRefresh, floored at 90 s
+  /// by BackfillPolicy so the 61 s prompts coalesce with the 15-min periodic
+  /// backfill instead of doubling up). That backfill is what fills
+  /// decoded_onehz with the last ~3h of nocturnal data the baseline query
+  /// reads. Detection itself still only runs inside the actual window.
   ///
   /// SAFETY: this method can only ever cause an EARLY extra buzz
   /// (`engine.runAlarm()`, RUN_ALARM — haptics only, it does not touch
@@ -5500,32 +5590,133 @@ class AppState extends ChangeNotifier {
       if (epoch == null || epoch == _smartWakeFiredForEpoch) return;
       final armed = armedSmartWakeWindow(epoch: epoch, schedule: _schedule);
       if (armed == null) return;
+      // The arm this detection belongs to. Every asynchronous step below can
+      // outlive it (alarm cleared or re-armed, app torn down), so the buzz is
+      // gated on it still being current right before it goes out.
+      final armGen = _armGen;
+      bool stillCurrent() => smartWakeStillCurrent(
+            armedGen: armGen,
+            currentGen: _armGen,
+            epoch: epoch,
+            currentEpoch: alarmEpoch,
+            disposed: _disposed,
+            connected: isConnected,
+          );
       final now = DateTime.now();
       if (!inSmartWakeWindow(
           windowEnd: armed.windowEnd, minutes: armed.minutes, now: now)) {
         return;
       }
+
+      // Q2: journal-aware confounder profile (cached per day). If the
+      // alcohol+stress combo is active, early buzz is disabled entirely
+      // for this night — the fallback SET_ALARM at window end fires as
+      // usual. This is an early return that never touches the fallback.
+      final profile = await _smartWakeConfounderProfile(armed.windowEnd);
+      if (profile.earlyBuzzDisabled) return;
+
+      // The recent window is as long as the journal's trend window asks for
+      // (5 min on alcohol/workout nights, 3 min otherwise) so the movement
+      // trend has something to smooth over. `likelyLightSleep` re-slices the
+      // trailing 3 minutes for HR arousal and the mean-motion ceiling, so a
+      // longer fetch cannot move those two checks.
+      final recentWindowMinutes = profile.trendWindowMinutes > 3
+          ? profile.trendWindowMinutes
+          : 3;
       final recentRows = await LocalDb.onehzHrAccelBetween(
-        now.subtract(const Duration(minutes: 3)).millisecondsSinceEpoch ~/
+        now.subtract(Duration(minutes: recentWindowMinutes))
+            .millisecondsSinceEpoch ~/
             1000,
         now.millisecondsSinceEpoch ~/ 1000,
       );
+
+      // Q2: 10th-percentile nightly HR baseline over the last ~3h (primary),
+      // falling back to the shipped 90-min median.
+      //
+      // The 3h window needs the preSyncAt backfill to have data when the band
+      // was offline earlier in the night. Without it, the query returns fewer
+      // rows and percentileHr returns null — the median fallback handles that.
+      final baselineWindowStart = now.subtract(const Duration(hours: 3));
+      final baselineWindowEnd = now.subtract(const Duration(minutes: 3));
       final baselineRows = await LocalDb.onehzHrAccelBetween(
-        now.subtract(const Duration(minutes: 93)).millisecondsSinceEpoch ~/
-            1000,
-        now.subtract(const Duration(minutes: 3)).millisecondsSinceEpoch ~/
-            1000,
+        baselineWindowStart.millisecondsSinceEpoch ~/ 1000,
+        baselineWindowEnd.millisecondsSinceEpoch ~/ 1000,
       );
+      final baselineSamples = [
+        for (final r in baselineRows) SmartWakeSample.fromRow(r),
+      ];
+
+      // Primary: 10th percentile of last 3h (the person's own deep-sleep
+      // HR floor — F6: HR is lowest in deep sleep). Relies on the preSyncAt
+      // backfill (band prompts every 61 s from 45 min before the window, each
+      // prompt triggers a historical offload — see applyHighFreqWakeWindow /
+      // EventId.highFreqSyncPrompt in ble_engine.dart).
+      double? baselineHr = percentileHr(baselineSamples, 0.10);
+
+      // Fallback: 90-min median (shipped v1 behavior — never worse than
+      // before this feature). Deliberately NO stored hr_min_night read here:
+      // nothing writes that column (PR #628 dropped it), so reading it would
+      // always yield null — a dead fallback that only pretends to exist.
+      final recentSamples = [
+        for (final r in recentRows) SmartWakeSample.fromRow(r),
+      ];
+      if (baselineHr == null) {
+        // The shipped fallback is the median of the 90 minutes before the
+        // recent window, not of the whole 3 h the percentile just refused.
+        final fallbackRows = await LocalDb.onehzHrAccelBetween(
+          now.subtract(const Duration(minutes: 90)).millisecondsSinceEpoch ~/
+              1000,
+          baselineWindowEnd.millisecondsSinceEpoch ~/ 1000,
+        );
+        baselineHr = medianValidHr([
+          for (final r in fallbackRows) SmartWakeSample.fromRow(r),
+        ]);
+      }
+
+      // If we still have no baseline, we cannot make a confident call —
+      // no early buzz. The fallback fires at window end regardless.
+      if (baselineHr == null) return;
+
       final detected = likelyLightSleep(
-        baseline: [for (final r in baselineRows) SmartWakeSample.fromRow(r)],
-        recent: [for (final r in recentRows) SmartWakeSample.fromRow(r)],
+        baseline: baselineSamples,
+        recent: recentSamples,
+        profile: profile,
+        baselineHrOverride: baselineHr,
+        windowEnd: armed.windowEnd,
+        now: now,
       );
       if (!detected) return;
+      if (!stillCurrent()) return;
       _smartWakeFiredForEpoch = epoch; // set BEFORE the write — see below
       // Marked fired before the write goes out on purpose: a write that
       // throws must not retry every 30 s for the rest of the window (that
       // would just be repeated buzzing), and the untouched fallback arm
-      // still covers a write that genuinely failed.
+      // still covers a write that genuinely failed. Persisted too, so a
+      // relaunch mid-window does not re-buzz (PR #630 review).
+      // The write completes BEFORE the buzz goes out, so a process that dies
+      // right after the band buzzes still finds the latch on relaunch. A
+      // failed write is logged and the buzz still goes (the in-memory latch
+      // holds for this process).
+      try {
+        final p = await SharedPreferences.getInstance();
+        await p.setInt('smart_wake_fired_epoch', epoch);
+      } catch (e) {
+        _log('[smart-wake] persisting the fired latch failed: $e');
+      }
+      if (!stillCurrent()) {
+        // Cleared or re-armed while the latch was being written: no buzz, and
+        // the latch for an occurrence that no longer exists goes too (unless a
+        // newer arm has since written its own).
+        if (_smartWakeFiredForEpoch == epoch) _smartWakeFiredForEpoch = null;
+        try {
+          final p = await SharedPreferences.getInstance();
+          if (p.getInt('smart_wake_fired_epoch') == epoch) {
+            await p.remove('smart_wake_fired_epoch');
+          }
+        } catch (_) {/* best-effort */}
+        _log('[smart-wake] early buzz dropped: the alarm changed underneath.');
+        return;
+      }
       await engine.runAlarm();
       _log('[smart-wake] light sleep detected inside the window — early buzz.');
     } catch (e) {
@@ -5899,6 +6090,7 @@ class AppState extends ChangeNotifier {
       throw Exception("Couldn't reach your strap, so the alarm is still set");
     }
     _savedAlarm = null;
+    _smartWakeFiredForEpoch = null;
     final gen = ++_armGen;
     device.alarmEpoch = null;
     _alarm.disable();
@@ -5907,6 +6099,7 @@ class AppState extends ChangeNotifier {
     // An arm that landed during the await owns the persisted epoch now.
     if (_armGen == gen) await prefs.remove('alarm_epoch');
     if (_armGen == gen) await prefs.remove('alarm_epoch_confirmed');
+    if (_armGen == gen) await prefs.remove('smart_wake_fired_epoch');
     // 'alarm_schedule_cleared' tells an import that an empty schedule means
     // "cancelled", not "never set". Marked BEFORE the rows go: a crash
     // between the two leaves a marker over rows (harmless), never an empty
@@ -6014,6 +6207,9 @@ class AppState extends ChangeNotifier {
   /// dedupeKey still resolves after this runs.
   Future<void> _clearArmedAlarmState() async {
     _savedAlarm = null;
+    // A re-arm of the same occurrence in this process must be able to buzz
+    // again; the persisted latch goes below, the in-memory one goes now.
+    _smartWakeFiredForEpoch = null;
     final gen = ++_armGen;
     device.alarmEpoch = null;
     _alarm.disable();
@@ -6025,6 +6221,10 @@ class AppState extends ChangeNotifier {
       await prefs.remove('alarm_epoch');
       if (_armGen != gen) return;
       await prefs.remove('alarm_epoch_confirmed');
+      // A newer arm may have latched its own early buzz while the removes
+      // above were in flight; its latch is not ours to clear.
+      if (_armGen != gen) return;
+      await prefs.remove('smart_wake_fired_epoch');
     } catch (e) {
       _log('[alarm] clearing the persisted epoch failed: $e');
     }
@@ -6119,7 +6319,12 @@ class AppState extends ChangeNotifier {
         smartWake: plan.shouldEnable && target != null
             ? BandPromptRequest.smartWake(
                 target: target,
-                lease: HighFreqWakeWindow.lease,
+                // Use the extended lease (preSyncAt → targetWake) so the band
+                // prompts from preSyncAt onward, backfilling decoded_onehz
+                // with the last ~3h of nocturnal data before the smart-wake
+                // window opens. Falls back to the shipped 90-min lease when
+                // preSyncAt is null (no plan / outside extended window).
+                lease: plan.leaseFrom(DateTime.now()) ?? HighFreqWakeWindow.lease,
                 source: plan.source,
               )
             : null,
