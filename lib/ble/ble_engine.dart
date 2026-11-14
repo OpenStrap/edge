@@ -9434,6 +9434,11 @@ class BleEngine {
     // awaits below are pending, and nothing that resumes after them may touch
     // it. Only this dying session object and its radio are awaited on.
     _session = null;
+    // The firmware version is what THIS link's HELLO said, so it dies with the
+    // link. A connect to a different band (a gen4 after a gen5) must not read
+    // the previous band's 50.43 and name a firmware lock for it. The same band
+    // reconnecting gets it back from its next revision-1 HELLO.
+    state.firmware = null;
     if (_flashLock) {
       // A held lock would refuse every ACK on the next link.
       _flashLock = false;
