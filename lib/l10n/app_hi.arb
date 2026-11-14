@@ -3067,11 +3067,68 @@
   "pairStrapOnlyLink": "मेरे पास सिर्फ़ हार्ट-रेट स्ट्रैप है",
   "pairWhoopRowLine": "नींद, रिकवरी, शारीरिक परिश्रम, हृदय गति और बहुत कुछ",
   "pairSetUpTitle": "सेट अप",
+  "capLabelSleep": "नींद",
+  "capLabelRecovery": "रिकवरी",
+  "capLabelStrain": "शारीरिक परिश्रम",
+  "capLabelHrv": "हृदय गति में उतार-चढ़ाव (HRV)",
+  "capLabelSkinTemperature": "त्वचा का तापमान",
+  "capLabelBloodOxygen": "रक्त में ऑक्सीजन",
+  "capLabelWorkoutHeartRate": "वर्कआउट के दौरान हृदय गति",
+  "capLabelWorkoutBeatToBeat": "वर्कआउट के दौरान धड़कन-दर-धड़कन का समय",
+  "capLabelSteps": "कदम",
+  "capReasonSkinTempNights": "कुछ रातों के बाद",
+  "capReasonEstimated": "अनुमान है, सीधी माप नहीं",
+  "capReasonEarly": "शुरुआती अनुमान; पहले कुछ हफ़्तों में यह बेहतर होता जाता है",
+  "capVendorReported": "डिवाइस की अपनी माप",
+  "slotSendsHeading": "भेजता है",
+  "slotDoesntSendHeading": "नहीं भेजता",
+  "pairSectionTitle": "डिवाइस पेयर करें",
+  "pairCardBandBody": "केवल WHOOP 4.0 या WHOOP 5.0/MG। नींद, रिकवरी और शारीरिक परिश्रम, चौबीसों घंटे।",
+  "pairUnpairBand": "बैंड अनपेयर करें",
+  "capLabelHeartRate": "हृदय गति और आराम की हृदय गति",
+  "capLabelRespiration": "श्वसन",
+  "capReasonFirstNights": "पहली 14 रातों तक अनुमानित",
+  "capReasonOwnStagesRing": "रिंग के अपने नींद चरणों से",
+  "capReasonOwnStages": "डिवाइस के अपने नींद चरणों से",
+  "capReasonLiveSessions": "लाइव सत्रों के दौरान",
+  "slotEveryDay": "हर दिन",
+  "slotWorkoutsOnly": "केवल वर्कआउट",
+  "pairWearableCardNote": "आपके WHOOP के बिना वाले दिनों को भरता है। प्रायोगिक है, इसलिए इसे नीचे चालू करें।",
+  "pairWhatItSends": "यह क्या भेजता है",
+  "capReasonUnconfirmed": "अगर यह डिवाइस इसे भेजता है, पुष्टि नहीं हुई",
+  "capReasonPebble2Only": "केवल Pebble 2। 2 SE में हृदय गति सेंसर नहीं है।",
+  "capReasonPebble2OnlyEstimated": "केवल Pebble 2, और यह अनुमान है, सीधी माप नहीं। 2 SE में हृदय गति सेंसर नहीं है।",
+  "slotColumnReason": "{column}: {reason}",
+  "@slotColumnReason": {
+    "placeholders": {
+      "column": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "slotCapabilityStatus": "{capability}, {column}: {status}",
+  "@slotCapabilityStatus": {
+    "placeholders": {
+      "capability": {
+        "type": "String"
+      },
+      "column": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  },
   "whoopFirmwareWarningTitle": "WHOOP उपयोगकर्ता: WHOOP ऐप से दोबारा कनेक्ट न करें",
   "whoopFirmwareWarningAction": "अगर आप OpenStrap या कोई दूसरा ओपन-सोर्स ऐप इस्तेमाल करते हैं, या बाद में किसी पर जाने की सोच रहे हैं, तो अपना बैंड आधिकारिक WHOOP ऐप से दोबारा कनेक्ट न करें। वह फ़र्मवेयर अपडेट अपने-आप इंस्टॉल कर सकता है। WHOOP ऐप को अनइंस्टॉल या अक्षम कर दें, ताकि वह आपके बैंड को अपडेट न कर सके।",
   "whoopFirmwareWarningDetails": "WHOOP 5.0 / MG के फ़र्मवेयर 50.43.1.0 और 50.43.2.0 के बारे में रिपोर्टें बताती हैं कि डेटा तक पहुँच रोक दी जाती है। ब्लूटूथ फिर भी कनेक्ट हो सकता है। प्रभावित बैंड को अनलॉक करने के लिए WHOOP द्वारा साइन किया गया मेंबरशिप टोकन चाहिए, जिसे OpenStrap जारी नहीं कर सकता। हम समाधान पर काम कर रहे हैं, लेकिन अभी कोई उपाय उपलब्ध नहीं है।",
   "pairSearchDevices": "डिवाइस खोजें",
   "pairPrimaryCannotBeSensor": "यह पहले से आपका मुख्य बैंड है। इसे वर्कआउट सेंसर के रूप में भी पेयर नहीं किया जा सकता।",
+  "capReasonSkinTempProvisional": "अस्थायी अनुमान; कुछ रातों का डेटा चाहिए",
   "alarmNextLabel": "अगला",
   "alarmScheduleGroup": "साप्ताहिक शेड्यूल",
   "alarmWakeTimeRowTitle": "जागने का समय",

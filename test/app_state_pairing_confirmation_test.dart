@@ -598,6 +598,35 @@ void main() {
       expect(rig.app.alarmEpoch, isNull);
     }));
 
+    // WHY: waiting out the old burst is bounded, but a timeout is not "the burst
+    // stopped": it could resume on the candidate's session and request history
+    // from the wrong band. Pairing must stop instead of connecting under it.
+    // catches: treating the wait's timeout as permission to connect.
+    test('replacement stops when the superseded sync burst outlives the wait',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      rig.engine.events.clear();
+      final gate = Completer<void>();
+      rig.engine.syncGate = gate;
+      final burst = rig.app.syncNow();
+      await rig.waitFor(() => rig.engine.events.any((e) => e.startsWith('runSync')));
+      final replacing = rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+      final failed = expectLater(replacing, throwsA(isA<Exception>()));
+      await settleMs(60);
+      final waits = timers.activeOneShot(const Duration(seconds: 15));
+      expect(waits, hasLength(1), reason: 'the bounded wait for the old burst');
+      waits.single.fire();
+      await failed;
+      expect(rig.engine.only('connect'), isNot(contains('connect:$replacementId:-')),
+          reason: 'the candidate must not connect under a still-running burst');
+      expect((await PairedDevice.load())?.remoteId, kRemoteId,
+          reason: 'the old pairing is kept');
+      rig.engine.syncGate = null;
+      gate.complete();
+      await burst;
+    }));
+
     // WHY: a lost band's retry must finish before candidate bootstrap starts.
     // catches: rejecting replacement because the old loop is reconnecting,
     // or clearing its flag without waiting for its in-flight connect.

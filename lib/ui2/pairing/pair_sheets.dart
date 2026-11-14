@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../ble/adapters/_registry.dart';
+import '../../ble/slot_comparison.dart';
 import '../../l10n/display_text.dart';
 import '../ui2.dart';
 import 'pair_choice_sheet.dart';
@@ -21,7 +22,7 @@ enum BandSheetChoice {
   /// Pair it as the main band (no band paired yet).
   asBand,
 
-  /// Unpair the band paired now, then pair this one as the main band. Only
+  /// Pair the replacement before retiring the current main band. Only
   /// offered with a band paired; the caller confirms once before acting.
   replaceBand,
 
@@ -46,12 +47,13 @@ Future<BandSheetChoice?> showBandFoundSheet(
 }) async {
   final l = pairL10n(c);
   final label = modelKnown ? uiText(c, band.label) : 'WHOOP';
+  final cmp = slotComparisonFor(band, modelKnown: modelKnown);
   final icon = deviceKindIcon(band.kind);
   final name = deviceName ?? label;
   if (!band.canBeMainDevice) {
     // A ring or a watch: it fills every day as the active wearable, behind
     // its own switch; a Coros watch fits neither column.
-    final wearable = band.category == DeviceCategory.wearable;
+    final wearable = cmp.slot == DeviceSlot.everyDay;
     final choice = await showPairChoiceSheet(
       c,
       PairChoiceSheet(
@@ -65,6 +67,8 @@ Future<BandSheetChoice?> showBandFoundSheet(
                     ? l.pairWearableLeadPebble
                     : l.pairWearableLead
                 : null,
+        comparison: cmp,
+        focus: cmp.slot,
         notes: [
           wearable
               ? PairNote(LucideIcons.flaskConical, l.pairWearableNote,
@@ -91,6 +95,8 @@ Future<BandSheetChoice?> showBandFoundSheet(
           : hasMainBand
               ? l.pairBandFoundBodyHasBand
               : l.pairBandFoundBody,
+      comparison: cmp,
+      focus: DeviceSlot.everyDay,
       notes: [
         if (hasMainBand) PairNote(LucideIcons.watch, l.pairBandNow(current)),
       ],
@@ -112,8 +118,8 @@ Future<BandSheetChoice?> showBandFoundSheet(
   };
 }
 
-/// The one confirm before replacing the band: "Unpair (your band) and pair this
-/// band instead? Your data stays." True only on the explicit yes.
+/// Confirm replacement while preserving the old pairing on failed setup.
+/// True only on the explicit yes.
 Future<bool> showReplaceBandConfirm(BuildContext c, {String? mainBandName}) async {
   final l = pairL10n(c);
   final name = mainBandName ?? l.pairCurrentBandFallback;
@@ -161,6 +167,7 @@ Future<bool> showStrapSheet(BuildContext c,
     {required BandEntry sensor, String? deviceName}) async {
   final l = pairL10n(c);
   final label = uiText(c, sensor.label);
+  final cmp = slotComparisonFor(sensor);
   final choice = await showPairChoiceSheet(
     c,
     PairChoiceSheet(
@@ -168,6 +175,8 @@ Future<bool> showStrapSheet(BuildContext c,
       deviceName: deviceName ?? label,
       title: deviceSheetTitle(l, sensor),
       lead: l.pairStrapLead,
+      comparison: cmp,
+      focus: DeviceSlot.workoutsOnly,
       notes: [PairNote(LucideIcons.info, l.pairStrapNote)],
       pairingMode: PairingModeSection(entry: sensor),
       primaryLabel: l.pairDeviceNamed(label),
