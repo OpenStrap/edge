@@ -408,6 +408,24 @@ void main() {
       expect(await PairedDevice.load(), isNull);
     }));
 
+    // WHY: once PairedDevice.save returns the replacement is durable. A failing
+    // read-back must not be treated as a failed save, or the old band is
+    // reconnected while storage names the new one and a restart disagrees.
+    // catches: rolling back to the old band after a successful save.
+    test('replacement stays committed when reading the saved band back fails',
+        syncCase((rig, timers) async {
+      await PairedDevice.save(kRemoteId, kSerial, generation: 'gen4');
+      await rig.openAndSettle();
+      rig.engine.events.clear();
+      rig.app.debugLoadPaired = () async => throw StateError('read-back failed');
+      await rig.app.replaceWith(BluetoothDevice.fromId(replacementId));
+      expect((await PairedDevice.load())?.remoteId, replacementId);
+      expect(rig.app.paired?.remoteId, replacementId);
+      expect(rig.engine.only('connect'),
+          isNot(contains('connect:$kRemoteId:gen4')),
+          reason: 'the old band must not be reconnected after the save');
+    }));
+
     // WHY: a lost band's retry must finish before candidate bootstrap starts.
     // catches: rejecting replacement because the old loop is reconnecting,
     // or clearing its flag without waiting for its in-flight connect.

@@ -4801,6 +4801,11 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   Future<void> Function(String remoteId)? debugRetireBandApproval;
 
+  /// Test hook: replaces the read-back of the identity a replacement just
+  /// saved, so a failing read after a successful save can be exercised.
+  @visibleForTesting
+  Future<PairedDevice?> Function()? debugLoadPaired;
+
   /// Verify and save the replacement before retiring the old phone approval.
   /// A failed attempt keeps the old pairing and attempts to reconnect it.
   Future<void> replaceWith(BluetoothDevice d) =>
@@ -4910,7 +4915,28 @@ class AppState extends ChangeNotifier {
           if (epoch != _pairingEpoch || _resetting) {
             throw StateError('Pairing was cancelled.');
           }
-          paired = await PairedDevice.load();
+          // `save` returned, so the new band is durable. A failed read-back
+          // must not be mistaken for a failed save: the catch below would
+          // reconnect the OLD band while storage already names the new one,
+          // and the next launch would disagree with this process. Publish
+          // what was just written instead.
+          final savedSerial = cleanDeviceLabel(serial ?? device.serial);
+          final savedGeneration = device.generation;
+          PairedDevice? reloaded;
+          var reloadFailed = false;
+          try {
+            reloaded = await (debugLoadPaired ?? PairedDevice.load)();
+          } catch (e) {
+            reloadFailed = true;
+            _log('Paired band saved, but reading it back failed: $e');
+          }
+          paired = reloadFailed
+              ? PairedDevice(remoteId, savedSerial,
+                  generation: (savedGeneration == 'gen4' ||
+                          savedGeneration == 'gen5')
+                      ? savedGeneration
+                      : null)
+              : reloaded;
           committed = paired?.remoteId == remoteId;
           // The old band's name belongs to the old band; the new one banks
           // its own as soon as it reports it.

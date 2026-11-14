@@ -3079,7 +3079,7 @@
   "pairBandNow": "Tu pulsera ahora: {name}. Tus datos se conservan al cambiar.",
   "pairReplaceBand": "Vincular esta pulsera y después desconectar {name}",
   "pairReplaceConfirmTitle": "¿Reemplazar {name} después de conectar esta pulsera?",
-  "pairReplaceConfirmBody": "Tu pulsera actual seguirá vinculada si falla la configuración o cancelas. Tus datos se conservan.",
+  "pairReplaceConfirmBody": "Tu pulsera actual seguirá vinculada si falla la configuración o cancelas. Los datos ya guardados en este teléfono se conservan. Lo que aún no se haya sincronizado desde la pulsera anterior no se sincronizará con este teléfono tras el cambio.",
   "pairReplaceConfirmYes": "Vincular reemplazo",
   "pairCurrentBandFallback": "tu pulsera",
   "pairWearableLead": "Puede completar tus días con sueño, recuperación y frecuencia cardiaca.",
