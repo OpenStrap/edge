@@ -16969,5 +16969,23 @@
   "napAutoLogSaveFailed": "That setting could not be saved. Try again.",
   "pairSearchDevices": "Search for devices",
   "pairPrimaryCannotBeSensor": "This is already your main band. It cannot also be paired as a workout sensor.",
-  "pairReplaceMyBand": "Replace my band"
+  "pairReplaceMyBand": "Replace my band",
+  "healthWearNotUpdatedSince": "not updated since {time}",
+  "@healthWearNotUpdatedSince": {
+    "description": "Wear-time row: the figure is from an earlier derive that the latest one could not refresh. time is a clock time, e.g. 11:05 AM",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "dayStrainWornAsOf": "Worn as of {time}",
+  "@dayStrainWornAsOf": {
+    "description": "Day strain: label over a wear figure from an earlier derive that the latest one could not refresh. Says when the figure was computed, not that the band came off then. time is a clock time, e.g. 11:05 AM",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  }
 }

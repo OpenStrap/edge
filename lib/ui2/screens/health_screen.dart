@@ -1168,6 +1168,11 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final resp = respBlock is Map ? respBlock['value'] as num? : null;
     final worn = v.wear['worn_min'] as num?;
     final coverage = v.wear['coverage_pct'] as num?;
+    // #450: the latest derive could not refresh wear, so this is an earlier
+    // one's figure. Say so rather than let a frozen morning read as now.
+    final wearAsOf = v.wear['as_of'] as num?;
+    final wearAsOfText =
+        wearAsOf == null ? '' : asOfText(wearAsOf, v.day ?? todayLabel(), l);
     final skinTemp = metricOf(d.today['skin_temp']);
     // WHOOP 5 reads in real °C, so its row says degrees, not SDs.
     final tempDevC = ((d.today['skin_temp'] as Map?)?['dev_c'] as num?)
@@ -1220,12 +1225,17 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         MetricRow(LucideIcons.watch, C.green, l?.healthRowWearTime ?? 'Wear time',
             hm(worn),
             // `83.33333333333333% of the day` shipped. It is a percentage.
-            sub: coverage == null
-                ? dayWord
-                : (l?.healthCoverageOf(coverage.round(),
-                        isToday ? (l.healthTheDay) : dayWord) ??
-                    '${coverage.round()}% of '
-                        '${isToday ? 'the day' : dayWord}'),
+            sub: [
+              coverage == null
+                  ? dayWord
+                  : (l?.healthCoverageOf(coverage.round(),
+                          isToday ? (l.healthTheDay) : dayWord) ??
+                      '${coverage.round()}% of '
+                          '${isToday ? 'the day' : dayWord}'),
+              if (wearAsOf != null)
+                l?.healthWearNotUpdatedSince(wearAsOfText) ??
+                    'not updated since $wearAsOfText',
+            ].join(' · '),
             onTap: () => go(c, const MetricDetail('wear'))),
     ];
 

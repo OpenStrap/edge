@@ -3422,5 +3422,7 @@
   "pairSearchDevices": "Rechercher des appareils",
   "pairPrimaryCannotBeSensor": "C’est déjà votre bracelet principal. Il ne peut pas aussi être jumelé comme capteur d’entraînement.",
   "pairReplaceMyBand": "Remplacer mon bracelet",
-  "dayStepsWhoop4NoCounter": "Un WHOOP 4.0 n’a pas de podomètre intégré : il ne compte les pas que lorsque cette application reçoit ses données en direct."
+  "dayStepsWhoop4NoCounter": "Un WHOOP 4.0 n’a pas de podomètre intégré : il ne compte les pas que lorsque cette application reçoit ses données en direct.",
+  "healthWearNotUpdatedSince": "pas mis à jour depuis {time}",
+  "dayStrainWornAsOf": "Porté, à {time}"
 }
