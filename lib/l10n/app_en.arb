@@ -17111,6 +17111,18 @@
   "@strengthDelete": {"description": "Strength set editor copy."},
   "strengthSaveFailed": "Failed to save changes",
   "@strengthSaveFailed": {"description": "Strength set editor copy."},
+  "bandStatusFirmwareLockedTitle": "The band’s firmware is probably holding back its data",
+  "@bandStatusFirmwareLockedTitle": {
+    "description": "BandStatus card title: band firmware 50.43 withholds all data until a WHOOP membership token is on it"
+  },
+  "bandStatusFirmwareLockedReason": "This band runs WHOOP firmware 50.43, which can connect and answer the app but send no recordings or live heart rate until a WHOOP-signed membership token is on it. That is one possible reason no data is arriving. OpenStrap cannot issue that token. Everything already saved here is safe.",
+  "@bandStatusFirmwareLockedReason": {
+    "description": "BandStatus card body: band firmware 50.43 withholds all data until a WHOOP membership token is on it"
+  },
+  "bandStatusFirmwareLockedFix": "If it is the firmware, nothing in the app changes it, and this clears once the band sends recordings again",
+  "@bandStatusFirmwareLockedFix": {
+    "description": "BandStatus fix action: band firmware 50.43 withholds all data until a WHOOP membership token is on it"
+  },
   "dayStepsWhoop4NoCounter": "A WHOOP 4.0 has no step counter of its own, so it only counts steps while this app is receiving its live data.",
   "@dayStepsWhoop4NoCounter": {
     "description": "Steps screen: appended when the paired band is a WHOOP 4.0 and it counted nothing that day, because it has no on-chip step counter"

@@ -3481,5 +3481,8 @@
   "pairReplaceMyBand": "Reemplazar mi pulsera",
   "dayStepsWhoop4NoCounter": "Una WHOOP 4.0 no tiene contador de pasos propio, así que solo cuenta pasos mientras esta app recibe sus datos en vivo.",
   "healthWearNotUpdatedSince": "sin actualizar desde {time}",
-  "dayStrainWornAsOf": "Llevada, a las {time}"
+  "dayStrainWornAsOf": "Llevada, a las {time}",
+  "bandStatusFirmwareLockedTitle": "Probablemente el firmware de la banda está reteniendo sus datos",
+  "bandStatusFirmwareLockedReason": "Esta banda usa el firmware 50.43 de WHOOP, que puede conectarse y responder a la app sin enviar registros ni frecuencia cardíaca en vivo hasta que haya en ella un token de membresía firmado por WHOOP. Es una posible razón de que no lleguen datos. OpenStrap no puede emitir ese token. Todo lo que ya está guardado aquí está a salvo.",
+  "bandStatusFirmwareLockedFix": "Si es el firmware, la app no puede cambiarlo y el aviso desaparece cuando la banda vuelva a enviar registros"
 }
