@@ -4883,23 +4883,23 @@ class AppState extends ChangeNotifier {
     if (replacing && existing!.remoteId == remoteId) {
       throw const SameBandSelectedException();
     }
-    // The primary peripheral must never also hold a secondary connection. A
-    // candidate that is already a workout sensor here would be saved as the
-    // primary with its secondary row and link still alive, and the sensor
-    // link would reconnect the same peripheral. Refuse before anything starts.
-    if (replacing &&
-        (await LocalDb.deviceRows()).any((r) =>
-            r['remote_id'] == remoteId &&
-            r['id'] != LocalDb.kPrimaryDeviceId)) {
-      throw Exception(
-          'That device is already paired as a sensor. Forget it there first.');
-    }
     final epoch = _pairingEpoch;
     _pairingInProgress = true;
     _replacingBand = replacing;
     var committed = false;
     var started = false;
     try {
+      // The primary peripheral must never also hold a secondary connection. A
+      // candidate that is already a workout sensor here would be saved as the
+      // primary with its secondary row and link still alive, and the sensor
+      // link would reconnect the same peripheral. Refuse before anything starts.
+      if (replacing &&
+          (await LocalDb.deviceRows()).any((r) =>
+              r['remote_id'] == remoteId &&
+              r['id'] != LocalDb.kPrimaryDeviceId)) {
+        throw Exception(
+            'That device is already paired as a sensor. Forget it there first.');
+      }
       final confirmed = await _sync.connectForPairing(
         PairedDevice(remoteId, serial),
         replacingRemoteId: replacing ? existing?.remoteId : null,

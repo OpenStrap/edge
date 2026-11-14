@@ -114,8 +114,6 @@ const _indirectKeys = <String, List<String>>{
     'health_import_profile_at', 'health_import_workouts_at'],
   'lib/notify/notification_prefs.dart:_kBatteryPct': ['notif_battery_pct'],
   'lib/state/app_state.dart:_kHealthSync': ['health_sync'],
-  'lib/state/app_state.dart:kAlarmRemoteId': ['alarm_remote_id'],
-  'lib/sync/background_sync.dart:kAlarmRemoteId': ['alarm_remote_id'],
   'lib/sync/paired_device.dart:_kWornOn': ['paired_worn_on'],
   'lib/sync/paired_device.dart:key': [
     'paired_remote_id', 'paired_serial', 'paired_generation'],
