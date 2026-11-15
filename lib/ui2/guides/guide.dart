@@ -32,6 +32,10 @@ abstract interface class GuideContent {
   List<TargetFound> resolve(Element root, AppLocalizations l);
 }
 
+/// Page-wide content does not identify a particular neighbouring control.
+/// The overlay must not keep an unrelated page's entire control list real.
+abstract interface class UnscopedGuideContent implements GuideContent {}
+
 /// The order a multi-target step's hand visits its targets in.
 enum GuideVisit {
   /// One continuous wave through the targets in order and back.

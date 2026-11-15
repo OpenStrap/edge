@@ -63,8 +63,6 @@ import '../app_shell.dart' show AppShell;
 import '../grammar.dart' show NavBar, Pressable, SubTabs;
 import '../theme.dart';
 import 'guide.dart';
-import 'guide_content.dart' show PressableRows;
-import 'guide_copy.dart' show GuideCopy;
 import 'guide_hand.dart';
 import 'guide_navigation.dart';
 import 'guide_accordion.dart';
@@ -806,13 +804,24 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
 
   // CLAIM(overlay-hit-target): geometry alone cannot prove a tap reaches a
   // control hidden under chrome [occluded target regressions in overlay tests].
-  bool _hitsTarget(Offset position) {
-    final target = _targetObject;
-    if (target == null || !target.attached) return false;
+  RenderBox? _hitTarget(Offset position, Offset point) {
+    final candidates = _step?.multi != null && _accordionHop == null
+        ? [for (final target in _hl) if (target.live.contains(point)) target.object]
+        : [if (_target?.contains(point) ?? false) _targetObject];
     final result = HitTestResult();
     WidgetsBinding.instance.hitTestInView(result, position, View.of(context).viewId);
-    return result.path.any((entry) => identical(entry.target, target));
+    for (final target in candidates) {
+      if (target != null && target.attached && result.path.any((entry) => identical(entry.target, target))) return target;
+    }
+    return null;
   }
+
+  bool _hitsTarget(Offset position) {
+    final layer = _layerKey.currentContext?.findRenderObject();
+    return layer is RenderBox && _hitTarget(position, layer.globalToLocal(position)) != null;
+  }
+
+  final _downControls = <int, RenderBox>{};
 
   void _pointer(PointerEvent event) {
     _markDirty();
@@ -824,15 +833,19 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
     final layer = _layerKey.currentContext?.findRenderObject();
     if (layer is! RenderBox || !layer.hasSize || !layer.attached || _yieldNow) return;
     final point = layer.globalToLocal(event.position);
-    if (event is PointerDownEvent && (_target?.contains(point) ?? false) && _hitsTarget(event.position)) _downs[event.pointer] = point;
-    if (event is PointerCancelEvent) _downs.remove(event.pointer);
+    if (event is PointerDownEvent) {
+      final target = _hitTarget(event.position, point);
+      if (target != null) { _downs[event.pointer] = point; _downControls[event.pointer] = target; }
+    }
+    if (event is PointerCancelEvent) { _downs.remove(event.pointer); _downControls.remove(event.pointer); }
     if (event is PointerMoveEvent) {
       final down = _downs[event.pointer];
-      if (down != null && (point - down).distance > kTouchSlop) _downs.remove(event.pointer);
+      if (down != null && (point - down).distance > kTouchSlop) { _downs.remove(event.pointer); _downControls.remove(event.pointer); }
     }
     if (event is PointerUpEvent) {
       final down = _downs.remove(event.pointer);
-      if (_accordionHop == null && down != null && (point - down).distance <= kTouchSlop && (_target?.contains(point) ?? false) && _hitsTarget(event.position)) {
+      final target = _downControls.remove(event.pointer);
+      if (_accordionHop == null && down != null && (point - down).distance <= kTouchSlop && identical(target, _hitTarget(event.position, point))) {
         // Let the real gesture recognizer handle the tap before completing the run.
         scheduleMicrotask(() { if (mounted) widget.run.targetTapped(); });
       }
@@ -1477,7 +1490,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
       }
       for (final content in other.alsoTap) {
         // "Every pressable row" names no particular control.
-        if (content is PressableRows) continue;
+        if (content is UnscopedGuideContent) continue;
         found.addAll(content.resolve(page, l));
       }
       for (final f in found) {
@@ -1642,7 +1655,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
       final union = moving ? targetUnion?.inflate(kGuideOutlineGap).intersect(screen) : null;
       final labelAnchor = moving ? labelUnion?.inflate(kGuideOutlineGap).intersect(screen) : null;
       final cardTarget = union ?? outline;
-      final tapLabel = _accordionHop != null ? l.guideExpandAccordion(_accordionHop!.title) : _step?.multi != null ? (_step!.multi!.label ?? GuideCopy.tapOneOfLabel).of(l) : l.guideTapMarker;
+      final tapLabel = _accordionHop != null ? l.guideExpandAccordion(_accordionHop!.title) : _step?.multi != null ? (_step!.multi!.label?.of(l) ?? l.guideTapOneOf) : l.guideTapMarker;
       return Stack(children: [
         // CLAIM(lazy-skeleton-input): a published P6 plan needs input even before
         // its target exists, including newly built rows [guide_r2_review_test R4].

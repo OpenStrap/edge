@@ -27,7 +27,7 @@ Guide get addNapGuide => Guide(
             id: 'open-naps',
             node: GuideNode.sleep,
             target: _napsButton,
-            anchor: _napsButton,
+            anchor: GuideTarget.label(ScreenLabel.sleepDetailNavTitle),
             action: GuideAction.tap,
             caption: GuideCopy.addNapCaptionOpenNaps,
           ),

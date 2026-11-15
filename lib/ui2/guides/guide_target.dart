@@ -121,6 +121,10 @@ sealed class GuideTarget {
   factory GuideTarget.firstLabel(GuideText label, {GuideTarget? within}) =>
       _LabelTarget([label], within, firstOfMany: true);
 
+  /// The first control matching any of the offered labels, in document order.
+  factory GuideTarget.firstAnyLabel(List<GuideText> alternatives, {GuideTarget? within}) =>
+      _LabelTarget(alternatives, within, firstOfMany: true);
+
   /// By Key: the keyed widget's own render box; no growing.
   factory GuideTarget.key(Key key) => _KeyTarget(key);
 

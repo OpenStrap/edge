@@ -3491,6 +3491,49 @@
   "bandStatusFirmwareLockedFix": "如果是固件的原因，应用无法更改，手环重新发送记录后此提示会自动消失",
   "guideTapMarker": "点按",
   "guideScrollMarker": "滚动",
+  "guideStepOf": "第 {step} 步，共 {total} 步",
+  "guideDontSeeIt": "没看到？",
+  "guideExit": "退出",
+  "guideExitLabel": "退出指南",
+  "guideOffPathTitle": "你已偏离路径",
+  "guideOffPathBody": "这个界面不在指南中。",
+  "guideBackToGuide": "返回指南",
+  "guideDoneTitle": "完成",
+  "guideDoneBody": "这是最后一步。",
+  "guideTargetProxy": "指南目标：{caption}",
+  "guideTabProxy": "指南：打开“{tab}”标签页",
+  "guideBackProxy": "指南：返回路径",
+  "guideMoveCardUp": "将卡片上移",
+  "guideMoveCardDown": "将卡片下移",
+  "guideTapsBack": "返回需点按 {count} 次",
+  "@guideTapsBack": {
+    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@guideTabProxy": {
+    "description": "Screen-reader label of the highlighted tab-bar tab while a guide runs: the step is on that tab.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "The tab's name, as the tab bar prints it."
+      }
+    }
+  },
+  "@guideBackProxy": {
+    "description": "Screen-reader label of the highlighted control that leads back to the guide's path while the user is off the path."
+  },
+  "@guideMoveCardUp": {
+    "description": "Screen-reader action on the guide's step card: move the card up the screen (the alternative to dragging it)."
+  },
+  "@guideMoveCardDown": {
+    "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapOneOf": "点其中一个",
+  "guideExpandAccordion": "展开{title}",
   "guideStepUnavailable": "暂时无法显示此步骤。",
   "guideNoVariantBody": "本指南暂不支持你的设备。支持：{bands}",
   "guideHrZonesTitle": "在哪里找到你的心率区间",
@@ -3502,7 +3545,6 @@
   "guideHrZonesAltBody": "打开**{tab}**标签页，点按**{link}**，然后按第 2、3 步操作。",
   "guideHrZonesMissingTitle": "没有看到“{section}”？",
   "guideHrZonesMissingBody": "当设备记录了当天的心率并且可以计算出你的心率区间后，它就会出现。如果佩戴一段时间后仍未出现，请在个人资料中填写你的年龄。",
-  "guideStepOf": "第 {step} 步，共 {total} 步",
   "guidePickBand": "你戴的是哪款手环？",
   "helpEmpty": "你的手环暂时还没有指南。",
   "guideAnotherWayInTitle": "另一条路径",
@@ -3558,52 +3600,10 @@
   "guideLogPastScoreBody": "如果手环记录了那段时间的心率，训练就会据此评分；否则保存时不带评分。",
   "guideLogPastMissingTitle": "没有看到“{log}”？",
   "guideLogPastMissingBody": "它在**{history}**的最底部，位于你的训练记录下方。请一直滚动到底。",
-  "guideDontSeeIt": "没看到？",
-  "guideExit": "退出",
-  "guideExitLabel": "退出指南",
-  "guideOffPathTitle": "你已偏离路径",
-  "guideOffPathBody": "这个界面不在指南中。",
-  "guideBackToGuide": "返回指南",
-  "guideDoneTitle": "完成",
-  "guideDoneBody": "这是最后一步。",
-  "guideTargetProxy": "指南目标：{caption}",
-  "guideTabProxy": "指南：打开“{tab}”标签页",
-  "guideBackProxy": "指南：返回路径",
-  "guideMoveCardUp": "将卡片上移",
-  "guideMoveCardDown": "将卡片下移",
-  "guideTapsBack": "返回需点按 {count} 次",
-  "@guideTapsBack": {
-    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "@guideTabProxy": {
-    "description": "Screen-reader label of the highlighted tab-bar tab while a guide runs: the step is on that tab.",
-    "placeholders": {
-      "tab": {
-        "type": "String",
-        "description": "The tab's name, as the tab bar prints it."
-      }
-    }
-  },
-  "@guideBackProxy": {
-    "description": "Screen-reader label of the highlighted control that leads back to the guide's path while the user is off the path."
-  },
-  "@guideMoveCardUp": {
-    "description": "Screen-reader action on the guide's step card: move the card up the screen (the alternative to dragging it)."
-  },
-  "@guideMoveCardDown": {
-    "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
-  },
-  "guideTapOneOf": "点其中一个",
   "guideSearchOrPick": "搜索或选择",
   "profileHelpRow": "帮助",
   "guideAddNapMissingTitle": "没有看到“{naps}”？",
   "guideAddNapMissingBody": "**{naps}**位于你的夜间睡眠下方。如果该部分**{night}**已折叠，请点按其标题展开。",
-  "guideExpandAccordion": "展开{title}",
   "guideRemoveStep2Still": "每个项目都有自己的**{notNap}** / **{notWorkout}**。请在没有发生的小睡或训练上点按它；轮廓标出的是第一个。",
   "@guideRemoveStep2Still": {
     "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",

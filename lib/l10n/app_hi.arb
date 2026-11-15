@@ -3491,6 +3491,49 @@
   "bandStatusFirmwareLockedFix": "अगर वजह फ़र्मवेयर है, तो ऐप इसे बदल नहीं सकता और बैंड के फिर से रिकॉर्डिंग भेजते ही यह संदेश हट जाएगा",
   "guideTapMarker": "टैप करें",
   "guideScrollMarker": "स्क्रोल करें",
+  "guideStepOf": "{total} में से चरण {step}",
+  "guideDontSeeIt": "नहीं दिख रहा?",
+  "guideExit": "बाहर निकलें",
+  "guideExitLabel": "गाइड से बाहर निकलें",
+  "guideOffPathTitle": "आप रास्ते से हट गए हैं",
+  "guideOffPathBody": "यह स्क्रीन गाइड का हिस्सा नहीं है।",
+  "guideBackToGuide": "गाइड पर वापस जाएँ",
+  "guideDoneTitle": "हो गया",
+  "guideDoneBody": "यह आखिरी चरण था।",
+  "guideTargetProxy": "गाइड का लक्ष्य: {caption}",
+  "guideTabProxy": "गाइड: {tab} टैब खोलें",
+  "guideBackProxy": "गाइड: रास्ते पर वापस जाएँ",
+  "guideMoveCardUp": "कार्ड को ऊपर ले जाएँ",
+  "guideMoveCardDown": "कार्ड को नीचे ले जाएँ",
+  "guideTapsBack": "{count, plural, one{1 टैप पीछे} other{{count} टैप पीछे}}",
+  "@guideTapsBack": {
+    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@guideTabProxy": {
+    "description": "Screen-reader label of the highlighted tab-bar tab while a guide runs: the step is on that tab.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "The tab's name, as the tab bar prints it."
+      }
+    }
+  },
+  "@guideBackProxy": {
+    "description": "Screen-reader label of the highlighted control that leads back to the guide's path while the user is off the path."
+  },
+  "@guideMoveCardUp": {
+    "description": "Screen-reader action on the guide's step card: move the card up the screen (the alternative to dragging it)."
+  },
+  "@guideMoveCardDown": {
+    "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapOneOf": "इनमें से एक टैप करें",
+  "guideExpandAccordion": "{title} खोलें",
   "guideStepUnavailable": "यह चरण अभी नहीं दिखाया जा सकता।",
   "guideNoVariantBody": "यह गाइड अभी आपके बैंड को कवर नहीं करती। यह इन्हें कवर करती है: {bands}।",
   "guideHrZonesTitle": "अपने हृदय गति ज़ोन कहाँ मिलेंगे",
@@ -3502,7 +3545,6 @@
   "guideHrZonesAltBody": "**{tab}** टैब खोलें और **{link}** पर टैप करें, फिर चरण 2 और 3 अपनाएँ।",
   "guideHrZonesMissingTitle": "\"{section}\" नहीं दिख रहा?",
   "guideHrZonesMissingBody": "यह तब दिखता है जब बैंड उस दिन की हृदय गति दर्ज कर चुका हो और आपके ज़ोन निकाले जा सकें। अगर बैंड कुछ देर पहनने के बाद भी यह न दिखे, तो अपनी प्रोफ़ाइल में अपनी उम्र जोड़ें।",
-  "guideStepOf": "{total} में से चरण {step}",
   "guidePickBand": "आपके पास कौन-सा बैंड है?",
   "helpEmpty": "आपके बैंड के लिए अभी कोई गाइड नहीं है।",
   "guideAnotherWayInTitle": "दूसरा रास्ता",
@@ -3558,52 +3600,10 @@
   "guideLogPastScoreBody": "अगर बैंड ने उस समय की आपकी हृदय गति दर्ज की थी, तो उसी से सेशन का स्कोर बनता है। नहीं तो यह बिना स्कोर के सेव होता है।",
   "guideLogPastMissingTitle": "\"{log}\" नहीं दिख रहा?",
   "guideLogPastMissingBody": "यह **{history}** में सबसे नीचे, आपके सेशन के बाद है। पूरा नीचे तक स्क्रोल करें।",
-  "guideDontSeeIt": "नहीं दिख रहा?",
-  "guideExit": "बाहर निकलें",
-  "guideExitLabel": "गाइड से बाहर निकलें",
-  "guideOffPathTitle": "आप रास्ते से हट गए हैं",
-  "guideOffPathBody": "यह स्क्रीन गाइड का हिस्सा नहीं है।",
-  "guideBackToGuide": "गाइड पर वापस जाएँ",
-  "guideDoneTitle": "हो गया",
-  "guideDoneBody": "यह आखिरी चरण था।",
-  "guideTargetProxy": "गाइड का लक्ष्य: {caption}",
-  "guideTabProxy": "गाइड: {tab} टैब खोलें",
-  "guideBackProxy": "गाइड: रास्ते पर वापस जाएँ",
-  "guideMoveCardUp": "कार्ड को ऊपर ले जाएँ",
-  "guideMoveCardDown": "कार्ड को नीचे ले जाएँ",
-  "guideTapsBack": "{count, plural, one{1 टैप पीछे} other{{count} टैप पीछे}}",
-  "@guideTapsBack": {
-    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "@guideTabProxy": {
-    "description": "Screen-reader label of the highlighted tab-bar tab while a guide runs: the step is on that tab.",
-    "placeholders": {
-      "tab": {
-        "type": "String",
-        "description": "The tab's name, as the tab bar prints it."
-      }
-    }
-  },
-  "@guideBackProxy": {
-    "description": "Screen-reader label of the highlighted control that leads back to the guide's path while the user is off the path."
-  },
-  "@guideMoveCardUp": {
-    "description": "Screen-reader action on the guide's step card: move the card up the screen (the alternative to dragging it)."
-  },
-  "@guideMoveCardDown": {
-    "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
-  },
-  "guideTapOneOf": "इनमें से एक टैप करें",
   "guideSearchOrPick": "खोजें या चुनें",
   "profileHelpRow": "सहायता",
   "guideAddNapMissingTitle": "\"{naps}\" नहीं दिख रहा?",
   "guideAddNapMissingBody": "**{naps}** आपकी रात के नीचे है। अगर वह भाग, **{night}**, बंद है, तो उसका शीर्षक टैप करके खोलें।",
-  "guideExpandAccordion": "{title} खोलें",
   "guideRemoveStep2Still": "हर आइटम का अपना **{notNap}** / **{notWorkout}** है। जो झपकी या सेशन हुआ ही नहीं, उसी पर इसे टैप करें; आउटलाइन पहले आइटम को दिखाती है।",
   "@guideRemoveStep2Still": {
     "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",

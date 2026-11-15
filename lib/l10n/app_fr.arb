@@ -3491,6 +3491,49 @@
   "bandStatusFirmwareLockedFix": "Si c’est le firmware, l’application n’y peut rien et ce message disparaît dès que le bracelet renvoie des enregistrements",
   "guideTapMarker": "touchez",
   "guideScrollMarker": "défiler",
+  "guideStepOf": "Étape {step} sur {total}",
+  "guideDontSeeIt": "Vous ne le voyez pas ?",
+  "guideExit": "Quitter",
+  "guideExitLabel": "Quitter le guide",
+  "guideOffPathTitle": "Vous avez quitté le chemin",
+  "guideOffPathBody": "Cet écran ne fait pas partie du guide.",
+  "guideBackToGuide": "Retour au guide",
+  "guideDoneTitle": "Terminé",
+  "guideDoneBody": "C’était la dernière étape.",
+  "guideTargetProxy": "Cible du guide : {caption}",
+  "guideTabProxy": "Guide : ouvrir l’onglet {tab}",
+  "guideBackProxy": "Guide : retour au chemin",
+  "guideMoveCardUp": "Déplacer la carte vers le haut",
+  "guideMoveCardDown": "Déplacer la carte vers le bas",
+  "guideTapsBack": "{count, plural, one{1 appui en arrière} other{{count} appuis en arrière}}",
+  "@guideTapsBack": {
+    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@guideTabProxy": {
+    "description": "Screen-reader label of the highlighted tab-bar tab while a guide runs: the step is on that tab.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "The tab's name, as the tab bar prints it."
+      }
+    }
+  },
+  "@guideBackProxy": {
+    "description": "Screen-reader label of the highlighted control that leads back to the guide's path while the user is off the path."
+  },
+  "@guideMoveCardUp": {
+    "description": "Screen-reader action on the guide's step card: move the card up the screen (the alternative to dragging it)."
+  },
+  "@guideMoveCardDown": {
+    "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapOneOf": "touchez l'un d'eux",
+  "guideExpandAccordion": "Développer {title}",
   "guideStepUnavailable": "Cette étape ne peut pas être affichée pour le moment.",
   "guideNoVariantBody": "Ce guide ne couvre pas encore votre bracelet. Il couvre : {bands}.",
   "guideHrZonesTitle": "Où trouver vos zones de fréquence cardiaque",
@@ -3502,7 +3545,6 @@
   "guideHrZonesAltBody": "Ouvrez l’onglet **{tab}** et touchez **{link}**, puis suivez les étapes 2 et 3.",
   "guideHrZonesMissingTitle": "Vous ne voyez pas « {section} » ?",
   "guideHrZonesMissingBody": "Cet élément apparaît une fois que le bracelet a enregistré de la fréquence cardiaque pour la journée et que vos zones peuvent être calculées. S’il n’apparaît toujours pas après l’avoir porté un moment, ajoutez votre âge dans votre profil.",
-  "guideStepOf": "Étape {step} sur {total}",
   "guidePickBand": "Quel bracelet avez-vous ?",
   "helpEmpty": "Il n’existe pas encore de guide pour votre bracelet.",
   "guideAnotherWayInTitle": "Un autre chemin",
@@ -3558,52 +3600,10 @@
   "guideLogPastScoreBody": "Si le bracelet a enregistré votre fréquence cardiaque sur cette période, la séance reçoit un score. Sinon, elle est enregistrée sans score.",
   "guideLogPastMissingTitle": "Vous ne voyez pas « {log} » ?",
   "guideLogPastMissingBody": "Il se trouve tout en bas de **{history}**, sous vos séances. Faites défiler jusqu’au bout.",
-  "guideDontSeeIt": "Vous ne le voyez pas ?",
-  "guideExit": "Quitter",
-  "guideExitLabel": "Quitter le guide",
-  "guideOffPathTitle": "Vous avez quitté le chemin",
-  "guideOffPathBody": "Cet écran ne fait pas partie du guide.",
-  "guideBackToGuide": "Retour au guide",
-  "guideDoneTitle": "Terminé",
-  "guideDoneBody": "C’était la dernière étape.",
-  "guideTargetProxy": "Cible du guide : {caption}",
-  "guideTabProxy": "Guide : ouvrir l’onglet {tab}",
-  "guideBackProxy": "Guide : retour au chemin",
-  "guideMoveCardUp": "Déplacer la carte vers le haut",
-  "guideMoveCardDown": "Déplacer la carte vers le bas",
-  "guideTapsBack": "{count, plural, one{1 appui en arrière} other{{count} appuis en arrière}}",
-  "@guideTapsBack": {
-    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "@guideTabProxy": {
-    "description": "Screen-reader label of the highlighted tab-bar tab while a guide runs: the step is on that tab.",
-    "placeholders": {
-      "tab": {
-        "type": "String",
-        "description": "The tab's name, as the tab bar prints it."
-      }
-    }
-  },
-  "@guideBackProxy": {
-    "description": "Screen-reader label of the highlighted control that leads back to the guide's path while the user is off the path."
-  },
-  "@guideMoveCardUp": {
-    "description": "Screen-reader action on the guide's step card: move the card up the screen (the alternative to dragging it)."
-  },
-  "@guideMoveCardDown": {
-    "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
-  },
-  "guideTapOneOf": "touchez l'un d'eux",
   "guideSearchOrPick": "cherchez ou choisissez",
   "profileHelpRow": "Aide",
   "guideAddNapMissingTitle": "Vous ne voyez pas « {naps} » ?",
   "guideAddNapMissingBody": "**{naps}** se trouve sous votre nuit. Si cette partie, **{night}**, est repliée, touchez son titre pour l’ouvrir.",
-  "guideExpandAccordion": "Développer {title}",
   "guideRemoveStep2Still": "Chaque élément a son propre **{notNap}** / **{notWorkout}**. Touchez-le sur la sieste ou la séance qui n’a pas eu lieu ; le contour marque le premier.",
   "@guideRemoveStep2Still": {
     "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",

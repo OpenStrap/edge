@@ -36,8 +36,6 @@ enum GuideNode {
   workoutSummary,
   daySteps,
   dayTimeline,
-  tracks,
-  trackDetail,
   recovery,
   stress,
   journal,
@@ -64,13 +62,9 @@ enum GuideNode {
   profile,
   devices,
   deviceDetail,
-  liveDevices,
-  deviceLab,
   bandGestures,
-  haptics,
   bandNotifications,
   phoneImport,
-  devLogs,
   reportIssue,
   help,
   metric,
@@ -144,12 +138,6 @@ const guideNavigationTree = <GuideNode, GuideDestination>{
   GuideNode.workoutSummary: GuideDestination(GuideNode.activityOverview, [
     'ActivitySummary',
   ]),
-  GuideNode.tracks: GuideDestination(GuideNode.activityActivities, [
-    'TracksScreen',
-  ]),
-  GuideNode.trackDetail: GuideDestination(GuideNode.tracks, [
-    'TrackDetailScreen',
-  ]),
   GuideNode.beats: GuideDestination(GuideNode.healthOverview, ['Beats']),
   GuideNode.ecg: GuideDestination(GuideNode.healthOverview, ['EcgHomeScreen']),
   GuideNode.ecgCapture: GuideDestination(GuideNode.ecg, ['EcgCaptureScreen']),
@@ -170,17 +158,13 @@ const guideNavigationTree = <GuideNode, GuideDestination>{
   GuideNode.profile: GuideDestination(GuideNode.settings, ['EditProfile']),
   GuideNode.devices: GuideDestination(GuideNode.settings, ['MyDevices']),
   GuideNode.deviceDetail: GuideDestination(GuideNode.devices, ['DeviceDetail']),
-  GuideNode.liveDevices: GuideDestination(GuideNode.devices, ['LiveDevices']),
-  GuideNode.deviceLab: GuideDestination(GuideNode.devices, ['DeviceLab']),
   GuideNode.bandGestures: GuideDestination(GuideNode.settings, [
     'BandGestures',
   ]),
-  GuideNode.haptics: GuideDestination(GuideNode.settings, ['HapticsSettings']),
   GuideNode.bandNotifications: GuideDestination(GuideNode.settings, [
     'BandNotifications',
   ]),
   GuideNode.phoneImport: GuideDestination(GuideNode.settings, ['PhoneImport']),
-  GuideNode.devLogs: GuideDestination(GuideNode.settings, ['DevLogsPage']),
   GuideNode.reportIssue: GuideDestination(GuideNode.settings, [
     'ReportIssueScreen',
   ]),

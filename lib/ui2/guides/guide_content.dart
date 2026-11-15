@@ -16,7 +16,7 @@ import 'tree_geometry.dart';
 /// Every pressable ROW built on the page (smaller than half the page, so a
 /// page-wide tap area never counts): the list a caption offers ("tap one in the
 /// list"), however many rows the page has built right now.
-class PressableRows implements GuideContent {
+class PressableRows implements UnscopedGuideContent {
   const PressableRows();
 
   @override

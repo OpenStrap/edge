@@ -18,7 +18,7 @@ import 'guide_copy.dart';
 import 'guide_labels.dart';
 
 final _card = GuideTarget.label(ScreenLabel.activityReviewTitle);
-final _notANap = GuideTarget.label(ScreenLabel.napsNotANapLabel);
+final _notANap = GuideTarget.firstAnyLabel([ScreenLabel.napsNotANapLabel, ScreenLabel.activityNotAWorkout]);
 
 Guide get removeDetectedGuide => Guide(
       id: 'remove-detected',

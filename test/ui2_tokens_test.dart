@@ -290,7 +290,8 @@ const _notComponents = {
   // live_guide_overlay_test.dart and help_screen_test.dart.
   'GuideStepCard', 'LiveGuideOverlay', 'HelpScreen',
   // Guide markers have no independent appearance; covered by structural tests.
-  'GuideBox', 'GuideLocation',
+  'GuideBox', 'GuideLocation', 'GuideHandCursor', 'GuideTapHand',
+  'GuideScrollIndicator', 'GuideNavigationHeader',
   // The pairing screens' building blocks (lib/ui2/pairing): each is one
   // swappable piece of a pairing screen, driven by registry data and pumped,
   // state by state, by ui2_pairing_blocks_test.dart,
