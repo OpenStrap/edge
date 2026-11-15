@@ -230,6 +230,11 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
   /// and moves with the stepper.
   String? _day;
 
+  /// The day whose data `_d` holds. A step that cannot be read returns here,
+  /// not to the day the stepper named before it, which may itself have been
+  /// overtaken before it loaded.
+  String? _shownDay;
+
   // A quick second tap on the stepper starts a second load; the first can
   // finish last and must not paint the old day under the new label.
   int _loadToken = 0;
@@ -238,6 +243,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
   void initState() {
     super.initState();
     _day = widget.day;
+    _shownDay = widget.day;
     if (widget.data != null) {
       _d = widget.data;
       _loading = false;
@@ -246,7 +252,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  Future<void> _load({String? fallbackDay}) async {
+  Future<void> _load() async {
     final token = ++_loadToken;
     final repo = repoOf(context);
     if (repo == null) {
@@ -254,26 +260,26 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       return;
     }
     try {
-      final d = await DayStrainData.load(repo, forDay: _day);
+      final day = _day;
+      final d = await DayStrainData.load(repo, forDay: day);
       if (mounted && token == _loadToken) {
-        setState(() => (_d = d, _loading = false));
+        setState(() => (_d = d, _shownDay = day, _loading = false));
       }
     } catch (_) {
       // A step that could not be read stays on the day whose data is still
       // on screen, so the stepper never names a day the curve is not.
       if (mounted && token == _loadToken) {
-        setState(() => (_day = fallbackDay ?? _day, _loading = false));
+        setState(() => (_day = _shownDay, _loading = false));
       }
     }
   }
 
   void _goDay(String day) {
-    final from = _day ?? _d?.shownDay;
     setState(() {
       _day = day;
       _loading = true;
     });
-    _load(fallbackDay: from);
+    _load();
   }
 
   @override

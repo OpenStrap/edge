@@ -3,6 +3,8 @@
 // reach another day's strain-by-time curve (OS-VHZ4Z7). It now wears the same
 // stepper as Day Steps and Sleep, over the days that derived.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -20,6 +22,7 @@ const _days = ['2026-11-14', '2026-11-13', '2026-11-12']; // newest first
 class _Repo extends LocalRepository {
   final asked = <String>[];
   String? failFor;
+  final hold = <String, Completer<void>>{};
 
   @override
   Future<List<String>> availableDays() async => _days;
@@ -27,6 +30,7 @@ class _Repo extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getDayStrain(String date) async {
     asked.add(date);
+    await hold[date]?.future;
     if (date == failFor) throw StateError('database is locked');
     final d = DateTime.parse(date);
     int at(int h) => DateTime(d.year, d.month, d.day, h).millisecondsSinceEpoch ~/ 1000;
@@ -82,6 +86,26 @@ void main() {
     await _settle(t);
     expect(find.text(dayNavLabel('2026-11-13')), findsOneWidget);
     expect(find.text('6.5'), findsWidgets);
+  });
+
+  testWidgets(
+      'a failed step taken while another loads returns to the day on screen',
+      (t) async {
+    final repo = await _open(t, day: '2026-11-14');
+    repo.hold['2026-11-13'] = Completer<void>();
+    repo.failFor = '2026-11-12';
+    await t.tap(find.bySemanticsLabel('Previous day'));
+    await t.pump();
+    await t.tap(find.bySemanticsLabel('Previous day'));
+    await _settle(t);
+    // The 14th's curve is still on screen, so the stepper must name the 14th,
+    // not the 13th whose load was overtaken.
+    expect(find.text(dayNavLabel('2026-11-14')), findsOneWidget);
+    expect(find.text('7.0'), findsWidgets);
+    repo.hold['2026-11-13']!.complete();
+    await _settle(t);
+    expect(find.text(dayNavLabel('2026-11-14')), findsOneWidget);
+    expect(find.text('7.0'), findsWidgets);
   });
 
   testWidgets('a past day steps back to the day before', (t) async {
