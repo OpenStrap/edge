@@ -123,6 +123,23 @@ android {
     }
 }
 
+// Match plugin/native-asset packaging to Flutter's AOT targets. The artifact
+// verifier checks the exact ABI set and Flutter library pairs before publishing.
+val flutterAbiNames = mapOf(
+    "android-arm" to "armeabi-v7a",
+    "android-arm64" to "arm64-v8a",
+    "android-x64" to "x86_64",
+)
+val flutterTargetAbis = (project.findProperty("target-platform")?.toString()
+    ?: "android-arm,android-arm64,android-x64")
+    .split(",").map { flutterAbiNames.getValue(it) }
+for (buildType in listOf("release", "profile")) {
+    android.buildTypes.getByName(buildType).ndk {
+        abiFilters.clear()
+        abiFilters.addAll(flutterTargetAbis)
+    }
+}
+
 flutter {
     source = "../.."
 }

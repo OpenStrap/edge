@@ -161,6 +161,22 @@ jobs:
   android:
     needs: preflight
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: portable
+            target-platform: android-arm,android-arm64,android-x64
+            suffix: ''
+          - variant: arm64-v8a
+            target-platform: android-arm64
+            suffix: -arm64-v8a
+          - variant: armeabi-v7a
+            target-platform: android-arm
+            suffix: -armeabi-v7a
+          - variant: x86_64
+            target-platform: android-x64
+            suffix: -x86_64
     steps:
       # Shallow: the guard that needed full tag history now runs in `preflight`, and
       # nothing in this job reads git. `generate_release_notes` builds its diff on
@@ -179,6 +195,9 @@ jobs:
         with:
           # Bump deliberately, not by drift.
           flutter-version: '3.41.6'
+
+      - name: Test APK verification rules
+        run: python3 -m unittest discover -s .github/scripts -p 'test_verify_apk.py'
 
       # The single companion URL (announcements, OTA, telemetry, import) comes
       # from a repo secret, written into .env and baked in via --dart-define.
@@ -215,24 +234,42 @@ jobs:
           echo "$GOOGLE_SERVICES_JSON_B64" | base64 -d > android/app/google-services.json
           echo "$FIREBASE_OPTIONS_DART_B64" | base64 -d > lib/firebase_options.dart
 
+      # Each matrix leg starts with fresh packaging output on its own runner.
+      # Do not cache build/: incremental Zipflinger padding can bloat the APK.
+      # Separate target builds preserve pubspec's versionCode for OTA updates;
+      # --split-per-abi adds ABI offsets and breaks that comparison.
       - name: Build release APK
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: flutter build apk --release --dart-define-from-file=.env
+        run: flutter build apk --release --target-platform ${{ matrix.target-platform }} --dart-define-from-file=.env
+
+      - name: Verify release APK
+        env:
+          APK_VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          aapt2=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -1)
+          test -n "$aapt2"
+          python3 .github/scripts/verify_apk.py \
+            build/app/outputs/flutter-apk/app-release.apk \
+            --variant "$APK_VARIANT" --aapt2 "$aapt2"
 
       - name: Name the APK after the version
         id: rename
+        env:
+          APK_SUFFIX: ${{ matrix.suffix }}
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/openstrap-edge-${GITHUB_REF_NAME}.apk
-          echo "apk=dist/openstrap-edge-${GITHUB_REF_NAME}.apk" >> "$GITHUB_OUTPUT"
+          apk="dist/openstrap-edge-${GITHUB_REF_NAME}${APK_SUFFIX}.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "$apk"
+          echo "apk=$apk" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: openstrap-edge-apk
+          name: openstrap-edge-apk-${{ matrix.variant }}
           path: ${{ steps.rename.outputs.apk }}
 
       # Publish a Release with the signed APK attached so people download a real
@@ -241,7 +278,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.rename.outputs.apk }}
-          generate_release_notes: true
 
   # Unsigned iOS .ipa for sideloading (AltStore / Sideloadly / TrollStore). It is
   # NOT App Store signed — users re-sign it with their own Apple ID on install.
@@ -365,3 +401,24 @@ jobs:
           files: |
             ${{ steps.ipa.outputs.ipa }}
             apps.json
+
+  # Write the body once, after all uploads, so parallel release updates cannot
+  # overwrite the file-selection guide with an earlier copy of the body.
+  release-notes:
+    needs: [android, ios]
+    if: ${{ !cancelled() && needs.android.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add release notes and APK selection guide
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          append_body: true
+          body: |
+            ## Which file?
+
+            - Most phones: `openstrap-edge-${{ github.ref_name }}-arm64-v8a.apk`.
+            - Older 32-bit phones: `openstrap-edge-${{ github.ref_name }}-armeabi-v7a.apk`.
+            - Emulators and Chromebooks: `openstrap-edge-${{ github.ref_name }}-x86_64.apk`.
+            - Portable: `openstrap-edge-${{ github.ref_name }}.apk` works on all three CPU types and is what in-app updates install.
+            - The unsigned `.ipa` is for iOS sideloading.
