@@ -158,8 +158,28 @@ jobs:
                 'configurations.' % (name, build, checked))
           PY
 
-  android:
+  # Create the release once, before any upload. Five upload legs (four APKs and
+  # the iOS job) run in parallel; letting each of them create the release on
+  # first upload races, and can leave duplicate releases or a lost body.
+  release:
     needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the release with notes and an APK selection guide
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ## Which file?
+
+            - Most phones: `openstrap-edge-${{ github.ref_name }}-arm64-v8a.apk`.
+            - Older 32-bit phones: `openstrap-edge-${{ github.ref_name }}-armeabi-v7a.apk`.
+            - Emulators and Chromebooks: `openstrap-edge-${{ github.ref_name }}-x86_64.apk`.
+            - Portable: `openstrap-edge-${{ github.ref_name }}.apk` works on all three CPU types and is what in-app updates install.
+            - The unsigned `.ipa` is for iOS sideloading.
+
+  android:
+    needs: [preflight, release]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -302,7 +322,7 @@ jobs:
   # run`/Xcode direct install), where $(APP_BUNDLE_IDENTIFIER) threads through
   # every target's plist, including this one, at build time.
   ios:
-    needs: preflight
+    needs: [preflight, release]
     runs-on: macos-latest
     permissions:
       contents: write
@@ -402,23 +422,3 @@ jobs:
             ${{ steps.ipa.outputs.ipa }}
             apps.json
 
-  # Write the body once, after all uploads, so parallel release updates cannot
-  # overwrite the file-selection guide with an earlier copy of the body.
-  release-notes:
-    needs: [android, ios]
-    if: ${{ !cancelled() && needs.android.result == 'success' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Add release notes and APK selection guide
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          append_body: true
-          body: |
-            ## Which file?
-
-            - Most phones: `openstrap-edge-${{ github.ref_name }}-arm64-v8a.apk`.
-            - Older 32-bit phones: `openstrap-edge-${{ github.ref_name }}-armeabi-v7a.apk`.
-            - Emulators and Chromebooks: `openstrap-edge-${{ github.ref_name }}-x86_64.apk`.
-            - Portable: `openstrap-edge-${{ github.ref_name }}.apk` works on all three CPU types and is what in-app updates install.
-            - The unsigned `.ipa` is for iOS sideloading.
