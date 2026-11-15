@@ -19,7 +19,7 @@ void main() {
 
   test('a metric that is never negative gets a band that starts at 0', () {
     final band = usualRangeFor('nap_min', naps, null)!;
-    expect(band.lo, greaterThanOrEqualTo(0));
+    expect(band.lo, 0);
     expect(band.hi, greaterThan(0));
     // The centre is still the median of the history, not the clamped midpoint.
     expect(band.usual, 0);
@@ -29,12 +29,13 @@ void main() {
     expect(band.axis(naps, format: axisHm)!.min, greaterThanOrEqualTo(0));
   });
 
-  test('a metric that can go negative keeps its lower edge', () {
+  test('a metric not known to be non-negative keeps its lower edge, even '
+      'when its history never went below 0', () {
     final temp = <double>[
-      for (var i = 0; i < 20; i++) (i.isEven ? -0.3 : 0.2),
+      for (var i = 0; i < 20; i++) (i.isEven ? 0.0 : 0.4),
       0.1,
     ];
-    final band = UsualRange.priorTo(temp)!;
-    expect(band.lo, lessThan(0));
+    expect(usualRangeFor('skin_temp', temp, null)!.lo, lessThan(0));
+    expect(UsualRange.priorTo(temp)!.lo, lessThan(0));
   });
 }
