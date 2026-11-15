@@ -19,6 +19,7 @@ const _days = ['2026-11-14', '2026-11-13', '2026-11-12']; // newest first
 /// Serves a strain curve for whichever day is asked, and records the asks.
 class _Repo extends LocalRepository {
   final asked = <String>[];
+  String? failFor;
 
   @override
   Future<List<String>> availableDays() async => _days;
@@ -26,10 +27,11 @@ class _Repo extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getDayStrain(String date) async {
     asked.add(date);
+    if (date == failFor) throw StateError('database is locked');
     final d = DateTime.parse(date);
     int at(int h) => DateTime(d.year, d.month, d.day, h).millisecondsSinceEpoch ~/ 1000;
     return {
-      'strain': 5.0,
+      'strain': d.day / 2, // a different strain for every day
       'curve': [
         {'t': at(9), 'v': 1.0},
         {'t': at(18), 'v': 5.0},
@@ -72,6 +74,16 @@ Future<_Repo> _open(WidgetTester t, {String? day}) async {
 }
 
 void main() {
+  testWidgets('a step that cannot be read stays on the day on screen',
+      (t) async {
+    final repo = await _open(t, day: '2026-11-13');
+    repo.failFor = '2026-11-12';
+    await t.tap(find.bySemanticsLabel('Previous day'));
+    await _settle(t);
+    expect(find.text(dayNavLabel('2026-11-13')), findsOneWidget);
+    expect(find.text('6.5'), findsWidgets);
+  });
+
   testWidgets('a past day steps back to the day before', (t) async {
     final repo = await _open(t, day: '2026-11-13');
     expect(repo.asked, ['2026-11-13']);
@@ -81,6 +93,9 @@ void main() {
     await _settle(t);
     expect(repo.asked.last, '2026-11-12');
     expect(find.text(dayNavLabel('2026-11-12')), findsOneWidget);
+    // The 12th's own strain, not the 13th's left on screen.
+    expect(find.text('6.0'), findsWidgets);
+    expect(find.text('6.5'), findsNothing);
   });
 
   testWidgets('opened for today, it can still reach an earlier day',

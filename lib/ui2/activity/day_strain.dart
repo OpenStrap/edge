@@ -139,12 +139,19 @@ class DayStrainData {
   static Future<DayStrainData> load(LocalRepository repo,
       {String? forDay}) async {
     final asked = forDay ?? todayLabel();
-    // The stepper's days. A failed read costs the stepper, not the screen.
-    List<String> days = const [];
-    try {
-      days = await repo.availableDays();
-    } catch (_) {}
+    // The stepper's days, read beside the strain rather than before it. A
+    // failed read costs the stepper, never the screen.
+    Future<List<String>> readDays() async {
+      try {
+        return await repo.availableDays();
+      } catch (_) {
+        return const [];
+      }
+    }
+
+    final daysRead = readDays();
     final s = await repo.getDayStrain(asked);
+    final days = await daysRead;
     if (s.isEmpty) return DayStrainData(days: days);
 
     final pts = <(int, double)>[
@@ -239,7 +246,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  Future<void> _load() async {
+  Future<void> _load({String? fallbackDay}) async {
     final token = ++_loadToken;
     final repo = repoOf(context);
     if (repo == null) {
@@ -252,16 +259,21 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
         setState(() => (_d = d, _loading = false));
       }
     } catch (_) {
-      if (mounted && token == _loadToken) setState(() => _loading = false);
+      // A step that could not be read stays on the day whose data is still
+      // on screen, so the stepper never names a day the curve is not.
+      if (mounted && token == _loadToken) {
+        setState(() => (_day = fallbackDay ?? _day, _loading = false));
+      }
     }
   }
 
   void _goDay(String day) {
+    final from = _day ?? _d?.shownDay;
     setState(() {
       _day = day;
       _loading = true;
     });
-    _load();
+    _load(fallbackDay: from);
   }
 
   @override
@@ -286,7 +298,9 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       l?.dayStrainTitle ?? 'Day strain',
       [
         ...dayNavRow(_day ?? d.shownDay, d.days, _goDay),
-        if (_loading && _d == null) ...[
+        // While a step loads, the previous day's curve must not sit under
+        // the new day's name.
+        if (_loading) ...[
           const SizedBox(height: S.x8),
           const Center(child: CircularProgressIndicator()),
         ] else ...[
