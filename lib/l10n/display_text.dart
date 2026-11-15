@@ -128,6 +128,51 @@ String localizedText(AppLocalizations? l, String text) {
     "Aerobic" => l.activityZonesNameAerobic,
     "Threshold" => l.activityZonesNameThreshold,
     "Max effort" => l.activityZonesNameMaxEffort,
+    "Saved, but the band hasn't taken it yet — it's sent again on the next sync" =>
+      l.alarmSavedNotOnBand,
+    "Using ChatGPT plan" =>
+      l.coachChatgptUsingPlanShort,
+    "Signed in, but ChatGPT plan usage was not allowed. Continue with ChatGPT again and allow it to use your plan here." =>
+      l.coachChatgptSharingNotAllowed,
+    "Signed out of ChatGPT." =>
+      l.coachChatgptSignedOut,
+    "Signed out here, but ChatGPT did not confirm it. You can also disconnect OpenStrap in ChatGPT settings." =>
+      l.coachChatgptSignOutUnconfirmed,
+    "You’re using your ChatGPT plan" =>
+      l.coachChatgptWelcomeTitle,
+    "Eligible usage in this app uses your ChatGPT plan. Manage usage in your ChatGPT settings." =>
+      l.coachChatgptWelcomeBody,
+    "Got it" =>
+      l.coachChatgptGotIt,
+    "Use your ChatGPT plan" =>
+      l.coachChatgptUseTitle,
+    "Using your ChatGPT plan" =>
+      l.coachChatgptUsingTitle,
+    "Plan usage not allowed" =>
+      l.coachChatgptNotAllowedTitle,
+    "Complete eligible AI requests in this app with usage included in your ChatGPT plan or credits balance. OpenStrap never charges for this." =>
+      l.coachChatgptBlurb,
+    "Cancel sign-in" =>
+      l.coachChatgptCancelSignIn,
+    "Continue with ChatGPT" =>
+      l.coachChatgptContinue,
+    "Manage usage" =>
+      l.coachChatgptManageUsage,
+    "Sign out of ChatGPT" =>
+      l.coachChatgptSignOut,
+    "Your questions and the rows the coach reads are sent to OpenAI under your ChatGPT account, where your ChatGPT data controls, including model training, may apply. Check them in ChatGPT settings. See exactly what is sent on \"What was sent\"." =>
+      l.coachChatgptPrivacy,
+    "Before you sign in" =>
+      l.coachChatgptTermsTitle,
+    "Signing in uses your own ChatGPT account and plan. Your use of it here is covered by OpenAI’s Terms of Use and Usage Policies, so please read them before you continue." =>
+      l.coachChatgptTermsBody,
+    "OpenAI Terms of Use" =>
+      l.coachChatgptTermsLink,
+    "OpenAI Usage Policies" =>
+      l.coachChatgptPoliciesLink,
+    "I’ve read them, continue" =>
+      l.coachChatgptTermsAccept,
+    "Cancel" => l.actionCancel,
 
     "units" => l.presentationUnits,
     "mg" => l.presentationMg,

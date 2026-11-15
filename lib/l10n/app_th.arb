@@ -20,6 +20,28 @@
   "@languageSystemDefault": {
     "description": "Option in the language picker that follows the OS locale."
   },
+  "alarmSavedNotOnBand": "บันทึกแล้ว แต่สายรัดยังไม่ได้รับ ระบบจะส่งอีกครั้งในการซิงค์ครั้งถัดไป",
+  "coachChatgptUsingPlanShort": "กำลังใช้แพ็กเกจ ChatGPT",
+  "coachChatgptSharingNotAllowed": "ลงชื่อเข้าใช้แล้ว แต่ไม่ได้อนุญาตให้ใช้แพ็กเกจ ChatGPT แตะ \"ดำเนินการต่อด้วย ChatGPT\" อีกครั้ง แล้วอนุญาตให้ใช้แพ็กเกจของคุณที่นี่",
+  "coachChatgptSignedOut": "ออกจากระบบ ChatGPT แล้ว",
+  "coachChatgptSignOutUnconfirmed": "ออกจากระบบที่นี่แล้ว แต่ ChatGPT ไม่ได้ยืนยัน คุณยังยกเลิกการเชื่อมต่อ OpenStrap ได้ในการตั้งค่า ChatGPT",
+  "coachChatgptWelcomeTitle": "คุณกำลังใช้แพ็กเกจ ChatGPT ของคุณ",
+  "coachChatgptWelcomeBody": "การใช้งานที่เข้าเกณฑ์ในแอปนี้จะใช้แพ็กเกจ ChatGPT ของคุณ จัดการการใช้งานได้ในการตั้งค่า ChatGPT",
+  "coachChatgptGotIt": "เข้าใจแล้ว",
+  "coachChatgptUseTitle": "ใช้แพ็กเกจ ChatGPT ของคุณ",
+  "coachChatgptUsingTitle": "กำลังใช้แพ็กเกจ ChatGPT ของคุณ",
+  "coachChatgptNotAllowedTitle": "ไม่ได้อนุญาตให้ใช้แพ็กเกจ",
+  "coachChatgptBlurb": "ทำคำขอ AI ที่เข้าเกณฑ์ในแอปนี้ด้วยปริมาณการใช้งานที่รวมอยู่ในแพ็กเกจ ChatGPT หรือยอดเครดิตของคุณ OpenStrap ไม่เคยเรียกเก็บเงินสำหรับส่วนนี้",
+  "coachChatgptCancelSignIn": "ยกเลิกการลงชื่อเข้าใช้",
+  "coachChatgptContinue": "ดำเนินการต่อด้วย ChatGPT",
+  "coachChatgptManageUsage": "จัดการการใช้งาน",
+  "coachChatgptSignOut": "ออกจากระบบ ChatGPT",
+  "coachChatgptPrivacy": "คำถามของคุณและแถวข้อมูลที่โค้ชอ่านจะถูกส่งไปยัง OpenAI ภายใต้บัญชี ChatGPT ของคุณ ซึ่งการควบคุมข้อมูลของ ChatGPT รวมถึงการฝึกโมเดล อาจมีผล ตรวจสอบได้ในการตั้งค่า ChatGPT ดูว่าส่งอะไรไปบ้างได้ที่ \"ข้อมูลที่ส่ง\"",
+  "coachChatgptTermsTitle": "ก่อนลงชื่อเข้าใช้",
+  "coachChatgptTermsBody": "การลงชื่อเข้าใช้จะใช้บัญชีและแพ็กเกจ ChatGPT ของคุณเอง การใช้งานที่นี่อยู่ภายใต้ข้อกำหนดการใช้งานและนโยบายการใช้งานของ OpenAI โปรดอ่านก่อนดำเนินการต่อ",
+  "coachChatgptTermsLink": "ข้อกำหนดการใช้งานของ OpenAI",
+  "coachChatgptPoliciesLink": "นโยบายการใช้งานของ OpenAI",
+  "coachChatgptTermsAccept": "อ่านแล้ว ดำเนินการต่อ",
   "actionCancel": "ยกเลิก",
   "@actionCancel": {
     "description": "Generic Cancel button."

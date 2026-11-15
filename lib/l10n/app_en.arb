@@ -32,6 +32,94 @@
   "@languageSystemDefault": {
     "description": "Option in the language picker that follows the OS locale."
   },
+  "alarmSavedNotOnBand": "Saved, but the band hasn't taken it yet — it's sent again on the next sync",
+  "@alarmSavedNotOnBand": {
+    "description": "Alarm screen: the alarm is saved but the band has not taken it yet."
+  },
+  "coachChatgptUsingPlanShort": "Using ChatGPT plan",
+  "@coachChatgptUsingPlanShort": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptSharingNotAllowed": "Signed in, but ChatGPT plan usage was not allowed. Continue with ChatGPT again and allow it to use your plan here.",
+  "@coachChatgptSharingNotAllowed": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptSignedOut": "Signed out of ChatGPT.",
+  "@coachChatgptSignedOut": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptSignOutUnconfirmed": "Signed out here, but ChatGPT did not confirm it. You can also disconnect OpenStrap in ChatGPT settings.",
+  "@coachChatgptSignOutUnconfirmed": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptWelcomeTitle": "You’re using your ChatGPT plan",
+  "@coachChatgptWelcomeTitle": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptWelcomeBody": "Eligible usage in this app uses your ChatGPT plan. Manage usage in your ChatGPT settings.",
+  "@coachChatgptWelcomeBody": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptGotIt": "Got it",
+  "@coachChatgptGotIt": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptUseTitle": "Use your ChatGPT plan",
+  "@coachChatgptUseTitle": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptUsingTitle": "Using your ChatGPT plan",
+  "@coachChatgptUsingTitle": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptNotAllowedTitle": "Plan usage not allowed",
+  "@coachChatgptNotAllowedTitle": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptBlurb": "Complete eligible AI requests in this app with usage included in your ChatGPT plan or credits balance. OpenStrap never charges for this.",
+  "@coachChatgptBlurb": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptCancelSignIn": "Cancel sign-in",
+  "@coachChatgptCancelSignIn": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptContinue": "Continue with ChatGPT",
+  "@coachChatgptContinue": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptManageUsage": "Manage usage",
+  "@coachChatgptManageUsage": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptSignOut": "Sign out of ChatGPT",
+  "@coachChatgptSignOut": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptPrivacy": "Your questions and the rows the coach reads are sent to OpenAI under your ChatGPT account, where your ChatGPT data controls, including model training, may apply. Check them in ChatGPT settings. See exactly what is sent on \"What was sent\".",
+  "@coachChatgptPrivacy": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptTermsTitle": "Before you sign in",
+  "@coachChatgptTermsTitle": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptTermsBody": "Signing in uses your own ChatGPT account and plan. Your use of it here is covered by OpenAI’s Terms of Use and Usage Policies, so please read them before you continue.",
+  "@coachChatgptTermsBody": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptTermsLink": "OpenAI Terms of Use",
+  "@coachChatgptTermsLink": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptPoliciesLink": "OpenAI Usage Policies",
+  "@coachChatgptPoliciesLink": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
+  "coachChatgptTermsAccept": "I’ve read them, continue",
+  "@coachChatgptTermsAccept": {
+    "description": "Coach, ChatGPT sign-in: shown while signing in or out with ChatGPT."
+  },
   "actionCancel": "Cancel",
   "@actionCancel": {
     "description": "Generic Cancel button."
