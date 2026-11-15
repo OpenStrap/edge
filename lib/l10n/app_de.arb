@@ -3788,5 +3788,50 @@
   "dayStrainWornAsOf": "Getragen, Stand {time}",
   "bandStatusFirmwareLockedTitle": "Die Firmware des Bands hält wahrscheinlich seine Daten zurück",
   "bandStatusFirmwareLockedReason": "Dieses Band läuft mit WHOOP-Firmware 50.43. Sie kann sich verbinden und der App antworten, aber keine Aufzeichnungen und keine Live-Herzfrequenz senden, solange kein von WHOOP signiertes Mitgliedschafts-Token auf dem Band ist. Das ist ein möglicher Grund, warum keine Daten ankommen. OpenStrap kann dieses Token nicht ausstellen. Alles, was hier schon gespeichert ist, bleibt erhalten.",
-  "bandStatusFirmwareLockedFix": "Liegt es an der Firmware, lässt sich das in der App nicht ändern, und der Hinweis verschwindet, sobald das Band wieder Aufzeichnungen sendet"
+  "bandStatusFirmwareLockedFix": "Liegt es an der Firmware, lässt sich das in der App nicht ändern, und der Hinweis verschwindet, sobald das Band wieder Aufzeichnungen sendet",
+  "guideTapMarker": "tippen",
+  "guideScrollMarker": "scrollen",
+  "guideStepOf": "Schritt {step} von {total}",
+  "guideDontSeeIt": "Nicht zu sehen?",
+  "guideExit": "Beenden",
+  "guideExitLabel": "Anleitung beenden",
+  "guideOffPathTitle": "Du bist vom Weg abgekommen",
+  "guideOffPathBody": "Dieser Bildschirm gehört nicht zur Anleitung.",
+  "guideBackToGuide": "Zurück zur Anleitung",
+  "guideDoneTitle": "Fertig",
+  "guideDoneBody": "Das war der letzte Schritt.",
+  "guideTargetProxy": "Ziel der Anleitung: {caption}",
+  "guideTabProxy": "Anleitung: Tab {tab} öffnen",
+  "guideBackProxy": "Anleitung: zurück zum Weg",
+  "guideMoveCardUp": "Karte nach oben schieben",
+  "guideMoveCardDown": "Karte nach unten schieben",
+  "guideTapsBack": "{count, plural, one{1 Tipp zurück} other{{count} Tipps zurück}}",
+  "@guideTapsBack": {
+    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@guideTabProxy": {
+    "description": "Screen-reader label of the highlighted tab-bar tab while a guide runs: the step is on that tab.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "The tab's name, as the tab bar prints it."
+      }
+    }
+  },
+  "@guideBackProxy": {
+    "description": "Screen-reader label of the highlighted control that leads back to the guide's path while the user is off the path."
+  },
+  "@guideMoveCardUp": {
+    "description": "Screen-reader action on the guide's step card: move the card up the screen (the alternative to dragging it)."
+  },
+  "@guideMoveCardDown": {
+    "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapOneOf": "eins antippen",
+  "guideExpandAccordion": "{title} aufklappen"
 }

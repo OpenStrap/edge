@@ -42,10 +42,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../data/journal_fields.dart' show formatMinuteOfDay;
 import '../models/metric.dart';
+import 'skeleton/unit_paint.dart' show GuideUnitMark;
 import 'charts.dart';
 import 'scroll_hint.dart';
 import 'theme.dart';
 import 'trend.dart';
+import 'skeleton/guide_plot.dart' show GuideDecoration;
 
 /// ── PRESSABLE ── the only gesture primitive in lib/ui2 ────────────────────
 ///
@@ -82,6 +84,11 @@ class Pressable extends StatefulWidget {
 class _PressableState extends State<Pressable> {
   bool _down = false;
 
+  // The guide run (guides/guide_dim.dart) paints its dim or skeleton INSIDE the
+  // component, so it moves with the content in every frame. The mark sits BELOW this
+  // control's own Semantics: the first render object of a Pressable (what
+  // `tester.getSemantics(find.byType(Pressable))` reads) stays its semantics node, so
+  // a screen reader and the tree tests see exactly what they saw before guides.
   @override
   Widget build(BuildContext c) {
     Widget out = ConstrainedBox(
@@ -98,14 +105,15 @@ class _PressableState extends State<Pressable> {
       ),
     );
     if (widget.onTap == null) {
+      final marked = GuideUnitMark(component: c, child: out);
       return widget.semanticLabel == null
-          ? out
-          : Semantics(label: widget.semanticLabel, child: out);
+          ? marked
+          : Semantics(label: widget.semanticLabel, child: marked);
     }
     return Semantics(
       button: true,
       label: widget.semanticLabel,
-      child: GestureDetector(
+      child: GuideUnitMark(component: c, child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
         onTapDown: (_) => setState(() => _down = true),
@@ -116,7 +124,7 @@ class _PressableState extends State<Pressable> {
           duration: motion(c, Motion.fast),
           child: out,
         ),
-      ),
+      )),
     );
   }
 }
@@ -685,13 +693,15 @@ class Surface extends StatelessWidget {
     this.semanticLabel,
   });
 
+  // The guide mark is INSIDE the Pressable (around the card), never outside it: the
+  // Surface's first render object stays the Pressable's semantics node, as before guides.
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     return Pressable(
       onTap: onTap,
       semanticLabel: semanticLabel,
-      child: Container(
+      child: GuideUnitMark(component: c, child: Container(
         width: double.infinity,
         padding: pad,
         decoration: BoxDecoration(
@@ -700,9 +710,24 @@ class Surface extends StatelessWidget {
           boxShadow: p.el(elevation),
         ),
         child: child,
-      ),
+      )),
     );
   }
+}
+
+/// A decorated box that is ONE guide unit, though it is not a [Surface]: a guide run
+/// dims it, or draws its placeholders, as a whole, so the dim reaches the edges of
+/// the drawn box (decoration and padding) and nothing inside is dimmed a second time.
+/// With [card] true it counts as a card of the page (the guide's three-card window);
+/// without, it is a plain unit (the day selector bar). With no guide running it is a
+/// plain proxy: no pixel, layout or semantics change.
+class GuideBox extends StatelessWidget {
+  final bool card;
+  final Widget child;
+  const GuideBox({super.key, this.card = false, required this.child});
+
+  @override
+  Widget build(BuildContext c) => GuideUnitMark(component: c, child: child);
 }
 
 /// Full-width section. Whitespace separates concepts, not borders.
@@ -723,7 +748,9 @@ class Section extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext c) {
+  Widget build(BuildContext c) => GuideUnitMark(component: c, child: _section(c));
+
+  Widget _section(BuildContext c) {
     final p = P.of(c);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3113,7 +3140,7 @@ class ChartFrame extends StatelessWidget {
 
 /// The horizontal rules behind a plot, at the same fractions [ChartFrame]
 /// prints its labels — one count, passed to both, so they cannot drift.
-class _Gridlines extends CustomPainter {
+class _Gridlines extends CustomPainter implements GuideDecoration {
   final int n;
   final Color color;
   const _Gridlines(this.n, this.color);
@@ -3138,7 +3165,7 @@ class _Gridlines extends CustomPainter {
 /// A break in the x direction — where the days on one side were not produced
 /// the same way as the days on the other. Dotted and hairline-thin: provenance
 /// is worth seeing and is not worth alarming anybody about.
-class _XMarks extends CustomPainter {
+class _XMarks extends CustomPainter implements GuideDecoration {
   final List<double> at;
   final Color color;
   const _XMarks(this.at, this.color);

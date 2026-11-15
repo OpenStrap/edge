@@ -17155,5 +17155,113 @@
         "type": "String"
       }
     }
+  },
+  "guideTapMarker": "tap",
+  "@guideTapMarker": {
+    "description": "Short pill on the highlighted control in a navigation guide picture: the user taps it."
+  },
+  "guideScrollMarker": "scroll",
+  "@guideScrollMarker": {
+    "description": "Short vertical marker in a navigation guide picture: the screen needs scrolling to reach the highlighted control."
+  },
+  "guideStepOf": "Step {step} of {total}",
+  "@guideStepOf": {
+    "description": "Screen-reader label of one dot in the step indicator of a guide.",
+    "placeholders": {
+      "step": {
+        "type": "String",
+        "description": "The number of the step this dot stands for."
+      },
+      "total": {
+        "type": "String",
+        "description": "How many steps the guide has."
+      }
+    }
+  },
+  "guideDontSeeIt": "Don't see it?",
+  "@guideDontSeeIt": {
+    "description": "Link on the guide's step card that expands the help for a target that is not on the screen."
+  },
+  "guideExit": "Exit",
+  "@guideExit": {
+    "description": "Button on the guide card that ends the guide and leaves the app where it is."
+  },
+  "guideExitLabel": "Exit the guide",
+  "@guideExitLabel": {
+    "description": "Screen-reader label of the Exit button on the guide card."
+  },
+  "guideOffPathTitle": "You've left the path",
+  "@guideOffPathTitle": {
+    "description": "Title of the guide card when the user has gone to a screen the guide does not cover."
+  },
+  "guideOffPathBody": "This screen isn't part of the guide.",
+  "@guideOffPathBody": {
+    "description": "Body of the off-path guide card."
+  },
+  "guideBackToGuide": "Back to the guide",
+  "@guideBackToGuide": {
+    "description": "Button on the off-path guide card that returns to the last screen of the guide."
+  },
+  "guideDoneTitle": "Done",
+  "@guideDoneTitle": {
+    "description": "Title of the guide card after the last step."
+  },
+  "guideDoneBody": "That was the last step.",
+  "@guideDoneBody": {
+    "description": "Body of the guide card after the last step."
+  },
+  "guideTargetProxy": "Guide target: {caption}",
+  "@guideTargetProxy": {
+    "description": "Screen-reader label of the highlighted control while a guide runs.",
+    "placeholders": {
+      "caption": {
+        "type": "String",
+        "description": "The step caption."
+      }
+    }
+  },
+  "guideTabProxy": "Guide: open the {tab} tab",
+  "@guideTabProxy": {
+    "description": "Screen-reader label of the highlighted tab-bar tab while a guide runs: the step is on that tab.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "The tab's name, as the tab bar prints it."
+      }
+    }
+  },
+  "guideBackProxy": "Guide: back to the path",
+  "@guideBackProxy": {
+    "description": "Screen-reader label of the highlighted control that leads back to the guide's path while the user is off the path."
+  },
+  "guideMoveCardUp": "Move card up",
+  "@guideMoveCardUp": {
+    "description": "Screen-reader action on the guide's step card: move the card up the screen (the alternative to dragging it)."
+  },
+  "guideMoveCardDown": "Move card down",
+  "@guideMoveCardDown": {
+    "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapsBack": "{count, plural, one{1 tap back} other{{count} taps back}}",
+  "@guideTapsBack": {
+    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "guideTapOneOf": "tap one of",
+  "@guideTapOneOf": {
+    "description": "Short label above several highlighted controls in a live guide step: any one of them does the step."
+  },
+  "guideExpandAccordion": "Expand {title}",
+  "@guideExpandAccordion": {
+    "description": "Guide hop asking the wearer to open a collapsed section",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
   }
 }

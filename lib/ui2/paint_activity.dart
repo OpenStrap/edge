@@ -27,6 +27,7 @@ import 'package:flutter/material.dart';
 
 import 'charts.dart';
 import 'theme.dart';
+import './skeleton/guide_plot.dart';
 
 /// A route is not a time series, so min/max-per-column does not apply — but a
 /// 90-minute ride at 1 Hz is still 5 400 points on a 350 pt canvas. Stride
@@ -48,7 +49,9 @@ List<T> _stride<T>(List<T> pts, double width) {
 /// per-point 0…1 intensity used to colour each segment between [slow] and
 /// [fast]; without it the route is drawn in [slow] throughout rather than in
 /// an invented gradient.
-class RouteMap extends CustomPainter {
+class RouteMap extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => slow;
   final List<Offset> pts;
   final List<double>? pace;
   final Color slow, fast, pinStart, pinEnd, pinInk;
@@ -113,7 +116,9 @@ class RouteMap extends CustomPainter {
 ///
 /// [metres] is the altitude series in draw order. The peak marker sits on the
 /// real maximum.
-class Elevation extends CustomPainter {
+class Elevation extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => color;
   final List<double> metres;
   final Color color, markerInk;
 
@@ -192,7 +197,9 @@ class Elevation extends CustomPainter {
 /// this painter never runs its own ticker, so the screen's single
 /// reduced-motion gate stops the animation instead of it looping forever
 /// inside a widget nobody can reach.
-class BreathRing extends CustomPainter {
+class BreathRing extends CustomPainter implements GuideRing {
+  @override
+  Color get guideLineColor => color;
   final double t;
   final Color color;
 
@@ -231,7 +238,9 @@ class BreathRing extends CustomPainter {
 ///
 /// One entry per round: the work and rest fractions of the round's peak, both
 /// 0…1.
-class IntervalLadder extends CustomPainter {
+class IntervalLadder extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => work;
   final List<({double work, double rest})> rounds;
   final Color work, rest;
 

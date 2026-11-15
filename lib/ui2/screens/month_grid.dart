@@ -31,6 +31,7 @@ import '../ui2.dart';
 import 'home_screen.dart' show ChartPoint, denseDays, pointsOf;
 import 'metric_detail.dart' show MetricSpec, specOf;
 import 'slot_scrub.dart';
+import '../skeleton/guide_plot.dart';
 
 /// Days on screen. One month, and the same window every trend card uses.
 const int kGridDays = 30;
@@ -131,7 +132,9 @@ Color _cellInk(P p, GridRow r, Side s) {
 /// One row of cells. Above-range cells carry a bar on the top edge and
 /// below-range cells on the bottom edge, so the direction survives any
 /// palette and any colour vision.
-class _SideStrip extends CustomPainter {
+class _SideStrip extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => mark;
   _SideStrip(this.cells, this.ink, this.track, this.mark);
 
   final List<Side?> cells;
