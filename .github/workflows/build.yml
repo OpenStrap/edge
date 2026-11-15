@@ -186,7 +186,7 @@ jobs:
         run: bash .github/scripts/assert_release_unpublished.sh "$TAG"
 
       - name: Create the draft release with notes and an APK selection guide
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           draft: true
           generate_release_notes: true
@@ -325,7 +325,7 @@ jobs:
       # Publish a Release with the signed APK attached so people download a real
       # .apk, not a zipped CI artifact.
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           draft: true
           files: ${{ steps.rename.outputs.apk }}
@@ -453,7 +453,7 @@ jobs:
 
       # Attach to the same Release the android job created/updates (upsert by tag).
       - name: Attach IPA + AltStore source to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           draft: true
           files: |
@@ -466,6 +466,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Publish the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           draft: false
