@@ -13,7 +13,7 @@ void main() {
   final hi = lookupAppLocalizations(const Locale('hi'));
   final en = lookupAppLocalizations(const Locale('en'));
 
-  test('hindi has every english string outside the supplement catalogue', () {
+  test('hindi has every english string', () {
     Map<String, dynamic> arb(String code) =>
         jsonDecode(File('lib/l10n/app_$code.arb').readAsStringSync())
             as Map<String, dynamic>;
@@ -22,9 +22,13 @@ void main() {
       for (final k in arb('en').keys)
         if (!k.startsWith('@') && !hindi.containsKey(k)) k,
     ];
-    // Still to do: the supplement catalogue.
-    missing.removeWhere((k) => k.startsWith('supplement'));
     expect(missing, isEmpty);
+  });
+
+  test('the supplement catalogue reads in hindi', () {
+    expect(hi.supplementNeedNights(3), '3 और रातें चाहिए');
+    expect(hi.supplementNeedDays(2), 'अनलॉक करने के लिए 2 दिन और पहनें');
+    expect(hi.supplementDidYouNapccbced, isNot(en.supplementDidYouNapccbced));
   });
 
   test('the newly covered screens read in hindi', () {
