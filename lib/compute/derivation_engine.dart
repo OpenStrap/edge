@@ -1879,7 +1879,10 @@ import 'vendor_sleep.dart';
 // excluding non-owner rows at the last second. D36 folds only the target night's
 // own observation, none when absent; forward-only, preserving existing profiles
 // and folded_days. The restricted E15 walk now also applies to folding passes.
-const int kAlgoVersion = 122;
+// 122 → 123 (analytics #99 + #98 @ 801c825): restore the observed 5-15 min
+// workout rest bridge, including the duration-cap and saved-session overlap
+// guards, while retaining #99's incremental, accumulator and checkpoint APIs.
+const int kAlgoVersion = 123;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -2067,8 +2070,8 @@ const int kAlgoVersion = 122;
 // centre), for v112.
 // REPIN @ 3a7ca34: analytics main, #101 + #100 + #97 + #98, for v119.
 // REPIN @ f8e7d3c: rebased analytics #99, for v122 above.
-// This head forks at 9db83ce and omits #98's workout rest bridge at 3a7ca34.
-const String kAnalyticsPin = 'f8e7d3c478cc59707fde41f3edff7736026573fe';
+// REPIN @ 801c825: merge #98's workout rest bridge into #99, for v123.
+const String kAnalyticsPin = '801c82536caf5ce70270aae5215f21cd423a8bd2';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both

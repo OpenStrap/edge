@@ -523,8 +523,8 @@ dependencies:
       # (sleep staging and naps), #97 (stride-periodicity step counter) and #98
       # (a mid-session rest stays inside one workout).
       # Rebased analytics #99: incremental kernels, RSA v3 and cosinor gate (v122).
-      # This head forks at 9db83ce and omits #98's workout rest bridge at 3a7ca34.
-      ref: f8e7d3c478cc59707fde41f3edff7736026573fe
+      # Merge 3a7ca34 into #99: retain the workout rest bridge (#98), for v123.
+      ref: 801c82536caf5ce70270aae5215f21cd423a8bd2
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8
