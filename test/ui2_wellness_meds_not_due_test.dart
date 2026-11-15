@@ -85,7 +85,10 @@ void main() {
     );
     // sqflite answers on a real event loop; pumping alone leaves the spinner up
     // and every finder below passing against an empty tab.
-    for (var i = 0; i < 40; i++) {
+    // A time budget, not a poll count: one poll costs 40-100 ms of real time
+    // and more under a full parallel run, while the first database open runs.
+    for (final sw = Stopwatch()..start();
+        sw.elapsed < const Duration(seconds: 10);) {
       await t.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
       );
