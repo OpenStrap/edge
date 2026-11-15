@@ -33,6 +33,7 @@ void main() {
     expect(fr.supplementDidYouNapccbced, 'Avez-vous fait une sieste ?');
     // A pool length, the swim screens' "longueur", not a track lap.
     expect(fr.supplementLapsExport('4'), '4 longueurs');
+    expect(fr.supplementLapsExport('1'), '1 longueur');
   });
 
   test('the newly covered screens read in french', () {

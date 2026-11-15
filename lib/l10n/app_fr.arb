@@ -3495,7 +3495,7 @@
   "supplementZoneStartsAt": "Z{n} · {name} commence à",
   "supplementClimbedExport": "+{m} m de dénivelé",
   "supplementClimbedExportFeet": "+{ft} ft de dénivelé",
-  "supplementLapsExport": "{n} longueurs",
+  "supplementLapsExport": "{n, select, 1{1 longueur} other{{n} longueurs}}",
   "supplementReasonCount": "{reason} Il y en avait {have}, et il en faut {need}.",
   "supplementNeedNights": "{n, plural, one{Encore {n} nuit nécessaire} other{Encore {n} nuits nécessaires}}",
   "supplementNeedDays": "{n, plural, one{Portez le bracelet encore {n} jour pour débloquer} other{Portez le bracelet encore {n} jours pour débloquer}}",
