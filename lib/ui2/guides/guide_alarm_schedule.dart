@@ -42,7 +42,7 @@ Guide get alarmScheduleGuide => Guide(
             node: GuideNode.alarm,
             target: _tuesday,
             alsoTap: [LabelledContent([ScreenLabel.wellnessMon, ScreenLabel.wellnessTue, ScreenLabel.wellnessWed, ScreenLabel.wellnessThu, ScreenLabel.wellnessFri, ScreenLabel.wellnessSat, ScreenLabel.wellnessSun])],
-            anchor: GuideTarget.label((l) => l.alarmScheduleGroup),
+            anchor: GuideTarget.label(ScreenLabel.alarmScheduleGroup),
             action: GuideAction.tap,
             caption: GuideCopy.alarmCaptionPickDay,
           ),
