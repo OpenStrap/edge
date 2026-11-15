@@ -638,20 +638,11 @@ Future<void> scoreImportedWorkout(
 }
 
 /// Pending workouts for the History tab, independent of push preferences.
-// CLAIM(workout-suggestion-read-seam): Activity reads the same repository as
-// Today and the review screen. Bypassing it opened the real database and ran
-// the legacy migration even under a read-only repository [live guide write test].
-Future<List<Suggestion>> activeSuggestions(LocalRepository repo) async {
+Future<List<Suggestion>> activeSuggestions() async {
   try {
     return [
-      for (final suggestion in await repo.pendingActivities())
-        if (suggestion.kind == ActivityKind.workout)
-          ?Suggestion.from({
-            ...suggestion.details,
-            'id': suggestion.id,
-            'start_ts': suggestion.startTs,
-            'end_ts': suggestion.endTs,
-          }),
+      for (final r in await LocalDb.activeWorkoutSuggestions())
+        ?Suggestion.from(r),
     ];
   } catch (_) {
     return const [];
