@@ -27,7 +27,9 @@ void main() {
 
   test('the supplement catalogue reads in chinese', () {
     expect(zh.supplementNeedNights(3), '还需要 3 个晚上');
+    expect(zh.supplementNeedNights(5), '还需要 5 个晚上');
     expect(zh.supplementNeedDays(2), '再佩戴 2 天即可解锁');
+    expect(zh.supplementNeedDays(7), '再佩戴 7 天即可解锁');
     expect(zh.supplementDidYouNapccbced, isNot(en.supplementDidYouNapccbced));
   });
 
