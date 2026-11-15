@@ -28,7 +28,7 @@ import '../../l10n/date_text.dart';
 import '../../l10n/decimal_text.dart';
 import '../../models/metric.dart' show whyFromNote;
 import '../screens/home_screen.dart' show asOfText, repoOf;
-import '../screens/metric_detail.dart' show detailScaffold;
+import '../screens/metric_detail.dart' show dayNavRow, detailScaffold;
 import '../ui2.dart';
 import 'catalogue.dart' show zonesWhy;
 import 'zones.dart' show ZonesDetail;
@@ -81,6 +81,11 @@ class DayStrainData {
   /// the screen then says exactly that.
   final String? note;
 
+  /// The days that derived, NEWEST FIRST, for the day stepper. Empty when the
+  /// screen was handed its data (goldens) or the list could not be read; with
+  /// fewer than two the stepper draws nothing.
+  final List<String> days;
+
   const DayStrainData({
     this.day,
     this.curve = const [],
@@ -95,6 +100,7 @@ class DayStrainData {
     this.coveragePct,
     this.wearAsOf,
     this.note,
+    this.days = const [],
   });
 
   bool get hasCurve => curve.any((v) => v != null);
@@ -133,8 +139,13 @@ class DayStrainData {
   static Future<DayStrainData> load(LocalRepository repo,
       {String? forDay}) async {
     final asked = forDay ?? todayLabel();
+    // The stepper's days. A failed read costs the stepper, not the screen.
+    List<String> days = const [];
+    try {
+      days = await repo.availableDays();
+    } catch (_) {}
     final s = await repo.getDayStrain(asked);
-    if (s.isEmpty) return const DayStrainData();
+    if (s.isEmpty) return DayStrainData(days: days);
 
     final pts = <(int, double)>[
       for (final e in (s['curve'] as List? ?? const []))
@@ -186,6 +197,7 @@ class DayStrainData {
       // The headline absence's reason, at the top level of the payload — the
       // same string as `absent.strain`.
       note: s['note'] as String?,
+      days: days,
     );
   }
 }
@@ -207,9 +219,18 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
   DayStrainData? _d;
   bool _loading = true;
 
+  /// The day being shown, as a label; null is today. Starts as the caller's
+  /// and moves with the stepper.
+  String? _day;
+
+  // A quick second tap on the stepper starts a second load; the first can
+  // finish last and must not paint the old day under the new label.
+  int _loadToken = 0;
+
   @override
   void initState() {
     super.initState();
+    _day = widget.day;
     if (widget.data != null) {
       _d = widget.data;
       _loading = false;
@@ -219,17 +240,28 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
   }
 
   Future<void> _load() async {
+    final token = ++_loadToken;
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted) setState(() => _loading = false);
       return;
     }
     try {
-      final d = await DayStrainData.load(repo, forDay: widget.day);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      final d = await DayStrainData.load(repo, forDay: _day);
+      if (mounted && token == _loadToken) {
+        setState(() => (_d = d, _loading = false));
+      }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && token == _loadToken) setState(() => _loading = false);
     }
+  }
+
+  void _goDay(String day) {
+    setState(() {
+      _day = day;
+      _loading = true;
+    });
+    _load();
   }
 
   @override
@@ -241,7 +273,9 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     // The date the drawn day IS. `getDayStrain` serves the last settled bundle
     // while today is still deriving, and a screen headed "Today" over
     // yesterday's trace is the whole reason this is read off the curve.
-    final sub = day == null
+    // Same rule as Day Steps: the stepper names the day, so the nav bar only
+    // does when there is no stepper.
+    final sub = day == null || d.days.length >= 2
         ? ''
         : dayLabelOf(day) == todayLabel()
         ? (l?.dayStrainToday ?? 'TODAY')
@@ -251,6 +285,7 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
       c,
       l?.dayStrainTitle ?? 'Day strain',
       [
+        ...dayNavRow(_day ?? d.shownDay, d.days, _goDay),
         if (_loading && _d == null) ...[
           const SizedBox(height: S.x8),
           const Center(child: CircularProgressIndicator()),
