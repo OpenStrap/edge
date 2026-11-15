@@ -29,6 +29,18 @@ void main() {
     expect(missing, isEmpty);
   });
 
+  test('the supplement catalogue reads in spanish', () {
+    expect(es.supplementNeedNights(3), 'Faltan 3 noches más');
+    expect(es.supplementNeedNights(1), 'Falta 1 noche más');
+    expect(es.supplementNeedDays(2), 'Lleva la banda 2 días más para desbloquearlo');
+    expect(es.supplementNeedDays(1), 'Lleva la banda 1 día más para desbloquearlo');
+    expect(es.supplementDidYouNapccbced, '¿Has dormido una siesta?');
+    // A pool length, the swim screens' "largo", not a track lap.
+    expect(es.supplementLapsExport('4'), '4 largos');
+    // A missed dose is not a deliberate skip ("omitida").
+    expect(es.supplementMissed09f750, isNot(es.wellnessStateSkipped));
+  });
+
   test('the newly covered screens read in spanish', () {
     expect(es.devicePickerTitle, 'Conecta tus dispositivos');
     expect(es.activityReviewTitle, 'Actividades detectadas');
