@@ -50,8 +50,16 @@ Map<String, dynamic> _arb(String code) =>
 void main() {
   test('no translated catalogue copies an English phrase by accident', () {
     final en = _arb('en');
+    // Every catalogue on disk, so a new locale is checked without editing
+    // this test.
+    final codes = [
+      for (final f in Directory('lib/l10n').listSync())
+        if (RegExp(r'app_(\w+)\.arb$').firstMatch(f.path) case final m?)
+          if (m[1] != 'en') m[1]!,
+    ]..sort();
+    expect(codes, containsAll(['de', 'es', 'fr', 'hi', 'ru', 'th', 'zh']));
     final copies = <String>[];
-    for (final code in ['de', 'es', 'fr', 'hi', 'ru', 'th', 'zh']) {
+    for (final code in codes) {
       final arb = _arb(code);
       for (final key in en.keys) {
         if (key.startsWith('@')) continue;
