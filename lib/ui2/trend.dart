@@ -27,12 +27,15 @@ enum Side { below, inside, above }
 /// Your usual range for one metric: low and high, in the metric's own unit.
 @immutable
 class UsualRange {
-  const UsualRange(this.lo, this.hi);
+  const UsualRange(this.lo, this.hi, {double? centre}) : _centre = centre;
 
   final double lo, hi;
+  final double? _centre;
 
-  /// The centre. Both sources below are symmetric, so this is the baseline.
-  double get usual => (lo + hi) / 2;
+  /// The centre: the baseline the band was built around. Kept apart from the
+  /// edges because [priorTo] may raise a lower edge to 0, and the midpoint of
+  /// a clamped band is not anyone's usual.
+  double get usual => _centre ?? (lo + hi) / 2;
 
   Side side(double v) =>
       v < lo ? Side.below : (v > hi ? Side.above : Side.inside);
@@ -71,7 +74,12 @@ class UsualRange {
         : (v[v.length ~/ 2 - 1] + v[v.length ~/ 2]) / 2;
     final mad = v.fold<double>(0, (a, x) => a + (x - med).abs()) / v.length;
     if (!(mad > 0)) return null;
-    return UsualRange(med - 1.253 * mad, med + 1.253 * mad);
+    // A history with no negative value is a quantity that cannot go below 0
+    // (minutes, steps): a skewed one like naps has a median of 0, and its
+    // band's lower edge read as a duration ("Usual range 47m–25m").
+    final lo = med - 1.253 * mad;
+    return UsualRange(v.first >= 0 && lo < 0 ? 0 : lo, med + 1.253 * mad,
+        centre: med);
   }
 
   /// An axis that holds the data AND the band with one band-width of room on
@@ -97,10 +105,13 @@ class UsualRange {
 
   @override
   bool operator ==(Object other) =>
-      other is UsualRange && other.lo == lo && other.hi == hi;
+      other is UsualRange &&
+      other.lo == lo &&
+      other.hi == hi &&
+      other.usual == usual;
 
   @override
-  int get hashCode => Object.hash(lo, hi);
+  int get hashCode => Object.hash(lo, hi, usual);
 }
 
 /// "Normal for you" / "Above usual" / "Below usual".
