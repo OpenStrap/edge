@@ -28,7 +28,11 @@ void main() {
   test('the supplement catalogue reads in french', () {
     expect(fr.supplementNeedNights(3), 'Encore 3 nuits nécessaires');
     expect(fr.supplementNeedDays(2), 'Portez le bracelet encore 2 jours pour débloquer');
-    expect(fr.supplementDidYouNapccbced, isNot(en.supplementDidYouNapccbced));
+    expect(fr.supplementNeedNights(1), 'Encore 1 nuit nécessaire');
+    expect(fr.supplementNeedDays(1), 'Portez le bracelet encore 1 jour pour débloquer');
+    expect(fr.supplementDidYouNapccbced, 'Avez-vous fait une sieste ?');
+    // A pool length, the swim screens' "longueur", not a track lap.
+    expect(fr.supplementLapsExport('4'), '4 longueurs');
   });
 
   test('the newly covered screens read in french', () {
