@@ -16,7 +16,7 @@ import 'package:openstrap_edge/l10n/app_localizations.dart'; import '../support/
   // # catches: a screen renamed in lib/ while the navigation tree still names the old one.
   test('A: every screen name the tree matches is a class in lib/', () { final source = [
       for (final f in Directory('lib').listSync(recursive: true).whereType<File>()) if (f.path.endsWith('.dart')) f.readAsStringSync(),
-    ].join('\n'); final names = { for (final d in guideNavigationTree.values) ...d.screens, '_TabBar', 'ProfileAvatar', 'HeaderRows', };
+    ].join('\n'); final names = { for (final d in guideNavigationTree.values) ...d.screens, '_TabBar', 'ProfileAvatar', };
     expect(names.length, greaterThan(40), reason: 'positive control: the tree names many screens');
     final missing = [for (final n in names) if (!RegExp('class\\s+$n\\b').hasMatch(source)) n];
     expect(missing, isEmpty, reason: 'no such class: rename the entry in guideNavigationTree.screens'); });

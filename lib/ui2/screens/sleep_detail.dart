@@ -1025,14 +1025,14 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     if (day == null) return const [];
     return [
       const SizedBox(height: S.x2),
-      TextButton(
+      GuideBox(child: TextButton(
         // `_loading` too: `_goDay` swaps `_day` and keeps the old `_d` on
         // screen until `_load()` resolves, so a tap in that window would
         // open naps for the day you just navigated away from.
         onPressed:
             _saving || _loading ? null : () => go(c, NapsScreen(day: day)),
         child: Text(l?.sleepDetailEditNaps ?? 'Naps'),
-      ),
+      )),
     ];
   }
 

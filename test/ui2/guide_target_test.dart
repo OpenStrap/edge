@@ -2,7 +2,8 @@
 // language) or by Key, and a miss is a typed failure - never an empty result that would render a guide pointing at nothing.
 import 'package:flutter/material.dart'; import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart'; import 'package:openstrap_edge/ui2/guides/guide_delete_workout.dart';
-import 'package:openstrap_edge/ui2/guides/guide_target.dart'; import 'package:openstrap_edge/ui2/ui2.dart';
+import 'package:openstrap_edge/ui2/guides/guide_target.dart';
+import 'package:openstrap_edge/ui2/guides/guide_remove_detected.dart'; import 'package:openstrap_edge/ui2/ui2.dart';
 import '../support/guide_search.dart'; import '../support/skeleton_fixture.dart'; import '../support/guide_text.dart'; const _root = ValueKey('root');
 // Literals from lib/l10n/app_en.arb and app_de.arb (dayStrainHowSet).
 const _enHowSet = 'How these are set'; const _deHowSet = 'Wie die Zonen festgelegt werden';
@@ -12,7 +13,20 @@ Future<(Element, AppLocalizations)> _pumpIn( WidgetTester t, Locale locale, Widg
   late AppLocalizations l; await t.pumpWidget(skHost( Builder(builder: (c) { l = AppLocalizations.of(c)!; return Scaffold( body: Padding(
           padding: const EdgeInsets.fromLTRB(16, 40, 0, 0),
           child: Align(alignment: Alignment.topLeft, child: SizedBox(key: _root, width: 360, child: body(l))), ), ); }), locale: locale, ));
-  return (t.element(find.byKey(_root)), l); } void main() { group('by translated label', () { for (final (locale, literal) in [ (const Locale('en'), _enHowSet),
+  return (t.element(find.byKey(_root)), l); } void main() {
+  // WHY: main can have only workouts, or several naps. The shipped guide must
+  // choose a real correction control rather than abstain or report ambiguity.
+  for (final labels in [<String>['Not a workout'], ['Not a nap', 'Not a nap'], ['Not a workout', 'Not a nap']]) {
+    testWidgets('the correction guide targets the first offered control in $labels', (t) async {
+      final (root, l) = await _pumpIn(t, const Locale('en'), (_) => Column(children: [
+        for (final label in labels) Pressable(onTap: () {}, child: Text(label)),
+      ]));
+      final target = removeDetectedGuide.variants.single.steps[1].target.resolve(root, l);
+      expect(target, isA<TargetFound>());
+      expect((target as TargetFound).rect, skLocalRect(t, find.byType(Pressable).first, find.byKey(_root)));
+    });
+  }
+ group('by translated label', () { for (final (locale, literal) in [ (const Locale('en'), _enHowSet),
       (const Locale('de'), _deHowSet), ]) { testWidgets('resolves in ${locale.languageCode}, to the tappable around the text', (t) async {
         // why: the SAME guide target must work in every language. The literal is read from the arb, so a getter pointing at another string fails.
         // The rect grows to the enclosing Pressable (Section's action) so the outline wraps the whole tap area, not just its caption.

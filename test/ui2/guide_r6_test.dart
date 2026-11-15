@@ -2,6 +2,7 @@
 import 'dart:math' as math; import 'package:flutter/material.dart'; import 'package:flutter/rendering.dart'; import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart'; import 'package:openstrap_edge/ui2/activity/picker.dart' show ActivityPicker, ActivityRow;
 import 'package:openstrap_edge/ui2/activity/setup.dart' show ActivitySetup; import 'package:openstrap_edge/ui2/guides/guide.dart';
+import 'package:openstrap_edge/ui2/skeleton/unit_paint.dart';
 import 'package:openstrap_edge/ui2/guides/guide_run.dart'; import 'package:openstrap_edge/ui2/guides/guide_content.dart';
 import 'package:openstrap_edge/ui2/guides/guide_hand.dart'; import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
 import 'package:openstrap_edge/ui2/guides/tree_geometry.dart' show onstageElements; import '../support/guide_r2_scenes.dart'; import '../support/live_guide_harness.dart';
@@ -56,10 +57,10 @@ void main() { setUpAll(() => r2OpenDb('guide_r6.db')); tearDownAll(LocalDb.close
       expect(run.tips[at].dx, greaterThan(_list[3].center.dx), reason: 'beside the list, on its right'); });
     test('R6-hover: the highlight falls with the fingertip\'s distance as (1 - d/150)^2', () { expect(guideHoverOpacity(0), 1);
       expect(guideHoverOpacity(75), closeTo(.25, 1e-9)); expect(guideHoverOpacity(150), 0); expect(guideHoverOpacity(400), 0); }); });
-  group('R6 remove-detected: Keep, Discard and Edit of the first item', () { final scene = r2Scenes.firstWhere((s) => s.id == 'remove-detected/discard');
+  group('R6 remove-detected: offered correction controls', () { final scene = r2Scenes.firstWhere((s) => s.id == 'remove-detected/discard');
     // WHY: spec Round 6 item 5: the step's targets are Keep, Discard and Edit on ONE row, the first detected
     // item; the guide's title and text are unchanged. catches: a target set from another row, a wrong order.
-    testWidgets('R6-rd: the step\'s targets resolve to the three buttons of one row, in order', (t) async {
+    testWidgets('R6-rd: the step\'s targets resolve to both correction controls in page order', (t) async {
       final m = await pumpR2Scene(t, scene, singlePending: false, size: const Size(412, 1500)); try { await settleLiveGuide(t, frames: 14);
         final page = m.app.runner.routes.page!; final multi = _step('remove-detected', 'discard').multi; expect(multi, isNotNull);
         final found = multi!.targets.resolve(page, r2Locale); expect(found, hasLength(2), reason: 'main offers Not a nap and Not a workout on separate items');
@@ -67,7 +68,7 @@ void main() { setUpAll(() => r2OpenDb('guide_r6.db')); tearDownAll(LocalDb.close
         expect(texts, contains('Not a nap'), reason: 'the caption keeps its Discard-focused text'); } finally { await disposeR2(t, m); } }); for (final which in [0, 1]) {
       // WHY: "any of the targets advances": Keep and Discard each stage the item and bring up Save, which is
       // what the next step anchors on. catches: only the first target advancing.
-      testWidgets('R6-rd: tapping ${which == 0 ? 'Keep' : 'Discard'} completes the immediate correction guide', (t) async {
+      testWidgets('R6-rd: tapping ${which == 0 ? 'Not a nap' : 'Not a workout'} completes the immediate correction guide', (t) async {
         final m = await pumpR2Scene(t, scene, singlePending: false, size: const Size(412, 1500)); try { await settleLiveGuide(t, frames: 14);
           final page = m.app.runner.routes.page!; final found = _step('remove-detected', 'discard').multi!.targets.resolve(page, r2Locale);
           await t.tapAt(found[which].rect.center); await settleLiveGuide(t, frames: 18);
@@ -107,9 +108,13 @@ void main() { setUpAll(() => r2OpenDb('guide_r6.db')); tearDownAll(LocalDb.close
         await t.pump(const Duration(milliseconds: 16)); expect(find.byType(ActivitySetup), findsNothing, reason: 'a tap during the expansion must not reach the screen');
         await until(t, () => !overlay.isExpanding, frames: 120); expect(find.byType(ActivityRow), findsWidgets, reason: 'the first group is open'); for (var i = 0; i < 160; i++) {
           await t.pump(const Duration(milliseconds: 16)); } expect(overlay.expandCount, 1, reason: 'once per arrival, however long the hand loops');
-        expect(find.byType(ActivityRow), findsWidgets, reason: 'and it stays open'); await t.tapAt(chip.rect.center);
+        expect(find.byType(ActivityRow), findsWidgets, reason: 'and it stays open');
+        final oldHovers = find.byType(GuideUnitMark).evaluate().map((e) => e.renderObject).whereType<RenderGuideUnit>().where((e) => e.hover != null).toList();
+        expect(oldHovers, isNotEmpty, reason: 'F4 positive control: picker targets have live hovers');
+        await t.tapAt(chip.rect.center);
         await t.pump(const Duration(milliseconds: 16)); await t.pump(const Duration(milliseconds: 400));
-        expect(find.byType(ActivitySetup), findsOneWidget, reason: 'after the expansion the screen takes taps again'); } finally { await disposeR2(t, m); } });
+        expect(find.byType(ActivitySetup), findsOneWidget, reason: 'after the expansion the screen takes taps again');
+        for (final unit in oldHovers) { if (unit.attached) expect(unit.hover, isNull, reason: 'F4: the next real step clears previous hovers'); } } finally { await disposeR2(t, m); } });
     testWidgets('R6-pk: leaving the screen and coming back replays the opening', (t) async { final m = await pumpR2Scene(t, scene); try {
         await t.pump(); final overlay = _overlay(t); await until(t, () => overlay.expandCount == 1 && !overlay.isExpanding, frames: 400);
         m.app.navigator.pop(); await settleLiveGuide(t, frames: 6); m.app.navigator.push(MaterialPageRoute<void>(builder: (_) => const ActivityPicker(weightKg: 70)));

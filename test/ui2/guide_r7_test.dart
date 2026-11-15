@@ -25,11 +25,11 @@ LiveGuideOverlayState _overlay(WidgetTester t) => t.state(find.byType(LiveGuideO
       final overlay = _overlay(t); for (var i = 0; i < 600; i++) { await t.pump(const Duration(milliseconds: 16)); }
       final walks = overlay.signatureChecks, paths = overlay.hand.pathBuilds;
       final cursor = find.descendant(of: find.byKey(LiveGuideOverlay.handKey), matching: find.byType(CustomPaint));
-      final picture = t.widget<CustomPaint>(cursor).painter; final before = overlay.hand.tip; for (var i = 0; i < 180; i++) { await t.pump(const Duration(milliseconds: 16)); }
+      final picture = t.widget<CustomPaint>(cursor).painter; final before = overlay.hand.tip; var moved = false; for (var i = 0; i < 180; i++) { await t.pump(const Duration(milliseconds: 16)); moved |= (overlay.hand.tip - before).distance > 1; }
       expect(overlay.signatureChecks, walks, reason: 'hand ticks must not walk elements');
       expect(overlay.hand.pathBuilds, paths, reason: 'repeated passes must reuse sampled segments');
       expect(t.widget<CustomPaint>(cursor).painter, same(picture), reason: 'cursor picture stays cached');
-      expect(overlay.hand.tip, isNot(before)); expect(guideSweepMs(110), 432); expect(guideSweepMs(1000), 700);
+      expect(moved, isTrue, reason: 'the hand moves during a cycle, even if it ends where it began'); expect(guideSweepMs(110), 432); expect(guideSweepMs(1000), 700);
       final path = GuideHandPath(const Offset(0, 0), const Offset(100, 0), 26); expect(path.at(0), Offset.zero);
       expect(path.at(.5), const Offset(50, 26)); expect((path.at(1) - const Offset(100, 0)).distance, lessThan(1e-9)); } finally { await disposeR2(t, m); } });
   // WHY: highlight and label identify the same choices. CLAIM(hand-label-centred).

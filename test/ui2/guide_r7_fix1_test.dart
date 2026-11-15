@@ -93,7 +93,7 @@ void main() { setUpAll(() => r2OpenDb('guide_r7_fix1.db')); group('F1 scrolling 
     // WHY: review F4. guide_r7_hover_test calls clearHovers itself, so nothing proved the overlay's own
     // clearing paths. One real scene, a positive check before each cause. catches: deleting the
     // `clearHovers` call in _syncHand (the reduced-motion and next-step causes), a hover left bound to an offstage route's target.
-    testWidgets('R7-fix1 F4: exit, yield, next step, reduced motion and teardown each leave no hover bound', (t) async {
+    testWidgets('R7-fix1 F4: exit, yield, completion, reduced motion and teardown each leave no hover bound', (t) async {
       final m = await pumpR2Scene(t, _review, singlePending: false, size: const Size(412, 1500)); try { await settleMovingGuide(t); final first = _bound(t);
         expect(first.length, 2, reason: 'positive control: both correction controls are bound');
         // Yield: a dialog on top of the page (the guide steps aside, then resumes).
@@ -107,7 +107,7 @@ void main() { setUpAll(() => r2OpenDb('guide_r7_fix1.db')); group('F1 scrolling 
         // Main's correction is immediate: Done must clear the old hovers too.
         final old = _bound(t); final page = m.app.runner.routes.page!;
         final found = r2Guide('remove-detected').variants.single.steps.firstWhere((s) => s.id == 'discard').multi!.targets.resolve(page, r2Locale);
-        await t.tapAt(found[1].rect.center); await settleMovingGuide(t); expect(m.run.state, isA<GuideFinished>());
+        await t.tapAt(found[1].rect.center); await _frames(t, 20); expect(m.run.state, isA<GuideFinished>());
         for (final unit in old) { if (unit.attached) expect(unit.hover, isNull, reason: 'the completed step leaves no hover'); }
         // Exit.
         m.run.exit(); await _frames(t, 6); expect(_bound(t), isEmpty, reason: 'exit'); } finally { await disposeR2(t, m); } });

@@ -7,7 +7,7 @@ Start it from **Profile** > **Help**, under **Activity**. See [Live guides](Guid
 ## Steps
 
 1. On the **Activity** tab, tap the **START A SESSION** card.
-2. Find your activity. Type in **Search activities**, or tap one in the list.
+2. Find your activity. The guide opens the first activity group once, unless you have already opened a group. Type in **Search activities**, tap a recent activity, or pick a row.
 3. Check the details, then tap **Start**. The guide keeps **Route**, **Heart rate** and **Private session** readable so you can check them.
 4. To stop, tap the red square (**Finish session**). You land on the summary of your session.
 

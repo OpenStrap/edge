@@ -7,7 +7,8 @@
 // Covered guides: #1 heart-rate zones (all three steps, every locale for step 1), #7 start a workout (step 1 -> 2) and #8 log a past workout (steps
 // 1 -> 3). Cross-cutting claims: skeletonizes the REAL screen, the real target tap advances the run, wrong navigation shows the off-path card, Exit leaves
 // the app where the user is.
-import '../support/live_guide_focus.dart'; import 'package:flutter/material.dart'; import 'package:flutter_test/flutter_test.dart';
+import '../support/live_guide_focus.dart';
+import '../support/guide_r7_scenes.dart'; import 'package:flutter/material.dart'; import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/app.dart' show AppMainShell; import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/state/prefs.dart'; import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/activity/day_strain.dart' show DayStrainDetail;
@@ -153,8 +154,9 @@ void main() { setUpAll(() async { sqfliteFfiInit(); databaseFactory = databaseFa
         // why: the owner\'s language requirement on the live path (text scale 1.3, phone width). The caption is the translated sentence, the card keeps
         // clear of the outline and the pill.
         final app = await pumpLiveGuideApp(t, locale: locale, textScale: 1.3); await _startFromHelp(t, app, 'heart-rate-zones');
+        await settleMovingGuide(t);
         final l = lookupAppLocalizations(locale); expect(t.takeException(), isNull); expect(_caption(t), _plain(l.guideHrZonesStep1(l.tabToday, l.homeRingStrain)));
-        final card = t.getRect(find.byKey(GuideStepCard.cardKey)); expect(card.overlaps(t.getRect(liveGuideFocus)), isFalse, reason: 'card=$card focus=${t.getRect(liveGuideFocus)}');
+        final card = t.getRect(find.byKey(GuideStepCard.cardKey)); expect(card.overlaps(t.getRect(liveGuideFocus)), isFalse, reason: 'card=$card focus=${t.getRect(liveGuideFocus)} target=${t.state<LiveGuideOverlayState>(find.byType(LiveGuideOverlay)).targetRect} hand=${t.state<LiveGuideOverlayState>(find.byType(LiveGuideOverlay)).handTargets.map((e) => e.rect).toList()}');
         expect(card.overlaps(t.getRect(find.byKey(LiveGuideOverlay.tapPillKey))), isFalse); final tabBar = t.getRect(_label(l.tabToday).last);
         expect(card.bottom, lessThanOrEqualTo(tabBar.top + 1), reason: 'the bottom card sits above the tab bar'); }); } }); group('guide #7 start a workout', () {
     testWidgets('start from Help selects the Activity tab; tapping the real "start a session" card opens the real picker and the run advances', (t) async {

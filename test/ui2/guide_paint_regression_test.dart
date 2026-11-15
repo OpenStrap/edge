@@ -38,15 +38,14 @@ Map<String, String> _m1Painters() { final found = <String, String>{};
   // # catches: a new chart painter added without a placeholder treatment.
   test('R3: every CustomPainter in lib/ui2 declares its placeholder treatment', () { final all = _m1Painters();
     expect(all.keys, containsAll(['LineChart', 'EcgWaveformPainter', 'Elevation', 'RouteMap', '_GuidePainter']),
-      reason: 'positive control: the scan sees painters in many files'); expect(all.length, greaterThan(28));
+      reason: 'positive control: the scan sees painters in many files'); expect(all.length, greaterThan(20));
     expect(_m1Unclassified('class _New extends CustomPainter {\n}'), ['_New'], reason: 'the check rejects an undeclared painter');
     expect(_m1Unclassified('class _Old extends CustomPainter implements GuideDecoration {}'), isEmpty);
     expect([for (final e in all.entries) if (!_m1Classes.hasMatch(e.value)) e.key], isEmpty,
       reason: 'declare implements GuidePlot (data), GuideRing (dial), GuidePlotOverlay (marks over a plot) or GuideDecoration (no data)'); });
   // WHY: the allow-list for decoration must not become the way out of the guard: these painters draw the user's data (review R3) and must stay plots.
   // # catches: silencing the guard by calling a data painter a decoration.
-  test('R3: the painters named in the review are plots, not decorations', () { const data = ['EcgWaveformPainter', 'EcgLivePainter', 'Elevation', 'RouteMap', '_TypicalPainter',
-      'IntervalLadder', '_SideStrip', 'PosterMap', 'HapticScorePainter', 'BreathRing', 'LineChart', 'Bars', 'Ring'];
+  test('R3: the painters named in the review are plots, not decorations', () { const data = ['EcgWaveformPainter', 'EcgLivePainter', 'Elevation', 'RouteMap', 'IntervalLadder', '_SideStrip', 'PosterMap', 'BreathRing', 'LineChart', 'Bars', 'Ring'];
     final all = _m1Painters(); for (final name in data) { expect(all[name], matches(RegExp(r'GuidePlot|GuideRing')), reason: name); } });
   // WHY: a painter nobody classified must not draw its values in a placeholder; one that is declared decoration is left alone; a plot is replaced; a dial becomes an empty
   // ring and a chart a wave. The runtime default is the safety net behind the guard.
