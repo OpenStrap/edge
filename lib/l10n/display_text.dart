@@ -296,8 +296,8 @@ String localizedText(AppLocalizations? l, String text) {
       l.supplementBanisterTRIMPFamilyLogCompressed553d36,
     "Bedtime" => l.supplementBedtimee3cb8b,
     "Blood oxygen" => l.supplementBloodOxygen8cd845,
-    "Breathing rate recovered from respiratory sinus arrhythmia — the periodic modulation breathing imposes on beat timing. The spectral peak is found in overlapping five-minute stretches of clean beats (Lomb–Scargle on native beat times) and the night's rate is their median, reported only when most stretches agree. At a sleeping heart rate near or below 48 bpm the beats are too slow to resolve normal breathing, and the rate is withheld." =>
-      l.investigateMethodRespRate,
+    "Breathing rate recovered from respiratory sinus arrhythmia — the periodic modulation breathing imposes on beat timing — over a grid of candidate rates." =>
+      l.supplementBreathingRateRecoveredFromRespiratory66461f,
     "Breathing variability" => l.supplementBreathingVariability99a552,
     "Calibrating" => l.homeCalibrating,
     "Calories" => l.workoutCaloriesStatLabel,
@@ -393,8 +393,8 @@ String localizedText(AppLocalizations? l, String text) {
     "Morning cortisol" => l.supplementMorningCortisolc31c55,
     "Motion coprocessor" => l.supplementMotionCoprocessord1ef3c,
     "Movement minutes" => l.supplementMovementMinutes4670da,
-    "Within one night: the standard deviation of the night's beat intervals after artifact correction (SDNN) as a percentage of their mean. The chart shows how that per-night figure moves across nights; it is not a night-to-night coefficient of variation." =>
-      l.investigateMethodHrvStability,
+    "Night-to-night coefficient of variation of RMSSD." =>
+      l.supplementNightToNightCoefficientOf0cae4a,
     "Nightly sweep" => l.supplementNightlySweepe95625,
     "No alarm set for tonight" => l.supplementNoAlarmSetForTonight1dd33d,
     "No motion was recorded alongside the heart rate." =>
@@ -435,8 +435,8 @@ String localizedText(AppLocalizations? l, String text) {
       l.supplementProviderReturnedAnUnsupportedResponse711ef9,
     "Querying your data…" => l.supplementQueryingYourData547061,
     "REM sleep" => l.supplementREMSleepd0c12b,
-    "The mean of RMSSD across every 5-minute window of the detected sleep session that holds at least 20 clean successive differences. Beats outside 300–2000 ms, and beats more than 20% from their local median, are dropped first. On a night whose beat timing looks noisy, only windows that pass the jitter check on their own, or that sit on a steady breathing line, count; a window, or a night, whose beats add up to more time than passed is left out. Older nights whose raw beats are gone keep the value an earlier version of this method gave them. Pulse-derived, so this is PRV: real and trendable, but not ECG HRV." =>
-      l.investigateMethodHrvRmssd,
+    "RMSSD over the longest artefact-free window during sleep. Beat timing is recovered from the band's 1 Hz records and corrected by the Lipponen–Tarvainen method before any statistic is taken. Pulse-derived, so this is PRV: real and trendable, but not ECG HRV." =>
+      l.supplementRMSSDOverTheLongestArtefact4d9ff2,
     "Readiness" => l.readinessDetailTitle,
     "Reading your food log…" => l.supplementReadingYourFoodLog4efdaa,
     "Reading your medications…" => l.supplementReadingYourMedications855987,
