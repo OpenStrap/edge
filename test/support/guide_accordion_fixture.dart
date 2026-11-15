@@ -1,7 +1,6 @@
 // Fixture for the reusable accordion boundary; main's Sleep page has no accordions.
 import 'package:flutter/material.dart'; import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:openstrap_edge/ui2/ui2.dart'; import 'package:openstrap_edge/ui2/guides/guide_accordion.dart';
-import 'package:openstrap_edge/ui2/guides/guide_dim.dart';
+import 'package:openstrap_edge/ui2/ui2.dart'; import 'package:openstrap_edge/ui2/guides/guide_accordion.dart'; import 'package:openstrap_edge/ui2/guides/guide_dim.dart';
 String accordionPrefKey(String id) => 'accordion_$id';
 /// A titled card whose rows open and close behind an explicit header tap. It
 /// starts expanded: every setting is visible until the person folds a section
@@ -24,8 +23,7 @@ class SettingsAccordion extends StatelessWidget { const SettingsAccordion(this.t
       this.id, this.initiallyExpanded = true}); final String title; final List<Widget> children; final String? summary;
   /// Screen id + section id, e.g. "settings_band". See [accordionPrefKey].
   final String? id; final bool initiallyExpanded;
-  @override Widget build(BuildContext context) => _SettingsAccordionCard( key: id == null ? null : ValueKey<String>('accordion_$id'), this);
-}
+  @override Widget build(BuildContext context) => _SettingsAccordionCard( key: id == null ? null : ValueKey<String>('accordion_$id'), this); }
 class _SettingsAccordionCard extends StatefulWidget { const _SettingsAccordionCard(this.a, {super.key}); final SettingsAccordion a;
   @override State<_SettingsAccordionCard> createState() => _SettingsAccordionState(); }
 class _SettingsAccordionState extends State<_SettingsAccordionCard> { late bool _open = _remembered(); final _headerKey = GlobalKey();
@@ -40,17 +38,13 @@ class _SettingsAccordionState extends State<_SettingsAccordionCard> { late bool 
   bool _remembered() { final id = widget.a.id; if (id == null) return widget.a.initiallyExpanded; return widget.a.initiallyExpanded; }
   @override void initState() { super.initState(); _restore(); }
   @override void didUpdateWidget(_SettingsAccordionCard old) { super.didUpdateWidget(old); if (old.a.id == widget.a.id) return;
-    // This State now belongs to another section: show that section's answer,
-    // not the one it held, and let a read still in flight for the old id lapse.
-    _open = _remembered(); _restore(); }
-  Future<void> _restore() async {}
-  Future<void> _toggle() async { setState(() { _open = !_open; }); }
+    // This State now belongs to another section: show that section's answer, not the one it held, and let a read still in flight for the old id lapse.
+    _open = _remembered(); _restore(); } Future<void> _restore() async {} Future<void> _toggle() async { setState(() { _open = !_open; }); }
   @override Widget build(BuildContext c) { final p = P.of(c); final summary = widget.a.summary;
     final discovery = GuideDimScope.controllerOf(c)?.discovery; if (discovery == null) return _card(c, p, summary, false);
     return ValueListenableBuilder<bool>(valueListenable: discovery, builder: (c, discovering, _) => _card(c, p, summary, discovering)); }
   Widget _card(BuildContext c, P p, String? summary, bool discovering) { return Padding( padding: const EdgeInsets.only(top: S.x3),
-      // The card is drawn here rather than by Surface, which wraps its child in
-      // an inert Pressable: the first Pressable inside an accordion is its
+      // The card is drawn here rather than by Surface, which wraps its child in an inert Pressable: the first Pressable inside an accordion is its
       // header, the only control a tap or a screen reader should find first.
       child: GuideBox(card: true, child: Container( width: double.infinity, decoration: BoxDecoration( color: p.card, borderRadius: R.rLg,
           boxShadow: p.el(1), ), child: Column(children: [ GuideNavigationHeader(key: _headerKey, child: Pressable( onTap: _toggle,
@@ -60,8 +54,7 @@ class _SettingsAccordionState extends State<_SettingsAccordionCard> { late bool 
                                 color: p.ink, fontWeight: FontWeight.w600)), if (!_open && summary != null && summary.isNotEmpty)
                           Text(summary, maxLines: 1, overflow: TextOverflow.ellipsis, style: F.over.copyWith(color: p.ink3)), ]), ),
                 Icon(_open ? LucideIcons.chevronUp : LucideIcons.chevronDown, size: 17, color: p.ink3), ]), ), )),
-          GuideAccordionBody(title: widget.a.title, headerKey: _headerKey, offstage: !_open,
-            child: TickerMode(enabled: _open, child: Padding(
+          GuideAccordionBody(title: widget.a.title, headerKey: _headerKey, offstage: !_open, child: TickerMode(enabled: _open, child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: S.x4), child: Column(children: [ if (_open || discovering)
                 for (final row in widget.a.children) ...[ Divider(color: p.line, height: 1), row, ], ])))), ]), )), ); } }
 /// A label with a switch. The switch carries the state, so the row prints no

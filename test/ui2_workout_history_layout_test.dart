@@ -10,19 +10,15 @@ class _HistoryRepo extends LocalRepository { @override Future<Map<String, dynami
   Future<Map<String, dynamic>> getRecords() async => {'workouts_tracked': 1}; @override Future<Map<String, dynamic>> getChart(String metric,
           {int? from, int? to, Set<String> signals = const {}}) async => {'points': []}; @override
   Future<Map<String, dynamic>> getWorkouts({String range = 'month'}) async => { 'workouts': [ { 'id': 'layout-session', 'type': 'running',
-            'start_ts': DateTime(2026, 11, 10, 7).millisecondsSinceEpoch ~/ 1000, 'duration_min': 42, 'strain': 8.1, 'calories': 410,
-            'max_hr': 171, }, ], }; }
+            'start_ts': DateTime(2026, 11, 10, 7).millisecondsSinceEpoch ~/ 1000, 'duration_min': 42, 'strain': 8.1, 'calories': 410, 'max_hr': 171, }, ], }; }
 void main() { setUpAll(() async { sqfliteFfiInit();
-    // Layout is under test. Keep SQLite replies on the widget test's event
-    // loop so rendering needs no real-time waits for another isolate.
+    // Layout is under test. Keep SQLite replies on the widget test's event loop so rendering needs no real-time waits for another isolate.
     databaseFactory = databaseFactoryFfiNoIsolate; await LocalDb.close(); LocalDb.dbName = 'ui2_workout_history_layout_test.db';
     final dir = await databaseFactory.getDatabasesPath(); await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
     await LocalDb.instance; }); tearDownAll(() async => LocalDb.close());
   for (final scale in [1.0, 1.3]) { testWidgets('German History at 390 px and ${scale}x keeps session actions inside the card', (t) async {
-      // WHY: CLAIM(history-retime-fits). The clock and unconstrained German
-      // "Fix the times" label overflowed the real History card at 1.3x.
-      // Exercise the screen without a guide, then check the rendered action
-      // against its card and keep the delete control usable as well.
+      // WHY: CLAIM(history-retime-fits). The clock and unconstrained German "Fix the times" label overflowed the real History card at 1.3x.
+      // Exercise the screen without a guide, then check the rendered action against its card and keep the delete control usable as well.
       SharedPreferences.setMockInitialValues({}); await Prefs.ensureLoaded(); t.view.physicalSize = const Size(390, 844);
       t.view.devicePixelRatio = 1; addTearDown(t.view.reset); final app = AppState.forTesting()..repo = _HistoryRepo();
       addTearDown(app.dispose); final l = lookupAppLocalizations(const Locale('de')); await t.pumpWidget(MultiProvider( providers: [
