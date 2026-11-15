@@ -48,7 +48,11 @@ class HMMConfig {
     SleepState.rem: {
       SleepState.wake: log(0.05),
       SleepState.nremLight: log(0.10),
-      SleepState.nremDeep: log(0.00),
+      // INTENTIONAL HARD FORBID: REM never goes straight to deep (it passes
+      // through light). log(0) is -infinity; the decoder only ever ADDS it to
+      // finite emissions and compares, so it rules the move out without ever
+      // producing NaN.
+      SleepState.nremDeep: double.negativeInfinity,
       SleepState.rem: log(0.85)
     },
   };
@@ -169,6 +173,10 @@ class SleepStageAnalyzer {
         bestLastState = i;
       }
     }
+    // Wake and light are always reachable with finite emissions, so a path
+    // always exists; if one ever does not (or a score is NaN), decode
+    // nothing and let the caller keep the shipped labels.
+    if (!maxFinalProb.isFinite) return [];
 
     final result = List<SleepState>.filled(T, SleepState.nremLight);
     var currentStateIndex = bestLastState;

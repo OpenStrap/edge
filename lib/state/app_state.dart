@@ -836,12 +836,25 @@ class AppState extends ChangeNotifier {
   /// window with the HMM classifier (it reads the pref itself on every pass).
   bool sleepHmmStagesEnabled = false;
 
-  /// Toggle the experimental HMM sleep staging; applies from the next derive.
-  Future<void> setSleepHmmStages(bool on) async {
+  /// Toggle the experimental HMM sleep staging. The field moves only once the
+  /// pref write is accepted, since the engine reads the pref: a failed write
+  /// leaves the switch showing what the engine will actually use. Then every
+  /// day still on disk is re-derived, so the switch shows up on recent nights
+  /// rather than only on the next one.
+  Future<bool> setSleepHmmStages(bool on) async {
+    bool saved;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      saved = await prefs.setBool(kSleepHmmStagesPref, on);
+    } catch (e) {
+      _log('[settings] sleep HMM switch not saved: $e');
+      saved = false;
+    }
+    if (!saved) return false;
     sleepHmmStagesEnabled = on;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(kSleepHmmStagesPref, on);
     notifyListeners();
+    unawaited(_reanalyzeForOverride());
+    return true;
   }
 
   /// "Apple Health" (iOS) or "Health Connect" (Android).
