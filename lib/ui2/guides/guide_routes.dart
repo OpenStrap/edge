@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'guide_navigation.dart';
+import 'guide_target.dart';
+import '../../l10n/app_localizations.dart';
 
 /// Reads the Navigator's actual top route without subscribing foreign elements
 /// to inherited widgets. Mounted once beside the app's other route observers.
@@ -54,6 +56,20 @@ class GuideRouteObserver extends NavigatorObserver with ChangeNotifier {
       }
     }
     return hops;
+  }
+
+  /// Count only expansions discoverable on the retained destination page.
+  /// Unvisited pages are re-evaluated once navigation builds them.
+  int accordionHopsTo(GuideNode destination, GuideTarget target, AppLocalizations l) {
+    for (final route in _stack.whereType<PageRoute<dynamic>>().toList().reversed) {
+      final root = route.subtreeContext;
+      if (root is! Element || !root.mounted) continue;
+      final page = GuideNavigation.parkedPage(root, GuideNavigation.tabOf(destination)) ?? root;
+      if (GuideNavigation.location(page, includeOffstage: true) != destination) continue;
+      final found = target.resolve(page, l);
+      if (found is TargetBehindAccordion) return found.accordions.length;
+    }
+    return 0;
   }
 
   Route<dynamic>? get topRoute => _top;

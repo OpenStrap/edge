@@ -15,6 +15,7 @@ import 'package:openstrap_edge/ui2/skeleton/skeleton.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 import '../support/skeleton_fixture.dart';
+import '../support/guide_text.dart';
 
 // Ahem by name: the theme's own family would fall back to a system font, and the
 // pixel and size oracles below need glyphs that are exact font-size squares.
@@ -62,7 +63,7 @@ Widget _app({
   VoidCallback? onA,
   VoidCallback? onTarget,
   Widget? child,
-  SkeletonChromeResolver? chrome,
+  SkeletonChrome? chrome,
 }) =>
     skHost(Scaffold(
       body: Align(
@@ -77,7 +78,7 @@ Widget _app({
               keep: keep ?? [_target],
               alsoKeep: alsoKeep,
               progress: progress,
-              chrome: chrome ?? defaultSkeletonChrome,
+              chrome: chrome ?? const DefaultSkeletonChrome(),
               child: ColoredBox(
                 color: const Color(0xFFFFFFFF),
                 child: child ?? _cards(onA: onA ?? () {}, onTarget: onTarget ?? () {}),
@@ -418,7 +419,7 @@ void main() {
       // why: chrome comes from a resolver, not a rect list. Positive control:
       // with the default resolver (no ScreenTitle here) the same text is covered.
       skTallView(t);
-      Widget app(SkeletonChromeResolver? chrome) => _app(
+      Widget app(SkeletonChrome? chrome) => _app(
             chrome: chrome,
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               const Text('Chrome text', style: _ahem),
@@ -429,7 +430,7 @@ void main() {
       await t.pumpWidget(app(null));
       await t.pump();
       expect(_state(t).shapes.where((s) => skOverlaps(s.rect, strip)), isNotEmpty);
-      await t.pumpWidget(app((root) => const [strip]));
+      await t.pumpWidget(app(FnChrome((root) => const [strip])));
       await t.pump();
       expect(_state(t).shapes.where((s) => skOverlaps(s.rect, strip)), isEmpty);
     });

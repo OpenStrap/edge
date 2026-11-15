@@ -40,15 +40,15 @@ import 'guide_dim.dart';
 import 'guide_run.dart';
 import 'guide_routes.dart';
 
-/// What the app shell offers a run: its own tab selection and Settings.
-class GuideShellLink {
+/// What the app shell offers a run: its own tab selection and Settings. An
+/// interface the shell's State implements (not a bag of closures): the heavy-calc
+/// guard resolves method calls, not calls through function values.
+abstract interface class GuideShellLink {
   /// Selects [tab] the way a deep link does (the notifier AppShell follows).
-  final void Function(ShellDomain tab) selectTab;
+  void selectTab(ShellDomain tab);
 
   /// Pushes Settings on the root Navigator.
-  final Future<void> Function() openSettings;
-
-  const GuideShellLink({required this.selectTab, required this.openSettings});
+  Future<void> openSettings();
 }
 
 sealed class GuideStartResult {

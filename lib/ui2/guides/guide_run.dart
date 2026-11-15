@@ -85,8 +85,11 @@ class GuideRun extends ChangeNotifier {
     // on every other screen (or become ambiguous with that button).
     final content = _contentOf(root);
     return [for (var i = 0; i < variant.steps.length; i++)
-      if (variant.steps[i].anchor.resolve(content, l) is TargetFound) i].lastOrNull;
+      if (_anchorMatches(variant.steps[i].anchor.resolve(content, l))) i].lastOrNull;
   }
+
+  static bool _anchorMatches(TargetResolution resolution) =>
+      resolution is TargetFound || resolution is TargetBehindAccordion;
 
   /// The app shell's tab stack under [root] (what the user is looking at), else [root].
   static Element _contentOf(Element root) {
@@ -128,8 +131,7 @@ class GuideRun extends ChangeNotifier {
       if (exact.isNotEmpty) {
         final anchored = exact.where(
           (i) =>
-              variant.steps[i].anchor.resolve(_contentOf(topPage), l)
-                  is TargetFound,
+              _anchorMatches(variant.steps[i].anchor.resolve(_contentOf(topPage), l)),
         );
         index =
             anchored.lastOrNull ??
@@ -156,7 +158,7 @@ class GuideRun extends ChangeNotifier {
     // found. This also works when Back returns from a later step's route.
     final key = _memoryKey(topPage);
     final remembered = _matchedPages[key];
-    if (index == null && remembered != null && variant.steps[remembered].target.resolve(topPage, l) is TargetFound) {
+    if (index == null && remembered != null && _anchorMatches(variant.steps[remembered].target.resolve(topPage, l))) {
       index = remembered;
     }
     if (index != null) {

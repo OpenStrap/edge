@@ -4,7 +4,8 @@
 // overscroll-stretch with it, in every frame (owner design, 2026-11-14).
 //
 //  * [GuideDimScope] sits once at the app root. Its [GuideDimController] holds the
-//    plan: which component is dimmed, which is skeleton.
+//    plan and hover bindings. The active overlay owns hover opacity; components own
+//    their paint subscriptions. Only targeted components subscribe to hover ticks.
 //  * `Surface`, `Section`, `Pressable` and `GuideBox` (grammar.dart) wrap themselves in
 //    [GuideUnitMark] (../skeleton/unit_paint.dart), which asks the plan at PAINT
 //    time and paints its own foreground. Loose text inside a scrollable is painted
@@ -19,7 +20,7 @@
 // CLAIM(dim-notifies-on-change): the controller notifies only when the plan changed
 // [guide_r2_structural_test 'plan equality'].
 
-import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
+import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier, setEquals;
 import 'package:flutter/widgets.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart' show SchedulerBinding;
@@ -27,6 +28,7 @@ import 'package:flutter/scheduler.dart' show SchedulerBinding;
 import '../skeleton/skeleton.dart';
 import '../skeleton/unit_paint.dart' show isIconParagraph;
 import 'tree_geometry.dart';
+import 'guide_accordion.dart';
 
 /// How a guide run wants one component drawn. A component absent from the plan
 /// (the target, caption-named content, chrome, the route-back control) is drawn
@@ -54,10 +56,65 @@ abstract interface class GuideLooseLooks implements GuideUnitLooks {
   GuideUnitLook? looseLookOf(RenderParagraph paragraph);
 }
 
+/// A plan that keeps some controls real inside placeholder components: the previous and next
+/// step's targets and the buttons beside them. An interface, not a function type (heavy-calc guard).
+abstract interface class GuideKeepsControls {
+  /// True when the control [e] keeps its own labels and look even inside a placeholder card.
+  bool keepsControl(Element e);
+}
+
+class _HoverBindings extends ChangeNotifier {
+  void announce() => notifyListeners();
+}
+
 /// Holds the current [GuideUnitLooks] and tells the components when it changes.
 class GuideDimController extends ChangeNotifier {
+  final discovery = ValueNotifier<bool>(false);
+  final _discoveryOwners = <Object>{};
+
+  // Discovery has a separate signal: changing a paint plan never rebuilds bodies.
+  void discoverFor(Object owner, bool active) {
+    if (_disposed) return;
+    if (active) { _discoveryOwners.add(owner); } else { _discoveryOwners.remove(owner); }
+    Future.microtask(() {
+      if (!_disposed) discovery.value = _discoveryOwners.isNotEmpty;
+    });
+  }
+
   GuideUnitLooks? _looks;
   bool _disposed = false;
+
+  /// Layout hooks invalidate geometry without notifying or rebuilding the page.
+  int _geometryRevision = 0;
+  int get geometryRevision => _geometryRevision;
+  void geometryChanged() { _geometryRevision++; }
+
+  final Map<RenderBox, GuideHover> _hovers = {};
+  Object? _hoverOwner;
+  GuideHover? hoverOf(RenderBox unit) => _hovers[unit];
+
+  final _bindings = _HoverBindings();
+
+  /// Tells the components that a hover was bound or unbound. Apart from the plan's listeners: a
+  /// binding change is a few components' business, never a repaint of every component.
+  /// CLAIM(hover-binding-own-listenable) [guide_r7_fix1_test F1].
+  Listenable get hoverBindings => _bindings;
+
+  /// Bind once after layout. Only the target's own render layer paints hover.
+  void setHovers(Map<RenderBox, GuideHover> hovers, {Object? owner}) {
+    if (_disposed) return;
+    _hoverOwner = owner;
+    final old = _hovers.values.toSet();
+    _hovers..clear()..addAll(hovers);
+    _bindings.announce();
+    for (final hover in old.difference(hovers.values.toSet())) { hover.dispose(); }
+  }
+
+  void clearHovers({Object? owner}) {
+    if (owner != null && !identical(owner, _hoverOwner)) return;
+    if (_hovers.isNotEmpty) setHovers({});
+  }
+
 
   /// True after [dispose]: a run that ends after its app root went away (a test
   /// tear-down, an app shutting down) clears into nothing instead of failing.
@@ -67,6 +124,11 @@ class GuideDimController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _looks = null;
+    for (final hover in _hovers.values.toSet()) { hover.dispose(); }
+    _hovers.clear();
+    discovery.dispose();
+    _discoveryOwners.clear();
+    _bindings.dispose();
     _pulse.dispose();
     super.dispose();
   }
@@ -132,7 +194,10 @@ class GuideDimController extends ChangeNotifier {
   bool _pending = false;
 
   /// Removes the plan: every component draws as usual.
-  void clear() => setLooks(null);
+  void clear() {
+    clearHovers();
+    setLooks(null);
+  }
 }
 
 /// Provided once at the app root (above the Navigator). Components inside read
@@ -169,36 +234,42 @@ class GuideDimScope extends InheritedWidget {
 /// collapsed, [fallback]) if it is the OUTERMOST component on the guided [page] and
 /// overlaps none of the [keep] boxes: so freshly scrolled-in content is never bright
 /// for the frames before the next plan.
-class GuidePlan implements GuideLooseLooks {
+class GuidePlan implements GuideLooseLooks, GuideKeepsControls {
   final Element? page;
   final Map<Element, GuideUnitLook> _byComponent;
   final Map<RenderParagraph, GuideUnitLook> _byParagraph;
   final Set<Element> _seen;
   final Set<RenderParagraph> _seenLoose;
   final List<RenderBox> _keep;
+  final Set<Element> _keepControls;
   final GuideUnitLook fallback;
 
-  GuidePlan._(this.page, this._byComponent, this._byParagraph, this._seen, this._seenLoose, this._keep, this.fallback);
+  GuidePlan._(this.page, this._byComponent, this._byParagraph, this._seen, this._seenLoose, this._keep, this._keepControls, this.fallback);
+
+  @override
+  bool keepsControl(Element e) => _keepControls.contains(e);
 
   /// A plan from [plan] on [page]. [keep]: the live boxes that stay legible
   /// (target, caption-named content), against which unseen components are tested.
   /// [skeletonAll]: the P6 collapse, so unseen components are skeleton too.
   factory GuidePlan.from(Element? page, SkeletonPlan plan, {
     List<RenderBox> keep = const [],
+    Set<Element> keepControls = const {},
     bool skeletonAll = false,
   }) {
     final components = <Element, GuideUnitLook>{};
     final paragraphs = <RenderParagraph, GuideUnitLook>{};
     for (final u in plan.units) {
-      final look = u.skeleton ? GuideUnitLook.skeleton : GuideUnitLook.dim;
       final c = u.component;
+      // A control the guide keeps real is dimmed at most, never a placeholder.
+      final look = u.skeleton && !(c != null && keepControls.contains(c)) ? GuideUnitLook.skeleton : GuideUnitLook.dim;
       // A control that is not a Surface / Section / Pressable cannot paint itself: the
       // overlay paints its section (live_guide_overlay.dart). Keyed here anyway, harmless.
       if (c != null) components[c] = look;
       final p = u.paragraph;
       if (p != null) paragraphs[p] = look;
     }
-    return GuidePlan._(page, components, paragraphs, plan.seen, plan.seenLoose, keep,
+    return GuidePlan._(page, components, paragraphs, plan.seen, plan.seenLoose, keep, keepControls,
         skeletonAll ? GuideUnitLook.skeleton : GuideUnitLook.dim);
   }
 
@@ -207,7 +278,7 @@ class GuidePlan implements GuideLooseLooks {
   /// with what the other plan does to a component it never saw (its [fallback]), so
   /// content that scrolled in and is dimmed like the fallback does not count.
   bool sameLooks(GuidePlan other) {
-    if (fallback != other.fallback) return false;
+    if (fallback != other.fallback || !setEquals(_keepControls, other._keepControls)) return false;
     return _agree(_byComponent, _seen, other._byComponent, other._seen) &&
         _agree(_byParagraph, _seenLoose, other._byParagraph, other._seenLoose);
   }
@@ -247,10 +318,17 @@ class GuidePlan implements GuideLooseLooks {
   GuideUnitLook? _unseen(Element unit) {
     final page = this.page;
     if (page == null) return null;
+    if (unit.widget is GuideNavigationHeader || isGuideChromeWidget(unit.widget) || _keepControls.contains(unit)) return null;
     var onPage = false, outermost = true;
     unit.visitAncestorElements((a) {
       if (identical(a, page)) {
         onPage = true;
+        return false;
+      }
+      // Chrome built after the plan (a NavBar re-keyed by a rebuild) is no content: it is
+      // never covered while it waits for the next plan [guide_r5_scenes_test R5-4].
+      if (a.widget is GuideNavigationHeader || isGuideChromeWidget(a.widget) || _keepControls.contains(a)) {
+        outermost = false;
         return false;
       }
       if (isGuideComponent(a.widget)) {
@@ -281,4 +359,53 @@ class GuidePlan implements GuideLooseLooks {
     }
     return false;
   }
+}
+
+/// Local target geometry and its animation opacity. The target paints this in
+/// its own coordinate space, including the scrollable's stretch transform.
+class GuideHover extends ValueNotifier<double> {
+  bool _disposed = false;
+  bool get isDisposed => _disposed;
+  @override
+  void dispose() { _disposed = true; super.dispose(); }
+
+  final Rect rect;
+  final double radius;
+  final Color color;
+  GuideHover(this.rect, this.radius, this.color) : super(0);
+}
+
+/// Build scheduling invalidates a cached plan even when a parent's new layout
+/// only repositions a target without laying out the target again. Hand motion
+/// uses render transforms and never schedules a build. The shared subscription
+/// survives overlapping overlay teardown/arrival without retaining old runs.
+class GuideBuildChanges {
+  static final _listeners = <VoidCallback>{};
+  static final _changes = ValueNotifier<int>(0);
+  static BuildOwner? _owner;
+  static VoidCallback? _previous;
+
+  static void addListener(VoidCallback listener) {
+    if (_listeners.isEmpty) {
+      _owner = WidgetsBinding.instance.buildOwner;
+      _previous = _owner?.onBuildScheduled;
+      final previous = _previous;
+      if (previous != null) _changes.addListener(previous);
+      _owner?.onBuildScheduled = _scheduled;
+    }
+    if (_listeners.add(listener)) _changes.addListener(listener);
+  }
+
+  static void removeListener(VoidCallback listener) {
+    if (_listeners.remove(listener)) _changes.removeListener(listener);
+    if (_listeners.isEmpty) {
+      if (_owner?.onBuildScheduled == _scheduled) _owner?.onBuildScheduled = _previous;
+      final previous = _previous;
+      if (previous != null) _changes.removeListener(previous);
+      _owner = null;
+      _previous = null;
+    }
+  }
+
+  static void _scheduled() { _changes.value++; }
 }

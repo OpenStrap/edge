@@ -13,6 +13,7 @@ import 'package:openstrap_edge/ui2/guides/guide_run.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 
 import '../support/live_guide_stage.dart';
+import '../support/guide_text.dart';
 
 final _en = lookupAppLocalizations(const Locale('en'));
 
@@ -108,14 +109,14 @@ void main() {
       // why: anchors are in-app labels; a Russian user's screen says "Сон", and
       // the English getter must not match it (and vice versa).
       final ru = lookupAppLocalizations(const Locale('ru'));
-      final guide = Guide(id: 'g', title: (_) => 'G', start: GuideStart.sleep, variants: [
+      final guide = Guide(id: 'g', title: fnText((_) => 'G'), start: GuideStart.sleep, variants: [
         GuideVariant(steps: [
           GuideStep(
             id: 'only',
-            target: GuideTarget.label((l) => l.tabSleep),
-            anchor: GuideTarget.label((l) => l.tabSleep),
+            target: GuideTarget.label(fnText((l) => l.tabSleep)),
+            anchor: GuideTarget.label(fnText((l) => l.tabSleep)),
             action: GuideAction.tap,
-            caption: (_) => 'c',
+            caption: fnText((_) => 'c'),
           ),
         ]),
       ]);

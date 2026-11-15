@@ -3522,7 +3522,7 @@
   "guideAddNapRulesBody": "Una siesta dura entre 5 minutos y 6 horas, tiene que haber terminado ya y no puede solaparse con otra siesta ni con tu sueño principal.",
   "guideRemoveTitle": "Dónde quitar una siesta o una sesión que no fue real",
   "guideRemoveStep1": "En la pestaña **{tab}**, toca la tarjeta **{card}**. Solo aparece mientras haya algo esperando tu respuesta.",
-  "guideRemoveStep2": "Toca **{notNap}** en una siesta, o **{notWorkout}** en una sesión, que no ocurrió.",
+  "guideRemoveStep2": "Cada elemento tiene su propio **{notNap}** / **{notWorkout}**. Tócalo en la siesta o la sesión que no ocurrió; el resaltado muestra las opciones.",
   "guideRemoveSavedTitle": "¿Ya la guardaste?",
   "guideRemoveSavedBody": "Abre la pestaña **{sleep}** y toca **{naps}**. Toca **{notNap}** en una siesta que encontró la banda, o **{delete}** en una que registraste tú.",
   "guideRemoveMissingTitle": "¿No ves «{card}»?",
@@ -3531,7 +3531,7 @@
   "guideFixTimesStep1": "En la pestaña **{tab}**, toca **{change}** bajo tu última noche. Dice **{set}** hasta que fijes tú las horas. Te preguntará a qué hora te acostaste y luego a qué hora te despertaste.",
   "guideFixTimesStep2": "Para deshacer tus cambios, toca **{back}**. La noche vuelve a las horas que detectó la app.",
   "guideFixTimesBackTitle": "¿No ves «{back}»?",
-  "guideFixTimesBackBody": "**{back}** solo aparece después de fijar tú las horas. Fíjalas primero y aparecerá.",
+  "guideFixTimesBackBody": "**{back}** solo aparece después de fijar tú las horas. Fíjalas primero y aparecerá. Si **{night}** está plegado, toca su título para abrirlo.",
   "guideFixTimesAskTitle": "Qué te preguntan los selectores",
   "guideFixTimesAskBody": "Primero la hora a la que te acostaste y luego la hora a la que te despertaste. La noche se calcula de nuevo con esas dos horas.",
   "guideDeleteTitle": "Dónde eliminar una sesión",
@@ -3597,5 +3597,25 @@
   },
   "@guideMoveCardDown": {
     "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapOneOf": "toca uno",
+  "guideSearchOrPick": "busca o elige",
+  "profileHelpRow": "Ayuda",
+  "guideAddNapMissingTitle": "¿No ves «{naps}»?",
+  "guideAddNapMissingBody": "**{naps}** está bajo tu noche. Si esa parte, **{night}**, está plegada, toca su título para abrirla.",
+  "guideExpandAccordion": "Expandir {title}",
+  "guideRemoveStep2Still": "Cada elemento tiene su propio **{notNap}** / **{notWorkout}**. Tócalo en la siesta o la sesión que no ocurrió; el contorno marca el primero.",
+  "@guideRemoveStep2Still": {
+    "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",
+    "placeholders": {
+      "notNap": {
+        "type": "String",
+        "description": "Name of the Not a nap button"
+      },
+      "notWorkout": {
+        "type": "String",
+        "description": "Name of the Not a workout button"
+      }
+    }
   }
 }

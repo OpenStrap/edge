@@ -12,6 +12,7 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 
 import '../support/guide_search.dart';
 import '../support/skeleton_fixture.dart';
+import '../support/guide_text.dart';
 
 const _root = ValueKey('root');
 
@@ -63,7 +64,7 @@ void main() {
         final (root, l) = await _pumpIn(t, locale, _sectionWithAction);
         expect(l.dayStrainHowSet, literal, reason: 'fixture sanity');
 
-        final r = GuideTarget.label((l) => l.dayStrainHowSet).resolve(root, l);
+        final r = GuideTarget.label(fnText((l) => l.dayStrainHowSet)).resolve(root, l);
         expect(r, isA<TargetFound>());
         final rect = (r as TargetFound).rect;
 
@@ -83,7 +84,7 @@ void main() {
       // why: matching is against the CURRENT locale's string. A stale English
       // string on a German screen must fail loudly, not resolve.
       final (root, l) = await _pumpIn(t, const Locale('de'), (_) => const Text(_enHowSet));
-      final r = GuideTarget.label((l) => l.dayStrainHowSet).resolve(root, l);
+      final r = GuideTarget.label(fnText((l) => l.dayStrainHowSet)).resolve(root, l);
       expect(r, isA<TargetAbsent>());
     });
 
@@ -99,9 +100,9 @@ void main() {
           Semantics(label: 'Close sheet', child: const SizedBox(width: 40, height: 40)),
         ]),
       );
-      expect(GuideTarget.label((_) => 'Rich label').resolve(root, l), isA<TargetFound>());
-      expect(GuideTarget.label((_) => 'padded').resolve(root, l), isA<TargetFound>());
-      final sem = GuideTarget.label((_) => 'Close sheet').resolve(root, l);
+      expect(GuideTarget.label(fnText((_) => 'Rich label')).resolve(root, l), isA<TargetFound>());
+      expect(GuideTarget.label(fnText((_) => 'padded')).resolve(root, l), isA<TargetFound>());
+      final sem = GuideTarget.label(fnText((_) => 'Close sheet')).resolve(root, l);
       expect(sem, isA<TargetFound>());
       expect((sem as TargetFound).rect.size, const Size(40, 40));
     });
@@ -119,15 +120,15 @@ void main() {
           const Text('Strains'),
         ]),
       );
-      expect(GuideTarget.label((_) => 'Strain').resolve(root, l), isA<TargetFound>());
-      expect(GuideTarget.label((_) => 'Strai').resolve(root, l), isA<TargetAbsent>());
+      expect(GuideTarget.label(fnText((_) => 'Strain')).resolve(root, l), isA<TargetFound>());
+      expect(GuideTarget.label(fnText((_) => 'Strai')).resolve(root, l), isA<TargetAbsent>());
     });
 
     testWidgets('a target with no Pressable ancestor resolves to its own text rect', (t) async {
       // why: "grow to the Pressable" must not grow to the whole screen when
       // there is none (Section titles are plain text).
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => const Column(children: [Text('Plain')]));
-      final r = GuideTarget.label((_) => 'Plain').resolve(root, l) as TargetFound;
+      final r = GuideTarget.label(fnText((_) => 'Plain')).resolve(root, l) as TargetFound;
       expect(r.rect, skLocalRect(t, find.text('Plain'), find.byKey(_root)));
     });
 
@@ -135,26 +136,10 @@ void main() {
       // why: the overlay draws in the root's space; the root sits at (16, 40).
       final (root, l) = await _pumpIn(
           t, const Locale('en'), (_) => const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Plain')]));
-      final r = GuideTarget.label((_) => 'Plain').resolve(root, l) as TargetFound;
+      final r = GuideTarget.label(fnText((_) => 'Plain')).resolve(root, l) as TargetFound;
       expect(r.rect.topLeft, isNot(t.getTopLeft(find.text('Plain'))));
       expect(r.rect.left, closeTo(0, 0.5));
     });
-  });
-
-  // WHY: a real History page can have multiple sessions with the same bin label.
-  // A guide must pick the first bin while the normal label API stays ambiguous.
-  testWidgets('firstLabel picks the topmost of several real controls', (t) async {
-    const first = ValueKey('first-bin');
-    final (root, l) = await _pumpIn(t, const Locale('en'), (_) => Column(children: [
-      Pressable(key: first, semanticLabel: 'Delete session', onTap: () {}, child: const Text('Delete session')),
-      Pressable(semanticLabel: 'Delete session', onTap: () {}, child: const Text('Delete session')),
-    ]));
-    expect(GuideTarget.label((_) => 'Delete session').resolve(root, l), isA<TargetAmbiguous>());
-    final resolution = GuideTarget.firstLabel((_) => 'Delete session').resolve(root, l);
-    expect(resolution, isA<TargetFound>());
-    final found = resolution as TargetFound;
-    expect(found.rect, skLocalRect(t, find.byKey(first), find.byKey(_root)));
-    expect(everyControlLabelled(root, (_) => 'Delete session', l), hasLength(2));
   });
 
   group('by Key', () {
@@ -180,7 +165,7 @@ void main() {
         (t) async {
       // why: "unresolved target = typed failure (no silent empty guide)".
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => const Text('something else'));
-      final r = GuideTarget.label((_) => 'Nowhere to be seen').resolve(root, l);
+      final r = GuideTarget.label(fnText((_) => 'Nowhere to be seen')).resolve(root, l);
       switch (r) {
         case TargetAbsent(:final detail):
           expect(detail, contains('Nowhere to be seen'));
@@ -204,7 +189,7 @@ void main() {
           ),
         ),
       );
-      final r = GuideTarget.label((_) => 'row 90').resolve(root, l);
+      final r = GuideTarget.label(fnText((_) => 'row 90')).resolve(root, l);
       expect(r, isA<TargetNotBuilt>());
     });
 
@@ -218,7 +203,7 @@ void main() {
       // outline empty space.
       final (root, l) = await _pumpIn(t, const Locale('en'),
           (_) => const Column(children: [Offstage(child: Text('Hidden label'))]));
-      expect(GuideTarget.label((_) => 'Hidden label').resolve(root, l), isA<TargetAbsent>());
+      expect(GuideTarget.label(fnText((_) => 'Hidden label')).resolve(root, l), isA<TargetAbsent>());
     });
 
     testWidgets('two DISTINCT controls with the label are TargetAmbiguous with the count', (t) async {
@@ -232,7 +217,7 @@ void main() {
           Pressable(onTap: () {}, child: const Text('Strain')),
         ]),
       );
-      final r = GuideTarget.label((_) => 'Strain').resolve(root, l);
+      final r = GuideTarget.label(fnText((_) => 'Strain')).resolve(root, l);
       expect(r, isA<TargetAmbiguous>());
       expect((r as TargetAmbiguous).count, 2);
     });
@@ -248,7 +233,41 @@ void main() {
           child: Semantics(label: 'Strain', child: const Text('Strain')),
         ),
       );
-      expect(GuideTarget.label((_) => 'Strain').resolve(root, l), isA<TargetFound>());
+      expect(GuideTarget.label(fnText((_) => 'Strain')).resolve(root, l), isA<TargetFound>());
+    });
+
+    testWidgets('a labelled wrapper around a pressable text is one control (CLAIM(one-control-once)); two such buttons stay ambiguous', (t) async {
+      // why: day_review.dart's `reviewButton` is Semantics(label) > Opacity > BigButton
+      // (Pressable) > Text with the same words. The Semantics sits ABOVE the Pressable, so
+      // "nearest Pressable above the match" saw two controls and every review button was
+      // ambiguous, with one row too. Fails if the nested control is counted again; the second
+      // half is the positive control that real duplicates are still ambiguous.
+      Widget button(String label, double width) => Semantics(
+            button: true,
+            label: label,
+            excludeSemantics: true,
+            child: Opacity(opacity: 1, child: SizedBox(width: width, child: Pressable(onTap: () {}, child: Text(label)))),
+          );
+      final (root, l) = await _pumpIn(t, const Locale('en'), (_) => Column(children: [button('Save', 120)]));
+      final one = GuideTarget.label(fnText((_) => 'Save')).resolve(root, l);
+      expect(one, isA<TargetFound>());
+      expect((one as TargetFound).rect.width, 120, reason: 'the whole labelled button');
+      final (root2, l2) = await _pumpIn(t, const Locale('en'), (_) => Column(children: [button('Save', 120), button('Save', 90)]));
+      expect(GuideTarget.label(fnText((_) => 'Save')).resolve(root2, l2), isA<TargetAmbiguous>());
+    });
+
+    testWidgets('firstLabel picks the topmost of several (CLAIM(first-of-many)); label stays ambiguous', (t) async {
+      // why: one Discard per pending row made guide #4's step ambiguous with 2+ rows.
+      // Fails if firstLabel returns ambiguous, picks the last, or label() stops being ambiguous.
+      final (root, l) = await _pumpIn(t, const Locale('en'), (_) => Column(children: [
+            Pressable(onTap: () {}, child: const SizedBox(height: 40, child: Text('Discard'))),
+            const SizedBox(height: 100),
+            Pressable(onTap: () {}, child: const SizedBox(height: 40, child: Text('Discard'))),
+          ]));
+      final first = GuideTarget.firstLabel(fnText((_) => 'Discard')).resolve(root, l);
+      expect(first, isA<TargetFound>());
+      expect((first as TargetFound).rect.top, lessThan(50), reason: 'the top row, not the one 140 px lower');
+      expect(GuideTarget.label(fnText((_) => 'Discard')).resolve(root, l), isA<TargetAmbiguous>());
     });
 
     testWidgets('the Delete a workout guide resolves its bin on a real history of several rows', (t) async {
@@ -280,7 +299,7 @@ void main() {
         const Locale('en'),
         (_) => Pressable(onTap: () {}, child: const Column(children: [Text('Open'), Text('Open')])),
       );
-      expect(GuideTarget.label((_) => 'Open').resolve(root, l), isA<TargetFound>());
+      expect(GuideTarget.label(fnText((_) => 'Open')).resolve(root, l), isA<TargetFound>());
     });
 
     testWidgets('a semantics-only control (no Text) is found by its label', (t) async {
@@ -294,21 +313,21 @@ void main() {
             alignment: Alignment.topLeft,
             child: Semantics(button: true, label: 'Close sheet', child: const SizedBox(width: 40, height: 40))),
       );
-      final r = GuideTarget.label((_) => 'Close sheet').resolve(root, l);
+      final r = GuideTarget.label(fnText((_) => 'Close sheet')).resolve(root, l);
       expect(r, isA<TargetFound>());
       expect((r as TargetFound).rect.size, const Size(40, 40));
     });
 
     testWidgets('a found target never has an empty rect', (t) async {
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => const Text('Plain'));
-      final r = GuideTarget.label((_) => 'Plain').resolve(root, l) as TargetFound;
+      final r = GuideTarget.label(fnText((_) => 'Plain')).resolve(root, l) as TargetFound;
       expect(r.rect.isEmpty, isFalse);
     });
 
     testWidgets('the sealed result is exhaustively switchable', (t) async {
       // why: compile-time guard that callers must handle all four outcomes.
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => const Text('Plain'));
-      final r = GuideTarget.label((_) => 'Plain').resolve(root, l);
+      final r = GuideTarget.label(fnText((_) => 'Plain')).resolve(root, l);
       final name = switch (r) {
         TargetFound() => 'found',
         TargetNotBuilt() => 'notBuilt',
@@ -332,8 +351,8 @@ void main() {
           SizedBox(key: b, child: Text('Time in zones')),
         ]),
       );
-      expect(GuideTarget.label((_) => 'Time in zones').resolve(root, l), isA<TargetAmbiguous>());
-      final scoped = GuideTarget.label((_) => 'Time in zones', within: GuideTarget.key(b)).resolve(root, l);
+      expect(GuideTarget.label(fnText((_) => 'Time in zones')).resolve(root, l), isA<TargetAmbiguous>());
+      final scoped = GuideTarget.label(fnText((_) => 'Time in zones'), within: GuideTarget.key(b)).resolve(root, l);
       expect(scoped, isA<TargetFound>());
       final rect = (scoped as TargetFound).rect;
       expect(rect, skLocalRect(t, find.descendant(of: find.byKey(b), matching: find.text('Time in zones')), find.byKey(_root)));
@@ -343,7 +362,7 @@ void main() {
         (t) async {
       // why: falling back would point at the wrong duplicate.
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => const Text('Time in zones'));
-      final r = GuideTarget.label((_) => 'Time in zones', within: GuideTarget.key(const ValueKey('nope'))).resolve(root, l);
+      final r = GuideTarget.label(fnText((_) => 'Time in zones'), within: GuideTarget.key(const ValueKey('nope'))).resolve(root, l);
       expect(r, isA<TargetAbsent>());
     });
   });
@@ -359,7 +378,7 @@ void main() {
             l0 = l;
             return Pressable(onTap: () {}, child: Text(saved ? l.activityZonesEditYourOwnLink : l.activityZonesSetYourOwnLink));
           });
-          final target = GuideTarget.anyLabel([(l) => l.activityZonesSetYourOwnLink, (l) => l.activityZonesEditYourOwnLink]);
+          final target = GuideTarget.anyLabel([fnText((l) => l.activityZonesSetYourOwnLink), fnText((l) => l.activityZonesEditYourOwnLink)]);
           expect(target.resolve(root, l), isA<TargetFound>(), reason: '${locale.languageCode} saved=$saved');
           expect(l0.activityZonesSetYourOwnLink, isNot(l0.activityZonesEditYourOwnLink), reason: 'fixture sanity');
         }
@@ -368,7 +387,7 @@ void main() {
 
     testWidgets('with none of the alternatives on screen it is absent, and the detail lists them', (t) async {
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => const Text('unrelated'));
-      final r = GuideTarget.anyLabel([(_) => 'Alpha', (_) => 'Beta']).resolve(root, l);
+      final r = GuideTarget.anyLabel([fnText((_) => 'Alpha'), fnText((_) => 'Beta')]).resolve(root, l);
       expect(r, isA<TargetAbsent>());
       expect((r as TargetAbsent).detail, allOf(contains('Alpha'), contains('Beta')));
     });
@@ -392,8 +411,8 @@ void main() {
       addTearDown(controller.dispose);
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(c: controller));
       var active = true;
-      final search = revealTarget(root, GuideTarget.label((_) => 'row 90'), l,
-          isCurrent: () => active);
+      final search = revealTarget(root, GuideTarget.label(fnText((_) => 'row 90')), l,
+          isCurrent: FnGate(() => active));
       final cancelledAt = controller.offset;
       expect(cancelledAt, 200, reason: 'the first probe moves one viewport');
       active = false;
@@ -406,7 +425,7 @@ void main() {
     testWidgets('unmounting during search does not read a detached tree', (t) async {
       // WHY: CLAIM(reveal-frame-boundary). A route can disappear between probes.
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list());
-      final search = revealTarget(root, GuideTarget.label((_) => 'row 90'), l);
+      final search = revealTarget(root, GuideTarget.label(fnText((_) => 'row 90')), l);
       await t.pumpWidget(const SizedBox());
       expect(await pumpGuideSearch(t, search), isA<TargetNotBuilt>());
       expect(t.takeException(), isNull);
@@ -419,7 +438,7 @@ void main() {
       final c = ScrollController();
       addTearDown(c.dispose);
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(c: c));
-      final target = GuideTarget.label((_) => 'row 20');
+      final target = GuideTarget.label(fnText((_) => 'row 20'));
       expect(target.resolve(root, l), isA<TargetNotBuilt>(), reason: 'precondition: not built yet');
 
       final r = await pumpGuideSearch(t, revealTarget(root, target, l));
@@ -453,7 +472,7 @@ void main() {
           ]),
         ),
       );
-      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label((_) => 'inner 40'), l));
+      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label(fnText((_) => 'inner 40')), l));
       await t.pump();
       expect(r, isA<TargetFound>());
     });
@@ -469,7 +488,7 @@ void main() {
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(c: c));
       c.jumpTo(c.position.maxScrollExtent);
       await t.pump();
-      final target = GuideTarget.label((_) => 'row 60');
+      final target = GuideTarget.label(fnText((_) => 'row 60'));
       expect(target.resolve(root, l), isA<TargetNotBuilt>(), reason: 'precondition: above the built range');
       final r = await pumpGuideSearch(t, revealTarget(root, target, l));
       await t.pump();
@@ -488,7 +507,7 @@ void main() {
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(c: c));
       c.jumpTo(2500);
       await t.pump();
-      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label((_) => 'no such row'), l, maxViewports: 3));
+      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label(fnText((_) => 'no such row')), l, maxViewports: 3));
       await t.pump();
       expect(r, isA<TargetNotBuilt>());
       expect(c.offset, 2500);
@@ -504,7 +523,7 @@ void main() {
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(count: 30, c: c));
       c.jumpTo(100);
       await t.pump();
-      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label((_) => 'no such row'), l));
+      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label(fnText((_) => 'no such row')), l));
       await t.pump();
       expect(r, isA<TargetAbsent>());
       expect(c.offset, 100);
@@ -517,7 +536,7 @@ void main() {
       final c = ScrollController();
       addTearDown(c.dispose);
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(c: c));
-      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label((_) => 'row 90'), l, maxViewports: 3));
+      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label(fnText((_) => 'row 90')), l, maxViewports: 3));
       await t.pump();
       expect(r, isA<TargetNotBuilt>());
       expect(c.offset, 0);
@@ -528,7 +547,7 @@ void main() {
       final c = ScrollController();
       addTearDown(c.dispose);
       final (root, l) = await _pumpIn(t, const Locale('en'), (_) => list(c: c));
-      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label((_) => 'row 1'), l));
+      final r = await pumpGuideSearch(t, revealTarget(root, GuideTarget.label(fnText((_) => 'row 1')), l));
       expect(r, isA<TargetFound>());
       expect(c.offset, 0);
     });

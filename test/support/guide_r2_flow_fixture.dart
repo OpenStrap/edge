@@ -16,6 +16,7 @@ import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
 import 'package:openstrap_edge/ui2/skeleton/unit_paint.dart' show GuideScrollBehavior;
 import 'guide_r2_fixture.dart' show R2Content, r2Capture;
+import 'guide_text.dart';
 
 const flowTarget = ValueKey('flow-target');
 const flowKept = ValueKey('flow-kept');
@@ -59,10 +60,10 @@ class R2FlowFixture {
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales, home: home))));
     await t.pump();
-    final guide = Guide(id: 'flow-fixture', title: (_) => 'Flow', start: GuideStart.today,
+    final guide = Guide(id: 'flow-fixture', title: fnText((_) => 'Flow'), start: GuideStart.today,
       variants: [GuideVariant(steps: [GuideStep(id: 'target', target: GuideTarget.key(flowTarget),
         anchor: GuideTarget.key(flowTarget), action: GuideAction.tap,
-        alsoRead: const [R2Content([flowKept])], caption: (_) => 'Tap Pinned target. Read the kept note.')])]);
+        alsoRead: const [R2Content([flowKept])], caption: fnText((_) => 'Tap Pinned target. Read the kept note.'))])]);
     run = GuideRun(guide: guide, variant: guide.variants.single);
     entry = OverlayEntry(builder: (_) => LiveGuideOverlay(run: run, navigatorKey: navKey, routes: routes,
       onExit: run.exit, onBackToGuide: () {}));

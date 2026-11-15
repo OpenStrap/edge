@@ -3822,7 +3822,7 @@
   "guideAddNapRulesBody": "Ein Nickerchen dauert zwischen 5 Minuten und 6 Stunden, muss schon vorbei sein und darf sich nicht mit einem anderen Nickerchen oder deinem Hauptschlaf überschneiden.",
   "guideRemoveTitle": "So entfernst du ein Nickerchen oder Training, das gar nicht stattgefunden hat",
   "guideRemoveStep1": "Tippe im Tab **{tab}** auf die Karte **{card}**. Sie erscheint nur, solange etwas auf dich wartet.",
-  "guideRemoveStep2": "Tippe bei einem Nickerchen auf **{notNap}** oder bei einem Training auf **{notWorkout}**, wenn es nicht stattgefunden hat.",
+  "guideRemoveStep2": "Jeder Eintrag hat sein eigenes **{notNap}** / **{notWorkout}**. Tippe es bei dem Nickerchen oder Training an, das nicht stattgefunden hat; die Hervorhebung zeigt die Auswahlmöglichkeiten.",
   "guideRemoveSavedTitle": "Schon gespeichert?",
   "guideRemoveSavedBody": "Öffne den Tab **{sleep}** und tippe auf **{naps}**. Tippe bei einem vom Band erkannten Nickerchen auf **{notNap}**, bei einem selbst eingetragenen auf **{delete}**.",
   "guideRemoveMissingTitle": "„{card}“ nicht zu sehen?",
@@ -3831,7 +3831,7 @@
   "guideFixTimesStep1": "Tippe im Tab **{tab}** unter deiner letzten Nacht auf **{change}**. Dort steht **{set}**, bis du die Zeiten selbst festgelegt hast. Du wirst gefragt, wann du ins Bett gegangen bist und dann, wann du aufgewacht bist.",
   "guideFixTimesStep2": "Zum Rückgängigmachen tippe auf **{back}**. Die Nacht bekommt wieder die Zeiten, die die App erkannt hat.",
   "guideFixTimesBackTitle": "„{back}“ nicht zu sehen?",
-  "guideFixTimesBackBody": "**{back}** erscheint erst, nachdem du die Zeiten selbst festgelegt hast. Lege sie zuerst fest, dann taucht es auf.",
+  "guideFixTimesBackBody": "**{back}** erscheint erst, nachdem du die Zeiten selbst festgelegt hast. Lege sie zuerst fest, dann taucht es auf. Ist **{night}** eingeklappt, tippe auf den Titel, um es zu öffnen.",
   "guideFixTimesAskTitle": "Was die Auswahl fragt",
   "guideFixTimesAskBody": "Zuerst, wann du ins Bett gegangen bist, dann, wann du aufgewacht bist. Aus diesen beiden Zeiten wird die Nacht neu berechnet.",
   "guideDeleteTitle": "So löschst du ein Training",
@@ -3897,5 +3897,25 @@
   },
   "@guideMoveCardDown": {
     "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapOneOf": "eins antippen",
+  "guideSearchOrPick": "suchen oder wählen",
+  "profileHelpRow": "Hilfe",
+  "guideAddNapMissingTitle": "„{naps}“ nicht zu sehen?",
+  "guideAddNapMissingBody": "**{naps}** steht unter deiner Nacht. Ist dieser Teil, **{night}**, eingeklappt, tippe auf seinen Titel, um ihn zu öffnen.",
+  "guideExpandAccordion": "{title} aufklappen",
+  "guideRemoveStep2Still": "Jeder Eintrag hat sein eigenes **{notNap}** / **{notWorkout}**. Tippe es bei dem Nickerchen oder Training an, das nicht stattgefunden hat; die Umrandung markiert das erste.",
+  "@guideRemoveStep2Still": {
+    "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",
+    "placeholders": {
+      "notNap": {
+        "type": "String",
+        "description": "Name of the Not a nap button"
+      },
+      "notWorkout": {
+        "type": "String",
+        "description": "Name of the Not a workout button"
+      }
+    }
   }
 }

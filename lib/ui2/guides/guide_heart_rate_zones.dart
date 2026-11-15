@@ -13,27 +13,29 @@
 
 import 'guide.dart';
 import 'guide_navigation.dart';
+import 'guide_copy.dart';
+import 'guide_labels.dart';
 import 'guide_target.dart';
 
 /// The Strain ring on the Today tab. Also step 1's anchor: the label is on no
 /// other of the three screens.
-final _strainRing = GuideTarget.label((l) => l.homeRingStrain);
+final _strainRing = GuideTarget.label(ScreenLabel.homeRingStrain);
 
 /// The link on the right of the "Time in zones" heading. Also step 2's anchor.
-final _howTheseAreSet = GuideTarget.label((l) => l.dayStrainHowSet);
+final _howTheseAreSet = GuideTarget.label(ScreenLabel.dayStrainHowSet);
 
 /// The own-zones link; its text flips with the saved state, so both labels.
 /// The title anchors step 3 before this link is built by the lazy list.
 final _ownZonesLink = GuideTarget.anyLabel([
-  (l) => l.activityZonesSetYourOwnLink,
-  (l) => l.activityZonesEditYourOwnLink,
+  ScreenLabel.activityZonesSetYourOwnLink,
+  ScreenLabel.activityZonesEditYourOwnLink,
 ]);
 
 Guide get heartRateZonesGuide => Guide(
       id: 'heart-rate-zones',
-      title: (l) => l.guideHrZonesTitle,
+      title: GuideCopy.hrZonesTitle,
       start: GuideStart.today,
-      intro: (l) => l.guideHrZonesIntro(l.homeRingStrain),
+      intro: GuideCopy.hrZonesIntro,
       variants: [
         GuideVariant(steps: [
           GuideStep(
@@ -42,7 +44,7 @@ Guide get heartRateZonesGuide => Guide(
             target: _strainRing,
             anchor: _strainRing,
             action: GuideAction.tap,
-            caption: (l) => l.guideHrZonesStep1(l.tabToday, l.homeRingStrain),
+            caption: GuideCopy.hrZonesCaptionOpenStrain,
           ),
           GuideStep(
             id: 'open-zones',
@@ -50,30 +52,30 @@ Guide get heartRateZonesGuide => Guide(
             target: _howTheseAreSet,
             anchor: _howTheseAreSet,
             action: GuideAction.scrollThenTap,
-            caption: (l) => l.guideHrZonesStep2(l.dayStrainTimeInZonesSection, l.dayStrainHowSet),
+            caption: GuideCopy.hrZonesCaptionOpenZones,
           ),
           GuideStep(
             id: 'set-own-zones',
             node: GuideNode.zones,
             target: _ownZonesLink,
-            anchor: GuideTarget.label((l) => l.activityZonesTitle),
+            anchor: GuideTarget.label(ScreenLabel.activityZonesTitle),
             // The mock-up keeps "Your zones" legible: it is what the link edits.
-            alsoKeep: [GuideTarget.label((l) => l.activityZonesYourZonesSection)],
+            alsoKeep: [GuideTarget.label(ScreenLabel.activityZonesYourZonesSection)],
             action: GuideAction.tap,
-            caption: (l) => l.guideHrZonesStep3(l.activityZonesTitle, l.activityZonesSetYourOwnLink),
+            caption: GuideCopy.hrZonesCaptionSetOwnZones,
           ),
         ]),
       ],
       footers: [
         GuideFooter(
           kind: GuideFooterKind.anotherWay,
-          title: (l) => l.guideHrZonesAltTitle,
-          body: (l) => l.guideHrZonesAltBody(l.tabActivity, l.workoutTodaysStrainAction),
+          title: GuideCopy.hrZonesFooter0Title,
+          body: GuideCopy.hrZonesFooter0Body,
         ),
         GuideFooter(
           kind: GuideFooterKind.missingTarget,
-          title: (l) => l.guideHrZonesMissingTitle(l.dayStrainTimeInZonesSection),
-          body: (l) => l.guideHrZonesMissingBody,
+          title: GuideCopy.hrZonesFooter1Title,
+          body: GuideCopy.hrZonesFooter1Body,
         ),
       ],
     );

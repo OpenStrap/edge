@@ -12,6 +12,9 @@
 //    the same for LOOSE text (a paragraph in no component), inside the scrollable and
 //    inside Android's overscroll stretch, in the frame the text moves in.
 //
+// The target also paints its own hover foreground in this subtree, in a repaint
+// boundary. CLAIM(hover-in-target-tree) [guide_r7_hover_test].
+//
 // A dim follows the drawn box's rounded corners and fades in with [GuideDimController.fade];
 // placeholders do not fade. Nothing here knows a guide. With no plan in force both are a
 // plain proxy.
@@ -20,10 +23,13 @@
 // With a plan, a repaint of a dimmed component is one rect; a skeleton component
 // re-reads its own text lines per paint (a few paragraphs).
 
+import 'dart:ui' show ClipOp;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../guides/guide_dim.dart';
+import '../guides/guide_accordion.dart';
 import '../guides/tree_geometry.dart';
 import 'skeleton.dart';
 import 'placeholder_paint.dart';
@@ -61,7 +67,8 @@ Iterable<RenderParagraph> looseParagraphs(Element layer) sync* {
 
 Iterable<RenderParagraph> _looseBelow(Element e) sync* {
   final w = e.widget;
-  if (w is GuideUnitMark || w is GuideLooseLayer) return;
+  // Chrome (a NavBar, a title, a tab bar) is never dimmed, whatever the plan says of it.
+  if (w is GuideUnitMark || w is GuideLooseLayer || isGuideChromeWidget(w)) return;
   final ro = e is RenderObjectElement ? e.renderObject : null;
   if (ro is RenderParagraph) yield ro;
   final children = <Element>[];
@@ -89,6 +96,29 @@ class GuideUnitMark extends SingleChildRenderObjectWidget {
   }
 }
 
+/// The component that paints the hover for [target]: its own (or one inside it) as big as it is;
+/// a loose labelled control can use its enclosing component. Resolved with layout, never per frame.
+RenderGuideUnit? guideHoverMark(RenderBox target) {
+  RenderGuideUnit? found;
+  void visit(RenderObject object) {
+    if (found != null) return;
+    if (object is RenderGuideUnit && object.hasSize && object.size == target.size) {
+      found = object;
+      return;
+    }
+    object.visitChildren(visit);
+  }
+  visit(target);
+  if (found != null) return found;
+  // Never above the target's own scrollable: such a component does not scroll with the target and the
+  // viewport does not clip it, so its hover rect would drift (the overlay rect the owner rejected).
+  for (RenderObject? parent = target.parent; parent != null; parent = parent.parent) {
+    if (parent is RenderGuideUnit) return parent;
+    if (parent is RenderAbstractViewport || parent is RenderSliver) return null;
+  }
+  return null;
+}
+
 /// Paints the child, then the component's own look over it.
 class RenderGuideUnit extends RenderProxyBox {
   RenderGuideUnit(this._component, this._controller);
@@ -104,7 +134,7 @@ class RenderGuideUnit extends RenderProxyBox {
 
   set controller(GuideDimController? value) {
     if (identical(_controller, value)) return;
-    if (attached) _controller?.removeListener(_planChanged);
+    if (attached) _unlisten();
     _pulse.stop();
     _controller = value;
     if (attached) _listen();
@@ -118,6 +148,7 @@ class RenderGuideUnit extends RenderProxyBox {
 
   void _planChanged() {
     planRepaints++;
+    _followHover();
     markNeedsPaint();
   }
 
@@ -128,6 +159,37 @@ class RenderGuideUnit extends RenderProxyBox {
 
   /// Listens to the pulse only while this component paints placeholders.
   final _pulse = PulseSubscription();
+  GuideHover? _hover;
+
+  @override
+  bool get isRepaintBoundary => _hover != null;
+
+  void _followHover() {
+    final next = _controller?.hoverOf(this);
+    if (identical(next, _hover)) return;
+    _hover?.removeListener(_hoverChanged);
+    final wasBoundary = isRepaintBoundary;
+    _hover = next;
+    _hover?.addListener(_hoverChanged);
+    if (wasBoundary != isRepaintBoundary) markNeedsCompositingBitsUpdate();
+    markNeedsPaint();
+  }
+
+  void _hoverChanged() { markNeedsPaint(); }
+
+  @visibleForTesting
+  GuideHover? get hover => _hover;
+
+  /// The look this component paints now (what [paint] reads from the plan).
+  @visibleForTesting
+  GuideUnitLook? get paintedLook => _component.mounted ? _controller?.looks?.lookOf(_component) : null;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    _controller?.geometryChanged();
+  }
+
 
   @override
   void attach(PipelineOwner owner) {
@@ -137,12 +199,25 @@ class RenderGuideUnit extends RenderProxyBox {
 
   void _listen() {
     final c = _controller;
-    if (c != null && !c.isDisposed) c.addListener(_planChanged);
+    if (c != null && !c.isDisposed) {
+      c.addListener(_planChanged);
+      c.hoverBindings.addListener(_followHover);
+    }
+    _followHover();
+  }
+
+  void _unlisten() {
+    final c = _controller;
+    if (c == null) return;
+    c.removeListener(_planChanged);
+    if (!c.isDisposed) c.hoverBindings.removeListener(_followHover);
   }
 
   @override
   void detach() {
-    _controller?.removeListener(_planChanged);
+    _unlisten();
+    _hover?.removeListener(_hoverChanged);
+    _hover = null;
     _pulse.stop();
     super.detach();
   }
@@ -172,11 +247,14 @@ class RenderGuideUnit extends RenderProxyBox {
     final look = _component.mounted ? looks?.lookOf(_component) : null;
     _pulse.follow(_controller, look == GuideUnitLook.skeleton, _pulsed);
     if (look == GuideUnitLook.skeleton && child != null) {
-      GuidePlaceholderPaint.of(_component, fade: _controller?.fade ?? 1, pulse: _controller?.pulse ?? 1)
+      GuidePlaceholderPaint.of(_component, fade: _controller?.fade ?? 1, pulse: _controller?.pulse ?? 1,
+          keeps: looks is GuideKeepsControls ? looks as GuideKeepsControls : null)
           .paint(context, child!, offset, size);
+      _paintHover(context, offset);
       return;
     }
     super.paint(context, offset);
+    _paintHover(context, offset);
     if (look == null) return;
     final canvas = context.canvas;
     switch (look) {
@@ -184,13 +262,42 @@ class RenderGuideUnit extends RenderProxyBox {
         // The dim reaches the edges of the drawn box: its own rounded corners.
         final paint = Paint()..color = scaffoldOf(_component).withValues(alpha: kDimOpacity * (_controller?.fade ?? 1));
         final radius = _drawnRadius();
+        // A navigation header stays bright even when an ancestor card is dim.
+        // The holes use local transforms, so scrolling/stretching carries both.
+        canvas.save();
+        for (final e in onstageElements(_component)) {
+          if (e.widget is! GuideNavigationHeader) continue;
+          final box = laidOutBox(e);
+          if (box == null) continue;
+          canvas.clipRect(rectInRoot(box, this).shift(offset), clipOp: ClipOp.difference);
+        }
         if (radius == null) {
           canvas.drawRect(offset & size, paint);
         } else {
           canvas.drawRRect(radius.toRRect(offset & size), paint);
         }
+        canvas.restore();
       case GuideUnitLook.skeleton:
         break;
+    }
+  }
+
+  /// The guide's hover highlight on this component, in its own coordinates (so it follows scroll and
+  /// stretch), over its content and over its placeholders alike.
+  void _paintHover(PaintingContext context, Offset offset) {
+    final hover = _hover;
+    if (hover != null && hover.value > .004) {
+      final rr = RRect.fromRectAndRadius(hover.rect.shift(offset), Radius.circular(hover.radius));
+      final canvas = context.canvas;
+      // Filled outer blur takes a rectangular fast path on large targets and
+      // adds a second tint inside. Blurring only the border keeps the centre
+      // uniform. CLAIM(hover-in-target-tree) [guide_r7_hover_test RGB check].
+      canvas.drawRRect(rr, Paint()..color = hover.color.withValues(alpha: .55 * hover.value)
+        ..style = PaintingStyle.stroke..strokeWidth = 2
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7));
+      canvas.drawRRect(rr, Paint()..color = hover.color.withValues(alpha: .26 * hover.value));
+      canvas.drawRRect(rr.deflate(.5), Paint()..color = hover.color.withValues(alpha: .55 * hover.value)
+        ..style = PaintingStyle.stroke..strokeWidth = 1);
     }
   }
 }
@@ -311,7 +418,8 @@ class RenderGuideLoose extends RenderProxyBox {
         case GuideUnitLook.dim:
           final visible = rectInRoot(p, this).intersect(visibleBoundsInRoot(p, this));
           if (visible.isEmpty) continue;
-          canvas.drawRect(visible.shift(offset), Paint()..color = scaffold.withValues(alpha: kDimOpacity * (_controller?.fade ?? 1)));
+          // Toward the surface the text sits on, so there is no box behind it (CLAIM(dim-has-no-box)).
+          canvas.drawRect(visible.shift(offset), Paint()..color = surfaceBeneath(p, scaffold).withValues(alpha: kDimOpacity * (_controller?.fade ?? 1)));
         case GuideUnitLook.skeleton:
           break; // source text was replaced above, not erased by a surface fill
       }

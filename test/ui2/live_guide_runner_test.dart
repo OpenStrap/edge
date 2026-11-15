@@ -23,13 +23,14 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../support/live_guide_harness.dart' show prefsSnapshot;
 import '../support/live_guide_stage.dart';
+import '../support/guide_text.dart';
 
 /// What the shell was asked, in order, with whether routes were still stacked.
 class _ShellLog {
   final events = <String>[];
   late GuideShellLink link;
   _ShellLog(LiveStage stage) {
-    link = GuideShellLink(
+    link = FnShellLink(
       selectTab: (tab) => events.add('tab:${tab.name} canPop=${stage.navigator.canPop()}'),
       openSettings: () async => events.add('settings canPop=${stage.navigator.canPop()}'),
     );
@@ -45,12 +46,12 @@ Future<({LiveStage stage, GuideRunner runner, _ShellLog shell})> _pump(WidgetTes
   return (stage: stage, runner: runner, shell: shell);
 }
 
-Guide _twoBandGuide() => Guide(id: 'two', title: (_) => 'Two', start: GuideStart.today, variants: [
+Guide _twoBandGuide() => Guide(id: 'two', title: fnText((_) => 'Two'), start: GuideStart.today, variants: [
       GuideVariant(devices: {BandGeneration.whoop4}, steps: [
-        GuideStep(id: 'four', target: GuideTarget.key(stageOpenDetails), anchor: GuideTarget.key(stageHomeTitle), action: GuideAction.tap, caption: (_) => 'four'),
+        GuideStep(id: 'four', target: GuideTarget.key(stageOpenDetails), anchor: GuideTarget.key(stageHomeTitle), action: GuideAction.tap, caption: fnText((_) => 'four')),
       ]),
       GuideVariant(devices: {BandGeneration.whoop5}, steps: [
-        GuideStep(id: 'five', target: GuideTarget.key(stageOpenDetails), anchor: GuideTarget.key(stageHomeTitle), action: GuideAction.tap, caption: (_) => 'five'),
+        GuideStep(id: 'five', target: GuideTarget.key(stageOpenDetails), anchor: GuideTarget.key(stageHomeTitle), action: GuideAction.tap, caption: fnText((_) => 'five')),
       ]),
     ]);
 

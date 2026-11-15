@@ -10,6 +10,7 @@ import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
 import 'package:openstrap_edge/ui2/skeleton/unit_paint.dart' show GuideScrollBehavior;
+import 'guide_text.dart';
 
 const r2Target = ValueKey('r2-target');
 const r2Alternative = ValueKey('r2-alternative');
@@ -58,13 +59,13 @@ class R2Fixture {
     this.targetLabel = 'Target', this.quietLabel = 'Quiet information',
     this.caption = 'Tap Target or Alternative. Check the details.',
     this.brightness = Brightness.light, this.size = const Size(390, 780), this.textScale = 1}) : guide = Guide(id: 'r2-fixture',
-    title: (_) => 'Fixture', start: GuideStart.today, variants: [GuideVariant(steps: [
+    title: fnText((_) => 'Fixture'), start: GuideStart.today, variants: [GuideVariant(steps: [
       GuideStep(id: 'target', target: GuideTarget.key(r2Target), anchor: GuideTarget.key(r2Target),
-        action: GuideAction.tap, caption: (_) => caption,
+        action: GuideAction.tap, caption: fnText((_) => caption),
         alsoTap: declarations ? [const R2Content([r2Alternative])] : const [],
         alsoRead: declarations ? [const R2Content([r2Details])] : const []),
     ])], footers: [GuideFooter(kind: GuideFooterKind.missingTarget,
-      title: (_) => 'Missing?', body: (_) => 'Details help.')]);
+      title: fnText((_) => 'Missing?'), body: fnText((_) => 'Details help.'))]);
 
   Widget get home => Scaffold(body: ValueListenableBuilder<double>(
     valueListenable: targetTop, builder: (_, y, _) => Stack(children: [

@@ -11,6 +11,9 @@ import 'package:flutter/widgets.dart';
 import '../../l10n/app_localizations.dart';
 import 'guide_target.dart';
 import 'guide_navigation.dart';
+import 'guide_text.dart';
+
+export 'guide_text.dart' show GuideText;
 
 enum BandGeneration { whoop4, whoop5 }
 
@@ -27,6 +30,43 @@ enum GuideStart { today, sleep, activity, health, settings }
 /// afresh on every plan and keeps what they return in full colour.
 abstract interface class GuideContent {
   List<TargetFound> resolve(Element root, AppLocalizations l);
+}
+
+/// The order a multi-target step's hand visits its targets in.
+enum GuideVisit {
+  /// One continuous wave through the targets in order and back.
+  row,
+
+  /// A vertical list: bottom up, then an upright drift back down.
+  list,
+}
+
+/// A step with several targets, any of which does the step. [targets] resolves, in visiting order,
+/// to every control the hover highlight marks. The step's own [GuideStep.target] stays the primary
+/// (it anchors the run and is what the screen is scrolled to).
+class GuideMultiTarget {
+  final GuideContent targets;
+
+  /// The short label above the targets; null: "tap one of".
+  final GuideText? label;
+  final GuideVisit visit;
+
+  /// A control the guide opens ONCE per arrival at the screen (the first result is tapped when the
+  /// hand reaches it; the screen takes no taps while it opens). The most a guide may do to the app:
+  /// it never selects, saves or starts anything.
+  final GuideContent? opens;
+
+  /// The visiting set once [opens] has opened (null: [targets]).
+  final GuideContent? afterOpen;
+
+  /// Resolves to something while [opens]'s control is already open (the user opened it): the guide
+  /// then skips its own press, which would toggle it shut.
+  final GuideContent? alreadyOpen;
+
+  /// What the label sits above once [opens] has opened (null: the visiting set), so it does not
+  /// cover the rows of an open list.
+  final GuideContent? labelAfterOpen;
+  const GuideMultiTarget({required this.targets, this.label, this.visit = GuideVisit.row, this.opens, this.afterOpen, this.alreadyOpen, this.labelAfterOpen});
 }
 
 class GuideStep {
@@ -52,7 +92,17 @@ class GuideStep {
   /// P8: caption-named information kept full colour.
   final List<GuideContent> alsoRead;
   final GuideAction action;
-  final String Function(AppLocalizations l) caption;
+  final GuideText caption;
+
+  /// The caption under reduced motion, when the step's aid differs from the animated one
+  /// (a step whose caption mentions the moving highlight); null: [caption] serves both.
+  final GuideText? stillCaption;
+
+  /// The caption to show: [stillCaption] when [still] and there is one.
+  GuideText captionFor({required bool still}) => still ? stillCaption ?? caption : caption;
+
+  /// Several choices visited by the moving hand; any can perform the step.
+  final GuideMultiTarget? multi;
 
   const GuideStep({
     required this.id,
@@ -64,6 +114,8 @@ class GuideStep {
     this.alsoRead = const [],
     required this.action,
     required this.caption,
+    this.stillCaption,
+    this.multi,
   });
 
   /// Anchor presence for compatibility/review fixtures. The live run uses its
@@ -86,8 +138,8 @@ enum GuideFooterKind {
 
 class GuideFooter {
   final GuideFooterKind kind;
-  final String Function(AppLocalizations l) title;
-  final String Function(AppLocalizations l) body;
+  final GuideText title;
+  final GuideText body;
   const GuideFooter({required this.kind, required this.title, required this.body});
 }
 
@@ -121,13 +173,13 @@ final class GuideNoVariant extends GuideVariantResult {
 
 class Guide {
   final String id;
-  final String Function(AppLocalizations l) title;
+  final GuideText title;
 
   /// Where a run brings the app before step 1.
   final GuideStart start;
 
   /// One line under the title ("...it takes three taps").
-  final String Function(AppLocalizations l)? intro;
+  final GuideText? intro;
   final List<GuideVariant> variants;
   final List<GuideFooter> footers;
 

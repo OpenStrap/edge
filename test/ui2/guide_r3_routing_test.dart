@@ -1,5 +1,9 @@
+import '../support/live_guide_focus.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:openstrap_edge/ui2/guides/guide_hand.dart';
+import 'package:openstrap_edge/ui2/skeleton/unit_paint.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/ui2/grammar.dart';
@@ -65,19 +69,75 @@ void main() {
       await settleLiveGuide(t, frames: 18);
       expect(app.runner.activeRun!.state, isA<GuideOffPath>());
       final history = find.descendant(of: tabs, matching: find.widgetWithText(Pressable, subTabs.items[2]));
-      expect(t.getRect(find.byKey(LiveGuideOverlay.outlineKey)).contains(t.getRect(history.first).intersect(t.getRect(tabs)).center), isTrue);
+      expect(t.getRect(liveGuideFocus).contains(t.getRect(history.first).intersect(t.getRect(tabs)).center), isTrue);
       expect(find.text('1 tap back'), findsOneWidget);
-      // WHY: owner review R4: off path the cards next to the route-back control stay lit,
-      // also when that control is a sub-tab; the cards further away dim.
-      // # catches: neighbour lighting skipped for tab-like route-back controls.
+      // WHY: P1c / CLAIM(marker-repaint-isolation): the off-path hand still
+      // nudges, and a tick builds/paints only inside its own boundary.
+      final handFinder = find.byType(GuideHandCursor);
+      expect(handFinder, findsOneWidget);
+      final boundaries = find.ancestor(of: handFinder, matching: find.byType(RepaintBoundary));
+      expect(boundaries, findsWidgets, reason: 'the animated hand owns a repaint boundary');
+      expect(find.descendant(of: boundaries.first, matching: find.byKey(LiveGuideOverlay.tapPillKey)), findsNothing,
+        reason: 'the boundary isolates the hand even from its own static pill');
+      final boundary = t.renderObject<RenderRepaintBoundary>(boundaries.first);
+      final hand = _overlay(t).hand;
+      await t.pump(const Duration(milliseconds: 16));
+      final paints = <RenderObject>[];
+      var overlayBuilds = 0, builds = 0;
+      final oldPaint = debugOnProfilePaint;
+      final oldBuild = debugOnRebuildDirtyWidget;
+      debugOnProfilePaint = paints.add;
+      debugOnRebuildDirtyWidget = (element, builtOnce) {
+        builds++;
+        if (element.widget is LiveGuideOverlay) overlayBuilds++;
+      };
+      addTearDown(() { debugOnProfilePaint = oldPaint; debugOnRebuildDirtyWidget = oldBuild; });
+      final signatures = _overlay(t).signatureChecks;
+      final phases = <Offset>{};
+      for (var i = 0; i < 8; i++) {
+        await t.pump(const Duration(milliseconds: 16));
+        phases.add(hand.tip);
+      }
+      debugOnProfilePaint = oldPaint;
+      debugOnRebuildDirtyWidget = oldBuild;
+      expect(phases.length, greaterThan(1), reason: 'positive control: the off-path hand animates');
+      expect(paints, isNotEmpty, reason: 'positive control: the hand painted');
+      expect(builds, 0, reason: 'render transforms must not rebuild widgets');
+      expect(overlayBuilds, 0, reason: 'hand ticks never rebuild the overlay');
+      bool under(RenderObject object, RenderObject root) {
+        RenderObject? ancestor = object;
+        while (ancestor != null && !identical(ancestor, root)) { ancestor = ancestor.parent; }
+        return ancestor != null;
+      }
+      final overlayRoot = t.renderObject(find.byType(LiveGuideOverlay));
+      final pageRoot = app.runner.routes.page!.renderObject!;
+      // paintChild reports cached layer composition too. Count actual content paints,
+      // excluding repaint-boundary nodes whose existing layer is merely composited.
+      bool inHover(RenderObject object) {
+        for (RenderObject? parent = object; parent != null; parent = parent.parent) {
+          if (parent is RenderGuideUnit && parent.hover != null) return true;
+        }
+        return false;
+      }
+      final ripple = t.renderObject(find.byKey(LiveGuideOverlay.rippleKey));
+      final outside = paints.where((object) =>
+        !object.isRepaintBoundary &&
+        (under(object, overlayRoot) || under(object, pageRoot)) && !under(object, boundary) && !under(object, ripple) && !inHover(object)).toList();
+      expect(outside, isEmpty, reason: 'a hand tick repainted screen content: ${outside.take(6).map((o) => o.debugCreator).join("; ")}');
+      expect(overlayBuilds, 0);
+      expect(_overlay(t).signatureChecks, signatures, reason: 'hand ticks never walk the page');
+      // WHY: owner round 5 item 3 (supersedes review R4): off path with a CHROME route back (here a
+      // sub-tab), every content card dims, the one next to the route back too.
+      // # catches: a neighbour exemption kept for tab-like route-back controls.
       final page = app.runner.routes.page!;
       final looks = GuideDimScope.controllerOf(page)!.looks!;
       final cards = [for (final u in r2Units(page)) if (u.element.widget is Section || u.element.widget is Surface) u]
         ..sort((a, b) => a.rect.top.compareTo(b.rect.top));
       final below = cards.where((u) => u.rect.top >= t.getRect(tabs).bottom - 1).toList();
       expect(below, isNotEmpty, reason: 'the page has cards under the sub-tabs');
-      expect(looks.lookOf(below.first.element), isNull, reason: 'the card next to the route back is lit');
-      expect(cards.any((u) => looks.lookOf(u.element) == GuideUnitLook.dim), isTrue, reason: 'cards further away dim');
+      for (final card in cards) {
+        expect(looks.lookOf(card.element), GuideUnitLook.dim, reason: 'every content card dims, also the one next to the route back');
+      }
       await t.tap(find.byKey(GuideStepCard.backToGuideKey));
       await settleLiveGuide(t, frames: 18);
       expect(GuideNavigation.location(app.runner.routes.page!), GuideNode.activityHistory);
@@ -106,7 +166,7 @@ void main() {
       await settleLiveGuide(t, frames: 18);
       expect(app.runner.activeRun!.state, isA<GuideOffPath>());
       expect(find.text('1 tap back'), findsOneWidget);
-      expect(t.getRect(find.byKey(LiveGuideOverlay.outlineKey)).contains(t.getRect(r2Tab(2)).center), isTrue);
+      expect(t.getRect(liveGuideFocus).contains(t.getRect(r2Tab(2)).center), isTrue);
       await t.tapAt(t.getRect(r2Tab(2)).center);
       await settleLiveGuide(t, frames: 18);
       expect(app.runner.activeRun!.currentStep!.id, 'log-past');

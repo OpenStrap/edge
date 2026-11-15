@@ -93,9 +93,9 @@ void main() {
     expect(find.byKey(GuideStepCard.offPathKey), findsOneWidget);
     final rect = t.getRect(find.byKey(r2Other));
     final overlay = t.state<LiveGuideOverlayState>(find.byType(LiveGuideOverlay));
-    // Owner placeholder rule: off path the card next to the route back (the first card under the
-    // NavBar) is lit, every other card is dimmed.
-    expect(overlay.paintedShapes.where((s) => s.rect.overlaps(rect.deflate(1))), isEmpty, reason: 'the route back\'s neighbouring card is lit');
+    // Owner round 5 item 3: with a chrome route back (the NavBar arrow) every card is dimmed, the one
+    // next to the route back too.
+    expect(overlay.paintedShapes.where((s) => s.kind.name == 'dim' && s.rect.overlaps(rect.deflate(1))), isNotEmpty, reason: 'the route back\'s neighbouring card dims');
     final second = t.getRect(find.text('Second card'));
     expect(overlay.paintedShapes.where((s) => s.kind.name == 'dim' && s.rect.overlaps(second)), isNotEmpty);
     expect(overlay.paintedShapes.where((s) => s.kind.name != 'dim'), isEmpty, reason: 'off path: no placeholders');

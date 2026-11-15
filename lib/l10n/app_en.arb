@@ -17445,7 +17445,7 @@
       }
     }
   },
-  "guideRemoveStep2": "Tap **{notNap}** on a nap, or **{notWorkout}** on a workout, that didn't happen.",
+  "guideRemoveStep2": "Every item has its own **{notNap}** / **{notWorkout}**. Tap it on the nap or workout that didn't happen; the highlight shows the choices.",
   "@guideRemoveStep2": {
     "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",
     "placeholders": {
@@ -17559,13 +17559,17 @@
       }
     }
   },
-  "guideFixTimesBackBody": "**{back}** only shows after you have set the times yourself. Set them first, then it appears.",
+  "guideFixTimesBackBody": "**{back}** only shows after you have set the times yourself. Set them first, then it appears. If **{night}** is folded, tap its title to open it.",
   "@guideFixTimesBackBody": {
-    "description": "Footer card body.",
+    "description": "Footer card body: why Back to automatic can be missing (the times are not yours yet), and that the night section can be folded. {night} is that section title.",
     "placeholders": {
       "back": {
         "type": "String",
         "description": "Name of the Back to automatic button"
+      },
+      "night": {
+        "type": "String",
+        "description": "Title of the section that holds the night"
       }
     }
   },
@@ -17849,6 +17853,65 @@
     "placeholders": {
       "count": {
         "type": "int"
+      }
+    }
+  },
+  "guideTapOneOf": "tap one of",
+  "@guideTapOneOf": {
+    "description": "Short label above several highlighted controls in a live guide step: any one of them does the step."
+  },
+  "guideSearchOrPick": "search or pick",
+  "@guideSearchOrPick": {
+    "description": "Short label above the search bar and the activity groups in the live guide step that picks an activity."
+  },
+  "profileHelpRow": "Help",
+  "@profileHelpRow": {
+    "description": "Profile row: open the Help list of navigation guides (where to find things in the app)."
+  },
+  "guideAddNapMissingTitle": "Don't see \"{naps}\"?",
+  "@guideAddNapMissingTitle": {
+    "description": "Footer card title (the \"Don't see it?\" help): the Naps button is not visible. {naps} is its in-app name.",
+    "placeholders": {
+      "naps": {
+        "type": "String",
+        "description": "Name of the Naps button"
+      }
+    }
+  },
+  "guideAddNapMissingBody": "**{naps}** is under your night. If that part, **{night}**, is folded, tap its title to open it.",
+  "@guideAddNapMissingBody": {
+    "description": "Footer card body: the Naps button sits in a section that can be folded. {naps} is the button, {night} the section title.",
+    "placeholders": {
+      "naps": {
+        "type": "String",
+        "description": "Name of the Naps button"
+      },
+      "night": {
+        "type": "String",
+        "description": "Title of the section that holds it"
+      }
+    }
+  },
+  "guideExpandAccordion": "Expand {title}",
+  "@guideExpandAccordion": {
+    "description": "Guide hop asking the wearer to open a collapsed section",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "guideRemoveStep2Still": "Every item has its own **{notNap}** / **{notWorkout}**. Tap it on the nap or workout that didn't happen; the outline marks the first one.",
+  "@guideRemoveStep2Still": {
+    "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",
+    "placeholders": {
+      "notNap": {
+        "type": "String",
+        "description": "Name of the Not a nap button"
+      },
+      "notWorkout": {
+        "type": "String",
+        "description": "Name of the Not a workout button"
       }
     }
   }

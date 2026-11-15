@@ -225,10 +225,10 @@ void main() {
   });
 
   group('off path', () {
-    // WHY: off path there are no placeholders at all, only dim; the route back (NavBar arrow) and
-    // the card next to it stay lit.
-    // CATCHES: a skeleton on an off-path page, the route-back neighbour dimmed, the route dimmed.
-    testWidgets('r2 off path: only dim, the back arrow and the neighbouring card are lit', (t) async {
+    // WHY: off path there are no placeholders at all, only dim; the route back (NavBar arrow) alone stays
+    // lit. Round 5 item 3: with a chrome route back the card next to it dims too.
+    // CATCHES: a skeleton on an off-path page, a neighbour exemption, the route dimmed.
+    testWidgets('r2 off path: only dim, and only the back arrow is lit', (t) async {
       final f = _Page(targetIn: 'C');
       await _settle(t, f);
       f.navKey.currentState!.push(MaterialPageRoute<void>(builder: (_) => Scaffold(body: Column(children: [
@@ -244,8 +244,7 @@ void main() {
       final shapes = _overlay(t).paintedShapes;
       expect(shapes, isNotEmpty);
       expect(shapes.where((s) => s.kind != SkeletonKind.dim), isEmpty, reason: 'off path: no placeholders: $shapes');
-      expect(_look(t, _rect(t, const ValueKey('o1'))), 'lit', reason: 'the card next to the route back');
-      for (final k in ['o2', 'o3', 'o4']) {
+      for (final k in ['o1', 'o2', 'o3', 'o4']) {
         expect(_look(t, _rect(t, ValueKey(k))), 'dim', reason: k);
       }
       final back = find.descendant(of: find.byType(NavBar), matching: find.byType(Pressable));

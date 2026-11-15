@@ -9,14 +9,13 @@
 // A step is the REAL screen, filled with demo data, laid out at phone size
 // inside a device frame, skeletonized except the step's target, with a yellow
 // outline + "tap" pill on the target and, when the step needs a scroll, a
-// vertical "scroll" marker. Everything is derived from the laid-out tree:
+// mid-screen scroll indicator while the target is out of view. Everything is derived from the laid-out tree:
 // the screens are not edited and know nothing about guides.
 //
 // Mating parts: `Skeletonize` (../skeleton/skeleton.dart) covers the frame;
 // [revealTarget] (guide_target.dart) scrolls it to the target and reports the
 // rect the markers are placed from. Both read the screen at the same root.
 
-import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/guides/guide.dart';
@@ -75,10 +74,6 @@ class _GuideStepViewState extends State<GuideStepView> {
   /// null while the target is being looked for (the frame shows, unmarked).
   TargetResolution? _resolution;
 
-  /// Text lines and visuals of the screen that stay readable in this step (not
-  /// covered by the skeleton), in the screen's unscaled coordinates:
-  /// what the tap pill must not cover. Empty while the target is searched.
-  List<Rect> _legible = const [];
   int _revealRound = 0;
 
   @override
@@ -95,7 +90,6 @@ class _GuideStepViewState extends State<GuideStepView> {
     // resetting on that would drop the markers and jump the demo's scroll.
     if (old.step.id != widget.step.id) {
       _resolution = null;
-      _legible = const [];
       _reveal();
     }
   }
@@ -112,27 +106,12 @@ class _GuideStepViewState extends State<GuideStepView> {
       final l = AppLocalizations.of(context) ?? lookupAppLocalizations(const Locale('en'));
       final found = await revealTarget(root, widget.step.target, l);
       if (!mounted || round != _revealRound) return;
-      // The same plan Skeletonize paints: same function, same keep rects, same
-      // chrome, read from the tree after the scroll.
       setState(() {
         _resolution = found;
-        _legible = _legibleFor(found, l);
       });
       _track(round);
     });
   }
-
-  /// The same plan Skeletonize paints: same function, same keep rects, same
-  /// chrome, read from the tree as it is laid out now.
-  List<Rect> _legibleFor(TargetResolution found, AppLocalizations l) =>
-      switch ((_screenKey.currentContext, found)) {
-        (final Element screenElement, TargetFound(:final rect)) => legibleContent(screenElement, keep: [
-            rect,
-            for (final extra in widget.step.alsoKeep)
-              if (extra.resolve(screenElement, l) case TargetFound(rect: final kept)) kept,
-          ]),
-        _ => const <Rect>[],
-      };
 
   /// Skeletonize re-plans after every layout; the markers must too. The screen
   /// can move under them without this widget rebuilding (Home inserts and
@@ -146,15 +125,13 @@ class _GuideStepViewState extends State<GuideStepView> {
       if (root is Element) {
         final l = AppLocalizations.of(context) ?? lookupAppLocalizations(const Locale('en'));
         final now = widget.step.target.resolve(root, l);
-        final lines = _legibleFor(now, l);
         final moved = switch ((now, _resolution)) {
           (TargetFound(rect: final a), TargetFound(rect: final b)) => a != b,
           _ => now.runtimeType != _resolution.runtimeType,
         };
-        if (moved || !listEquals(lines, _legible)) {
+        if (moved) {
           setState(() {
             _resolution = now;
-            _legible = lines;
           });
         }
       }
@@ -174,7 +151,7 @@ class _GuideStepViewState extends State<GuideStepView> {
         children: [
           // The caption comes first in tree (and so reading) order: a screen
           // reader says what to do before it walks the screen.
-          _caption(p, step.caption(l)),
+          _caption(p, step.caption.of(l)),
           const SizedBox(height: S.x3),
           switch (_resolution) {
             null => _frame(context, l, null),
@@ -266,7 +243,7 @@ class _GuideStepViewState extends State<GuideStepView> {
                       child: Skeletonize(
                         keep: [step.target],
                         alsoKeep: step.alsoKeep,
-                        child: KeyedSubtree(key: _screenKey, child: Builder(builder: widget.screen ?? demoScreenFor(step))),
+                        child: KeyedSubtree(key: _screenKey, child: Builder(builder: widget.screen ?? demoScreenFor(widget.step))),
                       ),
                     ),
                   ),
@@ -291,35 +268,18 @@ class _GuideStepViewState extends State<GuideStepView> {
               child: ExcludeSemantics(
                 child: IgnorePointer(
                   child: CustomSingleChildLayout(
-                    delegate: GuidePillLayout(outline, screen, [
-                      for (final r in _legible)
-                        Rect.fromLTWH(
-                          screen.left + r.left * scale,
-                          screen.top + r.top * scale,
-                          r.width * scale,
-                          r.height * scale,
-                        ),
-                    ]),
+                    delegate: GuidePillLayout(outline, screen),
                     child: KeyedSubtree(key: GuideStepView.tapPillKey, child: GuideMarkerPill(l.guideTapMarker)),
                   ),
                 ),
               ),
             ),
-            if (step.action == GuideAction.scrollThenTap)
-              Positioned(
-                right: _kBezel + S.x1,
-                top: screen.top + screen.height * .28,
-                child: ExcludeSemantics(
-                  child: IgnorePointer(
-                    // Reads top-to-bottom, arrow pointing down.
-                    child: RotatedBox(
-                      quarterTurns: 1,
-                      child: KeyedSubtree(key: GuideStepView.scrollMarkerKey, child: GuideMarkerPill(l.guideScrollMarker, arrow: true)),
-                    ),
-                  ),
-                ),
-              ),
           ],
+          if (target != null && (target.top < 0 || target.bottom > kGuidePhoneSize.height))
+            Positioned.fromRect(rect: screen, child: Center(child: ExcludeSemantics(child: IgnorePointer(
+              child: RepaintBoundary(child: GuideScrollIndicator(key: GuideStepView.scrollMarkerKey,
+                text: l.guideScrollMarker, clock: const AlwaysStoppedAnimation(0), up: target.center.dy < kGuidePhoneSize.height / 2)),
+            )))),
         ],
       ),
     );
@@ -350,8 +310,8 @@ class GuideView extends StatelessWidget {
     final l = AppLocalizations.of(context) ?? lookupAppLocalizations(const Locale('en'));
     final p = P.of(context);
     final head = <Widget>[
-      Text(guide.title(l), style: F.t1.copyWith(color: p.ink)),
-      if (guide.intro?.call(l) case final intro?) ...[
+      Text(guide.title.of(l), style: F.t1.copyWith(color: p.ink)),
+      if (guide.intro?.of(l) case final intro?) ...[
         const SizedBox(height: S.x2),
         Text(intro, style: F.body.copyWith(color: p.ink2)),
       ],
@@ -391,7 +351,7 @@ class GuideView extends StatelessWidget {
                 for (final f in guide.footers)
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 420),
-                    child: GuideFooterCard(title: f.title(l), body: f.body(l)),
+                    child: GuideFooterCard(title: f.title.of(l), body: f.body.of(l)),
                   ),
               ],
             ),

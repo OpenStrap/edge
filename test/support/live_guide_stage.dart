@@ -24,6 +24,7 @@ import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 import 'package:openstrap_edge/ui2/skeleton/unit_paint.dart' show GuideScrollBehavior;
+import 'guide_text.dart';
 
 const stageOpenDetails = ValueKey('stage-open-details');
 const stageOtherAction = ValueKey('stage-other-action');
@@ -130,8 +131,8 @@ class StagePages {
       );
 }
 
-String stageCaption1(AppLocalizations l) => 'Tap **Open details** on the home page.';
-String stageCaption2(AppLocalizations l) => 'Tap **Finish** at the bottom.';
+final stageCaption1 = fnText((l) => 'Tap **Open details** on the home page.');
+final stageCaption2 = fnText((l) => 'Tap **Finish** at the bottom.');
 
 /// Two steps: Home's "Open details" (anchor: Home's title), then Details'
 /// "Finish" (anchor: Details' title; a scroll step when [scrollLast]).
@@ -140,7 +141,7 @@ Guide stageGuide({bool scrollLast = false, GuideStart start = GuideStart.today})
   final detailsTitle = GuideTarget.key(stageDetailsTitle);
   return Guide(
     id: 'stage',
-    title: (_) => 'Stage guide',
+    title: fnText((_) => 'Stage guide'),
     start: start,
     variants: [
       GuideVariant(steps: [
@@ -163,13 +164,13 @@ Guide stageGuide({bool scrollLast = false, GuideStart start = GuideStart.today})
     footers: [
       GuideFooter(
         kind: GuideFooterKind.anotherWay,
-        title: (_) => 'Another way in',
-        body: (_) => 'Open the menu, then **Details**.',
+        title: fnText((_) => 'Another way in'),
+        body: fnText((_) => 'Open the menu, then **Details**.'),
       ),
       GuideFooter(
         kind: GuideFooterKind.missingTarget,
-        title: (_) => "Don't see Open details?",
-        body: (_) => 'It only shows once you have signed in.',
+        title: fnText((_) => "Don't see Open details?"),
+        body: fnText((_) => 'It only shows once you have signed in.'),
       ),
     ],
   );

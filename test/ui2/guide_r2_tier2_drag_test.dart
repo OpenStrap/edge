@@ -13,6 +13,7 @@ import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
 import 'package:openstrap_edge/ui2/skeleton/unit_paint.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
+import '../support/guide_text.dart';
 
 const _control = ValueKey('t2-control');
 
@@ -97,9 +98,9 @@ class _DragPage {
           ]))),
       ])))));
     await t.pump();
-    final guide = Guide(id: 't2-drag', title: (_) => 'Drag', start: GuideStart.today,
+    final guide = Guide(id: 't2-drag', title: fnText((_) => 'Drag'), start: GuideStart.today,
       variants: [GuideVariant(steps: [GuideStep(id: 'target', target: GuideTarget.key(_control),
-        anchor: GuideTarget.key(_control), action: GuideAction.tap, caption: (_) => 'Tap Target.')])]);
+        anchor: GuideTarget.key(_control), action: GuideAction.tap, caption: fnText((_) => 'Tap Target.'))])]);
     run = GuideRun(guide: guide, variant: guide.variants.single);
     entry = OverlayEntry(builder: (_) => LiveGuideOverlay(run: run, navigatorKey: nav, routes: routes,
       onExit: run.exit, onBackToGuide: () {}));

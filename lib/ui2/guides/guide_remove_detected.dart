@@ -14,13 +14,15 @@ import 'guide.dart';
 import 'guide_navigation.dart';
 import 'guide_content.dart';
 import 'guide_target.dart';
+import 'guide_copy.dart';
+import 'guide_labels.dart';
 
-final _card = GuideTarget.label((l) => l.activityReviewTitle);
-final _notANap = GuideTarget.label((l) => l.napsNotANapLabel);
+final _card = GuideTarget.label(ScreenLabel.activityReviewTitle);
+final _notANap = GuideTarget.label(ScreenLabel.napsNotANapLabel);
 
 Guide get removeDetectedGuide => Guide(
       id: 'remove-detected',
-      title: (l) => l.guideRemoveTitle,
+      title: GuideCopy.removeTitle,
       start: GuideStart.today,
       variants: [
         GuideVariant(steps: [
@@ -30,29 +32,31 @@ Guide get removeDetectedGuide => Guide(
             target: _card,
             anchor: _card,
             action: GuideAction.tap,
-            caption: (l) => l.guideRemoveStep1(l.tabToday, l.activityReviewTitle),
+            caption: GuideCopy.removeCaptionOpenDetected,
           ),
           GuideStep(
             id: 'discard',
             node: GuideNode.review,
             target: _notANap,
             anchor: _notANap,
-            alsoTap: [EveryLabelled([(l) => l.napsNotANapLabel, (l) => l.activityNotAWorkout])],
+            alsoTap: [EveryLabelled([ScreenLabel.napsNotANapLabel, ScreenLabel.activityNotAWorkout])],
             action: GuideAction.tap,
-            caption: (l) => l.guideRemoveStep2(l.napsNotANapLabel, l.activityNotAWorkout),
+            caption: GuideCopy.removeCaptionDiscard,
+            stillCaption: GuideCopy.removeCaptionDiscardStill,
+            multi: const GuideMultiTarget(targets: ReviewRowButtons(), visit: GuideVisit.list, label: GuideCopy.tapOneOfLabel),
           ),
         ]),
       ],
       footers: [
         GuideFooter(
           kind: GuideFooterKind.anotherWay,
-          title: (l) => l.guideRemoveSavedTitle,
-          body: (l) => l.guideRemoveSavedBody(l.tabSleep, l.sleepDetailEditNaps, l.napsNotANapLabel, l.napsDeleteLabel),
+          title: GuideCopy.removeFooter0Title,
+          body: GuideCopy.removeFooter0Body,
         ),
         GuideFooter(
           kind: GuideFooterKind.missingTarget,
-          title: (l) => l.guideRemoveMissingTitle(l.activityReviewTitle),
-          body: (l) => l.guideRemoveMissingBody(l.tabSleep, l.sleepDetailEditNaps, l.tabActivity, l.workoutTabHistory),
+          title: GuideCopy.removeFooter1Title,
+          body: GuideCopy.removeFooter1Body,
         ),
       ],
     );

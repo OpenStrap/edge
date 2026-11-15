@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart' hide testWidgets;
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter_test/flutter_test.dart' as ft show testWidgets;
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/ui2/guides/guide_step_card.dart';
@@ -144,7 +145,7 @@ void main() {
           expect(find.byKey(LiveGuideOverlay.scrollMarkerKey), findsOneWidget, reason: 'P6 frame $frame');
           final marker = find.byKey(LiveGuideOverlay.scrollMarkerKey);
           final up = target != null && target.bottom < 0;
-          expect(t.widget<RotatedBox>(marker).quarterTurns % 4, up ? 3 : 1);
+          expect(find.descendant(of: marker, matching: find.byIcon(up ? LucideIcons.chevronUp : LucideIcons.chevronDown)), findsOneWidget);
           final skeleton = overlay.paintedShapes.where((s) => s.kind.name == 'bar' || s.kind.name == 'block').toList();
           expect(skeleton, isNotEmpty, reason: 'on-screen content toward target is skeleton');
           final units = r2Units(m.app.runner.routes.page!);

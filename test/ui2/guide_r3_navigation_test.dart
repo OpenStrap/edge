@@ -6,6 +6,7 @@ import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_run.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
+import '../support/guide_text.dart';
 
 void main() {
   // WHY: Activity History is a real destination inside an already-selected tab.
@@ -33,7 +34,7 @@ void main() {
     ].join('\n');
     final names = {
       for (final d in guideNavigationTree.values) ...d.screens,
-      '_TabBar', 'ProfileAvatar',
+      '_TabBar', 'ProfileAvatar', 'HeaderRows',
     };
     expect(names.length, greaterThan(40), reason: 'positive control: the tree names many screens');
     final missing = [for (final n in names) if (!RegExp('class\\s+$n\\b').hasMatch(source)) n];
@@ -74,8 +75,8 @@ void main() {
     final step = GuideStep(id: 'loading', node: GuideNode.activityHistory,
       target: GuideTarget.key(const ValueKey('not-built-yet')),
       anchor: GuideTarget.key(const ValueKey('also-not-built')),
-      action: GuideAction.tap, caption: (_) => 'Wait for History');
-    final guide = Guide(id: 'loading', start: GuideStart.activity, title: (_) => 'Loading',
+      action: GuideAction.tap, caption: fnText((_) => 'Wait for History'));
+    final guide = Guide(id: 'loading', start: GuideStart.activity, title: fnText((_) => 'Loading'),
       variants: [GuideVariant(steps: [step])]);
     final run = GuideRun(guide: guide, variant: guide.variants.single);
     addTearDown(run.dispose);

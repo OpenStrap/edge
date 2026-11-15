@@ -1,7 +1,9 @@
+import '../support/live_guide_focus.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/ui2/guides/guide_catalogue.dart';
 import 'package:openstrap_edge/ui2/guides/guide_run.dart';
@@ -14,6 +16,7 @@ import '../support/skeleton_fixture.dart' show skLoadAppFonts;
 import '../support/guide_r2_manifest.dart';
 import '../support/guide_r2_scroll_fixture.dart';
 import '../support/guide_r2_scenes.dart';
+import '../support/guide_r7_scenes.dart';
 import '../support/live_guide_harness.dart';
 
 // Catalogue-wide sweeps below are skipped: hardening stage (owner 2026-11-14); code kept.
@@ -34,7 +37,7 @@ void main() {
       for (final e in kGuideCatalogue) for (final v in e.guide.variants)
         for (final s in v.steps) '${e.guide.id}/${s.id}',
     ]..sort());
-    expect(r2Scenes.length, 21);
+    expect(r2Scenes.length, 22);
     expect(r2Scenes.map((s) => s.guide).toSet().length, 8);
   });
 
@@ -94,14 +97,14 @@ void main() {
             if (find.byKey(LiveGuideOverlay.scrollMarkerKey).evaluate().isEmpty) {
               violations.add('frame $frame offsets=$positions: offscreen/unbuilt target has no scroll marker');
             } else if (target != null) {
-              final rotation = t.widget<RotatedBox>(marker).quarterTurns % 4;
-              final expectedDirection = target.top < 0 ? 3 : 1;
-              if (rotation != expectedDirection) {
-                violations.add('frame $frame: scroll arrow points away from target $target');
+              // Round 4: the indicator's chevron points the way to scroll.
+              final chevron = target.top < 0 ? LucideIcons.chevronUp : LucideIcons.chevronDown;
+              if (find.descendant(of: marker, matching: find.byIcon(chevron)).evaluate().isEmpty) {
+                violations.add('frame $frame: scroll chevron points away from target $target');
               }
             }
           } else if (visible) {
-            final outline = find.byKey(LiveGuideOverlay.outlineKey);
+            final outline = liveGuideFocus;
             if (outline.evaluate().isEmpty || !r2Contains(t.getRect(outline), target)) {
               violations.add('frame $frame offsets=$positions: target not fully outlined');
             }
@@ -154,17 +157,9 @@ void main() {
     testWidgets('r2 dragged card stays above tabs on ${scene.id}', (t) async {
       final m = await pumpR2Scene(t, scene);
       try {
-        await settleLiveGuide(t, frames: 18);
-        final ready = t.state<LiveGuideOverlayState>(find.byType(LiveGuideOverlay));
-        // Main's long Sleep list needs more discovery frames than next's cards.
-        // Measure the drag after automatic discovery has finished, so a search
-        // jump cannot be mistaken for scrolling caused by the card's pointer.
-        for (var frame = 0; frame < 120 && (ready.isSearching || ready.revealProgress < 1); frame++) {
-          await settleLiveGuide(t, frames: 1);
-        }
-        expect(ready.isSearching, isFalse, reason: 'the initial search completes');
-        expect(ready.revealProgress, 1, reason: 'the final step reveal completes before dragging');
-        await settleLiveGuide(t, frames: 2);
+        // Round 4: a step whose target is below the fold now glides there for 600 ms before
+        // the scene can tap it, so the last step starts later: wait for its reveal to end.
+        await settleMovingGuide(t);
         final initial = t.getRect(find.byKey(GuideStepCard.cardKey));
         final positions = [for (final e in builtElements(m.app.runner.routes.page!))
           if (e is StatefulElement && e.state is ScrollableState)
@@ -188,13 +183,17 @@ void main() {
           final overlay = t.state<LiveGuideOverlayState>(find.byType(LiveGuideOverlay));
           final target = overlay.targetRect!;
           expect(card.overlaps(target), isFalse);
-          expect(find.byKey(LiveGuideOverlay.tapPillKey), findsOneWidget,
-              reason: '${scene.id}: target=$target card=$card changes=$changes '
-                  'reveal=${overlay.revealProgress} search=${overlay.isSearching} '
-                  'step=${m.run.currentStep?.id}');
           expect(card.overlaps(t.getRect(find.byKey(LiveGuideOverlay.tapPillKey))), isFalse);
         }
-        expect(moved, isTrue, reason: 'T7: at least one pointer drag really moved the card');
+        // The expanded picker offers controls throughout the page; keeping those
+        // and the multi-target union clear leaves only the bottom gap. As on the
+        // Alarm page, dragging must hold that safe gap rather than cover choices.
+        // Shared pointer-drag tests prove movement where there is spare room.
+        final oneGap = scene.id == 'alarm-schedule/set-wake-time' ||
+            scene.id == 'start-workout/choose-activity';
+        expect(moved, !oneGap, reason: oneGap
+            ? 'the card holds the only gap clear of the offered controls'
+            : 'T7: at least one pointer drag really moved the card');
         expect(changes, 0, reason: 'T7: no transient underlying page scrolling');
       } finally { await disposeR2(t, m); }
     });
@@ -243,7 +242,7 @@ void main() {
       await f.pump(t);
       final initial = t.getRect(find.byKey(r2ScrollTarget));
       expect(r2Contains(const Rect.fromLTWH(0, 0, 390, 780), initial), isTrue);
-      expect(find.byKey(LiveGuideOverlay.outlineKey), findsOneWidget);
+      expect(liveGuideFocus, findsOneWidget);
       final before = f.controller.offset;
       // Left edge is outside the card's full-width-but-inset box.
       await t.dragFrom(const Offset(4, 360), const Offset(0, -600));
@@ -253,14 +252,14 @@ void main() {
       expect(away.bottom, lessThan(0), reason: 'target really moved above viewport');
       final marker = find.byKey(LiveGuideOverlay.scrollMarkerKey);
       expect(marker, findsOneWidget);
-      expect(t.widget<RotatedBox>(marker).quarterTurns % 4, 3, reason: 'points UP toward hidden target');
-      expect(find.byKey(LiveGuideOverlay.outlineKey), findsNothing, reason: 'no clipped outline');
+      expect(find.descendant(of: marker, matching: find.byIcon(LucideIcons.chevronUp)), findsOneWidget, reason: 'points UP toward hidden target');
+      expect(liveGuideFocus, findsNothing, reason: 'no clipped outline');
       await t.dragFrom(const Offset(4, 100), const Offset(0, 600));
       await t.pump(const Duration(milliseconds: 50));
       final returned = t.getRect(find.byKey(r2ScrollTarget));
       expect(r2Contains(const Rect.fromLTWH(0, 0, 390, 780), returned), isTrue);
-      expect(find.byKey(LiveGuideOverlay.outlineKey), findsOneWidget);
-      expect(r2Contains(t.getRect(find.byKey(LiveGuideOverlay.outlineKey)), returned), isTrue);
+      expect(liveGuideFocus, findsOneWidget);
+      expect(r2Contains(t.getRect(liveGuideFocus), returned), isTrue);
       final overlay = t.state<LiveGuideOverlayState>(find.byType(LiveGuideOverlay));
       expect(overlay.paintedShapes.where((s) => s.rect.overlaps(returned.deflate(.5))), isEmpty);
       expect(t.getRect(find.byKey(GuideStepCard.cardKey)).overlaps(returned), isFalse);

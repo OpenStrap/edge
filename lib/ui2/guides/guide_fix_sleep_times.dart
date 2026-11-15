@@ -10,18 +10,20 @@
 
 import 'guide.dart';
 import 'guide_navigation.dart';
+import 'guide_copy.dart';
+import 'guide_labels.dart';
 import 'guide_target.dart';
 
 /// The button's text flips with the source, so both labels.
 final _timesButton = GuideTarget.anyLabel([
-  (l) => l.sleepDetailChangeTimes,
-  (l) => l.sleepDetailSetTimesMyself,
+  ScreenLabel.sleepDetailChangeTimes,
+  ScreenLabel.sleepDetailSetTimesMyself,
 ]);
-final _backToAutomatic = GuideTarget.label((l) => l.sleepDetailBackToAutomatic);
+final _backToAutomatic = GuideTarget.label(ScreenLabel.sleepDetailBackToAutomatic);
 
 Guide get fixSleepTimesGuide => Guide(
       id: 'fix-sleep-times',
-      title: (l) => l.guideFixTimesTitle,
+      title: GuideCopy.fixTimesTitle,
       start: GuideStart.sleep,
       variants: [
         GuideVariant(steps: [
@@ -31,7 +33,7 @@ Guide get fixSleepTimesGuide => Guide(
             target: _timesButton,
             anchor: _timesButton,
             action: GuideAction.tap,
-            caption: (l) => l.guideFixTimesStep1(l.tabSleep, l.sleepDetailChangeTimes, l.sleepDetailSetTimesMyself),
+            caption: GuideCopy.fixTimesCaptionChangeTimes,
           ),
           GuideStep(
             id: 'back-to-automatic',
@@ -39,20 +41,20 @@ Guide get fixSleepTimesGuide => Guide(
             target: _backToAutomatic,
             anchor: _backToAutomatic,
             action: GuideAction.tap,
-            caption: (l) => l.guideFixTimesStep2(l.sleepDetailBackToAutomatic),
+            caption: GuideCopy.fixTimesCaptionBackToAutomatic,
           ),
         ]),
       ],
       footers: [
         GuideFooter(
           kind: GuideFooterKind.missingTarget,
-          title: (l) => l.guideFixTimesBackTitle(l.sleepDetailBackToAutomatic),
-          body: (l) => l.guideFixTimesBackBody(l.sleepDetailBackToAutomatic),
+          title: GuideCopy.fixTimesFooter0Title,
+          body: GuideCopy.fixTimesFooter0Body,
         ),
         GuideFooter(
           kind: GuideFooterKind.note,
-          title: (l) => l.guideFixTimesAskTitle,
-          body: (l) => l.guideFixTimesAskBody,
+          title: GuideCopy.fixTimesFooter1Title,
+          body: GuideCopy.fixTimesFooter1Body,
         ),
       ],
     );

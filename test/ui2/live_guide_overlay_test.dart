@@ -7,6 +7,7 @@
 // tests cover drawing, input and semantics apart from GuideRunner's navigation
 // (live_guide_runner_test.dart) and from the full app (live_guide_integration_test.dart).
 
+import '../support/live_guide_focus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
@@ -22,6 +23,7 @@ import 'package:openstrap_edge/ui2/grammar.dart' show NavBar, Pressable, ScreenT
 import 'package:openstrap_edge/ui2/guides/guide_dim.dart' show GuideDimScope;
 
 import '../support/live_guide_stage.dart';
+import '../support/guide_text.dart';
 
 final _en = lookupAppLocalizations(const Locale('en'));
 
@@ -43,14 +45,14 @@ bool _anyShapeOverlaps(Iterable<SkeletonShape> shapes, Rect r) => shapes.any((s)
 Guide _askFirstGuide() {
   final base = stageGuide();
   final variant = (base.variantFor(null) as GuideVariantFound).variant;
-  return Guide(id: 'ask', title: (_) => 'Ask', start: GuideStart.today, variants: [
+  return Guide(id: 'ask', title: fnText((_) => 'Ask'), start: GuideStart.today, variants: [
     GuideVariant(steps: [
       GuideStep(
         id: 'ask',
         target: GuideTarget.key(stageAskFirst),
         anchor: GuideTarget.key(stageHomeTitle),
         action: GuideAction.tap,
-        caption: (_) => 'Tap **Ask first**.',
+        caption: fnText((_) => 'Tap **Ask first**.'),
       ),
       variant.steps[1],
     ]),
@@ -58,11 +60,11 @@ Guide _askFirstGuide() {
 }
 
 Guide _occludedGuide() => Guide(
-  id: 'occluded', title: (_) => 'Occluded', start: GuideStart.today,
+  id: 'occluded', title: fnText((_) => 'Occluded'), start: GuideStart.today,
   variants: [GuideVariant(steps: [GuideStep(
     id: 'finish', target: GuideTarget.key(stageFinish),
     anchor: GuideTarget.key(stageFinish), action: GuideAction.tap,
-    caption: (_) => 'Tap Finish.',
+    caption: fnText((_) => 'Tap Finish.'),
   )])],
 );
 
@@ -90,8 +92,10 @@ void main() {
   // NavBar at the centre of a partly covered target.
   testWidgets('semantics proxy refuses a target centre hidden by the NavBar', (t) async {
     final stage = await _pumpOccludedTarget(t);
-    t.semantics.tap(find.semantics.byLabel(_en.guideTargetProxy('Tap Finish.')));
-    await t.pump();
+    // Round 5 item 1a: a target under the NavBar is out of view, so it has no proxy at all (before, the
+    // proxy existed and its activation had to be refused).
+    expect(find.byKey(LiveGuideOverlay.targetProxyKey), findsNothing);
+    expect(find.semantics.byLabel(_en.guideTargetProxy('Tap Finish.')), findsNothing);
     expect(stage.taps.elsewhere, 0);
     expect(stage.taps.finish, 0);
     expect(stage.run.state, isA<GuideAtStep>());
@@ -238,17 +242,21 @@ void main() {
       expect(t.takeException(), isNull);
     });
 
-    testWidgets('an idle guide schedules no frames when nothing on screen is a placeholder', (t) async {
+    testWidgets('an idle guide schedules no frames when nothing on screen is a placeholder, a tap label or a chevron', (t) async {
       // why: the overlay re-plans after each frame; the loop must settle
-      // (PR 1 'markers follow layout' made the same promise for the frame view). The pulse
-      // is the only reason for a frame and it runs only while a placeholder is shown
-      // (owner review R1): the Details page has the target card and one neighbour only.
-      // catches: a pulse that runs for the whole guide.
+      // (PR 1 'markers follow layout' made the same promise for the frame view). The shared
+      // clock is the only reason for a frame and it runs only while a placeholder is shown or
+      // the "tap" hand / scroll chevron is on screen (owner review R1, round 4): the Done card
+      // has none of them.
+      // catches: a clock that runs for the whole guide.
       final stage = await pumpLiveStage(t);
       await _settleReveal(t);
       await pushStagePage(t, stage, StagePages(stage.taps).details());
       await _settleReveal(t);
       expect(_overlay(t).hasPlaceholders, isFalse);
+      await t.tap(find.byKey(stageFinish));
+      await _settleReveal(t);
+      expect(stage.run.state, isA<GuideFinished>());
       await t.pumpAndSettle(const Duration(milliseconds: 100), EnginePhase.sendSemanticsUpdate, const Duration(seconds: 2));
     });
 
@@ -277,14 +285,14 @@ void main() {
       // Default taken: the step card is shown, the page is NOT covered or
       // blocked, and "Don't see it?" is offered (the guide's missing-target help).
       final base = stageGuide();
-      final broken = Guide(id: 'broken', title: (_) => 'Broken', start: GuideStart.today, variants: [
+      final broken = Guide(id: 'broken', title: fnText((_) => 'Broken'), start: GuideStart.today, variants: [
         GuideVariant(steps: [
           GuideStep(
             id: 'lost',
             target: GuideTarget.key(const ValueKey('no-such-widget')),
             anchor: GuideTarget.key(stageHomeTitle),
             action: GuideAction.tap,
-            caption: (_) => 'Tap **Nothing**.',
+            caption: fnText((_) => 'Tap **Nothing**.'),
           ),
         ]),
       ], footers: base.footers);
@@ -295,7 +303,7 @@ void main() {
       expect(find.byKey(GuideStepCard.cardKey), findsOneWidget);
       expect(find.byKey(GuideStepCard.dontSeeItKey), findsOneWidget);
       expect(_overlay(t).paintedShapes, isEmpty);
-      expect(find.byKey(LiveGuideOverlay.outlineKey), findsNothing);
+      expect(liveGuideFocus, findsNothing);
       await t.tap(find.byKey(stageOtherAction));
       expect(stage.taps.otherAction, 1, reason: 'the page underneath is usable');
       await t.tap(find.byKey(GuideStepCard.exitKey));
@@ -320,7 +328,7 @@ void main() {
       final first = s.paintedShapes.map((x) => '${x.kind.name}@${x.rect}').toList();
       expect(first, isNotEmpty, reason: 'the plan is on screen in the first frames');
       expect(fadeOf(t), lessThan(.1), reason: 'the dim starts clear');
-      expect(find.byKey(LiveGuideOverlay.outlineKey), findsNothing);
+      expect(liveGuideFocus, findsNothing);
       expect(find.byKey(LiveGuideOverlay.tapPillKey), findsNothing);
       final start = fadeOf(t);
 
@@ -337,7 +345,7 @@ void main() {
       await t.pump();
       expect(fadeOf(t), 1);
       expect(s.revealProgress, 1);
-      expect(find.byKey(LiveGuideOverlay.outlineKey), findsOneWidget);
+      expect(liveGuideFocus, findsOneWidget);
       expect(find.byKey(LiveGuideOverlay.tapPillKey), findsOneWidget);
     });
 
@@ -351,20 +359,20 @@ void main() {
       await t.pump();
       expect(_overlay(t).revealProgress, lessThan(.2));
       expect(fadeOf(t), lessThan(.2), reason: 'the dim of the new step starts clear');
-      expect(find.byKey(LiveGuideOverlay.outlineKey), findsNothing);
+      expect(liveGuideFocus, findsNothing);
     });
   });
 
   group('markers', () {
-    testWidgets('outline hugs the target (4 px gap) and the tap pill stays off the target and off legible text', (t) async {
+    testWidgets('focus fits the target and the tap pill stays off the target and off legible text', (t) async {
       // why: PR 1 marker rules (CLAIM pill-clear / pill-legible) now on the real page.
       await pumpLiveStage(t);
       await _settleReveal(t);
       final target = _rectOf(t, find.byKey(stageOpenDetails));
-      final outline = _rectOf(t, find.byKey(LiveGuideOverlay.outlineKey));
+      final outline = _rectOf(t, liveGuideFocus);
       final pill = _rectOf(t, find.byKey(LiveGuideOverlay.tapPillKey));
-      expect(outline.contains(target.topLeft) && outline.contains(target.bottomRight), isTrue);
-      expect(outline.left, closeTo(target.left - kGuideOutlineGap, 1.5));
+      expect(outline, target);
+      expect(outline.left, closeTo(target.left, 1.5));
       expect(pill.overlaps(target), isFalse, reason: 'the pill never covers the target');
       final legible = legibleContent(t.element(find.byType(Scaffold).last), keep: [target]);
       for (final r in legible) {
@@ -373,9 +381,10 @@ void main() {
       }
     });
 
-    testWidgets('a scrollThenTap step reveals a far target, shows the scroll marker and ends with the target on screen', (t) async {
-      // why: spec "scroll steps reveal the target (revealTarget) and show the
-      // scroll marker". Finish is 3000 px down a lazily built list.
+    testWidgets('a scrollThenTap step reveals a far target and ends with the target on screen and no scroll indicator', (t) async {
+      // why: spec "scroll steps reveal the target (revealTarget)"; round 4: the scroll
+      // indicator is shown only while the target is out of view (guide_r4_test covers the
+      // indicator itself). Finish is 3000 px down a lazily built list.
       final stage = await pumpLiveStage(t, guide: stageGuide(scrollLast: true), detailsGap: 3000);
       await _settleReveal(t);
       expect(find.byKey(LiveGuideOverlay.scrollMarkerKey), findsNothing, reason: 'step 1 is a plain tap');
@@ -385,9 +394,8 @@ void main() {
       expect(find.byKey(stageFinish), findsOneWidget);
       final finish = _rectOf(t, find.byKey(stageFinish));
       expect(finish.top >= 0 && finish.bottom <= 780, isTrue, reason: 'scrolled into view: $finish');
-      expect(find.byKey(LiveGuideOverlay.scrollMarkerKey), findsOneWidget);
-      final marker = t.getRect(find.byKey(LiveGuideOverlay.scrollMarkerKey));
-      expect(marker.height, greaterThan(marker.width), reason: 'scroll reads vertically with an arrow down');
+      expect(find.byKey(LiveGuideOverlay.scrollMarkerKey), findsNothing, reason: 'in view: the indicator is gone');
+      expect(liveGuideFocus, findsOneWidget);
     });
   });
 
@@ -545,7 +553,7 @@ void main() {
       expect(find.text(_en.guideOffPathTitle), findsOneWidget);
       // Off the path everything is DIMMED (owner decision 3), never skeleton: no ink absorbs a tap.
       expect(_overlay(t).paintedShapes.where((s) => s.kind != SkeletonKind.dim), isEmpty);
-      expect(find.byKey(LiveGuideOverlay.outlineKey), findsNothing);
+      expect(liveGuideFocus, findsNothing);
       await t.tap(find.byKey(stageElsewhereAction));
       expect(stage.taps.elsewhere, 1, reason: 'the page underneath is usable');
     });
@@ -580,7 +588,7 @@ void main() {
       await t.pump(const Duration(milliseconds: 400));
       await _settleReveal(t);
       expect(stage.run.state, isA<GuideAtStep>().having((s) => s.index, 'index', 1));
-      expect(find.byKey(LiveGuideOverlay.outlineKey), findsOneWidget);
+      expect(liveGuideFocus, findsOneWidget);
     });
 
     testWidgets('coming back to a step page brings the step card back', (t) async {
@@ -660,7 +668,7 @@ void main() {
       var target = _rectOf(t, find.byKey(stageOpenDetails));
       expect(card.top, greaterThan(target.bottom), reason: 'bottom card sits below the target');
       expect(card.bottom, lessThanOrEqualTo(780));
-      expect(card.overlaps(_rectOf(t, find.byKey(LiveGuideOverlay.outlineKey))), isFalse);
+      expect(card.overlaps(_rectOf(t, liveGuideFocus)), isFalse);
       expect(card.overlaps(_rectOf(t, find.byKey(LiveGuideOverlay.tapPillKey))), isFalse);
 
       await pushStagePage(t, stage, StagePages(stage.taps, detailsGap: 520).details());
@@ -669,7 +677,7 @@ void main() {
       target = _rectOf(t, find.byKey(stageFinish));
       expect(target.top, greaterThan(390), reason: 'precondition: the target is in the lower half');
       expect(card.bottom, lessThan(target.top), reason: 'top card sits above the target');
-      expect(card.overlaps(_rectOf(t, find.byKey(LiveGuideOverlay.outlineKey))), isFalse);
+      expect(card.overlaps(_rectOf(t, liveGuideFocus)), isFalse);
       expect(card.overlaps(_rectOf(t, find.byKey(LiveGuideOverlay.tapPillKey))), isFalse);
     });
 
@@ -751,7 +759,7 @@ void main() {
       await _settleReveal(t);
       expect(t.takeException(), isNull);
       final card = _rectOf(t, find.byKey(GuideStepCard.cardKey));
-      expect(card.overlaps(_rectOf(t, find.byKey(LiveGuideOverlay.outlineKey))), isFalse);
+      expect(card.overlaps(_rectOf(t, liveGuideFocus)), isFalse);
       expect(find.text(lookupAppLocalizations(const Locale('ru')).guideExit), findsOneWidget);
     });
   });

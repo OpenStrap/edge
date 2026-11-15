@@ -5,19 +5,20 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
+import '../support/guide_text.dart';
 
 GuideStep _step(String id) => GuideStep(
       id: id,
       target: GuideTarget.key(ValueKey(id)),
       anchor: GuideTarget.key(ValueKey('anchor-$id')),
       action: GuideAction.tap,
-      caption: (_) => id,
+      caption: fnText((_) => id),
     );
 
 GuideVariant _v(String id, [Set<BandGeneration> devices = const {}]) =>
     GuideVariant(devices: devices, steps: [_step(id)]);
 
-Guide _guide(List<GuideVariant> vs) => Guide(id: 'g', title: (_) => 'G', start: GuideStart.today, variants: vs);
+Guide _guide(List<GuideVariant> vs) => Guide(id: 'g', title: fnText((_) => 'G'), start: GuideStart.today, variants: vs);
 
 BandGeneration? _unknown;
 
@@ -98,7 +99,7 @@ void main() {
         anchor: GuideTarget.key(const ValueKey('a')),
         alsoKeep: [extra],
         action: GuideAction.tap,
-        caption: (_) => 'c',
+        caption: fnText((_) => 'c'),
       );
       expect(withExtra.alsoKeep, [extra]);
       expect(withExtra.id, 'set');

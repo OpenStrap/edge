@@ -11,25 +11,26 @@ import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_step_card.dart';
 
 import '../support/skeleton_fixture.dart';
+import '../support/guide_text.dart';
 
 final _l = lookupAppLocalizations(const Locale('en'));
 
 GuideFooter _missing() => GuideFooter(
       kind: GuideFooterKind.missingTarget,
-      title: (_) => "Don't see Open details?",
-      body: (_) => 'It only shows once you have signed in.',
+      title: fnText((_) => "Don't see Open details?"),
+      body: fnText((_) => 'It only shows once you have signed in.'),
     );
 
 GuideFooter _alt() => GuideFooter(
       kind: GuideFooterKind.anotherWay,
-      title: (_) => 'Another way in',
-      body: (_) => 'Open the menu, then **Details**.',
+      title: fnText((_) => 'Another way in'),
+      body: fnText((_) => 'Open the menu, then **Details**.'),
     );
 
 GuideFooter _note() => GuideFooter(
       kind: GuideFooterKind.note,
-      title: (_) => 'What deleting does',
-      body: (_) => 'The session disappears from the app.',
+      title: fnText((_) => 'What deleting does'),
+      body: fnText((_) => 'The session disappears from the app.'),
     );
 
 Future<({List<String> exits, List<String> backs})> _pumpCard(
@@ -220,8 +221,8 @@ void main() {
     // why: long translated help must not overflow the card or scroll Exit out
     // of reach. The action remains available while the body can be scrolled.
     final calls = await _pumpCard(t, GuideCardDone([
-      GuideFooter(kind: GuideFooterKind.note, title: (_) => 'More help',
-        body: (_) => List.filled(100, 'A long explanation of this action.').join(' ')),
+      GuideFooter(kind: GuideFooterKind.note, title: fnText((_) => 'More help'),
+        body: fnText((_) => List.filled(100, 'A long explanation of this action.').join(' '))),
     ]));
     expect(t.takeException(), isNull);
     expect(find.byKey(GuideStepCard.exitKey).hitTestable(), findsOneWidget);

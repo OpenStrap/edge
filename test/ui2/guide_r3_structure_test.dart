@@ -8,6 +8,7 @@ import 'package:openstrap_edge/ui2/guides/guide_dim.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
+import '../support/guide_text.dart';
 
 const _target = ValueKey('target');
 const _root = ValueKey('page-column');
@@ -16,10 +17,10 @@ Widget _card(String id, {Widget? body}) => Surface(key: ValueKey(id), child: Col
   children: [Text('Title $id'), body ?? Text('Value for $id')],
 ));
 Element _element(WidgetTester t, String id) => t.element(find.byKey(ValueKey(id)));
-SkeletonPlan _plan(WidgetTester t, {DimPolicy? policy}) {
+SkeletonPlan _plan(WidgetTester t, {DimPolicy? policy, bool tab = false}) {
   final root = t.element(find.byKey(_root));
   final l = lookupAppLocalizations(const Locale('en'));
-  final target = (find.byKey(_target).evaluate().isEmpty ? GuideTarget.label((_) => 'History') : GuideTarget.key(_target)).resolve(root, l) as TargetFound;
+  final target = (tab ? GuideTarget.label(fnText((_) => 'History')) : GuideTarget.key(_target)).resolve(root, l) as TargetFound;
   return planSkeleton(root, keep: [target.rect], dim: policy ?? DimPolicy.of(root, target));
 }
 GuideUnitLook? _look(WidgetTester t, SkeletonPlan plan, String id) =>
@@ -100,7 +101,7 @@ void main() {
       const SubTabs(['Overview', 'History'], 0, _ignore),
       _card('first'), _card('second'), _card('third'),
     ]));
-    final plan = _plan(t);
+    final plan = _plan(t, tab: true);
     for (final id in ['first', 'second', 'third']) {
       expect(_look(t, plan, id), GuideUnitLook.skeleton, reason: id);
     }
@@ -116,7 +117,7 @@ void main() {
       const SubTabs(['Overview', 'History'], 0, _ignore),
       _card('first'), _card('second'),
     ]));
-    final plan = _plan(t);
+    final plan = _plan(t, tab: true);
     expect(_look(t, plan, 'first'), GuideUnitLook.skeleton);
     expect(_look(t, plan, 'second'), GuideUnitLook.skeleton);
   });

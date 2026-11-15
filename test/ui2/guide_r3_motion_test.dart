@@ -139,7 +139,13 @@ void main() {
     final card = find.byKey(GuideStepCard.cardKey);
     final initial = t.getRect(card);
     final drag = await t.startGesture(const Offset(8, 250));
-    await drag.moveBy(const Offset(0, 440));
+    // A finger moves in steps: one giant move is consumed as the drag's start offset and
+    // scrolls nothing. (Round 4: the guide now scrolls the target a third of the way down
+    // on arrival, so this point is on the target and the page really has to move.)
+    for (var i = 0; i < 11; i++) {
+      await drag.moveBy(const Offset(0, 40));
+      await t.pump(const Duration(milliseconds: 16));
+    }
     await t.pump(const Duration(milliseconds: 100));
     await t.pump();
     expect(t.getRect(card).top, closeTo(initial.top, 1));

@@ -1,3 +1,4 @@
+import '../support/live_guide_focus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/app.dart' show AppMainShell;
@@ -7,6 +8,7 @@ import 'package:openstrap_edge/ui2/grammar.dart';
 import 'package:openstrap_edge/ui2/guides/guide_run.dart';
 import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
+import '../support/guide_text.dart';
 import '../support/live_guide_stage.dart';
 import '../support/guide_r2_scroll_fixture.dart';
 import 'package:openstrap_edge/ui2/guides/guide_step_card.dart';
@@ -138,14 +140,14 @@ void main() {
     final base = stageGuide();
     final guide = Guide(id: base.id, title: base.title, start: base.start, footers: base.footers,
       variants: [GuideVariant(steps: [GuideStep(id: 'open', target: GuideTarget.key(stageOtherAction),
-        anchor: GuideTarget.key(stageHomeTitle), action: GuideAction.tap, caption: (_) => 'Tap Other action.')])]);
+        anchor: GuideTarget.key(stageHomeTitle), action: GuideAction.tap, caption: fnText((_) => 'Tap Other action.'))])]);
     final stage = await pumpLiveStage(t, guide: guide);
     for (var i = 0; i < 12; i++) { await t.pump(const Duration(milliseconds: 100)); }
     await t.tap(find.byKey(stageAskFirst));
     await t.pump(const Duration(milliseconds: 400));
     expect(find.byType(AlertDialog), findsOneWidget);
     expect(find.byKey(GuideStepCard.cardKey), findsNothing, reason: 'overlay yields to modal');
-    expect(find.byKey(LiveGuideOverlay.outlineKey), findsNothing);
+    expect(liveGuideFocus, findsNothing);
     expect(stage.run.state, isA<GuideAtStep>().having((s) => s.index, 'index', 0));
     await t.tap(find.text('Confirm'));
     await t.pump(const Duration(milliseconds: 400));

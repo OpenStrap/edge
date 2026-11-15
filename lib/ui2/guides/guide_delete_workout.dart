@@ -13,16 +13,18 @@
 import 'guide.dart';
 import 'guide_navigation.dart';
 import 'guide_content.dart';
+import 'guide_copy.dart';
+import 'guide_labels.dart';
 import 'guide_target.dart';
 
-final _historyTab = GuideTarget.label(((l) => l.workoutTabHistory));
+final _historyTab = GuideTarget.label(ScreenLabel.workoutTabHistory);
 // Several sessions each have a bin with this label; the guide points at the topmost
 // (owner, device: a plain label was "ambiguous" on a real history and showed nothing).
-final _bin = GuideTarget.firstLabel(((l) => l.workoutDeleteSessionLabel));
+final _bin = GuideTarget.firstLabel(ScreenLabel.workoutDeleteSessionLabel);
 
 Guide get deleteWorkoutGuide => Guide(
       id: 'delete-workout',
-      title: (l) => l.guideDeleteTitle,
+      title: GuideCopy.deleteWorkoutTitle,
       start: GuideStart.activity,
       variants: [
         GuideVariant(steps: [
@@ -32,29 +34,29 @@ Guide get deleteWorkoutGuide => Guide(
             target: _historyTab,
             anchor: _historyTab,
             action: GuideAction.tap,
-            caption: (l) => l.guideDeleteStep1(l.tabActivity, l.workoutTabHistory),
+            caption: GuideCopy.deleteWorkoutCaptionOpenHistory,
           ),
           GuideStep(
             id: 'delete-session',
             node: GuideNode.activityHistory,
             target: _bin,
-            anchor: GuideTarget.label(((l) => l.workoutTrackedLabel)),
-            alsoTap: [EveryLabelled([((l) => l.workoutDeleteSessionLabel)])], // every session has a bin
+            anchor: GuideTarget.label(ScreenLabel.workoutTrackedLabel),
+            alsoTap: [EveryLabelled([ScreenLabel.workoutDeleteSessionLabel])], // every session has a bin
             action: GuideAction.tap,
-            caption: (l) => l.guideDeleteStep2(l.workoutDeleteSessionLabel),
+            caption: GuideCopy.deleteWorkoutCaptionDeleteSession,
           ),
         ]),
       ],
       footers: [
         GuideFooter(
           kind: GuideFooterKind.note,
-          title: (l) => l.guideDeleteWhatTitle,
-          body: (l) => l.guideDeleteWhatBody,
+          title: GuideCopy.deleteWorkoutFooter0Title,
+          body: GuideCopy.deleteWorkoutFooter0Body,
         ),
         GuideFooter(
           kind: GuideFooterKind.missingTarget,
-          title: (l) => l.guideDeleteNoneTitle,
-          body: (l) => l.guideDeleteNoneBody(l.workoutNoSessionsTitle, l.workoutStartWorkoutFix, l.workoutLogPastFix),
+          title: GuideCopy.deleteWorkoutFooter1Title,
+          body: GuideCopy.deleteWorkoutFooter1Body,
         ),
       ],
     );

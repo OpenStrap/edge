@@ -37,9 +37,9 @@ Finder r2Tab(int index, {bool hidden = false}) => find.descendant(
 class R2Scene {
   final String guide, step;
   final Widget Function()? page;
-  final bool history, manual;
+  final bool history, staged, manual;
   const R2Scene(this.guide, this.step, {this.page, this.history = false,
-    this.manual = false});
+    this.staged = false, this.manual = false});
   String get id => '$guide/$step';
   bool get shell => page == null;
 }
@@ -92,13 +92,13 @@ class R2Mounted {
 }
 
 // Shell scenes use the shipped runner; pushed scenes install the actual
-// overlay/run after page preparation under the real shell. Dedicated pointer
-// tests prove input pass-through.
+// overlay/run after page preparation under the real shell. Staging Discard
+// prepares a fixture; the dedicated pointer tests prove input pass-through.
 Future<R2Mounted> pumpR2Scene(WidgetTester t, R2Scene scene, {Size size = r2Size, Brightness brightness = Brightness.light,
-  GuideFakeRepo? repo}) async {
+  bool singlePending = true, GuideFakeRepo? repo, GlobalKey? captureKey, double devicePixelRatio = 1}) async {
   final guide = r2Guide(scene.guide);
-  repo ??= GuideFakeRepo(sleepSource: scene.manual ? 'manual' : 'auto');
-  final app = await pumpLiveGuideApp(t, size: size, repo: repo, brightness: brightness);
+  repo ??= GuideFakeRepo(sleepSource: scene.manual ? 'manual' : 'auto', singlePending: singlePending);
+  final app = await pumpLiveGuideApp(t, size: size, repo: repo, brightness: brightness, captureKey: captureKey, devicePixelRatio: devicePixelRatio);
   if (scene.shell) {
     // Use the shipped runner here: tab-navigation signals may be owned by
     // GuideRunner. A separately inserted run would bypass that real seam.

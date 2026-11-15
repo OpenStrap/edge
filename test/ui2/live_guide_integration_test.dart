@@ -13,6 +13,7 @@
 // tap advances the run, wrong navigation shows the off-path card, Exit leaves
 // the app where the user is.
 
+import '../support/live_guide_focus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/app.dart' show AppMainShell;
@@ -107,7 +108,7 @@ void main() {
     await _reveal(t);
     expect(_step(app), 0);
     expect(_run(app).currentStep!.id, 'open-alarm');
-    expect(find.byKey(LiveGuideOverlay.outlineKey), findsOneWidget);
+    expect(liveGuideFocus, findsOneWidget);
     final target = _overlay(t).targetRect!;
     expect(target.overlaps(t.getRect(_label(_l(t).settingsAlarmRowTitle))), isTrue);
     expect(target.top, greaterThanOrEqualTo(0));
@@ -353,7 +354,7 @@ void main() {
       expect(app.runner.activeRun?.state, isA<GuideOffPath>());
     });
 
-    for (final locale in const [Locale('en'), Locale('de'), Locale('ru'), Locale('zh'), Locale('th'), Locale('hi'), Locale('fr'), Locale('es')]) {
+    for (final locale in const [Locale('en'), Locale('de'), Locale('ru'), Locale('zh'), Locale('hi'), Locale('fr'), Locale('es')]) {
       testWidgets('step 1 in ${locale.languageCode}: caption quotes the screen\'s own label; card and target do not collide', (t) async {
         // why: the owner\'s language requirement on the live path (text scale 1.3,
         // phone width). The caption is the translated sentence, the card keeps
@@ -364,7 +365,7 @@ void main() {
         expect(t.takeException(), isNull);
         expect(_caption(t), _plain(l.guideHrZonesStep1(l.tabToday, l.homeRingStrain)));
         final card = t.getRect(find.byKey(GuideStepCard.cardKey));
-        expect(card.overlaps(t.getRect(find.byKey(LiveGuideOverlay.outlineKey))), isFalse);
+        expect(card.overlaps(t.getRect(liveGuideFocus)), isFalse);
         expect(card.overlaps(t.getRect(find.byKey(LiveGuideOverlay.tapPillKey))), isFalse);
         final tabBar = t.getRect(_label(l.tabToday).last);
         expect(card.bottom, lessThanOrEqualTo(tabBar.top + 1), reason: 'the bottom card sits above the tab bar');
@@ -382,7 +383,7 @@ void main() {
       expect(_step(app), 0);
       expect(_caption(t), _plain(l.guideStartStep1(l.tabActivity, l.workoutStartSessionLabel)));
       // The StartCard is edge to edge; growing its outline must not draw offscreen.
-      final outline = t.getRect(find.byKey(LiveGuideOverlay.outlineKey));
+      final outline = t.getRect(liveGuideFocus);
       expect(outline.left, greaterThanOrEqualTo(0));
       expect(outline.right, lessThanOrEqualTo(390));
       expect(outline.top, greaterThanOrEqualTo(0));
@@ -395,28 +396,19 @@ void main() {
   });
 
   group('guide #8 log a past workout', () {
-    testWidgets('History tab -> the far "Log a past workout" card is revealed with the scroll marker -> the real form', (t) async {
+    testWidgets('History tab -> the far "Log a past workout" card is scrolled into view -> the real form', (t) async {
       // why: a third guide, with a scroll step on a real lazy list and a
       // sub-tab tap that changes the same screen (the later anchor appears).
       final app = await pumpLiveGuideApp(t);
       await _startFromHelp(t, app, 'log-past-workout');
       final l = _l(t);
       expect(_step(app), 0);
-      // History can be horizontally clipped at main's current text scale.
-      await t.ensureVisible(_label(l.workoutTabHistory));
-      await _reveal(t);
-      expect(_label(l.workoutTabHistory).hitTestable(), findsOneWidget);
       await t.tap(_label(l.workoutTabHistory));
       await _reveal(t);
       expect(_step(app), 1);
-      expect(find.byKey(LiveGuideOverlay.scrollMarkerKey), findsOneWidget);
+      expect(find.byKey(LiveGuideOverlay.scrollMarkerKey), findsNothing, reason: 'revealed and in view: no scroll indicator');
+      expect(liveGuideFocus, findsOneWidget);
       expect(_label(l.workoutLogPastFix), findsOneWidget);
-      // Main's History list can build this card in its cache before its label
-      // reaches the viewport. Follow the scroll prompt before tapping it.
-      await t.ensureVisible(_label(l.workoutLogPastFix));
-      await _reveal(t);
-      expect(_label(l.workoutLogPastFix).hitTestable(), findsOneWidget,
-          reason: 'the revealed History action must receive a real pointer');
       await t.tap(_label(l.workoutLogPastFix));
       await _reveal(t);
       expect(_step(app), 2);

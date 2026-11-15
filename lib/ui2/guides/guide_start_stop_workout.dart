@@ -13,17 +13,19 @@
 import 'guide.dart';
 import 'guide_navigation.dart';
 import 'guide_content.dart';
+import 'guide_copy.dart';
+import 'guide_labels.dart';
 import 'guide_target.dart';
 
-final _startCard = GuideTarget.label((l) => l.workoutStartSessionLabel);
-final _search = GuideTarget.label((l) => l.activityPickerSearchLabel);
-final _start = GuideTarget.label((l) => l.activitySetupStart);
-final _finish = GuideTarget.label((l) => l.activityLiveFinishSessionLabel);
+final _startCard = GuideTarget.label(ScreenLabel.workoutStartSessionLabel);
+final _search = GuideTarget.label(ScreenLabel.activityPickerSearchLabel);
+final _start = GuideTarget.label(ScreenLabel.activitySetupStart);
+final _finish = GuideTarget.label(ScreenLabel.activityLiveFinishSessionLabel);
 
 /// A fictional 70 kg user, so the picker and setup show calorie hints.
 Guide get startStopWorkoutGuide => Guide(
       id: 'start-workout',
-      title: (l) => l.guideStartTitle,
+      title: GuideCopy.startWorkoutTitle,
       start: GuideStart.activity,
       variants: [
         GuideVariant(steps: [
@@ -33,7 +35,7 @@ Guide get startStopWorkoutGuide => Guide(
             target: _startCard,
             anchor: _startCard,
             action: GuideAction.tap,
-            caption: (l) => l.guideStartStep1(l.tabActivity, l.workoutStartSessionLabel),
+            caption: GuideCopy.startWorkoutCaptionStartCard,
           ),
           GuideStep(
             id: 'choose-activity',
@@ -41,8 +43,19 @@ Guide get startStopWorkoutGuide => Guide(
             target: _search,
             anchor: _search,
             alsoTap: [PressableRows()], // "or tap one in the list"
+            // Multi-target step: the search bar, the chips and each group header; the hand opens the
+            // first group once, then visits the search bar and the group's first rows.
+            multi: GuideMultiTarget(
+              targets: ContentList([TargetContent(_search), PickerChips(), PickerGroupHeaders()]),
+              label: GuideCopy.searchOrPickLabel,
+              visit: GuideVisit.list,
+              opens: FirstOf(PickerGroupHeaders()),
+              afterOpen: ContentList([TargetContent(_search), PickerRows(3)]),
+              alreadyOpen: PickerOpenGroup(),
+              labelAfterOpen: PickerRows(3),
+            ),
             action: GuideAction.tap,
-            caption: (l) => l.guideStartStep2(l.activityPickerSearchLabel),
+            caption: GuideCopy.startWorkoutCaptionChooseActivity,
           ),
           GuideStep(
             id: 'start',
@@ -51,13 +64,13 @@ Guide get startStopWorkoutGuide => Guide(
             anchor: _start,
             alsoRead: [ // "Check the details"
               LabelledContent([
-                ((l) => l.activitySetupRouteLabel),
-                ((l) => l.activitySetupHeartRateLabel),
-                ((l) => l.activitySetupPrivateLabel),
+                ScreenLabel.activitySetupRouteLabel,
+                ScreenLabel.activitySetupHeartRateLabel,
+                ScreenLabel.activitySetupPrivateLabel,
               ]),
             ],
             action: GuideAction.tap,
-            caption: (l) => l.guideStartStep3(l.activitySetupStart),
+            caption: GuideCopy.startWorkoutCaptionStart,
           ),
           GuideStep(
             id: 'finish',
@@ -65,20 +78,20 @@ Guide get startStopWorkoutGuide => Guide(
             target: _finish,
             anchor: _finish,
             action: GuideAction.tap,
-            caption: (l) => l.guideStartStep4(l.activityLiveFinishSessionLabel),
+            caption: GuideCopy.startWorkoutCaptionFinish,
           ),
         ]),
       ],
       footers: [
         GuideFooter(
           kind: GuideFooterKind.note,
-          title: (l) => l.guideStartNoBandTitle,
-          body: (l) => l.guideStartNoBandBody,
+          title: GuideCopy.startWorkoutFooter0Title,
+          body: GuideCopy.startWorkoutFooter0Body,
         ),
         GuideFooter(
           kind: GuideFooterKind.note,
-          title: (l) => l.guideStartPauseTitle,
-          body: (l) => l.guideStartPauseBody(l.activityLivePauseLabel, l.activityLiveResumeLabel),
+          title: GuideCopy.startWorkoutFooter1Title,
+          body: GuideCopy.startWorkoutFooter1Body,
         ),
       ],
     );

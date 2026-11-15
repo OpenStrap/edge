@@ -235,17 +235,17 @@ void main() {
           [l.activityZonesSetYourOwnLink, l.activityZonesEditYourOwnLink],
         ];
         for (var i = 0; i < steps.length; i++) {
-          final c = steps[i].caption(l);
+          final c = steps[i].caption.of(l);
           expect(c, isNotEmpty);
           expect(options[i].any(c.contains), isTrue, reason: 'step ${i + 1} caption "$c" must quote one of ${options[i]}');
           if (locale.languageCode != 'en') {
-            expect(c, isNot(steps[i].caption(en)), reason: 'step ${i + 1} caption untranslated');
+            expect(c, isNot(steps[i].caption.of(en)), reason: 'step ${i + 1} caption untranslated');
           }
         }
-        expect(steps[1].caption(l), contains(l.dayStrainTimeInZonesSection));
+        expect(steps[1].caption.of(l), contains(l.dayStrainTimeInZonesSection));
         final g = heartRateZonesGuide;
-        final texts = [g.title(l), for (final f in g.footers) ...[f.title(l), f.body(l)]];
-        final enTexts = [g.title(en), for (final f in g.footers) ...[f.title(en), f.body(en)]];
+        final texts = [g.title.of(l), for (final f in g.footers) ...[f.title.of(l), f.body.of(l)]];
+        final enTexts = [g.title.of(en), for (final f in g.footers) ...[f.title.of(en), f.body.of(en)]];
         for (var i = 0; i < texts.length; i++) {
           expect(texts[i], isNotEmpty);
           if (locale.languageCode != 'en') expect(texts[i], isNot(enTexts[i]), reason: 'text #$i untranslated');
@@ -405,19 +405,17 @@ void main() {
           expect(skContains(frame, pill), isTrue, reason: 'pill $pill inside frame $frame');
           expect(skContains(outline, target), isTrue);
           expect(pill.overlaps(target), isFalse, reason: 'pill must not sit on the target');
-          expect(find.byKey(GuideStepView.scrollMarkerKey), i == 1 ? findsOneWidget : findsNothing);
-          if (i == 1) {
-            expect(skContains(frame, t.getRect(find.byKey(GuideStepView.scrollMarkerKey))), isTrue);
-          }
+          // M1: review and live indicators both disappear once the target is in view.
+          expect(find.byKey(GuideStepView.scrollMarkerKey), findsNothing);
           expect(find.byKey(GuideStepView.failureKey), findsNothing);
         }
       });
     }
   });
 
-  group('the tap pill never covers legible text (guide #1)', () {
+  group('the tap pill is above its target, never on it (guide #1, round 4)', () {
     for (final (locale, scale) in const [(Locale('en'), 1.0), (Locale('en'), 1.3), (Locale('ru'), 1.0), (Locale('ru'), 1.3)]) {
-      testWidgets('${locale.languageCode} at text scale $scale: no step\'s pill overlaps legible text or a visual', (t) async {
+      testWidgets('${locale.languageCode} at text scale $scale: every step\'s pill is above its target', (t) async {
         // why: in step 3 the pill used to sit above "Set your own zones" and
         // hid the line of text above it. Legible = a text line of the demo
         // screen that no skeleton shape covers and that is not the target's own.
@@ -469,15 +467,19 @@ void main() {
           if (i == 0) {
             expect(visuals, isNotEmpty, reason: 'positive control: step 1 keeps the Recovery and Sleep rings legible');
           }
+          // Round 4 (owner): the label is ABOVE its target, whatever sits there; below only when
+          // above would leave the frame. (It used to dodge legible text and so jumped between
+          // steps.) The positive controls above keep proving the screens do have text and
+          // visuals around the target.
           final pill = t.getRect(find.byKey(GuideStepView.tapPillKey));
-          for (final r in [...legible, ...visuals]) {
-            expect(pill.overlaps(r), isFalse, reason: 'step ${i + 1} ${locale.languageCode}: pill $pill covers legible content $r');
+          final outline = t.getRect(find.byKey(GuideStepView.outlineKey));
+          final frame = t.getRect(find.byKey(GuideStepView.frameKey));
+          if (outline.top - pill.height + 2 >= frame.top - .5) {
+            expect(pill.bottom, closeTo(outline.top + 2, .6), reason: 'step ${i + 1} ${locale.languageCode}: above');
+          } else {
+            expect(pill.top, closeTo(outline.bottom - 2, .6), reason: 'step ${i + 1} ${locale.languageCode}: below only because above leaves the frame');
           }
-          if (i == 0) {
-            final outline = t.getRect(find.byKey(GuideStepView.outlineKey));
-            expect(pill.bottom, lessThanOrEqualTo(outline.top + 2.5),
-                reason: 'step 1: the free space is above the Strain outline (owner review), not beside it: pill $pill outline $outline');
-          }
+          expect(pill.overlaps(target), isFalse);
           expect(t.takeException(), isNull);
         }
       });

@@ -149,7 +149,7 @@ Map<String, Object?> r2Manifest(WidgetTester t, R2Mounted mounted, R2Scene scene
     'heart-rate-zones/set-own-zones' => r2Locale.activityZonesSetYourOwnLink,
     'alarm-schedule/open-alarm' => r2Locale.settingsAlarmRowTitle,
     // The day on/off row prints "Alarm" in every language (guide_alarm_schedule.dart).
-    'alarm-schedule/pick-day' => r2Locale.wellnessTue,
+    'alarm-schedule/pick-day' => 'Alarm',
     'alarm-schedule/set-wake-time' => r2Locale.alarmWakeTimeRowTitle,
     'add-nap/open-naps' => r2Locale.sleepDetailEditNaps,
     'add-nap/log-nap' => r2Locale.napsLogANap,
@@ -195,7 +195,7 @@ Map<String, Object?> r2Manifest(WidgetTester t, R2Mounted mounted, R2Scene scene
   final units = r2Units(page);
   final records = <Map<String, Object?>>[];
   final dayTabs = scene.id == 'alarm-schedule/pick-day' ? [for (var d = 0; d < 7; d++)
-    if (GuideTarget.label((l) => [l.wellnessMon, l.wellnessTue, l.wellnessWed, l.wellnessThu, l.wellnessFri, l.wellnessSat, l.wellnessSun][d]).resolve(page, r2Locale) case TargetFound(:final rect)) rect] : <Rect>[];
+    if (GuideTarget.key(ValueKey('wake-day-$d')).resolve(page, r2Locale) case TargetFound(:final rect)) rect] : <Rect>[];
   for (final u in units) {
     // Caption obligations are an independent oracle, not conditional on the
     // new declarations being populated (an empty declaration must go red).
@@ -288,7 +288,7 @@ Map<String, Object?> r2Manifest(WidgetTester t, R2Mounted mounted, R2Scene scene
   return {'shapeCounts': counts,
     'dimmedAreaFraction': area / (r2Size.width * r2Size.height),
     'dimmedAreaDefinition': 'Union of viewport-clipped dim rectangles divided by viewport area',
-    'guide': scene.guide, 'step': scene.step, 'targetLabel': label, 'caption': step.caption(r2Locale),
+    'guide': scene.guide, 'step': scene.step, 'targetLabel': label, 'caption': step.caption.of(r2Locale),
     'size': [r2Size.width, r2Size.height], 'coordinateSpace': 'logical pixels; root overlay origin',
     'targetGroup': targetGroup == null ? null : r2Rect(targetGroup!),
     'target': target == null ? null : r2Rect(target), 'card': r2Rect(t.getRect(find.byKey(GuideStepCard.cardKey))),

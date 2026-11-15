@@ -564,7 +564,7 @@ class AppMainShell extends StatefulWidget {
   State<AppMainShell> createState() => _ShellState();
 }
 
-class _ShellState extends State<AppMainShell> {
+class _ShellState extends State<AppMainShell> implements GuideShellLink {
   /// Restore the last-selected tab so a relaunch lands where the user left off.
   late ShellDomain _domain = restoredShellTab();
 
@@ -588,9 +588,7 @@ class _ShellState extends State<AppMainShell> {
     _selection = ValueNotifier(_domain);
     _guideRunner = context.read<GuideRunner?>();
     // Guide navigation is temporary; only the user's own tab changes persist.
-    _guideShell = GuideShellLink(selectTab: (d) => _go(d, persist: false), openSettings: () async {
-      if (mounted) await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const MoreSettings()));
-    });
+    _guideShell = this;
     _guideRunner?.attachShell(_guideShell!);
     _app!.navRequest.addListener(_consumeSoon);
     _app!.screenRequest.addListener(_consumeSoon);
@@ -651,6 +649,14 @@ class _ShellState extends State<AppMainShell> {
       return;
     }
     if (tab >= 0) _go(domainForTab(tab));
+  }
+
+  @override
+  void selectTab(ShellDomain tab) => _go(tab, persist: false);
+
+  @override
+  Future<void> openSettings() async {
+    if (mounted) await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const MoreSettings()));
   }
 
   void _go(ShellDomain d, {bool persist = true}) {

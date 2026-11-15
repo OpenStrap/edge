@@ -10,6 +10,19 @@ const kGuidePulseDuration = Motion.guidePulse;
 // multiply HSV value only [guide_r3_motion_test].
 double guidePulseValue(double phase) => 1 - .08 * math.cos(phase * 2 * math.pi);
 
+/// The tap hand's nudge, 0..1: two out-and-back pushes in the first half of the 1.6 s cycle
+/// (peaks at 1/8 and 3/8), still for the second half. 0 at the start, so a stopped clock
+/// (reduced motion) leaves the hand at rest. CLAIM(guide-nudge) [guide_r4_test R4-3a].
+double guideNudgeValue(double phase) {
+  final p = phase - phase.floorToDouble();
+  if (p >= .5) return 0;
+  return .5 - .5 * math.cos(p * 8 * math.pi);
+}
+
+/// Where the auto-scroll puts the target: this fraction down the visible area (owner,
+/// round 4).
+const kGuideScrollAnchor = 1 / 3;
+
 /// The held instruction position for one step. A collision during scroll fades
 /// it immediately; after scroll ends, move for 600ms, then restore for 200ms.
 /// CLAIM(guide-card-motion) [guide_r3_motion_test].

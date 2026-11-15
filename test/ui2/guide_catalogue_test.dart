@@ -12,10 +12,11 @@ import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
 import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_catalogue.dart';
+import '../support/guide_text.dart';
 
 Guide _guide(String id, List<Set<BandGeneration>> variants) => Guide(
       id: id,
-      title: (_) => 'Title $id',
+      title: fnText((_) => 'Title $id'),
       start: GuideStart.today,
       variants: [for (final d in variants) GuideVariant(devices: d, steps: const [])],
     );
@@ -129,12 +130,13 @@ void main() {
     test('the missing-target help is the guide\'s "Don\'t see X?" footer; guides without one offer no link', () {
       // why: the step card\'s "Don\'t see it?" link expands THIS footer. Expected
       // sets are written by hand from the footers\' titles (guideXxxMissingTitle /
-      // guideFixTimesBackTitle / guideDeleteNoneTitle): guides #3 and #7 have only notes.
+      // guideFixTimesBackTitle / guideDeleteNoneTitle): guide #7 has only notes. #3 (add-nap) has
+      // one on integrate/next, where its Naps button sits in a section the person may have folded.
       final l = lookupAppLocalizations(const Locale('en'));
       final withHelp = {for (final e in kGuideCatalogue) if (e.guide.missingTargetHelp != null) e.guide.id};
-      expect(withHelp, {'heart-rate-zones', 'alarm-schedule', 'remove-detected', 'fix-sleep-times', 'delete-workout', 'log-past-workout'});
+      expect(withHelp, {'heart-rate-zones', 'alarm-schedule', 'add-nap', 'remove-detected', 'fix-sleep-times', 'delete-workout', 'log-past-workout'});
       for (final id in withHelp) {
-        final title = kGuideCatalogue.firstWhere((e) => e.guide.id == id).guide.missingTargetHelp!.title(l);
+        final title = kGuideCatalogue.firstWhere((e) => e.guide.id == id).guide.missingTargetHelp!.title.of(l);
         expect(title, endsWith('?'), reason: '$id: the missing-target footer is a question ($title)');
       }
     });

@@ -538,7 +538,7 @@ void main() {
           });
           final manifestData = <String, Object?>{
             'guideId': guide.id,
-            'title': guide.title(l),
+            'title': guide.title.of(l),
             'locale': 'en',
             'logicalSize': [_screen.width, _screen.height],
             'devicePixelRatio': _dpr,
@@ -642,7 +642,7 @@ void main() {
                 records.add({
                   'id': step.id,
                   'number': i + 1,
-                  'text': step.caption(l).replaceAll('**', ''),
+                  'text': step.caption.of(l).replaceAll('**', ''),
                   'pngPaths': {'guided': guided, 'dark': '$name-dark.png'},
                   ...measured,
                 });

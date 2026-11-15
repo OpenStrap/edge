@@ -82,7 +82,7 @@ class HelpScreen extends StatelessWidget {
                 child: Surface(
                   onTap: () => _open(context, entry.guide),
                   child: Row(children: [
-                    Expanded(child: Text(entry.guide.title(l), style: F.body.copyWith(color: p.ink))),
+                    Expanded(child: Text(entry.guide.title.of(l), style: F.body.copyWith(color: p.ink))),
                     const SizedBox(width: S.x2),
                     Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
                   ]),

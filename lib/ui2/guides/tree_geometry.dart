@@ -7,40 +7,45 @@
 // and the object (a Transform ABOVE the root does not enter).
 
 import 'package:flutter/widgets.dart';
+import 'guide_accordion.dart';
 
-/// Visits [element] and every ONSTAGE element below it, parents before
-/// children. An `Offstage`, a non-current `IndexedStack` child or a hidden route
-/// is skipped, exactly as `find` skips them; and a lazy list only yields the
-/// children it is actually showing (`SliverMultiBoxAdaptorElement` and the
-/// viewports drop the ones that are merely built inside the cache extent).
+/// [element] and every ONSTAGE element below it, parents before children. An
+/// `Offstage`, a non-current `IndexedStack` child or a hidden route is skipped,
+/// exactly as `find` skips them; and a lazy list only yields the children it is
+/// actually showing (`SliverMultiBoxAdaptorElement` and the viewports drop the
+/// ones that are merely built inside the cache extent).
 ///
 /// CLAIM(onstage-walk): this is what the user can see; it is Flutter's own
 /// `Element.debugVisitOnstageChildren`, the walk `find` uses for
 /// `skipOffstage: true` [flutter widgets/framework.dart].
-void visitOnstage(Element element, void Function(Element) visitor) {
-  void walk(Element e) {
-    visitor(e);
-    e.debugVisitOnstageChildren(walk);
+///
+/// An [Iterable], not a visitor callback: the heavy-calc guard
+/// (test/guards, AGENTS.md section 3) resolves method calls but not calls through
+/// function values, and a visitor parameter is one.
+Iterable<Element> onstageElements(Element element) sync* {
+  yield element;
+  final children = <Element>[];
+  element.debugVisitOnstageChildren(children.add);
+  for (final child in children) {
+    yield* onstageElements(child);
   }
-
-  walk(element);
 }
 
-/// As [visitOnstage], but a lazy list yields every child it has BUILT, also
+/// As [onstageElements], but a lazy list yields every child it has BUILT, also
 /// those inside the cache extent beyond the viewport: a target there exists and
 /// only needs scrolling into view, so it must not be reported as unbuilt.
-void visitBuilt(Element element, void Function(Element) visitor) {
-  void walk(Element e) {
-    visitor(e);
-    final w = e.widget;
-    if (e is SliverMultiBoxAdaptorElement || w is Viewport || w is ShrinkWrappingViewport || w is SliverMainAxisGroup) {
-      e.visitChildren(walk);
-    } else {
-      e.debugVisitOnstageChildren(walk);
-    }
+Iterable<Element> builtElements(Element element) sync* {
+  yield element;
+  final w = element.widget;
+  final children = <Element>[];
+  if (w is GuideAccordionBody || element is SliverMultiBoxAdaptorElement || w is Viewport || w is ShrinkWrappingViewport || w is SliverMainAxisGroup) {
+    element.visitChildren(children.add);
+  } else {
+    element.debugVisitOnstageChildren(children.add);
   }
-
-  walk(element);
+  for (final child in children) {
+    yield* builtElements(child);
+  }
 }
 
 /// The render box of [element] (its own, or the nearest descendant's) when it
@@ -74,31 +79,4 @@ Rect visibleBoundsInRoot(RenderObject object, RenderBox root) {
     child = parent;
   }
   return visible;
-}
-
-/// Iterable form of the existing onstage walk for guide planning. A caller
-/// locating a page can stop without first collecting every descendant.
-Iterable<Element> onstageElements(Element root) sync* {
-  yield root;
-  final children = <Element>[];
-  root.debugVisitOnstageChildren(children.add);
-  for (final child in children) {
-    yield* onstageElements(child);
-  }
-}
-
-/// Includes built lazy-list children outside the viewport, like [visitBuilt].
-Iterable<Element> builtElements(Element root) sync* {
-  yield root;
-  final children = <Element>[];
-  final w = root.widget;
-  if (root is SliverMultiBoxAdaptorElement || w is Viewport ||
-      w is ShrinkWrappingViewport || w is SliverMainAxisGroup) {
-    root.visitChildren(children.add);
-  } else {
-    root.debugVisitOnstageChildren(children.add);
-  }
-  for (final child in children) {
-    yield* builtElements(child);
-  }
 }

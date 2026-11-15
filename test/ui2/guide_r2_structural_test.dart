@@ -54,7 +54,7 @@ Future<void> _pumpScope(WidgetTester t, GuideDimController dim, Widget body, {Si
 }
 
 /// A caption's text as the proxy announces it (the bold markers are not read out).
-String _plain(GuideStep s, AppLocalizations l) => s.caption(l).replaceAll('**', '');
+String _plain(GuideStep s, AppLocalizations l) => s.caption.of(l).replaceAll('**', '');
 
 class _TwoSessionsRepo extends GuideFakeRepo {
   _TwoSessionsRepo() : super();
@@ -284,12 +284,13 @@ void main() {
     // step: (alsoTap, alsoRead) and why.
     const expected = <String, (bool, bool)>{
       'alarm-schedule/open-alarm': (false, false), // one row to tap
-      'alarm-schedule/pick-day': (true, false), // "tap a day": seven weekday rows
+      'alarm-schedule/pick-day': (true, false), // "Tap the tab of the day you want": seven day tabs
       'alarm-schedule/set-wake-time': (false, false), // one row
       'add-nap/open-naps': (false, false), // one button
       'add-nap/log-nap': (false, false), // one button; the two questions are the app's dialogs
       'remove-detected/open-detected': (false, false), // one card
-      'remove-detected/discard': (true, false), // "Not a nap" / "Not a workout": both choices
+      'remove-detected/discard': (true, false), // "Every item has its own Discard"; the row is kept with its Discard
+      'remove-detected/save': (false, false), // one button
       'fix-sleep-times/change-times': (false, false), // anyLabel already covers both labels of ONE button
       'fix-sleep-times/back-to-automatic': (false, false), // one button
       'delete-workout/open-history': (false, false), // one sub-tab
@@ -317,7 +318,7 @@ void main() {
     // WHY: a declaration that resolves to nothing on the real screen keeps nothing legible.
     // # catches: alsoTap pointing at keys/labels the screen does not print, or at too little
     // (one day tab instead of seven).
-    testWidgets('r2 alarm pick-day alsoTap resolves to all seven weekday rows', (t) async {
+    testWidgets('r2 alarm pick-day alsoTap resolves to all seven day tabs', (t) async {
       final scene = r2Scenes.firstWhere((s) => s.id == 'alarm-schedule/pick-day');
       final m = await pumpR2Scene(t, scene);
       try {
@@ -326,31 +327,38 @@ void main() {
         final step = m.run.variant.steps.firstWhere((s) => s.id == scene.step);
         final found = [for (final c in step.alsoTap) ...c.resolve(page, r2Locale)];
         final tabs = [for (var d = 0; d < 7; d++)
-          if (GuideTarget.label((l) => [l.wellnessMon, l.wellnessTue, l.wellnessWed, l.wellnessThu, l.wellnessFri, l.wellnessSat, l.wellnessSun][d]).resolve(page, r2Locale) case TargetFound(:final rect)) rect];
-        expect(tabs, hasLength(7), reason: 'positive control: the screen has seven weekday rows');
+          if (GuideTarget.key(ValueKey('wake-day-$d')).resolve(page, r2Locale) case TargetFound(:final rect)) rect];
+        expect(tabs, hasLength(7), reason: 'positive control: the screen has seven day tabs');
         for (final tab in tabs) {
-          expect(found.any((f) => f.rect.overlaps(tab)), isTrue, reason: 'weekday row $tab is declared');
+          expect(found.any((f) => f.rect.overlaps(tab)), isTrue, reason: 'day tab $tab is declared');
         }
       } finally { await disposeR2(t, m); }
     });
 
-    // WHY: main offers a nap rejection and a workout rejection on the same page.
-    // Both choices named in the caption must stay legible and accept real input.
-    testWidgets('r2 detected-item choices resolve on main', (t) async {
+    // WHY: "Every item has its own Discard": with two pending items BOTH Discard buttons
+    // must stay legible and tappable, and tapping the one that is not the outlined target
+    // does its real thing (stages a decision) without finishing or advancing the guide.
+    // # catches: declaring only the first Discard, shielding the others, or a tap on an
+    // offered choice completing the run.
+    testWidgets('r2 remove-detected/discard keeps every Discard legible and tappable', (t) async {
       final scene = r2Scenes.firstWhere((s) => s.id == 'remove-detected/discard');
-      final m = await pumpR2Scene(t, scene);
+      final m = await pumpR2Scene(t, scene, singlePending: false);
       try {
         await settleLiveGuide(t, frames: 18);
         final page = m.app.runner.routes.page!;
-        final step = m.run.variant.steps.firstWhere((s) => s.id == 'discard');
-        final found = [for (final c in step.alsoTap) ...c.resolve(page, r2Locale)];
-        expect(found, hasLength(2), reason: 'one nap and one workout in the main fixture');
-        for (final label in [r2Locale.napsNotANapLabel, r2Locale.activityNotAWorkout]) {
-          final text = find.text(label);
-          expect(text, findsOneWidget);
-          final box = t.getRect(text);
-          expect(found.any((f) => f.rect.overlaps(box)), isTrue,
-              reason: 'the real $label action is declared');
+        final discards = [..._controlsLabelled(page, r2Locale.napsNotANapLabel), ..._controlsLabelled(page, r2Locale.activityNotAWorkout)];
+        expect(discards.length, greaterThanOrEqualTo(2), reason: 'positive control: two items are waiting');
+        final overlay = t.state<LiveGuideOverlayState>(find.byType(LiveGuideOverlay));
+        final card = t.getRect(find.byKey(GuideStepCard.cardKey));
+        for (final d in discards) {
+          if (card.overlaps(d)) continue;
+          expect(overlay.paintedShapes.where((s) => s.rect.overlaps(d.deflate(1))), isEmpty, reason: 'Discard $d is legible');
+        }
+        final last = discards.reduce((a, b) => a.top > b.top ? a : b);
+        if (!card.overlaps(last)) {
+          await t.tapAt(last.center);
+          await settleLiveGuide(t, frames: 8);
+          expect(m.run.state, isA<GuideFinished>(), reason: 'main discards immediately; either offered correction completes the guide');
         }
       } finally { await disposeR2(t, m); }
     });

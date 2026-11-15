@@ -12,6 +12,7 @@ import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
 import 'package:openstrap_edge/ui2/skeleton/unit_paint.dart' show GuideScrollBehavior;
+import 'guide_text.dart';
 
 const r2ScrollLookalike = ValueKey('r2-scroll-lookalike');
 const r2ScrollTarget = ValueKey('r2-scroll-target');
@@ -42,10 +43,10 @@ class R2ScrollFixture {
       ])])))));
     await t.pump();
     final target = GuideTarget.key(r2ScrollTarget);
-    final guide = Guide(id: 'scroll-fixture', title: (_) => 'Scroll',
+    final guide = Guide(id: 'scroll-fixture', title: fnText((_) => 'Scroll'),
       start: GuideStart.today, variants: [GuideVariant(steps: [GuideStep(id: 'target',
         target: target, anchor: GuideTarget.key(const ValueKey('r2-scroll-column')), action: GuideAction.scrollThenTap,
-        caption: (_) => 'Find Target.')])]);
+        caption: fnText((_) => 'Find Target.'))])]);
     run = GuideRun(guide: guide, variant: guide.variants.single);
     entry = OverlayEntry(builder: (_) => LiveGuideOverlay(run: run, navigatorKey: navKey,
       routes: routes, onExit: run.exit, onBackToGuide: () {}));

@@ -174,7 +174,7 @@ void main() {
             final textRect = t.getRect(printedAt.first);
             expect(rect.inflate(2).overlaps(textRect), isTrue, reason: 'target $rect is not at the label $textRect');
           }
-          expect(step.caption(l).toLowerCase(), contains(scene.label(l).toLowerCase()), reason: 'CLAIM(guide-quotes)');
+          expect(step.caption.of(l).toLowerCase(), contains(scene.label(l).toLowerCase()), reason: 'CLAIM(guide-quotes)');
           expect(t.takeException(), isNull);
           await t.pumpWidget(const SizedBox());
         });
@@ -190,13 +190,13 @@ void main() {
         for (final e in kGuideCatalogue) {
           final g = e.guide;
           final texts = <(String, String, String)>[
-            ('title', g.title(l), g.title(en)),
-            if (g.intro != null) ('intro', g.intro!(l), g.intro!(en)),
+            ('title', g.title.of(l), g.title.of(en)),
+            if (g.intro != null) ('intro', g.intro!.of(l), g.intro!.of(en)),
             for (final v in g.variants)
-              for (final s in v.steps) ('caption ${s.id}', s.caption(l), s.caption(en)),
+              for (final s in v.steps) ('caption ${s.id}', s.caption.of(l), s.caption.of(en)),
             for (final (i, f) in g.footers.indexed) ...[
-              ('footer $i title', f.title(l), f.title(en)),
-              ('footer $i body', f.body(l), f.body(en)),
+              ('footer $i title', f.title.of(l), f.title.of(en)),
+              ('footer $i body', f.body.of(l), f.body.of(en)),
             ],
           ];
           for (final (what, own, english) in texts) {

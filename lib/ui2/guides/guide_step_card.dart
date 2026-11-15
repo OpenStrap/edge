@@ -115,7 +115,7 @@ class _GuideStepCardState extends State<GuideStepCard> {
     );
     Widget footer(GuideFooter f, Key key) => Padding(
       key: key, padding: const EdgeInsets.only(top: S.x2),
-      child: GuideFooterCard(title: f.title(l), body: f.body(l)),
+      child: GuideFooterCard(title: f.title.of(l), body: f.body.of(l)),
     );
     final model = widget.model;
     final content = <Widget>[];
@@ -165,21 +165,27 @@ class _GuideStepCardState extends State<GuideStepCard> {
           content.add(footer(model.footers[i], GuideStepCard.footerKey(i)));
         }
     }
-    final actions = <Widget>[];
+    // The bottom row: the card's own link at the left (when it has one) and Exit ALWAYS at the
+    // right edge, in the accent colour, so Exit never moves between states
+    // [guide_r5_test R5-5]. CLAIM(exit-one-place).
+    final links = <Widget>[];
     if (model is GuideCardOnStep && model.missingHelp != null) {
-      actions.add(Flexible(child: Semantics(
+      links.add(Flexible(child: Semantics(
         key: GuideStepCard.dontSeeItKey, container: true, button: true, expanded: _expanded,
         child: Pressable(onTap: () => setState(() => _expanded = !_expanded),
           child: Text(l.guideDontSeeIt, style: F.cap.copyWith(color: p.on(C.blue)))),
       )));
     }
     if (model is GuideCardOffPath && widget.onBackToGuide != null) {
-      actions.add(Flexible(child: Pressable(key: GuideStepCard.backToGuideKey,
+      links.add(Flexible(child: Pressable(key: GuideStepCard.backToGuideKey,
         onTap: widget.onBackToGuide, child: Text(l.guideBackToGuide, style: F.cap.copyWith(color: p.on(C.blue))))));
     }
-    actions.add(Semantics(container: true, label: l.guideExitLabel, button: true, onTap: widget.onExit,
-      child: ExcludeSemantics(child: Pressable(key: GuideStepCard.exitKey, onTap: widget.onExit,
-        child: Text(l.guideExit, style: F.cap.copyWith(color: p.ink2))))));
+    final actions = <Widget>[
+      Expanded(child: Align(alignment: AlignmentDirectional.centerStart, child: Row(mainAxisSize: MainAxisSize.min, children: links))),
+      Semantics(container: true, label: l.guideExitLabel, button: true, onTap: widget.onExit,
+        child: ExcludeSemantics(child: Pressable(key: GuideStepCard.exitKey, onTap: widget.onExit,
+          child: Text(l.guideExit, style: F.cap.copyWith(color: p.on(C.blue)))))),
+    ];
     return Material(
       key: GuideStepCard.cardKey, color: p.card, borderRadius: R.rLg, elevation: 6, shadowColor: p.shadow,
       child: DecoratedBox(
@@ -190,7 +196,7 @@ class _GuideStepCardState extends State<GuideStepCard> {
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: content),
             )),
             const SizedBox(height: S.x1),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: actions),
+            Row(children: actions),
           ])),
       ),
     );

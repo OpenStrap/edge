@@ -1,3 +1,4 @@
+import '../support/live_guide_focus.dart';
 import 'package:flutter/material.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/ui2/grammar.dart' show ScreenTitle;
@@ -122,7 +123,7 @@ void main() {
     await f.frames(t);
     final snapped = _card(t);
     expect(snapped.top, isNot(closeTo(chosen.top, 1)));
-    expect(snapped.overlaps(t.getRect(find.byKey(LiveGuideOverlay.outlineKey))), isFalse);
+    expect(snapped.overlaps(t.getRect(liveGuideFocus)), isFalse);
     expect(snapped.overlaps(t.getRect(find.byKey(LiveGuideOverlay.tapPillKey))), isFalse);
     f.targetTop.value = 100;
     await f.frames(t);
@@ -143,7 +144,7 @@ void main() {
     for (var i = 0; i < 16; i++) { await t.pump(const Duration(milliseconds: 100)); }
     expect(stage.run.currentStep?.id, 'finish');
     expect(_card(t).top, closeTo(chosen.top, 1));
-    expect(_card(t).overlaps(t.getRect(find.byKey(LiveGuideOverlay.outlineKey))), isFalse);
+    expect(_card(t).overlaps(t.getRect(liveGuideFocus)), isFalse);
   });
 
   // WHY: blank-space drag belongs to the card, never the page underneath it.

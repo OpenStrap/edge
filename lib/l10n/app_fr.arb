@@ -3522,7 +3522,7 @@
   "guideAddNapRulesBody": "Une sieste dure entre 5 minutes et 6 heures, doit être déjà terminée et ne peut chevaucher ni une autre sieste ni votre sommeil principal.",
   "guideRemoveTitle": "Où supprimer une sieste ou une séance qui n’était pas réelle",
   "guideRemoveStep1": "Dans l’onglet **{tab}**, touchez la carte **{card}**. Elle n’apparaît que lorsque quelque chose attend votre réponse.",
-  "guideRemoveStep2": "Touchez **{notNap}** sur une sieste, ou **{notWorkout}** sur une séance, qui n’a pas eu lieu.",
+  "guideRemoveStep2": "Chaque élément a son propre **{notNap}** / **{notWorkout}**. Touchez-le sur la sieste ou la séance qui n’a pas eu lieu ; la surbrillance montre les choix.",
   "guideRemoveSavedTitle": "Déjà enregistrée ?",
   "guideRemoveSavedBody": "Ouvrez l’onglet **{sleep}** et touchez **{naps}**. Touchez **{notNap}** sur une sieste trouvée par le bracelet, ou **{delete}** sur une que vous avez enregistrée vous-même.",
   "guideRemoveMissingTitle": "Vous ne voyez pas « {card} » ?",
@@ -3531,7 +3531,7 @@
   "guideFixTimesStep1": "Dans l’onglet **{tab}**, touchez **{change}** sous votre dernière nuit. Il indique **{set}** tant que vous n’avez pas réglé les heures vous-même. On vous demande quand vous vous êtes couché, puis quand vous vous êtes réveillé.",
   "guideFixTimesStep2": "Pour annuler vos modifications, touchez **{back}**. La nuit reprend les heures détectées par l’app.",
   "guideFixTimesBackTitle": "Vous ne voyez pas « {back} » ?",
-  "guideFixTimesBackBody": "**{back}** n’apparaît qu’après avoir réglé les heures vous-même. Réglez-les d’abord, il apparaîtra.",
+  "guideFixTimesBackBody": "**{back}** n’apparaît qu’après avoir réglé les heures vous-même. Réglez-les d’abord, il apparaîtra. Si **{night}** est replié, touchez son titre pour l’ouvrir.",
   "guideFixTimesAskTitle": "Ce que demandent les sélecteurs",
   "guideFixTimesAskBody": "D’abord l’heure à laquelle vous vous êtes couché, puis celle à laquelle vous vous êtes réveillé. La nuit est recalculée à partir de ces deux heures.",
   "guideDeleteTitle": "Où supprimer une séance",
@@ -3597,5 +3597,25 @@
   },
   "@guideMoveCardDown": {
     "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapOneOf": "touchez l'un d'eux",
+  "guideSearchOrPick": "cherchez ou choisissez",
+  "profileHelpRow": "Aide",
+  "guideAddNapMissingTitle": "Vous ne voyez pas « {naps} » ?",
+  "guideAddNapMissingBody": "**{naps}** se trouve sous votre nuit. Si cette partie, **{night}**, est repliée, touchez son titre pour l’ouvrir.",
+  "guideExpandAccordion": "Développer {title}",
+  "guideRemoveStep2Still": "Chaque élément a son propre **{notNap}** / **{notWorkout}**. Touchez-le sur la sieste ou la séance qui n’a pas eu lieu ; le contour marque le premier.",
+  "@guideRemoveStep2Still": {
+    "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",
+    "placeholders": {
+      "notNap": {
+        "type": "String",
+        "description": "Name of the Not a nap button"
+      },
+      "notWorkout": {
+        "type": "String",
+        "description": "Name of the Not a workout button"
+      }
+    }
   }
 }

@@ -16,14 +16,16 @@ import 'guide.dart';
 import 'guide_navigation.dart';
 import 'guide_content.dart';
 import 'guide_target.dart';
+import 'guide_copy.dart';
+import 'guide_labels.dart';
 
-final _alarmRow = GuideTarget.label((l) => l.settingsAlarmRowTitle);
-final _tuesday = GuideTarget.label((l) => l.wellnessTue);
-final _wakeTime = GuideTarget.label((l) => l.alarmWakeTimeRowTitle);
+final _alarmRow = GuideTarget.label(ScreenLabel.settingsAlarmRowTitle);
+final _tuesday = GuideTarget.label(ScreenLabel.wellnessTue);
+final _wakeTime = GuideTarget.label(ScreenLabel.alarmWakeTimeRowTitle);
 
 Guide get alarmScheduleGuide => Guide(
       id: 'alarm-schedule',
-      title: (l) => l.guideAlarmTitle,
+      title: GuideCopy.alarmTitle,
       start: GuideStart.sleep,
       variants: [
         GuideVariant(steps: [
@@ -31,18 +33,18 @@ Guide get alarmScheduleGuide => Guide(
             id: 'open-alarm',
             node: GuideNode.sleep,
             target: _alarmRow,
-            anchor: GuideTarget.firstLabel((l) => l.sleepDetailMedicalDisclaimer),
+            anchor: GuideTarget.firstLabel(ScreenLabel.sleepDetailMedicalDisclaimer),
             action: GuideAction.scrollThenTap,
-            caption: (l) => l.guideAlarmStep1(l.tabSleep, l.sleepTabMoreTitle, l.settingsAlarmRowTitle),
+            caption: GuideCopy.alarmCaptionOpenAlarm,
           ),
           GuideStep(
             id: 'pick-day',
             node: GuideNode.alarm,
             target: _tuesday,
-            alsoTap: [LabelledContent([(l) => l.wellnessMon, (l) => l.wellnessTue, (l) => l.wellnessWed, (l) => l.wellnessThu, (l) => l.wellnessFri, (l) => l.wellnessSat, (l) => l.wellnessSun])],
+            alsoTap: [LabelledContent([ScreenLabel.wellnessMon, ScreenLabel.wellnessTue, ScreenLabel.wellnessWed, ScreenLabel.wellnessThu, ScreenLabel.wellnessFri, ScreenLabel.wellnessSat, ScreenLabel.wellnessSun])],
             anchor: GuideTarget.label((l) => l.alarmScheduleGroup),
             action: GuideAction.tap,
-            caption: (l) => l.guideAlarmStep2(l.alarmScheduleGroup, l.wellnessTue),
+            caption: GuideCopy.alarmCaptionPickDay,
           ),
           GuideStep(
             id: 'set-wake-time',
@@ -50,20 +52,20 @@ Guide get alarmScheduleGuide => Guide(
             target: _wakeTime,
             anchor: _wakeTime,
             action: GuideAction.tap,
-            caption: (l) => l.guideAlarmStep3(l.alarmWakeTimeRowTitle),
+            caption: GuideCopy.alarmCaptionSetWakeTime,
           ),
         ]),
       ],
       footers: [
         GuideFooter(
           kind: GuideFooterKind.anotherWay,
-          title: (l) => l.guideAnotherWayInTitle,
-          body: (l) => l.guideAlarmAltBody(l.profileTitle, l.profileSettingsRow, l.settingsGroupTheBand, l.settingsAlarmRowTitle),
+          title: GuideCopy.alarmFooter0Title,
+          body: GuideCopy.alarmFooter0Body,
         ),
         GuideFooter(
           kind: GuideFooterKind.missingTarget,
-          title: (l) => l.guideAlarmMissingTitle(l.alarmScheduleGroup),
-          body: (l) => l.guideAlarmMissingBody(l.alarmScheduleGroup),
+          title: GuideCopy.alarmFooter1Title,
+          body: GuideCopy.alarmFooter1Body,
         ),
       ],
     );

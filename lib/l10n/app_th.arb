@@ -16950,6 +16950,7 @@
   "guideHrZonesMissingTitle": "ไม่เห็น \"{section}\" ใช่ไหม",
   "guideHrZonesMissingBody": "จะแสดงเมื่อสายรัดบันทึกอัตราการเต้นหัวใจของวันนั้นแล้วและคำนวณโซนของคุณได้ หากสวมสักพักแล้วยังไม่แสดง ให้เพิ่มอายุของคุณในโปรไฟล์",
   "@guideNoVariantBody": {
+    "description": "Shown instead of a guide's steps when the guide has no version for the user's band. {bands} is a list of band names such as WHOOP 4 / WHOOP 5; brand names are not translated.",
     "placeholders": {
       "bands": {
         "type": "String"
@@ -16957,6 +16958,7 @@
     }
   },
   "@guideHrZonesIntro": {
+    "description": "One line under the guide title. {score} is the in-app name of the Strain ring on the Today tab.",
     "placeholders": {
       "score": {
         "type": "String"
@@ -16964,6 +16966,7 @@
     }
   },
   "@guideHrZonesStep1": {
+    "description": "Step 1 caption. The words between ** ** are shown in bold and must be the in-app labels, passed in: {tab} is the Today tab name, {ring} the Strain ring name.",
     "placeholders": {
       "tab": {
         "type": "String"
@@ -16974,6 +16977,7 @@
     }
   },
   "@guideHrZonesStep2": {
+    "description": "Step 2 caption. Bold words are in-app labels: {section} is the 'Time in zones' heading, {action} the link on its right ('How these are set').",
     "placeholders": {
       "section": {
         "type": "String"
@@ -16984,6 +16988,7 @@
     }
   },
   "@guideHrZonesStep3": {
+    "description": "Step 3 caption. Bold words are in-app labels: {screen} is the heart-rate zones screen title, {link} the link that opens the own-zones form.",
     "placeholders": {
       "screen": {
         "type": "String"
@@ -16994,6 +16999,7 @@
     }
   },
   "@guideHrZonesAltBody": {
+    "description": "Footer card body. Bold words are in-app labels: {tab} is the Activity tab name, {link} the 'Today's strain' link.",
     "placeholders": {
       "tab": {
         "type": "String"
@@ -17004,6 +17010,7 @@
     }
   },
   "@guideHrZonesMissingTitle": {
+    "description": "Footer card title: the user cannot see the 'Time in zones' section. {section} is that section's in-app heading.",
     "placeholders": {
       "section": {
         "type": "String"
@@ -17030,7 +17037,7 @@
   "guideAddNapRulesBody": "การงีบต้องยาวระหว่าง 5 นาทีถึง 6 ชั่วโมง ต้องจบไปแล้ว และต้องไม่ทับกับการงีบอื่นหรือการนอนหลักของคุณ",
   "guideRemoveTitle": "ลบการงีบหรือการออกกำลังกายที่ไม่จริงได้ที่ไหน",
   "guideRemoveStep1": "ที่แท็บ **{tab}** แตะการ์ด **{card}** การ์ดนี้จะแสดงเฉพาะเมื่อมีรายการรอคำตอบจากคุณ",
-  "guideRemoveStep2": "แตะ **{notNap}** ที่การงีบ หรือ **{notWorkout}** ที่การออกกำลังกายที่ไม่ได้เกิดขึ้นจริง",
+  "guideRemoveStep2": "แตะ **{notNap}** หรือ **{notWorkout}** สำหรับรายการที่ไม่เกิดขึ้นจริง ส่วนที่ไฮไลต์แสดงตัวเลือก",
   "guideRemoveSavedTitle": "บันทึกไปแล้วหรือ",
   "guideRemoveSavedBody": "เปิดแท็บ **{sleep}** แล้วแตะ **{naps}** แตะ **{notNap}** ที่การงีบที่สายรัดพบ หรือ **{delete}** ที่การงีบที่คุณบันทึกเอง",
   "guideRemoveMissingTitle": "ไม่เห็น \"{card}\" ใช่ไหม",
@@ -17105,5 +17112,54 @@
   "guideMoveCardDown": "ย้ายการ์ดคำแนะนำลง",
   "@guideMoveCardDown": {
     "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapOneOf": "แตะรายการใดรายการหนึ่ง",
+  "guideSearchOrPick": "ค้นหาหรือเลือก",
+  "guideExpandAccordion": "ขยาย {title}",
+  "guideAddNapMissingTitle": "ไม่เห็น **{naps}**?",
+  "guideAddNapMissingBody": "**{naps}** อยู่ใต้ข้อมูลคืนนั้นใน **{night}**",
+  "@guideExpandAccordion": {
+    "description": "Guide hop asking the wearer to open a collapsed section",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "@guideAddNapMissingTitle": {
+    "description": "Footer card title (the \"Don't see it?\" help): the Naps button is not visible. {naps} is its in-app name.",
+    "placeholders": {
+      "naps": {
+        "type": "String",
+        "description": "Name of the Naps button"
+      }
+    }
+  },
+  "@guideAddNapMissingBody": {
+    "description": "Footer card body: the Naps button sits in a section that can be folded. {naps} is the button, {night} the section title.",
+    "placeholders": {
+      "naps": {
+        "type": "String",
+        "description": "Name of the Naps button"
+      },
+      "night": {
+        "type": "String",
+        "description": "Title of the section that holds it"
+      }
+    }
+  },
+  "guideRemoveStep2Still": "แตะ **{notNap}** หรือ **{notWorkout}** สำหรับรายการที่ไม่เกิดขึ้นจริง เส้นกรอบแสดงตัวเลือก",
+  "@guideRemoveStep2Still": {
+    "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",
+    "placeholders": {
+      "notNap": {
+        "type": "String",
+        "description": "Name of the Not a nap button"
+      },
+      "notWorkout": {
+        "type": "String",
+        "description": "Name of the Not a workout button"
+      }
+    }
   }
 }

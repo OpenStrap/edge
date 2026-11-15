@@ -1,6 +1,6 @@
-// The Help entry: one "Help" row in Profile, and the HelpScreen it opens.
+// The Help entry: one "Help" row on the Settings landing, and the HelpScreen it opens.
 //
-// The only existing-screen edit of this PR is that row (profile.dart). The
+// The only existing-screen edit of this PR is that row (settings.dart). The
 // screen under it lists guides grouped by topic, filtered by the paired band.
 
 import 'package:flutter/material.dart';
@@ -10,7 +10,10 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/state/clock_format.dart';
 import 'package:openstrap_edge/state/locale_controller.dart';
+import 'package:openstrap_edge/state/units_controller.dart';
+import 'package:openstrap_edge/theme/theme_controller.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
 import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_catalogue.dart';
@@ -22,19 +25,20 @@ import 'package:openstrap_edge/ui2/profile/profile.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 import '../support/skeleton_fixture.dart';
+import '../support/guide_text.dart';
 
 Guide _guide(String id, Set<BandGeneration> devices) => Guide(
       id: id,
-      title: (_) => 'Title $id',
+      title: fnText((_) => 'Title $id'),
       start: GuideStart.today,
       variants: [
         GuideVariant(devices: devices, steps: [
           GuideStep(
             id: 'only',
-            target: GuideTarget.label((_) => 'nowhere'),
-            anchor: GuideTarget.label((_) => 'nowhere'),
+            target: GuideTarget.label(fnText((_) => 'nowhere')),
+            anchor: GuideTarget.label(fnText((_) => 'nowhere')),
             action: GuideAction.tap,
-            caption: (_) => 'Caption',
+            caption: fnText((_) => 'Caption'),
           ),
         ]),
       ],
@@ -75,7 +79,12 @@ Future<_RecordingRunner> _pumpHelp(WidgetTester t, {BandGeneration? band, List<G
 Widget _profileHost(Widget home, {AppState? app}) => MultiProvider(
       providers: [
         ChangeNotifierProvider<LocaleController>.value(value: LocaleController.seed(null)),
-        if (app != null) ChangeNotifierProvider<AppState>.value(value: app),
+        if (app != null) ...[
+          ChangeNotifierProvider<AppState>.value(value: app),
+          ChangeNotifierProvider(create: (_) => UnitsController.seed(UnitSystem.metric)),
+          ChangeNotifierProvider(create: (_) => ThemeController.seed(AppThemeChoice.light, Brightness.light)),
+          ChangeNotifierProvider(create: (_) => ClockFormatController.seed(ClockFormat.h24)),
+        ],
       ],
       child: MaterialApp(
         theme: buildTheme(Brightness.light),
@@ -88,12 +97,13 @@ Widget _profileHost(Widget home, {AppState? app}) => MultiProvider(
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  group('the Profile row', () {
+  group('the Settings row', () {
     testWidgets('"Help" is a row of its own, directly under "Settings"', (t) async {
-      // why: the owner's entry point; "near Settings" - the same group, right
-      // after it, so people who look for settings find it.
+      // why: the owner's entry point. On integrate/next the profile home IS the
+      // Settings landing (MoreSettingsView); Help sits right after Settings, above
+      // the accordions, so people who look for settings find it first.
       skTallView(t, w: 390, h: 3000);
-      await t.pumpWidget(_profileHost(const ProfileHomeView(stats: ProfileStats(name: 'Tester'))));
+      await t.pumpWidget(_profileHost(const ProfileHomeView(stats: ProfileStats())));
       await t.pumpAndSettle();
       final l = lookupAppLocalizations(const Locale('en'));
       final rows = t.widgetList<SetRow>(find.byType(SetRow)).toList();
@@ -119,7 +129,7 @@ void main() {
         await t.pumpWidget(_profileHost(const ProfileHome(), app: app));
         await t.pumpAndSettle();
         final l = lookupAppLocalizations(const Locale('en'));
-        expect(find.text(l.profileHelpRow), findsOneWidget, reason: 'the Help row is on Profile');
+        expect(find.text(l.profileHelpRow), findsOneWidget, reason: 'the Help row is on the Settings landing');
         await t.tap(find.text(l.profileHelpRow));
         await t.pumpAndSettle();
         expect(find.byType(HelpScreen), findsOneWidget);
@@ -239,7 +249,7 @@ void main() {
       for (final e in kGuideCatalogue) {
         final row = find.byKey(HelpScreen.guideRowKey(e.guide.id));
         expect(row, findsOneWidget, reason: e.guide.id);
-        expect(find.descendant(of: row, matching: find.text(e.guide.title(l))), findsOneWidget);
+        expect(find.descendant(of: row, matching: find.text(e.guide.title.of(l))), findsOneWidget);
       }
       expect(t.takeException(), isNull);
     });

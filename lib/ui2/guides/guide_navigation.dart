@@ -7,6 +7,7 @@ import '../app_shell.dart' show AppShell;
 import '../grammar.dart' show SubTabs;
 import '../screens/metric_detail.dart' show MetricDetail;
 import 'guide_target.dart';
+import 'guide_labels.dart';
 import 'tree_geometry.dart';
 
 enum GuideNode {
@@ -35,6 +36,8 @@ enum GuideNode {
   workoutSummary,
   daySteps,
   dayTimeline,
+  tracks,
+  trackDetail,
   recovery,
   stress,
   journal,
@@ -61,9 +64,13 @@ enum GuideNode {
   profile,
   devices,
   deviceDetail,
+  liveDevices,
+  deviceLab,
   bandGestures,
+  haptics,
   bandNotifications,
   phoneImport,
+  devLogs,
   reportIssue,
   help,
   metric,
@@ -137,6 +144,12 @@ const guideNavigationTree = <GuideNode, GuideDestination>{
   GuideNode.workoutSummary: GuideDestination(GuideNode.activityOverview, [
     'ActivitySummary',
   ]),
+  GuideNode.tracks: GuideDestination(GuideNode.activityActivities, [
+    'TracksScreen',
+  ]),
+  GuideNode.trackDetail: GuideDestination(GuideNode.tracks, [
+    'TrackDetailScreen',
+  ]),
   GuideNode.beats: GuideDestination(GuideNode.healthOverview, ['Beats']),
   GuideNode.ecg: GuideDestination(GuideNode.healthOverview, ['EcgHomeScreen']),
   GuideNode.ecgCapture: GuideDestination(GuideNode.ecg, ['EcgCaptureScreen']),
@@ -157,13 +170,17 @@ const guideNavigationTree = <GuideNode, GuideDestination>{
   GuideNode.profile: GuideDestination(GuideNode.settings, ['EditProfile']),
   GuideNode.devices: GuideDestination(GuideNode.settings, ['MyDevices']),
   GuideNode.deviceDetail: GuideDestination(GuideNode.devices, ['DeviceDetail']),
+  GuideNode.liveDevices: GuideDestination(GuideNode.devices, ['LiveDevices']),
+  GuideNode.deviceLab: GuideDestination(GuideNode.devices, ['DeviceLab']),
   GuideNode.bandGestures: GuideDestination(GuideNode.settings, [
     'BandGestures',
   ]),
+  GuideNode.haptics: GuideDestination(GuideNode.settings, ['HapticsSettings']),
   GuideNode.bandNotifications: GuideDestination(GuideNode.settings, [
     'BandNotifications',
   ]),
   GuideNode.phoneImport: GuideDestination(GuideNode.settings, ['PhoneImport']),
+  GuideNode.devLogs: GuideDestination(GuideNode.settings, ['DevLogsPage']),
   GuideNode.reportIssue: GuideDestination(GuideNode.settings, [
     'ReportIssueScreen',
   ]),
@@ -322,6 +339,11 @@ class GuideNavigation {
   /// A shell tab restores its retained branch, rather than its default branch.
   /// Read only mounted identities: an unvisited lazy tab keeps the default path.
   static GuideNode? parkedLocation(Element page, GuideNode tab) {
+    final branch = parkedPage(page, tab);
+    return branch == null ? null : location(branch, includeOffstage: true);
+  }
+
+  static Element? parkedPage(Element page, GuideNode tab) {
     final shell = onstageElements(page).where((e) => e.widget is AppShell).firstOrNull;
     final index = tabIndex(tab);
     if (shell == null || index == null) return null;
@@ -332,7 +354,7 @@ class GuideNavigation {
     final branches = <Element>[];
     raw?.visitChildren(branches.add);
     if (index >= branches.length) return null;
-    return location(branches[index], includeOffstage: true);
+    return branches[index];
   }
 
   static int? tabIndex(GuideNode node) => switch (tabOf(node)) {
@@ -366,14 +388,14 @@ class GuideNavigation {
         return TargetFound(rectInRoot(box, root), renderObject: box);
       }
     }
-    final String Function(AppLocalizations)? label = switch (hop.node) {
-      GuideNode.dayStrain => ((l) => l.homeRingStrain),
-      GuideNode.zones => ((l) => l.dayStrainHowSet),
-      GuideNode.naps => ((l) => l.sleepDetailEditNaps),
-      GuideNode.alarm => ((l) => l.settingsAlarmRowTitle),
-      GuideNode.review => ((l) => l.activityReviewTitle),
-      GuideNode.picker => ((l) => l.workoutStartSessionLabel),
-      GuideNode.logWorkout => ((l) => l.workoutLogPastFix),
+    final label = switch (hop.node) {
+      GuideNode.dayStrain => ScreenLabel.homeRingStrain,
+      GuideNode.zones => ScreenLabel.dayStrainHowSet,
+      GuideNode.naps => ScreenLabel.sleepDetailEditNaps,
+      GuideNode.alarm => ScreenLabel.settingsAlarmRowTitle,
+      GuideNode.review => ScreenLabel.activityReviewTitle,
+      GuideNode.picker => ScreenLabel.workoutStartSessionLabel,
+      GuideNode.logWorkout => ScreenLabel.workoutLogPastFix,
       _ => null,
     };
     if (label == null) return null;

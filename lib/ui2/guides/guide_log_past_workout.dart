@@ -10,15 +10,17 @@
 
 import 'guide.dart';
 import 'guide_navigation.dart';
+import 'guide_copy.dart';
+import 'guide_labels.dart';
 import 'guide_target.dart';
 
-final _historyTab = GuideTarget.label((l) => l.workoutTabHistory);
-final _logPast = GuideTarget.label((l) => l.workoutLogPastFix);
-final _logIt = GuideTarget.label((l) => l.logWorkoutLogIt);
+final _historyTab = GuideTarget.label(ScreenLabel.workoutTabHistory);
+final _logPast = GuideTarget.label(ScreenLabel.workoutLogPastFix);
+final _logIt = GuideTarget.label(ScreenLabel.logWorkoutLogIt);
 
 Guide get logPastWorkoutGuide => Guide(
       id: 'log-past-workout',
-      title: (l) => l.guideLogPastTitle,
+      title: GuideCopy.logPastTitle,
       start: GuideStart.activity,
       variants: [
         GuideVariant(steps: [
@@ -28,40 +30,40 @@ Guide get logPastWorkoutGuide => Guide(
             target: _historyTab,
             anchor: _historyTab,
             action: GuideAction.tap,
-            caption: (l) => l.guideLogPastStep1(l.tabActivity, l.workoutTabHistory),
+            caption: GuideCopy.logPastCaptionOpenHistory,
           ),
           GuideStep(
             id: 'log-past',
             node: GuideNode.activityHistory,
             target: _logPast,
             anchor: GuideTarget.anyLabel([
-              (l) => l.workoutTrackedLabel,
-              (l) => l.workoutNoSessionsTitle,
+              ScreenLabel.workoutTrackedLabel,
+              ScreenLabel.workoutNoSessionsTitle,
             ]),
             action: GuideAction.scrollThenTap,
-            caption: (l) => l.guideLogPastStep2(l.workoutLogPastFix),
+            caption: GuideCopy.logPastCaptionLogPast,
           ),
           GuideStep(
             id: 'log-it',
             node: GuideNode.logWorkout,
             target: _logIt,
             anchor: _logIt,
-            alsoKeep: [GuideTarget.label((l) => l.logWorkoutWhenGroup)],
+            alsoKeep: [GuideTarget.label(ScreenLabel.logWorkoutWhenGroup)],
             action: GuideAction.tap,
-            caption: (l) => l.guideLogPastStep3(l.logWorkoutWhenGroup, l.logWorkoutLogIt),
+            caption: GuideCopy.logPastCaptionLogIt,
           ),
         ]),
       ],
       footers: [
         GuideFooter(
           kind: GuideFooterKind.note,
-          title: (l) => l.guideLogPastScoreTitle,
-          body: (l) => l.guideLogPastScoreBody,
+          title: GuideCopy.logPastFooter0Title,
+          body: GuideCopy.logPastFooter0Body,
         ),
         GuideFooter(
           kind: GuideFooterKind.missingTarget,
-          title: (l) => l.guideLogPastMissingTitle(l.workoutLogPastFix),
-          body: (l) => l.guideLogPastMissingBody(l.workoutTabHistory),
+          title: GuideCopy.logPastFooter1Title,
+          body: GuideCopy.logPastFooter1Body,
         ),
       ],
     );

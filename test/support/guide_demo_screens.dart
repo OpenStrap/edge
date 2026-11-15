@@ -12,7 +12,6 @@ import 'package:flutter/widgets.dart';
 import 'package:openstrap_edge/ui2/activity/day_strain.dart' show DayStrainDetail;
 import 'package:openstrap_edge/ui2/activity/zones.dart' show ZonesDetail;
 import 'package:openstrap_edge/ui2/app_shell.dart' show AppShell, ShellDomain;
-import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_target.dart';
 import 'package:openstrap_edge/ui2/screens/home_screen.dart' show HomeScreen;
@@ -45,7 +44,7 @@ GuideStep demoStep({
   required GuideTarget anchor,
   List<GuideTarget> alsoKeep = const [],
   required GuideAction action,
-  required String Function(AppLocalizations l) caption,
+  required GuideText caption,
 }) {
   kGuideDemoScreens[id] = screen;
   return GuideStep(id: id, target: target, anchor: anchor, alsoKeep: alsoKeep, action: action, caption: caption);

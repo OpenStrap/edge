@@ -8326,6 +8326,7 @@
   "guideHrZonesMissingTitle": "Не видите «{section}»?",
   "guideHrZonesMissingBody": "Раздел появляется, когда браслет записал пульс за этот день и ваши зоны можно рассчитать. Если он не появился и после того, как вы поносили браслет, укажите свой возраст в профиле.",
   "@guideNoVariantBody": {
+    "description": "Shown instead of a guide's steps when the guide has no version for the user's band. {bands} is a list of band names such as WHOOP 4 / WHOOP 5; brand names are not translated.",
     "placeholders": {
       "bands": {
         "type": "String"
@@ -8333,6 +8334,7 @@
     }
   },
   "@guideHrZonesIntro": {
+    "description": "One line under the guide title. {score} is the in-app name of the Strain ring on the Today tab.",
     "placeholders": {
       "score": {
         "type": "String"
@@ -8340,6 +8342,7 @@
     }
   },
   "@guideHrZonesStep1": {
+    "description": "Step 1 caption. The words between ** ** are shown in bold and must be the in-app labels, passed in: {tab} is the Today tab name, {ring} the Strain ring name.",
     "placeholders": {
       "tab": {
         "type": "String"
@@ -8350,6 +8353,7 @@
     }
   },
   "@guideHrZonesStep2": {
+    "description": "Step 2 caption. Bold words are in-app labels: {section} is the 'Time in zones' heading, {action} the link on its right ('How these are set').",
     "placeholders": {
       "section": {
         "type": "String"
@@ -8360,6 +8364,7 @@
     }
   },
   "@guideHrZonesStep3": {
+    "description": "Step 3 caption. Bold words are in-app labels: {screen} is the heart-rate zones screen title, {link} the link that opens the own-zones form.",
     "placeholders": {
       "screen": {
         "type": "String"
@@ -8370,6 +8375,7 @@
     }
   },
   "@guideHrZonesAltBody": {
+    "description": "Footer card body. Bold words are in-app labels: {tab} is the Activity tab name, {link} the 'Today's strain' link.",
     "placeholders": {
       "tab": {
         "type": "String"
@@ -8380,6 +8386,7 @@
     }
   },
   "@guideHrZonesMissingTitle": {
+    "description": "Footer card title: the user cannot see the 'Time in zones' section. {section} is that section's in-app heading.",
     "placeholders": {
       "section": {
         "type": "String"
@@ -8406,7 +8413,7 @@
   "guideAddNapRulesBody": "Дневной сон длится от 5 минут до 6 часов, должен уже закончиться и не может пересекаться с другим дневным сном или с основным сном.",
   "guideRemoveTitle": "Где убрать дневной сон или тренировку, которых не было",
   "guideRemoveStep1": "На вкладке **{tab}** нажмите на карточку **{card}**. Она есть, только пока что-то ждёт вашего ответа.",
-  "guideRemoveStep2": "Нажмите **{notNap}** у дневного сна или **{notWorkout}** у тренировки, которых не было.",
+  "guideRemoveStep2": "У каждого пункта своя кнопка **{notNap}** / **{notWorkout}**. Нажмите её у дневного сна или тренировки, которых не было; подсветка показывает варианты.",
   "guideRemoveSavedTitle": "Уже сохранено?",
   "guideRemoveSavedBody": "Откройте вкладку **{sleep}** и нажмите **{naps}**. Нажмите **{notNap}** у сна, найденного браслетом, или **{delete}** у записанного вами.",
   "guideRemoveMissingTitle": "Не видите «{card}»?",
@@ -8415,7 +8422,7 @@
   "guideFixTimesStep1": "На вкладке **{tab}** нажмите **{change}** под последней ночью. Там написано **{set}**, пока вы сами не задали время. Вас спросят, когда вы легли, а затем когда проснулись.",
   "guideFixTimesStep2": "Чтобы отменить изменения, нажмите **{back}**. Ночь вернётся ко времени, которое определило приложение.",
   "guideFixTimesBackTitle": "Не видите «{back}»?",
-  "guideFixTimesBackBody": "**{back}** появляется только после того, как вы сами задали время. Сначала задайте его, и кнопка появится.",
+  "guideFixTimesBackBody": "**{back}** появляется только после того, как вы сами задали время. Сначала задайте его, и кнопка появится. Если раздел **{night}** свёрнут, нажмите на его заголовок, чтобы открыть.",
   "guideFixTimesAskTitle": "О чём спрашивают окна выбора",
   "guideFixTimesAskBody": "Сначала время, когда вы легли, затем время, когда проснулись. По этим двум значениям ночь рассчитывается заново.",
   "guideDeleteTitle": "Где удалить тренировку",
@@ -8443,6 +8450,7 @@
   "guideLogPastMissingTitle": "Не видите «{log}»?",
   "guideLogPastMissingBody": "Она в самом низу раздела **{history}**, под вашими тренировками. Прокрутите до конца.",
   "@guideStepOf": {
+    "description": "Screen-reader label of one dot in the step indicator of a guide.",
     "placeholders": {
       "step": {
         "type": "String",
@@ -8527,6 +8535,7 @@
     }
   },
   "@guideAddNapStep1": {
+    "description": "Step 1 caption. Bold words are in-app labels: {tab} is the Sleep tab name, {naps} the Naps button.",
     "placeholders": {
       "tab": {
         "type": "String",
@@ -8539,6 +8548,7 @@
     }
   },
   "@guideAddNapStep2": {
+    "description": "Step 2 caption. {log} is the Log a nap button; {fell} and {woke} are the two questions of the time pickers, in lower case.",
     "placeholders": {
       "log": {
         "type": "String",
@@ -8555,6 +8565,7 @@
     }
   },
   "@guideAddNapFoundBody": {
+    "description": "Footer card body. {notNap} is the in-app button that rejects a detected nap.",
     "placeholders": {
       "notNap": {
         "type": "String",
@@ -8563,6 +8574,7 @@
     }
   },
   "@guideRemoveStep1": {
+    "description": "Step 1 caption. Bold words are in-app labels: {tab} is the Today tab name, {card} the title of the card.",
     "placeholders": {
       "tab": {
         "type": "String",
@@ -8575,6 +8587,7 @@
     }
   },
   "@guideRemoveStep2": {
+    "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",
     "placeholders": {
       "notNap": {
         "type": "String",
@@ -8587,6 +8600,7 @@
     }
   },
   "@guideRemoveSavedBody": {
+    "description": "Footer card body. Bold words are in-app labels.",
     "placeholders": {
       "sleep": {
         "type": "String",
@@ -8607,6 +8621,7 @@
     }
   },
   "@guideRemoveMissingTitle": {
+    "description": "Footer card title: the user cannot see the card. {card} is its in-app title.",
     "placeholders": {
       "card": {
         "type": "String",
@@ -8615,6 +8630,7 @@
     }
   },
   "@guideRemoveMissingBody": {
+    "description": "Footer card body. Bold words are in-app labels; > separates the taps.",
     "placeholders": {
       "sleep": {
         "type": "String",
@@ -8635,6 +8651,7 @@
     }
   },
   "@guideFixTimesStep1": {
+    "description": "Step 1 caption. Bold words are in-app labels: {tab} the Sleep tab, {change} and {set} the two texts of the same button.",
     "placeholders": {
       "tab": {
         "type": "String",
@@ -8651,6 +8668,7 @@
     }
   },
   "@guideFixTimesStep2": {
+    "description": "Step 2 caption. {back} is the in-app Back to automatic button.",
     "placeholders": {
       "back": {
         "type": "String",
@@ -8659,6 +8677,7 @@
     }
   },
   "@guideFixTimesBackTitle": {
+    "description": "Footer card title. {back} is the in-app Back to automatic button.",
     "placeholders": {
       "back": {
         "type": "String",
@@ -8667,14 +8686,20 @@
     }
   },
   "@guideFixTimesBackBody": {
+    "description": "Footer card body: why Back to automatic can be missing (the times are not yours yet), and that the night section can be folded. {night} is that section title.",
     "placeholders": {
       "back": {
         "type": "String",
         "description": "Name of the Back to automatic button"
+      },
+      "night": {
+        "type": "String",
+        "description": "Title of the section that holds the night"
       }
     }
   },
   "@guideDeleteStep1": {
+    "description": "Step 1 caption. Bold words are in-app labels: {tab} is the Activity tab, {history} the History sub-tab.",
     "placeholders": {
       "tab": {
         "type": "String",
@@ -8687,6 +8712,7 @@
     }
   },
   "@guideDeleteStep2": {
+    "description": "Step 2 caption. {label} is the accessibility label of the bin icon.",
     "placeholders": {
       "label": {
         "type": "String",
@@ -8695,6 +8721,7 @@
     }
   },
   "@guideDeleteNoneBody": {
+    "description": "Footer card body. Bold words are in-app labels: {none} the empty-History message, {start} and {log} the two ways to add a session.",
     "placeholders": {
       "none": {
         "type": "String",
@@ -8711,6 +8738,7 @@
     }
   },
   "@guideStartStep1": {
+    "description": "Step 1 caption. Bold words are in-app labels: {tab} is the Activity tab, {card} the start card.",
     "placeholders": {
       "tab": {
         "type": "String",
@@ -8723,6 +8751,7 @@
     }
   },
   "@guideStartStep2": {
+    "description": "Step 2 caption. {search} is the in-app label of the search field.",
     "placeholders": {
       "search": {
         "type": "String",
@@ -8731,6 +8760,7 @@
     }
   },
   "@guideStartStep3": {
+    "description": "Step 3 caption. {start} is the Start button of the setup screen.",
     "placeholders": {
       "start": {
         "type": "String",
@@ -8739,6 +8769,7 @@
     }
   },
   "@guideStartStep4": {
+    "description": "Step 4 caption. {finish} is the accessibility label of the red stop button.",
     "placeholders": {
       "finish": {
         "type": "String",
@@ -8747,6 +8778,7 @@
     }
   },
   "@guideStartPauseBody": {
+    "description": "Footer card body. Bold words are the in-app Pause and Resume buttons.",
     "placeholders": {
       "pause": {
         "type": "String",
@@ -8759,6 +8791,7 @@
     }
   },
   "@guideLogPastStep1": {
+    "description": "Step 1 caption. Bold words are in-app labels: {tab} is the Activity tab, {history} the History sub-tab.",
     "placeholders": {
       "tab": {
         "type": "String",
@@ -8771,6 +8804,7 @@
     }
   },
   "@guideLogPastStep2": {
+    "description": "Step 2 caption. {log} is the Log a past workout button.",
     "placeholders": {
       "log": {
         "type": "String",
@@ -8779,6 +8813,7 @@
     }
   },
   "@guideLogPastStep3": {
+    "description": "Step 3 caption. Bold words are in-app labels: {when} the heading of the times group, {logIt} the save button.",
     "placeholders": {
       "when": {
         "type": "String",
@@ -8791,6 +8826,7 @@
     }
   },
   "@guideLogPastMissingTitle": {
+    "description": "Footer card title. {log} is the in-app button.",
     "placeholders": {
       "log": {
         "type": "String",
@@ -8799,6 +8835,7 @@
     }
   },
   "@guideLogPastMissingBody": {
+    "description": "Footer card body.",
     "placeholders": {
       "history": {
         "type": "String",
@@ -8878,5 +8915,25 @@
   },
   "@guideMoveCardDown": {
     "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapOneOf": "коснитесь одного",
+  "guideSearchOrPick": "поиск или выбор",
+  "profileHelpRow": "Помощь",
+  "guideAddNapMissingTitle": "Не видите «{naps}»?",
+  "guideAddNapMissingBody": "**{naps}** находится под вашей ночью. Если этот раздел, **{night}**, свёрнут, нажмите на его заголовок, чтобы открыть.",
+  "guideExpandAccordion": "Развернуть {title}",
+  "guideRemoveStep2Still": "У каждого пункта своя кнопка **{notNap}** / **{notWorkout}**. Нажмите её у дневного сна или тренировки, которых не было; рамка отмечает первый пункт.",
+  "@guideRemoveStep2Still": {
+    "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",
+    "placeholders": {
+      "notNap": {
+        "type": "String",
+        "description": "Name of the Not a nap button"
+      },
+      "notWorkout": {
+        "type": "String",
+        "description": "Name of the Not a workout button"
+      }
+    }
   }
 }

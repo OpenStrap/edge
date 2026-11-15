@@ -14,6 +14,7 @@ import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart';
 import 'package:openstrap_edge/ui2/skeleton/unit_paint.dart';
 import 'package:openstrap_edge/ui2/skeleton/skeleton.dart';
 import 'package:openstrap_edge/ui2/theme.dart';
+import '../support/guide_text.dart';
 
 const _target = ValueKey('review-target');
 const _skeleton = ValueKey('review-skeleton');
@@ -62,9 +63,9 @@ class _ScrollPage {
       ])))));
     await t.pump();
     final target = GuideTarget.key(lazy ? const ValueKey('lazy-target') : _target);
-    final guide = Guide(id: 'review', title: (_) => 'Review', start: GuideStart.today,
+    final guide = Guide(id: 'review', title: fnText((_) => 'Review'), start: GuideStart.today,
       variants: [GuideVariant(steps: [GuideStep(id: 'target', target: target, anchor: GuideTarget.key(_target),
-        action: lazy ? GuideAction.scrollThenTap : GuideAction.tap, caption: (_) => 'Tap Target.')])]);
+        action: lazy ? GuideAction.scrollThenTap : GuideAction.tap, caption: fnText((_) => 'Tap Target.'))])]);
     run = GuideRun(guide: guide, variant: guide.variants.single);
     entry = OverlayEntry(builder: (_) => LiveGuideOverlay(run: run, navigatorKey: nav, routes: routes,
       onExit: run.exit, onBackToGuide: () {}));
