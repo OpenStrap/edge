@@ -3540,7 +3540,7 @@
   "supplementCoachOversize": "Esa pregunta reunió demasiados datos ({size} KB; el límite es {limit} KB), así que no se envió nada. Prueba con un periodo más corto o empieza un chat nuevo.",
   "supplementCoachRendering": "Generando {kind}…",
   "supplementADeviationNotATemperaturefc109f": "Una desviación, no una temperatura. Las noches importadas usan otras unidades, así que no se muestran en el mismo gráfico.",
-  "supplementADoseIsDue1543e3": "Toca una dosis.",
+  "supplementADoseIsDue1543e3": "Es hora de una dosis.",
   "supplementALocalModelCanTake62d4a8": "Un modelo local puede tardar en cargarse antes de su primera respuesta. El valor predeterminado es 5 minutos (300 s). Los proveedores en la nube siempre usan 2 minutos.",
   "supplementALowConfidenceOverlayA9fbabe": "Una capa de baja confianza: un sensor de muñeca no ve la actividad de ondas lentas, así que aquí el sueño profundo es la estabilidad de la frecuencia cardíaca dentro del sueño NREM.",
   "supplementAMinuteOfNotesTonightac2cf6": "Un minuto de notas esta noche le enseña a OpenStrap qué influye de verdad en tu recuperación.",
