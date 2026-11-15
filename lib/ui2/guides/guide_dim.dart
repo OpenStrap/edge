@@ -16,7 +16,7 @@
 //    and per-layer hit testing, and paints only what no component paints itself.
 //
 // CLAIM(dim-in-tree): a component painted under a plan paints its own dim in the
-// frame it moves in [guide_r2_scroll_dim_test, guide_r2_structural_test].
+// frame it moves in [guide_r2_structural_test].
 // CLAIM(dim-notifies-on-change): the controller notifies only when the plan changed
 // [guide_r2_structural_test 'plan equality'].
 

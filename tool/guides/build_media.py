@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Build review GIFs/contact sheets from guide_activity_shots_test manifests.
+"""Build review GIFs/contact sheets from capture_activity.dart manifests.
 
 Run with ImageMagick on PATH, e.g. nix shell nixpkgs#imagemagick -c python3
- test/support/build_guide_media.py /home/user/pr716-media
+ tool/guides/build_media.py /home/user/pr716-media
 No images are checked into the repository.
 """
 import argparse

@@ -9,3 +9,5 @@ Run them through the project Boat runner, in a separate run directory for each s
 ```
 
 `capture_activity.dart` walks the eight main-screen guides with real pointer actions. `capture_markers.dart`, `capture_chrome.dart`, `capture_hand.dart` and `capture_phone.dart` use `GUIDE_RERENDER_DIR` instead. `profile_frames.dart` prints debug frame timings and needs no output directory. The captures are review artifacts, not golden baselines.
+
+Run `python3 tool/guides/build_media.py OUTPUT_DIRECTORY` with ImageMagick available to turn the eight capture manifests into contact sheets and GIFs.

@@ -957,7 +957,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
   /// The index of the tab of the shell under [page], other than the one on screen, whose
   /// parked (mounted, hidden) screen holds [target]; null when no other tab does, or when
   /// [page] has no shell. CLAIM(tab-route-only-when-found): a guide points at a tab only
-  /// when the target is really in it [guide_r2_tier2_test F1].
+  /// when the target is really in it [guide_input_regression_test F1].
   int? _tabHolding(Element page, GuideTarget target, AppLocalizations l) {
     Element? shell;
     for (final e in onstageElements(page)) {
@@ -1070,7 +1070,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
   /// the page's Scrollable ignoring pointers (the user's next tap is lost). Called when the
   /// layer leaves the tree, in build, on deactivate and dispose. Deferred to after the
   /// frame: ending a drag notifies scroll listeners, which must not happen while the tree
-  /// is being built or finalized [guide_r2_tier2_test F2].
+  /// is being built or finalized [guide_input_regression_test F2].
   void _dropPageDrag() {
     final handoff = _pageDrag;
     if (handoff == null) return;

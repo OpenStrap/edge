@@ -3,7 +3,7 @@ import 'package:flutter/rendering.dart' show CustomPainter;
 
 // CLAIM(guide-painters-classified): every CustomPainter under lib/ui2 declares what a
 // guide placeholder does with it, by implementing exactly one of the four interfaces
-// below [test/ui2/guide_r3_painters_test.dart]. A painter that declares none is drawn as
+// below [test/ui2/guide_paint_regression_test.dart]. A painter that declares none is drawn as
 // NOTHING inside a placeholder, never as its real data: the safe default for the
 // next chart someone adds.
 
