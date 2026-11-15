@@ -5849,6 +5849,18 @@
       }
     }
   },
+  "investigateMethodHrvRmssd": "The mean of RMSSD across every 5-minute window of the detected sleep session that holds at least 20 clean successive differences. Beats outside 300–2000 ms, and beats more than 20% from their local median, are dropped first. On a night whose beat timing looks noisy, only windows that pass the jitter check on their own, or that sit on a steady breathing line, count; a window, or a night, whose beats add up to more time than passed is left out. Older nights whose raw beats are gone keep the value an earlier version of this method gave them. Pulse-derived, so this is PRV: real and trendable, but not ECG HRV.",
+  "@investigateMethodHrvRmssd": {
+    "description": "Investigate: how the nightly HRV (RMSSD) figure is computed."
+  },
+  "investigateMethodRespRate": "Breathing rate recovered from respiratory sinus arrhythmia — the periodic modulation breathing imposes on beat timing. The spectral peak is found in overlapping five-minute stretches of clean beats (Lomb–Scargle on native beat times) and the night's rate is their median, reported only when most stretches agree. At a sleeping heart rate near or below 48 bpm the beats are too slow to resolve normal breathing, and the rate is withheld.",
+  "@investigateMethodRespRate": {
+    "description": "Investigate: how the nightly respiratory rate is computed."
+  },
+  "investigateMethodHrvStability": "Within one night: the standard deviation of the night's beat intervals after artifact correction (SDNN) as a percentage of their mean. The chart shows how that per-night figure moves across nights; it is not a night-to-night coefficient of variation.",
+  "@investigateMethodHrvStability": {
+    "description": "Investigate: how the within-night HRV stability figure (SDNN as % of mean NN) is computed."
+  },
   "metricDetailSlotWithValue": "{day}, {value} {unit}",
   "@metricDetailSlotWithValue": {
     "description": "Screen-reader readout for a chart slot with a value, when scrubbing the trend line.",
