@@ -13,8 +13,7 @@ void main() {
   final zh = lookupAppLocalizations(const Locale('zh'));
   final en = lookupAppLocalizations(const Locale('en'));
 
-  test('chinese has every english string outside the supplement catalogue',
-      () {
+  test('chinese has every english string', () {
     Map<String, dynamic> arb(String code) =>
         jsonDecode(File('lib/l10n/app_$code.arb').readAsStringSync())
             as Map<String, dynamic>;
@@ -23,9 +22,15 @@ void main() {
       for (final k in arb('en').keys)
         if (!k.startsWith('@') && !chinese.containsKey(k)) k,
     ];
-    // Still to do: the supplement catalogue.
-    missing.removeWhere((k) => k.startsWith('supplement'));
     expect(missing, isEmpty);
+  });
+
+  test('the supplement catalogue reads in chinese', () {
+    expect(zh.supplementNeedNights(3), '还需要 3 个晚上');
+    expect(zh.supplementNeedNights(5), '还需要 5 个晚上');
+    expect(zh.supplementNeedDays(2), '再佩戴 2 天即可解锁');
+    expect(zh.supplementNeedDays(7), '再佩戴 7 天即可解锁');
+    expect(zh.supplementDidYouNapccbced, isNot(en.supplementDidYouNapccbced));
   });
 
   test('the newly covered screens read in chinese', () {

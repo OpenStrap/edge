@@ -27,12 +27,15 @@ enum Side { below, inside, above }
 /// Your usual range for one metric: low and high, in the metric's own unit.
 @immutable
 class UsualRange {
-  const UsualRange(this.lo, this.hi);
+  const UsualRange(this.lo, this.hi, {double? centre}) : _centre = centre;
 
   final double lo, hi;
+  final double? _centre;
 
-  /// The centre. Both sources below are symmetric, so this is the baseline.
-  double get usual => (lo + hi) / 2;
+  /// The centre: the baseline the band was built around. Kept apart from the
+  /// edges because [priorTo] may raise a lower edge to 0, and the midpoint of
+  /// a clamped band is not anyone's usual.
+  double get usual => _centre ?? (lo + hi) / 2;
 
   Side side(double v) =>
       v < lo ? Side.below : (v > hi ? Side.above : Side.inside);
@@ -57,7 +60,11 @@ class UsualRange {
   /// itself. Null under [kUsualMinDays] days or on a flat history.
   // ponytail: plain median/MAD, not the pipeline's winsorised EWMA. Swap in a
   // stored baseline per metric if the pipeline ever publishes one.
-  static UsualRange? priorTo(List<double> stored, {int window = 60}) {
+  static UsualRange? priorTo(
+    List<double> stored, {
+    int window = 60,
+    bool nonNegative = false,
+  }) {
     if (stored.length < 2) return null;
     final end = stored.length - 1;
     final start = end - window < 0 ? 0 : end - window;
@@ -71,7 +78,12 @@ class UsualRange {
         : (v[v.length ~/ 2 - 1] + v[v.length ~/ 2]) / 2;
     final mad = v.fold<double>(0, (a, x) => a + (x - med).abs()) / v.length;
     if (!(mad > 0)) return null;
-    return UsualRange(med - 1.253 * mad, med + 1.253 * mad);
+    // A [nonNegative] quantity (minutes, steps) cannot go below 0: a skewed
+    // one like naps has a median of 0, and its band's negative lower edge
+    // read as a duration ("Usual range 47m–25m").
+    final lo = med - 1.253 * mad;
+    return UsualRange(nonNegative && lo < 0 ? 0 : lo, med + 1.253 * mad,
+        centre: med);
   }
 
   /// An axis that holds the data AND the band with one band-width of room on
@@ -97,10 +109,13 @@ class UsualRange {
 
   @override
   bool operator ==(Object other) =>
-      other is UsualRange && other.lo == lo && other.hi == hi;
+      other is UsualRange &&
+      other.lo == lo &&
+      other.hi == hi &&
+      other.usual == usual;
 
   @override
-  int get hashCode => Object.hash(lo, hi);
+  int get hashCode => Object.hash(lo, hi, usual);
 }
 
 /// "Normal for you" / "Above usual" / "Below usual".
@@ -247,8 +262,23 @@ UsualRange? usualRangeFor(
         ? null
         : const UsualRange(kReadinessEasyBelow, kReadinessGoodFrom);
   }
-  return UsualRange.priorTo(stored);
+  return UsualRange.priorTo(stored,
+      nonNegative: kNonNegativeKeys.contains(key));
 }
+
+/// Metrics that cannot be negative, so their usual range never starts below
+/// 0. Named, not inferred from the history: a signed metric (a temperature
+/// deviation) whose recent days all sat above 0 can still go below it.
+const kNonNegativeKeys = {
+  'sleep',
+  'deep',
+  'rem',
+  'nap_min',
+  'active_min',
+  'wear',
+  'steps',
+  'calories',
+};
 
 /// Metrics where neither direction is good news: more load is not better load,
 /// and a ratio or an uncalibrated deviation has no better side. Their verdict
