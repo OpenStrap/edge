@@ -100,6 +100,10 @@ class NightRrState {
   /// a live tail requires a separate fold; it must never rewind the live owner.
   Map<String, dynamic>? checkpoint(int boundary) {
     if (_corrector == null || _night == null) return null;
+    // The edge checkpoint requires ordered NN. A reset that regresses cannot
+    // restore its RSA/CVHR state; leave this disposable checkpoint cold.
+    // ↳ CLAIM(merged-clock-refusal)
+    if (ana.hasRegressingBeatTimes([..._nnTimes, ..._tailTimes])) return null;
     var n = 0;
     while (n < _times.length && _times[n] < boundary * 1000) { n++; }
     if (n == 0) return null;
@@ -337,7 +341,7 @@ class NightRrState {
   ana.Metric<ana.CvhrResult> nightCvhr(double artifactFraction) {
     final stream = _cvhr ??= ana.CvhrStream();
     _feed('cvhr', (nn, times) { stream.fold(nn, times); return 1; });
-    // #99 handles a fresh stream's entirely provisional night too.
+    // The merged stream handles a fresh, entirely provisional night too.
     return stream.snapshot(tailNnMs: _tailNn, tailNnTimesMs: _tailTimes,
         artifactFraction: artifactFraction);
   }

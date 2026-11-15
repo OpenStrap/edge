@@ -41,7 +41,7 @@ class NightPrsa {
       return agg.finish(agg.addSlice(copy, tail, 0, tail.length));
     }
     // Sequential addSlice preserves anchor order; never combine partial sums.
-    // #99 prsa_aggregator.dart declares profile/capacity abs+rel 1e-9,
+    // Merged analytics prsa_aggregator.dart declares profile/capacity abs+rel 1e-9,
     // confidence abs 1e-12 parity with the batch functions.
     return (finish(_dc, _dcState), finish(_ac, _acState));
   }

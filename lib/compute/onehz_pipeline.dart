@@ -621,6 +621,10 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   final nnTimes = corrected.nnTimesMs;
   final artifactFraction = (1.0 - corrected.cleanFraction).clamp(0.0, 1.0);
   final streams = nightState?.canStream == true ? nightState : null;
+  // CLAIM(merged-clock-refusal): capped resets preserve source time and can
+  // regress. Batch RSA/CVHR abstain; their streams require ordered clocks.
+  // Keep frequency's separate omission policy [ed2b_merged_analytics_test].
+  final orderedStreams = hasRegressingBeatTimes(nnTimes) ? null : streams;
   final nnProof = nightState?.dependencyProof(nn, nnTimes);
   T nightMemo<T>(String key, Object? extra, T Function() compute) =>
       nnProof == null ? compute() :
@@ -759,7 +763,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   // ── RESPIRATION (sleep-windowed) ───────────────────────────────────────────
   final resp = nn.length >= 30
       ? nightMemo('rsa', artifactFraction, () {
-          if (streams != null) return streams.nightResp(artifactFraction);
+          if (orderedStreams != null) return orderedStreams.nightResp(artifactFraction);
           streamDiagnostics?.observeBatch('rsa', nn.length);
           return rsaRespRate(nn, nnTimes, artifactFraction: artifactFraction);
         })
@@ -770,7 +774,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
         );
   final cvhr = nn.length >= 60
       ? nightMemo('cvhr', artifactFraction, () {
-          if (streams != null) return streams.nightCvhr(artifactFraction);
+          if (orderedStreams != null) return orderedStreams.nightCvhr(artifactFraction);
           streamDiagnostics?.observeBatch('cvhr', nn.length);
           return cvhrApneaScreen(nn, nnTimes, artifactFraction: artifactFraction);
         })
@@ -799,7 +803,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   // Window the cleaned sleep NN into ~30-min bins, take each bin's RSA resp rate,
   // then BRV = dispersion + Theil-Sen trend of those per-window rates.
   final cachedRespWindows = nightMemo('rsa_bins', artifactFraction, () =>
-      streams != null ? streams.nightRespWindows(artifactFraction) :
+      orderedStreams != null ? orderedStreams.nightRespWindows(artifactFraction) :
           respPerWindow(nn, nnTimes, artifactFraction: artifactFraction,
               diagnostics: streamDiagnostics));
   final respWindows = nightState == null

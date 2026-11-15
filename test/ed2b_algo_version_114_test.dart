@@ -6,8 +6,8 @@ import 'package:openstrap_edge/compute/derivation_engine.dart';
 void main() {
   // WHY: finalized days need a new version when the analytics pin changes outputs.
   test('ED-2b adoption and workout rest repin name their output changes', () {
-    expect(kAlgoVersion, 123);
-    expect(kAnalyticsPin, '801c82536caf5ce70270aae5215f21cd423a8bd2');
+    expect(kAlgoVersion, 124);
+    expect(kAnalyticsPin, '614a48e5ffc553b88de248fd9fc13b07d9c1ceba');
     final src = File('lib/compute/derivation_engine.dart').readAsStringSync();
     final at = src.indexOf('// 121 → 122');
     expect(at, isNonNegative);
@@ -20,11 +20,16 @@ void main() {
     }
     final repin = src.indexOf('// 122 → 123');
     expect(repin, isNonNegative);
-    final repinEntry = src.substring(
-        repin, src.indexOf('const int kAlgoVersion', repin));
+    final repinEntry = src.substring(repin, src.indexOf('// 123 → 124', repin));
     for (final change in ['801c825', '#98', 'workout rest bridge',
       'duration-cap', 'saved-session overlap']) {
       expect(repinEntry, contains(change));
+    }
+    final mainRepin = src.substring(src.indexOf('// 123 → 124'));
+    for (final change in ['614a48e', '#102-#108', 'regressing clocks',
+      '5%', 'Cosinor', 'SDNN', 'uncertainty', 'HrvFreqStream v2',
+      'CardioRowCache v3', 'PRSA']) {
+      expect(mainRepin, contains(change));
     }
   });
 }

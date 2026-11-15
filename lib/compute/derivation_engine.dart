@@ -1882,7 +1882,15 @@ import 'vendor_sleep.dart';
 // 122 → 123 (analytics #99 + #98 @ 801c825): restore the observed 5-15 min
 // workout rest bridge, including the duration-cap and saved-session overlap
 // guards, while retaining #99's incremental, accumulator and checkpoint APIs.
-const int kAlgoVersion = 123;
+// 123 → 124 (analytics main #102-#108 @ 614a48e): retain #98's workout
+// rest bridge and adopt the merged clock policies: HRV/RSA/CVHR abstain on
+// regressing clocks; frequency HRV omits re-anchored overlap up to 5%.
+// Cosinor refuses unidentifiable phase columns and non-finite designs;
+// irregular screening abstains on degenerate SDNN; missing stage scores widen
+// uncertainty. The #102 batch output changes and D35/D36 remain as at v122.
+// HrvFreqStream v2, CardioRowCache v3 and policy-bound PRSA states require cold
+// rebuilds of old checkpoints, isolated by this algorithm version.
+const int kAlgoVersion = 124;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -2071,7 +2079,8 @@ const int kAlgoVersion = 123;
 // REPIN @ 3a7ca34: analytics main, #101 + #100 + #97 + #98, for v119.
 // REPIN @ f8e7d3c: rebased analytics #99, for v122 above.
 // REPIN @ 801c825: merge #98's workout rest bridge into #99, for v123.
-const String kAnalyticsPin = '801c82536caf5ce70270aae5215f21cd423a8bd2';
+// REPIN @ 614a48e: upstream main, merged #102-#109 and #98, for v124.
+const String kAnalyticsPin = '614a48e5ffc553b88de248fd9fc13b07d9c1ceba';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both
