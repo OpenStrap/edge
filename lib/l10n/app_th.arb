@@ -12507,7 +12507,7 @@
   "@ecgTitle": {
     "description": "WHOOP MG ECG: ECG"
   },
-  "ecgHeartScreener": "Heart Screener",
+  "ecgHeartScreener": "ตรวจคัดกรองหัวใจ",
   "@ecgHeartScreener": {
     "description": "WHOOP MG ECG: Heart Screener"
   },
