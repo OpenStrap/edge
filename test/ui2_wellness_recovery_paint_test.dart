@@ -39,6 +39,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:openstrap_edge/data/journal_fields.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
+import 'package:openstrap_edge/l10n/app_localizations.dart';
+import 'package:openstrap_edge/state/locale_controller.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
@@ -333,6 +335,24 @@ void main() {
     expect(find.text('See what last night cost you'), findsOneWidget);
     expect(find.byType(BackButton), findsNothing);
   }, timeout: const Timeout(Duration(seconds: 60)));
+
+  // The sleep plan's durations were built as '1h 24m' by hand, so a Russian
+  // reader got "Недосып … — 1h 24m" and an "8h 0m" need row, while Home
+  // printed the same kind of figure as "8 ч 00 мин".
+  testWidgets('the sleep plan prints its durations in the display language',
+      (t) async {
+    final lc = LocaleController.seed('ru')..useForPresentation();
+    addTearDown(lc.dispose);
+    await _openRecovery(t,
+        dark: false, scale: 1.0, repo: _Repo(), locale: const Locale('ru'));
+
+    // need 28800 s, debt 1.4 h.
+    expect(find.text('8 ч 00 мин'), findsOneWidget);
+    expect(find.text('1 ч 24 мин'), findsOneWidget);
+    expect(find.textContaining('1 ч 24 мин'), findsNWidgets(2),
+        reason: 'the recommendation sentence names the debt too');
+    expect(find.textContaining(RegExp(r'\d+h \d+m')), findsNothing);
+  }, timeout: const Timeout(Duration(seconds: 60)));
 }
 
 /// TWO framework-internal assertions this harness causes and the screen does
@@ -361,6 +381,7 @@ Future<void> _openRecovery(
   required bool dark,
   required double scale,
   required LocalRepository repo,
+  Locale? locale,
 }) async {
   t.view.physicalSize = const Size(390 * 3, 844 * 3);
   t.view.devicePixelRatio = 3;
@@ -379,6 +400,9 @@ Future<void> _openRecovery(
     data: MediaQueryData(textScaler: TextScaler.linear(scale)),
     child: MaterialApp(
       theme: buildTheme(dark ? Brightness.dark : Brightness.light),
+      locale: locale,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       home: ChangeNotifierProvider<AppState>.value(
         value: app,
         child: Builder(
