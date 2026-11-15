@@ -7,8 +7,10 @@ from pubspec.yaml and the selected artifact, never the APK's own declarations.
 
 import argparse
 import json
+import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -21,23 +23,36 @@ VARIANT_ABIS = {
     "x86_64": {"x86_64"},
 }
 PORTABLE_MAX_BYTES = 150_000_000
+APPLICATION_ID = "wtf.openstrap.openstrap_edge"
 
 
-def verify_apk(apk, pubspec, variant, aapt2):
+def resolve_aapt2(aapt2):
+    """Run only an executable file named aapt2, by absolute path, never via a shell."""
+    path = shutil.which(aapt2)
+    if path is None:
+        raise ValueError(f"aapt2 not found: {aapt2!r}")
+    path = Path(path).resolve()
+    if path.name != "aapt2" or not path.is_file() or not os.access(path, os.X_OK):
+        raise ValueError(f"not an aapt2 executable: {str(path)!r}")
+    return str(path)
+
+
+def verify_apk(apk, pubspec, variant, aapt2, application_id=APPLICATION_ID):
     version = re.search(r"^version:\s*([^\s+]+)\+([0-9]+)\s*(?:#.*)?$",
                         pubspec.read_text(), re.MULTILINE)
     if not version:
         raise ValueError("pubspec must contain version: NAME+BUILD")
     expected_name, expected_code = version.groups()
     badging = subprocess.run(
-        [aapt2, "dump", "badging", str(apk)],
+        [resolve_aapt2(aapt2), "dump", "badging", str(apk.resolve())],
         check=True, capture_output=True, text=True,
     ).stdout
     package = re.search(r"^package: (.*)$", badging, re.MULTILINE)
     if not package:
         raise ValueError("aapt2 did not report package metadata")
     metadata = dict(re.findall(r"(\w+)='([^']*)'", package.group(1)))
-    for key, expected in (("versionName", expected_name), ("versionCode", expected_code)):
+    for key, expected in (("name", application_id), ("versionName", expected_name),
+                          ("versionCode", expected_code)):
         if metadata.get(key) != expected:
             raise ValueError(f"{key}: expected {expected!r}, got {metadata.get(key)!r}")
 
