@@ -18,7 +18,7 @@ import 'package:openstrap_edge/l10n/display_text.dart';
 import 'package:openstrap_edge/l10n/presentation_text.dart';
 
 final _call = RegExp(
-  r"""\b(uiText|localizedText|presentationText)\(\s*[\w.?!]+\s*,\s*((?:'(?:[^'\\]|\\.)*'\s*|"(?:[^"\\]|\\.)*"\s*)+)\)""",
+  r"""\b(uiText|localizedText|presentationText)\(\s*[\w.?!]+(?:\([^()]*\))?[\w.?!]*\s*,\s*((?:'(?:[^'\\]|\\.)*'\s*|"(?:[^"\\]|\\.)*"\s*)+)\)""",
 );
 final _piece =
     RegExp(r"'((?:[^'\\]|\\.)*)'" '|' r'"((?:[^"\\]|\\.)*)"');
