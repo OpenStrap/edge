@@ -56,7 +56,7 @@ bool hasLooseLayer(RenderObject object) {
 /// The loose paragraphs below [layer] (the element of a [GuideLooseLayer]): those in no
 /// [GuideUnitMark] and no nested [GuideLooseLayer]. CLAIM(loose-same-walk): this walks the
 /// ONSTAGE ELEMENT tree, exactly as the planner does ([planSkeleton]), never the semantics
-/// tree: text under ExcludeSemantics is as loose as any [guide_r2_tier2_test F3].
+/// tree: text under ExcludeSemantics is as loose as any [guide_input_regression_test F3].
 Iterable<RenderParagraph> looseParagraphs(Element layer) sync* {
   final children = <Element>[];
   layer.debugVisitOnstageChildren(children.add);
