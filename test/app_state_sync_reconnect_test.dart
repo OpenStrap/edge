@@ -235,6 +235,10 @@ void main() {
       expect(_logged(rig, 'Link dropped during reconnect setup — retrying.'), isTrue);
       expect(rig.engine.count('connect'), 2);
       expect(rig.engine.isConnected, isTrue);
+      // The reconnect still queues its derive after the sync starts; ending
+      // before that write lands lets tearDown close the database under it
+      // (database_closed, seen once in a full run on a loaded machine).
+      await rig.jobQueued('derive_heavy');
     }));
   });
 
@@ -423,6 +427,8 @@ void main() {
       expect(rig.engine.count('connect'), 1);
       expect(rig.engine.count('setBackground'), 0, reason: 'a reconnect does not change the tier');
       expect(rig.app.debugLiveOwners.foreground, isFalse);
+      // Same as above: wait for the reconnect's own derive write.
+      await rig.jobQueued('derive_heavy');
     }));
 
     test('heavy derive after a background reconnect is throttled to one per '

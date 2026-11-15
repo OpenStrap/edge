@@ -32,7 +32,10 @@ void main() {
   });
 
   String daysAgo(int n) {
-    final d = DateTime.now().subtract(Duration(days: n));
+    // Calendar days, not n×24 h: late in the evening after a DST change, a
+    // 24 h step lands two values of n on the same day.
+    final now = DateTime.now();
+    final d = DateTime(now.year, now.month, now.day - n, 12);
     return '${d.year.toString().padLeft(4, '0')}-'
         '${d.month.toString().padLeft(2, '0')}-'
         '${d.day.toString().padLeft(2, '0')}';
