@@ -26,6 +26,7 @@ import '../profile/profile.dart' show ProfileAvatar;
 import '../profile/wearable_numbers.dart'
     show WearableCells, kHealthWearableRows;
 import '../ui2.dart';
+import '../guides/help_entry.dart';
 import 'advanced.dart';
 import 'ecg.dart' show EcgEntryCard, pairedIsMaverickOf;
 import 'findings_log.dart';
@@ -681,6 +682,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
           3 => _vitals(c, d),
           _ => _labs(c),
         },
+      const HelpEntry(topic: GuideTopic.health),
     ]);
   }
 

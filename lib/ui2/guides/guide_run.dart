@@ -11,7 +11,7 @@
 // nothing, anywhere (no database, no preferences, no files)
 // [live_guide_run_test 'a run writes nothing'].
 // CLAIM(run-match-furthest): after a frame the step shown is the HIGHEST index
-// whose anchor resolves on the current page (steps 1 and 2 can share a screen;
+// whose progress requirement is met and anchor resolves on the current page (steps can share a screen;
 // the later anchor only appears once the user has done step 1)
 // [live_guide_run_test 'matchStep takes the furthest step'].
 //
@@ -62,6 +62,7 @@ class GuideRun extends ChangeNotifier {
   /// Starts at step 0 ([GuideAtStep]) until the first frame says otherwise.
   GuideRunState _state = const GuideAtStep(0);
   int? _lastIndex;
+  final _tappedSteps = <int>{};
   final _matchedPages = <Element, int>{};
   @visibleForTesting
   int get rememberedPageCount => _matchedPages.length;
@@ -77,15 +78,16 @@ class GuideRun extends ChangeNotifier {
       ? variant.steps[(_state as GuideAtStep).index] : null;
 
   /// The index of the HIGHEST step of [variant] whose anchor resolves
-  /// ([TargetFound]) under [root]; null when none does.
+  /// ([TargetFound]) under [root] and whose tap requirement is met; null when none does.
   /// ↳ CLAIM(run-match-furthest)
-  static int? matchStep(GuideVariant variant, Element root, AppLocalizations l) {
+  static int? matchStep(GuideVariant variant, Element root, AppLocalizations l, {Set<int> tappedSteps = const {}}) {
     // Shell labels name destinations even when those tabs are not selected.
     // Match the visible content, so a Sleep title cannot match the tab button
     // on every other screen (or become ambiguous with that button).
     final content = _contentOf(root);
     return [for (var i = 0; i < variant.steps.length; i++)
-      if (_anchorMatches(variant.steps[i].anchor.resolve(content, l))) i].lastOrNull;
+      if ((!variant.steps[i].requiresPreviousTap || tappedSteps.contains(i - 1)) &&
+          _anchorMatches(variant.steps[i].anchor.resolve(content, l))) i].lastOrNull;
   }
 
   static bool _anchorMatches(TargetResolution resolution) =>
@@ -126,7 +128,8 @@ class GuideRun extends ChangeNotifier {
     if (variant.steps.every((s) => s.node != null)) {
       final exact = [
         for (var i = 0; i < variant.steps.length; i++)
-          if (variant.steps[i].node == location) i,
+          if (variant.steps[i].node == location &&
+              (!variant.steps[i].requiresPreviousTap || _tappedSteps.contains(i - 1))) i,
       ];
       if (exact.isNotEmpty) {
         final anchored = exact.where(
@@ -144,7 +147,7 @@ class GuideRun extends ChangeNotifier {
         }
       }
     } else {
-      index = matchStep(variant, topPage, l);
+      index = matchStep(variant, topPage, l, tappedSteps: _tappedSteps);
     }
     // Returning to an earlier branch cannot rewind the pending action. An
     // ancestor is still on the way to it; a sibling requires a route back. A
@@ -184,6 +187,7 @@ class GuideRun extends ChangeNotifier {
   /// On any other step: no change (the next frame decides).
   void targetTapped() {
     if (_exited) return;
+    if (_state case GuideAtStep(:final index)) _tappedSteps.add(index);
     if (_state case GuideAtStep(:final index) when index == variant.steps.length - 1) {
       _matchedPages.clear();
       _state = const GuideFinished();

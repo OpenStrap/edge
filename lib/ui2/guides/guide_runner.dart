@@ -17,7 +17,8 @@
 // [live_guide_integration_test 'Exit removes the overlay'].
 // CLAIM(run-one-at-a-time): starting a run while another is active ends the
 // first; there is never more than one overlay entry
-// [live_guide_runner_test 'a second start replaces the first'].
+// [live_guide_runner_test 'a second start replaces the first';
+// guide_exit_reentrancy_test].
 //
 // Mating parts: the app shell registers a [GuideShellLink] (attachShell) when
 // it mounts and removes it when it goes; Help (help_screen.dart) and, later,
@@ -125,8 +126,11 @@ class GuideRunner extends ChangeNotifier {
     if (choice is GuideNoVariant) return GuideStartNoVariant(choice);
     final nav = navigatorKey.currentState;
     if (_shell == null || nav == null) return const GuideStartNoShell();
+    // Exit listeners may synchronously start another run. That newer request
+    // owns installation, just as it does across an awaited Back decision.
+    final token = _startToken + 1;
     exit();
-    final token = _startToken;
+    if (token != _startToken) return const GuideStartBlocked();
     final shell = _shell;
     while (nav.canPop()) {
       final before = routes.topRoute;
@@ -308,12 +312,14 @@ class GuideRunner extends ChangeNotifier {
     _startToken++;
     final run = _run;
     if (run == null) return;
+    final entry = _entry;
     _run = null;
-    run.removeListener(_runChanged);
-    run.exit();
-    _entry?.remove();
-    _entry?.dispose();
     _entry = null;
+    run.removeListener(_runChanged);
+    // Release ownership before notifying: a listener may install a new entry.
+    run.exit();
+    entry?.remove();
+    entry?.dispose();
     notifyListeners();
   }
 

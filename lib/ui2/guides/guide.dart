@@ -87,9 +87,14 @@ class GuideStep {
   /// In custom guides without a node, it also identifies the page.
   final GuideTarget anchor;
 
+  /// The previous step's target must have been tapped in this run before this
+  /// step can match. Used when its anchor can predate the guide, as with undo.
+  final bool requiresPreviousTap;
+
   /// Extra units kept readable besides the target's (step 3 keeps "Your zones").
   final List<GuideTarget> alsoKeep;
-  /// P7: caption-offered controls kept full colour. All page input passes
+  /// P7: caption-offered controls kept full colour; tapping one also completes
+  /// the step, like the primary target. All page input passes
   /// through independently of this visual declaration (owner amendment A/C).
   final List<GuideContent> alsoTap;
 
@@ -113,6 +118,7 @@ class GuideStep {
     required this.target,
     this.node,
     required this.anchor,
+    this.requiresPreviousTap = false,
     this.alsoKeep = const [],
     this.alsoTap = const [],
     this.alsoRead = const [],

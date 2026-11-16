@@ -18,6 +18,8 @@ import '../../state/app_state.dart';
 import '../../state/locale_controller.dart';
 import '../ui2.dart';
 import '../screens/coach.dart' show CoachSetup, coachSubtitle;
+import '../guides/guide_catalogue.dart' show bandGenerationOf;
+import '../guides/help_screen.dart' show HelpScreen;
 import '../screens/home_screen.dart' show deviceBatteryOf;
 import 'data.dart';
 import 'devices.dart';
@@ -321,6 +323,7 @@ class _ProfileHomeState extends State<ProfileHome> {
           onExport: () => _open(c, const DataScreen()),
           onEdit: () => _open(c, const EditProfile()),
           onCoach: () => _open(c, const CoachSetup()),
+          onHelp: () => _open(c, HelpScreen(band: bandGenerationOf(c.read<AppState>().paired))),
         ),
       );
 }
@@ -329,7 +332,7 @@ class ProfileHomeView extends StatelessWidget {
   /// Null while the counts are still being read — the numbers are absent, not
   /// zero, and a zero rendered during a load is a wrong number on screen.
   final ProfileStats? stats;
-  final VoidCallback? onDevices, onSettings, onExport, onEdit, onCoach;
+  final VoidCallback? onDevices, onSettings, onExport, onEdit, onCoach, onHelp;
 
   const ProfileHomeView(
       {super.key,
@@ -339,6 +342,7 @@ class ProfileHomeView extends StatelessWidget {
       this.onSettings,
       this.onExport,
       this.onEdit,
+      this.onHelp,
       });
 
   @override
@@ -397,6 +401,9 @@ class ProfileHomeView extends StatelessWidget {
                           (AppLocalizations.of(c)?.profileNotSetUp ??
                               'Not set up'),
                       onTap: onCoach)),
+                  SetRow(LucideIcons.circleHelp, C.blue,
+                      l?.profileHelpRow ?? 'Help',
+                      onTap: onHelp),
                   Builder(builder: (c) => SetRow(
                       LucideIcons.languages, C.blue,
                       AppLocalizations.of(c)?.profileLanguage ?? 'Language',

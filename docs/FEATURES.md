@@ -28,6 +28,13 @@ estimator, and a night where the beat detector over-counts is refused rather tha
 Auto-detected workouts, live workout tracking with GPS routes, heart-rate zones you can
 edit, and GPX export.
 
+## Guides
+
+Eight live guides in the app show where to find things, such as your heart-rate zones, the
+alarm or how to delete a workout. A guide dims the rest of the screen and outlines the
+control to tap, on your own data. Start one from **Profile** > **Help**. See
+[wiki/Guides.md](wiki/Guides.md).
+
 ## Your data, elsewhere
 
 - Writes to **Apple Health** (HealthKit) and **Google Health Connect**: sleep stages,

@@ -273,24 +273,19 @@ class GuidePlan implements GuideLooseLooks, GuideKeepsControls {
         skeletonAll ? GuideUnitLook.skeleton : GuideUnitLook.dim);
   }
 
-  /// True when no component and no loose paragraph would be painted differently under
-  /// [other]. A component only the plan in force or only [other] names is compared
-  /// with what the other plan does to a component it never saw (its [fallback]), so
-  /// content that scrolled in and is dimmed like the fallback does not count.
+  /// Compares effective paint, including unseen nested controls whose own
+  /// treatment is already supplied by an ancestor [guide_plan_children_test].
   bool sameLooks(GuidePlan other) {
     if (fallback != other.fallback || !setEquals(_keepControls, other._keepControls)) return false;
-    return _agree(_byComponent, _seen, other._byComponent, other._seen) &&
-        _agree(_byParagraph, _seenLoose, other._byParagraph, other._seenLoose);
-  }
-
-  GuideUnitLook? _effective<K>(Map<K, GuideUnitLook> byKey, Set<K> seen, K key) =>
-      byKey[key] ?? (seen.contains(key) ? null : fallback);
-
-  bool _agree<K>(Map<K, GuideUnitLook> a, Set<K> aSeen, Map<K, GuideUnitLook> b, Set<K> bSeen) {
-    // Seen-only keys count too: a component one plan saw without a treatment is
-    // bare there, while the other plan's fallback may dim it.
-    for (final key in {...a.keys, ...aSeen, ...b.keys, ...bSeen}) {
-      if (_effective(a, aSeen, key) != _effective(b, bSeen, key)) return false;
+    for (final component in {..._byComponent.keys, ..._seen,
+      ...other._byComponent.keys, ...other._seen}) {
+      if (!component.mounted) continue;
+      if (lookOf(component) != other.lookOf(component)) return false;
+    }
+    for (final paragraph in {..._byParagraph.keys, ..._seenLoose,
+      ...other._byParagraph.keys, ...other._seenLoose}) {
+      if (!paragraph.attached) continue;
+      if (looseLookOf(paragraph) != other.looseLookOf(paragraph)) return false;
     }
     return true;
   }
@@ -309,7 +304,10 @@ class GuidePlan implements GuideLooseLooks, GuideKeepsControls {
     final known = _byParagraph[paragraph];
     if (known != null) return known;
     if (_seenLoose.contains(paragraph) || isIconParagraph(paragraph)) return null;
-    final pageBox = page == null ? null : laidOutBox(page!);
+    // A route replacement can retire the old root before its plan is replaced.
+    // Comparing a new paragraph against that plan must not dereference it.
+    final root = page;
+    final pageBox = root == null || !root.mounted ? null : laidOutBox(root);
     if (pageBox == null || !_isUnder(paragraph, pageBox) || _overlapsKeep(paragraph)) return null;
     return fallback;
   }

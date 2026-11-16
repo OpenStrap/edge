@@ -3870,5 +3870,117 @@
   "settingsSleepHmmRowSub": "Forschungsalgorithmus, kein Medizinprodukt. Standard aus.",
   "@settingsSleepHmmRowSub": {
     "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
-  }
+  },
+  "guideStepUnavailable": "Dieser Schritt kann gerade nicht angezeigt werden.",
+  "guideNoVariantBody": "Diese Anleitung gilt noch nicht für dein Band. Sie gilt für: {bands}.",
+  "guideHrZonesTitle": "So findest du deine Herzfrequenzzonen",
+  "guideHrZonesIntro": "Die Herzfrequenzzonen findest du hinter deinem {score}-Wert. Dafür tippst du dreimal.",
+  "guideHrZonesStep1": "Tippe im Tab **{tab}** auf den Ring **{ring}**.",
+  "guideHrZonesStep2": "Scrolle nach unten zu **{section}** und tippe rechts auf **{action}**.",
+  "guideHrZonesStep3": "Tippe auf dem Bildschirm **{screen}** auf **{link}** oder auf **{editLink}**, wenn du bereits eigene Zonen gespeichert hast.",
+  "@guideHrZonesStep3": {
+    "description": "Step 3 caption. The screen title and both button labels are quoted verbatim; Edit appears after saving manual zones.",
+    "placeholders": {
+      "screen": {
+        "type": "String"
+      },
+      "link": {
+        "type": "String"
+      },
+      "editLink": {
+        "type": "String"
+      }
+    }
+  },
+  "guideHrZonesAltTitle": "Ein anderer Weg",
+  "guideHrZonesAltBody": "Öffne den Tab **{tab}** und tippe auf **{link}**. Danach folge den Schritten 2 und 3.",
+  "guideHrZonesMissingTitle": "„{section}“ nicht zu sehen?",
+  "guideHrZonesMissingBody": "Der Eintrag erscheint, sobald das Band für den Tag Herzfrequenz aufgezeichnet hat und deine Zonen berechnet werden können. Fehlt er auch nach einer Weile Tragen noch, trag dein Alter in deinem Profil ein.",
+  "guidePickBand": "Welches Band hast du?",
+  "helpEmpty": "Für dein Band gibt es noch keine Anleitungen.",
+  "guideAnotherWayInTitle": "Ein anderer Weg",
+  "guideAlarmTitle": "Hier stellst du einen Wecker oder jeden Tag eine andere Zeit ein",
+  "guideAlarmStep1": "Scrolle im Tab **{tab}** nach unten zu **{section}** und tippe auf **{row}**.",
+  "guideAlarmStep2": "Tippe unter **{group}** auf einen ausgeschalteten Tag, um ihn einzuschalten, zum Beispiel **{day}**. Ein Tipp auf einen bereits eingeschalteten Tag schaltet ihn aus.",
+  "guideAlarmStep3": "Tippe dann unter diesem Tag auf **{wake}** und wähle die Uhrzeit. Jeder Tag kann seine eigene Zeit haben.",
+  "guideAlarmAltBody": "Öffne **{profile}**, dann **{settings}**, dann **{band}**, dann **{alarm}**.",
+  "guideAlarmMissingTitle": "„{group}“ nicht zu sehen?",
+  "guideAlarmMissingBody": "**{group}** erscheint nur, solange dein Band verbunden ist. Halte das Band nah an dein Handy, warte, bis es verbunden ist, und schau dann noch einmal nach.",
+  "guideAddNapTitle": "So trägst du selbst ein Nickerchen ein",
+  "guideAddNapStep1": "Tippe im Tab **{tab}** unter deiner letzten Nacht auf **{naps}**.",
+  "guideAddNapStep2": "Tippe auf **{log}**. Du wirst zwei Dinge gefragt: **{fell}**, dann **{woke}**. Wähle beide Zeiten.",
+  "guideAddNapFoundTitle": "Vom Band erkannte Nickerchen",
+  "guideAddNapFoundBody": "Vom Band erkannte Nickerchen stehen auf demselben Bildschirm. Stimmt eines nicht, tippe daneben auf **{notNap}**.",
+  "guideAddNapRulesTitle": "Das Nickerchen lässt sich nicht speichern?",
+  "guideAddNapRulesBody": "Ein Nickerchen dauert zwischen {minMinutes} Minuten und {maxHours} Stunden, muss schon vorbei sein und darf sich nicht mit einem anderen Nickerchen oder deinem Hauptschlaf überschneiden.",
+  "@guideAddNapRulesBody": {
+    "description": "Footer card body: nap limits come from the shared form validation caps.",
+    "placeholders": {
+      "minMinutes": {
+        "type": "String"
+      },
+      "maxHours": {
+        "type": "String"
+      }
+    }
+  },
+  "guideRemoveTitle": "So entfernst du ein Nickerchen oder Training, das gar nicht stattgefunden hat",
+  "guideRemoveStep1": "Tippe im Tab **{tab}** auf die Karte **{card}**. Sie erscheint nur, solange etwas auf dich wartet.",
+  "guideRemoveStep2": "Jeder Eintrag hat sein eigenes **{notNap}** / **{notWorkout}**. Tippe es bei dem Nickerchen oder Training an, das nicht stattgefunden hat; die Hervorhebung zeigt die Auswahlmöglichkeiten.",
+  "guideRemoveSavedTitle": "Schon gespeichert?",
+  "guideRemoveSavedBody": "Öffne den Tab **{sleep}** und tippe auf **{naps}**. Tippe bei einem vom Band erkannten Nickerchen auf **{notNap}**, bei einem selbst eingetragenen auf **{delete}**.",
+  "guideRemoveMissingTitle": "„{card}“ nicht zu sehen?",
+  "guideRemoveMissingBody": "Die Karte erscheint nur, solange etwas auf deine Antwort wartet. Ist sie beantwortet, findest du Nickerchen unter **{sleep}** > **{naps}** und Trainings unter **{activity}** > **{history}**.",
+  "guideFixTimesTitle": "So korrigierst du deine Schlafzeiten",
+  "guideFixTimesStep1": "Tippe im Tab **{tab}** unter deiner letzten Nacht auf **{change}**. Dort steht **{set}**, bis du die Zeiten selbst festgelegt hast. Du wirst gefragt, wann du ins Bett gegangen bist und dann, wann du aufgestanden bist.",
+  "guideFixTimesStep2": "Zum Rückgängigmachen tippe auf **{back}**. Die Nacht bekommt wieder die Zeiten, die die App erkannt hat.",
+  "guideFixTimesBackTitle": "„{back}“ nicht zu sehen?",
+  "guideFixTimesBackBody": "**{back}** erscheint nur, nachdem du die Zeiten selbst festgelegt oder bestätigt hast, und solange die Aufzeichnungen der ganzen Nacht noch gespeichert sind.",
+  "guideFixTimesAskTitle": "Was die Auswahl fragt",
+  "guideFixTimesAskBody": "Zuerst, wann du ins Bett gegangen bist, dann, wann du aufgestanden bist. Aus diesen beiden Zeiten wird die Nacht neu berechnet.",
+  "guideDeleteTitle": "So löschst du ein Training",
+  "guideDeleteStep1": "Öffne im Tab **{tab}** den Bereich **{history}**.",
+  "guideDeleteStep2": "Tippe am Ende der Zeile des Trainings auf den Papierkorb (**{label}**) und bestätige.",
+  "guideDeleteWhatTitle": "Was das Löschen bewirkt",
+  "guideDeleteWhatBody": "Das Training verschwindet aus der App. Eine Kopie in der Health-App deines Handys bleibt, falls es eine gibt, unverändert.",
+  "guideDeleteNoneTitle": "Kein Papierkorb zum Tippen?",
+  "guideDeleteNoneBody": "Steht im Verlauf **{none}**, gibt es noch nichts zu löschen. Mit **{start}** oder **{log}** fügst du ein Training hinzu.",
+  "guideStartTitle": "So startest und beendest du ein Training",
+  "guideStartStep1": "Tippe im Tab **{tab}** auf die Karte **{card}**.",
+  "guideStartStep2": "Such dir deine Aktivität: Tippe in **{search}** etwas ein oder wähle eine aus der Liste.",
+  "guideStartStep3": "Prüfe die Angaben und tippe dann auf **{start}**.",
+  "guideStartStep4": "Zum Beenden tippe auf das rote Quadrat (**{finish}**). Du landest in der Zusammenfassung deines Trainings.",
+  "guideStartNoBandTitle": "Kein Band verbunden?",
+  "guideStartNoBandBody": "Du kannst trotzdem ein Training starten. Ein nicht verbundenes Band liefert keine Herzfrequenz, ein anderer verbundener Herzfrequenzsensor kann sie aber liefern.",
+  "guideStartPauseTitle": "Pause nötig?",
+  "guideStartPauseBody": "Tippe auf **{pause}**, um die Zeit anzuhalten, und auf **{resume}**, um weiterzumachen.",
+  "guideLogPastTitle": "So trägst du ein Training nach, das du nicht aufgezeichnet hast",
+  "guideLogPastStep1": "Öffne im Tab **{tab}** den Bereich **{history}**.",
+  "guideLogPastStep2": "Scrolle ganz nach unten und tippe auf **{log}**.",
+  "guideLogPastStep3": "Wähle die Aktivität, trage die Zeiten unter **{when}** ein und tippe auf **{logIt}**.",
+  "guideLogPastScoreTitle": "Bekommt es eine Bewertung?",
+  "guideLogPastScoreBody": "Hat das Band in dieser Zeit deine Herzfrequenz aufgezeichnet und stehen Alter und Geschlecht in deinem Profil, wird das Training damit bewertet. Wenn nicht, wird es ohne Bewertung gespeichert.",
+  "guideLogPastMissingTitle": "„{log}“ nicht zu sehen?",
+  "guideLogPastMissingBody": "Es steht ganz unten unter **{history}**, nach deinen Trainings. Scrolle bis ganz nach unten.",
+  "guideSearchOrPick": "suchen oder wählen",
+  "profileHelpRow": "Hilfe",
+  "guideAddNapMissingTitle": "„{naps}“ nicht zu sehen?",
+  "guideAddNapMissingBody": "**{naps}** steht unter deiner Nacht. Scrolle nach unten, um es zu finden.",
+  "guideRemoveStep2Still": "Jeder Eintrag hat sein eigenes **{notNap}** / **{notWorkout}**. Tippe es bei dem Nickerchen oder Training an, das nicht stattgefunden hat; die Umrandung markiert das erste.",
+  "@guideRemoveStep2Still": {
+    "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",
+    "placeholders": {
+      "notNap": {
+        "type": "String",
+        "description": "Name of the Not a nap button"
+      },
+      "notWorkout": {
+        "type": "String",
+        "description": "Name of the Not a workout button"
+      }
+    }
+  },
+  "helpLookingForSomething": "Suchst du etwas?",
+  "helpAllGuides": "Alle Anleitungen",
+  "helpTopicEmpty": "Für diesen Tab gibt es noch keine Anleitungen."
 }

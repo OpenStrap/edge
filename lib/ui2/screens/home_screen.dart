@@ -73,6 +73,7 @@ import '../profile/profile.dart';
 import '../profile/wearable_numbers.dart'
     show WearableCells, kHomeWearableRows;
 import '../ui2.dart';
+import '../guides/help_entry.dart';
 import 'ai_briefing.dart' show AiBriefingScreen;
 import 'coach.dart';
 import 'detected_activities.dart';
@@ -2420,6 +2421,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             const SizedBox(height: S.x3),
             alarmDoor(c, a.$1, a.$2),
           ],
+        // The Today guide starts on the strain ring, which a past day does not draw.
+        if (_day == null || _day == todayLabel())
+          const HelpEntry(topic: GuideTopic.today),
       ]));
     }
 
@@ -2676,6 +2680,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         const SizedBox(height: S.x4),
         coachChip(c),
       ],
+      // The Today guide starts on the strain ring, which a bare past day does not draw.
+      if (isToday) const HelpEntry(topic: GuideTopic.today),
     ]));
   }
 
