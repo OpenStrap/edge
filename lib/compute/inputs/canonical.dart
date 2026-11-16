@@ -18,7 +18,7 @@ import '../../ble/adapters/_registry.dart'
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../crossday_pipeline.dart' show buildCrossDayBundle;
-import '../derivation_engine.dart' show DerivationEngine, kAlgoVersion;
+import '../derivation_engine.dart' show DerivationEngine, kAlgoVersion, runCancellableIsolate;
 import '../substrate.dart';
 import '../vendor_sleep.dart';
 import 'colmi_inputs.dart';
@@ -390,6 +390,36 @@ Future<void> refreshSessionSensorSources() async {
   LocalDb.sessionWearableSource = (await activeWearable())?.$2;
 }
 
+bool debugDisableWearableWorker = false;
+void Function(String)? debugOnWearableConstruction;
+// Called beside the actual row loops. A worker extraction must return its
+// execution marker to this observer, not label a dispatch on the caller.
+void debugRecordWearableConstruction([String? isolateName]) =>
+    debugOnWearableConstruction?.call(
+        isolateName ?? Isolate.current.debugName ?? 'unnamed');
+
+// Only plain rows, columns and bounds are captured by these builders. Return
+// the execution marker with the value; observers stay on the calling isolate.
+Future<R> prepareWearable<R>(R Function() build) async {
+  (R, String) construct() => (build(), Isolate.current.debugName ?? 'unnamed');
+  final result = debugDisableWearableWorker
+      ? construct()
+      : await runCancellableIsolate(construct, const Duration(seconds: 30),
+          label: 'wearable construction');
+  debugRecordWearableConstruction(result.$2);
+  return result.$1;
+}
+
+Future<Substrate> constructWearable(Substrate Function() build,
+    {Substrate? unchanged}) async {
+  final columns = await prepareWearable(() {
+    final value = build();
+    return identical(value, unchanged) ? null : value.toJson();
+  });
+  // A no-op overlay preserves even a direct caller's empty optional columns.
+  return columns == null ? unchanged! : Substrate.fromTransfer(columns);
+}
+
 /// The active wearable's rows over `[from, to]` as a substrate, for a day the
 /// primary band left empty, with a strap's session windows laid over them
 /// ([withStrapSessions]). Empty for an adapter with no inputs mapping. A day
@@ -460,6 +490,12 @@ Future<Substrate> withStrapSessions(Substrate sub, int from, int to) async {
     'AND d.rec_ts >= ? AND d.rec_ts <= ? ORDER BY d.rec_ts',
     [from, to],
   );
+  return constructWearable(() => _overlayStrapSessions(sub, beats, all),
+      unchanged: sub);
+}
+
+Substrate _overlayStrapSessions(Substrate sub,
+    List<Map<String, Object?>> beats, List<Map<String, Object?>> all) {
   final owner = ownerBy([for (final r in all) (r['sid'], r['src'])]);
   final rows = [
     for (final r in all)
@@ -616,10 +652,32 @@ Future<List<String>> flagOnOrPrimary(List<String> ids,
   return out;
 }
 
+// Pass-lifetime index. The hook runs after an actual scan, so a test can
+// count scans and inject a post-scan failure.
+Map<(String, String), Future<Map<String, int>>>? _passDayIndex;
+bool _disableWearableDayIndex = false;
+bool get debugDisableWearableDayIndex => _disableWearableDayIndex;
+set debugDisableWearableDayIndex(bool value) {
+  _disableWearableDayIndex = value;
+  if (value) _passDayIndex?.clear();
+}
+void beginWearableDayIndexPass() => _passDayIndex = {};
+void endWearableDayIndexPass() => _passDayIndex = null;
+int get debugWearableDayIndexSize => _passDayIndex?.length ?? 0;
+void debugWearableDayIndexRekey(int version) => _passDayIndex?.clear();
+void Function((String, String), Map<String, int>)? debugOnWearableDayIndexScan;
+
 /// `{local day -> last second}` the active wearable has rows for, and the
 /// days a flagged-on strap recorded a session in while the wearable was off
 /// or charging ([wearableSubstrate] lays the session over the empty day).
 Future<Map<String, int>> wearableRecTsMaxByDay(
+    (String, String) wearable) {
+  final cache = debugDisableWearableDayIndex ? null : _passDayIndex;
+  if (cache == null) return _scanWearableRecTsMaxByDay(wearable);
+  return cache.putIfAbsent(wearable, () => _scanWearableRecTsMaxByDay(wearable));
+}
+
+Future<Map<String, int>> _scanWearableRecTsMaxByDay(
     (String, String) wearable) async {
   final out = {
     ...await switch (wearable.$2) {
@@ -637,6 +695,7 @@ Future<Map<String, int>> wearableRecTsMaxByDay(
       in (await _strapSessionRecTsMaxByDay()).entries) {
     out[day] = math.max(out[day] ?? t, t);
   }
+  debugOnWearableDayIndexScan?.call(wearable, out);
   return out;
 }
 

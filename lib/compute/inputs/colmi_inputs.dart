@@ -51,10 +51,9 @@ Future<List<(int, int, int)>> colmiSkinTemps(
   int to,
 ) async {
   final db = await LocalDb.instance;
-  final out = <int, (int, int, int)>{};
   // A reply is banked on or after the day it describes and at most the
   // ring's history (kColmiHistoryDays) later: scan only those captures.
-  for (final r in await db.rawQuery(
+  final rows = await db.rawQuery(
     'SELECT hex, COALESCE(rec_ts * 1000, captured_at) AS anchor_ms '
     'FROM ${LocalDb.rawArchiveView} WHERE device_id = ? '
     "AND reason = 'colmi_big_0x${kColmiBigTemperature.toRadixString(16)}' "
@@ -64,7 +63,14 @@ Future<List<(int, int, int)>> colmiSkinTemps(
       (from - 86400) * 1000,
       (to + (kColmiHistoryDays + 1) * 86400) * 1000,
     ],
-  )) {
+  );
+  return prepareWearable(() => _colmiSkinTemps(rows, from, to));
+}
+
+List<(int, int, int)> _colmiSkinTemps(
+    List<Map<String, Object?>> rows, int from, int to) {
+  final out = <int, (int, int, int)>{};
+  for (final r in rows) {
     final hex = r['hex'] as String;
     final bytes = [
       for (var i = 0; i + 1 < hex.length; i += 2)
@@ -99,6 +105,10 @@ Future<List<(int, int, int)>> colmiSkinTemps(
 Future<Substrate> colmiHr(String deviceId, int from, int to) async {
   final sub = await sparseHrSubstrate(kColmiFamily, deviceId, from, to);
   if (sub.length < 2) return sub;
+  return constructWearable(() => _colmiHr(sub));
+}
+
+Substrate _colmiHr(Substrate sub) {
   final gaps = [
     for (var i = 1; i < sub.length; i++) sub.tsSec[i] - sub.tsSec[i - 1],
   ]..sort();
@@ -162,6 +172,10 @@ Future<Substrate> colmiSubstrate(String deviceId, int from, int to) async {
   final sub = await colmiHr(deviceId, from, to);
   if (sub.isEmpty) return sub;
   final temps = await colmiSkinTemps(deviceId, from, to);
+  return constructWearable(() => _colmiSubstrate(sub, temps));
+}
+
+Substrate _colmiSubstrate(Substrate sub, List<(int, int, int)> temps) {
   final skin = <int>[];
   var j = 0;
   for (final t in sub.tsSec) {

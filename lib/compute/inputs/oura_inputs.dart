@@ -68,6 +68,18 @@ Future<Substrate> ouraSubstrate(String deviceId, int from, int to) async {
   if (sub.isEmpty) return _ouraTempSubstrate(deviceId, from, to);
   final c = kHrCadenceSec[kOuraFamily]!;
   final temps = await _ouraTempRows(deviceId, from - c, to + c);
+  final db = await LocalDb.instance;
+  final beats = await db.rawQuery(
+    'SELECT COALESCE(beat_ts_ms, rr_ts_ms) AS t, rr_ms AS rr FROM decoded_rr '
+    'WHERE device_id = ? AND device_family = ? AND rec_ts >= ? AND rec_ts <= ? '
+    'ORDER BY t, beat_index',
+    [deviceId, kOuraFamily, from, to],
+  );
+  return constructWearable(() => _ouraSubstrate(sub, temps, beats, c));
+}
+
+Substrate _ouraSubstrate(Substrate sub, List<Map<String, Object?>> temps,
+    List<Map<String, Object?>> beats, int c) {
   final skin = <int>[];
   var j = 0;
   for (final t in sub.tsSec) {
@@ -80,13 +92,6 @@ Future<Substrate> ouraSubstrate(String deviceId, int from, int to) async {
         ((temps[j]['rec_ts'] as num) - t).abs() <= c;
     skin.add(near ? ((temps[j]['skin_temp_c'] as num) * 100).round() : 0);
   }
-  final db = await LocalDb.instance;
-  final beats = await db.rawQuery(
-    'SELECT COALESCE(beat_ts_ms, rr_ts_ms) AS t, rr_ms AS rr FROM decoded_rr '
-    'WHERE device_id = ? AND device_family = ? AND rec_ts >= ? AND rec_ts <= ? '
-    'ORDER BY t, beat_index',
-    [deviceId, kOuraFamily, from, to],
-  );
   final rr = [
     for (final b in beats)
       if (plausibleRrOrNull(b['rr'] as num) case final ms?)
@@ -104,6 +109,10 @@ Future<Substrate> ouraSubstrate(String deviceId, int from, int to) async {
 Future<Substrate> _ouraTempSubstrate(String deviceId, int from, int to) async {
   final rows = await _ouraTempRows(deviceId, from, to);
   if (rows.isEmpty) return Substrate.empty;
+  return constructWearable(() => _ouraTempColumns(deviceId, rows));
+}
+
+Substrate _ouraTempColumns(String deviceId, List<Map<String, Object?>> rows) {
   final n = rows.length;
   final zeros = List<double>.filled(n, 0);
   final none = List<int>.filled(n, -1);
