@@ -4022,11 +4022,13 @@ class DerivationEngine {
         // than the next one. Still holds `_running`, so nothing else can be
         // reading day_result while it rewrites.
         _diag['stage'] = 'strain_rescale';
+        var strainRescaled = false;
         try {
           final rescaled = await backfillStrainScale(
             female: workoutSex(profile.sex) == 'female',
           );
           if (rescaled.didWork) {
+            strainRescaled = true;
             _log('[derive] strain rescale: ${rescaled.bundleDays} day(s) '
                 'rebuilt, ${rescaled.skipped} skipped (no TRIMP or no wake '
                 'window)');
@@ -4042,6 +4044,7 @@ class DerivationEngine {
         // `finally` is reached by every early return, including "nothing to
         // derive" and "no decoded data".
         _diag['stage'] = 'readiness_calibration';
+        var crossDayRebuilt = false;
         try {
           final r = await backfillReadinessCalibration(
             // Both substrate sources, as `_deriveScope` reads them: a wearable
@@ -4060,9 +4063,23 @@ class DerivationEngine {
                     'never landed, from stored inputs)' : ''}');
             await _refreshBaselines();
           }
-          if (r.rescored > 0) await _runCrossDay(profile);
+          if (r.rescored > 0) {
+            await _runCrossDay(profile);
+            crossDayRebuilt = true;
+          }
         } catch (e) {
           _log('[derive] readiness calibration failed (will retry): $e');
+        }
+        // The strain rescale rewrote stored days after the rollup of this pass
+        // was built from the old values. When the calibration above did not
+        // rebuild it (no work, or it failed), rebuild it here.
+        if (strainRescaled && !crossDayRebuilt) {
+          try {
+            await _refreshBaselines();
+            await _runCrossDay(profile);
+          } catch (e) {
+            _log('[derive] cross-day refresh after the strain rescale failed: $e');
+          }
         }
         // Restamp Today's freshness here, not in each caller: the iOS
         // background pass has no caller to do it, and getToday reads the
