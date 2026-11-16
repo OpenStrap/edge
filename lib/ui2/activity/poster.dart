@@ -45,6 +45,7 @@ import '../theme.dart';
 import 'share.dart' show shareHero, shareStats, localizedExportCaption;
 import 'summary.dart';
 import 'tiles.dart';
+import '../skeleton/guide_plot.dart';
 
 /// Where the card is going, which is the only thing that decides its shape.
 ///
@@ -668,7 +669,9 @@ Color paceColor(double t) {
 /// are not drawn at all: what survives is the SHAPE of where they went, in the
 /// corner, fading up and to the left into the photograph. No panel, no border,
 /// no corner radius, no backdrop — nothing that gives it an edge.
-class PosterMap extends CustomPainter {
+class PosterMap extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => line;
   final RouteMosaic? mosaic;
 
   /// The 0…1 normalised route. The only geometry the corner form uses, and

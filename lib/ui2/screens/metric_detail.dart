@@ -2095,7 +2095,7 @@ class DayNav extends StatelessWidget {
           ),
         );
 
-    return Container(
+    return GuideBox(child: Container(
       decoration: BoxDecoration(color: p.card2, borderRadius: R.rMd),
       child: Row(children: [
         arrow(LucideIcons.chevronLeft, l?.metricDetailPreviousDay ?? 'Previous day',
@@ -2120,7 +2120,7 @@ class DayNav extends StatelessWidget {
           ),
         arrow(LucideIcons.chevronRight, l?.metricDetailNextDay ?? 'Next day', newer),
       ]),
-    );
+    ));
   }
 }
 

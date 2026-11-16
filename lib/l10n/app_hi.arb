@@ -3829,5 +3829,50 @@
   "supplementWeightKge50726": "वज़न (kg)",
   "supplementWorkoutc87292": "वर्कआउट",
   "supplementWorseThanUsual06f439": "सामान्य से खराब",
-  "supplementWristOptical06ad7e": "कलाई ऑप्टिकल"
+  "supplementWristOptical06ad7e": "कलाई ऑप्टिकल",
+  "guideTapMarker": "टैप करें",
+  "guideScrollMarker": "स्क्रोल करें",
+  "guideStepOf": "{total} में से चरण {step}",
+  "guideDontSeeIt": "नहीं दिख रहा?",
+  "guideExit": "बाहर निकलें",
+  "guideExitLabel": "गाइड से बाहर निकलें",
+  "guideOffPathTitle": "आप रास्ते से हट गए हैं",
+  "guideOffPathBody": "यह स्क्रीन गाइड का हिस्सा नहीं है।",
+  "guideBackToGuide": "गाइड पर वापस जाएँ",
+  "guideDoneTitle": "हो गया",
+  "guideDoneBody": "यह आखिरी चरण था।",
+  "guideTargetProxy": "गाइड का लक्ष्य: {caption}",
+  "guideTabProxy": "गाइड: {tab} टैब खोलें",
+  "guideBackProxy": "गाइड: रास्ते पर वापस जाएँ",
+  "guideMoveCardUp": "कार्ड को ऊपर ले जाएँ",
+  "guideMoveCardDown": "कार्ड को नीचे ले जाएँ",
+  "guideTapsBack": "{count, plural, one{1 टैप पीछे} other{{count} टैप पीछे}}",
+  "@guideTapsBack": {
+    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@guideTabProxy": {
+    "description": "Screen-reader label of the highlighted tab-bar tab while a guide runs: the step is on that tab.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "The tab's name, as the tab bar prints it."
+      }
+    }
+  },
+  "@guideBackProxy": {
+    "description": "Screen-reader label of the highlighted control that leads back to the guide's path while the user is off the path."
+  },
+  "@guideMoveCardUp": {
+    "description": "Screen-reader action on the guide's step card: move the card up the screen (the alternative to dragging it)."
+  },
+  "@guideMoveCardDown": {
+    "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapOneOf": "इनमें से एक टैप करें",
+  "guideExpandAccordion": "{title} खोलें"
 }

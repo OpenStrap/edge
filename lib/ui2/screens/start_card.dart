@@ -96,7 +96,7 @@ class StartCard extends StatelessWidget {
     final card = Pressable(
       onTap: onTap,
       semanticLabel: label.toLowerCase(),
-      child: ClipRect(
+      child: GuideBox(card: true, child: ClipRect(
         child: Container(
           // A FLOOR, not a fixed height, so the copy can grow.
           constraints: const BoxConstraints(minHeight: 190),
@@ -168,7 +168,7 @@ class StartCard extends StatelessWidget {
            ),
           ),
         ),
-      ),
+      )),
     );
 
     return card;

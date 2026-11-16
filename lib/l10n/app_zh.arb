@@ -3829,5 +3829,50 @@
   "supplementWeightKge50726": "体重（千克）",
   "supplementWorkoutc87292": "训练",
   "supplementWorseThanUsual06f439": "比平常差",
-  "supplementWristOptical06ad7e": "腕部光学"
+  "supplementWristOptical06ad7e": "腕部光学",
+  "guideTapMarker": "点按",
+  "guideScrollMarker": "滚动",
+  "guideStepOf": "第 {step} 步，共 {total} 步",
+  "guideDontSeeIt": "没看到？",
+  "guideExit": "退出",
+  "guideExitLabel": "退出指南",
+  "guideOffPathTitle": "你已偏离路径",
+  "guideOffPathBody": "这个界面不在指南中。",
+  "guideBackToGuide": "返回指南",
+  "guideDoneTitle": "完成",
+  "guideDoneBody": "这是最后一步。",
+  "guideTargetProxy": "指南目标：{caption}",
+  "guideTabProxy": "指南：打开“{tab}”标签页",
+  "guideBackProxy": "指南：返回路径",
+  "guideMoveCardUp": "将卡片上移",
+  "guideMoveCardDown": "将卡片下移",
+  "guideTapsBack": "返回需点按 {count} 次",
+  "@guideTapsBack": {
+    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@guideTabProxy": {
+    "description": "Screen-reader label of the highlighted tab-bar tab while a guide runs: the step is on that tab.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "The tab's name, as the tab bar prints it."
+      }
+    }
+  },
+  "@guideBackProxy": {
+    "description": "Screen-reader label of the highlighted control that leads back to the guide's path while the user is off the path."
+  },
+  "@guideMoveCardUp": {
+    "description": "Screen-reader action on the guide's step card: move the card up the screen (the alternative to dragging it)."
+  },
+  "@guideMoveCardDown": {
+    "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapOneOf": "点其中一个",
+  "guideExpandAccordion": "展开{title}"
 }

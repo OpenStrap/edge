@@ -3829,5 +3829,50 @@
   "supplementWeightKge50726": "peso (kg)",
   "supplementWorkoutc87292": "entrenamiento",
   "supplementWorseThanUsual06f439": "peor de lo habitual",
-  "supplementWristOptical06ad7e": "óptico de muñeca"
+  "supplementWristOptical06ad7e": "óptico de muñeca",
+  "guideTapMarker": "toca",
+  "guideScrollMarker": "desplaza",
+  "guideStepOf": "Paso {step} de {total}",
+  "guideDontSeeIt": "¿No lo ves?",
+  "guideExit": "Salir",
+  "guideExitLabel": "Salir de la guía",
+  "guideOffPathTitle": "Te has salido del camino",
+  "guideOffPathBody": "Esta pantalla no forma parte de la guía.",
+  "guideBackToGuide": "Volver a la guía",
+  "guideDoneTitle": "Listo",
+  "guideDoneBody": "Ese era el último paso.",
+  "guideTargetProxy": "Objetivo de la guía: {caption}",
+  "guideTabProxy": "Guía: abrir la pestaña {tab}",
+  "guideBackProxy": "Guía: volver al camino",
+  "guideMoveCardUp": "Mover la tarjeta hacia arriba",
+  "guideMoveCardDown": "Mover la tarjeta hacia abajo",
+  "guideTapsBack": "{count, plural, one{1 toque atrás} other{{count} toques atrás}}",
+  "@guideTapsBack": {
+    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@guideTabProxy": {
+    "description": "Screen-reader label of the highlighted tab-bar tab while a guide runs: the step is on that tab.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "The tab's name, as the tab bar prints it."
+      }
+    }
+  },
+  "@guideBackProxy": {
+    "description": "Screen-reader label of the highlighted control that leads back to the guide's path while the user is off the path."
+  },
+  "@guideMoveCardUp": {
+    "description": "Screen-reader action on the guide's step card: move the card up the screen (the alternative to dragging it)."
+  },
+  "@guideMoveCardDown": {
+    "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapOneOf": "toca uno",
+  "guideExpandAccordion": "Expandir {title}"
 }

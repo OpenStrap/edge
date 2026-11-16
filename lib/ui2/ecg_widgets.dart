@@ -15,6 +15,7 @@ import '../ecg/ecg_models.dart';
 import '../ecg/ecg_waveform_buffer.dart';
 import 'grammar.dart';
 import 'theme.dart';
+import './skeleton/guide_plot.dart';
 
 /// The band on the selected wrist, both electrode indents, and the opposite
 /// hand's thumb and index finger touching them, with soft contact rings.
@@ -60,7 +61,7 @@ class EcgTouchIllustration extends StatelessWidget {
   }
 }
 
-class _TouchPainter extends CustomPainter {
+class _TouchPainter extends CustomPainter implements GuideDecoration {
   final EcgWrist wrist;
   final double t;
   final bool contact;
@@ -353,7 +354,9 @@ int ecgPreviewRange(int maxAbs, {int step = 250, int floor = 500}) {
   return math.max(floor, stepped);
 }
 
-class EcgLivePainter extends CustomPainter {
+class EcgLivePainter extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => color;
   final EcgWaveformBuffer buffer;
   final int version;
   final Color color;
@@ -414,7 +417,9 @@ class EcgLivePainter extends CustomPainter {
 /// a visible break — a one-second hole in the trace, never a line across it.
 /// Horizontal scale is [pxPerSecond]; the caller wraps it in a horizontal
 /// scroll view at the width [widthFor] reports.
-class EcgWaveformPainter extends CustomPainter {
+class EcgWaveformPainter extends CustomPainter implements GuidePlot {
+  @override
+  Color get guideLineColor => color;
   final List<EcgAcceptedPacket> packets;
   final double pxPerSecond;
   final Color color;
