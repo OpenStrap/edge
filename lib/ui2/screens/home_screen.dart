@@ -427,6 +427,23 @@ Metric overnightMetric(Map<String, dynamic> today, Object? raw,
   return why == null ? metricOf(raw) : Metric(note: why);
 }
 
+/// TODAY'S OWN NIGHT while its drain is still arriving (#638), or an empty
+/// metric when `getToday` did not send one.
+///
+/// `getToday` withholds today's overnight block until it settles (#448), which
+/// is what keeps a partial night's readiness off this screen. Sleep is a
+/// different question: the Sleep tab has always shown that same stored row, so
+/// Home was the only surface that said nothing for an hour after waking — or
+/// twelve, when the band stopped recording at wake. The repository serves that
+/// night's sleep summary on its own key while it is provisional, and nothing on
+/// the recovery side reads it, so readiness, HRV and resting HR stay withheld
+/// exactly as #578 left them.
+Metric provisionalSleepOf(Map<String, dynamic> today) {
+  final b = today['sleep_provisional'];
+  if (b is! Map || b['provisional'] != true) return Metric.empty;
+  return Metric.parse(b['duration_min']);
+}
+
 /// A scalar lifted out of an object-valued envelope, wearing that envelope's
 /// honesty (tier, confidence, note) so `StatusCard.forMetric` still works on
 /// it.
@@ -898,6 +915,17 @@ class RingTrio extends StatelessWidget {
     // win, in this order: why a ring is low, what changed the recovery number,
     // then an absent ring's reason.
     final rows = <Widget>[
+      // #638: the sleep ring is showing today's own night while its drain is
+      // still arriving. The number is greyed, and this says so in words — the
+      // same words the recovery ring uses for the same wait (#578). FIRST,
+      // because it explains a figure rather than commenting on one, and the
+      // slot holds two rows.
+      if (d.sleepProvisional)
+        _HomeNoteRow(
+            id: 'provisional:sleep',
+            title: l?.homeRingSleep ?? 'Sleep',
+            text: l?.homeRecoveryFinishingUp ?? 'Finishing up',
+            onTap: _open(HomeRingKind.sleep)),
       for (final k in pressingRings(d))
         _HomeWhyPanel(kind: k, data: d, onTap: _open(k)),
       if (recoveryUpdatedLine(d.readinessUpdate, l) case final note?)
@@ -1211,7 +1239,13 @@ List<HomeRingKind> pressingRings(HomeData d) {
     }
   }
   final sleep = d.sleepMin.value, need = d.sleepNeedMin.value;
-  if (sleep != null && need != null && need > 0 && sleep / need < .85) {
+  // A figure that can still move is not something to press on: the provisional
+  // recovery is skipped for the same reason (#578, #638).
+  if (!d.sleepProvisional &&
+      sleep != null &&
+      need != null &&
+      need > 0 &&
+      sleep / need < .85) {
     ranked.add((HomeRingKind.sleep, sleep / need < .70 ? 3 : 2));
   }
   final strain = d.strain.value;
@@ -1388,7 +1422,10 @@ _RingState _ringOf(HomeRingKind k, HomeData d, AppLocalizations? l) {
                       '${m.pct}% of ${_compactHm(m.targetMin, l)}',
                 ],
           frac: m.sweep,
-          arcs: m.arcs);
+          arcs: m.arcs,
+          // Today's own night while the drain is still arriving: a real figure
+          // that can still move, drawn greyed like the provisional recovery.
+          provisional: d.sleepProvisional);
   }
 }
 
@@ -1725,6 +1762,12 @@ class HomeData {
   /// another night.
   final SleepStageMin? sleepStages;
 
+  /// Whether [sleepMin] is TODAY'S OWN night still arriving: the band has a
+  /// scored night for today, the drain has not yet run past its wake, and the
+  /// figure can still move (#638). The number is drawn greyed and the card says
+  /// so; recovery is still withheld entirely until the night settles.
+  final bool sleepProvisional;
+
   const HomeData({
     this.name,
     this.dayId,
@@ -1748,6 +1791,7 @@ class HomeData {
     this.recoveryState,
     this.readinessUpdate,
     this.sleepStages,
+    this.sleepProvisional = false,
   });
 
   /// The three illness fields, replaced together. Test-facing sugar, and they
@@ -1768,6 +1812,7 @@ class HomeData {
         bedtime: bedtime,
         strainTarget: strainTarget,
         sleepStages: sleepStages,
+        sleepProvisional: sleepProvisional,
         heldOverNight: heldOverNight,
         illnessState: state,
         illnessDay: day,
@@ -1835,17 +1880,15 @@ class HomeData {
     final (today, stages) = await repo.sharingDayReads(() async {
       final t = await repo.getToday();
       final sl = t['sleep'];
-      final night = (overnightMetric(
-                      t, sl is Map ? sl['duration_min'] : null, l)
-                  .value ==
-              null)
-          ? null
-          // Stage totals of TODAY'S OWN night only: a held-over night is
-          // refused by overnightMetric, and its stages must not turn up under
-          // today's ring.
-          : ((t['status'] as Map?)?['overnight_day'] ??
-                  (t['status'] as Map?)?['today_day'])
-              ?.toString();
+      final settled = overnightMetric(
+          t, sl is Map ? sl['duration_min'] : null, l);
+      final status = t['status'] as Map?;
+      final day = status?['today_day']?.toString();
+      final night = settled.value != null
+          ? (status?['overnight_day']?.toString() ?? day)
+          // Today's own night, still arriving (#638): its stages are read from
+          // TODAY, never from the prior night the label names.
+          : (provisionalSleepOf(t).value != null ? day : null);
       SleepStageMin? st;
       if (night != null) {
         try {
@@ -1871,7 +1914,15 @@ class HomeData {
 
     final heldOver = heldOverNightOf(today);
 
-    final sleepMin = overnightMetric(today, s('duration_min'), l);
+    // A settled night first; otherwise today's own night, IF the pipeline says
+    // it is still arriving (#638). A held-over night is refused by
+    // [overnightMetric] either way, so nothing but today's night can fill this
+    // ring — see [provisionalSleepOf].
+    final settledSleep = overnightMetric(today, s('duration_min'), l);
+    final provisionalSleep = provisionalSleepOf(today);
+    final sleepProvisional =
+        settledSleep.value == null && provisionalSleep.value != null;
+    final sleepMin = sleepProvisional ? provisionalSleep : settledSleep;
     // Same envelope Health reads. The watch runs on NOCTURNAL RESTING HEART
     // RATE ALONE — it has never been given a temperature series — so nothing
     // here may imply a second signal.
@@ -1907,6 +1958,7 @@ class HomeData {
       strain: metricOf(d('strain')),
       sleepMin: sleepMin,
       sleepStages: stages,
+      sleepProvisional: sleepProvisional,
       rhr: overnightMetric(today, d('resting_hr'), l),
       steps: metricOf(d('steps')),
       calories: metricOf(d('calories')),
