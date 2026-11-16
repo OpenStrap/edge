@@ -689,6 +689,7 @@ class CoachEngine {
         final fn = (tc['function'] as Map?) ?? const {};
         final name = fn['name']?.toString() ?? '';
         Map<String, dynamic> args = {};
+        var argsParsed = true;
         try {
           final a = fn['arguments'];
           if (a is String && a.isNotEmpty) {
@@ -696,7 +697,25 @@ class CoachEngine {
           } else if (a is Map) {
             args = a.cast<String, dynamic>();
           }
-        } catch (_) {}
+        } catch (_) {
+          argsParsed = false;
+        }
+        // A truncated or non-object `arguments` string is a NORMAL failure
+        // from OpenAI-compatible providers. Running the tool with `{}` built
+        // the confirmation from fabricated defaults (and on confirm wrote
+        // them: `log_period` logged today, `start_workout` started `other`).
+        // Tell the model instead, so it can re-issue a complete call.
+        if (!argsParsed) {
+          _history.add({
+            'role': 'tool',
+            'tool_call_id': id,
+            'name': name,
+            'content': 'Error: the "$name" arguments were not a complete JSON '
+                'object, so the tool was NOT run and nothing was written. '
+                'Call it again with valid JSON arguments.',
+          });
+          continue;
+        }
 
         onStatus(_statusFor(name, args));
         final result = await _runTool(name, args, onItem: emit, confirm: confirm);
