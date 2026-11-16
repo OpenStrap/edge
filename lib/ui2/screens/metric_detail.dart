@@ -757,6 +757,12 @@ class _MetricDetailState extends State<MetricDetail> {
   MetricData? _d;
   bool _loading = true;
 
+  /// The last read threw. A failed read is NOT "nothing recorded": rendering it
+  /// as the ordinary empty state told someone with data on disk to wear the
+  /// band, and offered no way back. Cleared by a successful load and by the
+  /// retry that [StatusCard.onFix] starts.
+  bool _failed = false;
+
   /// The slot the user has put a finger on, as an index into the DENSE window.
   /// Null until they touch the chart. A window change clears it: slot 12 of a
   /// 30-day window is not slot 12 of a year.
@@ -902,10 +908,11 @@ class _MetricDetailState extends State<MetricDetail> {
         winners = resolved;
       }
       if (mounted) {
-        setState(() => (_d = d, _winners = winners, _loading = false));
+        setState(() => (_d = d, _winners = winners, _loading = false,
+            _failed = false));
       }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => (_loading = false, _failed = true));
     }
   }
 
@@ -951,6 +958,19 @@ class _MetricDetailState extends State<MetricDetail> {
         const SizedBox(height: S.x5),
         if (_loading)
           const Center(child: CircularProgressIndicator())
+        else if (_failed && all.isEmpty)
+          StatusCard(
+            l?.wellnessLoadFailedTitle ?? 'This could not be read',
+            l?.homeLoadFailedBody ??
+                'The stored day failed to load. Nothing was deleted — this is a '
+                    'read that went wrong, not missing data.',
+            fix: l?.homeTryAgain ?? 'Try again',
+            icon: LucideIcons.databaseZap,
+            onFix: () {
+              setState(() => (_loading = true, _failed = false));
+              _load();
+            },
+          )
         else
           StatusCard(
             win == 1
@@ -989,13 +1009,13 @@ class _MetricDetailState extends State<MetricDetail> {
         // placeholder `MetricData()` and `d.stepGoal` is just the fallback
         // default, not this user's goal — showing the editor pre-filled with
         // that would risk saving it over their real one.
-        if (!_loading && widget.metricKey == 'steps' && win == 1) ...[
+        if (!_loading && !_failed && widget.metricKey == 'steps' && win == 1) ...[
           const SizedBox(height: S.x5),
           _StepGoalGauge(
               steps: null, goal: d.stepGoal, color: spec.color, onSaved: _load),
         ],
         const SizedBox(height: S.x5),
-        investigateRow(c, () => go(c, Investigate(widget.metricKey))),
+        if (!_failed) investigateRow(c, () => go(c, Investigate(widget.metricKey))),
       ] else ...[
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
