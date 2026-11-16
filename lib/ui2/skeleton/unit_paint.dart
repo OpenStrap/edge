@@ -28,6 +28,7 @@ import 'dart:ui' show ClipOp;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import '../grammar.dart' show Pressable;
 import '../guides/guide_dim.dart';
 import '../guides/guide_accordion.dart';
 import '../guides/tree_geometry.dart';
@@ -65,10 +66,18 @@ Iterable<RenderParagraph> looseParagraphs(Element layer) sync* {
   }
 }
 
+/// True for a mark whose component the planner never makes a unit: a Pressable with no
+/// tap is not a control ([isGuideControl]), so its label is planned as loose text and
+/// nothing else paints it.
+bool _marksLooseLabels(GuideUnitMark mark) {
+  final c = mark.component;
+  return c is Element && c.widget is Pressable && (c.widget as Pressable).onTap == null;
+}
+
 Iterable<RenderParagraph> _looseBelow(Element e) sync* {
   final w = e.widget;
   // Chrome (a NavBar, a title, a tab bar) is never dimmed, whatever the plan says of it.
-  if (w is GuideUnitMark || w is GuideLooseLayer || isGuideChromeWidget(w)) return;
+  if (w is GuideUnitMark && !_marksLooseLabels(w) || w is GuideLooseLayer || isGuideChromeWidget(w)) return;
   final ro = e is RenderObjectElement ? e.renderObject : null;
   if (ro is RenderParagraph) yield ro;
   final children = <Element>[];

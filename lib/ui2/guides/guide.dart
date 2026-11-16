@@ -210,10 +210,11 @@ class Guide {
   List<GuideFooter> get doneFooters =>
       [for (final f in footers) if (f.kind != GuideFooterKind.missingTarget) f];
 
-  /// Bands any variant covers; an "any" variant covers both.
+  /// Bands any variant covers; an "any" variant covers both. A variant with no
+  /// steps covers nothing: a run on it would have no step to show.
   Set<BandGeneration> get devices => {
         for (final v in variants)
-          ...(v.devices.isEmpty ? BandGeneration.values : v.devices),
+          if (v.steps.isNotEmpty) ...(v.devices.isEmpty ? BandGeneration.values : v.devices),
       };
 
   /// An exact-band variant beats an "any" variant; no match -> [GuideNoVariant].
@@ -222,6 +223,7 @@ class Guide {
   GuideVariantResult variantFor(BandGeneration? band) {
     GuideVariant? any;
     for (final v in variants) {
+      if (v.steps.isEmpty) continue; // nothing to run: never an empty guide
       if (band != null && v.devices.contains(band)) return GuideVariantFound(v);
       if (v.devices.isEmpty) any ??= v;
     }

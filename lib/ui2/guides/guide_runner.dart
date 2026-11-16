@@ -94,6 +94,10 @@ class GuideRunner extends ChangeNotifier {
   GuideRun? _run;
   GuideShellLink? _shell;
   OverlayEntry? _entry;
+  /// Bumped by every [exit] (and so by every [start]). A [start] that awaits
+  /// Back keeps the value it began with and stops once it is no longer current,
+  /// so two overlapping starts never leave two overlays on the stack.
+  int _startToken = 0;
   Future<void>? _backToGuideFuture;
   GuideRun? _backToGuideRun;
   GuideRun? get activeRun => _run;
@@ -122,6 +126,7 @@ class GuideRunner extends ChangeNotifier {
     final nav = navigatorKey.currentState;
     if (_shell == null || nav == null) return const GuideStartNoShell();
     exit();
+    final token = _startToken;
     final shell = _shell;
     while (nav.canPop()) {
       final before = routes.topRoute;
@@ -129,6 +134,8 @@ class GuideRunner extends ChangeNotifier {
       // Back can return true without removing the route (PopScope, capture).
       final handled = await nav.maybePop();
       if (!nav.mounted || !identical(shell, _shell)) return const GuideStartNoShell();
+      // A newer start or an exit took over while Back was being handled.
+      if (token != _startToken) return const GuideStartBlocked();
       if (!handled || before?.isActive != false || identical(before, routes.topRoute)) return const GuideStartBlocked();
     }
     _selectStart(guide.start);
@@ -298,6 +305,7 @@ class GuideRunner extends ChangeNotifier {
   /// Ends the active run (no-op without one).
   /// ↳ CLAIM(run-exit-in-place)
   void exit() {
+    _startToken++;
     final run = _run;
     if (run == null) return;
     _run = null;

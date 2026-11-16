@@ -4,9 +4,10 @@
 // none of the shipped guides has a WHOOP 4 / WHOOP 5 split (see the per-guide tests); the shipped catalogue is pinned separately.
 import 'package:flutter_test/flutter_test.dart'; import 'package:flutter/widgets.dart' show Locale;
 import 'package:openstrap_edge/l10n/app_localizations.dart'; import 'package:openstrap_edge/sync/paired_device.dart';
-import 'package:openstrap_edge/ui2/guides/guide.dart'; import 'package:openstrap_edge/ui2/guides/guide_catalogue.dart'; import '../support/guide_text.dart';
+import 'package:openstrap_edge/ui2/guides/guide.dart'; import 'package:openstrap_edge/ui2/guides/guide_target.dart'; import 'package:openstrap_edge/ui2/guides/guide_catalogue.dart'; import '../support/guide_text.dart';
+// why: main rejects empty variants; band-filter fixtures need a runnable step.
 Guide _guide(String id, List<Set<BandGeneration>> variants) => Guide( id: id, title: fnText((_) => 'Title $id'), start: GuideStart.today,
-      variants: [for (final d in variants) GuideVariant(devices: d, steps: const [])], );
+      variants: [for (final d in variants) GuideVariant(devices: d, steps: [GuideStep(id: 'only', target: GuideTarget.label(fnText((_) => 'Target')), anchor: GuideTarget.label(fnText((_) => 'Target')), action: GuideAction.tap, caption: fnText((_) => 'Caption'))])], );
 final _any = _guide('any', [<BandGeneration>{}]); final _only4 = _guide('only4', [{BandGeneration.whoop4}]); final _only5 = _guide('only5', [{BandGeneration.whoop5}]);
 final _split = _guide('split', [{BandGeneration.whoop4}, {BandGeneration.whoop5}]);
 List<String> _ids(List<GuideTopicGroup> groups) => [for (final g in groups) for (final e in g.entries) e.guide.id];
