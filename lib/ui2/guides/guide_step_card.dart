@@ -117,6 +117,17 @@ class _GuideStepCardState extends State<GuideStepCard> {
       key: key, padding: const EdgeInsets.only(top: S.x2),
       child: GuideFooterCard(title: f.title.of(l), body: f.body.of(l)),
     );
+    // CLAIM(guide-card-hit-targets): guide links require 48 dp independently
+    // of S.tap [guide_step_card_hit_targets_test]. Keep the caption typography
+    // and row alignment while adding only the missing hit area.
+    Widget action(String text, VoidCallback? onTap, {Key? key}) => Pressable(
+      key: key, onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        child: Align(widthFactor: 1, heightFactor: 1,
+          child: Text(text, style: F.cap.copyWith(color: p.on(C.blue)))),
+      ),
+    );
     final model = widget.model;
     final content = <Widget>[];
     switch (model) {
@@ -172,19 +183,17 @@ class _GuideStepCardState extends State<GuideStepCard> {
     if (model is GuideCardOnStep && model.missingHelp != null) {
       links.add(Flexible(child: Semantics(
         key: GuideStepCard.dontSeeItKey, container: true, button: true, expanded: _expanded,
-        child: Pressable(onTap: () => setState(() => _expanded = !_expanded),
-          child: Text(l.guideDontSeeIt, style: F.cap.copyWith(color: p.on(C.blue)))),
+        child: action(l.guideDontSeeIt, () => setState(() => _expanded = !_expanded)),
       )));
     }
     if (model is GuideCardOffPath && widget.onBackToGuide != null) {
-      links.add(Flexible(child: Pressable(key: GuideStepCard.backToGuideKey,
-        onTap: widget.onBackToGuide, child: Text(l.guideBackToGuide, style: F.cap.copyWith(color: p.on(C.blue))))));
+      links.add(Flexible(child: action(l.guideBackToGuide, widget.onBackToGuide,
+        key: GuideStepCard.backToGuideKey)));
     }
     final actions = <Widget>[
       Expanded(child: Align(alignment: AlignmentDirectional.centerStart, child: Row(mainAxisSize: MainAxisSize.min, children: links))),
       Semantics(container: true, label: l.guideExitLabel, button: true, onTap: widget.onExit,
-        child: ExcludeSemantics(child: Pressable(key: GuideStepCard.exitKey, onTap: widget.onExit,
-          child: Text(l.guideExit, style: F.cap.copyWith(color: p.on(C.blue)))))),
+        child: ExcludeSemantics(child: action(l.guideExit, widget.onExit, key: GuideStepCard.exitKey))),
     ];
     return Material(
       key: GuideStepCard.cardKey, color: p.card, borderRadius: R.rLg, elevation: 6, shadowColor: p.shadow,
