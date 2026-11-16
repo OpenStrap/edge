@@ -3838,7 +3838,7 @@
   "guideBackProxy": "Anleitung: zurück zum Weg",
   "guideMoveCardUp": "Karte nach oben schieben",
   "guideMoveCardDown": "Karte nach unten schieben",
-  "guideTapsBack": "{count, plural, one{1 Tipp zurück} other{{count} Tipps zurück}}",
+  "guideTapsBack": "{count, plural, one{Noch 1-mal tippen} other{Noch {count}-mal tippen}}",
   "@guideTapsBack": {
     "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
     "placeholders": {
