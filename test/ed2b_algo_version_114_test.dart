@@ -7,7 +7,7 @@ void main() {
   // WHY: finalized days need a new version when the analytics pin changes outputs.
   test('ED-2b adoption and workout rest repin name their output changes', () {
     expect(kAlgoVersion, 124);
-    expect(kAnalyticsPin, '614a48e5ffc553b88de248fd9fc13b07d9c1ceba');
+    expect(kAnalyticsPin, 'a438df40b38a4586a52a68ab7e1c100fca111ccd');
     final src = File('lib/compute/derivation_engine.dart').readAsStringSync();
     final at = src.indexOf('// 121 → 122');
     expect(at, isNonNegative);
@@ -26,7 +26,7 @@ void main() {
       expect(repinEntry, contains(change));
     }
     final mainRepin = src.substring(src.indexOf('// 123 → 124'));
-    for (final change in ['614a48e', '#102-#108', 'regressing clocks',
+    for (final change in ['a438df4', '#102-#110', '#110', 'regressing clocks',
       '5%', 'Cosinor', 'SDNN', 'uncertainty', 'HrvFreqStream v2',
       'CardioRowCache v3', 'PRSA']) {
       expect(mainRepin, contains(change));
