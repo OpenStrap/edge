@@ -434,6 +434,28 @@ class LocalRepositoryImpl extends LocalRepository {
         ? null
         : await _wakeFeatures(todayDay);
     final b = sleepBundle ?? activityBundle;
+    // Read above the early return: the provisional block below carries the same
+    // learned sleep need the rest of this payload does.
+    final cd = await _crossDay();
+    final recoveryState = todayFresh?['recovery_state']?.toString();
+    // TODAY'S OWN NIGHT, SLEEP ONLY, WHILE ITS DRAIN IS STILL ARRIVING (#638).
+    //
+    // The overnight block above refuses today's row until the band's edge has
+    // run an hour past its wake (#448), and that is the right call for
+    // READINESS: mid-drain the stager closes the window wherever the sync
+    // stopped, so a partial night's score is not this morning's. Sleep is a
+    // different question. The Sleep tab reads that same stored row with no
+    // gate at all, so Home was the one surface saying "still being worked out"
+    // for an hour after waking — or twelve, when the band stopped at wake.
+    //
+    // So the night's SLEEP SUMMARY travels on its OWN key, marked provisional,
+    // and nothing on the recovery side reads it: `sleep`, readiness, HRV,
+    // resting HR, skin temperature and stress all still come off `sleepBundle`
+    // and stay withheld until the night settles, exactly as #578 left them.
+    final sleepProvisional = recoveryState == 'night_in_progress' ||
+            recoveryState == 'provisional'
+        ? _provisionalSleepSummary(todayBundle, _sleepNeedMin(cd))
+        : null;
     if (b == null && wakeFeatures == null) {
       return {
         'daily': const {},
@@ -449,7 +471,6 @@ class LocalRepositoryImpl extends LocalRepository {
     final clinical = sleepBundle == null
         ? const <String, dynamic>{}
         : (_sub(sleepBundle, 'clinical') ?? const <String, dynamic>{});
-    final cd = await _crossDay();
 
     final rhrEnv = clinical['resting_hr'] is Map
         ? (clinical['resting_hr'] as Map).cast<String, dynamic>()
@@ -473,7 +494,6 @@ class LocalRepositoryImpl extends LocalRepository {
     // The pin is only trusted for the night it was taken on (its wake within an
     // hour of today's window, see LocalDb.headlinePinFor); a pin from an older
     // build or an earlier sleep block yields to the live final value.
-    final recoveryState = todayFresh?['recovery_state']?.toString();
     Map<String, int>? readinessUpdate;
     if (overnightState == 'ready') {
       final pin = await LocalDb.headlinePinFor(todayDay);
@@ -613,6 +633,7 @@ class LocalRepositoryImpl extends LocalRepository {
       'sleep': sleepBundle == null
           ? const {}
           : _sleepSummary(sleepBundle, needMin: _sleepNeedMin(cd)),
+      'sleep_provisional': ?sleepProvisional,
       if (sleepBundle != null && rhrEnv != null)
         'nocturnal': _nocturnal(
           sleepBundle,
@@ -806,6 +827,21 @@ class LocalRepositoryImpl extends LocalRepository {
         'need_min': _scalarMetric(needMin, 'ESTIMATE', unit: 'min'),
       'efficiency': _scalarMetric(eff, 'ESTIMATE', unit: '%'),
     };
+  }
+
+  /// TODAY'S OWN NIGHT as a provisional sleep summary, or null when the stored
+  /// row has no scored sleep to hand over (#638).
+  ///
+  /// Only the SLEEP half of the night: the recovery half (readiness, HRV,
+  /// resting HR) stays gated on [overnightSettled] in
+  /// `LocalDb.refreshComputeFreshness`, and there is no key here for it to
+  /// leak through. `provisional: true` travels with the block so a consumer
+  /// cannot read it as a settled night by shape alone.
+  Map<String, dynamic>? _provisionalSleepSummary(
+      Map<String, dynamic>? todayBundle, int? needMin) {
+    if (todayBundle == null) return null;
+    final s = _sleepSummary(todayBundle, needMin: needMin);
+    return s.isEmpty ? null : {...s, 'provisional': true};
   }
 
   Map<String, dynamic> _nocturnal(Map<String, dynamic> b, {num? baselineRhr}) {

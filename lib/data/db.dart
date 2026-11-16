@@ -14527,7 +14527,21 @@ class LocalDb {
     };
   }
 
-  static Future<void> refreshComputeFreshness() async {
+  /// Refreshes run one at a time. One that started before a derive settled
+  /// today's row could otherwise finish after the derive's own refresh and
+  /// overwrite the newer state with the older one, leaving a settled night
+  /// reading as still arriving. Queued calls each read the rows as they stand
+  /// when their turn comes. A failing refresh fails its own caller and never
+  /// blocks the ones behind it.
+  static Future<void> _freshnessQueue = Future<void>.value();
+
+  static Future<void> refreshComputeFreshness() {
+    final run = _freshnessQueue.then((_) => _refreshComputeFreshnessNow());
+    _freshnessQueue = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  static Future<void> _refreshComputeFreshnessNow() async {
     final raw = await _freshnessRawStats();
     // Payload-free: this runs at the end of every derive pass, including the
     // light one after each BLE drain, on the UI isolate. The loop usually

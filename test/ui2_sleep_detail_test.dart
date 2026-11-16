@@ -468,6 +468,20 @@ void main() {
       expect(stepped.latestDay, '2026-05-20');
       expect(stepped.isLatestNight, isFalse);
     });
+
+    test('today\'s provisional night wins over the held-over one', () async {
+      // #739: Home's Sleep ring is drawn from `sleep_provisional` while the
+      // night drains, so the tap that opens this screen must land on TODAY.
+      // The held-over 2026-05-20 night is not the night the ring showed.
+      final opened = await SleepData.load(_ProvisionalRepo());
+      expect(opened.day, '2026-05-22');
+      expect(opened.latestDay, '2026-05-22');
+
+      // Stepping back to a named night still opens that night.
+      final stepped = await SleepData.load(_ProvisionalRepo(), want: '2026-05-19');
+      expect(stepped.day, '2026-05-19');
+      expect(stepped.latestDay, '2026-05-22');
+    });
   });
 
   group('sleepScrubTempDelta', () {
@@ -705,6 +719,29 @@ void main() {
     expect(find.text('Marked as not sleep'), findsOneWidget);
     expect(find.text('I was asleep'), findsNothing);
   });
+}
+
+/// `getToday` holding the 2026-05-20 night over while TODAY's own night is
+/// still draining (#638): both nights are in the payload at once.
+class _ProvisionalRepo extends _HeldOverRepo {
+  @override
+  Future<Map<String, dynamic>> getToday() async => {
+        'status': {
+          'today_day': '2026-05-22',
+          'showing_prior_overnight': true,
+          'overnight_day': '2026-05-20',
+          'recovery_state': 'night_in_progress',
+        },
+        'sleep_provisional': {
+          'duration_min': {
+            'value': 360,
+            'confidence': .8,
+            'tier': 'ESTIMATE',
+            'unit': 'min',
+          },
+          'provisional': true,
+        },
+      };
 }
 
 /// `getToday` holding the 2026-05-20 night over, with older nights on disk.
