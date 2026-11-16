@@ -38,6 +38,24 @@ void main() {
     expect(UsualRange.priorTo(rough)!.axis(rough)!.max, greaterThan(100));
   });
 
+  test('the axis stays under the ceiling after it rounds to whole steps', () {
+    // Seven nights at 98 and seven at 100: the band is about 97.7 to 100, and
+    // with no floor the rounded axis used to come back as 95 to 105. This case
+    // is the one `floor: 0` hides.
+    // Fourteen nights of history, then today.
+    final steady = <double>[for (var i = 0; i < 7; i++) ...[98, 100], 100];
+    final band = usualRangeFor('efficiency', steady, null)!;
+    expect(band.hi, 100);
+    final axis = band.axis([100])!;
+    expect(axis.max, lessThanOrEqualTo(100));
+    expect(axis.min, lessThanOrEqualTo(band.lo));
+    for (final v in axis.tickValues) {
+      expect(v, v.roundToDouble(), reason: 'gridline $v needs a whole label');
+    }
+    // Data above the ceiling is never cropped.
+    expect(band.axis([104])!.max, greaterThanOrEqualTo(104));
+  });
+
   test('a share of a whole never starts below 0', () {
     final spread = <double>[
       for (var i = 0; i < 8; i++) 2,

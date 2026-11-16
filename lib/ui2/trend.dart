@@ -113,12 +113,23 @@ class UsualRange {
     var top = hi + w;
     final c = ceiling;
     if (c != null && top > c) top = c;
-    return AxisSpec.of(
+    final spec = AxisSpec.of(
       [...data, bottom, top],
       ticks: ticks,
       format: format,
       floor: floor,
     );
+    // AxisSpec rounds out to whole steps, which can carry the top past the
+    // ceiling (a 95-105 axis for a band that ends at 100). Anchor it at the
+    // ceiling instead, with the same span and step so the gridlines stay on
+    // numbers their labels can say. Data above the ceiling is left alone: an
+    // axis never crops what it plots.
+    if (spec == null || c == null || spec.max <= c) return spec;
+    if (data.any((v) => v.isFinite && v > c)) return spec;
+    var newBottom = c - (spec.max - spec.min);
+    if (spec.min >= 0 && newBottom < 0) newBottom = 0;
+    return AxisSpec(
+        min: newBottom, max: c, ticks: spec.ticks, format: spec.format);
   }
 
   @override
