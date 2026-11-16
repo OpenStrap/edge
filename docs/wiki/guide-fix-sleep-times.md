@@ -9,7 +9,7 @@ Start it from **Profile** > **Help**, under **Sleep**. See [Live guides](Guides.
 1. On the **Sleep** tab, tap **Change the times** under your last night. It reads **Set the times myself** until you have set the times yourself. You are asked when you went to bed, then when you woke up.
 2. To undo your changes, tap **Back to automatic**. The night goes back to the times the app detected.
 
-Step 2 appears once the times are your own. The two time questions are pop-ups, so the guide steps aside while you answer them.
+Step 2 appears after you tap the times control in this guide, while the times are your own and the whole night's recordings are still stored. Without those recordings, **Back to automatic** is not shown. The two time questions are pop-ups, so the guide steps aside while you answer them.
 
 ## Don't see it?
 

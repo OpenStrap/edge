@@ -7,7 +7,7 @@ There are eight guides. Each answers one "where do I find this?" question.
 ## Start a guide
 
 1. On the **Today**, **Sleep**, **Activity** or **Health** tab, tap the round profile button at the top right. Its screen reader label is "Profile and settings".
-2. On the **Profile** screen, under **Your data**, tap **Help**. It sits below **Settings**.
+2. On the **Profile** screen, under **Quick access**, tap **Help**.
 3. Tap a guide. The list is grouped under the tab each guide starts on.
 
 The guide closes the screens above the tabs, opens the tab it starts on, and shows step 1.
@@ -72,7 +72,7 @@ When you reach the matching screen again, the guide picks up on the right step.
 
 Tap an offered control on the last step and the card changes to "Done" with "That was the last step." Some guides add notes there, such as what deleting a workout does.
 
-Tap **Exit** at any time. The guide goes away and you stay on the screen you are on. Nothing is undone and nothing is saved. A guide keeps no record of where you were.
+Tap **Exit** at any time. The guide goes away and you stay on the screen you are on. Actions you have completed stay in effect. Guide progress is not saved.
 
 ## Move the card
 
