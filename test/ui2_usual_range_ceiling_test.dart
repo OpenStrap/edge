@@ -24,6 +24,30 @@ void main() {
     }
   });
 
+  test('the chart axis never pads a capped band past 100', () {
+    // Wide enough that one band-width of headroom would pass 100.
+    final rough = <double>[
+      for (var i = 0; i < 8; i++) 100,
+      95, 90, 85, 80, 75, 98, 92, 88,
+      100,
+    ];
+    final band = usualRangeFor('efficiency', rough, null)!;
+    expect(band.hi, 100);
+    expect(band.axis(rough)!.max, lessThanOrEqualTo(100));
+    // An uncapped band still gets its headroom.
+    expect(UsualRange.priorTo(rough)!.axis(rough)!.max, greaterThan(100));
+  });
+
+  test('a share of a whole never starts below 0', () {
+    final spread = <double>[
+      for (var i = 0; i < 8; i++) 2,
+      90, 5, 80, 1, 70, 3, 60, 4,
+      50,
+    ];
+    expect(UsualRange.priorTo(spread)!.lo, lessThan(0));
+    expect(usualRangeFor('efficiency', spread, null)!.lo, 0);
+  });
+
   test('a metric with no ceiling keeps its upper edge', () {
     // Coefficient of variation is a percentage too, but not of a whole.
     expect(usualRangeFor('hrv_cv', efficiency, null)!.hi, greaterThan(100));

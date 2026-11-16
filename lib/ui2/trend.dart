@@ -27,10 +27,15 @@ enum Side { below, inside, above }
 /// Your usual range for one metric: low and high, in the metric's own unit.
 @immutable
 class UsualRange {
-  const UsualRange(this.lo, this.hi, {double? centre}) : _centre = centre;
+  const UsualRange(this.lo, this.hi, {double? centre, this.ceiling})
+      : _centre = centre;
 
   final double lo, hi;
   final double? _centre;
+
+  /// The highest value the metric can take (100 for a share of a whole), or
+  /// null. [axis] never pads past it.
+  final double? ceiling;
 
   /// The centre: the baseline the band was built around. Kept apart from the
   /// edges because [priorTo] may raise a lower edge to 0, and the midpoint of
@@ -88,13 +93,14 @@ class UsualRange {
     final hi = med + 1.253 * mad;
     return UsualRange(nonNegative && lo < 0 ? 0 : lo,
         ceiling != null && hi > ceiling ? ceiling : hi,
-        centre: med);
+        centre: med,
+        ceiling: ceiling);
   }
 
   /// An axis that holds the data AND the band with one band-width of room on
   /// each side, so a calm week sits calmly inside the band instead of filling
   /// the card. A band that starts at or above zero never pushes the axis
-  /// below it.
+  /// below it, and a band with a [ceiling] never pushes it above that.
   AxisSpec? axis(
     Iterable<double> data, {
     int ticks = 3,
@@ -104,8 +110,11 @@ class UsualRange {
     final w = hi - lo;
     var bottom = lo - w;
     if (lo >= 0 && bottom < 0) bottom = 0;
+    var top = hi + w;
+    final c = ceiling;
+    if (c != null && top > c) top = c;
     return AxisSpec.of(
-      [...data, bottom, hi + w],
+      [...data, bottom, top],
       ticks: ticks,
       format: format,
       floor: floor,
@@ -268,12 +277,13 @@ UsualRange? usualRangeFor(
         : const UsualRange(kReadinessEasyBelow, kReadinessGoodFrom);
   }
   return UsualRange.priorTo(stored,
-      nonNegative: kNonNegativeKeys.contains(key),
+      nonNegative: kNonNegativeKeys.contains(key) ||
+          kPercentOfWholeKeys.contains(key),
       ceiling: kPercentOfWholeKeys.contains(key) ? 100 : null);
 }
 
-/// Metrics that are a share of a whole, so their usual range never ends above
-/// 100 %. Not every `%` metric: a coefficient of variation can pass 100.
+/// Metrics that are a share of a whole, so their usual range stays within
+/// 0–100 %. Not every `%` metric: a coefficient of variation can pass 100.
 const kPercentOfWholeKeys = {'efficiency', 'spo2'};
 
 /// Metrics that cannot be negative, so their usual range never starts below
