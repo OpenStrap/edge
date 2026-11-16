@@ -241,4 +241,36 @@ void main() {
     expect(await LocalDb.getCursor('health_steps_purged_through'), newerDay);
     expect(await LocalDb.getCursor('health_export_through'), newerDay);
   });
+
+  test(
+    'an intent-save failure never lets a later day skip the failed day',
+    () async {
+      final db = await LocalDb.instance;
+      await db.execute(
+        "CREATE TRIGGER fail_pending_save BEFORE INSERT ON sync_cursor "
+        "WHEN NEW.name = '$kPendingCursor' AND NEW.value LIKE '%$olderDay%' "
+        "BEGIN SELECT RAISE(ABORT, 'simulated save failure'); END;",
+      );
+      try {
+        await HealthExporter(isApple: false).exportAll(forceRetry: true);
+      } finally {
+        await db.execute('DROP TRIGGER IF EXISTS fail_pending_save');
+      }
+
+      // Even if the newer day purged cleanly, the purge cursor must not jump
+      // past the older day whose intent save failed.
+      expect(await LocalDb.getCursor('health_steps_purged_through'), isEmpty);
+
+      final before = stepDeletes.length;
+      await HealthExporter(isApple: false).exportAll();
+      expect(
+        stepDeletes
+            .skip(before)
+            .any((d) => d.start == older.millisecondsSinceEpoch),
+        isTrue,
+        reason: 'the older day still purges once cursor saves work again',
+      );
+      expect(await LocalDb.getCursor('health_steps_purged_through'), newerDay);
+    },
+  );
 }

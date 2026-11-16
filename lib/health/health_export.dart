@@ -539,6 +539,11 @@ class HealthExporter {
   /// behind the purge: exportAll keeps it pending without spending an attempt.
   bool _dayHeldForPurge = false;
 
+  /// Set when saving a day's purge retry intent fails in the current pass so
+  /// a later day's confirmed delete cannot advance `_stepsPurgedThrough` past
+  /// the unrecorded day.
+  bool _stepsPurgeCursorHeld = false;
+
   final bool? _isAppleOverride;
 
   HealthExporter({
@@ -784,7 +789,7 @@ class HealthExporter {
     if (retry == null && through.isNotEmpty && date.compareTo(through) <= 0) {
       return true;
     }
-    if (_storeHung) return false;
+    if (_storeHung || _stepsPurgeCursorHeld) return false;
     // Steps are held while the prefix purge has not finished. A purge now would
     // delete the current day's valid samples and the held write would not put
     // them back, so leave both the marker and the day for a later pass.
@@ -816,8 +821,10 @@ class HealthExporter {
           await _savePendingPurges();
         } catch (_) {
           // The delete below is not issued, so an unrecorded attempt cannot be
-          // lost to a crash: take the entry back out of memory too.
+          // lost to a crash: take the entry back out of memory and hold the
+          // purge cursor so a later day in this pass cannot jump over this one.
           pending.remove(date);
+          _stepsPurgeCursorHeld = true;
           rethrow;
         }
       }
@@ -842,7 +849,8 @@ class HealthExporter {
       // so that marker must survive for its own re-export.
       pending.remove(date);
       await _savePendingPurges();
-      if (through.isEmpty || date.compareTo(through) > 0) {
+      if (!_stepsPurgeCursorHeld &&
+          (through.isEmpty || date.compareTo(through) > 0)) {
         _stepsPurgedThrough = date;
         await LocalDb.setCursor(_kStepsPurgeCursor, date);
       }
@@ -1098,6 +1106,7 @@ class HealthExporter {
     if (await _androidUnavailable() != null) return 0; // HC missing/outdated
     return _workoutLock.run(() async {
     _storeHung = false;
+    _stepsPurgeCursorHeld = false;
     var days = 0;
     try {
       await ensureHealthSleepExportEpoch(
