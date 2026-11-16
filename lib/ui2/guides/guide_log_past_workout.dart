@@ -47,7 +47,11 @@ Guide get logPastWorkoutGuide => Guide(
             id: 'log-it',
             node: GuideNode.logWorkout,
             target: _logIt,
-            anchor: _logIt,
+            // The button sits at the bottom of the form: on a phone with larger text
+            // (and longer words, as in French) it can be below the fold, where an anchor
+            // on it is not built and the run would read as having left the path. The
+            // "When" group is at the top of the form and always built.
+            anchor: GuideTarget.label(ScreenLabel.logWorkoutWhenGroup),
             alsoKeep: [GuideTarget.label(ScreenLabel.logWorkoutWhenGroup)],
             action: GuideAction.tap,
             caption: GuideCopy.logPastCaptionLogIt,
