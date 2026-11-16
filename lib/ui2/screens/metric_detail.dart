@@ -759,9 +759,14 @@ class _MetricDetailState extends State<MetricDetail> {
 
   /// The last read threw. A failed read is NOT "nothing recorded": rendering it
   /// as the ordinary empty state told someone with data on disk to wear the
-  /// band, and offered no way back. Cleared by a successful load and by the
-  /// retry that [StatusCard.onFix] starts.
+  /// band, and offered no way back. It also outranks any series still in `_d`:
+  /// a refresh that failed must not pass the older numbers off as current.
   bool _failed = false;
+
+  /// Which read is newest. A step-goal save and the failure card's retry can
+  /// both start one while another is in flight; without this the OLDER request
+  /// can finish last and install its own `_d`/`_failed` over the newer answer.
+  int _loadGen = 0;
 
   /// The slot the user has put a finger on, as an index into the DENSE window.
   /// Null until they touch the chart. A window change clears it: slot 12 of a
@@ -869,9 +874,10 @@ class _MetricDetailState extends State<MetricDetail> {
     // modal sheet the user can dismiss by leaving the screen. Guarded here and
     // not at each call site — one guard where every caller already routes.
     if (!mounted) return;
+    final gen = ++_loadGen;
     final repo = repoOf(context);
     if (repo == null) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && gen == _loadGen) setState(() => _loading = false);
       return;
     }
     try {
@@ -886,6 +892,8 @@ class _MetricDetailState extends State<MetricDetail> {
           : const <DeviceOption>[];
       final d = await MetricData.load(repo, widget.metricKey,
           candidates: candidates);
+      // A newer load owns the screen now; this answer is history.
+      if (!mounted || gen != _loadGen) return;
       var winners = const <InputSignal, String?>{};
       if (d.sources.length >= 2 && spec.requires.isNotEmpty && mounted) {
         // Read before the query, so the `mounted` in the condition above is
@@ -904,15 +912,17 @@ class _MetricDetailState extends State<MetricDetail> {
         // the one above — nothing reads `context` past this point, but the
         // guard is unconditional for every await here, not just the ones
         // that happen to touch it.
-        if (!mounted) return;
+        if (!mounted || gen != _loadGen) return;
         winners = resolved;
       }
-      if (mounted) {
+      if (mounted && gen == _loadGen) {
         setState(() => (_d = d, _winners = winners, _loading = false,
             _failed = false));
       }
     } catch (_) {
-      if (mounted) setState(() => (_loading = false, _failed = true));
+      if (mounted && gen == _loadGen) {
+        setState(() => (_loading = false, _failed = true));
+      }
     }
   }
 
@@ -953,24 +963,28 @@ class _MetricDetailState extends State<MetricDetail> {
         ),
         const SizedBox(height: S.x5),
         investigateRow(c, () => go(c, Investigate(widget.metricKey))),
+      ] else if (_failed) ...[
+        // Outranks a cached series on purpose: those numbers are from the last
+        // read that WORKED, and a failed refresh must not present them as the
+        // current answer. The only way forward is the retry.
+        const SizedBox(height: S.x2),
+        StatusCard(
+          l?.wellnessLoadFailedTitle ?? 'This could not be read',
+          l?.homeLoadFailedBody ??
+              'The stored day failed to load. Nothing was deleted — this is a '
+                  'read that went wrong, not missing data.',
+          fix: l?.homeTryAgain ?? 'Try again',
+          icon: LucideIcons.databaseZap,
+          onFix: () {
+            setState(() => (_loading = true, _failed = false));
+            _load();
+          },
+        ),
       ] else if (vals.isEmpty) ...[
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
         if (_loading)
           const Center(child: CircularProgressIndicator())
-        else if (_failed && all.isEmpty)
-          StatusCard(
-            l?.wellnessLoadFailedTitle ?? 'This could not be read',
-            l?.homeLoadFailedBody ??
-                'The stored day failed to load. Nothing was deleted — this is a '
-                    'read that went wrong, not missing data.',
-            fix: l?.homeTryAgain ?? 'Try again',
-            icon: LucideIcons.databaseZap,
-            onFix: () {
-              setState(() => (_loading = true, _failed = false));
-              _load();
-            },
-          )
         else
           StatusCard(
             win == 1
@@ -1009,7 +1023,7 @@ class _MetricDetailState extends State<MetricDetail> {
         // placeholder `MetricData()` and `d.stepGoal` is just the fallback
         // default, not this user's goal — showing the editor pre-filled with
         // that would risk saving it over their real one.
-        if (!_loading && !_failed && widget.metricKey == 'steps' && win == 1) ...[
+        if (!_loading && widget.metricKey == 'steps' && win == 1) ...[
           const SizedBox(height: S.x5),
           _StepGoalGauge(
               steps: null, goal: d.stepGoal, color: spec.color, onSaved: _load),

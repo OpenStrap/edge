@@ -24,7 +24,12 @@ class _FlakyRepo extends LocalRepository {
   _FlakyRepo(this.failures);
   int failures;
 
+  /// Reads actually issued. The retry test asserts this grew: a retry that only
+  /// cleared the error state would otherwise pass on the same assertions.
+  int reads = 0;
+
   void _maybeThrow() {
+    reads++;
     if (failures > 0) {
       failures--;
       throw const FormatException('database is locked');
@@ -102,13 +107,30 @@ void main() {
     expect(find.text('Try again'), findsOneWidget);
     expect(find.text('Nothing recorded today'), findsNothing);
     expect(find.textContaining('Wear the band'), findsNothing);
+    expect(repo.reads, 1);
 
     await t.tap(find.text('Try again'));
     await t.pump();
     await _settle(t);
 
     // The retry read succeeds and the real empty state is back.
+    expect(repo.reads, 2, reason: 'Try again must re-run the read');
     expect(find.textContaining('could not be read'), findsNothing);
     expect(find.text('Nothing recorded today'), findsOneWidget);
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  testWidgets('a retry that fails again keeps the failure card', (t) async {
+    final repo = _FlakyRepo(2);
+    await _pump(t, repo, const MetricDetail('hrv'));
+    expect(find.textContaining('could not be read'), findsOneWidget);
+
+    await t.tap(find.text('Try again'));
+    await t.pump();
+    await _settle(t);
+
+    expect(repo.reads, 2);
+    expect(find.textContaining('could not be read'), findsOneWidget);
+    expect(find.text('Try again'), findsOneWidget);
+    expect(find.text('Nothing recorded today'), findsNothing);
   }, timeout: const Timeout(Duration(seconds: 60)));
 }
