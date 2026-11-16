@@ -171,6 +171,11 @@ class _ZonesDetailState extends State<ZonesDetail> {
   ZonesData? _d;
   bool _loading = true;
 
+  /// The last read threw. A failed read is NOT "No zones yet": rendering it as
+  /// the empty state also invented an age (`d.age` null from the placeholder)
+  /// and told a user who HAD set one to go and set it.
+  bool _failed = false;
+
   @override
   void initState() {
     super.initState();
@@ -190,9 +195,9 @@ class _ZonesDetailState extends State<ZonesDetail> {
     }
     try {
       final d = await ZonesData.load(repo);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      if (mounted) setState(() => (_d = d, _loading = false, _failed = false));
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => (_loading = false, _failed = true));
     }
   }
 
@@ -320,6 +325,23 @@ class _ZonesDetailState extends State<ZonesDetail> {
       if (_loading && _d == null) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
+      ] else if (_failed && _d == null) ...[
+        const SizedBox(height: S.x2),
+        StatusCard(
+          l?.wellnessLoadFailedTitle ?? 'This could not be read',
+          // NOT `homeLoadFailedBody`: this screen reads zone anchors, not a
+          // stored day, so "the stored day failed to load" would name the wrong
+          // thing. The generic body says what actually failed.
+          l?.wellnessLoadFailedBody ??
+              'Reading your stored data failed. Nothing was deleted — this is a '
+                  'read that went wrong, not missing data.',
+          fix: l?.homeTryAgain ?? 'Try again',
+          icon: LucideIcons.databaseZap,
+          onFix: () {
+            setState(() => (_loading = true, _failed = false));
+            _load();
+          },
+        ),
       ] else ...[
         _ceiling(p, l, d),
         Section(l?.activityZonesYourZonesSection ?? 'Your zones', _zones(p, l, d)),
