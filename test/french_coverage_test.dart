@@ -13,7 +13,7 @@ void main() {
   final fr = lookupAppLocalizations(const Locale('fr'));
   final en = lookupAppLocalizations(const Locale('en'));
 
-  test('french has every english string outside the supplement catalogue', () {
+  test('french has every english string', () {
     Map<String, dynamic> arb(String code) =>
         jsonDecode(File('lib/l10n/app_$code.arb').readAsStringSync())
             as Map<String, dynamic>;
@@ -22,9 +22,18 @@ void main() {
       for (final k in arb('en').keys)
         if (!k.startsWith('@') && !french.containsKey(k)) k,
     ];
-    // Still to do: the supplement catalogue.
-    missing.removeWhere((k) => k.startsWith('supplement'));
     expect(missing, isEmpty);
+  });
+
+  test('the supplement catalogue reads in french', () {
+    expect(fr.supplementNeedNights(3), 'Encore 3 nuits nécessaires');
+    expect(fr.supplementNeedDays(2), 'Portez le bracelet encore 2 jours pour débloquer');
+    expect(fr.supplementNeedNights(1), 'Encore 1 nuit nécessaire');
+    expect(fr.supplementNeedDays(1), 'Portez le bracelet encore 1 jour pour débloquer');
+    expect(fr.supplementDidYouNapccbced, 'Avez-vous fait une sieste ?');
+    // A pool length, the swim screens' "longueur", not a track lap.
+    expect(fr.supplementLapsExport('4'), '4 longueurs');
+    expect(fr.supplementLapsExport('1'), '1 longueur');
   });
 
   test('the newly covered screens read in french', () {
