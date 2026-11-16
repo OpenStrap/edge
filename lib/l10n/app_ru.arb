@@ -8427,6 +8427,14 @@
     "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
   },
   "guideTapOneOf": "коснитесь одного",
+  "@guideExpandAccordion": {
+    "description": "Guide hop asking the wearer to open a collapsed section",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "guideExpandAccordion": "Развернуть {title}",
   "guideStepUnavailable": "Этот шаг сейчас нельзя показать.",
   "guideNoVariantBody": "Эта инструкция пока не подходит для вашего браслета. Подходит для: {bands}.",
@@ -8945,7 +8953,24 @@
   },
   "guideSearchOrPick": "поиск или выбор",
   "profileHelpRow": "Помощь",
+  "@guideAddNapMissingTitle": {
+    "placeholders": {
+      "naps": {
+        "type": "String"
+      }
+    }
+  },
   "guideAddNapMissingTitle": "Не видите «{naps}»?",
+  "@guideAddNapMissingBody": {
+    "placeholders": {
+      "naps": {
+        "type": "String"
+      },
+      "night": {
+        "type": "String"
+      }
+    }
+  },
   "guideAddNapMissingBody": "**{naps}** находится под вашей ночью. Если этот раздел, **{night}**, свёрнут, нажмите на его заголовок, чтобы открыть.",
   "guideRemoveStep2Still": "У каждого пункта своя кнопка **{notNap}** / **{notWorkout}**. Нажмите её у дневного сна или тренировки, которых не было; рамка отмечает первый пункт.",
   "@guideRemoveStep2Still": {
