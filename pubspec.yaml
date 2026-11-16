@@ -522,10 +522,11 @@ dependencies:
       # analytics main @ 3a7ca34: adds #101 (HRV/readiness/wellness fixes), #100
       # (sleep staging and naps), #97 (stride-periodicity step counter) and #98
       # (a mid-session rest stays inside one workout).
-      # analytics main @ 614a48e: merged #102-#108 incremental APIs and review
-      # fixes, retaining #98's workout rest bridge. Clock refusal, uncertainty
+      # analytics main @ a438df4: merged #102-#108 incremental APIs and review
+      # fixes, retaining #98's workout rest bridge, plus #110 (each recorded night
+      # observation carries the window it was staged over). Clock refusal, uncertainty
       # and cosinor policies require kAlgoVersion 124.
-      ref: 614a48e5ffc553b88de248fd9fc13b07d9c1ceba
+      ref: a438df40b38a4586a52a68ab7e1c100fca111ccd
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

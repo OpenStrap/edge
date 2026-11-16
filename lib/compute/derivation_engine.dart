@@ -1882,12 +1882,15 @@ import 'vendor_sleep.dart';
 // 122 → 123 (analytics #99 + #98 @ 801c825): restore the observed 5-15 min
 // workout rest bridge, including the duration-cap and saved-session overlap
 // guards, while retaining #99's incremental, accumulator and checkpoint APIs.
-// 123 → 124 (analytics main #102-#108 @ 614a48e): retain #98's workout
+// 123 → 124 (analytics main #102-#110 @ a438df4): retain #98's workout
 // rest bridge and adopt the merged clock policies: HRV/RSA/CVHR abstain on
 // regressing clocks; frequency HRV omits re-anchored overlap up to 5%.
 // Cosinor refuses unidentifiable phase columns and non-finite designs;
 // irregular screening abstains on degenerate SDNN; missing stage scores widen
-// uncertainty. The #102 batch output changes and D35/D36 remain as at v122.
+// uncertainty. The #102 batch output changes and D35/D36 remain as at v122;
+// #110 tags each night observation with its staged window, so D36 folds the
+// chosen night's own observation (the one whose window overlaps it), none when
+// no window does, instead of the longest of the search window's sessions.
 // HrvFreqStream v2, CardioRowCache v3 and policy-bound PRSA states require cold
 // rebuilds of old checkpoints, isolated by this algorithm version.
 const int kAlgoVersion = 124;
@@ -2080,7 +2083,10 @@ const int kAlgoVersion = 124;
 // REPIN @ f8e7d3c: rebased analytics #99, for v122 above.
 // REPIN @ 801c825: merge #98's workout rest bridge into #99, for v123.
 // REPIN @ 614a48e: upstream main, merged #102-#109 and #98, for v124.
-const String kAnalyticsPin = '614a48e5ffc553b88de248fd9fc13b07d9c1ceba';
+// REPIN @ a438df4: analytics main, #110 (each night observation carries its
+// staged window), still v124: that version had not shipped, so no stored day
+// was derived at it with the previous pin.
+const String kAnalyticsPin = 'a438df40b38a4586a52a68ab7e1c100fca111ccd';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both
@@ -3148,6 +3154,29 @@ class CompactResult {
 
 /// The experimental HMM sleep staging switch (Settings), default off.
 const kSleepHmmStagesPref = 'sleep_hmm_stages';
+
+/// The observation of the night [onsetSec, offsetSec): the recorded one whose
+/// staged window overlaps it most, or null when none does. An observation with
+/// no window (an older analytics) never matches, and the night folds nothing
+/// rather than a session of another day.
+@visibleForTesting
+ana.SleepNightObservation? observationOfNight(
+    List<ana.SleepNightObservation> obs, int onsetSec, int offsetSec) {
+  ana.SleepNightObservation? best;
+  var bestOverlap = 0;
+  for (final o in obs) {
+    final s = o.startTsSec, e = o.endTsSec;
+    if (s == null || e == null) continue;
+    final int lo = s > onsetSec ? s : onsetSec;
+    final int hi = e < offsetSec ? e : offsetSec;
+    final int overlap = hi - lo;
+    if (overlap > bestOverlap) {
+      best = o;
+      bestOverlap = overlap;
+    }
+  }
+  return best;
+}
 
 class DerivationEngine {
   DerivationEngine({this.log, this.background = false, this.offloadActive});
@@ -5058,9 +5087,12 @@ class DerivationEngine {
       // 0.0%. One fold per day_id, ever.
       if (mayFold && candidate.present) {
         final obs = ana.takeCardioObservations();
-        if (obs.isNotEmpty) {
-          obs.sort((a, b) => b.epochs.compareTo(a.epochs));
-          final main = obs.first;
+        // THIS night's own observation, matched on the window it was staged
+        // over. The search window also stages the day before's sessions; the
+        // longest of all of them is not necessarily the night chosen.
+        final main = observationOfNight(
+            obs, candidate.sleepOnsetSec, candidate.sleepOffsetSec);
+        if (main != null) {
           if (main.epochs >= 120) {
             // require ≥60 min — not a nap.
             // Return the raw OBSERVATION, not a folded profile. Folding here
