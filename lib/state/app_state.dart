@@ -856,7 +856,7 @@ class AppState extends ChangeNotifier {
     // run(force: true) skips finalized nights; rederiveDays does not.
     unawaited(() async {
       try {
-        await rederiveDays((await LocalDb.decodedRecTsMaxByDay()).keys.toSet());
+        await rederiveDays(await substrateDays());
       } catch (e) {
         _log('[settings] sleep HMM re-derive failed: $e');
       }

@@ -2556,12 +2556,13 @@ List<String>? _hmmRestage(DayBundleInput d) {
           ? 'unobserved'
           : (labels[i] ?? d.hypnoStages[i]),
   ];
-  // The decoder never goes from REM straight to deep, but a shipped label
-  // standing in for an epoch it abstained on can. REM passes through light.
+  // The decoder never goes from REM straight to deep between its own labels,
+  // so any REM -> deep boundary left here involves a shipped label standing in
+  // for an epoch it abstained on. REM passes through light.
   var prev = '';
   for (var i = 0; i < n; i++) {
     if (merged[i] == 'unobserved') continue;
-    if (labels[i] == null && merged[i] == 'deep' && prev == 'rem') {
+    if (merged[i] == 'deep' && prev == 'rem') {
       merged[i] = 'light';
     }
     prev = merged[i];
