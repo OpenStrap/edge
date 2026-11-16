@@ -156,43 +156,46 @@ void main() {
     expect(first.pendingBefore, contains('${older.millisecondsSinceEpoch}'));
   });
 
-  test('a retry is clipped to the part of its stored range that is still that day', () async {
-    failStarts.add(older.millisecondsSinceEpoch);
-    await HealthExporter(isApple: false).exportAll(forceRetry: true);
-    final left = await pending();
-    expect(left.keys, [olderDay]);
+  test(
+    'a retry is clipped to the part of its stored range that is still that day',
+    () async {
+      failStarts.add(older.millisecondsSinceEpoch);
+      await HealthExporter(isApple: false).exportAll(forceRetry: true);
+      final left = await pending();
+      expect(left.keys, [olderDay]);
 
-    // Move the stored start an hour earlier, as if the timezone had moved east
-    // between the refusal and the retry. The stored range now reaches an hour
-    // into the PREVIOUS day, whose valid strap steps nothing rewrites, so the
-    // retry is clipped to this day instead of using the stored epoch verbatim.
-    final stored = left[olderDay]!;
-    final earlier = stored.startMs - const Duration(hours: 1).inMilliseconds;
-    await LocalDb.setCursor(
-      kPendingCursor,
-      jsonEncode([
-        {'day': olderDay, 'start_ms': earlier, 'end_ms': stored.endMs},
-      ]),
-    );
-    failStarts.clear();
-    await LocalDb.setCursor('health_export_through', '');
+      // Move the stored start an hour earlier, as if the timezone had moved east
+      // between the refusal and the retry. The stored range now reaches an hour
+      // into the PREVIOUS day, whose valid strap steps nothing rewrites, so the
+      // retry is clipped to this day instead of using the stored epoch verbatim.
+      final stored = left[olderDay]!;
+      final earlier = stored.startMs - const Duration(hours: 1).inMilliseconds;
+      await LocalDb.setCursor(
+        kPendingCursor,
+        jsonEncode([
+          {'day': olderDay, 'start_ms': earlier, 'end_ms': stored.endMs},
+        ]),
+      );
+      failStarts.clear();
+      await LocalDb.setCursor('health_export_through', '');
 
-    final before = stepDeletes.length;
-    await HealthExporter(isApple: false).exportAll(forceRetry: true);
-    final retries = stepDeletes.skip(before).toList();
-    expect(
-      retries.any((d) => d.start == stored.startMs && d.end == stored.endMs),
-      isTrue,
-      reason: 'the retry covers this day',
-    );
-    expect(
-      retries.any((d) => d.start == earlier),
-      isFalse,
-      reason: 'and never reaches into the previous day',
-    );
-    expect((await pending()).containsKey(olderDay), isFalse);
-    expect(await LocalDb.getCursor('health_steps_purged_through'), newerDay);
-  });
+      final before = stepDeletes.length;
+      await HealthExporter(isApple: false).exportAll(forceRetry: true);
+      final retries = stepDeletes.skip(before).toList();
+      expect(
+        retries.any((d) => d.start == stored.startMs && d.end == stored.endMs),
+        isTrue,
+        reason: 'the retry covers this day',
+      );
+      expect(
+        retries.any((d) => d.start == earlier),
+        isFalse,
+        reason: 'and never reaches into the previous day',
+      );
+      expect((await pending()).containsKey(olderDay), isFalse);
+      expect(await LocalDb.getCursor('health_steps_purged_through'), newerDay);
+    },
+  );
 
   test('a refused later day survives an earlier day\'s success', () async {
     failStarts.addAll({
@@ -212,5 +215,30 @@ void main() {
       newerDay,
     ], reason: 'clearing the older day must not clear the newer day\'s marker');
     expect(await LocalDb.getCursor('health_steps_purged_through'), olderDay);
+  });
+
+  test('an ordinary later pass retries a refused finalized day', () async {
+    failStarts.add(older.millisecondsSinceEpoch);
+    await HealthExporter(isApple: false).exportAll(forceRetry: true);
+    expect((await pending()).keys, [olderDay]);
+    expect(
+      await LocalDb.getCursor('health_export_through'),
+      isEmpty,
+      reason: 'the refused purge holds the export cursor behind the day',
+    );
+
+    failStarts.clear();
+    final before = stepDeletes.length;
+    await HealthExporter(isApple: false).exportAll();
+    expect(
+      stepDeletes
+          .skip(before)
+          .any((d) => d.start == older.millisecondsSinceEpoch),
+      isTrue,
+      reason: 'an ordinary pass retries the held finalized day',
+    );
+    expect(await pending(), isEmpty);
+    expect(await LocalDb.getCursor('health_steps_purged_through'), newerDay);
+    expect(await LocalDb.getCursor('health_export_through'), newerDay);
   });
 }

@@ -758,17 +758,17 @@ class HealthExporter {
 
   /// Delete the fabricated STEPS samples earlier versions wrote for [date].
   ///
-  /// ONE-SHOT, and deliberately not part of the day's success accounting: this
-  /// is a migration cleaning up data we should never have written, not part of
-  /// exporting the day. A failure here must not stall the export cursor for a
-  /// type nothing writes. Days are walked ascending, so the cursor advances
-  /// monotonically and a re-exported tail day is not re-purged.
+  /// Returns true when [date] is confirmed purged (or already behind the
+  /// cursor with no pending retry) and false when the purge could not be
+  /// confirmed. Callers treat false like a purge hold (`_dayHeldForPurge`)
+  /// so `health_export_through` does not advance past [date] and an ordinary
+  /// later pass retries it (delete-then-write) without spending an attempt.
   ///
   /// STRICTLY ONE DAY PER DELETE. A retry keeps that day's own absolute bounds
   /// and runs only while that day is being exported again, which rewrites its
   /// steps immediately afterwards. Widening a delete over earlier days would
   /// erase valid strap-counter samples that nothing rewrites.
-  Future<void> _purgeLegacyStepsIfNeeded(
+  Future<bool> _purgeLegacyStepsIfNeeded(
     String date,
     DateTime dayStart,
     DateTime dayEnd,
@@ -782,13 +782,13 @@ class HealthExporter {
     // runs before its new steps. Days at or before the confirmed cursor
     // without a retry are done.
     if (retry == null && through.isNotEmpty && date.compareTo(through) <= 0) {
-      return;
+      return true;
     }
-    if (_storeHung) return;
+    if (_storeHung) return false;
     // Steps are held while the prefix purge has not finished. A purge now would
     // delete the current day's valid samples and the held write would not put
     // them back, so leave both the marker and the day for a later pass.
-    if (_stepWritesHeld) return;
+    if (_stepWritesHeld) return false;
     final today = (
       startMs: dayStart.millisecondsSinceEpoch,
       endMs: dayEnd.millisecondsSinceEpoch,
@@ -836,7 +836,7 @@ class HealthExporter {
       if (!cleared) {
         debugPrint('[health] purge legacy steps $date: the store did not '
             'confirm the delete');
-        return;
+        return false;
       }
       // ONLY this day. This delete did not cover another pending day's range,
       // so that marker must survive for its own re-export.
@@ -846,6 +846,7 @@ class HealthExporter {
         _stepsPurgedThrough = date;
         await LocalDb.setCursor(_kStepsPurgeCursor, date);
       }
+      return true;
     } catch (e) {
       if (e is TimeoutException) _storeHung = true;
       // Either the retry intent is on disk already, or no delete was issued.
@@ -854,6 +855,7 @@ class HealthExporter {
       // saved must keep it, or the next save for another day would rewrite the
       // file from the map and drop it.
       debugPrint('[health] purge legacy steps $date: $e');
+      return false;
     }
   }
 
@@ -1528,8 +1530,12 @@ class HealthExporter {
     }
 
     // One-shot cleanup of the fabricated step samples earlier versions wrote.
-    // Outside the success accounting on purpose — see the method doc.
-    await _purgeLegacyStepsIfNeeded(date, dayStart, dayEnd);
+    // A refused purge holds the day out of the clean-export set (like a steps
+    // hold) so the cursor does not skip it and an ordinary pass retries it.
+    if (!await _purgeLegacyStepsIfNeeded(date, dayStart, dayEnd)) {
+      success = false;
+      _dayHeldForPurge = true;
+    }
 
     // Continuous Heart Rate (minute-by-minute average).
     List<Map<String, Object?>>? hrRows;
