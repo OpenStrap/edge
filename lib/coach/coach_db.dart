@@ -147,7 +147,18 @@ class CoachDb {
 
   /// Validate + normalize an LLM-supplied SELECT. Throws [SqlGuardError] on any
   /// rejection. Returns the (possibly LIMIT-appended) query to execute.
-  static String guardAndPrepare(String raw, {int rowCap = 200}) {
+  static String guardAndPrepare(String raw, {int rowCap = 200}) =>
+      _guard(raw, rowCap: rowCap).sql;
+
+  /// [guardAndPrepare], plus whether the LIMIT was OURS rather than the
+  /// model's. The distinction cannot be recovered from the row count: an
+  /// injected `LIMIT rowCap` returns exactly rowCap rows whether the table
+  /// holds 200 or 20,000, so only this flag can tell the caller its page may
+  /// be incomplete (see `_runServed`'s note).
+  static ({String sql, bool autoLimited}) _guard(
+    String raw, {
+    required int rowCap,
+  }) {
     var s = raw.trim();
     if (s.isEmpty) throw SqlGuardError('Empty query.');
     if (s.codeUnits.contains(0)) throw SqlGuardError('Illegal character.');
@@ -228,10 +239,12 @@ class CoachDb {
     }
 
     // (i) Auto-append a LIMIT to protect context.
+    var autoLimited = false;
     if (!RegExp(r'\blimit\b', caseSensitive: false).hasMatch(lower)) {
       body = '$body LIMIT $rowCap';
+      autoLimited = true;
     }
-    return body;
+    return (sql: body, autoLimited: autoLimited);
   }
 
   /// Replace every single-quoted string literal with the neutral token `0`.
@@ -575,8 +588,11 @@ class CoachDb {
   static Future<String> runCoachSql(String llmSql,
       {int rowCap = 200, ({String day, num? readiness})? today}) async {
     String sql;
+    var autoLimited = false;
     try {
-      sql = guardAndPrepare(llmSql, rowCap: rowCap);
+      final prepared = _guard(llmSql, rowCap: rowCap);
+      sql = prepared.sql;
+      autoLimited = prepared.autoLimited;
     } on SqlGuardError catch (e) {
       return jsonEncode({'error': e.reason});
     }
@@ -588,7 +604,7 @@ class CoachDb {
     _sqlTail = turn.future;
     await previous;
     try {
-      return await _runServed(sql, rowCap, today);
+      return await _runServed(sql, rowCap, today, autoLimited: autoLimited);
     } finally {
       turn.complete();
     }
@@ -597,7 +613,8 @@ class CoachDb {
   static Future<void> _sqlTail = Future<void>.value();
 
   static Future<String> _runServed(String sql, int rowCap,
-      ({String day, num? readiness})? today) async {
+      ({String day, num? readiness})? today,
+      {required bool autoLimited}) async {
     try {
       final db = await _readonly();
       await LocalDb.refreshSessionScoreMask();
@@ -632,10 +649,19 @@ class CoachDb {
         'rows': shown,
         'row_count': shown.length,
       };
+      // A page the GUARD capped is the one the row count cannot expose: the
+      // injected LIMIT returns exactly rowCap rows whether or not more exist,
+      // so `rows.length > rowCap` never fires on the common path. Say the page
+      // may be incomplete instead of letting the model read 200 rows as the
+      // whole answer.
       if (rows.length > rowCap) {
         out['note'] = 'Truncated to $rowCap of ${rows.length}+ rows. Add a '
             'tighter WHERE or aggregate (AVG/MIN/MAX/COUNT) instead of selecting '
             'all rows.';
+      } else if (autoLimited && rows.length >= rowCap) {
+        out['note'] = 'Shown: $rowCap rows, the query cap. There may be more. '
+            'Add a tighter WHERE or aggregate (AVG/MIN/MAX/COUNT) rather than '
+            'describing this page as the whole answer.';
       }
       var s = jsonEncode(out);
       if (s.length > 16000) s = '${s.substring(0, 16000)}…(truncated)';
