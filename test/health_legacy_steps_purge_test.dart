@@ -1,21 +1,24 @@
 // The one-shot legacy-STEPS purge must not mark a day purged when the store
-// did not confirm the delete.
+// did not confirm the delete, and it must never widen a retry over an earlier
+// day's valid strap-counter samples.
 //
-// `_purgeLegacyStepsIfNeeded` discarded the bool from `_nativeDelete`. On
-// Health Connect a false delete is a genuine failure (a denied STEPS write
-// permission, an unmapped type, a store error) — `healthDeleteClearedRange`
-// documents exactly that, and the sibling prefix purge already retries on it.
-// The cursor advanced anyway, so the fabricated step samples earlier versions
-// wrote for that day were never asked for again: the store keeps adding them
-// to the user's real step total.
+// `_purgeLegacyStepsIfNeeded` used to discard the bool from `_nativeDelete` and
+// advance `health_steps_purged_through`. On Health Connect a false delete is a
+// genuine failure (a denied STEPS write permission, an unmapped type, a store
+// error) — `healthDeleteClearedRange` documents exactly that. The cursor
+// advanced anyway, so the fabricated step samples earlier versions wrote were
+// never asked for again.
 import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/health/health_export.dart';
+
+const String kPendingCursor = 'health_steps_purge_pending';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -24,18 +27,14 @@ void main() {
 
   final now = DateTime.now();
   DateTime dayAt(int back) => DateTime(now.year, now.month, now.day - back);
-  String labelOf(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
-      '${d.month.toString().padLeft(2, '0')}-'
-      '${d.day.toString().padLeft(2, '0')}';
   final older = dayAt(2);
   final newer = dayAt(1);
-  final olderDay = labelOf(older);
-  final newerDay = labelOf(newer);
+  final olderDay = dayLabelOf(older);
+  final newerDay = dayLabelOf(newer);
 
   // Every STEPS delete that is not the epoch-to-cursor prefix purge.
-  final stepDeletes = <(int, int)>[];
-  var perDayDeletesFail = 0;
+  final stepDeletes = <({int start, int end, String pendingBefore})>[];
+  final failStarts = <int>{};
 
   Future<void> putDay(String day) => LocalDb.putDayResult(
     dayId: day,
@@ -46,6 +45,18 @@ void main() {
     windowJson: '{}',
     finalized: true,
   );
+
+  Future<Map<String, ({int startMs, int endMs})>> pending() async {
+    final raw = await LocalDb.getCursor(kPendingCursor) ?? '';
+    if (raw.isEmpty) return {};
+    return {
+      for (final entry in (jsonDecode(raw) as List).whereType<Map>())
+        entry['day'] as String: (
+          startMs: (entry['start_ms'] as num).toInt(),
+          endMs: (entry['end_ms'] as num).toInt(),
+        ),
+    };
+  }
 
   setUpAll(() async {
     sqfliteFfiInit();
@@ -61,11 +72,16 @@ void main() {
             final start = (args['startTime'] as num?)?.toInt() ?? 0;
             final end = (args['endTime'] as num?)?.toInt() ?? 0;
             if (args['dataTypeKey'] == 'STEPS' && start != 0) {
-              stepDeletes.add((start, end));
-              if (perDayDeletesFail > 0) {
-                perDayDeletesFail--;
-                return false;
-              }
+              // The retry intent must already be persisted when the delete is
+              // issued, not written after it returns.
+              final pendingBefore =
+                  await LocalDb.getCursor(kPendingCursor) ?? '';
+              stepDeletes.add((
+                start: start,
+                end: end,
+                pendingBefore: pendingBefore,
+              ));
+              if (failStarts.contains(start)) return false;
             }
             return true;
           }
@@ -77,15 +93,12 @@ void main() {
 
   setUp(() async {
     stepDeletes.clear();
-    perDayDeletesFail = 0;
+    failStarts.clear();
     await LocalDb.setCursor('health_export_through', '');
     await LocalDb.setCursor('health_steps_purged_through', '');
-    await LocalDb.setCursor('health_steps_purge_pending_from', '');
+    await LocalDb.setCursor(kPendingCursor, '');
     await LocalDb.setCursor('health_export_retry_state', '');
-    final days = await LocalDb.dayResultVersions();
-    if (days.isNotEmpty) {
-      await (await LocalDb.instance).delete('day_result');
-    }
+    await (await LocalDb.instance).delete('day_result');
     await putDay(olderDay);
     await putDay(newerDay);
   });
@@ -102,41 +115,96 @@ void main() {
   });
 
   test('an unconfirmed delete does not advance the purge cursor', () async {
-    perDayDeletesFail = 2;
+    failStarts.addAll({
+      older.millisecondsSinceEpoch,
+      newer.millisecondsSinceEpoch,
+    });
     await HealthExporter(isApple: false).exportAll(forceRetry: true);
     expect(
       await LocalDb.getCursor('health_steps_purged_through'),
       isEmpty,
       reason: 'neither day was confirmed purged, so neither may be recorded',
     );
-    expect(
-      await LocalDb.getCursor('health_steps_purge_pending_from'),
-      olderDay,
-      reason: 'the earliest refused day is the one to retry from',
-    );
+    final left = await pending();
+    expect(left.keys, containsAll([olderDay, newerDay]));
+    expect(left[olderDay]!.startMs, older.millisecondsSinceEpoch);
   });
 
-  test(
-    'the next day retries the refused range, then clears the marker',
-    () async {
-      perDayDeletesFail = 1;
-      await HealthExporter(isApple: false).exportAll(forceRetry: true);
-      expect(stepDeletes, hasLength(2));
-      expect(
-        stepDeletes.first.$1,
-        older.millisecondsSinceEpoch,
-        reason: 'the first day purges its own range',
-      );
-      expect(
-        stepDeletes.last.$1,
-        older.millisecondsSinceEpoch,
-        reason: 'the newer day widens its range over the day the store refused',
-      );
-      expect(await LocalDb.getCursor('health_steps_purged_through'), newerDay);
-      expect(
-        await LocalDb.getCursor('health_steps_purge_pending_from'),
-        isEmpty,
-      );
-    },
-  );
+  test('a later day never widens over an earlier refused day', () async {
+    failStarts.add(older.millisecondsSinceEpoch);
+    await HealthExporter(isApple: false).exportAll(forceRetry: true);
+    expect(stepDeletes, hasLength(2));
+    expect(
+      stepDeletes.last.start,
+      newer.millisecondsSinceEpoch,
+      reason:
+          'the newer day clears only its own range; widening would delete '
+          'the older day\'s valid steps that nothing rewrites',
+    );
+    final left = await pending();
+    expect(left.keys, [olderDay], reason: 'only the confirmed day clears');
+    expect(await LocalDb.getCursor('health_steps_purged_through'), newerDay);
+  });
+
+  test('retry intent is persisted before the delete is issued', () async {
+    failStarts.add(older.millisecondsSinceEpoch);
+    await HealthExporter(isApple: false).exportAll(forceRetry: true);
+    final first = stepDeletes.first;
+    expect(first.start, older.millisecondsSinceEpoch);
+    expect(first.pendingBefore, isNotEmpty);
+    expect(first.pendingBefore, contains(olderDay));
+    expect(first.pendingBefore, contains('${older.millisecondsSinceEpoch}'));
+  });
+
+  test('a re-exported refused day retries its stored absolute bounds', () async {
+    failStarts.add(older.millisecondsSinceEpoch);
+    await HealthExporter(isApple: false).exportAll(forceRetry: true);
+    final left = await pending();
+    expect(left.keys, [olderDay]);
+
+    // Move the stored start an hour earlier, as if the timezone had moved east
+    // between the refusal and the retry. The retry must use the stored epoch,
+    // not recompute midnight from the day label.
+    final stored = left[olderDay]!;
+    final earlier = stored.startMs - const Duration(hours: 1).inMilliseconds;
+    await LocalDb.setCursor(
+      kPendingCursor,
+      jsonEncode([
+        {'day': olderDay, 'start_ms': earlier, 'end_ms': stored.endMs},
+      ]),
+    );
+    failStarts.clear();
+    await LocalDb.setCursor('health_export_through', '');
+
+    final before = stepDeletes.length;
+    await HealthExporter(isApple: false).exportAll(forceRetry: true);
+    final retries = stepDeletes.skip(before).toList();
+    expect(
+      retries.any((d) => d.start == earlier && d.end == stored.endMs),
+      isTrue,
+      reason: 'the retry uses the absolute bounds captured at the refusal',
+    );
+    expect((await pending()).containsKey(olderDay), isFalse);
+    expect(await LocalDb.getCursor('health_steps_purged_through'), newerDay);
+  });
+
+  test('a refused later day survives an earlier day\'s success', () async {
+    failStarts.addAll({
+      older.millisecondsSinceEpoch,
+      newer.millisecondsSinceEpoch,
+    });
+    await HealthExporter(isApple: false).exportAll(forceRetry: true);
+    expect((await pending()).keys, containsAll([olderDay, newerDay]));
+
+    await LocalDb.setCursor('health_export_through', '');
+    failStarts
+      ..clear()
+      ..add(newer.millisecondsSinceEpoch);
+    await HealthExporter(isApple: false).exportAll(forceRetry: true);
+
+    expect((await pending()).keys, [
+      newerDay,
+    ], reason: 'clearing the older day must not clear the newer day\'s marker');
+    expect(await LocalDb.getCursor('health_steps_purged_through'), olderDay);
+  });
 }
