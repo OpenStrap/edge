@@ -33,7 +33,7 @@ Guide get alarmScheduleGuide => Guide(
             id: 'open-alarm',
             node: GuideNode.sleep,
             target: _alarmRow,
-            anchor: GuideTarget.firstLabel(ScreenLabel.sleepDetailMedicalDisclaimer),
+            anchor: GuideTarget.firstLabel(ScreenLabel.sleepDetailNavTitle),
             action: GuideAction.scrollThenTap,
             caption: GuideCopy.alarmCaptionOpenAlarm,
           ),
