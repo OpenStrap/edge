@@ -73,6 +73,9 @@ void main() {
     await _pump(t, repo);
 
     expect(find.textContaining('could not be read'), findsOneWidget);
+    // Zones is not a day: the body must not claim a stored DAY failed.
+    expect(find.textContaining('Reading your stored data failed'), findsOneWidget);
+    expect(find.textContaining('stored day'), findsNothing);
     expect(find.text('Try again'), findsOneWidget);
     expect(find.text('No zones yet'), findsNothing);
     expect(find.text('Add your age in Profile'), findsNothing);

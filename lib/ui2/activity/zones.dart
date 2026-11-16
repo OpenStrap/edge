@@ -329,8 +329,11 @@ class _ZonesDetailState extends State<ZonesDetail> {
         const SizedBox(height: S.x2),
         StatusCard(
           l?.wellnessLoadFailedTitle ?? 'This could not be read',
-          l?.homeLoadFailedBody ??
-              'The stored day failed to load. Nothing was deleted — this is a '
+          // NOT `homeLoadFailedBody`: this screen reads zone anchors, not a
+          // stored day, so "the stored day failed to load" would name the wrong
+          // thing. The generic body says what actually failed.
+          l?.wellnessLoadFailedBody ??
+              'Reading your stored data failed. Nothing was deleted — this is a '
                   'read that went wrong, not missing data.',
           fix: l?.homeTryAgain ?? 'Try again',
           icon: LucideIcons.databaseZap,
