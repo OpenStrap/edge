@@ -64,6 +64,7 @@ class UsualRange {
     List<double> stored, {
     int window = 60,
     bool nonNegative = false,
+    double? ceiling,
   }) {
     if (stored.length < 2) return null;
     final end = stored.length - 1;
@@ -81,8 +82,12 @@ class UsualRange {
     // A [nonNegative] quantity (minutes, steps) cannot go below 0: a skewed
     // one like naps has a median of 0, and its band's negative lower edge
     // read as a duration ("Usual range 47m–25m").
+    // Likewise a share of a whole ([ceiling], sleep efficiency) cannot pass
+    // it: a history near 100 % read "Usual range 97–103%".
     final lo = med - 1.253 * mad;
-    return UsualRange(nonNegative && lo < 0 ? 0 : lo, med + 1.253 * mad,
+    final hi = med + 1.253 * mad;
+    return UsualRange(nonNegative && lo < 0 ? 0 : lo,
+        ceiling != null && hi > ceiling ? ceiling : hi,
         centre: med);
   }
 
@@ -263,8 +268,13 @@ UsualRange? usualRangeFor(
         : const UsualRange(kReadinessEasyBelow, kReadinessGoodFrom);
   }
   return UsualRange.priorTo(stored,
-      nonNegative: kNonNegativeKeys.contains(key));
+      nonNegative: kNonNegativeKeys.contains(key),
+      ceiling: kPercentOfWholeKeys.contains(key) ? 100 : null);
 }
+
+/// Metrics that are a share of a whole, so their usual range never ends above
+/// 100 %. Not every `%` metric: a coefficient of variation can pass 100.
+const kPercentOfWholeKeys = {'efficiency', 'spo2'};
 
 /// Metrics that cannot be negative, so their usual range never starts below
 /// 0. Named, not inferred from the history: a signed metric (a temperature
