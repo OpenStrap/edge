@@ -539,6 +539,11 @@ class HealthExporter {
   /// behind the purge: exportAll keeps it pending without spending an attempt.
   bool _dayHeldForPurge = false;
 
+  /// Set when saving a day's purge retry intent fails in the current pass so
+  /// a later day's confirmed delete cannot advance `_stepsPurgedThrough` past
+  /// the unrecorded day.
+  bool _stepsPurgeCursorHeld = false;
+
   final bool? _isAppleOverride;
 
   HealthExporter({
@@ -694,34 +699,171 @@ class HealthExporter {
       if (t != HealthDataType.STEPS && t != HealthDataType.HEART_RATE) t,
   ];
 
-  /// Cursor for the one-shot legacy-STEPS purge: the newest day already purged.
+  /// Cursor for the one-shot legacy-STEPS purge: the newest day CONFIRMED
+  /// purged.
+  ///
+  /// A cursor written by an older release is taken at face value: that release
+  /// advanced it even when the store refused the delete, but it kept no per-day
+  /// evidence. Re-purging behind it would delete valid strap-counter samples
+  /// for days this pass does not rewrite, so the safe choice is to leave those
+  /// days alone rather than trade one data defect for a worse one.
   static const _kStepsPurgeCursor = 'health_steps_purged_through';
   String? _stepsPurgedThrough;
 
+  /// Per-day retries for a legacy-STEPS delete the store did NOT confirm.
+  ///
+  /// `{day: (startMs, endMs)}`, captured when the delete was first refused.
+  /// A MAP, not one earliest day: widening a later day's delete over an earlier
+  /// one would remove that earlier day's valid strap steps, and only the day
+  /// being exported has its steps rewritten afterwards. Each entry is its own
+  /// day's absolute bounds, so a timezone change cannot move the retry range
+  /// and leave a gap. Written BEFORE the delete is issued and removed only
+  /// when that same day's delete is confirmed.
+  static const _kStepsPurgePending = 'health_steps_purge_pending';
+  Map<String, ({int startMs, int endMs})>? _stepsPurgePending;
+
+  Future<Map<String, ({int startMs, int endMs})>> _loadPendingPurges() async {
+    final raw = await LocalDb.getCursor(_kStepsPurgePending) ?? '';
+    if (raw.isEmpty) return <String, ({int startMs, int endMs})>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return <String, ({int startMs, int endMs})>{};
+      return {
+        for (final entry in decoded.whereType<Map>())
+          if (entry['day'] is String &&
+              entry['start_ms'] is num &&
+              entry['end_ms'] is num)
+            entry['day'] as String: (
+              startMs: (entry['start_ms'] as num).toInt(),
+              endMs: (entry['end_ms'] as num).toInt(),
+            ),
+      };
+    } catch (e) {
+      debugPrint('[health] steps purge pending: $e');
+      return <String, ({int startMs, int endMs})>{};
+    }
+  }
+
+  Future<void> _savePendingPurges() async {
+    final pending = _stepsPurgePending!;
+    await LocalDb.setCursor(
+      _kStepsPurgePending,
+      pending.isEmpty
+          ? ''
+          : jsonEncode([
+              for (final entry in pending.entries)
+                {
+                  'day': entry.key,
+                  'start_ms': entry.value.startMs,
+                  'end_ms': entry.value.endMs,
+                },
+            ]),
+    );
+  }
+
   /// Delete the fabricated STEPS samples earlier versions wrote for [date].
   ///
-  /// ONE-SHOT, and deliberately not part of the day's success accounting: this
-  /// is a migration cleaning up data we should never have written, not part of
-  /// exporting the day. A failure here must not stall the export cursor for a
-  /// type nothing writes. Days are walked ascending, so the cursor advances
-  /// monotonically and a re-exported tail day is not re-purged.
-  Future<void> _purgeLegacyStepsIfNeeded(
+  /// Returns true when [date] is confirmed purged (or already behind the
+  /// cursor with no pending retry) and false when the purge could not be
+  /// confirmed. Callers treat false like a purge hold (`_dayHeldForPurge`)
+  /// so `health_export_through` does not advance past [date] and an ordinary
+  /// later pass retries it (delete-then-write) without spending an attempt.
+  ///
+  /// STRICTLY ONE DAY PER DELETE. A retry keeps that day's own absolute bounds
+  /// and runs only while that day is being exported again, which rewrites its
+  /// steps immediately afterwards. Widening a delete over earlier days would
+  /// erase valid strap-counter samples that nothing rewrites.
+  Future<bool> _purgeLegacyStepsIfNeeded(
     String date,
     DateTime dayStart,
     DateTime dayEnd,
   ) async {
     _stepsPurgedThrough ??= await LocalDb.getCursor(_kStepsPurgeCursor) ?? '';
+    _stepsPurgePending ??= await _loadPendingPurges();
     final through = _stepsPurgedThrough!;
-    if (through.isNotEmpty && date.compareTo(through) <= 0) return;
-    if (_storeHung) return;
+    final pending = _stepsPurgePending!;
+    final retry = pending[date];
+    // A day with a persisted retry is being written right now, so its purge
+    // runs before its new steps. Days at or before the confirmed cursor
+    // without a retry are done.
+    if (retry == null && through.isNotEmpty && date.compareTo(through) <= 0) {
+      return true;
+    }
+    if (_storeHung || _stepsPurgeCursorHeld) return false;
+    // Steps are held while the prefix purge has not finished. A purge now would
+    // delete the current day's valid samples and the held write would not put
+    // them back, so leave both the marker and the day for a later pass.
+    if (_stepWritesHeld) return false;
+    final today = (
+      startMs: dayStart.millisecondsSinceEpoch,
+      endMs: dayEnd.millisecondsSinceEpoch,
+    );
+    // A retry keeps the range of the first attempt, but only the part of it
+    // that is still THIS day. If the timezone has moved since, the stored range
+    // can reach into a neighbouring day that is not being exported now, and
+    // that day's valid strap steps would be deleted and never rewritten. A
+    // clipped retry can leave a few fabricated samples behind; that is the
+    // lesser defect.
+    final stored = retry;
+    final clipped = stored == null
+        ? today
+        : (
+            startMs: stored.startMs > today.startMs ? stored.startMs : today.startMs,
+            endMs: stored.endMs < today.endMs ? stored.endMs : today.endMs,
+          );
+    final range = clipped.endMs > clipped.startMs ? clipped : today;
+    // Retry intent BEFORE the delete: a crash after a refused delete must
+    // leave the day recoverable.
     try {
-      await _nativeDelete(HealthDataType.STEPS, dayStart, dayEnd);
-      _stepsPurgedThrough = date;
-      await LocalDb.setCursor(_kStepsPurgeCursor, date);
+      if (retry == null) {
+        pending[date] = range;
+        try {
+          await _savePendingPurges();
+        } catch (_) {
+          // The delete below is not issued, so an unrecorded attempt cannot be
+          // lost to a crash: take the entry back out of memory and hold the
+          // purge cursor so a later day in this pass cannot jump over this one.
+          pending.remove(date);
+          _stepsPurgeCursorHeld = true;
+          rethrow;
+        }
+      }
+      // A false from the store is a genuine failure on Health Connect — the
+      // same rule every other delete here reads through this helper — so an
+      // unconfirmed purge must not be recorded as done. On Apple a false means
+      // "found nothing", which the helper translates back to cleared.
+      final cleared = healthDeleteClearedRange(
+        deleted: await _nativeDelete(
+          HealthDataType.STEPS,
+          DateTime.fromMillisecondsSinceEpoch(range.startMs),
+          DateTime.fromMillisecondsSinceEpoch(range.endMs),
+        ),
+        ios: _apple,
+      );
+      if (!cleared) {
+        debugPrint('[health] purge legacy steps $date: the store did not '
+            'confirm the delete');
+        return false;
+      }
+      // ONLY this day. This delete did not cover another pending day's range,
+      // so that marker must survive for its own re-export.
+      pending.remove(date);
+      await _savePendingPurges();
+      if (!_stepsPurgeCursorHeld &&
+          (through.isEmpty || date.compareTo(through) > 0)) {
+        _stepsPurgedThrough = date;
+        await LocalDb.setCursor(_kStepsPurgeCursor, date);
+      }
+      return true;
     } catch (e) {
       if (e is TimeoutException) _storeHung = true;
-      // Leave the cursor where it is so the next pass retries this day.
+      // Either the retry intent is on disk already, or no delete was issued.
+      // Both leave the day retryable and the cursor aiming at it. The entry is
+      // NOT taken out of memory here: a delete that threw after the intent was
+      // saved must keep it, or the next save for another day would rewrite the
+      // file from the map and drop it.
       debugPrint('[health] purge legacy steps $date: $e');
+      return false;
     }
   }
 
@@ -964,6 +1106,7 @@ class HealthExporter {
     if (await _androidUnavailable() != null) return 0; // HC missing/outdated
     return _workoutLock.run(() async {
     _storeHung = false;
+    _stepsPurgeCursorHeld = false;
     var days = 0;
     try {
       await ensureHealthSleepExportEpoch(
@@ -1396,8 +1539,12 @@ class HealthExporter {
     }
 
     // One-shot cleanup of the fabricated step samples earlier versions wrote.
-    // Outside the success accounting on purpose — see the method doc.
-    await _purgeLegacyStepsIfNeeded(date, dayStart, dayEnd);
+    // A refused purge holds the day out of the clean-export set (like a steps
+    // hold) so the cursor does not skip it and an ordinary pass retries it.
+    if (!await _purgeLegacyStepsIfNeeded(date, dayStart, dayEnd)) {
+      success = false;
+      _dayHeldForPurge = true;
+    }
 
     // Continuous Heart Rate (minute-by-minute average).
     List<Map<String, Object?>>? hrRows;
