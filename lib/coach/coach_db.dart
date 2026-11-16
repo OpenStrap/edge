@@ -629,14 +629,27 @@ class CoachDb {
       final shown = rows.take(rowCap).toList();
       final out = <String, dynamic>{
         'columns': shown.isEmpty ? <String>[] : shown.first.keys.toList(),
-        'rows': shown,
         'row_count': shown.length,
       };
+      // A page AT THE CAP is the one the row count cannot expose: an injected
+      // LIMIT, or a model-written LIMIT of 200 or more, returns exactly rowCap
+      // rows whether or not more exist, so `rows.length > rowCap` never fires
+      // on the common path. Say the page may be incomplete whenever the result
+      // fills it. A genuine `LIMIT 5` cannot fill a 200-row page, so it stays
+      // unmarked.
       if (rows.length > rowCap) {
         out['note'] = 'Truncated to $rowCap of ${rows.length}+ rows. Add a '
             'tighter WHERE or aggregate (AVG/MIN/MAX/COUNT) instead of selecting '
             'all rows.';
+      } else if (rows.length >= rowCap) {
+        out['note'] = 'Shown: $rowCap rows, the query cap. There may be more. '
+            'Add a tighter WHERE or aggregate (AVG/MIN/MAX/COUNT) rather than '
+            'describing this page as the whole answer.';
       }
+      // NOTE BEFORE ROWS. The 16,000-character clip below cuts the tail, so a
+      // note placed after `rows` would be the first thing lost on a wide page
+      // — exactly the page that needs the warning.
+      out['rows'] = shown;
       var s = jsonEncode(out);
       if (s.length > 16000) s = '${s.substring(0, 16000)}…(truncated)';
       return s;
