@@ -2463,6 +2463,10 @@ int? _medianGapSec(List<int> tsSec, {int minGapSec = 1}) {
   return gaps.isEmpty ? null : gaps[gaps.length ~/ 2];
 }
 
+/// Longest gap between two consecutive beats that still counts as one run of
+/// beats; a successive difference is never taken across a longer one.
+const double _rrRunBreakMs = 3000;
+
 /// Per-second RMSSD over the sleep window: for each second in [tsSec], the
 /// RMSSD of cleaned NN intervals whose beat-end falls within the trailing
 /// [windowSec] seconds. Seconds with no beat coverage get 0.0 (the HMM
@@ -2486,13 +2490,18 @@ List<double> _rmssdPerSecond(
       hi++;
     }
     if (hi - lo < 2) continue;
-    final window = nn.sublist(lo, hi);
     var sumSq = 0.0;
-    for (var k = 1; k < window.length; k++) {
-      final d = window[k] - window[k - 1];
+    var diffs = 0;
+    for (var k = lo + 1; k < hi; k++) {
+      // Two beats seconds apart across a recording gap are not neighbours:
+      // their difference is not a beat-to-beat change.
+      if (nnTimesMs[k] - nnTimesMs[k - 1] > _rrRunBreakMs) continue;
+      final d = nn[k] - nn[k - 1];
       sumSq += d * d;
+      diffs++;
     }
-    out[i] = math.sqrt(sumSq / (window.length - 1));
+    if (diffs == 0) continue;
+    out[i] = math.sqrt(sumSq / diffs);
   }
   return out;
 }
@@ -2541,12 +2550,23 @@ List<String>? _hmmRestage(DayBundleInput d) {
       },
   ]);
   if (labels == null) return null;
-  return [
+  final merged = <String>[
     for (var i = 0; i < n; i++)
       d.hypnoStages[i] == 'unobserved'
           ? 'unobserved'
           : (labels[i] ?? d.hypnoStages[i]),
   ];
+  // The decoder never goes from REM straight to deep, but a shipped label
+  // standing in for an epoch it abstained on can. REM passes through light.
+  var prev = '';
+  for (var i = 0; i < n; i++) {
+    if (merged[i] == 'unobserved') continue;
+    if (labels[i] == null && merged[i] == 'deep' && prev == 'rem') {
+      merged[i] = 'light';
+    }
+    prev = merged[i];
+  }
+  return merged;
 }
 
 /// The Viterbi decode over 30 s epochs of [epochData] (per-second records

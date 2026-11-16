@@ -853,7 +853,14 @@ class AppState extends ChangeNotifier {
     if (!saved) return false;
     sleepHmmStagesEnabled = on;
     notifyListeners();
-    unawaited(_reanalyzeForOverride());
+    // run(force: true) skips finalized nights; rederiveDays does not.
+    unawaited(() async {
+      try {
+        await rederiveDays((await LocalDb.decodedRecTsMaxByDay()).keys.toSet());
+      } catch (e) {
+        _log('[settings] sleep HMM re-derive failed: $e');
+      }
+    }());
     return true;
   }
 

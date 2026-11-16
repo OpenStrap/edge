@@ -3526,7 +3526,7 @@
   "@settingsSleepHmmRowTitle": {
     "description": "Title of the experimental HMM sleep staging toggle in Settings."
   },
-  "settingsSleepHmmRowSub": "Algoritmo de investigación, no un dispositivo médico. Desactivado por defecto; se aplica desde la próxima sincronización",
+  "settingsSleepHmmRowSub": "Algoritmo de investigación, no un dispositivo médico. Desactivado por defecto.",
   "@settingsSleepHmmRowSub": {
     "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   },

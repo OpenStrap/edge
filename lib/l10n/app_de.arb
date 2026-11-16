@@ -3826,7 +3826,7 @@
   "@settingsSleepHmmRowTitle": {
     "description": "Title of the experimental HMM sleep staging toggle in Settings."
   },
-  "settingsSleepHmmRowSub": "Forschungsalgorithmus, kein Medizinprodukt. Standard aus; gilt ab dem nächsten Sync",
+  "settingsSleepHmmRowSub": "Forschungsalgorithmus, kein Medizinprodukt. Standard aus.",
   "@settingsSleepHmmRowSub": {
     "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }

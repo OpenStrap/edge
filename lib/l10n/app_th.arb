@@ -16973,7 +16973,7 @@
   "@settingsSleepHmmRowTitle": {
     "description": "Title of the experimental HMM sleep staging toggle in Settings."
   },
-  "settingsSleepHmmRowSub": "อัลกอริทึมเพื่อการวิจัย ไม่ใช่อุปกรณ์การแพทย์ ปิดไว้โดยค่าเริ่มต้น มีผลตั้งแต่การซิงค์ครั้งถัดไป",
+  "settingsSleepHmmRowSub": "อัลกอริทึมเพื่อการวิจัย ไม่ใช่อุปกรณ์การแพทย์ ปิดไว้โดยค่าเริ่มต้น",
   "@settingsSleepHmmRowSub": {
     "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }

@@ -3118,9 +3118,11 @@ class DerivationEngine {
   /// effect without a relaunch. Any failure reads as off.
   static Future<bool> _hmmStagesOn() async {
     try {
-      return (await SharedPreferences.getInstance())
-              .getBool(kSleepHmmStagesPref) ??
-          false;
+      // reload(): a headless isolate caches its instance, so without it a
+      // toggle made in the app is not seen until that isolate restarts.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      return prefs.getBool(kSleepHmmStagesPref) ?? false;
     } catch (_) {
       return false;
     }

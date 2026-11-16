@@ -17292,7 +17292,7 @@
   "@settingsSleepHmmRowTitle": {
     "description": "Title of the experimental HMM sleep staging toggle in Settings."
   },
-  "settingsSleepHmmRowSub": "Research algorithm, not a medical device. Off by default; applies from the next sync",
+  "settingsSleepHmmRowSub": "Research algorithm, not a medical device. Off by default.",
   "@settingsSleepHmmRowSub": {
     "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }
