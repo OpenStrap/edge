@@ -27,10 +27,15 @@ enum Side { below, inside, above }
 /// Your usual range for one metric: low and high, in the metric's own unit.
 @immutable
 class UsualRange {
-  const UsualRange(this.lo, this.hi, {double? centre}) : _centre = centre;
+  const UsualRange(this.lo, this.hi, {double? centre, this.ceiling})
+      : _centre = centre;
 
   final double lo, hi;
   final double? _centre;
+
+  /// The highest value the metric can take (100 for a share of a whole), or
+  /// null. [axis] never pads past it.
+  final double? ceiling;
 
   /// The centre: the baseline the band was built around. Kept apart from the
   /// edges because [priorTo] may raise a lower edge to 0, and the midpoint of
@@ -64,6 +69,7 @@ class UsualRange {
     List<double> stored, {
     int window = 60,
     bool nonNegative = false,
+    double? ceiling,
   }) {
     if (stored.length < 2) return null;
     final end = stored.length - 1;
@@ -81,15 +87,20 @@ class UsualRange {
     // A [nonNegative] quantity (minutes, steps) cannot go below 0: a skewed
     // one like naps has a median of 0, and its band's negative lower edge
     // read as a duration ("Usual range 47m–25m").
+    // Likewise a share of a whole ([ceiling], sleep efficiency) cannot pass
+    // it: a history near 100 % read "Usual range 97–103%".
     final lo = med - 1.253 * mad;
-    return UsualRange(nonNegative && lo < 0 ? 0 : lo, med + 1.253 * mad,
-        centre: med);
+    final hi = med + 1.253 * mad;
+    return UsualRange(nonNegative && lo < 0 ? 0 : lo,
+        ceiling != null && hi > ceiling ? ceiling : hi,
+        centre: med,
+        ceiling: ceiling);
   }
 
   /// An axis that holds the data AND the band with one band-width of room on
   /// each side, so a calm week sits calmly inside the band instead of filling
   /// the card. A band that starts at or above zero never pushes the axis
-  /// below it.
+  /// below it, and a band with a [ceiling] never pushes it above that.
   AxisSpec? axis(
     Iterable<double> data, {
     int ticks = 3,
@@ -99,12 +110,26 @@ class UsualRange {
     final w = hi - lo;
     var bottom = lo - w;
     if (lo >= 0 && bottom < 0) bottom = 0;
-    return AxisSpec.of(
-      [...data, bottom, hi + w],
+    var top = hi + w;
+    final c = ceiling;
+    if (c != null && top > c) top = c;
+    final spec = AxisSpec.of(
+      [...data, bottom, top],
       ticks: ticks,
       format: format,
       floor: floor,
     );
+    // AxisSpec rounds out to whole steps, which can carry the top past the
+    // ceiling (a 95-105 axis for a band that ends at 100). Anchor it at the
+    // ceiling instead, with the same span and step so the gridlines stay on
+    // numbers their labels can say. Data above the ceiling is left alone: an
+    // axis never crops what it plots.
+    if (spec == null || c == null || spec.max <= c) return spec;
+    if (data.any((v) => v.isFinite && v > c)) return spec;
+    var newBottom = c - (spec.max - spec.min);
+    if (spec.min >= 0 && newBottom < 0) newBottom = 0;
+    return AxisSpec(
+        min: newBottom, max: c, ticks: spec.ticks, format: spec.format);
   }
 
   @override
@@ -263,8 +288,14 @@ UsualRange? usualRangeFor(
         : const UsualRange(kReadinessEasyBelow, kReadinessGoodFrom);
   }
   return UsualRange.priorTo(stored,
-      nonNegative: kNonNegativeKeys.contains(key));
+      nonNegative: kNonNegativeKeys.contains(key) ||
+          kPercentOfWholeKeys.contains(key),
+      ceiling: kPercentOfWholeKeys.contains(key) ? 100 : null);
 }
+
+/// Metrics that are a share of a whole, so their usual range stays within
+/// 0–100 %. Not every `%` metric: a coefficient of variation can pass 100.
+const kPercentOfWholeKeys = {'efficiency', 'spo2'};
 
 /// Metrics that cannot be negative, so their usual range never starts below
 /// 0. Named, not inferred from the history: a signed metric (a temperature
