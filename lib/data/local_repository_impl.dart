@@ -1556,12 +1556,28 @@ class LocalRepositoryImpl extends LocalRepository {
     // day's published total is the one mismatch this screen must not show.
     final st = _sub(await _bundle(date), 'steps');
     final dayTotal = (st?['value'] as num?)?.toInt();
-    // A day answered by the strap's on-chip counter has no coverage spans;
-    // its own hourly spans (stamped by the derive) stand in for them.
-    final counter = r.spans.isEmpty &&
-            st?['source'] == 'strap_counter' &&
-            st?['spans'] is List
-        ? st!['spans'] as List
+    // A day the strap's on-chip counter ANSWERED is presented from the counter,
+    // whether or not `live_coverage` also holds rows for it.
+    //
+    // The counter is a WHOLE-DAY alternative to the coverage ladder, and the
+    // derive only picks it when its calibrated total beat everything in
+    // `live_coverage` put together (see `_writeSteps`). So on a counter day
+    // those rows are, by construction, the count the day did NOT publish — and
+    // requiring `r.spans.isEmpty` here still read them on every day the phone
+    // had banked an hour, which is every gen5 day with phone steps switched on.
+    // The counter's own hourly spans (stamped by the derive) are the clocked
+    // data for such a day; when an older derive stored none, the screen says so
+    // instead of showing another sensor's hours under this day's count.
+    //
+    // SELECTED BY SOURCE, never by the presence of `spans`. An older bundle can
+    // carry the counter's count with no span list at all, and requiring a List
+    // here dropped exactly those days onto the coverage ladder: the phone's
+    // smaller total came back under the counter's name, or zero when the phone
+    // had no rows either. A counter day with no stored spans is still a counter
+    // day — it publishes the counter's figure with no times behind it.
+    final storedSpans = st?['spans'];
+    final counter = st?['source'] == 'strap_counter'
+        ? (storedSpans is List ? storedSpans : const [])
         : null;
     // Only for naming: a span that sits inside a session gets that session's
     // name. Cheap — one indexed read over one day.

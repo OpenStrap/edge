@@ -96,6 +96,10 @@ class DayStepsData {
   /// What the day actually published, and off which sensor. Usually [total] —
   /// but a day whose only counter was the strap's on-chip one, derived before
   /// its hourly spans were stored, publishes a figure with no spans behind it.
+  ///
+  /// [total] stays the ladder's own sum, so it agrees with [strap] and [phone]
+  /// and with the bars drawn from them. On a counter day the repository
+  /// publishes the counter's figure as both, so the two still agree there.
   final int? dayTotal;
   final String? daySource;
 
