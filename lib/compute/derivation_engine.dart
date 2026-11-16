@@ -36,6 +36,7 @@ import 'readiness_calibration_backfill.dart'
     show backfillReadinessCalibration, seedRecentReadinessZ;
 
 import 'package:crypto/crypto.dart' show sha1;
+import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
 import 'package:flutter/foundation.dart';
 import 'findings.dart';
 import 'nap_overlap_cleanup.dart';
@@ -72,8 +73,14 @@ import 'hr_max.dart'
     show estimatedMaxHr, kHrFloorBpm, smoothedMaxHr, smoothedMinHr;
 import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
+import 'ed2b_checkpoint_diagnostics.dart';
 import 'staged_sleep_cache.dart';
+import 'ed2b_stream_diagnostics.dart';
+import 'cardio_rows_cache.dart';
+import 'night_rr_state.dart';
+import 'night_checkpoint.dart';
 import 'substrate_retention.dart';
+import 'substrate_union.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
 import 'step_cadence.dart';
@@ -1861,7 +1868,32 @@ import 'vendor_sleep.dart';
 // applyNapEdits — so a pre-cap manual nap longer than 3 h no longer counts
 // into naps/nap_min. Days derived at v120 keep their stale naps without this
 // bump.
-const int kAlgoVersion = 121;
+// 121 → 122 (analytics #99 @ f8e7d3c): RR artifact-run cap 32;
+// toleranced batch aggregators hrvTime, banisterTrimp, ctlAtlTsb, cosinor,
+// timeInZone and circadianNonparametric move last digits; Lomb–Scargle origin,
+// singular-cosinor abstention, non-finite guards and IrregularScreenState's
+// irregular-screen gaps change outputs. Retains the cosinor significance gate,
+// nullable phase/amplitudeP, RSA floor guard and checkpoint v3, and SRI rules.
+// Pooled-run batch staging labels unchanged; cardio caching respects run bounds.
+// D35 queries coverage and resolves half-open ownership through inclusive to + 1,
+// excluding non-owner rows at the last second. D36 folds only the target night's
+// own observation, none when absent; forward-only, preserving existing profiles
+// and folded_days. The restricted E15 walk now also applies to folding passes.
+// 122 → 123 (analytics #99 + #98 @ 801c825): restore the observed 5-15 min
+// workout rest bridge, including the duration-cap and saved-session overlap
+// guards, while retaining #99's incremental, accumulator and checkpoint APIs.
+// 123 → 124 (analytics main #102-#110 @ a438df4): retain #98's workout
+// rest bridge and adopt the merged clock policies: HRV/RSA/CVHR abstain on
+// regressing clocks; frequency HRV omits re-anchored overlap up to 5%.
+// Cosinor refuses unidentifiable phase columns and non-finite designs;
+// irregular screening abstains on degenerate SDNN; missing stage scores widen
+// uncertainty. The #102 batch output changes and D35/D36 remain as at v122;
+// #110 tags each night observation with its staged window, so D36 folds the
+// chosen night's own observation (the one whose window overlaps it), none when
+// no window does, instead of the longest of the search window's sessions.
+// HrvFreqStream v2, CardioRowCache v3 and policy-bound PRSA states require cold
+// rebuilds of old checkpoints, isolated by this algorithm version.
+const int kAlgoVersion = 124;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -2048,7 +2080,13 @@ const int kAlgoVersion = 121;
 // merge + spread calibration + capped re-centring + robust lnRMSSD
 // centre), for v112.
 // REPIN @ 3a7ca34: analytics main, #101 + #100 + #97 + #98, for v119.
-const String kAnalyticsPin = '3a7ca34d30233ff11e6c2877083f319a907ccb31';
+// REPIN @ f8e7d3c: rebased analytics #99, for v122 above.
+// REPIN @ 801c825: merge #98's workout rest bridge into #99, for v123.
+// REPIN @ 614a48e: upstream main, merged #102-#109 and #98, for v124.
+// REPIN @ a438df4: analytics main, #110 (each night observation carries its
+// staged window), still v124: that version had not shipped, so no stored day
+// was derived at it with the previous pin.
+const String kAnalyticsPin = 'a438df40b38a4586a52a68ab7e1c100fca111ccd';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both
@@ -2977,6 +3015,13 @@ class _PrepareStats {
   int rows = 0;
 }
 
+class _PrepareUnion {
+  RetainedSubstrate? load;
+  Substrate? search;
+  Map<InputSignal, List<OwnedSpan>> ownership = const {};
+  Map<InputSignal, List<String>> priority = const {};
+}
+
 /// Run [worker] over [items] with at most [concurrency] running at once. Each
 /// of up to [concurrency] "lanes" pulls the next unclaimed item as soon as
 /// it's free — a mix of fast (empty/mostly-empty day) and slow (heavy
@@ -3110,9 +3155,86 @@ class CompactResult {
 /// The experimental HMM sleep staging switch (Settings), default off.
 const kSleepHmmStagesPref = 'sleep_hmm_stages';
 
+/// The observation of the night [onsetSec, offsetSec): the recorded one whose
+/// staged window overlaps it most, or null when none does. An observation with
+/// no window (an older analytics) never matches, and the night folds nothing
+/// rather than a session of another day.
+@visibleForTesting
+ana.SleepNightObservation? observationOfNight(
+    List<ana.SleepNightObservation> obs, int onsetSec, int offsetSec) {
+  ana.SleepNightObservation? best;
+  var bestOverlap = 0;
+  for (final o in obs) {
+    final s = o.startTsSec, e = o.endTsSec;
+    if (s == null || e == null) continue;
+    final int lo = s > onsetSec ? s : onsetSec;
+    final int hi = e < offsetSec ? e : offsetSec;
+    final int overlap = hi - lo;
+    if (overlap > bestOverlap) {
+      best = o;
+      bestOverlap = overlap;
+    }
+  }
+  return best;
+}
+
 class DerivationEngine {
   DerivationEngine({this.log, this.background = false, this.offloadActive});
   final void Function(String)? log;
+
+  // ED-2b observations of the worker-owned caches and checkpoint path.
+  final debugCheckpoints = Ed2bCheckpointDiagnostics();
+  @visibleForTesting
+  void Function(String day)? debugOnProfileFold;
+  @visibleForTesting
+  Future<void> debugFoldObservation(String day, String observation) =>
+      _foldObservationIntoProfile(day, observation);
+  @visibleForTesting
+  // Optional observations follow the real day-bundle worker and its RAM owner.
+  Ed2bStreamDiagnostics? debugNightStreams;
+  @visibleForTesting
+  void Function(Map<String, dynamic> input, Map<String, dynamic> output)?
+      debugOnNightBundle;
+  @visibleForTesting
+  Uint8List? get debugCardioRowBytes =>
+      _cardioRowChunks.isEmpty ? null : _cardioRowChunks.last.bytes;
+  @visibleForTesting
+  bool debugDisableCardioRows = false;
+  @visibleForTesting
+  int debugCardioRowHits = 0;
+  @visibleForTesting
+  int debugCardioRowMisses = 0;
+  @visibleForTesting
+  List<String> get debugCardioRowWorkerOperations => _cardioRowOperations.toList();
+  @visibleForTesting
+  void debugRekeyCardioRows({required int inputRevision,
+      required int generation, required int algorithm}) {
+    for (final c in _cardioRowChunks) {
+      c.generation = generation;
+      c.algorithm = algorithm;
+      c.revisions.updateAll((_, fp) => (inputRevision, fp.$2, generation));
+    }
+  }
+  @visibleForTesting
+  bool debugDisableUnionLoads = false;
+  @visibleForTesting
+  int get debugUnionWorkerCuts => _unionWorkerCuts;
+  @visibleForTesting
+  void debugRekeyUnionAlgorithm(int algorithm) {
+    for (final union in _retained.unions) { union.version = algorithm; }
+  }
+  @visibleForTesting
+  void Function(int from, int to, String load)? debugOnSubstrateLoad;
+  @visibleForTesting
+  Future<(Map<InputSignal, List<OwnedSpan>>, Map<InputSignal, List<String>>)>
+      debugResolveOwnership(int from, int to) => _resolveOwnership(from, to);
+  @visibleForTesting
+  Future<Substrate> debugLoadOwnedSubstrate(int from, int to,
+      {required String day}) async {
+    final (ownership, _) = await _resolveOwnership(from, to);
+    return _loadSubstrateRange(from, to, dayId: day, ownership: ownership);
+  }
+
 
   // ED-2a RED seams. Empty cache views and no-op controls describe the current
   // uncached engine. Counters below observe real worker work, never results.
@@ -3159,6 +3281,15 @@ class DerivationEngine {
   }
 
   final _retained = SubstrateRetention();
+  final _unionLock = _AsyncLock();
+  int _unionWorkerCuts = 0;
+  final _cardioRowChunks = <CardioRowsChunk>[];
+  final _cardioRowOperations = <String>{};
+  final _nightStates = <String, NightRrState>{};
+  final _checkpointPlans = <String, NightCheckpointPlan>{};
+  int? _checkpointGeneration;
+  static const _cardioRowsSlackSec = 3600;
+  static const _cardioRowsMaxBytes = 8 * 1024 * 1024;
   int _retentionEpoch = 0;
   int? _retentionPassEpoch;
   bool _retentionInBackground = false;
@@ -3175,6 +3306,12 @@ class DerivationEngine {
   void _clearRetainedSubstrate() {
     _retentionEpoch++;
     _retained.clear();
+    _cardioRowChunks.clear();
+    _nightStates.clear();
+    _checkpointPlans.clear();
+    debugCheckpoints.lastEncodedPayload = null;
+    debugCheckpoints.lastDecodedPayload = null;
+    debugNightStreams?.nightState.clear();
   }
 
   void _beginRetentionPass() {
@@ -3185,12 +3322,20 @@ class DerivationEngine {
 
   void _endRetentionPass() {
     _retained.retainDays(_retentionPreparedDays);
+    _nightStates.removeWhere((day, state) {
+      if (_retentionPreparedDays.contains(day)) return false;
+      state.clear();
+      return true;
+    });
     _retentionPreparedDays.clear();
     _retentionPassEpoch = null;
+    _checkpointPlans.clear();
   }
 
   void _dropRetainedDay(String day) {
     _retained.remove(day);
+    _nightStates.remove(day)?.clear();
+    _checkpointPlans.remove(day);
     _retentionPreparedDays.remove(day);
   }
   @visibleForTesting
@@ -3226,6 +3371,23 @@ class DerivationEngine {
     } catch (_) {
       return null; // Unavailable provenance always recomputes.
     }
+  }
+
+  /// The revision a night's RAM state is keyed on: every touched day's input
+  /// revision summed over the sleep window, and the store generation.
+  Future<(int, int)> _nightInputRevision(int sleepOnsetSec, int sleepOffsetSec) async {
+    var revision = 0;
+    var generation = LocalDb.storeGeneration;
+    final first = DateTime.fromMillisecondsSinceEpoch(sleepOnsetSec * 1000);
+    final last = sleepOffsetSec > sleepOnsetSec ? sleepOffsetSec - 1 : sleepOnsetSec;
+    for (var date = DateTime(first.year, first.month, first.day);
+        date.millisecondsSinceEpoch ~/ 1000 <= last;
+        date = DateTime(date.year, date.month, date.day + 1)) {
+      final fp = await LocalDb.inputDayFingerprint(dayLabelOf(date));
+      revision += fp.revisionSum;
+      generation = fp.generation;
+    }
+    return (revision, generation);
   }
 
   Future<int?> _sessionCeilingRevision() async {
@@ -4257,6 +4419,7 @@ class DerivationEngine {
   static const int _rawDecodeBatchSize = 2000;
   static const int _maxDayRawRows = 500000;
   static const int _maxDayRawPages = 300;
+  static const int _maxUnionBeats = 4 * _maxDayRawRows;
 
   Future<PreparedDerivationDay?> _prepareTargetDay(String dayId) async {
     try {
@@ -4282,7 +4445,13 @@ class DerivationEngine {
     // is telemetry-only). Each day now gets its own local accumulator,
     // merged into the shared running max exactly once, below.
     final stats = _PrepareStats();
-    final candidate = await _sleepCandidateForDay(dayId, stats: stats);
+    final union = debugDisableUnionLoads ? null : _PrepareUnion();
+    // Provenance BEFORE any load: a decoded write that lands while the
+    // substrate is read then leaves the older revision attached to the newer
+    // rows, which the signature check rejects. Read after, it would attach the
+    // newer revision to rows that predate it and certify a stale ceiling.
+    final ceilingInput = await _ceilingInputRevision(dayId);
+    final candidate = await _sleepCandidateForDay(dayId, stats: stats, union: union);
     final dayStart = _localDayLabelToSec(dayId);
     final dayEnd = _localNextDayLabelToSec(dayId);
 
@@ -4306,8 +4475,28 @@ class DerivationEngine {
       if (candidate.present) candidate.sleepOffsetSec,
     ].reduce(math.max);
 
-    final (ownership, priority) = await _resolveOwnership(unionFrom, unionTo);
-    final ceilingInput = await _ceilingInputRevision(dayId);
+    final (ownership, priority) = union?.load != null &&
+        union!.load!.from == unionFrom && union.load!.to == unionTo
+        ? (Map<InputSignal, List<OwnedSpan>>.of(union.ownership),
+            Map<InputSignal, List<String>>.of(union.priority))
+        : await _resolveOwnership(unionFrom, unionTo);
+    if (union != null && (union.load == null ||
+        unionFrom < union.load!.from! || unionTo > union.load!.to!)) {
+      // A banked candidate needs no search load. A live search already in
+      // the holder can extend to a wider selected night by borrowing itself.
+      final from = union.load == null
+          ? math.min(dayStart, candidate.present ? candidate.sleepOnsetSec : dayStart)
+          : unionFrom;
+      final to = union.load == null
+          ? math.max(dayEnd - 1 + napBoundaryBufferSec,
+              candidate.present ? candidate.sleepOffsetSec - 1 : 0)
+          : unionTo;
+      union.load = await _loadUnion(dayId, from, to, ownership, stats: stats);
+    }
+    final windows = await _cutUnionWindows(union?.load, [
+      (dayStart, dayEnd - 1 + napBoundaryBufferSec),
+      (candidate.sleepOnsetSec, candidate.sleepOffsetSec - 1),
+    ], ownership, dayStart: dayStart, dayEnd: dayEnd);
 
     // Load the day PLUS the nap boundary buffer in ONE pass (each
     // _loadSubstrateRange spawns its own isolate, so a second load would
@@ -4315,7 +4504,7 @@ class DerivationEngine {
     // this, the live decoded path — run()/runDays()/rescanRecent(), i.e. every
     // non-import day — fell back to napSub == daySub and went on bisecting
     // naps at midnight.
-    var napSub = await _loadSubstrateRange(
+    var napSub = windows.$1[0] ?? await _loadSubstrateRange(
       dayStart,
       dayEnd - 1 + napBoundaryBufferSec,
       dayId: dayId,
@@ -4329,22 +4518,23 @@ class DerivationEngine {
     // "Saw" is the calendar day, the same test the scope and the re-derive
     // use (`decodedRecTsMaxByDay`): band rows only in the next morning's nap
     // buffer do not keep the wearable off a day it alone covers.
-    final wearable =
-        napSub.slice(dayStart, dayEnd).isEmpty ? await activeWearable() : null;
+    final wearable = (windows.$2 ?? napSub.slice(dayStart, dayEnd)).isEmpty
+        ? await activeWearable() : null;
     if (wearable != null) {
       await _resolveSparseOwnership(
           unionFrom, unionTo, wearable.$1, ownership, priority);
       napSub = await wearableSubstrate(
           wearable, dayStart, dayEnd - 1 + napBoundaryBufferSec);
     }
-    final daySub = napSub.slice(dayStart, dayEnd);
+    final daySub = wearable == null && windows.$2 != null
+        ? windows.$2! : napSub.slice(dayStart, dayEnd);
     Substrate sleepSub = Substrate.empty;
     if (candidate.present &&
         candidate.sleepOffsetSec > candidate.sleepOnsetSec) {
       sleepSub = wearable != null
           ? await wearableSubstrate(wearable, candidate.sleepOnsetSec,
               candidate.sleepOffsetSec - 1)
-          : await _loadSubstrateRange(
+          : windows.$1[1] ?? await _loadSubstrateRange(
               candidate.sleepOnsetSec,
               candidate.sleepOffsetSec - 1,
               dayId: dayId,
@@ -4424,6 +4614,8 @@ class DerivationEngine {
   /// candidate — so the spans differ, but the rule producing them does not.
   Future<(Map<InputSignal, List<OwnedSpan>>, Map<InputSignal, List<String>>)>
       _resolveOwnership(int from, int to) async {
+    // Loads include `to`; coverage queries and ownership spans are half-open.
+    final end = to + 1;
     final ownership = <InputSignal, List<OwnedSpan>>{};
     // The order each signal ACTUALLY resolved under, carried on the prepared
     // day so `priority_hash` names it by construction instead of re-reading
@@ -4452,7 +4644,7 @@ class DerivationEngine {
       // gives it a rank — the conservative default, and the one that keeps
       // today's single-device installs byte-identical.
       final rawPriority = await LocalDb.signalPriority(sig);
-      final coverage = await LocalDb.coverageIntervals(sig, from, to);
+      final coverage = await LocalDb.coverageIntervals(sig, from, end);
       var resolved = rawPriority.isEmpty
           ? const <String>[LocalDb.kPrimaryDeviceId]
           // A device with a coverage row here is definitionally declaring
@@ -4483,7 +4675,7 @@ class DerivationEngine {
         coverage: coverage,
         priority: resolved,
         from: from,
-        to: to,
+        to: end,
         signal: sig,
       );
     }
@@ -4532,6 +4724,7 @@ class DerivationEngine {
   Future<SleepSessionCandidate> _sleepCandidateForDay(
     String dayId, {
     _PrepareStats? stats,
+    _PrepareUnion? union,
   }) async {
     // A user sleep override is the source of truth — never serve the cached auto
     // candidate, and don't cache the override result (so a later edit / clear is
@@ -4580,6 +4773,32 @@ class DerivationEngine {
     // a night that was never scored.
     final (searchOwnership, searchPriority) =
         await _resolveOwnership(range.$1, range.$2);
+    final rowsEpoch = _retentionEpoch;
+    _checkpointPlans.remove(dayId);
+    NightCheckpointPlan? checkpointPlan;
+    if (!debugCheckpoints.disabled && _canRetainSubstrate) {
+      try {
+        final db = await LocalDb.instance;
+        final generation = LocalDb.storeGeneration;
+        if (_checkpointGeneration != null && _checkpointGeneration != generation) {
+          // Invalidate cached state while preserving the owners' work counters.
+          for (final state in _nightStates.values) { state.clear(); }
+          _cardioRowChunks.clear();
+          _checkpointPlans.clear();
+          debugCheckpoints.lastEncodedPayload = null;
+          debugCheckpoints.lastDecodedPayload = null;
+        }
+        _checkpointGeneration = generation;
+        final rows = await db.rawQuery(
+          'SELECT bucket, rev FROM input_rev WHERE bucket >= ? AND bucket <= ? '
+          'ORDER BY bucket', [range.$1 ~/ 900, range.$2 ~/ 900]);
+        checkpointPlan = NightCheckpointPlan(range.$1, range.$2,
+          {for (final r in rows) r['bucket'] as int: r['rev'] as int},
+          generation, rowsEpoch, await LocalDb.storeIdentity(executor: db));
+      } catch (_) {
+        // Missing provenance costs a cold pass, never a partial adoption.
+      }
+    }
     Future<List<List<Object>>?> readRevisions() async {
       try {
         final out = <List<Object>>[];
@@ -4596,9 +4815,28 @@ class DerivationEngine {
         return null; // Unavailable provenance costs a staging, never a hit.
       }
     }
-
-    var revisions = debugDisableStagedSleepCache ? null : await readRevisions();
-    final searchSub = await _loadSubstrateRange(
+    var revisions = (!debugDisableStagedSleepCache ||
+            (!debugDisableCardioRows && _canRetainSubstrate))
+        ? await readRevisions()
+        : null;
+    Substrate? cutSearch;
+    if (union != null) {
+      final from = range.$1;
+      final to = _localNextDayLabelToSec(dayId) - 1 + napBoundaryBufferSec;
+      final (owned, ranked) = await _resolveOwnership(from, to);
+      union.ownership = owned;
+      union.priority = ranked;
+      union.load = await _loadUnion(dayId, from, to, owned, stats: stats,
+          search: union, window: (from: range.$1, to: range.$2,
+            ownership: searchOwnership));
+      cutSearch = union.search;
+      union.search = null;
+      if (cutSearch == null) {
+        final cuts = await _cutUnionWindows(union.load, [range], searchOwnership);
+        cutSearch = cuts.$1.single;
+      }
+    }
+    final searchSub = cutSearch ?? await _loadSubstrateRange(
       range.$1,
       range.$2,
       dayId: dayId,
@@ -4672,17 +4910,18 @@ class DerivationEngine {
     // ([_prepareTargetDay]): band rows from the previous afternoon, before
     // the ring went on, must not leave the ring's night unstaged.
     final ownNight = override == null &&
-            searchSub.slice(_localDayLabelToSec(dayId), range.$2 + 1).isEmpty
+            (searchSub.lastTs ?? -1) < _localDayLabelToSec(dayId)
         ? await wearableNight(range.$1, range.$2)
         : null;
     if (ownNight != null) vendorNights = [...vendorNights, ownNight];
     String? stagingKey;
-    if (revisions != null) {
+    if ((revisions != null && !debugDisableStagedSleepCache) || checkpointPlan != null) {
       try {
-        stagingKey = stagingInputKey(
+        final stagingWearable = override == null ? await activeWearable() : null;
+        String inputKey(bool prefixContext) => stagingInputKey(
           fromSec: range.$1,
           toSec: range.$2,
-          revisions: revisions,
+          revisions: revisions ?? const [],
           sub: searchSub,
           ownership: searchOwnership,
           priority: searchPriority,
@@ -4690,22 +4929,110 @@ class DerivationEngine {
           profileJson: profileJson,
           priorSleep: priorSleep,
           vendorNights: vendorNights,
-          activeWearable: override == null ? await activeWearable() : null,
+          activeWearable: stagingWearable,
+          prefixContext: prefixContext,
         );
+        if (revisions != null && !debugDisableStagedSleepCache) stagingKey = inputKey(false);
+        if (checkpointPlan != null) {
+          // Prefix reuse omits revision aggregates. The durable store id
+          // survives restart and changes when wipe/restore replaces inputs.
+          checkpointPlan.context = sha1.convert(utf8.encode(jsonEncode([
+            checkpointPlan.storeId, inputKey(true),
+          ]))).toString();
+          checkpointPlan.boundary = ((searchSub.lastTs ?? 0) + 1) ~/ 900 * 900;
+        }
       } catch (_) {
         // A context that cannot be keyed still takes the ordinary worker path.
+        checkpointPlan = null;
       }
     }
     // Cancellable + TIMED OUT. This site previously used a bare `Isolate.run`
     // with no timeout at all, so a hung staging pass never completed its future
     // — `_running` stayed true and `DeriveScheduler._drain` never returned, i.e.
     // all derivation was dead until app restart.
-    final skipUnusedDays = !mayFold && !debugDisableTargetDaySkip;
+    final skipUnusedDays = !debugDisableTargetDaySkip;
     // Read here: a `_perDayTimeout` inside `stage` would capture `this` into
     // the context the worker closure ships, and the engine's callbacks (the
     // app's own fields) are not sendable.
     final stageTimeout = _perDayTimeout;
-    Future<(String, String?, int)> stage() => _runIsolateCancellable(() {
+    final cacheRows = !debugDisableCardioRows && _canRetainSubstrate &&
+        rowsEpoch == _retentionEpoch && revisions != null;
+    final rowRevisions = <String, (int, int, int)>{
+      for (final r in revisions ?? const <List<Object>>[])
+        r[0] as String: (r[1] as int, r[2] as int, r[3] as int),
+    };
+    final rowGeneration = LocalDb.storeGeneration;
+    final rowsLo = range.$1 - _cardioRowsSlackSec;
+    final rowsHi = range.$2 + _cardioRowsSlackSec;
+    _cardioRowChunks.removeWhere((c) =>
+        c.generation != rowGeneration || c.algorithm != kAlgoVersion ||
+        (c.overlaps(rowsLo, rowsHi) &&
+          !c.matches(rowRevisions, rowGeneration, kAlgoVersion)));
+    final sentChunks = cacheRows ? [for (final c in _cardioRowChunks)
+      if (c.overlaps(rowsLo, rowsHi)) c] : <CardioRowsChunk>[];
+    final rowBytes = [for (final c in sentChunks) c.bytes];
+    if (checkpointPlan != null && checkpointPlan.boundary > range.$1 &&
+        checkpointPlan.context != null) {
+      // A RAM state clears itself when the input revision moved (see
+      // NightRrState.context), so one that no longer matches is not a live
+      // start: clear it here and let the compatible disk checkpoint restore
+      // the night, instead of skipping it and reprocessing the whole night.
+      final ram = _nightStates[dayId];
+      var ramLive = ram?.canStream == true;
+      if (ram != null && ramLive) {
+        try {
+          final w = ram.window;
+          if (w == null) {
+            ramLive = false;
+          } else {
+            final (rev, gen) = await _nightInputRevision(w.$1, w.$2);
+            ramLive = ram.hasContext(rev, gen, kAlgoVersion);
+          }
+        } catch (_) {
+          ramLive = false;
+        }
+        if (!ramLive) ram.clear();
+      }
+      if (!ramLive &&
+          _nightStates[dayId]?.acceptsCheckpointAlgorithm(kAlgoVersion) != false) {
+        try {
+          debugCheckpoints.reads++;
+          final row = await LocalDb.dayCheckpoint(dayId, kAlgoVersion,
+              maxBytes: maxNightCheckpointBytes);
+          if (row == null) {
+            debugCheckpoints.misses++;
+          } else {
+            final context = checkpointPlan.context!;
+            final from = checkpointPlan.from, through = checkpointPlan.through;
+            final inputRevisions = checkpointPlan.revisions;
+            final searchRr = searchSub.rrMs, searchTimes = searchSub.rrTsMs;
+            final restored = await _runIsolateCancellable(
+              () => decodeNightCheckpoint(row, dayId, kAlgoVersion, context,
+                  from, through, inputRevisions,
+                  searchRr: searchRr, searchTimes: searchTimes), _perDayTimeout,
+              label: 'checkpoint-read $dayId');
+            if (restored.rejection != null) {
+              debugCheckpoints.rejections.add(restored.rejection!);
+              debugCheckpoints.misses++;
+            } else if (LocalDb.storeGeneration == checkpointPlan.generation &&
+                rowsEpoch == _retentionEpoch) {
+              checkpointPlan.restored = restored.night;
+              debugCheckpoints.lastDecodedPayload = restored.payload;
+              if (cacheRows && restored.cardio != null) rowBytes.add(restored.cardio!);
+            }
+          }
+        } catch (_) {
+          debugCheckpoints.misses++;
+        }
+      }
+      checkpointPlan.cardio = rowBytes;
+      _checkpointPlans[dayId] = checkpointPlan;
+      while (_checkpointPlans.length > 3) {
+        _checkpointPlans.remove(_checkpointPlans.keys.first);
+      }
+    }
+    Future<(String, String?, int, Uint8List?, int, int, List<String>)> stage() =>
+        _runIsolateCancellable(() {
       try {
         final p = profileJson == null
             ? null
@@ -4727,15 +5054,25 @@ class DerivationEngine {
       ana.cardioRecordObservations = true;
       ana.resetCardioObservations();
       debugSegmentedDayCount = 0;
+      final rowOperations = <String>[];
+      final ana.CardioRowCache? rowCache;
+      if (cacheRows) {
+        rowCache = decodeCardioRows(rowBytes);
+        rowOperations.addAll(['decode:worker', 'merge:worker']);
+      } else {
+        rowCache = null;
+      }
       final candidate = prepareSleepSessionCandidate(
         searchSub,
         targetDay: dayId,
         skipUnusedDays: skipUnusedDays,
+        recordTargetOnly: true,
         override: override,
         priorSleep: priorSleep,
         vendorNights: vendorNights,
+        rowCache: rowCache,
       );
-      // Fold the MAIN sleep (most epochs) of a freshly-staged night into the
+      // Fold the TARGET sleep (most epochs of its own observations) into the
       // rolling profile — done here in the worker because the observations live
       // in THIS isolate's globals. Skipped for overrides. EWMA self-seeds.
       String? observationJson;
@@ -4748,11 +5085,14 @@ class DerivationEngine {
       // onto whichever day was re-derived last. Measured effect of that
       // corrupt profile on the same nights: wake 4.3% -> 36.4%, deep 1.9% ->
       // 0.0%. One fold per day_id, ever.
-      if (mayFold) {
+      if (mayFold && candidate.present) {
         final obs = ana.takeCardioObservations();
-        if (obs.isNotEmpty) {
-          obs.sort((a, b) => b.epochs.compareTo(a.epochs));
-          final main = obs.first;
+        // THIS night's own observation, matched on the window it was staged
+        // over. The search window also stages the day before's sessions; the
+        // longest of all of them is not necessarily the night chosen.
+        final main = observationOfNight(
+            obs, candidate.sleepOnsetSec, candidate.sleepOffsetSec);
+        if (main != null) {
           if (main.epochs >= 120) {
             // require ≥60 min — not a nap.
             // Return the raw OBSERVATION, not a folded profile. Folding here
@@ -4775,7 +5115,12 @@ class DerivationEngine {
           }
         }
       }
-      return (jsonEncode(candidate.toJson()), observationJson, debugSegmentedDayCount);
+      final rowsOut = rowCache == null ? null :
+          encodeCardioRows(rowCache, rowsLo, rowsHi);
+      if (rowCache != null) rowOperations.add('prune:worker');
+      return (jsonEncode(candidate.toJson()), observationJson,
+        debugSegmentedDayCount, rowsOut, rowCache?.hits ?? 0,
+        rowCache?.misses ?? 0, rowOperations);
     }, stageTimeout, label: 'sleep-staging $dayId');
     final hit = stagingKey == null ? null : _stagedSleepCache.lookup(
         dayId, kAlgoVersion, stagingKey, mayFold: mayFold);
@@ -4788,8 +5133,31 @@ class DerivationEngine {
     } else {
       debugStagingComputations++;
       final result = await stage();
+      if (checkpointPlan != null && result.$4 != null) {
+        checkpointPlan.cardio = [result.$4!];
+      }
       candidateJson = result.$1;
       observationJson = result.$2;
+      debugCardioRowHits += result.$5;
+      debugCardioRowMisses += result.$6;
+      _cardioRowOperations.addAll(result.$7);
+      if (_canRetainSubstrate && rowsEpoch == _retentionEpoch &&
+          LocalDb.storeGeneration == rowGeneration && !debugDisableCardioRows) {
+        _cardioRowChunks.removeWhere(sentChunks.contains);
+        if (result.$4 != null && result.$4!.length <= _cardioRowsMaxBytes) {
+          _cardioRowChunks.add(CardioRowsChunk(result.$4!, rowsLo, rowsHi,
+            rowRevisions, rowGeneration, kAlgoVersion));
+        }
+        // Bound both disjoint windows and repeated fingerprint variants.
+        final newest = _cardioRowChunks.fold<int>(rowsHi,
+            (hi, c) => math.max(hi, c.hiSec));
+        _cardioRowChunks.removeWhere((c) => c.hiSec < newest - 4 * 24 * 3600);
+        while (_cardioRowChunks.length > 4 ||
+            _cardioRowChunks.fold<int>(0, (n, c) => n + c.bytes.length) >
+                _cardioRowsMaxBytes) {
+          _cardioRowChunks.removeAt(0);
+        }
+      }
       debugOnStagingWalk?.call(mayFold, result.$3, observationJson);
       if (stagingKey != null) {
         _stagedSleepCache.store(dayId, StagedSleepEntry(
@@ -4929,6 +5297,7 @@ class DerivationEngine {
     // profile, fold, and clobber the other, losing both the fold and its
     // day_id from folded_days. SQLite's write lock is cross-connection and
     // therefore cross-isolate.
+    debugOnProfileFold?.call(dayId);
     await LocalDb.updateBaseline('sleep_user_profile', (current) {
       // Re-derive freshness INSIDE the transaction: the value this day read
       // before staging is stale by definition, another lane may have folded
@@ -5028,6 +5397,116 @@ class DerivationEngine {
     return (startSec: startSec, endSec: endSec);
   }
 
+  /// The E13 owner holds one union per day. Only the loading turn is serial:
+  /// a neighbouring day can borrow its completed overlap while staging runs.
+  Future<RetainedSubstrate?> _loadUnion(String dayId, int from, int to,
+      Map<InputSignal, List<OwnedSpan>> ownership, {_PrepareStats? stats,
+      _PrepareUnion? search, SubstrateUnionWindow? window}) {
+    final epoch = _retentionEpoch;
+    return _unionLock.run(() async {
+    int generation;
+    Map<int, int> revisions;
+    try {
+      final db = await LocalDb.instance;
+      generation = LocalDb.storeGeneration;
+      final rows = await db.rawQuery(
+          'SELECT bucket, rev FROM input_rev WHERE bucket >= ? AND bucket <= ? '
+          'ORDER BY bucket', [from ~/ 900, to ~/ 900]);
+      revisions = {for (final r in rows)
+        (r['bucket'] as num).toInt(): (r['rev'] as num).toInt()};
+    } catch (_) {
+      _dropRetainedDay(dayId);
+      return null;
+    }
+    final context = substrateLoadContext(from, to, generation, ownership);
+    final bases = _canRetainSubstrate ? [for (final base in _retained.unions)
+      if (base.version == kAlgoVersion && base.generation == generation &&
+          base.context == substrateLoadContext(base.from!, base.to!,
+              generation, base.ownership)) base] : <RetainedSubstrate>[];
+    final stretches = reusableUnionStretches(bases, from, to, revisions, ownership);
+    final timeout = _perDayTimeout;
+    final whole = stretches.length == 1 &&
+        stretches.single.$1 == stretches.single.$3.from &&
+        stretches.single.$2 == stretches.single.$3.to;
+    final borrowed = whole ? <RetainedSubstrate?>[stretches.single.$3] :
+        stretches.isEmpty ? <RetainedSubstrate?>[] :
+        await _runIsolateCancellable(borrowUnionJob(stretches, ownership),
+          timeout, label: 'union-borrow $dayId');
+    if (!whole) _unionWorkerCuts += borrowed.whereType<RetainedSubstrate>().length;
+    final parts = <RetainedSubstrate>[];
+    Future<RetainedSubstrate?> read(int a, int b) async {
+      debugOnSubstrateLoad?.call(a, b, 'union');
+      final (sub, extras) = await _readSubstrateRange(a, b, dayId: dayId,
+          stats: stats, ownership: ownership, retain: true,
+          unionWindow: a == from && b == to ? window : null);
+      if (extras.isEmpty) return null;
+      final cut = extras.remove('union_window') as Substrate?;
+      if (cut != null) {
+        search?.search = cut;
+        _unionWorkerCuts++;
+      }
+      return RetainedSubstrate(version: kAlgoVersion, context: context,
+        revisions: revisions, sub: sub, extras: extras, cut: a,
+        from: a, to: b, generation: generation, ownership: ownership);
+    }
+    var pos = from;
+    for (var i = 0; i < stretches.length; i++) {
+      final part = borrowed[i];
+      if (part == null) continue;
+      if (part.from! > pos) {
+        final gap = await read(pos, part.from! - 1);
+        if (gap == null) return null;
+        parts.add(gap);
+      }
+      parts.add(part);
+      pos = part.to! + 1;
+    }
+    if (pos <= to) {
+      final gap = await read(pos, to);
+      if (gap == null) return null;
+      parts.add(gap);
+    }
+    var loaded = parts.length == 1 ? parts.single :
+        await _runIsolateCancellable(
+          joinUnionJob(parts, context, revisions, ownership), timeout,
+          label: 'union-join $dayId');
+    loaded ??= await read(from, to);
+    if (loaded == null) return null;
+    final rows = (loaded.extras['raw_rows_by_bucket'] as Map<int, int>)
+        .values.fold(0, (int n, v) => n + v);
+    _enforcePrepareBudget(dayId: dayId, fromRecTs: from, toRecTs: to,
+        rangePages: (rows / _rawDecodeBatchSize).ceil(), rangeRows: rows);
+    if (_canRetainSubstrate && epoch == _retentionEpoch &&
+        LocalDb.storeGeneration == generation &&
+        loaded.sub.length <= _maxDayRawRows &&
+        loaded.sub.rrMs.length <= _maxUnionBeats) {
+      // A sole borrowed part still carries its original, wider context.
+      loaded = RetainedSubstrate(version: kAlgoVersion, context: context,
+        revisions: revisions, sub: loaded.sub, extras: loaded.extras,
+        cut: from, from: from, to: to, generation: generation,
+        ownership: ownership);
+      _retained.store(dayId, 'union', loaded);
+    }
+    return loaded;
+    });
+  }
+
+  /// The calendar day deliberately keeps the buffered load's provenance and
+  /// beat-time slice semantics, just as the separate-window path does.
+  Future<(List<Substrate?>, Substrate?)> _cutUnionWindows(
+      RetainedSubstrate? load, List<(int, int)> ranges,
+      Map<InputSignal, List<OwnedSpan>> ownership,
+      {int? dayStart, int? dayEnd}) async {
+    if (load == null) return ([for (final _ in ranges) null], null);
+    final timeout = _perDayTimeout;
+    final cuts = await _runIsolateCancellable(
+        cutUnionJob(load, ranges, ownership, dayStart, dayEnd),
+        timeout, label: 'union-windows');
+    _unionWorkerCuts += cuts.$1.whereType<Substrate>().length;
+    if (cuts.$2 != null) _unionWorkerCuts++;
+    return cuts;
+  }
+
   Future<Substrate> _loadSubstrateRange(
     int fromRecTs,
     int toRecTs, {
@@ -5036,6 +5515,7 @@ class DerivationEngine {
     Map<InputSignal, List<OwnedSpan>> ownership = const {},
     String load = 'direct',
   }) async {
+    debugOnSubstrateLoad?.call(fromRecTs, toRecTs, load);
     if (toRecTs < fromRecTs) {
       _dropRetainedDay(dayId);
       return Substrate.empty;
@@ -5097,6 +5577,7 @@ class DerivationEngine {
     Map<InputSignal, List<OwnedSpan>> ownership = const {},
     RetainedSubstrate? seed,
     bool retain = false,
+    SubstrateUnionWindow? unionWindow,
   }) async {
     if (toRecTs < fromRecTs) return (Substrate.empty, const <String, Object?>{});
     final port = ReceivePort();
@@ -5138,6 +5619,11 @@ class DerivationEngine {
           final payload = ((message['payload'] as Map?) ?? const {})
               .cast<String, dynamic>();
           extras = ((message['retain'] as Map?) ?? const {}).cast<String, Object?>();
+          final window = message['union_window'];
+          if (window is Map) {
+            extras = {...extras,
+              'union_window': Substrate.fromTransfer(window.cast<String, dynamic>())};
+          }
           if (!result.isCompleted) result.complete(Substrate.fromTransfer(payload));
         }
         return;
@@ -5169,7 +5655,10 @@ class DerivationEngine {
     }
     try {
       final worker = await ready.future;
-      worker.send({'type': 'config', 'mode': 'substrate', 'retain': retain});
+      worker.send({'type': 'config', 'mode': 'substrate', 'retain': retain,
+        if (unionWindow != null) ...{'union_window': unionWindow,
+          'load_from': fromRecTs, 'load_to': toRecTs, 'ownership': ownership},
+      });
       if (seed != null) worker.send(seed.seed(fromRecTs));
       int? afterRecTs;
       int? afterCursor;
@@ -6422,11 +6911,96 @@ class DerivationEngine {
 
     // Cancellable: on timeout the isolate is KILLED, not merely abandoned to
     // keep burning a core behind the worker pool's back.
-    final bundle = await _runIsolateCancellable(
-      () => deriveDayBundle(withHistory),
+    final nightEpoch = _retentionEpoch;
+    final retainNight = _canRetainSubstrate && !suppliedSubstrate;
+    final diagnostics = debugNightStreams;
+    final checkpointPlan = _checkpointPlans.remove(day.date);
+    final checkpointEnabled = !debugCheckpoints.disabled && retainNight &&
+        checkpointPlan?.context != null && checkpointPlan!.epoch == nightEpoch &&
+        checkpointPlan.generation == LocalDb.storeGeneration &&
+        day.sleepOnsetSec >= checkpointPlan.from &&
+        day.sleepOffsetSec <= checkpointPlan.through + 1;
+    var nightRevision = 0, nightGeneration = LocalDb.storeGeneration;
+    var nightProvenance = false;
+    // Keep DB reads and engine fields outside the shipped closure. A changed
+    // revision rejects even a byte-identical replacement; raw prefix proofs in
+    // the worker additionally detect moved windows and in-memory mutations.
+    NightRrState? nightState;
+    if ((retainNight && sleepSub.rrMs.isNotEmpty) || diagnostics != null) {
+      nightState = _nightStates.remove(day.date) ?? NightRrState();
+      try {
+        final (revision, generation) =
+            await _nightInputRevision(day.sleepOnsetSec, day.sleepOffsetSec);
+        nightState.context(inputRevision: revision, generation: generation,
+            algorithm: kAlgoVersion);
+        nightState.window = (day.sleepOnsetSec, day.sleepOffsetSec);
+        nightRevision = revision;
+        nightGeneration = generation;
+        nightProvenance = true;
+      } catch (_) {
+        nightState.clear(); // Unavailable provenance never certifies reuse.
+      }
+      diagnostics?.nightState = nightState;
+    }
+    final canCheckpoint = checkpointEnabled && nightProvenance &&
+        nightEpoch == _retentionEpoch &&
+        LocalDb.storeGeneration == checkpointPlan.generation;
+    final restoredNight = canCheckpoint ? checkpointPlan.restored : null;
+    final checkpointContext = checkpointEnabled ? checkpointPlan.context! : '';
+    final checkpointBoundary = checkpointEnabled ? checkpointPlan.boundary : 0;
+    final checkpointFrom = checkpointEnabled ? checkpointPlan.from : 0;
+    final checkpointVector = checkpointEnabled ? checkpointRevisions(
+        checkpointPlan.revisions, checkpointFrom, checkpointBoundary) : Uint8List(0);
+    final checkpointRows = checkpointEnabled ? checkpointPlan.cardio : <Uint8List>[];
+    final checkpointDay = day.date;
+    final workerResult = await _runIsolateCancellable(() {
+      var state = nightState;
+      var resumed = false;
+      if (restoredNight != null && restoredNight.acceptsPrefix(
+          input.sleepRrMs, input.sleepRrTsMs, input.date,
+          input.sleepOnsetSec)) {
+        restoredNight.bindRestoredContext(nightRevision, nightGeneration, kAlgoVersion,
+            previous: state);
+        state = restoredNight;
+        resumed = true;
+        if (diagnostics != null) diagnostics.nightState = state;
+      }
+      final result = deriveDayBundle(withHistory, streamDiagnostics: diagnostics,
+          nightState: state);
+      NightCheckpointWrite? checkpoint;
+      if (canCheckpoint) {
+        try {
+          checkpoint = encodeNightCheckpoint(state, checkpointRows, checkpointDay,
+              kAlgoVersion, checkpointContext, checkpointFrom, checkpointBoundary,
+              checkpointVector);
+        } catch (_) {
+          // Scratch serialization cannot turn a successful derive into an error.
+        }
+      }
+      return (result, state, diagnostics, resumed,
+        restoredNight != null && !resumed, checkpoint);
+    },
       _perDayTimeout,
       label: 'day-bundle ${day.date}',
     );
+    final bundle = workerResult.$1;
+    if (workerResult.$4) debugCheckpoints.hits++;
+    if (workerResult.$5) {
+      debugCheckpoints.rejections.add('checkpoint night prefix/window');
+      debugCheckpoints.misses++;
+    }
+    if (diagnostics != null) debugNightStreams = workerResult.$3;
+    final returnedNight = workerResult.$2;
+    if (returnedNight != null && retainNight && _canRetainSubstrate &&
+        nightEpoch == _retentionEpoch) {
+      _nightStates[day.date] = returnedNight;
+      while (_nightStates.length > math.min(2, _retained.maxDays)) {
+        _nightStates.remove(_nightStates.keys.first)?.clear();
+      }
+    } else {
+      returnedNight?.clear();
+    }
+    debugOnNightBundle?.call(withHistory, bundle);
     // Readiness came back absent for TODAY specifically (not a historical
     // backfill day, which would just be noise) — log why. This ran inside
     // Isolate.run so it couldn't call Firebase itself; it just returned the
@@ -7268,6 +7842,39 @@ class DerivationEngine {
       },
     );
     if (effectiveFinalized || effectivePartial) _dropRetainedDay(day.date);
+    if (!debugCheckpoints.disabled && !suppliedSubstrate) {
+      try {
+        final db = await LocalDb.instance;
+        if (effectiveFinalized || effectivePartial) {
+          await db.delete('day_checkpoint', where: 'day_id = ?', whereArgs: [day.date]);
+        } else if (checkpointEnabled && workerResult.$6 != null &&
+            _canRetainSubstrate && nightEpoch == _retentionEpoch &&
+            LocalDb.storeGeneration == checkpointPlan.generation) {
+          final checkpoint = workerResult.$6!;
+          await db.transaction((txn) async {
+            if (LocalDb.storeGeneration != checkpointPlan.generation ||
+                await LocalDb.storeIdentity(executor: txn) != checkpointPlan.storeId) {
+              return;
+            }
+            await txn.insert('day_checkpoint', {
+              'day_id': day.date, 'algo_version': kAlgoVersion,
+              'fmt': nightCheckpointFormat, 'ctx_sig': checkpointContext,
+              'cp_rec_ts': checkpointBoundary, 'rev_vec': checkpointVector,
+              'state': checkpoint.bytes, 'night_ref': null,
+              'computed_at': DateTime.now().millisecondsSinceEpoch,
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+            await txn.rawDelete('DELETE FROM day_checkpoint WHERE day_id NOT IN '
+              '(SELECT day_id FROM day_checkpoint GROUP BY day_id '
+              'ORDER BY day_id DESC LIMIT 3) OR algo_version != ?', [kAlgoVersion]);
+          });
+          debugCheckpoints.writes++;
+          debugCheckpoints.lastEncodedPayload = checkpoint.bytes;
+          debugCheckpoints.lastDecodedPayload = checkpoint.payload;
+        }
+      } catch (_) {
+        // Disposable scratch is never required to commit a day result.
+      }
+    }
     // AFTER the row: retired only once the row that proves it is durable.
     if (quietSettled) await LocalDb.deleteComputeFreshness(quietKey);
     // NOTE: the sweep's `history` snapshot is deliberately NOT updated here.
