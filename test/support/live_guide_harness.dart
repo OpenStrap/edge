@@ -5,6 +5,7 @@
 // the production repository returns (the same keys test/wearable_screens_wiring_ test.dart relies on). Nothing is stubbed in the code under test.
 //
 // Not a test file (no _test suffix).
+import 'package:openstrap_edge/coach/coach_config.dart';
 import 'dart:convert'; import 'package:flutter/material.dart'; import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/app.dart' show AppMainShell; import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/state/locale_controller.dart'; import 'package:openstrap_edge/ble/ble_engine.dart';
@@ -81,7 +82,7 @@ bool isKnownNextOverflow(FlutterErrorDetails details) { final text = details.toS
 /// Shared-preferences storage is empty and loaded, so the shell opens on Today.
 Future<LiveGuideApp> pumpLiveGuideApp( WidgetTester t, { Widget? home, Locale locale = const Locale('en'), double textScale = 1,
   Size size = const Size(390, 844), GuideRunner? runner, LocalRepository? repo, BleEngine? engine, Brightness brightness = Brightness.light,
-  double devicePixelRatio = 1, GlobalKey? captureKey, }) async { SharedPreferences.setMockInitialValues(const {}); await Prefs.ensureLoaded();
+  double devicePixelRatio = 1, GlobalKey? captureKey, CoachConfig? coachConfig, }) async { SharedPreferences.setMockInitialValues(const {}); await Prefs.ensureLoaded();
   // Prefs caches its own instance across tests, while setMockInitialValues replaces the plugin singleton. Seed its synchronous tab read explicitly.
   Prefs.setInt(Prefs.shellTabV2, 0); t.view.physicalSize = size * devicePixelRatio; t.view.devicePixelRatio = devicePixelRatio; addTearDown(t.view.reset);
   // Sleep correction controls require retained input. Seed only a test DB row; the repository's published night alone does not establish correctability.
@@ -90,7 +91,7 @@ Future<LiveGuideApp> pumpLiveGuideApp( WidgetTester t, { Widget? home, Locale lo
   final key = GlobalKey<NavigatorState>(); final guideRunner = runner ?? GuideRunner(navigatorKey: key);
   final state = AppState.forTesting(engine: engine); state.repo = repo ?? GuideFakeRepo();
   final app = LiveGuideApp(state, guideRunner, runner?.navigatorKey ?? key); addTearDown(app.dispose);
-  await t.pumpWidget(MultiProvider( providers: [ ChangeNotifierProvider<AppState>.value(value: state),
+  await t.pumpWidget(MultiProvider( providers: [ if (coachConfig != null) ChangeNotifierProvider<CoachConfig>.value(value: coachConfig), ChangeNotifierProvider<AppState>.value(value: state),
       ChangeNotifierProvider<LocaleController>(create: (_) => LocaleController.seed(locale.languageCode)),
       ChangeNotifierProvider<UnitsController>(create: (_) => UnitsController.seed(UnitSystem.metric)), ChangeNotifierProvider<ThemeController>.value( value: ThemeController.seed(
             brightness == Brightness.dark ? AppThemeChoice.dark : AppThemeChoice.light, brightness)), ChangeNotifierProvider<GuideRunner>.value(value: guideRunner), ],
