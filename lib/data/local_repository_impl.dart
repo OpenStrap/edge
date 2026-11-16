@@ -1520,11 +1520,21 @@ class LocalRepositoryImpl extends LocalRepository {
     // day's published total is the one mismatch this screen must not show.
     final st = _sub(await _bundle(date), 'steps');
     final dayTotal = (st?['value'] as num?)?.toInt();
-    // A day answered by the strap's on-chip counter has no coverage spans;
-    // its own hourly spans (stamped by the derive) stand in for them.
-    final counter = r.spans.isEmpty &&
-            st?['source'] == 'strap_counter' &&
-            st?['spans'] is List
+    // A day the strap's on-chip counter ANSWERED is presented from the counter,
+    // whether or not `live_coverage` also holds rows for it.
+    //
+    // The counter is a WHOLE-DAY alternative to the coverage ladder, and the
+    // derive only picks it when its calibrated total beat everything in
+    // `live_coverage` put together (see `_writeSteps`). So on a counter day
+    // those rows are, by construction, the count the day did NOT publish — and
+    // requiring `r.spans.isEmpty` here still read them on every day the phone
+    // had banked an hour, which is every gen5 day with phone steps switched on.
+    // The screen then published the phone's smaller coverage total as the day's
+    // number and named the phone as the sensor, against the counter's figure on
+    // Home. The counter's own hourly spans (stamped by the derive) are the
+    // clocked data for such a day; when an older derive stored none, the screen
+    // says so instead of showing another sensor's hours under this day's count.
+    final counter = st?['source'] == 'strap_counter' && st?['spans'] is List
         ? st!['spans'] as List
         : null;
     // Only for naming: a span that sits inside a session gets that session's

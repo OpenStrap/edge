@@ -93,9 +93,11 @@ class DayStepsData {
   /// The spans' own totals, from the ladder. Not re-summed here.
   final int total, strap, phone;
 
-  /// What the day actually published, and off which sensor. Usually [total] —
-  /// but a day whose only counter was the strap's on-chip one, derived before
-  /// its hourly spans were stored, publishes a figure with no spans behind it.
+  /// What the day actually published, and off which sensor. Always equal to
+  /// [total] once the reader has resolved the day — including a strap-counter
+  /// day, whose published figure is the counter's and not the coverage ladder's,
+  /// and one derived before its hourly spans were stored, which publishes a
+  /// figure with no spans behind it at all.
   final int? dayTotal;
   final String? daySource;
 
