@@ -689,22 +689,28 @@ class CoachEngine {
         final fn = (tc['function'] as Map?) ?? const {};
         final name = fn['name']?.toString() ?? '';
         Map<String, dynamic> args = {};
-        var argsParsed = true;
+        var argsParsed = false;
         try {
           final a = fn['arguments'];
-          if (a is String && a.isNotEmpty) {
-            args = jsonDecode(a) as Map<String, dynamic>;
-          } else if (a is Map) {
+          if (a is Map) {
             args = a.cast<String, dynamic>();
+            argsParsed = true;
+          } else if (a is String && a.isNotEmpty) {
+            final decoded = jsonDecode(a);
+            if (decoded is Map) {
+              args = decoded.cast<String, dynamic>();
+              argsParsed = true;
+            }
           }
         } catch (_) {
           argsParsed = false;
         }
-        // A truncated or non-object `arguments` string is a NORMAL failure
-        // from OpenAI-compatible providers. Running the tool with `{}` built
-        // the confirmation from fabricated defaults (and on confirm wrote
-        // them: `log_period` logged today, `start_workout` started `other`).
-        // Tell the model instead, so it can re-issue a complete call.
+        // Only an OBJECT is a valid argument map. Empty/missing strings,
+        // arrays and numbers are normal failures from OpenAI-compatible
+        // providers. Running the tool with `{}` built the confirmation from
+        // fabricated defaults (and on confirm wrote them: `log_period` logged
+        // today, `start_workout` started `other`). Tell the model instead, so
+        // it can re-issue a complete call.
         if (!argsParsed) {
           _history.add({
             'role': 'tool',

@@ -1,11 +1,11 @@
-// A tool call whose `arguments` string does not parse must NOT run.
+// A tool call whose `arguments` do not decode to an object must NOT run.
 //
 // `_send` used to swallow every parse failure into `args = {}` and call
-// `_runTool` anyway. The confirmation the user then saw was built from the
-// empty map, and on confirm the write ran with fabricated defaults:
-// `start_workout` started `other`, `log_period` logged a period on today.
-// A truncated arguments string is a normal failure from flaky
-// OpenAI-compatible providers, so "no JSON" must mean "nothing ran".
+// `_runTool` anyway. The confirmation was then built from the empty map, and on
+// confirm the write ran with fabricated defaults: `start_workout` started
+// `other`, `log_period` logged a period on today. Empty, missing and non-object
+// arguments are normal provider failures, so "not an object" must mean
+// "nothing ran". A valid `{}` is still a real no-argument call.
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeRepo extends LocalRepository {
   final cycleLogs = <String>[];
+  var todayRead = false;
 
   @override
   Future<void> postCycleLog(
@@ -25,6 +26,12 @@ class _FakeRepo extends LocalRepository {
     String? note,
   }) async {
     cycleLogs.add('$date:$kind');
+  }
+
+  @override
+  Future<Map<String, dynamic>> getToday() async {
+    todayRead = true;
+    return {'day': '2026-01-01'};
   }
 }
 
@@ -49,7 +56,10 @@ class _StubClient extends http.BaseClient {
   void close() {}
 }
 
-Map<String, dynamic> _toolReply(String arguments) => {
+/// Omits the `arguments` key entirely, the "missing" shape.
+const Object _missingArguments = Object();
+
+Map<String, dynamic> _toolReply(String tool, Object? arguments) => {
   'choices': [
     {
       'message': {
@@ -59,7 +69,11 @@ Map<String, dynamic> _toolReply(String arguments) => {
           {
             'id': 'call_1',
             'type': 'function',
-            'function': {'name': 'log_period', 'arguments': arguments},
+            'function': {
+              'name': tool,
+              if (!identical(arguments, _missingArguments))
+                'arguments': arguments,
+            },
           },
         ],
       },
@@ -75,67 +89,86 @@ Map<String, dynamic> get _finalReply => {
   ],
 };
 
+Future<({_FakeRepo repo, CoachEngine engine, List<ActionRequest> confirmed})>
+_run(String tool, Object? arguments) async {
+  final repo = _FakeRepo();
+  final config = CoachConfig();
+  await config.save(
+    api: CoachApi.chatCompletions,
+    baseUrl: 'https://example.test/v1',
+    model: 'test-model',
+  );
+  addTearDown(config.dispose);
+  final engine = CoachEngine(
+    config: config,
+    api: repo,
+    client: _StubClient([_toolReply(tool, arguments), _finalReply]),
+  );
+  addTearDown(engine.dispose);
+  final confirmed = <ActionRequest>[];
+  await engine.send(
+    'Do that thing.',
+    onItem: (_) {},
+    onStatus: (_) {},
+    confirm: (request) async {
+      confirmed.add(request);
+      return true;
+    },
+  );
+  return (repo: repo, engine: engine, confirmed: confirmed);
+}
+
+void expectRefused(
+  ({_FakeRepo repo, CoachEngine engine, List<ActionRequest> confirmed}) r,
+) {
+  expect(r.confirmed, isEmpty, reason: 'a broken argument map is not consent');
+  expect(r.repo.cycleLogs, isEmpty, reason: 'nothing may be written');
+  final tool = r.engine.debugHistory.singleWhere((m) => m['role'] == 'tool');
+  expect('${tool['content']}', contains('JSON'));
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   test('truncated arguments are refused, not run as an empty object', () async {
-    final repo = _FakeRepo();
-    final config = CoachConfig();
-    await config.save(
-      api: CoachApi.chatCompletions,
-      baseUrl: 'https://example.test/v1',
-      model: 'test-model',
-    );
-    addTearDown(config.dispose);
-    final engine = CoachEngine(
-      config: config,
-      api: repo,
-      client: _StubClient([_toolReply('{"date":'), _finalReply]),
-    );
-    addTearDown(engine.dispose);
-    final confirmed = <ActionRequest>[];
-    await engine.send(
-      'Log that my period started today.',
-      onItem: (_) {},
-      onStatus: (_) {},
-      confirm: (request) async {
-        confirmed.add(request);
-        return true;
-      },
-    );
-    expect(confirmed, isEmpty, reason: 'a broken argument map is not consent');
-    expect(repo.cycleLogs, isEmpty, reason: 'nothing may be written');
-    final tool = engine.debugHistory.singleWhere((m) => m['role'] == 'tool');
+    expectRefused(await _run('log_period', '{"date":'));
+  });
+
+  test('an empty arguments string is refused', () async {
+    expectRefused(await _run('log_period', ''));
+  });
+
+  test('missing arguments are refused', () async {
+    expectRefused(await _run('log_period', _missingArguments));
+  });
+
+  test('null arguments are refused', () async {
+    expectRefused(await _run('log_period', null));
+  });
+
+  test('non-object JSON arguments are refused', () async {
+    expectRefused(await _run('log_period', '[1,2]'));
+    expectRefused(await _run('log_period', '123'));
+    expectRefused(await _run('log_period', 123));
+  });
+
+  test('a read tool with empty arguments does not run either', () async {
+    final r = await _run('get_today', '');
+    expect(r.repo.todayRead, isFalse);
+    final tool = r.engine.debugHistory.singleWhere((m) => m['role'] == 'tool');
     expect('${tool['content']}', contains('JSON'));
   });
 
-  test('valid empty arguments still run the tool', () async {
-    final repo = _FakeRepo();
-    final config = CoachConfig();
-    await config.save(
-      api: CoachApi.chatCompletions,
-      baseUrl: 'https://example.test/v1',
-      model: 'test-model',
-    );
-    addTearDown(config.dispose);
-    final engine = CoachEngine(
-      config: config,
-      api: repo,
-      client: _StubClient([_toolReply('{}'), _finalReply]),
-    );
-    addTearDown(engine.dispose);
-    final confirmed = <ActionRequest>[];
-    await engine.send(
-      'Log that my period started today.',
-      onItem: (_) {},
-      onStatus: (_) {},
-      confirm: (request) async {
-        confirmed.add(request);
-        return true;
-      },
-    );
-    expect(confirmed, hasLength(1));
-    expect(repo.cycleLogs, hasLength(1));
+  test('valid empty string arguments still run the tool', () async {
+    final r = await _run('log_period', '{}');
+    expect(r.confirmed, hasLength(1));
+    expect(r.repo.cycleLogs, hasLength(1));
+  });
+
+  test('valid empty map arguments still run the tool', () async {
+    final r = await _run('log_period', <String, dynamic>{});
+    expect(r.confirmed, hasLength(1));
+    expect(r.repo.cycleLogs, hasLength(1));
   });
 }
