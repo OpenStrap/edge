@@ -17,7 +17,10 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart' show kAlgoVersion;
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
+import 'package:openstrap_edge/ui2/screens/day_steps.dart'
+    show DayStepsData;
 
 void main() {
   setUpAll(() async {
@@ -98,4 +101,125 @@ void main() {
         [midnight + 9 * 3600, midnight + 10 * 3600]);
     expect(spans.every((s) => s['source'] == LocalDb.kStepSourceBand), isTrue);
   });
+
+  // An older bundle can carry the counter's count with no hourly spans stored.
+  // The day is still a counter day: selecting it by the presence of `spans`
+  // dropped it onto the coverage ladder, which returned the phone's smaller
+  // total under the counter's name — or zero when the phone had no rows either.
+  for (final (label, spans) in [
+    ('no spans key at all', const <String, Object?>{}),
+    ('spans: null', const {'spans': null}),
+  ]) {
+    test('a counter day with $label publishes the counter, not the phone',
+        () async {
+      final day = label == 'spans: null' ? '2026-03-12' : '2026-03-11';
+      final midnight = localDayStartSec(day)!;
+      const counterTotal = 12500;
+
+      await LocalDb.putDayResult(
+        dayId: day,
+        algoVersion: kAlgoVersion,
+        payloadJson: jsonEncode({
+          'steps': {
+            'value': counterTotal,
+            'band_measured': counterTotal,
+            'source': 'strap_counter',
+            ...spans,
+          },
+        }),
+        windowJson: '{}',
+        finalized: true,
+      );
+      // The phone banked its own hours for the same day, so falling through to
+      // coverage is observable rather than a zero either way.
+      await LocalDb.replacePhoneCoverageForDay(day, [
+        for (var h = 9; h < 13; h++)
+          (
+            startTs: midnight + h * 3600,
+            endTs: midnight + (h + 1) * 3600 - 1,
+            steps: 1000,
+          ),
+      ]);
+      expect(await LocalDb.phoneStepsForDay(day), 4000,
+          reason: 'the phone rows are really there');
+
+      final out = await LocalRepositoryImpl(getProfileMap: () => null)
+          .getDaySteps(day);
+
+      expect(out['day_source'], 'strap_counter');
+      expect(out['day_total'], counterTotal);
+      expect(out['total'], counterTotal,
+          reason: 'the day published the counter\'s figure');
+      expect(out['strap'], counterTotal);
+      expect(out['phone'], 0);
+      // No stored times: the screen says so instead of drawing the phone's
+      // hours under the counter's count.
+      expect(out['spans'], isEmpty);
+    });
+  }
+
+  group('DayStepsData.load', () {
+    test('a counter day with no stored spans keeps the counter total and its '
+        'source', () async {
+      final data = await DayStepsData.load(_StepsRepo({
+        'total': 12500,
+        'strap': 12500,
+        'phone': 0,
+        'day_total': 12500,
+        'day_source': 'strap_counter',
+        'spans': const [],
+      }));
+
+      expect(data.total, 12500);
+      expect(data.dayTotal, data.total,
+          reason: 'one resolved number, not two for the same day');
+      expect(data.daySource, 'strap_counter');
+      expect(data.spans, isEmpty, reason: 'the no-times card, not phone hours');
+    });
+
+    test('total and dayTotal are one value when coverage rows outran the bundle',
+        () async {
+      // The bundle published 12,000; `live_coverage` now sums to 8,000 because
+      // the rows changed after the derive. Home shows the published figure, so
+      // this screen must not print 8,000 as the count and 12,000 as the day's.
+      final data = await DayStepsData.load(_StepsRepo({
+        'total': 8000,
+        'strap': 0,
+        'phone': 8000,
+        'day_total': 12000,
+        'day_source': 'phone',
+        'spans': const [],
+      }));
+
+      expect(data.total, 12000, reason: 'the day\'s own published figure');
+      expect(data.dayTotal, 12000);
+    });
+
+    test('with nothing published, the ladder is the one resolved total',
+        () async {
+      final data = await DayStepsData.load(_StepsRepo({
+        'total': 6400,
+        'strap': 0,
+        'phone': 6400,
+        'day_total': null,
+        'day_source': 'phone',
+        'spans': const [],
+      }));
+
+      expect(data.total, 6400);
+      expect(data.dayTotal, 6400);
+    });
+  });
+}
+
+/// A repository returning one already-resolved `getDaySteps` payload.
+class _StepsRepo extends LocalRepository {
+  _StepsRepo(this.out);
+  final Map<String, dynamic> out;
+
+  @override
+  Future<List<String>> availableDays() async => const ['2026-03-10'];
+
+  @override
+  Future<Map<String, dynamic>> getDaySteps(String date) async => out;
 }

@@ -93,11 +93,13 @@ class DayStepsData {
   /// The spans' own totals, from the ladder. Not re-summed here.
   final int total, strap, phone;
 
-  /// What the day actually published, and off which sensor. Always equal to
-  /// [total] once the reader has resolved the day — including a strap-counter
-  /// day, whose published figure is the counter's and not the coverage ladder's,
-  /// and one derived before its hourly spans were stored, which publishes a
-  /// figure with no spans behind it at all.
+  /// What the day actually published, and off which sensor. [load] resolves it
+  /// to the SAME value as [total] — the published figure when there is one, the
+  /// ladder's sum otherwise — so the two can never be read as two numbers for
+  /// one day. That holds for a strap-counter day, whose published figure is the
+  /// counter's and not the coverage ladder's, and for one derived before its
+  /// hourly spans were stored, which publishes a figure with no spans behind it
+  /// at all.
   final int? dayTotal;
   final String? daySource;
 
@@ -126,6 +128,16 @@ class DayStepsData {
     final days = await repo.availableDays();
     final day = pickDay(days, want, todayLabel()) ?? todayLabel();
     final d = await repo.getDaySteps(day);
+    // ONE resolved total, used for both figures. The ladder's sum is recomputed
+    // from `live_coverage` while the day's published number comes out of the
+    // stored bundle, so the two disagree for as long as a re-derive is pending
+    // (coverage rows landed after the bundle was written). Printing one as the
+    // count and the other as what the day published is the mismatch these two
+    // fields exist to rule out, so the published figure wins — it is the one
+    // Home shows for the same day — and the ladder is the fallback only when
+    // nothing was published at all.
+    final ladder = (d['total'] as num?)?.toInt() ?? 0;
+    final total = (d['day_total'] as num?)?.toInt() ?? ladder;
     return DayStepsData(
       day: day,
       days: days,
@@ -143,10 +155,10 @@ class DayStepsData {
               activity: s['activity'] as String?,
             ),
       ],
-      total: (d['total'] as num?)?.toInt() ?? 0,
+      total: total,
       strap: (d['strap'] as num?)?.toInt() ?? 0,
       phone: (d['phone'] as num?)?.toInt() ?? 0,
-      dayTotal: (d['day_total'] as num?)?.toInt(),
+      dayTotal: total,
       daySource: d['day_source'] as String?,
       note: d['note'] as String?,
       bandLabel: bandLabel,
