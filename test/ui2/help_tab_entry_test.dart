@@ -65,6 +65,10 @@ void main() {
           findsOneWidget,
           reason: 'Help follows the last content item in the scroll view',
         );
+        // A tappable centre can leave the last few pixels behind the tab bar.
+        // Scroll the whole button into view before checking its full bounds.
+        await t.ensureVisible(button);
+        await settleLiveGuide(t);
         final rect = t.getRect(button);
         expect(rect.width, 358); // 390 px viewport, 16 px padding on each side.
         expect(rect.height, greaterThanOrEqualTo(48));
