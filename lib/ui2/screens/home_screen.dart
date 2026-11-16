@@ -924,7 +924,12 @@ class RingTrio extends StatelessWidget {
         _HomeNoteRow(
             id: 'provisional:sleep',
             title: l?.homeRingSleep ?? 'Sleep',
-            text: l?.homeRecoveryFinishingUp ?? 'Finishing up',
+            // The SAME word the recovery ring is showing for this night. At
+            // 03:00 that is "Sleeping…" (the user is still asleep), not
+            // "Finishing up" — one night, one sentence (#739).
+            text: recoveryStateWord(d.recoveryState, l) ??
+                l?.homeRecoveryFinishingUp ??
+                'Finishing up',
             onTap: _open(HomeRingKind.sleep)),
       for (final k in pressingRings(d))
         _HomeWhyPanel(kind: k, data: d, onTap: _open(k)),
@@ -1208,15 +1213,27 @@ String? recoveryUpdatedLine(Object? update, AppLocalizations? l) {
   return null;
 }
 
+/// The word for the two states a night passes through before it is final:
+/// still asleep, then finishing up. Null once the state is final, so each
+/// caller falls through to whatever it says itself.
+///
+/// ONE mapping for both rings on the card: the sleep note and the recovery ring
+/// describe the SAME night, so they must not say two different things about it
+/// at 03:00 (#739). `night_in_progress` also covers the issue's 08:40 case,
+/// because a wake the edge has not run 30 min past is not a confirmed wake.
+String? recoveryStateWord(Object? state, AppLocalizations? l) =>
+    switch (state) {
+      'night_in_progress' => l?.homeRecoverySleeping ?? 'Sleeping…',
+      'provisional' => l?.homeRecoveryFinishingUp ?? 'Finishing up',
+      _ => null,
+    };
+
 /// The short line every screen showing today's recovery puts beside it when
 /// it is not simply final: still asleep, finishing up, or changed since shown.
 /// Read off one `todayHeadlineOf` result so Home, Readiness and Health agree.
 String? recoveryStateLine(Map<String, dynamic> head, AppLocalizations? l) =>
-    switch (head['recovery_state']) {
-      'night_in_progress' => l?.homeRecoverySleeping ?? 'Sleeping…',
-      'provisional' => l?.homeRecoveryFinishingUp ?? 'Finishing up',
-      _ => recoveryUpdatedLine(head['recovery_update'], l),
-    };
+    recoveryStateWord(head['recovery_state'], l) ??
+    recoveryUpdatedLine(head['recovery_update'], l);
 
 /// Which ring. The three the app can stand behind on a home screen: what the
 /// night gave back, what the day has cost, and what the night was made of.
@@ -1470,12 +1487,18 @@ List<RingArc>? _stageArcs(_RingState r, P p) {
   return [
     for (final a in arcs)
       RingArc(
-          cols[switch (a.kind) {
-            SleepArcKind.deep => SleepStage.deep,
-            SleepArcKind.rem => SleepStage.rem,
-            SleepArcKind.light => SleepStage.light,
-            _ => SleepStage.awake,
-          }]!,
+          // A provisional night is a figure that can still move, so its stage
+          // arcs wear the same muted ink as the solid provisional arc and as
+          // the recovery ring in the same state. The FRACTIONS are the night's
+          // own and stay put: only the colour says "not settled yet".
+          r.provisional
+              ? p.ink3
+              : cols[switch (a.kind) {
+                  SleepArcKind.deep => SleepStage.deep,
+                  SleepArcKind.rem => SleepStage.rem,
+                  SleepArcKind.light => SleepStage.light,
+                  _ => SleepStage.awake,
+                }]!,
           a.fraction),
   ];
 }

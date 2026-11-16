@@ -182,6 +182,26 @@ void main() {
     Future<Map<String, dynamic>> today() =>
         LocalRepositoryImpl(getProfileMap: () => const {}).getToday();
 
+    /// The `compute_freshness` row the pipeline would hold for TODAY.
+    ///
+    /// Needed only for a seed at a FIXED hour: `recoveryStateOf` settles a
+    /// wake == edge night once the REAL clock is 12 h past that wake, so a
+    /// literal 03:00 seed would stop being `night_in_progress` whenever this
+    /// suite ran after 15:00. The state below is the one it derives at 03:05,
+    /// asserted with it in the 03:00 test.
+    Future<void> seedFreshness({required String recoveryState}) =>
+        LocalDb.putComputeFreshness(
+            'today',
+            jsonEncode({
+              'today_day': todayLabel(),
+              'activity_day': todayLabel(),
+              'activity_state': 'ready',
+              'overnight_day': null,
+              'overnight_state': 'building',
+              'recovery_state': recoveryState,
+              'showing_prior_overnight': false,
+            }));
+
     test('a window the drain has not passed is served as provisional sleep',
         () async {
       // The measured 08:40 export: the stager closed the window at the newest
@@ -242,6 +262,33 @@ void main() {
       expect(t['sleep_provisional'], isNull);
       expect(((t['sleep'] as Map)['duration_min'] as Map)['value'], 360);
       expect(((t['daily'] as Map)['readiness'] as Map)['value'], 61);
+    });
+
+    test('a 03:00 look at a night whose wake is the edge is night_in_progress',
+        () async {
+      // #739: `night_in_progress` covers two different moments. At 08:40 the
+      // drain has not yet confirmed the wake, so "Finishing up" is right. At
+      // 03:00 the user is still ASLEEP — the recovery ring says "Sleeping…" —
+      // and the sleep note must not answer the same night with another word.
+      final now = DateTime.now();
+      final wake =
+          DateTime(now.year, now.month, now.day, 3).millisecondsSinceEpoch ~/
+              1000;
+      await seed(
+          day: todayLabel(), wakeSec: wake, edgeSec: wake, tstSec: 3 * 3600);
+      await seedFreshness(recoveryState: 'night_in_progress');
+      // The state the pipeline derives from exactly this row at 03:05: awake,
+      // wake sitting on the edge, so nothing has confirmed the night is over.
+      expect(
+          recoveryStateOf(wakeSec: wake, dataEdgeSec: wake, nowSec: wake + 300),
+          RecoveryState.nightInProgress);
+
+      final payload =
+          await LocalRepositoryImpl(getProfileMap: () => const {}).getToday();
+      expect((payload['status'] as Map)['recovery_state'], 'night_in_progress');
+      expect((payload['sleep_provisional'] as Map)['provisional'], true);
+      // The card half of this — that state's note reads "Sleeping…" — is
+      // pinned in `the ring and the card` below, off the same field.
     });
 
     test('a held-over prior night stays in `sleep` while today is provisional',
@@ -357,14 +404,23 @@ void main() {
   });
 
   group('the ring and the card', () {
-    HomeData provisional({bool provisional = true}) => HomeData(
+    HomeData provisional(
+            {bool provisional = true, String? recoveryState = 'provisional'}) =>
+        HomeData(
           dayId: '2026-10-09',
+          recoveryState: recoveryState,
           sleepMin: _min(360),
           sleepNeedMin: _min(462),
           sleepProvisional: provisional,
           sleepStages: const SleepStageMin(
               deep: 70, rem: 95, light: 165, awake: 30),
         );
+
+    StageRing stageRing(WidgetTester t) => t
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((w) => w.painter)
+        .whereType<StageRing>()
+        .single;
 
     testWidgets('the figure is drawn and the card says it is finishing up',
         (t) async {
@@ -378,9 +434,41 @@ void main() {
       expect(find.byKey(const ValueKey('home-why:sleep')), findsNothing);
     });
 
+    testWidgets('while the night is in progress the note says Sleeping…, the '
+        'recovery ring\'s own word', (t) async {
+      await _pump(t, provisional(recoveryState: 'night_in_progress'));
+      final note = find.byKey(const ValueKey('home-note:provisional:sleep'));
+      expect(note, findsOneWidget);
+      expect(find.descendant(of: note, matching: find.text('Sleeping…')),
+          findsOneWidget);
+      expect(find.text('Finishing up'), findsNothing);
+      expect(find.text('Sleeping…'), findsNWidgets(2),
+          reason: 'the recovery ring and the sleep note say one thing');
+    });
+
+    testWidgets('a provisional night\'s stage arcs are muted and keep their '
+        'fractions', (t) async {
+      final staged = provisional();
+      await _pump(t, staged);
+      final p = P.of(t.element(find.byType(RingTrio)));
+      final muted = stageRing(t);
+      expect(muted.arcs.map((a) => a.color).toSet(), {p.ink3},
+          reason: 'a figure that can still move is drawn grey, arcs included');
+      final model = sleepRingModel(
+          durationMin: 360, stages: staged.sleepStages, needMin: 462);
+      expect(muted.arcs.map((a) => a.fraction),
+          model.arcs.map((a) => a.fraction),
+          reason: 'only the colour is provisional; the split is the night\'s');
+
+      await _pump(t, provisional(provisional: false, recoveryState: 'final'));
+      final settled = stageRing(t);
+      expect(settled.arcs.map((a) => a.color).toSet().contains(p.ink3), isFalse,
+          reason: 'a settled night wears its stage colours');
+    });
+
     testWidgets('the same figure once settled is a plain number with the '
         'short-of-need panel', (t) async {
-      await _pump(t, provisional(provisional: false));
+      await _pump(t, provisional(provisional: false, recoveryState: 'final'));
       expect(find.text('6h 00m'), findsOneWidget);
       expect(find.byKey(const ValueKey('home-note:provisional:sleep')),
           findsNothing);

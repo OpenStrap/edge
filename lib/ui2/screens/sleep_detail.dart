@@ -345,8 +345,15 @@ class SleepData {
     // off overnight and the card said "7h 04m" while this screen answered "No
     // night to show" about the same tap.
     final days = await repo.availableDays();
-    final prefer = heldOverNightOf(today) ??
-        (today['status'] as Map?)?['today_day']?.toString();
+    // #638 adds a SECOND night to the payload: while today's drain is still
+    // arriving, `sleep_provisional` is today's own night and `showing_prior_
+    // overnight` still holds the last scored one. Home draws its ring from
+    // the provisional night, so the tap has to open TODAY; the held-over night
+    // is not the night the user just looked at.
+    final todayDay = (today['status'] as Map?)?['today_day']?.toString();
+    final prefer = provisionalSleepOf(today).value != null
+        ? todayDay
+        : heldOverNightOf(today) ?? todayDay;
     final latest = pickDay(days, null, prefer);
     final day = pickDay(days, want, prefer);
     if (day == null) return SleepData(days: days, latestDay: latest);
