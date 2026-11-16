@@ -18014,5 +18014,11 @@
         "description": "Name of the Not a workout button"
       }
     }
-  }
+  },
+  "helpLookingForSomething": "Looking for something?",
+  "@helpLookingForSomething": {"description": "Quiet button at the bottom of each main tab that opens Help for that tab."},
+  "helpAllGuides": "All guides",
+  "@helpAllGuides": {"description": "Show every guide after entering Help from one tab."},
+  "helpTopicEmpty": "There are no guides for this tab yet.",
+  "@helpTopicEmpty": {"description": "Empty state for a tab with no guides; All guides remains available."}
 }

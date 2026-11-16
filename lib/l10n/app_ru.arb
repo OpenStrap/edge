@@ -8960,5 +8960,8 @@
         "description": "Name of the Not a workout button"
       }
     }
-  }
+  },
+  "helpLookingForSomething": "Что-то ищете?",
+  "helpAllGuides": "Все руководства",
+  "helpTopicEmpty": "Для этой вкладки пока нет руководств."
 }

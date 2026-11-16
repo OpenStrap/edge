@@ -3950,5 +3950,8 @@
         "description": "Name of the Not a workout button"
       }
     }
-  }
+  },
+  "helpLookingForSomething": "¿Buscas algo?",
+  "helpAllGuides": "Todas las guías",
+  "helpTopicEmpty": "Todavía no hay guías para esta pestaña."
 }

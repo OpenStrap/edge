@@ -3950,5 +3950,8 @@
         "description": "Name of the Not a workout button"
       }
     }
-  }
+  },
+  "helpLookingForSomething": "कुछ ढूँढ रहे हैं?",
+  "helpAllGuides": "सभी गाइड",
+  "helpTopicEmpty": "इस टैब के लिए अभी कोई गाइड नहीं है।"
 }

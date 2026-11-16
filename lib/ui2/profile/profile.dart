@@ -401,6 +401,9 @@ class ProfileHomeView extends StatelessWidget {
                           (AppLocalizations.of(c)?.profileNotSetUp ??
                               'Not set up'),
                       onTap: onCoach)),
+                  SetRow(LucideIcons.circleHelp, C.blue,
+                      l?.profileHelpRow ?? 'Help',
+                      onTap: onHelp),
                   Builder(builder: (c) => SetRow(
                       LucideIcons.languages, C.blue,
                       AppLocalizations.of(c)?.profileLanguage ?? 'Language',
@@ -426,9 +429,6 @@ class ProfileHomeView extends StatelessWidget {
                       sub: l?.profileSettingsRowSub ??
                           'Band, app, data, privacy and advanced',
                       onTap: onSettings),
-                  SetRow(LucideIcons.circleHelp, C.blue,
-                      l?.profileHelpRow ?? 'Help',
-                      onTap: onHelp),
                 ]),
                 settingsGroup(c, l?.profileCommunityGroup ?? 'Community', [
                   SetRow.brand(brandGlyph('assets/icons/github.svg'), C.n500,

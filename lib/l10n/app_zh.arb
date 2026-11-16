@@ -3950,5 +3950,8 @@
         "description": "Name of the Not a workout button"
       }
     }
-  }
+  },
+  "helpLookingForSomething": "在找什么吗？",
+  "helpAllGuides": "所有指南",
+  "helpTopicEmpty": "此标签页暂无指南。"
 }

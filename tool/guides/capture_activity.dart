@@ -11,7 +11,7 @@ import 'package:openstrap_edge/ui2/profile/profile.dart' show ProfileAvatar; imp
     show JournalFieldSpec, JournalMetricValue; import 'package:openstrap_edge/ui2/guides/guide.dart';
 import 'package:openstrap_edge/ui2/guides/guide_catalogue.dart'; import 'package:openstrap_edge/ui2/guides/guide_run.dart';
 import 'package:openstrap_edge/ui2/guides/guide_runner.dart'; import 'package:openstrap_edge/ui2/guides/guide_step_card.dart';
-import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart'; import 'package:openstrap_edge/ui2/skeleton/skeleton.dart';
+import 'package:openstrap_edge/ui2/guides/live_guide_overlay.dart'; import 'package:openstrap_edge/ui2/theme.dart' show Motion; import 'package:openstrap_edge/ui2/skeleton/skeleton.dart';
 import 'package:path/path.dart' as p; import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../../test/support/bundled_fonts.dart'; import '../../test/support/live_guide_harness.dart'; import '../../test/support/skeleton_fixture.dart' show skLoadAppFonts;
 final _output = Platform.environment['GUIDE_SHOTS_DIR']; const _screen = Size(412, 915); const _dpr = 2.625;
@@ -65,15 +65,18 @@ Map<String, Object?> _measure(WidgetTester t, LiveGuideOverlayState overlay) { f
     (w) => w.runtimeType.toString() == '_TabBar', ); final tabRect = tabs.evaluate().isEmpty ? null : t.getRect(tabs); return {
     'shapeCounts': counts, 'skeletonShapeCount': shapes .where((s) => s.kind != SkeletonKind.dim) .length, 'skeletonUnitCount': shapes
         .where((s) => s.kind != SkeletonKind.dim) .map((s) => s.section) .toSet() .length, 'dimCount': counts['dim'], 'outlinePresent':
-        find.byKey(LiveGuideOverlay.outlineKey).evaluate().length == 1, 'coverageFraction': area / (screen.width * screen.height),
+        find.byKey(LiveGuideOverlay.outlineKey).evaluate().length == 1, 'handPresent': find.byKey(LiveGuideOverlay.handKey).evaluate().length == 1, 'coverageFraction': area / (screen.width * screen.height),
     'targetRect': _rect(target), 'cardRect': _rect(card), 'tabBarRect': tabRect == null ? null : _rect(tabRect),
     'cardOverlapsTarget': card.overlaps(target), 'cardOverlapsTabBar': tabRect != null && card.overlaps(tabRect),
     'shapesOverlappingTabBar': tabRect == null ? 0 : shapes.where((s) => s.rect.overlaps(tabRect)).length, 'shapes': [
       for (final s in shapes) {'kind': s.kind.name, 'rect': _rect(s.rect), 'section': s.section}, ], }; }
+Finder _pointingAid(WidgetTester t) => find.byKey(Motion.enabled(t.element(find.byType(LiveGuideOverlay))) ? LiveGuideOverlay.handKey : LiveGuideOverlay.outlineKey);
 Future<void> _png( WidgetTester t, RenderRepaintBoundary boundary, String path, { double pixelRatio = _dpr, }) async {
+  // Let the framework rebuild and composite post-frame guide updates without advancing the capture clock.
+  await t.pump();
   expect(boundary.size, _screen, reason: 'capture the whole phone viewport'); await t.runAsync(() async {
-    // A post-frame guide plan can dirty component paint during a transition. Flush that paint at the SAME timestamp before reading its boundary.
-    t.binding.rootPipelineOwner.flushPaint(); final image = await boundary.toImage(pixelRatio: pixelRatio); try {
+    // A guide plan can dirty the boundary after painting. Capture the completed frame's layer rather than forcing a partial pipeline outside a frame.
+    final image = await (boundary.debugLayer! as OffsetLayer).toImage(Offset.zero & boundary.size, pixelRatio: pixelRatio); try {
       expect(image.width, (_screen.width * pixelRatio).ceil()); expect(image.height, (_screen.height * pixelRatio).ceil());
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png); final file = File(path);
       await file.parent.create(recursive: true); await file.writeAsBytes(bytes!.buffer.asUint8List()); } finally { image.dispose(); } }); }
@@ -123,14 +126,15 @@ Future<Map<String, Object?>> _offPath( WidgetTester t, Guide guide, GuideRun run
       contains('dim'), reason: 'real dim-painted departure control', ); } await t.tapAt(control.center);
   await settleLiveGuide(t, frames: 18); expect(run.state, isA<GuideOffPath>());
   expect(find.byKey(GuideStepCard.offPathKey), findsOneWidget); expect(find.text("You've left the path"), findsOneWidget); expect(
-    find.byKey(LiveGuideOverlay.outlineKey), findsOneWidget, reason: 'off-path capture must include the highlighted route back', );
+    _pointingAid(t), findsOneWidget, reason: 'off-path capture must include the pointing aid for the route back', );
   final overlay = t.state<LiveGuideOverlayState>(find.byType(LiveGuideOverlay));
-  final outline = t.getRect(find.byKey(LiveGuideOverlay.outlineKey)); final card = t.getRect(find.byKey(GuideStepCard.cardKey)); await _png(
+  final route = find.byKey(LiveGuideOverlay.routeProxyKey); expect(route, findsOneWidget);
+  final routeRect = t.getRect(route); final card = t.getRect(find.byKey(GuideStepCard.cardKey)); await _png(
     t, t.renderObject<RenderRepaintBoundary>(find.byKey(captureKey)), p.join(directory, 'offpath-light.png'), ); return {
     'file': 'offpath-light.png', 'departedStep': _steps[guide.id]!.first, 'tapRect': _rect(control), 'controlShapeKinds': coveringKinds,
     'departureControl': dimControl != null ? 'dim-painted control' : 'bright Today tab', 'departureLimitation': dimControl == null
         ? 'No dim-painted navigational control outside the guide is available on step 1; skeleton controls block pointer input. Used the real bright Today tab.'
-        : null, 'routeOutlineRect': _rect(outline), 'cardRect': _rect(card), 'cardOverlapsRoute': card.overlaps(outline),
+        : null, 'routeTargetRect': _rect(routeRect), 'cardRect': _rect(card), 'cardOverlapsRoute': card.overlaps(routeRect),
     'shapeKinds': overlay.paintedShapes .map((s) => s.kind.name) .toSet() .toList(), }; }
 void main() { TestWidgetsFlutterBinding.ensureInitialized(); final enabled = _output?.isNotEmpty ?? false; setUpAll(() async {
     if (!enabled) return; expect( _guides.map((g) => g.id), unorderedEquals(_steps.keys), reason: 'all eight review paths must match the shipped catalogue', );
@@ -162,10 +166,10 @@ void main() { TestWidgetsFlutterBinding.ensureInitialized(); final enabled = _ou
             final run = (started as GuideStarted).run; expect( run.variant.steps.map((s) => s.id), orderedEquals(_steps[guide.id]!), );
             for (var i = 0; i < run.variant.steps.length; i++) { await path.frames('${run.variant.steps[i].id}: reveal');
               // Real SQLite futures can finish after the nominal reveal budget, especially on the dark pass which does not encode sequence PNGs.
-              // Keep sampling until the actual outline/reveal is ready.
+              // Keep sampling until the actual pointing aid and reveal are ready.
               for (var wait = 0; wait < 100; wait++) { final overlays = find.byType(LiveGuideOverlay);
                 final overlay = t.state<LiveGuideOverlayState>(overlays); if (run.currentStep?.id == run.variant.steps[i].id &&
-                    !overlay.isYielding && overlay.revealProgress == 1 && find .byKey(LiveGuideOverlay.outlineKey) .evaluate()
+                    !overlay.isYielding && overlay.revealProgress == 1 && _pointingAid(t).evaluate()
                         .isNotEmpty && find.byType(CircularProgressIndicator).evaluate().isEmpty) { break; } await path.frames(
                   '${run.variant.steps[i].id}: awaiting visible target', count: 1, ); } await path.frames(
                 '${run.variant.steps[i].id}: settle page layout', count: 18, ); expect(run.state, isA<GuideAtStep>()); expect(
@@ -173,7 +177,7 @@ void main() { TestWidgetsFlutterBinding.ensureInitialized(); final enabled = _ou
               final overlay = t.state<LiveGuideOverlayState>( find.byType(LiveGuideOverlay), ); expect(overlay.isYielding, isFalse);
               expect(overlay.revealProgress, 1); expect(overlay.targetRect, isNotNull); expect( find.byType(CircularProgressIndicator),
                 findsNothing, reason: 'settled review still must not capture a loading page', );
-              expect(find.byKey(LiveGuideOverlay.outlineKey), findsOneWidget); expect(t.takeException(), isNull);
+              expect(_pointingAid(t), findsOneWidget); expect(t.takeException(), isNull);
               final name = '${(i + 1).toString().padLeft(2, '0')}-${step.id}'; final guided = '$name-${dark ? 'dark' : 'light'}.png';
               final measured = _measure(t, overlay); await _png( t, t.renderObject<RenderRepaintBoundary>(find.byKey(captureKey)),
                 p.join(directory, guided), ); if (!dark) { records.add({ 'id': step.id, 'number': i + 1,

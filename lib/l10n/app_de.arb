@@ -3942,5 +3942,8 @@
         "description": "Name of the Not a workout button"
       }
     }
-  }
+  },
+  "helpLookingForSomething": "Suchst du etwas?",
+  "helpAllGuides": "Alle Anleitungen",
+  "helpTopicEmpty": "Für diesen Tab gibt es noch keine Anleitungen."
 }

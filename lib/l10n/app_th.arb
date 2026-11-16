@@ -17187,5 +17187,8 @@
       }
     }
   },
-  "profileHelpRow": "วิธีใช้"
+  "profileHelpRow": "วิธีใช้",
+  "helpLookingForSomething": "กำลังมองหาอะไรอยู่ไหม?",
+  "helpAllGuides": "คู่มือทั้งหมด",
+  "helpTopicEmpty": "ยังไม่มีคู่มือสำหรับแท็บนี้"
 }

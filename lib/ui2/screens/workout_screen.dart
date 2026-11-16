@@ -45,6 +45,7 @@ import 'slot_scrub.dart';
 import '../charts.dart';
 import '../profile/profile.dart' show ProfileAvatar, openProfile;
 import '../grammar.dart';
+import '../guides/help_entry.dart';
 import '../revision.dart';
 import '../theme.dart';
 import '../../data/day_label.dart' show calendarDaysBetween;
@@ -148,6 +149,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
                   color: C.domMove),
               const SizedBox(height: S.x5),
               ...body,
+              const HelpEntry(topic: GuideTopic.activity),
             ])
               if (w is StartCard)
                 w

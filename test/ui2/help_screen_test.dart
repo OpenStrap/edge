@@ -1,7 +1,5 @@
-// The Help entry: one "Help" row on the Settings landing, and the HelpScreen it opens.
-//
-// The only existing-screen edit of this PR is that row (settings.dart). The screen under it lists guides grouped by topic, filtered by the paired band.
-import 'package:flutter/material.dart'; import 'package:flutter/semantics.dart'; import 'package:flutter_test/flutter_test.dart';
+// Profile Help placement and the grouped, band-filtered guide list.
+import 'package:flutter/material.dart'; import 'package:lucide_icons_flutter/lucide_icons.dart'; import 'package:flutter/semantics.dart'; import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart'; import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart'; import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/state/clock_format.dart'; import 'package:openstrap_edge/state/locale_controller.dart';
@@ -22,9 +20,9 @@ class _RecordingRunner extends GuideRunner { final calls = <(String, BandGenerat
   _RecordingRunner() : super(navigatorKey: GlobalKey<NavigatorState>());
   @override Future<GuideStartResult> start(Guide guide, {required BandGeneration? band}) async { calls.add((guide.id, band));
     return answer?.call(guide) ?? GuideStarted(GuideRun(guide: guide, variant: (guide.variantFor(band) as GuideVariantFound).variant)); } }
-Future<_RecordingRunner> _pumpHelp(WidgetTester t, {BandGeneration? band, List<GuideEntry>? guides, Locale locale = const Locale('en')}) async {
+Future<_RecordingRunner> _pumpHelp(WidgetTester t, {BandGeneration? band, List<GuideEntry>? guides, GuideTopic? topic, Locale locale = const Locale('en')}) async {
   skTallView(t, w: 390, h: 3000); final runner = _RecordingRunner(); addTearDown(runner.dispose); await t.pumpWidget(ChangeNotifierProvider<GuideRunner>.value( value: runner,
-    child: skHost(HelpScreen(band: band, guides: guides), locale: locale), )); await t.pumpAndSettle(); return runner; }
+    child: skHost(HelpScreen(band: band, guides: guides, topic: topic), locale: locale), )); await t.pumpAndSettle(); return runner; }
 Widget _profileHost(Widget home, {AppState? app}) => MultiProvider( providers: [
         ChangeNotifierProvider<LocaleController>.value(value: LocaleController.seed(null)), if (app != null) ...[ ChangeNotifierProvider<AppState>.value(value: app),
           ChangeNotifierProvider(create: (_) => UnitsController.seed(UnitSystem.metric)),
@@ -32,14 +30,18 @@ Widget _profileHost(Widget home, {AppState? app}) => MultiProvider( providers: [
           ChangeNotifierProvider(create: (_) => ClockFormatController.seed(ClockFormat.h24)), ], ], child: MaterialApp(
         theme: buildTheme(Brightness.light), localizationsDelegates: AppLocalizations.localizationsDelegates, supportedLocales: AppLocalizations.supportedLocales, home: home, ), );
 void main() { setUp(() => SharedPreferences.setMockInitialValues({}));
-  group('the Settings row', () { testWidgets('"Help" is a row of its own, directly under "Settings"', (t) async {
-      // why: the owner's entry point. On integrate/next the profile home IS the Settings landing (MoreSettingsView); Help sits right after Settings, above
-      // the accordions, so people who look for settings find it first.
+  group('the Profile row', () { testWidgets('Help follows AI coach in Quick access, outside Your data', (t) async {
+      // why: the owner chose Quick access; a row-order assertion alone misses a misplaced group.
       skTallView(t, w: 390, h: 3000); await t.pumpWidget(_profileHost(const ProfileHomeView(stats: ProfileStats())));
-      await t.pumpAndSettle(); final l = lookupAppLocalizations(const Locale('en')); final rows = t.widgetList<SetRow>(find.byType(SetRow)).toList();
-      final settings = rows.indexWhere((r) => r.title == l.profileSettingsRow); final help = rows.indexWhere((r) => r.title == l.profileHelpRow);
-      expect(settings, isNonNegative, reason: 'fixture sanity: the Settings row exists'); expect(help, settings + 1, reason: 'Help is the row right after Settings');
-      expect(rows.where((r) => r.title == l.profileHelpRow), hasLength(1)); });
+      await t.pumpAndSettle(); final l = lookupAppLocalizations(const Locale('en'));
+      Finder group(String title) => find.byWidgetPredicate((w) => w is Section && w.title == title);
+      final quickRows = t.widgetList<SetRow>(find.descendant(of: group(l.profileQuickAccessGroup), matching: find.byType(SetRow))).toList();
+      expect(quickRows.map((r) => r.title), [l.profileMyDevices, l.profileEditProfile, l.profileAiCoach, l.profileHelpRow, l.profileLanguage]);
+      final help = quickRows.singleWhere((r) => r.title == l.profileHelpRow);
+      expect(help.icon, LucideIcons.circleHelp); expect(help.color, C.blue);
+      expect(find.descendant(of: group(l.profileYourDataGroup), matching: find.text(l.profileHelpRow)), findsNothing);
+      expect(find.text(l.profileHelpRow), findsOneWidget);
+    });
     for (final (gen, expected) in [ ('gen5', BandGeneration.whoop5), ('gen4', BandGeneration.whoop4), (null, null), ]) {
       testWidgets('tapping it opens the HelpScreen for the paired band (${gen ?? 'no band'})', (t) async {
         // why: "opening a HelpScreen that lists guides filtered by the paired band generation" - the row must hand the screen the band.
@@ -68,6 +70,19 @@ void main() { setUp(() => SharedPreferences.setMockInitialValues({}));
       await _pumpHelp(t, band: BandGeneration.whoop4, guides: _entries()); expect(shown(), {'anyone', 'four', 'anyone2'});
       await _pumpHelp(t, band: BandGeneration.whoop5, guides: _entries()); expect(shown(), {'anyone', 'five', 'anyone2'});
       await _pumpHelp(t, band: null, guides: _entries()); expect(shown(), {'anyone', 'four', 'five', 'anyone2'}); });
+    testWidgets('All guides clears the topic filter and preserves the band filter', (t) async {
+      // why: a contextual entry must not offer an incompatible band variant when expanding to all topics.
+      await _pumpHelp(t, band: BandGeneration.whoop4, topic: GuideTopic.activity, guides: _entries());
+      expect(find.byKey(HelpScreen.guideRowKey('four')), findsOneWidget);
+      for (final id in ['five', 'anyone', 'anyone2']) {
+        expect(find.byKey(HelpScreen.guideRowKey(id)), findsNothing);
+      }
+      await t.tap(find.text('All guides')); await t.pumpAndSettle();
+      for (final id in ['four', 'anyone', 'anyone2']) {
+        expect(find.byKey(HelpScreen.guideRowKey(id)), findsOneWidget);
+      }
+      expect(find.byKey(HelpScreen.guideRowKey('five')), findsNothing);
+    });
     testWidgets('when nothing fits the band the screen says so', (t) async {
       // why: a blank list reads as a broken app.
       await _pumpHelp(t, band: BandGeneration.whoop4, guides: [GuideEntry(GuideTopic.today, _guide('five', {BandGeneration.whoop5}))]);

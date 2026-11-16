@@ -23,7 +23,7 @@ import 'guide.dart';
 import 'guide_catalogue.dart';
 import 'guide_runner.dart';
 
-class HelpScreen extends StatelessWidget {
+class HelpScreen extends StatefulWidget {
   /// The paired band's generation; null = no band known (list everything).
   final BandGeneration? band;
 
@@ -31,7 +31,13 @@ class HelpScreen extends StatelessWidget {
   /// the grouping and filtering are testable with band-specific guides.
   final List<GuideEntry>? guides;
 
-  const HelpScreen({super.key, this.band, this.guides});
+  /// A tab entry initially shows only that topic; All guides restores the catalogue.
+  final GuideTopic? topic;
+
+  const HelpScreen({super.key, this.band, this.guides, this.topic});
+
+  @override
+  State<HelpScreen> createState() => _HelpScreenState();
 
   static ValueKey<String> topicKey(GuideTopic topic) => ValueKey('help-topic-${topic.name}');
   static ValueKey<String> guideRowKey(String guideId) => ValueKey('help-guide-$guideId');
@@ -40,8 +46,12 @@ class HelpScreen extends StatelessWidget {
   /// Shown when a band-specific guide is opened with no known band.
   static const bandPickerKey = ValueKey('help-band-picker');
 
-  /// Shown instead of starting when the guide does not cover [band].
+  /// Shown instead of starting when the guide does not cover the paired band.
   static const noVariantKey = ValueKey('help-no-variant');
+}
+
+class _HelpScreenState extends State<HelpScreen> {
+  bool _showAll = false;
 
   static String _topicName(AppLocalizations l, GuideTopic topic) => switch (topic) {
         GuideTopic.today => l.tabToday,
@@ -54,18 +64,27 @@ class HelpScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context) ?? lookupAppLocalizations(const Locale('en'));
     final p = P.of(context);
-    final groups = helpGroups(guides ?? kGuideCatalogue, band);
+    final groups = helpGroups(widget.guides ?? kGuideCatalogue, widget.band)
+        .where((group) => _showAll || widget.topic == null || group.topic == widget.topic).toList();
     return detailScaffold(context, l.profileHelpRow, [
       const SizedBox(height: S.x2),
+      if (widget.topic != null && !_showAll)
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: () => setState(() => _showAll = true),
+            child: Text(l.helpAllGuides),
+          ),
+        ),
       if (groups.isEmpty)
         Surface(
-          key: emptyKey,
-          child: Text(l.helpEmpty, style: F.body.copyWith(color: p.ink2)),
+          key: HelpScreen.emptyKey,
+          child: Text(widget.topic != null && !_showAll ? l.helpTopicEmpty : l.helpEmpty, style: F.body.copyWith(color: p.ink2)),
         )
       else
         for (final group in groups) ...[
           Semantics(
-            key: topicKey(group.topic),
+            key: HelpScreen.topicKey(group.topic),
             container: true,
             header: true,
             child: Padding(
@@ -75,7 +94,7 @@ class HelpScreen extends StatelessWidget {
           ),
           for (final entry in group.entries)
             Semantics(
-              key: guideRowKey(entry.guide.id),
+              key: HelpScreen.guideRowKey(entry.guide.id),
               container: true,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: S.x2),
@@ -98,17 +117,17 @@ class HelpScreen extends StatelessWidget {
   /// run begins.
   ///
   /// A guide with only band-specific variants and no known band asks which band
-  /// first ([bandPickerKey]); a band the guide does not cover says so
-  /// ([noVariantKey]) and starts nothing.
+  /// first ([HelpScreen.bandPickerKey]); a band the guide does not cover says so
+  /// ([HelpScreen.noVariantKey]) and starts nothing.
   /// CLAIM(help-starts-live): a row starts a LIVE run (no walkthrough route)
   /// [help_screen_test 'a row starts a live run'].
   void _open(BuildContext context, Guide guide) async {
     final runner = context.read<GuideRunner>();
     final l = AppLocalizations.of(context)!;
-    var selected = band;
+    var selected = widget.band;
     if (selected == null && guide.variantFor(null) is GuideNoVariant) {
       selected = await showDialog<BandGeneration>(context: context, builder: (c) => SimpleDialog(
-        key: bandPickerKey, title: Text(l.guidePickBand), children: [
+        key: HelpScreen.bandPickerKey, title: Text(l.guidePickBand), children: [
           for (final generation in BandGeneration.values)
             if (guide.devices.contains(generation)) SimpleDialogOption(
               onPressed: () => Navigator.of(c).pop(generation),
@@ -122,7 +141,7 @@ class HelpScreen extends StatelessWidget {
     if (result is GuideStartNoVariant && context.mounted) {
       final bands = result.reason.available.map((g) => g == BandGeneration.whoop4 ? 'WHOOP 4' : 'WHOOP 5').join(', ');
       showDialog<void>(context: context, builder: (_) => AlertDialog(
-        key: noVariantKey, content: Text(l.guideNoVariantBody(bands)),
+        key: HelpScreen.noVariantKey, content: Text(l.guideNoVariantBody(bands)),
       ));
     }
   }

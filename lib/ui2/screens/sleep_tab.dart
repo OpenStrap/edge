@@ -12,6 +12,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../l10n/app_localizations.dart';
 import '../profile/alarm.dart';
 import '../ui2.dart';
+import '../guides/help_entry.dart';
 import 'circadian_detail.dart';
 import 'metric_detail.dart' show detailLinkRow;
 import 'sleep_detail.dart';
@@ -54,6 +55,7 @@ class SleepTab extends StatelessWidget {
                     builder: (_) => const CircadianDetail()))),
           ]),
         ),
+        const HelpEntry(topic: GuideTopic.sleep),
       ],
     );
   }
