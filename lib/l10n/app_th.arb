@@ -17020,7 +17020,7 @@
   "guideHrZonesIntro": "หน้าจอโซนอัตราการเต้นหัวใจอยู่หลังคะแนน{score}ของคุณ ใช้เพียงสามการแตะ",
   "guideHrZonesStep1": "ที่แท็บ **{tab}** แตะวง **{ring}**",
   "guideHrZonesStep2": "เลื่อนลงไปที่ **{section}** แล้วแตะ **{action}** ทางขวา",
-  "guideHrZonesStep3": "นี่คือหน้าจอ **{screen}** หากต้องการกำหนดเอง ให้แตะ **{link}**",
+  "guideHrZonesStep3": "ในหน้าจอ **{screen}** ให้แตะ **{link}** หรือ **{editLink}** หากคุณบันทึกโซนของตัวเองไว้แล้ว",
   "guideHrZonesAltTitle": "อีกเส้นทางหนึ่ง",
   "guideHrZonesAltBody": "เปิดแท็บ **{tab}** แล้วแตะ **{link}** จากนั้นทำตามขั้นตอนที่ 2 และ 3",
   "guideHrZonesMissingTitle": "ไม่เห็น \"{section}\" ใช่ไหม",
@@ -17064,12 +17064,15 @@
     }
   },
   "@guideHrZonesStep3": {
-    "description": "Step 3 caption. Bold words are in-app labels: {screen} is the heart-rate zones screen title, {link} the link that opens the own-zones form.",
+    "description": "Step 3 caption. The screen title and both button labels are quoted verbatim; Edit appears after saving manual zones.",
     "placeholders": {
       "screen": {
         "type": "String"
       },
       "link": {
+        "type": "String"
+      },
+      "editLink": {
         "type": "String"
       }
     }
@@ -17109,7 +17112,18 @@
   "guideAddNapFoundTitle": "การงีบที่สายรัดตรวจพบ",
   "guideAddNapFoundBody": "การงีบที่สายรัดตรวจพบจะอยู่ในหน้าจอเดียวกัน หากรายการไหนไม่ถูกต้อง ให้แตะ **{notNap}** ข้างรายการนั้น",
   "guideAddNapRulesTitle": "บันทึกการงีบไม่ได้ใช่ไหม",
-  "guideAddNapRulesBody": "การงีบต้องยาวระหว่าง 5 นาทีถึง 6 ชั่วโมง ต้องจบไปแล้ว และต้องไม่ทับกับการงีบอื่นหรือการนอนหลักของคุณ",
+  "guideAddNapRulesBody": "การงีบต้องยาวระหว่าง {minMinutes} นาทีถึง {maxHours} ชั่วโมง ต้องจบไปแล้ว และต้องไม่ทับกับการงีบอื่นหรือการนอนหลักของคุณ",
+  "@guideAddNapRulesBody": {
+    "description": "Footer card body: nap limits come from the shared form validation caps.",
+    "placeholders": {
+      "minMinutes": {
+        "type": "String"
+      },
+      "maxHours": {
+        "type": "String"
+      }
+    }
+  },
   "guideRemoveTitle": "ลบการงีบหรือการออกกำลังกายที่ไม่จริงได้ที่ไหน",
   "guideRemoveStep1": "ที่แท็บ **{tab}** แตะการ์ด **{card}** การ์ดนี้จะแสดงเฉพาะเมื่อมีรายการรอคำตอบจากคุณ",
   "guideRemoveStep2": "แตะ **{notNap}** หรือ **{notWorkout}** สำหรับรายการที่ไม่เกิดขึ้นจริง ส่วนที่ไฮไลต์แสดงตัวเลือก",
@@ -17137,7 +17151,7 @@
   "guideStartStep3": "ตรวจรายละเอียด แล้วแตะ **{start}**",
   "guideStartStep4": "หากต้องการหยุด ให้แตะสี่เหลี่ยมสีแดง (**{finish}**) คุณจะไปที่สรุปการออกกำลังกายของคุณ",
   "guideStartNoBandTitle": "ไม่ได้เชื่อมต่อสายรัดใช่ไหม",
-  "guideStartNoBandBody": "คุณยังเริ่มได้ แต่ถ้าไม่มีสายรัดจะไม่มีอัตราการเต้นหัวใจ",
+  "guideStartNoBandBody": "คุณยังเริ่มการออกกำลังกายได้ สายรัดที่ไม่ได้เชื่อมต่อจะไม่ส่งอัตราการเต้นหัวใจ แต่เซ็นเซอร์วัดอัตราการเต้นหัวใจอื่นที่เชื่อมต่ออยู่สามารถส่งข้อมูลได้",
   "guideStartPauseTitle": "ต้องการพักไหม",
   "guideStartPauseBody": "แตะ **{pause}** เพื่อหยุดเวลา และแตะ **{resume}** เพื่อทำต่อ",
   "guideLogPastTitle": "บันทึกการออกกำลังกายที่ลืมบันทึกได้ที่ไหน",
@@ -17169,7 +17183,7 @@
       }
     }
   },
-  "guideRemoveStep2Still": "แตะ **{notNap}** หรือ **{notWorkout}** สำหรับรายการที่ไม่เกิดขึ้นจริง เส้นกรอบแสดงตัวเลือก",
+  "guideRemoveStep2Still": "แต่ละรายการมี **{notNap}** / **{notWorkout}** ของตัวเอง ให้แตะที่การงีบหรือการออกกำลังกายที่ไม่ได้เกิดขึ้นจริง เส้นกรอบระบุรายการแรก",
   "@guideRemoveStep2Still": {
     "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",
     "placeholders": {

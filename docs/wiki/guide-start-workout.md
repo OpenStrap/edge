@@ -15,7 +15,7 @@ Start it from **Profile** > **Help**, under **Activity**. See [Live guides](Guid
 
 The guide shows these two notes on its last card, which appears after you stop. Read them first if you need them:
 
-- **No band connected?** You can still start a session. Without the band there is no heart rate for it.
+- **No band connected?** You can still start a session. A disconnected band supplies no heart rate, but another connected heart-rate sensor can.
 - **Need a break?** Tap **Pause** to stop the clock, and **Resume** to carry on.
 
 ## Screenshots

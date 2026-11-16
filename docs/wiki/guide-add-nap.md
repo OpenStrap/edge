@@ -16,7 +16,7 @@ The two time questions are pop-ups, so the guide steps aside while you answer th
 When you finish, the Done card adds:
 
 - **Naps the band found.** Naps the band detected are listed on the same screen. If one is wrong, tap **Not a nap** next to it.
-- **The nap won't save?** A nap lasts between 5 minutes and 6 hours, has to be over already, and can't overlap another nap or your main sleep.
+- **The nap won't save?** A nap lasts between 5 minutes and 3 hours, has to be over already, and can't overlap another nap or your main sleep.
 
 ## Screenshots
 

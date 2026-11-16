@@ -3865,7 +3865,21 @@
   "guideHrZonesIntro": "Die Herzfrequenzzonen findest du hinter deinem {score}-Wert. Dafür tippst du dreimal.",
   "guideHrZonesStep1": "Tippe im Tab **{tab}** auf den Ring **{ring}**.",
   "guideHrZonesStep2": "Scrolle nach unten zu **{section}** und tippe rechts auf **{action}**.",
-  "guideHrZonesStep3": "Das ist der Bildschirm **{screen}**. Um eigene Zonen einzugeben, tippe auf **{link}**.",
+  "guideHrZonesStep3": "Tippe auf dem Bildschirm **{screen}** auf **{link}** oder auf **{editLink}**, wenn du bereits eigene Zonen gespeichert hast.",
+  "@guideHrZonesStep3": {
+    "description": "Step 3 caption. The screen title and both button labels are quoted verbatim; Edit appears after saving manual zones.",
+    "placeholders": {
+      "screen": {
+        "type": "String"
+      },
+      "link": {
+        "type": "String"
+      },
+      "editLink": {
+        "type": "String"
+      }
+    }
+  },
   "guideHrZonesAltTitle": "Ein anderer Weg",
   "guideHrZonesAltBody": "Öffne den Tab **{tab}** und tippe auf **{link}**. Danach folge den Schritten 2 und 3.",
   "guideHrZonesMissingTitle": "„{section}“ nicht zu sehen?",
@@ -3886,7 +3900,18 @@
   "guideAddNapFoundTitle": "Vom Band erkannte Nickerchen",
   "guideAddNapFoundBody": "Vom Band erkannte Nickerchen stehen auf demselben Bildschirm. Stimmt eines nicht, tippe daneben auf **{notNap}**.",
   "guideAddNapRulesTitle": "Das Nickerchen lässt sich nicht speichern?",
-  "guideAddNapRulesBody": "Ein Nickerchen dauert zwischen 5 Minuten und 6 Stunden, muss schon vorbei sein und darf sich nicht mit einem anderen Nickerchen oder deinem Hauptschlaf überschneiden.",
+  "guideAddNapRulesBody": "Ein Nickerchen dauert zwischen {minMinutes} Minuten und {maxHours} Stunden, muss schon vorbei sein und darf sich nicht mit einem anderen Nickerchen oder deinem Hauptschlaf überschneiden.",
+  "@guideAddNapRulesBody": {
+    "description": "Footer card body: nap limits come from the shared form validation caps.",
+    "placeholders": {
+      "minMinutes": {
+        "type": "String"
+      },
+      "maxHours": {
+        "type": "String"
+      }
+    }
+  },
   "guideRemoveTitle": "So entfernst du ein Nickerchen oder Training, das gar nicht stattgefunden hat",
   "guideRemoveStep1": "Tippe im Tab **{tab}** auf die Karte **{card}**. Sie erscheint nur, solange etwas auf dich wartet.",
   "guideRemoveStep2": "Jeder Eintrag hat sein eigenes **{notNap}** / **{notWorkout}**. Tippe es bei dem Nickerchen oder Training an, das nicht stattgefunden hat; die Hervorhebung zeigt die Auswahlmöglichkeiten.",
@@ -3914,7 +3939,7 @@
   "guideStartStep3": "Prüfe die Angaben und tippe dann auf **{start}**.",
   "guideStartStep4": "Zum Beenden tippe auf das rote Quadrat (**{finish}**). Du landest in der Zusammenfassung deines Trainings.",
   "guideStartNoBandTitle": "Kein Band verbunden?",
-  "guideStartNoBandBody": "Du kannst trotzdem ein Training starten. Ohne das Band gibt es dafür keine Herzfrequenz.",
+  "guideStartNoBandBody": "Du kannst trotzdem ein Training starten. Ein nicht verbundenes Band liefert keine Herzfrequenz, ein anderer verbundener Herzfrequenzsensor kann sie aber liefern.",
   "guideStartPauseTitle": "Pause nötig?",
   "guideStartPauseBody": "Tippe auf **{pause}**, um die Zeit anzuhalten, und auf **{resume}**, um weiterzumachen.",
   "guideLogPastTitle": "So trägst du ein Training nach, das du nicht aufgezeichnet hast",

@@ -3873,7 +3873,21 @@
   "guideHrZonesIntro": "हृदय गति ज़ोन की स्क्रीन आपके {score} स्कोर के पीछे है। इसमें तीन टैप लगते हैं।",
   "guideHrZonesStep1": "**{tab}** टैब पर **{ring}** रिंग पर टैप करें।",
   "guideHrZonesStep2": "**{section}** तक नीचे स्क्रोल करें और दाईं ओर **{action}** पर टैप करें।",
-  "guideHrZonesStep3": "यह **{screen}** स्क्रीन है। अपने ज़ोन डालने के लिए **{link}** पर टैप करें।",
+  "guideHrZonesStep3": "**{screen}** स्क्रीन पर **{link}** पर टैप करें, या अगर आपने अपने ज़ोन पहले ही सेव कर लिए हैं तो **{editLink}** पर टैप करें।",
+  "@guideHrZonesStep3": {
+    "description": "Step 3 caption. The screen title and both button labels are quoted verbatim; Edit appears after saving manual zones.",
+    "placeholders": {
+      "screen": {
+        "type": "String"
+      },
+      "link": {
+        "type": "String"
+      },
+      "editLink": {
+        "type": "String"
+      }
+    }
+  },
   "guideHrZonesAltTitle": "दूसरा रास्ता",
   "guideHrZonesAltBody": "**{tab}** टैब खोलें और **{link}** पर टैप करें, फिर चरण 2 और 3 अपनाएँ।",
   "guideHrZonesMissingTitle": "\"{section}\" नहीं दिख रहा?",
@@ -3894,7 +3908,18 @@
   "guideAddNapFoundTitle": "बैंड को मिली झपकियाँ",
   "guideAddNapFoundBody": "बैंड ने जो झपकियाँ पहचानीं, वे इसी स्क्रीन पर दिखती हैं। कोई गलत हो तो उसके पास **{notNap}** पर टैप करें।",
   "guideAddNapRulesTitle": "झपकी सेव नहीं हो रही?",
-  "guideAddNapRulesBody": "झपकी 5 मिनट से 6 घंटे के बीच की होनी चाहिए, पहले ही खत्म हो चुकी हो, और किसी दूसरी झपकी या आपकी मुख्य नींद से टकराए नहीं।",
+  "guideAddNapRulesBody": "झपकी {minMinutes} मिनट से {maxHours} घंटे के बीच की होनी चाहिए, पहले ही खत्म हो चुकी हो, और किसी दूसरी झपकी या आपकी मुख्य नींद से टकराए नहीं।",
+  "@guideAddNapRulesBody": {
+    "description": "Footer card body: nap limits come from the shared form validation caps.",
+    "placeholders": {
+      "minMinutes": {
+        "type": "String"
+      },
+      "maxHours": {
+        "type": "String"
+      }
+    }
+  },
   "guideRemoveTitle": "जो झपकी या सेशन असली नहीं था, उसे कहाँ हटाएँ",
   "guideRemoveStep1": "**{tab}** टैब पर **{card}** कार्ड पर टैप करें। यह तभी दिखता है जब कुछ आपके जवाब का इंतज़ार कर रहा हो।",
   "guideRemoveStep2": "हर आइटम का अपना **{notNap}** / **{notWorkout}** है। जो झपकी या सेशन हुआ ही नहीं, उसी पर इसे टैप करें; हाइलाइट विकल्प दिखाता है।",
@@ -3922,7 +3947,7 @@
   "guideStartStep3": "ब्योरा जाँचें, फिर **{start}** पर टैप करें।",
   "guideStartStep4": "रोकने के लिए लाल चौकोर (**{finish}**) पर टैप करें। आप अपने सेशन के सारांश पर पहुँचेंगे।",
   "guideStartNoBandTitle": "बैंड कनेक्ट नहीं है?",
-  "guideStartNoBandBody": "फिर भी आप सेशन शुरू कर सकते हैं। बैंड के बिना उसमें हृदय गति नहीं होगी।",
+  "guideStartNoBandBody": "फिर भी आप सेशन शुरू कर सकते हैं। डिस्कनेक्ट किया हुआ बैंड हृदय गति नहीं देता, लेकिन कोई दूसरा कनेक्ट किया हुआ हृदय गति सेंसर दे सकता है।",
   "guideStartPauseTitle": "ब्रेक चाहिए?",
   "guideStartPauseBody": "घड़ी रोकने के लिए **{pause}** और आगे बढ़ने के लिए **{resume}** पर टैप करें।",
   "guideLogPastTitle": "रिकॉर्ड करना भूले सेशन को कहाँ दर्ज करें",

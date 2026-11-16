@@ -7,6 +7,7 @@
 // AppLocalizations getters the screens print, so it follows the user's language
 // and quotes the app verbatim [guide_conformance_test 'CLAIM(guide-quotes)'].
 
+import '../../compute/nap_edits.dart' show kMinManualNapSec, kMaxManualNapSec;
 import '../../l10n/app_localizations.dart';
 import 'guide_text.dart';
 
@@ -85,7 +86,7 @@ enum GuideCopy implements GuideText {
         GuideCopy.hrZonesIntro => l.guideHrZonesIntro(l.homeRingStrain),
         GuideCopy.hrZonesCaptionOpenStrain => l.guideHrZonesStep1(l.tabToday, l.homeRingStrain),
         GuideCopy.hrZonesCaptionOpenZones => l.guideHrZonesStep2(l.dayStrainTimeInZonesSection, l.dayStrainHowSet),
-        GuideCopy.hrZonesCaptionSetOwnZones => l.guideHrZonesStep3(l.activityZonesTitle, l.activityZonesSetYourOwnLink),
+        GuideCopy.hrZonesCaptionSetOwnZones => l.guideHrZonesStep3(l.activityZonesTitle, l.activityZonesSetYourOwnLink, l.activityZonesEditYourOwnLink),
         GuideCopy.hrZonesFooter0Title => l.guideHrZonesAltTitle,
         GuideCopy.hrZonesFooter0Body => l.guideHrZonesAltBody(l.tabActivity, l.workoutTodaysStrainAction),
         GuideCopy.hrZonesFooter1Title => l.guideHrZonesMissingTitle(l.dayStrainTimeInZonesSection),
@@ -106,7 +107,7 @@ enum GuideCopy implements GuideText {
         GuideCopy.addNapFooter1Title => l.guideAddNapFoundTitle,
         GuideCopy.addNapFooter1Body => l.guideAddNapFoundBody(l.napsNotANapLabel),
         GuideCopy.addNapFooter2Title => l.guideAddNapRulesTitle,
-        GuideCopy.addNapFooter2Body => l.guideAddNapRulesBody,
+        GuideCopy.addNapFooter2Body => l.guideAddNapRulesBody('${kMinManualNapSec ~/ 60}', '${kMaxManualNapSec ~/ 3600}'),
         GuideCopy.removeTitle => l.guideRemoveTitle,
         GuideCopy.removeCaptionOpenDetected => l.guideRemoveStep1(l.tabToday, l.activityReviewTitle),
         GuideCopy.removeCaptionDiscard => l.guideRemoveStep2(l.napsNotANapLabel, l.activityNotAWorkout),

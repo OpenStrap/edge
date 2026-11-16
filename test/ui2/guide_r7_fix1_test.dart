@@ -73,13 +73,15 @@ void main() { setUpAll(() => r2OpenDb('guide_r7_fix1.db')); group('F1 scrolling 
         expect(overlay.expandCount, 0); } finally { await disposeR2(t, m); } }); }); group('F3 reduced motion has its own caption', () {
     final step = r2Guide('remove-detected').variants.single.steps.firstWhere((s) => s.id == 'discard');
     // The word each language uses for the static outline.
-    const outlineWord = {'en': 'outline', 'de': 'Umrandung', 'es': 'contorno', 'fr': 'contour', 'hi': 'आउटलाइन', 'ru': 'рамка', 'zh': '轮廓'};
-    const highlightWord = {'en': 'highlight', 'de': 'Hervorhebung', 'es': 'resaltado', 'fr': 'surbrillance', 'hi': 'हाइलाइट', 'ru': 'подсветка', 'zh': '高亮'};
-    // WHY: review F3. Reduced motion draws no hover, so "the highlight shows the choices" was untrue
+    const outlineWord = {'en': 'outline', 'de': 'Umrandung', 'es': 'contorno', 'fr': 'contour', 'hi': 'आउटलाइन', 'ru': 'рамка', 'th': 'เส้นกรอบ', 'zh': '轮廓'};
+    const highlightWord = {'en': 'highlight', 'de': 'Hervorhebung', 'es': 'resaltado', 'fr': 'surbrillance', 'hi': 'हाइलाइट', 'ru': 'подсветка', 'th': 'ไฮไลต์', 'zh': '高亮'};
+    const firstItem = {'en': 'first one', 'de': 'erste', 'es': 'primero', 'fr': 'premier', 'hi': 'पहले', 'ru': 'первый пункт', 'th': 'รายการแรก', 'zh': '第一个'};
+    // WHY: review F3 / CLAIM(guide-still-first-item). Reduced motion draws no hover, so "the highlight shows the choices" was untrue
     // there. The still caption points at the outline in each language. catches: one caption for both modes.
-    test('R7-fix1 F3: the reduced-motion caption names the outline, never the highlight, in all seven locales', () {
+    test('R7-fix1 F3: the reduced-motion caption names the outline, never the highlight, in all eight locales', () {
       expect(step.stillCaption, isNotNull); for (final code in outlineWord.keys) { final l = lookupAppLocalizations(Locale(code));
         final still = step.stillCaption!.of(l), moving = step.caption.of(l); expect(still, contains(outlineWord[code]!), reason: code);
+        expect(still, contains(firstItem[code]!), reason: '$code identifies the first item');
         expect(still, isNot(contains(highlightWord[code]!)), reason: code); expect(still, contains('**${l.napsNotANapLabel}**'), reason: '$code keeps the quoted Discard');
         expect(moving, contains(highlightWord[code]!), reason: code); expect(moving, isNot(contains(outlineWord[code]!)), reason: code); } });
     testWidgets('R7-fix1 F3: the card shows the still caption in reduced motion and the moving one otherwise', (t) async {

@@ -119,7 +119,7 @@ void main() { setUpAll(() async { sqfliteFfiInit(); databaseFactory = databaseFa
       final app = await pumpLiveGuideApp(t); await _startFromHelp(t, app, 'heart-rate-zones'); final l = _l(t);
       await t.tap(_label(l.homeRingStrain)); await _reveal(t); await t.tap(_label(l.dayStrainHowSet)); await _reveal(t);
       expect(find.byType(ZonesDetail), findsOneWidget); expect(_step(app), 2);
-      expect(_caption(t), _plain(l.guideHrZonesStep3(l.activityZonesTitle, l.activityZonesSetYourOwnLink))); await t.tap(_label(l.activityZonesSetYourOwnLink)); await _reveal(t);
+      expect(_caption(t), _plain(l.guideHrZonesStep3(l.activityZonesTitle, l.activityZonesSetYourOwnLink, l.activityZonesEditYourOwnLink))); await t.tap(_label(l.activityZonesSetYourOwnLink)); await _reveal(t);
       // The real control opens the app\'s own editor; the overlay steps aside for it, and the Done card shows once it is closed.
       await t.binding.handlePopRoute(); await _reveal(t); expect(_run(app).state, isA<GuideFinished>());
       expect(find.byKey(GuideStepCard.doneKey), findsOneWidget); expect(find.text(l.guideHrZonesAltTitle), findsOneWidget); });

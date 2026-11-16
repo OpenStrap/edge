@@ -80,14 +80,19 @@ void main() { setUpAll(() async { TestWidgetsFlutterBinding.ensureInitialized();
             // string; the red version of this line looked for the arb string and could never find it.
             final label = skLocalRect(t, find.text(l.homeRingStrain.toUpperCase()).first, find.byKey(_root));
             expect(rect.height, greaterThan(label.height * 2), reason: 'outline wraps ring + label'); } roots.add(root); } expect(t.takeException(), isNull);
+        // WHY: CLAIM(guide-zone-button-copy). The caption must name the button
+        // actually mounted, including after a manual set has been saved.
+        // catches: always quoting only Set while the screen says Edit.
+        expect(steps[2].caption.of(l), contains(l.activityZonesSetYourOwnLink));
         final manualRoot = await _pumpScreen(t, steps[2], locale: locale, screen: ZonesDetail(data: GuideDemo.zonesManual));
         expect(find.text(l.activityZonesEditYourOwnLink), findsOneWidget, reason: 'fixture sanity: saved state');
+        expect(steps[2].caption.of(l), contains(l.activityZonesEditYourOwnLink), reason: 'saved manual zones require the Edit caption');
         _foundRect(steps[2].target.resolve(manualRoot, l), 'step 3 target with a saved own set'); expect(t.takeException(), isNull); });
       test('${locale.languageCode}: strings are translated and quote the in-app labels', () {
         // why: a caption that paraphrases the label cannot be matched against the screen; an untranslated caption is English in a German app.
-        // Step 3 may quote either state's label.
+        // Step 3 explains both labels and when Edit appears.
         final l = lookupAppLocalizations(locale); final en = lookupAppLocalizations(const Locale('en')); final steps = _steps();
-        final options = [ [l.homeRingStrain], [l.dayStrainHowSet], [l.activityZonesSetYourOwnLink, l.activityZonesEditYourOwnLink], ];
+        final options = [ [l.homeRingStrain], [l.dayStrainHowSet], [l.activityZonesSetYourOwnLink], ];
         for (var i = 0; i < steps.length; i++) { final c = steps[i].caption.of(l); expect(c, isNotEmpty);
           expect(options[i].any(c.contains), isTrue, reason: 'step ${i + 1} caption "$c" must quote one of ${options[i]}');
           if (locale.languageCode != 'en') { expect(c, isNot(steps[i].caption.of(en)), reason: 'step ${i + 1} caption untranslated'); } }

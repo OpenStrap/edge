@@ -3873,7 +3873,21 @@
   "guideHrZonesIntro": "L’écran des zones de fréquence cardiaque se trouve derrière votre score « {score} ». Trois appuis suffisent.",
   "guideHrZonesStep1": "Dans l’onglet **{tab}**, touchez l’anneau **{ring}**.",
   "guideHrZonesStep2": "Faites défiler jusqu’à **{section}**, puis touchez **{action}** à droite.",
-  "guideHrZonesStep3": "Voici l’écran **{screen}**. Pour saisir vos propres zones, touchez **{link}**.",
+  "guideHrZonesStep3": "Sur l’écran **{screen}**, touchez **{link}**, ou **{editLink}** si vous avez déjà enregistré vos propres zones.",
+  "@guideHrZonesStep3": {
+    "description": "Step 3 caption. The screen title and both button labels are quoted verbatim; Edit appears after saving manual zones.",
+    "placeholders": {
+      "screen": {
+        "type": "String"
+      },
+      "link": {
+        "type": "String"
+      },
+      "editLink": {
+        "type": "String"
+      }
+    }
+  },
   "guideHrZonesAltTitle": "Un autre chemin",
   "guideHrZonesAltBody": "Ouvrez l’onglet **{tab}** et touchez **{link}**, puis suivez les étapes 2 et 3.",
   "guideHrZonesMissingTitle": "Vous ne voyez pas « {section} » ?",
@@ -3894,7 +3908,18 @@
   "guideAddNapFoundTitle": "Siestes détectées par le bracelet",
   "guideAddNapFoundBody": "Les siestes détectées par le bracelet figurent sur le même écran. Si l’une est fausse, touchez **{notNap}** à côté.",
   "guideAddNapRulesTitle": "La sieste ne s’enregistre pas ?",
-  "guideAddNapRulesBody": "Une sieste dure entre 5 minutes et 6 heures, doit être déjà terminée et ne peut chevaucher ni une autre sieste ni votre sommeil principal.",
+  "guideAddNapRulesBody": "Une sieste dure entre {minMinutes} minutes et {maxHours} heures, doit être déjà terminée et ne peut chevaucher ni une autre sieste ni votre sommeil principal.",
+  "@guideAddNapRulesBody": {
+    "description": "Footer card body: nap limits come from the shared form validation caps.",
+    "placeholders": {
+      "minMinutes": {
+        "type": "String"
+      },
+      "maxHours": {
+        "type": "String"
+      }
+    }
+  },
   "guideRemoveTitle": "Où supprimer une sieste ou une séance qui n’était pas réelle",
   "guideRemoveStep1": "Dans l’onglet **{tab}**, touchez la carte **{card}**. Elle n’apparaît que lorsque quelque chose attend votre réponse.",
   "guideRemoveStep2": "Chaque élément a son propre **{notNap}** / **{notWorkout}**. Touchez-le sur la sieste ou la séance qui n’a pas eu lieu ; la surbrillance montre les choix.",
@@ -3922,7 +3947,7 @@
   "guideStartStep3": "Vérifiez les détails, puis touchez **{start}**.",
   "guideStartStep4": "Pour arrêter, touchez le carré rouge (**{finish}**). Vous arrivez au résumé de votre séance.",
   "guideStartNoBandTitle": "Pas de bracelet connecté ?",
-  "guideStartNoBandBody": "Vous pouvez quand même démarrer une séance. Sans le bracelet, elle n’aura pas de fréquence cardiaque.",
+  "guideStartNoBandBody": "Vous pouvez quand même démarrer une séance. Un bracelet déconnecté ne fournit pas de fréquence cardiaque, mais un autre capteur de fréquence cardiaque connecté peut le faire.",
   "guideStartPauseTitle": "Besoin d’une pause ?",
   "guideStartPauseBody": "Touchez **{pause}** pour arrêter le chrono, et **{resume}** pour continuer.",
   "guideLogPastTitle": "Où enregistrer une séance que vous avez oublié de lancer",
