@@ -68,6 +68,24 @@ List<Map<String, Object?>> vendorHypnogram(
   return out;
 }
 
+/// Whole minutes per stage over a night's epochs.
+///
+/// Accumulate SECONDS first, then convert ONCE. A vendor epoch is often 30 s
+/// (Oura stores 960 of them for an 8 h night), and `(end - start) ~/ 60` per
+/// epoch floors every one of those to zero — a full night then reads as
+/// `Deep 0m / Light 0m` in the device's own staging. Floored per stage AFTER
+/// summing, so the parts never claim more time than was staged. Non-positive
+/// epochs are skipped rather than subtracting from a stage's total.
+Map<String, int> vendorStageMinutes(List<VendorEpoch> epochs) {
+  final secs = <String, int>{};
+  for (final e in epochs) {
+    final span = e.endSec - e.startSec;
+    if (span <= 0) continue;
+    secs[e.stage] = (secs[e.stage] ?? 0) + span;
+  }
+  return {for (final e in secs.entries) e.key: e.value ~/ 60};
+}
+
 /// One night of one device's epochs, as `vendor_sleep_epoch` groups them.
 class VendorNight {
   final String deviceId;
