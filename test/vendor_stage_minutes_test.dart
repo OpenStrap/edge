@@ -62,6 +62,21 @@ void main() {
       ]);
       expect(m['light'], 10);
     });
+
+    test('mixed sub-minute stages still make one sleep minute', () {
+      final epochs = [
+        const VendorEpoch(0, 30, 'light'),
+        const VendorEpoch(30, 60, 'deep'),
+      ];
+      // Per stage neither reaches a minute...
+      expect(vendorStageMinutes(epochs), {'light': 0, 'deep': 0});
+      // ...but together they did sleep for one, so the night must not say 0.
+      expect(vendorSleepMinutes(epochs), 1);
+      expect(vendorSleepMinutes([
+        ...epochs,
+        const VendorEpoch(60, 120, 'wake'), // awake is not sleep
+      ]), 1);
+    });
   });
 
   group('getDeviceNights', () {
@@ -109,6 +124,30 @@ void main() {
       expect(m['rem'], 30);
       expect(nights.single['duration_min'], 90,
           reason: 'deep + light + rem, awake excluded');
+    });
+
+    test('a mixed 30 s night reports one minute asleep, zero per stage',
+        () async {
+      const day = '2026-10-04';
+      const family = 'oura';
+      final start = DateTime(2026, 10, 4, 7);
+      final startSec = start.millisecondsSinceEpoch ~/ 1000;
+
+      await LocalDb.upsertDevice(
+          id: 'oura-mixed', adapterId: family, label: family);
+      await LocalDb.putVendorSleepEpochs([
+        VendorEpoch(startSec, startSec + 30, 'light'),
+        VendorEpoch(startSec + 30, startSec + 60, 'deep'),
+      ], deviceId: 'oura-mixed', source: family);
+
+      final nights = await LocalRepositoryImpl(getProfileMap: () => const {})
+          .getDeviceNights(day);
+      expect(nights, hasLength(1));
+      final m = nights.single['stage_min'] as Map;
+      expect(m['light'], 0);
+      expect(m['deep'], 0);
+      expect(nights.single['duration_min'], 1,
+          reason: 'the two 30 s stages together are a minute of sleep');
     });
   });
 }

@@ -68,22 +68,45 @@ List<Map<String, Object?>> vendorHypnogram(
   return out;
 }
 
-/// Whole minutes per stage over a night's epochs.
+/// Seconds per stage over a night's epochs — the unit every minute figure is
+/// built on.
 ///
-/// Accumulate SECONDS first, then convert ONCE. A vendor epoch is often 30 s
-/// (Oura stores 960 of them for an 8 h night), and `(end - start) ~/ 60` per
-/// epoch floors every one of those to zero — a full night then reads as
-/// `Deep 0m / Light 0m` in the device's own staging. Floored per stage AFTER
-/// summing, so the parts never claim more time than was staged. Non-positive
-/// epochs are skipped rather than subtracting from a stage's total.
-Map<String, int> vendorStageMinutes(List<VendorEpoch> epochs) {
+/// Sum FIRST. Two neighbouring epochs can each be under a minute (30 s light +
+/// 30 s deep) and still make one, so a minute is only lost if the flooring
+/// happens before the addition. Non-positive spans are skipped rather than
+/// subtracting from a stage's total.
+Map<String, int> vendorStageSeconds(List<VendorEpoch> epochs) {
   final secs = <String, int>{};
   for (final e in epochs) {
     final span = e.endSec - e.startSec;
     if (span <= 0) continue;
     secs[e.stage] = (secs[e.stage] ?? 0) + span;
   }
-  return {for (final e in secs.entries) e.key: e.value ~/ 60};
+  return secs;
+}
+
+/// Whole minutes per stage, for the per-stage table.
+///
+/// Floored per stage ON PURPOSE: a stage whose own total is under a minute
+/// reads 0 m rather than claiming a minute it did not hold. The night's total
+/// is [vendorSleepMinutes], which sums the seconds first.
+Map<String, int> vendorStageMinutes(List<VendorEpoch> epochs) => {
+      for (final e in vendorStageSeconds(epochs).entries)
+        e.key: e.value ~/ 60,
+    };
+
+/// Whole minutes ASLEEP (every stage except wake) over a night.
+///
+/// The non-wake SECONDS are summed before the one `~/ 60`. Flooring each stage
+/// first drops a minute that 30 s light + 30 s deep really did contribute, so
+/// `duration_min` read short against the night's own window. Awake is excluded
+/// because this is time asleep, not time in bed.
+int vendorSleepMinutes(List<VendorEpoch> epochs) {
+  final secs = vendorStageSeconds(epochs);
+  return secs.entries
+          .where((e) => e.key != 'wake')
+          .fold<int>(0, (s, e) => s + e.value) ~/
+      60;
 }
 
 /// One night of one device's epochs, as `vendor_sleep_epoch` groups them.
