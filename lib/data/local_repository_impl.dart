@@ -29,7 +29,8 @@ import '../compute/manual_session.dart';
 import '../compute/onehz_pipeline.dart' show kUnknownAbsenceNote, needInputNote;
 import '../compute/profile.dart';
 import '../compute/quiet_level.dart';
-import '../compute/vendor_sleep.dart' show vendorHypnogram;
+import '../compute/vendor_sleep.dart'
+    show vendorHypnogram, vendorSleepMinutes, vendorStageMinutes;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
@@ -2379,19 +2380,16 @@ class LocalRepositoryImpl extends LocalRepository {
           !await deviceFlagOn(n.deviceId)) {
         continue;
       }
-      final minutes = <String, int>{};
-      for (final e in n.epochs) {
-        minutes[e.stage] = (minutes[e.stage] ?? 0) + (e.endSec - e.startSec) ~/ 60;
-      }
+      // Sum seconds per stage, then convert once: a 30 s epoch (Oura) floored
+      // per epoch read as zero minutes for the whole night.
+      final minutes = vendorStageMinutes(n.epochs);
       out.add({
         'device_id': n.deviceId,
         'label': labels[n.deviceId] ?? n.source,
         'family': families[n.deviceId],
         'onset_ts': n.onsetSec,
         'wake_ts': n.offsetSec,
-        'duration_min': minutes.entries
-            .where((e) => e.key != 'wake')
-            .fold<int>(0, (s, e) => s + e.value),
+        'duration_min': vendorSleepMinutes(n.epochs),
         'stage_min': minutes,
         // Same point shape as our own night: each stage from its start,
         // closed by a final point at wake.
