@@ -2421,7 +2421,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             const SizedBox(height: S.x3),
             alarmDoor(c, a.$1, a.$2),
           ],
-        const HelpEntry(topic: GuideTopic.today),
+        // The Today guide starts on the strain ring, which a past day does not draw.
+        if (_day == null || _day == todayLabel())
+          const HelpEntry(topic: GuideTopic.today),
       ]));
     }
 
@@ -2678,7 +2680,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         const SizedBox(height: S.x4),
         coachChip(c),
       ],
-      const HelpEntry(topic: GuideTopic.today),
+      // The Today guide starts on the strain ring, which a bare past day does not draw.
+      if (isToday) const HelpEntry(topic: GuideTopic.today),
     ]));
   }
 

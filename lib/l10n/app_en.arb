@@ -17528,7 +17528,7 @@
       }
     }
   },
-  "guideAlarmStep2": "Under **{group}**, tap a day to turn it on, for example **{day}**.",
+  "guideAlarmStep2": "Under **{group}**, tap a day that is off to turn it on, for example **{day}**. Tapping a day that is already on turns it off.",
   "@guideAlarmStep2": {
     "description": "Step 2 caption. Bold words are in-app labels: {group} is the \"Weekly schedule\" heading, {day} a short weekday name such as Tue.",
     "placeholders": {
@@ -17754,7 +17754,7 @@
   "@guideFixTimesTitle": {
     "description": "Title of the navigation guide for correcting when a night started and ended."
   },
-  "guideFixTimesStep1": "On the **{tab}** tab, tap **{change}** under your last night. It reads **{set}** until you have set the times yourself. You are asked when you went to bed, then when you woke up.",
+  "guideFixTimesStep1": "On the **{tab}** tab, tap **{change}** under your last night. It reads **{set}** until you have set the times yourself. You are asked when you went to bed, then when you got up.",
   "@guideFixTimesStep1": {
     "description": "Step 1 caption. Bold words are in-app labels: {tab} the Sleep tab, {change} and {set} the two texts of the same button.",
     "placeholders": {
@@ -17806,7 +17806,7 @@
   "@guideFixTimesAskTitle": {
     "description": "Footer card title: explains the two time pickers that open."
   },
-  "guideFixTimesAskBody": "First the time you went to bed, then the time you woke up. The night is worked out again from those two times.",
+  "guideFixTimesAskBody": "First the time you went to bed, then the time you got up. The night is worked out again from those two times.",
   "@guideFixTimesAskBody": {
     "description": "Footer card body."
   },
@@ -17988,7 +17988,7 @@
   "@guideLogPastScoreTitle": {
     "description": "Footer card title of the log-a-past-workout guide."
   },
-  "guideLogPastScoreBody": "If the band recorded your heart rate for that time, the workout is scored from it. If not, it is saved without a score.",
+  "guideLogPastScoreBody": "If the band recorded your heart rate for that time and your profile has your age and sex, the workout is scored from it. If not, it is saved without a score.",
   "@guideLogPastScoreBody": {
     "description": "Footer card body."
   },
