@@ -100,6 +100,16 @@ void main() {
     expect(spans.map((s) => s['start_ts']),
         [midnight + 9 * 3600, midnight + 10 * 3600]);
     expect(spans.every((s) => s['source'] == LocalDb.kStepSourceBand), isTrue);
+
+    // …and the screen passes that one number through untouched: the counter's
+    // figure as both the count and what the day published.
+    final data = await DayStepsData.load(
+        LocalRepositoryImpl(getProfileMap: () => null),
+        want: day);
+    expect(data.total, counterTotal);
+    expect(data.dayTotal, counterTotal);
+    expect(data.strap, counterTotal);
+    expect(data.phone, 0);
   });
 
   // An older bundle can carry the counter's count with no hourly spans stored.
@@ -158,9 +168,100 @@ void main() {
     });
   }
 
+  // The screen half: `DayStepsData.load` must not re-resolve a day's total.
+  // It did for one revision — `total = day_total ?? ladder` for EVERY day — and
+  // a mixed phone + strap day whose phone rows landed after the last derive
+  // then printed "Counted 7,000" over bars summing to 9,000: a header that
+  // disagreed with itself. End to end here, through the real repository, so the
+  // two halves are checked against one another and not against a fake.
+  test('a mixed phone + strap day keeps total == strap + phone when the '
+      'bundle is stale', () async {
+    const day = '2026-03-13';
+    final midnight = localDayStartSec(day)!;
+
+    // The derive published 7,000 off `mixed` — the phone had banked nothing yet.
+    await LocalDb.putDayResult(
+      dayId: day,
+      algoVersion: kAlgoVersion,
+      payloadJson: jsonEncode({
+        'steps': {
+          'value': 7000,
+          'band_measured': 3000,
+          'source': 'mixed',
+        },
+      }),
+      windowJson: '{}',
+      finalized: true,
+    );
+    // The wrist covered 3,000 steps in one half hour…
+    await LocalDb.addLiveCoverage(
+      midnight + 9 * 3600,
+      midnight + 9 * 3600 + 1800,
+      3000,
+      day,
+    );
+    // …and the phone banked 6,000 more AFTER that bundle was written, which is
+    // the ordinary state of today between drains.
+    await LocalDb.replacePhoneCoverageForDay(day, [
+      for (var h = 12; h < 18; h++)
+        (
+          startTs: midnight + h * 3600,
+          endTs: midnight + (h + 1) * 3600 - 1,
+          steps: 1000,
+        ),
+    ]);
+
+    final repo = LocalRepositoryImpl(getProfileMap: () => null);
+    final out = await repo.getDaySteps(day);
+    expect(out['total'], 9000, reason: 'the ladder: 3,000 + 6,000');
+    expect(out['strap'], 3000);
+    expect(out['phone'], 6000);
+    expect(out['day_total'], 7000,
+        reason: 'the bundle is stale on purpose, so the two can disagree');
+
+    final data = await DayStepsData.load(repo, want: day);
+
+    expect(data.total, 9000, reason: 'the count says what the bars sum to');
+    expect(data.total, data.strap + data.phone);
+    expect(data.dayTotal, 7000,
+        reason: 'still readable as what the day published');
+  });
+
   group('DayStepsData.load', () {
-    test('a counter day with no stored spans keeps the counter total and its '
-        'source', () async {
+    // The repository hands the screen one total for a counter day (`total`),
+    // and the ladder's own sum for every other day. The screen must not
+    // re-resolve either: doing so printed the published figure as the count
+    // while `strap`, `phone` and the bars stayed on the ladder, so the header
+    // disagreed with itself.
+    test('a mixed phone + strap day keeps total == strap + phone, so the '
+        'count and the bars agree', () async {
+      // The phone banked 6,000 after the last derive, so the bundle still
+      // publishes 7,000 off `mixed`. The count is the ladder's 9,000 and the
+      // bars under it sum to 9,000 too.
+      final data = await DayStepsData.load(_StepsRepo({
+        'total': 9000,
+        'strap': 3000,
+        'phone': 6000,
+        'day_total': 7000,
+        'day_source': 'mixed',
+        'spans': const [],
+      }));
+
+      expect(data.mixed, isTrue);
+      expect(data.total, 9000, reason: 'the ladder, not the stale bundle');
+      expect(data.strap, 3000);
+      expect(data.phone, 6000);
+      expect(data.total, data.strap + data.phone,
+          reason: 'the header count and the bars are the same sum');
+      expect(data.dayTotal, 7000,
+          reason: 'what the day published is still readable as such');
+    });
+
+    test('a counter day keeps the counter total, which the repository returns '
+        'as both figures', () async {
+      // Even with phone hours on disk, the derive picked the counter, so the
+      // repository publishes the counter's figure as `total` and `day_total`
+      // alike. The screen passes both through untouched.
       final data = await DayStepsData.load(_StepsRepo({
         'total': 12500,
         'strap': 12500,
@@ -170,33 +271,16 @@ void main() {
         'spans': const [],
       }));
 
-      expect(data.total, 12500);
-      expect(data.dayTotal, data.total,
-          reason: 'one resolved number, not two for the same day');
-      expect(data.daySource, 'strap_counter');
+      expect(data.total, 12500, reason: 'the counter\'s figure, not 8,000');
+      expect(data.dayTotal, 12500);
+      expect(data.total, data.dayTotal,
+          reason: 'one number for the day, said twice');
+      expect(data.strap + data.phone, 12500);
       expect(data.spans, isEmpty, reason: 'the no-times card, not phone hours');
     });
 
-    test('total and dayTotal are one value when coverage rows outran the bundle',
-        () async {
-      // The bundle published 12,000; `live_coverage` now sums to 8,000 because
-      // the rows changed after the derive. Home shows the published figure, so
-      // this screen must not print 8,000 as the count and 12,000 as the day's.
-      final data = await DayStepsData.load(_StepsRepo({
-        'total': 8000,
-        'strap': 0,
-        'phone': 8000,
-        'day_total': 12000,
-        'day_source': 'phone',
-        'spans': const [],
-      }));
-
-      expect(data.total, 12000, reason: 'the day\'s own published figure');
-      expect(data.dayTotal, 12000);
-    });
-
-    test('with nothing published, the ladder is the one resolved total',
-        () async {
+    test('with nothing published, dayTotal stays null and the ladder is the '
+        'count', () async {
       final data = await DayStepsData.load(_StepsRepo({
         'total': 6400,
         'strap': 0,
@@ -207,7 +291,7 @@ void main() {
       }));
 
       expect(data.total, 6400);
-      expect(data.dayTotal, 6400);
+      expect(data.dayTotal, isNull);
     });
   });
 }
