@@ -166,6 +166,14 @@ class CoachSessionMeta {
 
 // ── engine ───────────────────────────────────────────────────────────────────
 
+/// Read-only tools with nothing required to ask for. A provider that sends NO
+/// arguments at all for one of these (an empty string, or no `arguments` key)
+/// is making a valid call, so it runs with `{}`. Refusing it would leave the
+/// coach unable to read today's data on a provider that never sends `"{}"`.
+/// Everything that writes is NOT here: an empty or missing argument for those
+/// would run on fabricated defaults. Malformed text still refuses for all.
+const kNoArgumentReadTools = {'get_today', 'get_medications', 'get_nutrition'};
+
 class CoachEngine {
   final CoachConfig config;
   final LocalRepository api;
@@ -689,14 +697,46 @@ class CoachEngine {
         final fn = (tc['function'] as Map?) ?? const {};
         final name = fn['name']?.toString() ?? '';
         Map<String, dynamic> args = {};
+        var argsParsed = false;
         try {
           final a = fn['arguments'];
-          if (a is String && a.isNotEmpty) {
-            args = jsonDecode(a) as Map<String, dynamic>;
-          } else if (a is Map) {
+          if (a is Map) {
             args = a.cast<String, dynamic>();
+            argsParsed = true;
+          } else if (a is String && a.isNotEmpty) {
+            final decoded = jsonDecode(a);
+            if (decoded is Map) {
+              args = decoded.cast<String, dynamic>();
+              argsParsed = true;
+            }
           }
-        } catch (_) {}
+        } catch (_) {
+          argsParsed = false;
+        }
+        // No arguments at all is a valid call for a read tool that asks for none.
+        if (!argsParsed && kNoArgumentReadTools.contains(name)) {
+          final raw = fn['arguments'];
+          if (raw == null || (raw is String && raw.trim().isEmpty)) {
+            argsParsed = true;
+          }
+        }
+        // Only an OBJECT is a valid argument map. Empty/missing strings,
+        // arrays and numbers are normal failures from OpenAI-compatible
+        // providers. Running the tool with `{}` built the confirmation from
+        // fabricated defaults (and on confirm wrote them: `log_period` logged
+        // today, `start_workout` started `other`). Tell the model instead, so
+        // it can re-issue a complete call.
+        if (!argsParsed) {
+          _history.add({
+            'role': 'tool',
+            'tool_call_id': id,
+            'name': name,
+            'content': 'Error: the "$name" arguments were not a complete JSON '
+                'object, so the tool was NOT run and nothing was written. '
+                'Call it again with valid JSON arguments.',
+          });
+          continue;
+        }
 
         onStatus(_statusFor(name, args));
         final result = await _runTool(name, args, onItem: emit, confirm: confirm);
