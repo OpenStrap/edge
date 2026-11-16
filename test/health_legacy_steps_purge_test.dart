@@ -156,15 +156,16 @@ void main() {
     expect(first.pendingBefore, contains('${older.millisecondsSinceEpoch}'));
   });
 
-  test('a re-exported refused day retries its stored absolute bounds', () async {
+  test('a retry is clipped to the part of its stored range that is still that day', () async {
     failStarts.add(older.millisecondsSinceEpoch);
     await HealthExporter(isApple: false).exportAll(forceRetry: true);
     final left = await pending();
     expect(left.keys, [olderDay]);
 
     // Move the stored start an hour earlier, as if the timezone had moved east
-    // between the refusal and the retry. The retry must use the stored epoch,
-    // not recompute midnight from the day label.
+    // between the refusal and the retry. The stored range now reaches an hour
+    // into the PREVIOUS day, whose valid strap steps nothing rewrites, so the
+    // retry is clipped to this day instead of using the stored epoch verbatim.
     final stored = left[olderDay]!;
     final earlier = stored.startMs - const Duration(hours: 1).inMilliseconds;
     await LocalDb.setCursor(
@@ -180,9 +181,14 @@ void main() {
     await HealthExporter(isApple: false).exportAll(forceRetry: true);
     final retries = stepDeletes.skip(before).toList();
     expect(
-      retries.any((d) => d.start == earlier && d.end == stored.endMs),
+      retries.any((d) => d.start == stored.startMs && d.end == stored.endMs),
       isTrue,
-      reason: 'the retry uses the absolute bounds captured at the refusal',
+      reason: 'the retry covers this day',
+    );
+    expect(
+      retries.any((d) => d.start == earlier),
+      isFalse,
+      reason: 'and never reaches into the previous day',
     );
     expect((await pending()).containsKey(olderDay), isFalse);
     expect(await LocalDb.getCursor('health_steps_purged_through'), newerDay);

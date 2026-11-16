@@ -789,23 +789,37 @@ class HealthExporter {
     // delete the current day's valid samples and the held write would not put
     // them back, so leave both the marker and the day for a later pass.
     if (_stepWritesHeld) return;
-    final range =
-        retry ??
-        (
-          startMs: dayStart.millisecondsSinceEpoch,
-          endMs: dayEnd.millisecondsSinceEpoch,
-        );
+    final today = (
+      startMs: dayStart.millisecondsSinceEpoch,
+      endMs: dayEnd.millisecondsSinceEpoch,
+    );
+    // A retry keeps the range of the first attempt, but only the part of it
+    // that is still THIS day. If the timezone has moved since, the stored range
+    // can reach into a neighbouring day that is not being exported now, and
+    // that day's valid strap steps would be deleted and never rewritten. A
+    // clipped retry can leave a few fabricated samples behind; that is the
+    // lesser defect.
+    final stored = retry;
+    final clipped = stored == null
+        ? today
+        : (
+            startMs: stored.startMs > today.startMs ? stored.startMs : today.startMs,
+            endMs: stored.endMs < today.endMs ? stored.endMs : today.endMs,
+          );
+    final range = clipped.endMs > clipped.startMs ? clipped : today;
     // Retry intent BEFORE the delete: a crash after a refused delete must
-    // leave the day recoverable. The bounds are absolute, so a later timezone
-    // change cannot move the range and leave a gap.
-    var addedHere = false;
+    // leave the day recoverable.
     try {
       if (retry == null) {
         pending[date] = range;
-        addedHere = true;
-        // If this write fails the delete below is not issued, so an
-        // unrecorded attempt cannot be lost to a crash.
-        await _savePendingPurges();
+        try {
+          await _savePendingPurges();
+        } catch (_) {
+          // The delete below is not issued, so an unrecorded attempt cannot be
+          // lost to a crash: take the entry back out of memory too.
+          pending.remove(date);
+          rethrow;
+        }
       }
       // A false from the store is a genuine failure on Health Connect — the
       // same rule every other delete here reads through this helper — so an
@@ -833,10 +847,12 @@ class HealthExporter {
         await LocalDb.setCursor(_kStepsPurgeCursor, date);
       }
     } catch (e) {
-      if (addedHere) pending.remove(date);
       if (e is TimeoutException) _storeHung = true;
       // Either the retry intent is on disk already, or no delete was issued.
-      // Both leave the day retryable and the cursor aiming at it.
+      // Both leave the day retryable and the cursor aiming at it. The entry is
+      // NOT taken out of memory here: a delete that threw after the intent was
+      // saved must keep it, or the next save for another day would rewrite the
+      // file from the map and drop it.
       debugPrint('[health] purge legacy steps $date: $e');
     }
   }
