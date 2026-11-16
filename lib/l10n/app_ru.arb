@@ -5,6 +5,28 @@
   "profileMyDevices": "Мои устройства",
   "profileLanguage": "Язык",
   "languageSystemDefault": "Системный",
+  "alarmSavedNotOnBand": "Сохранено, но браслет ещё не принял его — он будет отправлен снова при следующей синхронизации",
+  "coachChatgptUsingPlanShort": "Используется подписка ChatGPT",
+  "coachChatgptSharingNotAllowed": "Вход выполнен, но использование подписки ChatGPT не разрешено. Снова нажмите «Продолжить с ChatGPT» и разрешите использовать подписку здесь.",
+  "coachChatgptSignedOut": "Вы вышли из ChatGPT.",
+  "coachChatgptSignOutUnconfirmed": "Вы вышли здесь, но ChatGPT этого не подтвердил. Отключить OpenStrap можно также в настройках ChatGPT.",
+  "coachChatgptWelcomeTitle": "Вы используете свою подписку ChatGPT",
+  "coachChatgptWelcomeBody": "Допустимое использование в этом приложении идёт за счёт вашей подписки ChatGPT. Управлять им можно в настройках ChatGPT.",
+  "coachChatgptGotIt": "Понятно",
+  "coachChatgptUseTitle": "Использовать подписку ChatGPT",
+  "coachChatgptUsingTitle": "Используется ваша подписка ChatGPT",
+  "coachChatgptNotAllowedTitle": "Использование подписки не разрешено",
+  "coachChatgptBlurb": "Выполняйте допустимые ИИ-запросы в этом приложении за счёт лимита вашей подписки ChatGPT или баланса кредитов. OpenStrap никогда не берёт за это плату.",
+  "coachChatgptCancelSignIn": "Отменить вход",
+  "coachChatgptContinue": "Продолжить с ChatGPT",
+  "coachChatgptManageUsage": "Управлять использованием",
+  "coachChatgptSignOut": "Выйти из ChatGPT",
+  "coachChatgptPrivacy": "Ваши вопросы и строки, которые читает тренер, отправляются в OpenAI от имени вашего аккаунта ChatGPT, где могут действовать ваши настройки данных ChatGPT, в том числе об обучении моделей. Проверьте их в настройках ChatGPT. Что именно отправляется, видно в разделе «Что отправлено».",
+  "coachChatgptTermsTitle": "Перед входом",
+  "coachChatgptTermsBody": "Для входа используются ваш собственный аккаунт и подписка ChatGPT. Их использование здесь регулируется Условиями использования и Правилами использования OpenAI, поэтому прочитайте их, прежде чем продолжить.",
+  "coachChatgptTermsLink": "Условия использования OpenAI",
+  "coachChatgptPoliciesLink": "Правила использования OpenAI",
+  "coachChatgptTermsAccept": "Прочитал(а), продолжить",
   "actionCancel": "Отмена",
   "actionSave": "Сохранить",
   "actionContinue": "Продолжить",
@@ -2518,6 +2540,9 @@
       }
     }
   },
+  "investigateMethodHrvRmssd": "Среднее RMSSD по всем 5-минутным окнам распознанного сна, в которых есть не меньше 20 чистых последовательных разностей. Сначала отбрасываются удары вне диапазона 300–2000 мс и удары, отстоящие от локальной медианы больше чем на 20 %. В ночь, когда ритм ударов выглядит зашумлённым, учитываются только окна, которые сами проходят проверку на джиттер или лежат на ровной дыхательной линии; окно или ночь, чьи удары в сумме дают больше времени, чем прошло, исключаются. Старые ночи, сырые удары которых уже удалены, сохраняют значение, полученное более ранней версией этого метода. Значение получено из пульса, поэтому это ВСП по пульсу (PRV): реальная и пригодная для трендов, но не ВСР по ЭКГ.",
+  "investigateMethodRespRate": "Частота дыхания, выделенная из дыхательной синусовой аритмии — периодической модуляции, которую дыхание вносит в ритм ударов. Спектральный пик ищется в перекрывающихся пятиминутных отрезках чистых ударов (Lomb–Scargle по фактическим моментам ударов), а значение за ночь — их медиана; оно показывается, только если большинство отрезков согласуются. При пульсе во сне около 48 уд/мин и ниже удары слишком редки, чтобы различить обычное дыхание, и значение не показывается.",
+  "investigateMethodHrvStability": "В пределах одной ночи: стандартное отклонение межударных интервалов после коррекции артефактов (SDNN) в процентах от их среднего. График показывает, как это значение меняется от ночи к ночи; это не коэффициент вариации между ночами.",
   "metricDetailSlotWithValue": "{day}, {value} {unit}",
   "@metricDetailSlotWithValue": {
     "placeholders": {
@@ -8069,7 +8094,11 @@
   "welcomeSettingsSkipped": "{n, plural, one{{n} настройку из резервной копии не удалось прочитать, она пропущена} few{{n} настройки из резервной копии не удалось прочитать, они пропущены} many{{n} настроек из резервной копии не удалось прочитать, они пропущены} other{{n} настройки из резервной копии не удалось прочитать, они пропущены}}",
   "@welcomeSettingsSkipped": {
     "description": "Import report: settings rows in the backup that could not be read",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "welcomeSettingsSkippedBody": "Для них остаются значения этого телефона.",
   "welcomeCoachChatGptReentry": "Данные входа в ChatGPT остаются в защищённом хранилище и не включены в резервную копию. Войдите снова в настройках ИИ, чтобы пользоваться тренером на этом телефоне.",
@@ -8077,7 +8106,11 @@
   "welcomeSettingsRestored": "Восстановлено настроек: {n}",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "strengthCustomWeight": "Свой вес",
   "strengthEnterValue": "Введите значение",
@@ -8311,5 +8344,112 @@
         "type": "String"
       }
     }
+  },
+  "guideTapMarker": "нажать",
+  "guideScrollMarker": "листать",
+  "guideStepOf": "Шаг {step} из {total}",
+  "@guideStepOf": {
+    "description": "Screen-reader label of one dot in the step indicator of a guide.",
+    "placeholders": {
+      "step": {
+        "type": "String",
+        "description": "The number of the step this dot stands for."
+      },
+      "total": {
+        "type": "String",
+        "description": "How many steps the guide has."
+      }
+    }
+  },
+  "guideDontSeeIt": "Не видите?",
+  "@guideDontSeeIt": {
+    "description": "Link on the guide's step card that expands the help for a target that is not on the screen."
+  },
+  "guideExit": "Выйти",
+  "@guideExit": {
+    "description": "Button on the guide card that ends the guide and leaves the app where it is."
+  },
+  "guideExitLabel": "Выйти из инструкции",
+  "@guideExitLabel": {
+    "description": "Screen-reader label of the Exit button on the guide card."
+  },
+  "guideOffPathTitle": "Вы сошли с пути",
+  "@guideOffPathTitle": {
+    "description": "Title of the guide card when the user has gone to a screen the guide does not cover."
+  },
+  "guideOffPathBody": "Этого экрана нет в инструкции.",
+  "@guideOffPathBody": {
+    "description": "Body of the off-path guide card."
+  },
+  "guideBackToGuide": "Назад к инструкции",
+  "@guideBackToGuide": {
+    "description": "Button on the off-path guide card that returns to the last screen of the guide."
+  },
+  "guideDoneTitle": "Готово",
+  "@guideDoneTitle": {
+    "description": "Title of the guide card after the last step."
+  },
+  "guideDoneBody": "Это был последний шаг.",
+  "@guideDoneBody": {
+    "description": "Body of the guide card after the last step."
+  },
+  "guideTargetProxy": "Цель инструкции: {caption}",
+  "@guideTargetProxy": {
+    "description": "Screen-reader label of the highlighted control while a guide runs.",
+    "placeholders": {
+      "caption": {
+        "type": "String",
+        "description": "The step caption."
+      }
+    }
+  },
+  "guideTabProxy": "Инструкция: открыть вкладку {tab}",
+  "guideBackProxy": "Инструкция: вернуться на путь",
+  "guideMoveCardUp": "Переместить карточку вверх",
+  "guideMoveCardDown": "Переместить карточку вниз",
+  "guideTapsBack": "{count, plural, one{{count} касание назад} few{{count} касания назад} many{{count} касаний назад} other{{count} касания назад}}",
+  "@guideTapsBack": {
+    "description": "Number of taps (navigation hops) back to the active guide step, shown beside the off-path text.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@guideTabProxy": {
+    "description": "Screen-reader label of the highlighted tab-bar tab while a guide runs: the step is on that tab.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "description": "The tab's name, as the tab bar prints it."
+      }
+    }
+  },
+  "@guideBackProxy": {
+    "description": "Screen-reader label of the highlighted control that leads back to the guide's path while the user is off the path."
+  },
+  "@guideMoveCardUp": {
+    "description": "Screen-reader action on the guide's step card: move the card up the screen (the alternative to dragging it)."
+  },
+  "@guideMoveCardDown": {
+    "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
+  },
+  "guideTapOneOf": "коснитесь одного",
+  "@guideExpandAccordion": {
+    "description": "Guide hop asking the wearer to open a collapsed section",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "guideExpandAccordion": "Развернуть {title}",
+  "settingsSleepHmmRowTitle": "Экспериментальное определение стадий сна (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "Исследовательский алгоритм, не медицинское устройство. Выключено по умолчанию.",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
   }
 }

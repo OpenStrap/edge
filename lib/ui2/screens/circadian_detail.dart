@@ -414,10 +414,7 @@ class _CircadianDetailState extends State<CircadianDetail> {
     ]);
   }
 
-  String _hm(num hours) {
-    final m = (hours * 60).round();
-    return m < 60 ? '${m}m' : '${m ~/ 60}h ${(m % 60).toString().padLeft(2, '0')}m';
-  }
+  String _hm(num hours) => hm(hours * 60);
 
   /// CV-09 — daytime HRV by hour of day, motion-gated.
   ///

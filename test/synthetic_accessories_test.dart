@@ -160,7 +160,10 @@ void main() {
     Future<num> kcal() async => (await _scalars())['calories'] as num;
 
     await LocalDb.upsertDevice(id: _scale, adapterId: 'miscale_bc');
-    final at = DateTime.utc(2026, 10, 4, 6, 55, 10);
+    // A morning weighing on the LOCAL day, sent on the UTC clock the session
+    // sets the scale to. `DateTime.utc(…6, 55)` was the evening before
+    // at UTC−7 and further west, so the day held no weighing at all.
+    final at = DateTime(2026, 10, 4, 6, 55, 10).toUtc();
     final dt = [
       at.year & 0xff, at.year >> 8, at.month, at.day, at.hour, at.minute,
       at.second,

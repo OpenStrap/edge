@@ -3146,6 +3146,9 @@ class CompactResult {
   int get freedBytes => beforeBytes > afterBytes ? beforeBytes - afterBytes : 0;
 }
 
+/// The experimental HMM sleep staging switch (Settings), default off.
+const kSleepHmmStagesPref = 'sleep_hmm_stages';
+
 class DerivationEngine {
   DerivationEngine({this.log, this.background = false, this.offloadActive});
   final void Function(String)? log;
@@ -3238,7 +3241,10 @@ class DerivationEngine {
     _retentionInBackground = true;
     _clearRetainedSubstrate();
   }
-  void resumeFromBackground() => _retentionInBackground = false;
+  void resumeFromBackground() {
+    _retentionLaunchedInBackground = false;
+    _retentionInBackground = false;
+  }
   void handleMemoryPressure() => _clearRetainedSubstrate();
   void dispose() {
     _retentionDisposed = true;
@@ -3258,10 +3264,14 @@ class DerivationEngine {
   int _retentionEpoch = 0;
   int? _retentionPassEpoch;
   bool _retentionInBackground = false;
+  /// [background] tunes pacing for the life of the engine; retention instead
+  /// follows the app: a process launched in the background that later reaches
+  /// the foreground (resumeFromBackground) retains again.
+  late bool _retentionLaunchedInBackground = background;
   bool _retentionDisposed = false;
   final _retentionPreparedDays = <String>{};
   bool get _canRetainSubstrate => !debugDisableSubstrateRetention &&
-      !background && !_retentionInBackground && !_retentionDisposed &&
+      !_retentionLaunchedInBackground && !_retentionInBackground && !_retentionDisposed &&
       (_retentionPassEpoch == null || _retentionPassEpoch == _retentionEpoch);
 
   void _clearRetainedSubstrate() {
@@ -3402,6 +3412,23 @@ class DerivationEngine {
   Future<Substrate> debugLoadSubstrate(int from, int to, {required String day,
       Map<InputSignal, List<OwnedSpan>> ownership = const {}}) =>
       _loadSubstrateRange(from, to, dayId: day, ownership: ownership);
+
+
+  /// EXPERIMENTAL, default off: re-stage the sleep window with the HMM
+  /// classifier inside [deriveDayBundle]. Read from the pref on every pass so
+  /// the foreground engine and every headless one agree, and a toggle takes
+  /// effect without a relaunch. Any failure reads as off.
+  static Future<bool> _hmmStagesOn() async {
+    try {
+      // reload(): a headless isolate caches its instance, so without it a
+      // toggle made in the app is not seen until that isolate restarts.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      return prefs.getBool(kSleepHmmStagesPref) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// True while a band offload is draining. The scheduler never STARTS a
   /// derive during one, but one can start mid-pass; the raw prune checks this
@@ -3676,6 +3703,7 @@ class DerivationEngine {
       ..sort();
     final head = [
       'v${debugFingerprintAlgoVersion ?? kAlgoVersion}',
+      if (await _hmmStagesOn()) 'hmm',
       dataNowSec,
       // The edges a day is aged against (band and wearable; see
       // [_agingEdgeFor]), from the pass's own memo.
@@ -4117,11 +4145,13 @@ class DerivationEngine {
         // than the next one. Still holds `_running`, so nothing else can be
         // reading day_result while it rewrites.
         _diag['stage'] = 'strain_rescale';
+        var strainRescaled = false;
         try {
           final rescaled = await backfillStrainScale(
             female: workoutSex(profile.sex) == 'female',
           );
           if (rescaled.didWork) {
+            strainRescaled = true;
             _log('[derive] strain rescale: ${rescaled.bundleDays} day(s) '
                 'rebuilt, ${rescaled.skipped} skipped (no TRIMP or no wake '
                 'window)');
@@ -4137,6 +4167,7 @@ class DerivationEngine {
         // `finally` is reached by every early return, including "nothing to
         // derive" and "no decoded data".
         _diag['stage'] = 'readiness_calibration';
+        var crossDayRebuilt = false;
         try {
           final r = await backfillReadinessCalibration(
             // Both substrate sources, as `_deriveScope` reads them: a wearable
@@ -4155,9 +4186,20 @@ class DerivationEngine {
                     'never landed, from stored inputs)' : ''}');
             await _refreshBaselines();
           }
-          if (r.rescored > 0) await _runCrossDay(profile);
+          if (r.rescored > 0) crossDayRebuilt = await _runCrossDay(profile);
         } catch (e) {
           _log('[derive] readiness calibration failed (will retry): $e');
+        }
+        // The strain rescale rewrote stored days after the rollup of this pass
+        // was built from the old values. When the calibration above did not
+        // rebuild it (no work, or it failed), rebuild it here.
+        if (strainRescaled && !crossDayRebuilt) {
+          try {
+            await _refreshBaselines();
+            await _runCrossDay(profile);
+          } catch (e) {
+            _log('[derive] cross-day refresh after the strain rescale failed: $e');
+          }
         }
         // Restamp Today's freshness here, not in each caller: the iOS
         // background pass has no caller to do it, and getToday reads the
@@ -4195,6 +4237,7 @@ class DerivationEngine {
     _running = true;
     _beginRetentionPass();
     beginWearableDayIndexPass();
+    lastRunFailedDays = 0;
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     _diag
       ..['running'] = true
@@ -4286,6 +4329,7 @@ class DerivationEngine {
       // every day under the current timezone, so it clears the travel hold too.
       // A partial selection deliberately does not: those days say nothing about
       // the ones still held.
+      lastRunFailedDays = failures;
       if (force && failures == 0) {
         final rawDays = (await LocalDb.decodedRecTsMaxByDay()).keys.toSet();
         if (rawDays.isNotEmpty && rawDays.difference(days).isEmpty) {
@@ -4307,6 +4351,7 @@ class DerivationEngine {
     } catch (e, st) {
       _clearRetainedSubstrate();
       _log('derive selected ERROR: $e\n$st');
+      lastRunFailedDays = days.length;
       return 0;
     } finally {
       try {
@@ -4704,23 +4749,26 @@ class DerivationEngine {
         // Missing provenance costs a cold pass, never a partial adoption.
       }
     }
-    List<List<Object>>? revisions;
-    if (!debugDisableStagedSleepCache ||
-        (!debugDisableCardioRows && _canRetainSubstrate)) {
+    Future<List<List<Object>>?> readRevisions() async {
       try {
-        revisions = [];
+        final out = <List<Object>>[];
         final first = DateTime.fromMillisecondsSinceEpoch(range.$1 * 1000);
         for (var d = DateTime(first.year, first.month, first.day);
             d.millisecondsSinceEpoch ~/ 1000 <= range.$2;
             d = DateTime(d.year, d.month, d.day + 1)) {
           final label = dayLabelOf(d);
           final fp = await LocalDb.inputDayFingerprint(label);
-          revisions.add([label, fp.revisionSum, fp.revisionMax, fp.generation]);
+          out.add([label, fp.revisionSum, fp.revisionMax, fp.generation]);
         }
+        return out;
       } catch (_) {
-        revisions = null; // Unavailable provenance costs a staging, never a hit.
+        return null; // Unavailable provenance costs a staging, never a hit.
       }
     }
+    var revisions = (!debugDisableStagedSleepCache ||
+            (!debugDisableCardioRows && _canRetainSubstrate))
+        ? await readRevisions()
+        : null;
     Substrate? cutSearch;
     if (union != null) {
       final from = range.$1;
@@ -4746,6 +4794,12 @@ class DerivationEngine {
       ownership: searchOwnership,
       load: 'search',
     );
+    // A decoded-row replacement that commits during the load changes the rows
+    // read after the key was taken; such a pass stages without the cache.
+    if (revisions != null &&
+        jsonEncode(await readRevisions()) != jsonEncode(revisions)) {
+      revisions = null;
+    }
     // PERSONALIZED STAGER (v42): stage on a WORKER isolate, NOT the main/UI
     // thread. cardioStager reads analytics "ambient" globals — the rolling sleep
     // profile (`cardioUserProfile`) it blends in (bounded ≤0.5) and the
@@ -6778,6 +6832,7 @@ class DerivationEngine {
       // guess — sleep-onset latency only means what people think it means on a
       // forced window.
       sleepSource: day.sleepSource,
+      useHmmStages: await _hmmStagesOn(),
     );
     final withHistory = _attachHistory(input, history);
 
