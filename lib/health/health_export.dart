@@ -698,6 +698,13 @@ class HealthExporter {
   static const _kStepsPurgeCursor = 'health_steps_purged_through';
   String? _stepsPurgedThrough;
 
+  /// The earliest day whose legacy-STEPS delete the store did NOT confirm.
+  /// Empty when there is none. Kept apart from [_kStepsPurgeCursor], which is
+  /// the newest CONFIRMED day, so a refused range is retried by a later day's
+  /// delete instead of being stepped over and forgotten.
+  static const _kStepsPurgePendingFrom = 'health_steps_purge_pending_from';
+  String? _stepsPurgePendingFrom;
+
   /// Delete the fabricated STEPS samples earlier versions wrote for [date].
   ///
   /// ONE-SHOT, and deliberately not part of the day's success accounting: this
@@ -711,15 +718,55 @@ class HealthExporter {
     DateTime dayEnd,
   ) async {
     _stepsPurgedThrough ??= await LocalDb.getCursor(_kStepsPurgeCursor) ?? '';
+    _stepsPurgePendingFrom ??=
+        await LocalDb.getCursor(_kStepsPurgePendingFrom) ?? '';
     final through = _stepsPurgedThrough!;
+    final pending = _stepsPurgePendingFrom!;
     if (through.isNotEmpty && date.compareTo(through) <= 0) return;
     if (_storeHung) return;
+    // A day the store refused to clear stays in the range until a delete
+    // confirms it. Starting at that day's midnight is what stops the next
+    // day's delete from stepping over it.
+    var from = dayStart;
+    if (pending.isNotEmpty) {
+      final startSec = localDayStartSec(pending);
+      if (startSec != null) {
+        final pendingStart =
+            DateTime.fromMillisecondsSinceEpoch(startSec * 1000);
+        if (pendingStart.isBefore(from)) from = pendingStart;
+      }
+    }
+    Future<void> rememberPending() async {
+      if (pending.isEmpty || date.compareTo(pending) < 0) {
+        _stepsPurgePendingFrom = date;
+        await LocalDb.setCursor(_kStepsPurgePendingFrom, date);
+      }
+    }
+
     try {
-      await _nativeDelete(HealthDataType.STEPS, dayStart, dayEnd);
+      // A false from the store is a genuine failure on Health Connect — the
+      // same rule every other delete here reads through this helper — so an
+      // unconfirmed purge must not be recorded as done. On Apple a false means
+      // "found nothing", which the helper translates back to cleared.
+      final cleared = healthDeleteClearedRange(
+        deleted: await _nativeDelete(HealthDataType.STEPS, from, dayEnd),
+        ios: _apple,
+      );
+      if (!cleared) {
+        await rememberPending();
+        debugPrint('[health] purge legacy steps $date: the store did not '
+            'confirm the delete');
+        return;
+      }
+      if (pending.isNotEmpty) {
+        _stepsPurgePendingFrom = '';
+        await LocalDb.setCursor(_kStepsPurgePendingFrom, '');
+      }
       _stepsPurgedThrough = date;
       await LocalDb.setCursor(_kStepsPurgeCursor, date);
     } catch (e) {
       if (e is TimeoutException) _storeHung = true;
+      await rememberPending();
       // Leave the cursor where it is so the next pass retries this day.
       debugPrint('[health] purge legacy steps $date: $e');
     }
