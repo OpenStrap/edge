@@ -6,7 +6,7 @@
 //   1a  remove-detected step 2, the first Discard scrolled under the NavBar: no outline, no label, indicator up
 //   1b  alarm-schedule step 3 (Alarm page): the label sits against the Wake time outline   3   off path on Health (route back = Today): every content card dims
 //   5   the step card, "Don't see it?" open, and the off-path card: Exit bottom right, accent
-//   7   remove-detected step 3 after a real Discard: staged row real, the bar's neighbour dimmed, no box
+//   7   remove-detected completes after a real Discard.
 import 'dart:io'; import 'dart:ui' as ui; import 'package:flutter/material.dart'; import 'package:flutter/rendering.dart'; import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/state/alarm_schedule.dart'; import 'package:openstrap_edge/ui2/app_shell.dart' show ShellDomain;
 import 'package:openstrap_edge/ui2/guides/guide.dart'; import 'package:openstrap_edge/ui2/guides/guide_catalogue.dart';
@@ -39,13 +39,13 @@ Future<void> _leave(WidgetTester t) async { await t.pumpWidget(const SizedBox())
       final key = GlobalKey(); final repo = GuideFakeRepo(singlePending: false); final pending = await repo.pendingActivities();
       final (app, run) = await _onPage(t, 'remove-detected', key, (_) => DetectedActivitiesScreen(preloaded: pending));
       expect(run.currentStep?.id, 'discard'); await _png(t, key, '6-review-step2-discard.png');
-      // 7: press the real Discard; step 3.
-      await t.tapAt(_overlay(t).targetRect!.center); await settleLiveGuide(t, frames: 24); expect(run.currentStep?.id, 'save');
-      await _png(t, key, '8-7-step3-staged.png'); run.exit(); await _leave(t); app.dispose(); } {
+      // 7: press the real Discard; the two-step guide completes.
+      await t.tapAt(_overlay(t).targetRect!.center); await settleLiveGuide(t, frames: 24); expect(run.state, isA<GuideFinished>());
+      await _png(t, key, '8-7-discard-done.png'); run.exit(); await _leave(t); app.dispose(); } {
       // 1a on a short phone (the demo review is two items; a 250 px screen makes it scroll).
       final key = GlobalKey(); final repo = GuideFakeRepo(singlePending: false); final pending = await repo.pendingActivities();
       final (app, run) = await _onPage(t, 'remove-detected', key, (_) => DetectedActivitiesScreen(preloaded: pending), size: const Size(412, 250));
-      final list = find.byKey(const ValueKey('apk2-day-list'));
+      final list = find.byType(DetectedActivitiesScreen);
       final position = t.state<ScrollableState>(find.descendant(of: list, matching: find.byType(Scrollable)).first).position;
       final target = _overlay(t).targetRect!; position.jumpTo(position.pixels + target.bottom - 36); await settleLiveGuide(t, frames: 30);
       await _png(t, key, '7-1a-discard-under-navbar.png'); run.exit(); await _leave(t); app.dispose(); } {

@@ -3,6 +3,7 @@
 // Opt-in review artifacts, not pixel goldens. Run on Boat with GUIDE_SHOTS_DIR set to an output directory. No app code or stored wearer data is changed.
 import 'dart:convert'; import 'dart:io'; import 'dart:ui' as ui;
 import 'package:flutter/material.dart'; import 'package:flutter/rendering.dart'; import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/compute/manual_session.dart'; import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/data/day_label.dart'; import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart'; import 'package:openstrap_edge/l10n/app_localizations.dart';
@@ -27,7 +28,11 @@ class _ShotsBand extends BleEngine { _ShotsBand() : super(onRecord: (_, _) async
   @override Future<({DateTime? armed, bool echoed})> armAlarm( DateTime when, { int index = 0, List<int>? haptics, }) async => (armed: when, echoed: true); }
 // The shared fixture is read-only. This capture needs the actual sleep edit to expose step 2, so reflect the real override row instead of manually jumping
 // the guide or changing its variant.
-class _ShotsRepo extends GuideFakeRepo { final _writes = LocalRepositoryImpl(getProfileMap: () => {});
+class _ShotsRepo extends GuideFakeRepo {
+  _ShotsRepo({this.napDay});
+  final String? napDay;
+  @override Future<List<String>> availableDays() => napDay == null ? super.availableDays() : Future.value([napDay!]);
+  final _writes = LocalRepositoryImpl(getProfileMap: () => {});
   @override Future<Map<String, dynamic>> getDayStress(String date) async => const {}; @override Future<Map<String, dynamic>> getDayHeart(String date) async => const {}; @override
   Future<Map<String, JournalMetricValue>> getJournalMetrics( String date, ) async => const {}; @override Future<List<JournalFieldSpec>> getJournalFields() async => const [];
   @override Future<Map<String, dynamic>> getDaySteps(String date) => _writes.getDaySteps(date); @override
@@ -47,7 +52,12 @@ class _ShotsRepo extends GuideFakeRepo { final _writes = LocalRepositoryImpl(get
   @override Future<Map<String, dynamic>> getDaySleepV2(String date) async { final night = await super.getDaySleepV2(date);
     final saved = await LocalDb.getSleepOverride(date); return saved == null ? night : { ...night, 'sleep_source': saved['source'],
             'onset_ts': saved['onset_ts'], 'wake_ts': saved['offset_ts'], }; } @override Future<Map<String, dynamic>> getDaySleep(String date) => getDaySleepV2(date); }
-Future<void> _resetDb() async { await LocalDb.close(); final dir = await databaseFactory.getDatabasesPath();
+_ShotsRepo _repoFor(Guide guide) {
+  final now = DateTime.now();
+  // Yesterday makes the default 14:00–15:00 nap valid even just after midnight.
+  return _ShotsRepo(napDay: guide.id == 'add-nap' ? dayLabelOf(DateTime(now.year, now.month, now.day - 1)) : null);
+}
+Future<void> _resetDb() => DerivationEngine.whileIdle(() async { await LocalDb.close(); final dir = await databaseFactory.getDatabasesPath();
   await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName)); final fixture = GuideFakeRepo(); final db = await LocalDb.instance;
   for (final suggestion in await fixture.pendingActivities()) { await db.insert('activity_suggestions', { 'id': suggestion.id,
       'kind': suggestion.kind.name, 'day_id': dayLabelOf( DateTime.fromMillisecondsSinceEpoch(suggestion.startTs * 1000), ),
@@ -55,7 +65,7 @@ Future<void> _resetDb() async { await LocalDb.close(); final dir = await databas
       'details_json': jsonEncode(suggestion.details), 'created_at': suggestion.startTs, 'updated_at': suggestion.startTs, }); }
   final workouts = (await fixture.getWorkouts())['workouts'] as List; for (final row in workouts) { await LocalDb.putSession({
       'id': row['id'], 'type': row['type'], 'start_ts': row['start_ts'],
-      'end_ts': (row['start_ts'] as int) + (row['duration_min'] as int) * 60, 'status': 'done', 'source': 'manual', 'created_at': (row['start_ts'] as int) * 1000, }); } }
+      'end_ts': (row['start_ts'] as int) + (row['duration_min'] as int) * 60, 'status': 'done', 'source': 'manual', 'created_at': (row['start_ts'] as int) * 1000, }); } });
 List<double> _rect(Rect r) => [r.left, r.top, r.width, r.height];
 Map<String, Object?> _measure(WidgetTester t, LiveGuideOverlayState overlay) { final screen = Offset.zero & _screen;
   final shapes = overlay.paintedShapes; final counts = {for (final kind in SkeletonKind.values) kind.name: 0}; var area = 0.0;
@@ -107,6 +117,9 @@ Future<void> _advance( WidgetTester t, LiveGuideApp app, Guide guide, GuideStep 
     await path.acceptTime('change-times: accept bed time'); await path.acceptTime('change-times: accept wake time');
     await path.frames('change-times: apply'); } if (guide.id == 'add-nap' && step.id == 'log-nap') {
     await path.acceptTime('log-nap: accept fell-asleep time'); await path.acceptTime('log-nap: accept wake time');
+    final day = (await app.state.repo!.availableDays()).single;
+    final rows = await t.runAsync(() => LocalDb.napEdits(day));
+    expect(rows!.where((row) => row['source'] == 'manual'), hasLength(1), reason: 'real nap saved before recording completion');
     await path.frames('log-nap: recompute and publish', count: 40); } if (guide.id == 'alarm-schedule' && step.id == 'set-wake-time') {
     await path.acceptTime('set-wake-time: accept time'); } if (guide.id == 'delete-workout' && step.id == 'delete-session') {
     final remove = find.descendant( of: find.byType(BottomSheet), matching: find.text('Remove'), ); expect(remove, findsOneWidget);
@@ -159,7 +172,7 @@ void main() { TestWidgetsFlutterBinding.ensureInitialized(); final enabled = _ou
               'Display metrics are fixtures; edits and workout actions use the isolated test database.', ], 'steps': records, };
           for (final brightness in [Brightness.light, Brightness.dark]) { await t.runAsync(_resetDb); final captureKey = GlobalKey();
             final app = await pumpLiveGuideApp( t, size: _screen, devicePixelRatio: _dpr, brightness: brightness, captureKey: captureKey,
-              repo: _ShotsRepo(), engine: guide.id == 'alarm-schedule' ? _ShotsBand() : null, ); final dark = brightness == Brightness.dark;
+              repo: _repoFor(guide), engine: guide.id == 'alarm-schedule' ? _ShotsBand() : null, ); final dark = brightness == Brightness.dark;
             final path = _PathFrames(t, captureKey, directory, !dark); if (!dark) { manifestData['sequence'] = { 'frameIntervalMs': 100,
                 'frameSize': [412, 915], 'gifPath': '../gifs/${guide.id}.gif', 'frames': path.records, 'actions': path.actions, }; }
             final started = await app.runner.start(guide, band: null); expect(started, isA<GuideStarted>());
@@ -193,7 +206,7 @@ void main() { TestWidgetsFlutterBinding.ensureInitialized(); final enabled = _ou
             await settleLiveGuide(t, frames: 30); expect(t.takeException(), isNull); }
           // A fresh app keeps completed workout/sleep edits from changing step 1 and leaves the uninterrupted light GIF timeline intact.
           await t.runAsync(_resetDb); final offPathKey = GlobalKey(); final offPathApp = await pumpLiveGuideApp( t, size: _screen,
-            devicePixelRatio: _dpr, captureKey: offPathKey, repo: _ShotsRepo(), engine: guide.id == 'alarm-schedule' ? _ShotsBand() : null,
+            devicePixelRatio: _dpr, captureKey: offPathKey, repo: _repoFor(guide), engine: guide.id == 'alarm-schedule' ? _ShotsBand() : null,
           ); final offPathStart = await offPathApp.runner.start(guide, band: null) as GuideStarted; await settleLiveGuide(t, frames: 18);
           expect(offPathStart.run.currentStep?.id, _steps[guide.id]!.first); manifestData['offPath'] = await _offPath( t, guide,
             offPathStart.run, offPathKey, directory, ); await t.runAsync( () => manifest.writeAsString(
