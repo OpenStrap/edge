@@ -153,8 +153,18 @@ void main() {
     expectRefused(await _run('log_period', 123));
   });
 
-  test('a read tool with empty arguments does not run either', () async {
+  test('a read tool that asks for nothing still runs when the provider sends no arguments', () async {
     final r = await _run('get_today', '');
+    expect(r.repo.todayRead, isTrue);
+  });
+
+  test('...and when the arguments key is missing altogether', () async {
+    final r = await _run('get_today', _missingArguments);
+    expect(r.repo.todayRead, isTrue);
+  });
+
+  test('a read tool is still refused when its arguments are malformed text', () async {
+    final r = await _run('get_today', '{"date":');
     expect(r.repo.todayRead, isFalse);
     final tool = r.engine.debugHistory.singleWhere((m) => m['role'] == 'tool');
     expect('${tool['content']}', contains('JSON'));

@@ -166,6 +166,14 @@ class CoachSessionMeta {
 
 // ── engine ───────────────────────────────────────────────────────────────────
 
+/// Read-only tools with nothing required to ask for. A provider that sends NO
+/// arguments at all for one of these (an empty string, or no `arguments` key)
+/// is making a valid call, so it runs with `{}`. Refusing it would leave the
+/// coach unable to read today's data on a provider that never sends `"{}"`.
+/// Everything that writes is NOT here: an empty or missing argument for those
+/// would run on fabricated defaults. Malformed text still refuses for all.
+const kNoArgumentReadTools = {'get_today', 'get_medications', 'get_nutrition'};
+
 class CoachEngine {
   final CoachConfig config;
   final LocalRepository api;
@@ -704,6 +712,13 @@ class CoachEngine {
           }
         } catch (_) {
           argsParsed = false;
+        }
+        // No arguments at all is a valid call for a read tool that asks for none.
+        if (!argsParsed && kNoArgumentReadTools.contains(name)) {
+          final raw = fn['arguments'];
+          if (raw == null || (raw is String && raw.trim().isEmpty)) {
+            argsParsed = true;
+          }
         }
         // Only an OBJECT is a valid argument map. Empty/missing strings,
         // arrays and numbers are normal failures from OpenAI-compatible
