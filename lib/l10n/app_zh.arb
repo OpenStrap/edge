@@ -3522,6 +3522,14 @@
   "bandStatusFirmwareLockedTitle": "手环固件可能正在扣留它的数据",
   "bandStatusFirmwareLockedReason": "这个手环运行的是 WHOOP 固件 50.43：它可以连接并响应应用，但在手环上没有 WHOOP 签名的会员令牌之前，可能不会发送任何记录或实时心率。这可能是收不到数据的原因之一。OpenStrap 无法签发这个令牌。已保存在这里的所有数据都是安全的。",
   "bandStatusFirmwareLockedFix": "如果是固件的原因，应用无法更改，手环重新发送记录后此提示会自动消失",
+  "settingsSleepHmmRowTitle": "实验性睡眠分期 (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "研究算法，非医疗设备。默认关闭。",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
+  },
   "supplementSmartWindowMinutes": "起床时间前 {m} 分钟",
   "supplementGoalValue": "目标 {target}",
   "supplementOfCountUnit": "共 {n} {unit}",

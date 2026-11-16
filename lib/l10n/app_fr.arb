@@ -3522,6 +3522,14 @@
   "bandStatusFirmwareLockedTitle": "Le firmware du bracelet retient probablement ses données",
   "bandStatusFirmwareLockedReason": "Ce bracelet utilise le firmware WHOOP 50.43, qui peut se connecter et répondre à l’application sans envoyer ni enregistrements ni fréquence cardiaque en direct tant qu’un jeton d’abonnement signé par WHOOP n’est pas présent sur le bracelet. C’est une raison possible pour laquelle aucune donnée n’arrive. OpenStrap ne peut pas émettre ce jeton. Tout ce qui est déjà enregistré ici est en sécurité.",
   "bandStatusFirmwareLockedFix": "Si c’est le firmware, l’application n’y peut rien et ce message disparaît dès que le bracelet renvoie des enregistrements",
+  "settingsSleepHmmRowTitle": "Stadification du sommeil expérimentale (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "Algorithme de recherche, pas un dispositif médical. Désactivé par défaut.",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
+  },
   "supplementSmartWindowMinutes": "{m} min avant l’heure de réveil",
   "supplementGoalValue": "Objectif {target}",
   "supplementOfCountUnit": "sur {n} {unit}",

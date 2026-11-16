@@ -1,3 +1,4 @@
+import 'sleep_pipeline_hmm.dart';
 // onehz_pipeline.dart — the PURE, isolate-safe per-day analytics pipeline (V2).
 //
 // `deriveDayBundle` is a top-level function with NO DB / IO / Flutter binding
@@ -415,6 +416,13 @@ class DayBundleInput {
   /// meaningful on a FORCED window — see `sol_sec` below.
   final String sleepSource;
 
+  /// EXPERIMENTAL, default OFF (PR #628 review): when true, the per-second
+  /// stage labels are re-derived by the HMM/Viterbi classifier
+  /// (`sleep_pipeline_hmm.dart`) from the sleep-window HR/RR substrate instead
+  /// of using the coordinator-supplied [hypnoStages]. Off by default so the
+  /// shipped heuristic stays the source of truth until the HMM is validated.
+  final bool useHmmStages;
+
   const DayBundleInput({
     required this.date,
     required this.dayTsSec,
@@ -446,6 +454,7 @@ class DayBundleInput {
     this.deviceFamily,
     this.sleepSource = 'auto',
     this.stepSpans = const [],
+    this.useHmmStages = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -479,6 +488,7 @@ class DayBundleInput {
     'day_flags': dayFlags,
     'device_family': deviceFamily,
     'sleep_source': sleepSource,
+    'use_hmm_stages': useHmmStages,
   };
 
   static DayBundleInput fromJson(Map<String, dynamic> m) {
@@ -532,11 +542,102 @@ class DayBundleInput {
       dayFlags: strs('day_flags'),
       deviceFamily: m['device_family'] as String?,
       sleepSource: m['sleep_source'] as String? ?? 'auto',
+      useHmmStages: m['use_hmm_stages'] as bool? ?? false,
       stepSpans: [
         for (final r in (m['step_spans'] as List? ?? const []))
           [for (final v in (r as List)) (v as num).toInt()],
       ],
     );
+  }
+
+  /// Copy with replaced per-second stage labels — the experimental HMM
+  /// re-staging path in [deriveDayBundle]. Every figure [sleepJson] derives
+  /// from the labels is recomputed from [stages] by `segmentSleep`'s own
+  /// definitions (counts over OBSERVED seconds only, WASO between the first
+  /// and last sleep second, efficiency over observed in-bed time), so a night
+  /// never mixes the HMM's stage totals with the original stager's
+  /// efficiency. Figures `segmentSleep` derives that edge does not recompute
+  /// here are dropped rather than left describing the old labels. Null when
+  /// the labels hold no sleep at all: the caller keeps the original night.
+  DayBundleInput? withHypnoStages(List<String> stages) {
+    var light = 0, deep = 0, rem = 0, wake = 0, unobserved = 0;
+    var firstSleep = -1, lastSleep = -1;
+    for (var i = 0; i < stages.length; i++) {
+      switch (stages[i]) {
+        case 'light' || 'nrem':
+          light++;
+        case 'deep':
+          deep++;
+        case 'rem':
+          rem++;
+        case 'wake':
+          wake++;
+        default:
+          unobserved++;
+          continue;
+      }
+      if (stages[i] != 'wake') {
+        if (firstSleep < 0) firstSleep = i;
+        lastSleep = i;
+      }
+    }
+    final nrem = light + deep;
+    final tst = nrem + rem;
+    if (tst == 0) return null;
+    var waso = 0;
+    for (var i = firstSleep; i <= lastSleep; i++) {
+      if (stages[i] == 'wake') waso++;
+    }
+    final observedSec = stages.length - unobserved;
+    final json = {...sleepJson}
+      ..remove('sustained_awakenings')
+      ..remove('longest_sleep_run_sec')
+      ..remove('light_range_sec')
+      ..remove('deep_range_sec')
+      ..remove('rem_range_sec');
+    json
+      ..['tst_sec'] = tst
+      ..['waso_sec'] = waso
+      ..['nrem_sec'] = nrem
+      ..['light_sec'] = light
+      ..['deep_sec'] = deep
+      ..['rem_sec'] = rem
+      ..['wake_sec'] = wake
+      ..['efficiency_pct'] = observedSec > 0 ? 100.0 * tst / observedSec : null
+      ..['stager_source'] = 'hmm';
+    return DayBundleInput(
+    date: date,
+    dayTsSec: dayTsSec,
+    dayHr: dayHr,
+    dayRrTsMs: dayRrTsMs,
+    dayRrMs: dayRrMs,
+    sleepTsSec: sleepTsSec,
+    sleepHr: sleepHr,
+    sleepRrTsMs: sleepRrTsMs,
+    sleepRrMs: sleepRrMs,
+    sleepSkinTemp: sleepSkinTemp,
+    sleepJson: json,
+    hypnoStages: stages,
+    sleepOnsetSec: sleepOnsetSec,
+    sleepOffsetSec: sleepOffsetSec,
+    tonightSleepOnsetSec: tonightSleepOnsetSec,
+    profile: profile,
+    lnRmssdHistory: lnRmssdHistory,
+    lnRmssdDates: lnRmssdDates,
+    rhrHistory: rhrHistory,
+    respHistory: respHistory,
+    rmssdHistory: rmssdHistory,
+    skinTempAdcHistory: skinTempAdcHistory,
+    quietHrrHistory: quietHrrHistory,
+    readinessZHistory: readinessZHistory,
+    observedHrCeilingBpm: observedHrCeilingBpm,
+    dayConfidence: dayConfidence,
+    dayFlags: dayFlags,
+    stepSpans: stepSpans,
+    deviceFamily: deviceFamily,
+    sleepSource: sleepSource,
+    useHmmStages: useHmmStages,
+  );
   }
 }
 
@@ -546,7 +647,19 @@ class DayBundleInput {
 /// full derived bundle). Call directly + synchronously in tests, or via
 /// `Isolate.run(() => deriveDayBundle(input))` in production.
 Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
-  final d = DayBundleInput.fromJson(inputJson);
+  var d = DayBundleInput.fromJson(inputJson);
+
+  // EXPERIMENTAL HMM re-staging (default OFF — PR #628 review): when the
+  // input opts in, per-second labels are re-derived from the sleep-window
+  // HR/RR substrate by the Viterbi classifier. It abstains — the shipped
+  // labels stay — for the whole night when there is no baseline, and for
+  // each 30 s epoch it has no heart rate or RMSSD for; a second the band did
+  // not watch stays unobserved. The night's accounting is then recomputed
+  // from the final labels and the night is tagged `stager_source: hmm`.
+  if (d.useHmmStages && d.hypnoStages.isNotEmpty) {
+    final restaged = _hmmRestage(d);
+    if (restaged != null) d = d.withHypnoStages(restaged) ?? d;
+  }
 
   // ── HR over the DAY (for the curve, strain zones, dip day-side) ───────────
   final dayHr = [for (final h in d.dayHr) h.toDouble()];
@@ -1393,6 +1506,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     // Why this night produced nothing, when the segmenter knows. Null on a
     // normal night; never render a bare dash for an absence that carries one.
     'absence_reason': absenceReason,
+    // Present only when the experimental re-staging labelled this night (PR
+    // #628), so a night of the shipped stager is stored exactly as before.
+    if (d.sleepJson['stager_source'] == 'hmm') 'stager_source': 'hmm',
     // Seconds the band's own last SLEEP cut off the end of the auto window; null = rule did not apply. Provenance, never a metric.
     'band_offset_trim_sec': bandOffsetTrimSec,
     'stager': _envelope(
@@ -2345,4 +2461,188 @@ int? _medianGapSec(List<int> tsSec, {int minGapSec = 1}) {
       if (tsSec[i] - tsSec[i - 1] >= minGapSec) tsSec[i] - tsSec[i - 1],
   ]..sort();
   return gaps.isEmpty ? null : gaps[gaps.length ~/ 2];
+}
+
+/// Longest gap between two consecutive beats that still counts as one run of
+/// beats; a successive difference is never taken across a longer one.
+const double _rrRunBreakMs = 3000;
+
+/// Per-second RMSSD over the sleep window: for each second in [tsSec], the
+/// RMSSD of cleaned NN intervals whose beat-end falls within the trailing
+/// [windowSec] seconds. Seconds with no beat coverage get 0.0 (the HMM
+/// treats that as an unusable observation, never as a measurement).
+List<double> _rmssdPerSecond(
+  List<double> nn,
+  List<double> nnTimesMs,
+  List<int> tsSec, {
+  required int windowSec,
+}) {
+  final out = List<double>.filled(tsSec.length, 0.0);
+  if (nn.isEmpty || nnTimesMs.isEmpty || tsSec.isEmpty) return out;
+  var lo = 0;
+  var hi = 0;
+  for (var i = 0; i < tsSec.length; i++) {
+    final secMs = tsSec[i] * 1000.0;
+    while (lo < nn.length && nnTimesMs[lo] < secMs - windowSec * 1000) {
+      lo++;
+    }
+    while (hi < nn.length && nnTimesMs[hi] <= secMs) {
+      hi++;
+    }
+    if (hi - lo < 2) continue;
+    var sumSq = 0.0;
+    var diffs = 0;
+    for (var k = lo + 1; k < hi; k++) {
+      // Two beats seconds apart across a recording gap are not neighbours:
+      // their difference is not a beat-to-beat change.
+      if (nnTimesMs[k] - nnTimesMs[k - 1] > _rrRunBreakMs) continue;
+      final d = nn[k] - nn[k - 1];
+      sumSq += d * d;
+      diffs++;
+    }
+    if (diffs == 0) continue;
+    out[i] = math.sqrt(sumSq / diffs);
+  }
+  return out;
+}
+
+/// EXPERIMENTAL HMM/Viterbi re-staging (gated by [DayBundleInput.useHmmStages]).
+///
+/// Returns the night's per-second labels, index-aligned with
+/// [DayBundleInput.hypnoStages] (second `i` is `sleepOnsetSec + i`), or null
+/// when the decoder abstains on the whole night — no HR or RMSSD baseline in
+/// the first 120 minutes, or under 30 usable seconds — so the caller keeps the
+/// shipped labels.
+///
+/// Observations are placed BY CLOCK SECOND over the window: the substrate is
+/// sparse (a row only where the band recorded) while the labels are dense, so
+/// pairing them by row index would let a gap cost no time and shift every
+/// later label. Within the night the decoder abstains per 30 s epoch: an
+/// epoch with no plausible heart rate or no RMSSD keeps its shipped label,
+/// and an unobserved second stays unobserved.
+List<String>? _hmmRestage(DayBundleInput d) {
+  final n = d.hypnoStages.length;
+  final t0 = d.sleepOnsetSec;
+  final hrAt = List<double>.filled(n, 0.0);
+  for (var i = 0; i < d.sleepTsSec.length && i < d.sleepHr.length; i++) {
+    final k = d.sleepTsSec[i] - t0;
+    if (k >= 0 && k < n) hrAt[k] = d.sleepHr[i].toDouble();
+  }
+  final corrected = correctRr(d.sleepRrMs, rrTsMs: d.sleepRrTsMs);
+  // nnTimesMs is relative to the start of the first input beat; put it back
+  // on the epoch so it lines up with the window's clock.
+  final rrEpoch0 = d.sleepRrTsMs.isEmpty || d.sleepRrMs.isEmpty
+      ? 0.0
+      : d.sleepRrTsMs.first.toDouble() - d.sleepRrMs.first;
+  final nnTimes = [for (final t in corrected.nnTimesMs) t + rrEpoch0];
+  final rmssdAt = _rmssdPerSecond(
+    corrected.nn,
+    nnTimes,
+    [for (var i = 0; i < n; i++) t0 + i],
+    windowSec: 60,
+  );
+  final labels = _classifySleepStagesHMM([
+    for (var i = 0; i < n; i++)
+      {
+        'ts': t0 + i,
+        'hr': d.hypnoStages[i] == 'unobserved' ? 0.0 : hrAt[i],
+        'rmssd': d.hypnoStages[i] == 'unobserved' ? 0.0 : rmssdAt[i],
+      },
+  ]);
+  if (labels == null) return null;
+  final merged = <String>[
+    for (var i = 0; i < n; i++)
+      d.hypnoStages[i] == 'unobserved'
+          ? 'unobserved'
+          : (labels[i] ?? d.hypnoStages[i]),
+  ];
+  // The decoder never goes from REM straight to deep between its own labels,
+  // so any REM -> deep boundary left here involves a shipped label standing in
+  // for an epoch it abstained on. REM passes through light.
+  var prev = '';
+  for (var i = 0; i < n; i++) {
+    if (merged[i] == 'unobserved') continue;
+    if (merged[i] == 'deep' && prev == 'rem') {
+      merged[i] = 'light';
+    }
+    prev = merged[i];
+  }
+  return merged;
+}
+
+/// The Viterbi decode over 30 s epochs of [epochData] (per-second records
+/// with `ts`, `hr`, `rmssd`). Null when the whole night abstains (see
+/// [_hmmRestage]); otherwise one label per record, null where its epoch had
+/// no usable heart rate or RMSSD.
+List<String?>? _classifySleepStagesHMM(List<Map<String, dynamic>> epochData) {
+  if (epochData.isEmpty) return null;
+  final analyzer = SleepStageAnalyzer();
+  // Baseline from the first 120 minutes BY ELAPSED TIME, not the first 240
+  // rows — per-second rows at 1 Hz would otherwise cover only ~4 minutes.
+  final t0 = (epochData.first['ts'] as num?)?.toDouble() ?? 0.0;
+  final first120m = epochData
+      .where((e) => ((e['ts'] as num?)?.toDouble() ?? 0.0) - t0 <= 120 * 60)
+      .toList();
+  analyzer.computeBaseline(first120m);
+  // No baseline (RR that only starts after the first 120 minutes, say) makes
+  // every emission neutral, and wake's self-transition then labels a measured
+  // night as wake. Keep the shipped labels instead.
+  if (analyzer.hrMinNight == null || analyzer.rmssdMeanNight == null) {
+    return null;
+  }
+  final usable = epochData.where((e) {
+    final hr = (e['hr'] as num?)?.toDouble() ?? 0.0;
+    final rmssd = (e['rmssd'] as num?)?.toDouble() ?? 0.0;
+    return hr > 30.0 && hr < 200.0 && rmssd > 0.0 && rmssd < 500.0;
+  }).length;
+  if (usable < 30) return null;
+  // The transition table is per 30 s scoring epoch (AASM epoch length), so
+  // decode 30 s epochs, not 1 Hz rows: per row, wake's 0.90 self-transition
+  // would mean a ~10 s mean dwell. Each epoch averages its plausible HR and
+  // RMSSD; an epoch with none gets 0 (the neutral emission), and its label is
+  // not used.
+  final epochOf = [
+    for (final e in epochData)
+      ((((e['ts'] as num?)?.toDouble() ?? t0) - t0) ~/ 30).toInt(),
+  ];
+  final epochs = <Map<String, dynamic>>[];
+  final idx = <int, int>{};
+  for (var i = 0; i < epochData.length; i++) {
+    final k = idx.putIfAbsent(epochOf[i], () {
+      epochs.add({'hr': 0.0, 'rmssd': 0.0, 'nh': 0, 'nr': 0});
+      return epochs.length - 1;
+    });
+    final hr = (epochData[i]['hr'] as num?)?.toDouble() ?? 0.0;
+    final rmssd = (epochData[i]['rmssd'] as num?)?.toDouble() ?? 0.0;
+    final ep = epochs[k];
+    if (hr > 30.0 && hr < 200.0) {
+      ep['hr'] = (ep['hr'] as double) + hr;
+      ep['nh'] = (ep['nh'] as int) + 1;
+    }
+    if (rmssd > 0.0 && rmssd < 500.0) {
+      ep['rmssd'] = (ep['rmssd'] as double) + rmssd;
+      ep['nr'] = (ep['nr'] as int) + 1;
+    }
+  }
+  for (final ep in epochs) {
+    final nh = ep['nh'] as int, nr = ep['nr'] as int;
+    ep['hr'] = nh == 0 ? 0.0 : (ep['hr'] as double) / nh;
+    ep['rmssd'] = nr == 0 ? 0.0 : (ep['rmssd'] as double) / nr;
+  }
+  final states = analyzer.viterbiDecode(epochs);
+  if (states.length != epochs.length) return null;
+  String label(SleepState s) => switch (s) {
+        SleepState.wake => 'wake',
+        SleepState.nremLight => 'light',
+        SleepState.nremDeep => 'deep',
+        SleepState.rem => 'rem',
+      };
+  return [
+    for (var i = 0; i < epochData.length; i++)
+      if (epochs[idx[epochOf[i]]!] case final ep
+          when (ep['nh'] as int) > 0 && (ep['nr'] as int) > 0)
+        label(states[idx[epochOf[i]]!])
+      else
+        null,
+  ];
 }

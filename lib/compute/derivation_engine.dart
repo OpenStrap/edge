@@ -3105,9 +3105,28 @@ class CompactResult {
   int get freedBytes => beforeBytes > afterBytes ? beforeBytes - afterBytes : 0;
 }
 
+/// The experimental HMM sleep staging switch (Settings), default off.
+const kSleepHmmStagesPref = 'sleep_hmm_stages';
+
 class DerivationEngine {
   DerivationEngine({this.log, this.background = false, this.offloadActive});
   final void Function(String)? log;
+
+  /// EXPERIMENTAL, default off: re-stage the sleep window with the HMM
+  /// classifier inside [deriveDayBundle]. Read from the pref on every pass so
+  /// the foreground engine and every headless one agree, and a toggle takes
+  /// effect without a relaunch. Any failure reads as off.
+  static Future<bool> _hmmStagesOn() async {
+    try {
+      // reload(): a headless isolate caches its instance, so without it a
+      // toggle made in the app is not seen until that isolate restarts.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      return prefs.getBool(kSleepHmmStagesPref) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// True while a band offload is draining. The scheduler never STARTS a
   /// derive during one, but one can start mid-pass; the raw prune checks this
@@ -3380,6 +3399,7 @@ class DerivationEngine {
       ..sort();
     final head = [
       'v${debugFingerprintAlgoVersion ?? kAlgoVersion}',
+      if (await _hmmStagesOn()) 'hmm',
       dataNowSec,
       // The edges a day is aged against (band and wearable; see
       // [_agingEdgeFor]), from the pass's own memo.
@@ -3888,6 +3908,7 @@ class DerivationEngine {
     if (days.isEmpty) return 0;
     if (_running) return 0;
     _running = true;
+    lastRunFailedDays = 0;
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     _diag
       ..['running'] = true
@@ -3979,6 +4000,7 @@ class DerivationEngine {
       // every day under the current timezone, so it clears the travel hold too.
       // A partial selection deliberately does not: those days say nothing about
       // the ones still held.
+      lastRunFailedDays = failures;
       if (force && failures == 0) {
         final rawDays = (await LocalDb.decodedRecTsMaxByDay()).keys.toSet();
         if (rawDays.isNotEmpty && rawDays.difference(days).isEmpty) {
@@ -3999,6 +4021,7 @@ class DerivationEngine {
       return done;
     } catch (e, st) {
       _log('derive selected ERROR: $e\n$st');
+      lastRunFailedDays = days.length;
       return 0;
     } finally {
       await _runStorageHousekeeping();
@@ -5955,6 +5978,7 @@ class DerivationEngine {
       // guess — sleep-onset latency only means what people think it means on a
       // forced window.
       sleepSource: day.sleepSource,
+      useHmmStages: await _hmmStagesOn(),
     );
     final withHistory = _attachHistory(input, history);
 
