@@ -271,6 +271,7 @@ UsualRange? usualRangeFor(
 /// deviation) whose recent days all sat above 0 can still go below it.
 const kNonNegativeKeys = {
   'sleep',
+  'efficiency',
   'deep',
   'rem',
   'nap_min',
@@ -278,6 +279,13 @@ const kNonNegativeKeys = {
   'wear',
   'steps',
   'calories',
+  'strain',
+  'trimp',
+  'stress',
+  'lf_hf',
+  'hrv_cv',
+  'brv',
+  'spo2',
 };
 
 /// Metrics where neither direction is good news: more load is not better load,
