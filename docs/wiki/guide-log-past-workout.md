@@ -26,10 +26,10 @@ When you finish, the Done card adds:
 
 One picture per step, side by side.
 
-![The 3 steps of this guide side by side](https://raw.githubusercontent.com/mikenrafter/edge/7ee4aae63626ab73af46fde5dc25fde1d058df8a/live-guides/log-past-workout/sheet.png)
+![The 3 steps of this guide side by side](https://raw.githubusercontent.com/mikenrafter/edge/dd134dd25c0422519602e26511290130f2fe084f/main-r7/log-past-workout/sheet.png)
 
 The whole guide in motion, ending on the Done card.
 
-![The guide from start to Done](https://raw.githubusercontent.com/mikenrafter/edge/7ee4aae63626ab73af46fde5dc25fde1d058df8a/live-guides/gifs/log-past-workout.gif)
+![The guide from start to Done](https://raw.githubusercontent.com/mikenrafter/edge/dd134dd25c0422519602e26511290130f2fe084f/main-r7/gifs/log-past-workout.gif)
 
 [Back to the wiki home](Home.md)

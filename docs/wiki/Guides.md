@@ -88,4 +88,3 @@ The card sits at the bottom or the top of the screen. To move it, drag it by its
 - **Exit** is read as "Exit the guide". **Don't see it?** is a button that says whether it is open or closed.
 - The dimmed and grey content stays reachable to a screen reader. The guide does not hide it.
 
-The screenshots on the task pages show the earlier outline appearance. The current guides use the moving hand described above.
