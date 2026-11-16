@@ -345,8 +345,15 @@ class SleepData {
     // off overnight and the card said "7h 04m" while this screen answered "No
     // night to show" about the same tap.
     final days = await repo.availableDays();
-    final prefer = heldOverNightOf(today) ??
-        (today['status'] as Map?)?['today_day']?.toString();
+    // #638 adds a SECOND night to the payload: while today's drain is still
+    // arriving, `sleep_provisional` is today's own night and `showing_prior_
+    // overnight` still holds the last scored one. Home draws its ring from
+    // the provisional night, so the tap has to open TODAY; the held-over night
+    // is not the night the user just looked at.
+    final todayDay = (today['status'] as Map?)?['today_day']?.toString();
+    final prefer = provisionalSleepOf(today).value != null
+        ? todayDay
+        : heldOverNightOf(today) ?? todayDay;
     final latest = pickDay(days, null, prefer);
     final day = pickDay(days, want, prefer);
     if (day == null) return SleepData(days: days, latestDay: latest);
@@ -701,25 +708,8 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     final l = AppLocalizations.of(c);
     final p = P.of(c);
     final title = l?.sleepDetailNavTitle ?? 'Sleep';
-    // Shown in every state of this screen (loading, failed, no night, loaded),
-    // not only once data arrives. It sits at the top of the content, so it
-    // scrolls with it.
-    // Theme tokens (wash/on + caption) for contrast — raw amber-on-white
-    // measured ~1.7-2.5:1.
-    final disclaimer = Container(
-      padding: const EdgeInsets.all(8),
-      color: p.wash(C.orange),
-      child: Text(
-        l?.sleepDetailMedicalDisclaimer ??
-            'Experimental research algorithm. Not a medical device. Consult a physician for sleep disorders.',
-        style: F.cap.copyWith(color: p.on(C.orange)),
-        textAlign: TextAlign.center,
-      ),
-    );
-
     if (_loading && _d == null) {
       return _frame(c, title, [
-        disclaimer,
         const SizedBox(height: S.x8),
         Center(child: CircularProgressIndicator()),
       ]);
@@ -733,7 +723,6 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       final nav = _d ?? _lastGood ?? d;
       final shown = _day ?? nav.latestDay ?? nav.day;
       return _frame(c, title, [
-        disclaimer,
         ...dayNavRow(shown, nav.days, _goDay),
         const SizedBox(height: S.x2),
         StatusCard(
@@ -764,7 +753,6 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       final rejected =
           (d.night['sleep_source'] as String?) == 'rejected' && rejectedDay != null;
       return _frame(c, title, [
-        disclaimer,
         ...dayNavRow(_day ?? d.day, d.days, _goDay),
         const SizedBox(height: S.x2),
         // A day CAN be in `availableDays` and still hold no night — the band
@@ -860,7 +848,6 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
     // would rather than printing the raw yyyy-MM-dd key.
     return _frame(c, title,
         sub: d.days.length < 2 ? dayNavLabel(d.day, l).toUpperCase() : '', [
-      disclaimer,
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
 
       // ── 1 · THE ANSWER ──

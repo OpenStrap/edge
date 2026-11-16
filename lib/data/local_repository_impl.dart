@@ -29,7 +29,8 @@ import '../compute/manual_session.dart';
 import '../compute/onehz_pipeline.dart' show kUnknownAbsenceNote, needInputNote;
 import '../compute/profile.dart';
 import '../compute/quiet_level.dart';
-import '../compute/vendor_sleep.dart' show vendorHypnogram;
+import '../compute/vendor_sleep.dart'
+    show vendorHypnogram, vendorSleepMinutes, vendorStageMinutes;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
@@ -434,6 +435,28 @@ class LocalRepositoryImpl extends LocalRepository {
         ? null
         : await _wakeFeatures(todayDay);
     final b = sleepBundle ?? activityBundle;
+    // Read above the early return: the provisional block below carries the same
+    // learned sleep need the rest of this payload does.
+    final cd = await _crossDay();
+    final recoveryState = todayFresh?['recovery_state']?.toString();
+    // TODAY'S OWN NIGHT, SLEEP ONLY, WHILE ITS DRAIN IS STILL ARRIVING (#638).
+    //
+    // The overnight block above refuses today's row until the band's edge has
+    // run an hour past its wake (#448), and that is the right call for
+    // READINESS: mid-drain the stager closes the window wherever the sync
+    // stopped, so a partial night's score is not this morning's. Sleep is a
+    // different question. The Sleep tab reads that same stored row with no
+    // gate at all, so Home was the one surface saying "still being worked out"
+    // for an hour after waking — or twelve, when the band stopped at wake.
+    //
+    // So the night's SLEEP SUMMARY travels on its OWN key, marked provisional,
+    // and nothing on the recovery side reads it: `sleep`, readiness, HRV,
+    // resting HR, skin temperature and stress all still come off `sleepBundle`
+    // and stay withheld until the night settles, exactly as #578 left them.
+    final sleepProvisional = recoveryState == 'night_in_progress' ||
+            recoveryState == 'provisional'
+        ? _provisionalSleepSummary(todayBundle, _sleepNeedMin(cd))
+        : null;
     if (b == null && wakeFeatures == null) {
       return {
         'daily': const {},
@@ -449,7 +472,6 @@ class LocalRepositoryImpl extends LocalRepository {
     final clinical = sleepBundle == null
         ? const <String, dynamic>{}
         : (_sub(sleepBundle, 'clinical') ?? const <String, dynamic>{});
-    final cd = await _crossDay();
 
     final rhrEnv = clinical['resting_hr'] is Map
         ? (clinical['resting_hr'] as Map).cast<String, dynamic>()
@@ -473,7 +495,6 @@ class LocalRepositoryImpl extends LocalRepository {
     // The pin is only trusted for the night it was taken on (its wake within an
     // hour of today's window, see LocalDb.headlinePinFor); a pin from an older
     // build or an earlier sleep block yields to the live final value.
-    final recoveryState = todayFresh?['recovery_state']?.toString();
     Map<String, int>? readinessUpdate;
     if (overnightState == 'ready') {
       final pin = await LocalDb.headlinePinFor(todayDay);
@@ -613,6 +634,7 @@ class LocalRepositoryImpl extends LocalRepository {
       'sleep': sleepBundle == null
           ? const {}
           : _sleepSummary(sleepBundle, needMin: _sleepNeedMin(cd)),
+      'sleep_provisional': ?sleepProvisional,
       if (sleepBundle != null && rhrEnv != null)
         'nocturnal': _nocturnal(
           sleepBundle,
@@ -806,6 +828,21 @@ class LocalRepositoryImpl extends LocalRepository {
         'need_min': _scalarMetric(needMin, 'ESTIMATE', unit: 'min'),
       'efficiency': _scalarMetric(eff, 'ESTIMATE', unit: '%'),
     };
+  }
+
+  /// TODAY'S OWN NIGHT as a provisional sleep summary, or null when the stored
+  /// row has no scored sleep to hand over (#638).
+  ///
+  /// Only the SLEEP half of the night: the recovery half (readiness, HRV,
+  /// resting HR) stays gated on [overnightSettled] in
+  /// `LocalDb.refreshComputeFreshness`, and there is no key here for it to
+  /// leak through. `provisional: true` travels with the block so a consumer
+  /// cannot read it as a settled night by shape alone.
+  Map<String, dynamic>? _provisionalSleepSummary(
+      Map<String, dynamic>? todayBundle, int? needMin) {
+    if (todayBundle == null) return null;
+    final s = _sleepSummary(todayBundle, needMin: needMin);
+    return s.isEmpty ? null : {...s, 'provisional': true};
   }
 
   Map<String, dynamic> _nocturnal(Map<String, dynamic> b, {num? baselineRhr}) {
@@ -1520,12 +1557,28 @@ class LocalRepositoryImpl extends LocalRepository {
     // day's published total is the one mismatch this screen must not show.
     final st = _sub(await _bundle(date), 'steps');
     final dayTotal = (st?['value'] as num?)?.toInt();
-    // A day answered by the strap's on-chip counter has no coverage spans;
-    // its own hourly spans (stamped by the derive) stand in for them.
-    final counter = r.spans.isEmpty &&
-            st?['source'] == 'strap_counter' &&
-            st?['spans'] is List
-        ? st!['spans'] as List
+    // A day the strap's on-chip counter ANSWERED is presented from the counter,
+    // whether or not `live_coverage` also holds rows for it.
+    //
+    // The counter is a WHOLE-DAY alternative to the coverage ladder, and the
+    // derive only picks it when its calibrated total beat everything in
+    // `live_coverage` put together (see `_writeSteps`). So on a counter day
+    // those rows are, by construction, the count the day did NOT publish — and
+    // requiring `r.spans.isEmpty` here still read them on every day the phone
+    // had banked an hour, which is every gen5 day with phone steps switched on.
+    // The counter's own hourly spans (stamped by the derive) are the clocked
+    // data for such a day; when an older derive stored none, the screen says so
+    // instead of showing another sensor's hours under this day's count.
+    //
+    // SELECTED BY SOURCE, never by the presence of `spans`. An older bundle can
+    // carry the counter's count with no span list at all, and requiring a List
+    // here dropped exactly those days onto the coverage ladder: the phone's
+    // smaller total came back under the counter's name, or zero when the phone
+    // had no rows either. A counter day with no stored spans is still a counter
+    // day — it publishes the counter's figure with no times behind it.
+    final storedSpans = st?['spans'];
+    final counter = st?['source'] == 'strap_counter'
+        ? (storedSpans is List ? storedSpans : const [])
         : null;
     // Only for naming: a span that sits inside a session gets that session's
     // name. Cheap — one indexed read over one day.
@@ -2327,19 +2380,16 @@ class LocalRepositoryImpl extends LocalRepository {
           !await deviceFlagOn(n.deviceId)) {
         continue;
       }
-      final minutes = <String, int>{};
-      for (final e in n.epochs) {
-        minutes[e.stage] = (minutes[e.stage] ?? 0) + (e.endSec - e.startSec) ~/ 60;
-      }
+      // Sum seconds per stage, then convert once: a 30 s epoch (Oura) floored
+      // per epoch read as zero minutes for the whole night.
+      final minutes = vendorStageMinutes(n.epochs);
       out.add({
         'device_id': n.deviceId,
         'label': labels[n.deviceId] ?? n.source,
         'family': families[n.deviceId],
         'onset_ts': n.onsetSec,
         'wake_ts': n.offsetSec,
-        'duration_min': minutes.entries
-            .where((e) => e.key != 'wake')
-            .fold<int>(0, (s, e) => s + e.value),
+        'duration_min': vendorSleepMinutes(n.epochs),
         'stage_min': minutes,
         // Same point shape as our own night: each stage from its start,
         // closed by a final point at wake.
@@ -2442,7 +2492,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // "no data" (avg_hr == 0) even when the window is full of worn HR.
     try {
       final age = _profileAge();
-      final stats = await LocalDb.sessionHrStats(
+      final (:stats, samples: rawBySession) = await LocalDb.sessionHrReads(
         fromTs,
         nowSec,
         maxHrCeiling: hrCeilingForAge(age),
@@ -2451,10 +2501,6 @@ class LocalRepositoryImpl extends LocalRepository {
       // Spike-suppressed max/min per session (issue #127): smooth the raw 1 Hz
       // over one batched join so the list agrees with getWorkout's on-read
       // recompute.
-      final rawBySession = await LocalDb.sessionHrSamplesBySession(
-        fromTs,
-        nowSec,
-      );
       for (final w in workouts) {
         final s = stats[w['id']];
         final raw = rawBySession[w['id']];

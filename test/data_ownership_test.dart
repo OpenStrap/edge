@@ -4,7 +4,8 @@
 // The reset test is the load-bearing one. The old reset walked the derived
 // days and deleted those, which left about twenty tables standing behind a
 // dialog that said otherwise — so the assertion here is deliberately
-// "EVERY table in sqlite_master is empty", not a list of table names. A list
+// "EVERY user-data table in sqlite_master is empty", not a list of table names.
+// The store_identity row is rotated on wipe to invalidate old checkpoints. A list
 // would have to be updated when a table is added, which is exactly the failure
 // mode being tested for.
 
@@ -60,7 +61,7 @@ void main() {
   });
 
   group('wipeAll', () {
-    test('leaves EVERY table empty, including the ones a list would forget',
+    test('leaves EVERY user-data table empty and rotates local store identity',
         () async {
       await _seedEverything();
       final db = await LocalDb.instance;
@@ -83,11 +84,14 @@ void main() {
         expect(n, greaterThan(0), reason: '$t was never seeded');
       }
 
+      final storeId = await LocalDb.storeIdentity();
       await LocalDb.wipeAll();
+      expect(await LocalDb.storeIdentity(), isNot(storeId));
 
       for (final t in tables) {
         final n = _count(await db.rawQuery('SELECT COUNT(*) AS n FROM $t'));
-        expect(n, 0, reason: '$t survived "Delete everything"');
+        expect(n, t == 'store_identity' ? 1 : 0,
+            reason: '$t survived "Delete everything"');
       }
     });
 
