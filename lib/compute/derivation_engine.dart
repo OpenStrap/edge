@@ -3148,7 +3148,10 @@ class DerivationEngine {
     _retentionInBackground = true;
     _clearRetainedSubstrate();
   }
-  void resumeFromBackground() => _retentionInBackground = false;
+  void resumeFromBackground() {
+    _retentionLaunchedInBackground = false;
+    _retentionInBackground = false;
+  }
   void handleMemoryPressure() => _clearRetainedSubstrate();
   void dispose() {
     _retentionDisposed = true;
@@ -3159,10 +3162,14 @@ class DerivationEngine {
   int _retentionEpoch = 0;
   int? _retentionPassEpoch;
   bool _retentionInBackground = false;
+  /// [background] tunes pacing for the life of the engine; retention instead
+  /// follows the app: a process launched in the background that later reaches
+  /// the foreground (resumeFromBackground) retains again.
+  late bool _retentionLaunchedInBackground = background;
   bool _retentionDisposed = false;
   final _retentionPreparedDays = <String>{};
   bool get _canRetainSubstrate => !debugDisableSubstrateRetention &&
-      !background && !_retentionInBackground && !_retentionDisposed &&
+      !_retentionLaunchedInBackground && !_retentionInBackground && !_retentionDisposed &&
       (_retentionPassEpoch == null || _retentionPassEpoch == _retentionEpoch);
 
   void _clearRetainedSubstrate() {
@@ -4063,10 +4070,7 @@ class DerivationEngine {
                     'never landed, from stored inputs)' : ''}');
             await _refreshBaselines();
           }
-          if (r.rescored > 0) {
-            await _runCrossDay(profile);
-            crossDayRebuilt = true;
-          }
+          if (r.rescored > 0) crossDayRebuilt = await _runCrossDay(profile);
         } catch (e) {
           _log('[derive] readiness calibration failed (will retry): $e');
         }
@@ -4576,22 +4580,24 @@ class DerivationEngine {
     // a night that was never scored.
     final (searchOwnership, searchPriority) =
         await _resolveOwnership(range.$1, range.$2);
-    List<List<Object>>? revisions;
-    if (!debugDisableStagedSleepCache) {
+    Future<List<List<Object>>?> readRevisions() async {
       try {
-        revisions = [];
+        final out = <List<Object>>[];
         final first = DateTime.fromMillisecondsSinceEpoch(range.$1 * 1000);
         for (var d = DateTime(first.year, first.month, first.day);
             d.millisecondsSinceEpoch ~/ 1000 <= range.$2;
             d = DateTime(d.year, d.month, d.day + 1)) {
           final label = dayLabelOf(d);
           final fp = await LocalDb.inputDayFingerprint(label);
-          revisions.add([label, fp.revisionSum, fp.revisionMax, fp.generation]);
+          out.add([label, fp.revisionSum, fp.revisionMax, fp.generation]);
         }
+        return out;
       } catch (_) {
-        revisions = null; // Unavailable provenance costs a staging, never a hit.
+        return null; // Unavailable provenance costs a staging, never a hit.
       }
     }
+
+    var revisions = debugDisableStagedSleepCache ? null : await readRevisions();
     final searchSub = await _loadSubstrateRange(
       range.$1,
       range.$2,
@@ -4600,6 +4606,12 @@ class DerivationEngine {
       ownership: searchOwnership,
       load: 'search',
     );
+    // A decoded-row replacement that commits during the load changes the rows
+    // read after the key was taken; such a pass stages without the cache.
+    if (revisions != null &&
+        jsonEncode(await readRevisions()) != jsonEncode(revisions)) {
+      revisions = null;
+    }
     // PERSONALIZED STAGER (v42): stage on a WORKER isolate, NOT the main/UI
     // thread. cardioStager reads analytics "ambient" globals — the rolling sleep
     // profile (`cardioUserProfile`) it blends in (bounded ≤0.5) and the
