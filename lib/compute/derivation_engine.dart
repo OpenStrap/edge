@@ -3344,6 +3344,23 @@ class DerivationEngine {
     }
   }
 
+  /// The revision a night's RAM state is keyed on: every touched day's input
+  /// revision summed over the sleep window, and the store generation.
+  Future<(int, int)> _nightInputRevision(int sleepOnsetSec, int sleepOffsetSec) async {
+    var revision = 0;
+    var generation = LocalDb.storeGeneration;
+    final first = DateTime.fromMillisecondsSinceEpoch(sleepOnsetSec * 1000);
+    final last = sleepOffsetSec > sleepOnsetSec ? sleepOffsetSec - 1 : sleepOnsetSec;
+    for (var date = DateTime(first.year, first.month, first.day);
+        date.millisecondsSinceEpoch ~/ 1000 <= last;
+        date = DateTime(date.year, date.month, date.day + 1)) {
+      final fp = await LocalDb.inputDayFingerprint(dayLabelOf(date));
+      revision += fp.revisionSum;
+      generation = fp.generation;
+    }
+    return (revision, generation);
+  }
+
   Future<int?> _sessionCeilingRevision() async {
     try {
       return await LocalDb.sessionCeilingRevision();
@@ -4400,6 +4417,11 @@ class DerivationEngine {
     // merged into the shared running max exactly once, below.
     final stats = _PrepareStats();
     final union = debugDisableUnionLoads ? null : _PrepareUnion();
+    // Provenance BEFORE any load: a decoded write that lands while the
+    // substrate is read then leaves the older revision attached to the newer
+    // rows, which the signature check rejects. Read after, it would attach the
+    // newer revision to rows that predate it and certify a stale ceiling.
+    final ceilingInput = await _ceilingInputRevision(dayId);
     final candidate = await _sleepCandidateForDay(dayId, stats: stats, union: union);
     final dayStart = _localDayLabelToSec(dayId);
     final dayEnd = _localNextDayLabelToSec(dayId);
@@ -4429,7 +4451,6 @@ class DerivationEngine {
         ? (Map<InputSignal, List<OwnedSpan>>.of(union.ownership),
             Map<InputSignal, List<String>>.of(union.priority))
         : await _resolveOwnership(unionFrom, unionTo);
-    final ceilingInput = await _ceilingInputRevision(dayId);
     if (union != null && (union.load == null ||
         unionFrom < union.load!.from! || unionTo > union.load!.to!)) {
       // A banked candidate needs no search load. A live search already in
@@ -4923,7 +4944,27 @@ class DerivationEngine {
     final rowBytes = [for (final c in sentChunks) c.bytes];
     if (checkpointPlan != null && checkpointPlan.boundary > range.$1 &&
         checkpointPlan.context != null) {
-      if (_nightStates[dayId]?.canStream != true &&
+      // A RAM state clears itself when the input revision moved (see
+      // NightRrState.context), so one that no longer matches is not a live
+      // start: clear it here and let the compatible disk checkpoint restore
+      // the night, instead of skipping it and reprocessing the whole night.
+      final ram = _nightStates[dayId];
+      var ramLive = ram?.canStream == true;
+      if (ram != null && ramLive) {
+        try {
+          final w = ram.window;
+          if (w == null) {
+            ramLive = false;
+          } else {
+            final (rev, gen) = await _nightInputRevision(w.$1, w.$2);
+            ramLive = ram.hasContext(rev, gen, kAlgoVersion);
+          }
+        } catch (_) {
+          ramLive = false;
+        }
+        if (!ramLive) ram.clear();
+      }
+      if (!ramLive &&
           _nightStates[dayId]?.acceptsCheckpointAlgorithm(kAlgoVersion) != false) {
         try {
           debugCheckpoints.reads++;
@@ -6856,21 +6897,11 @@ class DerivationEngine {
     if ((retainNight && sleepSub.rrMs.isNotEmpty) || diagnostics != null) {
       nightState = _nightStates.remove(day.date) ?? NightRrState();
       try {
-        var revision = 0;
-        var generation = LocalDb.storeGeneration;
-        final first = DateTime.fromMillisecondsSinceEpoch(
-            day.sleepOnsetSec * 1000);
-        final last = day.sleepOffsetSec > day.sleepOnsetSec
-            ? day.sleepOffsetSec - 1 : day.sleepOnsetSec;
-        for (var date = DateTime(first.year, first.month, first.day);
-            date.millisecondsSinceEpoch ~/ 1000 <= last;
-            date = DateTime(date.year, date.month, date.day + 1)) {
-          final fp = await LocalDb.inputDayFingerprint(dayLabelOf(date));
-          revision += fp.revisionSum;
-          generation = fp.generation;
-        }
+        final (revision, generation) =
+            await _nightInputRevision(day.sleepOnsetSec, day.sleepOffsetSec);
         nightState.context(inputRevision: revision, generation: generation,
             algorithm: kAlgoVersion);
+        nightState.window = (day.sleepOnsetSec, day.sleepOffsetSec);
         nightRevision = revision;
         nightGeneration = generation;
         nightProvenance = true;

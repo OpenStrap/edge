@@ -24,6 +24,10 @@ class NightRrState {
   ana.RrCorrector? _corrector;
   final List<double> _rr = [], _times = [], _nn = [], _nnTimes = [];
   (int, int, int)? _context;
+  /// The sleep window (onset, offset, epoch seconds) this state was last keyed
+  /// on; set by the engine after [context]. Lets a later pass re-derive the
+  /// revision [context] would be given and ask [hasContext] before trusting RAM.
+  (int, int)? window;
   (String, int)? _night;
   final _memos = <String, ({Object dependencies, Object? value})>{};
   final _digests = _PassListDigests();
@@ -220,6 +224,9 @@ class NightRrState {
 
   void beginPass() => _digests.clear();
   void endPass() => _digests.clear();
+
+  bool hasContext(int inputRevision, int generation, int algorithm) =>
+      _context == (inputRevision, generation, algorithm);
 
   void context({required int inputRevision, required int generation,
       required int algorithm}) {
