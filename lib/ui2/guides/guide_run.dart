@@ -147,18 +147,25 @@ class GuideRun extends ChangeNotifier {
       index = matchStep(variant, topPage, l);
     }
     // Returning to an earlier branch cannot rewind the pending action. An
-    // ancestor is still on the way to it; a sibling requires a route back.
-    final last = _lastIndex;
-    if (index != null && last != null && index < last &&
-        variant.steps[index].node != null && variant.steps[index].node != variant.steps[last].node) {
-      if (location == null || !GuideNavigation.onPath(location, variant.steps[last].node!)) index = null;
+    // ancestor is still on the way to it; a sibling requires a route back. A
+    // pending step with no node of its own has no path to be on, so it counts
+    // as off it (a variant may mix node-backed and node-less steps).
+    bool rewindRejected(int candidate) {
+      final last = _lastIndex;
+      if (last == null || candidate >= last) return false;
+      final to = variant.steps[candidate].node;
+      final from = variant.steps[last].node;
+      if (to == null || to == from) return false;
+      return from == null || location == null || !GuideNavigation.onPath(location, from);
     }
+    if (index != null && rewindRejected(index)) index = null;
     // A reveal may dispose the anchor in a lazy list. Only restore a step
     // whose anchor was already observed on THIS page, with its action still
     // found. This also works when Back returns from a later step's route.
     final key = _memoryKey(topPage);
     final remembered = _matchedPages[key];
-    if (index == null && remembered != null && _anchorMatches(variant.steps[remembered].target.resolve(topPage, l))) {
+    if (index == null && remembered != null && !rewindRejected(remembered) &&
+        _anchorMatches(variant.steps[remembered].target.resolve(topPage, l))) {
       index = remembered;
     }
     if (index != null) {

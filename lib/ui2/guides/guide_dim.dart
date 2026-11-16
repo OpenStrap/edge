@@ -287,10 +287,9 @@ class GuidePlan implements GuideLooseLooks, GuideKeepsControls {
       byKey[key] ?? (seen.contains(key) ? null : fallback);
 
   bool _agree<K>(Map<K, GuideUnitLook> a, Set<K> aSeen, Map<K, GuideUnitLook> b, Set<K> bSeen) {
-    for (final key in a.keys) {
-      if (_effective(a, aSeen, key) != _effective(b, bSeen, key)) return false;
-    }
-    for (final key in b.keys) {
+    // Seen-only keys count too: a component one plan saw without a treatment is
+    // bare there, while the other plan's fallback may dim it.
+    for (final key in {...a.keys, ...aSeen, ...b.keys, ...bSeen}) {
       if (_effective(a, aSeen, key) != _effective(b, bSeen, key)) return false;
     }
     return true;
