@@ -5,6 +5,28 @@
   "profileMyDevices": "Meine Geräte",
   "profileLanguage": "Sprache",
   "languageSystemDefault": "Systemstandard",
+  "alarmSavedNotOnBand": "Gespeichert, aber das Band hat ihn noch nicht übernommen – er wird bei der nächsten Synchronisierung erneut gesendet",
+  "coachChatgptUsingPlanShort": "ChatGPT-Abo wird genutzt",
+  "coachChatgptSharingNotAllowed": "Angemeldet, aber die Nutzung des ChatGPT-Abos wurde nicht erlaubt. Tippe erneut auf „Mit ChatGPT fortfahren“ und erlaube die Nutzung deines Abos hier.",
+  "coachChatgptSignedOut": "Von ChatGPT abgemeldet.",
+  "coachChatgptSignOutUnconfirmed": "Hier abgemeldet, aber ChatGPT hat es nicht bestätigt. Du kannst OpenStrap auch in den ChatGPT-Einstellungen trennen.",
+  "coachChatgptWelcomeTitle": "Du nutzt dein ChatGPT-Abo",
+  "coachChatgptWelcomeBody": "Berechtigte Nutzung in dieser App läuft über dein ChatGPT-Abo. Die Nutzung verwaltest du in deinen ChatGPT-Einstellungen.",
+  "coachChatgptGotIt": "Verstanden",
+  "coachChatgptUseTitle": "Dein ChatGPT-Abo nutzen",
+  "coachChatgptUsingTitle": "Dein ChatGPT-Abo wird genutzt",
+  "coachChatgptNotAllowedTitle": "Abo-Nutzung nicht erlaubt",
+  "coachChatgptBlurb": "Berechtigte KI-Anfragen in dieser App laufen über das Kontingent deines ChatGPT-Abos oder dein Guthaben. OpenStrap berechnet dafür nie etwas.",
+  "coachChatgptCancelSignIn": "Anmeldung abbrechen",
+  "coachChatgptContinue": "Mit ChatGPT fortfahren",
+  "coachChatgptManageUsage": "Nutzung verwalten",
+  "coachChatgptSignOut": "Von ChatGPT abmelden",
+  "coachChatgptPrivacy": "Deine Fragen und die Zeilen, die der Coach liest, werden unter deinem ChatGPT-Konto an OpenAI gesendet. Dort können deine ChatGPT-Datenkontrollen gelten, auch zum Modelltraining. Prüfe sie in den ChatGPT-Einstellungen. Was genau gesendet wird, siehst du unter „Was gesendet wurde“.",
+  "coachChatgptTermsTitle": "Bevor du dich anmeldest",
+  "coachChatgptTermsBody": "Die Anmeldung nutzt dein eigenes ChatGPT-Konto und Abo. Deine Nutzung hier unterliegt den Nutzungsbedingungen und Nutzungsrichtlinien von OpenAI, bitte lies sie, bevor du fortfährst.",
+  "coachChatgptTermsLink": "Nutzungsbedingungen von OpenAI",
+  "coachChatgptPoliciesLink": "Nutzungsrichtlinien von OpenAI",
+  "coachChatgptTermsAccept": "Gelesen, weiter",
   "actionCancel": "Abbrechen",
   "actionSave": "Speichern",
   "actionContinue": "Weiter",
@@ -1198,6 +1220,9 @@
   "metricDetailHoursADayUnit": "Std./Tag",
   "metricDetailWearFootnote": "Für {have} von {win} Tagen gibt es Tragedaten. Die übrigen sind Lücken in beiden Diagrammen – die Linie oben wird nicht darüber hinweg verbunden.",
   "metricDetailSlotNoRecord": "{day}, kein Eintrag",
+  "investigateMethodHrvRmssd": "Der Mittelwert des RMSSD über alle 5-Minuten-Fenster der erkannten Schlafphase, die mindestens 20 saubere aufeinanderfolgende Differenzen enthalten. Schläge außerhalb von 300–2000 ms und Schläge, die mehr als 20 % von ihrem lokalen Median abweichen, werden zuerst verworfen. In einer Nacht mit unruhig wirkendem Schlagtiming zählen nur Fenster, die die Jitter-Prüfung selbst bestehen oder auf einer gleichmäßigen Atemlinie liegen; ein Fenster oder eine Nacht, deren Schläge zusammen mehr Zeit ergeben als vergangen ist, wird ausgelassen. Ältere Nächte, deren Rohschläge nicht mehr vorhanden sind, behalten den Wert einer früheren Version dieser Methode. Aus dem Puls abgeleitet, also PRV: echt und für Trends geeignet, aber keine EKG-HRV.",
+  "investigateMethodRespRate": "Atemfrequenz aus der respiratorischen Sinusarrhythmie gewonnen, also der periodischen Modulation, die die Atmung dem Schlagtiming aufprägt. Die spektrale Spitze wird in überlappenden Fünf-Minuten-Abschnitten sauberer Schläge gesucht (Lomb–Scargle auf den tatsächlichen Schlagzeiten), und der Wert der Nacht ist ihr Median, der nur angegeben wird, wenn die meisten Abschnitte übereinstimmen. Bei einem Schlafpuls um oder unter 48 Schlägen pro Minute sind die Schläge zu langsam, um normale Atmung aufzulösen, und der Wert wird zurückgehalten.",
+  "investigateMethodHrvStability": "Innerhalb einer Nacht: die Standardabweichung der Schlagintervalle nach Artefaktkorrektur (SDNN) in Prozent ihres Mittelwerts. Das Diagramm zeigt, wie sich dieser Wert pro Nacht über die Nächte verändert; es ist kein Variationskoeffizient von Nacht zu Nacht.",
   "metricDetailSlotWithValue": "{day}, {value} {unit}",
   "metricDetailUsingForX": "{metric} kommt von {device}.",
   "metricDetailPreferX": "{device} bevorzugen",
@@ -3710,7 +3735,11 @@
   "welcomeSettingsSkipped": "{n, plural, =1{1 Einstellung in der Sicherung war nicht lesbar und wurde übersprungen} other{{n} Einstellungen in der Sicherung waren nicht lesbar und wurden übersprungen}}",
   "@welcomeSettingsSkipped": {
     "description": "Import report: settings rows in the backup that could not be read",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "welcomeSettingsSkippedBody": "Dafür bleiben die Werte dieses Telefons.",
   "welcomeCoachChatGptReentry": "Deine ChatGPT-Anmeldung bleibt im sicheren Speicher und wurde nicht gesichert. Melde dich in den KI-Einstellungen erneut an, um den Coach auf diesem Telefon zu nutzen.",
@@ -3718,7 +3747,11 @@
   "welcomeSettingsRestored": "{n} Einstellungen wiederhergestellt",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "strengthCustomWeight": "Benutzerdefiniertes Gewicht",
   "strengthEnterValue": "Wert eingeben",
@@ -3788,5 +3821,13 @@
   "dayStrainWornAsOf": "Getragen, Stand {time}",
   "bandStatusFirmwareLockedTitle": "Die Firmware des Bands hält wahrscheinlich seine Daten zurück",
   "bandStatusFirmwareLockedReason": "Dieses Band läuft mit WHOOP-Firmware 50.43. Sie kann sich verbinden und der App antworten, aber keine Aufzeichnungen und keine Live-Herzfrequenz senden, solange kein von WHOOP signiertes Mitgliedschafts-Token auf dem Band ist. Das ist ein möglicher Grund, warum keine Daten ankommen. OpenStrap kann dieses Token nicht ausstellen. Alles, was hier schon gespeichert ist, bleibt erhalten.",
-  "bandStatusFirmwareLockedFix": "Liegt es an der Firmware, lässt sich das in der App nicht ändern, und der Hinweis verschwindet, sobald das Band wieder Aufzeichnungen sendet"
+  "bandStatusFirmwareLockedFix": "Liegt es an der Firmware, lässt sich das in der App nicht ändern, und der Hinweis verschwindet, sobald das Band wieder Aufzeichnungen sendet",
+  "settingsSleepHmmRowTitle": "Experimentelles Schlaf-Staging (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "Forschungsalgorithmus, kein Medizinprodukt. Standard aus.",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
+  }
 }

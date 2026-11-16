@@ -20,6 +20,28 @@
   "@languageSystemDefault": {
     "description": "Option in the language picker that follows the OS locale."
   },
+  "alarmSavedNotOnBand": "บันทึกแล้ว แต่สายรัดยังไม่ได้รับ ระบบจะส่งอีกครั้งในการซิงค์ครั้งถัดไป",
+  "coachChatgptUsingPlanShort": "กำลังใช้แพ็กเกจ ChatGPT",
+  "coachChatgptSharingNotAllowed": "ลงชื่อเข้าใช้แล้ว แต่ไม่ได้อนุญาตให้ใช้แพ็กเกจ ChatGPT แตะ \"ดำเนินการต่อด้วย ChatGPT\" อีกครั้ง แล้วอนุญาตให้ใช้แพ็กเกจของคุณที่นี่",
+  "coachChatgptSignedOut": "ออกจากระบบ ChatGPT แล้ว",
+  "coachChatgptSignOutUnconfirmed": "ออกจากระบบที่นี่แล้ว แต่ ChatGPT ไม่ได้ยืนยัน คุณยังยกเลิกการเชื่อมต่อ OpenStrap ได้ในการตั้งค่า ChatGPT",
+  "coachChatgptWelcomeTitle": "คุณกำลังใช้แพ็กเกจ ChatGPT ของคุณ",
+  "coachChatgptWelcomeBody": "การใช้งานที่เข้าเกณฑ์ในแอปนี้จะใช้แพ็กเกจ ChatGPT ของคุณ จัดการการใช้งานได้ในการตั้งค่า ChatGPT",
+  "coachChatgptGotIt": "เข้าใจแล้ว",
+  "coachChatgptUseTitle": "ใช้แพ็กเกจ ChatGPT ของคุณ",
+  "coachChatgptUsingTitle": "กำลังใช้แพ็กเกจ ChatGPT ของคุณ",
+  "coachChatgptNotAllowedTitle": "ไม่ได้อนุญาตให้ใช้แพ็กเกจ",
+  "coachChatgptBlurb": "ทำคำขอ AI ที่เข้าเกณฑ์ในแอปนี้ด้วยปริมาณการใช้งานที่รวมอยู่ในแพ็กเกจ ChatGPT หรือยอดเครดิตของคุณ OpenStrap ไม่เคยเรียกเก็บเงินสำหรับส่วนนี้",
+  "coachChatgptCancelSignIn": "ยกเลิกการลงชื่อเข้าใช้",
+  "coachChatgptContinue": "ดำเนินการต่อด้วย ChatGPT",
+  "coachChatgptManageUsage": "จัดการการใช้งาน",
+  "coachChatgptSignOut": "ออกจากระบบ ChatGPT",
+  "coachChatgptPrivacy": "คำถามของคุณและแถวข้อมูลที่โค้ชอ่านจะถูกส่งไปยัง OpenAI ภายใต้บัญชี ChatGPT ของคุณ ซึ่งการควบคุมข้อมูลของ ChatGPT รวมถึงการฝึกโมเดล อาจมีผล ตรวจสอบได้ในการตั้งค่า ChatGPT ดูว่าส่งอะไรไปบ้างได้ที่ \"ข้อมูลที่ส่ง\"",
+  "coachChatgptTermsTitle": "ก่อนลงชื่อเข้าใช้",
+  "coachChatgptTermsBody": "การลงชื่อเข้าใช้จะใช้บัญชีและแพ็กเกจ ChatGPT ของคุณเอง การใช้งานที่นี่อยู่ภายใต้ข้อกำหนดการใช้งานและนโยบายการใช้งานของ OpenAI โปรดอ่านก่อนดำเนินการต่อ",
+  "coachChatgptTermsLink": "ข้อกำหนดการใช้งานของ OpenAI",
+  "coachChatgptPoliciesLink": "นโยบายการใช้งานของ OpenAI",
+  "coachChatgptTermsAccept": "อ่านแล้ว ดำเนินการต่อ",
   "actionCancel": "ยกเลิก",
   "@actionCancel": {
     "description": "Generic Cancel button."
@@ -5619,6 +5641,9 @@
       }
     }
   },
+  "investigateMethodHrvRmssd": "ค่าเฉลี่ยของ RMSSD จากทุกช่วง 5 นาทีของช่วงการนอนที่ตรวจพบ ซึ่งมีผลต่างต่อเนื่องที่สะอาดอย่างน้อย 20 ค่า โดยตัดจังหวะที่อยู่นอกช่วง 300–2000 ms และจังหวะที่ห่างจากค่ามัธยฐานในบริเวณนั้นเกิน 20% ออกก่อน ในคืนที่จังหวะการเต้นดูมีสัญญาณรบกวน จะนับเฉพาะช่วงที่ผ่านการตรวจความคลาดเคลื่อนด้วยตัวเอง หรืออยู่บนแนวการหายใจที่สม่ำเสมอ ช่วงหรือคืนที่จังหวะรวมกันแล้วนานกว่าเวลาที่ผ่านไปจริงจะไม่ถูกนับ คืนที่เก่ากว่าซึ่งไม่มีข้อมูลจังหวะดิบแล้วจะคงค่าที่ได้จากวิธีนี้เวอร์ชันก่อนหน้า ค่านี้มาจากชีพจร จึงเป็น PRV: เป็นข้อมูลจริงและใช้ดูแนวโน้มได้ แต่ไม่ใช่ HRV จาก ECG",
+  "investigateMethodRespRate": "อัตราการหายใจที่ได้จากภาวะหัวใจเต้นไม่สม่ำเสมอตามการหายใจ ซึ่งเป็นการเปลี่ยนแปลงเป็นจังหวะที่การหายใจทำให้เกิดกับเวลาของการเต้นของหัวใจ จุดสูงสุดของสเปกตรัมหาได้จากช่วงห้านาทีของจังหวะที่สะอาดซึ่งซ้อนทับกัน (Lomb–Scargle บนเวลาจริงของการเต้น) และค่าของคืนนั้นคือค่ามัธยฐาน ซึ่งจะแสดงเฉพาะเมื่อช่วงส่วนใหญ่ให้ผลตรงกัน เมื่ออัตราการเต้นของหัวใจขณะหลับอยู่ราว 48 bpm หรือต่ำกว่า จังหวะจะช้าเกินกว่าจะแยกการหายใจปกติได้ และจะไม่แสดงค่า",
+  "investigateMethodHrvStability": "ภายในคืนเดียว: ส่วนเบี่ยงเบนมาตรฐานของช่วงเวลาระหว่างจังหวะการเต้นหลังแก้ไขสัญญาณรบกวน (SDNN) คิดเป็นร้อยละของค่าเฉลี่ย กราฟแสดงว่าค่ารายคืนนี้เปลี่ยนไปอย่างไรในแต่ละคืน ไม่ใช่ค่าสัมประสิทธิ์การแปรผันระหว่างคืน",
   "metricDetailSlotWithValue": "{day} {value} {unit}",
   "@metricDetailSlotWithValue": {
     "description": "Screen-reader readout for a chart slot with a value, when scrubbing the trend line.",
@@ -12507,7 +12532,7 @@
   "@ecgTitle": {
     "description": "WHOOP MG ECG: ECG"
   },
-  "ecgHeartScreener": "Heart Screener",
+  "ecgHeartScreener": "ตรวจคัดกรองหัวใจ",
   "@ecgHeartScreener": {
     "description": "WHOOP MG ECG: Heart Screener"
   },
@@ -16450,7 +16475,11 @@
   "welcomeSettingsSkipped": "{n, plural, other{อ่านการตั้งค่า {n} รายการในข้อมูลสำรองไม่ได้และข้ามไป}}",
   "@welcomeSettingsSkipped": {
     "description": "Import report: settings rows in the backup that could not be read",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "welcomeSettingsSkippedBody": "รายการเหล่านั้นใช้ค่าของโทรศัพท์เครื่องนี้ต่อ",
   "welcomeCoachChatGptReentry": "ข้อมูลการลงชื่อเข้าใช้ ChatGPT ยังอยู่ในพื้นที่จัดเก็บที่ปลอดภัยและไม่ได้รวมอยู่ในข้อมูลสำรอง โปรดลงชื่อเข้าใช้อีกครั้งในการตั้งค่า AI เพื่อใช้โค้ชบนโทรศัพท์เครื่องนี้",
@@ -16458,7 +16487,11 @@
   "welcomeSettingsRestored": "กู้คืนการตั้งค่าแล้ว {n} รายการ",
   "@welcomeSettingsRestored": {
     "description": "Import report: number of restored app preferences",
-    "placeholders": {"n": {"type": "int"}}
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
   },
   "strengthCustomWeight": "น้ำหนักที่กำหนดเอง",
   "strengthEnterValue": "ป้อนค่า",
@@ -16935,5 +16968,13 @@
   "pairReplaceMyBand": "เปลี่ยนสายรัดของฉัน",
   "dayStepsWhoop4NoCounter": "WHOOP 4.0 ไม่มีตัวนับก้าวในตัว จึงนับก้าวได้เฉพาะตอนที่แอปนี้กำลังรับข้อมูลสดจากสายรัดเท่านั้น",
   "healthWearNotUpdatedSince": "ไม่ได้อัปเดตตั้งแต่ {time}",
-  "dayStrainWornAsOf": "สวมใส่ ข้อมูล ณ {time}"
+  "dayStrainWornAsOf": "สวมใส่ ข้อมูล ณ {time}",
+  "settingsSleepHmmRowTitle": "การแบ่งระยะการนอนแบบทดลอง (HMM)",
+  "@settingsSleepHmmRowTitle": {
+    "description": "Title of the experimental HMM sleep staging toggle in Settings."
+  },
+  "settingsSleepHmmRowSub": "อัลกอริทึมเพื่อการวิจัย ไม่ใช่อุปกรณ์การแพทย์ ปิดไว้โดยค่าเริ่มต้น",
+  "@settingsSleepHmmRowSub": {
+    "description": "Subtitle of the experimental HMM sleep staging toggle in Settings."
+  }
 }

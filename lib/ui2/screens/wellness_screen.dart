@@ -37,6 +37,7 @@ import 'cycle_screen.dart';
 import 'home_screen.dart'
     show
         envValue,
+        hm,
         metricOf,
         staleInsightsCard,
         staleReasonOf,
@@ -1220,11 +1221,8 @@ String? _noteOf(Object? envelope) {
   return note is String ? note : null;
 }
 
-String _hm(double minutes) {
-  final sign = minutes < 0 ? '−' : '';
-  final t = minutes.abs().round();
-  return t < 60 ? '$sign${t}m' : '$sign${t ~/ 60}h ${t % 60}m';
-}
+/// [hm] in the display language, keeping a sign for a negative figure.
+String _hm(double minutes) => '${minutes.round() < 0 ? '−' : ''}${hm(minutes.abs())}';
 
 /// A label and a sentence. Used by journal findings and habit effects, both of
 /// which genuinely have only those two things.
