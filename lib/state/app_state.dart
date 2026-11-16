@@ -856,7 +856,10 @@ class AppState extends ChangeNotifier {
     // run(force: true) skips finalized nights; rederiveDays does not.
     unawaited(() async {
       try {
-        await rederiveDays(await substrateDays());
+        if (!await rederiveDays(await substrateDays())) {
+          _log('[settings] sleep HMM re-derive failed; finalized nights keep '
+              'their old stager until Re-analyze data');
+        }
       } catch (e) {
         _log('[settings] sleep HMM re-derive failed: $e');
       }
@@ -2788,8 +2791,10 @@ class AppState extends ChangeNotifier {
 
   /// Force-derive [days] (a wearable was enabled, disabled or switched), then
   /// refresh. Waits out a pass already running rather than dropping the ask.
-  Future<void> rederiveDays(Set<String> days) async {
-    if (days.isEmpty) return;
+  /// False when the pass threw (logged here), so a caller that owes the user
+  /// more than a log line can tell.
+  Future<bool> rederiveDays(Set<String> days) async {
+    if (days.isEmpty) return true;
     while (_derive.running) {
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
@@ -2800,8 +2805,10 @@ class AppState extends ChangeNotifier {
       await _derive.runDays(_profile, days, force: true);
       await LocalDb.refreshComputeFreshness();
       bumpInsights();
+      return true;
     } catch (e) {
       _log('[derive] wearable re-derive failed: $e');
+      return false;
     }
   }
 
