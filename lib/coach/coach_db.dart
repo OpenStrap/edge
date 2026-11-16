@@ -147,19 +147,7 @@ class CoachDb {
 
   /// Validate + normalize an LLM-supplied SELECT. Throws [SqlGuardError] on any
   /// rejection. Returns the (possibly LIMIT-appended) query to execute.
-  static String guardAndPrepare(String raw, {int rowCap = 200}) =>
-      _guard(raw, rowCap: rowCap).sql;
-
-  /// [guardAndPrepare], plus whether the LIMIT was OURS rather than the
-  /// model's, and whether a model-written LIMIT is at least [rowCap]. The
-  /// distinction cannot be recovered from the row count: a LIMIT of exactly
-  /// rowCap returns that many rows whether the table holds 200 or 20,000, so
-  /// these flags are what tell the caller its page may be incomplete (see
-  /// `_runServed`'s note).
-  static ({String sql, bool autoLimited, bool largeLimit}) _guard(
-    String raw, {
-    required int rowCap,
-  }) {
+  static String guardAndPrepare(String raw, {int rowCap = 200}) {
     var s = raw.trim();
     if (s.isEmpty) throw SqlGuardError('Empty query.');
     if (s.codeUnits.contains(0)) throw SqlGuardError('Illegal character.');
@@ -240,19 +228,10 @@ class CoachDb {
     }
 
     // (i) Auto-append a LIMIT to protect context.
-    var autoLimited = false;
     if (!RegExp(r'\blimit\b', caseSensitive: false).hasMatch(lower)) {
       body = '$body LIMIT $rowCap';
-      autoLimited = true;
     }
-    // The model may write its own LIMIT. One at or above the cap can fill the
-    // page without proving there is more, exactly like the injected one, so
-    // the caller must warn there too. A small limit (LIMIT 5) answers its own
-    // question and stays unmarked.
-    final limitValue = RegExp(r'\blimit\s+(\d+)\b').firstMatch(lower);
-    final largeLimit = limitValue != null &&
-        (int.tryParse(limitValue.group(1)!) ?? 0) >= rowCap;
-    return (sql: body, autoLimited: autoLimited, largeLimit: largeLimit);
+    return body;
   }
 
   /// Replace every single-quoted string literal with the neutral token `0`.
@@ -596,13 +575,8 @@ class CoachDb {
   static Future<String> runCoachSql(String llmSql,
       {int rowCap = 200, ({String day, num? readiness})? today}) async {
     String sql;
-    var autoLimited = false;
-    var largeLimit = false;
     try {
-      final prepared = _guard(llmSql, rowCap: rowCap);
-      sql = prepared.sql;
-      autoLimited = prepared.autoLimited;
-      largeLimit = prepared.largeLimit;
+      sql = guardAndPrepare(llmSql, rowCap: rowCap);
     } on SqlGuardError catch (e) {
       return jsonEncode({'error': e.reason});
     }
@@ -614,8 +588,7 @@ class CoachDb {
     _sqlTail = turn.future;
     await previous;
     try {
-      return await _runServed(sql, rowCap, today,
-          autoLimited: autoLimited, largeLimit: largeLimit);
+      return await _runServed(sql, rowCap, today);
     } finally {
       turn.complete();
     }
@@ -624,8 +597,7 @@ class CoachDb {
   static Future<void> _sqlTail = Future<void>.value();
 
   static Future<String> _runServed(String sql, int rowCap,
-      ({String day, num? readiness})? today,
-      {required bool autoLimited, required bool largeLimit}) async {
+      ({String day, num? readiness})? today) async {
     try {
       final db = await _readonly();
       await LocalDb.refreshSessionScoreMask();
@@ -659,16 +631,17 @@ class CoachDb {
         'columns': shown.isEmpty ? <String>[] : shown.first.keys.toList(),
         'row_count': shown.length,
       };
-      // A page at the CAP is the one the row count cannot expose: the injected
-      // LIMIT, or a model LIMIT >= rowCap, returns exactly rowCap rows whether
-      // or not more exist, so `rows.length > rowCap` never fires on the common
-      // path. Say the page may be incomplete instead of letting the model read
-      // 200 rows as the whole answer.
+      // A page AT THE CAP is the one the row count cannot expose: an injected
+      // LIMIT, or a model-written LIMIT of 200 or more, returns exactly rowCap
+      // rows whether or not more exist, so `rows.length > rowCap` never fires
+      // on the common path. Say the page may be incomplete whenever the result
+      // fills it. A genuine `LIMIT 5` cannot fill a 200-row page, so it stays
+      // unmarked.
       if (rows.length > rowCap) {
         out['note'] = 'Truncated to $rowCap of ${rows.length}+ rows. Add a '
             'tighter WHERE or aggregate (AVG/MIN/MAX/COUNT) instead of selecting '
             'all rows.';
-      } else if ((autoLimited || largeLimit) && rows.length >= rowCap) {
+      } else if (rows.length >= rowCap) {
         out['note'] = 'Shown: $rowCap rows, the query cap. There may be more. '
             'Add a tighter WHERE or aggregate (AVG/MIN/MAX/COUNT) rather than '
             'describing this page as the whole answer.';

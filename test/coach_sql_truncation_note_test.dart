@@ -94,8 +94,51 @@ void main() {
               as Map<String, dynamic>;
       expect(out['row_count'], 200);
       expect(out['note'], isNotNull);
+
+      // SQLite's legacy `LIMIT <offset>, <count>` form: the count is the second
+      // number, and this is still a full page.
+      final legacy =
+          jsonDecode(
+                await CoachDb.runCoachSql(
+                  "SELECT date, key FROM v_metric WHERE date = '2026-01-01' "
+                  'LIMIT 0, 200',
+                ),
+              )
+              as Map<String, dynamic>;
+      expect(legacy['row_count'], 200);
+      expect(legacy['note'], isNotNull);
     },
   );
+
+  test('an inner LIMIT does not decide the page warning', () async {
+    // A subquery limit cannot fill the outer page, so this 5-row result is not
+    // a full page and carries no warning.
+    final small =
+        jsonDecode(
+              await CoachDb.runCoachSql(
+                "WITH t AS (SELECT date, key FROM v_metric "
+                "WHERE date = '2026-01-01' LIMIT 5) "
+                'SELECT * FROM t LIMIT 200',
+              ),
+            )
+            as Map<String, dynamic>;
+    expect(small['row_count'], 5);
+    expect(small['note'], isNull);
+
+    // An inner limit large enough to fill the outer 200-row page still warns.
+    // The rule looks at the RESULT count, not at the first LIMIT number.
+    final full =
+        jsonDecode(
+              await CoachDb.runCoachSql(
+                "WITH t AS (SELECT date, key FROM v_metric "
+                "WHERE date = '2026-01-01' LIMIT 500) "
+                'SELECT * FROM t LIMIT 200',
+              ),
+            )
+            as Map<String, dynamic>;
+    expect(full['row_count'], 200);
+    expect(full['note'], isNotNull);
+  });
 
   test('the cap note survives the 16,000-character clip', () async {
     final raw = await CoachDb.runCoachSql(
