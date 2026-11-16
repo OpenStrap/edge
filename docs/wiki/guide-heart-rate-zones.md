@@ -28,10 +28,10 @@ When you finish, the Done card adds:
 
 One picture per step, side by side.
 
-![The 3 steps of this guide side by side](https://raw.githubusercontent.com/mikenrafter/edge/dd134dd25c0422519602e26511290130f2fe084f/main-r7/heart-rate-zones/sheet.png)
+![The 3 steps of this guide side by side](media/heart-rate-zones/sheet.png)
 
 The whole guide in motion, ending on the Done card.
 
-![The guide from start to Done](https://raw.githubusercontent.com/mikenrafter/edge/dd134dd25c0422519602e26511290130f2fe084f/main-r7/gifs/heart-rate-zones.gif)
+![The guide from start to Done](media/heart-rate-zones.gif)
 
 [Back to the wiki home](Home.md)

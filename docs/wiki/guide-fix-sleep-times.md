@@ -27,10 +27,10 @@ When you finish, the Done card adds:
 
 One picture per step, side by side.
 
-![The 2 steps of this guide side by side](https://raw.githubusercontent.com/mikenrafter/edge/dd134dd25c0422519602e26511290130f2fe084f/main-r7/fix-sleep-times/sheet.png)
+![The 2 steps of this guide side by side](media/fix-sleep-times/sheet.png)
 
 The whole guide in motion, ending on the Done card.
 
-![The guide from start to Done](https://raw.githubusercontent.com/mikenrafter/edge/dd134dd25c0422519602e26511290130f2fe084f/main-r7/gifs/fix-sleep-times.gif)
+![The guide from start to Done](media/fix-sleep-times.gif)
 
 [Back to the wiki home](Home.md)

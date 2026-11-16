@@ -22,10 +22,10 @@ The guide shows these two notes on its last card, which appears after you stop. 
 
 One picture per step, side by side.
 
-![The 4 steps of this guide side by side](https://raw.githubusercontent.com/mikenrafter/edge/dd134dd25c0422519602e26511290130f2fe084f/main-r7/start-workout/sheet.png)
+![The 4 steps of this guide side by side](media/start-workout/sheet.png)
 
 The whole guide in motion, ending on the Done card.
 
-![The guide from start to Done](https://raw.githubusercontent.com/mikenrafter/edge/dd134dd25c0422519602e26511290130f2fe084f/main-r7/gifs/start-workout.gif)
+![The guide from start to Done](media/start-workout.gif)
 
 [Back to the wiki home](Home.md)
