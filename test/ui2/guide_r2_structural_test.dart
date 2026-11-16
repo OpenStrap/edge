@@ -125,7 +125,7 @@ void main() { setUpAll(() async { await loadFonts(); await skLoadAppFonts(); awa
     const expected = <String, (bool, bool)>{
       'alarm-schedule/open-alarm': (false, false), // one row to tap
       'alarm-schedule/pick-day': (true, false), // "Tap the tab of the day you want": seven day tabs
-      'alarm-schedule/set-wake-time': (false, false), // one row
+      'alarm-schedule/set-wake-time': (true, false), // every enabled day has a wake-time row
       'add-nap/open-naps': (false, false), // one button
       'add-nap/log-nap': (false, false), // one button; the two questions are the app's dialogs
       'remove-detected/open-detected': (false, false), // one card
@@ -154,9 +154,9 @@ void main() { setUpAll(() async { await loadFonts(); await skLoadAppFonts(); awa
         expect(tabs, hasLength(7), reason: 'positive control: the screen has seven day tabs'); for (final tab in tabs) {
           expect(found.any((f) => f.rect.overlaps(tab)), isTrue, reason: 'day tab $tab is declared'); } } finally { await disposeR2(t, m); } });
     // WHY: "Every item has its own Discard": with two pending items BOTH Discard buttons must stay legible and tappable, and tapping the one that is not the outlined target
-    // does its real thing (stages a decision) without finishing or advancing the guide.
-    // # catches: declaring only the first Discard, shielding the others, or a tap on an
-    // offered choice completing the run.
+    // does its real thing and completes the guide.
+    // # catches: declaring only the first Discard, shielding the others, or ignoring an
+    // offered choice for completion.
     testWidgets('r2 remove-detected/discard keeps every Discard legible and tappable', (t) async { final scene = r2Scenes.firstWhere((s) => s.id == 'remove-detected/discard');
       final m = await pumpR2Scene(t, scene, singlePending: false, size: const Size(412, 1500)); try { await settleLiveGuide(t, frames: 18); final page = m.app.runner.routes.page!;
         final discards = [..._controlsLabelled(page, r2Locale.napsNotANapLabel), ..._controlsLabelled(page, r2Locale.activityNotAWorkout)];
@@ -174,11 +174,12 @@ void main() { setUpAll(() async { await loadFonts(); await skLoadAppFonts(); awa
       final m = await pumpR2Scene(t, scene, repo: _TwoSessionsRepo(), size: const Size(412, 1500)); try {
         await settleLiveGuide(t, frames: 18); final page = m.app.runner.routes.page!; final bins = _controlsLabelled(page, r2Locale.workoutDeleteSessionLabel);
         expect(bins.length, 2, reason: 'positive control: two sessions, two bins'); final overlay = t.state<LiveGuideOverlayState>(find.byType(LiveGuideOverlay));
-        final card = t.getRect(find.byKey(GuideStepCard.cardKey)); final second = bins.reduce((a, b) => a.top > b.top ? a : b); if (!card.overlaps(second)) {
-          expect(overlay.paintedShapes.where((s) => s.rect.overlaps(second.deflate(1))), isEmpty, reason: 'second bin is legible');
-          await t.tapAt(second.center); await settleLiveGuide(t, frames: 8);
-          expect(find.textContaining(RegExp(r'^Delete this .*\?')), findsOneWidget, reason: 'the real confirmation opened');
-          expect(m.run.state, isNot(isA<GuideFinished>()), reason: 'the other bin is not the target'); } } finally { await disposeR2(t, m); } }); }); group('screen readers', () {
+        final card = t.getRect(find.byKey(GuideStepCard.cardKey)); final second = bins.reduce((a, b) => a.top > b.top ? a : b);
+        expect(card.overlaps(second), isFalse, reason: 'the second offered bin must be tappable');
+        expect(overlay.paintedShapes.where((s) => s.rect.overlaps(second.deflate(1))), isEmpty, reason: 'second bin is legible');
+        await t.tapAt(second.center); await settleLiveGuide(t, frames: 8);
+        expect(find.textContaining(RegExp(r'^Delete this .*\?')), findsOneWidget, reason: 'the real confirmation opened');
+        expect(m.run.state, isA<GuideFinished>(), reason: 'the second offered bin also completes the step'); } finally { await disposeR2(t, m); } }); }); group('screen readers', () {
     // WHY: owner deferred these until after the pilot; now in scope. The same strings reach every language the app ships; an English fallback in German is a defect.
     // # catches: keys added to the template only, a locale falling back to English, a
     // placeholder dropped from a translation.

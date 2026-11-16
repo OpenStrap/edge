@@ -267,6 +267,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
 
   /// Every control the hover highlight marks, and the ones the hand visits now (overlay coordinates).
   List<_Tracked> _hl = const [], _visit = const [];
+  List<_Tracked> _alsoTapTargets = const [];
 
   /// What the label sits above when that is not the whole visiting set (an open list's rows).
   List<_Tracked> _labelOver = const [];
@@ -806,8 +807,15 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
   // control hidden under chrome [occluded target regressions in overlay tests].
   RenderBox? _hitTarget(Offset position, Offset point) {
     final candidates = _step?.multi != null && _accordionHop == null
-        ? [for (final target in _hl) if (target.live.contains(point)) target.object]
-        : [if (_target?.contains(point) ?? false) _targetObject];
+        ? <RenderBox?>[for (final target in _hl) if (target.live.contains(point)) target.object]
+        : <RenderBox?>[if (_target?.contains(point) ?? false) _targetObject];
+    // Offered alternatives complete the same action in either motion mode.
+    // Readable context and neighbouring controls do not count as completion.
+    if (_accordionHop == null) {
+      candidates.addAll([
+        for (final target in _alsoTapTargets) if (target.live.contains(point)) target.object,
+      ]);
+    }
     final result = HitTestResult();
     WidgetsBinding.instance.hitTestInView(result, position, View.of(context).viewId);
     for (final target in candidates) {
@@ -1288,6 +1296,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
     SkeletonPlan? skeleton;
     var keepBoxes = <RenderBox>[];
     var keptControls = <Element>{};
+    var alsoTapTargets = <_Tracked>[];
     var hl = <_Tracked>[], visitSet = <_Tracked>[], labelSet = <_Tracked>[];
     var chrome = <Rect>[];
     var legible = <Rect>[], legibleText = <Rect>[];
@@ -1313,6 +1322,10 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
           for (final found in content.resolve(page, l)) {
             keep.add(found.rect);
             keepBoxes.add(found.renderObject);
+            if (step.alsoTap.contains(content)) {
+              alsoTapTargets.add(_Tracked(found.renderObject, intoOverlay(found.rect),
+                  _anchorsOf(found.renderObject, scrollStates), _radiusOf(found.renderObject)));
+            }
           }
         }
         // Live status (title row, running timer) stays readable and clear of the card.
@@ -1450,6 +1463,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
     final sameTargets = _hl.length == hl.length && [for (var i = 0; i < hl.length; i++) i].every((i) =>
         identical(_hl[i].object, hl[i].object) && _hl[i].radius == hl[i].radius && _hl[i].size == hl[i].size);
     _hl = hl;
+    _alsoTapTargets = alsoTapTargets;
     _visit = visitSet;
     _labelOver = labelSet;
     if (sameTargets) { _handPositionsDirty = true; } else { _handRebindDirty = true; }

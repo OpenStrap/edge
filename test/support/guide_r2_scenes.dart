@@ -44,7 +44,11 @@ Future<R2Mounted> pumpR2Scene(WidgetTester t, R2Scene scene, {Size size = r2Size
   final app = await pumpLiveGuideApp(t, size: size, repo: repo, brightness: brightness, captureKey: captureKey, devicePixelRatio: devicePixelRatio); if (scene.shell) {
     // Use the shipped runner here: tab-navigation signals may be owned by GuideRunner. A separately inserted run would bypass that real seam.
     final started = await app.runner.start(guide, band: null); expect(started, isA<GuideStarted>());
-    final run = (started as GuideStarted).run; if (scene.history) { await settleLiveGuide(t, frames: 12);
+    final run = (started as GuideStarted).run;
+    // Undo scenes represent a run that has already opened the time editor.
+    // Starting fresh on an existing manual night is covered separately.
+    if (scene.manual) run.targetTapped();
+    if (scene.history) { await settleLiveGuide(t, frames: 12);
       await t.tap(find.text(r2Locale.workoutTabHistory)); } final mounted = R2Mounted(app, run, null);
     addTearDown(() { mounted.removeOverlay(); run.dispose(); }); return mounted; }
   final index = [GuideStart.today, GuideStart.sleep, GuideStart.activity, GuideStart.health, GuideStart.settings].indexOf(guide.start);

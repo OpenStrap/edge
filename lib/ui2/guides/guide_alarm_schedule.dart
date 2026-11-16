@@ -21,7 +21,7 @@ import 'guide_labels.dart';
 
 final _alarmRow = GuideTarget.label(ScreenLabel.settingsAlarmRowTitle);
 final _tuesday = GuideTarget.label(ScreenLabel.wellnessTue);
-final _wakeTime = GuideTarget.label(ScreenLabel.alarmWakeTimeRowTitle);
+final _wakeTime = GuideTarget.firstLabel(ScreenLabel.alarmWakeTimeRowTitle);
 
 Guide get alarmScheduleGuide => Guide(
       id: 'alarm-schedule',
@@ -51,6 +51,7 @@ Guide get alarmScheduleGuide => Guide(
             node: GuideNode.alarm,
             target: _wakeTime,
             anchor: _wakeTime,
+            alsoTap: [EveryLabelled([ScreenLabel.alarmWakeTimeRowTitle])],
             action: GuideAction.tap,
             caption: GuideCopy.alarmCaptionSetWakeTime,
           ),

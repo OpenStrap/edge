@@ -5,7 +5,8 @@
 //   automatic night) opens two time pickers, bed then wake; "Back to automatic"
 //   appears only after the user set times.
 // Step 1 accepts either label of the first button. The pickers are dialogs: the
-// caption describes them. Step 2's anchor appears once the times are the user's own.
+// caption describes them. Step 2 requires a tap on step 1 in this run, because
+// an existing manual night can already show its undo control.
 // One 'any' variant.
 
 import 'guide.dart';
@@ -40,6 +41,7 @@ Guide get fixSleepTimesGuide => Guide(
             node: GuideNode.sleep,
             target: _backToAutomatic,
             anchor: _backToAutomatic,
+            requiresPreviousTap: true,
             action: GuideAction.tap,
             caption: GuideCopy.fixTimesCaptionBackToAutomatic,
           ),
