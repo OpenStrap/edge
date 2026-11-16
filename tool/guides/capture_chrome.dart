@@ -8,6 +8,7 @@
 //   5   the step card, "Don't see it?" open, and the off-path card: Exit bottom right, accent
 //   7   remove-detected completes after a real Discard.
 import 'dart:io'; import 'dart:ui' as ui; import 'package:flutter/material.dart'; import 'package:flutter/rendering.dart'; import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/models/activity_suggestion.dart';
 import 'package:openstrap_edge/state/alarm_schedule.dart'; import 'package:openstrap_edge/ui2/app_shell.dart' show ShellDomain;
 import 'package:openstrap_edge/ui2/guides/guide.dart'; import 'package:openstrap_edge/ui2/guides/guide_catalogue.dart';
 import 'package:openstrap_edge/ui2/guides/guide_run.dart'; import 'package:openstrap_edge/ui2/guides/guide_runner.dart';
@@ -18,17 +19,27 @@ import '../../test/support/live_guide_harness.dart'; import '../../test/support/
 final _out = Platform.environment['GUIDE_RERENDER_DIR']; const _screen = Size(412, 915); const _dpr = 2.625;
 Guide _guide(String id) => kGuideCatalogue.map((e) => e.guide).firstWhere((g) => g.id == id);
 LiveGuideOverlayState _overlay(WidgetTester t) => t.state<LiveGuideOverlayState>(find.byType(LiveGuideOverlay));
+// Owns the mutable review list for this capture; the page and repository share it
+// so a real Discard updates the preloaded list rather than showing a fixture error.
+class _ChromeRepo extends GuideFakeRepo {
+  _ChromeRepo() : super(singlePending: false);
+  late final _items = super.pendingActivities();
+  @override Future<List<ActivitySuggestion>> pendingActivities() => _items;
+  @override Future<void> discardActivity(ActivitySuggestion suggestion) async {
+    (await _items).removeWhere((item) => item.id == suggestion.id);
+  }
+}
 Future<void> _png(WidgetTester t, GlobalKey key, String name) async { final boundary = t.renderObject<RenderRepaintBoundary>(find.byKey(key)); await t.runAsync(() async {
     t.binding.rootPipelineOwner.flushPaint(); final image = await boundary.toImage(pixelRatio: _dpr); try {
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png); final file = File(p.join(_out!, name));
       await file.parent.create(recursive: true); await file.writeAsBytes(bytes!.buffer.asUint8List()); } finally { image.dispose(); } }); }
 /// The real app on [guideId]'s start tab with [page] pushed and a run inserted over it, as a
 /// user arrives at a step of that page.
-Future<(LiveGuideApp, GuideRun)> _onPage(WidgetTester t, String guideId, GlobalKey key, Widget Function(GuideFakeRepo) page, {Size size = _screen}) async {
-  final repo = GuideFakeRepo(singlePending: false);
-  final app = await pumpLiveGuideApp(t, size: size, devicePixelRatio: _dpr, brightness: Brightness.dark, captureKey: key, repo: repo);
+Future<(LiveGuideApp, GuideRun)> _onPage(WidgetTester t, String guideId, GlobalKey key, Widget Function(GuideFakeRepo) page, {Size size = _screen, GuideFakeRepo? repo}) async {
+  final captureRepo = repo ?? _ChromeRepo();
+  final app = await pumpLiveGuideApp(t, size: size, devicePixelRatio: _dpr, brightness: Brightness.dark, captureKey: key, repo: captureRepo);
   final guide = _guide(guideId); await t.tap(r2Tab(ShellDomain.values.byName(guide.start.name).index)); await settleLiveGuide(t);
-  app.navigator.push(MaterialPageRoute<void>(builder: (_) => page(repo))); await settleLiveGuide(t);
+  app.navigator.push(MaterialPageRoute<void>(builder: (_) => page(captureRepo))); await settleLiveGuide(t);
   final run = GuideRun(guide: guide, variant: (guide.variantFor(null) as GuideVariantFound).variant);
   final entry = OverlayEntry(builder: (_) => LiveGuideOverlay(run: run, navigatorKey: app.navigatorKey, routes: app.runner.routes,
       onExit: run.exit, onBackToGuide: () {})); app.navigator.overlay!.insert(entry);
@@ -36,15 +47,17 @@ Future<(LiveGuideApp, GuideRun)> _onPage(WidgetTester t, String guideId, GlobalK
 Future<void> _leave(WidgetTester t) async { await t.pumpWidget(const SizedBox()); await t.pump(); } void main() { TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async { await loadFonts(); await skLoadAppFonts(); await r2OpenDb('guide_r5_capture.db'); }); testWidgets('capture the round 5 fixes', (t) async { {
       // 1a, then 7, on the same real review page.
-      final key = GlobalKey(); final repo = GuideFakeRepo(singlePending: false); final pending = await repo.pendingActivities();
-      final (app, run) = await _onPage(t, 'remove-detected', key, (_) => DetectedActivitiesScreen(preloaded: pending));
+      final key = GlobalKey(); final repo = _ChromeRepo(); final pending = await repo.pendingActivities();
+      final (app, run) = await _onPage(t, 'remove-detected', key, (_) => DetectedActivitiesScreen(preloaded: pending), repo: repo);
       expect(run.currentStep?.id, 'discard'); await _png(t, key, '6-review-step2-discard.png');
       // 7: press the real Discard; the two-step guide completes.
       await t.tapAt(_overlay(t).targetRect!.center); await settleLiveGuide(t, frames: 24); expect(run.state, isA<GuideFinished>());
+      expect(pending.map((item) => item.id), ['w1'], reason: 'Discard must remove the nap in the capture fixture');
+      expect(find.text('Could not finish'), findsNothing);
       await _png(t, key, '8-7-discard-done.png'); run.exit(); await _leave(t); app.dispose(); } {
       // 1a on a short phone (the demo review is two items; a 250 px screen makes it scroll).
-      final key = GlobalKey(); final repo = GuideFakeRepo(singlePending: false); final pending = await repo.pendingActivities();
-      final (app, run) = await _onPage(t, 'remove-detected', key, (_) => DetectedActivitiesScreen(preloaded: pending), size: const Size(412, 250));
+      final key = GlobalKey(); final repo = _ChromeRepo(); final pending = await repo.pendingActivities();
+      final (app, run) = await _onPage(t, 'remove-detected', key, (_) => DetectedActivitiesScreen(preloaded: pending), size: const Size(412, 250), repo: repo);
       final list = find.byType(DetectedActivitiesScreen);
       final position = t.state<ScrollableState>(find.descendant(of: list, matching: find.byType(Scrollable)).first).position;
       final target = _overlay(t).targetRect!; position.jumpTo(position.pixels + target.bottom - 36); await settleLiveGuide(t, frames: 30);
