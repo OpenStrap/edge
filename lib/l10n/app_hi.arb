@@ -3906,7 +3906,7 @@
   "guideFixTimesStep1": "**{tab}** टैब पर अपनी पिछली रात के नीचे **{change}** पर टैप करें। जब तक आप खुद समय तय नहीं करते, यहाँ **{set}** लिखा रहता है। आपसे पूछा जाएगा कि आप कब सोए, फिर कब उठे।",
   "guideFixTimesStep2": "बदलाव वापस लेने के लिए **{back}** पर टैप करें। रात उन समयों पर लौट जाती है जो ऐप ने पहचाने थे।",
   "guideFixTimesBackTitle": "\"{back}\" नहीं दिख रहा?",
-  "guideFixTimesBackBody": "**{back}** तभी दिखता है जब आप खुद समय तय कर चुके हों। पहले समय तय करें, फिर यह दिखेगा। अगर **{night}** बंद है, तो उसका शीर्षक टैप करके खोलें।",
+  "guideFixTimesBackBody": "**{back}** तभी दिखता है जब आपने समय खुद तय किए हों या उनकी पुष्टि की हो, और पूरी रात की रिकॉर्डिंग अब भी सेव हों।",
   "guideFixTimesAskTitle": "पिकर क्या पूछते हैं",
   "guideFixTimesAskBody": "पहले आप कब सोए, फिर कब उठे। इन्हीं दो समयों से रात का हिसाब दोबारा लगाया जाता है।",
   "guideDeleteTitle": "सेशन कहाँ हटाएँ",
@@ -3936,7 +3936,7 @@
   "guideSearchOrPick": "खोजें या चुनें",
   "profileHelpRow": "सहायता",
   "guideAddNapMissingTitle": "\"{naps}\" नहीं दिख रहा?",
-  "guideAddNapMissingBody": "**{naps}** आपकी रात के नीचे है। अगर वह भाग, **{night}**, बंद है, तो उसका शीर्षक टैप करके खोलें।",
+  "guideAddNapMissingBody": "**{naps}** आपकी रात के नीचे है। इसे ढूँढने के लिए नीचे स्क्रोल करें।",
   "guideRemoveStep2Still": "हर आइटम का अपना **{notNap}** / **{notWorkout}** है। जो झपकी या सेशन हुआ ही नहीं, उसी पर इसे टैप करें; आउटलाइन पहले आइटम को दिखाती है।",
   "@guideRemoveStep2Still": {
     "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",

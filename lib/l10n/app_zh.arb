@@ -3906,7 +3906,7 @@
   "guideFixTimesStep1": "在**{tab}**标签页，点按上一晚下方的**{change}**。在你自己设置时间之前，它显示为**{set}**。系统会先问你几点上床，再问几点起床。",
   "guideFixTimesStep2": "想撤销修改，点按**{back}**。这一晚会恢复为应用检测到的时间。",
   "guideFixTimesBackTitle": "没有看到“{back}”？",
-  "guideFixTimesBackBody": "只有在你自己设置过时间之后才会出现**{back}**。先设置时间，它就会出现。如果**{night}**已折叠，请点按其标题展开。",
+  "guideFixTimesBackBody": "只有在你自己设置或确认过时间，并且整晚的记录仍然保留时，才会显示**{back}**。",
   "guideFixTimesAskTitle": "选择器会问什么",
   "guideFixTimesAskBody": "先问你几点上床，再问你几点起床。这一晚会根据这两个时间重新计算。",
   "guideDeleteTitle": "在哪里删除一次训练",
@@ -3936,7 +3936,7 @@
   "guideSearchOrPick": "搜索或选择",
   "profileHelpRow": "帮助",
   "guideAddNapMissingTitle": "没有看到“{naps}”？",
-  "guideAddNapMissingBody": "**{naps}**位于你的夜间睡眠下方。如果该部分**{night}**已折叠，请点按其标题展开。",
+  "guideAddNapMissingBody": "**{naps}**在你的夜间睡眠下方。向下滚动即可找到。",
   "guideRemoveStep2Still": "每个项目都有自己的**{notNap}** / **{notWorkout}**。请在没有发生的小睡或训练上点按它；轮廓标出的是第一个。",
   "@guideRemoveStep2Still": {
     "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",

@@ -43,8 +43,8 @@ Guide get addNapGuide => Guide(
         ]),
       ],
       footers: [
-        // The Naps button sits in the "Through the night" section, which the
-        // person may have folded (the app remembers it): the in-place help says so.
+        // Sleep renders the Naps button below the night, including unscored
+        // nights. The help offers scrolling, which works on both paths.
         GuideFooter(
           kind: GuideFooterKind.missingTarget,
           title: GuideCopy.addNapFooter0Title,

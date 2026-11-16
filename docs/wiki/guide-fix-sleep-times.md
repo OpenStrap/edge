@@ -15,7 +15,7 @@ Step 2 appears once the times are your own. The two time questions are pop-ups, 
 
 The guide's **Don't see it?** link opens this note, titled "Don't see "Back to automatic"?".
 
-> **Back to automatic** only shows after you have set the times yourself. Set them first, then it appears.
+> **Back to automatic** only shows after you set or confirm the times yourself, while the whole night's recordings are still stored.
 
 ## On the last card
 

@@ -8543,7 +8543,7 @@
   "guideFixTimesStep1": "На вкладке **{tab}** нажмите **{change}** под последней ночью. Там написано **{set}**, пока вы сами не задали время. Вас спросят, когда вы легли, а затем когда проснулись.",
   "guideFixTimesStep2": "Чтобы отменить изменения, нажмите **{back}**. Ночь вернётся ко времени, которое определило приложение.",
   "guideFixTimesBackTitle": "Не видите «{back}»?",
-  "guideFixTimesBackBody": "**{back}** появляется только после того, как вы сами задали время. Сначала задайте его, и кнопка появится. Если раздел **{night}** свёрнут, нажмите на его заголовок, чтобы открыть.",
+  "guideFixTimesBackBody": "**{back}** появляется только после того, как вы сами задали или подтвердили время, и пока записи за всю ночь ещё сохранены.",
   "guideFixTimesAskTitle": "О чём спрашивают окна выбора",
   "guideFixTimesAskBody": "Сначала время, когда вы легли, затем время, когда проснулись. По этим двум значениям ночь рассчитывается заново.",
   "guideDeleteTitle": "Где удалить тренировку",
@@ -8794,15 +8794,11 @@
     }
   },
   "@guideFixTimesBackBody": {
-    "description": "Footer card body: why Back to automatic can be missing (the times are not yours yet), and that the night section can be folded. {night} is that section title.",
+    "description": "Footer card body: Back to automatic needs user-set or confirmed times and recordings for the whole night.",
     "placeholders": {
       "back": {
         "type": "String",
         "description": "Name of the Back to automatic button"
-      },
-      "night": {
-        "type": "String",
-        "description": "Title of the section that holds the night"
       }
     }
   },
@@ -8965,13 +8961,10 @@
     "placeholders": {
       "naps": {
         "type": "String"
-      },
-      "night": {
-        "type": "String"
       }
     }
   },
-  "guideAddNapMissingBody": "**{naps}** находится под вашей ночью. Если этот раздел, **{night}**, свёрнут, нажмите на его заголовок, чтобы открыть.",
+  "guideAddNapMissingBody": "**{naps}** находится под вашей ночью. Прокрутите вниз, чтобы найти эту кнопку.",
   "guideRemoveStep2Still": "У каждого пункта своя кнопка **{notNap}** / **{notWorkout}**. Нажмите её у дневного сна или тренировки, которых не было; рамка отмечает первый пункт.",
   "@guideRemoveStep2Still": {
     "description": "Step 2 caption. Bold words are the in-app buttons for a nap and for a workout.",

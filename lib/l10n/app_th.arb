@@ -17121,7 +17121,7 @@
   "guideFixTimesStep1": "ที่แท็บ **{tab}** แตะ **{change}** ใต้คืนล่าสุดของคุณ ปุ่มจะเขียนว่า **{set}** จนกว่าคุณจะตั้งเวลาเอง แอปจะถามว่าคุณเข้านอนกี่โมง แล้วตื่นกี่โมง",
   "guideFixTimesStep2": "หากต้องการยกเลิกการเปลี่ยนแปลง ให้แตะ **{back}** คืนนั้นจะกลับไปเป็นเวลาที่แอปตรวจพบ",
   "guideFixTimesBackTitle": "ไม่เห็น \"{back}\" ใช่ไหม",
-  "guideFixTimesBackBody": "**{back}** จะแสดงหลังจากคุณตั้งเวลาเองแล้วเท่านั้น ตั้งเวลาก่อน แล้วปุ่มจะปรากฏ",
+  "guideFixTimesBackBody": "**{back}** จะแสดงหลังจากคุณตั้งหรือยืนยันเวลาเอง และเมื่อยังเก็บข้อมูลบันทึกของคืนนั้นไว้ครบทั้งคืนเท่านั้น",
   "guideFixTimesAskTitle": "ตัวเลือกเวลาถามอะไร",
   "guideFixTimesAskBody": "ถามเวลาที่คุณเข้านอนก่อน แล้วจึงถามเวลาที่ตื่น จากนั้นแอปจะคำนวณคืนนั้นใหม่จากสองเวลานี้",
   "guideDeleteTitle": "ลบการออกกำลังกายได้ที่ไหน",
@@ -17150,7 +17150,7 @@
   "guideLogPastMissingBody": "อยู่ล่างสุดของ **{history}** ต่อจากรายการของคุณ เลื่อนลงไปให้สุด",
   "guideSearchOrPick": "ค้นหาหรือเลือก",
   "guideAddNapMissingTitle": "ไม่เห็น **{naps}**?",
-  "guideAddNapMissingBody": "**{naps}** อยู่ใต้ข้อมูลคืนนั้นใน **{night}**",
+  "guideAddNapMissingBody": "**{naps}** อยู่ใต้ข้อมูลคืนนั้น เลื่อนลงเพื่อหาปุ่มนี้",
   "@guideAddNapMissingTitle": {
     "description": "Footer card title (the \"Don't see it?\" help): the Naps button is not visible. {naps} is its in-app name.",
     "placeholders": {
@@ -17161,15 +17161,11 @@
     }
   },
   "@guideAddNapMissingBody": {
-    "description": "Footer card body: the Naps button sits in a section that can be folded. {naps} is the button, {night} the section title.",
+    "description": "Footer card body: scroll below the night to find the Naps button.",
     "placeholders": {
       "naps": {
         "type": "String",
         "description": "Name of the Naps button"
-      },
-      "night": {
-        "type": "String",
-        "description": "Title of the section that holds it"
       }
     }
   },

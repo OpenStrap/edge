@@ -17745,17 +17745,13 @@
       }
     }
   },
-  "guideFixTimesBackBody": "**{back}** only shows after you have set the times yourself. Set them first, then it appears. If **{night}** is folded, tap its title to open it.",
+  "guideFixTimesBackBody": "**{back}** only shows after you set or confirm the times yourself, while the whole night's recordings are still stored.",
   "@guideFixTimesBackBody": {
-    "description": "Footer card body: why Back to automatic can be missing (the times are not yours yet), and that the night section can be folded. {night} is that section title.",
+    "description": "Footer card body: Back to automatic needs user-set or confirmed times and recordings for the whole night.",
     "placeholders": {
       "back": {
         "type": "String",
         "description": "Name of the Back to automatic button"
-      },
-      "night": {
-        "type": "String",
-        "description": "Title of the section that holds the night"
       }
     }
   },
@@ -17987,17 +17983,13 @@
       }
     }
   },
-  "guideAddNapMissingBody": "**{naps}** is under your night. If that part, **{night}**, is folded, tap its title to open it.",
+  "guideAddNapMissingBody": "**{naps}** is below your night. Scroll down to find it.",
   "@guideAddNapMissingBody": {
-    "description": "Footer card body: the Naps button sits in a section that can be folded. {naps} is the button, {night} the section title.",
+    "description": "Footer card body: scroll below the night to find the Naps button.",
     "placeholders": {
       "naps": {
         "type": "String",
         "description": "Name of the Naps button"
-      },
-      "night": {
-        "type": "String",
-        "description": "Title of the section that holds it"
       }
     }
   },
