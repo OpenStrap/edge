@@ -2791,8 +2791,8 @@ class AppState extends ChangeNotifier {
 
   /// Force-derive [days] (a wearable was enabled, disabled or switched), then
   /// refresh. Waits out a pass already running rather than dropping the ask.
-  /// False when the pass threw (logged here), so a caller that owes the user
-  /// more than a log line can tell.
+  /// False when the pass threw or any day failed (logged), so a caller that
+  /// owes the user more than a log line can tell.
   Future<bool> rederiveDays(Set<String> days) async {
     if (days.isEmpty) return true;
     while (_derive.running) {
@@ -2805,7 +2805,8 @@ class AppState extends ChangeNotifier {
       await _derive.runDays(_profile, days, force: true);
       await LocalDb.refreshComputeFreshness();
       bumpInsights();
-      return true;
+      // runDays swallows a failing day and counts it instead.
+      return _derive.lastRunFailedDays == 0;
     } catch (e) {
       _log('[derive] wearable re-derive failed: $e');
       return false;

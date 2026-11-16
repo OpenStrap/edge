@@ -3908,6 +3908,7 @@ class DerivationEngine {
     if (days.isEmpty) return 0;
     if (_running) return 0;
     _running = true;
+    lastRunFailedDays = 0;
     final startedAt = DateTime.now().millisecondsSinceEpoch;
     _diag
       ..['running'] = true
@@ -3999,6 +4000,7 @@ class DerivationEngine {
       // every day under the current timezone, so it clears the travel hold too.
       // A partial selection deliberately does not: those days say nothing about
       // the ones still held.
+      lastRunFailedDays = failures;
       if (force && failures == 0) {
         final rawDays = (await LocalDb.decodedRecTsMaxByDay()).keys.toSet();
         if (rawDays.isNotEmpty && rawDays.difference(days).isEmpty) {
@@ -4019,6 +4021,7 @@ class DerivationEngine {
       return done;
     } catch (e, st) {
       _log('derive selected ERROR: $e\n$st');
+      lastRunFailedDays = days.length;
       return 0;
     } finally {
       await _runStorageHousekeeping();
