@@ -8427,5 +8427,13 @@
     "description": "Screen-reader action on the guide's step card: move the card down the screen (the alternative to dragging it)."
   },
   "guideTapOneOf": "коснитесь одного",
+  "@guideExpandAccordion": {
+    "description": "Guide hop asking the wearer to open a collapsed section",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "guideExpandAccordion": "Развернуть {title}"
 }
