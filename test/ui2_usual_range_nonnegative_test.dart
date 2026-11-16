@@ -36,6 +36,30 @@ void main() {
       0.1,
     ];
     expect(usualRangeFor('skin_temp', temp, null)!.lo, lessThan(0));
+    expect(usualRangeFor('dip', temp, null)!.lo, lessThan(0));
     expect(UsualRange.priorTo(temp)!.lo, lessThan(0));
+  });
+
+  test('non-negative load, ratio, and score metrics clamp their lower band edge at 0', () {
+    final skewed = <double>[
+      for (var i = 0; i < 20; i++) 0,
+      0.2, 0.5, 1.0,
+    ];
+    for (final key in [
+      'strain',
+      'trimp',
+      'stress',
+      'efficiency',
+      'hrr',
+      'lf_hf',
+      'hrv_cv',
+      'brv',
+      'spo2',
+    ]) {
+      final band = usualRangeFor(key, skewed, null)!;
+      expect(band.lo, 0, reason: '$key cannot be negative');
+      expect(band.hi, greaterThan(0), reason: key);
+      expect(band.usual, 0, reason: key);
+    }
   });
 }
