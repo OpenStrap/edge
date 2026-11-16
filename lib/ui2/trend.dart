@@ -282,7 +282,6 @@ const kNonNegativeKeys = {
   'strain',
   'trimp',
   'stress',
-  'hrr',
   'lf_hf',
   'hrv_cv',
   'brv',

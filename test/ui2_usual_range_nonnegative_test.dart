@@ -37,6 +37,7 @@ void main() {
     ];
     expect(usualRangeFor('skin_temp', temp, null)!.lo, lessThan(0));
     expect(usualRangeFor('dip', temp, null)!.lo, lessThan(0));
+    expect(usualRangeFor('hrr', temp, null)!.lo, lessThan(0));
     expect(UsualRange.priorTo(temp)!.lo, lessThan(0));
   });
 
@@ -50,7 +51,6 @@ void main() {
       'trimp',
       'stress',
       'efficiency',
-      'hrr',
       'lf_hf',
       'hrv_cv',
       'brv',
