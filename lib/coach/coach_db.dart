@@ -151,11 +151,12 @@ class CoachDb {
       _guard(raw, rowCap: rowCap).sql;
 
   /// [guardAndPrepare], plus whether the LIMIT was OURS rather than the
-  /// model's. The distinction cannot be recovered from the row count: an
-  /// injected `LIMIT rowCap` returns exactly rowCap rows whether the table
-  /// holds 200 or 20,000, so only this flag can tell the caller its page may
-  /// be incomplete (see `_runServed`'s note).
-  static ({String sql, bool autoLimited}) _guard(
+  /// model's, and whether a model-written LIMIT is at least [rowCap]. The
+  /// distinction cannot be recovered from the row count: a LIMIT of exactly
+  /// rowCap returns that many rows whether the table holds 200 or 20,000, so
+  /// these flags are what tell the caller its page may be incomplete (see
+  /// `_runServed`'s note).
+  static ({String sql, bool autoLimited, bool largeLimit}) _guard(
     String raw, {
     required int rowCap,
   }) {
@@ -244,7 +245,14 @@ class CoachDb {
       body = '$body LIMIT $rowCap';
       autoLimited = true;
     }
-    return (sql: body, autoLimited: autoLimited);
+    // The model may write its own LIMIT. One at or above the cap can fill the
+    // page without proving there is more, exactly like the injected one, so
+    // the caller must warn there too. A small limit (LIMIT 5) answers its own
+    // question and stays unmarked.
+    final limitValue = RegExp(r'\blimit\s+(\d+)\b').firstMatch(lower);
+    final largeLimit = limitValue != null &&
+        (int.tryParse(limitValue.group(1)!) ?? 0) >= rowCap;
+    return (sql: body, autoLimited: autoLimited, largeLimit: largeLimit);
   }
 
   /// Replace every single-quoted string literal with the neutral token `0`.
@@ -589,10 +597,12 @@ class CoachDb {
       {int rowCap = 200, ({String day, num? readiness})? today}) async {
     String sql;
     var autoLimited = false;
+    var largeLimit = false;
     try {
       final prepared = _guard(llmSql, rowCap: rowCap);
       sql = prepared.sql;
       autoLimited = prepared.autoLimited;
+      largeLimit = prepared.largeLimit;
     } on SqlGuardError catch (e) {
       return jsonEncode({'error': e.reason});
     }
@@ -604,7 +614,8 @@ class CoachDb {
     _sqlTail = turn.future;
     await previous;
     try {
-      return await _runServed(sql, rowCap, today, autoLimited: autoLimited);
+      return await _runServed(sql, rowCap, today,
+          autoLimited: autoLimited, largeLimit: largeLimit);
     } finally {
       turn.complete();
     }
@@ -614,7 +625,7 @@ class CoachDb {
 
   static Future<String> _runServed(String sql, int rowCap,
       ({String day, num? readiness})? today,
-      {required bool autoLimited}) async {
+      {required bool autoLimited, required bool largeLimit}) async {
     try {
       final db = await _readonly();
       await LocalDb.refreshSessionScoreMask();
@@ -646,23 +657,26 @@ class CoachDb {
       final shown = rows.take(rowCap).toList();
       final out = <String, dynamic>{
         'columns': shown.isEmpty ? <String>[] : shown.first.keys.toList(),
-        'rows': shown,
         'row_count': shown.length,
       };
-      // A page the GUARD capped is the one the row count cannot expose: the
-      // injected LIMIT returns exactly rowCap rows whether or not more exist,
-      // so `rows.length > rowCap` never fires on the common path. Say the page
-      // may be incomplete instead of letting the model read 200 rows as the
-      // whole answer.
+      // A page at the CAP is the one the row count cannot expose: the injected
+      // LIMIT, or a model LIMIT >= rowCap, returns exactly rowCap rows whether
+      // or not more exist, so `rows.length > rowCap` never fires on the common
+      // path. Say the page may be incomplete instead of letting the model read
+      // 200 rows as the whole answer.
       if (rows.length > rowCap) {
         out['note'] = 'Truncated to $rowCap of ${rows.length}+ rows. Add a '
             'tighter WHERE or aggregate (AVG/MIN/MAX/COUNT) instead of selecting '
             'all rows.';
-      } else if (autoLimited && rows.length >= rowCap) {
+      } else if ((autoLimited || largeLimit) && rows.length >= rowCap) {
         out['note'] = 'Shown: $rowCap rows, the query cap. There may be more. '
             'Add a tighter WHERE or aggregate (AVG/MIN/MAX/COUNT) rather than '
             'describing this page as the whole answer.';
       }
+      // NOTE BEFORE ROWS. The 16,000-character clip below cuts the tail, so a
+      // note placed after `rows` would be the first thing lost on a wide page
+      // — exactly the page that needs the warning.
+      out['rows'] = shown;
       var s = jsonEncode(out);
       if (s.length > 16000) s = '${s.substring(0, 16000)}…(truncated)';
       return s;

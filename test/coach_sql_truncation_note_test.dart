@@ -33,6 +33,16 @@ void main() {
         'value': i.toDouble(),
       });
     }
+    // A second page wide enough that 200 rows serialized exceed the
+    // 16,000-character clip, so the cap note has to survive that clip.
+    final wide = 'k' * 180;
+    for (var i = 0; i < 200; i++) {
+      await db.insert('metric_series', {
+        'date': '2026-01-02',
+        'key': '${wide}_$i',
+        'value': i.toDouble(),
+      });
+    }
   });
   tearDownAll(() async {
     await CoachDb.close();
@@ -69,5 +79,30 @@ void main() {
             as Map<String, dynamic>;
     expect(out['row_count'], 5);
     expect(out['note'], isNull);
+  });
+
+  test(
+    'an explicit LIMIT at the cap still says the page may be incomplete',
+    () async {
+      final out =
+          jsonDecode(
+                await CoachDb.runCoachSql(
+                  "SELECT date, key FROM v_metric WHERE date = '2026-01-01' "
+                  'LIMIT 200',
+                ),
+              )
+              as Map<String, dynamic>;
+      expect(out['row_count'], 200);
+      expect(out['note'], isNotNull);
+    },
+  );
+
+  test('the cap note survives the 16,000-character clip', () async {
+    final raw = await CoachDb.runCoachSql(
+      "SELECT key FROM v_metric WHERE date = '2026-01-02'",
+    );
+    expect(raw.length, lessThanOrEqualTo(16020));
+    expect(raw, contains('"note"'));
+    expect(raw, contains('There may be more'));
   });
 }
