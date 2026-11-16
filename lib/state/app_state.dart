@@ -2803,10 +2803,12 @@ class AppState extends ChangeNotifier {
     // between, so this call cannot hit runDays' "already running" return.
     try {
       await _derive.runDays(_profile, days, force: true);
+      // runDays swallows a failing day and counts it instead. Read the count
+      // before any further await: another pass resets it as it starts.
+      final failedDays = _derive.lastRunFailedDays;
       await LocalDb.refreshComputeFreshness();
       bumpInsights();
-      // runDays swallows a failing day and counts it instead.
-      return _derive.lastRunFailedDays == 0;
+      return failedDays == 0;
     } catch (e) {
       _log('[derive] wearable re-derive failed: $e');
       return false;
