@@ -169,5 +169,35 @@ void main() {
       await t.pump(const Duration(seconds: 1));
       expect(find.text('Buzz sent to the band'), findsNothing);
     });
+
+    testWidgets('a result that lands while the last one is leaving replaces it',
+        (t) async {
+      // Tap, let the message show, tap again (its exit starts), and tap a
+      // third time mid-exit: only the latest may follow, not a queue of two.
+      await t.pumpWidget(MaterialApp(
+          home: AlarmScreenView(
+              armedAt: DateTime(2026, 8, 23, 6, 30),
+              state: AlarmArmState.confirmed,
+              connected: true,
+              now: DateTime(2026, 8, 22, 9),
+              onTest: () async {})));
+      final button = find.text('Test the buzz');
+      await t.ensureVisible(button);
+      Future<void> step(int ms) async {
+        for (var i = 0; i < ms ~/ 50; i++) {
+          await t.pump(const Duration(milliseconds: 50));
+        }
+      }
+
+      await t.tap(button);
+      await step(1000);
+      await t.tap(button);
+      await step(50);
+      await t.tap(button);
+      // One message's enter, 4 s on screen and exit, with a second of slack;
+      // a second queued message would still be showing here.
+      await step(6000);
+      expect(find.text('Buzz sent to the band'), findsNothing);
+    });
   });
 }

@@ -91,7 +91,7 @@
   "alarmChangeTheTime": "समय बदलें",
   "alarmTestTheBuzz": "बज़ का परीक्षण करें",
   "alarmCancelTheAlarm": "अलार्म रद्द करें",
-  "alarmBuzzingTheBand": "बैंड बज़ हो रहा है",
+  "alarmBuzzingTheBand": "बैंड को बज़ भेजा गया",
   "alarmCancelled": "अलार्म रद्द",
   "alarmSentToBand": "अलार्म बैंड पर भेजा गया",
   "alarmInThePast": "अतीत में — यह पहले ही बज चुका है या छूट गया है",
