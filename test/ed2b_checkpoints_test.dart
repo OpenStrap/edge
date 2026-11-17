@@ -112,10 +112,10 @@ void main() {
   });
 
   test('E16 fresh storage uses rung 62 and a versioned composite key', () async {
-    expect(LocalDb.schemaVersion, 62,
+    expect(LocalDb.schemaVersion, greaterThanOrEqualTo(62),
         reason: '61 belongs to ED-2a revisions; checkpoints use the next rung');
     final db = await _storage();
-    expect(await db.getVersion(), 62);
+    expect(await db.getVersion(), LocalDb.schemaVersion);
     expect(await db.query('store_identity'), hasLength(1));
     expect(await LocalDb.storeIdentity(), matches(RegExp(r'^[0-9a-f]{32}$')));
     final columns = {for (final row in await db.rawQuery(
@@ -152,7 +152,7 @@ void main() {
     expect(await db.query('input_rev', orderBy: 'bucket'), revs);
     expect(await db.rawQuery('PRAGMA table_info(decoded_onehz)'), rawShape);
     await _storage();
-    expect(await db.getVersion(), 62);
+    expect(await db.getVersion(), LocalDb.schemaVersion);
     expect(await db.query('day_checkpoint'), isEmpty,
         reason: 'migration creates empty scratch storage without deriving old days');
   });

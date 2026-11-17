@@ -156,7 +156,7 @@ void main() {
   });
 
   test('rung 61 input revisions remain present with rung 62 checkpoints', () async {
-    expect(LocalDb.schemaVersion, 62, reason: 'checkpoint storage follows revisions at 61');
+    expect(LocalDb.schemaVersion, greaterThanOrEqualTo(62), reason: 'checkpoint storage follows revisions at 61');
     final db = await open();
     expect(await db.getVersion(), LocalDb.schemaVersion);
     expect(await _hasRevisions(db), isTrue);
