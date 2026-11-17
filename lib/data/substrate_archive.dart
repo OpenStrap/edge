@@ -102,12 +102,12 @@ abstract final class SubstrateArchive {
   static const String policyKey = 'substrate_archive_policy';
 
   /// `compute_freshness` key counting, per `device|utc_day`, the passes on
-  /// which a bucket past the hold failed for a non-deterministic reason.
+  /// which a bucket failed to archive.
   static const String failuresKey = 'substrate_archive_failures';
 
-  /// Failed passes past the hold after which ANY failure counts as
-  /// permanent — see [archiveAndDeleteBefore].
-  static const int maxFailedPasses = 3;
+  /// Failed passes after which a BOUNDED (background) pass stops attempting a
+  /// bucket — see [archiveAndDeleteBefore]. Foreground passes always retry.
+  static const int backgroundSkipAfterFailures = 3;
 
   static const int _pageSize = 5000;
 
@@ -125,11 +125,6 @@ abstract final class SubstrateArchive {
   /// transient failure (SQLITE_BUSY, an isolate that could not start).
   @visibleForTesting
   static Object? debugThrowInBucket;
-
-  /// Test seam: awaited inside the past-the-hold unarchived delete's
-  /// transaction, so a test can make that delete fail.
-  @visibleForTesting
-  static Future<void> Function()? debugBeforeFallbackDelete;
 
   @visibleForTesting
   static int get pageSizeForTest => _pageSize;
@@ -358,21 +353,23 @@ abstract final class SubstrateArchive {
   /// the setting, see [writePolicy]) must not be followed by this prune
   /// writing a fresh bucket after it.
   ///
-  /// A bucket that fails STAYS LIVE and is retried on the next pass. The one
-  /// exception is a DETERMINISTIC failure — the codec refusing the data or
-  /// failing its own read-back, or an existing blob this build cannot read —
-  /// on a bucket entirely behind [hardFloorSec] (the end of the bounded
-  /// hold). That failure would repeat on every pass, so the bucket is deleted
-  /// unarchived exactly as before this table existed, and one bad bucket
-  /// cannot switch retention off. Anything else (SQLITE_BUSY, an isolate that
-  /// could not start, I/O) is treated as transient and retried — but a bucket
-  /// past the hold that has failed on [maxFailedPasses] passes (an encode that
-  /// runs out of memory on a huge day fails "transiently" forever) is treated
-  /// as permanent too. The count persists in `compute_freshness`
-  /// ([failuresKey]) and is cleared when the bucket archives.
+  /// CLAIM(archive-before-delete): a failed bucket stays live regardless of
+  /// age, error type or retry count [substrate_archive_db_test]. Neither a
+  /// corrupt encode nor repeated resource failures authorize data loss. The
+  /// failure counts persist in [failuresKey] and clear when a bucket archives.
+  /// A permanently failing bucket can therefore exceed the live retention
+  /// budget until archival succeeds or the user disables archiving.
   ///
   /// [maxBuckets] caps how many buckets one pass archives; the rest stay live
   /// for the next pass (background engines run on a short, throttled budget).
+  /// A bounded pass is also the BACKGROUND pass, and one bad bucket must not
+  /// starve it: buckets run oldest first, so a bucket that always fails would
+  /// spend the single attempt of every pass (up to ~3 s of write lock per full
+  /// day) and nothing behind it would ever archive. A bucket that has failed
+  /// [backgroundSkipAfterFailures] passes is therefore skipped by bounded
+  /// passes without using the budget. Unbounded (foreground) passes still
+  /// retry it every time, so a fix or a quieter moment can archive it; success
+  /// clears the count.
   ///
   /// The `UNION` over both tables is required: gen4 history can carry
   /// beat-only seconds with no 1 Hz parent row.
@@ -392,7 +389,6 @@ abstract final class SubstrateArchive {
   static Future<int> archiveAndDeleteBefore(
     Database db,
     int cutoffSec, {
-    int? hardFloorSec,
     void Function(String message)? log,
     bool Function()? shouldYield,
     int? maxBuckets,
@@ -420,6 +416,11 @@ abstract final class SubstrateArchive {
         final hi = math.min((day + 1) * 86400, cutoffSec);
         await debugBeforeBucket?.call();
         if (maxBuckets != null && attempted >= maxBuckets) break;
+        final failureKey = '$deviceId|$day';
+        if (maxBuckets != null &&
+            (failures[failureKey] ?? 0) >= backgroundSkipAfterFailures) {
+          continue;
+        }
         attempted++;
         if (shouldYield?.call() ?? false) {
           log?.call(
@@ -428,7 +429,6 @@ abstract final class SubstrateArchive {
           );
           break;
         }
-        final failureKey = '$deviceId|$day';
         try {
           deleted += await db.transaction((txn) async {
             final n = await _archiveBucket(txn, deviceId, day, lo, hi);
@@ -437,45 +437,12 @@ abstract final class SubstrateArchive {
           });
           if (failures.remove(failureKey) != null) failuresChanged = true;
         } catch (e) {
-          final pastHold = hardFloorSec != null && hi <= hardFloorSec;
-          var permanent =
-              e is StateError || e is ArgumentError || e is FormatException;
-          if (pastHold && !permanent) {
-            final n = (failures[failureKey] ?? 0) + 1;
-            failures[failureKey] = n;
-            failuresChanged = true;
-            permanent = n >= maxFailedPasses;
-          }
-          if (permanent && pastHold) {
-            // Guarded: one bucket whose delete fails (a concurrent writer
-            // holding the lock) must not end the pass for every other
-            // bucket. It stays live and keeps its count, so the next pass
-            // tries again.
-            try {
-              deleted += await db.transaction((txn) async {
-                await debugBeforeFallbackDelete?.call();
-                final n = await _deleteLive(txn, deviceId, lo, hi);
-                await onDeleted?.call(txn, hi);
-                return n;
-              });
-              if (failures.remove(failureKey) != null) failuresChanged = true;
-              log?.call(
-                'substrate archive failed for $deviceId/$day ($e); past the '
-                'hold, deleted unarchived',
-              );
-            } catch (e2) {
-              log?.call(
-                'substrate archive failed for $deviceId/$day ($e) and the '
-                'unarchived delete failed too ($e2); kept live for the next '
-                'pass',
-              );
-            }
-          } else {
-            log?.call(
-              'substrate archive failed for $deviceId/$day ($e); kept live for '
-              'the next pass',
-            );
-          }
+          failures[failureKey] = (failures[failureKey] ?? 0) + 1;
+          failuresChanged = true;
+          log?.call(
+            'substrate archive failed for $deviceId/$day ($e); kept live for '
+            'the next pass',
+          );
         }
       }
     } finally {

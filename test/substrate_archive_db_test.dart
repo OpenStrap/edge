@@ -398,7 +398,7 @@ void main() {
 
   // WHY: the archive is the only durable copy once live rows are deleted.
   // CLAIM(archive-before-delete); catches: hard-floor fallback deletion.
-  test('verify failure keeps rows live even past hardFloorSec', () async {
+  test('verify failure keeps rows live however often the prune runs', () async {
     await _seed();
     final liveBefore = await _live(
       'decoded_onehz',
@@ -410,7 +410,6 @@ void main() {
     await LocalDb.pruneDecodedBeforeRecTs(
       cutoff,
       archive: policy,
-      hardFloorSec: _d0, // every bucket is still inside the hold
       log: logs.add,
     );
     expect(
@@ -425,7 +424,6 @@ void main() {
     await LocalDb.pruneDecodedBeforeRecTs(
       cutoff,
       archive: policy,
-      hardFloorSec: cutoff,
     );
     expect(await _live('decoded_onehz', 'rec_ts > 0 AND rec_ts < ?', [cutoff]),
         liveBefore);
@@ -1173,7 +1171,6 @@ void main() {
     await LocalDb.pruneDecodedBeforeRecTs(
       cutoff,
       archive: policy,
-      hardFloorSec: cutoff,
       log: logs.add,
       shouldYield: () => buckets > 1, // the offload begins after bucket 1
     );
@@ -1192,7 +1189,6 @@ void main() {
     await LocalDb.pruneDecodedBeforeRecTs(
       cutoff,
       archive: policy,
-      hardFloorSec: cutoff,
     );
     expect(await db.query('substrate_archive'), hasLength(4));
     final (archived, _) = await _archived();
@@ -1444,7 +1440,6 @@ void main() {
       await LocalDb.pruneDecodedBeforeRecTs(
         cutoff,
         archive: policy,
-        hardFloorSec: cutoff, // every bucket is past the hold
       );
       SubstrateArchive.debugThrowInBucket = null;
       expect(
@@ -1487,7 +1482,7 @@ void main() {
     Future<void> pass() async {
       seen = 0;
       await LocalDb.pruneDecodedBeforeRecTs(cutoff,
-          archive: policy, hardFloorSec: cutoff, maxArchiveBuckets: 1);
+          archive: policy, maxArchiveBuckets: 1);
     }
 
     for (var n = 1; n <= 3; n++) {
@@ -1510,7 +1505,7 @@ void main() {
     SubstrateArchive.debugThrowInBucket = StateError('codec rejected bucket');
     for (var n = 0; n < 3; n++) {
       await LocalDb.pruneDecodedBeforeRecTs(cutoff,
-          archive: policy, hardFloorSec: cutoff, maxArchiveBuckets: 1);
+          archive: policy, maxArchiveBuckets: 1);
     }
     SubstrateArchive.debugThrowInBucket = null;
     await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
@@ -1608,7 +1603,7 @@ void main() {
           ? StateError('codec rejected bucket') : null;
     };
     await LocalDb.pruneDecodedBeforeRecTs(cutoff,
-        archive: policy, hardFloorSec: cutoff);
+        archive: policy);
     expect(calls, 4);
     expect(await (await _db()).query('substrate_archive'), hasLength(3));
     expect(await _live('decoded_onehz', 'rec_ts > 0 AND rec_ts < ?', [cutoff]),
@@ -1616,7 +1611,7 @@ void main() {
     SubstrateArchive.debugBeforeBucket = null;
     SubstrateArchive.debugThrowInBucket = null;
     await LocalDb.pruneDecodedBeforeRecTs(cutoff,
-        archive: policy, hardFloorSec: cutoff);
+        archive: policy);
     expect(await (await _db()).query('substrate_archive'), hasLength(4));
     expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
   });
@@ -1630,7 +1625,7 @@ void main() {
     SubstrateArchive.debugThrowInBucket = Exception('out of memory');
     for (var pass = 1; pass <= 4; pass++) {
       await LocalDb.pruneDecodedBeforeRecTs(cutoff,
-          archive: policy, hardFloorSec: cutoff);
+          archive: policy);
       expect(await _live('decoded_onehz', 'rec_ts > 0 AND rec_ts < ?', [cutoff]),
           before, reason: 'pass $pass');
       expect(await _live('decoded_rr', 'rec_ts > 0 AND rec_ts < ?', [cutoff]),
@@ -1639,7 +1634,7 @@ void main() {
     }
     SubstrateArchive.debugThrowInBucket = null;
     await LocalDb.pruneDecodedBeforeRecTs(cutoff,
-        archive: policy, hardFloorSec: cutoff);
+        archive: policy);
     expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
     expect(await _live('decoded_rr', 'rec_ts < ?', [cutoff]), isEmpty);
     expect(await (await _db()).query('substrate_archive'), hasLength(4));
