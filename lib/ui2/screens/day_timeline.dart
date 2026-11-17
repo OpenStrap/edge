@@ -96,13 +96,18 @@ class DayNote {
 Map<int, (String, IconData)> _events(AppLocalizations? l) => {
   7: (l?.dayTimelineChargerOn ?? 'On the charger', LucideIcons.batteryCharging),
   8: (l?.dayTimelineChargerOff ?? 'Off the charger', LucideIcons.batteryFull),
-  14: (l?.dayTimelineDoubleTap ?? 'You double-tapped the band', LucideIcons.hand),
+  _kDoubleTapEventId: (l?.dayTimelineDoubleTap ?? 'You double-tapped the band', LucideIcons.hand),
   15: (l?.dayTimelineRestarted ?? 'The band restarted', LucideIcons.rotateCw),
   21: (l?.dayTimelineBatteryPackAttached ?? 'Battery pack attached',
       LucideIcons.batteryCharging),
   22: (l?.dayTimelineBatteryPackRemoved ?? 'Battery pack removed', LucideIcons.battery),
   57: (l?.dayTimelineAlarmWentOff ?? 'Alarm went off', LucideIcons.alarmClock),
 };
+
+const int _kDoubleTapEventId = 14;
+
+/// Double-taps closer together than this are one run on the timeline.
+const int kDoubleTapRunGapSec = 10 * 60;
 
 /// An off-wrist gap shorter than this is a dropout, not an event in a day.
 /// Listing every one of them would bury the four that mean something under
@@ -244,17 +249,45 @@ List<Moment> dayMoments({
   // times, and a day with the charger on it should not read as four chargers.
   final seen = <String>{};
   final events = _events(l);
+  final taps = <int>[];
   for (final e in (timeline['events'] as List?) ?? const []) {
     if (e is! Map) continue;
     final id = asInt(e['event_id']), t = asInt(e['ts']);
     final def = id == null ? null : events[id];
     if (def == null || t == null || !seen.add('$id/$t')) continue;
+    if (id == _kDoubleTapEventId) {
+      taps.add(t);
+      continue;
+    }
     out.add(Moment(
       at: t,
       title: def.$1,
       detail: clockOfTs(t),
       icon: def.$2,
     ));
+  }
+  // Double-taps in a run (a ball sport sets the firmware's tap detector off on
+  // every contact) are one span carrying the band's own count, not one line
+  // per tap burying the rest of the day.
+  taps.sort();
+  final tap = events[_kDoubleTapEventId]!;
+  for (var i = 0; i < taps.length;) {
+    var j = i;
+    while (j + 1 < taps.length &&
+        taps[j + 1] - taps[j] <= kDoubleTapRunGapSec) {
+      j++;
+    }
+    final n = j - i + 1;
+    out.add(Moment(
+      at: taps[i],
+      until: n > 1 ? taps[j] : null,
+      title: tap.$1,
+      detail: n > 1
+          ? '${clockOfTs(taps[i])}–${clockOfTs(taps[j])} · $n×'
+          : clockOfTs(taps[i]),
+      icon: tap.$2,
+    ));
+    i = j + 1;
   }
 
   for (final m in meals) {

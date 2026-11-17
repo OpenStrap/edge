@@ -72,6 +72,29 @@ void main() {
       expect(m, hasLength(2));
     });
 
+    test('a run of double-taps is one line with its count, not one per tap',
+        () {
+      // Volleyball: every ball contact the firmware reads as a double-tap. The
+      // run stays on the page (it happened, and the count is the band's), but
+      // as one span instead of forty lines burying the day.
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          for (var i = 0; i < 14; i++) {'event_id': 14, 'ts': _at(18, 2 + i * 4)},
+          // A tap on its own hours later is still its own line.
+          {'event_id': 14, 'ts': _at(21)},
+        ],
+      });
+      expect(m, hasLength(2));
+      final run = m.first;
+      expect(run.at, _at(18, 2));
+      expect(run.until, _at(18, 54));
+      expect(run.detail, contains('14×'));
+      expect(m.last.at, _at(21));
+      expect(m.last.until, isNull);
+      expect(m.last.detail, isNot(contains('×')));
+    });
+
     test('a meal with no time is never placed, and is not lost either', () {
       const timed = FoodEntry(
           id: 'a', date: '2026-08-14', meal: 'Lunch', label: 'Soup', kcal: 300);
