@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/series_codec.dart';
 
 Future<void> _useFreshDb(String name) async {
   await LocalDb.close();
@@ -19,18 +20,19 @@ Future<void> _useFreshDb(String name) async {
 
 const _algo = 7;
 
-Future<Set<String>> _exactScan(Database db) async => {
+/// The expected set, computed in Dart exactly as `LocalDb.isMeasuredDayRow`
+/// reads a payload (`p['imported'] == true`). It deliberately shares no code
+/// with the SQL expression under test, so the test is a SQL/Dart parity check
+/// and not the expression compared with itself.
+Future<Set<String>> _dartOracle(Database db) async => {
   for (final r in await db.query(
     'day_result',
-    columns: ['day_id'],
-    where:
-        'algo_version = ? AND finalized = 1 '
-        "AND CASE WHEN json_valid(payload_json) THEN "
-        "COALESCE(json_type(payload_json, '\$.imported') = 'true', 0) "
-        "ELSE 0 END = 0",
+    columns: ['day_id', 'payload_json'],
+    where: 'algo_version = ? AND finalized = 1',
     whereArgs: [_algo],
   ))
-    r['day_id'] as String,
+    if (SeriesCodec.decodePayloadJson(r['payload_json'])?['imported'] != true)
+      r['day_id'] as String,
 };
 
 Future<bool> _indexed(Database db) async => (await db.rawQuery(
@@ -87,6 +89,9 @@ void main() {
     var n = 0;
     for (final entry in shapes.entries) {
       final day = '2026-01-${(++n).toString().padLeft(2, '0')}';
+      // The table agrees with the Dart reader, so SQL and Dart cannot drift.
+      expect(SeriesCodec.decodePayloadJson(entry.key)?['imported'] == true,
+          entry.value, reason: 'oracle ${entry.key}');
       await _rawPut(db, day, entry.key);
       if (!entry.value) expected.add(day);
       expect((await db.query('day_result', columns: ['imported'],
@@ -179,7 +184,7 @@ void main() {
     );
     final ids = await LocalDb.finalizedDayIds(_algo);
     expect(ids, {'2026-01-02'});
-    expect(ids, await _exactScan(db));
+    expect(ids, await _dartOracle(db));
   });
 
   test('backfills rows written before the column existed', () async {
@@ -204,7 +209,7 @@ void main() {
         'imported': i % 3 == 0 ? 0 : 1,
       });
     }
-    final expected = await _exactScan(db);
+    final expected = await _dartOracle(db);
     expect(expected, isNotEmpty);
     // Reopen: the repair pass restores the triggers, the first read backfills.
     await LocalDb.close();
