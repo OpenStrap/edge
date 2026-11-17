@@ -226,4 +226,67 @@ void main() {
       contains('COVERING INDEX idx_day_result_finalized_v2'),
     );
   });
+
+  Future<List<String>> triggers(Database db) async => [
+    for (final r in await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+      "AND tbl_name = 'day_result' ORDER BY name",
+    ))
+      r['name'] as String,
+  ];
+
+  Future<bool> hasIndex(Database db, String name) async => (await db.rawQuery(
+    "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+    [name],
+  )).isNotEmpty;
+
+  // WHY: day_result is written by every derive. A trigger body that calls
+  // json_valid/json_type cannot compile on a SQLite without JSON1 (the Android
+  // framework builds some devices ship), and then EVERY insert fails, so no day
+  // could be saved. Without JSON1 the legacy LIKE mirror must stay in place.
+  // CLAIM(imported-exact); catches: a JSON1 requirement on the write path.
+  test('without JSON1 a fresh database keeps the legacy LIKE mirror', () async {
+    LocalDb.debugJsonProbeFails = true;
+    addTearDown(() => LocalDb.debugJsonProbeFails = false);
+    await _useFreshDb('finalized_no_json1.db');
+    final db = await LocalDb.instance;
+    expect(await triggers(db),
+        ['trg_day_result_imported_ins', 'trg_day_result_imported_upd']);
+    for (final r in await db.rawQuery(
+      "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
+      "AND tbl_name = 'day_result'",
+    )) {
+      expect(r['sql'], isNot(contains('json_')), reason: 'no JSON1 in a trigger');
+    }
+    await _rawPut(db, '2026-01-01', '{"nested":{"imported":true}}');
+    await _rawPut(db, '2026-01-02', '{ "imported" : true }');
+    // The legacy substring test, kept as it was: nested matches, spaced does not.
+    expect((await db.query('day_result', columns: ['imported'],
+      orderBy: 'day_id')).map((r) => r['imported']).toList(), [1, 0]);
+    expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-02'});
+    expect(await hasIndex(db, 'idx_day_result_finalized'), isTrue);
+    expect(await hasIndex(db, 'idx_day_result_finalized_v2'), isFalse);
+  });
+
+  // WHY: a database file restored from a JSON1 device onto one without JSON1
+  // arrives carrying the JSON triggers; they would fail every write there.
+  // CLAIM(imported-exact); catches: leaving JSON triggers when JSON1 is absent.
+  test('reopening without JSON1 swaps a restored JSON mirror for the LIKE one',
+      () async {
+    addTearDown(() => LocalDb.debugJsonProbeFails = false);
+    await _useFreshDb('finalized_restored_json.db');
+    var db = await LocalDb.instance;
+    expect(await triggers(db), [
+      'trg_day_result_imported_v2_ins',
+      'trg_day_result_imported_v2_upd',
+    ]);
+    await LocalDb.finalizedDayIds(_algo);
+    expect(await hasIndex(db, 'idx_day_result_finalized_v2'), isTrue);
+    await LocalDb.close();
+    LocalDb.debugJsonProbeFails = true;
+    db = await LocalDb.instance;
+    expect(await triggers(db),
+        ['trg_day_result_imported_ins', 'trg_day_result_imported_upd']);
+    expect(await hasIndex(db, 'idx_day_result_finalized_v2'), isFalse);
+  });
 }

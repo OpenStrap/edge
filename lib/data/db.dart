@@ -10931,6 +10931,11 @@ class LocalDb {
     return {for (final r in rows) r['day_id'] as String};
   }
 
+  /// Test seam: makes the JSON1 probe report "unavailable", as on an Android
+  /// framework SQLite built without it.
+  @visibleForTesting
+  static bool debugJsonProbeFails = false;
+
   /// CLAIM(imported-exact): only a top-level JSON boolean true marks an
   /// imported snapshot [finalized_day_ids_index_test]. Guard malformed JSON
   /// so a damaged bundle cannot abort a write or the fallback scan.
