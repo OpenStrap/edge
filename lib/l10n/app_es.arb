@@ -91,7 +91,7 @@
   "alarmChangeTheTime": "Cambiar la hora",
   "alarmTestTheBuzz": "Probar la vibración",
   "alarmCancelTheAlarm": "Cancelar la alarma",
-  "alarmBuzzingTheBand": "Vibrando la banda",
+  "alarmBuzzingTheBand": "Vibración enviada a la banda",
   "alarmCancelled": "Alarma cancelada",
   "alarmSentToBand": "Alarma enviada a la banda",
   "alarmInThePast": "En el pasado: ya sonó o se pasó",

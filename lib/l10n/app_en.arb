@@ -393,9 +393,9 @@
   "@alarmCancelTheAlarm": {
     "description": "Button: cancel the alarm."
   },
-  "alarmBuzzingTheBand": "Buzzing the band",
+  "alarmBuzzingTheBand": "Buzz sent to the band",
   "@alarmBuzzingTheBand": {
-    "description": "Snackbar: testing the buzz."
+    "description": "Snackbar: the test buzz command reached the band. The app gets no signal when the buzz ends, so this must not claim the band is still buzzing."
   },
   "alarmCancelled": "Alarm cancelled",
   "@alarmCancelled": {
