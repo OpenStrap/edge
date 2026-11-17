@@ -688,7 +688,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 62;
+  static const int schemaVersion = 63;
 
   /// In-memory cache identity, advanced after open, wipe or committed import.
   /// It is local to this isolate; no cache survives a process restart.
@@ -1543,6 +1543,11 @@ class LocalDb {
         if (oldV < 62) {
           await _createStoreIdentity(db);
           await _createDayCheckpoint(db);
+        }
+        if (oldV < 63) {
+          // Replace the LIKE mirror's triggers and completion marker only.
+          // Paged payload repair stays off the launch watchdog, on first read.
+          await _ensureDayResultImportedColumn(db);
         }
       },
       onOpen: (db) async {
@@ -10920,24 +10925,27 @@ class LocalDb {
       where: indexed
           ? 'algo_version = ? AND finalized = 1 AND imported = 0'
           : 'algo_version = ? AND finalized = 1 '
-              'AND payload_json NOT LIKE $_importedPayloadLike',
+              'AND (${_importedPayloadSql('payload_json')}) = 0',
       whereArgs: [algoVersion],
     );
     return {for (final r in rows) r['day_id'] as String};
   }
 
-  /// The one test for "this bundle is an imported snapshot". The `imported`
-  /// column is computed from it by trigger, so the column and the old scan
-  /// cannot disagree about a row.
-  static const String _importedPayloadLike = "'%\"imported\":true%'";
+  /// CLAIM(imported-exact): only a top-level JSON boolean true marks an
+  /// imported snapshot [finalized_day_ids_index_test]. Guard malformed JSON
+  /// so a damaged bundle cannot abort a write or the fallback scan.
+  static String _importedPayloadSql(String column) =>
+      "CASE WHEN json_valid($column) THEN "
+      "COALESCE(json_type($column, '\$.imported') = 'true', 0) ELSE 0 END";
 
   /// Covering index for [finalizedDayIds]. Created only once every existing
   /// row's `imported` is filled, so its presence is also the "backfill done"
   /// marker: a database restored from a file without it backfills again.
-  static const String _dayResultFinalizedIndex = 'idx_day_result_finalized';
+  // Version the completion marker: an old LIKE backfill is not trustworthy.
+  static const String _dayResultFinalizedIndex = 'idx_day_result_finalized_v2';
 
   /// `day_result.imported` and the triggers that keep it equal to
-  /// [_importedPayloadLike] on every insert and payload update — whichever
+  /// [_importedPayloadSql] on every insert and payload update — whichever
   /// path writes the row (derive, import, restore merge, raw SQL). Cheap and
   /// idempotent: ADD COLUMN with a constant default rewrites nothing, so this
   /// is safe on the every-open repair path. The backfill of existing rows is
@@ -10947,18 +10955,23 @@ class LocalDb {
     await _addColumnIfMissing(
       db, 'day_result', 'imported', 'INTEGER NOT NULL DEFAULT 0',
     );
+    // Cheap every-open repair, including same-version restored databases.
+    // The v2 index is built only after the paged exact-key backfill completes.
+    await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_ins');
+    await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_upd');
+    await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized');
     await db.execute(
-      'CREATE TRIGGER IF NOT EXISTS trg_day_result_imported_ins '
+      'CREATE TRIGGER IF NOT EXISTS trg_day_result_imported_v2_ins '
       'AFTER INSERT ON day_result BEGIN '
       'UPDATE day_result '
-      'SET imported = (NEW.payload_json LIKE $_importedPayloadLike) '
+      'SET imported = (${_importedPayloadSql('NEW.payload_json')}) '
       'WHERE rowid = NEW.rowid; END',
     );
     await db.execute(
-      'CREATE TRIGGER IF NOT EXISTS trg_day_result_imported_upd '
+      'CREATE TRIGGER IF NOT EXISTS trg_day_result_imported_v2_upd '
       'AFTER UPDATE OF payload_json ON day_result BEGIN '
       'UPDATE day_result '
-      'SET imported = (NEW.payload_json LIKE $_importedPayloadLike) '
+      'SET imported = (${_importedPayloadSql('NEW.payload_json')}) '
       'WHERE rowid = NEW.rowid; END',
     );
   }
@@ -10970,7 +10983,7 @@ class LocalDb {
   /// never runs it under the launch watchdog. Rows written meanwhile are
   /// already right (the triggers), and re-filling one recomputes the same
   /// value, so a concurrent derive cannot race it. Any failure leaves the
-  /// index absent and the caller on the old scan; the next call resumes.
+  /// index absent and the caller on the exact-key scan; the next call resumes.
   static Future<bool> _ensureDayResultImportedFlag(Database db) async {
     Future<bool> ready() async => (await db.rawQuery(
           "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
@@ -10993,7 +11006,7 @@ class LocalDb {
         final hi = (page.last['r'] as num).toInt();
         await db.rawUpdate(
           'UPDATE day_result '
-          'SET imported = (payload_json LIKE $_importedPayloadLike) '
+          'SET imported = (${_importedPayloadSql('payload_json')}) '
           'WHERE rowid > ? AND rowid <= ?',
           [after, hi],
         );
