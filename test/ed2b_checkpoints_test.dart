@@ -111,7 +111,7 @@ void main() {
     edSetZone(originalZone);
   });
 
-  test('E16 fresh storage uses rung 62 and a versioned composite key', () async {
+  test('E16 fresh storage has the checkpoint tables (rung 62 or later) and a versioned composite key', () async {
     expect(LocalDb.schemaVersion, greaterThanOrEqualTo(62),
         reason: '61 belongs to ED-2a revisions; checkpoints use the next rung');
     final db = await _storage();
