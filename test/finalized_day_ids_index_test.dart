@@ -1,7 +1,9 @@
 // `finalizedDayIds` reads an indexed `day_result.imported` flag instead of
-// LIKE-scanning every finalized bundle. The answer must be the same set the
-// scan gave, for rows written before the column existed (backfill) and after
+// scanning every finalized bundle. Only a top-level JSON boolean true is
+// imported, for rows written before the column existed (backfill) and after
 // (triggers), on every write path.
+
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -17,13 +19,15 @@ Future<void> _useFreshDb(String name) async {
 
 const _algo = 7;
 
-Future<Set<String>> _likeScan(Database db) async => {
+Future<Set<String>> _exactScan(Database db) async => {
   for (final r in await db.query(
     'day_result',
     columns: ['day_id'],
     where:
         'algo_version = ? AND finalized = 1 '
-        "AND payload_json NOT LIKE '%\"imported\":true%'",
+        "AND CASE WHEN json_valid(payload_json) THEN "
+        "COALESCE(json_type(payload_json, '\$.imported') = 'true', 0) "
+        "ELSE 0 END = 0",
     whereArgs: [_algo],
   ))
     r['day_id'] as String,
@@ -31,7 +35,7 @@ Future<Set<String>> _likeScan(Database db) async => {
 
 Future<bool> _indexed(Database db) async => (await db.rawQuery(
   "SELECT 1 FROM sqlite_master WHERE type = 'index' "
-  "AND name = 'idx_day_result_finalized'",
+  "AND name = 'idx_day_result_finalized_v2'",
 )).isNotEmpty;
 
 Future<void> _put(String day, String payload, {bool finalized = true}) =>
@@ -43,6 +47,13 @@ Future<void> _put(String day, String payload, {bool finalized = true}) =>
       finalized: finalized,
     );
 
+Future<void> _rawPut(Database db, String day, String payload) async {
+  await db.insert('day_result', {
+    'day_id': day, 'algo_version': _algo, 'payload_json': payload,
+    'window_json': '{}', 'computed_at': 0, 'finalized': 1,
+  });
+}
+
 void main() {
   setUpAll(() {
     sqfliteFfiInit();
@@ -53,7 +64,101 @@ void main() {
     await LocalDb.close();
   });
 
-  test('same set as the LIKE scan, through the triggers', () async {
+
+  // WHY: substring matching confuses nested keys and misses spaced booleans.
+  // CLAIM(imported-exact); catches: LIKE, json_extract without a type check.
+  test('only a top-level boolean true marks an imported day on every write', () async {
+    await _useFreshDb('finalized_shapes.db');
+    final db = await LocalDb.instance;
+    final shapes = <String, bool>{
+      '{}': false,
+      '{"imported":true}': true,
+      '{"imported":false}': false,
+      '{"nested":{"imported":true}}': false,
+      jsonEncode({'note': '"imported":true'}): false,
+      '{"not_imported":true}': false,
+      '{"imported":1}': false,
+      '{"imported":"true"}': false,
+      '{"imported":null}': false,
+      '{ "imported" : true }': true,
+      'invalid JSON': false,
+    };
+    final expected = <String>{};
+    var n = 0;
+    for (final entry in shapes.entries) {
+      final day = '2026-01-${(++n).toString().padLeft(2, '0')}';
+      await _rawPut(db, day, entry.key);
+      if (!entry.value) expected.add(day);
+      expect((await db.query('day_result', columns: ['imported'],
+        where: 'day_id = ?', whereArgs: [day])).single['imported'],
+        entry.value ? 1 : 0, reason: entry.key);
+    }
+    expect(await LocalDb.finalizedDayIds(_algo), expected);
+    // Raw SQL payload rewrites also go through the mirror's update trigger.
+    await db.update('day_result', {'payload_json': '{ "imported" : true }'},
+      where: 'day_id = ?', whereArgs: ['2026-01-01']);
+    expected.remove('2026-01-01');
+    expect(await LocalDb.finalizedDayIds(_algo), expected);
+    await db.update('day_result', {'payload_json': '{"nested":{"imported":true}}'},
+      where: 'day_id = ?', whereArgs: ['2026-01-01']);
+    expected.add('2026-01-01');
+    expect(await LocalDb.finalizedDayIds(_algo), expected);
+  });
+
+  // WHY: schema-62 already has a completed LIKE backfill and triggers. Both
+  // upgrade and same-version repair must invalidate that completion marker.
+  // CLAIM(imported-exact); catches: replacing only the trigger definitions.
+  for (final version in [62, 63]) {
+    test('repairs a stale legacy mirror opened at schema $version twice', () async {
+      await _useFreshDb('finalized_legacy_$version.db');
+      var db = await LocalDb.instance;
+      await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_v2_ins');
+      await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_v2_upd');
+      await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_ins');
+      await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_upd');
+      await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized_v2');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_day_result_finalized '
+        'ON day_result(algo_version, finalized, imported, day_id)');
+      for (final suffix in ['ins', 'upd']) {
+        await db.execute('CREATE TRIGGER trg_day_result_imported_$suffix '
+          'AFTER ${suffix == 'ins' ? 'INSERT' : 'UPDATE OF payload_json'} '
+          'ON day_result BEGIN UPDATE day_result '
+          "SET imported = (NEW.payload_json LIKE '%\"imported\":true%') "
+          'WHERE rowid = NEW.rowid; END');
+      }
+      await _rawPut(db, '2026-01-01', '{"nested":{"imported":true}}');
+      await _rawPut(db, '2026-01-02', '{ "imported" : true }');
+      expect((await db.query('day_result', columns: ['imported'],
+        orderBy: 'day_id')).map((r) => r['imported']).toList(), [1, 0]);
+      await db.setVersion(version);
+      for (var open = 0; open < 2; open++) {
+        await LocalDb.close();
+        expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-01'});
+        db = await LocalDb.instance;
+        expect((await db.query('day_result', columns: ['imported'],
+          orderBy: 'day_id')).map((r) => r['imported']).toList(), [0, 1]);
+        expect(await _indexed(db), isTrue);
+      }
+    });
+  }
+
+  // WHY: a refused index build must keep the fallback's classification exact.
+  // CLAIM(imported-exact); catches: retaining LIKE only in the fallback path.
+  test('failed index creation falls back to the exact top-level key', () async {
+    await _useFreshDb('finalized_fallback.db');
+    final db = await LocalDb.instance;
+    await db.execute('CREATE TABLE idx_day_result_finalized_v2 (id INTEGER)');
+    await _rawPut(db, '2026-01-01', '{"nested":{"imported":true}}');
+    await _rawPut(db, '2026-01-02', '{ "imported" : true }');
+    await _rawPut(db, '2026-01-03', 'invalid JSON');
+    expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-01', '2026-01-03'});
+    expect(await _indexed(db), isFalse);
+    await db.execute('DROP TABLE idx_day_result_finalized_v2');
+    expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-01', '2026-01-03'});
+    expect(await _indexed(db), isTrue);
+  });
+
+  test('same set as the exact scan, through the triggers', () async {
     await _useFreshDb('finalized_ids_triggers.db');
     await _put('2026-01-01', '{"scalars":{}}');
     await _put('2026-01-02', '{"imported":true,"source":"whoop_export"}');
@@ -74,16 +179,16 @@ void main() {
     );
     final ids = await LocalDb.finalizedDayIds(_algo);
     expect(ids, {'2026-01-02'});
-    expect(ids, await _likeScan(db));
+    expect(ids, await _exactScan(db));
   });
 
   test('backfills rows written before the column existed', () async {
     await _useFreshDb('finalized_ids_backfill.db');
     final db = await LocalDb.instance;
     // Emulate a pre-column database: no triggers, no index, stale flags.
-    await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_ins');
-    await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_upd');
-    await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized');
+    await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_v2_ins');
+    await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_v2_upd');
+    await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized_v2');
     for (var i = 0; i < 450; i++) {
       final day =
           '2025-${(1 + i ~/ 28).toString().padLeft(2, '0')}-'
@@ -99,7 +204,7 @@ void main() {
         'imported': i % 3 == 0 ? 0 : 1,
       });
     }
-    final expected = await _likeScan(db);
+    final expected = await _exactScan(db);
     expect(expected, isNotEmpty);
     // Reopen: the repair pass restores the triggers, the first read backfills.
     await LocalDb.close();
@@ -113,7 +218,7 @@ void main() {
     );
     expect(
       plan.map((r) => '${r['detail']}').join(' '),
-      contains('COVERING INDEX idx_day_result_finalized'),
+      contains('COVERING INDEX idx_day_result_finalized_v2'),
     );
   });
 }
