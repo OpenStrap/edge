@@ -10911,21 +10911,22 @@ class LocalDb {
   /// and replace the snapshot ([isMeasuredDayRow]). Every caller intersects
   /// this with days that have raw, so a raw-less import is still left alone.
   ///
-  /// Read off [_dayResultFinalizedIndex] once [_ensureDayResultImportedFlag]
-  /// has filled `day_result.imported`. The LIKE it replaces read every
-  /// finalized day's whole bundle — and `finalized` itself sits after
-  /// `payload_json` in the row, so even the plain column test walked each
-  /// bundle's overflow pages — several times per derive pass.
+  /// Read off the completion index ([_finalizedIndexName]) once
+  /// [_ensureDayResultImportedFlag] has filled `day_result.imported`. The scan
+  /// it replaces read every finalized day's whole bundle — and `finalized`
+  /// itself sits after `payload_json` in the row, so even the plain column
+  /// test walked each bundle's overflow pages — several times per derive pass.
   static Future<Set<String>> finalizedDayIds(int algoVersion) async {
     final db = await instance;
     final indexed = await _ensureDayResultImportedFlag(db);
+    final exact = _importedExactMode ?? await _probeJson1(db);
     final rows = await db.query(
       'day_result',
       columns: ['day_id'],
       where: indexed
           ? 'algo_version = ? AND finalized = 1 AND imported = 0'
           : 'algo_version = ? AND finalized = 1 '
-              'AND (${_importedPayloadSql('payload_json')}) = 0',
+              'AND (${_importedPayloadSql('payload_json', exact: exact)}) = 0',
       whereArgs: [algoVersion],
     );
     return {for (final r in rows) r['day_id'] as String};
@@ -10936,18 +10937,49 @@ class LocalDb {
   @visibleForTesting
   static bool debugJsonProbeFails = false;
 
-  /// CLAIM(imported-exact): only a top-level JSON boolean true marks an
-  /// imported snapshot [finalized_day_ids_index_test]. Guard malformed JSON
-  /// so a damaged bundle cannot abort a write or the fallback scan.
-  static String _importedPayloadSql(String column) =>
-      "CASE WHEN json_valid($column) THEN "
-      "COALESCE(json_type($column, '\$.imported') = 'true', 0) ELSE 0 END";
+  /// Whether this process's SQLite has JSON1, as last probed by
+  /// [_ensureDayResultImportedColumn] on open. Null until the first open.
+  static bool? _importedExactMode;
+
+  /// One constant query. True when `json_type` exists and reads a top-level
+  /// boolean. The mirror's triggers fire on EVERY `day_result` write, and a
+  /// trigger body that names a missing function cannot compile, so every
+  /// insert would fail: the Android framework SQLite (3.18/3.22 on Android
+  /// 8-10) is not guaranteed to carry JSON1. Without it the legacy LIKE mirror
+  /// stays.
+  static Future<bool> _probeJson1(DatabaseExecutor db) async {
+    if (debugJsonProbeFails) return _importedExactMode = false;
+    try {
+      final r = await db.rawQuery(
+        "SELECT json_type('{\"imported\":true}', '\$.imported') AS t",
+      );
+      return _importedExactMode = r.single['t'] == 'true';
+    } catch (_) {
+      return _importedExactMode = false;
+    }
+  }
+
+  /// CLAIM(imported-exact): with JSON1, only a top-level JSON boolean true
+  /// marks an imported snapshot [finalized_day_ids_index_test]. Guard malformed
+  /// JSON so a damaged bundle cannot abort a write or the fallback scan. The
+  /// substring prefilter skips both JSON parses for the common write (a derived
+  /// bundle without the key); a spaced key still contains it. Without JSON1
+  /// ([exact] false) this is the old substring test, which also counts a
+  /// nested key.
+  static String _importedPayloadSql(String column, {required bool exact}) =>
+      exact
+          ? "CASE WHEN $column LIKE '%\"imported\"%' AND json_valid($column) "
+              "THEN COALESCE(json_type($column, '\$.imported') = 'true', 0) "
+              "ELSE 0 END"
+          : "($column LIKE '%\"imported\":true%')";
 
   /// Covering index for [finalizedDayIds]. Created only once every existing
   /// row's `imported` is filled, so its presence is also the "backfill done"
-  /// marker: a database restored from a file without it backfills again.
-  // Version the completion marker: an old LIKE backfill is not trustworthy.
-  static const String _dayResultFinalizedIndex = 'idx_day_result_finalized_v2';
+  /// marker: a database restored from a file without it backfills again. The
+  /// exact-key backfill has its own name (an old LIKE backfill is not
+  /// trustworthy for it); without JSON1 the legacy name and LIKE backfill stay.
+  static String _finalizedIndexName(bool exact) =>
+      exact ? 'idx_day_result_finalized_v2' : 'idx_day_result_finalized';
 
   /// `day_result.imported` and the triggers that keep it equal to
   /// [_importedPayloadSql] on every insert and payload update — whichever
@@ -10960,39 +10992,58 @@ class LocalDb {
     await _addColumnIfMissing(
       db, 'day_result', 'imported', 'INTEGER NOT NULL DEFAULT 0',
     );
-    // Cheap every-open repair, including same-version restored databases.
-    // The v2 index is built only after the paged exact-key backfill completes.
-    await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_ins');
-    await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_upd');
-    await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized');
+    // Cheap every-open repair, including same-version restored databases. Only
+    // DERIVED objects are dropped and recreated (two triggers and an index over
+    // a column this method owns), so it stays additive and idempotent: a second
+    // open finds the right objects and changes nothing. The completion index is
+    // built only after the paged backfill, see [_ensureDayResultImportedFlag].
+    final exact = await _probeJson1(db);
+    // The other mode's objects go first: a restored file can carry JSON
+    // triggers onto a SQLite that cannot compile them.
+    for (final stale in exact
+        ? const ['trg_day_result_imported_ins', 'trg_day_result_imported_upd']
+        : const [
+            'trg_day_result_imported_v2_ins',
+            'trg_day_result_imported_v2_upd',
+          ]) {
+      await db.execute('DROP TRIGGER IF EXISTS $stale');
+    }
     await db.execute(
-      'CREATE TRIGGER IF NOT EXISTS trg_day_result_imported_v2_ins '
+      'DROP INDEX IF EXISTS ${_finalizedIndexName(!exact)}',
+    );
+    final tag = exact ? '_v2' : '';
+    await db.execute(
+      'CREATE TRIGGER IF NOT EXISTS trg_day_result_imported${tag}_ins '
       'AFTER INSERT ON day_result BEGIN '
       'UPDATE day_result '
-      'SET imported = (${_importedPayloadSql('NEW.payload_json')}) '
+      'SET imported = (${_importedPayloadSql('NEW.payload_json', exact: exact)}) '
       'WHERE rowid = NEW.rowid; END',
     );
     await db.execute(
-      'CREATE TRIGGER IF NOT EXISTS trg_day_result_imported_v2_upd '
+      'CREATE TRIGGER IF NOT EXISTS trg_day_result_imported${tag}_upd '
       'AFTER UPDATE OF payload_json ON day_result BEGIN '
       'UPDATE day_result '
-      'SET imported = (${_importedPayloadSql('NEW.payload_json')}) '
+      'SET imported = (${_importedPayloadSql('NEW.payload_json', exact: exact)}) '
       'WHERE rowid = NEW.rowid; END',
     );
   }
 
   /// True once `day_result.imported` is trustworthy for every row and
-  /// [_dayResultFinalizedIndex] exists. The first call on a database that
-  /// predates the column fills it in pages of 200 rows, each its own short
-  /// statement, then builds the index — off `openDatabase`, so a long history
-  /// never runs it under the launch watchdog. Rows written meanwhile are
+  /// the completion index ([_finalizedIndexName]) exists. The first call on a
+  /// database that predates the column fills it in pages of 200 rows, each its
+  /// own short statement, then builds the index — off `openDatabase`, so a long
+  /// history never runs it under the launch watchdog. Rows written meanwhile are
   /// already right (the triggers), and re-filling one recomputes the same
   /// value, so a concurrent derive cannot race it. Any failure leaves the
-  /// index absent and the caller on the exact-key scan; the next call resumes.
+  /// index absent and the caller on the scan; the next call RESTARTS the
+  /// backfill from the first row (rows already right recompute the same
+  /// value), it does not resume.
   static Future<bool> _ensureDayResultImportedFlag(Database db) async {
+    final exact = _importedExactMode ?? await _probeJson1(db);
+    final index = _finalizedIndexName(exact);
     Future<bool> ready() async => (await db.rawQuery(
           "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
-          [_dayResultFinalizedIndex],
+          [index],
         ))
             .isNotEmpty;
     if (await ready()) return true;
@@ -11011,14 +11062,14 @@ class LocalDb {
         final hi = (page.last['r'] as num).toInt();
         await db.rawUpdate(
           'UPDATE day_result '
-          'SET imported = (${_importedPayloadSql('payload_json')}) '
+          'SET imported = (${_importedPayloadSql('payload_json', exact: exact)}) '
           'WHERE rowid > ? AND rowid <= ?',
           [after, hi],
         );
         after = hi;
       }
       await db.execute(
-        'CREATE INDEX IF NOT EXISTS $_dayResultFinalizedIndex '
+        'CREATE INDEX IF NOT EXISTS $index '
         'ON day_result(algo_version, finalized, imported, day_id)',
       );
       return true;
