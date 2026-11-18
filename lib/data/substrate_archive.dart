@@ -119,7 +119,8 @@ abstract final class SubstrateArchive {
   /// gets fresh attempts.
   static const int foregroundSkipAfterRefusals = 3;
 
-  static String get _refusalPrefix => 'refused$kAlgoVersion:';
+  static const String _refused = '|refused';
+  static String get _refusalSuffix => '$_refused$kAlgoVersion';
 
   static const int _pageSize = 5000;
 
@@ -423,7 +424,15 @@ abstract final class SubstrateArchive {
     );
     var deleted = 0, attempted = 0;
     final failures = await _readFailures(db);
-    var failuresChanged = false;
+    // A count whose bucket has no live rows left below the cutoff (deleted,
+    // or archived by a pass that died before saving) is dropped, so it
+    // neither inflates [stats] nor parks rows that come back later.
+    final live = {
+      for (final b in buckets) '${b['device_id']}|${(b['d'] as num).toInt()}',
+    };
+    final counted = failures.length;
+    failures.removeWhere((k, _) => !live.contains(k.split(_refused).first));
+    var failuresChanged = failures.length != counted;
     // The counts are saved however the loop ends, so a pass that stops
     // early never loses the increments it already made.
     try {
@@ -435,7 +444,7 @@ abstract final class SubstrateArchive {
         await debugBeforeBucket?.call();
         if (maxBuckets != null && attempted >= maxBuckets) break;
         final failureKey = '$deviceId|$day';
-        final refusalKey = '$_refusalPrefix$failureKey';
+        final refusalKey = '$failureKey$_refusalSuffix';
         if (maxBuckets != null
             ? (failures[failureKey] ?? 0) >= backgroundSkipAfterFailures
             : (failures[refusalKey] ?? 0) >= foregroundSkipAfterRefusals) {
@@ -496,8 +505,8 @@ abstract final class SubstrateArchive {
         for (final e in m.entries)
           // Refusals counted by an older build are dropped.
           if (e.value is int &&
-              (!'${e.key}'.startsWith('refused') ||
-                  '${e.key}'.startsWith(_refusalPrefix)))
+              (!'${e.key}'.contains(_refused) ||
+                  '${e.key}'.endsWith(_refusalSuffix)))
             '${e.key}': e.value as int,
       };
     } catch (_) {
@@ -1095,7 +1104,7 @@ abstract final class SubstrateArchive {
       ...r,
       'failed_buckets': (await _readFailures(ex))
           .keys
-          .where((k) => !k.startsWith('refused'))
+          .where((k) => !k.contains(_refused))
           .length,
     };
   }
