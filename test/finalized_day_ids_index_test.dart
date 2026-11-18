@@ -110,10 +110,10 @@ void main() {
     expect(await LocalDb.finalizedDayIds(_algo), expected);
   });
 
-  // WHY: schema-62 already has a completed LIKE backfill and triggers. Both
+  // WHY: existing databases have a completed LIKE backfill and triggers. Both
   // upgrade and same-version repair must invalidate that completion marker.
   // CLAIM(imported-exact); catches: replacing only the trigger definitions.
-  for (final version in [62, 63]) {
+  for (final version in [61, 62]) {
     test('repairs a stale legacy mirror opened at schema $version twice', () async {
       await _useFreshDb('finalized_legacy_$version.db');
       var db = await LocalDb.instance;

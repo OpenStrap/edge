@@ -688,7 +688,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 63;
+  static const int schemaVersion = 62;
 
   /// In-memory cache identity, advanced after open, wipe or committed import.
   /// It is local to this isolate; no cache survives a process restart.
@@ -1543,11 +1543,6 @@ class LocalDb {
         if (oldV < 62) {
           await _createStoreIdentity(db);
           await _createDayCheckpoint(db);
-        }
-        if (oldV < 63) {
-          // Replace the LIKE mirror's triggers and completion marker only.
-          // Paged payload repair stays off the launch watchdog, on first read.
-          await _ensureDayResultImportedColumn(db);
         }
       },
       onOpen: (db) async {
