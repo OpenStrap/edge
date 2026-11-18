@@ -851,6 +851,9 @@ class HealthSource {
   /// sleep, recovery and temperature are all still abstaining.
   final bool isBand;
 
+  /// Band only: data was banked but its timestamp is untrusted (unset RTC).
+  final bool timeUnknown;
+
   /// The `device` row this source is, for a paired sensor. Null for the
   /// primary band (whose row is `LocalDb.kPrimaryDeviceId`, `''`) and for the
   /// phone. It is the `device_id` every measurement this source wrote carries,
@@ -889,6 +892,7 @@ class HealthSource {
     this.batteryPackPct,
     this.lastData,
     this.isBand = false,
+    this.timeUnknown = false,
     this.deviceId,
     this.family,
     this.flagOff = false,
@@ -1030,6 +1034,7 @@ List<HealthSource> liveSources(AppState app,
           batteryPackPct: app.device.batteryPackPct,
           lastData: app.lastRecordAt,
           isBand: true,
+          timeUnknown: app.bandRecordTimeUnknown,
           // The stored generation when no link has come up this launch, so a
           // disconnected band keeps its family-gated rows (Worn on, signals).
           family: app.device.generation ?? app.paired?.generation,
@@ -2627,10 +2632,18 @@ class DeviceDetailView extends StatelessWidget {
                       ],
                       SetRow(LucideIcons.refreshCw, C.purple,
                           l?.devicesLastData ?? 'Last data',
-                          value: last == null ? '' : formatDayTime(last, l),
-                          sub: last == null
-                              ? (l?.devicesNothingBankedYet ?? 'Nothing banked yet')
-                              : '',
+                          value: last != null
+                              ? formatDayTime(last, l)
+                              : s.timeUnknown
+                                  ? (l?.devicesTimeUnknown ?? 'Time unknown')
+                                  : '',
+                          sub: last != null
+                              ? ''
+                              : s.timeUnknown
+                                  ? (l?.devicesClockNotSetSub ??
+                                      'The strap recorded data but its clock is not set')
+                                  : (l?.devicesNothingBankedYet ??
+                                      'Nothing banked yet'),
                           chevron: false),
                       // A wearable with a column in the metric x device
                       // table: what we measure from it, and its own values.
@@ -2767,10 +2780,18 @@ class DeviceDetailView extends StatelessWidget {
                       ],
                       SetRow(LucideIcons.refreshCw, C.purple,
                           l?.devicesLastData ?? 'Last data',
-                          value: last == null ? '' : formatDayTime(last, l),
-                          sub: last == null
-                              ? (l?.devicesNothingBankedYet ?? 'Nothing banked yet')
-                              : '',
+                          value: last != null
+                              ? formatDayTime(last, l)
+                              : s.timeUnknown
+                                  ? (l?.devicesTimeUnknown ?? 'Time unknown')
+                                  : '',
+                          sub: last != null
+                              ? ''
+                              : s.timeUnknown
+                                  ? (l?.devicesClockNotSetSub ??
+                                      'The strap recorded data but its clock is not set')
+                                  : (l?.devicesNothingBankedYet ??
+                                      'Nothing banked yet'),
                           chevron: false),
                       if (calibration != null) ...[
                         Divider(color: p.line, height: 1),

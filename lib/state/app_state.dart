@@ -139,7 +139,8 @@ import '../sync/paired_device.dart';
 import '../sync/sync_policy.dart'
     show
         BandPromptPolicy,
-        BandPromptRequest;
+        BandPromptRequest,
+        recordTimestampUntrusted;
 import '../sync/update_service.dart';
 import '../telemetry/telemetry_service.dart';
 import '../telemetry/health_uploader.dart';
@@ -6406,6 +6407,10 @@ class AppState extends ChangeNotifier {
   /// diagnostics (the support report) keep it, since it is what tells support
   /// the strap's clock state.
   int? get recordFrontierTs => _sync.lastRecTs;
+
+  /// Records were banked but their timestamp is unusable (a never-set strap
+  /// RTC), so "last data" is neither a date nor "nothing banked yet".
+  bool get bandRecordTimeUnknown => recordTimestampUntrusted(recordFrontierTs);
 
   /// A derive job is running RIGHT NOW — the backlog just landed and the
   /// pipeline is computing what it means. Surfaced so a screen sitting on

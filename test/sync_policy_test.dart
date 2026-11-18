@@ -9,6 +9,19 @@ import 'package:openstrap_edge/sync/sync_policy.dart';
 void main() {
   const wall = 1750000000; // a plausible "now" (2025-06)
 
+  group('untrusted record frontier', () {
+    // A strap with a never-set RTC banks factory-epoch records: the frontier is
+    // positive but below the floor, so data exists yet its time is unusable.
+    test('a positive sub-floor frontier is untrusted, not absent', () {
+      expect(recordTimestampUntrusted(null), isFalse);
+      expect(recordTimestampUntrusted(0), isFalse);
+      expect(recordTimestampUntrusted(1), isTrue); // ~1970
+      expect(recordTimestampUntrusted(kMinPlausibleUnix - 1), isTrue);
+      expect(recordTimestampUntrusted(kMinPlausibleUnix), isFalse);
+      expect(recordTimestampUntrusted(1750000000), isFalse); // plausible
+    });
+  });
+
   group('record frontier as a display instant', () {
     // A strap whose RTC was never set banks factory-epoch records. The cursor
     // and the "last data" getter guard only `> 0` / `!= null`, so that frontier

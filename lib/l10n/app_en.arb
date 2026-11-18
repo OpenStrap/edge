@@ -1009,6 +1009,14 @@
     "description": "Row title."
   },
   "devicesNothingBankedYet": "Nothing banked yet",
+  "devicesTimeUnknown": "Time unknown",
+  "@devicesTimeUnknown": {
+    "description": "Last-data value when the strap banked records but its clock was never set, so the timestamp is unusable."
+  },
+  "devicesClockNotSetSub": "The strap recorded data but its clock is not set",
+  "@devicesClockNotSetSub": {
+    "description": "Sub-label under 'Time unknown' explaining why the last-data time is missing."
+  },
   "@devicesNothingBankedYet": {
     "description": "Row sub: no data yet."
   },
@@ -7790,6 +7798,10 @@
     }
   },
   "homeSyncedNever": "No band data yet",
+  "homeSyncedTimeUnknown": "Band data, clock not set",
+  "@homeSyncedTimeUnknown": {
+    "description": "Home sync line when the strap banked records but its clock is unset, so how far the data reaches is unknown."
+  },
   "@homeSyncedNever": {
     "description": "Home header line when no record has ever been banked from a band."
   },
