@@ -321,6 +321,9 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
     'busy': app.busy,
     'lastDataAt': _iso(app.lastDataAt),
     'lastRecordAt': _iso(app.lastRecordAt),
+    // Raw frontier too: _iso/lastRecordAt drop a sub-floor value (a never-set
+    // strap RTC), which is exactly the clock state support needs to see.
+    'recordFrontierTs': app.recordFrontierTs,
     'deriving': app.deriving,
     'derivePending': app.derivePending,
     'standardHrFallback': d.standardHrFallback,
