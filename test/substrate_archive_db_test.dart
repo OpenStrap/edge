@@ -4,6 +4,7 @@
 // export day, restore/salvage, schema health, the prune guard).
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -1495,6 +1496,40 @@ void main() {
         reason: 'after three failures the next bucket gets the attempt');
     expect(await _live('decoded_onehz', 'rec_ts > 0 AND rec_ts < ?', [cutoff]),
         isNotEmpty, reason: 'the stuck bucket itself is still live');
+  });
+
+  // WHY: after switching off, a flash backfill of the same old bucket must
+  // get a background attempt when archiving is enabled again.
+  // CLAIM(archive-before-delete); catches: stale counts surviving policy Off.
+  test('switching archiving off clears failures before it is enabled again',
+      () async {
+    await _seed();
+    final db = await _db();
+    SubstrateArchive.debugThrowInBucket = StateError('codec rejected bucket');
+    for (var n = 0; n < 3; n++) {
+      await LocalDb.pruneDecodedBeforeRecTs(cutoff,
+          archive: policy, maxArchiveBuckets: 1);
+    }
+    final counts = await db.query('compute_freshness',
+        where: 'key = ?', whereArgs: [SubstrateArchive.failuresKey]);
+    expect((jsonDecode(counts.single['payload_json'] as String) as Map).values,
+        [3], reason: 'the oldest bucket is parked before switching off');
+    SubstrateArchive.debugThrowInBucket = null;
+    await SubstrateArchive.writePolicy(db, const SubstrateArchivePolicy(0));
+    expect(await db.query('compute_freshness',
+        where: 'key = ?', whereArgs: [SubstrateArchive.failuresKey]), isEmpty);
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff,
+        archive: const SubstrateArchivePolicy(0));
+    expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
+    // A later flash backfill re-delivers a second in that same UTC bucket.
+    await _rewriteLive(_d0 + 1);
+    await SubstrateArchive.writePolicy(db, policy);
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff,
+        archive: policy, maxArchiveBuckets: 1);
+    final archived = await db.query('substrate_archive');
+    expect(archived.single['utc_day'], _d0 ~/ _day);
+    expect(archived.single['onehz_rows'], 1);
+    expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
   });
 
   // WHY: skipping is a background-only economy; a foreground pass has no

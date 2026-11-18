@@ -270,7 +270,12 @@ abstract final class SubstrateArchive {
           'payload_json': policy.toJson(),
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
-        if (!policy.enabled) await txn.delete(table);
+        if (!policy.enabled) {
+          await txn.delete(table);
+          // A later flash backfill must get a fresh background attempt.
+          await txn.delete('compute_freshness',
+              where: 'key = ?', whereArgs: [failuresKey]);
+        }
       });
 
   /// Restore/salvage onto a database with NO archive of its own: bring the
