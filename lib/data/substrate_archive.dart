@@ -479,12 +479,17 @@ abstract final class SubstrateArchive {
         }
       }
     } finally {
+      // Checked in the write's own transaction: archiving switched off
+      // mid-pass cleared the counts, and this pass must not bring them back.
       if (failuresChanged) {
-        await db.insert('compute_freshness', {
-          'key': failuresKey,
-          'payload_json': jsonEncode(failures),
-          'updated_at': DateTime.now().millisecondsSinceEpoch,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        await db.transaction((txn) async {
+          if (!(await readPolicy(txn)).enabled) return;
+          await txn.insert('compute_freshness', {
+            'key': failuresKey,
+            'payload_json': jsonEncode(failures),
+            'updated_at': DateTime.now().millisecondsSinceEpoch,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        });
       }
     }
     return deleted;
