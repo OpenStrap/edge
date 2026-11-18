@@ -137,6 +137,28 @@ void main() {
         ((stressScoreFromSi(300)! * 10).round()) / 10);
   });
 
+  test('the trend follows only its writer row, never an older one', () async {
+    await seedStressDay('2026-05-01', si: 12, score: 0);
+    // Newest complete row has no usable index: the trend stays as it wrote it.
+    await seedStressDay('2026-05-01', si: null, score: 40, algoVersion: 121);
+
+    await backfillStressScale();
+
+    expect(await seriesValue('2026-05-01'), 40);
+    // The older bundle is still rescaled on its own.
+    expect((await stored('2026-05-01', 120))['score'], rounded);
+  });
+
+  test('a stamped series writer wins over a newer complete row', () async {
+    await seedStressDay('2026-05-01', si: 300, score: 73, algoVersion: 121);
+    // A rolled-back build rewrote the series (and its stamp) at v120.
+    await seedStressDay('2026-05-01', si: 12, score: 0);
+
+    await backfillStressScale();
+
+    expect(await seriesValue('2026-05-01'), closeTo(raw, 1e-9));
+  });
+
   test('an imported day keeps its score', () async {
     await seedStressDay('2026-05-01', si: 12, score: 0, imported: true);
 

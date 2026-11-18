@@ -89,6 +89,13 @@ Future<StressBackfillResult> backfillStressScale({bool force = false}) async {
           where: 'day_id = ?',
           whereArgs: [day],
           orderBy: 'algo_version DESC');
+      // The build that last wrote this day's series, when stamped.
+      final stamp = ((await txn.query('metric_series_version',
+                  columns: ['algo_version'],
+                  where: 'date = ?',
+                  whereArgs: [day]))
+              .firstOrNull?['algo_version'] as num?)
+          ?.toInt();
       double? seriesScore;
       var seriesPicked = false;
       for (final row in rows) {
@@ -96,18 +103,21 @@ Future<StressBackfillResult> backfillStressScale({bool force = false}) async {
         final blk = payload?['stress'];
         final si = blk is Map ? _finite(blk['si']) : null;
         final next = stressScoreFromSi(si);
+        // The trend point comes ONLY from the row that wrote it: the stamped
+        // writer, else the newest complete row (a partial row never writes the
+        // series). If that row has no usable score the trend stays as it is.
+        if (!seriesPicked &&
+            (row['partial'] as num?)?.toInt() != 1 &&
+            (stamp == null || (row['algo_version'] as num?)?.toInt() == stamp)) {
+          seriesPicked = true;
+          if (payload?['imported'] != true) seriesScore = next;
+        }
         // No usable index, or another source's day: a rescaled day must not
         // become 0 (a score, not an absence), and an imported score is not
         // ours to re-price.
         if (payload == null || next == null || payload['imported'] == true) {
           skipped++;
           continue;
-        }
-        // The trend point was written by the newest COMPLETE row (a partial
-        // row never writes the series), so it is rescaled from that row's index.
-        if (!seriesPicked && (row['partial'] as num?)?.toInt() != 1) {
-          seriesPicked = true;
-          seriesScore = next;
         }
         final rounded = _round1(next);
         final scalars = payload['scalars'];
