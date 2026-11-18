@@ -638,6 +638,12 @@ String hm(num? minutes) {
         );
 }
 
+/// Binds a value to its unit so the pair cannot wrap between them. A duration
+/// like "2 Std. 34 Min." is one reading; left breakable, a range value such as
+/// a sleep stage ("1 Std. 34 Min.-2 Std. 54 Min.") dropped a lone "Min." onto
+/// its own line. The dash joining the two durations stays a normal break.
+String nbsp(String s) => s.replaceAll(' ', '\u00A0');
+
 /// "8h" for a whole number of hours, else [hm]: the caption's compact forms.
 String _compactHm(num? minutes, AppLocalizations? l) {
   if (minutes == null) return '';

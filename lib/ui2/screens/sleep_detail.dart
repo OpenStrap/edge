@@ -185,7 +185,7 @@ String sleepReadingText(AppLocalizations? l, num value, int places,
 /// A stage interval as one label. Seconds in, because that is what the analytics
 /// interval carries; `hm` wants minutes.
 String _rangeText(ana.StageInterval i) =>
-    '${hm(i.loSec / 60)}–${hm(i.hiSec / 60)}';
+    '${nbsp(hm(i.loSec / 60))}–${nbsp(hm(i.hiSec / 60))}';
 
 String _capitalise(String s) =>
     s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
