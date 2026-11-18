@@ -63,6 +63,10 @@ Future<void> _pump(WidgetTester t, SleepData d, {double scale = 1}) async {
   await t.pumpAndSettle();
 }
 
+Finder _rangeText(String plain) => find.byWidgetPredicate((w) =>
+    w is Text &&
+    (w.data ?? '').replaceAll('\u2060', '').replaceAll('\u00A0', ' ') == plain);
+
 void main() {
   testWidgets('a measure inside the middle half of your nights is typical',
       (t) async {
@@ -162,7 +166,7 @@ void main() {
       // showed a count is the contradiction this item exists to remove. Range
       // totals are too wide to sit beside the lanes on a 390pt phone without
       // starving the plot, so the hypnogram leaves them to the table.
-      expect(find.text('20m\u20132h\u00A020m'), findsNWidgets(2));
+      expect(_rangeText('20m–2h 20m'), findsNWidgets(2));
       // And the share column is gone with the count it was computed from.
       for (final share in const ['52%', '17%', '19%', '13%']) {
         expect(find.text(share), findsNothing);
@@ -196,7 +200,7 @@ void main() {
               tstHistory: _flat(20, 420)));
       // Same 80 minutes, half-width 0.45x = 36m. Narrower than the 60m above,
       // from the night's own confidence rather than one published figure.
-      expect(find.text('44m\u20131h\u00A056m'), findsNWidgets(2));
+      expect(_rangeText('44m–1h 56m'), findsNWidgets(2));
     });
 
     testWidgets('the deep comparison stops asserting a difference', (t) async {
