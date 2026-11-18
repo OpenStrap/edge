@@ -1581,7 +1581,13 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
     'absence_reason': absenceReason,
     // Present only when the experimental re-staging labelled this night (PR
     // #628), so a night of the shipped stager is stored exactly as before.
-    if (d.sleepJson['stager_source'] == 'hmm') 'stager_source': 'hmm',
+    if (d.sleepJson['stager_source'] == 'hmm') ...{
+      'stager_source': 'hmm',
+      // Forward the atypical-night (outlier) flag alongside, so the persisted
+      // night carries the calibration confidence, not just the source tag.
+      if (d.sleepJson['stager_atypical_night'] == true)
+        'stager_atypical_night': true,
+    },
     // Seconds the band's own last SLEEP cut off the end of the auto window; null = rule did not apply. Provenance, never a metric.
     'band_offset_trim_sec': bandOffsetTrimSec,
     'stager': _envelope(
@@ -2739,6 +2745,7 @@ List<String?>? _classifySleepStagesHMM(
   analyzer.computeMultiNightBaselines(
     rhrHistory: rhrHistory,
     rmssdHistory: rmssdHistory,
+    skinTempHistory: skinTempHistory,
   );
   onAnalyzer?.call(analyzer);
   // No baseline (RR that only starts after the first 120 minutes, say) makes
@@ -2784,7 +2791,7 @@ List<String?>? _classifySleepStagesHMM(
       ep['rmssd'] = (ep['rmssd'] as double) + rmssd;
       ep['nr'] = (ep['nr'] as int) + 1;
     }
-    if (enmo > 0.0) {
+    if (enmo >= 0.0) { // measured (incl. real zero motion); -1 = absent
       ep['enmo'] = (ep['enmo'] as double) + enmo;
       ep['ne'] = (ep['ne'] as int) + 1;
     }

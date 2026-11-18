@@ -48,7 +48,7 @@ void main() {
   test('hybrid: absent ENMO (0 sentinel) is neutral, never "still"', () {
     final a = baselined();
     // enmo 0 everywhere: baseline has no motion median -> motion factor neutral.
-    final night = List.generate(60, (_) => epoch(54, 46, enmo: 0.0, skinTemp: 3350));
+    final night = List.generate(60, (_) => epoch(54, 46, enmo: -1.0, skinTemp: 3350)); // absent sentinel
     final states = a.viterbiDecode(night);
     expect(states.where((s) => s == SleepState.wake).length, lessThan(10),
         reason: 'absent motion must not be read as evidence either way');
@@ -57,11 +57,36 @@ void main() {
   test('hybrid: unusable HR falls back to motion-only evidence', () {
     final a = baselined();
     final night = <Map<String, dynamic>>[
-      ...List.generate(30, (_) => epoch(0, 0, enmo: 0.0)),
+      ...List.generate(30, (_) => epoch(0, 0, enmo: -1.0)),
       ...List.generate(60, (_) => epoch(0, 0, enmo: 0.3)), // moving, no HR
-      ...List.generate(30, (_) => epoch(0, 0, enmo: 0.0)),
+      ...List.generate(30, (_) => epoch(0, 0, enmo: -1.0)),
     ];
     final states = a.viterbiDecode(night);
     expect(states.sublist(30, 90).where((s) => s == SleepState.wake).length, greaterThan(20));
+  });
+
+  test('neutral: fully missing epoch (no HR/RR, absent ENMO) is uniform, not wake-biased', () {
+    final a = baselined();
+    final night = <Map<String, dynamic>>[
+      ...List.generate(30, (_) => epoch(54, 46, enmo: 0.01, skinTemp: 3350)),
+      ...List.generate(60, (_) => epoch(0, 0, enmo: -1.0)), // gap: nothing measured
+      ...List.generate(30, (_) => epoch(54, 46, enmo: 0.01, skinTemp: 3350)),
+    ];
+    final states = a.viterbiDecode(night);
+    // The gap must not drag the surrounding sleep into wake.
+    expect(states.where((s) => s == SleepState.wake).length, lessThan(10),
+        reason: 'a fully unmeasured stretch must stay neutral, never wake');
+  });
+
+  test('neutral: absent temp/motion do not add wake evidence (noisy-OR excludes them)', () {
+    final a = baselined();
+    // same HR/RMSSD, but optional sensors absent -> wake prob must not exceed
+    // the case where they are present-and-calm
+    final withSensors = a.viterbiDecode(List.generate(60, (_) => epoch(60, 50, enmo: 0.01, skinTemp: 3350)));
+    final withoutSensors = a.viterbiDecode(List.generate(60, (_) => epoch(60, 50, enmo: -1.0, skinTemp: 0)));
+    final wakeWith = withSensors.where((s) => s == SleepState.wake).length;
+    final wakeWithout = withoutSensors.where((s) => s == SleepState.wake).length;
+    expect(wakeWithout, lessThanOrEqualTo(wakeWith),
+        reason: 'absent optional sensors must be neutral, never extra wake evidence');
   });
 }

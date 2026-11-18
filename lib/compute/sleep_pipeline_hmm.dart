@@ -41,7 +41,7 @@ class HMMConfig {
     },
     SleepState.nremDeep: {
       SleepState.wake: log(0.06),
-      SleepState.nremLight: log(0.14),
+      SleepState.nremLight: log(0.11), // rows must sum to 1.0 (CodeRabbit #756)
       SleepState.nremDeep: log(0.80),
       SleepState.rem: log(0.03)
     },
@@ -53,7 +53,7 @@ class HMMConfig {
       // finite emissions and compares, so it rules the move out without ever
       // producing NaN.
       SleepState.nremDeep: double.negativeInfinity,
-      SleepState.rem: log(0.85)
+      SleepState.rem: log(0.80) // rows must sum to 1.0 (CodeRabbit #756)
     },
   };
 }
@@ -158,8 +158,8 @@ class SleepStageAnalyzer {
         .cast<double>()
         .toList();
     final enmos = first120minData
-        .map((d) => (d['enmo'] as num?)?.toDouble() ?? 0.0)
-        .where((e) => e.isFinite && e > 0.0)
+        .map((d) => (d['enmo'] as num?)?.toDouble() ?? -1.0)
+        .where((e) => e.isFinite && e >= 0.0)
         .toList();
     final temps = first120minData
         .map((d) => (d['skin_temp'] as num?)?.toDouble() ?? 0.0)
@@ -200,8 +200,8 @@ class SleepStageAnalyzer {
         .toList();
     if (core.isEmpty) return;
     final enmos = core
-        .map((d) => (d['enmo'] as num?)?.toDouble() ?? 0.0)
-        .where((e) => e.isFinite && e > 0.0)
+        .map((d) => (d['enmo'] as num?)?.toDouble() ?? -1.0)
+        .where((e) => e.isFinite && e >= 0.0)
         .toList();
     if (enmos.isNotEmpty) {
       enmos.sort();
@@ -226,8 +226,11 @@ class SleepStageAnalyzer {
     }
     if (!_plausibleHr(hr) || !_plausibleRmssd(rmssd)) {
       // HR/RR unusable: motion-only evidence. A clearly moving wrist cannot
-      // be deep sleep; absent motion (0 sentinel) is neutral.
-      final motionWake = enmo > 0 ? _sigmoid(enmo, 0.08, 0.03) : 0.5;
+      // be deep sleep. If motion is ALSO absent (0 sentinel), the epoch is
+      // fully unmeasured — return the uniform neutral for every state so the
+      // gap cannot bias adjacent measured epochs towards wake (CodeRabbit #756).
+      if (enmo < 0) return log(0.25); // absent sentinel: fully unmeasured epoch
+      final motionWake = _sigmoid(enmo, 0.08, 0.03);
       switch (state) {
         case SleepState.wake:
           return log(max(0.01, 0.2 + 0.8 * motionWake));
@@ -243,16 +246,19 @@ class SleepStageAnalyzer {
     final hrNorm = hr / effectiveHrMin!;
     final rmssdNorm = rmssd / effectiveRmssdMean!;
     // Motion relative to the night's own median (robust for restless
-    // sleepers); absent ENMO -> neutral 1.0.
-    final motion = enmo > 0 && enmoMedianNight != null && enmoMedianNight! > 0
-        ? enmo / enmoMedianNight!
-        : 1.0;
-    final motionWake = _sigmoid(motion, 3.0, 1.5);
-    final motionSleep = 1.0 - _sigmoid(motion, 2.0, 1.0);
+    // sleepers). Absent ENMO (0 sentinel) = NO evidence either way: wake
+    // factor 0 (does not boost wake), sleep factor 1.0 (does not penalise).
+    final motionMeasured = enmo >= 0 && enmoMedianNight != null && enmoMedianNight! > 0;
+    final motion = motionMeasured ? enmo / enmoMedianNight! : 1.0;
+    final motionWake = motionMeasured ? _sigmoid(motion, 3.0, 1.5) : 0.0;
+    final motionSleep = motionMeasured ? 1.0 - _sigmoid(motion, 2.0, 1.0) : 1.0;
     // Skin temp vs the night median, normalised so ~100 centi-°C = 1 °C.
-    final tempWake = skinTemp > 0 && effectiveSkinTempMedian != null
+    // Absent temp = no thermal evidence (excluded from the noisy-OR, i.e.
+    // factor 0, never the 0.5 that would silently boost wake) — CodeRabbit #756.
+    final tempMeasured = skinTemp > 0 && effectiveSkinTempMedian != null;
+    final tempWake = tempMeasured
         ? _sigmoid((skinTemp - effectiveSkinTempMedian!) / 100.0, 1.5, 1.0)
-        : 0.5;
+        : 0.0;
 
     double prob;
     switch (state) {

@@ -6900,7 +6900,7 @@ class DerivationEngine {
                       sleepSub.ay[i] * sleepSub.ay[i] +
                       sleepSub.az[i] * sleepSub.az[i],
                 ) - 1.0
-              : 0.0,
+              : -1.0, // absent sentinel (CodeRabbit #756): measured zero motion is >= 0
       ],
       sleepJson: day.sleepJson,
       hypnoStages: day.hypnoStages,

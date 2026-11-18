@@ -23,7 +23,7 @@ void main() {
 
   test('motion baseline: absent ENMO (0 sentinel) never becomes the baseline', () {
     final a = SleepStageAnalyzer();
-    final night = [for (var t = 0; t < 1000; t++) epoch(55, 45, t.toDouble(), enmo: 0.0)];
+    final night = [for (var t = 0; t < 1000; t++) epoch(55, 45, t.toDouble(), enmo: -1.0)];
     a.computeMotionBaseline(night);
     expect(a.enmoMedianNight, isNull);
   });
