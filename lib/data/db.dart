@@ -16240,8 +16240,7 @@ class LocalDb {
   /// through [SubstrateArchive.archiveAndDeleteBefore] first: one transaction
   /// per (device_id, utc_day) bucket, deleted only once its compressed copy
   /// has been written and read back. A bucket that fails stays live for the
-  /// next pass unless it lies wholly behind [hardFloorSec] (the end of the
-  /// bounded raw hold), where it is deleted unarchived as before. Rows with
+  /// next pass, whatever its age. Rows with
   /// `rec_ts <= 0` cannot be placed on any day and are deleted unarchived.
   /// [log] receives the per-bucket failures (this file has no logger).
   /// [shouldYield] stops the archive step for this pass (see
@@ -16255,7 +16254,6 @@ class LocalDb {
     int cutoffSec, {
     String? cursorName,
     SubstrateArchivePolicy? archive,
-    int? hardFloorSec,
     void Function(String message)? log,
     bool Function()? shouldYield,
     int? maxArchiveBuckets,
@@ -16270,7 +16268,6 @@ class LocalDb {
       deleted += await SubstrateArchive.archiveAndDeleteBefore(
         db,
         cutoffSec,
-        hardFloorSec: hardFloorSec,
         log: log,
         shouldYield: shouldYield,
         maxBuckets: maxArchiveBuckets,

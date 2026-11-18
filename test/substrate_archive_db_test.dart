@@ -101,7 +101,6 @@ Future<void> _clear() async {
   SubstrateArchive.debugCorruptEncode = false;
   SubstrateArchive.debugBeforeBucket = null;
   SubstrateArchive.debugThrowInBucket = null;
-  SubstrateArchive.debugBeforeFallbackDelete = null;
   LocalDb.debugFailExportStrip = false;
 }
 
@@ -398,8 +397,9 @@ void main() {
     expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
   });
 
-  test('verify failure keeps rows live inside the hold window and deletes '
-      'past hardFloorSec', () async {
+  // WHY: the archive is the only durable copy once live rows are deleted.
+  // CLAIM(archive-before-delete); catches: hard-floor fallback deletion.
+  test('verify failure keeps rows live however often the prune runs', () async {
     await _seed();
     final liveBefore = await _live(
       'decoded_onehz',
@@ -411,7 +411,6 @@ void main() {
     await LocalDb.pruneDecodedBeforeRecTs(
       cutoff,
       archive: policy,
-      hardFloorSec: _d0, // every bucket is still inside the hold
       log: logs.add,
     );
     expect(
@@ -422,14 +421,15 @@ void main() {
     expect(logs, hasLength(4));
     expect(logs.first, contains('kept live'));
 
-    // Past the bounded hold the old behaviour applies: deleted unarchived.
+    // Age never authorizes deleting rows whose archive failed verification.
     await LocalDb.pruneDecodedBeforeRecTs(
       cutoff,
       archive: policy,
-      hardFloorSec: cutoff,
     );
-    expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
-    expect(await _live('decoded_rr', 'rec_ts < ?', [cutoff]), isEmpty);
+    expect(await _live('decoded_onehz', 'rec_ts > 0 AND rec_ts < ?', [cutoff]),
+        liveBefore);
+    expect(await _live('decoded_rr', 'rec_ts > 0 AND rec_ts < ?', [cutoff]),
+        isNotEmpty);
     expect(await (await _db()).query('substrate_archive'), isEmpty);
   });
 
@@ -1172,7 +1172,6 @@ void main() {
     await LocalDb.pruneDecodedBeforeRecTs(
       cutoff,
       archive: policy,
-      hardFloorSec: cutoff,
       log: logs.add,
       shouldYield: () => buckets > 1, // the offload begins after bucket 1
     );
@@ -1191,7 +1190,6 @@ void main() {
     await LocalDb.pruneDecodedBeforeRecTs(
       cutoff,
       archive: policy,
-      hardFloorSec: cutoff,
     );
     expect(await db.query('substrate_archive'), hasLength(4));
     final (archived, _) = await _archived();
@@ -1443,7 +1441,6 @@ void main() {
       await LocalDb.pruneDecodedBeforeRecTs(
         cutoff,
         archive: policy,
-        hardFloorSec: cutoff, // every bucket is past the hold
       );
       SubstrateArchive.debugThrowInBucket = null;
       expect(
@@ -1467,6 +1464,119 @@ void main() {
       await _live('decoded_onehz', 'rec_ts > 0 AND rec_ts < ?', [cutoff]),
       isNotEmpty,
     );
+  });
+
+  // WHY: background passes archive ONE bucket (maxArchiveBuckets: 1), oldest
+  // first. A bucket that can never archive must not spend that one attempt on
+  // every pass, or background archiving would stall behind it for good.
+  // CLAIM(archive-before-delete); catches: a stuck oldest bucket starving the rest.
+  test('a bucket that keeps failing stops consuming the background budget',
+      () async {
+    await _seed();
+    // Fails only the FIRST (oldest) bucket of every pass. The hook runs once
+    // per bucket, in order, before the pass decides whether to attempt it.
+    var seen = 0;
+    SubstrateArchive.debugBeforeBucket = () async {
+      SubstrateArchive.debugThrowInBucket =
+          seen++ == 0 ? StateError('codec rejected bucket') : null;
+    };
+    Future<void> pass() async {
+      seen = 0;
+      await LocalDb.pruneDecodedBeforeRecTs(cutoff,
+          archive: policy, maxArchiveBuckets: 1);
+    }
+
+    for (var n = 1; n <= 3; n++) {
+      await pass();
+      expect(await (await _db()).query('substrate_archive'), isEmpty,
+          reason: 'pass $n spends its one attempt on the failing bucket');
+    }
+    await pass();
+    expect(await (await _db()).query('substrate_archive'), hasLength(1),
+        reason: 'after three failures the next bucket gets the attempt');
+    expect(await _live('decoded_onehz', 'rec_ts > 0 AND rec_ts < ?', [cutoff]),
+        isNotEmpty, reason: 'the stuck bucket itself is still live');
+  });
+
+  // WHY: after switching off, a flash backfill of the same old bucket must
+  // get a background attempt when archiving is enabled again.
+  // CLAIM(archive-before-delete); catches: stale counts surviving policy Off.
+  test('switching archiving off clears failures before it is enabled again',
+      () async {
+    await _seed();
+    final db = await _db();
+    SubstrateArchive.debugThrowInBucket = StateError('codec rejected bucket');
+    for (var n = 0; n < 3; n++) {
+      await LocalDb.pruneDecodedBeforeRecTs(cutoff,
+          archive: policy, maxArchiveBuckets: 1);
+    }
+    final counts = await db.query('compute_freshness',
+        where: 'key = ?', whereArgs: [SubstrateArchive.failuresKey]);
+    // One failure count and one refusal count, both for the oldest bucket.
+    expect((jsonDecode(counts.single['payload_json'] as String) as Map).values,
+        [3, 3], reason: 'the oldest bucket is parked before switching off');
+    SubstrateArchive.debugThrowInBucket = null;
+    await SubstrateArchive.writePolicy(db, const SubstrateArchivePolicy(0));
+    expect(await db.query('compute_freshness',
+        where: 'key = ?', whereArgs: [SubstrateArchive.failuresKey]), isEmpty);
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff,
+        archive: const SubstrateArchivePolicy(0));
+    expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
+    // A later flash backfill re-delivers a second in that same UTC bucket.
+    await _rewriteLive(_d0 + 1);
+    await SubstrateArchive.writePolicy(db, policy);
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff,
+        archive: policy, maxArchiveBuckets: 1);
+    final archived = await db.query('substrate_archive');
+    expect(archived.single['utc_day'], _d0 ~/ _day);
+    expect(archived.single['onehz_rows'], 1);
+    expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
+  });
+
+  // WHY: skipping is a background-only economy; a foreground pass has no
+  // bucket cap, so it must retry the stuck bucket and clear its count.
+  // CLAIM(archive-before-delete); catches: a bucket skipped forever.
+  test('a foreground pass retries a bucket the background skips', () async {
+    await _seed();
+    SubstrateArchive.debugThrowInBucket = Exception('database is locked');
+    for (var n = 0; n < 3; n++) {
+      await LocalDb.pruneDecodedBeforeRecTs(cutoff,
+          archive: policy, maxArchiveBuckets: 1);
+    }
+    SubstrateArchive.debugThrowInBucket = null;
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
+    expect(await (await _db()).query('substrate_archive'), hasLength(4));
+    expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
+    final counts = await (await _db()).query('compute_freshness',
+        where: 'key = ?', whereArgs: [SubstrateArchive.failuresKey]);
+    expect(counts.single['payload_json'], '{}');
+  });
+
+  // WHY: a codec refusal fails the same way every time under one build, and
+  // each foreground retry holds the write lock the band's commit waits on.
+  // CLAIM(archive-before-delete); catches: unbounded foreground retries.
+  test('a foreground pass stops retrying a bucket the codec refused', () async {
+    await _seed();
+    var calls = 0;
+    SubstrateArchive.debugBeforeBucket = () async => calls++;
+    SubstrateArchive.debugThrowInBucket = StateError('codec rejected bucket');
+    final cap = SubstrateArchive.foregroundSkipAfterRefusals;
+    for (var n = 0; n < cap; n++) {
+      await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
+    }
+    expect((await LocalDb.substrateArchiveStats())['failed_buckets'], 4);
+    calls = 0;
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
+    SubstrateArchive.debugBeforeBucket = null;
+    SubstrateArchive.debugThrowInBucket = null;
+    // Every bucket was visited but none attempted, and all stay live.
+    expect(calls, 4);
+    final counts = await (await _db()).query('compute_freshness',
+        where: 'key = ?', whereArgs: [SubstrateArchive.failuresKey]);
+    final m = jsonDecode(counts.single['payload_json'] as String) as Map;
+    expect(m.values.where((v) => v == cap), hasLength(8));
+    expect(await (await _db()).query('substrate_archive'), isEmpty);
+    expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isNotEmpty);
   });
 
   test(
@@ -1546,91 +1656,54 @@ void main() {
     },
   );
 
-  test('a failed unarchived delete neither stops the pass nor loses the '
-      'failure counts', () async {
+  // WHY: a bad bucket must stay live while independent buckets still archive.
+  // CLAIM(archive-before-delete); catches: aborting the loop on first error.
+  test('a failed bucket stays live while later buckets archive', () async {
     await _seed();
-    SubstrateArchive.debugThrowInBucket = Exception('out of memory');
-    for (var pass = 1; pass < SubstrateArchive.maxFailedPasses; pass++) {
-      await LocalDb.pruneDecodedBeforeRecTs(
-        cutoff,
-        archive: policy,
-        hardFloorSec: cutoff,
-      );
-    }
-    // The pass that would delete unarchived: the FIRST bucket's delete fails
-    // (a concurrent writer holding the lock).
     var calls = 0;
-    SubstrateArchive.debugBeforeFallbackDelete = () async {
-      if (calls++ == 0) throw Exception('database is locked');
+    SubstrateArchive.debugBeforeBucket = () async {
+      SubstrateArchive.debugThrowInBucket = calls++ == 0
+          ? StateError('codec rejected bucket') : null;
     };
-    await LocalDb.pruneDecodedBeforeRecTs(
-      cutoff,
-      archive: policy,
-      hardFloorSec: cutoff,
-    );
-    SubstrateArchive.debugBeforeFallbackDelete = null;
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff,
+        archive: policy);
+    expect(calls, 4);
+    expect(await (await _db()).query('substrate_archive'), hasLength(3));
+    expect(await _live('decoded_onehz', 'rec_ts > 0 AND rec_ts < ?', [cutoff]),
+        isNotEmpty);
+    SubstrateArchive.debugBeforeBucket = null;
     SubstrateArchive.debugThrowInBucket = null;
-    expect(calls, greaterThan(1), reason: 'the later buckets still ran');
-    final left = await _live('decoded_onehz', 'rec_ts > 0 AND rec_ts < ?', [
-      cutoff,
-    ]);
-    expect(left, isNotEmpty, reason: 'the failed bucket stays live');
-    final days = {for (final r in left) (r['rec_ts'] as int) ~/ 86400};
-    expect(days, hasLength(1));
-    // The rest of the prune ran: the undatable row is gone.
-    expect(await _live('decoded_onehz', 'rec_ts <= 0', const []), isEmpty);
-    // Every bucket's count was saved; only the failed one is still counted.
-    final row = await (await _db()).query(
-      'compute_freshness',
-      where: 'key = ?',
-      whereArgs: [SubstrateArchive.failuresKey],
-    );
-    final counts = jsonDecode(row.single['payload_json'] as String) as Map;
-    expect(counts.values.toSet(), {SubstrateArchive.maxFailedPasses});
-    expect(counts.keys.every((k) => (k as String).endsWith('|${days.single}')),
-        isTrue);
-    // The next pass finishes the job.
-    await LocalDb.pruneDecodedBeforeRecTs(
-      cutoff,
-      archive: policy,
-      hardFloorSec: cutoff,
-    );
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff,
+        archive: policy);
+    expect(await (await _db()).query('substrate_archive'), hasLength(4));
     expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
   });
 
-  test('a bucket that keeps failing past the hold is deleted after '
-      '${SubstrateArchive.maxFailedPasses} passes', () async {
+  // WHY: repeated resource failures must never become permission to lose input.
+  // CLAIM(archive-before-delete); catches: deletion after three failed passes.
+  test('repeated failures past the hold retain every row until archival succeeds', () async {
     await _seed();
-    final before = await _live('decoded_onehz', 'rec_ts > 0 AND rec_ts < ?', [
-      cutoff,
-    ]);
+    final before = await _live('decoded_onehz', 'rec_ts > 0 AND rec_ts < ?', [cutoff]);
+    final beats = await _live('decoded_rr', 'rec_ts > 0 AND rec_ts < ?', [cutoff]);
     SubstrateArchive.debugThrowInBucket = Exception('out of memory');
-    for (var pass = 1; pass < SubstrateArchive.maxFailedPasses; pass++) {
-      await LocalDb.pruneDecodedBeforeRecTs(
-        cutoff,
-        archive: policy,
-        hardFloorSec: cutoff,
-      );
-      expect(
-        await _live('decoded_onehz', 'rec_ts > 0 AND rec_ts < ?', [cutoff]),
-        hasLength(before.length),
-        reason: 'pass $pass keeps it live',
-      );
+    for (var pass = 1; pass <= 4; pass++) {
+      await LocalDb.pruneDecodedBeforeRecTs(cutoff,
+          archive: policy);
+      expect(await _live('decoded_onehz', 'rec_ts > 0 AND rec_ts < ?', [cutoff]),
+          before, reason: 'pass $pass');
+      expect(await _live('decoded_rr', 'rec_ts > 0 AND rec_ts < ?', [cutoff]),
+          beats, reason: 'pass $pass');
+      expect(await (await _db()).query('substrate_archive'), isEmpty);
     }
-    await LocalDb.pruneDecodedBeforeRecTs(
-      cutoff,
-      archive: policy,
-      hardFloorSec: cutoff,
-    );
     SubstrateArchive.debugThrowInBucket = null;
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff,
+        archive: policy);
     expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isEmpty);
-    expect(await (await _db()).query('substrate_archive'), isEmpty);
-    // The counts are cleared with the buckets they counted.
-    final row = await (await _db()).query(
-      'compute_freshness',
-      where: 'key = ?',
-      whereArgs: [SubstrateArchive.failuresKey],
-    );
-    expect(row.single['payload_json'], '{}');
+    expect(await _live('decoded_rr', 'rec_ts < ?', [cutoff]), isEmpty);
+    expect(await (await _db()).query('substrate_archive'), hasLength(4));
+    final counts = await (await _db()).query('compute_freshness',
+        where: 'key = ?', whereArgs: [SubstrateArchive.failuresKey]);
+    expect(counts.single['payload_json'], '{}');
   });
+
 }

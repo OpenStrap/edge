@@ -32,6 +32,8 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:sqflite/sqflite.dart';
 
+import '../compute/derivation_engine.dart' show kAlgoVersion;
+
 import 'substrate_archive_codec.dart';
 
 /// How long archived substrate is kept. Stored in `compute_freshness` so a
@@ -102,12 +104,23 @@ abstract final class SubstrateArchive {
   static const String policyKey = 'substrate_archive_policy';
 
   /// `compute_freshness` key counting, per `device|utc_day`, the passes on
-  /// which a bucket past the hold failed for a non-deterministic reason.
+  /// which a bucket failed to archive.
   static const String failuresKey = 'substrate_archive_failures';
 
-  /// Failed passes past the hold after which ANY failure counts as
-  /// permanent — see [archiveAndDeleteBefore].
-  static const int maxFailedPasses = 3;
+  /// Failed passes after which a BOUNDED (background) pass stops attempting a
+  /// bucket — see [archiveAndDeleteBefore]. Foreground passes keep retrying
+  /// unless the codec refused it, see [foregroundSkipAfterRefusals].
+  static const int backgroundSkipAfterFailures = 3;
+
+  /// Codec refusals ([StateError], [FormatException], [ArgumentError]) after
+  /// which a FOREGROUND pass stops retrying a bucket too. The same build
+  /// fails the same bytes the same way, so each retry only buys ~3 s of write
+  /// lock against the band's commit. Counted per [kAlgoVersion]: a new build
+  /// gets fresh attempts.
+  static const int foregroundSkipAfterRefusals = 3;
+
+  static const String _refused = '|refused';
+  static String get _refusalSuffix => '$_refused$kAlgoVersion';
 
   static const int _pageSize = 5000;
 
@@ -125,11 +138,6 @@ abstract final class SubstrateArchive {
   /// transient failure (SQLITE_BUSY, an isolate that could not start).
   @visibleForTesting
   static Object? debugThrowInBucket;
-
-  /// Test seam: awaited inside the past-the-hold unarchived delete's
-  /// transaction, so a test can make that delete fail.
-  @visibleForTesting
-  static Future<void> Function()? debugBeforeFallbackDelete;
 
   @visibleForTesting
   static int get pageSizeForTest => _pageSize;
@@ -275,7 +283,12 @@ abstract final class SubstrateArchive {
           'payload_json': policy.toJson(),
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
-        if (!policy.enabled) await txn.delete(table);
+        if (!policy.enabled) {
+          await txn.delete(table);
+          // A later flash backfill must get a fresh background attempt.
+          await txn.delete('compute_freshness',
+              where: 'key = ?', whereArgs: [failuresKey]);
+        }
       });
 
   /// Restore/salvage onto a database with NO archive of its own: bring the
@@ -358,21 +371,24 @@ abstract final class SubstrateArchive {
   /// the setting, see [writePolicy]) must not be followed by this prune
   /// writing a fresh bucket after it.
   ///
-  /// A bucket that fails STAYS LIVE and is retried on the next pass. The one
-  /// exception is a DETERMINISTIC failure — the codec refusing the data or
-  /// failing its own read-back, or an existing blob this build cannot read —
-  /// on a bucket entirely behind [hardFloorSec] (the end of the bounded
-  /// hold). That failure would repeat on every pass, so the bucket is deleted
-  /// unarchived exactly as before this table existed, and one bad bucket
-  /// cannot switch retention off. Anything else (SQLITE_BUSY, an isolate that
-  /// could not start, I/O) is treated as transient and retried — but a bucket
-  /// past the hold that has failed on [maxFailedPasses] passes (an encode that
-  /// runs out of memory on a huge day fails "transiently" forever) is treated
-  /// as permanent too. The count persists in `compute_freshness`
-  /// ([failuresKey]) and is cleared when the bucket archives.
+  /// CLAIM(archive-before-delete): a failed bucket stays live regardless of
+  /// age, error type or retry count [substrate_archive_db_test]. Neither a
+  /// corrupt encode nor repeated resource failures authorize data loss. The
+  /// failure counts persist in [failuresKey] and clear when a bucket archives.
+  /// A permanently failing bucket can therefore exceed the live retention
+  /// budget until archival succeeds or the user disables archiving.
   ///
   /// [maxBuckets] caps how many buckets one pass archives; the rest stay live
   /// for the next pass (background engines run on a short, throttled budget).
+  /// A bounded pass is also the BACKGROUND pass, and one bad bucket must not
+  /// starve it: buckets run oldest first, so a bucket that always fails would
+  /// spend the single attempt of every pass (up to ~3 s of write lock per full
+  /// day) and nothing behind it would ever archive. A bucket that has failed
+  /// [backgroundSkipAfterFailures] passes is therefore skipped by bounded
+  /// passes without using the budget. Unbounded (foreground) passes still
+  /// retry it, so a quieter moment can archive it, except after
+  /// [foregroundSkipAfterRefusals] codec refusals under this build; success
+  /// clears both counts.
   ///
   /// The `UNION` over both tables is required: gen4 history can carry
   /// beat-only seconds with no 1 Hz parent row.
@@ -392,7 +408,6 @@ abstract final class SubstrateArchive {
   static Future<int> archiveAndDeleteBefore(
     Database db,
     int cutoffSec, {
-    int? hardFloorSec,
     void Function(String message)? log,
     bool Function()? shouldYield,
     int? maxBuckets,
@@ -409,7 +424,15 @@ abstract final class SubstrateArchive {
     );
     var deleted = 0, attempted = 0;
     final failures = await _readFailures(db);
-    var failuresChanged = false;
+    // A count whose bucket has no live rows left below the cutoff (deleted,
+    // or archived by a pass that died before saving) is dropped, so it
+    // neither inflates [stats] nor parks rows that come back later.
+    final live = {
+      for (final b in buckets) '${b['device_id']}|${(b['d'] as num).toInt()}',
+    };
+    final counted = failures.length;
+    failures.removeWhere((k, _) => !live.contains(k.split(_refused).first));
+    var failuresChanged = failures.length != counted;
     // The counts are saved however the loop ends, so a pass that stops
     // early never loses the increments it already made.
     try {
@@ -420,6 +443,13 @@ abstract final class SubstrateArchive {
         final hi = math.min((day + 1) * 86400, cutoffSec);
         await debugBeforeBucket?.call();
         if (maxBuckets != null && attempted >= maxBuckets) break;
+        final failureKey = '$deviceId|$day';
+        final refusalKey = '$failureKey$_refusalSuffix';
+        if (maxBuckets != null
+            ? (failures[failureKey] ?? 0) >= backgroundSkipAfterFailures
+            : (failures[refusalKey] ?? 0) >= foregroundSkipAfterRefusals) {
+          continue;
+        }
         attempted++;
         if (shouldYield?.call() ?? false) {
           log?.call(
@@ -428,7 +458,6 @@ abstract final class SubstrateArchive {
           );
           break;
         }
-        final failureKey = '$deviceId|$day';
         try {
           deleted += await db.transaction((txn) async {
             final n = await _archiveBucket(txn, deviceId, day, lo, hi);
@@ -436,55 +465,31 @@ abstract final class SubstrateArchive {
             return n;
           });
           if (failures.remove(failureKey) != null) failuresChanged = true;
+          if (failures.remove(refusalKey) != null) failuresChanged = true;
         } catch (e) {
-          final pastHold = hardFloorSec != null && hi <= hardFloorSec;
-          var permanent =
-              e is StateError || e is ArgumentError || e is FormatException;
-          if (pastHold && !permanent) {
-            final n = (failures[failureKey] ?? 0) + 1;
-            failures[failureKey] = n;
-            failuresChanged = true;
-            permanent = n >= maxFailedPasses;
+          failures[failureKey] = (failures[failureKey] ?? 0) + 1;
+          if (e is StateError || e is FormatException || e is ArgumentError) {
+            failures[refusalKey] = (failures[refusalKey] ?? 0) + 1;
           }
-          if (permanent && pastHold) {
-            // Guarded: one bucket whose delete fails (a concurrent writer
-            // holding the lock) must not end the pass for every other
-            // bucket. It stays live and keeps its count, so the next pass
-            // tries again.
-            try {
-              deleted += await db.transaction((txn) async {
-                await debugBeforeFallbackDelete?.call();
-                final n = await _deleteLive(txn, deviceId, lo, hi);
-                await onDeleted?.call(txn, hi);
-                return n;
-              });
-              if (failures.remove(failureKey) != null) failuresChanged = true;
-              log?.call(
-                'substrate archive failed for $deviceId/$day ($e); past the '
-                'hold, deleted unarchived',
-              );
-            } catch (e2) {
-              log?.call(
-                'substrate archive failed for $deviceId/$day ($e) and the '
-                'unarchived delete failed too ($e2); kept live for the next '
-                'pass',
-              );
-            }
-          } else {
-            log?.call(
-              'substrate archive failed for $deviceId/$day ($e); kept live for '
-              'the next pass',
-            );
-          }
+          failuresChanged = true;
+          log?.call(
+            'substrate archive failed for $deviceId/$day ($e); kept live for '
+            'the next pass',
+          );
         }
       }
     } finally {
+      // Checked in the write's own transaction: archiving switched off
+      // mid-pass cleared the counts, and this pass must not bring them back.
       if (failuresChanged) {
-        await db.insert('compute_freshness', {
-          'key': failuresKey,
-          'payload_json': jsonEncode(failures),
-          'updated_at': DateTime.now().millisecondsSinceEpoch,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        await db.transaction((txn) async {
+          if (!(await readPolicy(txn)).enabled) return;
+          await txn.insert('compute_freshness', {
+            'key': failuresKey,
+            'payload_json': jsonEncode(failures),
+            'updated_at': DateTime.now().millisecondsSinceEpoch,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        });
       }
     }
     return deleted;
@@ -503,7 +508,11 @@ abstract final class SubstrateArchive {
       final m = jsonDecode(rows.first['payload_json'] as String) as Map;
       return {
         for (final e in m.entries)
-          if (e.value is int) '${e.key}': e.value as int,
+          // Refusals counted by an older build are dropped.
+          if (e.value is int &&
+              (!'${e.key}'.contains(_refused) ||
+                  '${e.key}'.endsWith(_refusalSuffix)))
+            '${e.key}': e.value as int,
       };
     } catch (_) {
       return {};
@@ -1084,8 +1093,10 @@ abstract final class SubstrateArchive {
     );
   }
 
-  /// `{buckets, bytes, raw_bytes, oldest_from_ts, newest_to_ts}`; the two
-  /// timestamps are null on an empty archive.
+  /// `{buckets, bytes, raw_bytes, oldest_from_ts, newest_to_ts,
+  /// failed_buckets}`; the two timestamps are null on an empty archive.
+  /// `failed_buckets` counts buckets whose last archive attempt failed and
+  /// which therefore stay live.
   static Future<Map<String, Object?>> stats(DatabaseExecutor ex) async {
     final r = (await ex.rawQuery(
       'SELECT COUNT(*) AS buckets, '
@@ -1094,6 +1105,12 @@ abstract final class SubstrateArchive {
       'MIN(from_ts) AS oldest_from_ts, MAX(to_ts) AS newest_to_ts '
       'FROM $table',
     )).first;
-    return Map<String, Object?>.from(r);
+    return {
+      ...r,
+      'failed_buckets': (await _readFailures(ex))
+          .keys
+          .where((k) => !k.contains(_refused))
+          .length,
+    };
   }
 }
