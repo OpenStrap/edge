@@ -354,7 +354,12 @@ jobs:
   # every target's plist, including this one, at build time.
   ios:
     needs: [preflight, release]
-    runs-on: macos-latest
+    # Not macos-latest: that is macOS 26, whose newest Xcode is 26.6, and an
+    # iOS 26 SDK build runs letterboxed on the unfolded iPhone Duo (#752).
+    # `xcode-27` is GitHub's image with Xcode 27.0-27.2 (27.1 default); it is
+    # still a public preview (actions/runner-images#14404), so expect the odd
+    # queueing delay. Move to the GA label once one ships Xcode >= 27.1.
+    runs-on: xcode-27
     permissions:
       contents: write
     steps:
@@ -367,6 +372,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: bash .github/scripts/assert_release_unpublished.sh "$TAG"
+
+      # iOS 27 gives the unfolded iPhone Duo's full inner display only to apps
+      # built with the iOS 27.1 SDK or later; an older SDK ships an app iOS
+      # letterboxes in a compatibility window (#752). The runner image's
+      # default Xcode is not pinned and has been older than that, so pick the
+      # newest installed Xcode and refuse to build below 27.1 rather than
+      # silently shipping a letterboxed IPA.
+      - name: Select Xcode >= 27.1
+        run: |
+          pick=$(for x in /Applications/Xcode*.app; do
+            v=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+              "$x/Contents/Info.plist" 2>/dev/null) && echo "$v $x"
+          done | sort -V | tail -1)
+          v=${pick%% *}; x=${pick#* }
+          if [ -z "$pick" ] || [ "$(printf '%s\n27.1\n' "$v" | sort -V | head -1)" != 27.1 ]; then
+            echo "::error::Newest Xcode on this runner is '${v:-none}'; the iPhone Duo needs >= 27.1 (#752). Use a runner image that ships it."
+            exit 1
+          fi
+          sudo xcode-select -s "$x/Contents/Developer"
+          xcodebuild -version
 
       - uses: subosito/flutter-action@v2
         with:
@@ -413,6 +438,19 @@ jobs:
 
       - name: Build unsigned iOS app
         run: flutter build ios --release --no-codesign --dart-define-from-file=.env
+
+      # The Xcode gate above checks the toolchain; this checks what the app
+      # was actually built against, so an older SDK can't slip through.
+      - name: Assert the app was built against the iOS 27.1+ SDK
+        run: |
+          plist=build/ios/iphoneos/Runner.app/Info.plist
+          sdk=$(/usr/libexec/PlistBuddy -c 'Print :DTSDKName' "$plist")
+          echo "Built against $sdk (DTXcode $(/usr/libexec/PlistBuddy -c 'Print :DTXcode' "$plist"))"
+          v=${sdk#iphoneos}
+          if [ "$v" = "$sdk" ] || [ "$(printf '%s\n27.1\n' "$v" | sort -V | head -1)" != 27.1 ]; then
+            echo "::error::Built against '$sdk'; the iPhone Duo needs the iOS 27.1+ SDK (#752)."
+            exit 1
+          fi
 
       # See the job-level comment above: the Watch companion cannot survive a
       # per-user free-account resign under any sideloading tool (Sideloadly,
