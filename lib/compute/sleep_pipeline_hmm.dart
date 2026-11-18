@@ -89,6 +89,7 @@ class SleepStageAnalyzer {
   void computeMultiNightBaselines({
     List<double> rhrHistory = const [],
     List<double> rmssdHistory = const [],
+    List<double> skinTempHistory = const [],
   }) {
     double? medianOf(List<double> xs) {
       final v = xs.where((x) => x.isFinite && x > 0).toList()..sort();
@@ -101,10 +102,15 @@ class SleepStageAnalyzer {
       if (dev.isEmpty) return null;
       return dev[dev.length ~/ 2];
     }
-    hrMin7d = medianOf(rhrHistory.length > 7 ? rhrHistory.sublist(rhrHistory.length - 7) : rhrHistory);
-    rmssdMean7d = medianOf(rmssdHistory.length > 7 ? rmssdHistory.sublist(rmssdHistory.length - 7) : rmssdHistory);
+    List<double> last7(List<double> xs) => xs.length > 7 ? xs.sublist(xs.length - 7) : xs;
+    hrMin7d = medianOf(last7(rhrHistory));
+    rmssdMean7d = medianOf(last7(rmssdHistory));
     hrMinLong = medianOf(rhrHistory);
     rmssdMeanLong = medianOf(rmssdHistory);
+    // Motion + thermal channels self-calibrate too when a nightly history
+    // exists (skinTempAdcHistory); without one they stay nightly-only.
+    skinTempMedian7d = medianOf(last7(skinTempHistory));
+    skinTempMedianLong = medianOf(skinTempHistory);
     // Outlier check: nightly vs long-term, robust z via MAD (1.4826*MAD ~ sd).
     if (hrMinNight != null && hrMinLong != null) {
       final mad = madOf(rhrHistory, hrMinLong);
@@ -113,6 +119,14 @@ class SleepStageAnalyzer {
       if (z.abs() > atypicalZThreshold) atypicalNight = true;
     }
   }
+
+  double? skinTempMedian7d;
+  double? skinTempMedianLong;
+  /// Effective thermal baseline: blend nightly with 7d rolling when both exist.
+  double? get effectiveSkinTempMedian =>
+      skinTempMedian7d != null && skinTempMedianNight != null
+          ? (skinTempMedianNight! + skinTempMedian7d!) / 2
+          : (skinTempMedianNight ?? skinTempMedian7d);
 
   /// Effective HR baseline for the emission: blend nightly with the 7-day
   /// rolling level when both exist (half/half) — the night's own physiology
@@ -208,8 +222,8 @@ class SleepStageAnalyzer {
     final motionWake = _sigmoid(motion, 3.0, 1.5);
     final motionSleep = 1.0 - _sigmoid(motion, 2.0, 1.0);
     // Skin temp vs the night median, normalised so ~100 centi-°C = 1 °C.
-    final tempWake = skinTemp > 0 && skinTempMedianNight != null
-        ? _sigmoid((skinTemp - skinTempMedianNight!) / 100.0, 1.5, 1.0)
+    final tempWake = skinTemp > 0 && effectiveSkinTempMedian != null
+        ? _sigmoid((skinTemp - effectiveSkinTempMedian!) / 100.0, 1.5, 1.0)
         : 0.5;
 
     double prob;

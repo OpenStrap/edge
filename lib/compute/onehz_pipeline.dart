@@ -2642,17 +2642,26 @@ HmmRestageResult? _hmmRestage(DayBundleInput d) {
     [for (var i = 0; i < n; i++) t0 + i],
     windowSec: 60,
   );
-  final labels = _classifySleepStagesHMM([
-    for (var i = 0; i < n; i++)
-      {
-        'ts': t0 + i,
-        'hr': d.hypnoStages[i] == 'unobserved' ? 0.0 : hrAt[i],
-        'rmssd': d.hypnoStages[i] == 'unobserved' ? 0.0 : rmssdAt[i],
-        // HYBRID: motion + skin temp per second (0 = absent sentinel).
-        'enmo': enmoAt[i],
-        'skin_temp': tempAt[i],
-      },
-  ]);
+  final labels = _classifySleepStagesHMM(
+    [
+      for (var i = 0; i < n; i++)
+        {
+          'ts': t0 + i,
+          'hr': d.hypnoStages[i] == 'unobserved' ? 0.0 : hrAt[i],
+          'rmssd': d.hypnoStages[i] == 'unobserved' ? 0.0 : rmssdAt[i],
+          // HYBRID: motion + skin temp per second (0 = absent sentinel).
+          'enmo': enmoAt[i],
+          'skin_temp': tempAt[i],
+        },
+    ],
+    // Multi-night self-calibration: 7d rolling + long-term baselines from the
+    // persisted nightly histories (HR, RMSSD, skin temp) feed the blended
+    // emission baseline and the atypical-night (outlier) flag.
+    rhrHistory: d.rhrHistory,
+    rmssdHistory: d.rmssdHistory,
+    skinTempHistory: d.skinTempAdcHistory,
+    onAnalyzer: (a) => atypical = a.atypicalNight,
+  );
   if (labels == null) return null;
   final merged = <String>[
     for (var i = 0; i < n; i++)
@@ -2671,6 +2680,33 @@ HmmRestageResult? _hmmRestage(DayBundleInput d) {
     }
     prev = merged[i];
   }
+  // AASM-aligned wake post-processing on the merged per-second labels:
+  //  - a wake run shorter than 15 s is an AROUSAL, not wake (AASM: arousal
+  //    >= 3 s, wake epoch needs > 50% of the 30 s epoch awake) -> the seconds
+  //    revert to the surrounding sleep stage;
+  //  - after a REAL (>= 15 s) wake phase the following sleep does NOT restart
+  //    from scratch — staging continues where it left off (AASM scores
+  //    sequentially, no reset), which the Viterbi path already respects; long
+  //    wake runs simply stay wake and count towards WASO.
+  const minWakeRunSec = 15;
+  var i = 0;
+  while (i < merged.length) {
+    if (merged[i] != 'wake' || merged[i] == 'unobserved') {
+      i++;
+      continue;
+    }
+    var j = i;
+    while (j < merged.length && merged[j] == 'wake') {
+      j++;
+    }
+    if (j - i < minWakeRunSec) {
+      final surrounding = i > 0 ? merged[i - 1] : 'light';
+      for (var k = i; k < j; k++) {
+        merged[k] = surrounding == 'unobserved' ? 'light' : surrounding;
+      }
+    }
+    i = j;
+  }
   return HmmRestageResult(merged, atypical);
 }
 
@@ -2682,6 +2718,7 @@ List<String?>? _classifySleepStagesHMM(
   List<Map<String, dynamic>> epochData, {
   List<double> rhrHistory = const [],
   List<double> rmssdHistory = const [],
+  List<double> skinTempHistory = const [],
   void Function(SleepStageAnalyzer)? onAnalyzer,
 }) {
   if (epochData.isEmpty) return null;
