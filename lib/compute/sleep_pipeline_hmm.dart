@@ -67,6 +67,61 @@ class SleepStageAnalyzer {
   double? enmoMedianNight;
   double? skinTempMedianNight;
 
+  // THREE-LEVEL self-calibration (per user, across nights):
+  //  - nightly baseline (computeBaseline, first 120 min) — primary, always there
+  //  - 7-day rolling baseline — smooths single restless nights out
+  //  - long-term baseline — the user's personal reference; a nightly baseline
+  //    that deviates strongly from it marks the night as ATYPICAL (illness,
+  //    alcohol, travel) instead of silently bending the thresholds.
+  double? hrMin7d;
+  double? rmssdMean7d;
+  double? hrMinLong;
+  double? rmssdMeanLong;
+  /// True when tonight's baseline deviates from the long-term baseline by more
+  /// than [atypicalZThreshold] robust z — an outlier night, lower confidence.
+  bool atypicalNight = false;
+  static const double atypicalZThreshold = 2.0;
+
+  /// Feed the multi-night histories (trailing nightly series, oldest first).
+  /// [rhrHistory]/[rmssdHistory] are the persisted per-night resting-HR /
+  /// nocturnal-RMSSD series; the last 7 form the rolling baseline, all of them
+  /// the long-term one. Missing/empty history simply leaves the level unset.
+  void computeMultiNightBaselines({
+    List<double> rhrHistory = const [],
+    List<double> rmssdHistory = const [],
+  }) {
+    double? medianOf(List<double> xs) {
+      final v = xs.where((x) => x.isFinite && x > 0).toList()..sort();
+      if (v.isEmpty) return null;
+      return v[v.length ~/ 2];
+    }
+    double? madOf(List<double> xs, double? med) {
+      if (med == null) return null;
+      final dev = xs.where((x) => x.isFinite).map((x) => (x - med).abs()).toList()..sort();
+      if (dev.isEmpty) return null;
+      return dev[dev.length ~/ 2];
+    }
+    hrMin7d = medianOf(rhrHistory.length > 7 ? rhrHistory.sublist(rhrHistory.length - 7) : rhrHistory);
+    rmssdMean7d = medianOf(rmssdHistory.length > 7 ? rmssdHistory.sublist(rmssdHistory.length - 7) : rmssdHistory);
+    hrMinLong = medianOf(rhrHistory);
+    rmssdMeanLong = medianOf(rmssdHistory);
+    // Outlier check: nightly vs long-term, robust z via MAD (1.4826*MAD ~ sd).
+    if (hrMinNight != null && hrMinLong != null) {
+      final mad = madOf(rhrHistory, hrMinLong);
+      final sd = mad != null && mad > 0 ? 1.4826 * mad : 3.0; // floor: 3 bpm
+      final z = (hrMinNight! - hrMinLong!) / sd;
+      if (z.abs() > atypicalZThreshold) atypicalNight = true;
+    }
+  }
+
+  /// Effective HR baseline for the emission: blend nightly with the 7-day
+  /// rolling level when both exist (half/half) — the night's own physiology
+  /// anchors it, the rolling window keeps single odd nights from dominating.
+  double? get effectiveHrMin =>
+      hrMin7d != null && hrMinNight != null ? (hrMinNight! + hrMin7d!) / 2 : (hrMinNight ?? hrMin7d);
+  double? get effectiveRmssdMean =>
+      rmssdMean7d != null && rmssdMeanNight != null ? (rmssdMeanNight! + rmssdMean7d!) / 2 : (rmssdMeanNight ?? rmssdMean7d);
+
   // The same plausibility window decides which samples form the baseline and
   // which observations get scored. A value outside it (a 250 bpm spike, a NaN
   // from a dropped beat) is a measurement fault, not physiology, and scoring it
@@ -123,8 +178,8 @@ class SleepStageAnalyzer {
     bool isContactLost = false,
   }) {
     if (isContactLost ||
-        hrMinNight == null ||
-        rmssdMeanNight == null) {
+        effectiveHrMin == null ||
+        effectiveRmssdMean == null) {
       return log(0.25);
     }
     if (!_plausibleHr(hr) || !_plausibleRmssd(rmssd)) {
@@ -143,8 +198,8 @@ class SleepStageAnalyzer {
       }
     }
 
-    final hrNorm = hr / hrMinNight!;
-    final rmssdNorm = rmssd / rmssdMeanNight!;
+    final hrNorm = hr / effectiveHrMin!;
+    final rmssdNorm = rmssd / effectiveRmssdMean!;
     // Motion relative to the night's own median (robust for restless
     // sleepers); absent ENMO -> neutral 1.0.
     final motion = enmo > 0 && enmoMedianNight != null && enmoMedianNight! > 0

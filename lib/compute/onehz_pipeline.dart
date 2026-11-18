@@ -568,7 +568,7 @@ class DayBundleInput {
   /// efficiency. Figures `segmentSleep` derives that edge does not recompute
   /// here are dropped rather than left describing the old labels. Null when
   /// the labels hold no sleep at all: the caller keeps the original night.
-  DayBundleInput? withHypnoStages(List<String> stages) {
+  DayBundleInput? withHypnoStages(List<String> stages, {bool atypical = false}) {
     var light = 0, deep = 0, rem = 0, wake = 0, unobserved = 0;
     var firstSleep = -1, lastSleep = -1;
     for (var i = 0; i < stages.length; i++) {
@@ -613,7 +613,12 @@ class DayBundleInput {
       ..['rem_sec'] = rem
       ..['wake_sec'] = wake
       ..['efficiency_pct'] = observedSec > 0 ? 100.0 * tst / observedSec : null
-      ..['stager_source'] = 'hmm';
+      ..['stager_source'] = 'hmm'
+      // Multi-night calibration flag: tonight's baseline deviated >2 robust z
+      // from the user's long-term baseline (illness, alcohol, travel...) —
+      // the staging is still published, but consumers can treat it as lower
+      // confidence.
+      ..['stager_atypical_night'] = atypical;
     return DayBundleInput(
     date: date,
     dayTsSec: dayTsSec,
@@ -686,7 +691,9 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   // from the final labels and the night is tagged `stager_source: hmm`.
   if (d.useHmmStages && d.hypnoStages.isNotEmpty) {
     final restaged = _hmmRestage(d);
-    if (restaged != null) d = d.withHypnoStages(restaged) ?? d;
+    if (restaged != null) {
+      d = d.withHypnoStages(restaged.labels, atypical: restaged.atypicalNight) ?? d;
+    }
   }
 
   // ── HR over the DAY (for the curve, strain zones, dip day-side) ───────────
@@ -2599,9 +2606,18 @@ List<double> _rmssdPerSecond(
 /// later label. Within the night the decoder abstains per 30 s epoch: an
 /// epoch with no plausible heart rate or no RMSSD keeps its shipped label,
 /// and an unobserved second stays unobserved.
-List<String>? _hmmRestage(DayBundleInput d) {
+/// Result of a restage: the merged labels plus whether the night's baseline
+/// deviated strongly from the user's long-term baseline (atypical night).
+class HmmRestageResult {
+  final List<String> labels;
+  final bool atypicalNight;
+  const HmmRestageResult(this.labels, this.atypicalNight);
+}
+
+HmmRestageResult? _hmmRestage(DayBundleInput d) {
   final n = d.hypnoStages.length;
   final t0 = d.sleepOnsetSec;
+  var atypical = false;
   final hrAt = List<double>.filled(n, 0.0);
   final enmoAt = List<double>.filled(n, 0.0);
   final tempAt = List<double>.filled(n, 0.0);
@@ -2655,14 +2671,19 @@ List<String>? _hmmRestage(DayBundleInput d) {
     }
     prev = merged[i];
   }
-  return merged;
+  return HmmRestageResult(merged, atypical);
 }
 
 /// The Viterbi decode over 30 s epochs of [epochData] (per-second records
 /// with `ts`, `hr`, `rmssd`). Null when the whole night abstains (see
 /// [_hmmRestage]); otherwise one label per record, null where its epoch had
 /// no usable heart rate or RMSSD.
-List<String?>? _classifySleepStagesHMM(List<Map<String, dynamic>> epochData) {
+List<String?>? _classifySleepStagesHMM(
+  List<Map<String, dynamic>> epochData, {
+  List<double> rhrHistory = const [],
+  List<double> rmssdHistory = const [],
+  void Function(SleepStageAnalyzer)? onAnalyzer,
+}) {
   if (epochData.isEmpty) return null;
   final analyzer = SleepStageAnalyzer();
   // Baseline from the first 120 minutes BY ELAPSED TIME, not the first 240
@@ -2672,6 +2693,13 @@ List<String?>? _classifySleepStagesHMM(List<Map<String, dynamic>> epochData) {
       .where((e) => ((e['ts'] as num?)?.toDouble() ?? 0.0) - t0 <= 120 * 60)
       .toList();
   analyzer.computeBaseline(first120m);
+  // THREE-LEVEL calibration: blend in the 7-day rolling and long-term
+  // baselines from the persisted nightly histories.
+  analyzer.computeMultiNightBaselines(
+    rhrHistory: rhrHistory,
+    rmssdHistory: rmssdHistory,
+  );
+  onAnalyzer?.call(analyzer);
   // No baseline (RR that only starts after the first 120 minutes, say) makes
   // every emission neutral, and wake's self-transition then labels a measured
   // night as wake. Keep the shipped labels instead.
