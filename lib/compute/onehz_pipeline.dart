@@ -1672,11 +1672,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   //    stress screen reads this {score, si, lf_hf, rmssd, level} block directly.
   final si = stress.present ? stress.value!.si : null;
   final lfhf = hrvF.present ? hrvF.value!.lfhf : null;
-  double? stressScore;
-  if (si != null && si > 0) {
-    final lo = math.log(20), hi = math.log(600);
-    stressScore = (100 * (math.log(si) - lo) / (hi - lo)).clamp(0.0, 100.0);
-  }
+  final stressScore = stressScoreFromSi(si);
   final stressBlock = <String, dynamic>{
     'value': stressScore == null ? '—' : _round(stressScore, 1),
     'score': stressScore == null ? null : _round(stressScore, 1),
@@ -2369,6 +2365,27 @@ double? _stddev(List<double> xs) {
     s += (x - m) * (x - m);
   }
   return math.sqrt(s / (xs.length - 1));
+}
+
+/// Baevsky Stress Index → a 0-100 resting-tension score, log-mapped over the
+/// plausible resting SI range [kStressScoreFloorSi, kStressScoreCeilingSi].
+/// Null when there is no usable index (never 0 for absence — 0 is a real score
+/// at the floor).
+///
+/// CALIBRATION: the floor was 20, which clamped every genuinely low-tension
+/// night (Baevsky's own "low" band is SI < 50) to a flat 0 and lost all
+/// information for high-HRV sleepers (#631). A lower floor restores variation
+/// at the bottom. Moving it shifts every user's number, so it is changed
+/// deliberately, with a kAlgoVersion bump and a one-shot rescale of stored
+/// history (stress_backfill.dart). ONE source for the mapping: the live derive
+/// above and that rescale both call this.
+const double kStressScoreFloorSi = 5;
+const double kStressScoreCeilingSi = 600;
+
+double? stressScoreFromSi(double? si) {
+  if (si == null || si <= 0) return null;
+  final lo = math.log(kStressScoreFloorSi), hi = math.log(kStressScoreCeilingSi);
+  return (100 * (math.log(si) - lo) / (hi - lo)).clamp(0.0, 100.0);
 }
 
 double _round(double v, int dp) {

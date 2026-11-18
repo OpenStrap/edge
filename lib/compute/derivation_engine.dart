@@ -32,6 +32,7 @@ import 'dart:math' as math;
 
 import 'quiet_level_seed.dart' show seedQuietHrrHistoryOnce;
 import 'strain_backfill.dart' show backfillStrainScale;
+import 'stress_backfill.dart' show backfillStressScale;
 import 'readiness_calibration_backfill.dart'
     show backfillReadinessCalibration, seedRecentReadinessZ;
 
@@ -1893,7 +1894,13 @@ import 'vendor_sleep.dart';
 // no window does, instead of the longest of the search window's sessions.
 // HrvFreqStream v2, CardioRowCache v3 and policy-bound PRSA states require cold
 // rebuilds of old checkpoints, isolated by this algorithm version.
-const int kAlgoVersion = 124;
+// 124 → 125 (edge-side recalibration, no sibling repin): stress score. The
+// Baevsky SI -> 0-100 map floored at SI 20, clamping every genuinely low night
+// (SI < 50 is Baevsky's own "low" band) to a flat 0 and losing all variation
+// for high-HRV sleepers (#631). `kStressScoreFloorSi` is now 5.
+// stress_backfill.dart rescales stored history from each day's own `stress.si`
+// so the trend has no step at the bump.
+const int kAlgoVersion = 125;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -4204,6 +4211,20 @@ class DerivationEngine {
           }
         } catch (e) {
           _log('[derive] strain rescale failed (kept old values): $e');
+        }
+        // Same one-shot shape as the strain rescale and for the same reason:
+        // low nights older than `rawRetentionDays` keep a floor-20 score that a
+        // version bump alone cannot reach. Pure function of each day's stored
+        // `stress.si`, so it needs no baseline (#631).
+        _diag['stage'] = 'stress_rescale';
+        try {
+          final rescaled = await backfillStressScale();
+          if (rescaled.didWork) {
+            _log('[derive] stress rescale: ${rescaled.bundleDays} day(s) '
+                'rebuilt, ${rescaled.skipped} skipped (no stored index)');
+          }
+        } catch (e) {
+          _log('[derive] stress rescale failed (kept old values): $e');
         }
         // ONE-SHOT, after the sweep for the same reason as the strain rescale:
         // the rest of the readiness_z history, then a re-score of every day
