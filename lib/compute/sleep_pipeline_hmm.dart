@@ -181,6 +181,34 @@ class SleepStageAnalyzer {
     }
   }
 
+  /// Motion (and thermal) baseline from the STABLE CORE of the night — the
+  /// middle 50 % by elapsed time — NOT the first 120 min. The opening window
+  /// contains settling-in / turning over and is systematically more active, so
+  /// a median taken from it would overstate the person's normal sleep motion
+  /// and the wake-vs-arousal threshold would sit too high. HR/RMSSD keep the
+  /// opening-window baseline (autonomic settling is exactly what we want there).
+  /// Missing ENMO (0 sentinel) is excluded — never "still".
+  void computeMotionBaseline(List<Map<String, dynamic>> nightData) {
+    if (nightData.length < 10) return;
+    final t0 = (nightData.first['ts'] as num?)?.toDouble() ?? 0.0;
+    final t1 = (nightData.last['ts'] as num?)?.toDouble() ?? t0;
+    final span = t1 - t0;
+    if (span <= 0) return;
+    final core = nightData
+        .where((e) => ((e['ts'] as num?)?.toDouble() ?? 0.0) - t0 > span * 0.25 &&
+            ((e['ts'] as num?)?.toDouble() ?? 0.0) - t0 < span * 0.75)
+        .toList();
+    if (core.isEmpty) return;
+    final enmos = core
+        .map((d) => (d['enmo'] as num?)?.toDouble() ?? 0.0)
+        .where((e) => e.isFinite && e > 0.0)
+        .toList();
+    if (enmos.isNotEmpty) {
+      enmos.sort();
+      enmoMedianNight = enmos[enmos.length ~/ 2];
+    }
+  }
+
   /// HYBRID emission over ALL available channels: HR, RMSSD, ENMO (motion),
   /// skin temp. Absent channels (0 sentinel) contribute a NEUTRAL factor —
   /// never evidence. Wake is boosted by ANY of: elevated HR + low RMSSD

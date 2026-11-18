@@ -2730,6 +2730,10 @@ List<String?>? _classifySleepStagesHMM(
       .where((e) => ((e['ts'] as num?)?.toDouble() ?? 0.0) - t0 <= 120 * 60)
       .toList();
   analyzer.computeBaseline(first120m);
+  // Motion baseline from the stable core of the night (middle 50 %), not the
+  // opening window — settling-in movement would inflate the person's normal
+  // sleep-motion level and push the wake threshold too high.
+  analyzer.computeMotionBaseline(epochData);
   // THREE-LEVEL calibration: blend in the 7-day rolling and long-term
   // baselines from the persisted nightly histories.
   analyzer.computeMultiNightBaselines(
