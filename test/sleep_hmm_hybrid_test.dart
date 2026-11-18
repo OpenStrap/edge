@@ -89,4 +89,29 @@ void main() {
     expect(wakeWithout, lessThanOrEqualTo(wakeWith),
         reason: 'absent optional sensors must be neutral, never extra wake evidence');
   });
+
+  test('hr-only bonus: quiet wakefulness (still, HR +14 bpm over baseline) -> wake', () {
+    final a = baselined(); // baseline HR 55
+    final night = <Map<String, dynamic>>[
+      ...List.generate(30, (_) => epoch(54, 46, enmo: 0.005, skinTemp: 3350)),
+      // lying still and awake: HR 69 (~1.25x), RMSSD near normal, no motion
+      ...List.generate(60, (_) => epoch(69, 44, enmo: 0.002, skinTemp: 3350)),
+      ...List.generate(30, (_) => epoch(54, 46, enmo: 0.005, skinTemp: 3350)),
+    ];
+    final states = a.viterbiDecode(night);
+    expect(states.sublist(30, 90).where((s) => s == SleepState.wake).length, greaterThan(20),
+        reason: 'still but clearly elevated HR must read as wake (quiet wakefulness)');
+  });
+
+  test('hr-only bonus guarded: REM-like (HR 1.22x, still, RMSSD normal) stays non-wake', () {
+    final a = baselined();
+    final night = <Map<String, dynamic>>[
+      ...List.generate(30, (_) => epoch(54, 46, enmo: 0.005, skinTemp: 3350)),
+      ...List.generate(60, (_) => epoch(67, 45, enmo: 0.004, skinTemp: 3350)), // REM-like HR spike, still
+      ...List.generate(30, (_) => epoch(54, 46, enmo: 0.005, skinTemp: 3350)),
+    ];
+    final states = a.viterbiDecode(night);
+    expect(states.sublist(30, 90).where((s) => s == SleepState.wake).length, lessThan(30),
+        reason: 'REM-like HR with atonia must not flip to wake (REM guard)');
+  });
 }

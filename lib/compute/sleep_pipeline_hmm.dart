@@ -268,7 +268,17 @@ class SleepStageAnalyzer {
         // barely-elevated HR are still caught.
         final autonomic =
             _sigmoid(hrNorm, 1.15, 0.05) * (1.0 - _sigmoid(rmssdNorm, 0.8, 0.05));
-        prob = 1.0 - (1.0 - autonomic) * (1.0 - motionWake) * (1.0 - tempWake);
+        // Weak HR-only bonus for "quiet wakefulness" (issue #593 pattern:
+        // lying still, HR clearly above the personal sleep baseline, RMSSD
+        // barely moved). Capped at 0.3 and centred high (1.22×) so REM —
+        // whose HR/HRV is wake-like (Zemaityte et al.) — is not flipped to
+        // wake; REM's own emission + self-transition guard it instead.
+        final hrOnlyWake = _sigmoid(hrNorm, 1.22, 0.07) * 0.3;
+        prob = 1.0 -
+            (1.0 - autonomic) *
+                (1.0 - motionWake) *
+                (1.0 - tempWake) *
+                (1.0 - hrOnlyWake);
         break;
       case SleepState.nremDeep:
         prob = (1.0 - _sigmoid(hrNorm, 1.0, 0.05)) *
