@@ -194,6 +194,10 @@ void main() {
       await t.tap(button);
       await step(50);
       await t.tap(button);
+      await step(1000);
+      // The latest message is up, alone.
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text('Buzz sent to the band'), findsOneWidget);
       // One message's enter, 4 s on screen and exit, with a second of slack;
       // a second queued message would still be showing here.
       await step(6000);

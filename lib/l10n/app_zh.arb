@@ -91,7 +91,7 @@
   "alarmChangeTheTime": "更改时间",
   "alarmTestTheBuzz": "测试振动",
   "alarmCancelTheAlarm": "取消闹钟",
-  "alarmBuzzingTheBand": "已向腕带发送振动",
+  "alarmBuzzingTheBand": "腕带振动中",
   "alarmCancelled": "闹钟已取消",
   "alarmSentToBand": "闹钟已发送到腕带",
   "alarmInThePast": "已过去——已响铃或已错过",
