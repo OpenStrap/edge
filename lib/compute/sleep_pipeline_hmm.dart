@@ -90,6 +90,7 @@ class SleepStageAnalyzer {
     List<double> rhrHistory = const [],
     List<double> rmssdHistory = const [],
     List<double> skinTempHistory = const [],
+    List<double> enmoHistory = const [],
   }) {
     double? medianOf(List<double> xs) {
       final v = xs.where((x) => x.isFinite && x > 0).toList()..sort();
@@ -111,6 +112,11 @@ class SleepStageAnalyzer {
     // exists (skinTempAdcHistory); without one they stay nightly-only.
     skinTempMedian7d = medianOf(last7(skinTempHistory));
     skinTempMedianLong = medianOf(skinTempHistory);
+    // Motion history: persisted per-night ENMO medians (stable-core), so the
+    // motion channel self-calibrates across nights like the others. Absent
+    // history (pre-feature nights) simply leaves the levels unset.
+    enmoMedian7d = medianOfEnmo(last7(enmoHistory));
+    enmoMedianLong = medianOfEnmo(enmoHistory);
     // Outlier check: nightly vs long-term, robust z via MAD (1.4826*MAD ~ sd).
     if (hrMinNight != null && hrMinLong != null) {
       final mad = madOf(rhrHistory, hrMinLong);
@@ -122,11 +128,25 @@ class SleepStageAnalyzer {
 
   double? skinTempMedian7d;
   double? skinTempMedianLong;
+  double? enmoMedian7d;
+  double? enmoMedianLong;
+  // ENMO medians use >= 0 as valid (a measured still night is a real 0);
+  // the -1 absent sentinel is excluded.
+  double? medianOfEnmo(List<double> xs) {
+    final v = xs.where((x) => x.isFinite && x >= 0).toList()..sort();
+    if (v.isEmpty) return null;
+    return v[v.length ~/ 2];
+  }
   /// Effective thermal baseline: blend nightly with 7d rolling when both exist.
   double? get effectiveSkinTempMedian =>
       skinTempMedian7d != null && skinTempMedianNight != null
           ? (skinTempMedianNight! + skinTempMedian7d!) / 2
           : (skinTempMedianNight ?? skinTempMedian7d);
+  /// Effective motion baseline: blend nightly (stable core) with 7d rolling.
+  double? get effectiveEnmoMedian =>
+      enmoMedian7d != null && enmoMedianNight != null
+          ? (enmoMedianNight! + enmoMedian7d!) / 2
+          : (enmoMedianNight ?? enmoMedian7d);
 
   /// Effective HR baseline for the emission: blend nightly with the 7-day
   /// rolling level when both exist (half/half) — the night's own physiology
@@ -248,8 +268,8 @@ class SleepStageAnalyzer {
     // Motion relative to the night's own median (robust for restless
     // sleepers). Absent ENMO (0 sentinel) = NO evidence either way: wake
     // factor 0 (does not boost wake), sleep factor 1.0 (does not penalise).
-    final motionMeasured = enmo >= 0 && enmoMedianNight != null && enmoMedianNight! > 0;
-    final motion = motionMeasured ? enmo / enmoMedianNight! : 1.0;
+    final motionMeasured = enmo >= 0 && effectiveEnmoMedian != null && effectiveEnmoMedian! > 0;
+    final motion = motionMeasured ? enmo / effectiveEnmoMedian! : 1.0;
     final motionWake = motionMeasured ? _sigmoid(motion, 3.0, 1.5) : 0.0;
     final motionSleep = motionMeasured ? 1.0 - _sigmoid(motion, 2.0, 1.0) : 1.0;
     // Skin temp vs the night median, normalised so ~100 centi-°C = 1 °C.

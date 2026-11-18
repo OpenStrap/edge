@@ -50,4 +50,20 @@ void main() {
     a.computeMultiNightBaselines(rhrHistory: rhr, rmssdHistory: List.filled(30, 45.0));
     expect(a.atypicalNight, isFalse);
   });
+
+  test('multi-night: ENMO history feeds 7d/long-term motion calibration', () {
+    final a = baselined();
+    final enmo = List<double>.generate(30, (_) => 0.02);
+    a.computeMultiNightBaselines(enmoHistory: enmo);
+    expect(a.enmoMedian7d, 0.02);
+    expect(a.enmoMedianLong, 0.02);
+    // blended with the nightly core median (0.01 from baselined())
+    expect(a.effectiveEnmoMedian, closeTo(0.015, 1e-9));
+  });
+
+  test('multi-night: ENMO absent sentinel (-1) is excluded from the history median', () {
+    final a = baselined();
+    a.computeMultiNightBaselines(enmoHistory: [-1.0, -1.0, 0.02, 0.02]);
+    expect(a.enmoMedianLong, 0.02);
+  });
 }

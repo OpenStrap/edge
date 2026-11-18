@@ -337,10 +337,13 @@ class DayBundleInput {
   final List<double> sleepRrTsMs;
   final List<double> sleepRrMs;
   final List<int> sleepSkinTemp;
-  /// Per-second ENMO (g) over the sleep window — HYBRID HMM input. 0 means
+  /// Per-second ENMO (g) over the sleep window — HYBRID HMM input. -1 means
   /// ABSENT (accel sentinel (0,0,0)), never a still wrist; the classifier
-  /// treats 0 as "no motion evidence" rather than "perfectly still".
+  /// treats absent as "no motion evidence" rather than "perfectly still".
   final List<double> sleepEnmo;
+  /// Trailing per-night ENMO medians (stable core), oldest first — the
+  /// persisted motion history for multi-night self-calibration.
+  final List<double> enmoHistory;
 
   // ── the SINGLE-SOURCE sleep segmentation (JSON of SleepSegmentation) ──────
   final Map<String, dynamic> sleepJson; // {window,tst_sec,…,confidence}
@@ -441,6 +444,7 @@ class DayBundleInput {
     required this.sleepRrMs,
     required this.sleepSkinTemp,
     this.sleepEnmo = const [],
+    this.enmoHistory = const [],
     required this.sleepJson,
     required this.hypnoStages,
     required this.sleepOnsetSec,
@@ -477,6 +481,7 @@ class DayBundleInput {
     'sleep_rr_ms': sleepRrMs,
     'sleep_skin_temp': sleepSkinTemp,
     'sleep_enmo': sleepEnmo,
+    'enmo_history': enmoHistory,
     'sleep_json': sleepJson,
     'hypno_stages': hypnoStages,
     'sleep_onset_sec': sleepOnsetSec,
@@ -530,6 +535,7 @@ class DayBundleInput {
       sleepRrMs: dbls('sleep_rr_ms'),
       sleepSkinTemp: ints('sleep_skin_temp'),
       sleepEnmo: dbls('sleep_enmo'),
+      enmoHistory: dbls('enmo_history'),
       sleepJson: ((m['sleep_json'] as Map?) ?? const {})
           .cast<String, dynamic>(),
       hypnoStages: strs('hypno_stages'),
@@ -568,7 +574,7 @@ class DayBundleInput {
   /// efficiency. Figures `segmentSleep` derives that edge does not recompute
   /// here are dropped rather than left describing the old labels. Null when
   /// the labels hold no sleep at all: the caller keeps the original night.
-  DayBundleInput? withHypnoStages(List<String> stages, {bool atypical = false}) {
+  DayBundleInput? withHypnoStages(List<String> stages, {bool atypical = false, double? enmoMedian}) {
     var light = 0, deep = 0, rem = 0, wake = 0, unobserved = 0;
     var firstSleep = -1, lastSleep = -1;
     for (var i = 0; i < stages.length; i++) {
@@ -619,6 +625,12 @@ class DayBundleInput {
       // the staging is still published, but consumers can treat it as lower
       // confidence.
       ..['stager_atypical_night'] = atypical;
+    if (enmoMedian != null && enmoMedian > 0) {
+      // Persisted as the night's motion baseline -> metric_series
+      // 'enmo_median_night', feeding later nights' 7d/long-term motion
+      // calibration (enmo_history).
+      json['stager_enmo_median'] = enmoMedian;
+    }
     return DayBundleInput(
     date: date,
     dayTsSec: dayTsSec,
@@ -631,6 +643,7 @@ class DayBundleInput {
     sleepRrMs: sleepRrMs,
     sleepSkinTemp: sleepSkinTemp,
     sleepEnmo: sleepEnmo,
+    enmoHistory: enmoHistory,
     sleepJson: json,
     hypnoStages: stages,
     sleepOnsetSec: sleepOnsetSec,
@@ -692,7 +705,8 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   if (d.useHmmStages && d.hypnoStages.isNotEmpty) {
     final restaged = _hmmRestage(d);
     if (restaged != null) {
-      d = d.withHypnoStages(restaged.labels, atypical: restaged.atypicalNight) ?? d;
+      d = d.withHypnoStages(restaged.labels,
+          atypical: restaged.atypicalNight, enmoMedian: restaged.enmoMedian) ?? d;
     }
   }
 
@@ -1587,6 +1601,10 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
       // night carries the calibration confidence, not just the source tag.
       if (d.sleepJson['stager_atypical_night'] == true)
         'stager_atypical_night': true,
+      // The night's stable-core ENMO median, persisted to metric_series as
+      // 'enmo_median_night' for multi-night motion calibration.
+      if ((d.sleepJson['stager_enmo_median'] as num?)?.toDouble() case final v?)
+        if (v > 0) 'stager_enmo_median': v,
     },
     // Seconds the band's own last SLEEP cut off the end of the auto window; null = rule did not apply. Provenance, never a metric.
     'band_offset_trim_sec': bandOffsetTrimSec,
@@ -2617,13 +2635,15 @@ List<double> _rmssdPerSecond(
 class HmmRestageResult {
   final List<String> labels;
   final bool atypicalNight;
-  const HmmRestageResult(this.labels, this.atypicalNight);
+  final double? enmoMedian;
+  const HmmRestageResult(this.labels, this.atypicalNight, [this.enmoMedian]);
 }
 
 HmmRestageResult? _hmmRestage(DayBundleInput d) {
   final n = d.hypnoStages.length;
   final t0 = d.sleepOnsetSec;
   var atypical = false;
+  double? enmoMedian;
   final hrAt = List<double>.filled(n, 0.0);
   final enmoAt = List<double>.filled(n, 0.0);
   final tempAt = List<double>.filled(n, 0.0);
@@ -2666,7 +2686,11 @@ HmmRestageResult? _hmmRestage(DayBundleInput d) {
     rhrHistory: d.rhrHistory,
     rmssdHistory: d.rmssdHistory,
     skinTempHistory: d.skinTempAdcHistory,
-    onAnalyzer: (a) => atypical = a.atypicalNight,
+    enmoHistory: d.enmoHistory,
+    onAnalyzer: (a) {
+      atypical = a.atypicalNight;
+      enmoMedian = a.enmoMedianNight;
+    },
   );
   if (labels == null) return null;
   final merged = <String>[
@@ -2713,7 +2737,7 @@ HmmRestageResult? _hmmRestage(DayBundleInput d) {
     }
     i = j;
   }
-  return HmmRestageResult(merged, atypical);
+  return HmmRestageResult(merged, atypical, enmoMedian);
 }
 
 /// The Viterbi decode over 30 s epochs of [epochData] (per-second records
@@ -2725,6 +2749,7 @@ List<String?>? _classifySleepStagesHMM(
   List<double> rhrHistory = const [],
   List<double> rmssdHistory = const [],
   List<double> skinTempHistory = const [],
+  List<double> enmoHistory = const [],
   void Function(SleepStageAnalyzer)? onAnalyzer,
 }) {
   if (epochData.isEmpty) return null;
@@ -2746,6 +2771,7 @@ List<String?>? _classifySleepStagesHMM(
     rhrHistory: rhrHistory,
     rmssdHistory: rmssdHistory,
     skinTempHistory: skinTempHistory,
+    enmoHistory: enmoHistory,
   );
   onAnalyzer?.call(analyzer);
   // No baseline (RR that only starts after the first 120 minutes, say) makes

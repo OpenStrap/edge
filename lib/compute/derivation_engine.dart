@@ -2680,6 +2680,7 @@ class _BaselineHistoryCache {
     'rhr',
     'resp_rate',
     'skin_temp_adc',
+    'enmo_median_night',
     'readiness',
     // The readiness composite z — later days' scores are calibrated against
     // its spread (`calibratedReadinessScore`).
@@ -7772,6 +7773,10 @@ class DerivationEngine {
         // EVERY day (even during the bootstrap window where skin_temp_z is null)
         // so the baseline fills and z begins computing from ~day 4.
         'skin_temp_adc': sc('skin_temp_adc'),
+        // The night's stable-core ENMO median, only for HMM-restaged nights
+        // (null otherwise -> no series row, history fills from HMM nights).
+        if (((bundle['sleep'] as Map?)?['stager_enmo_median'] as num?)?.toDouble() case final v?)
+          if (v > 0) 'enmo_median_night': v,
         'dip_pct': sc('dip_pct'),
         // Headline 0–21 strain (for trend/sparkline); raw TRIMP kept too.
         // Written even when NULL: an abstaining day must overwrite a value a
@@ -8396,6 +8401,8 @@ class DerivationEngine {
     // mismatch that left z permanently null. The raw mean is stored every day so
     // this series fills and z starts computing once ≥3 days exist.
     m['skin_temp_adc_history'] = before('skin_temp_adc');
+    // Per-night stable-core ENMO medians (written only for HMM-staged nights).
+    m['enmo_history'] = before('enmo_median_night');
     // TS-03/TS-04 — the observed ceiling this day's ZONES are banded on. A max,
     // not a window (see [maxBefore]), and strictly before today so a day is
     // never banded on a ceiling its own session set.
