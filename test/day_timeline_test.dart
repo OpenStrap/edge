@@ -95,6 +95,18 @@ void main() {
       expect(m.last.detail, isNot(contains('×')));
     });
 
+    test('taps exactly 10 minutes apart are two lines', () {
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          {'event_id': 14, 'ts': _at(18)},
+          {'event_id': 14, 'ts': _at(18, 10)},
+        ],
+      });
+      expect(m, hasLength(2));
+      expect(m.every((x) => x.until == null), isTrue);
+    });
+
     test('a meal with no time is never placed, and is not lost either', () {
       const timed = FoodEntry(
           id: 'a', date: '2026-08-14', meal: 'Lunch', label: 'Soup', kcal: 300);

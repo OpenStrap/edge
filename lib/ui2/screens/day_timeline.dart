@@ -36,6 +36,7 @@ import '../../compute/inputs/measurement_inputs.dart'
 import '../../compute/profile.dart' show bmiOf;
 import '../../data/coverage_resolver.dart' show OwnedSpan, coverageFromJson, spanAt;
 import '../../data/day_label.dart' show localDayEndSec;
+import '../../data/triathlon_store.dart' show kTriathlonDoubleTapEventId;
 import '../../data/db.dart';
 import '../../data/journal_fields.dart';
 import '../../data/local_repository.dart';
@@ -96,15 +97,13 @@ class DayNote {
 Map<int, (String, IconData)> _events(AppLocalizations? l) => {
   7: (l?.dayTimelineChargerOn ?? 'On the charger', LucideIcons.batteryCharging),
   8: (l?.dayTimelineChargerOff ?? 'Off the charger', LucideIcons.batteryFull),
-  _kDoubleTapEventId: (l?.dayTimelineDoubleTap ?? 'You double-tapped the band', LucideIcons.hand),
+  kTriathlonDoubleTapEventId: (l?.dayTimelineDoubleTap ?? 'You double-tapped the band', LucideIcons.hand),
   15: (l?.dayTimelineRestarted ?? 'The band restarted', LucideIcons.rotateCw),
   21: (l?.dayTimelineBatteryPackAttached ?? 'Battery pack attached',
       LucideIcons.batteryCharging),
   22: (l?.dayTimelineBatteryPackRemoved ?? 'Battery pack removed', LucideIcons.battery),
   57: (l?.dayTimelineAlarmWentOff ?? 'Alarm went off', LucideIcons.alarmClock),
 };
-
-const int _kDoubleTapEventId = 14;
 
 /// Double-taps closer together than this are one run on the timeline.
 const int kDoubleTapRunGapSec = 10 * 60;
@@ -255,7 +254,7 @@ List<Moment> dayMoments({
     final id = asInt(e['event_id']), t = asInt(e['ts']);
     final def = id == null ? null : events[id];
     if (def == null || t == null || !seen.add('$id/$t')) continue;
-    if (id == _kDoubleTapEventId) {
+    if (id == kTriathlonDoubleTapEventId) {
       taps.add(t);
       continue;
     }
@@ -270,11 +269,11 @@ List<Moment> dayMoments({
   // every contact) are one span carrying the band's own count, not one line
   // per tap burying the rest of the day.
   taps.sort();
-  final tap = events[_kDoubleTapEventId]!;
+  final tap = events[kTriathlonDoubleTapEventId]!;
   for (var i = 0; i < taps.length;) {
     var j = i;
     while (j + 1 < taps.length &&
-        taps[j + 1] - taps[j] <= kDoubleTapRunGapSec) {
+        taps[j + 1] - taps[j] < kDoubleTapRunGapSec) {
       j++;
     }
     final n = j - i + 1;
