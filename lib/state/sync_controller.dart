@@ -23,6 +23,7 @@ import '../sync/sync_policy.dart'
         ReconnectSupervisorAction,
         ResumeLinkAction,
         kIosBackgroundPromptIntervalSeconds,
+        plausibleRecordInstant,
         resumeLinkAction,
         superviseReconnect;
 
@@ -1264,9 +1265,10 @@ class SyncController {
 
   DateTime? get lastDataAt => engine.lastRxAt;
 
-  DateTime? get lastRecordAt => lastRecTs == null
-      ? null
-      : DateTime.fromMillisecondsSinceEpoch(lastRecTs! * 1000);
+  // A sub-floor frontier (a strap whose RTC was never set) must not surface as
+  // a 1970/2019 "last data" date; plausibleRecordInstant applies the same floor
+  // the ingest gate uses.
+  DateTime? get lastRecordAt => plausibleRecordInstant(lastRecTs);
 
   void markSyncActivity() {
     final now = DateTime.now().millisecondsSinceEpoch;

@@ -315,12 +315,21 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
     for (final r in t.outboxSnapshot)
       if ((r['ts'] as int? ?? 0) >= weekAgo) r
   ];
+  // Optional diagnostic: a database error must not cost the whole report.
+  Object? archiveFailedBuckets;
+  try {
+    archiveFailedBuckets =
+        (await LocalDb.substrateArchiveStats())['failed_buckets'];
+  } catch (_) {}
   final state = <String, Object?>{
     'syncStatus': app.status,
     'syncingNow': app.syncingNow,
     'busy': app.busy,
     'lastDataAt': _iso(app.lastDataAt),
     'lastRecordAt': _iso(app.lastRecordAt),
+    // Raw frontier too: _iso/lastRecordAt drop a sub-floor value (a never-set
+    // strap RTC), which is exactly the clock state support needs to see.
+    'recordFrontierTs': app.recordFrontierTs,
     'deriving': app.deriving,
     'derivePending': app.derivePending,
     'standardHrFallback': d.standardHrFallback,
@@ -334,6 +343,7 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
     'initError': app.initError,
     'importRollupError': app.importRollupError,
     'lastBackupError': app.lastBackupError,
+    'archiveFailedBuckets': archiveFailedBuckets,
     'recentErrors': [
       for (final r in records)
         if (r['kind'] == 'error' || r['kind'] == 'crash') r

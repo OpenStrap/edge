@@ -100,7 +100,7 @@
   "alarmChangeTheTime": "Изменить время",
   "alarmTestTheBuzz": "Проверить вибрацию",
   "alarmCancelTheAlarm": "Отменить будильник",
-  "alarmBuzzingTheBand": "Браслет вибрирует",
+  "alarmBuzzingTheBand": "Вибрация отправлена на браслет",
   "alarmCancelled": "Будильник отменён",
   "alarmSentToBand": "Будильник отправлен на браслет",
   "alarmInThePast": "Время прошло — будильник уже сработал или был пропущен",

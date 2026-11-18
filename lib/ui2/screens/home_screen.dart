@@ -638,6 +638,16 @@ String hm(num? minutes) {
         );
 }
 
+/// Binds a run so it cannot wrap internally, in any script. A duration like
+/// "2 Std. 34 Min." is one reading; left breakable, a range value such as a
+/// sleep stage ("1 Std. 34 Min.-2 Std. 54 Min.") dropped a lone "Min." onto its
+/// own line. A word joiner (U+2060) between every character forbids a break at
+/// each boundary — including the spaceless ones in CJK units like "分钟", which
+/// an ASCII-space guard could not reach (#757). Zero-width, so the text renders
+/// unchanged; the dash joining two durations is left un-glued and stays the one
+/// place a range may wrap.
+String nbsp(String s) => s.runes.map(String.fromCharCode).join('\u2060');
+
 /// "8h" for a whole number of hours, else [hm]: the caption's compact forms.
 String _compactHm(num? minutes, AppLocalizations? l) {
   if (minutes == null) return '';

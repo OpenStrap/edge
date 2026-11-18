@@ -9127,7 +9127,6 @@ class DerivationEngine {
     final deleted = await LocalDb.pruneDecodedBeforeRecTs(
       cutoffSec,
       cursorName: _prunedBeforeCursor,
-      hardFloorSec: dataNowSec - _maxRawHoldDays * 86400,
       log: _log,
       shouldYield: offloadActive,
       // A background engine runs on a short, throttled budget in its own

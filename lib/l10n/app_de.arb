@@ -94,7 +94,7 @@
   "alarmChangeTheTime": "Uhrzeit ändern",
   "alarmTestTheBuzz": "Vibration testen",
   "alarmCancelTheAlarm": "Wecker löschen",
-  "alarmBuzzingTheBand": "Band vibriert…",
+  "alarmBuzzingTheBand": "Vibration ans Band gesendet",
   "alarmCancelled": "Wecker gelöscht",
   "alarmSentToBand": "Wecker ans Band gesendet",
   "alarmInThePast": "Dieser Zeitpunkt liegt in der Vergangenheit – der Wecker hat bereits geklingelt oder wurde verpasst",
