@@ -122,6 +122,10 @@ Future<StressBackfillResult> backfillStressScale({bool force = false}) async {
     // rounded headline the screens read, `si`/`level` are unchanged.
     stressBlk['score'] = rounded;
     stressBlk['value'] = rounded;
+    // The derive also writes the unrounded score into `scalars`, which the
+    // rollup and cross-day reads use, so it moves with the block.
+    final scalars = payload['scalars'];
+    if (scalars is Map) scalars['stress'] = next;
 
     final partial = (row['partial'] as num?)?.toInt() == 1;
     await LocalDb.putDayResult(
@@ -140,7 +144,8 @@ Future<StressBackfillResult> backfillStressScale({bool force = false}) async {
       source: 'band',
       // `putDayResult` skips the series write for a partial row, so only count
       // the trend as rewritten when it actually was.
-      series: {'stress': rounded},
+      // Unrounded, like the derive's `'stress': sc('stress')` series write.
+      series: {'stress': next},
     );
     bundleDays++;
     if (!partial) seriesDays++;

@@ -1899,7 +1899,8 @@ import 'vendor_sleep.dart';
 // (SI < 50 is Baevsky's own "low" band) to a flat 0 and losing all variation
 // for high-HRV sleepers (#631). `kStressScoreFloorSi` is now 5.
 // stress_backfill.dart rescales stored history from each day's own `stress.si`
-// so the trend has no step at the bump.
+// so the trend has no step at the bump. User-visible: every stress score moves
+// up once (e.g. SI 160 reads ~72, was ~61); nights that read 0 now read low.
 const int kAlgoVersion = 125;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
