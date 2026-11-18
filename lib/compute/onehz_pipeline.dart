@@ -2383,7 +2383,7 @@ const double kStressScoreFloorSi = 5;
 const double kStressScoreCeilingSi = 600;
 
 double? stressScoreFromSi(double? si) {
-  if (si == null || si <= 0) return null;
+  if (si == null || !si.isFinite || si <= 0) return null;
   final lo = math.log(kStressScoreFloorSi), hi = math.log(kStressScoreCeilingSi);
   return (100 * (math.log(si) - lo) / (hi - lo)).clamp(0.0, 100.0);
 }

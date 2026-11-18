@@ -4,7 +4,8 @@
 // stress history CANNOT be re-derived from raw and a kAlgoVersion bump alone
 // leaves old low nights flat at 0. It does not need raw: the score is a pure
 // function of the stored Baevsky index, which every day_result already carries,
-// so the rescale reads `stress.si` and re-maps it with `stressScoreFromSi`.
+// so the rescale reads `stress.si` and re-maps it with `stressScoreFromSi`,
+// in place, at the version each row already has.
 
 import 'dart:convert';
 
@@ -15,16 +16,15 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/compute/onehz_pipeline.dart'
     show stressScoreFromSi;
 import 'package:openstrap_edge/compute/stress_backfill.dart';
-import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 
 /// Seed a derived day the way the engine would have on the OLD (floor-20) scale.
 Future<void> seedStressDay(
   String day, {
-  required double? si,
+  required Object? si,
   required double? score,
-  String level = 'low',
-  bool withBlock = true,
+  bool partial = false,
+  bool imported = false,
   int algoVersion = 120,
 }) async {
   await LocalDb.putDayResult(
@@ -32,46 +32,39 @@ Future<void> seedStressDay(
     algoVersion: algoVersion,
     payloadJson: jsonEncode({
       'date': day,
+      'imported': ?(imported ? true : null),
       'scalars': {'rhr': 55, 'stress': ?score},
-      if (withBlock)
-        'stress': {
-          'value': score,
-          'score': score,
-          'si': si,
-          'level': level,
-        },
+      'stress': {'value': score, 'score': score, 'si': si, 'level': 'low'},
     }),
     windowJson: '{}',
     finalized: true,
-    series: {'stress': ?score, 'stress_si': ?si},
+    partial: partial,
+    series: {'stress': ?score},
   );
 }
 
-Future<double?> seriesValue(String key, String day) async {
-  for (final r in await LocalDb.metricSeries(key)) {
+Future<double?> seriesValue(String day) async {
+  for (final r in await LocalDb.metricSeries('stress')) {
     if (r['date'] == day) return (r['value'] as num?)?.toDouble();
   }
   return null;
 }
 
-Future<double?> bundleScore(String day) async {
-  final row = await LocalDb.dayResult(day);
-  if (row == null) return null;
+Future<Map<String, Object?>> stored(String day, int version) async {
+  final db = await LocalDb.instance;
+  final row = (await db.query('day_result',
+          where: 'day_id = ? AND algo_version = ?', whereArgs: [day, version]))
+      .single;
   final payload = jsonDecode(row['payload_json'] as String) as Map;
-  final blk = payload['stress'];
-  return blk is Map ? (blk['score'] as num?)?.toDouble() : null;
-}
-
-Future<double?> scalarStress(String day) async {
-  final row = await LocalDb.dayResult(day);
-  if (row == null) return null;
-  final payload = jsonDecode(row['payload_json'] as String) as Map;
-  final sc = payload['scalars'];
-  return sc is Map ? (sc['stress'] as num?)?.toDouble() : null;
+  return {
+    'score': (payload['stress'] as Map)['score'],
+    'value': (payload['stress'] as Map)['value'],
+    'scalar': (payload['scalars'] as Map)['stress'],
+  };
 }
 
 void main() {
-  setUpAll(() async {
+  setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     LocalDb.dbName = 'openstrap_stress_backfill_test.db';
@@ -91,65 +84,81 @@ void main() {
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
-  group('backfillStressScale — the stored history', () {
-    // Newest row 2026-06-10; a day this far back is comfortably before the
-    // rawRetentionDays cutoff, so it is rescaled, while 2026-06-09 is not.
-    const oldDay = '2026-05-01';
-    final recentDay = dayLabelBefore('2026-06-10', 1)!; // within retention
-    const oddDay = '2026-05-02'; // has a trend score, but no SI in the bundle
-    const newestDay = '2026-06-10';
+  final raw = stressScoreFromSi(12)!;
+  final rounded = ((raw * 10).round()) / 10;
 
-    test('a flat-0 low night is rescaled from its own stored index', () async {
-      // SI 12 was exactly 0 under the floor of 20.
-      await seedStressDay(oldDay, si: 12, score: 0);
-      await seedStressDay(newestDay, si: 300, score: 73);
+  test('a flat-0 low night is rescaled in place from its own index', () async {
+    // SI 12 was exactly 0 under the floor of 20.
+    await seedStressDay('2026-05-01', si: 12, score: 0);
 
-      final result = await backfillStressScale();
-      expect(result.didWork, isTrue);
+    final result = await backfillStressScale();
+    expect(result.bundleDays, 1);
+    expect(result.seriesDays, 1);
 
-      final raw = stressScoreFromSi(12)!;
-      final want = ((raw * 10).round()) / 10;
-      expect(want, greaterThan(0)); // the whole point of #631
-      // Trend and scalars carry the unrounded score, as the derive writes them.
-      expect(await seriesValue('stress', oldDay), closeTo(raw, 1e-9));
-      expect(await scalarStress(oldDay), closeTo(raw, 1e-9));
-      expect(await bundleScore(oldDay), closeTo(want, 1e-9));
-    });
+    expect(rounded, greaterThan(0)); // the whole point of #631
+    // Same row, same version: the derive gate, the strain and readiness
+    // one-shots and the day's provenance all see what they saw before.
+    final s = await stored('2026-05-01', 120);
+    expect(s['score'], rounded);
+    expect(s['value'], rounded);
+    expect(s['scalar'], closeTo(raw, 1e-9)); // unrounded, as the derive writes
+    expect(await seriesValue('2026-05-01'), closeTo(raw, 1e-9));
+  });
 
-    test('a day still inside the raw window is left for a real re-derive',
-        () async {
-      await seedStressDay(recentDay, si: 12, score: 0);
-      await seedStressDay(newestDay, si: 300, score: 73);
+  test('a missing or wrong-typed index is skipped, never zeroed or thrown on',
+      () async {
+    await seedStressDay('2026-05-01', si: null, score: 40);
+    await seedStressDay('2026-05-02', si: '12', score: 41);
+    await seedStressDay('2026-05-03', si: 12, score: 0);
 
-      await backfillStressScale();
+    final result = await backfillStressScale();
 
-      expect(await seriesValue('stress', recentDay), 0);
-      expect(await scalarStress(recentDay), 0);
-      expect(await seriesValue('stress', newestDay), 73);
-    });
+    expect(result.skipped, 2);
+    for (final (day, v) in [('2026-05-01', 40.0), ('2026-05-02', 41.0)]) {
+      final s = await stored(day, 120);
+      expect(s['score'], v);
+      expect(s['scalar'], v);
+      expect(await seriesValue(day), v);
+    }
+    // A bad row does not stop the walk.
+    expect(await seriesValue('2026-05-03'), closeTo(raw, 1e-9));
+  });
 
-    test('a day whose index is missing is left alone, never zeroed', () async {
-      await seedStressDay(oddDay, si: null, score: 40); // bundle SI missing
-      await seedStressDay(newestDay, si: 300, score: 73);
+  test('a partial newest row: the trend point follows the complete row',
+      () async {
+    await seedStressDay('2026-05-01', si: 12, score: 0); // wrote the series
+    await seedStressDay('2026-05-01',
+        si: 300, score: 73, partial: true, algoVersion: 121);
 
-      final result = await backfillStressScale();
+    await backfillStressScale();
 
-      expect(result.skipped, 1);
-      expect(result.didWork, isFalse);
-      // Trend, scalars and block are unchanged: abstaining, not rewriting to 0.
-      expect(await seriesValue('stress', oddDay), 40);
-      expect(await scalarStress(oddDay), 40);
-      expect(await bundleScore(oddDay), 40);
-    });
+    expect(await seriesValue('2026-05-01'), closeTo(raw, 1e-9));
+    expect((await stored('2026-05-01', 121))['score'],
+        ((stressScoreFromSi(300)! * 10).round()) / 10);
+  });
 
-    test('it is a one-shot: a second pass rewrites nothing', () async {
-      await seedStressDay(oldDay, si: 12, score: 0);
-      await seedStressDay(newestDay, si: 300, score: 73);
+  test('an imported day keeps its score', () async {
+    await seedStressDay('2026-05-01', si: 12, score: 0, imported: true);
 
-      expect((await backfillStressScale()).didWork, isTrue);
-      expect(await LocalDb.computeFreshness(kStressRescaleKey), isNotNull);
-      final again = await backfillStressScale();
-      expect(again.didWork, isFalse);
-    });
+    final result = await backfillStressScale();
+
+    expect(result.didWork, isFalse);
+    expect((await stored('2026-05-01', 120))['score'], 0);
+    expect(await seriesValue('2026-05-01'), 0);
+  });
+
+  test('an empty store is not marked done', () async {
+    expect((await backfillStressScale()).didWork, isFalse);
+    expect(await LocalDb.computeFreshness(kStressRescaleKey), isNull);
+  });
+
+  test('it is a one-shot: a second pass rewrites nothing', () async {
+    await seedStressDay('2026-05-01', si: 12, score: 0);
+
+    expect((await backfillStressScale()).didWork, isTrue);
+    expect(await LocalDb.computeFreshness(kStressRescaleKey), isNotNull);
+    expect((await backfillStressScale()).didWork, isFalse);
+    // Forced, an already-rescaled store is a no-op.
+    expect((await backfillStressScale(force: true)).didWork, isFalse);
   });
 }

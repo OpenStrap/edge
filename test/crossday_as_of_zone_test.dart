@@ -44,6 +44,36 @@ Future<void> _putInput(String zone) async {
   );
 }
 
+Future<void> _seedRestoredDays() async {
+    for (var i = 0; i < 5; i++) {
+      final day = '2026-09-0${i + 2}';
+      final onset =
+          DateTime.utc(2026, 9, i + 1, 22).millisecondsSinceEpoch ~/ 1000;
+      await LocalDb.putDayResult(
+        dayId: day,
+        algoVersion: kAlgoVersion,
+        finalized: true,
+        rhr: 52,
+        readiness: 70,
+        windowJson: '{}',
+        payloadJson: jsonEncode({
+          'scalars': {'rhr': 52, 'readiness': 70, 'efficiency': 95},
+          'sleep': {
+            'window': {
+              'value': {
+                'onset_ms': onset * 1000,
+                'offset_ms': (onset + 8 * 3600) * 1000,
+              },
+            },
+            'accounting': {
+              'value': {'tst_sec': 27000},
+            },
+          },
+        }),
+      );
+    }
+}
+
 void main() {
   setUpAll(() async {
     sqfliteFfiInit();
@@ -82,33 +112,7 @@ void main() {
   test('a restored backup with no band data rebuilds an old-zone rollup',
       () async {
     // Stored days, no decoded rows, and a rollup from before a flight.
-    for (var i = 0; i < 5; i++) {
-      final day = '2026-09-0${i + 2}';
-      final onset =
-          DateTime.utc(2026, 9, i + 1, 22).millisecondsSinceEpoch ~/ 1000;
-      await LocalDb.putDayResult(
-        dayId: day,
-        algoVersion: kAlgoVersion,
-        finalized: true,
-        rhr: 52,
-        readiness: 70,
-        windowJson: '{}',
-        payloadJson: jsonEncode({
-          'scalars': {'rhr': 52, 'readiness': 70, 'efficiency': 95},
-          'sleep': {
-            'window': {
-              'value': {
-                'onset_ms': onset * 1000,
-                'offset_ms': (onset + 8 * 3600) * 1000,
-              },
-            },
-            'accounting': {
-              'value': {'tst_sec': 27000},
-            },
-          },
-        }),
-      );
-    }
+    await _seedRestoredDays();
     await LocalDb.putBaseline(
       'crossday',
       jsonEncode({
@@ -129,6 +133,31 @@ void main() {
     final rollup = jsonDecode(
         (await LocalDb.baseline('crossday'))!['payload_json'] as String) as Map;
     expect(rollup['zone'], DerivationEngine.crossDayZoneStamp());
+  });
+
+  test('a restored backup with no band data rebuilds an old-version rollup',
+      () async {
+    // Same zone, but written by the previous algorithm version, which the
+    // insights reader rejects.
+    await _seedRestoredDays();
+    await LocalDb.putBaseline(
+      'crossday',
+      jsonEncode({
+        'algo_version': kAlgoVersion - 1,
+        'zone': DerivationEngine.crossDayZoneStamp(),
+        'recent': const [],
+      }),
+    );
+    await _putInput(DerivationEngine.crossDayZoneStamp());
+    await DerivationEngine().run(const Profile(
+      ageYears: 35,
+      sex: 'm',
+      weightKg: 75,
+      heightCm: 178,
+    ));
+    final rollup = jsonDecode(
+        (await LocalDb.baseline('crossday'))!['payload_json'] as String) as Map;
+    expect(rollup['algo_version'], kAlgoVersion);
   });
 
   test('a stored rollup from another zone is not served as current',

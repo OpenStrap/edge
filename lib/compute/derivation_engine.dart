@@ -1898,8 +1898,8 @@ import 'vendor_sleep.dart';
 // Baevsky SI -> 0-100 map floored at SI 20, clamping every genuinely low night
 // (SI < 50 is Baevsky's own "low" band) to a flat 0 and losing all variation
 // for high-HRV sleepers (#631). `kStressScoreFloorSi` is now 5.
-// stress_backfill.dart rescales stored history from each day's own `stress.si`
-// so the trend has no step at the bump. User-visible: every stress score moves
+// stress_backfill.dart rescales stored history in place from each day's own
+// `stress.si` so the trend has no step at the bump. User-visible: every stress score moves
 // up once (e.g. SI 160 reads ~72, was ~61); nights that read 0 now read low.
 const int kAlgoVersion = 125;
 /// The sibling SHAs this version was derived against, asserted against
@@ -4218,14 +4218,20 @@ class DerivationEngine {
         // version bump alone cannot reach. Pure function of each day's stored
         // `stress.si`, so it needs no baseline (#631).
         _diag['stage'] = 'stress_rescale';
+        var stressRescaled = false;
         try {
           final rescaled = await backfillStressScale();
           if (rescaled.didWork) {
-            _log('[derive] stress rescale: ${rescaled.bundleDays} day(s) '
-                'rebuilt, ${rescaled.skipped} skipped (no stored index)');
+            stressRescaled = true;
+            _log('[derive] stress rescale: ${rescaled.bundleDays} row(s), '
+                '${rescaled.seriesDays} trend point(s) rescaled in place, '
+                '${rescaled.skipped} skipped (no stored index or imported)');
           }
         } catch (e) {
-          _log('[derive] stress rescale failed (kept old values): $e');
+          // Each day commits on its own, so days before the failure stay
+          // rescaled; the marker is not written, so the next pass resumes.
+          stressRescaled = true;
+          _log('[derive] stress rescale stopped, will retry next pass: $e');
         }
         // ONE-SHOT, after the sweep for the same reason as the strain rescale:
         // the rest of the readiness_z history, then a re-score of every day
@@ -4258,10 +4264,10 @@ class DerivationEngine {
         } catch (e) {
           _log('[derive] readiness calibration failed (will retry): $e');
         }
-        // The strain rescale rewrote stored days after the rollup of this pass
-        // was built from the old values. When the calibration above did not
+        // The strain or stress rescale rewrote stored days after the rollup of
+        // this pass was built from the old values. When the calibration above did not
         // rebuild it (no work, or it failed), rebuild it here.
-        if (strainRescaled && !crossDayRebuilt) {
+        if ((strainRescaled || stressRescaled) && !crossDayRebuilt) {
           try {
             await _refreshBaselines();
             await _runCrossDay(profile);
@@ -8632,7 +8638,8 @@ class DerivationEngine {
           String name, int nowOffsetMin, int janOffsetMin, int julOffsetMin) =>
       '$name|$nowOffsetMin|$janOffsetMin|$julOffsetMin';
 
-  /// Whether the stored cross-day ROLLUP was built in another zone. The
+  /// Whether the stored cross-day ROLLUP was built in another zone or by
+  /// another algorithm version. The
   /// rollup, not its inputs: [_refreshBaselines] re-stamps the inputs before
   /// the rollup is written, so a rollup that then timed out would read as
   /// current on the inputs' stamp and never be retried.
@@ -8641,7 +8648,12 @@ class DerivationEngine {
     if (raw is! String || raw.isEmpty) return false;
     try {
       final decoded = jsonDecode(raw);
-      return decoded is Map && decoded['zone'] != crossDayZoneStamp();
+      // A rollup from another algorithm version is rejected by its readers
+      // (`getInsights`), so it is as stale as one from another zone: rebuild it
+      // from stored days even when nothing else in the pass has work.
+      return decoded is Map &&
+          (decoded['zone'] != crossDayZoneStamp() ||
+              (decoded['algo_version'] as num?)?.toInt() != kAlgoVersion);
     } catch (_) {
       return false;
     }

@@ -14,6 +14,8 @@ void main() {
       expect(stressScoreFromSi(null), isNull);
       expect(stressScoreFromSi(0), isNull);
       expect(stressScoreFromSi(-1), isNull);
+      expect(stressScoreFromSi(double.nan), isNull);
+      expect(stressScoreFromSi(double.infinity), isNull);
     });
 
     test('the floor is 0 and the ceiling is 100', () {
