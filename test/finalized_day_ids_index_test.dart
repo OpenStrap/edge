@@ -37,7 +37,7 @@ Future<Set<String>> _dartOracle(Database db) async => {
 
 Future<bool> _indexed(Database db) async => (await db.rawQuery(
   "SELECT 1 FROM sqlite_master WHERE type = 'index' "
-  "AND name = 'idx_day_result_finalized_v2'",
+  "AND name = 'idx_day_result_finalized_v3'",
 )).isNotEmpty;
 
 Future<void> _put(String day, String payload, {bool finalized = true}) =>
@@ -83,6 +83,14 @@ void main() {
       '{"imported":"true"}': false,
       '{"imported":null}': false,
       '{ "imported" : true }': true,
+      r'{"\u0069mported":true}': true,
+      r'{"nested":{"\u0069mported":true}}': false,
+      '{"imported":false,"imported":true}': true,
+      '{"imported":true,"imported":false}': false,
+      r'{"imported":false,"\u0069mported":true}': true,
+      r'{"\u0069mported":true,"imported":null}': false,
+      '{"imported":true,"imported":1}': false,
+      '{"imported":true,"nested":{"imported":false}}': true,
       'invalid JSON': false,
     };
     final expected = <String>{};
@@ -99,6 +107,7 @@ void main() {
         entry.value ? 1 : 0, reason: entry.key);
     }
     expect(await LocalDb.finalizedDayIds(_algo), expected);
+    expect(expected, await _dartOracle(db));
     // Raw SQL payload rewrites also go through the mirror's update trigger.
     await db.update('day_result', {'payload_json': '{ "imported" : true }'},
       where: 'day_id = ?', whereArgs: ['2026-01-01']);
@@ -110,6 +119,34 @@ void main() {
     expect(await LocalDb.finalizedDayIds(_algo), expected);
   });
 
+  // WHY: Dart decodes escaped names and keeps the last duplicate member;
+  // SQLite path lookup and a literal-name prefilter disagree with that reader.
+  // CLAIM(imported-exact); catches: literal-only prefilter, first-member lookup.
+  for (final entry in {
+    'escaped': r'{"\u0069mported":true}',
+    'duplicate': '{"imported":false,"imported":true}',
+  }.entries) {
+    test('${entry.key} imported member matches Dart on insert update and backfill',
+        () async {
+      await _useFreshDb('finalized_${entry.key}.db');
+      var db = await LocalDb.instance;
+      await _rawPut(db, '2026-01-01', entry.value);
+      expect(await _dartOracle(db), isEmpty);
+      expect(await LocalDb.finalizedDayIds(_algo), await _dartOracle(db));
+      await db.update('day_result', {'payload_json': '{}'});
+      expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-01'});
+      await db.update('day_result', {'payload_json': entry.value});
+      expect(await LocalDb.finalizedDayIds(_algo), await _dartOracle(db));
+      // Force an existing-row backfill, independently of either write trigger.
+      await db.execute('DROP INDEX idx_day_result_finalized_v3');
+      await db.update('day_result', {'imported': 0});
+      await LocalDb.close();
+      db = await LocalDb.instance;
+      expect(await LocalDb.finalizedDayIds(_algo), await _dartOracle(db));
+      expect((await db.query('day_result')).single['imported'], 1);
+    });
+  }
+
   // WHY: existing databases have a completed LIKE backfill and triggers. Both
   // upgrade and same-version repair must invalidate that completion marker.
   // CLAIM(imported-exact); catches: replacing only the trigger definitions.
@@ -117,11 +154,11 @@ void main() {
     test('repairs a stale legacy mirror opened at schema $version twice', () async {
       await _useFreshDb('finalized_legacy_$version.db');
       var db = await LocalDb.instance;
-      await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_v2_ins');
-      await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_v2_upd');
+      await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_v3_ins');
+      await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_v3_upd');
       await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_ins');
       await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_upd');
-      await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized_v2');
+      await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized_v3');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_day_result_finalized '
         'ON day_result(algo_version, finalized, imported, day_id)');
       for (final suffix in ['ins', 'upd']) {
@@ -147,9 +184,51 @@ void main() {
     });
   }
 
-  // WHY: an older build can backfill every row with LIKE while the v2 index
+  // WHY: a restored draft-v2 database carries both the old classifier's
+  // triggers and its completion marker. Reopening must replace and rebackfill.
+  // CLAIM(imported-exact); catches: CREATE IF NOT EXISTS retaining old SQL.
+  test('reopening replaces the old exact mirror and repairs its completed rows',
+      () async {
+    await _useFreshDb('finalized_previous_exact.db');
+    var db = await LocalDb.instance;
+    // Remove the current mirror, then recreate the previous draft's objects.
+    for (final r in await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+      "AND tbl_name = 'day_result'",
+    )) {
+      await db.execute('DROP TRIGGER ${r['name']}');
+    }
+    await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized_v3');
+    await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized_v2');
+    for (final suffix in ['ins', 'upd']) {
+      await db.execute('CREATE TRIGGER trg_day_result_imported_v2_$suffix '
+          'AFTER ${suffix == 'ins' ? 'INSERT' : 'UPDATE OF payload_json'} '
+          'ON day_result BEGIN UPDATE day_result '
+          "SET imported = CASE WHEN NEW.payload_json LIKE '%\"imported\"%' "
+          'AND json_valid(NEW.payload_json) THEN '
+          "COALESCE(json_type(NEW.payload_json, '\$.imported') = 'true', 0) "
+          'ELSE 0 END WHERE rowid = NEW.rowid; END');
+    }
+    await _rawPut(db, '2026-01-01', r'{"\u0069mported":true}');
+    await _rawPut(db, '2026-01-02', '{"imported":false,"imported":true}');
+    await db.execute('CREATE INDEX idx_day_result_finalized_v2 '
+        'ON day_result(algo_version, finalized, imported, day_id)');
+    expect((await db.query('day_result')).map((r) => r['imported']), [0, 0]);
+    await LocalDb.close();
+    db = await LocalDb.instance;
+    expect(await LocalDb.finalizedDayIds(_algo), await _dartOracle(db));
+    await _rawPut(db, '2026-01-03', r'{"\u0069mported":true}');
+    await db.update('day_result', {
+      'payload_json': '{"imported":true,"imported":false}',
+    }, where: 'day_id = ?', whereArgs: ['2026-01-02']);
+    expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-02'});
+    await LocalDb.close();
+    expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-02'});
+  });
+
+  // WHY: an older build can backfill every row with LIKE while the v3 index
   // survives. Any legacy marker must invalidate that stale exact completion.
-  // CLAIM(imported-exact); catches: trusting v2 after a downgrade/re-upgrade.
+  // CLAIM(imported-exact); catches: trusting v3 after a downgrade/re-upgrade.
   for (final marker in ['index', 'ins', 'upd']) {
     test('re-upgrade repairs every row when legacy $marker survives', () async {
       await _useFreshDb('finalized_downgrade_$marker.db');
@@ -159,7 +238,7 @@ void main() {
       expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-01'});
       expect(await _indexed(db), isTrue);
       // The older build's first read re-fills ALL existing rows. Updating only
-      // imported does not fire either payload_json trigger, so v2 stays stale.
+      // imported does not fire either payload_json trigger, so v3 stays stale.
       await db.rawUpdate(
         "UPDATE day_result SET imported = (payload_json LIKE '%\"imported\":true%')",
       );
@@ -177,7 +256,7 @@ void main() {
         orderBy: 'day_id')).map((r) => r['imported']).toList(), [1, 0]);
       await LocalDb.close();
       db = await LocalDb.instance;
-      expect(await _indexed(db), isFalse, reason: 'legacy $marker invalidates v2');
+      expect(await _indexed(db), isFalse, reason: 'legacy $marker invalidates v3');
       expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-01'});
       expect((await db.query('day_result', columns: ['imported'],
         orderBy: 'day_id')).map((r) => r['imported']).toList(), [0, 1]);
@@ -192,14 +271,17 @@ void main() {
   test('failed index creation falls back to the exact top-level key', () async {
     await _useFreshDb('finalized_fallback.db');
     final db = await LocalDb.instance;
-    await db.execute('CREATE TABLE idx_day_result_finalized_v2 (id INTEGER)');
+    await db.execute('CREATE TABLE idx_day_result_finalized_v3 (id INTEGER)');
     await _rawPut(db, '2026-01-01', '{"nested":{"imported":true}}');
     await _rawPut(db, '2026-01-02', '{ "imported" : true }');
     await _rawPut(db, '2026-01-03', 'invalid JSON');
-    expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-01', '2026-01-03'});
+    await _rawPut(db, '2026-01-04', r'{"\u0069mported":true}');
+    await _rawPut(db, '2026-01-05', '{"imported":false,"imported":true}');
+    await _rawPut(db, '2026-01-06', '{"imported":true,"imported":false}');
+    expect(await LocalDb.finalizedDayIds(_algo), await _dartOracle(db));
     expect(await _indexed(db), isFalse);
-    await db.execute('DROP TABLE idx_day_result_finalized_v2');
-    expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-01', '2026-01-03'});
+    await db.execute('DROP TABLE idx_day_result_finalized_v3');
+    expect(await LocalDb.finalizedDayIds(_algo), await _dartOracle(db));
     expect(await _indexed(db), isTrue);
   });
 
@@ -231,9 +313,9 @@ void main() {
     await _useFreshDb('finalized_ids_backfill.db');
     final db = await LocalDb.instance;
     // Emulate a pre-column database: no triggers, no index, stale flags.
-    await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_v2_ins');
-    await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_v2_upd');
-    await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized_v2');
+    await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_v3_ins');
+    await db.execute('DROP TRIGGER IF EXISTS trg_day_result_imported_v3_upd');
+    await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized_v3');
     for (var i = 0; i < 450; i++) {
       final day =
           '2025-${(1 + i ~/ 28).toString().padLeft(2, '0')}-'
@@ -263,7 +345,7 @@ void main() {
     );
     expect(
       plan.map((r) => '${r['detail']}').join(' '),
-      contains('COVERING INDEX idx_day_result_finalized_v2'),
+      contains('COVERING INDEX idx_day_result_finalized_v3'),
     );
   });
 
@@ -281,7 +363,7 @@ void main() {
   )).isNotEmpty;
 
   // WHY: day_result is written by every derive. A trigger body that calls
-  // json_valid/json_type cannot compile on a SQLite without JSON1 (the Android
+  // json_valid/json_each cannot compile on a SQLite without JSON1 (the Android
   // framework builds some devices ship), and then EVERY insert fails, so no day
   // could be saved. Without JSON1 the legacy LIKE mirror must stay in place.
   // CLAIM(imported-exact); catches: a JSON1 requirement on the write path.
@@ -305,7 +387,7 @@ void main() {
       orderBy: 'day_id')).map((r) => r['imported']).toList(), [1, 0]);
     expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-02'});
     expect(await hasIndex(db, 'idx_day_result_finalized'), isTrue);
-    expect(await hasIndex(db, 'idx_day_result_finalized_v2'), isFalse);
+    expect(await hasIndex(db, 'idx_day_result_finalized_v3'), isFalse);
   });
 
   // WHY: a database file restored from a JSON1 device onto one without JSON1
@@ -317,16 +399,16 @@ void main() {
     await _useFreshDb('finalized_restored_json.db');
     var db = await LocalDb.instance;
     expect(await triggers(db), [
-      'trg_day_result_imported_v2_ins',
-      'trg_day_result_imported_v2_upd',
+      'trg_day_result_imported_v3_ins',
+      'trg_day_result_imported_v3_upd',
     ]);
     await LocalDb.finalizedDayIds(_algo);
-    expect(await hasIndex(db, 'idx_day_result_finalized_v2'), isTrue);
+    expect(await hasIndex(db, 'idx_day_result_finalized_v3'), isTrue);
     await LocalDb.close();
     LocalDb.debugJsonProbeFails = true;
     db = await LocalDb.instance;
     expect(await triggers(db),
         ['trg_day_result_imported_ins', 'trg_day_result_imported_upd']);
-    expect(await hasIndex(db, 'idx_day_result_finalized_v2'), isFalse);
+    expect(await hasIndex(db, 'idx_day_result_finalized_v3'), isFalse);
   });
 }

@@ -10936,7 +10936,7 @@ class LocalDb {
   /// [_ensureDayResultImportedColumn] on open. Null until the first open.
   static bool? _importedExactMode;
 
-  /// One constant query. True when `json_type` exists and reads a top-level
+  /// One constant query. True when `json_each` can read the last top-level
   /// boolean. The mirror's triggers fire on EVERY `day_result` write, and a
   /// trigger body that names a missing function cannot compile, so every
   /// insert would fail: the Android framework SQLite (3.18/3.22 on Android
@@ -10946,7 +10946,8 @@ class LocalDb {
     if (debugJsonProbeFails) return _importedExactMode = false;
     try {
       final r = await db.rawQuery(
-        "SELECT json_type('{\"imported\":true}', '\$.imported') AS t",
+        "SELECT type AS t FROM json_each('{\"imported\":false,\"imported\":true}') "
+        "WHERE key = 'imported' ORDER BY id DESC LIMIT 1",
       );
       return _importedExactMode = r.single['t'] == 'true';
     } catch (_) {
@@ -10954,27 +10955,29 @@ class LocalDb {
     }
   }
 
-  /// CLAIM(imported-exact): with JSON1, only a top-level JSON boolean true
-  /// marks an imported snapshot [finalized_day_ids_index_test]. Guard malformed
-  /// JSON so a damaged bundle cannot abort a write or the fallback scan. The
-  /// substring prefilter skips both JSON parses for the common write (a derived
-  /// bundle without the key); a spaced key still contains it. Without JSON1
+  /// CLAIM(imported-exact): with JSON1, the last decoded top-level `imported`
+  /// member must be boolean true, matching Dart [finalized_day_ids_index_test].
+  /// Guard malformed JSON so a damaged bundle cannot abort a write or scan.
+  /// The prefilter skips JSON parsing for ordinary derived bundles without the
+  /// key, but admits Unicode escapes that can spell it differently. Without JSON1
   /// ([exact] false) this is the old substring test, which also counts a
   /// nested key.
   static String _importedPayloadSql(String column, {required bool exact}) =>
       exact
-          ? "CASE WHEN $column LIKE '%\"imported\"%' AND json_valid($column) "
-              "THEN COALESCE(json_type($column, '\$.imported') = 'true', 0) "
+          ? "CASE WHEN ($column LIKE '%\"imported\"%' "
+              "OR instr($column, '\\u') > 0) AND json_valid($column) "
+              "THEN COALESCE((SELECT type = 'true' FROM json_each($column) "
+              "WHERE key = 'imported' ORDER BY id DESC LIMIT 1), 0) "
               "ELSE 0 END"
           : "($column LIKE '%\"imported\":true%')";
 
   /// Covering index for [finalizedDayIds]. Created only once every existing
   /// row's `imported` is filled, so its presence is also the "backfill done"
   /// marker: a database restored from a file without it backfills again. The
-  /// exact-key backfill has its own name (an old LIKE backfill is not
-  /// trustworthy for it); without JSON1 the legacy name and LIKE backfill stay.
+  /// decoded-key backfill has its own name (neither LIKE nor v2's first-key
+  /// lookup is trustworthy); without JSON1 the legacy name and backfill stay.
   static String _finalizedIndexName(bool exact) =>
-      exact ? 'idx_day_result_finalized_v2' : 'idx_day_result_finalized';
+      exact ? 'idx_day_result_finalized_v3' : 'idx_day_result_finalized';
 
   /// `day_result.imported` and the triggers that keep it equal to
   /// [_importedPayloadSql] on every insert and payload update — whichever
@@ -10995,30 +10998,37 @@ class LocalDb {
     // [_ensureDayResultImportedFlag].
     final exact = await _probeJson1(db);
     // CLAIM(imported-exact): an older build re-fills all rows with LIKE while
-    // v2 can survive. Its legacy objects invalidate that completion marker
+    // v3 can survive. Its legacy objects invalidate that completion marker
     // [finalized_day_ids_index_test: re-upgrade repairs every row].
     if (exact && (await db.rawQuery(
       "SELECT 1 FROM sqlite_master WHERE "
-      "(type = 'index' AND name = 'idx_day_result_finalized') OR "
+      "(type = 'index' AND name IN "
+      "('idx_day_result_finalized', 'idx_day_result_finalized_v2')) OR "
       "(type = 'trigger' AND name IN "
-      "('trg_day_result_imported_ins', 'trg_day_result_imported_upd')) LIMIT 1",
+      "('trg_day_result_imported_ins', 'trg_day_result_imported_upd', "
+      "'trg_day_result_imported_v2_ins', 'trg_day_result_imported_v2_upd')) LIMIT 1",
     )).isNotEmpty) {
-      await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized_v2');
+      await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized_v3');
     }
     // The other mode's objects go first: a restored file can carry JSON
     // triggers onto a SQLite that cannot compile them.
-    for (final stale in exact
+    for (final stale in [
+      'trg_day_result_imported_v2_ins',
+      'trg_day_result_imported_v2_upd',
+      ...exact
         ? const ['trg_day_result_imported_ins', 'trg_day_result_imported_upd']
         : const [
-            'trg_day_result_imported_v2_ins',
-            'trg_day_result_imported_v2_upd',
-          ]) {
+            'trg_day_result_imported_v3_ins',
+            'trg_day_result_imported_v3_upd',
+          ],
+    ]) {
       await db.execute('DROP TRIGGER IF EXISTS $stale');
     }
     await db.execute(
       'DROP INDEX IF EXISTS ${_finalizedIndexName(!exact)}',
     );
-    final tag = exact ? '_v2' : '';
+    await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized_v2');
+    final tag = exact ? '_v3' : '';
     await db.execute(
       'CREATE TRIGGER IF NOT EXISTS trg_day_result_imported${tag}_ins '
       'AFTER INSERT ON day_result BEGIN '
