@@ -9,6 +9,26 @@ import 'package:openstrap_edge/sync/sync_policy.dart';
 void main() {
   const wall = 1750000000; // a plausible "now" (2025-06)
 
+  group('record frontier as a display instant', () {
+    // A strap whose RTC was never set banks factory-epoch records. The cursor
+    // and the "last data" getter guard only `> 0` / `!= null`, so that frontier
+    // reached the devices screen as a 1970/2019 date the data never supported.
+    test('a sub-floor or missing frontier is no instant', () {
+      expect(plausibleRecordInstant(null), isNull);
+      expect(plausibleRecordInstant(0), isNull);
+      expect(plausibleRecordInstant(1), isNull); // ~1970
+      expect(plausibleRecordInstant(1577836800), isNull); // 2020-01, below floor
+      expect(plausibleRecordInstant(kMinPlausibleUnix - 1), isNull);
+    });
+    test('a plausible frontier converts to its own second', () {
+      expect(plausibleRecordInstant(kMinPlausibleUnix),
+          DateTime.fromMillisecondsSinceEpoch(kMinPlausibleUnix * 1000));
+      const t = 1750000000; // 2025-06
+      expect(plausibleRecordInstant(t),
+          DateTime.fromMillisecondsSinceEpoch(t * 1000));
+    });
+  });
+
   group('plausibility gate', () {
     test('absolute floor + future ceiling', () {
       expect(isPlausibleUnix(kMinPlausibleUnix - 1, wall), isFalse);

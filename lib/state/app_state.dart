@@ -6401,6 +6401,12 @@ class AppState extends ChangeNotifier {
   bool get syncingNow => _sync.syncingNow;
   DateTime? get lastRecordAt => _sync.lastRecordAt;
 
+  /// The raw record frontier (`rec_ts_hw`), including a sub-floor value from a
+  /// strap whose RTC was never set. [lastRecordAt] drops that for display;
+  /// diagnostics (the support report) keep it, since it is what tells support
+  /// the strap's clock state.
+  int? get recordFrontierTs => _sync.lastRecTs;
+
   /// A derive job is running RIGHT NOW — the backlog just landed and the
   /// pipeline is computing what it means. Surfaced so a screen sitting on
   /// "nothing yet" can say it is being worked on rather than looking dead.
