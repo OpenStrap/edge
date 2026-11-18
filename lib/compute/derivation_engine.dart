@@ -6889,6 +6889,19 @@ class DerivationEngine {
       sleepRrTsMs: sleepSub.rrTsMs,
       sleepRrMs: sleepSub.rrMs,
       sleepSkinTemp: sleepSub.skinTemp,
+      // Per-second ENMO over the sleep window (gravity vector magnitude − 1 g),
+      // for the hybrid HMM input. Absent accel (0,0,0 sentinel) -> 0.0, which
+      // the classifier reads as "no motion evidence", never "still".
+      sleepEnmo: [
+        for (var i = 0; i < sleepSub.tsSec.length; i++)
+          sleepSub.accelPresentAt(i)
+              ? math.sqrt(
+                  sleepSub.ax[i] * sleepSub.ax[i] +
+                      sleepSub.ay[i] * sleepSub.ay[i] +
+                      sleepSub.az[i] * sleepSub.az[i],
+                ) - 1.0
+              : 0.0,
+      ],
       sleepJson: day.sleepJson,
       hypnoStages: day.hypnoStages,
       sleepOnsetSec: day.sleepOnsetSec,

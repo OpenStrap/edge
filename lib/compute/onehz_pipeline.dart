@@ -337,6 +337,10 @@ class DayBundleInput {
   final List<double> sleepRrTsMs;
   final List<double> sleepRrMs;
   final List<int> sleepSkinTemp;
+  /// Per-second ENMO (g) over the sleep window — HYBRID HMM input. 0 means
+  /// ABSENT (accel sentinel (0,0,0)), never a still wrist; the classifier
+  /// treats 0 as "no motion evidence" rather than "perfectly still".
+  final List<double> sleepEnmo;
 
   // ── the SINGLE-SOURCE sleep segmentation (JSON of SleepSegmentation) ──────
   final Map<String, dynamic> sleepJson; // {window,tst_sec,…,confidence}
@@ -436,6 +440,7 @@ class DayBundleInput {
     required this.sleepRrTsMs,
     required this.sleepRrMs,
     required this.sleepSkinTemp,
+    this.sleepEnmo = const [],
     required this.sleepJson,
     required this.hypnoStages,
     required this.sleepOnsetSec,
@@ -471,6 +476,7 @@ class DayBundleInput {
     'sleep_rr_ts_ms': sleepRrTsMs,
     'sleep_rr_ms': sleepRrMs,
     'sleep_skin_temp': sleepSkinTemp,
+    'sleep_enmo': sleepEnmo,
     'sleep_json': sleepJson,
     'hypno_stages': hypnoStages,
     'sleep_onset_sec': sleepOnsetSec,
@@ -523,6 +529,7 @@ class DayBundleInput {
       sleepRrTsMs: dbls('sleep_rr_ts_ms'),
       sleepRrMs: dbls('sleep_rr_ms'),
       sleepSkinTemp: ints('sleep_skin_temp'),
+      sleepEnmo: dbls('sleep_enmo'),
       sleepJson: ((m['sleep_json'] as Map?) ?? const {})
           .cast<String, dynamic>(),
       hypnoStages: strs('hypno_stages'),
@@ -618,6 +625,7 @@ class DayBundleInput {
     sleepRrTsMs: sleepRrTsMs,
     sleepRrMs: sleepRrMs,
     sleepSkinTemp: sleepSkinTemp,
+    sleepEnmo: sleepEnmo,
     sleepJson: json,
     hypnoStages: stages,
     sleepOnsetSec: sleepOnsetSec,
@@ -2595,9 +2603,15 @@ List<String>? _hmmRestage(DayBundleInput d) {
   final n = d.hypnoStages.length;
   final t0 = d.sleepOnsetSec;
   final hrAt = List<double>.filled(n, 0.0);
+  final enmoAt = List<double>.filled(n, 0.0);
+  final tempAt = List<double>.filled(n, 0.0);
   for (var i = 0; i < d.sleepTsSec.length && i < d.sleepHr.length; i++) {
     final k = d.sleepTsSec[i] - t0;
-    if (k >= 0 && k < n) hrAt[k] = d.sleepHr[i].toDouble();
+    if (k >= 0 && k < n) {
+      hrAt[k] = d.sleepHr[i].toDouble();
+      if (i < d.sleepEnmo.length) enmoAt[k] = d.sleepEnmo[i];
+      if (i < d.sleepSkinTemp.length) tempAt[k] = d.sleepSkinTemp[i].toDouble();
+    }
   }
   final corrected = correctRr(d.sleepRrMs, rrTsMs: d.sleepRrTsMs);
   // nnTimesMs is relative to the start of the first input beat; put it back
@@ -2618,6 +2632,9 @@ List<String>? _hmmRestage(DayBundleInput d) {
         'ts': t0 + i,
         'hr': d.hypnoStages[i] == 'unobserved' ? 0.0 : hrAt[i],
         'rmssd': d.hypnoStages[i] == 'unobserved' ? 0.0 : rmssdAt[i],
+        // HYBRID: motion + skin temp per second (0 = absent sentinel).
+        'enmo': enmoAt[i],
+        'skin_temp': tempAt[i],
       },
   ]);
   if (labels == null) return null;
@@ -2680,11 +2697,15 @@ List<String?>? _classifySleepStagesHMM(List<Map<String, dynamic>> epochData) {
   final idx = <int, int>{};
   for (var i = 0; i < epochData.length; i++) {
     final k = idx.putIfAbsent(epochOf[i], () {
-      epochs.add({'hr': 0.0, 'rmssd': 0.0, 'nh': 0, 'nr': 0});
+      // HYBRID: epochs also average ENMO and skin temp (0 sentinel = absent,
+      // excluded from the mean, never counted as "still"/"cold").
+      epochs.add({'hr': 0.0, 'rmssd': 0.0, 'enmo': 0.0, 'skin_temp': 0.0, 'nh': 0, 'nr': 0, 'ne': 0, 'nt': 0});
       return epochs.length - 1;
     });
     final hr = (epochData[i]['hr'] as num?)?.toDouble() ?? 0.0;
     final rmssd = (epochData[i]['rmssd'] as num?)?.toDouble() ?? 0.0;
+    final enmo = (epochData[i]['enmo'] as num?)?.toDouble() ?? 0.0;
+    final temp = (epochData[i]['skin_temp'] as num?)?.toDouble() ?? 0.0;
     final ep = epochs[k];
     if (hr > 30.0 && hr < 200.0) {
       ep['hr'] = (ep['hr'] as double) + hr;
@@ -2694,11 +2715,22 @@ List<String?>? _classifySleepStagesHMM(List<Map<String, dynamic>> epochData) {
       ep['rmssd'] = (ep['rmssd'] as double) + rmssd;
       ep['nr'] = (ep['nr'] as int) + 1;
     }
+    if (enmo > 0.0) {
+      ep['enmo'] = (ep['enmo'] as double) + enmo;
+      ep['ne'] = (ep['ne'] as int) + 1;
+    }
+    if (temp > 0.0) {
+      ep['skin_temp'] = (ep['skin_temp'] as double) + temp;
+      ep['nt'] = (ep['nt'] as int) + 1;
+    }
   }
   for (final ep in epochs) {
     final nh = ep['nh'] as int, nr = ep['nr'] as int;
+    final ne = ep['ne'] as int, nt = ep['nt'] as int;
     ep['hr'] = nh == 0 ? 0.0 : (ep['hr'] as double) / nh;
     ep['rmssd'] = nr == 0 ? 0.0 : (ep['rmssd'] as double) / nr;
+    ep['enmo'] = ne == 0 ? 0.0 : (ep['enmo'] as double) / ne;
+    ep['skin_temp'] = nt == 0 ? 0.0 : (ep['skin_temp'] as double) / nt;
   }
   final states = analyzer.viterbiDecode(epochs);
   if (states.length != epochs.length) return null;
