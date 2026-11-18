@@ -10988,11 +10988,23 @@ class LocalDb {
       db, 'day_result', 'imported', 'INTEGER NOT NULL DEFAULT 0',
     );
     // Cheap every-open repair, including same-version restored databases. Only
-    // DERIVED objects are dropped and recreated (two triggers and an index over
-    // a column this method owns), so it stays additive and idempotent: a second
-    // open finds the right objects and changes nothing. The completion index is
-    // built only after the paged backfill, see [_ensureDayResultImportedFlag].
+    // DERIVED objects are dropped and recreated (mirror triggers and completion
+    // indexes over a column this method owns), so it stays additive and
+    // idempotent: a second open finds the right objects and changes nothing.
+    // The completion index is built only after the paged backfill, see
+    // [_ensureDayResultImportedFlag].
     final exact = await _probeJson1(db);
+    // CLAIM(imported-exact): an older build re-fills all rows with LIKE while
+    // v2 can survive. Its legacy objects invalidate that completion marker
+    // [finalized_day_ids_index_test: re-upgrade repairs every row].
+    if (exact && (await db.rawQuery(
+      "SELECT 1 FROM sqlite_master WHERE "
+      "(type = 'index' AND name = 'idx_day_result_finalized') OR "
+      "(type = 'trigger' AND name IN "
+      "('trg_day_result_imported_ins', 'trg_day_result_imported_upd')) LIMIT 1",
+    )).isNotEmpty) {
+      await db.execute('DROP INDEX IF EXISTS idx_day_result_finalized_v2');
+    }
     // The other mode's objects go first: a restored file can carry JSON
     // triggers onto a SQLite that cannot compile them.
     for (final stale in exact

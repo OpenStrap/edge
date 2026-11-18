@@ -147,6 +147,46 @@ void main() {
     });
   }
 
+  // WHY: an older build can backfill every row with LIKE while the v2 index
+  // survives. Any legacy marker must invalidate that stale exact completion.
+  // CLAIM(imported-exact); catches: trusting v2 after a downgrade/re-upgrade.
+  for (final marker in ['index', 'ins', 'upd']) {
+    test('re-upgrade repairs every row when legacy $marker survives', () async {
+      await _useFreshDb('finalized_downgrade_$marker.db');
+      var db = await LocalDb.instance;
+      await _rawPut(db, '2026-01-01', '{"nested":{"imported":true}}');
+      await _rawPut(db, '2026-01-02', '{ "imported" : true }');
+      expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-01'});
+      expect(await _indexed(db), isTrue);
+      // The older build's first read re-fills ALL existing rows. Updating only
+      // imported does not fire either payload_json trigger, so v2 stays stale.
+      await db.rawUpdate(
+        "UPDATE day_result SET imported = (payload_json LIKE '%\"imported\":true%')",
+      );
+      if (marker == 'index') {
+        await db.execute('CREATE INDEX idx_day_result_finalized '
+            'ON day_result(algo_version, finalized, imported, day_id)');
+      } else {
+        await db.execute('CREATE TRIGGER trg_day_result_imported_$marker '
+            'AFTER ${marker == 'ins' ? 'INSERT' : 'UPDATE OF payload_json'} '
+            'ON day_result BEGIN UPDATE day_result '
+            "SET imported = (NEW.payload_json LIKE '%\"imported\":true%') "
+            'WHERE rowid = NEW.rowid; END');
+      }
+      expect((await db.query('day_result', columns: ['imported'],
+        orderBy: 'day_id')).map((r) => r['imported']).toList(), [1, 0]);
+      await LocalDb.close();
+      db = await LocalDb.instance;
+      expect(await _indexed(db), isFalse, reason: 'legacy $marker invalidates v2');
+      expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-01'});
+      expect((await db.query('day_result', columns: ['imported'],
+        orderBy: 'day_id')).map((r) => r['imported']).toList(), [0, 1]);
+      expect(await _indexed(db), isTrue);
+      await LocalDb.close();
+      expect(await LocalDb.finalizedDayIds(_algo), {'2026-01-01'});
+    });
+  }
+
   // WHY: a refused index build must keep the fallback's classification exact.
   // CLAIM(imported-exact); catches: retaining LIKE only in the fallback path.
   test('failed index creation falls back to the exact top-level key', () async {
