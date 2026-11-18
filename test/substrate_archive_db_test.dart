@@ -1512,8 +1512,9 @@ void main() {
     }
     final counts = await db.query('compute_freshness',
         where: 'key = ?', whereArgs: [SubstrateArchive.failuresKey]);
+    // One failure count and one refusal count, both for the oldest bucket.
     expect((jsonDecode(counts.single['payload_json'] as String) as Map).values,
-        [3], reason: 'the oldest bucket is parked before switching off');
+        [3, 3], reason: 'the oldest bucket is parked before switching off');
     SubstrateArchive.debugThrowInBucket = null;
     await SubstrateArchive.writePolicy(db, const SubstrateArchivePolicy(0));
     expect(await db.query('compute_freshness',
@@ -1537,7 +1538,7 @@ void main() {
   // CLAIM(archive-before-delete); catches: a bucket skipped forever.
   test('a foreground pass retries a bucket the background skips', () async {
     await _seed();
-    SubstrateArchive.debugThrowInBucket = StateError('codec rejected bucket');
+    SubstrateArchive.debugThrowInBucket = Exception('database is locked');
     for (var n = 0; n < 3; n++) {
       await LocalDb.pruneDecodedBeforeRecTs(cutoff,
           archive: policy, maxArchiveBuckets: 1);
@@ -1549,6 +1550,33 @@ void main() {
     final counts = await (await _db()).query('compute_freshness',
         where: 'key = ?', whereArgs: [SubstrateArchive.failuresKey]);
     expect(counts.single['payload_json'], '{}');
+  });
+
+  // WHY: a codec refusal fails the same way every time under one build, and
+  // each foreground retry holds the write lock the band's commit waits on.
+  // CLAIM(archive-before-delete); catches: unbounded foreground retries.
+  test('a foreground pass stops retrying a bucket the codec refused', () async {
+    await _seed();
+    var calls = 0;
+    SubstrateArchive.debugBeforeBucket = () async => calls++;
+    SubstrateArchive.debugThrowInBucket = StateError('codec rejected bucket');
+    final cap = SubstrateArchive.foregroundSkipAfterRefusals;
+    for (var n = 0; n < cap; n++) {
+      await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
+    }
+    expect((await LocalDb.substrateArchiveStats())['failed_buckets'], 4);
+    calls = 0;
+    await LocalDb.pruneDecodedBeforeRecTs(cutoff, archive: policy);
+    SubstrateArchive.debugBeforeBucket = null;
+    SubstrateArchive.debugThrowInBucket = null;
+    // Every bucket was visited but none attempted, and all stay live.
+    expect(calls, 4);
+    final counts = await (await _db()).query('compute_freshness',
+        where: 'key = ?', whereArgs: [SubstrateArchive.failuresKey]);
+    final m = jsonDecode(counts.single['payload_json'] as String) as Map;
+    expect(m.values.where((v) => v == cap), hasLength(8));
+    expect(await (await _db()).query('substrate_archive'), isEmpty);
+    expect(await _live('decoded_onehz', 'rec_ts < ?', [cutoff]), isNotEmpty);
   });
 
   test(

@@ -334,6 +334,8 @@ Future<({File zip, Map<String, Object?> meta})> collectReport(
     'initError': app.initError,
     'importRollupError': app.importRollupError,
     'lastBackupError': app.lastBackupError,
+    'archiveFailedBuckets':
+        (await LocalDb.substrateArchiveStats())['failed_buckets'],
     'recentErrors': [
       for (final r in records)
         if (r['kind'] == 'error' || r['kind'] == 'crash') r

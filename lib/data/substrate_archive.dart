@@ -32,6 +32,8 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:sqflite/sqflite.dart';
 
+import '../compute/derivation_engine.dart' show kAlgoVersion;
+
 import 'substrate_archive_codec.dart';
 
 /// How long archived substrate is kept. Stored in `compute_freshness` so a
@@ -106,8 +108,18 @@ abstract final class SubstrateArchive {
   static const String failuresKey = 'substrate_archive_failures';
 
   /// Failed passes after which a BOUNDED (background) pass stops attempting a
-  /// bucket — see [archiveAndDeleteBefore]. Foreground passes always retry.
+  /// bucket — see [archiveAndDeleteBefore]. Foreground passes keep retrying
+  /// unless the codec refused it, see [foregroundSkipAfterRefusals].
   static const int backgroundSkipAfterFailures = 3;
+
+  /// Codec refusals ([StateError], [FormatException], [ArgumentError]) after
+  /// which a FOREGROUND pass stops retrying a bucket too. The same build
+  /// fails the same bytes the same way, so each retry only buys ~3 s of write
+  /// lock against the band's commit. Counted per [kAlgoVersion]: a new build
+  /// gets fresh attempts.
+  static const int foregroundSkipAfterRefusals = 3;
+
+  static String get _refusalPrefix => 'refused$kAlgoVersion:';
 
   static const int _pageSize = 5000;
 
@@ -373,8 +385,9 @@ abstract final class SubstrateArchive {
   /// day) and nothing behind it would ever archive. A bucket that has failed
   /// [backgroundSkipAfterFailures] passes is therefore skipped by bounded
   /// passes without using the budget. Unbounded (foreground) passes still
-  /// retry it every time, so a fix or a quieter moment can archive it; success
-  /// clears the count.
+  /// retry it, so a quieter moment can archive it, except after
+  /// [foregroundSkipAfterRefusals] codec refusals under this build; success
+  /// clears both counts.
   ///
   /// The `UNION` over both tables is required: gen4 history can carry
   /// beat-only seconds with no 1 Hz parent row.
@@ -422,8 +435,10 @@ abstract final class SubstrateArchive {
         await debugBeforeBucket?.call();
         if (maxBuckets != null && attempted >= maxBuckets) break;
         final failureKey = '$deviceId|$day';
-        if (maxBuckets != null &&
-            (failures[failureKey] ?? 0) >= backgroundSkipAfterFailures) {
+        final refusalKey = '$_refusalPrefix$failureKey';
+        if (maxBuckets != null
+            ? (failures[failureKey] ?? 0) >= backgroundSkipAfterFailures
+            : (failures[refusalKey] ?? 0) >= foregroundSkipAfterRefusals) {
           continue;
         }
         attempted++;
@@ -441,8 +456,12 @@ abstract final class SubstrateArchive {
             return n;
           });
           if (failures.remove(failureKey) != null) failuresChanged = true;
+          if (failures.remove(refusalKey) != null) failuresChanged = true;
         } catch (e) {
           failures[failureKey] = (failures[failureKey] ?? 0) + 1;
+          if (e is StateError || e is FormatException || e is ArgumentError) {
+            failures[refusalKey] = (failures[refusalKey] ?? 0) + 1;
+          }
           failuresChanged = true;
           log?.call(
             'substrate archive failed for $deviceId/$day ($e); kept live for '
@@ -475,7 +494,11 @@ abstract final class SubstrateArchive {
       final m = jsonDecode(rows.first['payload_json'] as String) as Map;
       return {
         for (final e in m.entries)
-          if (e.value is int) '${e.key}': e.value as int,
+          // Refusals counted by an older build are dropped.
+          if (e.value is int &&
+              (!'${e.key}'.startsWith('refused') ||
+                  '${e.key}'.startsWith(_refusalPrefix)))
+            '${e.key}': e.value as int,
       };
     } catch (_) {
       return {};
@@ -1056,8 +1079,10 @@ abstract final class SubstrateArchive {
     );
   }
 
-  /// `{buckets, bytes, raw_bytes, oldest_from_ts, newest_to_ts}`; the two
-  /// timestamps are null on an empty archive.
+  /// `{buckets, bytes, raw_bytes, oldest_from_ts, newest_to_ts,
+  /// failed_buckets}`; the two timestamps are null on an empty archive.
+  /// `failed_buckets` counts buckets whose last archive attempt failed and
+  /// which therefore stay live.
   static Future<Map<String, Object?>> stats(DatabaseExecutor ex) async {
     final r = (await ex.rawQuery(
       'SELECT COUNT(*) AS buckets, '
@@ -1066,6 +1091,12 @@ abstract final class SubstrateArchive {
       'MIN(from_ts) AS oldest_from_ts, MAX(to_ts) AS newest_to_ts '
       'FROM $table',
     )).first;
-    return Map<String, Object?>.from(r);
+    return {
+      ...r,
+      'failed_buckets': (await _readFailures(ex))
+          .keys
+          .where((k) => !k.startsWith('refused'))
+          .length,
+    };
   }
 }
