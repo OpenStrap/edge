@@ -91,7 +91,7 @@
   "alarmChangeTheTime": "Changer l’heure",
   "alarmTestTheBuzz": "Tester la vibration",
   "alarmCancelTheAlarm": "Annuler l’alarme",
-  "alarmBuzzingTheBand": "Vibration du bracelet",
+  "alarmBuzzingTheBand": "Vibration envoyée au bracelet",
   "alarmCancelled": "Alarme annulée",
   "alarmSentToBand": "Alarme envoyée au bracelet",
   "alarmInThePast": "Dans le passé — elle s’est déjà déclenchée ou a été manquée",

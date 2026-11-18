@@ -358,7 +358,7 @@ class AlarmScreenView extends StatelessWidget {
                         color: C.blue,
                         soft: true,
                         onTap: () => _run(
-                            c, onTest, l?.alarmBuzzingTheBand ?? 'Buzzing the band')),
+                            c, onTest, l?.alarmBuzzingTheBand ?? 'Buzz sent to the band')),
                     const SizedBox(height: S.x3),
                   ],
                   if (at != null || anyDayEnabled)
@@ -444,8 +444,16 @@ class AlarmScreenView extends StatelessWidget {
     }
   }
 
-  static void _say(BuildContext c, String msg) =>
-      ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(msg)));
+  /// Replaces what this screen said before, shown or still queued, instead of
+  /// stacking behind it: repeat taps would otherwise queue one 4-second
+  /// snackbar each and keep an old result on screen long after it stopped
+  /// being true. Only while this screen is on top — a result that lands after
+  /// the user moved on must not wipe another screen's message.
+  static void _say(BuildContext c, String msg) {
+    final messenger = ScaffoldMessenger.of(c);
+    if (ModalRoute.of(c)?.isCurrent ?? true) messenger.clearSnackBars();
+    messenger.showSnackBar(SnackBar(content: Text(msg)));
+  }
 
   static String _hhmm(DateTime d) => _hhmmOf(d.hour, d.minute);
 
