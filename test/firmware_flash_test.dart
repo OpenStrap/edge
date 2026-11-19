@@ -190,6 +190,21 @@ void main() {
     expect(l.ends, 1);
     expect(l.sent.contains(0x53), isFalse);
   });
+  test('leaving mid-commit still records an unanswered commit', () async {
+    final l = _Link()
+      ..holdOpcode = 0x90
+      ..failOnOpcode = 0x90;
+    final c = FirmwareFlashController(l)..load('a.bin', img);
+    await c.stage();
+    final f = c.commit();
+    await Future<void>.delayed(Duration.zero);
+    c.dispose();
+    l.hold!.complete();
+    await f;
+    expect(l.unresolved, isTrue);
+    expect(l.ends, 1);
+    expect(FirmwareFlashController(l).phase, FlashPhase.commitUnknown);
+  });
   test('dispose with nothing in flight releases at once', () async {
     final l = _Link();
     final c = FirmwareFlashController(l)..load('a.bin', img);

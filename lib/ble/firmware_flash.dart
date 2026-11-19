@@ -219,6 +219,9 @@ class FirmwareFlashController extends ChangeNotifier {
     phase = FlashPhase.committing;
     _notify();
     final r = await _cmd(FwUpdate.processImage, FwUpdate.rev1);
+    // Sent, and no answer: not a rejection. Never offer a retry, even when
+    // the screen went away while we waited.
+    if (r == _Reply.none) _link.markCommitUnresolved();
     _release();
     if (_disposed) return;
     switch (r) {
@@ -228,8 +231,6 @@ class FirmwareFlashController extends ChangeNotifier {
       case _Reply.rejected:
         _fail(FlashFailure.commitRejected);
       case _Reply.none:
-        // Sent, and no answer: not a rejection. Never offer a retry.
-        _link.markCommitUnresolved();
         failure = FlashFailure.commitUnknown;
         phase = FlashPhase.commitUnknown;
         _notify();
