@@ -262,15 +262,21 @@ void main() {
     final r = await run(
         t,
         const Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('\u2014', style: TextStyle(fontSize: 20)),
+          SizedBox(width: 60, height: 24,
+              child: Text('\u2014', style: TextStyle(fontSize: 20))),
           Text('after'),
         ]),
         const Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('72', style: TextStyle(fontSize: 20)),
+          SizedBox(width: 60, height: 24,
+              child: Text('72', style: TextStyle(fontSize: 20))),
           Text('after'),
         ]));
     List<String> ids(int i) => last.frames[i].elements.map((e) => e.id).toList();
     expect(ids(1), ids(0), reason: 'same slot, same id');
+    // why: Ahem gives one glyph and two glyphs different intrinsic widths.
+    // This fixture promises identical geometry; reserve it and prove it first.
+    expect(last.frames[1].elements.map((e) => e.rect),
+        orderedEquals(last.frames[0].elements.map((e) => e.rect)));
     expect(r.total, 0);
     expect(r.findings, isEmpty);
   });
