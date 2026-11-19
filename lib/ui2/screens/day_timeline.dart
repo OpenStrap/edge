@@ -251,6 +251,56 @@ List<Moment> dayMoments({
     }
   }
 
+  // Events, de-duplicated: the strap delivers the same (id, ts) up to four
+  // times, and a day with the charger on it should not read as four chargers.
+  final seen = <String>{};
+  final events = _events(l);
+  final stream = <(int, int)>[]; // (ts, event id)
+  for (final e in (timeline['events'] as List?) ?? const []) {
+    if (e is! Map) continue;
+    final id = asInt(e['event_id']), t = asInt(e['ts']);
+    final def = id == null ? null : events[id];
+    if (def == null || t == null || !seen.add('$id/$t')) continue;
+    stream.add((t, id!));
+  }
+  // The same band event again and again (a ball sport sets the firmware's tap
+  // detector off on every contact; a boot loop restarts it) is one span
+  // carrying the band's own count, not one line per event burying the day.
+  // A run is consecutive events of one kind, each under [kEventRunGapSec]
+  // after the last; a different visible band event ends it, even at the same
+  // second, so a charger that goes on and off is still told in order.
+  stream.sort((a, b) {
+    final c = a.$1.compareTo(b.$1);
+    return c != 0 ? c : a.$2.compareTo(b.$2);
+  });
+  final simultaneous = <int, Set<int>>{};
+  for (final e in stream) {
+    (simultaneous[e.$1] ??= <int>{}).add(e.$2);
+  }
+  for (var i = 0; i < stream.length;) {
+    final id = stream[i].$2;
+    var j = i;
+    while (j + 1 < stream.length &&
+        stream[j + 1].$2 == id &&
+        simultaneous[stream[j].$1]!.length == 1 &&
+        simultaneous[stream[j + 1].$1]!.length == 1 &&
+        stream[j + 1].$1 - stream[j].$1 < kEventRunGapSec) {
+      j++;
+    }
+    final n = j - i + 1, from = stream[i].$1, to = stream[j].$1;
+    final def = events[id]!;
+    out.add(Moment(
+      at: from,
+      until: n > 1 ? to : null,
+      title: def.$1,
+      detail: n > 1
+          ? '${clockOfTs(from)}–${clockOfTs(to)} · $n×'
+          : clockOfTs(from),
+      icon: def.$2,
+      members: n > 1 ? [for (var k = i; k <= j; k++) stream[k].$1] : const [],
+    ));
+    i = j + 1;
+  }
 
   for (final m in meals) {
     final t = m.atTs;
@@ -317,65 +367,6 @@ List<Moment> dayMoments({
       ),
     );
   });
-
-  // Events, de-duplicated: the strap delivers the same (id, ts) up to four
-  // times, and a day with the charger on it should not read as four chargers.
-  final seen = <String>{};
-  final events = _events(l);
-  final stream = <(int, int)>[]; // (ts, event id)
-  for (final e in (timeline['events'] as List?) ?? const []) {
-    if (e is! Map) continue;
-    final id = asInt(e['event_id']), t = asInt(e['ts']);
-    final def = id == null ? null : events[id];
-    if (def == null || t == null || !seen.add('$id/$t')) continue;
-    stream.add((t, id!));
-  }
-  // The same band event again and again (a ball sport sets the firmware's tap
-  // detector off on every contact; a boot loop restarts it) is one span
-  // carrying the band's own count, not one line per event burying the day.
-  // A run is consecutive events of one kind, each under [kEventRunGapSec]
-  // after the last; any other visible moment ends it, so a charger that
-  // goes on and off is still told in order.
-  stream.sort((a, b) {
-    final c = a.$1.compareTo(b.$1);
-    return c != 0 ? c : a.$2.compareTo(b.$2);
-  });
-  // Group only after all timed sources have contributed their boundaries.
-  final boundaries = out.map((m) => m.at).toList()..sort();
-  var boundary = 0;
-  final simultaneous = <int, Set<int>>{};
-  for (final e in stream) {
-    (simultaneous[e.$1] ??= <int>{}).add(e.$2);
-  }
-  for (var i = 0; i < stream.length;) {
-    final id = stream[i].$2;
-    while (boundary < boundaries.length && boundaries[boundary] < stream[i].$1) {
-      boundary++;
-    }
-    var j = i;
-    while (j + 1 < stream.length &&
-        stream[j + 1].$2 == id &&
-        simultaneous[stream[j].$1]!.length == 1 &&
-        simultaneous[stream[j + 1].$1]!.length == 1 &&
-        (boundary == boundaries.length || boundaries[boundary] > stream[j + 1].$1) &&
-        stream[j + 1].$1 - stream[j].$1 < kEventRunGapSec) {
-      j++;
-    }
-    final n = j - i + 1, from = stream[i].$1, to = stream[j].$1;
-    final def = events[id]!;
-    out.add(Moment(
-      at: from,
-      until: n > 1 ? to : null,
-      title: def.$1,
-      detail: n > 1
-          ? '${clockOfTs(from)}–${clockOfTs(to)} · $n×'
-          : clockOfTs(from),
-      icon: def.$2,
-      members: n > 1 ? [for (var k = i; k <= j; k++) stream[k].$1] : const [],
-    ));
-    i = j + 1;
-  }
-
 
   out.sort((a, b) => a.at.compareTo(b.at));
   return out;

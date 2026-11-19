@@ -359,28 +359,24 @@ void main() {
           reason: 'the alarm run, now one position lower, stayed closed');
     });
 
-    // why: a run must not hide a visible event between its members.
-    test('all visible sources split band runs', () {
-      final events = [for (final minute in [0, 5])
-        {'event_id': 15, 'ts': _at(9, minute)}];
-      final sources = [
-        dayMoments(timeline: {'events': events}, meals: [FoodEntry(
-            id: 'm', date: '2026-08-14', meal: 'Lunch', label: 'Soup',
-            atTs: _at(9, 2))]),
-        dayMoments(timeline: {'events': events},
-            doses: [(label: 'Dose', at: _at(9, 2))]),
-        dayMoments(timeline: {'events': events, 'sessions': [
-          {'start_ts': _at(9, 2), 'end_ts': _at(9, 3), 'type': 'run'}]}),
-        dayMoments(timeline: {'events': events, 'highs': {
-          'peak_hr': {'t': _at(9, 2), 'v': 100}}}),
-      ];
-      for (final moments in sources) {
-        final restarts = moments.where((m) => m.title == 'The band restarted');
-        expect(restarts, hasLength(2));
-        expect(restarts.every((m) => m.members.isEmpty), isTrue);
-      }
-      expect(dayMoments(timeline: {'events': events}).single.members,
-          [_at(9), _at(9, 5)]);
+    // A run is a span, like a workout: other timeline rows may fall inside it.
+    test('other timeline rows stay inside a tap run', () {
+      final moments = dayMoments(
+        timeline: {
+          'events': [for (final minute in [0, 5])
+            {'event_id': 14, 'ts': _at(9, minute)}],
+          'sessions': [
+            {'start_ts': _at(9, 2), 'end_ts': _at(9, 3), 'type': 'run'}],
+          'highs': {'peak_hr': {'t': _at(9, 2), 'v': 100}},
+        },
+        meals: [FoodEntry(id: 'm', date: '2026-08-14', meal: 'Lunch',
+            label: 'Soup', atTs: _at(9, 2))],
+        doses: [(label: 'Dose', at: _at(9, 2))],
+      );
+      final taps = moments.where((m) => m.title == 'You double-tapped the band');
+      expect(taps, hasLength(1));
+      expect(taps.single.members, [_at(9), _at(9, 5)]);
+      expect(moments, hasLength(5));
     });
 
     // why: simultaneous event IDs must not decide whether chronology is hidden.
