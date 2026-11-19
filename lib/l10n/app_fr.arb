@@ -3988,11 +3988,11 @@
   "settingsGroupManage": "Gérer",
   "settingsHealthSyncPermsOk": "Les {count} autorisations sont accordées dans {store}",
   "settingsHealthSyncPermsDenied": "{denied} autorisation(s) sur {total} refusée(s) dans {store} — touchez pour vérifier",
-  "settingsHealthRequestPermsTitle": "Gérer les autorisations",
-  "settingsHealthRequestPermsSub": "Ouvre la feuille {store} où chaque type de données peut être activé ou désactivé",
-  "settingsHealthOpenSystemTitle": "Ouvrir dans les réglages",
-  "settingsHealthOpenSystemSub": "L'accès aux données {store} de cette app se trouve dans les réglages système, rubrique Santé",
-  "settingsHealthFootnote": "{store} indique l'état d'écriture de chaque type de données. Les changements faits dans les réglages système sont pris en compte à la prochaine ouverture de l'app.",
+  "settingsHealthRequestPermsTitle": "Demander les autorisations",
+  "settingsHealthRequestPermsSub": "Demande à {store} les types non encore décidés — sa feuille n'apparaît que pour ceux-là ; pour modifier un choix existant : Réglages → Santé → Accès aux données et appareils",
+  "settingsHealthOpenSystemTitle": "Ouvrir l'app Santé",
+  "settingsHealthOpenSystemSub": "Les choix existants se modifient dans Réglages iOS → Santé → Accès aux données et appareils → cette app",
+  "settingsHealthFootnote": "{store} indique l'état d'écriture de chaque type de données. L'état est relu à chaque ouverture de l'app ; les changements faits dans les réglages système y apparaissent.",
   "settingsHealthManageStoreRowTitle": "Gérer dans {store}",
   "settingsHealthManageStoreRowSub": "Les autorisations se donnent app par app dans l'app {store}",
   "healthPermAuthorized": "Autorisé",
@@ -4008,5 +4008,6 @@
   "healthTypeBasalEnergy": "Énergie basale",
   "healthTypeSteps": "Pas",
   "healthTypeWorkout": "Séances",
-  "healthTypeWeight": "Poids"
+  "healthTypeWeight": "Poids",
+  "settingsHealthSyncPermsPartial": "{granted} autorisation(s) sur {total} accordée(s) dans {store} — certaines pas encore décidées"
 }

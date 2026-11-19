@@ -25,6 +25,7 @@
 		5A0C00000000000000000003 /* LongSyncDataIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C00000000000000000004 /* LongSyncDataIntent.swift */; };
 		5A0C00000000000000000005 /* LongSyncDataIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C00000000000000000006 /* LongSyncDataIntentTests.swift */; };
 		60DE9D949573401269D6DF2E /* HealthRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46A2B400A52A2CA90242C195 /* HealthRoutes.swift */; };
+		1CA4F649E4E115C8B259B823 /* HealthAuthBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F04D841A4616CA41FCBCD482 /* HealthAuthBridge.swift */; };
 		630172CC9317145AD5F8F3B7 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2C721EA0C8D31A3834E66203 /* Pods_RunnerTests.framework */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
@@ -117,6 +118,7 @@
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
 		46A2B400A52A2CA90242C195 /* HealthRoutes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthRoutes.swift; sourceTree = "<group>"; };
+		F04D841A4616CA41FCBCD482 /* HealthAuthBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthAuthBridge.swift; sourceTree = "<group>"; };
 		4A03AF838C04AE2BCB84D0B1 /* Signing.defaults.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = Signing.defaults.xcconfig; path = Config/Signing.defaults.xcconfig; sourceTree = "<group>"; };
 		5348973B2FDC19C80033A4D9 /* OpenStrapWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OpenStrapWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5348973C2FDC19C80033A4D9 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
@@ -343,6 +345,7 @@
 				5A0C00000000000000000002 /* ShortcutSyncBridge.swift */,
 				5A0C00000000000000000004 /* LongSyncDataIntent.swift */,
 				46A2B400A52A2CA90242C195 /* HealthRoutes.swift */,
+				F04D841A4616CA41FCBCD482 /* HealthAuthBridge.swift */,
 				A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */,
 			);
 			path = Runner;
@@ -775,6 +778,7 @@
 				5A0C00000000000000000001 /* ShortcutSyncBridge.swift in Sources */,
 				5A0C00000000000000000003 /* LongSyncDataIntent.swift in Sources */,
 				60DE9D949573401269D6DF2E /* HealthRoutes.swift in Sources */,
+				1CA4F649E4E115C8B259B823 /* HealthAuthBridge.swift in Sources */,
 				B9D2F406183A5C7E92B1D3F5 /* HealthKitSleepWriter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

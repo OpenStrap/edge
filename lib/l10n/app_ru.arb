@@ -9036,8 +9036,8 @@
       }
     }
   },
-  "settingsHealthRequestPermsTitle": "Управление разрешениями",
-  "settingsHealthRequestPermsSub": "Открывает лист {store}, где каждый тип данных можно включить или выключить",
+  "settingsHealthRequestPermsTitle": "Запросить разрешения",
+  "settingsHealthRequestPermsSub": "Запрашивает в {store} ещё не решённые типы — лист показывается только для них; изменить существующий выбор: «Настройки» → «Здоровье» → «Доступ к данным и устройствам»",
   "@settingsHealthRequestPermsSub": {
     "placeholders": {
       "store": {
@@ -9045,8 +9045,8 @@
       }
     }
   },
-  "settingsHealthOpenSystemTitle": "Открыть в настройках системы",
-  "settingsHealthOpenSystemSub": "Доступ к данным {store} для этого приложения настраивается в системных настройках, раздел «Здоровье»",
+  "settingsHealthOpenSystemTitle": "Открыть приложение «Здоровье»",
+  "settingsHealthOpenSystemSub": "Существующие выборы меняются в Настройки iOS → Здоровье → Доступ к данным и устройствам → это приложение",
   "@settingsHealthOpenSystemSub": {
     "placeholders": {
       "store": {
@@ -9054,7 +9054,7 @@
       }
     }
   },
-  "settingsHealthFootnote": "{store} сообщает статус записи каждого типа данных. Изменения в системных настройках учитываются при следующем открытии приложения.",
+  "settingsHealthFootnote": "{store} сообщает статус записи каждого типа данных. Статус перечитывается при каждом открытии приложения; изменения в системных настройках видны там.",
   "@settingsHealthFootnote": {
     "placeholders": {
       "store": {
@@ -9091,5 +9091,19 @@
   "healthTypeBasalEnergy": "Базальный обмен",
   "healthTypeSteps": "Шаги",
   "healthTypeWorkout": "Тренировки",
-  "healthTypeWeight": "Вес"
+  "healthTypeWeight": "Вес",
+  "settingsHealthSyncPermsPartial": "{granted} из {total} разрешений предоставлено в {store} — некоторые ещё не решены",
+  "@settingsHealthSyncPermsPartial": {
+    "placeholders": {
+      "granted": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  }
 }

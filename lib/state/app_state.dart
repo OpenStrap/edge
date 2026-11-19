@@ -925,7 +925,11 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     if (on) {
       await requestHealth();
-      if (healthState == HealthLinkState.ready) unawaited(healthSyncNow());
+      // A second tap may have switched it off again while the authorization
+      // request was in flight — recheck before kicking the first sync.
+      if (healthState == HealthLinkState.ready && healthSyncEnabled) {
+        unawaited(healthSyncNow());
+      }
     }
   }
 

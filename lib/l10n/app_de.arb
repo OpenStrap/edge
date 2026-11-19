@@ -3988,11 +3988,11 @@
   "settingsGroupManage": "Verwalten",
   "settingsHealthSyncPermsOk": "Alle {count} Berechtigungen in {store} erteilt",
   "settingsHealthSyncPermsDenied": "{denied} von {total} Berechtigungen in {store} verweigert — antippen zum Anpassen",
-  "settingsHealthRequestPermsTitle": "Berechtigungen verwalten",
-  "settingsHealthRequestPermsSub": "Öffnet das {store}-Blatt, in dem jeder Datentyp ein- und ausgeschaltet werden kann",
-  "settingsHealthOpenSystemTitle": "In den Einstellungen öffnen",
-  "settingsHealthOpenSystemSub": "Der {store}-Datenzugriff dieser App liegt in den Systemeinstellungen unter „Health“",
-  "settingsHealthFootnote": "{store} meldet den Schreibstatus jedes Datentyps. Änderungen in den Systemeinstellungen werden beim nächsten Öffnen der App übernommen.",
+  "settingsHealthRequestPermsTitle": "Berechtigungen anfragen",
+  "settingsHealthRequestPermsSub": "Fragt {store} nach den noch nicht entschiedenen Typen — HealthKit zeigt sein Blatt nur dafür; bestehende Auswahl änderst du unter Einstellungen → Health → Datenzugriff & Geräte",
+  "settingsHealthOpenSystemTitle": "Health-App öffnen",
+  "settingsHealthOpenSystemSub": "Bestehende Auswahl änderst du in den iOS-Einstellungen unter Health → Datenzugriff & Geräte → diese App",
+  "settingsHealthFootnote": "{store} meldet den Schreibstatus jedes Datentyps. Der Status wird bei jedem Öffnen der App neu gelesen; Änderungen in den Systemeinstellungen erscheinen dann dort.",
   "settingsHealthManageStoreRowTitle": "In {store} verwalten",
   "settingsHealthManageStoreRowSub": "Berechtigungen werden pro App in der {store}-App erteilt",
   "healthPermAuthorized": "Erlaubt",
@@ -4008,5 +4008,6 @@
   "healthTypeBasalEnergy": "Grundumsatz",
   "healthTypeSteps": "Schritte",
   "healthTypeWorkout": "Trainings",
-  "healthTypeWeight": "Gewicht"
+  "healthTypeWeight": "Gewicht",
+  "settingsHealthSyncPermsPartial": "{granted} von {total} Berechtigungen in {store} erteilt — einige noch nicht entschieden"
 }

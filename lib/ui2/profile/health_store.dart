@@ -108,23 +108,38 @@ class _HealthStoreScreenState extends State<HealthStoreScreen>
                     ]),
                   if (app.healthIsApple)
                     settingsGroup(c, l?.settingsGroupManage ?? 'Manage', [
+                      // HealthKit only shows its grant sheet for types that
+                      // are still NOT decided — an answered allow/deny is
+                      // never re-prompted, so this row is a request, not
+                      // "manage"; existing choices change in the system
+                      // settings (path in the sub-line and the row below).
                       SetRow(LucideIcons.sliders, C.blue,
                           l?.settingsHealthRequestPermsTitle ??
-                              'Manage permissions',
+                              'Request permissions',
                           sub: l?.settingsHealthRequestPermsSub(store) ??
-                              'Opens the $store sheet where each data type can be switched on or off',
+                              'Asks $store for the types not yet decided — to change an existing choice use Settings → Health → Data Access & Devices',
                           onTap: () async {
                         await app.requestHealth();
                         if (!c.mounted) return;
                         await app.refreshHealthPermissions();
                       }),
                       SetRow(LucideIcons.settings, C.blue,
-                          l?.settingsHealthOpenSystemTitle ??
-                              'Open in system settings',
+                          l?.settingsHealthOpenSystemTitle ?? 'Open Health app',
                           sub: l?.settingsHealthOpenSystemSub(store) ??
-                              '$store data access for this app lives in the system settings under Health',
-                          onTap: () => launchUrl(Uri.parse('app-settings:'),
-                              mode: LaunchMode.externalApplication)),
+                              'Existing choices change in iOS Settings under Health → Data Access & Devices → this app',
+                          onTap: () async {
+                        // x-apple-health:// opens the Health app; if the
+                        // scheme is unavailable, fall back to this app's own
+                        // Settings page.
+                        final health = Uri.parse('x-apple-health://');
+                        if (await canLaunchUrl(health)) {
+                          await launchUrl(health,
+                              mode: LaunchMode.externalApplication);
+                        } else {
+                          await launchUrl(Uri.parse('app-settings:'),
+                              mode: LaunchMode.externalApplication);
+                        }
+                      }),
                     ]),
                   if (app.healthIsApple)
                     Padding(

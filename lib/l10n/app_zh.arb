@@ -3988,11 +3988,11 @@
   "settingsGroupManage": "管理",
   "settingsHealthSyncPermsOk": "{store} 中的全部 {count} 项权限已授予",
   "settingsHealthSyncPermsDenied": "{store} 中 {total} 项权限有 {denied} 项被拒 — 点击查看",
-  "settingsHealthRequestPermsTitle": "管理权限",
-  "settingsHealthRequestPermsSub": "打开 {store} 页面，可在其中开启或关闭每种数据类型",
-  "settingsHealthOpenSystemTitle": "在系统设置中打开",
-  "settingsHealthOpenSystemSub": "此 App 的 {store} 数据访问权限在系统设置的“健康”中管理",
-  "settingsHealthFootnote": "{store} 会报告每种数据类型的写入状态。在系统设置中做的更改会在下次打开 App 时生效。",
+  "settingsHealthRequestPermsTitle": "请求权限",
+  "settingsHealthRequestPermsSub": "向 {store} 申请尚未决定的类型 — HealthKit 的申请表只会为这些类型弹出；要更改已有选择，请前往系统设置 → 健康 → 数据访问权限与设备",
+  "settingsHealthOpenSystemTitle": "打开「健康」App",
+  "settingsHealthOpenSystemSub": "已有选择请在系统设置 → 健康 → 数据访问权限与设备 → 此 App 中更改",
+  "settingsHealthFootnote": "{store} 会报告每种数据类型的写入状态。每次打开 App 时都会重新读取该状态；在系统设置中做的更改会显示在那里。",
   "settingsHealthManageStoreRowTitle": "在 {store} 中管理",
   "settingsHealthManageStoreRowSub": "权限在 {store} 应用中按 App 逐一授予",
   "healthPermAuthorized": "已允许",
@@ -4008,5 +4008,6 @@
   "healthTypeBasalEnergy": "基础能量",
   "healthTypeSteps": "步数",
   "healthTypeWorkout": "锻炼",
-  "healthTypeWeight": "体重"
+  "healthTypeWeight": "体重",
+  "settingsHealthSyncPermsPartial": "{store} 的 {total} 项权限已授予 {granted} 项 — 还有一些未决定"
 }

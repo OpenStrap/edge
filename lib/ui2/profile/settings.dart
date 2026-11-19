@@ -442,6 +442,13 @@ String healthStoreSub(BuildContext c, bool on, HealthLinkState state,
     return l?.settingsHealthSyncPermsOk(s.total, store) ??
         'All ${s.total} permissions granted in $store';
   }
+  // Unresolved (not asked / unreadable) is NOT healthy: check() only answers
+  // store availability, so without this branch the row would claim writes are
+  // happening while their permission status is unresolved.
+  if (s.total > 0) {
+    return l?.settingsHealthSyncPermsPartial(s.authorized, s.total, store) ??
+        '${s.authorized} of ${s.total} permissions granted in $store — some not decided yet';
+  }
   return healthSyncSub(c, on, state, store);
 }
 

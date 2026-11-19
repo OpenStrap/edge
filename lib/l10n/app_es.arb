@@ -3988,11 +3988,11 @@
   "settingsGroupManage": "Gestionar",
   "settingsHealthSyncPermsOk": "Se han concedido los {count} permisos en {store}",
   "settingsHealthSyncPermsDenied": "{denied} de {total} permisos denegados en {store}: toca para revisar",
-  "settingsHealthRequestPermsTitle": "Gestionar permisos",
-  "settingsHealthRequestPermsSub": "Abre la hoja de {store} donde cada tipo de dato se puede activar o desactivar",
-  "settingsHealthOpenSystemTitle": "Abrir en los ajustes del sistema",
-  "settingsHealthOpenSystemSub": "El acceso a los datos de {store} de esta app está en los ajustes del sistema, en Salud",
-  "settingsHealthFootnote": "{store} informa del estado de escritura de cada tipo de dato. Los cambios hechos en los ajustes del sistema se detectan la próxima vez que abras la app.",
+  "settingsHealthRequestPermsTitle": "Solicitar permisos",
+  "settingsHealthRequestPermsSub": "Pide a {store} los tipos aún no decididos: su hoja solo aparece para esos. Para cambiar una elección existente: Ajustes → Salud → Acceso a datos y dispositivos",
+  "settingsHealthOpenSystemTitle": "Abrir la app Salud",
+  "settingsHealthOpenSystemSub": "Las elecciones existentes se cambian en Ajustes de iOS → Salud → Acceso a datos y dispositivos → esta app",
+  "settingsHealthFootnote": "{store} informa del estado de escritura de cada tipo de dato. El estado se relee cada vez que se abre la app; los cambios hechos en los ajustes del sistema aparecen ahí.",
   "settingsHealthManageStoreRowTitle": "Gestionar en {store}",
   "settingsHealthManageStoreRowSub": "Los permisos se conceden por app en la app {store}",
   "healthPermAuthorized": "Permitido",
@@ -4008,5 +4008,6 @@
   "healthTypeBasalEnergy": "Energía basal",
   "healthTypeSteps": "Pasos",
   "healthTypeWorkout": "Entrenamientos",
-  "healthTypeWeight": "Peso"
+  "healthTypeWeight": "Peso",
+  "settingsHealthSyncPermsPartial": "{granted} de {total} permisos concedidos en {store}: algunos aún sin decidir"
 }

@@ -17246,8 +17246,8 @@
       }
     }
   },
-  "settingsHealthRequestPermsTitle": "จัดการสิทธิ์",
-  "settingsHealthRequestPermsSub": "เปิดแผ่น {store} ซึ่งสามารถเปิดหรือปิดแต่ละประเภทข้อมูลได้",
+  "settingsHealthRequestPermsTitle": "ขอสิทธิ์",
+  "settingsHealthRequestPermsSub": "ขอ {store} สำหรับประเภทที่ยังไม่ได้ตัดสินใจ — แผ่นจะเด้งเฉพาะที่ยังไม่ตัดสิน; สำหรับตัวเลือกที่มีอยู่แล้ว: การตั้งค่า → สุขภาพ → การเข้าถึงข้อมูลและอุปกรณ์",
   "@settingsHealthRequestPermsSub": {
     "description": "Subtitle of the row that re-opens the platform grant sheet",
     "placeholders": {
@@ -17256,8 +17256,8 @@
       }
     }
   },
-  "settingsHealthOpenSystemTitle": "เปิดในการตั้งค่าระบบ",
-  "settingsHealthOpenSystemSub": "การเข้าถึงข้อมูล {store} ของแอปนี้อยู่ในการตั้งค่าระบบ ส่วน สุขภาพ",
+  "settingsHealthOpenSystemTitle": "เปิดแอปสุขภาพ",
+  "settingsHealthOpenSystemSub": "เปลี่ยนตัวเลือกที่มีอยู่ได้ที่ การตั้งค่า iOS → สุขภาพ → การเข้าถึงข้อมูลและอุปกรณ์ → แอปนี้",
   "@settingsHealthOpenSystemSub": {
     "description": "Subtitle of the row that opens the OS settings app",
     "placeholders": {
@@ -17266,7 +17266,7 @@
       }
     }
   },
-  "settingsHealthFootnote": "{store} แจ้งสถานะการเขียนของข้อมูลแต่ละประเภท การเปลี่ยนแปลงในการตั้งค่าระบบจะมีผลเมื่อเปิดแอปครั้งถัดไป",
+  "settingsHealthFootnote": "{store} แจ้งสถานะการเขียนของข้อมูลแต่ละประเภท สถานะจะถูกอ่านใหม่ทุกครั้งที่เปิดแอป การเปลี่ยนแปลงในการตั้งค่าระบบจะปรากฏที่นั่น",
   "@settingsHealthFootnote": {
     "description": "Footnote on the health-store screen explaining the status read and re-check",
     "placeholders": {
@@ -17306,5 +17306,20 @@
   "healthTypeBasalEnergy": "พลังงานพื้นฐาน",
   "healthTypeSteps": "ก้าว",
   "healthTypeWorkout": "การออกกำลังกาย",
-  "healthTypeWeight": "น้ำหนัก"
+  "healthTypeWeight": "น้ำหนัก",
+  "settingsHealthSyncPermsPartial": "ได้รับ {granted} จาก {total} สิทธิ์ใน {store} — บางรายการยังไม่ได้ตัดสินใจ",
+  "@settingsHealthSyncPermsPartial": {
+    "description": "Health-store settings row subtitle when only some permissions are granted and none denied",
+    "placeholders": {
+      "granted": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  }
 }

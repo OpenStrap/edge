@@ -3988,11 +3988,11 @@
   "settingsGroupManage": "प्रबंधन",
   "settingsHealthSyncPermsOk": "{store} में सबही {count} अनुमतियाँ दी गई हैं।",
   "settingsHealthSyncPermsDenied": "{store} में {total} में से {denied} अनुमतियाँ अस्वीकृत हैं — समीक्षा के लिए छूएँ।",
-  "settingsHealthRequestPermsTitle": "अनुमतियाँ प्रबंधित करें",
-  "settingsHealthRequestPermsSub": "यह {store} की शीट खोलता है, जिसमें हर डेटा प्रकार को चालू या बंद किया जा सकता है।",
-  "settingsHealthOpenSystemTitle": "सिस्टम सेटिंग्स में खोलें",
-  "settingsHealthOpenSystemSub": "इस ऐप का {store} डेटा एक्सेस सिस्टम सेटिंग्स में Health के नीचे होता है।",
-  "settingsHealthFootnote": "{store} हर डेटा प्रकार की लेखन स्थिति बताता है। सेटिंग्स में किया गया बदलाव अगली बार ऐप खोलने पर दिखता है।",
+  "settingsHealthRequestPermsTitle": "अनुमतियाँ अनुरोध करें",
+  "settingsHealthRequestPermsSub": "{store} के लिए सिर्फ उन अनुमतियाँ का अनुरोध किया जाता है जो अभी तय नहीं हुई; मौजूदा विकल्ल बदललने के लिए: iOS सेटिंग्स → Health → Data Access & Devices → यह ऐप।",
+  "settingsHealthOpenSystemTitle": "Health ऐप खोलें",
+  "settingsHealthOpenSystemSub": "मौजूदा विकल्ल badalne ke liye: iOS सेटिंग्स → Health → Data Access & Devices → यह ऐप",
+  "settingsHealthFootnote": "{store} हर डेटा प्रकार की लेखन स्थिति बताता है। App खोलने पर स्थिति दोबारा पढ़ी जाती हैं। सेटिंग्स में किया गया बदलाव तब दिखता हैं।",
   "settingsHealthManageStoreRowTitle": "{store} में प्रबंधित करें",
   "settingsHealthManageStoreRowSub": "अनुमतियाँ {store} ऐप में प्रति-ऐप दी जाती हैं।",
   "healthPermAuthorized": "अनुमति",
@@ -4008,5 +4008,6 @@
   "healthTypeBasalEnergy": "मूल ऊर्जा",
   "healthTypeSteps": "कदम",
   "healthTypeWorkout": "वर्कआउट",
-  "healthTypeWeight": "वज़न"
+  "healthTypeWeight": "वज़न",
+  "settingsHealthSyncPermsPartial": "{store} में {total} में से {granted} अनुमतियाँ दी गई हैं; kuch pending हैं।"
 }
