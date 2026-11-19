@@ -43,6 +43,7 @@ import '../onboarding/welcome.dart'
         runImport;
 import '../screens/home_screen.dart' show dbRebuiltCard;
 import '../ui2.dart';
+import 'kcalculator_settings.dart';
 import 'phone_import.dart';
 import 'profile.dart';
 
@@ -568,6 +569,10 @@ class _DataScreenState extends State<DataScreen> {
                           'Resting heart rate, blood pressure, glucose and '
                               'body temperature',
                       onTap: _busy ? null : () => goto(c, const PhoneImport())),
+                  SetRow(LucideIcons.utensils, C.green, 'Kcalculator',
+                      sub: 'Reçoit ce que tu manges chaque jour, envoie '
+                          'ta dépense, ton sommeil et ta pesée',
+                      onTap: _busy ? null : () => goto(c, const KcalculatorSettings())),
                 ]),
                 const SizedBox(height: S.x5),
                 settingsGroup(c, l?.dataStorageGroup ?? 'Storage', [

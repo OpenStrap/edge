@@ -17,6 +17,7 @@ import 'state/clock_format.dart';
 import 'state/locale_controller.dart';
 import 'state/prefs.dart';
 import 'state/units_controller.dart';
+import 'cloud/kcalculator_sync.dart';
 import 'telemetry/telemetry_service.dart';
 import 'theme/theme_controller.dart';
 import 'theme/theme_switcher.dart';
@@ -151,6 +152,8 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       app.maybeFinishFromLiveActivity();
       unawaited(app.maybeStopBreathingFromLiveActivity());
       app.refreshAppStatus(); // re-check OTA + admin banner on every foreground
+      // HealthE: exchange the day totals with Kcalculator (no-op when not connected).
+      unawaited(KcalculatorSync.instance.syncIfConfigured());
       app.runCadenceChecks(); // evening wind-down / weekly recap nudges (best-effort)
       // A Siri "start breathing" App Intent may have just foregrounded an
       // already-running process (openAppWhenRun doesn't guarantee a fresh

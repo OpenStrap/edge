@@ -19,6 +19,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ble/adapters/_registry.dart' show kWhoopGen4;
+import '../cloud/kcalculator_sync.dart';
 import '../ble/adapters/host.dart' show BandHost;
 import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/ble_engine.dart';
@@ -481,6 +482,9 @@ Future<void> _syncPairedSensors() async {
       debugPrint('[bgsync] ${link.entry.id} sync skipped: $e');
     }
   }
+  // HealthE: exchange the day totals with Kcalculator on the same wake.
+  // No-op when not connected, never throws.
+  await KcalculatorSync.instance.syncIfConfigured();
 }
 
 // ── staleness escalation (meta-layer over the whole reconnect/sync ladder) ──
