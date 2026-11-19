@@ -47,6 +47,8 @@ Immutable, `copyWith`, three presets: `ShiftPolicy.standard`,
 | knob | default | meaning |
 |---|---|---|
 | `latencyCurve` | (100,0) (200,.1) (300,.3) (400,.5) (500,1) | cost multiplier by ms after the last interaction; piecewise linear, 0 before the first point, 1 after the last |
+| `loadCurve` | (100,0) (400,.1) (1000,.3) (2000,.6) (4000,1) | cost multiplier by settle time (ms from interaction until the screen stopped changing); same shape rules as `latencyCurve` |
+| `loadWeight` | 0.25 (strict .4, lenient .15) | max cost of one load: a 4 s load is .25 = error at the default `errorAt` |
 | `animationGraceWindowMs` | 100 | an animation starting within this many ms of the interaction earns… |
 | `animationGraceMs` | 100 | …this many extra free ms (curve evaluated at `t − grace`) |
 | `interactionWindowMs` | 500 | shifts later than this after the last interaction are out of window |
@@ -98,6 +100,29 @@ least `coverMinFraction` of its area adds `coverCost × fraction × latency`
 Each contribution is a `ShiftFinding(rule, elementId, atMs, score, severity)`
 with severity `none | warning | error` from `warnAt` / `errorAt`.
 `ShiftReport.total` sums scores; `errors` / `warnings` filter.
+
+## Load time
+
+Waiting costs too, not only movement. For each interaction, look at the frames
+from the interaction up to the next interaction (or the end). Any change
+between consecutive frames is activity: an element moved, resized, recoloured,
+appeared or disappeared (compared by id). `settleMs` = the last changed
+frame's `atMs` minus the interaction's `atMs` (nothing changed ⇒ no finding).
+
+- score = `loadWeight × loadCurve(settleMs)`. Under 100 ms is free; at the
+  defaults 400 ms = .025 (none), 1 s = .075 and 2 s = .15 (warning), 4 s = .25
+  (error).
+- **Unsettled**: if the last captured frame in the range itself changed, the
+  screen had not settled when observation ended. Score = `loadWeight` (full
+  cost), whatever the curve says, and no discount applies.
+- **Chain discount**: a qualifying animation chain (same rules as above) that
+  overlaps the load multiplies the score by `chainDiscount`. Animation that
+  holds attention beats bare delay.
+- **Grace**: an animation span starting within `animationGraceWindowMs` of the
+  interaction (a placeholder fading in) shifts the curve by `animationGraceMs`.
+- Finding: rule `load`, `elementId` = the interaction's `sourceId`, `atMs` =
+  interaction + settle, severity from `warnAt` / `errorAt`; it counts in
+  `ShiftReport.total`. No interactions ⇒ no load findings.
 
 ## Launch and motion checks
 

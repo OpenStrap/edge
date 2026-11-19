@@ -97,6 +97,7 @@ void main() {
       final s = sc([
         fr(1000, [el('x', _a)]),
         fr(1400, [el('x', _b)]), // first settles at 400
+        fr(1500, [el('x', _b)]),
         fr(3000, [el('x', _b)]),
         fr(4000, [el('x', _a)]), // second settles at 1000 after 3000
         fr(4500, [el('x', _a)]),
@@ -170,8 +171,8 @@ void main() {
 
   group('animation', () {
     const chain = [
-      AnimationSpan(1100, 1400, chainId: 'c'),
-      AnimationSpan(1400, 1700, chainId: 'c'),
+      AnimationSpan(1200, 1500, chainId: 'c'),
+      AnimationSpan(1500, 1800, chainId: 'c'),
     ];
     test('a qualifying chain during the load halves it', () {
       // settle 1000: .25 * .3 * .5
@@ -179,7 +180,7 @@ void main() {
     });
     test('a chain that fails the cycle rule gives no discount', () {
       final bad = [
-        const AnimationSpan(1100, 1900, chainId: 'c'), // 800 ms cycle
+        const AnimationSpan(1200, 1900, chainId: 'c'), // 800 ms cycle
       ];
       expect(_one(_settling(1000, animations: bad)), closeTo(0.075, 1e-9));
     });

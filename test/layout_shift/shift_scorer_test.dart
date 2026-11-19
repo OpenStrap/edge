@@ -7,7 +7,14 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/layout_shift/layout_shift.dart';
 
-import '../support/shift_builders.dart';
+import '../support/shift_builders.dart' hide total;
+
+/// Shift arithmetic only. The load time finding has its own tests in
+/// load_time_test.dart, so these scenarios filter it out.
+double total(Scenario s, [ShiftPolicy p = ShiftPolicy.standard]) => score(s, p)
+    .findings
+    .where((f) => f.rule != 'load')
+    .fold(0.0, (a, f) => a + f.score);
 
 const _a = ShiftRect(0, 0, 50, 50);
 const _b = ShiftRect(0, 20, 50, 50);

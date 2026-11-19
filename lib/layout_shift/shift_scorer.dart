@@ -204,5 +204,60 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
       }
     }
   }
+
+  // Load time: per interaction, how long until the screen stopped changing.
+  // Any element moving, resizing, recolouring, appearing or disappearing is
+  // activity. Still changing at the last frame of the range = not settled.
+  bool changed(Frame prev, Frame cur) {
+    if (prev.elements.length != cur.elements.length) return true;
+    final before = {for (final e in prev.elements) e.id: e};
+    for (final e in cur.elements) {
+      final o = before[e.id];
+      if (o == null ||
+          o.rect.left != e.rect.left ||
+          o.rect.top != e.rect.top ||
+          o.rect.width != e.rect.width ||
+          o.rect.height != e.rect.height ||
+          o.colorArgb != e.colorArgb) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  final ixs = [...s.interactions]..sort((a, b) => a.atMs.compareTo(b.atMs));
+  for (var k = 0; k < ixs.length; k++) {
+    final ix = ixs[k];
+    final until = k + 1 < ixs.length ? ixs[k + 1].atMs : null;
+    int? lastChange;
+    var lastFrameChanged = false;
+    for (var i = 1; i < s.frames.length; i++) {
+      final t = s.frames[i].atMs;
+      if (t < ix.atMs || (until != null && t >= until)) continue;
+      lastFrameChanged = changed(s.frames[i - 1], s.frames[i]);
+      if (lastFrameChanged) lastChange = t;
+    }
+    if (lastChange == null) continue;
+    final settle = lastChange - ix.atMs;
+    double v;
+    if (lastFrameChanged) {
+      v = p.loadWeight;
+    } else {
+      final graced = s.animations.any((n) =>
+          n.startMs >= ix.atMs && n.startMs - ix.atMs <= p.animationGraceWindowMs);
+      v = p.loadWeight * p.loadAt(graced ? settle - p.animationGraceMs : settle);
+      final chained = chains.values.any((c) {
+        final start = c.map((n) => n.startMs).reduce(min);
+        final end = c.map((n) => n.endMs).reduce(max);
+        return start <= lastChange! &&
+            end >= ix.atMs &&
+            start - ix.atMs >= p.chainStartMinMs &&
+            end - ix.atMs <= p.chainEndMaxMs &&
+            chainCyclesWithin(c, p.chainCycleMinMs, p.chainCycleMaxMs);
+      });
+      if (chained) v *= p.chainDiscount;
+    }
+    out.add(finding('load', ix.sourceId, lastChange, v));
+  }
   return ShiftReport(out);
 }

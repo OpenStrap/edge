@@ -11,6 +11,8 @@ class LatencyPoint {
 
 class ShiftPolicy {
   final List<LatencyPoint> latencyCurve;
+  final List<LatencyPoint> loadCurve;
+  final double loadWeight;
   final int animationGraceWindowMs;
   final int animationGraceMs;
   final int interactionWindowMs;
@@ -50,6 +52,14 @@ class ShiftPolicy {
       LatencyPoint(400, 0.5),
       LatencyPoint(500, 1),
     ],
+    this.loadCurve = const [
+      LatencyPoint(100, 0),
+      LatencyPoint(400, 0.1),
+      LatencyPoint(1000, 0.3),
+      LatencyPoint(2000, 0.6),
+      LatencyPoint(4000, 1),
+    ],
+    this.loadWeight = 0.25,
     this.animationGraceWindowMs = 100,
     this.animationGraceMs = 100,
     this.interactionWindowMs = 500,
@@ -100,6 +110,7 @@ class ShiftPolicy {
       LatencyPoint(400, 0.75),
       LatencyPoint(500, 1),
     ],
+    loadWeight: 0.4,
     chainDiscount: 0.75,
     pairedDiscount: 0.75,
     focusDistanceWeight: 1.5,
@@ -116,6 +127,7 @@ class ShiftPolicy {
       LatencyPoint(400, 0.3),
       LatencyPoint(500, 1),
     ],
+    loadWeight: 0.15,
     chainDiscount: 0.25,
     pairedDiscount: 0.25,
     focusDistanceWeight: 0.5,
@@ -126,8 +138,12 @@ class ShiftPolicy {
 
   /// Latency multiplier for [ms] after the interaction: piecewise linear
   /// between curve points, 0 before the first, the last cost after the last.
-  double latencyAt(int ms) {
-    final c = latencyCurve;
+  double latencyAt(int ms) => _curveAt(latencyCurve, ms);
+
+  /// Load multiplier for a settle time of [ms]; same shape as [latencyAt].
+  double loadAt(int ms) => _curveAt(loadCurve, ms);
+
+  static double _curveAt(List<LatencyPoint> c, int ms) {
     if (ms < c.first.ms) return 0;
     for (var i = 1; i < c.length; i++) {
       if (ms < c[i].ms) {
@@ -140,6 +156,8 @@ class ShiftPolicy {
 
   ShiftPolicy copyWith({
     List<LatencyPoint>? latencyCurve,
+    List<LatencyPoint>? loadCurve,
+    double? loadWeight,
     int? animationGraceWindowMs,
     int? animationGraceMs,
     int? interactionWindowMs,
@@ -173,6 +191,8 @@ class ShiftPolicy {
   }) =>
       ShiftPolicy(
         latencyCurve: latencyCurve ?? this.latencyCurve,
+        loadCurve: loadCurve ?? this.loadCurve,
+        loadWeight: loadWeight ?? this.loadWeight,
         animationGraceWindowMs: animationGraceWindowMs ?? this.animationGraceWindowMs,
         animationGraceMs: animationGraceMs ?? this.animationGraceMs,
         interactionWindowMs: interactionWindowMs ?? this.interactionWindowMs,
