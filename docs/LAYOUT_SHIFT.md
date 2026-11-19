@@ -289,3 +289,25 @@ Uses:
 - When changing geometry scoring, run `bot_regressions_test.dart` alongside the
   layout suite: preserve full translation at each viewport edge and on exit,
   covering-panel translation, hidden-growth abstention and anchored-resize cost.
+
+## Widget measurement
+
+`ShiftProbe` in `test/support/layout_shift_probe.dart` captures keyed render
+boxes at explicit millisecond offsets. Set `trackUnkeyed: true` to include
+text, controls, inputs and card slots. Hidden and clipped content is excluded;
+`skipCoveredRoutes: true` excludes the page under a pushed route.
+
+Application loading widgets can be recognized with `isPending`. Paint-only
+wrappers can be excluded from structural identity with `isPaintOnly`. These
+callbacks keep the probe independent of application widget classes.
+
+`ShiftRun` in `test/support/shift_run.dart` records taps and pumps the requested
+offsets. It captures intermediate animation frames. Call `opened()` before
+measuring initial loading, then `frames()` and `expectNoErrors('scenario')`.
+For a data refresh without a user action, capture with `snap()` and `frames()`.
+The helper rejects indeterminate progress indicators; use `ShiftProbe` directly
+when measuring an existing screen that contains one.
+
+The scores are project policy, not browser CLS or a validated perceptual scale.
+The launch checks classify supplied times and colours; they do not measure
+startup speed. Widget tests use a fake clock and do not establish device timing.
