@@ -9012,14 +9012,72 @@
   "settingsGroupPermissions": "Разрешения",
   "settingsGroupManage": "Управление",
   "settingsHealthSyncPermsOk": "Все {count} разрешений предоставлены в {store}",
+  "@settingsHealthSyncPermsOk": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "settingsHealthSyncPermsDenied": "Отклонено {denied} из {total} разрешений в {store} — нажмите, чтобы проверить",
+  "@settingsHealthSyncPermsDenied": {
+    "placeholders": {
+      "denied": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "settingsHealthRequestPermsTitle": "Управление разрешениями",
   "settingsHealthRequestPermsSub": "Открывает лист {store}, где каждый тип данных можно включить или выключить",
+  "@settingsHealthRequestPermsSub": {
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "settingsHealthOpenSystemTitle": "Открыть в настройках системы",
   "settingsHealthOpenSystemSub": "Доступ к данным {store} для этого приложения настраивается в системных настройках, раздел «Здоровье»",
+  "@settingsHealthOpenSystemSub": {
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "settingsHealthFootnote": "{store} сообщает статус записи каждого типа данных. Изменения в системных настройках учитываются при следующем открытии приложения.",
+  "@settingsHealthFootnote": {
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "settingsHealthManageStoreRowTitle": "Управление в {store}",
+  "@settingsHealthManageStoreRowTitle": {
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "settingsHealthManageStoreRowSub": "Разрешения выдаются каждому приложению в приложении {store}",
+  "@settingsHealthManageStoreRowSub": {
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "healthPermAuthorized": "Разрешено",
   "healthPermDenied": "Отклонено",
   "healthPermNotDetermined": "Не запрошено",

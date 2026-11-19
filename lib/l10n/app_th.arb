@@ -17220,14 +17220,79 @@
   "settingsGroupPermissions": "สิทธิ์",
   "settingsGroupManage": "จัดการ",
   "settingsHealthSyncPermsOk": "ได้รับสิทธิ์ทั้งหมด {count} รายการใน {store} แล้ว",
+  "@settingsHealthSyncPermsOk": {
+    "description": "Health-store settings row subtitle when every requested permission is granted",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "settingsHealthSyncPermsDenied": "ปฏิเสธ {denied} จาก {total} สิทธิ์ใน {store} — แตะเพื่อตรวจสอบ",
+  "@settingsHealthSyncPermsDenied": {
+    "description": "Health-store settings row subtitle when some permissions are denied",
+    "placeholders": {
+      "denied": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "settingsHealthRequestPermsTitle": "จัดการสิทธิ์",
   "settingsHealthRequestPermsSub": "เปิดแผ่น {store} ซึ่งสามารถเปิดหรือปิดแต่ละประเภทข้อมูลได้",
+  "@settingsHealthRequestPermsSub": {
+    "description": "Subtitle of the row that re-opens the platform grant sheet",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "settingsHealthOpenSystemTitle": "เปิดในการตั้งค่าระบบ",
   "settingsHealthOpenSystemSub": "การเข้าถึงข้อมูล {store} ของแอปนี้อยู่ในการตั้งค่าระบบ ส่วน สุขภาพ",
+  "@settingsHealthOpenSystemSub": {
+    "description": "Subtitle of the row that opens the OS settings app",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "settingsHealthFootnote": "{store} แจ้งสถานะการเขียนของข้อมูลแต่ละประเภท การเปลี่ยนแปลงในการตั้งค่าระบบจะมีผลเมื่อเปิดแอปครั้งถัดไป",
+  "@settingsHealthFootnote": {
+    "description": "Footnote on the health-store screen explaining the status read and re-check",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "settingsHealthManageStoreRowTitle": "จัดการใน {store}",
+  "@settingsHealthManageStoreRowTitle": {
+    "description": "Row that opens the platform store's own permission screen (Android)",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "settingsHealthManageStoreRowSub": "สิทธิ์จะได้รับเป็นรายแอปในแอป {store}",
+  "@settingsHealthManageStoreRowSub": {
+    "description": "Subtitle of the row that opens the platform store's own permission screen",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
   "healthPermAuthorized": "อนุญาต",
   "healthPermDenied": "ปฏิเสธ",
   "healthPermNotDetermined": "ยังไม่ได้ถาม",
