@@ -23,7 +23,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
 import 'profile.dart' show SetRow, settingsGroup;
-import 'settings.dart' show healthSyncSub, toggleHealthSync';
+import 'settings.dart' show healthSyncSub, toggleHealthSync;
 
 /// The route behind the "Apple Health" / "Health Connect" row in Settings → Data.
 class HealthStoreScreen extends StatefulWidget {
