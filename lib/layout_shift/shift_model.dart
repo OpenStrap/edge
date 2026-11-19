@@ -45,7 +45,17 @@ class ShiftRect {
   }
 }
 
-enum ElementRole { paragraph, input, control, media, decorative, other }
+/// [placeholder]: a loading stand-in (skeleton, InlineLoading) that holds the
+/// space its content will fill.
+enum ElementRole {
+  paragraph,
+  input,
+  control,
+  media,
+  decorative,
+  other,
+  placeholder
+}
 
 class ElementSnapshot {
   final String id;

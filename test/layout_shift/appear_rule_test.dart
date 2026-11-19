@@ -13,7 +13,8 @@ import '../support/shift_builders.dart';
 
 const _vp = ShiftRect(0, 0, 400, 800);
 const _card = ShiftRect(0, 0, 400, 300);
-// A 22 x 22 spinner centred where the card will go.
+// A 22 x 22 spinner centred where the card will go. It is a loading
+// indicator (InlineLoading), so it is a placeholder: the space it held is free.
 const _spinner = ShiftRect(189, 139, 22, 22);
 
 List<ShiftFinding> _appear(ShiftReport r) =>
@@ -28,7 +29,8 @@ Scenario _load(
   ElementSnapshot? content,
   List<Interaction> interactions = const [Interaction(0, 'tap')],
 }) {
-  final ph = placeholder ?? el('spinner', _spinner);
+  final ph =
+      placeholder ?? el('spinner', _spinner, role: ElementRole.placeholder);
   final ct = content ?? el('card', _card);
   return sc([
     fr(16, [ph]),
@@ -60,11 +62,48 @@ void main() {
 
   test('skeleton fill: content landing on its placeholder is free', () {
     final skeleton = _load(3000,
-        placeholder: el('skeleton', _card, role: ElementRole.decorative));
+        placeholder: el('skeleton', _card, role: ElementRole.placeholder));
     final r = score(skeleton, p);
     expect(_appear(r).where((f) => f.score > 0), isEmpty);
     // And the skeleton scores strictly better than the bare spinner.
     expect(r.total, lessThan(score(_load(3000), p).total));
+  });
+
+  group('placeholder: only a vanished placeholder covers for free', () {
+    test('ElementRole.placeholder exists', () {
+      expect(ElementRole.values, contains(ElementRole.placeholder));
+    });
+
+    // First-launch card swap: a real card is replaced in place by a different
+    // real card 3 s after the tap. Same rect, but it is a replacement, not a
+    // fill: charged as if nothing stood there.
+    // .5 x 120000 / 320000 x loadAt(3000) .8 = .15
+    for (final role in [ElementRole.other, ElementRole.paragraph]) {
+      test('a real ${role.name} card swapped in place is charged', () {
+        final s = _load(3000,
+            placeholder: el('card:welcome', _card, role: role),
+            content: el('card:today', _card));
+        final a = _appear(score(s, p));
+        expect(a, hasLength(1));
+        expect(a.single.elementId, 'card:today');
+        expect(a.single.atMs, 3000);
+        expect(a.single.score, closeTo(0.5 * 120000 / 320000 * 0.8, 1e-9));
+      });
+    }
+
+    test('a decorative element is not a placeholder either', () {
+      final s = _load(3000,
+          placeholder: el('art', _card, role: ElementRole.decorative),
+          content: el('card', _card));
+      expect(_appear(score(s, p)).single.score, greaterThan(0));
+    });
+
+    test('a placeholder replaced in place by its content stays free', () {
+      final s = _load(3000,
+          placeholder: el('skeleton:rings', _card, role: ElementRole.placeholder),
+          content: el('card:rings', _card));
+      expect(_appear(score(s, p)).where((f) => f.score > 0), isEmpty);
+    });
   });
 
   test('initial paint is free: elements in the first frame after the tap', () {

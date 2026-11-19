@@ -44,6 +44,12 @@ double _gap(ShiftRect a, ShiftRect b) {
   return sqrt(dx * dx + dy * dy);
 }
 
+ShiftSeverity _severity(double v, ShiftPolicy p) => v >= p.errorAt
+    ? ShiftSeverity.error
+    : v >= p.warnAt
+        ? ShiftSeverity.warning
+        : ShiftSeverity.none;
+
 int _channelDelta(int a, int b, int shift) =>
     (((a >> shift) & 0xFF) - ((b >> shift) & 0xFF)).abs();
 
@@ -64,11 +70,7 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
         elementId: id,
         atMs: at,
         score: v,
-        severity: v >= p.errorAt
-            ? ShiftSeverity.error
-            : v >= p.warnAt
-                ? ShiftSeverity.warning
-                : ShiftSeverity.none,
+        severity: _severity(v, p),
       );
 
   // A disabled span runs from the first disabled frame to the next enabled one.
@@ -313,8 +315,9 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
 
   // Appearing content: per interaction, an element absent in the previous
   // frame is charged for the viewport space it takes, scaled by how late it
-  // lands. Space a vanished element held (a placeholder replaced in place) is
-  // free: content landing in empty space is what a skeleton prevents. The
+  // lands. Space a vanished PLACEHOLDER held is free: content landing in
+  // empty space is what a skeleton prevents. A real card replaced in place by
+  // a different one is not a fill but a swap, so only placeholders cover. The
   // first frame at/after the interaction is the initial paint and is free.
   for (var k = 0; k < ixs.length; k++) {
     final ix = ixs[k];
@@ -327,7 +330,8 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
       final prevIds = {for (final e in s.frames[i - 1].elements) e.id};
       final nowIds = {for (final e in s.frames[i].elements) e.id};
       final vanished = s.frames[i - 1].elements
-          .where((v) => !nowIds.contains(v.id))
+          .where((v) =>
+              !nowIds.contains(v.id) && v.role == ElementRole.placeholder)
           .toList();
       for (final e in s.frames[i].elements) {
         if (prevIds.contains(e.id)) continue;
@@ -342,6 +346,80 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
         if (v > 0) out.add(finding('appear', e.id, t, v));
       }
     }
+  }
+  return ShiftReport(out);
+}
+
+/// Compares two settled layouts the user holds side by side in their head
+/// (screen A vs screen B, visit 1 vs visit 2, empty vs loaded) under rule
+/// `consistency`. See docs/LAYOUT_SHIFT.md "Layout consistency".
+///
+/// [viewport] is required because a [Frame] does not carry one, and guessing
+/// it from the elements would make the score depend on what is on screen.
+/// [only] restricts the comparison to the ids it accepts.
+ShiftReport compareLayouts(Frame a, Frame b, ShiftPolicy p,
+    {required ShiftRect viewport, bool Function(String id)? only}) {
+  final vpArea = viewport.area;
+  final vpSide = max(viewport.width, viewport.height);
+  final inA = {for (final e in a.elements) e.id: e};
+  final inB = {for (final e in b.elements) e.id: e};
+  // Filtered once through `where`: invoking the callback directly is an
+  // unresolved invocation for the heavy-work guard (test/guards).
+  final keep = only == null ? null : {...inA.keys, ...inB.keys}.where(only).toSet();
+  bool kept(String id) => keep == null || keep.contains(id);
+  final out = <ShiftFinding>[];
+  // No latency or curve: a remembered layout that differs is wrong however
+  // long the user took to come back.
+  void add(String id, double v) {
+    if (v > 0) {
+      out.add(ShiftFinding(
+          rule: 'consistency',
+          elementId: id,
+          atMs: b.atMs,
+          score: v,
+          severity: _severity(v, p)));
+    }
+  }
+
+  for (final e in b.elements) {
+    if (!kept(e.id)) continue;
+    final o = inA[e.id];
+    if (o == null) continue;
+    final d = o.rect.distanceTo(e.rect);
+    final dSize = max((o.rect.width - e.rect.width).abs(),
+        (o.rect.height - e.rect.height).abs());
+    final moved = d > p.consistencyTolerancePx;
+    final resized = dSize > p.consistencyTolerancePx;
+    if (!moved && !resized) continue;
+    var v = ((moved ? o.rect.union(e.rect).area / vpArea * d / vpSide : 0) +
+            (resized ? (o.rect.area - e.rect.area).abs() / vpArea : 0)) *
+        (p.roleWeight[e.role] ?? 1) *
+        p.consistencyWeight;
+    // The area formula makes a few px of drift on a small element worth
+    // nothing, yet that drift is exactly the polish bug users notice. Every
+    // real element gets a floor; a placeholder is meant to give way.
+    if (e.role != ElementRole.placeholder) {
+      double floor(double px) =>
+          p.consistencyMoveScore * min(1.0, px / p.consistencyRefPx);
+      v = max(v, max(moved ? floor(d) : 0, resized ? floor(dSize) : 0));
+    }
+    add(e.id, v);
+  }
+
+  // In one layout only: a card that exists in one state and not the other.
+  // Clipped to the viewport: what the user never saw, they cannot remember.
+  void oneSided(ElementSnapshot e) {
+    if (!kept(e.id)) return;
+    final seen = e.rect.intersect(viewport);
+    if (seen == null) return;
+    add(e.id, seen.area / vpArea * p.consistencyWeight);
+  }
+
+  for (final e in b.elements) {
+    if (!inA.containsKey(e.id)) oneSided(e);
+  }
+  for (final e in a.elements) {
+    if (!inB.containsKey(e.id)) oneSided(e);
   }
   return ShiftReport(out);
 }

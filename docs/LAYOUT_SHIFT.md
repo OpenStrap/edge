@@ -27,7 +27,9 @@ All times are ms since the scenario start. Rects are logical pixels.
 
 - `ShiftRect(left, top, width, height)` with `area`, `center`, `intersect`,
   `union` bounds, `distanceTo(other)` (centre to centre).
-- `ElementRole { paragraph, input, control, media, decorative, other }`.
+- `ElementRole { paragraph, input, control, media, decorative, other,
+  placeholder }`. `placeholder` is a loading stand-in (a skeleton, an
+  `InlineLoading`) that holds the space its content will fill.
 - `ElementSnapshot(id, rect, role, colorArgb, focusable, focused, enabled)`.
 - `Frame(atMs, elements)` — one painted frame.
 - `Interaction(atMs, sourceId, intentTargetId?)` — a user action. `sourceId`
@@ -58,7 +60,7 @@ Immutable, `copyWith`, three presets: `ShiftPolicy.standard`,
 | `chainRangeMs` | 75..2000 | a chain qualifies if it starts ≥75 ms… and ends ≤2000 ms after the interaction |
 | `chainCycleMs` | 200..400 | …and every span in it lasts within this range |
 | `chainDiscount` | 0.5 | multiplier on shifts during a qualifying chain |
-| `roleWeight` | paragraph 2, input 3, control 1.5, media 1, decorative .5, other 1 | |
+| `roleWeight` | paragraph 2, input 3, control 1.5, media 1, decorative .5, other 1, placeholder .5 | |
 | `colorWeight` | 0.5 | colour change counts as a shift of `area × colorDelta × colorWeight` |
 | `focusDistanceWeight` | 1.0 | `× (1 + w × d)`; d = recency-weighted normalised distance from focus history |
 | `focusHalfLifeMs` | 2000 | focus history recency decay |
@@ -75,6 +77,10 @@ Immutable, `copyWith`, three presets: `ShiftPolicy.standard`,
 | `disabledDiscount` | 0.8 | …earns this multiplier (small benefit) |
 | `controlMoveScore` | 0.1 (strict .15, lenient .06) | minimum score of a control with a hazard (source, packed sibling of source, focused or recently focused, dense) that moved a full `controlMoveRefPx` |
 | `controlMoveRefPx` | 48 (strict 40, lenient 64) | one touch target; displacement at or past it earns the full `controlMoveScore` |
+| `consistencyWeight` | 1.0 (strict 1.5, lenient .6) | multiplier on every `consistency` finding's area formula (not on its drift floor) |
+| `consistencyTolerancePx` | 1.0 | `consistency`: a move or size change up to this many px is free |
+| `consistencyMoveScore` | 0.1 (strict .15, lenient .06) | `consistency` drift floor: minimum score of a real element that moved or resized a full `consistencyRefPx` |
+| `consistencyRefPx` | 8 (strict 6, lenient 12) | drift at or past this earns the full `consistencyMoveScore` |
 | `warnAt` / `errorAt` | 0.05 / 0.25 | per-finding severity thresholds |
 | `firstPaintMaxMs` / `firstPaintMaxArgb` | 20 / 0xFF222222 | launch: first paint by 20 ms, no brighter than #222 (relative luminance) |
 | `reducedMaxAnimationMs` | 150 | reduced motion: animations ≤150 ms or none |
@@ -172,17 +178,62 @@ i-1 appears at `t` = frame i's `atMs`:
 - `visible` = the element's rect clipped to the viewport (nothing visible ⇒ no
   finding).
 - `uncovered = max(0, visible.area − Σ intersect(visible, v).area)` over the
-  elements `v` that were in frame i-1 and are gone in frame i (the placeholder
-  it replaced).
+  elements `v` with role `placeholder` that were in frame i-1 and are gone in
+  frame i (the placeholder it replaced). Only placeholders cover: a real card
+  replaced in place by a different real card (the first-launch card swap) is a
+  swap, not a fill, and is charged in full.
 - Free when `uncovered / visible.area ≤ 1 − appearCoveredFree` (at the default,
   ≥ 90% covered by a vanished placeholder).
 - score = `appearWeight × uncovered / viewportArea × loadCurve(t − interaction)`.
   At the defaults a 400 × 300 card landing at 3 s in a 400 × 800 viewport where
-  only a 22 × 22 spinner stood scores .5 × 119516 / 320000 × .8 ≈ .149
+  only a 22 × 22 spinner (a placeholder) stood scores .5 × 119516 / 320000 × .8 ≈ .149
   (warning); the same card filling a same-size skeleton scores 0.
 - Finding: rule `appear`, `elementId` = the element's id, `atMs` = `t`; it
   counts in `ShiftReport.total` alongside the `load` finding. No interactions ⇒
   no appear findings.
+
+## Layout consistency
+
+The other rules score one scenario in time. `consistency` compares two
+settled layouts the user holds side by side in their head, and charges the
+same element sitting somewhere else:
+
+```dart
+compareLayouts(Frame a, Frame b, ShiftPolicy p,
+    {required ShiftRect viewport, bool Function(String id)? only})
+```
+
+`viewport` is required: a `Frame` carries none, and guessing it from the
+elements would make the score depend on what is on screen. `only` limits the
+comparison to the ids it accepts. There is no latency or curve: a layout that
+differs from the remembered one is wrong whenever it shows up.
+
+- **In both**, with `d` = centre distance and `s` = max(|Δwidth|, |Δheight|);
+  a `d` or `s` up to `consistencyTolerancePx` is free (both free ⇒ no
+  finding):
+  `base = (union.area / vpArea × d / vpSide + |Δarea| / vpArea) × roleWeight × consistencyWeight`.
+- **Drift floor**, every role except `placeholder`:
+  `score = max(base, consistencyMoveScore × min(1, x / consistencyRefPx))`
+  with `x` = `d` for a move, `s` for a resize, the larger floor when both. Not
+  multiplied by `consistencyWeight`. The area formula alone makes a few px on
+  an avatar or a title worth nothing, and that drift is the polish bug. At
+  the defaults 4 px scores .05 (warning), 8 px or more .1.
+- **In one only**: `visible area / vpArea × consistencyWeight` (no floor) —
+  a card that exists in one state and not the other.
+- Finding: rule `consistency`, `elementId`, `atMs` = `b.atMs`; severity from
+  `warnAt` / `errorAt`.
+
+Uses:
+
+- **Cross-screen**: settled frames of two screens, `only: shared:*`. Mark a
+  thing shared on every screen with `SharedSlot('avatar', child: …)`
+  (`lib/ui2/shared_slot.dart`), which keys its child `shared:avatar`; one id
+  per shared thing.
+- **Revisit**: visit 1 vs visit 2 of one screen, all ids. Charged even if a
+  sync landed between visits: only small things (text inside a fixed box) may
+  change with the data.
+- **Empty vs loaded**: first launch with no data vs loaded, only card-level
+  ids. The same cards in the same places; what is inside them may differ.
 
 ## Launch and motion checks
 

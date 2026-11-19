@@ -43,6 +43,10 @@ class ShiftPolicy {
   final double disabledDiscount;
   final double controlMoveScore;
   final double controlMoveRefPx;
+  final double consistencyWeight;
+  final double consistencyTolerancePx;
+  final double consistencyMoveScore;
+  final double consistencyRefPx;
   final double warnAt;
   final double errorAt;
   final int firstPaintMaxMs;
@@ -85,6 +89,9 @@ class ShiftPolicy {
       ElementRole.media: 1,
       ElementRole.decorative: 0.5,
       ElementRole.other: 1,
+      // A placeholder is expected to give way; moving one matters less than
+      // moving the content it stands for.
+      ElementRole.placeholder: 0.5,
     },
     this.colorWeight = 0.5,
     this.focusDistanceWeight = 1.0,
@@ -104,6 +111,10 @@ class ShiftPolicy {
     this.disabledDiscount = 0.8,
     this.controlMoveScore = 0.1,
     this.controlMoveRefPx = 48,
+    this.consistencyWeight = 1.0,
+    this.consistencyTolerancePx = 1.0,
+    this.consistencyMoveScore = 0.1,
+    this.consistencyRefPx = 8,
     this.warnAt = 0.05,
     this.errorAt = 0.25,
     this.firstPaintMaxMs = 20,
@@ -135,6 +146,9 @@ class ShiftPolicy {
     denseShiftFloor: 0.5,
     controlMoveScore: 0.15,
     controlMoveRefPx: 40,
+    consistencyWeight: 1.5,
+    consistencyMoveScore: 0.15,
+    consistencyRefPx: 6,
     warnAt: 0.03,
     errorAt: 0.15,
   );
@@ -158,6 +172,9 @@ class ShiftPolicy {
     denseShiftFloor: 0.15,
     controlMoveScore: 0.06,
     controlMoveRefPx: 64,
+    consistencyWeight: 0.6,
+    consistencyMoveScore: 0.06,
+    consistencyRefPx: 12,
     warnAt: 0.08,
     errorAt: 0.4,
   );
@@ -214,6 +231,10 @@ class ShiftPolicy {
     double? disabledDiscount,
     double? controlMoveScore,
     double? controlMoveRefPx,
+    double? consistencyWeight,
+    double? consistencyTolerancePx,
+    double? consistencyMoveScore,
+    double? consistencyRefPx,
     double? warnAt,
     double? errorAt,
     int? firstPaintMaxMs,
@@ -256,6 +277,11 @@ class ShiftPolicy {
         disabledDiscount: disabledDiscount ?? this.disabledDiscount,
         controlMoveScore: controlMoveScore ?? this.controlMoveScore,
         controlMoveRefPx: controlMoveRefPx ?? this.controlMoveRefPx,
+        consistencyWeight: consistencyWeight ?? this.consistencyWeight,
+        consistencyTolerancePx:
+            consistencyTolerancePx ?? this.consistencyTolerancePx,
+        consistencyMoveScore: consistencyMoveScore ?? this.consistencyMoveScore,
+        consistencyRefPx: consistencyRefPx ?? this.consistencyRefPx,
         warnAt: warnAt ?? this.warnAt,
         errorAt: errorAt ?? this.errorAt,
         firstPaintMaxMs: firstPaintMaxMs ?? this.firstPaintMaxMs,
