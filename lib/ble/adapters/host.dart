@@ -683,7 +683,26 @@ class BandHost {
     } catch (e) {
       // Put the snapshot back so the next flush can retry it, same shape as
       // `DrainController.commit`'s own restore-on-failure.
+      // A second still filling while the commit awaited has a fresh slot by
+      // now: fold it in after the snapshot, never overwrite it.
       for (final (sec, slot) in batchRows) {
+        final fresh = _pending[sec];
+        if (fresh != null) {
+          if (fresh.hr != null) slot.hr = fresh.hr;
+          if (fresh.skinTempC != null) slot.skinTempC = fresh.skinTempC;
+          if (slot.beatTs.length == slot.rr.length &&
+              fresh.beatTs.length == fresh.rr.length) {
+            slot.beatTs.addAll(fresh.beatTs);
+          } else {
+            slot.beatTs.clear();
+          }
+          while (slot.gaps.length < slot.rr.length) {
+            slot.gaps.add(0);
+          }
+          slot.gaps.addAll(fresh.gaps);
+          slot.chainFrom ??= fresh.chainFrom;
+          slot.rr.addAll(fresh.rr);
+        }
         _pending[sec] = slot;
       }
       _pendingArchive.insertAll(0, archive);
