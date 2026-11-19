@@ -20,6 +20,9 @@ class PreparedDerivationDay {
   final int sleepOnsetSec;
   final int sleepOffsetSec;
   final String sleepSource;
+
+  /// Captured before staging so the cache and bundle worker use one choice.
+  final bool useHmmStages;
   final Substrate daySub;
   final Substrate sleepSub;
 
@@ -78,6 +81,7 @@ class PreparedDerivationDay {
     required this.sleepSub,
     Substrate? napSub,
     this.sleepSource = 'auto',
+    this.useHmmStages = false,
     this.tonightSleepOnsetSec = 0,
     this.tonightSleepOffsetSec = 0,
     this.tonightPending = false,
@@ -95,6 +99,7 @@ class PreparedDerivationDay {
     'sleep_onset_sec': sleepOnsetSec,
     'sleep_offset_sec': sleepOffsetSec,
     'sleep_source': sleepSource,
+    if (useHmmStages) 'use_hmm_stages': true,
     'day_sub': daySub.toJson(),
     'sleep_sub': sleepSub.toJson(),
     'nap_sub': napSub.toJson(),
@@ -124,6 +129,7 @@ class PreparedDerivationDay {
       hypnoStages: strs('hypno_stages'),
       sleepOnsetSec: (m['sleep_onset_sec'] as num?)?.toInt() ?? 0,
       sleepOffsetSec: (m['sleep_offset_sec'] as num?)?.toInt() ?? 0,
+      useHmmStages: m['use_hmm_stages'] == true,
       sleepSource: m['sleep_source'] as String? ?? 'auto',
       tonightSleepOnsetSec:
           (m['tonight_sleep_onset_sec'] as num?)?.toInt() ?? 0,
@@ -271,6 +277,7 @@ class SleepSessionCandidate {
     int tonightSleepOnsetSec = 0,
     int tonightSleepOffsetSec = 0,
     bool tonightPending = false,
+    bool useHmmStages = false,
     Map<InputSignal, List<OwnedSpan>> ownership = const {},
     Map<InputSignal, List<String>> priority = const {},
   }) => PreparedDerivationDay(
@@ -292,6 +299,7 @@ class SleepSessionCandidate {
     sleepOnsetSec: sleepOnsetSec,
     sleepOffsetSec: sleepOffsetSec,
     sleepSource: sleepSource,
+    useHmmStages: useHmmStages,
     daySub: daySub,
     napSub: napSub,
     sleepSub: sleepSub,

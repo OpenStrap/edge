@@ -1893,7 +1893,10 @@ import 'vendor_sleep.dart';
 // no window does, instead of the longest of the search window's sessions.
 // HrvFreqStream v2, CardioRowCache v3 and policy-bound PRSA states require cold
 // rebuilds of old checkpoints, isolated by this algorithm version.
-const int kAlgoVersion = 124;
+// 124 → 125: HMM nights persist the effective method and observed cardio
+// fallback seconds. Capture sleep_hmm_stages in prepared worker inputs and
+// staging cache identity; cardio payloads are unchanged (hmm_staging_provenance_test).
+const int kAlgoVersion = 125;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -4452,7 +4455,9 @@ class DerivationEngine {
     // rows, which the signature check rejects. Read after, it would attach the
     // newer revision to rows that predate it and certify a stale ceiling.
     final ceilingInput = await _ceilingInputRevision(dayId);
-    final candidate = await _sleepCandidateForDay(dayId, stats: stats, union: union);
+    final useHmmStages = await _hmmStagesOn();
+    final candidate = await _sleepCandidateForDay(dayId, stats: stats, union: union,
+        useHmmStages: useHmmStages);
     final dayStart = _localDayLabelToSec(dayId);
     final dayEnd = _localNextDayLabelToSec(dayId);
 
@@ -4569,6 +4574,7 @@ class DerivationEngine {
       sleepOffsetSec: candidate.present ? candidate.sleepOffsetSec : 0,
     );
     final prepared = candidate.toPreparedDay(
+      useHmmStages: useHmmStages,
       daySub: daySub,
       napSub: napSub,
       sleepSub: sleepSub,
@@ -4726,7 +4732,9 @@ class DerivationEngine {
     String dayId, {
     _PrepareStats? stats,
     _PrepareUnion? union,
+    bool? useHmmStages,
   }) async {
+    final hmmStages = useHmmStages ?? await _hmmStagesOn();
     // A user sleep override is the source of truth — never serve the cached auto
     // candidate, and don't cache the override result (so a later edit / clear is
     // not shadowed by a stale artifact). The auto path keeps its finalized cache.
@@ -4932,6 +4940,7 @@ class DerivationEngine {
           vendorNights: vendorNights,
           activeWearable: stagingWearable,
           prefixContext: prefixContext,
+          useHmmStages: hmmStages,
         );
         if (revisions != null && !debugDisableStagedSleepCache) stagingKey = inputKey(false);
         if (checkpointPlan != null) {
@@ -6919,7 +6928,7 @@ class DerivationEngine {
       // guess — sleep-onset latency only means what people think it means on a
       // forced window.
       sleepSource: day.sleepSource,
-      useHmmStages: await _hmmStagesOn(),
+      useHmmStages: day.useHmmStages,
     );
     final withHistory = _attachHistory(input, history);
 

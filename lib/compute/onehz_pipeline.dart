@@ -702,11 +702,35 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   // each 30 s epoch it has no heart rate or RMSSD for; a second the band did
   // not watch stays unobserved. The night's accounting is then recomputed
   // from the final labels and the night is tagged `stager_source: hmm`.
+  var stagingProvenance = const <String, Object>{};
   if (d.useHmmStages && d.hypnoStages.isNotEmpty) {
+    final observedSec = d.hypnoStages.where((s) =>
+        s == 'light' || s == 'nrem' || s == 'deep' || s == 'rem' ||
+        s == 'wake').length;
     final restaged = _hmmRestage(d);
-    if (restaged != null) {
-      d = d.withHypnoStages(restaged.labels,
-          atypical: restaged.atypicalNight, enmoMedian: restaged.enmoMedian) ?? d;
+    final replaced = restaged == null ? null : d.withHypnoStages(
+        restaged.labels, atypical: restaged.atypicalNight,
+        enmoMedian: restaged.enmoMedian);
+    if (replaced == null) {
+      stagingProvenance = {
+        'staging_method': 'hmm',
+        'staging_effective_method': 'cardio',
+        'staging_fallback': restaged == null
+            ? 'hmm_unavailable' : 'hmm_no_sleep',
+        'staging_fallback_sec': observedSec,
+      };
+    } else {
+      final fallbackSec = restaged!.fallbackSec;
+      stagingProvenance = {
+        'staging_method': 'hmm',
+        'staging_effective_method': fallbackSec == 0 ? 'hmm' :
+            fallbackSec == observedSec ? 'cardio' : 'hmm_cardio',
+        if (fallbackSec > 0) ...{
+          'staging_fallback': 'hmm_epoch_unavailable',
+          'staging_fallback_sec': fallbackSec,
+        },
+      };
+      d = replaced;
     }
   }
 
@@ -1593,6 +1617,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
     // Why this night produced nothing, when the segmenter knows. Null on a
     // normal night; never render a bare dash for an absence that carries one.
     'absence_reason': absenceReason,
+    ...stagingProvenance,
     // Present only when the experimental re-staging labelled this night (PR
     // #628), so a night of the shipped stager is stored exactly as before.
     if (d.sleepJson['stager_source'] == 'hmm') ...{
@@ -2636,7 +2661,9 @@ class HmmRestageResult {
   final List<String> labels;
   final bool atypicalNight;
   final double? enmoMedian;
-  const HmmRestageResult(this.labels, this.atypicalNight, [this.enmoMedian]);
+  final int fallbackSec;
+  const HmmRestageResult(this.labels, this.atypicalNight,
+      [this.enmoMedian, this.fallbackSec = 0]);
 }
 
 HmmRestageResult? _hmmRestage(DayBundleInput d) {
@@ -2737,7 +2764,11 @@ HmmRestageResult? _hmmRestage(DayBundleInput d) {
     }
     i = j;
   }
-  return HmmRestageResult(merged, atypical, enmoMedian);
+  var fallbackSec = 0;
+  for (var i = 0; i < n; i++) {
+    if (d.hypnoStages[i] != 'unobserved' && labels[i] == null) fallbackSec++;
+  }
+  return HmmRestageResult(merged, atypical, enmoMedian, fallbackSec);
 }
 
 /// The Viterbi decode over 30 s epochs of [epochData] (per-second records

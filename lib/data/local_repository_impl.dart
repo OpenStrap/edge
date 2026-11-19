@@ -20,6 +20,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
+import '../compute/staging_provenance.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/findings.dart' show servedReadiness;
 import '../compute/hr_max.dart';
@@ -1175,6 +1176,7 @@ class LocalRepositoryImpl extends LocalRepository {
       // Shape matches sleep_detail_screen's contract exactly.
       'has_sleep': true,
       'sleep_source': sleepSource,
+      ...stagingProvenanceOf(_sub(b, 'sleep')),
       'duration_min': (tst / 60).round(),
       'in_bed_min': spt == null ? null : (spt / 60).round(),
       'awake_min': waso == null ? null : (waso / 60).round(),

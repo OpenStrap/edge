@@ -77,6 +77,7 @@ String stagingInputKey({
   required List<VendorNight> vendorNights,
   required (String, String)? activeWearable,
   bool prefixContext = false,
+  bool useHmmStages = false,
 }) {
   // Count local midnights, including DST days, rather than dividing by 86400.
   var walked = 0;
@@ -116,6 +117,7 @@ String stagingInputKey({
   final now = DateTime.now();
   return jsonEncode([
     fromSec, toSec, prefixContext ? const [] : revisions,
+    if (useHmmStages) 'hmm',
     [for (final sig in InputSignal.values) [sig.name,
       [for (final o in ownership[sig] ?? const <OwnedSpan>[])
         [o.start, o.end, o.deviceId]], priority[sig]]],
