@@ -10,6 +10,7 @@ import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/journal_fields.dart';
 import 'package:openstrap_edge/data/nutrition_store.dart';
 import 'package:openstrap_edge/ui2/screens/day_timeline.dart';
+import 'package:openstrap_edge/ui2/screens/home_screen.dart' show clockOfTs;
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 final int _day = DateTime(2026, 8, 14).millisecondsSinceEpoch ~/ 1000;
@@ -105,6 +106,127 @@ void main() {
       });
       expect(m, hasLength(2));
       expect(m.every((x) => x.until == null), isTrue);
+    });
+
+    test('any repeated band event is one line with its count and each time',
+        () {
+      // Three restarts in a boot loop, a snoozed alarm ringing twice.
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          for (final i in [0, 3, 6]) {'event_id': 15, 'ts': _at(9, i)},
+          for (final i in [0, 9]) {'event_id': 57, 'ts': _at(7, i)},
+        ],
+      });
+      expect(m, hasLength(2));
+      final alarm = m.first, restart = m.last;
+      expect(alarm.at, _at(7));
+      expect(alarm.until, _at(7, 9));
+      expect(alarm.detail, '${clockOfTs(_at(7))}–${clockOfTs(_at(7, 9))} · 2×');
+      expect(alarm.members, [_at(7), _at(7, 9)]);
+      expect(restart.detail, '${clockOfTs(_at(9))}–${clockOfTs(_at(9, 6))} · 3×');
+      expect(restart.members, [_at(9), _at(9, 3), _at(9, 6)]);
+    });
+
+    test('a run is counted after the (id, ts) dedupe, never before', () {
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          {'event_id': 15, 'ts': _at(9)},
+          {'event_id': 15, 'ts': _at(9)},
+          {'event_id': 15, 'ts': _at(9, 4)},
+        ],
+      });
+      expect(m.single.members, [_at(9), _at(9, 4)]);
+      expect(m.single.detail, contains('2×'));
+    });
+
+    test('a lone band event is unchanged and carries no members', () {
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          {'event_id': 15, 'ts': _at(9)},
+        ],
+      });
+      expect(m.single.until, isNull);
+      expect(m.single.members, isEmpty);
+      expect(m.single.detail, isNot(contains('×')));
+    });
+
+    test('a different band event in between ends the run', () {
+      // On and off alternate: folding the ons together would put the offs in
+      // the middle of their span and misorder what happened.
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          {'event_id': 7, 'ts': _at(22)},
+          {'event_id': 8, 'ts': _at(22, 2)},
+          {'event_id': 7, 'ts': _at(22, 4)},
+          {'event_id': 8, 'ts': _at(22, 6)},
+        ],
+      });
+      expect(m, hasLength(4));
+      expect(m.every((x) => x.members.isEmpty), isTrue);
+    });
+
+    test('the gap applies to every kind: 10 minutes apart are two lines', () {
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          {'event_id': 15, 'ts': _at(9)},
+          {'event_id': 15, 'ts': _at(9, 10)},
+        ],
+      });
+      expect(m, hasLength(2));
+    });
+
+    test('sleep, sessions and naps are never folded into a run', () {
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'sessions': [
+          {'start_ts': _at(10), 'end_ts': _at(10, 5), 'type': 'run'},
+          {'start_ts': _at(10, 6), 'end_ts': _at(10, 9), 'type': 'run'},
+        ],
+        'naps': [
+          {'start': _at(10, 1), 'end': _at(10, 4), 'duration_min': 3},
+          {'start': _at(10, 5), 'end': _at(10, 8), 'duration_min': 3},
+        ],
+      });
+      expect(m, hasLength(4));
+      expect(m.every((x) => x.members.isEmpty), isTrue);
+    });
+
+    testWidgets('a run opens to each time when tapped and closes again',
+        (t) async {
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          for (final i in [0, 3, 6]) {'event_id': 15, 'ts': _at(9, i)},
+        ],
+      }).single;
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(body: SingleChildScrollView(child: MomentRow(m)))));
+      final mid = clockOfTs(_at(9, 3));
+      expect(find.text(mid), findsNothing);
+      await t.tap(find.text(m.title));
+      await t.pumpAndSettle();
+      expect(find.text(mid), findsOneWidget);
+      // The last time is only in the run's range text until the run opens.
+      expect(find.text(clockOfTs(_at(9, 6))), findsOneWidget);
+      await t.tap(find.text(m.title));
+      await t.pumpAndSettle();
+      expect(find.text(mid), findsNothing);
+    });
+
+    testWidgets('a lone event is not tappable', (t) async {
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          {'event_id': 15, 'ts': _at(9)},
+        ],
+      }).single;
+      await t.pumpWidget(MaterialApp(home: Scaffold(body: MomentRow(m))));
+      expect(find.byType(InkWell), findsNothing);
     });
 
     test('a meal with no time is never placed, and is not lost either', () {

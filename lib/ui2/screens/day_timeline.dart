@@ -63,6 +63,7 @@ class Moment {
     this.color,
     this.until,
     this.detail = '',
+    this.members = const <int>[],
   });
 
   /// Epoch seconds. The ONLY sort key — nothing on this page is ranked.
@@ -80,6 +81,11 @@ class Moment {
   /// not on. Those render in muted ink, because a colour is a claim that the
   /// row belongs to a domain and none of them do.
   final Color? color;
+
+  /// Epoch seconds of each event folded into this line, in order, when it is a
+  /// run of the same band event (see [kEventRunGapSec]); empty for anything
+  /// that stands alone. [MomentRow] opens a run to these.
+  final List<int> members;
 }
 
 /// Something that was logged for this day and carries no time of day. Kept
@@ -105,8 +111,9 @@ Map<int, (String, IconData)> _events(AppLocalizations? l) => {
   57: (l?.dayTimelineAlarmWentOff ?? 'Alarm went off', LucideIcons.alarmClock),
 };
 
-/// Double-taps closer together than this are one run on the timeline.
-const int kDoubleTapRunGapSec = 10 * 60;
+/// The same band event closer to the last one than this is one run on the
+/// timeline (double-taps, restarts, an alarm's snoozes).
+const int kEventRunGapSec = 10 * 60;
 
 /// An off-wrist gap shorter than this is a dropout, not an event in a day.
 /// Listing every one of them would bury the four that mean something under
@@ -248,43 +255,43 @@ List<Moment> dayMoments({
   // times, and a day with the charger on it should not read as four chargers.
   final seen = <String>{};
   final events = _events(l);
-  final taps = <int>[];
+  final stream = <(int, int)>[]; // (ts, event id)
   for (final e in (timeline['events'] as List?) ?? const []) {
     if (e is! Map) continue;
     final id = asInt(e['event_id']), t = asInt(e['ts']);
     final def = id == null ? null : events[id];
     if (def == null || t == null || !seen.add('$id/$t')) continue;
-    if (id == kTriathlonDoubleTapEventId) {
-      taps.add(t);
-      continue;
-    }
-    out.add(Moment(
-      at: t,
-      title: def.$1,
-      detail: clockOfTs(t),
-      icon: def.$2,
-    ));
+    stream.add((t, id!));
   }
-  // Double-taps in a run (a ball sport sets the firmware's tap detector off on
-  // every contact) are one span carrying the band's own count, not one line
-  // per tap burying the rest of the day.
-  taps.sort();
-  final tap = events[kTriathlonDoubleTapEventId]!;
-  for (var i = 0; i < taps.length;) {
+  // The same band event again and again (a ball sport sets the firmware's tap
+  // detector off on every contact; a boot loop restarts it) is one span
+  // carrying the band's own count, not one line per event burying the day.
+  // A run is consecutive events of one kind, each under [kEventRunGapSec]
+  // after the last; any other band event between ends it, so a charger that
+  // goes on and off is still told in order.
+  stream.sort((a, b) {
+    final c = a.$1.compareTo(b.$1);
+    return c != 0 ? c : a.$2.compareTo(b.$2);
+  });
+  for (var i = 0; i < stream.length;) {
+    final id = stream[i].$2;
     var j = i;
-    while (j + 1 < taps.length &&
-        taps[j + 1] - taps[j] < kDoubleTapRunGapSec) {
+    while (j + 1 < stream.length &&
+        stream[j + 1].$2 == id &&
+        stream[j + 1].$1 - stream[j].$1 < kEventRunGapSec) {
       j++;
     }
-    final n = j - i + 1;
+    final n = j - i + 1, from = stream[i].$1, to = stream[j].$1;
+    final def = events[id]!;
     out.add(Moment(
-      at: taps[i],
-      until: n > 1 ? taps[j] : null,
-      title: tap.$1,
+      at: from,
+      until: n > 1 ? to : null,
+      title: def.$1,
       detail: n > 1
-          ? '${clockOfTs(taps[i])}–${clockOfTs(taps[j])} · $n×'
-          : clockOfTs(taps[i]),
-      icon: tap.$2,
+          ? '${clockOfTs(from)}–${clockOfTs(to)} · $n×'
+          : clockOfTs(from),
+      icon: def.$2,
+      members: n > 1 ? [for (var k = i; k <= j; k++) stream[k].$1] : const [],
     ));
     i = j + 1;
   }
@@ -1368,52 +1375,97 @@ List<Widget> timelineBody(BuildContext c, TimelineData d,
 /// One line of the day. The time is the left column and everything aligns to
 /// it, because the ONE thing this page is ordered by should be the one thing
 /// you can scan.
-class MomentRow extends StatelessWidget {
+class MomentRow extends StatefulWidget {
   const MomentRow(this.m, {super.key});
   final Moment m;
 
   @override
+  State<MomentRow> createState() => _MomentRowState();
+}
+
+class _MomentRowState extends State<MomentRow> {
+  bool _open = false;
+
+  @override
   Widget build(BuildContext c) {
-    final p = P.of(c);
-    return Semantics(
-      label: '${clockOfTs(m.at)}, ${m.title}. ${m.detail}',
-      excludeSemantics: true,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: S.x3),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Scaled with the text, not fixed: the column exists so the times
-            // line up, and a hard 62 px is a clipped clock at 3.1x on exactly
-            // the phones whose owners chose 3.1x.
-            SizedBox(
-              width: MediaQuery.textScalerOf(c).scale(58),
-              child: Text(clockOfTs(m.at), style: F.n17.copyWith(color: p.ink3)),
+    final m = widget.m, p = P.of(c);
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(vertical: S.x3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Scaled with the text, not fixed: the column exists so the times
+          // line up, and a hard 62 px is a clipped clock at 3.1x on exactly
+          // the phones whose owners chose 3.1x.
+          SizedBox(
+            width: MediaQuery.textScalerOf(c).scale(58),
+            child: Text(clockOfTs(m.at), style: F.n17.copyWith(color: p.ink3)),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(m.icon,
+                size: 17, color: m.color == null ? p.ink3 : p.on(m.color!)),
+          ),
+          const SizedBox(width: S.x3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  m.title,
+                  style: F.body
+                      .copyWith(color: p.ink, fontWeight: FontWeight.w600),
+                ),
+                if (m.detail.isNotEmpty)
+                  Text(m.detail,
+                      style: F.cap.copyWith(color: p.ink2, height: 1.4)),
+              ],
             ),
+          ),
+          if (m.members.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: Icon(m.icon,
-                  size: 17, color: m.color == null ? p.ink3 : p.on(m.color!)),
+              child: Icon(
+                  _open ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                  size: 17,
+                  color: p.ink3),
             ),
-            const SizedBox(width: S.x3),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    m.title,
-                    style: F.body
-                        .copyWith(color: p.ink, fontWeight: FontWeight.w600),
-                  ),
-                  if (m.detail.isNotEmpty)
-                    Text(m.detail,
-                        style: F.cap.copyWith(color: p.ink2, height: 1.4)),
-                ],
-              ),
-            ),
-          ],
-        ),
+        ],
       ),
+    );
+    final label = '${clockOfTs(m.at)}, ${m.title}. ${m.detail}';
+    // A lone event is exactly the line it always was; only a run opens.
+    if (m.members.isEmpty) {
+      return Semantics(label: label, excludeSemantics: true, child: row);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Semantics(
+          label: label,
+          button: true,
+          expanded: _open,
+          excludeSemantics: true,
+          child: InkWell(
+            onTap: () => setState(() => _open = !_open),
+            child: row,
+          ),
+        ),
+        if (_open)
+          Padding(
+            padding: EdgeInsets.only(
+                left: MediaQuery.textScalerOf(c).scale(58),
+                bottom: S.x3),
+            child: Wrap(
+              spacing: S.x4,
+              runSpacing: S.x1,
+              children: [
+                for (final t in m.members)
+                  Text(clockOfTs(t), style: F.n17.copyWith(color: p.ink2)),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
