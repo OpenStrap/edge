@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,11 +8,15 @@ import 'package:openstrap_edge/compute/onehz_pipeline.dart';
 import 'package:openstrap_edge/compute/staging_provenance.dart';
 
 import 'support/hmm_night_fixture.dart';
+import 'support/ed2a_recalc_fixture.dart' show edSetZone;
 
 void main() {
   // why: the upstream cardio result must remain byte-identical after this port.
   // # catches: unconditional HMM provenance on flag-off nights.
   test('cardio payload remains byte-identical to 756 and has no HMM keys', () {
+    // The full payload includes local clock fields; its baseline is UTC.
+    edSetZone('UTC');
+    addTearDown(() => edSetZone(Platform.environment['TZ'] ?? 'UTC'));
     final off = hmmNight(enabled: false);
     final implicit = {...off}..remove('use_hmm_stages');
     final stored = jsonEncode(deriveDayBundle(off));
