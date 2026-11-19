@@ -811,6 +811,7 @@ class AppState extends ChangeNotifier {
       await refreshActivityReviews();
       await _derive.finalizeImport(_profile);
       await LocalDb.refreshComputeFreshness();
+      _bandUntimedArchive = await LocalDb.hasGateDroppedArchive();
     } catch (e) {
       importRollupError = '$e';
     }
@@ -2020,6 +2021,10 @@ class AppState extends ChangeNotifier {
       onArchiveRecord: (raw) async {
         if (_resetting || _replacingBand) return; // candidate is not the primary yet
         await LocalDb.archiveRawRecord(raw);
+        if (raw.reason == kGateDroppedReason && !_bandUntimedArchive) {
+          _bandUntimedArchive = true;
+          notifyListeners();
+        }
       },
       cursorReader: (base) =>
           LocalDb.getCursorInt(LocalDb.cursorKeyFor(base, LocalDb.kPrimaryDeviceId)),
@@ -3161,7 +3166,9 @@ class AppState extends ChangeNotifier {
       if (recTsHw != null && recTsHw > (_lastRecTs ?? 0)) {
         _lastRecTs = recTsHw;
       }
-      _bandUntimedArchive = await LocalDb.hasGateDroppedArchive();
+      try {
+        _bandUntimedArchive = await LocalDb.hasGateDroppedArchive();
+      } catch (_) {} // display-only; never block the derive below
       notifyListeners();
       _deriveScheduler.markStoredData();
       // A sync that just stored last night's data is exactly when the morning
@@ -6418,7 +6425,8 @@ class AppState extends ChangeNotifier {
   /// shapes: a sub-floor `rec_ts_hw` left by older builds, or (today) records
   /// the gate archived without ever moving the frontier.
   bool get bandRecordTimeUnknown =>
-      recordTimestampUntrusted(recordFrontierTs) || _bandUntimedArchive;
+      lastRecordAt == null &&
+      (recordTimestampUntrusted(recordFrontierTs) || _bandUntimedArchive);
 
   /// A derive job is running RIGHT NOW — the backlog just landed and the
   /// pipeline is computing what it means. Surfaced so a screen sitting on

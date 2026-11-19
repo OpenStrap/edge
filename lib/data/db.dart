@@ -4806,7 +4806,7 @@ class LocalDb {
   static Future<bool> hasGateDroppedArchive() async {
     final db = await instance;
     final rows = await db.rawQuery(
-      'SELECT 1 FROM $rawArchiveTable WHERE reason = ? AND device_id = ? '
+      'SELECT 1 FROM $rawArchiveView WHERE reason = ? AND device_id = ? '
       'LIMIT 1',
       [kGateDroppedReason, kPrimaryDeviceId],
     );
