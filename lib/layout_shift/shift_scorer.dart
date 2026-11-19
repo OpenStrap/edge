@@ -274,7 +274,8 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
       final o = before[e.id];
       if (o != null && e.rect.area <= o.rect.area) continue;
       for (final f in frame.elements) {
-        if (!f.focusable || f.id == e.id || f.rect.area <= 0) continue;
+        if (!f.focusable || f.id == e.id || f.rect.area <= 0 ||
+            f.ancestorIds.contains(e.id)) { continue; }
         double frac(ShiftRect r) => (r.intersect(f.rect)?.area ?? 0) / f.rect.area;
         final fraction = frac(e.rect);
         if (fraction < p.coverMinFraction ||
@@ -405,8 +406,6 @@ ShiftReport compareLayouts(Frame a, Frame b, ShiftPolicy p,
   final vpSide = max(viewport.width, viewport.height);
   final inA = {for (final e in a.elements) e.id: e};
   final inB = {for (final e in b.elements) e.id: e};
-  // Filtered once through `where`: invoking the callback directly is an
-  // unresolved invocation for the heavy-work guard (test/guards).
   final keep = only == null ? null : {...inA.keys, ...inB.keys}.where(only).toSet();
   bool kept(String id) => keep == null || keep.contains(id);
   final out = <ShiftFinding>[];

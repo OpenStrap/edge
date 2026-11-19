@@ -168,6 +168,16 @@ void main() {
             el('toast', _a),
           ]),
         ], interactions: _ix);
+    // WHY: an expanding card contains its own button; containment is not an overlay.
+    test('a growing ancestor does not cover its own focusable child', () {
+      final s = sc([
+        fr(0, [const ElementSnapshot(id: 'card', rect: ShiftRect(0,0,50,10)),
+          const ElementSnapshot(id: 'button', rect: _a, focusable: true, ancestorIds: ['card'])]),
+        fr(2500, [const ElementSnapshot(id: 'card', rect: _a),
+          const ElementSnapshot(id: 'button', rect: _a, focusable: true, ancestorIds: ['card'])]),
+      ], interactions: const [Interaction(0, 'open')]);
+      expect(covers(s), 0);
+    });
     test('covering the source: 1 * 1 * .5 = .5', () {
       expect(covers(cover(source: true)), closeTo(0.5, 1e-9));
     });

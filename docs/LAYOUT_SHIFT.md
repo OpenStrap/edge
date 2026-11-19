@@ -1,6 +1,6 @@
 # Layout shift budget (design note)
 
-Owner request 2026-10-17. A tunable layout-shift scorer for `lib/ui2`, the
+A tunable layout-shift scorer for `lib/ui2`, the
 Flutter counterpart of the web's Cumulative Layout Shift (CLS) with extra
 rules for focus, controls, colour, motion and launch brightness.
 
@@ -15,11 +15,7 @@ impact fraction × distance fraction) and the rest is ours:
 - `lib/layout_shift/` — pure Dart, no Flutter import. Policy, model, scorer,
   launch and motion checks. Deterministic: every time is an explicit
   millisecond offset; nothing reads a clock.
-- `test/support/layout_shift_probe.dart` — widget-test probe that snapshots the
-  render tree each pumped frame into the model, so a widget test can score a
-  real screen and fail on `error` findings.
-- `test/layout_shift/` — scorer law/example tests, probe tests, and a guard
-  that the native launch backgrounds stay dark.
+- `test/layout_shift/` — scorer laws and hand-built example fixtures.
 
 ## Model (`lib/layout_shift/shift_model.dart`)
 
@@ -29,7 +25,7 @@ All times are ms since the scenario start. Rects are logical pixels.
   `union` bounds, `distanceTo(other)` (centre to centre).
 - `ElementRole { paragraph, input, control, media, decorative, other,
   placeholder }`. `placeholder` is a loading stand-in (a skeleton, an
-  `InlineLoading`) that holds the space its content will fill.
+  loading widget) that holds the space its content will fill.
 - `ElementSnapshot(id, rect, role, colorArgb, focusable, focused, enabled)`.
 - `Frame(atMs, elements)` — one painted frame.
 - `Interaction(atMs, sourceId, intentTargetId?)` — a user action. `sourceId`
@@ -240,10 +236,9 @@ differs from the remembered one is wrong whenever it shows up.
 
 Uses:
 
-- **Cross-screen**: settled frames of two screens, `only: shared:*`. Mark a
-  thing shared on every screen with `SharedSlot('avatar', child: …)`
-  (`lib/ui2/shared_slot.dart`), which keys its child `shared:avatar`; one id
-  per shared thing.
+- **Cross-screen**: settled frames of two screens, `only: shared:*`. Give
+  matching elements a `ValueKey<String>` such as `shared:avatar`, and capture
+  each element's geometry under that id.
 - **Revisit**: visit 1 vs visit 2 of one screen, all ids. Charged even if a
   sync landed between visits: only small things (text inside a fixed box) may
   change with the data.
@@ -253,9 +248,8 @@ Uses:
 ## Launch and motion checks
 
 - `checkFirstPaint(atMs, argb, policy)` — error if later than `firstPaintMaxMs`
-  or brighter than `firstPaintMaxArgb`. Native launch windows (Android
-  `launch_background`, iOS `LaunchBackground` colour set) are the first paint,
-  in BOTH light and dark mode; a guard test parses them.
+  or brighter than `firstPaintMaxArgb`. The caller supplies the paint time and colour; this function does not
+  measure a device launch.
 - `checkReducedMotion(animations, policy)` — error per span longer than
   `reducedMaxAnimationMs` unless it belongs to a chain whose cycles sit in
   `reducedChainCycleMs`.
@@ -265,24 +259,6 @@ Uses:
 - A static analyzer rule for risky widget combinations. Needs an analyzer
   plugin (`custom_lint`) and a catalogue built from probe findings first.
 - Device-level timing: the probe sees pumped frames in a test, not real
-  vsync. First-paint timing on device is checked by the launch colour guard
-  (the native window paints before Dart runs), not measured.
+  vsync. Native launch colours and device timing need separate checks; neither is
+  measured by the pure scorer.
 
-## Measured screens (Phase 17)
-
-`test/layout_shift/screens/` measures Home, Health, Readiness detail (open and
-the refresh landing after the stored-row paint), Wellness, a route push, and a
-scrolled Home reload. No error-level shifts, so there are no Known findings.
-Warnings seen (fake pumps, standard policy): Health refresh landing, 2
-warnings (top: a card column at 500 ms, 0.06); Readiness refresh landing, 9
-warnings (top: a control at 500 ms, 0.16 - the "building" block gives way to
-the chart key and breakdown). Phase 18 fixed both: Readiness detail and Health (Last night) hold the landed
-layout while the refresh is pending (ring box with a dash, dash rows, no tail
-until it lands), and both refresh-landing tests now assert no shift finding.
-Route pushes use `ShiftProbe(skipCoveredRoutes:
-true)`: the covered page is not scored, because its slide is the framework's
-transition.
-
-## Known findings
-
-None.
