@@ -17321,5 +17321,20 @@
         "type": "String"
       }
     }
+  },
+  "settingsHealthSyncPermsUnknown": "อ่านสถานะสิทธิ์จาก {store} ไม่ได้ — {unknown} ใน {total} รายการไม่ทราบ",
+  "@settingsHealthSyncPermsUnknown": {
+    "description": "Health-store settings row subtitle when the permission status could not be read at all",
+    "placeholders": {
+      "unknown": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
   }
 }

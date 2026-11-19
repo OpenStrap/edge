@@ -4009,5 +4009,6 @@
   "healthTypeSteps": "步数",
   "healthTypeWorkout": "锻炼",
   "healthTypeWeight": "体重",
-  "settingsHealthSyncPermsPartial": "{store} 的 {total} 项权限已授予 {granted} 项 — 还有一些未决定"
+  "settingsHealthSyncPermsPartial": "{store} 的 {total} 项权限已授予 {granted} 项 — 还有一些未决定",
+  "settingsHealthSyncPermsUnknown": "无法从 {store} 读取权限状态 — {total} 项中有 {unknown} 项未知"
 }

@@ -4009,5 +4009,6 @@
   "healthTypeSteps": "Schritte",
   "healthTypeWorkout": "Trainings",
   "healthTypeWeight": "Gewicht",
-  "settingsHealthSyncPermsPartial": "{granted} von {total} Berechtigungen in {store} erteilt — einige noch nicht entschieden"
+  "settingsHealthSyncPermsPartial": "{granted} von {total} Berechtigungen in {store} erteilt — einige noch nicht entschieden",
+  "settingsHealthSyncPermsUnknown": "Berechtigungsstatus konnte nicht aus {store} gelesen werden — {unknown} von {total} Typen unbekannt"
 }

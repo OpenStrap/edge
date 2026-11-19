@@ -18119,5 +18119,7 @@
   "healthTypeWeight": "Weight",
   "@healthTypeWeight": {"description": "Permission row label: weight"},
   "settingsHealthSyncPermsPartial": "{granted} of {total} permissions granted in {store} — some not decided yet",
-  "@settingsHealthSyncPermsPartial": {"description": "Health-store settings row subtitle when only some permissions are granted and none denied", "placeholders": {"granted": {"type": "int"}, "total": {"type": "int"}, "store": {"type": "String"}}}
+  "@settingsHealthSyncPermsPartial": {"description": "Health-store settings row subtitle when only some permissions are granted and none denied", "placeholders": {"granted": {"type": "int"}, "total": {"type": "int"}, "store": {"type": "String"}}},
+  "settingsHealthSyncPermsUnknown": "Permission status could not be read from {store} — {unknown} of {total} types unknown",
+  "@settingsHealthSyncPermsUnknown": {"description": "Health-store settings row subtitle when the permission status could not be read at all", "placeholders": {"unknown": {"type": "int"}, "total": {"type": "int"}, "store": {"type": "String"}}}
 }

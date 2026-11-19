@@ -9105,5 +9105,19 @@
         "type": "String"
       }
     }
+  },
+  "settingsHealthSyncPermsUnknown": "Не удалось прочитать статус разрешений из {store} — {unknown} из {total} типов неизвестны",
+  "@settingsHealthSyncPermsUnknown": {
+    "placeholders": {
+      "unknown": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
   }
 }

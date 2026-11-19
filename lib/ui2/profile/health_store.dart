@@ -128,14 +128,15 @@ class _HealthStoreScreenState extends State<HealthStoreScreen>
                           sub: l?.settingsHealthOpenSystemSub(store) ??
                               'Existing choices change in iOS Settings under Health → Data Access & Devices → this app',
                           onTap: () async {
-                        // x-apple-health:// opens the Health app; if the
-                        // scheme is unavailable, fall back to this app's own
-                        // Settings page.
-                        final health = Uri.parse('x-apple-health://');
-                        if (await canLaunchUrl(health)) {
-                          await launchUrl(health,
+                        // x-apple-health:// opens the Health app (declared in
+                        // Info.plist's LSApplicationQueriesSchemes). Launch
+                        // directly and fall back to this app's own Settings
+                        // page only if the launch actually fails —
+                        // canLaunchUrl alone is not reliable for it.
+                        try {
+                          await launchUrl(Uri.parse('x-apple-health://'),
                               mode: LaunchMode.externalApplication);
-                        } else {
+                        } catch (_) {
                           await launchUrl(Uri.parse('app-settings:'),
                               mode: LaunchMode.externalApplication);
                         }

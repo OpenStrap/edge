@@ -23,7 +23,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../compute/profile.dart'
     show plausibleAgeYears, plausibleHeightCm, plausibleWeightKg;
 import '../../data/off_lookup.dart';
-import '../../health/health_export.dart' show HealthLinkState;
+import '../../health/health_export.dart' show HealthExporter, HealthLinkState;
 import '../../health/health_import_state.dart';
 import '../../health/health_permission_status.dart'
     show HealthPermissionSummary, HealthWriteAuth;
@@ -442,10 +442,17 @@ String healthStoreSub(BuildContext c, bool on, HealthLinkState state,
     return l?.settingsHealthSyncPermsOk(s.total, store) ??
         'All ${s.total} permissions granted in $store';
   }
-  // Unresolved (not asked / unreadable) is NOT healthy: check() only answers
-  // store availability, so without this branch the row would claim writes are
-  // happening while their permission status is unresolved.
-  if (s.total > 0) {
+  // Permission counts are only meaningful on Apple, where the status read is
+  // native. On Android the read is all-unknown by design, so fall through to
+  // the availability copy (notInstalled / needsUpdate / ready) instead of
+  // printing misleading counts.
+  if (HealthExporter.isApple && s.total > 0) {
+    // Unreadable is NOT "not decided": unknown means the store did not answer.
+    if (s.unknown > 0) {
+      return l?.settingsHealthSyncPermsUnknown(s.unknown, s.total, store) ??
+          'Permission status could not be read from $store — ${s.unknown} of ${s.total} types unknown';
+    }
+    // Only notDetermined remains here — "not decided yet" is accurate for it.
     return l?.settingsHealthSyncPermsPartial(s.authorized, s.total, store) ??
         '${s.authorized} of ${s.total} permissions granted in $store — some not decided yet';
   }

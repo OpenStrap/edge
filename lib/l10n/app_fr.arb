@@ -4009,5 +4009,6 @@
   "healthTypeSteps": "Pas",
   "healthTypeWorkout": "Séances",
   "healthTypeWeight": "Poids",
-  "settingsHealthSyncPermsPartial": "{granted} autorisation(s) sur {total} accordée(s) dans {store} — certaines pas encore décidées"
+  "settingsHealthSyncPermsPartial": "{granted} autorisation(s) sur {total} accordée(s) dans {store} — certaines pas encore décidées",
+  "settingsHealthSyncPermsUnknown": "Impossible de lire l'état des autorisations depuis {store} — {unknown} type(s) sur {total} sont inconnus"
 }
