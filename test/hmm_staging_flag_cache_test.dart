@@ -50,6 +50,18 @@ void main() {
       {'date': '2019-01-01', 'sentinel': 42});
   });
 
+  // why: imported substrate uses a separate preparation path into the same worker.
+  // # catches: defaulting imports to cardio after moving the flag into prepared input.
+  test('imported days carry the enabled flag into the bundle worker', () async {
+    await (await SharedPreferences.getInstance()).setBool(kSleepHmmStagesPref, true);
+    final choices = <Object?>[];
+    final e = DerivationEngine()..debugOnNightBundle = (input, _) {
+      choices.add(input['use_hmm_stages']);
+    };
+    expect(await e.deriveImportedDays(edSmallSub(count: 120), edProfile, {edDay}), 1);
+    expect(choices, [true]);
+  });
+
   // why: HMM worker inputs and cached candidates must agree on one flag value.
   // # catches: reading the flag only after preparation or omitting it from the key.
   test('toggle invalidates requested nights once and preserves unrelated cache hits', () async {

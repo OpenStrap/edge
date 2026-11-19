@@ -64,6 +64,24 @@ void main() {
     expect(sleep['staging_fallback_sec'], 60);
   });
 
+  // why: an HMM abstention can retain a paired device's own labels.
+  // # catches: reporting every retained label as cardio regardless of source.
+  test('fallback retains the vendor method in provenance', () {
+    final input = hmmNight(rr: false)..['sleep_source'] = 'vendor_staged';
+    final sleep = deriveDayBundle(input)['sleep'] as Map;
+    expect(sleep['staging_effective_method'], 'vendor_staged');
+    expect(sleep['staging_fallback_sec'], 360);
+  });
+
+  // why: mixed staging must name the method supplying the fallback labels.
+  // # catches: labelling a mixed vendor/HMM night as hmm_cardio.
+  test('partial vendor fallback names both methods', () {
+    final input = hmmNight(gap: true)..['sleep_source'] = 'vendor_staged';
+    final sleep = deriveDayBundle(input)['sleep'] as Map;
+    expect(sleep['staging_effective_method'], 'hmm_vendor_staged');
+    expect(sleep['staging_fallback_sec'], 60);
+  });
+
   // why: a successful recalculation cannot inherit an earlier fallback.
   // # catches: forwarding stale fallback keys from the incoming sleep map.
   test('successful HMM clears stale fallback metadata', () {
