@@ -24,7 +24,7 @@ All times are ms since the scenario start. Rects are logical pixels.
 - `ShiftRect(left, top, width, height)` with `area`, `center`, `intersect`,
   `union` bounds, `distanceTo(other)` (centre to centre).
 - `ElementRole { paragraph, input, control, media, decorative, other,
-  placeholder }`. `placeholder` is a loading stand-in (a skeleton, an
+  placeholder }`. `placeholder` is a loading stand-in (a skeleton, a
   loading widget) that holds the space its content will fill.
 - `ElementSnapshot(id, rect, role, colorArgb, focusable, focused, enabled)`.
 - `Frame(atMs, elements)` — one painted frame.

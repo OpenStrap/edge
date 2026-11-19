@@ -56,7 +56,7 @@ class ShiftRect {
   }
 }
 
-/// [placeholder]: a loading stand-in (skeleton, InlineLoading) that holds the
+/// [placeholder]: a loading stand-in (skeleton, loading indicator) that holds the
 /// space its content will fill.
 enum ElementRole {
   paragraph,
