@@ -495,6 +495,8 @@ class AppState extends ChangeNotifier {
 
   int? get _lastRecTs => _sync.lastRecTs;
   set _lastRecTs(int? value) => _sync.lastRecTs = value;
+  // Mirror of LocalDb.hasGateDroppedArchive, read at boot and on every store.
+  bool _bandUntimedArchive = false;
   bool get _background => _sync.background;
   set _background(bool value) => _sync.background = value;
   bool get busy => _sync.busy;
@@ -1715,6 +1717,7 @@ class AppState extends ChangeNotifier {
       // deleted install's "Synced through …" — and no amount of syncing the new
       // band could pull the label back to the truth.
       _lastRecTs = null;
+      _bandUntimedArchive = false;
       lastSynced = null;
 
       // signOut() unpairs, so by the time it returns nothing is delivering.
@@ -3158,6 +3161,7 @@ class AppState extends ChangeNotifier {
       if (recTsHw != null && recTsHw > (_lastRecTs ?? 0)) {
         _lastRecTs = recTsHw;
       }
+      _bandUntimedArchive = await LocalDb.hasGateDroppedArchive();
       notifyListeners();
       _deriveScheduler.markStoredData();
       // A sync that just stored last night's data is exactly when the morning
@@ -3281,6 +3285,7 @@ class AppState extends ChangeNotifier {
     // or not, so it's the honest frontier (same one RecordGate/backfill
     // policies already trust).
     _lastRecTs = await LocalDb.getRecordFrontier() ?? lastSynced?.tsEpoch;
+    _bandUntimedArchive = await LocalDb.hasGateDroppedArchive();
     await LocalDb.refreshComputeFreshness();
     final alarmPrefs = await SharedPreferences.getInstance();
     _savedAlarm = persistedAlarmEpoch(alarmPrefs, paired?.remoteId);
@@ -6409,8 +6414,11 @@ class AppState extends ChangeNotifier {
   int? get recordFrontierTs => _sync.lastRecTs;
 
   /// Records were banked but their timestamp is unusable (a never-set strap
-  /// RTC), so "last data" is neither a date nor "nothing banked yet".
-  bool get bandRecordTimeUnknown => recordTimestampUntrusted(recordFrontierTs);
+  /// RTC), so "last data" is neither a date nor "nothing banked yet". Two
+  /// shapes: a sub-floor `rec_ts_hw` left by older builds, or (today) records
+  /// the gate archived without ever moving the frontier.
+  bool get bandRecordTimeUnknown =>
+      recordTimestampUntrusted(recordFrontierTs) || _bandUntimedArchive;
 
   /// A derive job is running RIGHT NOW — the backlog just landed and the
   /// pipeline is computing what it means. Surfaced so a screen sitting on

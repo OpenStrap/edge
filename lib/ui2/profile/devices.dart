@@ -2632,18 +2632,10 @@ class DeviceDetailView extends StatelessWidget {
                       ],
                       SetRow(LucideIcons.refreshCw, C.purple,
                           l?.devicesLastData ?? 'Last data',
-                          value: last != null
-                              ? formatDayTime(last, l)
-                              : s.timeUnknown
-                                  ? (l?.devicesTimeUnknown ?? 'Time unknown')
-                                  : '',
-                          sub: last != null
-                              ? ''
-                              : s.timeUnknown
-                                  ? (l?.devicesClockNotSetSub ??
-                                      'The strap recorded data but its clock is not set')
-                                  : (l?.devicesNothingBankedYet ??
-                                      'Nothing banked yet'),
+                          value: last == null ? '' : formatDayTime(last, l),
+                          sub: last == null
+                              ? (l?.devicesNothingBankedYet ?? 'Nothing banked yet')
+                              : '',
                           chevron: false),
                       // A wearable with a column in the metric x device
                       // table: what we measure from it, and its own values.
