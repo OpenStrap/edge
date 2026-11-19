@@ -31,6 +31,7 @@ import '../data/db.dart';
 import '../data/series_codec.dart';
 import 'health_heart_rate_batch.dart';
 import 'health_nap_export.dart';
+import 'health_permission_status.dart';
 import 'health_sleep_session.dart';
 import 'health_weight_export.dart';
 
@@ -479,6 +480,7 @@ class HealthExporter {
     writer: MethodChannelHealthKitSleepSessionWriter(),
   );
   final HealthConnectHeartRateWriter _androidHeartRate;
+  final HealthAuthReader _authReader;
   bool _configured = false;
 
   /// Upper bound on one plugin `delete()`. HealthKit's delete runs a sample
@@ -548,11 +550,13 @@ class HealthExporter {
 
   HealthExporter({
     HealthConnectHeartRateWriter? androidHeartRate,
+    HealthAuthReader? authReader,
     @visibleForTesting Duration deleteTimeout = const Duration(seconds: 30),
     @visibleForTesting bool? isApple,
   }) : _isAppleOverride = isApple,
        _androidHeartRate =
            androidHeartRate ?? MethodChannelHealthConnectHeartRateWriter(),
+       _authReader = authReader ?? MethodChannelHealthAuthReader(),
        _deleteTimeout = deleteTimeout;
 
   /// The process-wide exporter. `AppState` holds this one, and so does every
@@ -645,6 +649,26 @@ class HealthExporter {
 
   /// Display name of the platform health store.
   static String get storeName => isApple ? 'Apple Health' : 'Health Connect';
+
+  /// The authorization scope, in request order — what the settings screen
+  /// lists as permission rows.
+  List<HealthDataType> get requestedHealthTypes => _types;
+
+  /// Per-type WRITE authorization as the store reports it, keyed by
+  /// [HealthPermType.key]. Apple: read over the native `openstrap/health_auth`
+  /// channel, because HealthKit answers `authorizationStatus` for the share
+  /// side (only read denial is withheld) and the plugin cannot see write auth.
+  /// Android: all `unknown` — Health Connect's hasPermissions(WRITE) is
+  /// unreliable (see the gate comment above), so the UI sends the user to
+  /// Health Connect's own permission screen instead of showing a possibly
+  /// wrong list. Never throws; unreadable stays `unknown`.
+  Future<Map<String, HealthWriteAuth>> permissionStatuses() async {
+    final keys = [for (final t in healthPermTypesFor(_types)) t.key];
+    if (!_apple || keys.isEmpty) {
+      return {for (final k in keys) k: HealthWriteAuth.unknown};
+    }
+    return _authReader.read(keys);
+  }
 
   /// HealthKit only stores SDNN; Health Connect stores RMSSD — write whichever
   /// the platform supports (both are real, from cleaned RR).

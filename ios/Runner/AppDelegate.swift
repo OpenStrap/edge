@@ -113,6 +113,10 @@ import CoreMotion
     if let registrar = registry.registrar(forPlugin: "HealthKitSleepWriter") {
       HealthKitSleepWriter.register(messenger: registrar.messenger())
     }
+    // Per-type WRITE authorization status → Dart. See HealthAuthBridge.swift.
+    if let registrar = registry.registrar(forPlugin: "HealthAuthBridge") {
+      HealthAuthBridge.register(messenger: registrar.messenger())
+    }
     if let registrar = registry.registrar(forPlugin: "ShortcutSyncBridge") {
       ShortcutSyncBridge.shared.attach(messenger: registrar.messenger())
     }
