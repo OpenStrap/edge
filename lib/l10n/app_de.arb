@@ -3991,7 +3991,7 @@
   "settingsHealthRequestPermsTitle": "Berechtigungen anfragen",
   "settingsHealthRequestPermsSub": "Fragt {store} nach den noch nicht entschiedenen Typen — HealthKit zeigt sein Blatt nur dafür; bestehende Auswahl änderst du unter Einstellungen → Health → Datenzugriff & Geräte",
   "settingsHealthOpenSystemTitle": "Health-App öffnen",
-  "settingsHealthOpenSystemSub": "Bestehende Auswahl änderst du in den iOS-Einstellungen unter Health → Datenzugriff & Geräte → diese App",
+  "settingsHealthOpenSystemSub": "Bestehende Auswahl für {store} änderst du in den iOS-Einstellungen unter Health → Datenzugriff & Geräte → diese App",
   "settingsHealthFootnote": "{store} meldet den Schreibstatus jedes Datentyps. Der Status wird bei jedem Öffnen der App neu gelesen; Änderungen in den Systemeinstellungen erscheinen dann dort.",
   "settingsHealthManageStoreRowTitle": "In {store} verwalten",
   "settingsHealthManageStoreRowSub": "Berechtigungen werden pro App in der {store}-App erteilt",

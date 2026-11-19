@@ -3991,7 +3991,7 @@
   "settingsHealthRequestPermsTitle": "Solicitar permisos",
   "settingsHealthRequestPermsSub": "Pide a {store} los tipos aún no decididos: su hoja solo aparece para esos. Para cambiar una elección existente: Ajustes → Salud → Acceso a datos y dispositivos",
   "settingsHealthOpenSystemTitle": "Abrir la app Salud",
-  "settingsHealthOpenSystemSub": "Las elecciones existentes se cambian en Ajustes de iOS → Salud → Acceso a datos y dispositivos → esta app",
+  "settingsHealthOpenSystemSub": "Las elecciones existentes de {store} se cambian en Ajustes de iOS → Salud → Acceso a datos y dispositivos → esta app",
   "settingsHealthFootnote": "{store} informa del estado de escritura de cada tipo de dato. El estado se relee cada vez que se abre la app; los cambios hechos en los ajustes del sistema aparecen ahí.",
   "settingsHealthManageStoreRowTitle": "Gestionar en {store}",
   "settingsHealthManageStoreRowSub": "Los permisos se conceden por app en la app {store}",

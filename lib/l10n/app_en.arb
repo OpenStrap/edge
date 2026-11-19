@@ -18082,7 +18082,7 @@
   "@settingsHealthRequestPermsSub": {"description": "Subtitle of the row that re-opens the platform grant sheet", "placeholders": {"store": {"type": "String"}}},
   "settingsHealthOpenSystemTitle": "Open Health app",
   "@settingsHealthOpenSystemTitle": {"description": "Row that opens the OS settings app"},
-  "settingsHealthOpenSystemSub": "Existing choices change in iOS Settings under Health → Data Access & Devices → this app",
+  "settingsHealthOpenSystemSub": "Existing choices for {store} change in iOS Settings under Health → Data Access & Devices → this app",
   "@settingsHealthOpenSystemSub": {"description": "Subtitle of the row that opens the OS settings app", "placeholders": {"store": {"type": "String"}}},
   "settingsHealthFootnote": "{store} reports the write status of each data type. The status is re-read every time the app is opened; changes made in the system settings appear there.",
   "@settingsHealthFootnote": {"description": "Footnote on the health-store screen explaining the status read and re-check", "placeholders": {"store": {"type": "String"}}},

@@ -3991,7 +3991,7 @@
   "settingsHealthRequestPermsTitle": "请求权限",
   "settingsHealthRequestPermsSub": "向 {store} 申请尚未决定的类型 — HealthKit 的申请表只会为这些类型弹出；要更改已有选择，请前往系统设置 → 健康 → 数据访问权限与设备",
   "settingsHealthOpenSystemTitle": "打开「健康」App",
-  "settingsHealthOpenSystemSub": "已有选择请在系统设置 → 健康 → 数据访问权限与设备 → 此 App 中更改",
+  "settingsHealthOpenSystemSub": "{store} 的已有选择请在系统设置 → 健康 → 数据访问权限与设备 → 此 App 中更改",
   "settingsHealthFootnote": "{store} 会报告每种数据类型的写入状态。每次打开 App 时都会重新读取该状态；在系统设置中做的更改会显示在那里。",
   "settingsHealthManageStoreRowTitle": "在 {store} 中管理",
   "settingsHealthManageStoreRowSub": "权限在 {store} 应用中按 App 逐一授予",

@@ -3991,7 +3991,7 @@
   "settingsHealthRequestPermsTitle": "Demander les autorisations",
   "settingsHealthRequestPermsSub": "Demande à {store} les types non encore décidés — sa feuille n'apparaît que pour ceux-là ; pour modifier un choix existant : Réglages → Santé → Accès aux données et appareils",
   "settingsHealthOpenSystemTitle": "Ouvrir l'app Santé",
-  "settingsHealthOpenSystemSub": "Les choix existants se modifient dans Réglages iOS → Santé → Accès aux données et appareils → cette app",
+  "settingsHealthOpenSystemSub": "Les choix existants de {store} se modifient dans Réglages iOS → Santé → Accès aux données et appareils → cette app",
   "settingsHealthFootnote": "{store} indique l'état d'écriture de chaque type de données. L'état est relu à chaque ouverture de l'app ; les changements faits dans les réglages système y apparaissent.",
   "settingsHealthManageStoreRowTitle": "Gérer dans {store}",
   "settingsHealthManageStoreRowSub": "Les autorisations se donnent app par app dans l'app {store}",
