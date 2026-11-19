@@ -46,7 +46,7 @@ internal fun sleepCleanupRange(
     val calculatedStart = endDate.minusDays(1).atTime(LocalTime.NOON).atZone(zoneId).toInstant()
     val cleanupStart = if (start.isBefore(calculatedStart)) start else calculatedStart
     if (previousWake != null && !previousWake.isBefore(cleanupStart) && previousWake.isBefore(start)) {
-        return SleepCleanupRange(previousWake.plusSeconds(1), cleanupEnd)
+        return SleepCleanupRange(minOf(previousWake.plusSeconds(1), start), cleanupEnd)
     }
     return SleepCleanupRange(cleanupStart, cleanupEnd)
 }

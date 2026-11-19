@@ -1237,7 +1237,12 @@ class HealthExporter {
               // day — so one entry is equivalent to the whole list, without
               // holding 400 decoded bundles to re-derive the same answer.
               newestFirstDays: [priorityDay],
-              write: _androidSleep.replace,
+              write: (b) async => _androidSleep.replace(
+                b,
+                previousWake: await _previousWake(
+                  _localMidnight(priorityDay!.key) ?? DateTime.now(),
+                ),
+              ),
               exportBulk: (androidSleepAlreadyWritten) async {
                 bulkDone = await exportBulk(androidSleepAlreadyWritten);
               },
@@ -1443,6 +1448,21 @@ class HealthExporter {
     });
   }
 
+  /// When the day before's night woke; null when unknown. Best-effort: a failed
+  /// lookup must not block the sleep write it only clamps.
+  Future<DateTime?> _previousWake(DateTime dayStart) async {
+    try {
+      final prev = DateTime(dayStart.year, dayStart.month, dayStart.day - 1);
+      final pb = _decode(
+        (await LocalDb.dayResult(dayLabelOf(prev)))?['payload_json'],
+      );
+      return pb == null ? null : normalizeHealthSleepSession(pb)?.end;
+    } catch (e) {
+      debugPrint('[health] previous wake lookup: $e');
+      return null;
+    }
+  }
+
   /// Write one day's metrics. DELETES our prior samples for the day window first
   /// (so a re-derive overwrites instead of duplicating). Best-effort; never throws.
   Future<bool> _exportDay(
@@ -1470,13 +1490,7 @@ class HealthExporter {
     // a night must stop short of yesterday's night if that one woke after
     // noon. Health Connect passes it to the native replace too, which clamps
     // its own noon-to-noon window with it.
-    Future<DateTime?> previousWake() async {
-      final prev = DateTime(dayStart.year, dayStart.month, dayStart.day - 1);
-      final pb = _decode(
-        (await LocalDb.dayResult(dayLabelOf(prev)))?['payload_json'],
-      );
-      return pb == null ? null : normalizeHealthSleepSession(pb)?.end;
-    }
+    Future<DateTime?> previousWake() => _previousWake(dayStart);
 
     if (Platform.isAndroid && !androidSleepAlreadyWritten) {
       try {
