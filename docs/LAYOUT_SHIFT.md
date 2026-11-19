@@ -89,7 +89,10 @@ pair by element id. Per moved/resized/recoloured element:
 
 1. **base** = `(union(before, after).area / viewport.area) × (distance / max(viewport.w, viewport.h))`
    + `area/viewport.area × colorDelta × colorWeight` (colorDelta = max RGB
-   channel delta / 255).
+   channel delta / 255). Impact and colour areas are clipped to the viewport;
+   elements invisible in both frames contribute nothing. Distance is the larger
+   of centre displacement and half the largest dimension change, so growth
+   around a fixed centre counts too.
 2. **× roleWeight**.
 3. **× latency** (raised to the hazard floor, below): curve at `t = frame.atMs − lastInteraction.atMs` (with the
    animation grace shift), or `outOfWindowCost` beyond the window / with no
@@ -97,7 +100,7 @@ pair by element id. Per moved/resized/recoloured element:
 4. **× chainDiscount** if inside a qualifying chain.
 5. **focus**: element is the last interaction's intent target ⇒ `× pairedDiscount`
    and `× (1 + pairDistanceWeight × d(source, intent))`; otherwise
-   `× (1 + focusDistanceWeight × dFocus)`. Focused ⇒ `× focusedMultiplier`.
+   `× (1 + focusDistanceWeight × dFocus)`. Focused in either frame ⇒ `× focusedMultiplier`.
 6. **dense**: two controls within `denseGapPx` before the frame whose relative
    offset changed ⇒ `× denseMultiplier` on both; a focused control disabled for
    a span inside `disabledShieldMs` covering the shift ⇒ `× disabledDiscount`.

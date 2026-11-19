@@ -82,12 +82,12 @@ void main() {
     test('focused in the after frame: 0.07 * .5 * 2 = 0.07', () {
       expect(shifts(_move('x', focused: true)), closeTo(0.07, 1e-9));
     });
-    test('focused only in the before frame: 0.07 * .5 = 0.035', () {
+    test('focused only in the before frame: 0.07 * .5 * 2 = 0.07', () {
       final s = sc([
         fr(1000, [el('x', _a, focused: true)]),
         fr(1000, [el('x', _b)]),
       ], interactions: _ix);
-      expect(shifts(s), closeTo(0.035, 1e-9));
+      expect(shifts(s), closeTo(0.07, 1e-9));
     });
     test('recent focus history (age 100 < half-life): 0.035', () {
       expect(shifts(_move('x', focus: const [FocusEvent(900, 'x')])),

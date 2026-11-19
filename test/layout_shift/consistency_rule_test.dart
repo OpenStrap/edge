@@ -114,7 +114,8 @@ void main() {
           el('skeleton:rings', _dx(_card, 4), role: ElementRole.placeholder)
         ]));
     final scores = r.findings.map((f) => f.score);
-    expect(scores.every((v) => v < 0.01), isTrue, reason: '$scores');
+    expect(scores, hasLength(1));
+    expect(scores.single, allOf(greaterThan(0), lessThan(0.01)));
   });
 
   group('tolerance (consistencyTolerancePx = 1)', () {

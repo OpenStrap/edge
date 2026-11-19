@@ -113,7 +113,10 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
     int? from;
     for (final f in s.frames) {
       final e = f.elements.where((e) => e.id == id).firstOrNull;
-      if (e == null) continue;
+      if (e == null) {
+        from = null;
+        continue;
+      }
       if (!e.enabled) {
         from ??= f.atMs;
       } else if (from != null) {
@@ -121,7 +124,7 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
         if (len >= p.disabledShieldMinMs &&
             len <= p.disabledShieldMaxMs &&
             t >= from &&
-            t <= f.atMs) {
+            t < f.atMs) {
           return true;
         }
         from = null;
@@ -214,9 +217,19 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
               .map((sh) => _channelDelta(e.colorArgb, o.colorArgb, sh))
               .reduce(max) /
           255;
-      final base = o.rect.union(e.rect).area / vpArea *
-              (o.rect.distanceTo(e.rect) / vpSide) +
-          e.rect.area / vpArea * colorDelta * p.colorWeight;
+      final oldVisible = o.rect.intersect(s.viewport);
+      final visible = e.rect.intersect(s.viewport);
+      if (oldVisible == null && visible == null) continue;
+      // Centre distance misses growth around a fixed centre. Half the largest
+      // dimension change also preserves the existing anchored-resize cost.
+      final beforeRect = oldVisible ?? o.rect;
+      final afterRect = visible ?? e.rect;
+      final displacement = max(beforeRect.distanceTo(afterRect),
+          max((beforeRect.width - afterRect.width).abs(),
+              (beforeRect.height - afterRect.height).abs()) / 2);
+      final impact = o.rect.union(e.rect).intersect(s.viewport)?.area ?? 0;
+      final base = impact / vpArea * (displacement / vpSide) +
+          (visible?.area ?? 0) / vpArea * colorDelta * p.colorWeight;
       if (base <= 0) continue;
 
       final dense = e.role == ElementRole.control &&
@@ -248,7 +261,7 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
         }
         v *= 1 + p.focusDistanceWeight * dFocus;
       }
-      if (e.focused) v *= p.focusedMultiplier;
+      if (o.focused || e.focused) v *= p.focusedMultiplier;
       if (dense) v *= p.denseMultiplier;
       final shield = e.focused && shielded(e.id, t);
       if (shield) v *= p.disabledDiscount;
@@ -276,10 +289,17 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
       for (final f in frame.elements) {
         if (!f.focusable || f.id == e.id || f.rect.area <= 0 ||
             f.ancestorIds.contains(e.id)) { continue; }
-        double frac(ShiftRect r) => (r.intersect(f.rect)?.area ?? 0) / f.rect.area;
-        final fraction = frac(e.rect);
+        double frac(ShiftRect cover, ShiftRect target) {
+          final visible = target.intersect(s.viewport);
+          if (visible == null) return 0;
+          return (cover.intersect(visible)?.area ?? 0) / visible.area;
+        }
+        final fraction = frac(e.rect, f.rect);
+        final previousTarget = before[f.id];
+        final previousFraction = o == null || previousTarget == null
+            ? 0 : frac(o.rect, previousTarget.rect);
         if (fraction < p.coverMinFraction ||
-            (o != null && frac(o.rect) >= p.coverMinFraction)) {
+            previousFraction >= p.coverMinFraction) {
           continue;
         }
         out.add(finding(
@@ -378,7 +398,7 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
         final covered = _unionArea(
             [for (final v in vanished) ?visible.intersect(v.rect)]);
         final uncovered = max(0.0, visible.area - covered);
-        if (uncovered / visible.area <= 1 - p.appearCoveredFree) continue;
+        if (covered / visible.area >= p.appearCoveredFree) continue;
         final v = p.appearWeight *
             (p.roleWeight[e.role] ?? 1) *
             uncovered /
