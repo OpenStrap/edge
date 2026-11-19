@@ -4800,6 +4800,19 @@ class LocalDb {
     return (v == null || v <= 0) ? null : v;
   }
 
+  /// The primary band banked records the ingest gate refused for their time
+  /// (archived, never decoded, so `rec_ts_hw` never moved): data exists, its
+  /// timestamp does not. What a strap with a never-set clock leaves behind.
+  static Future<bool> hasGateDroppedArchive() async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT 1 FROM $rawArchiveView WHERE reason = ? AND device_id = ? '
+      'LIMIT 1',
+      [kGateDroppedReason, kPrimaryDeviceId],
+    );
+    return rows.isNotEmpty;
+  }
+
   /// Read a cursor int through a specific executor (used inside a transaction so
   /// the read shares the open txn instead of contending on the global handle).
   static Future<int?> _cursorIntVia(DatabaseExecutor ex, String name) async {

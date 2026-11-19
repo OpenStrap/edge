@@ -394,6 +394,15 @@ DateTime? plausibleRecordInstant(int? tsSec) =>
         ? null
         : DateTime.fromMillisecondsSinceEpoch(tsSec * 1000);
 
+/// True when a record frontier exists but its time cannot be trusted: a
+/// positive `rec_ts_hw` below the plausible floor, which is what a strap whose
+/// RTC was never set banks (factory-epoch records). It means data WAS recorded —
+/// so "nothing banked yet" is wrong — but its timestamp is unusable, which is
+/// different again from a plausible frontier. [plausibleRecordInstant] returns
+/// null for both this and a truly missing frontier; this tells them apart.
+bool recordTimestampUntrusted(int? tsSec) =>
+    tsSec != null && tsSec > 0 && tsSec < kMinPlausibleUnix;
+
 /// A stricter, single-purpose sanity check for a band-reported "newest
 /// record" timestamp (GET_DATA_RANGE's `range_newest`) that sits implausibly
 /// far in the future — the signature of a corrupt/never-set strap RTC.

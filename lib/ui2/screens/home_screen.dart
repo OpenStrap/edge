@@ -231,6 +231,16 @@ DateTime? lastDataAtOf(BuildContext c) {
   }
 }
 
+/// Records banked but their time untrusted (a never-set strap RTC) — distinct
+/// from no data at all. Drives the "clock not set" variant of the sync line.
+bool bandRecordTimeUnknownOf(BuildContext c) {
+  try {
+    return c.select<AppState, bool>((a) => a.bandRecordTimeUnknown);
+  } catch (_) {
+    return false;
+  }
+}
+
 /// "Synced through 11:06" — the one line that answers "how far are we?".
 ///
 /// It reads the BAND's clock, so it says how far the DATA reaches. That is a
@@ -250,8 +260,12 @@ DateTime? lastDataAtOf(BuildContext c) {
 /// otherwise — a lone "07:12" against a strap not worn since Friday is the
 /// most misleading thing this line could say.
 String syncedThroughLabel(DateTime? at, String? todayId,
-    [AppLocalizations? l]) {
-  if (at == null) return l?.homeSyncedNever ?? 'No band data yet';
+    [AppLocalizations? l, bool timeUnknown = false]) {
+  if (at == null) {
+    return timeUnknown
+        ? (l?.homeSyncedTimeUnknown ?? 'Band data, clock not set')
+        : (l?.homeSyncedNever ?? 'No band data yet');
+  }
   final today = todayId == null ? null : DateTime.tryParse(todayId);
   final isToday = today != null &&
       at.year == today.year &&
@@ -314,7 +328,8 @@ Widget? batteryLine(BuildContext c) {
 Widget syncedThroughLine(BuildContext c, String? todayId,
     [AppLocalizations? l]) {
   return Text(
-    syncedThroughLabel(lastDataAtOf(c), todayId, l),
+    syncedThroughLabel(
+        lastDataAtOf(c), todayId, l, bandRecordTimeUnknownOf(c)),
     style: F.cap.copyWith(color: P.of(c).ink3),
   );
 }
