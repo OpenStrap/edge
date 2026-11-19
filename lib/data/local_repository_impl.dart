@@ -3002,7 +3002,7 @@ class LocalRepositoryImpl extends LocalRepository {
       // exportWorkoutId re-reads the row and no-ops if sync is off.
       unawaited(HealthExporter.exportWorkoutId(workoutId));
     }
-    return {'workout_id': workoutId};
+    return {'workout_id': workoutId, 'ended': r != null};
   }
 
   @override
