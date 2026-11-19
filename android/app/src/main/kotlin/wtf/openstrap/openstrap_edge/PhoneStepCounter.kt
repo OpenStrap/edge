@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.FlutterEngine
@@ -64,6 +65,7 @@ object PhoneStepCounter : SensorEventListener2 {
     private const val KEY_LAST_RAW = "last_raw"
     private const val KEY_LAST_MS = "last_ms"
     private const val KEY_BOOT_MS = "boot_ms"
+    private const val KEY_BOOT_COUNT = "boot_count"
     private const val KEY_SINCE_MS = "since_ms"
     private const val KEY_GAPS = "gaps"
     private const val KEY_PRUNED_MS = "pruned_ms"
@@ -81,8 +83,6 @@ object PhoneStepCounter : SensorEventListener2 {
      */
     private const val MAX_BACKFILL_MS = 60L * 60 * 1000
 
-    /** currentTimeMillis can be nudged by NTP, so boot-time equality needs slack. */
-    private const val BOOT_MATCH_SLACK_MS = 120_000L
 
     private const val PERM_REQUEST = 8741
 
@@ -279,8 +279,10 @@ object PhoneStepCounter : SensorEventListener2 {
         val lastRaw = p.getFloat(KEY_LAST_RAW, -1f)
         val lastMs = p.getLong(KEY_LAST_MS, 0L)
         val storedBoot = p.getLong(KEY_BOOT_MS, 0L)
-        val rebooted = lastRaw >= 0f &&
-            (raw < lastRaw || abs(bootMs - storedBoot) > BOOT_MATCH_SLACK_MS)
+        val bootCount = Settings.Global.getInt(ctx.contentResolver, Settings.Global.BOOT_COUNT, -1)
+        val rebooted = stepCounterRebooted(
+            raw, lastRaw, bootCount, p.getInt(KEY_BOOT_COUNT, -1), bootMs, storedBoot,
+        )
 
         if (lastRaw < 0f || rebooted) {
             // FIRST SAMPLE OF A BOOT SESSION. `raw` is everything since boot, not a
@@ -303,12 +305,13 @@ object PhoneStepCounter : SensorEventListener2 {
             val delta = (raw - lastRaw).toInt()
             // Within one boot session the hub keeps counting while our process is
             // dead, so a delta spanning hours is real coverage, not a gap.
-            if (delta > 0) credit(ed, p, if (lastMs > 0L) lastMs else now, now, delta)
+            if (delta > 0) credit(ed, p, stepDeltaFrom(now, lastMs, bootMs, storedBoot), now, delta)
         }
 
         ed.putFloat(KEY_LAST_RAW, raw)
         ed.putLong(KEY_LAST_MS, now)
         ed.putLong(KEY_BOOT_MS, bootMs)
+        ed.putInt(KEY_BOOT_COUNT, bootCount)
         ed.apply()
         prune(ctx, now)
     }
@@ -417,4 +420,39 @@ object PhoneStepCounter : SensorEventListener2 {
         }
         return sum.roundToInt()
     }
+}
+
+/** currentTimeMillis can be nudged by NTP, so boot-time equality needs slack. */
+private const val BOOT_MATCH_SLACK_MS = 120_000L
+
+/**
+ * Did the phone reboot since the last sample? The boot counter answers it
+ * outright. The wall-clock boot time (`now - elapsedRealtime`) is only the
+ * fallback for prefs written before we stored the counter: a manual time change
+ * or a big NTP step moves it too, and treating that as a reboot re-credits the
+ * since-boot register (double count) or drops the steps with no gap.
+ */
+internal fun stepCounterRebooted(
+    raw: Float,
+    lastRaw: Float,
+    bootCount: Int,
+    lastBootCount: Int,
+    bootMs: Long,
+    storedBootMs: Long,
+): Boolean {
+    if (lastRaw < 0f) return false
+    if (raw < lastRaw) return true
+    if (bootCount >= 0 && lastBootCount >= 0) return bootCount != lastBootCount
+    return abs(bootMs - storedBootMs) > BOOT_MATCH_SLACK_MS
+}
+
+/**
+ * Start of the span a same-boot delta covers, on TODAY's wall clock. Uptime is
+ * what actually elapsed, so a clock change since the last sample shifts the
+ * start with it instead of stretching the delta across the jump.
+ */
+internal fun stepDeltaFrom(now: Long, lastMs: Long, bootMs: Long, storedBootMs: Long): Long = when {
+    lastMs <= 0L -> now
+    storedBootMs <= 0L -> lastMs
+    else -> lastMs + (bootMs - storedBootMs)
 }
