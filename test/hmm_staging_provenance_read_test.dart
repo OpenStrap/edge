@@ -31,13 +31,17 @@ class _FakePathProvider extends PathProviderPlatform {
   Future<String?> getDownloadsPath() async => root;
 }
 
-Future<void> _put(String day, Map<String, dynamic> staging) =>
+Future<void> _put(String day, Map<String, dynamic> staging, {bool nap = false}) =>
     LocalDb.putDayResult(
       dayId: day,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode({
         'date': day,
         'sleep_source': 'auto',
+        if (nap) 'sleep_periods': {'periods': [
+          {'onset_ts': 1779278400, 'wake_ts': 1779280200,
+            'duration_min': 30, 'is_main': false},
+        ]},
         'sleep': {
           'accounting': {
             'value': {
@@ -180,6 +184,20 @@ void main() {
     final m = await repo.getDaySleepV2('2026-05-21');
     expect(m['staging_fallback'], 'hmm_unavailable');
     expect(m.containsKey('staging_fallback_sec'), isFalse);
+  });
+
+  // why: a no-sleep result still explains why HMM abstained.
+  test('no-sleep maps retain stored fallback provenance', () async {
+    for (final nap in [false, true]) {
+      await _put(_day, {
+        ..._fallback,
+        'accounting': {'value': <String, dynamic>{}},
+      }, nap: nap);
+      final n = await repo.getDaySleepV2(_day);
+      expect(n['has_sleep'], isFalse);
+      expect(n['periods'], nap ? hasLength(1) : isNull);
+      expect(_picked(n), {for (final k in _keys) k: _fallback[k]});
+    }
   });
 
   Future<Map<String, dynamic>> storedSleep(String dbPath, String day) async {

@@ -1125,12 +1125,14 @@ class LocalRepositoryImpl extends LocalRepository {
         return {
           'has_sleep': false,
           'sleep_source': sleepSource,
+          ...stagingProvenanceOf(_sub(b, 'sleep')),
           'absence_reason': ?absence,
         };
       }
       return {
         'has_sleep': false,
         'sleep_source': sleepSource,
+        ...stagingProvenanceOf(_sub(b, 'sleep')),
         'absence_reason': ?absence,
         'periods': napPeriods,
         'total_asleep_min': _totalAsleepMin(b, napPeriods),
