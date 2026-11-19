@@ -49,6 +49,28 @@ Future<ShiftProbe> _loadFeed(WidgetTester t, double placeholder) async {
 }
 
 void main() {
+  // WHY: repeated upstream chart-panel keys need scope, while other keys are
+  // literal identities and text inside a fitted readout remains measurable.
+  // Catches: removing panel scoping or retaining fork-only readout suppression.
+  testWidgets('chart panels are scoped and other keys stay literal', (t) async {
+    await t.pumpWidget(const MaterialApp(home: Align(
+      alignment: Alignment.topLeft,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        SizedBox(key: ValueKey('night'), child: SizedBox(
+          key: ValueKey('chart-panel'), width: 200, height: 40)),
+        SizedBox(key: ValueKey('overnight'), child: SizedBox(
+          key: ValueKey('chart-panel'), width: 200, height: 40)),
+        SizedBox(width: 100, height: 60, child: FittedBox(
+          key: ValueKey('chart-key-value:readout'), child: Text('42'))),
+      ]))));
+    final frame = ShiftProbe(trackUnkeyed: true).capture(t, atMs: 0);
+    final ids = frame.elements.map((e) => e.id).toList();
+    expect(ids.where((id) => id.startsWith('chart-panel')),
+      ['chart-panel@night', 'chart-panel@overnight']);
+    expect(ids, contains('chart-key-value:readout'));
+    expect(ids.where((id) => id.startsWith('~text|')), hasLength(1));
+  });
+
   testWidgets('a too-short placeholder pushes the paragraph down 80', (t) async {
     final probe = await _loadFeed(t, 20);
     final before = _find(probe.frames[0], 'body').rect;

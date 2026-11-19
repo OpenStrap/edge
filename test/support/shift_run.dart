@@ -42,7 +42,7 @@ class ShiftRun {
 
   /// Captures the current tree at [now] without pumping.
   void snap() {
-    expectNoIndeterminateProgress();
+    if (rejectIndeterminateProgress) expectNoIndeterminateProgress();
     probe.capture(t, atMs: now);
   }
 

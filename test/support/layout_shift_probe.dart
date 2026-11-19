@@ -100,12 +100,11 @@ class ShiftProbe {
         id = k.value;
         // Shared chart internals repeat on a page. A marker on the night plot
         // must not become the overnight plot's marker when a tail exposes it.
-        if (id.startsWith('chart-panel') || id.startsWith('chart-key')) {
+        if (id.startsWith('chart-panel')) {
           for (final ancestor in _ancestors(e)) {
             final key = ancestor.widget.key;
             if (key is ValueKey<String> &&
-                !key.value.startsWith('chart-panel') &&
-                !key.value.startsWith('chart-key')) {
+                !key.value.startsWith('chart-panel')) {
               id = '$id@${key.value}';
               break;
             }
@@ -221,22 +220,6 @@ class ShiftProbe {
   String? _synthId(Element e, Map<String, int> seen) {
     final kind = _synthKind(e.widget);
     if (kind == null) return null;
-    // A readout value owns one fixed slot. Glyph widths inside its FittedBox
-    // change with the number, while the keyed slot is what governs layout.
-    if (kind == 'text') {
-      var ownedValue = false;
-      e.visitAncestorElements((a) {
-        final key = a.widget.key;
-        if (a.widget is FittedBox &&
-            key is ValueKey<String> &&
-            key.value.startsWith('chart-key-value:')) {
-          ownedValue = true;
-          return false;
-        }
-        return true;
-      });
-      if (ownedValue) return null;
-    }
     // A control wrapped by another control within 16 levels (Semantics and
     // InkWell around a button) is the same control: track the outer one only.
     // Bounded so a page-level tap handler does not swallow every control.

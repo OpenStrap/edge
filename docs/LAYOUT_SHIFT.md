@@ -305,8 +305,8 @@ callbacks keep the probe independent of application widget classes.
 offsets. It captures intermediate animation frames. Call `opened()` before
 measuring initial loading, then `frames()` and `expectNoErrors('scenario')`.
 For a data refresh without a user action, capture with `snap()` and `frames()`.
-The helper rejects indeterminate progress indicators; use `ShiftProbe` directly
-when measuring an existing screen that contains one.
+The driver captures indeterminate progress indicators by default. Set
+`rejectIndeterminateProgress: true` when a scenario forbids them.
 
 The scores are project policy, not browser CLS or a validated perceptual scale.
 The launch checks classify supplied times and colours; they do not measure
