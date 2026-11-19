@@ -707,6 +707,8 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
     final observedSec = d.hypnoStages.where((s) =>
         s == 'light' || s == 'nrem' || s == 'deep' || s == 'rem' ||
         s == 'wake').length;
+    final fallbackMethod = d.sleepSource == 'vendor_staged'
+        ? 'vendor_staged' : 'cardio';
     final restaged = _hmmRestage(d);
     final replaced = restaged == null ? null : d.withHypnoStages(
         restaged.labels, atypical: restaged.atypicalNight,
@@ -714,7 +716,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
     if (replaced == null) {
       stagingProvenance = {
         'staging_method': 'hmm',
-        'staging_effective_method': 'cardio',
+        'staging_effective_method': fallbackMethod,
         'staging_fallback': restaged == null
             ? 'hmm_unavailable' : 'hmm_no_sleep',
         'staging_fallback_sec': observedSec,
@@ -724,7 +726,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
       stagingProvenance = {
         'staging_method': 'hmm',
         'staging_effective_method': fallbackSec == 0 ? 'hmm' :
-            fallbackSec == observedSec ? 'cardio' : 'hmm_cardio',
+            fallbackSec == observedSec ? fallbackMethod : 'hmm_$fallbackMethod',
         if (fallbackSec > 0) ...{
           'staging_fallback': 'hmm_epoch_unavailable',
           'staging_fallback_sec': fallbackSec,

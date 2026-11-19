@@ -264,6 +264,21 @@ Object? _comparable(Object? v) => switch (v) {
       _ => v,
     };
 
+// why: v125 changes HMM provenance but must preserve every cardio payload byte.
+// # catches: allowing a future algorithm version to reuse this projection, or
+// changing any payload, metric, absence, confidence or stored payload hash.
+Map<String, dynamic> _cardio124Projection(Map<String, dynamic> snapshot) {
+  expect(kAlgoVersion, 125);
+  final out = (jsonDecode(jsonEncode(snapshot)) as Map).cast<String, dynamic>();
+  for (final table in ['day_result', 'metric_series_version', 'wake_day_features']) {
+    for (final row in out[table] as List) {
+      expect(row['algo_version'], 125);
+      row['algo_version'] = 124;
+    }
+  }
+  return out;
+}
+
 /// The first path where [a] and [b] differ, with both values, or null. A
 /// whole-snapshot string diff is megabytes, and CI truncates it.
 String? _firstDiff(Object? a, Object? b, String path) {
@@ -370,7 +385,8 @@ void main() {
         expect(file.existsSync(), isTrue,
             reason: '${file.path} is missing; see the header.');
         final golden = jsonDecode(file.readAsStringSync());
-        expect(_firstDiff(_comparable(snap), _comparable(golden), r'$'),
+        expect(_firstDiff(_comparable(_cardio124Projection(snap)),
+            _comparable(golden), r'$'),
             isNull,
             reason: 'WHOOP output must stay identical. Do NOT '
                 'regenerate this golden to make a change pass.');

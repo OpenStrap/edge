@@ -6,7 +6,7 @@ import 'package:openstrap_edge/compute/derivation_engine.dart';
 void main() {
   // WHY: finalized days need a new version when the analytics pin changes outputs.
   test('ED-2b adoption and workout rest repin name their output changes', () {
-    expect(kAlgoVersion, 124);
+    expect(kAlgoVersion, 125);
     expect(kAnalyticsPin, 'a438df40b38a4586a52a68ab7e1c100fca111ccd');
     final src = File('lib/compute/derivation_engine.dart').readAsStringSync();
     final at = src.indexOf('// 121 → 122');

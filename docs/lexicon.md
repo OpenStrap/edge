@@ -10,4 +10,4 @@
 
 ## Sleep staging
 
-- Staging provenance: a night's requested method, effective method and observed seconds that retained cardio labels after an HMM abstention. `hmm_cardio` means both methods contributed labels. An absent field means unknown; it does not mean cardio or zero fallback. Avoid calling the requested method the effective method.
+- Staging provenance: a night's requested method, effective method and observed seconds that retained the original labels after an HMM abstention. `hmm_cardio` means HMM and cardio both contributed; `hmm_vendor_staged` means HMM and a paired device both contributed. An absent field means unknown; it does not mean cardio or zero fallback. Avoid calling the requested method the effective method.

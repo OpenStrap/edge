@@ -6787,6 +6787,7 @@ class DerivationEngine {
     );
     await _derivePreparedDay(
       PreparedDerivationDay(
+        useHmmStages: await _hmmStagesOn(),
         date: day.date,
         endSec: day.endSec,
         confidence: day.confidence,

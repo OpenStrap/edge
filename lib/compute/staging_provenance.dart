@@ -1,6 +1,6 @@
 /// Typed read boundary for the optional provenance in a stored sleep section.
 /// Unknown method/reason strings survive newer exports; malformed values stay
-/// absent. Durations are observed seconds that retained the cardio labels.
+/// absent. Durations are observed seconds that retained the original labels.
 Map<String, Object> stagingProvenanceOf(Map<String, dynamic>? sleep) {
   if (sleep == null) return const {};
   final method = sleep['staging_method'];
