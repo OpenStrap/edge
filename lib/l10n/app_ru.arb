@@ -9046,7 +9046,7 @@
     }
   },
   "settingsHealthOpenSystemTitle": "Открыть приложение «Здоровье»",
-  "settingsHealthOpenSystemSub": "Существующие выборы меняются в Настройки iOS → Здоровье → Доступ к данным и устройствам → это приложение",
+  "settingsHealthOpenSystemSub": "Существующие выборы для {store} меняются в Настройки iOS → Здоровье → Доступ к данным и устройствам → это приложение",
   "@settingsHealthOpenSystemSub": {
     "placeholders": {
       "store": {

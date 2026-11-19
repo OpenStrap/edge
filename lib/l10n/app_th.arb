@@ -17257,7 +17257,7 @@
     }
   },
   "settingsHealthOpenSystemTitle": "เปิดแอปสุขภาพ",
-  "settingsHealthOpenSystemSub": "เปลี่ยนตัวเลือกที่มีอยู่ได้ที่ การตั้งค่า iOS → สุขภาพ → การเข้าถึงข้อมูลและอุปกรณ์ → แอปนี้",
+  "settingsHealthOpenSystemSub": "เปลี่ยนตัวเลือกที่มีอยู่ของ {store} ได้ที่ การตั้งค่า iOS → สุขภาพ → การเข้าถึงข้อมูลและอุปกรณ์ → แอปนี้",
   "@settingsHealthOpenSystemSub": {
     "description": "Subtitle of the row that opens the OS settings app",
     "placeholders": {
