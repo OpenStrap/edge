@@ -359,6 +359,42 @@ void main() {
           reason: 'the alarm run, now one position lower, stayed closed');
     });
 
+    // why: a run must not hide a visible event between its members.
+    test('all visible sources split band runs', () {
+      final events = [for (final minute in [0, 5])
+        {'event_id': 15, 'ts': _at(9, minute)}];
+      final sources = [
+        dayMoments(timeline: {'events': events}, meals: [FoodEntry(
+            id: 'm', date: '2026-08-14', meal: 'Lunch', label: 'Soup',
+            atTs: _at(9, 2))]),
+        dayMoments(timeline: {'events': events},
+            doses: [(label: 'Dose', at: _at(9, 2))]),
+        dayMoments(timeline: {'events': events, 'sessions': [
+          {'start_ts': _at(9, 2), 'end_ts': _at(9, 3), 'type': 'run'}]}),
+        dayMoments(timeline: {'events': events, 'highs': {
+          'peak_hr': {'t': _at(9, 2), 'v': 100}}}),
+      ];
+      for (final moments in sources) {
+        final restarts = moments.where((m) => m.title == 'The band restarted');
+        expect(restarts, hasLength(2));
+        expect(restarts.every((m) => m.members.isEmpty), isTrue);
+      }
+      expect(dayMoments(timeline: {'events': events}).single.members,
+          [_at(9), _at(9, 5)]);
+    });
+
+    // why: simultaneous event IDs must not decide whether chronology is hidden.
+    test('a simultaneous different event splits either numeric event order', () {
+      for (final other in [7, 57]) {
+        final moments = dayMoments(timeline: {'events': [
+          {'event_id': 15, 'ts': _at(9)},
+          {'event_id': other, 'ts': _at(9)},
+          {'event_id': 15, 'ts': _at(9, 5)},
+        ]});
+        expect(moments.where((m) => m.title == 'The band restarted'), hasLength(2));
+      }
+    });
+
     test('a meal with no time is never placed, and is not lost either', () {
       const timed = FoodEntry(
           id: 'a', date: '2026-08-14', meal: 'Lunch', label: 'Soup', kcal: 300);
