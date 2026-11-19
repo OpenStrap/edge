@@ -45,7 +45,7 @@ Substrate _sub() {
   );
 }
 
-Map<String, dynamic> _engineNotes(int age) {
+Map<String, dynamic> _engineNotes(int age, {double? restingHr = 55}) {
   final sub = _sub();
   final scalars = <String, dynamic>{};
   final bundle = <String, dynamic>{};
@@ -60,7 +60,7 @@ Map<String, dynamic> _engineNotes(int age) {
     dayStartSec: sub.tsSec.first,
     dayCalendarEndSec: sub.tsSec.last + 1,
     dataNowSec: sub.tsSec.last + 1,
-    restingHr: 55,
+    restingHr: restingHr,
     quietHrrHistory: List.filled(7, 0.20),
   );
   expect(scalars['strain'], isNull);
@@ -118,4 +118,10 @@ void main() {
       });
     });
   }
+
+  test('no resting HR names it on calories, not unknown', () {
+    final notes = _engineNotes(35, restingHr: null);
+    expect(notes['calories'], 'need_input:name=resting_hr');
+    expect(notes['calories_total'], 'need_input:name=resting_hr');
+  });
 }
