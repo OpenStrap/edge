@@ -51,7 +51,7 @@ class ShiftRun {
   /// not charged as unprompted movement.
   void opened([String id = 'screen-open']) {
     snap();
-    probe.interactions.add(Interaction(now, id));
+    probe.interactions.add(Interaction(now, id, afterFrameIndex: probe.frames.length - 1));
   }
 
   /// Pumps to each offset (relative to the current [now]) and captures.
@@ -74,7 +74,8 @@ class ShiftRun {
     snap();
     final src = probe.idOf(t, f) ?? 'unknown-source';
     final target = intent == null ? null : probe.idOf(t, intent);
-    probe.interactions.add(Interaction(now, src, intentTargetId: target));
+    probe.interactions.add(Interaction(now, src, intentTargetId: target,
+        afterFrameIndex: probe.frames.length - 1));
     await t.tap(f);
     await frames(offsets);
   }

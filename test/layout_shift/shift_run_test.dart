@@ -13,6 +13,36 @@ class _Pending extends StatelessWidget {
 }
 
 void main() {
+  // why: a pre-tap baseline belongs to the action it was already displaying.
+  // catches: a second tap taking ownership of earlier movement at the same ms.
+  testWidgets('a second tap cannot erase a shift captured before it', (t) async {
+    phoneSurface(t);
+    late StateSetter update;
+    var top = 0.0;
+    await t.pumpWidget(MaterialApp(home: StatefulBuilder(builder: (context, set) {
+      update = set;
+      return Stack(children: [
+        Positioned(left: 0, top: top, width: 390, height: 844,
+            child: const SizedBox(key: ValueKey('panel'))),
+        Positioned(bottom: 0, child: TextButton(key: const ValueKey('go'),
+            onPressed: () {}, child: const Text('Go'))),
+      ]);
+    })));
+    final run = ShiftRun(t, trackUnkeyed: false);
+    run.opened();
+    await run.frames([500]);
+    update(() => top = 30);
+    await t.pump();
+    await run.tap(find.byKey(const ValueKey('go')), [0, 100]);
+    final shifts = run.score().findings.where((f) => f.rule == 'shift' && f.elementId == 'panel');
+    expect(shifts, hasLength(1));
+    // Full viewport impact * 30px / 844px; the second tap must not make it 0.
+    expect(shifts.single.score, closeTo(30 / 844, 1e-9));
+    final loads = run.score().findings.where((f) => f.rule == 'load');
+    expect(loads.single.elementId, 'screen-open');
+    expect(loads.single.score, .25);
+  });
+
   // WHY: upstream screens use indeterminate indicators while data loads.
   // Catches: applying a no-spinner policy to every measurement.
   testWidgets('driver captures an indeterminate indicator by default', (t) async {
@@ -68,6 +98,7 @@ void main() {
     expect(run.probe.frames.map((f) => f.atMs), [0, 0, 16, 50]);
     await run.tap(find.byKey(const ValueKey('go')), [0, 100]);
     expect(run.now, 150);
+    expect(run.probe.interactions.map((i) => i.afterFrameIndex), [0, 4]);
     expect(run.probe.interactions.map((i) => (i.atMs, i.sourceId)),
       [(0, 'screen-open'), (50, 'go')]);
   });
