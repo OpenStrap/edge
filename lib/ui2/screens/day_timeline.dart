@@ -267,7 +267,7 @@ List<Moment> dayMoments({
   // detector off on every contact; a boot loop restarts it) is one span
   // carrying the band's own count, not one line per event burying the day.
   // A run is consecutive events of one kind, each under [kEventRunGapSec]
-  // after the last; any other band event between ends it, so a charger that
+  // after the last; a different visible band event ends it, so a charger that
   // goes on and off is still told in order.
   stream.sort((a, b) {
     final c = a.$1.compareTo(b.$1);
@@ -1386,6 +1386,8 @@ class MomentRow extends StatefulWidget {
 class _MomentRowState extends State<MomentRow> {
   bool _open = false;
 
+  void _toggle() => setState(() => _open = !_open);
+
   @override
   Widget build(BuildContext c) {
     final m = widget.m, p = P.of(c);
@@ -1445,9 +1447,10 @@ class _MomentRowState extends State<MomentRow> {
           label: label,
           button: true,
           expanded: _open,
+          onTap: _toggle,
           excludeSemantics: true,
           child: InkWell(
-            onTap: () => setState(() => _open = !_open),
+            onTap: _toggle,
             child: row,
           ),
         ),

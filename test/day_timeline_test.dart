@@ -4,6 +4,8 @@
 // mis-slotted sample puts a workout under the wrong hour; a missed hole draws
 // a line through the time the band spent on the charger.
 
+import 'dart:ui' show SemanticsAction, Tristate;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/day_label.dart';
@@ -153,7 +155,7 @@ void main() {
       expect(m.single.detail, isNot(contains('×')));
     });
 
-    test('a different band event in between ends the run', () {
+    test('a different visible band event in between ends the run', () {
       // On and off alternate: folding the ons together would put the offs in
       // the middle of their span and misorder what happened.
       final m = dayMoments(timeline: {
@@ -178,6 +180,55 @@ void main() {
         ],
       });
       expect(m, hasLength(2));
+    });
+
+    // Hidden diagnostics must not create unexplained breaks in visible rows.
+    test('a hidden band event does not end a visible run', () {
+      final m = dayMoments(timeline: {
+        'events': [
+          {'event_id': 15, 'ts': _at(9)},
+          {'event_id': 31, 'ts': _at(9, 1)},
+          {'event_id': 15, 'ts': _at(9, 2)},
+        ],
+      });
+      expect(m, hasLength(1));
+      expect(m.single.members, [_at(9), _at(9, 2)]);
+      expect(m.single.detail, contains('2×'));
+    });
+
+    // The threshold bounds adjacent gaps, with equality starting a new row.
+    test('599 seconds groups and 600 seconds splits', () {
+      final m = dayMoments(timeline: {
+        'events': [
+          {'event_id': 15, 'ts': _at(9)},
+          {'event_id': 15, 'ts': _at(9) + 599},
+          {'event_id': 15, 'ts': _at(9) + 1199},
+        ],
+      });
+      expect(m, hasLength(2));
+      expect(m.first.members, [_at(9), _at(9) + 599]);
+      expect(m.first.until, _at(9) + 599);
+      expect(m.last.at, _at(9) + 1199);
+      expect(m.last.members, isEmpty);
+      expect(m.last.until, isNull);
+    });
+
+    // Delivery order must not change grouping or the order of member times.
+    test('reversed input still groups chronologically with visible separators',
+        () {
+      final m = dayMoments(timeline: {
+        'events': [
+          {'event_id': 15, 'ts': _at(9, 4)},
+          {'event_id': 57, 'ts': _at(9, 3)},
+          {'event_id': 15, 'ts': _at(9, 2)},
+          {'event_id': 15, 'ts': _at(9)},
+        ],
+      });
+      expect(m, hasLength(3));
+      expect(m.map((x) => x.at), [_at(9), _at(9, 3), _at(9, 4)]);
+      expect(m.first.members, [_at(9), _at(9, 2)]);
+      expect(m.first.until, _at(9, 2));
+      expect(m.skip(1).every((x) => x.members.isEmpty), isTrue);
     });
 
     test('sleep, sessions and naps are never folded into a run', () {
@@ -218,15 +269,58 @@ void main() {
       expect(find.text(mid), findsNothing);
     });
 
+    // Screen readers activate semantics actions without a pointer gesture.
+    testWidgets('semantic tap expands and collapses a run', (t) async {
+      final semantics = t.ensureSemantics();
+      try {
+        final m = dayMoments(timeline: {
+          'events': [
+            for (final i in [0, 3, 6]) {'event_id': 15, 'ts': _at(9, i)},
+          ],
+        }).single;
+        await t.pumpWidget(MaterialApp(
+            home: Scaffold(body: SingleChildScrollView(child: MomentRow(m)))));
+        final control = find.bySemanticsLabel(
+            '${clockOfTs(m.at)}, ${m.title}. ${m.detail}');
+        expect(control, findsOneWidget);
+        final mid = clockOfTs(_at(9, 3));
+        for (var step = 0; step < 3; step++) {
+          final expanded = step == 1;
+          final node = t.getSemantics(control);
+          expect(node.flagsCollection.isButton, isTrue);
+          expect(node.flagsCollection.isExpanded,
+              expanded ? Tristate.isTrue : Tristate.isFalse);
+          expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+          expect(find.text(mid), expanded ? findsOneWidget : findsNothing);
+          if (step < 2) {
+            node.owner!.performAction(node.id, SemanticsAction.tap);
+            await t.pumpAndSettle();
+          }
+        }
+      } finally {
+        semantics.dispose();
+      }
+    });
+
     testWidgets('a lone event is not tappable', (t) async {
-      final m = dayMoments(timeline: {
-        'day_start': _day,
-        'events': [
-          {'event_id': 15, 'ts': _at(9)},
-        ],
-      }).single;
-      await t.pumpWidget(MaterialApp(home: Scaffold(body: MomentRow(m))));
-      expect(find.byType(InkWell), findsNothing);
+      final semantics = t.ensureSemantics();
+      try {
+        final m = dayMoments(timeline: {
+          'day_start': _day,
+          'events': [
+            {'event_id': 15, 'ts': _at(9)},
+          ],
+        }).single;
+        await t.pumpWidget(MaterialApp(home: Scaffold(body: MomentRow(m))));
+        expect(find.byType(InkWell), findsNothing);
+        final node = t.getSemantics(find.bySemanticsLabel(
+            '${clockOfTs(m.at)}, ${m.title}. ${m.detail}'));
+        expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isFalse);
+        expect(node.flagsCollection.isButton, isFalse);
+        expect(node.flagsCollection.isExpanded, Tristate.none);
+      } finally {
+        semantics.dispose();
+      }
     });
 
     test('a meal with no time is never placed, and is not lost either', () {
