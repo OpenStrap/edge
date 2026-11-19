@@ -171,13 +171,18 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
     return false;
   }
 
+  // A driver's baseline is captured before the action, even at the same ms.
+  // Keep it with the preceding interaction in every scoring pass.
+  bool follows(Interaction ix, int index) => s.frames[index].atMs >= ix.atMs &&
+      (ix.afterFrameIndex == null || index > ix.afterFrameIndex!);
+
   for (var i = 1; i < s.frames.length; i++) {
     final before = {for (final e in s.frames[i - 1].elements) e.id: e};
     final frame = s.frames[i];
     final now = {for (final e in frame.elements) e.id: e};
     final t = frame.atMs;
     final ix = s.interactions
-        .where((x) => x.atMs <= t)
+        .where((x) => follows(x, i))
         .fold<Interaction?>(null, (m, x) => m == null || x.atMs >= m.atMs ? x : m);
 
     bool touches(AnimationSpan n, String id) =>
@@ -320,7 +325,7 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
       if (o != null && e.rect.area <= o.rect.area) continue;
       for (final f in frame.elements) {
         if (!f.focusable || f.id == e.id || f.rect.area <= 0 ||
-            f.ancestorIds.contains(e.id)) { continue; }
+            (f.ancestorIds.contains(e.id) || e.ancestorIds.contains(f.id))) { continue; }
         double frac(ShiftRect cover, ShiftRect target) {
           final visible = target.intersect(s.viewport);
           if (visible == null) return 0;
@@ -366,15 +371,18 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
     return false;
   }
 
-  final ixs = [...s.interactions]..sort((a, b) => a.atMs.compareTo(b.atMs));
+  final ixs = s.interactions.indexed.toList()..sort((a, b) {
+    final time = a.$2.atMs.compareTo(b.$2.atMs);
+    return time != 0 ? time : a.$1.compareTo(b.$1);
+  });
   for (var k = 0; k < ixs.length; k++) {
-    final ix = ixs[k];
-    final until = k + 1 < ixs.length ? ixs[k + 1].atMs : null;
+    final ix = ixs[k].$2;
+    final until = k + 1 < ixs.length ? ixs[k + 1].$2 : null;
     int? lastChange;
     var lastFrameChanged = false;
     for (var i = 1; i < s.frames.length; i++) {
       final t = s.frames[i].atMs;
-      if (t < ix.atMs || (until != null && t >= until)) continue;
+      if (!follows(ix, i) || (until != null && follows(until, i))) continue;
       lastFrameChanged = changed(s.frames[i - 1], s.frames[i]);
       if (lastFrameChanged) lastChange = t;
     }
@@ -408,13 +416,14 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
   // a different one is not a fill but a swap, so only placeholders cover. The
   // first frame at/after the interaction is the initial paint and is free.
   for (var k = 0; k < ixs.length; k++) {
-    final ix = ixs[k];
-    final until = k + 1 < ixs.length ? ixs[k + 1].atMs : null;
-    final first = s.frames.indexWhere((f) => f.atMs >= ix.atMs);
+    final ix = ixs[k].$2;
+    final until = k + 1 < ixs.length ? ixs[k + 1].$2 : null;
+    final first = ix.afterFrameIndex ?? s.frames.indexWhere((f) => f.atMs >= ix.atMs);
     if (first < 0) continue;
     for (var i = first + 1; i < s.frames.length; i++) {
       final t = s.frames[i].atMs;
-      if (until != null && t >= until) break;
+      if (until != null && follows(until, i)) break;
+      if (!follows(ix, i)) continue;
       final prevIds = {for (final e in s.frames[i - 1].elements) e.id};
       final nowIds = {for (final e in s.frames[i].elements) e.id};
       final vanished = s.frames[i - 1].elements

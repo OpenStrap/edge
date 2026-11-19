@@ -101,7 +101,12 @@ class Interaction {
   final int atMs;
   final String sourceId;
   final String? intentTargetId;
-  const Interaction(this.atMs, this.sourceId, {this.intentTargetId});
+  /// Last frame captured before this action. Later frame indices belong to it,
+  /// even when the baseline and post-action frames share [atMs]. Null retains
+  /// timestamp-only attribution for hand-built scenarios.
+  final int? afterFrameIndex;
+  const Interaction(this.atMs, this.sourceId,
+      {this.intentTargetId, this.afterFrameIndex});
 }
 
 class FocusEvent {

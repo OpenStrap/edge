@@ -144,6 +144,62 @@ void main() {
         .where((f) => f.rule == 'cover'), isEmpty);
   });
 
+  // why: a control owns its descendants; only unrelated overlays cover it.
+  // catches: excluding ancestors in only one direction.
+  test('a controls own label does not cover it, but an unrelated overlay does', () {
+    for (final growing in [false, true]) {
+      Scenario scenario(bool descendant) => sc([
+        fr(0, [
+          el('button', const ShiftRect(0, 0, 100, 50), focusable: true),
+          if (growing) ElementSnapshot(id: 'label', rect: const ShiftRect(0, 0, 10, 50),
+              ancestorIds: descendant ? const ['button'] : const []),
+        ]),
+        fr(1000, [
+          el('button', const ShiftRect(0, 0, 100, 50), focusable: true),
+          ElementSnapshot(id: 'label', rect: const ShiftRect(0, 0, 50, 50),
+              ancestorIds: descendant ? const ['button'] : const []),
+        ]),
+      ]);
+      List<ShiftFinding> covers(bool descendant) => score(scenario(descendant),
+          ShiftPolicy.standard).findings.where((f) => f.rule == 'cover').toList();
+      expect(covers(true), isEmpty);
+      // An unrelated overlay covers 2500/5000 of the button, with latency 1.
+      expect(covers(false).single.score, .5);
+    }
+  });
+
+  // why: pre-tap movement, load and appearance still answer the preceding tap.
+  // catches: attributing solely by timestamp in any of the three passes.
+  test('frame boundaries separate pre and post tap changes at the same time', () {
+    final a = el('panel', const ShiftRect(-60, 0, 220, 100));
+    final b = el('panel', const ShiftRect(-30, 0, 220, 100));
+    final c = el('panel', const ShiftRect(0, 0, 220, 100));
+    final contentA = el('a', const ShiftRect(0, 0, 10, 10));
+    final contentB = el('b', const ShiftRect(20, 0, 10, 10));
+    final s = sc([
+      fr(0, [a]),
+      fr(500, [b, contentA]), // baseline before B, still belongs to A
+      fr(500, [c, contentA, contentB]), // after B, same clock time
+      fr(600, [c, contentA, contentB]),
+    ], interactions: const [
+      Interaction(0, 'tap-a', afterFrameIndex: 0),
+      Interaction(500, 'tap-b', afterFrameIndex: 1),
+    ]);
+    final findings = score(s, ShiftPolicy.standard).findings;
+    final moves = findings.where((f) => f.rule == 'shift' && f.score > 0);
+    expect(moves, hasLength(1));
+    expect(moves.single.score, closeTo(.3, 1e-9)); // impact 1 * 30/100
+    final loads = findings.where((f) => f.rule == 'load' && f.score > 0);
+    expect(loads, hasLength(1));
+    expect(loads.single.elementId, 'tap-a');
+    expect(loads.single.score, .25); // still changing at A's last frame
+    final appeared = findings.where((f) => f.rule == 'appear');
+    expect(appeared, hasLength(1));
+    expect(appeared.single.elementId, 'a');
+    // .5 appear weight * .01 viewport area * loadAt(500) = .1 + .2/6.
+    expect(appeared.single.score, closeTo(1 / 1500, 1e-9));
+  });
+
   // why: at least 90% coverage includes the exact documented boundary.
   test('exactly 90 percent placeholder coverage is free', () {
     Scenario filled(double width) => sc([

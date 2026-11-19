@@ -1,5 +1,6 @@
 // Tunable knobs for the layout shift scorer. Defaults are the `standard`
-// preset from docs/LAYOUT_SHIFT.md. Immutable; change one with copyWith.
+// preset from docs/LAYOUT_SHIFT.md. Presets use constant collections; custom
+// callers retain ownership of supplied collections and must not mutate them.
 
 import 'shift_model.dart';
 

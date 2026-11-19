@@ -28,7 +28,7 @@ All times are ms since the scenario start. Rects are logical pixels.
   loading widget) that holds the space its content will fill.
 - `ElementSnapshot(id, rect, role, colorArgb, focusable, focused, enabled)`.
 - `Frame(atMs, elements)` — one painted frame.
-- `Interaction(atMs, sourceId, intentTargetId?)` — a user action. `sourceId`
+- `Interaction(atMs, sourceId, intentTargetId?, afterFrameIndex?)` — a user action. `sourceId`
   is the element acted on (the copy button); `intentTargetId` is the element
   the action is meant to affect (the copied text). Together they form an
   action + intent pair.
@@ -39,8 +39,10 @@ All times are ms since the scenario start. Rects are logical pixels.
 
 ## Policy (`lib/layout_shift/shift_policy.dart`)
 
-Immutable, `copyWith`, three presets: `ShiftPolicy.standard`,
-`ShiftPolicy.strict`, `ShiftPolicy.lenient`. Defaults (`standard`):
+`copyWith` and three constant presets: `ShiftPolicy.standard`,
+`ShiftPolicy.strict`, `ShiftPolicy.lenient`. Custom policies retain caller-supplied
+curve lists and role-weight maps; callers must not mutate those collections.
+Defaults (`standard`):
 
 | knob | default | meaning |
 |---|---|---|
@@ -53,8 +55,8 @@ Immutable, `copyWith`, three presets: `ShiftPolicy.standard`,
 | `animationGraceMs` | 100 | …this many extra free ms (curve evaluated at `t − grace`) |
 | `interactionWindowMs` | 500 | shifts later than this after the last interaction are out of window |
 | `outOfWindowCost` | 1.0 | latency multiplier for out-of-window shifts |
-| `chainRangeMs` | 75..2000 | a chain qualifies if it starts ≥75 ms… and ends ≤2000 ms after the interaction |
-| `chainCycleMs` | 200..400 | …and every span in it lasts within this range |
+| `chainStartMinMs` / `chainEndMaxMs` | 75..2000 | a chain qualifies if it starts ≥75 ms… and ends ≤2000 ms after the interaction |
+| `chainCycleMinMs` / `chainCycleMaxMs` | 200..400 | …and every span in it lasts within this range |
 | `chainDiscount` | 0.5 | multiplier on shifts during a qualifying chain |
 | `roleWeight` | paragraph 2, input 3, control 1.5, media 1, decorative .5, other 1, placeholder .5 | |
 | `colorWeight` | 0.5 | colour change counts as a shift of `area × colorDelta × colorWeight` |
@@ -69,7 +71,7 @@ Immutable, `copyWith`, three presets: `ShiftPolicy.standard`,
 | `sourceShiftFloor` | 0.5 (strict .75, lenient .3) | minimum latency multiplier for the interaction's source, or a control within `denseGapPx` of it |
 | `focusShiftFloor` | 0.5 (strict .75, lenient .3) | …for an element focused before/after the frame, or with focus history of recency weight ≥ .5 |
 | `denseShiftFloor` | 0.3 (strict .5, lenient .15) | …for a control that receives `denseMultiplier` |
-| `disabledShieldMs` | 400..1000 | a shifted focused control visibly disabled for this long… |
+| `disabledShieldMinMs` / `disabledShieldMaxMs` | 400..1000 | a shifted focused control visibly disabled for this long… |
 | `disabledDiscount` | 0.8 | …earns this multiplier (small benefit) |
 | `controlMoveScore` | 0.1 (strict .15, lenient .06) | minimum score of a control with a hazard (source, packed sibling of source, focused or recently focused, dense) that moved a full `controlMoveRefPx` |
 | `controlMoveRefPx` | 48 (strict 40, lenient 64) | one touch target; displacement at or past it earns the full `controlMoveScore` |
@@ -80,12 +82,17 @@ Immutable, `copyWith`, three presets: `ShiftPolicy.standard`,
 | `warnAt` / `errorAt` | 0.05 / 0.25 | per-finding severity thresholds |
 | `firstPaintMaxMs` / `firstPaintMaxArgb` | 20 / 0xFF222222 | launch: first paint by 20 ms, no brighter than #222 (relative luminance) |
 | `reducedMaxAnimationMs` | 150 | reduced motion: animations ≤150 ms or none |
-| `reducedChainCycleMs` | 750..2000 | reduced motion: chain cycles in this range |
+| `reducedChainCycleMinMs` / `reducedChainCycleMaxMs` | 750..2000 | reduced motion: chain cycles in this range |
 
 ## Scoring (`lib/layout_shift/shift_scorer.dart`)
 
 `ShiftReport score(Scenario s, ShiftPolicy p)` compares each consecutive frame
-pair by element id. Per moved/resized/recoloured element:
+pair by element id. An interaction may supply `afterFrameIndex`, the index of
+its last pre-action baseline. Only later frames belong to that interaction:
+pre-tap changes keep the preceding interaction even at the same timestamp.
+Shift, load and appearance use this boundary consistently. With no boundary,
+hand-built scenarios retain timestamp-only attribution. Equal-time interactions
+retain their recorded order. Per moved/resized/recoloured element:
 
 1. **base** = `(union(before, after).area / viewport.area) × (distance / max(viewport.w, viewport.h))`
    + `area/viewport.area × colorDelta × colorWeight` (colorDelta = max RGB
@@ -112,7 +119,7 @@ pair by element id. Per moved/resized/recoloured element:
    `× (1 + focusDistanceWeight × dFocus)`. Focused in either frame ⇒ `× focusedMultiplier`.
 6. **dense**: two controls within `denseGapPx` before the frame whose relative
    offset changed ⇒ `× denseMultiplier` on both; a focused control disabled for
-   a span inside `disabledShieldMs` covering the shift ⇒ `× disabledDiscount`.
+   a span inside `disabledShieldMinMs` / `disabledShieldMaxMs` covering the shift ⇒ `× disabledDiscount`.
 
 **Hazard floor.** The 100 ms free window is about response timing: the screen
 may react to a tap that quickly. It says nothing about where things land. A
@@ -143,7 +150,9 @@ controls). The intent target of the last interaction is exempt. Defaults: a
 
 Coverage: an element appearing (or growing) over a focusable element by at
 least `coverMinFraction` of its area adds `coverCost × fraction × latency`
-(× focusedMultiplier when focused).
+(× focusedMultiplier when focused). Ancestor–descendant pairs are excluded
+in both directions: a control owns its descendants, and a container does not
+occlude its own child.
 
 Each contribution is a `ShiftFinding(rule, elementId, atMs, score, severity)`
 with severity `none | warning | error` from `warnAt` / `errorAt`.
@@ -180,7 +189,8 @@ The `appear` rule charges content that lands in space nothing reserved for it.
 
 For each interaction, take the frames after the first frame at/after the
 interaction (that first frame is the initial paint and is free) and before the
-next interaction. An element present in frame i but absent (by id) in frame
+next interaction. With an explicit frame boundary, that baseline replaces the
+initial-paint frame and each later frame is eligible. An element present in frame i but absent (by id) in frame
 i-1 appears at `t` = frame i's `atMs`:
 
 - `visible` = the element's rect clipped to the viewport (nothing visible ⇒ no
@@ -248,7 +258,7 @@ differs from the remembered one is wrong whenever it shows up.
 
 Uses:
 
-- **Cross-screen**: settled frames of two screens, `only: shared:*`. Give
+- **Cross-screen**: settled frames of two screens, `only: (id) => id.startsWith('shared:')`. Give
   matching elements a `ValueKey<String>` such as `shared:avatar`, and capture
   each element's geometry under that id.
 - **Revisit**: visit 1 vs visit 2 of one screen, all ids. Charged even if a
@@ -264,7 +274,7 @@ Uses:
   measure a device launch.
 - `checkReducedMotion(animations, policy)` — error per span longer than
   `reducedMaxAnimationMs` unless it belongs to a chain whose cycles sit in
-  `reducedChainCycleMs`.
+  `reducedChainCycleMinMs` / `reducedChainCycleMaxMs`.
 
 ## Not covered (yet)
 
