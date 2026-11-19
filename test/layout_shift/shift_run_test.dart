@@ -13,6 +13,29 @@ class _Pending extends StatelessWidget {
 }
 
 void main() {
+  // WHY: upstream screens use indeterminate indicators while data loads.
+  // Catches: applying a no-spinner policy to every measurement.
+  testWidgets('driver captures an indeterminate indicator by default', (t) async {
+    await t.pumpWidget(const MaterialApp(home: Center(child: SizedBox(
+      width: 40, height: 40, child: CircularProgressIndicator()))));
+    final run = ShiftRun(t);
+    run.opened();
+    expect(run.probe.frames, hasLength(1));
+    expect(run.probe.frames.single.elements
+      .where((e) => e.id.startsWith('~card|')).single.role, ElementRole.other);
+    expect(run.probe.interactions.single.sourceId, 'screen-open');
+  });
+
+  // WHY: strict scenarios must still be able to forbid perpetual loading paint.
+  // Catches: ignoring rejectIndeterminateProgress after making it opt-in.
+  testWidgets('driver rejects an indeterminate indicator when opted in', (t) async {
+    await t.pumpWidget(const MaterialApp(home: Center(child: SizedBox(
+      width: 40, height: 40, child: CircularProgressIndicator()))));
+    final run = ShiftRun(t, rejectIndeterminateProgress: true);
+    expect(run.snap, throwsA(isA<TestFailure>()));
+    expect(run.probe.frames, isEmpty);
+  });
+
   // WHY: an adapter must classify loading paint without importing app widgets.
   // Catches: ignoring isPending or merging the placeholder into its envelope.
   testWidgets('adapter preserves placeholder fill in a keyed envelope', (t) async {

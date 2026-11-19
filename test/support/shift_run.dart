@@ -25,6 +25,7 @@ void phoneSurface(WidgetTester t) {
 
 class ShiftRun {
   ShiftRun(this.t, {bool skipCoveredRoutes = false, bool trackUnkeyed = true,
+      this.rejectIndeterminateProgress = false,
       bool Function(Widget)? isPending, bool Function(Widget)? isPaintOnly})
       : probe = ShiftProbe(
             trackUnkeyed: trackUnkeyed,
@@ -34,6 +35,9 @@ class ShiftRun {
             skipCoveredRoutes: skipCoveredRoutes);
   final WidgetTester t;
   final ShiftProbe probe;
+
+  /// Opt in when a scenario forbids indeterminate loading indicators.
+  final bool rejectIndeterminateProgress;
   int now = 0;
 
   /// Captures the current tree at [now] without pumping.
