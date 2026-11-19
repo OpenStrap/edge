@@ -811,6 +811,8 @@ class AppState extends ChangeNotifier {
       await refreshActivityReviews();
       await _derive.finalizeImport(_profile);
       await LocalDb.refreshComputeFreshness();
+      final recTsHw = await LocalDb.getRecordFrontier();
+      if (recTsHw != null && recTsHw > (_lastRecTs ?? 0)) _lastRecTs = recTsHw;
       _bandUntimedArchive = await LocalDb.hasGateDroppedArchive();
     } catch (e) {
       importRollupError = '$e';
