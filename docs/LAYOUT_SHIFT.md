@@ -91,8 +91,17 @@ pair by element id. Per moved/resized/recoloured element:
    + `area/viewport.area × colorDelta × colorWeight` (colorDelta = max RGB
    channel delta / 255). Impact and colour areas are clipped to the viewport;
    elements invisible in both frames contribute nothing. Distance is the larger
-   of centre displacement and half the largest dimension change, so growth
-   around a fixed centre counts too.
+   of centre displacement and half the largest dimension change when both edges
+   are visible. Per axis, use original edge movements for edges inside the
+   viewport in either frame: average two visible edges for centre movement and
+   take half their difference for resizing; a lone visible edge supplies the
+   full movement. Stationary boundary edges anchor a resize; moving boundary
+   edges are clipped, so growth hidden below the fold is free. If neither edge
+   is visible, retain their common translation (the
+   smaller same-direction movement), so a panel covering the viewport can still
+   move. Opposite-direction hidden growth contributes nothing. The tests in
+   `bot_regressions_test.dart` pin straddling translation, one-pixel exit,
+   covering-panel translation and hidden growth.
 2. **× roleWeight**.
 3. **× latency** (raised to the hazard floor, below): curve at `t = frame.atMs − lastInteraction.atMs` (with the
    animation grace shift), or `outOfWindowCost` beyond the window / with no
@@ -265,3 +274,8 @@ Uses:
   vsync. Native launch colours and device timing need separate checks; neither is
   measured by the pure scorer.
 
+## Scorer change checklist
+
+- When changing geometry scoring, run `bot_regressions_test.dart` alongside the
+  layout suite: preserve full translation at each viewport edge and on exit,
+  covering-panel translation, hidden-growth abstention and anchored-resize cost.

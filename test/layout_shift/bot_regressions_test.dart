@@ -36,6 +36,45 @@ void main() {
     expect(shifts(s), isEmpty);
   });
 
+  // why: clipping must not halve translation or mix full and clipped bounds.
+  // catches: using clipped centres, including when the element leaves view.
+  test('straddling translation retains the full visible movement', () {
+    for (final pair in [
+      (const ShiftRect(0, 40, 100, 200), const ShiftRect(0, 50, 100, 200), .06),
+      (const ShiftRect(40, 0, 200, 100), const ShiftRect(50, 0, 200, 100), .06),
+      (const ShiftRect(-140, 0, 200, 100), const ShiftRect(-150, 0, 200, 100), .06),
+      (const ShiftRect(0, -140, 100, 200), const ShiftRect(0, -150, 100, 200), .06),
+      (const ShiftRect(-1000, 0, 1001, 100), const ShiftRect(-1001, 0, 1001, 100), .0001),
+    ]) {
+      final s = sc([fr(0, [el('x', pair.$1)]), fr(1000, [el('x', pair.$2)])]);
+      expect(shifts(s), hasLength(1), reason: '$pair');
+      // First four: .6 visible impact * 10/100; exit: .01 * 1/100.
+      expect(shifts(s).single.score, closeTo(pair.$3, 1e-9), reason: '$pair');
+    }
+  });
+
+  // why: content still moves when both panel edges are beyond the viewport.
+  // catches: dropping translation when neither edge is visible.
+  test('translation of a viewport-covering panel still scores', () {
+    final s = sc([
+      fr(0, [el('x', const ShiftRect(-60, 0, 220, 100))]),
+      fr(1000, [el('x', const ShiftRect(-30, 0, 220, 100))]),
+    ]);
+    expect(shifts(s), hasLength(1));
+    // Entire viewport * 30/100 translation.
+    expect(shifts(s).single.score, closeTo(.3, 1e-9));
+  });
+
+  // why: an offscreen bottom extending must not move a visible column.
+  // catches: measuring size changes or centre movement on full rectangles.
+  test('growth below the fold does not spend the shift budget', () {
+    final s = sc([
+      fr(0, [el('x', const ShiftRect(0, 0, 100, 200))]),
+      fr(1000, [el('x', const ShiftRect(0, 0, 100, 240))]),
+    ]);
+    expect(shifts(s), isEmpty);
+  });
+
   // why: a size change around a fixed centre is still a visible layout shift.
   test('symmetric growth retains a nonzero size contribution', () {
     final s = sc([

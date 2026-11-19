@@ -50,6 +50,44 @@ ShiftSeverity _severity(double v, ShiftPolicy p) => v >= p.errorAt
         ? ShiftSeverity.warning
         : ShiftSeverity.none;
 
+// Moving edges on the viewport boundary are clipped; stationary ones anchor
+// a resize without charging growth beyond that boundary.
+// A lone visible edge carries the translation; averaging it with a clipped
+// edge would halve it. See bot_regressions_test's straddling/hidden-edge cases.
+double _visibleDisplacement(ShiftRect before, ShiftRect after, ShiftRect viewport) {
+  final oldVisible = before.intersect(viewport) != null;
+  final newVisible = after.intersect(viewport) != null;
+  ({double move, double resize}) axis(double start, double end,
+      double nextStart, double nextEnd, double low, double high) {
+    bool seen(double oldEdge, double newEdge) =>
+        (oldVisible && oldEdge > low && oldEdge < high) ||
+        (newVisible && newEdge > low && newEdge < high) ||
+        (oldVisible && newVisible && oldEdge == newEdge &&
+            oldEdge >= low && oldEdge <= high);
+    final startDelta = nextStart - start, endDelta = nextEnd - end;
+    final startSeen = seen(start, nextStart), endSeen = seen(end, nextEnd);
+    if (startSeen && endSeen) {
+      return (move: (startDelta + endDelta) / 2,
+          resize: (endDelta - startDelta).abs() / 2);
+    }
+    if (startSeen) return (move: startDelta, resize: 0);
+    if (endSeen) return (move: endDelta, resize: 0);
+    // A covering panel can translate with both edges offscreen. Their common
+    // movement moves visible content; outward growth alone has no common part.
+    final common = startDelta.sign == endDelta.sign
+        ? startDelta.sign * min(startDelta.abs(), endDelta.abs()) : 0.0;
+    return (move: common, resize: 0);
+  }
+
+  final x = axis(before.left, before.left + before.width,
+      after.left, after.left + after.width,
+      viewport.left, viewport.left + viewport.width);
+  final y = axis(before.top, before.top + before.height,
+      after.top, after.top + after.height,
+      viewport.top, viewport.top + viewport.height);
+  return max(sqrt(x.move * x.move + y.move * y.move), max(x.resize, y.resize));
+}
+
 int _channelDelta(int a, int b, int shift) =>
     (((a >> shift) & 0xFF) - ((b >> shift) & 0xFF)).abs();
 
@@ -220,13 +258,7 @@ ShiftReport score(Scenario s, ShiftPolicy p) {
       final oldVisible = o.rect.intersect(s.viewport);
       final visible = e.rect.intersect(s.viewport);
       if (oldVisible == null && visible == null) continue;
-      // Centre distance misses growth around a fixed centre. Half the largest
-      // dimension change also preserves the existing anchored-resize cost.
-      final beforeRect = oldVisible ?? o.rect;
-      final afterRect = visible ?? e.rect;
-      final displacement = max(beforeRect.distanceTo(afterRect),
-          max((beforeRect.width - afterRect.width).abs(),
-              (beforeRect.height - afterRect.height).abs()) / 2);
+      final displacement = _visibleDisplacement(o.rect, e.rect, s.viewport);
       final impact = o.rect.union(e.rect).intersect(s.viewport)?.area ?? 0;
       final base = impact / vpArea * (displacement / vpSide) +
           (visible?.area ?? 0) / vpArea * colorDelta * p.colorWeight;
