@@ -1312,7 +1312,12 @@ List<Widget> timelineBody(BuildContext c, TimelineData d,
             pad: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x2),
             child: Column(
               children: [
-                for (final m in d.moments) MomentRow(m),
+                // A run row holds its open state, so it is keyed: a reload
+                // that adds an earlier moment must not hand that state to the
+                // row now at its old position. Lone rows hold none.
+                for (final m in d.moments)
+                  MomentRow(m,
+                      key: m.members.isEmpty ? null : ValueKey((m.title, m.at))),
               ],
             ),
           ),

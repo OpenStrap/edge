@@ -323,6 +323,42 @@ void main() {
       }
     });
 
+    // A reload that keeps the rows on screen (a locale change re-reads the
+    // day without clearing it) must not hand an open run's state to the row
+    // that now sits at its old position.
+    testWidgets('an open run stays open when an earlier moment is inserted',
+        (t) async {
+      List<Moment> moments({required bool earlier}) => dayMoments(timeline: {
+            'day_start': _day,
+            'events': [
+              for (final i in [0, 3, 6]) {'event_id': 15, 'ts': _at(9, i)},
+              for (final i in [0, 9]) {'event_id': 57, 'ts': _at(7, i)},
+              if (earlier) {'event_id': 7, 'ts': _at(6)},
+            ],
+          });
+      Future<void> show(List<Moment> m) => t.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: SingleChildScrollView(
+                  child: Builder(
+                      builder: (c) => Column(
+                          children:
+                              timelineBody(c, TimelineData(moments: m))))))));
+
+      await show(moments(earlier: false));
+      final restarts = clockOfTs(_at(9, 3)), alarm = clockOfTs(_at(7, 9));
+      await t.tap(find.text('The band restarted'));
+      await t.pumpAndSettle();
+      expect(find.text(restarts), findsOneWidget);
+      expect(find.text(alarm), findsNothing);
+
+      await show(moments(earlier: true));
+      await t.pumpAndSettle();
+      expect(find.text(restarts), findsOneWidget,
+          reason: 'the restart run is still the open one');
+      expect(find.text(alarm), findsNothing,
+          reason: 'the alarm run, now one position lower, stayed closed');
+    });
+
     test('a meal with no time is never placed, and is not lost either', () {
       const timed = FoodEntry(
           id: 'a', date: '2026-08-14', meal: 'Lunch', label: 'Soup', kcal: 300);
