@@ -570,6 +570,14 @@ class OuraAdapter extends BandAdapter {
     // would be a row a few seconds of a night, thousands a night.
     final spo2 = <int>[];
     int? spo2Ds;
+    // Into the held values, so a ring start below stamps it with its own boot.
+    void flushSpo2() {
+      if (spo2.isEmpty) return;
+      _heldValues.add((spo2Ds!, 'spo2_avg',
+          spo2.reduce((a, b) => a + b) / spo2.length, '%'));
+      spo2.clear();
+      spo2Ds = null;
+    }
     int? skipReason;
     for (final e in got.events) {
       if (e.tsDs == skipDs) continue;
@@ -581,6 +589,7 @@ class OuraAdapter extends BandAdapter {
       final a = _anchor;
       if (e.tag == kOuraEvtRingStart &&
           (ouraRingStartResetsClock(e) || (a != null && e.tsDs < a.$1))) {
+        flushSpo2();
         _stampHeld(samples, stageEpochs, hypnogram, values);
         _held.clear();
         _heldHr.clear();
@@ -681,10 +690,7 @@ class OuraAdapter extends BandAdapter {
           _heldStages[page] = (e.tsDs, hyp.phases);
       }
     }
-    if (spo2.isNotEmpty) {
-      _heldValues.add((spo2Ds!, 'spo2_avg',
-          spo2.reduce((a, b) => a + b) / spo2.length, '%'));
-    }
+    flushSpo2();
     _stampHeld(samples, stageEpochs, hypnogram, values);
     if (skipReason != null && !_syncedThisSession) {
       link.log('oura: the ring skipped the clock set (reason $skipReason).');
