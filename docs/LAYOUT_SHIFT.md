@@ -1,0 +1,118 @@
+# Layout shift budget (design note)
+
+Owner request 2026-10-17. A tunable layout-shift scorer for `lib/ui2`, the
+Flutter counterpart of the web's Cumulative Layout Shift (CLS) with extra
+rules for focus, controls, colour, motion and launch brightness.
+
+## Why custom
+
+Prebuilt CLS tooling (web-vitals, Lighthouse, Chrome's Layout Instability
+API) measures browsers only. Flutter has no layout-shift metric, and no
+analyzer plugin knows which widget combinations move content after the first
+frame. So the parts that are generic are borrowed (the web CLS impact formula:
+impact fraction × distance fraction) and the rest is ours:
+
+- `lib/layout_shift/` — pure Dart, no Flutter import. Policy, model, scorer,
+  launch and motion checks. Deterministic: every time is an explicit
+  millisecond offset; nothing reads a clock.
+- `test/support/layout_shift_probe.dart` — widget-test probe that snapshots the
+  render tree each pumped frame into the model, so a widget test can score a
+  real screen and fail on `error` findings.
+- `test/layout_shift/` — scorer law/example tests, probe tests, and a guard
+  that the native launch backgrounds stay dark.
+
+## Model (`lib/layout_shift/shift_model.dart`)
+
+All times are ms since the scenario start. Rects are logical pixels.
+
+- `ShiftRect(left, top, width, height)` with `area`, `center`, `intersect`,
+  `union` bounds, `distanceTo(other)` (centre to centre).
+- `ElementRole { paragraph, input, control, media, decorative, other }`.
+- `ElementSnapshot(id, rect, role, colorArgb, focusable, focused, enabled)`.
+- `Frame(atMs, elements)` — one painted frame.
+- `Interaction(atMs, sourceId, intentTargetId?)` — a user action. `sourceId`
+  is the element acted on (the copy button); `intentTargetId` is the element
+  the action is meant to affect (the copied text). Together they form an
+  action + intent pair.
+- `FocusEvent(atMs, elementId)` — focus history (not just current focus).
+- `AnimationSpan(startMs, endMs, elementId?, chainId?)` — an animation; spans
+  sharing a `chainId` form a chain.
+- `Scenario(viewport, frames, interactions, focus, animations)`.
+
+## Policy (`lib/layout_shift/shift_policy.dart`)
+
+Immutable, `copyWith`, three presets: `ShiftPolicy.standard`,
+`ShiftPolicy.strict`, `ShiftPolicy.lenient`. Defaults (`standard`):
+
+| knob | default | meaning |
+|---|---|---|
+| `latencyCurve` | (100,0) (200,.1) (300,.3) (400,.5) (500,1) | cost multiplier by ms after the last interaction; piecewise linear, 0 before the first point, 1 after the last |
+| `animationGraceWindowMs` | 100 | an animation starting within this many ms of the interaction earns… |
+| `animationGraceMs` | 100 | …this many extra free ms (curve evaluated at `t − grace`) |
+| `interactionWindowMs` | 500 | shifts later than this after the last interaction are out of window |
+| `outOfWindowCost` | 1.0 | latency multiplier for out-of-window shifts |
+| `chainRangeMs` | 75..2000 | a chain qualifies if it starts ≥75 ms… and ends ≤2000 ms after the interaction |
+| `chainCycleMs` | 200..400 | …and every span in it lasts within this range |
+| `chainDiscount` | 0.5 | multiplier on shifts during a qualifying chain |
+| `roleWeight` | paragraph 2, input 3, control 1.5, media 1, decorative .5, other 1 | |
+| `colorWeight` | 0.5 | colour change counts as a shift of `area × colorDelta × colorWeight` |
+| `focusDistanceWeight` | 1.0 | `× (1 + w × d)`; d = recency-weighted normalised distance from focus history |
+| `focusHalfLifeMs` | 2000 | focus history recency decay |
+| `pairedDiscount` | 0.5 | shift of the interaction's own intent target |
+| `pairDistanceWeight` | 0.5 | `× (1 + w × d)`; d = normalised source↔intent distance |
+| `coverCost` | 1.0 | base cost of covering a focusable element (fraction covered ≥ `coverMinFraction` .25) |
+| `focusedMultiplier` | 2.0 | covered or shifted element is focused |
+| `denseGapPx` | 8 | controls closer than this are tightly packed |
+| `denseMultiplier` | 3.0 | relative shift between tightly packed controls |
+| `disabledShieldMs` | 400..1000 | a shifted focused control visibly disabled for this long… |
+| `disabledDiscount` | 0.8 | …earns this multiplier (small benefit) |
+| `warnAt` / `errorAt` | 0.05 / 0.25 | per-finding severity thresholds |
+| `firstPaintMaxMs` / `firstPaintMaxArgb` | 20 / 0xFF222222 | launch: first paint by 20 ms, no brighter than #222 (relative luminance) |
+| `reducedMaxAnimationMs` | 150 | reduced motion: animations ≤150 ms or none |
+| `reducedChainCycleMs` | 750..2000 | reduced motion: chain cycles in this range |
+
+## Scoring (`lib/layout_shift/shift_scorer.dart`)
+
+`ShiftReport score(Scenario s, ShiftPolicy p)` compares each consecutive frame
+pair by element id. Per moved/resized/recoloured element:
+
+1. **base** = `(union(before, after).area / viewport.area) × (distance / max(viewport.w, viewport.h))`
+   + `area/viewport.area × colorDelta × colorWeight` (colorDelta = max RGB
+   channel delta / 255).
+2. **× roleWeight**.
+3. **× latency**: curve at `t = frame.atMs − lastInteraction.atMs` (with the
+   animation grace shift), or `outOfWindowCost` beyond the window / with no
+   prior interaction.
+4. **× chainDiscount** if inside a qualifying chain.
+5. **focus**: element is the last interaction's intent target ⇒ `× pairedDiscount`
+   and `× (1 + pairDistanceWeight × d(source, intent))`; otherwise
+   `× (1 + focusDistanceWeight × dFocus)`. Focused ⇒ `× focusedMultiplier`.
+6. **dense**: two controls within `denseGapPx` before the frame whose relative
+   offset changed ⇒ `× denseMultiplier` on both; a focused control disabled for
+   a span inside `disabledShieldMs` covering the shift ⇒ `× disabledDiscount`.
+
+Coverage: an element appearing (or growing) over a focusable element by at
+least `coverMinFraction` of its area adds `coverCost × fraction × latency`
+(× focusedMultiplier when focused).
+
+Each contribution is a `ShiftFinding(rule, elementId, atMs, score, severity)`
+with severity `none | warning | error` from `warnAt` / `errorAt`.
+`ShiftReport.total` sums scores; `errors` / `warnings` filter.
+
+## Launch and motion checks
+
+- `checkFirstPaint(atMs, argb, policy)` — error if later than `firstPaintMaxMs`
+  or brighter than `firstPaintMaxArgb`. Native launch windows (Android
+  `launch_background`, iOS `LaunchBackground` colour set) are the first paint,
+  in BOTH light and dark mode; a guard test parses them.
+- `checkReducedMotion(animations, policy)` — error per span longer than
+  `reducedMaxAnimationMs` unless it belongs to a chain whose cycles sit in
+  `reducedChainCycleMs`.
+
+## Not covered (yet)
+
+- A static analyzer rule for risky widget combinations. Needs an analyzer
+  plugin (`custom_lint`) and a catalogue built from probe findings first.
+- Device-level timing: the probe sees pumped frames in a test, not real
+  vsync. First-paint timing on device is checked by the launch colour guard
+  (the native window paints before Dart runs), not measured.
