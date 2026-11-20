@@ -146,7 +146,8 @@ private final class Impl {
   // Set once the session reports `.activated`; until then `session.accessories` can still
   // be empty on a cold launch. `readyWaiters` run when it arrives.
   private var ready = false
-  private var readyWaiters: [() -> Void] = []
+  private var readyWaiters: [(Int, () -> Void)] = []
+  private var nextWaiterId = 0
   private let queue = DispatchQueue.main
   // Set while a showPicker is in flight; resolved by the completion handler.
   private var pickerResult: ((Result<String, PickerError>) -> Void)?
@@ -190,14 +191,21 @@ private final class Impl {
   private func whenActivated(_ f: @escaping () -> Void) {
     ensureActivated()
     if ready { f(); return }
-    readyWaiters.append(f)
-    queue.asyncAfter(deadline: .now() + 2) { [weak self] in self?.runReadyWaiters() }
+    // Each waiter gets its own 2 s timeout, so an earlier waiter's timer cannot drain a
+    // later one before its own window has passed.
+    let id = nextWaiterId
+    nextWaiterId += 1
+    readyWaiters.append((id, f))
+    queue.asyncAfter(deadline: .now() + 2) { [weak self] in
+      guard let self = self, let i = self.readyWaiters.firstIndex(where: { $0.0 == id }) else { return }
+      self.readyWaiters.remove(at: i).1()
+    }
   }
 
   private func runReadyWaiters() {
     let waiters = readyWaiters
     readyWaiters = []
-    waiters.forEach { $0() }
+    waiters.forEach { $0.1() }
   }
 
   private func onEvent(_ event: ASAccessoryEvent) {
