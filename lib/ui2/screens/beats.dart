@@ -309,7 +309,7 @@ class _BeatsState extends State<Beats> {
       // WHICH NIGHT, in the app's one day format. Every panel below describes
       // this one night; saying so once at the top is what lets them sit
       // together without each having to date itself.
-      sub: d.day == null || _failed
+      sub: d.day == null || _failed || _loading
           ? ''
           : (l?.beatsNightOf(prettyDay(d.day, l)) ??
               'Night of ${prettyDay(d.day, l)}'),
