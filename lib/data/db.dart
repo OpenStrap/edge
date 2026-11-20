@@ -10524,7 +10524,11 @@ class LocalDb {
     // The limit MUST follow skipped: a newer skip must neither consume a slot
     // nor fall back to an older non-skipped version of the same day.
     return db.rawQuery(
-      'SELECT r.day_id AS day_id, r.window_json AS window_json '
+      'SELECT r.day_id AS day_id, r.window_json AS window_json, '
+      // Legacy v9 rows keep window_json = '{}' and carry the offset in the
+      // payload; ship the payload only for those.
+      "CASE WHEN r.window_json LIKE '%offset_ms%' THEN NULL "
+      'ELSE r.payload_json END AS payload_json '
       'FROM ($_servedVersions ORDER BY day_id DESC) m '
       'CROSS JOIN day_result r $_servedOn '
       'WHERE r.skipped = 0 '
