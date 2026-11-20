@@ -60,6 +60,7 @@ class EngineFlashLink implements FlashLink {
   EngineFlashLink(this._e);
   final BleEngine _e;
   Object? _token;
+  String? _serial;
   @override
   bool get canFlash => _e.canFlashFirmware;
   @override
@@ -67,7 +68,7 @@ class EngineFlashLink implements FlashLink {
   @override
   bool get commitUnresolved => _e.flashCommitUnresolved;
   @override
-  void markCommitUnresolved() => _e.markFlashCommitUnresolved();
+  void markCommitUnresolved() => _e.markFlashCommitUnresolved(_serial);
   @override
   void acknowledgeCommit() => _e.acknowledgeFlashCommit();
   @override
@@ -75,6 +76,7 @@ class EngineFlashLink implements FlashLink {
     final t = _e.beginFirmwareFlash();
     if (t == null) return false;
     _token = t;
+    _serial = _e.state.serial;
     return true;
   }
 

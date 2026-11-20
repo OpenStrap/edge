@@ -5168,9 +5168,11 @@ class BleEngine {
     return mine == null || now == null || mine == now;
   }
 
-  void markFlashCommitUnresolved() {
+  /// [serial] is the strap the commit was sent to; a late reply must not
+  /// pin the flag on whichever strap is connected by then.
+  void markFlashCommitUnresolved([String? serial]) {
     _flashCommitUnresolved = true;
-    _flashCommitSerial = state.serial;
+    _flashCommitSerial = serial ?? state.serial;
   }
 
   /// The user checked the strap's firmware version and wants to go on.
