@@ -46,8 +46,16 @@ class FileLog {
   // overwrites the other. _append never throws, so the chain never breaks.
   static Future<void> _tail = Future.value();
 
-  static Future<void> write(String line) =>
-      _tail = _tail.then((_) => _append(line));
+  // ponytail: a stalled disk drops new lines past _maxPending instead of
+  // queueing them forever; diagnostics only, so losing the overflow is fine.
+  static const int _maxPending = 1000;
+  static int _pending = 0;
+
+  static Future<void> write(String line) {
+    if (_pending >= _maxPending) return _tail;
+    _pending++;
+    return _tail = _tail.then((_) => _append(line)).whenComplete(() => _pending--);
+  }
 
   static Future<void> _append(String line) async {
     await _ensure();
