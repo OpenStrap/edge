@@ -14086,7 +14086,7 @@ class LocalDb {
       where: 'key = ? AND value IS NOT NULL'
           '${from != null ? ' AND date >= ?' : ''}${_validSql(key)}'
           '${measuredOnly ? ' AND $notImportedRowSql' : ''}',
-      whereArgs: [key, if (from != null) from],
+      whereArgs: [key, ?from],
       orderBy: 'date ASC',
       limit: limit,
     );
