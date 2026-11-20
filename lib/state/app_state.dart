@@ -2777,8 +2777,6 @@ class AppState extends ChangeNotifier {
   // uninterrupted, for the full 2h window, and it fires from the OS wall-clock
   // even while the app is closed.
   int _lastStillnessScheduleMs = 0;
-  // Bumped on pause so a reschedule already awaiting prefs can't re-arm after.
-  int _stillnessGen = 0;
   static const int _stillnessThrottleMs = 10 * 60 * 1000;
   Future<void> _rescheduleStillnessNudge(int nowMs) async {
     // Throttle: _ingestLiveMags can call this many times a second while the
@@ -2788,7 +2786,6 @@ class AppState extends ChangeNotifier {
     // it never fires sooner than 2h after the last movement seen.
     if (nowMs - _lastStillnessScheduleMs < _stillnessThrottleMs) return;
     _lastStillnessScheduleMs = nowMs;
-    final gen = _stillnessGen;
     try {
       // Opt-in, off by default. Read here rather than cached because this runs
       // at most once every ten minutes and SharedPreferences is already in
@@ -2797,9 +2794,8 @@ class AppState extends ChangeNotifier {
       // (NotificationService.schedulableIds): a nudge with no off switch was
       // refused there, and had never once fired.
       final prefs = await NotificationPrefs.load();
-      if (!prefs.movementEnabled || gen != _stillnessGen) return;
+      if (!prefs.movementEnabled) return;
       await NotificationService.instance.cancel(NotificationService.idStillness);
-      if (gen != _stillnessGen) return;
       final at = NotificationCenter.stillnessNudgeAt(
           prefs,
           DateTime.fromMillisecondsSinceEpoch(nowMs + _stillnessThrottleMs));
@@ -3799,12 +3795,6 @@ class AppState extends ChangeNotifier {
   ///
   /// On Android the Edge Tracking foreground service keeps the process + connection alive.
   Future<void> pauseForBackground() {
-    // Backgrounded, no IMU frame reaches `_ingestLiveMagsAt`, so nothing
-    // could push the "time to move" one-shot back. Left armed it would claim
-    // hours of stillness nobody watched. The next foreground movement re-arms.
-    _lastStillnessScheduleMs = 0;
-    _stillnessGen++;
-    unawaited(NotificationService.instance.cancel(NotificationService.idStillness));
     _derive.trimForBackground();
     return _sync.pauseForBackground();
   }
