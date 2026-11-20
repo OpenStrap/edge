@@ -10,8 +10,12 @@
 
 import 'dart:async';
 
+import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart'
+    show AndroidFlutterLocalNotificationsPlugin;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/notify/notification_service.dart';
 import 'package:openstrap_edge/sync/reset_gate.dart';
 import 'package:openstrap_edge/sync/shortcut_sync_task.dart';
 
@@ -120,6 +124,25 @@ void main() {
       await rig.quiesce();
     }));
   });
+
+  test('backgrounding drops the "time to move" one-shot: nothing watches '
+      'for movement until the app is back', syncCase((rig, timers) async {
+    const ch = MethodChannel('dexterous.com/flutter/local_notifications');
+    final cancelled = <Object?>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(ch, (call) async {
+      if (call.method == 'cancel') cancelled.add((call.arguments as Map)['id']);
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(ch, null));
+    AndroidFlutterLocalNotificationsPlugin.registerWith();
+    rig.app.initialized = true;
+    await rig.app.pauseForBackground();
+    await settleMs(20);
+    expect(cancelled, contains(NotificationService.idStillness));
+    await rig.quiesce();
+  }));
 
   group('a background Shortcut', () {
     test('opens the session without foregrounding the app: the engine is never '

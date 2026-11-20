@@ -9887,6 +9887,8 @@ class LocalDb {
         });
       }
     });
+    // AppState caches the hr1Hz order with the device rows.
+    deviceRowChanged.add('');
   }
 
   /// Back to physics for one signal. NOT a write of the computed order — that
@@ -9899,6 +9901,7 @@ class LocalDb {
       where: 'signal = ? AND user_set = 1',
       whereArgs: [signal.name],
     );
+    deviceRowChanged.add('');
   }
 
   /// The signals whose order the USER set by hand, so the editor can offer a
