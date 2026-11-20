@@ -372,6 +372,10 @@ class DeviceAlerts {
       await _io(() => _notes.cancel(NotificationService.idLowBattery));
     }
     if (fireLow) {
+      // Persist the disarm BEFORE showing: the key below is unique per call, so
+      // the latch is the only guard and a kill between show and the write at
+      // the bottom would re-alert on restart.
+      await _io(() => _store.writeInt(_kLowArmed, 0));
       final dropped = await _showWasDropped(() => _notes.show(_event(
             osId: NotificationService.idLowBattery,
             // The percentage alone is not unique within a day: charge past the
@@ -395,6 +399,7 @@ class DeviceAlerts {
         // let the next state update try again.
         lowArmed = true;
         _lowArmed = true;
+        await _io(() => _store.writeInt(_kLowArmed, 1));
       }
     }
     if (lowArmed != armedBefore) {
