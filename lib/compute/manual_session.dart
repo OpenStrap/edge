@@ -359,6 +359,7 @@ ManualSessionStats computeManualSessionStats({
   final peak = smoothedMaxHr(worn, age: age?.round()) ??
       worn.reduce((a, b) => a > b ? a : b);
   final weightKg = profile.weightKg;
+  final heightCm = profile.heightCm;
   final sex = profile.sex?.toLowerCase();
 
   final strain = strainFromPerMinuteHr(perMin,
@@ -373,15 +374,17 @@ ManualSessionStats computeManualSessionStats({
       hrMax != null &&
       age != null &&
       weightKg != null &&
+      heightCm != null &&
       sex != null) {
     // Real anchors only — `usedDefaultAnchors` stays false, so we are never
-    // persisting a kcal figure built on a fabricated 220/60.
+    // persisting a kcal figure built on a fabricated 220/60. Height too: the
+    // resting floor reads it, and the day path abstains without it.
     final bout = ana.Calories.estimateBoutCalories(
       wornTs,
       [for (final v in worn) v.toDouble()],
       profile: ana.WorkoutUserProfile(
         weightKg: weightKg,
-        heightCm: profile.heightCm ?? 170.0,
+        heightCm: heightCm,
         age: age,
         sex: workoutSex(sex),
       ),

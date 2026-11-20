@@ -24,7 +24,17 @@ import kotlinx.coroutines.withContext
 
 internal data class SleepCleanupRange(val start: Instant, val end: Instant)
 
-internal fun sleepCleanupRange(start: Instant, end: Instant, zoneId: ZoneId): SleepCleanupRange {
+/**
+ * Noon-to-noon around the wake. Starts after [previousWake] when the day
+ * before's night woke inside the window (after noon), else the delete takes
+ * that night too and nothing writes it back. Never past this night's onset.
+ */
+internal fun sleepCleanupRange(
+    start: Instant,
+    end: Instant,
+    zoneId: ZoneId,
+    previousWake: Instant? = null,
+): SleepCleanupRange {
     require(start.isBefore(end))
     val localEnd = end.atZone(zoneId)
     val endDate = if (localEnd.toLocalTime().isBefore(LocalTime.NOON)) {
@@ -35,6 +45,9 @@ internal fun sleepCleanupRange(start: Instant, end: Instant, zoneId: ZoneId): Sl
     val cleanupEnd = endDate.atTime(LocalTime.NOON).atZone(zoneId).toInstant()
     val calculatedStart = endDate.minusDays(1).atTime(LocalTime.NOON).atZone(zoneId).toInstant()
     val cleanupStart = if (start.isBefore(calculatedStart)) start else calculatedStart
+    if (previousWake != null && !previousWake.isBefore(cleanupStart) && previousWake.isBefore(start)) {
+        return SleepCleanupRange(minOf(previousWake.plusSeconds(1), start), cleanupEnd)
+    }
     return SleepCleanupRange(cleanupStart, cleanupEnd)
 }
 
@@ -80,6 +93,8 @@ object HealthConnectSleepWriter {
                             session.startTime,
                             session.endTime,
                             ZoneId.systemDefault(),
+                            (call.argument<Any>("previousWake") as? Number)
+                                ?.toLong()?.let(Instant::ofEpochMilli),
                         )
 
                         // This removes both records created by this writer and legacy

@@ -927,6 +927,8 @@
     "description": "Row title."
   },
   "devicesLastData": "ข้อมูลล่าสุด",
+  "devicesTimeUnknown": "ไม่ทราบเวลา",
+  "devicesClockNotSetSub": "สายรัดบันทึกข้อมูลแล้ว แต่ยังไม่ได้ตั้งนาฬิกา",
   "@devicesLastData": {
     "description": "Row title."
   },
@@ -7561,6 +7563,7 @@
     }
   },
   "homeSyncedNever": "ยังไม่มีข้อมูลสายรัด",
+  "homeSyncedTimeUnknown": "มีข้อมูลสายรัด แต่ยังไม่ได้ตั้งนาฬิกา",
   "@homeSyncedNever": {
     "description": "Home header line when no record has ever been banked from a band."
   },

@@ -658,11 +658,17 @@ class TimelineData {
   /// hrOverride: …)` without a second `getDayTimeline` call (M6 §7.3).
   final Map<String, dynamic>? raw;
 
+  // One decode of each day bundle per load, not one per getter (see
+  // LocalRepository.sharingDayReads).
   static Future<TimelineData> load(
     LocalRepository repo, {
     String? want,
     AppLocalizations? l,
-  }) async {
+  }) =>
+      repo.sharingDayReads(() => _read(repo, want, l));
+
+  static Future<TimelineData> _read(
+      LocalRepository repo, String? want, AppLocalizations? l) async {
     final days = await repo.availableDays();
     final today = await repo.getToday();
     final day = pickDay(
