@@ -407,12 +407,21 @@ class PhonePedometer {
           stillValid: valid);
       if (!wrote) return null;
       // Same total with a different hourly spread still changes derived
-      // activity, so compare the windows too. endTs is left out: for today the
-      // last window ends at the capped "now", which differs on every sync.
+      // activity, so compare the windows too. A zero-step window vetoes band
+      // steps by overlap, so its endTs counts as well, except for the latest
+      // window: for today it ends at the capped "now" and differs every sync.
+      Set<(int, int, int)> keys(List<({int startTs, int endTs, int steps})> ws) {
+        final last = ws.fold<int>(0, (m, w) => w.startTs > m ? w.startTs : m);
+        return {
+          for (final w in ws)
+            (w.startTs, w.steps,
+                w.steps == 0 && w.startTs != last ? w.endTs : 0)
+        };
+      }
+
       final moved = before != total ||
           beforeWindows.length != windows.length ||
-          !{for (final w in beforeWindows) (w.startTs, w.steps)}
-              .containsAll([for (final w in windows) (w.startTs, w.steps)]);
+          !keys(beforeWindows).containsAll(keys(windows));
       onWritten?.call(dayId, moved);
       return total;
     } catch (e) {
