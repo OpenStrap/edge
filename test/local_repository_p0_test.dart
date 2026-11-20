@@ -15,6 +15,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/journal_fields.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
@@ -79,12 +80,31 @@ void main() {
     'a normal-length cycle gets a real phase once she has declared one',
     () async {
       profile['repro_state'] = 'cycling';
-      await LocalDb.putCycleLog('2026-06-01', 'start');
-      await LocalDb.putCycleLog('2026-06-29', 'start'); // 28 days
+      // Relative to today: a phase is only given inside her longest cycle.
+      final n = DateTime.now();
+      String ago(int d) => dayLabelOf(DateTime(n.year, n.month, n.day - d));
+      await LocalDb.putCycleLog(ago(38), 'start');
+      await LocalDb.putCycleLog(ago(10), 'start'); // 28 days
 
       final cycle = await repo.getCycle();
       expect(cycle['median_length'], 28);
-      expect(cycle['phase'], isNot('unknown'));
+      expect(cycle['phase'], 'follicular');
+    },
+  );
+
+  test(
+    'a last start older than her longest cycle gives no phase',
+    () async {
+      profile['repro_state'] = 'cycling';
+      // Stopped logging ~3 months ago: day 95 used to read "luteal".
+      final n = DateTime.now();
+      String ago(int d) => dayLabelOf(DateTime(n.year, n.month, n.day - d));
+      await LocalDb.putCycleLog(ago(122), 'start');
+      await LocalDb.putCycleLog(ago(94), 'start'); // 28 days
+
+      final cycle = await repo.getCycle();
+      expect(cycle['cycle_day'], 95);
+      expect(cycle['phase'], 'unknown');
     },
   );
 

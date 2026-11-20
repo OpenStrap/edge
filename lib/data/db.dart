@@ -14119,15 +14119,17 @@ class LocalDb {
     int n, {
     bool measuredOnly = true,
     String? before,
+    String? since,
   }) async {
     final db = await instance;
     final rows = await db.rawQuery(
       'SELECT value FROM metric_series '
       'WHERE key = ? AND value IS NOT NULL '
       '${before != null ? 'AND date < ? ' : ''}'
+      '${since != null ? 'AND date >= ? ' : ''}'
       '${measuredOnly ? 'AND $notImportedRowSql ' : ''}'
       'ORDER BY date DESC LIMIT ?',
-      [key, ?before, n],
+      [key, ?before, ?since, n],
     );
     return [for (final r in rows.reversed) (r['value'] as num).toDouble()];
   }
@@ -15460,6 +15462,34 @@ class LocalDb {
       }
     });
   }
+
+  /// End a LIVE session at [endTs]. A targeted update, not `putSession`: a
+  /// finished row is left alone (re-ending it would stretch its window to now)
+  /// and a score written since the caller's read is not reverted. Returns the
+  /// number of rows changed.
+  static Future<int> endLiveSession(String id, int endTs) async {
+    final db = await instance;
+    return db.transaction((tx) async {
+      final rows = await tx.query('sessions',
+          columns: ['start_ts'],
+          where: "id = ? AND status = 'live'",
+          whereArgs: [id]);
+      if (rows.isEmpty) return 0;
+      await tx.update('sessions', {'status': 'done', 'end_ts': endTs},
+          where: 'id = ?', whereArgs: [id]);
+      final start = (rows.first['start_ts'] as num?)?.toInt();
+      if (start != null) {
+        await ActivityStore.supersede(tx, ActivityKind.workout, start, endTs);
+      }
+      return 1;
+    });
+  }
+
+  /// id/start/end of every session ever logged, and nothing else: the overlap
+  /// check needs the whole history but none of the score or trace columns.
+  static Future<List<Map<String, dynamic>>> sessionSpans() async =>
+      (await instance)
+          .query('sessions', columns: ['id', 'start_ts', 'end_ts']);
 
   /// Move a session's window. Not `putSession`: the row's type correction,
   /// RPE and private flag must survive. What was measured over the OLD window
