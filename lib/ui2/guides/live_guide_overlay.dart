@@ -613,7 +613,12 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
     _walk = null;
     if (_walkHeld) return;
     _walkHeld = true; // Not reused until the frame that runs the build has ended.
-    SchedulerBinding.instance.addPostFrameCallback((_) => _walkHeld = false);
+    // A build scheduled during layout or paint runs in the next frame, so hold across two.
+    final scheduler = SchedulerBinding.instance;
+    scheduler.addPostFrameCallback((_) {
+      scheduler.addPostFrameCallback((_) { _walkHeld = false; _walk = null; });
+      scheduler.scheduleFrame();
+    });
   }
 
   @override
