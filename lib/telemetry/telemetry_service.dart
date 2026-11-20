@@ -380,7 +380,14 @@ class TelemetryService {
           }
         }
       }
-    } catch (_) {/* ignore corrupt blob */}
+    } on FormatException {
+      /* corrupt blob: nothing recoverable, carry on */
+    } catch (_) {
+      // Couldn't read the store. Don't mark restored: persisting now would
+      // overwrite last session's records. Allow a later load() to retry.
+      _loaded = false;
+      return;
+    }
     // Saved records are older than anything recorded before load() ran.
     _outbox.insertAll(0, saved);
     while (_outbox.length > _maxOutbox) {
@@ -394,6 +401,7 @@ class TelemetryService {
   /// non-empty. Clears the outbox only on a successful send.
   Future<void> flush() async {
     if (!enabled || !CompanionClient.configured || _flushing) return;
+    if (!_restored) return; // AppState flushes again once load() finishes
     if (deviceId == null || _outbox.isEmpty) return;
     _flushing = true;
     try {
