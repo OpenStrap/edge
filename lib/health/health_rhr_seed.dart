@@ -121,19 +121,24 @@ SeedComparison? compareSeedToBand({
 /// night and holds rather than skipping, which is how the spread stays honest
 /// about an intermittently worn watch.
 ///
-/// Pure — takes (localDayLabel, bpm) pairs so the folding is testable without
-/// the plugin's types.
+/// Pure — takes (localDayLabel, endMs, bpm) so the folding is testable without
+/// the plugin's types. Newest is by endMs, not list order: HealthKit hands
+/// samples back newest first.
 List<double?> nightlySeriesFrom(
-  List<(String, double)> dayValues, {
+  List<(String, int, double)> dayValues, {
   required String firstDay,
   required String lastDay,
 }) {
   final byDay = <String, double>{};
-  for (final (day, bpm) in dayValues) {
+  final atMs = <String, int>{};
+  for (final (day, endMs, bpm) in dayValues) {
     // Bounds are a sanity floor on a value being adopted without review. The
     // fold rejects out-of-range values too; doing it here as well keeps a
     // corrupt record from choosing the day.
     if (bpm < 30 || bpm > 120) continue;
+    final prev = atMs[day];
+    if (prev != null && prev > endMs) continue;
+    atMs[day] = endMs;
     byDay[day] = bpm;
   }
   final out = <double?>[];
@@ -228,13 +233,17 @@ class RhrSeedImporter {
       // without our own id we can't skip the rhr we wrote ourselves
       return null;
     }
-    final dayValues = <(String, double)>[];
+    final dayValues = <(String, int, double)>[];
     for (final p in points) {
       if (p.type != HealthDataType.RESTING_HEART_RATE) continue;
       if (isOwnHealthSample(p.sourceId, p.sourceName, ownId)) continue;
       final v = p.value;
       if (v is! NumericHealthValue) continue;
-      dayValues.add((dayLabelOf(p.dateTo.toLocal()), v.numericValue.toDouble()));
+      dayValues.add((
+        dayLabelOf(p.dateTo.toLocal()),
+        p.dateTo.millisecondsSinceEpoch,
+        v.numericValue.toDouble(),
+      ));
     }
     if (dayValues.isEmpty) return null;
     final series = nightlySeriesFrom(
