@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/activity/poster.dart';
+import 'package:openstrap_edge/ui2/activity/share.dart' show photoDecodeSize;
 import 'package:openstrap_edge/ui2/activity/summary.dart';
 import 'package:openstrap_edge/ui2/activity/tiles.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
@@ -21,6 +22,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('a photo decodes to cover the card, bounded in both dimensions', () {
+    // Tall portrait: width is the constraint (900), not height 1600.
+    expect(photoDecodeSize(1800, 4000), (900, 2000));
+    // Landscape: height 1600.
+    expect(photoDecodeSize(4000, 3000), (2133, 1600));
+    // Panorama: capped at 4096 on the long side.
+    expect(photoDecodeSize(20000, 2000), (4096, 410));
+    // Already small: never upscaled.
+    expect(photoDecodeSize(600, 800), (600, 800));
+  });
 
   // The consent gate, which every other test in this file has to get past.
   setUp(() async {
