@@ -108,6 +108,41 @@ void main() {
     expect(t['recovery_computed_at'], 5);
   });
 
+  test('past days: a skip is passed over, a flagged night counts', () async {
+    Future<void> raw(String day, Object payload) => db.insert('day_result', {
+          'day_id': day,
+          'algo_version': kAlgoVersion,
+          'payload_json': jsonEncode(payload),
+          'computed_at': 7,
+          'finalized': 1,
+        });
+    await raw(daysAgo(1), {
+      'skipped': true,
+      'flags': ['NO_SLEEP_DETECTED'],
+      'scalars': {'readiness': 80},
+    });
+    await raw(daysAgo(2), {
+      'flags': ['NO_SLEEP_DETECTED'],
+      'sleep': {
+        'accounting': {
+          'value': {'tst_sec': null},
+        },
+      },
+    });
+    await db.insert('day_result', {
+      'day_id': daysAgo(3),
+      'algo_version': kAlgoVersion,
+      'payload_json': 'not json',
+      'computed_at': 9,
+      'finalized': 1,
+      'readiness': 41,
+    });
+    final t = await today();
+    expect(t['overnight_day'], daysAgo(2));
+    expect(t['recovery_day'], daysAgo(3));
+    expect(t['recovery_computed_at'], 9);
+  });
+
   test('capture still reports the band edge and the decoded counts', () async {
     await db.insert('decoded_onehz', {
       'ts_ms': 1700000000 * 1000,
