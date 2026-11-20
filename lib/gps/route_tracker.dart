@@ -217,6 +217,9 @@ class RouteTracker {
         // captured, coarsely, once it clears the floor — see [minMovementM].
         // It still agrees with the anchor, so it breaks a spike streak.
         _rejectStreak = 0;
+        // A sub-floor fix is standstill evidence: a zero-speed run must be
+        // made of consecutive fixes that all cleared the floor (real movement).
+        _zeroSpeedRun = 0;
         return;
       } else {
         _rejectStreak = 0;
