@@ -532,7 +532,7 @@ class AppState extends ChangeNotifier {
     _deviceRowSub ??= LocalDb.deviceRowChanged.stream.listen((_) {
       unawaited(refreshSensors().catchError((_) async {
         await Future<void>.delayed(const Duration(seconds: 2));
-        if (!_disposed) await refreshSensors();
+        if (!_disposed) await refreshSensors().catchError((_) {});
       }));
     });
     final rows = await LocalDb.deviceRows();

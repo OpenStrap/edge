@@ -407,10 +407,12 @@ class PhonePedometer {
           stillValid: valid);
       if (!wrote) return null;
       // Same total with a different hourly spread still changes derived
-      // activity, so compare the windows too.
+      // activity, so compare the windows too. endTs is left out: for today the
+      // last window ends at the capped "now", which differs on every sync.
       final moved = before != total ||
           beforeWindows.length != windows.length ||
-          !beforeWindows.toSet().containsAll(windows);
+          !{for (final w in beforeWindows) (w.startTs, w.steps)}
+              .containsAll([for (final w in windows) (w.startTs, w.steps)]);
       onWritten?.call(dayId, moved);
       return total;
     } catch (e) {
