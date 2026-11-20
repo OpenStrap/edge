@@ -291,7 +291,8 @@ object PhoneStepCounter : SensorEventListener2 {
             val canBackfill = now - bootMs <= MAX_BACKFILL_MS
             if (canBackfill) {
                 if (raw >= 1f) credit(ed, p, bootMs, now, raw.toInt())
-                if (rebooted && lastMs > 0L) addGap(ed, p, lastMs, bootMs)
+                // clock moved back past the last sample: the unknown stretch runs to now
+                if (rebooted && lastMs > 0L) addGap(ed, p, lastMs, if (bootMs > lastMs) bootMs else now)
             } else if (lastMs > 0L) {
                 // Too long between boot and our first look to place those steps in
                 // time. They happened; we cannot say when — so the whole stretch is
@@ -443,6 +444,8 @@ internal fun stepCounterRebooted(
     if (lastRaw < 0f) return false
     if (raw < lastRaw) return true
     if (bootCount >= 0 && lastBootCount >= 0) return bootCount != lastBootCount
+    // No counter on this device: boot time alone can't tell a reboot from a clock change.
+    if (bootCount < 0) return false
     return abs(bootMs - storedBootMs) > BOOT_MATCH_SLACK_MS
 }
 

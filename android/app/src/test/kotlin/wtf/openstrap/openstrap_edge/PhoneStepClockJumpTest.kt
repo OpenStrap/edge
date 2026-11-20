@@ -31,6 +31,11 @@ class PhoneStepClockJumpTest {
     }
 
     @Test
+    fun noBootCounterNeverGuessesReboot() {
+        assertFalse(stepCounterRebooted(800f, 500f, -1, -1, boot + hour, boot))
+    }
+
+    @Test
     fun deltaStartFollowsTheClockChange() {
         val last = boot + 5 * hour
         // clock moved back 3 h: the last sample now sits 3 h earlier too
