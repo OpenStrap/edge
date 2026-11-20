@@ -46,6 +46,13 @@ abstract class FlashLink {
   /// A commit was sent earlier and never answered (kept beyond this screen).
   bool get commitUnresolved;
   void markCommitUnresolved();
+
+  /// Fires when the shared unresolved flag changes.
+  Listenable? get commitChanges;
+
+  /// The last command reached the transport (a null reply then means no
+  /// answer, not a refusal to send).
+  bool get lastCommandSent;
   void acknowledgeCommit();
   bool begin();
   void end();
@@ -67,6 +74,10 @@ class EngineFlashLink implements FlashLink {
   double? get batteryPct => _e.flashBatteryPct;
   @override
   bool get commitUnresolved => _e.flashCommitUnresolved;
+  @override
+  Listenable? get commitChanges => _e.flashCommitChanges;
+  @override
+  bool get lastCommandSent => _e.firmwareCommandSent;
   @override
   void markCommitUnresolved() => _e.markFlashCommitUnresolved(_serial);
   @override
@@ -101,6 +112,7 @@ enum _Reply { ok, rejected, none }
 
 class FirmwareFlashController extends ChangeNotifier {
   FirmwareFlashController(this._link) {
+    _link.commitChanges?.addListener(_onLinkChange);
     if (_link.commitUnresolved) {
       phase = FlashPhase.commitUnknown;
       failure = FlashFailure.commitUnknown;
@@ -135,12 +147,20 @@ class FirmwareFlashController extends ChangeNotifier {
   bool get busy =>
       phase == FlashPhase.staging || phase == FlashPhase.committing;
 
+  /// An unanswered commit is pending, on this screen or an earlier one.
+  bool get unresolved =>
+      phase == FlashPhase.commitUnknown || _link.commitUnresolved;
+
   /// A finished commit, or one whose outcome is unknown, ends the flow: no new
   /// image can be picked or staged from here.
   bool get settled =>
       phase == FlashPhase.committed ||
       phase == FlashPhase.commitUnknown ||
       _link.commitUnresolved;
+
+  void _onLinkChange() {
+    if (!_disposed) notifyListeners();
+  }
 
   /// Current battery on this link, for the blocker's wording.
   double? get batteryNow => _link.batteryPct;
@@ -223,7 +243,9 @@ class FirmwareFlashController extends ChangeNotifier {
     final r = await _cmd(FwUpdate.processImage, FwUpdate.rev1);
     // Sent, and no answer: not a rejection. Never offer a retry, even when
     // the screen went away while we waited.
-    if (r == _Reply.none) _link.markCommitUnresolved();
+    if (r == _Reply.none && _link.lastCommandSent) {
+      _link.markCommitUnresolved();
+    }
     _release();
     if (_disposed) return;
     switch (r) {
@@ -260,6 +282,7 @@ class FirmwareFlashController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _link.commitChanges?.removeListener(_onLinkChange);
     _cancel = true;
     // A command still in flight keeps the claim until it returns; the staging
     // loop releases it then. Freeing it now would let ordinary writes

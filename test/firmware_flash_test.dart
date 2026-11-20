@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show Listenable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
 import 'package:openstrap_edge/ble/firmware_flash.dart';
@@ -16,6 +17,10 @@ class _Link implements FlashLink {
   bool unresolved = false;
   @override
   bool get commitUnresolved => unresolved;
+  @override
+  Listenable? get commitChanges => null;
+  @override
+  bool get lastCommandSent => true;
   @override
   void markCommitUnresolved() => unresolved = true;
   @override
