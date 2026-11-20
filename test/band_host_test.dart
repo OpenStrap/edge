@@ -176,6 +176,40 @@ void main() {
     );
   });
 
+  test('a failed commit keeps beats that arrived for the same second while '
+      'it was in flight', () async {
+    const hrs = '00002a37-0000-1000-8000-00805f9b34fb';
+    final link = ReplayBandLink();
+    var calls = 0;
+    final host = BandHost(
+      adapter: kBleHrsAdapter,
+      deviceId: deviceId,
+      nowSeconds: () => 1_800_000_100,
+      faultCommitForTest: (commit) async {
+        if (calls++ > 0) return commit();
+        // Same second, new HR + one beat, buffered mid-commit.
+        link.feed(hrs, const [0x16, 130, 0x00, 0x04], atSec: 1_800_000_040);
+        await Future<void>.delayed(Duration.zero);
+        throw StateError('injected durable commit failure');
+      },
+    );
+    final future = host.run(link);
+    link.feed(hrs, kHrWithTwoRr, atSec: 1_800_000_040);
+    await Future<void>.delayed(Duration.zero);
+    expect(await host.flush(), isFalse);
+    expect(await host.flush(), isTrue);
+    await link.close();
+    await future;
+    await host.stop();
+
+    final db = await LocalDb.instance;
+    final onehz = await db.query('decoded_onehz');
+    expect(onehz, hasLength(1));
+    expect(onehz.single['hr'], 130);
+    final rr = await db.query('decoded_rr', orderBy: 'beat_index');
+    expect(rr.map((r) => r['rr_ms']), [488, 500, 1000]);
+  });
+
   test('a session still running during "delete everything" writes nothing '
       'and never confirms', () async {
     // A chest strap armed by a workout, or an Oura offload, is not stopped by
