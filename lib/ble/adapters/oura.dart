@@ -183,6 +183,11 @@ class OuraAdapter extends BandAdapter {
   /// no anchor there is no timestamp, and a sample without one is not emitted.
   (int ds, int unix)? _anchor;
 
+  /// True once a `time_sync` of THIS run set [_anchor]. A constructor-supplied
+  /// (persisted) anchor may belong to the boot AFTER a reset the drain is only
+  /// now reaching, so it must not stamp the older boot's held readings.
+  bool _anchorFromRun = false;
+
   /// Readings decoded before an origin existed, as `(ds, °C)`.
   ///
   /// Every connect sets the ring's clock, so the ring records a fresh
@@ -589,6 +594,8 @@ class OuraAdapter extends BandAdapter {
       final a = _anchor;
       if (e.tag == kOuraEvtRingStart &&
           (ouraRingStartResetsClock(e) || (a != null && e.tsDs < a.$1))) {
+        // A persisted anchor of unknown boot stamps nothing: dropped, not guessed.
+        if (!_anchorFromRun) _anchor = null;
         flushSpo2();
         _stampHeld(samples, stageEpochs, hypnogram, values);
         _held.clear();
@@ -596,6 +603,7 @@ class OuraAdapter extends BandAdapter {
         _heldBeats.clear();
         _heldValues.clear();
         _heldStages.clear();
+        _anchorFromRun = false;
         if (a != null) {
           _anchor = null;
           yield const BandNote('oura_anchor', null);
@@ -609,6 +617,7 @@ class OuraAdapter extends BandAdapter {
           // A better origin for this record, every one after it in this boot,
           // and everything still held from it.
           _anchor = (e.tsDs, unix);
+          _anchorFromRun = true;
           if (unix >= sentAt - 300) _syncedThisSession = true;
           // Surfaced so the host can persist it without re-deriving one of its
           // own. Two implementations of an origin is two origins.
