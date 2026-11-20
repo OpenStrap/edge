@@ -141,6 +141,13 @@ Future<void> _loadType() async {
 class _StrainRepo extends LocalRepository {
   final List<Map<String, Object?>> curve;
   _StrainRepo(this.curve);
+  int dayReads = 0;
+
+  @override
+  Future<List<String>> availableDays() async {
+    dayReads++;
+    return const ['2026-05-19', '2026-05-20'];
+  }
 
   @override
   Future<Map<String, dynamic>> getDayStrain(String date) async => {
@@ -802,6 +809,16 @@ void main() {
           isTrue);
       expect(d.wornMin, 600);
       expect(d.coveragePct, 42);
+    });
+
+    test('a step reuses the known days instead of re-reading them', () async {
+      final r = _StrainRepo(const []);
+      final first = await DayStrainData.load(r);
+      expect(first.days, ['2026-05-19', '2026-05-20']);
+      final next =
+          await DayStrainData.load(r, forDay: '2026-05-19', days: first.days);
+      expect(next.days, first.days);
+      expect(r.dayReads, 1);
     });
 
     test('no curve is no day and no chart', () async {
