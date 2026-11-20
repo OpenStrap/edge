@@ -182,7 +182,15 @@ class PosterCard extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               if (photo != null)
-                Image(image: photo!, fit: BoxFit.cover)
+                Image(
+                  // Decode no bigger than the 3x export needs; a camera photo
+                  // decoded whole is 50-200 MB for a 300 pt card.
+                  image: ResizeImage(photo!,
+                      width: (format.height * 3).round(),
+                      height: (format.height * 3).round(),
+                      policy: ResizeImagePolicy.fit),
+                  fit: BoxFit.cover,
+                )
               else
                 DecoratedBox(
                   decoration: BoxDecoration(
@@ -782,14 +790,24 @@ class PosterMap extends CustomPainter implements GuidePlot {
       ..strokeWidth = glow
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, glow * .55)
       ..isAntiAlias = true;
     if (lit) {
+      // One blur for the whole ramp: the segments go into a layer sharp, and
+      // the layer is blurred and faded once. A blur per segment was thousands
+      // of blur passes per paint on a long route.
+      canvas.saveLayer(
+        path.getBounds().inflate(glow * 3),
+        Paint()
+          ..color = const Color(0x33000000)
+          ..imageFilter =
+              ui.ImageFilter.blur(sigmaX: glow * .55, sigmaY: glow * .55),
+      );
       for (var i = 1; i < pts.length; i++) {
-        canvas.drawLine(
-            pts[i - 1], pts[i], halo..color = at(i).withValues(alpha: .20));
+        canvas.drawLine(pts[i - 1], pts[i], halo..color = at(i));
       }
+      canvas.restore();
     } else {
+      halo.maskFilter = MaskFilter.blur(BlurStyle.normal, glow * .55);
       canvas.drawPath(path, halo..color = line.withValues(alpha: .20));
     }
 
