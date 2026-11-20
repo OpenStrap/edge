@@ -2990,11 +2990,15 @@ class LocalRepositoryImpl extends LocalRepository {
     // app_state.stopWorkout from the LiveWorkoutState (it has the live tallies).
     final r = await LocalDb.session(workoutId);
     if (r != null) {
-      await LocalDb.putSession({
-        ...r,
-        'status': 'done',
-        'end_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      });
+      // Only stamp a live session; a repeat call on a finished one must not
+      // push its end_ts later (it still re-exports, which is idempotent).
+      if (r['status'] == 'live') {
+        await LocalDb.putSession({
+          ...r,
+          'status': 'done',
+          'end_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        });
+      }
       // This is the choke point the AI coach's `end_workout` tool reaches
       // directly (bypassing AppState.stopWorkout, the only other place this
       // used to happen) — without it a coach-ended workout never reached
