@@ -194,13 +194,16 @@ class _ShareSheetState extends State<ShareSheet> {
       bg: C.mapFloor,
       ink: C.mapCeil,
     );
-    if (!mounted) {
-      m?.dispose();
-      return;
-    }
+    // The switch may have gone off while this was in flight, and off then on
+    // starts a second fetch for the same format: either way this one is not
+    // the map to keep.
+    final keep =
+        mounted && _mapConsent && m != null && !_mosaics.containsKey(f);
+    if (!keep) m?.dispose();
+    if (!mounted) return;
     setState(() {
       _mapLoading.remove(f);
-      if (m != null) _mosaics[f] = m;
+      if (keep) _mosaics[f] = m;
     });
   }
 
@@ -254,7 +257,12 @@ class _ShareSheetState extends State<ShareSheet> {
                         key: _card,
                         child: PosterCard(
                           r,
-                          photo: _photo == null ? null : FileImage(_photo!),
+                          // Decoded at about export size (a 9:16 card is
+                          // ~1600 px tall at 3x), never the camera's full
+                          // 12-200 MP bitmap.
+                          photo: _photo == null
+                              ? null
+                              : ResizeImage(FileImage(_photo!), height: 1600),
                           mosaic: _mosaic,
                           format: _format,
                         ),
