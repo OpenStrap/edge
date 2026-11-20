@@ -229,6 +229,43 @@ void main() {
         reason: 'the auto path calls sync() bare and must never prompt');
   });
 
+  test('apple: a route already stored is not fetched or rewritten again',
+      () async {
+    final calls = <Map>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(kHealthRoutesChannel, (call) async {
+      calls.add(call.arguments as Map);
+      return [
+        {
+          'uuid': 'a',
+          // lat differs per call so a rewrite would show in the store.
+          'points': [
+            [50.0 + calls.length, -0.1, 10.0, 1000],
+          ],
+        },
+      ];
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(kHealthRoutesChannel, null));
+    final importer = HealthWorkoutImporter(
+      health: _FakeHealth([_w('a'), _w('b')]),
+      isApple: true,
+    );
+
+    final first = await importer.sync();
+    expect(first.withRoutes, 1);
+    expect(calls.single['skip'], isEmpty);
+
+    final second = await importer.sync();
+    expect(second.withRoutes, 1, reason: 'the stored route still counts');
+    expect(calls.last['skip'], ['a'],
+        reason: 'b has no route yet, so the fetch runs but skips a');
+    final pts = await LocalDb.routePoints('a');
+    expect(pts, hasLength(1));
+    expect(pts.single['lat'], 51.0, reason: 'the first write stands');
+  });
+
   test('copies of our own exports stored before the filter get cleaned up',
       () async {
     PackageInfo.setMockInitialValues(

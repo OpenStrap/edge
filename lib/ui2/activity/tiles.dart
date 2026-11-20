@@ -365,7 +365,11 @@ Future<RouteMosaic?> buildRouteMosaic(
   try {
     // [_maxParallel] at a time, and stop at the first failure: the card needs
     // every tile, so there is nothing to gain from asking for the rest.
-    for (var i = 0; i < want.length && !missing; i += _maxParallel) {
+    // Consent is re-read per batch: switching the map off mid-fetch stops the
+    // requests, and the incomplete mosaic is dropped below.
+    for (var i = 0;
+        i < want.length && !missing && mapTilesAllowed;
+        i += _maxParallel) {
       await Future.wait([
         for (final (x, y) in want.skip(i).take(_maxParallel))
           _tile(z, (x % n + n) % n, y, client).then((img) {

@@ -3562,7 +3562,11 @@ class LocalDb {
       'UPDATE device SET '
       '${blankAdapter ? 'adapter_id = NULL, ' : 'adapter_id = COALESCE(?, adapter_id), '}'
       'remote_id = COALESCE(?, remote_id), label = COALESCE(?, label), '
-      'tier = COALESCE(?, tier), last_seen = ? WHERE id = ?',
+      'tier = COALESCE(?, tier), '
+      // A re-pair or relabel of a paired sensor is not a sync: only
+      // markDeviceSynced moves its last_seen, so "recent data" stays honest.
+      'last_seen = CASE WHEN id = \'$kPrimaryDeviceId\' THEN ? ELSE last_seen END '
+      'WHERE id = ?',
       [
         if (!blankAdapter) adapterId,
         remoteId,
@@ -14079,14 +14083,18 @@ class LocalDb {
     String key, {
     int? limit,
     bool measuredOnly = false,
+    String? from,
     DatabaseExecutor? executor,
   }) async {
     final db = executor ?? await instance;
+    // `from` bounds the scan before the per-row imported mask runs: a 7-day
+    // reader should not pay one payload LIKE per stored day.
     return db.query(
       'metric_series',
-      where: 'key = ? AND value IS NOT NULL${_validSql(key)}'
+      where: 'key = ? AND value IS NOT NULL'
+          '${from != null ? ' AND date >= ?' : ''}${_validSql(key)}'
           '${measuredOnly ? ' AND $notImportedRowSql' : ''}',
-      whereArgs: [key],
+      whereArgs: [key, ?from],
       orderBy: 'date ASC',
       limit: limit,
     );

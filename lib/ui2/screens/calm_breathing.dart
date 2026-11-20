@@ -405,8 +405,19 @@ class _CalmBreathingState extends State<CalmBreathing>
 
   Future<void> _start() async {
     final app = context.read<AppState>();
+    // Another screen's live session makes the start a no-op; don't own it.
+    final owned = !app.breathingActive;
     await app.startBreathingSession(pattern: _pattern, target: _target);
-    if (!mounted) return;
+    // Closed (X or swipe) while the start was in flight: neither `_running`
+    // nor `_quiet` was set yet, so nothing tore it down. Stop it here or the
+    // session, Live Activity and streams outlive the screen.
+    if (!mounted || _closing) {
+      if (owned) {
+        await app.stopBreathingSession();
+        await app.closeBreathingWindow();
+      }
+      return;
+    }
     setState(() {
       _banded = app.breathingActive;
       _running = true;

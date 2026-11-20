@@ -69,6 +69,7 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   /// it is still yesterday's, and a full yesterday disabled today's + button.
   String? _waterDate;
   bool _loading = true;
+  bool _failed = false;
 
   /// The local profile map, read once per load. Targets live here rather than
   /// in a new table: they are two numbers the user typed, the same shape as
@@ -91,40 +92,52 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
   Future<void> _load() async {
     final t = beginRead(#nutrition);
     final app = context.read<AppState>();
-    final db = await LocalDb.instance;
-    final week = await NutritionDb.window(db, days: 7);
-    final weekDates = {for (final d in week.days) d.date};
-    // Measured days only: an imported vendor total is a different estimate,
-    // and averaging it with ours mixes two scales in one figure.
-    Map<String, double> weekOf(List<Map<String, dynamic>> rows) => {
-          for (final r in rows)
-            if (weekDates.contains(r['date']))
-              r['date'] as String: (r['value'] as num).toDouble(),
-        };
-    final burnedByDate = weekOf(
-        await LocalDb.metricSeries('calories_total', measuredOnly: true));
-    final wornMinByDate = weekOf(await LocalDb.metricSeries('worn_min'));
-    Metric? burned;
-    double? water;
-    final date = _date;
-    final repo = app.repo;
-    if (repo != null) {
-      final today = await repo.getToday();
-      final daily = today['daily'];
-      if (daily is Map) burned = Metric.parse(daily['calories_total']);
-      water = (await repo.getJournalMetrics(date))['water_ml']?.value;
+    try {
+      final db = await LocalDb.instance;
+      final week = await NutritionDb.window(db, days: 7);
+      final weekDates = {for (final d in week.days) d.date};
+      // Measured days only: an imported vendor total is a different estimate,
+      // and averaging it with ours mixes two scales in one figure.
+      Map<String, double> weekOf(List<Map<String, dynamic>> rows) => {
+            for (final r in rows)
+              if (weekDates.contains(r['date']))
+                r['date'] as String: (r['value'] as num).toDouble(),
+          };
+      final from = weekDates.isEmpty
+          ? null
+          : (weekDates.toList()..sort()).first;
+      final burnedByDate = weekOf(await LocalDb.metricSeries('calories_total',
+          measuredOnly: true, from: from));
+      final wornMinByDate =
+          weekOf(await LocalDb.metricSeries('worn_min', from: from));
+      Metric? burned;
+      double? water;
+      final date = _date;
+      final repo = app.repo;
+      if (repo != null) {
+        final today = await repo.getToday();
+        final daily = today['daily'];
+        if (daily is Map) burned = Metric.parse(daily['calories_total']);
+        water = (await repo.getJournalMetrics(date))['water_ml']?.value;
+      }
+      if (!stillNewest(#nutrition, t)) return;
+      setState(() {
+        _week = week;
+        _burned = burned;
+        _burnedByDate = burnedByDate;
+        _wornMinByDate = wornMinByDate;
+        _waterMl = water;
+        _waterDate = date;
+        _profile = {...?app.user};
+        _loading = false;
+        _failed = false;
+      });
+    } catch (_) {
+      // A locked or busy database used to leave the tab on a spinner forever.
+      if (stillNewest(#nutrition, t)) {
+        setState(() => (_loading = false, _failed = true));
+      }
     }
-    if (!stillNewest(#nutrition, t)) return;
-    setState(() {
-      _week = week;
-      _burned = burned;
-      _burnedByDate = burnedByDate;
-      _wornMinByDate = wornMinByDate;
-      _waterMl = water;
-      _waterDate = date;
-      _profile = {...?app.user};
-      _loading = false;
-    });
   }
 
   NutritionDay? get _today {
@@ -265,6 +278,19 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
         const SizedBox(height: S.x5),
         if (_loading)
           const Center(child: CircularProgressIndicator())
+        else if (_failed)
+          StatusCard(
+            l?.wellnessLoadFailedTitle ?? 'This could not be read',
+            l?.wellnessLoadFailedBody ??
+                'Reading your stored data failed. Nothing was deleted — this '
+                    'is a read that went wrong, not missing data.',
+            fix: l?.homeTryAgain ?? 'Try again',
+            icon: LucideIcons.databaseZap,
+            onFix: () {
+              setState(() => (_loading = true, _failed = false));
+              _load();
+            },
+          )
         else
           [_todayTab, _weekTab, _goalsTab][_tab](c),
       ],

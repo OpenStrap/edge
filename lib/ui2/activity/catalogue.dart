@@ -179,7 +179,7 @@ const activityLibrary = <ActGroup>[
     Activity('Hockey', LucideIcons.target, C.blue, Track.duration, 8.0),
     Activity('Baseball', LucideIcons.target, C.red, Track.duration, 5.0),
     Activity('Rugby', LucideIcons.volleyball, C.green, Track.duration, 8.3),
-    Activity('Golf', LucideIcons.flag, C.green, Track.duration, 4.8, gps: true),
+    Activity('Golf', LucideIcons.flag, C.green, Track.duration, 4.8),
     // Compendium 15092, "bowling, indoor, bowling alley". This row IS the
     // alley — that assumption is the choice being made here, not a fact about
     // what users do — because the alternative is two near-identical rows. The

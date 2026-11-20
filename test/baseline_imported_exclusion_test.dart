@@ -190,4 +190,14 @@ void main() {
     expect((await LocalDb.metricSeries('rhr')).length, 2);
     expect((await LocalDb.metricSeries('rhr', measuredOnly: true)).length, 1);
   });
+
+  test('metricSeries from bounds the read to recent days', () async {
+    await _measured('2026-06-01', 50);
+    await _measured('2026-06-09', 51);
+    await _imported('2026-06-10', 70);
+
+    final rows = await LocalDb.metricSeries('rhr',
+        measuredOnly: true, from: '2026-06-05');
+    expect([for (final r in rows) r['date']], ['2026-06-09']);
+  });
 }

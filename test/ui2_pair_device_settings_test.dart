@@ -144,6 +144,22 @@ void main() {
       expect(find.textContaining('The phone counts steps and nothing else'), findsNothing);
     });
 
+    testWidgets('no band, a ring with its switch off: still says every metric abstains', (t) async {
+      const ring = HealthSource(
+        name: 'Oura Ring',
+        kind: 'Ring',
+        tier: SourceTier.wristOptical,
+        icon: Icons.circle,
+        connected: true,
+        deviceId: 'oura-1',
+        family: 'oura',
+        flagOff: true,
+      );
+      await pumpPair(t, view(const [ring], onPair: () {}, onAdd: () {}),
+          size: const Size(412, 1400));
+      expect(find.textContaining('every metric in the app will abstain'), findsOneWidget);
+    });
+
     testWidgets('no band, a connected chest strap: is not mistaken for phone steps', (t) async {
       // WHY: phoneCounting used to be true for ANY connected non-band source.
       const strap = HealthSource(
