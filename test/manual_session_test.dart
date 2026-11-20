@@ -321,6 +321,20 @@ void main() {
       expect(s.strain, isNotNull);
     });
 
+    test('no height → no calories, strain unaffected', () {
+      final w = _flat(0, 30, 150);
+      final s = computeManualSessionStats(
+        hrTs: w.ts,
+        hrBpm: w.bpm,
+        profile: const Profile(ageYears: 30, weightKg: 75, sex: 'm'),
+        hrMax: _hrMax,
+        restingHr: 55,
+        quietHrr: 0.20,
+      );
+      expect(s.calories, isNull);
+      expect(s.strain, isNotNull);
+    });
+
     test('a full profile over real HR scores both', () {
       final w = _flat(0, 45, 150);
       final s = computeManualSessionStats(
