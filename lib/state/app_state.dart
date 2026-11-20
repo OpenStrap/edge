@@ -1410,8 +1410,16 @@ class AppState extends ChangeNotifier {
     // Read right before the merge, after the await: an overlapping update can
     // change the goal while this one waits.
     final goalBefore = user?['step_goal'];
-    user = {...?user, ...fields};
-    await prefs.setString(_kProfile, jsonEncode(user));
+    final before = user;
+    final merged = user = {...?user, ...fields};
+    try {
+      await prefs.setString(_kProfile, jsonEncode(merged));
+    } catch (_) {
+      // A failed write must not leave unsaved values in memory, or a retry
+      // sees "no change". Only roll back if nobody else updated meanwhile.
+      if (identical(user, merged)) user = before;
+      rethrow;
+    }
     notifyListeners();
     // Home bakes the step goal into its loaded data and re-reads only on the
     // insights revision; `notifyListeners` alone left its "% of goal", "steps
