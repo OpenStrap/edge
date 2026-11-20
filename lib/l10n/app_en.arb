@@ -16520,6 +16520,69 @@
       }
     }
   },
+  "notifLookbackFlaggedBody": "This week flagged: {items}. Details live on Health.",
+  "@notifLookbackFlaggedBody": {
+    "description": "Weekly lookback notification body listing the week's flags; {items} is a comma-separated list of the flag phrases below.",
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
+  "notifLookbackIllness": "resting heart rate raised ×{count}",
+  "@notifLookbackIllness": {
+    "description": "Weekly lookback flag phrase: nights with raised resting heart rate.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackAnomaly": "unusual physiology ×{count}",
+  "@notifLookbackAnomaly": {
+    "description": "Weekly lookback flag phrase: nights with unusual physiology.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackTemp": "elevated skin temperature ×{count}",
+  "@notifLookbackTemp": {
+    "description": "Weekly lookback flag phrase: nights with elevated skin temperature.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackRhrHigherBody": "Resting heart rate ran about {bpm} bpm higher late in the week than early.",
+  "@notifLookbackRhrHigherBody": {
+    "description": "Weekly lookback notification body: resting heart rate drifted up over the week.",
+    "placeholders": {
+      "bpm": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackRhrLowerBody": "Resting heart rate ran about {bpm} bpm lower late in the week than early.",
+  "@notifLookbackRhrLowerBody": {
+    "description": "Weekly lookback notification body: resting heart rate drifted down over the week.",
+    "placeholders": {
+      "bpm": {
+        "type": "int"
+      }
+    }
+  },
+  "notifSyncStaleBody": "No new data for about {hours} hours. Open OpenStrap to reconnect — background sync may have stalled.",
+  "@notifSyncStaleBody": {
+    "description": "OS notification body when the band has not synced for several hours.",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
   "settingsStepCalibration": "Step calibration",
   "settingsStepCalibrationSub": "Learns how your strap over- or under-counts your own walking, and corrects it on the phone. Nothing is written to the strap and nothing leaves the device",
   "stepCalTitle": "Step calibration",

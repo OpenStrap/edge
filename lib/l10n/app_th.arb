@@ -17215,5 +17215,68 @@
   "profileHelpRow": "วิธีใช้",
   "helpLookingForSomething": "กำลังมองหาอะไรอยู่ไหม?",
   "helpAllGuides": "คู่มือทั้งหมด",
-  "helpTopicEmpty": "ยังไม่มีคู่มือสำหรับแท็บนี้"
+  "helpTopicEmpty": "ยังไม่มีคู่มือสำหรับแท็บนี้",
+  "notifLookbackFlaggedBody": "สัปดาห์นี้มีการแจ้งเตือน: {items} ดูรายละเอียดได้ที่สุขภาพ",
+  "@notifLookbackFlaggedBody": {
+    "description": "Weekly lookback notification body listing the week's flags; {items} is a comma-separated list of the flag phrases below.",
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
+  "notifLookbackIllness": "อัตราการเต้นของหัวใจขณะพักสูงขึ้น ×{count}",
+  "@notifLookbackIllness": {
+    "description": "Weekly lookback flag phrase: nights with raised resting heart rate.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackAnomaly": "สรีรวิทยาผิดปกติ ×{count}",
+  "@notifLookbackAnomaly": {
+    "description": "Weekly lookback flag phrase: nights with unusual physiology.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackTemp": "อุณหภูมิผิวสูงขึ้น ×{count}",
+  "@notifLookbackTemp": {
+    "description": "Weekly lookback flag phrase: nights with elevated skin temperature.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackRhrHigherBody": "ช่วงปลายสัปดาห์อัตราการเต้นของหัวใจขณะพักสูงกว่าช่วงต้นสัปดาห์ประมาณ {bpm} bpm",
+  "@notifLookbackRhrHigherBody": {
+    "description": "Weekly lookback notification body: resting heart rate drifted up over the week.",
+    "placeholders": {
+      "bpm": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackRhrLowerBody": "ช่วงปลายสัปดาห์อัตราการเต้นของหัวใจขณะพักต่ำกว่าช่วงต้นสัปดาห์ประมาณ {bpm} bpm",
+  "@notifLookbackRhrLowerBody": {
+    "description": "Weekly lookback notification body: resting heart rate drifted down over the week.",
+    "placeholders": {
+      "bpm": {
+        "type": "int"
+      }
+    }
+  },
+  "notifSyncStaleBody": "ไม่มีข้อมูลใหม่มาประมาณ {hours} ชั่วโมงแล้ว เปิด OpenStrap เพื่อเชื่อมต่อใหม่ การซิงค์เบื้องหลังอาจหยุดทำงาน",
+  "@notifSyncStaleBody": {
+    "description": "OS notification body when the band has not synced for several hours.",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  }
 }

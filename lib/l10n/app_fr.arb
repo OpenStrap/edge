@@ -3982,5 +3982,12 @@
   },
   "helpLookingForSomething": "Vous cherchez quelque chose ?",
   "helpAllGuides": "Tous les guides",
-  "helpTopicEmpty": "Il n’y a pas encore de guides pour cet onglet."
+  "helpTopicEmpty": "Il n’y a pas encore de guides pour cet onglet.",
+  "notifLookbackFlaggedBody": "Cette semaine, signalé : {items}. Les détails sont dans Santé.",
+  "notifLookbackIllness": "fréquence cardiaque au repos élevée ×{count}",
+  "notifLookbackAnomaly": "physiologie inhabituelle ×{count}",
+  "notifLookbackTemp": "température cutanée élevée ×{count}",
+  "notifLookbackRhrHigherBody": "Ta fréquence cardiaque au repos a été d’environ {bpm} bpm plus élevée en fin de semaine qu’au début.",
+  "notifLookbackRhrLowerBody": "Ta fréquence cardiaque au repos a été d’environ {bpm} bpm plus basse en fin de semaine qu’au début.",
+  "notifSyncStaleBody": "Aucune nouvelle donnée depuis environ {hours} heures. Ouvre OpenStrap pour te reconnecter : la synchronisation en arrière-plan s’est peut-être bloquée."
 }

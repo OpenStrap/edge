@@ -9007,5 +9007,68 @@
   },
   "helpLookingForSomething": "Что-то ищете?",
   "helpAllGuides": "Все руководства",
-  "helpTopicEmpty": "Для этой вкладки пока нет руководств."
+  "helpTopicEmpty": "Для этой вкладки пока нет руководств.",
+  "notifLookbackFlaggedBody": "На этой неделе отмечено: {items}. Подробности в разделе «Здоровье».",
+  "@notifLookbackFlaggedBody": {
+    "description": "Weekly lookback notification body listing the week's flags; {items} is a comma-separated list of the flag phrases below.",
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
+  "notifLookbackIllness": "пульс в покое повышен ×{count}",
+  "@notifLookbackIllness": {
+    "description": "Weekly lookback flag phrase: nights with raised resting heart rate.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackAnomaly": "необычные показатели ×{count}",
+  "@notifLookbackAnomaly": {
+    "description": "Weekly lookback flag phrase: nights with unusual physiology.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackTemp": "повышенная температура кожи ×{count}",
+  "@notifLookbackTemp": {
+    "description": "Weekly lookback flag phrase: nights with elevated skin temperature.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackRhrHigherBody": "К концу недели пульс в покое был примерно на {bpm} уд/мин выше, чем в начале.",
+  "@notifLookbackRhrHigherBody": {
+    "description": "Weekly lookback notification body: resting heart rate drifted up over the week.",
+    "placeholders": {
+      "bpm": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackRhrLowerBody": "К концу недели пульс в покое был примерно на {bpm} уд/мин ниже, чем в начале.",
+  "@notifLookbackRhrLowerBody": {
+    "description": "Weekly lookback notification body: resting heart rate drifted down over the week.",
+    "placeholders": {
+      "bpm": {
+        "type": "int"
+      }
+    }
+  },
+  "notifSyncStaleBody": "Новых данных нет примерно {hours} ч. Откройте OpenStrap, чтобы переподключиться, — фоновая синхронизация могла остановиться.",
+  "@notifSyncStaleBody": {
+    "description": "OS notification body when the band has not synced for several hours.",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  }
 }
