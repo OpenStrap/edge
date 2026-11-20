@@ -10606,7 +10606,7 @@
   "@activitySummaryHeartRateTitle": {
     "description": "Chart title above the heart-rate trace"
   },
-  "activitySummaryHardMinutesNote": "{min} นาทีในสองโซนอัตราการเต้นของหัวใจที่หนักที่สุดของคุณ",
+  "activitySummaryHardMinutesNote": "{min} นาทีที่เกิน 80% ของค่าสูงสุดของคุณ",
   "@activitySummaryHardMinutesNote": {
     "description": "Heart-rate chart footnote naming minutes spent in heart-rate zones 4 and 5",
     "placeholders": {

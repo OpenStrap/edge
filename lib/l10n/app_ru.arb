@@ -5071,7 +5071,7 @@
     }
   },
   "activitySummaryHeartRateTitle": "Пульс",
-  "activitySummaryHardMinutesNote": "{min} мин в двух самых тяжёлых пульсовых зонах.",
+  "activitySummaryHardMinutesNote": "{min} мин выше 80% вашего максимума.",
   "@activitySummaryHardMinutesNote": {
     "placeholders": {
       "min": {

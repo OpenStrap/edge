@@ -10902,7 +10902,7 @@
   },
   "activitySummaryHardMinutesNote": "{min} min above 80% of your maximum.",
   "@activitySummaryHardMinutesNote": {
-    "description": "Heart-rate chart footnote naming minutes spent in heart-rate zones 4 and 5",
+    "description": "Heart-rate chart footnote naming minutes spent above 80% of max heart rate",
     "placeholders": {
       "min": {
         "type": "int"

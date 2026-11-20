@@ -2152,7 +2152,7 @@
   "activitySummaryCheckBandConnection": "बैंड कनेक्शन जांचें",
   "activitySummaryPartialTrace": "आंशिक ट्रेस — बैंड ने इन मिनटों में से केवल {pct}% ही भेजा।",
   "activitySummaryHeartRateTitle": "हृदय गति",
-  "activitySummaryHardMinutesNote": "आपके दो सबसे कठिन हृदय-गति ज़ोन में {min} मिनट।",
+  "activitySummaryHardMinutesNote": "आपके अधिकतम के 80% से ऊपर {min} मिनट।",
   "activitySummaryTimeInZonesTitle": "ज़ोन में बिताया समय",
   "activitySummaryTopSet": "सबसे भारी सेट",
   "activitySummaryOneRepMax": "अनुमानित 1RM {value} {unit, select, lb{lb} other{किग्रा}}",

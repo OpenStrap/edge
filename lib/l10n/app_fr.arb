@@ -2152,7 +2152,7 @@
   "activitySummaryCheckBandConnection": "Vérifier la connexion du bracelet",
   "activitySummaryPartialTrace": "Trace partielle — le bracelet a transmis {pct}% de ces minutes.",
   "activitySummaryHeartRateTitle": "FRÉQUENCE CARDIAQUE",
-  "activitySummaryHardMinutesNote": "{min} min dans vos deux zones cardiaques les plus intenses.",
+  "activitySummaryHardMinutesNote": "{min} min au-dessus de 80% de votre maximum.",
   "activitySummaryTimeInZonesTitle": "TEMPS PAR ZONE",
   "activitySummaryTopSet": "Meilleure série",
   "activitySummaryOneRepMax": "1RM estimé {value} {unit, select, lb{lb} other{kg}}",

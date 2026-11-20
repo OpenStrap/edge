@@ -2166,7 +2166,7 @@
   "activitySummaryCheckBandConnection": "Revisar la conexión de la banda",
   "activitySummaryPartialTrace": "Trazo parcial — la banda entregó el {pct}% de estos minutos.",
   "activitySummaryHeartRateTitle": "Ritmo cardíaco",
-  "activitySummaryHardMinutesNote": "{min} min en tus dos zonas de frecuencia cardíaca más intensas.",
+  "activitySummaryHardMinutesNote": "{min} min por encima del 80% de tu máximo.",
   "activitySummaryTimeInZonesTitle": "Tiempo en zonas",
   "activitySummaryTopSet": "Mejor serie",
   "activitySummaryOneRepMax": "1RM estimado {value} {unit, select, lb{lb} other{kg}}",

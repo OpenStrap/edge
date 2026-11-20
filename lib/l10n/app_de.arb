@@ -2240,7 +2240,7 @@
   "activitySummaryCheckBandConnection": "Bandverbindung prüfen",
   "activitySummaryPartialTrace": "Unvollständige Aufzeichnung – das Band hat {pct} % dieser Minuten übertragen.",
   "activitySummaryHeartRateTitle": "HERZFREQUENZ",
-  "activitySummaryHardMinutesNote": "{min} Min. in deinen zwei härtesten Pulszonen.",
+  "activitySummaryHardMinutesNote": "{min} Min. über 80 % deines Maximalpulses.",
   "activitySummaryTimeInZonesTitle": "ZEIT IN ZONEN",
   "activitySummaryTopSet": "Bester Satz",
   "activitySummaryOneRepMax": "1RM geschätzt: {value} {unit, select, lb{lb} other{kg}}",
