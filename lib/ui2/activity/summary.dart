@@ -2207,7 +2207,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     final note = [
       if (hard != null)
         l?.activitySummaryHardMinutesNote(hard.round()) ??
-            '${hard.round()} min above 80% of your maximum.',
+            '${hard.round()} min in your two hardest heart-rate zones.',
       ?_traceNote,
       ?extra,
     ];
