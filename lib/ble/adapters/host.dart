@@ -700,7 +700,7 @@ class BandHost {
             slot.gaps.add(0);
           }
           slot.gaps.addAll(fresh.gaps);
-          slot.chainFrom ??= fresh.chainFrom;
+          if (slot.rr.isEmpty) slot.chainFrom = fresh.chainFrom;
           slot.rr.addAll(fresh.rr);
         }
         _pending[sec] = slot;
