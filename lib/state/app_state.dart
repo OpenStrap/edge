@@ -1339,8 +1339,11 @@ class AppState extends ChangeNotifier {
     await prefs.setBool(_kConsentChosen, true);
     TelemetryService.instance.applyConsent(on);
     notifyListeners();
-    unawaited(_postConsent('telemetry', on));
-    if (on) unawaited(TelemetryService.instance.flush());
+    // Flush only after the terms version is learned, so the first batch is
+    // stamped with the live version, not the compiled-in placeholder.
+    unawaited(_postConsent('telemetry', on).whenComplete(() {
+      if (on && telemetryConsent) unawaited(TelemetryService.instance.flush());
+    }));
   }
 
   /// Toggle full-.db health-data contribution. Persists + records server consent.
