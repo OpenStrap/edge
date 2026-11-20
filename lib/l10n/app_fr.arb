@@ -2347,8 +2347,6 @@
   "settingsClockFormat24h": "24 heures",
   "settingsClockFormat12h": "12 heures",
   "settingsAppearanceSystem": "Système",
-  "settingsAppearanceLight": "Clair",
-  "settingsAppearanceDark": "Sombre",
   "settingsCycleTrackingRowTitle": "Suivi du cycle",
   "settingsCycleTrackingRowSub": "Ajoute l’onglet Cycle à Bien-être. Désactivé le masque et conserve tout ce qui est déjà enregistré",
   "settingsGroupYourData": "Vos données",

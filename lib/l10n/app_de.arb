@@ -2439,8 +2439,6 @@
   "settingsClockFormat24h": "24 Stunden",
   "settingsClockFormat12h": "12 Stunden",
   "settingsAppearanceSystem": "System",
-  "settingsAppearanceLight": "Hell",
-  "settingsAppearanceDark": "Dunkel",
   "settingsCycleTrackingRowTitle": "Zyklus-Tracking",
   "settingsCycleTrackingRowSub": "Fügt unter „Wohlbefinden“ den Tab „Zyklus“ hinzu. Ausgeschaltet wird er ausgeblendet, bisherige Einträge bleiben erhalten",
   "settingsGroupYourData": "Deine Daten",

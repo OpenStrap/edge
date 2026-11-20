@@ -11913,14 +11913,6 @@
   "@settingsAppearanceSystem": {
     "description": "Appearance value: follow the operating system light/dark setting"
   },
-  "settingsAppearanceLight": "Light",
-  "@settingsAppearanceLight": {
-    "description": "Appearance value: light theme"
-  },
-  "settingsAppearanceDark": "Dark",
-  "@settingsAppearanceDark": {
-    "description": "Appearance value: dark theme"
-  },
   "settingsCycleTrackingRowTitle": "Cycle tracking",
   "@settingsCycleTrackingRowTitle": {
     "description": "Settings row title toggling cycle tracking"
