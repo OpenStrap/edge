@@ -10857,12 +10857,15 @@
   "@activitySummaryTopSet": {
     "description": "Section title above the heaviest logged set on a strength session"
   },
-  "activitySummaryOneRepMax": "1RM estimate {kg} kg",
+  "activitySummaryOneRepMax": "1RM estimate {value} {unit, select, lb{lb} other{kg}}",
   "@activitySummaryOneRepMax": {
     "description": "Estimated one-rep-max caption under the top set exercise name",
     "placeholders": {
-      "kg": {
+      "value": {
         "type": "int"
+      },
+      "unit": {
+        "type": "String"
       }
     }
   },

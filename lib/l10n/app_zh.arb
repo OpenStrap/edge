@@ -2147,7 +2147,7 @@
   "activitySummaryHardMinutesNote": "有 {min} 分钟超过最大心率的 80%。",
   "activitySummaryTimeInZonesTitle": "心率区间时长",
   "activitySummaryTopSet": "最佳一组",
-  "activitySummaryOneRepMax": "预估单次最大力量 {kg} 千克",
+  "activitySummaryOneRepMax": "预估单次最大力量 {value} {unit, select, lb{lb} other{千克}}",
   "activitySummarySomeSetsNoLoadTitle": "部分组没有负重",
   "activitySummarySomeSetsNoLoadBody": "计入组数和次数，但未计入训练量。",
   "activitySummaryScore": "比分",

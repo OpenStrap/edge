@@ -10610,7 +10610,7 @@
   "@activitySummaryTopSet": {
     "description": "Section title above the heaviest logged set on a strength session"
   },
-  "activitySummaryOneRepMax": "ประมาณ 1RM {kg} กก.",
+  "activitySummaryOneRepMax": "ประมาณ 1RM {value} {unit, select, lb{ปอนด์} other{กก.}}",
   "@activitySummaryOneRepMax": {
     "description": "Estimated one-rep-max caption under the top set exercise name",
     "placeholders": {

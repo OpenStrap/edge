@@ -2147,7 +2147,7 @@
   "activitySummaryHardMinutesNote": "आपके अधिकतम के 80% से ऊपर {min} मिनट।",
   "activitySummaryTimeInZonesTitle": "ज़ोन में बिताया समय",
   "activitySummaryTopSet": "सबसे भारी सेट",
-  "activitySummaryOneRepMax": "अनुमानित 1RM {kg} किग्रा",
+  "activitySummaryOneRepMax": "अनुमानित 1RM {value} {unit, select, lb{lb} other{किग्रा}}",
   "activitySummarySomeSetsNoLoadTitle": "कुछ सेट में वज़न नहीं था",
   "activitySummarySomeSetsNoLoadBody": "सेट और रेप्स में गिना गया, लेकिन आयतन में शामिल नहीं।",
   "activitySummaryScore": "स्कोर",

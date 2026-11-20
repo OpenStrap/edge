@@ -211,6 +211,7 @@ void main() {
       expect(splitStatUnit('1h 02m'), ('1h 02m', null));
       expect(splitStatUnit('10h 24m 18s'), ('10h 24m 18s', null));
       expect(splitStatUnit('12'), ('12', null));
+      expect(splitStatUnit('24 bpm in 60 s'), ('24 bpm in 60 s', null));
     });
   });
 

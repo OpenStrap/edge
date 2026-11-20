@@ -2159,7 +2159,7 @@
   "activitySummaryHardMinutesNote": "{min} min por encima del 80% de tu máximo.",
   "activitySummaryTimeInZonesTitle": "Tiempo en zonas",
   "activitySummaryTopSet": "Mejor serie",
-  "activitySummaryOneRepMax": "1RM estimado {kg} kg",
+  "activitySummaryOneRepMax": "1RM estimado {value} {unit, select, lb{lb} other{kg}}",
   "activitySummarySomeSetsNoLoadTitle": "Algunas series no tenían carga",
   "activitySummarySomeSetsNoLoadBody": "Contadas en series y repeticiones, pero excluidas del volumen.",
   "activitySummaryScore": "Marcador",
