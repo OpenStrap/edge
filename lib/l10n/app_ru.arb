@@ -5079,7 +5079,7 @@
   },
   "activitySummaryTimeInZonesTitle": "Время в зонах",
   "activitySummaryTopSet": "Лучший подход",
-  "activitySummaryOneRepMax": "Оценка 1RM: {kg} кг",
+  "activitySummaryOneRepMax": "Оценка 1RM: {value} {unit, select, lb{фунт.} other{кг}}",
   "@activitySummaryOneRepMax": {
     "placeholders": {
       "kg": {

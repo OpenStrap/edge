@@ -2233,7 +2233,7 @@
   "activitySummaryHardMinutesNote": "{min} Min. über 80 % deines Maximalpulses.",
   "activitySummaryTimeInZonesTitle": "ZEIT IN ZONEN",
   "activitySummaryTopSet": "Bester Satz",
-  "activitySummaryOneRepMax": "1RM geschätzt: {kg} kg",
+  "activitySummaryOneRepMax": "1RM geschätzt: {value} {unit, select, lb{lb} other{kg}}",
   "activitySummarySomeSetsNoLoadTitle": "Einige Sätze hatten kein Gewicht",
   "activitySummarySomeSetsNoLoadBody": "Bei Sätzen und Wiederholungen mitgezählt, aber nicht im Volumen enthalten.",
   "activitySummaryScore": "Spielstand",

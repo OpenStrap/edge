@@ -214,6 +214,9 @@ void main() {
       final bowling = activityByName('bowling')!;
       expect(bowling.met, 3.8);
       expect(archOf(bowling), Arch.basic);
+      // Rowing has no pool and no GPS: a heart-rate session, never laps.
+      expect(archOf(activityByName('Rowing')!), Arch.basic);
+      expect(archOf(activityByName('Swimming')!), Arch.laps);
       // The catch-all names no activity, so no MET can be honest for it, so
       // no calorie estimate is offered up front. 02060 "health club exercise,
       // general" was the near miss and it prices a gym session — which is not
