@@ -444,7 +444,8 @@ Future<ImportOutcome> runImport(
   // A file that throws mid-selection is named here and the rest still runs:
   // rows from earlier files are already durable, so throwing would report a
   // failed import over history that did land.
-  String? fileError;
+  final fileErrors = <String>[];
+  String nameOf(String p) => p.split(Platform.pathSeparator).last;
   if (decrypted.isNotEmpty) {
     sources.add(l?.importSourceEncryptedBackup ?? 'Encrypted backup');
   }
@@ -463,16 +464,17 @@ Future<ImportOutcome> runImport(
         (await isNoopExport(p) ? raw : csv).add(p);
       }
     }
-    if (ownDb.isNotEmpty) {
-      sources.add(l?.importSourceOpenStrapBackup ?? 'OpenStrap backup');
-    }
     db.addAll([...plain.where(ownDb.contains), ...decrypted]);
     for (final p in db) {
       try {
         days += await app.importEdgeBackup(p);
       } catch (e) {
-        fileError ??= '$e';
+        fileErrors.add('${nameOf(p)}: $e');
         continue;
+      }
+      if (ownDb.contains(p)) {
+        final s = l?.importSourceOpenStrapBackup ?? 'OpenStrap backup';
+        if (!sources.contains(s)) sources.add(s);
       }
       // The rows are in and the rollup rebuild threw. AppState's own note:
       // reporting the row count alone claims a success the user does not have
@@ -495,14 +497,15 @@ Future<ImportOutcome> runImport(
     }
   }
   if (raw.isNotEmpty) {
-    sources.add(l?.importSourceRawSensor ?? 'Raw sensor export');
     for (final p in raw) {
       try {
         days += await app.importNoopCsv(p);
       } catch (e) {
-        fileError ??= '$e';
+        fileErrors.add('${nameOf(p)}: $e');
         continue;
       }
+      final rawSrc = l?.importSourceRawSensor ?? 'Raw sensor export';
+      if (!sources.contains(rawSrc)) sources.add(rawSrc);
       final r = app.lastNoopImport;
       if (r != null) {
         late += r.lateRows;
@@ -601,13 +604,18 @@ Future<ImportOutcome> runImport(
           journalRows == 0 &&
           labRows == 0 &&
           rejected.isEmpty &&
-          fileError == null) {
+          fileErrors.isEmpty) {
         rethrow;
       }
       readError = '$e';
     }
   }
 
+  final errors = [
+    ...fileErrors,
+    if (readError != null) readError,
+    if (cryptoError != null) cryptoError,
+  ];
   return ImportOutcome(
     source: sources.isEmpty
         ? (l?.importSourceNothingSelected ?? 'Nothing selected')
@@ -629,7 +637,7 @@ Future<ImportOutcome> runImport(
     rollupError: rollupError,
     // A file that would not decrypt is reported the same way a file that would
     // not parse is: named, alongside whatever else did land.
-    readError: readError ?? fileError ?? cryptoError,
+    readError: errors.isEmpty ? null : errors.join('\n'),
   );
 }
 
