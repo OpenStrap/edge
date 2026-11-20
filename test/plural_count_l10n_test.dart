@@ -8,13 +8,15 @@ void main() {
   test('plural counts are substituted in every language', () {
     for (final code in ['en', 'de', 'es', 'fr', 'hi', 'ru', 'th', 'zh']) {
       final l = lookupAppLocalizations(Locale(code));
-      for (final s in [
-        l.investigateDroppedIrregular(3),
-        l.investigateDroppedThin(3),
-        l.calmBreathingMinutesSemantic(5),
-      ]) {
-        expect(s, isNot(contains('#')), reason: '$code: $s');
-        expect(s, matches(RegExp('[35]')), reason: '$code: $s');
+      for (final n in [1, 2, 3, 5, 21]) {
+        for (final s in [
+          l.investigateDroppedIrregular(n),
+          l.investigateDroppedThin(n),
+          l.calmBreathingMinutesSemantic(n),
+        ]) {
+          expect(s, isNot(contains('#')), reason: '$code $n: $s');
+          expect(s, matches(RegExp('(^|\\D)$n(\\D|\$)')), reason: '$code $n: $s');
+        }
       }
     }
   });
