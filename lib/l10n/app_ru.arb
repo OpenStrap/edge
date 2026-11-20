@@ -2226,7 +2226,7 @@
   "investigateDipDepthQuartiles": "Глубина снижения, квартили",
   "investigateNotEnoughNightsAcross": "Недостаточно ночей для сравнения",
   "investigateNeedsSeveralNights": "Нужны несколько ночей с несколькими часами наблюдений в каждой.",
-  "investigateDroppedIrregular": "{count, plural, one{Исключена # ночь из-за сигнала проверки нерегулярного ритма} few{Исключены # ночи из-за сигнала проверки нерегулярного ритма} many{Исключено # ночей из-за сигнала проверки нерегулярного ритма} other{Исключено # ночи из-за сигнала проверки нерегулярного ритма}}",
+  "investigateDroppedIrregular": "{count, plural, one{Исключена {count} ночь из-за сигнала проверки нерегулярного ритма} few{Исключены {count} ночи из-за сигнала проверки нерегулярного ритма} many{Исключено {count} ночей из-за сигнала проверки нерегулярного ритма} other{Исключено {count} ночи из-за сигнала проверки нерегулярного ритма}}",
   "@investigateDroppedIrregular": {
     "placeholders": {
       "count": {
@@ -2234,7 +2234,7 @@
       }
     }
   },
-  "investigateDroppedThin": "{count, plural, one{Исключена # ночь из-за малого числа часов наблюдения} few{Исключены # ночи из-за малого числа часов наблюдения} many{Исключено # ночей из-за малого числа часов наблюдения} other{Исключено # ночи из-за малого числа часов наблюдения}}",
+  "investigateDroppedThin": "{count, plural, one{Исключена {count} ночь из-за малого числа часов наблюдения} few{Исключены {count} ночи из-за малого числа часов наблюдения} many{Исключено {count} ночей из-за малого числа часов наблюдения} other{Исключено {count} ночи из-за малого числа часов наблюдения}}",
   "@investigateDroppedThin": {
     "placeholders": {
       "count": {
@@ -2320,7 +2320,7 @@
   "calmBreathingRingLeads": "Следуйте кольцу. Отложите телефон.",
   "calmBreathingScoredPill": "Оценено",
   "calmBreathingHowLong": "Длительность",
-  "calmBreathingMinutesSemantic": "{m, plural, one{# минута} few{# минуты} many{# минут} other{# минуты}}",
+  "calmBreathingMinutesSemantic": "{m, plural, one{{m} минута} few{{m} минуты} many{{m} минут} other{{m} минуты}}",
   "@calmBreathingMinutesSemantic": {
     "placeholders": {
       "m": {
@@ -5069,7 +5069,7 @@
     }
   },
   "activitySummaryHeartRateTitle": "Пульс",
-  "activitySummaryHardMinutesNote": "{min} мин выше 80% вашего максимума.",
+  "activitySummaryHardMinutesNote": "{min} мин в двух самых тяжёлых пульсовых зонах.",
   "@activitySummaryHardMinutesNote": {
     "placeholders": {
       "min": {

@@ -2144,7 +2144,7 @@
   "activitySummaryCheckBandConnection": "检查腕带连接",
   "activitySummaryPartialTrace": "部分曲线——腕带仅传回了 {pct}% 时段的数据。",
   "activitySummaryHeartRateTitle": "心率",
-  "activitySummaryHardMinutesNote": "有 {min} 分钟超过最大心率的 80%。",
+  "activitySummaryHardMinutesNote": "有 {min} 分钟处于你最高的两个心率区间。",
   "activitySummaryTimeInZonesTitle": "心率区间时长",
   "activitySummaryTopSet": "最佳一组",
   "activitySummaryOneRepMax": "预估单次最大力量 {kg} 千克",
