@@ -294,13 +294,14 @@ void main() {
       overPhoto: false,
     ).paint(canvas, const Size(300, 300));
     expect(canvas.blurredDraws, 0);
+    expect(canvas.blurLayers, 1);
     expect(canvas.draws, greaterThan(n));
   });
 }
 
 class _CountingCanvas implements Canvas {
   // Blurred per-segment lines; the pins' own soft shadow is not counted.
-  int draws = 0, blurredDraws = 0;
+  int draws = 0, blurredDraws = 0, blurLayers = 0;
   @override
   dynamic noSuchMethod(Invocation i) {
     final name = i.memberName.toString();
@@ -310,6 +311,10 @@ class _CountingCanvas implements Canvas {
           (i.positionalArguments[2] as Paint).maskFilter != null) {
         blurredDraws++;
       }
+    }
+    if (i.memberName == #saveLayer &&
+        (i.positionalArguments[1] as Paint).imageFilter != null) {
+      blurLayers++;
     }
     if (name.contains('getSaveCount')) return 1;
     return null;
