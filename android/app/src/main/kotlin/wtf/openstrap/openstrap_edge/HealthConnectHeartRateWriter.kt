@@ -59,15 +59,14 @@ object HealthConnectHeartRateWriter {
                     // no longer exist locally (the 1 Hz rows are pruned), so carry
                     // them over from the record we wrote last time rather than
                     // deleting them with it.
+                    // Insert before deleting: if the insert fails the old record
+                    // (and the minutes only it still holds) stays intact.
                     val firstNew = request.samples.first().time
-                    val kept = readOwnSamples(context, client, request.start, request.end)
+                    val previous = readOwnRecords(context, client, request.start, request.end)
+                    val kept = previous.flatMap { it.samples }
                         .filter { !it.time.isBefore(request.start) && it.time.isBefore(firstNew) }
-                    val samples = (kept + request.samples).distinctBy { it.time }
-                    client.deleteRecords(
-                        HeartRateRecord::class,
-                        TimeRangeFilter.between(request.start, request.end),
-                    )
-                    client.insertRecords(
+                    val samples = (kept + request.samples).sortedBy { it.time }.distinctBy { it.time }
+                    val inserted = client.insertRecords(
                         listOf(
                             HeartRateRecord(
                                 startTime = request.start,
@@ -81,6 +80,14 @@ object HealthConnectHeartRateWriter {
                             ),
                         ),
                     ).recordIdsList.size == 1
+                    if (inserted && previous.isNotEmpty()) {
+                        client.deleteRecords(
+                            HeartRateRecord::class,
+                            recordIdsList = previous.map { it.metadata.id },
+                            clientRecordIdsList = emptyList(),
+                        )
+                    }
+                    inserted
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -91,13 +98,13 @@ object HealthConnectHeartRateWriter {
         }
     }
 
-    private suspend fun readOwnSamples(
+    private suspend fun readOwnRecords(
         context: Context,
         client: HealthConnectClient,
         start: Instant,
         end: Instant,
-    ): List<HeartRateRecord.Sample> {
-        val out = ArrayList<HeartRateRecord.Sample>()
+    ): List<HeartRateRecord> {
+        val out = ArrayList<HeartRateRecord>()
         var pageToken: String? = null
         do {
             val response = client.readRecords(
@@ -108,10 +115,10 @@ object HealthConnectHeartRateWriter {
                     pageToken = pageToken,
                 ),
             )
-            response.records.forEach { out.addAll(it.samples) }
+            out.addAll(response.records)
             pageToken = response.pageToken
         } while (pageToken != null)
-        return out.sortedBy { it.time }
+        return out
     }
 
     private data class Request(

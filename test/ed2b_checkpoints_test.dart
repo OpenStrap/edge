@@ -261,12 +261,13 @@ void main() {
     final diagnostics = engine.debugCheckpoints;
     expect(diagnostics.writes, greaterThan(0),
         reason: 'the worker must emit a checkpoint from real derived inputs');
-    expect(diagnostics.lastEncodedPayload, isNotNull);
-    expect(diagnostics.lastEncodedPayload, isNotEmpty);
-    final payload = diagnostics.lastDecodedPayload;
-    expect(payload, isNotNull,
-        reason: 'observe the worker decode, without decoding on the UI isolate');
-    expect(payload!['v'], nightCheckpointFormat,
+    final rows = await _rows(await LocalDb.instance);
+    expect(rows, hasLength(1));
+    final state = rows.single['state'] as List<int>;
+    expect(state.length, greaterThan(32));
+    final payload = (jsonDecode(utf8.decode(state.sublist(32))) as Map)
+        .cast<String, Object?>();
+    expect(payload['v'], nightCheckpointFormat,
         reason: 'RSA v3 and closed-bin states require the new format');
     expect(payload['night'], isNotNull, reason: 'fixture supplies a settled RR night');
     expect(payload['cardio'], isNotNull);
@@ -721,8 +722,15 @@ void main() {
     expect(disabled.debugCheckpoints.writes, 0);
     disabled.debugCheckpoints.reset();
     expect(disabled.debugCheckpoints.disabled, isTrue);
-    expect(disabled.debugCheckpoints.lastEncodedPayload, isNull);
-    expect(jsonEncode(disabled.debugCheckpoints.lastDecodedPayload), 'null');
+    expect(disabled.debugCheckpoints.rejections, isEmpty);
+  });
+
+  test('checkpoint rejections keep only the most recent 32', () {
+    final diagnostics = DerivationEngine().debugCheckpoints;
+    for (var i = 0; i < 100; i++) { diagnostics.reject('r$i'); }
+    expect(diagnostics.rejections, hasLength(32));
+    expect(diagnostics.rejections.first, 'r68');
+    expect(diagnostics.rejections.last, 'r99');
   });
   for (final mode in ['success', 'later table failure', 'later archive-page failure', 'first failure']) {
     test('E16 archive-only $mode rotates identity atomically with committed pages', () async {

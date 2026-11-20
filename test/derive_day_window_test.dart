@@ -360,4 +360,19 @@ void main() {
     );
     expect(await Future.wait([a, b]), [1, 1]);
   });
+
+  // The importer hands over the prior evening plus the target date. Only the
+  // target is kept, so only the target night should be staged.
+  test('an import stages only the requested date, not the buffered evening',
+      () async {
+    final eve = DateTime(2026, 4, 24, 20).millisecondsSinceEpoch ~/ 1000;
+    debugSegmentedDayCount = 0;
+    final n = await DerivationEngine().deriveImportedDays(
+      _synthDay(eve, 16 * 3600),
+      const Profile(),
+      {'2026-04-25'},
+    );
+    expect(n, 1);
+    expect(debugSegmentedDayCount, 1);
+  });
 }

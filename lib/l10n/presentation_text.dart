@@ -64,8 +64,12 @@ String presentationText(AppLocalizations? l, String text) {
 String consistencyOf(AppLocalizations? l, int total, String unit) {
   if (l == null) return 'of $total $unit';
   if (unit == 'measures' || unit == l.healthMeasuresUnit) {
-    final whole = l.presentationMeasurementsOf(0, total);
-    return whole.substring(whole.indexOf(' ') + 1);
+    // drop the {have} slot wherever the locale puts it (hindi puts total first)
+    const slot = 987654321;
+    return l
+        .presentationMeasurementsOf(slot, total)
+        .replaceFirst(RegExp(r'\s*' '$slot' r'\s*'), ' ')
+        .trim();
   }
   return l.supplementOfCountUnit(total, localizedText(l, unit));
 }

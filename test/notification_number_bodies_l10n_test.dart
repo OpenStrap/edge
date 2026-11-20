@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:openstrap_edge/ai/nightly_sweep.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/l10n/display_text.dart';
 import 'package:openstrap_edge/notify/battery_forecast.dart';
@@ -95,6 +96,25 @@ void main() {
         expect(localizedNotificationText(l(code), title), isNot(title),
             reason: '$code $title');
       }
+    }
+  });
+
+  test('the evening sweep body is translated, not left in English', () {
+    final headline = sweepHeadline(sweepFindings([
+      SweepSeries(
+        key: 'rhr',
+        label: 'resting heart rate',
+        unit: 'bpm',
+        today: 70,
+        history: [for (var i = 0; i < 30; i++) 55.0 + (i % 3) - 1],
+      ),
+    ]))!;
+    expect(localizedNotificationText(l('en'), headline), headline);
+    for (final code in ['de', 'es', 'fr', 'hi', 'ru', 'th', 'zh']) {
+      final out = localizedNotificationText(l(code), headline);
+      expect(out, isNot(headline), reason: code);
+      expect(out, isNot(contains('usual range')), reason: code);
+      expect(out, contains('70'), reason: code);
     }
   });
 }

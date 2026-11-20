@@ -131,7 +131,12 @@ class BeatsData {
     this.deviceFamily,
   });
 
-  static Future<BeatsData> load(LocalRepository repo, {String? want}) async {
+  // One decode of each day bundle per load, not one per getter (see
+  // LocalRepository.sharingDayReads).
+  static Future<BeatsData> load(LocalRepository repo, {String? want}) =>
+      repo.sharingDayReads(() => _read(repo, want));
+
+  static Future<BeatsData> _read(LocalRepository repo, String? want) async {
     final today = await repo.getToday();
     final days = await repo.availableDays();
     final day = pickDay(

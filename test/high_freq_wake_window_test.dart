@@ -52,6 +52,24 @@ void main() {
     expect(plan.effectiveLease, const Duration(minutes: 135));
   });
 
+  test('reads the bare window_json shape the derive stores', () {
+    Map<String, dynamic> bare(DateTime wake) => {
+      'window_json':
+          '{"onset_ms":${wake.subtract(const Duration(hours: 8)).millisecondsSinceEpoch},'
+          '"offset_ms":${wake.millisecondsSinceEpoch}}',
+    };
+    final rows = [
+      bare(DateTime(2026, 6, 28, 7, 30)),
+      bare(DateTime(2026, 6, 27, 7, 28)),
+      bare(DateTime(2026, 6, 26, 7, 31)),
+    ];
+    final plan =
+        HighFreqWakeWindow.planFromRows(rows, DateTime(2026, 6, 29, 6, 45));
+    expect(plan.source, 'habitual_wake');
+    expect(plan.sampleCount, 3);
+    expect(plan.targetWake, DateTime(2026, 6, 29, 7, 30));
+  });
+
   test('requires enough sleep history', () {
     final rows = [
       rowForWake(DateTime(2026, 6, 28, 7, 30)),

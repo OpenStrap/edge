@@ -310,7 +310,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     });
     try {
       final outcome = await runImport(app, paths,
-          askPassphrase: () => askBackupPassphrase(context));
+          askPassphrase: () =>
+              mounted ? askBackupPassphrase(context) : Future.value(null));
       if (!mounted) return;
       final hold = await settleOnboardImport(app, outcome);
       if (!mounted) return;
@@ -385,38 +386,39 @@ Future<ImportOutcome> runImport(
   String? cryptoError;
 
   final plain = <String>[];
-  for (final p in paths) {
-    if (!await isEncryptedBackup(p)) {
-      plain.add(p);
-      continue;
-    }
-    if (askPassphrase == null) {
-      cryptoError = 'That file is an encrypted backup. Open it from '
-          'Settings → Your data, where the passphrase can be asked for.';
-      continue;
-    }
-    final pass = await askPassphrase();
-    if (pass == null) {
-      // Shred here, not in the `finally` below. The picker is multi-select, so
-      // an EARLIER encrypted file in the same selection may already be sitting
-      // in the temp directory as the whole health record in plaintext — and
-      // this throw jumps past the try/finally that would normally delete it,
-      // because that try has not been entered yet. Cancelling the second
-      // passphrase prompt used to leave the first backup decrypted on disk.
-      for (final d in decrypted) {
-        try {
-          await File(d).delete();
-        } catch (_) {}
+  // Any throw out of this loop jumps past the try/finally below, which has not
+  // been entered yet. The picker is multi-select, so an EARLIER encrypted file
+  // may already be sitting in the temp directory as the whole health record in
+  // plaintext: cancelling the second prompt, or the prompt throwing because
+  // the screen that asked was closed mid-decrypt, used to leave it on disk.
+  try {
+    for (final p in paths) {
+      if (!await isEncryptedBackup(p)) {
+        plain.add(p);
+        continue;
       }
-      throw PassphraseCancelled();
+      if (askPassphrase == null) {
+        cryptoError = 'That file is an encrypted backup. Open it from '
+            'Settings → Your data, where the passphrase can be asked for.';
+        continue;
+      }
+      final pass = await askPassphrase();
+      if (pass == null) throw PassphraseCancelled();
+      try {
+        decrypted.add(await decryptToTemp(p, pass));
+      } on BackupFormatException catch (e) {
+        // ONE message for a wrong passphrase and a tampered file, because GCM
+        // cannot tell them apart and pretending otherwise would be a guess.
+        cryptoError = e.message;
+      }
     }
-    try {
-      decrypted.add(await decryptToTemp(p, pass));
-    } on BackupFormatException catch (e) {
-      // ONE message for a wrong passphrase and a tampered file, because GCM
-      // cannot tell them apart and pretending otherwise would be a guess.
-      cryptoError = e.message;
+  } catch (_) {
+    for (final d in decrypted) {
+      try {
+        await File(d).delete();
+      } catch (_) {}
     }
+    rethrow;
   }
 
   // EVERY group runs, not the first one that matches. The picker is

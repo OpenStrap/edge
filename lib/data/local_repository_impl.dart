@@ -163,7 +163,15 @@ class LocalRepositoryImpl extends LocalRepository {
   /// [skipDay] leaves one day out: getToday passes today when freshness says
   /// today's night is not the overnight yet (#448), so a partial night can't
   /// be served under the prior night's label.
-  Future<Map<String, dynamic>?> _latestBundle({String? skipDay}) async {
+  Future<Map<String, dynamic>?> _latestBundle({String? skipDay}) {
+    final memo = Zone.current[_dayBundleMemo]
+        as Map<String, Future<Map<String, dynamic>?>>?;
+    if (memo == null) return _loadLatestBundle(skipDay);
+    // NUL can't occur in a day label, so this key never collides with one.
+    return memo['\u0000latest:${skipDay ?? ''}'] ??= _loadLatestBundle(skipDay);
+  }
+
+  Future<Map<String, dynamic>?> _loadLatestBundle(String? skipDay) async {
     final rows = await LocalDb.withReadExecutor(
         (db) => LocalDb.recentDayResults(14, executor: db));
     Map<String, dynamic>? newest, withScalars;
@@ -217,13 +225,13 @@ class LocalRepositoryImpl extends LocalRepository {
     final now = DateTime.now();
     var from = dayLabelOf(DateTime(now.year, now.month, now.day - 90));
     // 90 rows can span more than 90 calendar days: the input's oldest wins.
-    final input =
-        _decode((await LocalDb.baseline('crossday_input', executor: db))?['payload_json']);
-    final inDays = input?['days'];
-    if (inDays is List && inDays.isNotEmpty) {
-      final first = (inDays.first as Map?)?['date'];
-      if (first is String && first.compareTo(from) < 0) from = first;
-    }
+    // Only the oldest input date is needed: read it in SQL instead of
+    // decoding the whole 90-day input on the UI isolate.
+    final first = (await db.rawQuery(
+      "SELECT json_extract(payload_json, '\$.days[0].date') AS d "
+      "FROM baselines WHERE key = 'crossday_input' AND json_valid(payload_json)",
+    )).firstOrNull?['d'];
+    if (first is String && first.compareTo(from) < 0) from = first;
     if (!notOurs.any((d) => d.compareTo(from) >= 0)) return cd;
     return {
       ...cd,
@@ -2988,17 +2996,12 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>> endWorkout(String workoutId) async {
     // Mark done + stamp end_ts; final stats (calories/strain/etc) are written by
     // app_state.stopWorkout from the LiveWorkoutState (it has the live tallies).
-    final r = await LocalDb.session(workoutId);
-    if (r != null) {
-      // Only stamp a live session; a repeat call on a finished one must not
-      // push its end_ts later (it still re-exports, which is idempotent).
-      if (r['status'] == 'live') {
-        await LocalDb.putSession({
-          ...r,
-          'status': 'done',
-          'end_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        });
-      }
+    // Only a LIVE row is ended: a stale or repeated id (the coach tool, the
+    // gesture path after stopWorkout) must not stretch a finished workout to
+    // now.
+    final ended = await LocalDb.endLiveSession(
+        workoutId, DateTime.now().millisecondsSinceEpoch ~/ 1000);
+    if (ended > 0) {
       // This is the choke point the AI coach's `end_workout` tool reaches
       // directly (bypassing AppState.stopWorkout, the only other place this
       // used to happen) — without it a coach-ended workout never reached
@@ -3006,14 +3009,14 @@ class LocalRepositoryImpl extends LocalRepository {
       // exportWorkoutId re-reads the row and no-ops if sync is off.
       unawaited(HealthExporter.exportWorkoutId(workoutId));
     }
-    return {'workout_id': workoutId, 'ended': r != null};
+    return {'workout_id': workoutId};
   }
 
   @override
   Future<List<SessionSpan>> savedSessionSpans() async {
     // Everything ever logged — the overlap check has to see a session from any
     // date the athlete might be back-filling into, not just a recent window.
-    final rows = await LocalDb.sessionsInRange(0, 1 << 40);
+    final rows = await LocalDb.sessionSpans();
     final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     return [
       for (final r in rows)
@@ -3105,6 +3108,16 @@ class LocalRepositoryImpl extends LocalRepository {
       throw const ManualWindowException(
           ManualWindowError.scoreNotRecomputable);
     }
+    // Same check the write seam runs, but BEFORE the Health delete below: a
+    // refused retime must leave the old Health sample where it is.
+    final invalid = validateManualWindow(
+      startSec: startTs,
+      endSec: endTs,
+      nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      existing: await savedSessionSpans(),
+      editingId: id,
+    );
+    if (invalid != null) throw ManualWindowException(invalid);
     // Clear the OLD Health window before the retimed row overwrites it — the
     // caller's subsequent exportWorkoutId only deletes inside the NEW window,
     // so a narrowed/moved retime would otherwise leave the previous sample
@@ -3584,7 +3597,9 @@ class LocalRepositoryImpl extends LocalRepository {
     try {
       // 'rhr' is the `metric_series` key the derivation engine writes nightly
       // resting HR under (see _BaselineHistoryCache.keys).
-      final vals = await LocalDb.trailingSeriesValues('rhr', 7);
+      final now = DateTime.now();
+      final vals = await LocalDb.trailingSeriesValues('rhr', 1,
+          since: dayLabelOf(DateTime(now.year, now.month, now.day - 7)));
       if (vals.isEmpty) return null;
       return vals.last;
     } catch (_) {
@@ -4302,7 +4317,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // the same false single date wearing a range's clothes. So the band needs
     // two gaps (three logged starts); below that the screen says a point and
     // says why it can't say a width.
-    double? medianLength, gapSpread;
+    double? medianLength, gapSpread, longestGap;
     var gapCount = 0;
     if (startDates.length >= 2) {
       final gaps = <double>[];
@@ -4316,6 +4331,7 @@ class LocalRepositoryImpl extends LocalRepository {
       if (gaps.isNotEmpty) {
         gapCount = gaps.length;
         medianLength = ana.median(gaps);
+        longestGap = gaps.reduce(math.max);
         if (gaps.length >= 2) gapSpread = ana.mad(gaps, scaled: false);
       }
     }
@@ -4367,7 +4383,13 @@ class LocalRepositoryImpl extends LocalRepository {
     final ovDay = (medianLength == null || medianLength.round() < 10)
         ? null
         : (medianLength - 14).round().clamp(10, medianLength.round());
-    if (phaseOk && ovDay != null && cycleDay != null && lastStart != null) {
+    // Past the longest cycle she has ever logged, the last start is no basis
+    // for a phase (a late period, or she stopped logging): stay unknown.
+    if (phaseOk &&
+        ovDay != null &&
+        cycleDay != null &&
+        lastStart != null &&
+        cycleDay <= longestGap! + 1) {
       if (cycleDay <= 5) {
         phase = 'menstrual';
       } else if (cycleDay < ovDay) {
@@ -4774,9 +4796,11 @@ class LocalRepositoryImpl extends LocalRepository {
   static String? intensityShape(double easy, double moderate, double hard) {
     final total = easy + moderate + hard;
     if (total <= 0) return null;
-    if (easy < moderate || easy < hard) return 'middle-heavy';
-    if (moderate >= hard) return 'pyramidal';
-    return 'polarised';
+    if (easy >= moderate && easy >= hard) {
+      return moderate >= hard ? 'pyramidal' : 'polarised';
+    }
+    // Middle-heavy only when the middle actually leads; hard-led has no name.
+    return moderate >= hard ? 'middle-heavy' : null;
   }
 
   static double? _median(List<double> xs) {

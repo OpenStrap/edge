@@ -276,7 +276,9 @@ class _ReportIssueScreenState extends State<ReportIssueScreen> {
                   for (final e in names.entries)
                     Pressable(
                       onTap: () => setState(() => _category = e.key),
-                      semanticLabel: e.value,
+                      semanticLabel: e.key == _category
+                          ? '${e.value}${l.settingsSelectedSuffix}'
+                          : e.value,
                       child: Pill(e.value,
                           e.key == _category ? C.green : C.n500,
                           icon: e.key == _category ? LucideIcons.check : null),
