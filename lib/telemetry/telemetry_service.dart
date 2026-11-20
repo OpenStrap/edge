@@ -111,6 +111,14 @@ class TelemetryService {
     _enabled = false;
   }
 
+  /// Test seam: forget the loaded outbox so load() runs again.
+  @visibleForTesting
+  void debugResetOutbox() {
+    _outbox.clear();
+    _loaded = false;
+    _restored = false;
+  }
+
   /// Anchors + version stamped onto each batch (AppState sets these on load).
   String? deviceId;
   String? userId;
@@ -121,6 +129,9 @@ class TelemetryService {
 
   final List<Map<String, dynamic>> _outbox = [];
   bool _loaded = false;
+  // false until load() has merged the persisted outbox; _persist() must not
+  // write before then or it overwrites last session's crash records.
+  bool _restored = false;
   bool _flushing = false;
   Map<String, dynamic>? _staticDevice; // cached OEM/model/OS/app (collected once)
 
@@ -357,6 +368,7 @@ class TelemetryService {
   Future<void> load() async {
     if (_loaded) return;
     _loaded = true;
+    final saved = <Map<String, dynamic>>[];
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_kOutbox);
@@ -364,11 +376,18 @@ class TelemetryService {
         final list = jsonDecode(raw);
         if (list is List) {
           for (final e in list) {
-            if (e is Map) _outbox.add(e.cast<String, dynamic>());
+            if (e is Map) saved.add(e.cast<String, dynamic>());
           }
         }
       }
     } catch (_) {/* ignore corrupt blob */}
+    // Saved records are older than anything recorded before load() ran.
+    _outbox.insertAll(0, saved);
+    while (_outbox.length > _maxOutbox) {
+      _outbox.removeAt(0);
+    }
+    _restored = true;
+    await _persist();
   }
 
   /// Send the whole outbox as one batch. No-op unless enabled + configured +
@@ -451,6 +470,7 @@ class TelemetryService {
   }
 
   Future<void> _persist() async {
+    if (!_restored) return; // load() persists the merged outbox itself
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_kOutbox, jsonEncode(_outbox));
