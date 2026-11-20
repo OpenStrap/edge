@@ -423,7 +423,7 @@ void main() {
   test('two straps and a stray early row still import in full', () async {
     // Reads seek the (deviceId, ts) key with every id the table holds, and the
     // day walk jumps empty stretches. Neither may drop a row: a strap swap
-    // brings BOTH ids, and a stray 2001 row is jumped from, not lost.
+    // brings BOTH ids, and a stray 2001 row (~9000 empty days, hence the 3s timeout) is jumped from, not lost.
     const first = 1787644800; // 2026-08-25
     const later = first + 3 * 86400;
     final path = p.join(tmp.path, 'twostraps.sqlite');
@@ -455,7 +455,7 @@ void main() {
     final res = await NoopImporter.importFile(
         bak, const Profile(), DerivationEngine());
     expect(res.rows, n);
-  }, timeout: const Timeout(Duration(seconds: 60)));
+  }, timeout: const Timeout(Duration(seconds: 3)));
 
   test('a REAL timestamp column cannot hang the paging', () async {
     // A GRDB `Date` is stored as a REAL. Sub-second values truncate onto the
