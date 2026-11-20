@@ -286,7 +286,11 @@ class _Choice extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
-    return Pressable(
+    // Fill and weight alone say which one is picked; a screen reader needs it
+    // said too.
+    return Semantics(
+      selected: on,
+      child: Pressable(
       onTap: onTap,
       semanticLabel: label,
       child: Container(
@@ -303,6 +307,7 @@ class _Choice extends StatelessWidget {
             style: F.cap.copyWith(
                 color: on ? p.on(C.green) : p.ink2,
                 fontWeight: on ? FontWeight.w600 : FontWeight.w500)),
+      ),
       ),
     );
   }
