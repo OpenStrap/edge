@@ -297,7 +297,14 @@ class GarminAdapter extends BandAdapter {
             garminParseDirectory(bytes).where((x) => x.isHealthFit).toList();
         // A file gone from the watch is forgotten; its index may come back
         // as another file.
+        final before = read.length;
         read.removeWhere((i, _) => !health.any((x) => x.index == i));
+        // Pruned entries must reach the host too, or a reused index with the
+        // same stamp and size reads as already done.
+        if (read.length != before && !events.isClosed) {
+          events.add(BandNote('garmin_fit_files', garminEncodeReadFiles(read)));
+          events.add(OffloadCheckpoint(() async => true));
+        }
         queue
           ..addAll(health.where((x) => read[x.index] != (x.timestamp, x.size)))
           ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
@@ -328,6 +335,7 @@ class GarminAdapter extends BandAdapter {
           await fileDone(Uint8List(0));
         } else {
           markRead(e);
+          if (!events.isClosed) events.add(OffloadCheckpoint(() async => true));
           await next();
         }
         return;
