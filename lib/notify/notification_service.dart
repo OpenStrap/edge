@@ -157,8 +157,10 @@ class NotificationService {
   static const int idWaterBase = 2100;
   // a whole day at the shortest interval, so no reachable waking window is
   // ever cut short. at 24 a 30m interval over 07:00-22:00 stopped at 18:30.
-  // (24h / NotificationPrefs.waterIntervalMinAllowed of 30m)
-  static const int maxWaterSlots = 48;
+  // iOS keeps only the 64 newest pending requests and drops older ones silently,
+  // so water + meds (12) + the other standing reminders (up to ~8) must stay
+  // under 64. 40 slots is 20h at the 30m minimum, which still covers any waking window.
+  static const int maxWaterSlots = 40;
 
   /// Reserved for a future server/push layer (unused — app is cloud-free).
   static const int kServerIdBase = 2000;
