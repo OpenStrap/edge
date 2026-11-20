@@ -1626,7 +1626,11 @@ void main() {
           _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
       await tester.pump();
       // 2 s work + 1 s rest = one round in 3 ticks, not 5.
-      for (var i = 0; i < 3; i++) {
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+      expect((LiveDraft.current!.data['interval'] as Map)['work'], isFalse,
+          reason: 'work flips to rest on the 2nd tick, not before');
+      for (var i = 0; i < 1; i++) {
         await tester.pump(const Duration(seconds: 1));
       }
 
@@ -1658,12 +1662,15 @@ void main() {
       addTearDown(LiveDraft.clear);
 
       final a = activityByName('weight_training')!;
+      var calls = 0;
       LiveDraft.begin(a, weightKg: 72.4);
       await tester.pumpWidget(_frame(
           liveFor(a,
               weightKg: 72.4,
-              host: ActivityHost(
-                  onFinish: (_) async => throw StateError('db locked'))),
+              host: ActivityHost(onFinish: (d) async {
+                if (calls++ == 0) throw StateError('db locked');
+                return d;
+              })),
           Brightness.light,
           1.0));
       await tester.pumpAndSettle();
@@ -1673,6 +1680,11 @@ void main() {
       expect(LiveDraft.current, isNotNull,
           reason: 'the session is not in the database; the draft is all '
               'there is');
+      await tester.tap(find.text('Try again'));
+      await tester.pumpAndSettle();
+      expect(calls, 2);
+      expect(LiveDraft.current, isNull,
+          reason: 'a retry that lands clears the draft');
     });
 
     testWidgets('private off on setup wins over a private-by-default activity',

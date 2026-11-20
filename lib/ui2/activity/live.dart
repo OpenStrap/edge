@@ -547,6 +547,8 @@ class LiveShellState extends State<LiveShell> {
       result = await onFinish?.call(draft) ?? draft;
     } catch (_) {
       result = draft;
+      // Freeze its clock: left running, a later resume would read hours.
+      mine?.setPaused(true);
       // The draft stays: it is the only durable copy of a session that is not
       // in the database. A retry that lands clears it.
       retrySave = onFinish == null
@@ -1916,9 +1918,6 @@ class _LiveStrengthState extends State<LiveStrength> {
             bodyweight = true;
           }
           reps = res.reps;
-          if (res.rpe != null) {
-            rpe = res.rpe!;
-          }
         }
       }
     });
@@ -2825,9 +2824,11 @@ class _LiveIntervalState extends State<LiveInterval> {
           round++;
         }
       });
-      // Every tick, not just phase flips: a kill mid-phase must not replay
-      // the seconds already counted.
-      _persist();
+      // Phase flips and every fifth second: a kill replays at most 4 s, and
+      // the whole draft is not re-encoded and written on every tick.
+      if (left % 5 == 0 || left == (work ? widget.workSec : widget.restSec)) {
+        _persist();
+      }
     });
   }
 
