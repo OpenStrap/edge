@@ -1298,7 +1298,14 @@ class AppState extends ChangeNotifier {
   /// a fresh install never fetched it at launch, so it would otherwise stamp
   /// the compiled-in placeholder.
   Future<void> _postConsent(String scope, bool on) async {
-    if (on) await _refreshTermsVersion();
+    if (on) {
+      await _refreshTermsVersion();
+      // Opted out while the fetch was in flight: the disable already posted
+      // granted=false, so a late grant must not follow it.
+      if (!(scope == 'telemetry' ? telemetryConsent : healthShareConsent)) {
+        return;
+      }
+    }
     await CompanionClient.postConsent(
       deviceId: deviceId,
       scope: scope,
