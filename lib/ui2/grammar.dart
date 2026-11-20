@@ -2437,6 +2437,16 @@ class _SubTabsState extends State<SubTabs> {
     _reveal();
   }
 
+  // Chip widths follow the text scale; re-reveal only when it changes.
+  TextScaler? _scaler;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final s = MediaQuery.textScalerOf(context);
+    if (_scaler != null && _scaler != s) _reveal();
+    _scaler = s;
+  }
+
   // Parents rebuild the items list on every setState, so compare contents:
   // an identity check would snap the row back under the user's finger.
   @override
