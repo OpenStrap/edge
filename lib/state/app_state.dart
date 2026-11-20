@@ -1187,11 +1187,18 @@ class AppState extends ChangeNotifier {
           if (progress.retired) _queuePhoneDerive(progress);
         },
       );
-      if (stale()) return 0;
+      if (stale()) {
+        // Rows already committed are real even if a newer read took over.
+        _queuePhoneDerive(progress);
+        return 0;
+      }
       phoneStepsLastSyncedDays = r.daysRead;
       phoneStepsLastTotal = r.totalSteps;
       await _refreshPhoneStepsToday();
-      if (stale()) return 0;
+      if (stale()) {
+        _queuePhoneDerive(progress);
+        return 0;
+      }
       if (r.daysRead > 0) {
         // Use the normal durable queue: capture, workout and background holds
         // still apply, and a read finishing during derive gets a later pass.
@@ -1201,6 +1208,7 @@ class AppState extends ChangeNotifier {
       return r.daysRead;
     } catch (e) {
       debugPrint('[phone_steps] sync: $e');
+      _queuePhoneDerive(progress);
       return 0;
     }
   }
