@@ -238,8 +238,9 @@ void main() {
       return [
         {
           'uuid': 'a',
+          // lat differs per call so a rewrite would show in the store.
           'points': [
-            [51.5, -0.1, 10.0, 1000],
+            [50.0 + calls.length, -0.1, 10.0, 1000],
           ],
         },
       ];
@@ -260,7 +261,9 @@ void main() {
     expect(second.withRoutes, 1, reason: 'the stored route still counts');
     expect(calls.last['skip'], ['a'],
         reason: 'b has no route yet, so the fetch runs but skips a');
-    expect(await LocalDb.routePoints('a'), hasLength(1));
+    final pts = await LocalDb.routePoints('a');
+    expect(pts, hasLength(1));
+    expect(pts.single['lat'], 51.0, reason: 'the first write stands');
   });
 
   test('copies of our own exports stored before the filter get cleaned up',

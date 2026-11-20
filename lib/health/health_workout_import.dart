@@ -405,8 +405,17 @@ class HealthWorkoutImporter {
           if (p.type == HealthDataType.WORKOUT) p.uuid,
       },
     );
+    // A route can still be filling in shortly after a workout ends (watch
+    // sync), so only older workouts count as final.
+    final settledBefore =
+        DateTime.now().millisecondsSinceEpoch ~/ 1000 - 6 * 3600;
     final withRoutes = await _importRoutes(start, end,
-        keep: {for (final r in alive) r.uuid}, prompt: prompt);
+        keep: {for (final r in alive) r.uuid},
+        settled: {
+          for (final r in alive)
+            if (r.endTs < settledBefore) r.uuid,
+        },
+        prompt: prompt);
     // Re-read: a workout scored or deleted while this pass was in flight, or
     // one an interrupted pass tombstoned without removing, must not stay
     // listed (or keep a route) beside the session that replaced it.
@@ -428,13 +437,15 @@ class HealthWorkoutImporter {
   /// async round trip, and 90 days of running is a lot of them to serialise
   /// across the channel one at a time.
   Future<int> _importRoutes(DateTime start, DateTime end,
-      {required Set<String> keep, bool prompt = false}) async {
+      {required Set<String> keep,
+      required Set<String> settled,
+      bool prompt = false}) async {
     if (!routesSupported) return 0;
-    // A finished workout's route never changes, so one already stored is not
+    // A settled workout's route is final, so one already stored is not
     // fetched or rewritten again: the hourly auto pass would otherwise move
     // and re-insert every point of the whole window each time.
     final have = <String>{};
-    for (final u in keep) {
+    for (final u in settled) {
       if (await LocalDb.sessionHasRoute(u)) have.add(u);
     }
     final want = keep.difference(have);
