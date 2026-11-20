@@ -269,7 +269,7 @@ Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
       readiness: score,
     );
     rescored++;
-    if (raw) forced++;
+    if (raw && !current) forced++;
   }
   if (pending.isEmpty) {
     await _markDone();
