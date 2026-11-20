@@ -14075,14 +14075,18 @@ class LocalDb {
     String key, {
     int? limit,
     bool measuredOnly = false,
+    String? from,
     DatabaseExecutor? executor,
   }) async {
     final db = executor ?? await instance;
+    // `from` bounds the scan before the per-row imported mask runs: a 7-day
+    // reader should not pay one payload LIKE per stored day.
     return db.query(
       'metric_series',
-      where: 'key = ? AND value IS NOT NULL${_validSql(key)}'
+      where: 'key = ? AND value IS NOT NULL'
+          '${from != null ? ' AND date >= ?' : ''}${_validSql(key)}'
           '${measuredOnly ? ' AND $notImportedRowSql' : ''}',
-      whereArgs: [key],
+      whereArgs: [key, if (from != null) from],
       orderBy: 'date ASC',
       limit: limit,
     );
