@@ -451,7 +451,12 @@ internal fun stepCounterRebooted(
     if (bootCount >= 0 && lastBootCount >= 0) return bootCount != lastBootCount
     // No counter on this device: uptime only runs backwards across a reboot, and
     // (unlike the wall clock) a time change can't move it.
-    if (bootCount < 0) return lastElapsed >= 0 && elapsed >= 0 && elapsed < lastElapsed
+    // A reboot that outlasts the last sample's uptime still moves the wall-clock boot
+    // time LATER, so a forward shift counts too; a backward shift is a clock change.
+    if (bootCount < 0) {
+        return (lastElapsed >= 0 && elapsed >= 0 && elapsed < lastElapsed) ||
+            (storedBootMs > 0L && bootMs - storedBootMs > BOOT_MATCH_SLACK_MS)
+    }
     return abs(bootMs - storedBootMs) > BOOT_MATCH_SLACK_MS
 }
 
