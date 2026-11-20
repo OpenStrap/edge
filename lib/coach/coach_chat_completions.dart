@@ -33,7 +33,6 @@ class CoachChatCompletions {
       final content = message['content'];
       final calls = message['tool_calls'];
       if ((content is String && content.trim().isNotEmpty) ||
-          (content is List && content.isNotEmpty) ||
           (calls is List && calls.isNotEmpty)) {
         return message.cast<String, dynamic>();
       }
