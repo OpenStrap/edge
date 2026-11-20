@@ -223,7 +223,9 @@ class LiveDraft {
   /// The catalogue key of the activity being done, so the bar that reopens a
   /// minimised session knows which screen to build.
   final String activityKey;
-  final bool private;
+  /// Null: an unversioned draft saved as false, which only meant "toggle off
+  /// at setup" back when a private-by-default activity stayed private anyway.
+  final bool? private;
   final double? weightKg;
   final DateTime startedAt;
 
@@ -246,7 +248,7 @@ class LiveDraft {
 
   LiveDraft._(this.activityKey,
       {required this.startedAt,
-      this.private = false,
+      this.private,
       this.weightKg,
       this.workSec,
       this.restSec,
@@ -336,6 +338,7 @@ class LiveDraft {
         _key,
         jsonEncode({
           'a': d.activityKey,
+          'v': 2,
           'private': d.private,
           'weight': d.weightKg,
           'work_sec': d.workSec,
@@ -359,7 +362,9 @@ class LiveDraft {
       return LiveDraft._(
         key,
         startedAt: DateTime.fromMillisecondsSinceEpoch(start.toInt()),
-        private: m['private'] == true,
+        private: m['v'] == 2
+            ? m['private'] == true
+            : (m['private'] == true ? true : null),
         weightKg: (m['weight'] as num?)?.toDouble(),
         workSec: (m['work_sec'] as num?)?.toInt(),
         restSec: (m['rest_sec'] as num?)?.toInt(),
@@ -382,7 +387,9 @@ class LiveDraft {
 /// journey, power and basic all measure rather than ask, so they share one.
 Widget liveFor(
   Activity a, {
-  bool private = false,
+  /// Null means the catalogue default. An explicit false wins over a
+  /// private-by-default activity: the setup toggle flips either way.
+  bool? private,
   double? weightKg,
   ActivityHost host = ActivityHost.none,
 
@@ -394,7 +401,7 @@ Widget liveFor(
   int? intervalRestSec,
   int? intervalRounds,
 }) {
-  final p = private || a.private;
+  final p = private ?? a.private;
   final feed = host.feed;
   final history = host.history;
   final onFinish = host.onFinish;
@@ -407,6 +414,9 @@ Widget liveFor(
         onFinish: onFinish,
         onSets: host.onSets),
     Arch.laps => LiveSwim(a,
+        feed: feed, weightKg: weightKg, private: p, onFinish: onFinish),
+    // MT-08: heat and cold have no poses, so no pose screen either.
+    Arch.flow when thermalActivities.contains(a.name) => LiveMeasured(a,
         feed: feed, weightKg: weightKg, private: p, onFinish: onFinish),
     Arch.flow => LiveFlow(a,
         feed: feed, weightKg: weightKg, private: p, onFinish: onFinish),
@@ -531,15 +541,27 @@ class LiveShellState extends State<LiveShell> {
     // losing the screen is worse — but it is told, so it can say so and offer
     // the retry instead of drawing a plausible summary of nothing.
     final onFinish = widget.onFinish;
+    final mine = LiveDraft.current;
     Future<ActivityResult> Function()? retrySave;
     try {
       result = await onFinish?.call(draft) ?? draft;
     } catch (_) {
       result = draft;
-      retrySave = onFinish == null ? null : () => onFinish(draft);
+      // Freeze its clock: left running, a later resume would read hours.
+      mine?.setPaused(true);
+      // The draft stays: it is the only durable copy of a session that is not
+      // in the database. A retry that lands clears it.
+      retrySave = onFinish == null
+          ? null
+          : () async {
+              final saved = await onFinish(draft);
+              // Only the draft this session owned; a newer session's stays.
+              if (identical(LiveDraft.current, mine)) LiveDraft.clear();
+              return saved;
+            };
     }
-    // The session is over: no draft to reopen, and no resume bar.
-    LiveDraft.clear();
+    // Saved: the session is over, no draft to reopen and no resume bar.
+    if (retrySave == null) LiveDraft.clear();
     if (!mounted) return;
     // Everything under the summary belongs to setting this session up —
     // picker, setup, the live screen itself. Back from a summary used to land
@@ -1179,7 +1201,9 @@ class _LiveStrengthState extends State<LiveStrength> {
 
   double kg = 40;
   int reps = 8;
-  int rpe = 7;
+  /// Null until the lifter picks one; a pre-selected default would be stored
+  /// on every set as a self-report nobody gave.
+  int? rpe;
   bool bodyweight = false;
 
   final logged = <LoggedSet>[];
@@ -1322,6 +1346,8 @@ class _LiveStrengthState extends State<LiveStrength> {
           rpe: rpe,
           restSec: prior == null ? null : now.difference(prior).inSeconds,
           at: now));
+      // A self-report belongs to the set it was given for.
+      rpe = null;
     });
     restLeft.value = restTarget;
     _persist();
@@ -1760,7 +1786,7 @@ class _LiveStrengthState extends State<LiveStrength> {
             return Expanded(
               child: Pressable(
                 semanticLabel: 'RPE $v',
-                onTap: () => setState(() => rpe = v),
+                onTap: () => setState(() => rpe = on ? null : v),
                 child: Container(
                   margin: EdgeInsets.only(right: i == 4 ? 0 : S.x2),
                   height: 44,
@@ -1892,9 +1918,6 @@ class _LiveStrengthState extends State<LiveStrength> {
             bodyweight = true;
           }
           reps = res.reps;
-          if (res.rpe != null) {
-            rpe = res.rpe!;
-          }
         }
       }
     });
@@ -2445,7 +2468,9 @@ class _LiveFlowState extends State<LiveFlow>
       result: (elapsed) => _baseResult(widget.a,
           widget.feed?.call() ?? LiveFeed.none, widget.weightKg, elapsed,
           widget.private,
-          poses: poses.sublist(0, reached + 1)),
+          // Never stepped through the sequence = no poses we know of, not
+          // one 'Mountain' nobody did.
+          poses: reached == 0 ? const [] : poses.sublist(0, reached + 1)),
       body: (ctx, elapsed) {
         final p = P.of(ctx);
         final l = AppLocalizations.of(ctx);
@@ -2717,11 +2742,10 @@ class LiveInterval extends StatefulWidget {
 }
 
 class _LiveIntervalState extends State<LiveInterval> {
-  // ponytail: the round position is not written to the draft — minimising a
-  // HIIT session restarts it at round 1. Nothing here is typed, so nothing is
-  // LOST; it is a timer, and a timer that keeps running while the screen is
-  // gone needs the countdown to live on the draft's clock. Do that if anyone
-  // actually minimises intervals.
+  // ponytail: the round position lives on the draft (written on every phase
+  // flip and on dispose), so a minimise resumes where it left off. The
+  // countdown does not run while the screen is gone; derive it from the
+  // draft's clock if that ever matters.
   /// [widget.rounds] is how many pips the row starts with, NOT a plan the
   /// session runs to: nothing stops this timer at that round, so a session
   /// that keeps going simply grows the row.
@@ -2740,6 +2764,20 @@ class _LiveIntervalState extends State<LiveInterval> {
   void initState() {
     super.initState();
     left = widget.workSec;
+    final saved = LiveDraft.current?.data['interval'];
+    if (saved is Map) {
+      round = (saved['round'] as num?)?.toInt() ?? round;
+      work = saved['work'] != false;
+      left = (saved['left'] as num?)?.toInt() ?? left;
+      for (final h in (saved['hr'] as List?) ?? const []) {
+        if (h is num) _roundHr.add(h.toInt());
+      }
+      for (final x in (saved['done'] as List?) ?? const []) {
+        if (x is! List || x.length < 2) continue;
+        done.add(IntervalRound((x[0] as num).toInt(), (x[1] as num).toInt(),
+            avgHr: (x.length > 2 ? x[2] as num? : null)?.toInt()));
+      }
+    }
     _t = Timer.periodic(Motion.tick, (_) {
       if (!mounted) return;
       // PAUSE STOPS THE INTERVAL ENGINE. Without this the countdown kept
@@ -2756,10 +2794,9 @@ class _LiveIntervalState extends State<LiveInterval> {
       final hr = widget.feed?.call().hr;
       if (hr != null && hr > 0) _roundHr.add(hr);
       setState(() {
-        if (left > 0) {
-          left--;
-          return;
-        }
+        // Flip on the tick that reaches zero: a 45 s phase is 45 ticks, not
+        // 45 plus a second parked on 00:00.
+        if (--left > 0) return;
         HapticFeedback.mediumImpact();
         final l = AppLocalizations.of(context);
         say(
@@ -2787,12 +2824,28 @@ class _LiveIntervalState extends State<LiveInterval> {
           round++;
         }
       });
+      // Phase flips and every fifth second: a kill replays at most 4 s, and
+      // the whole draft is not re-encoded and written on every tick.
+      if (left % 5 == 0 || left == (work ? widget.workSec : widget.restSec)) {
+        _persist();
+      }
     });
   }
+
+  void _persist() => LiveDraft.current?.put('interval', {
+        'round': round,
+        'work': work,
+        'left': left,
+        'hr': _roundHr,
+        'done': [
+          for (final x in done) [x.workSec, x.restSec, x.avgHr]
+        ],
+      });
 
   @override
   void dispose() {
     _t?.cancel();
+    _persist();
     super.dispose();
   }
 

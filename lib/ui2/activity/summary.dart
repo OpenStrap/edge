@@ -83,7 +83,7 @@ const _journey = {
 /// peripheral vasoconstriction, which is exactly when wrist reflectance PPG
 /// has nothing to measure** — so a plunge whose card says the sensor could not
 /// find a pulse is the correct outcome, not a failure state to design around.
-const _thermal = {'Sauna', 'Cold plunge'};
+const thermalActivities = {'Sauna', 'Cold plunge'};
 
 /// Name first, then track. The named sets are the activities whose defining
 /// object is not what their tracking mode would suggest — a hike is tracked by
@@ -878,7 +878,7 @@ class ActivityResult {
   /// `(minutes that carry a heart rate, minutes in the session)`.
   ///
   /// `(0, n)` is the band reading nothing for the whole session. On a cold
-  /// plunge that is the EXPECTED reading and not an error — see [_thermal].
+  /// plunge that is the EXPECTED reading and not an error — see [thermalActivities].
   (int, int) get hrMinutes {
     var have = 0;
     for (final v in hr) {
@@ -1200,8 +1200,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   Activity get a => r.activity;
   Arch get arch => r.arch;
 
-  /// Both are heat/cold exposure sessions — see [_thermal].
-  bool get thermal => _thermal.contains(a.name);
+  /// Both are heat/cold exposure sessions — see [thermalActivities].
+  bool get thermal => thermalActivities.contains(a.name);
 
   /// The user's unit system, watched in [build] so a switch in Settings
   /// repaints this screen. Null only in a golden, where metric is what the
