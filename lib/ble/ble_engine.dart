@@ -7668,6 +7668,9 @@ class BleEngine {
       // Snapshot: the commit below clears the buffer, and the post-commit
       // re-gate must judge the same burst.
       final gateDropArchives = d.burstGateDropArchives;
+      // The ACK write triggers the next HISTORY_START, whose rearm() resets
+      // d.burstStats in place; merge from a copy taken before any await.
+      final burstSnapshot = d.burstStats.snapshot();
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
         'expected=${m.expectedPacketCount} '
@@ -7845,7 +7848,7 @@ class BleEngine {
       // Counted only once banked AND acked: a burst whose commit or ACK fails
       // is re-delivered and would otherwise be counted (and gap-merged) twice.
       _successfulBursts++;
-      _mergeValidatedBurst(d);
+      _mergeValidatedBurst(burstSnapshot);
       // A trimmed chunk proves the strap IS draining, so the abort→retry
       // budget is about a stall that has since cleared, not this session.
       session.historicalRetries = 0;
@@ -9550,8 +9553,8 @@ class BleEngine {
     );
   }
 
-  void _mergeValidatedBurst(DrainController d) {
-    final burstCounts = d.burstStats.dataPacketCountsByRevision;
+  void _mergeValidatedBurst(BurstStats burst) {
+    final burstCounts = burst.dataPacketCountsByRevision;
     final mergedCounts = <int, int>{
       ..._sessionPacketCounts.dataPacketCountsByRevision,
     };
@@ -9561,27 +9564,27 @@ class BleEngine {
     _sessionPacketCounts = _SessionPacketCounts(
       dataPacketCountsByRevision: mergedCounts,
       revision16Count:
-          _sessionPacketCounts.revision16Count + d.burstStats.revision16Count,
+          _sessionPacketCounts.revision16Count + burst.revision16Count,
       consoleLogPacketCount:
           _sessionPacketCounts.consoleLogPacketCount +
-          d.burstStats.consoleCount,
+          burst.consoleCount,
       unknownRevisionCount:
-          _sessionPacketCounts.unknownRevisionCount + d.burstStats.unknownCount,
+          _sessionPacketCounts.unknownRevisionCount + burst.unknownCount,
       revision19Count:
-          _sessionPacketCounts.revision19Count + d.burstStats.revision19Count,
+          _sessionPacketCounts.revision19Count + burst.revision19Count,
       revision22Count:
-          _sessionPacketCounts.revision22Count + d.burstStats.revision22Count,
+          _sessionPacketCounts.revision22Count + burst.revision22Count,
       revision25Count:
-          _sessionPacketCounts.revision25Count + d.burstStats.revision25Count,
+          _sessionPacketCounts.revision25Count + burst.revision25Count,
       revision26Count:
-          _sessionPacketCounts.revision26Count + d.burstStats.revision26Count,
+          _sessionPacketCounts.revision26Count + burst.revision26Count,
     );
 
     var crossBurst = _sessionGapSummary.crossBurst;
-    var missing = _sessionGapSummary.missing + d.burstStats.intraBurstMissing;
+    var missing = _sessionGapSummary.missing + burst.intraBurstMissing;
     var backward =
-        _sessionGapSummary.backward + d.burstStats.intraBurstBackward;
-    for (final entry in d.burstStats.sequenceByRevision.entries) {
+        _sessionGapSummary.backward + burst.intraBurstBackward;
+    for (final entry in burst.sequenceByRevision.entries) {
       final rev = entry.key;
       final seq = entry.value;
       final last = _lastSequenceByRevision[rev];
@@ -9603,7 +9606,7 @@ class BleEngine {
     }
     _sessionGapSummary = _SessionGapSummary(
       intraBurst:
-          _sessionGapSummary.intraBurst + d.burstStats.intraBurstGapCount,
+          _sessionGapSummary.intraBurst + burst.intraBurstGapCount,
       crossBurst: crossBurst,
       missing: missing,
       backward: backward,
@@ -10554,6 +10557,27 @@ class BurstStats {
   void onConsole() => _consoleCount++;
 
   void onUnknown() => _unknownCount++;
+
+  BurstStats snapshot() {
+    final c = BurstStats()
+      .._eventCount = _eventCount
+      .._consoleCount = _consoleCount
+      .._unknownCount = _unknownCount
+      .._revision16Count = _revision16Count
+      .._revision19Count = _revision19Count
+      .._revision22Count = _revision22Count
+      .._revision25Count = _revision25Count
+      .._revision26Count = _revision26Count;
+    c._dataPacketCountsByRevision.addAll(_dataPacketCountsByRevision);
+    _sequenceByRevision.forEach((k, v) {
+      c._sequenceByRevision[k] = SequenceState(firstSequence: v.firstSequence)
+        ..lastSequence = v.lastSequence
+        ..gapCount = v.gapCount
+        ..missingCount = v.missingCount
+        ..backwardCount = v.backwardCount;
+    });
+    return c;
+  }
 
   void reset() {
     _dataPacketCountsByRevision.clear();
