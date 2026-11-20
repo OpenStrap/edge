@@ -259,7 +259,11 @@ Future<Set<String>> _rederiveAround(Future<void> Function() change) async {
     for (final MapEntry(key: d, value: sole) in beforeShaped.entries)
       if (sole) d,
   }.difference(kept).difference(band);
-  await LocalDb.clearDerivedDays(gone);
+  // Behind the derive latch: a pass already in flight may have loaded the
+  // wearable's rows for one of these days and would write it back after.
+  if (gone.isNotEmpty) {
+    await DerivationEngine.whileIdle(() => LocalDb.clearDerivedDays(gone));
+  }
   final days = {
     ...before,
     ...after,
