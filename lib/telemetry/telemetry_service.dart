@@ -117,6 +117,7 @@ class TelemetryService {
     _outbox.clear();
     _loaded = false;
     _restored = false;
+    _readFailed = false;
   }
 
   /// Anchors + version stamped onto each batch (AppState sets these on load).
@@ -132,6 +133,8 @@ class TelemetryService {
   // false until load() has merged the persisted outbox; _persist() must not
   // write before then or it overwrites last session's crash records.
   bool _restored = false;
+  // prefs read threw: still send from memory, but never write over the blob.
+  bool _readFailed = false;
   bool _flushing = false;
   Map<String, dynamic>? _staticDevice; // cached OEM/model/OS/app (collected once)
 
@@ -383,10 +386,9 @@ class TelemetryService {
     } on FormatException {
       /* corrupt blob: nothing recoverable, carry on */
     } catch (_) {
-      // Couldn't read the store. Don't mark restored: persisting now would
-      // overwrite last session's records. Allow a later load() to retry.
-      _loaded = false;
-      return;
+      // Couldn't read the store: persisting would overwrite last session's
+      // records, so block writes but let flush() send what's in memory.
+      _readFailed = true;
     }
     // Saved records are older than anything recorded before load() ran.
     _outbox.insertAll(0, saved);
@@ -394,7 +396,7 @@ class TelemetryService {
       _outbox.removeAt(0);
     }
     _restored = true;
-    await _persist();
+    if (!_readFailed) await _persist();
   }
 
   /// Send the whole outbox as one batch. No-op unless enabled + configured +
@@ -478,7 +480,7 @@ class TelemetryService {
   }
 
   Future<void> _persist() async {
-    if (!_restored) return; // load() persists the merged outbox itself
+    if (!_restored || _readFailed) return; // load() persists the merged outbox itself
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_kOutbox, jsonEncode(_outbox));
