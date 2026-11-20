@@ -644,6 +644,32 @@ void main() {
         DateTime(2026, 8, 5, 7, 46).millisecondsSinceEpoch,
       );
       expect(args['stages'] as List, hasLength(6));
+      expect(args.containsKey('previousWake'), isFalse);
+    });
+
+    test('replace hands yesterday\'s wake to the native cleanup', () async {
+      const channel = MethodChannel('openstrap/test_health_connect_prev_wake');
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return true;
+          });
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+      final exporter = HealthConnectSleepSessionExporter(
+        writer: MethodChannelHealthConnectSleepSessionWriter(channel: channel),
+      );
+      final wake = DateTime(2026, 8, 4, 14);
+
+      expect(
+        await exporter.replace(_overnightBundle(), previousWake: wake),
+        isTrue,
+      );
+      final args = (calls.single.arguments as Map).cast<String, Object?>();
+      expect(args['previousWake'], wake.millisecondsSinceEpoch);
     });
 
     test(
@@ -1177,7 +1203,10 @@ class _RecordingClearWriter implements HealthConnectSleepSessionWriter {
   final List<(DateTime, DateTime)> cleared;
 
   @override
-  Future<bool> replace(HealthSleepSession session) async => true;
+  Future<bool> replace(
+    HealthSleepSession session, {
+    DateTime? previousWake,
+  }) async => true;
 
   @override
   Future<bool> clear(DateTime start, DateTime end) async {
