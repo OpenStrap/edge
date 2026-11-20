@@ -143,6 +143,11 @@ private final class Impl {
 
   private let session = ASAccessorySession()
   private var activated = false
+  // Set once the session reports `.activated`; until then `session.accessories` can still
+  // be empty on a cold launch. `readyWaiters` run when it arrives.
+  private var ready = false
+  private var readyWaiters: [(Int, () -> Void)] = []
+  private var nextWaiterId = 0
   private let queue = DispatchQueue.main
   // Set while a showPicker is in flight; resolved by the completion handler.
   private var pickerResult: ((Result<String, PickerError>) -> Void)?
@@ -181,11 +186,36 @@ private final class Impl {
     }
   }
 
+  /// Runs [f] once `session.accessories` is populated (after `.activated`). A 2 s fallback
+  /// runs it anyway so a caller is never stranded if the event never comes.
+  private func whenActivated(_ f: @escaping () -> Void) {
+    ensureActivated()
+    if ready { f(); return }
+    // Each waiter gets its own 2 s timeout, so an earlier waiter's timer cannot drain a
+    // later one before its own window has passed.
+    let id = nextWaiterId
+    nextWaiterId += 1
+    readyWaiters.append((id, f))
+    queue.asyncAfter(deadline: .now() + 2) { [weak self] in
+      guard let self = self, let i = self.readyWaiters.firstIndex(where: { $0.0 == id }) else { return }
+      self.readyWaiters.remove(at: i).1()
+    }
+  }
+
+  private func runReadyWaiters() {
+    let waiters = readyWaiters
+    readyWaiters = []
+    waiters.forEach { $0.1() }
+  }
+
   private func onEvent(_ event: ASAccessoryEvent) {
     // We mostly drive ASK request/response style; the event stream is here so the
     // session stays live and so a picker-dismiss without a selection can resolve a
     // pending showPicker as "cancelled".
     switch event.eventType {
+    case .activated:
+      ready = true
+      runReadyWaiters()
     case .accessoryAdded:
       // The pick, but the sheet is still up — hold it for `.pickerDidDismiss`.
       guard awaitingAdded else { return }
@@ -497,17 +527,21 @@ private final class Impl {
     }, completion)
   }
 
-  private func remove(_ match: (ASAccessory) -> Bool,
+  private func remove(_ match: @escaping (ASAccessory) -> Bool,
                       _ completion: @escaping () -> Void) {
-    ensureActivated()
-    let accessories = session.accessories.filter(match)
-    guard !accessories.isEmpty else { completion(); return }
-    let group = DispatchGroup()
-    for acc in accessories {
-      group.enter()
-      session.removeAccessory(acc) { _ in group.leave() }
+    // A cold-launch unpair can be the first ASK call; reading `accessories` before
+    // `.activated` sees an empty list and "removes" nothing.
+    whenActivated { [weak self] in
+      guard let self = self else { completion(); return }
+      let accessories = self.session.accessories.filter(match)
+      guard !accessories.isEmpty else { completion(); return }
+      let group = DispatchGroup()
+      for acc in accessories {
+        group.enter()
+        self.session.removeAccessory(acc) { _ in group.leave() }
+      }
+      group.notify(queue: self.queue) { completion() }
     }
-    group.notify(queue: queue) { completion() }
   }
 }
 #endif
