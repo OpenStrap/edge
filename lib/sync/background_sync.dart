@@ -232,7 +232,10 @@ Future<void> prepareHeadlessLink(BleEngine engine, PairedDevice paired) async {
   // otherwise re-probe the connect route on every wake forever.
   final gen = engine.state.generation;
   if ((gen == 'gen4' || gen == 'gen5') && gen != paired.generation) {
-    await PairedDevice.save(paired.remoteId, paired.serial, generation: gen);
+    // `paired` was loaded before the connect: if the user forgot the band
+    // meanwhile, this must not pair it again.
+    await PairedDevice.save(paired.remoteId, paired.serial,
+        generation: gen, onlyIfPaired: true);
   }
   // Read the schedule + currently-armed epoch for the HighFreq window
   // check ONLY — HighFreqWakeWindow needs the window of the alarm that's
