@@ -17215,5 +17215,126 @@
   "profileHelpRow": "วิธีใช้",
   "helpLookingForSomething": "กำลังมองหาอะไรอยู่ไหม?",
   "helpAllGuides": "คู่มือทั้งหมด",
-  "helpTopicEmpty": "ยังไม่มีคู่มือสำหรับแท็บนี้"
+  "helpTopicEmpty": "ยังไม่มีคู่มือสำหรับแท็บนี้",
+  "settingsGroupWrite": "เขียน",
+  "settingsGroupPermissions": "สิทธิ์",
+  "settingsGroupManage": "จัดการ",
+  "settingsHealthSyncPermsOk": "ได้รับสิทธิ์ทั้งหมด {count} รายการใน {store} แล้ว",
+  "@settingsHealthSyncPermsOk": {
+    "description": "Health-store settings row subtitle when every requested permission is granted",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthSyncPermsDenied": "ปฏิเสธ {denied} จาก {total} สิทธิ์ใน {store} — แตะเพื่อตรวจสอบ",
+  "@settingsHealthSyncPermsDenied": {
+    "description": "Health-store settings row subtitle when some permissions are denied",
+    "placeholders": {
+      "denied": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthRequestPermsTitle": "ขอสิทธิ์",
+  "settingsHealthRequestPermsSub": "ขอ {store} สำหรับประเภทที่ยังไม่ได้ตัดสินใจ — แผ่นจะเด้งเฉพาะที่ยังไม่ตัดสิน; สำหรับตัวเลือกที่มีอยู่แล้ว: การตั้งค่า → สุขภาพ → การเข้าถึงข้อมูลและอุปกรณ์",
+  "@settingsHealthRequestPermsSub": {
+    "description": "Subtitle of the row that re-opens the platform grant sheet",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthOpenSystemTitle": "เปิดแอปสุขภาพ",
+  "settingsHealthOpenSystemSub": "เปลี่ยนตัวเลือกที่มีอยู่ของ {store} ได้ที่ การตั้งค่า iOS → สุขภาพ → การเข้าถึงข้อมูลและอุปกรณ์ → แอปนี้",
+  "@settingsHealthOpenSystemSub": {
+    "description": "Subtitle of the row that opens the OS settings app",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthFootnote": "{store} แจ้งสถานะการเขียนของข้อมูลแต่ละประเภท สถานะจะถูกอ่านใหม่ทุกครั้งที่เปิดแอป การเปลี่ยนแปลงในการตั้งค่าระบบจะปรากฏที่นั่น",
+  "@settingsHealthFootnote": {
+    "description": "Footnote on the health-store screen explaining the status read and re-check",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthManageStoreRowTitle": "จัดการใน {store}",
+  "@settingsHealthManageStoreRowTitle": {
+    "description": "Row that opens the platform store's own permission screen (Android)",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthManageStoreRowSub": "สิทธิ์จะได้รับเป็นรายแอปในแอป {store}",
+  "@settingsHealthManageStoreRowSub": {
+    "description": "Subtitle of the row that opens the platform store's own permission screen",
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "healthPermAuthorized": "อนุญาต",
+  "healthPermDenied": "ปฏิเสธ",
+  "healthPermNotDetermined": "ยังไม่ได้ถาม",
+  "healthPermUnknown": "ไม่ทราบ",
+  "healthTypeSleep": "การนอนหลับ",
+  "healthTypeRestingHr": "อัตราการเต้นหัวใจขณะพัก",
+  "healthTypeHrv": "HRV",
+  "healthTypeRespRate": "อัตราการหายใจ",
+  "healthTypeHeartRate": "อัตราการเต้นของหัวใจ",
+  "healthTypeActiveEnergy": "พลังงานที่ใช้ไป",
+  "healthTypeBasalEnergy": "พลังงานพื้นฐาน",
+  "healthTypeSteps": "ก้าว",
+  "healthTypeWorkout": "การออกกำลังกาย",
+  "healthTypeWeight": "น้ำหนัก",
+  "settingsHealthSyncPermsPartial": "ได้รับ {granted} จาก {total} สิทธิ์ใน {store} — บางรายการยังไม่ได้ตัดสินใจ",
+  "@settingsHealthSyncPermsPartial": {
+    "description": "Health-store settings row subtitle when only some permissions are granted and none denied",
+    "placeholders": {
+      "granted": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthSyncPermsUnknown": "อ่านสถานะสิทธิ์จาก {store} ไม่ได้ — {unknown} ใน {total} รายการไม่ทราบ",
+  "@settingsHealthSyncPermsUnknown": {
+    "description": "Health-store settings row subtitle when the permission status could not be read at all",
+    "placeholders": {
+      "unknown": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  }
 }

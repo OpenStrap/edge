@@ -118,6 +118,7 @@ import '../notify/notification_prefs.dart';
 import '../gestures/gesture_settings.dart';
 import '../health/auto_workout_import.dart';
 import '../health/health_export.dart';
+import '../health/health_permission_status.dart';
 import '../health/phone_pedometer.dart';
 import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
@@ -834,6 +835,11 @@ class AppState extends ChangeNotifier {
       HealthExportSingleFlight();
   HealthLinkState healthState = HealthLinkState.unknown;
   bool healthSyncEnabled = false;
+  /// Per-type WRITE authorization last read from the platform health store,
+  /// keyed by [HealthPermType.key]. RAM-only on purpose: the store's answer is
+  /// volatile (the user can flip it in OS Settings at any time), so it is
+  /// re-read on every foreground resume instead of persisted.
+  Map<String, HealthWriteAuth> healthPermissions = {};
   // Shared with `HealthExporter.exportWorkoutId`, which has to honour this
   // switch from callers that never see this class.
   static const String _kHealthSync = kHealthSyncPref;
@@ -883,9 +889,25 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The authorization scope in the order the settings screen lists it.
+  List<HealthPermType> get healthPermTypes =>
+      healthPermTypesFor(_healthExport.requestedHealthTypes);
+
+  /// Re-read per-type WRITE authorization WITHOUT prompting (resume-safe).
+  /// Never throws; an unreadable store leaves every key at `unknown`.
+  Future<void> refreshHealthPermissions() async {
+    try {
+      healthPermissions = await _healthExport.permissionStatuses();
+    } catch (e) {
+      _log('[health] permission status read: $e');
+    }
+    notifyListeners();
+  }
+
   /// Prompt for write access (user gesture). On grant + enabled, kick a sync.
   Future<void> requestHealth() async {
     healthState = await _healthExport.request();
+    unawaited(refreshHealthPermissions());
     notifyListeners();
     if (healthState == HealthLinkState.ready && healthSyncEnabled) {
       unawaited(healthSyncNow());
@@ -909,7 +931,11 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     if (on) {
       await requestHealth();
-      if (healthState == HealthLinkState.ready) unawaited(healthSyncNow());
+      // A second tap may have switched it off again while the authorization
+      // request was in flight — recheck before kicking the first sync.
+      if (healthState == HealthLinkState.ready && healthSyncEnabled) {
+        unawaited(healthSyncNow());
+      }
     }
   }
 

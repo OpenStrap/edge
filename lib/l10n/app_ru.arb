@@ -9007,5 +9007,117 @@
   },
   "helpLookingForSomething": "Что-то ищете?",
   "helpAllGuides": "Все руководства",
-  "helpTopicEmpty": "Для этой вкладки пока нет руководств."
+  "helpTopicEmpty": "Для этой вкладки пока нет руководств.",
+  "settingsGroupWrite": "Запись",
+  "settingsGroupPermissions": "Разрешения",
+  "settingsGroupManage": "Управление",
+  "settingsHealthSyncPermsOk": "Все {count} разрешений предоставлены в {store}",
+  "@settingsHealthSyncPermsOk": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthSyncPermsDenied": "Отклонено {denied} из {total} разрешений в {store} — нажмите, чтобы проверить",
+  "@settingsHealthSyncPermsDenied": {
+    "placeholders": {
+      "denied": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthRequestPermsTitle": "Запросить разрешения",
+  "settingsHealthRequestPermsSub": "Запрашивает в {store} ещё не решённые типы — лист показывается только для них; изменить существующий выбор: «Настройки» → «Здоровье» → «Доступ к данным и устройствам»",
+  "@settingsHealthRequestPermsSub": {
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthOpenSystemTitle": "Открыть приложение «Здоровье»",
+  "settingsHealthOpenSystemSub": "Существующие выборы для {store} меняются в Настройки iOS → Здоровье → Доступ к данным и устройствам → это приложение",
+  "@settingsHealthOpenSystemSub": {
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthFootnote": "{store} сообщает статус записи каждого типа данных. Статус перечитывается при каждом открытии приложения; изменения в системных настройках видны там.",
+  "@settingsHealthFootnote": {
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthManageStoreRowTitle": "Управление в {store}",
+  "@settingsHealthManageStoreRowTitle": {
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthManageStoreRowSub": "Разрешения выдаются каждому приложению в приложении {store}",
+  "@settingsHealthManageStoreRowSub": {
+    "placeholders": {
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "healthPermAuthorized": "Разрешено",
+  "healthPermDenied": "Отклонено",
+  "healthPermNotDetermined": "Не запрошено",
+  "healthPermUnknown": "Неизвестно",
+  "healthTypeSleep": "Сон",
+  "healthTypeRestingHr": "Пульс в покое",
+  "healthTypeHrv": "ВСР",
+  "healthTypeRespRate": "Частота дыхания",
+  "healthTypeHeartRate": "Пульс",
+  "healthTypeActiveEnergy": "Активная энергия",
+  "healthTypeBasalEnergy": "Базальный обмен",
+  "healthTypeSteps": "Шаги",
+  "healthTypeWorkout": "Тренировки",
+  "healthTypeWeight": "Вес",
+  "settingsHealthSyncPermsPartial": "{granted} из {total} разрешений предоставлено в {store} — некоторые ещё не решены",
+  "@settingsHealthSyncPermsPartial": {
+    "placeholders": {
+      "granted": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsHealthSyncPermsUnknown": "Не удалось прочитать статус разрешений из {store} — {unknown} из {total} типов неизвестны",
+  "@settingsHealthSyncPermsUnknown": {
+    "placeholders": {
+      "unknown": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "store": {
+        "type": "String"
+      }
+    }
+  }
 }

@@ -210,6 +210,11 @@ const _notComponents = {
   'NotificationSettings', 'NotificationSettingsView', 'EditProfile',
   'EditProfileView', 'DataScreen', 'AlarmScreen', 'AlarmScreenView',
   'ReportIssueScreen',
+  // The Apple Health / Health Connect sub-screen: a Scaffold route over
+  // AppState whose manage rows open the OS health-store grant sheet and the
+  // system settings on tap — a gallery case would fire a real HealthKit
+  // prompt from a screenshot sweep.
+  'HealthStoreScreen',
   // Developer-only route: drives a live image transfer to the strap, so a
   // gallery case would start one.
   'FirmwareFlashScreen',

@@ -23,8 +23,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../compute/profile.dart'
     show plausibleAgeYears, plausibleHeightCm, plausibleWeightKg;
 import '../../data/off_lookup.dart';
-import '../../health/health_export.dart' show HealthLinkState;
+import '../../health/health_export.dart' show HealthExporter, HealthLinkState;
 import '../../health/health_import_state.dart';
+import '../../health/health_permission_status.dart'
+    show HealthPermissionSummary, HealthWriteAuth;
 import '../../health/health_profile_import.dart';
 import '../../l10n/app_localizations.dart';
 import '../../platform/tasker_bridge.dart';
@@ -43,6 +45,7 @@ import 'band_notifications.dart';
 import 'data.dart';
 import 'gallery.dart';
 import 'gestures.dart';
+import 'health_store.dart';
 import 'profile.dart';
 import 'report_issue.dart';
 import 'wearable_numbers.dart' show WearableDisplay, wearableSettingsGroup;
@@ -259,7 +262,7 @@ class _MoreSettingsState extends State<MoreSettings>
       onToggleTelemetry: () => app.setTelemetryConsent(!app.telemetryConsent),
       onToggleBarcodeLookup: () => _toggleBarcode(c),
       onToggleHealthShare: () => _toggleHealthShare(c, app),
-      onToggleHealthSync: () => _toggleHealthSync(app),
+      healthPermissions: app.healthPermissions,
       onToggleUpdateChecks: () =>
           app.setUpdateChecksEnabled(!app.updateChecksEnabled),
       onToggleZoneAlert: () =>
@@ -364,15 +367,16 @@ class _IconChoice extends StatelessWidget {
 /// Turn the Apple Health / Health Connect EXPORT on or off.
 ///
 /// `setHealthSync` already requests the OS permission and kicks a first sync;
-/// this row is the only thing that was ever missing. Until it existed the app
-/// shipped a write entitlement, a usage string and ten Android WRITE_*
-/// permissions for a code path that could not run — see
-/// docs/internal/UNREACHABLE.md P1.
+/// the settings row used to be the only thing that was ever missing. Until it
+/// existed the app shipped a write entitlement, a usage string and ten Android
+/// WRITE_* permissions for a code path that could not run — see
+/// docs/internal/UNREACHABLE.md P1. The switch itself now lives on the
+/// [HealthStoreScreen]; this is the shared toggle behind it.
 ///
 /// Health Connect has two failure modes that are not refusals and must not be
 /// reported as one: it may not be installed, or it may be too old. Both are
 /// answered with the action that fixes them rather than an error.
-Future<void> _toggleHealthSync(AppState app) async {
+Future<void> toggleHealthSync(AppState app) async {
   if (app.healthSyncEnabled) {
     await app.setHealthSync(false);
     return;
@@ -417,6 +421,42 @@ String healthSyncSub(
     HealthLinkState.unknown =>
       l?.settingsHealthSyncChecking(store) ?? 'Checking $store…',
   };
+}
+
+/// The Data-group row's sub-line. Off-state as before; when the write is ON,
+/// the per-type permission read decides — a grant revoked in OS Settings
+/// shows here immediately (re-read on every foreground resume), instead of
+/// only surfacing as a silently skipped export.
+String healthStoreSub(BuildContext c, bool on, HealthLinkState state,
+    String store, Map<String, HealthWriteAuth> perms) {
+  final l = AppLocalizations.of(c);
+  if (!on) {
+    return l?.settingsHealthSyncOff(store) ?? 'Off. Nothing is written to $store';
+  }
+  final s = HealthPermissionSummary(perms);
+  if (s.anyDenied) {
+    return l?.settingsHealthSyncPermsDenied(s.denied, s.total, store) ??
+        '${s.denied} of ${s.total} permissions denied in $store — tap to review';
+  }
+  if (s.allAuthorized) {
+    return l?.settingsHealthSyncPermsOk(s.total, store) ??
+        'All ${s.total} permissions granted in $store';
+  }
+  // Permission counts are only meaningful on Apple, where the status read is
+  // native. On Android the read is all-unknown by design, so fall through to
+  // the availability copy (notInstalled / needsUpdate / ready) instead of
+  // printing misleading counts.
+  if (HealthExporter.isApple && s.total > 0) {
+    // Unreadable is NOT "not decided": unknown means the store did not answer.
+    if (s.unknown > 0) {
+      return l?.settingsHealthSyncPermsUnknown(s.unknown, s.total, store) ??
+          'Permission status could not be read from $store — ${s.unknown} of ${s.total} types unknown';
+    }
+    // Only notDetermined remains here — "not decided yet" is accurate for it.
+    return l?.settingsHealthSyncPermsPartial(s.authorized, s.total, store) ??
+        '${s.authorized} of ${s.total} permissions granted in $store — some not decided yet';
+  }
+  return healthSyncSub(c, on, state, store);
 }
 
 /// Grant or withdraw the whole-database health contribution.
@@ -612,6 +652,10 @@ class MoreSettingsView extends StatelessWidget {
   final bool healthSync;
   final HealthLinkState healthState;
   final String healthStore;
+  /// Per-type WRITE authorization from the last read, keyed by
+  /// [HealthPermType.key] — only summarized on the row, listed on the
+  /// sub-screen.
+  final Map<String, HealthWriteAuth> healthPermissions;
 
   /// The update-check row appears only on a build that can check.
   final bool showUpdateChecks, updateChecks;
@@ -645,7 +689,6 @@ class MoreSettingsView extends StatelessWidget {
       onToggleBarcodeLookup,
       onToggleCycleTracking,
       onToggleHealthShare,
-      onToggleHealthSync,
       onToggleUpdateChecks,
       onToggleZoneAlert,
       onCycleZoneAlertZone,
@@ -667,6 +710,7 @@ class MoreSettingsView extends StatelessWidget {
     this.healthSync = false,
     this.healthState = HealthLinkState.unknown,
     this.healthStore = 'Apple Health',
+    this.healthPermissions = const {},
     this.telemetry = false,
     this.barcodeLookup = true,
     this.cycleTracking = false,
@@ -697,7 +741,6 @@ class MoreSettingsView extends StatelessWidget {
     this.onToggleBarcodeLookup,
     this.onToggleCycleTracking,
     this.onToggleHealthShare,
-    this.onToggleHealthSync,
     this.onToggleUpdateChecks,
     this.onToggleZoneAlert,
     this.onCycleZoneAlertZone,
@@ -847,12 +890,16 @@ class MoreSettingsView extends StatelessWidget {
                   // was already written and simply had no way to be switched
                   // on, so the write entitlement and usage strings described a
                   // path that could not run.
-                  SetRow(LucideIcons.heartPulse, C.red,
-                      l?.settingsWriteToHealthStoreRowTitle(healthStore) ??
-                          'Write to $healthStore',
-                      sub: healthSyncSub(c, healthSync, healthState, healthStore),
+                  // Named after the store itself, and it OPENS the
+                  // sub-screen (on/off switch + per-type permission list)
+                  // rather than toggling in place: a revoked Apple Health
+                  // grant must be visible and fixable, not discovered on the
+                  // next silently skipped write.
+                  SetRow(LucideIcons.heartPulse, C.red, healthStore,
+                      sub: healthStoreSub(c, healthSync, healthState, healthStore,
+                          healthPermissions),
                       value: healthSync ? on : off,
-                      onTap: onToggleHealthSync),
+                      onTap: () => goto(c, const HealthStoreScreen())),
                   SetRow(LucideIcons.footprints, C.teal,
                       l?.settingsStepsRowTitle ?? 'Steps',
                       sub: l?.settingsStepsRowSub ??
