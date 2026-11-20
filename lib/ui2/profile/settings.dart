@@ -196,6 +196,7 @@ class _MoreSettingsState extends State<MoreSettings>
     final units = c.watch<UnitsController>();
     final theme = c.watch<ThemeController>();
     final clock = c.watch<ClockFormatController>();
+    final l = AppLocalizations.of(c);
     return MoreSettingsView(
       version: _version,
       devMode: _dev,
@@ -203,7 +204,11 @@ class _MoreSettingsState extends State<MoreSettings>
       onToggleDev: () => _setDev(false),
       onGallery: () => goto(c, const GalleryScreen()),
       units: units.system.label,
-      appearance: theme.choice.label,
+      appearance: switch (theme.choice) {
+        AppThemeChoice.system => l?.settingsAppearanceSystem ?? theme.choice.label,
+        AppThemeChoice.light => l?.settingsAppearanceLight ?? theme.choice.label,
+        AppThemeChoice.dark => l?.settingsAppearanceDark ?? theme.choice.label,
+      },
       clockFormat: clock.format,
       cycleTracking: app.cycleTrackingEnabled,
       zoneAlertEnabled: app.zoneAlertEnabled,

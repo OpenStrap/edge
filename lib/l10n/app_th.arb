@@ -11627,6 +11627,18 @@
   "@settingsClockFormat12h": {
     "description": "Clock format value: 12-hour clock with AM/PM (e.g. 7:30 PM)"
   },
+  "settingsAppearanceSystem": "ตามระบบ",
+  "@settingsAppearanceSystem": {
+    "description": "Appearance value: follow the operating system light/dark setting"
+  },
+  "settingsAppearanceLight": "สว่าง",
+  "@settingsAppearanceLight": {
+    "description": "Appearance value: light theme"
+  },
+  "settingsAppearanceDark": "มืด",
+  "@settingsAppearanceDark": {
+    "description": "Appearance value: dark theme"
+  },
   "settingsCycleTrackingRowTitle": "ติดตามรอบเดือน",
   "@settingsCycleTrackingRowTitle": {
     "description": "Settings row title toggling cycle tracking"
