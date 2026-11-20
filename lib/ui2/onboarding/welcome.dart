@@ -313,7 +313,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     });
     try {
       final outcome = await runImport(app, paths,
-          askPassphrase: () => askBackupPassphrase(context),
+          askPassphrase: () =>
+              mounted ? askBackupPassphrase(context) : Future.value(null),
           l: l);
       if (!mounted) return;
       final hold = await settleOnboardImport(app, outcome);
@@ -392,6 +393,11 @@ Future<ImportOutcome> runImport(
   String? cryptoError;
 
   final plain = <String>[];
+  // Any throw out of this loop jumps past the try/finally below, which has not
+  // been entered yet. The picker is multi-select, so an EARLIER encrypted file
+  // may already be sitting in the temp directory as the whole health record in
+  // plaintext: cancelling the second prompt, or the prompt throwing because
+  // the screen that asked was closed mid-decrypt, used to leave it on disk.
   try {
     for (final p in paths) {
       if (!await isEncryptedBackup(p)) {
@@ -863,8 +869,11 @@ class ImportReport extends StatelessWidget {
         // Every row refused is its own answer to "why is it empty?", and it
         // has to survive the empty case or the validation is invisible.
         o.rejectedRows.isNotEmpty
-            ? (l?.welcomeEveryRowRefused(_rejects(o, l)) ??
-                'Every row was refused: ${_rejects(o, l)}')
+            ? [
+                l?.welcomeEveryRowRefused(_rejects(o, l)) ??
+                    'Every row was refused: ${_rejects(o, l)}',
+                if (o.readError != null) o.readError!,
+              ].join('\n')
             : o.readError ??
                 (l?.welcomeNothingUsableInFile ??
                     'The file was read but there was nothing in it this app could '

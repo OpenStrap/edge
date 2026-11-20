@@ -3562,7 +3562,11 @@ class LocalDb {
       'UPDATE device SET '
       '${blankAdapter ? 'adapter_id = NULL, ' : 'adapter_id = COALESCE(?, adapter_id), '}'
       'remote_id = COALESCE(?, remote_id), label = COALESCE(?, label), '
-      'tier = COALESCE(?, tier), last_seen = ? WHERE id = ?',
+      'tier = COALESCE(?, tier), '
+      // A re-pair or relabel of a paired sensor is not a sync: only
+      // markDeviceSynced moves its last_seen, so "recent data" stays honest.
+      'last_seen = CASE WHEN id = \'$kPrimaryDeviceId\' THEN ? ELSE last_seen END '
+      'WHERE id = ?',
       [
         if (!blankAdapter) adapterId,
         remoteId,
@@ -10524,7 +10528,11 @@ class LocalDb {
     // The limit MUST follow skipped: a newer skip must neither consume a slot
     // nor fall back to an older non-skipped version of the same day.
     return db.rawQuery(
-      'SELECT r.day_id AS day_id, r.window_json AS window_json '
+      'SELECT r.day_id AS day_id, r.window_json AS window_json, '
+      // Legacy v9 rows keep window_json = '{}' and carry the offset in the
+      // payload; ship the payload only for those.
+      "CASE WHEN r.window_json LIKE '%offset_ms%' THEN NULL "
+      'ELSE r.payload_json END AS payload_json '
       'FROM ($_servedVersions ORDER BY day_id DESC) m '
       'CROSS JOIN day_result r $_servedOn '
       'WHERE r.skipped = 0 '
@@ -14075,14 +14083,18 @@ class LocalDb {
     String key, {
     int? limit,
     bool measuredOnly = false,
+    String? from,
     DatabaseExecutor? executor,
   }) async {
     final db = executor ?? await instance;
+    // `from` bounds the scan before the per-row imported mask runs: a 7-day
+    // reader should not pay one payload LIKE per stored day.
     return db.query(
       'metric_series',
-      where: 'key = ? AND value IS NOT NULL${_validSql(key)}'
+      where: 'key = ? AND value IS NOT NULL'
+          '${from != null ? ' AND date >= ?' : ''}${_validSql(key)}'
           '${measuredOnly ? ' AND $notImportedRowSql' : ''}',
-      whereArgs: [key],
+      whereArgs: [key, ?from],
       orderBy: 'date ASC',
       limit: limit,
     );
@@ -14115,15 +14127,17 @@ class LocalDb {
     int n, {
     bool measuredOnly = true,
     String? before,
+    String? since,
   }) async {
     final db = await instance;
     final rows = await db.rawQuery(
       'SELECT value FROM metric_series '
       'WHERE key = ? AND value IS NOT NULL '
       '${before != null ? 'AND date < ? ' : ''}'
+      '${since != null ? 'AND date >= ? ' : ''}'
       '${measuredOnly ? 'AND $notImportedRowSql ' : ''}'
       'ORDER BY date DESC LIMIT ?',
-      [key, ?before, n],
+      [key, ?before, ?since, n],
     );
     return [for (final r in rows.reversed) (r['value'] as num).toDouble()];
   }
@@ -15456,6 +15470,34 @@ class LocalDb {
       }
     });
   }
+
+  /// End a LIVE session at [endTs]. A targeted update, not `putSession`: a
+  /// finished row is left alone (re-ending it would stretch its window to now)
+  /// and a score written since the caller's read is not reverted. Returns the
+  /// number of rows changed.
+  static Future<int> endLiveSession(String id, int endTs) async {
+    final db = await instance;
+    return db.transaction((tx) async {
+      final rows = await tx.query('sessions',
+          columns: ['start_ts'],
+          where: "id = ? AND status = 'live'",
+          whereArgs: [id]);
+      if (rows.isEmpty) return 0;
+      await tx.update('sessions', {'status': 'done', 'end_ts': endTs},
+          where: 'id = ?', whereArgs: [id]);
+      final start = (rows.first['start_ts'] as num?)?.toInt();
+      if (start != null) {
+        await ActivityStore.supersede(tx, ActivityKind.workout, start, endTs);
+      }
+      return 1;
+    });
+  }
+
+  /// id/start/end of every session ever logged, and nothing else: the overlap
+  /// check needs the whole history but none of the score or trace columns.
+  static Future<List<Map<String, dynamic>>> sessionSpans() async =>
+      (await instance)
+          .query('sessions', columns: ['id', 'start_ts', 'end_ts']);
 
   /// Move a session's window. Not `putSession`: the row's type correction,
   /// RPE and private flag must survive. What was measured over the OLD window

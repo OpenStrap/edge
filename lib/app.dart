@@ -753,7 +753,7 @@ class _LiveSessionBar extends StatelessWidget {
     final history = await loadSetHistory();
     await nav.push(MaterialPageRoute<void>(
       builder: (_) => liveFor(a,
-          private: draft?.private ?? false,
+          private: draft?.private,
           weightKg: draft?.weightKg,
           host: activityHost(app, history: history)),
     ));

@@ -554,6 +554,12 @@ Future<void> disconnectHeadless(
   }
 }
 
+/// Stale-sync notification body. Shared with the l10n test so a wording
+/// change here is caught if the translation matcher stops recognising it.
+String staleSyncBody(int hours) =>
+    'No new data for about $hours hours. Open OpenStrap to '
+    'reconnect — background sync may have stalled.';
+
 /// [allowPermissionPrompt] defaults to `false` because this function's
 /// PRIMARY callers (below, inside [runHeadlessSync]) run headless — see
 /// NotificationCenter.emit's doc on why a background context must never
@@ -590,8 +596,7 @@ Future<void> checkSyncStaleness({bool allowPermissionPrompt = false}) async {
         // event was actually presented.
         priority: NotifPriority.normal,
         title: "Your band hasn't synced in a while",
-        body: 'No new data for about $hoursStale hours. Open OpenStrap to '
-            'reconnect — background sync may have stalled.',
+        body: staleSyncBody(hoursStale),
         date: now.toIso8601String().substring(0, 10),
         // Home: its day card carries the synced-through line and the sync
         // button this body points at. Profile shows neither.

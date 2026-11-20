@@ -358,6 +358,8 @@ void main() {
       expect(LocalRepositoryImpl.intensityShape(300, 60, 40), 'pyramidal');
       expect(LocalRepositoryImpl.intensityShape(300, 20, 80), 'polarised');
       expect(LocalRepositoryImpl.intensityShape(50, 200, 30), 'middle-heavy');
+      // Hard-led is not "middle-heavy": no middle minutes at all here.
+      expect(LocalRepositoryImpl.intensityShape(100, 0, 200), isNull);
       expect(LocalRepositoryImpl.intensityShape(0, 0, 0), isNull);
     });
   });

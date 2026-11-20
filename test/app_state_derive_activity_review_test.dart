@@ -71,6 +71,18 @@ void main() {
       });
     });
 
+    test('a persistent throw bumps once, not once per retry', () {
+      fakeAsync((fa) {
+        final m = make(fa, fallback: false, answers: List.filled(12, Exception('x')));
+        final log = SignalLog(m.app);
+        unawaited(m.app.refreshActivityReviews());
+        fa.flushMicrotasks();
+        fa.elapse(const Duration(minutes: 10));
+        expect(log.events, ['r', 'r']);
+        m.app.dispose();
+      });
+    });
+
     test('an attempt flagged as a retry skips the opening bump', () {
       fakeAsync((fa) {
         final m = make(fa, fallback: true);

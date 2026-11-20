@@ -118,12 +118,13 @@ class JournalAiEngine {
       throw CoachException('Add your AI key to use the journal chat.');
     }
     _history.add({'role': 'user', 'content': userText});
+    // Keep the last ~16 turns — a pre-sleep log, not a saga. The window must
+    // open on a user turn (some providers reject an assistant-first chat).
+    var start = _history.length <= 16 ? 0 : _history.length - 16;
+    if (_history[start]['role'] != 'user') start++;
     final messages = <Map<String, dynamic>>[
       {'role': 'system', 'content': journalAiSystemPrompt()},
-      // Keep the last 16 turns — a pre-sleep log, not a saga.
-      ..._history.length <= 16
-          ? _history
-          : _history.sublist(_history.length - 16),
+      ..._history.sublist(start),
     ];
     final String raw;
     try {

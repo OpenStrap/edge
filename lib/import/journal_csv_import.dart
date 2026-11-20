@@ -122,7 +122,9 @@ List<List<String>> parseCsv(String text) {
       case ',':
         endField();
       case '\r':
-        break; // CRLF and lone CR both end the record on the \n / next pass
+        // CRLF and lone CR (legacy Mac CSV) both end the record.
+        if (i + 1 < text.length && text[i + 1] == '\n') i++;
+        endRecord();
       case '\n':
         endRecord();
       default:
