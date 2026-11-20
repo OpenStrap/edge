@@ -3562,7 +3562,11 @@ class LocalDb {
       'UPDATE device SET '
       '${blankAdapter ? 'adapter_id = NULL, ' : 'adapter_id = COALESCE(?, adapter_id), '}'
       'remote_id = COALESCE(?, remote_id), label = COALESCE(?, label), '
-      'tier = COALESCE(?, tier), last_seen = ? WHERE id = ?',
+      'tier = COALESCE(?, tier), '
+      // A re-pair or relabel of a paired sensor is not a sync: only
+      // markDeviceSynced moves its last_seen, so "recent data" stays honest.
+      'last_seen = CASE WHEN id = \'$kPrimaryDeviceId\' THEN ? ELSE last_seen END '
+      'WHERE id = ?',
       [
         if (!blankAdapter) adapterId,
         remoteId,
