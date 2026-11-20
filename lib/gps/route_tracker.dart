@@ -130,6 +130,8 @@ class RouteTracker {
   int _seq = 0;
   RoutePoint? _last;
   int _rejectStreak = 0;
+  // Consecutive accepted fixes whose platform speed read exactly 0.0.
+  int _zeroSpeedRun = 0;
   int _movingMs = 0;
   bool _stopped = false;
   DateTime _lastFixAt = clock.now();
@@ -227,7 +229,11 @@ class RouteTracker {
     // point" — don't let a big time/distance gap produce a bogus spike.
     // Some Android devices report 0.0 instead of null while moving, so a
     // zero platform speed also falls back to the fix-to-fix derivation.
-    final platformSpeed = (s.speed ?? 0) > 0 ? s.speed : null;
+    // A lone 0.0 is a real standstill (jitter can clear minMovementM), so only
+    // a run of accepted zero-speed fixes counts as "device reports 0 while moving".
+    _zeroSpeedRun = s.speed == 0 ? _zeroSpeedRun + 1 : 0;
+    final platformSpeed =
+        s.speed == null || (s.speed == 0 && _zeroSpeedRun > 2) ? null : s.speed;
     final rawSpeed = platformSpeed ?? (gapBefore ? null : rmath.fallbackSpeedMps(prev, RoutePoint(
       seq: _seq, tsMs: s.tsMs, lat: s.lat, lng: s.lng,
     )));

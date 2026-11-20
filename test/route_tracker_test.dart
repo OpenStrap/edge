@@ -384,6 +384,19 @@ void main() {
     await ctrl.close();
   });
 
+  test('a lone platform speed of 0.0 stays a standstill', () async {
+    final ctrl = StreamController<GpsSample>();
+    final t = RouteTracker(sink: (_) async {}, batchSize: 100);
+    t.start(ctrl.stream);
+    ctrl.add(_fix(0, speed: 3.0));
+    ctrl.add(_fix(1, speed: 0.0)); // 20 m jump, but a single zero
+    await pumpEventQueue();
+    expect(t.currentSpeedMps.value!, lessThan(3.0));
+
+    await t.stop();
+    await ctrl.close();
+  });
+
   test('currentSpeedMps smooths the platform-reported speed', () async {
     final ctrl = StreamController<GpsSample>();
     final t = RouteTracker(sink: (_) async {}, batchSize: 100);
