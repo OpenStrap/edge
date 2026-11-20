@@ -209,21 +209,41 @@ Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
   final pending = <String, int>{};
   var forced = 0;
   for (final day in days) {
-    if ((versions[day] ?? 0) >= kAlgoVersion) continue;
+    final current = (versions[day] ?? 0) >= kAlgoVersion;
+    Map<String, dynamic>? row;
+    Map<String, dynamic>? payload;
+    if (current) {
+      // A current version alone does not mean calibrated: the strain rescale
+      // restamps an old bundle at kAlgoVersion with only strain rewritten. A
+      // bundle that publishes readiness but carries no `readiness_z` never
+      // went through the calibrated mapping. The derive will not touch it
+      // (its gate matches the version), so it is re-scored here, raw or not.
+      row = await LocalDb.dayResult(day);
+      payload = row == null ? null : _decode(row['payload_json']);
+      final scalars = payload?['scalars'];
+      if (scalars is! Map ||
+          scalars['readiness'] is! num ||
+          scalars['readiness_z'] is num) {
+        continue;
+      }
+    }
     final raw = rawDays.contains(day);
     // This day's last allowed pass: its derive has failed this long, so it
     // is re-scored from its stored inputs like a pruned day.
     final passes = (waited[day] ?? 0) + 1;
-    if (raw && passes < kReadinessBackfillMaxPasses) {
+    if (!current && raw && passes < kReadinessBackfillMaxPasses) {
       pending[day] = passes;
       continue;
     }
-    final row = await LocalDb.dayResult(day);
-    if (row == null ||
-        ((row['algo_version'] as num?)?.toInt() ?? 0) >= kAlgoVersion) {
-      continue;
+    if (!current) {
+      row = await LocalDb.dayResult(day);
+      if (row == null ||
+          ((row['algo_version'] as num?)?.toInt() ?? 0) >= kAlgoVersion) {
+        continue;
+      }
+      payload = _decode(row['payload_json']);
     }
-    final payload = _decode(row['payload_json']);
+    if (row == null) continue;
     final stored = payload == null ? null : storedReadinessZ(payload);
     if (payload == null || stored == null) continue;
     final score = rescoreStoredReadiness(payload, stored,
