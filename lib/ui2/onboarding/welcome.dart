@@ -452,9 +452,6 @@ Future<ImportOutcome> runImport(
   // failed import over history that did land.
   final fileErrors = <String>[];
   String nameOf(String p) => p.split(Platform.pathSeparator).last;
-  if (decrypted.isNotEmpty) {
-    sources.add(l?.importSourceEncryptedBackup ?? 'Encrypted backup');
-  }
   try {
     // Inside the cleanup boundary: a throw while sniffing must not leave a
     // decrypted backup in the temp directory.
@@ -480,6 +477,9 @@ Future<ImportOutcome> runImport(
       }
       if (ownDb.contains(p)) {
         final s = l?.importSourceOpenStrapBackup ?? 'OpenStrap backup';
+        if (!sources.contains(s)) sources.add(s);
+      } else {
+        final s = l?.importSourceEncryptedBackup ?? 'Encrypted backup';
         if (!sources.contains(s)) sources.add(s);
       }
       // The rows are in and the rollup rebuild threw. AppState's own note:
