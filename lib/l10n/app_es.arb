@@ -3994,5 +3994,12 @@
   },
   "helpLookingForSomething": "¿Buscas algo?",
   "helpAllGuides": "Todas las guías",
-  "helpTopicEmpty": "Todavía no hay guías para esta pestaña."
+  "helpTopicEmpty": "Todavía no hay guías para esta pestaña.",
+  "notifLookbackFlaggedBody": "Esta semana se marcó: {items}. Tienes los detalles en Salud.",
+  "notifLookbackIllness": "frecuencia cardíaca en reposo elevada ×{count}",
+  "notifLookbackAnomaly": "fisiología inusual ×{count}",
+  "notifLookbackTemp": "temperatura de la piel elevada ×{count}",
+  "notifLookbackRhrHigherBody": "Tu frecuencia cardíaca en reposo fue unos {bpm} lpm más alta al final de la semana que al principio.",
+  "notifLookbackRhrLowerBody": "Tu frecuencia cardíaca en reposo fue unos {bpm} lpm más baja al final de la semana que al principio.",
+  "notifSyncStaleBody": "No hay datos nuevos desde hace unas {hours} horas. Abre OpenStrap para reconectar: puede que la sincronización en segundo plano se haya detenido."
 }

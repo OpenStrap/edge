@@ -3991,5 +3991,12 @@
   },
   "helpLookingForSomething": "在找什么吗？",
   "helpAllGuides": "所有指南",
-  "helpTopicEmpty": "此标签页暂无指南。"
+  "helpTopicEmpty": "此标签页暂无指南。",
+  "notifLookbackFlaggedBody": "本周标记：{items}。详情见“健康”。",
+  "notifLookbackIllness": "静息心率升高 ×{count}",
+  "notifLookbackAnomaly": "生理指标异常 ×{count}",
+  "notifLookbackTemp": "皮肤温度升高 ×{count}",
+  "notifLookbackRhrHigherBody": "本周后段的静息心率比前段高约 {bpm} bpm。",
+  "notifLookbackRhrLowerBody": "本周后段的静息心率比前段低约 {bpm} bpm。",
+  "notifSyncStaleBody": "已约 {hours} 小时没有新数据。打开 OpenStrap 重新连接，后台同步可能已停止。"
 }
