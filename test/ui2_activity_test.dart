@@ -354,6 +354,14 @@ void main() {
       expect(archOf(activityByName('golf')!), Arch.basic);
     });
 
+    test('every gps activity has a summary that shows the route', () {
+      // golf used to record a route into a basic summary with no map and no
+      // gpx export, so the track was stored but never visible.
+      for (final a in allActivities.where((a) => a.gps)) {
+        expect(archOf(a), anyOf(Arch.route, Arch.journey), reason: a.name);
+      }
+    });
+
     test('every archetype has a live screen', () {
       for (final arch in Arch.values) {
         expect(liveFor(_first(arch)), isA<Widget>());
