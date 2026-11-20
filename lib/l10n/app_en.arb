@@ -1052,6 +1052,58 @@
   "@devicesBatteryPack": {
     "description": "Row title: the charge left in the external battery pack sitting on the band."
   },
+  "devicesBatteryUnderAnHourLeft": "under an hour left",
+  "@devicesBatteryUnderAnHourLeft": {
+    "description": "Band page battery/calibration row sub-line."
+  },
+  "devicesBatteryHoursLeft": "about {hours} h left",
+  "@devicesBatteryHoursLeft": {
+    "description": "Band page battery/calibration row sub-line.",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "devicesBatteryDaysLeft": "about {days} days left",
+  "@devicesBatteryDaysLeft": {
+    "description": "Band page battery/calibration row sub-line.",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "devicesChargesLogged": "{n, plural, =1{1 charge logged} other{{n} charges logged}}",
+  "@devicesChargesLogged": {
+    "description": "Band page battery/calibration row sub-line.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "devicesChargeUpToMv": "up to {mv} mV",
+  "@devicesChargeUpToMv": {
+    "description": "Band page battery/calibration row sub-line.",
+    "placeholders": {
+      "mv": {
+        "type": "int"
+      }
+    }
+  },
+  "devicesCalibrationSub": "Metrics that depend on the sensor use this band’s own constants, so two different bands can land on different tiers for the same physiology.",
+  "@devicesCalibrationSub": {
+    "description": "Band page battery/calibration row sub-line."
+  },
+  "devicesCalibrationNotStated": "Not stated yet",
+  "@devicesCalibrationNotStated": {
+    "description": "Band page battery/calibration row sub-line."
+  },
+  "devicesCalibrationNotStatedSub": "This band has not said which generation it is, and imported or older days never will. Metrics that depend on the sensor abstain rather than borrow another band’s numbers.",
+  "@devicesCalibrationNotStatedSub": {
+    "description": "Band page battery/calibration row sub-line."
+  },
   "devicesBatteryPackSub": "Reported by the band about every 10 minutes",
   "@devicesBatteryPackSub": {
     "description": "Row sub under the battery-pack charge: where the number comes from and how often it updates."
