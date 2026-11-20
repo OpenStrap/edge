@@ -434,8 +434,9 @@ void main() {
   });
 
   test('daytime rest counts only runs that end in the day, 20 min to 3 h', () {
+    var ts = 0;
     UltrahumanRecord rec(int hr, {int steps = 0}) => UltrahumanRecord(
-          tsA: 0,
+          tsA: ts += 300,
           hr: hr,
           hrv: 40,
           spo2: 97,
@@ -469,6 +470,10 @@ void main() {
     // HR above the night's median + 5 is not rest.
     expect(ringNapMin([...awake(5), ...[for (var i = 0; i < 9; i++) rec(60)],
         ...awake(5)], 54), 0);
+    // Two 10-minute rests either side of 3 h with the ring off are not a nap.
+    final before = [...awake(5), ...rest(2)];
+    ts += 3 * 3600;
+    expect(ringNapMin([...before, ...rest(3), ...awake(5)], 54), 0);
   });
 
   test("a strap worn at rest overnight on the ring's day: its HRV is ours "

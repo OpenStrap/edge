@@ -262,6 +262,9 @@ Future<Map<String, Object?>?> ultrahumanDayBlock(
 /// starts at [day]'s first record: that is a still lie-in the stager trimmed
 /// off the night's end as wake, not a nap.
 ///
+/// A hole in the records (ring off or charging, more than two cadences
+/// between records) ends a run without counting it: its end went unseen.
+///
 /// ponytail: fixed bounds on one value per 5 minutes; a nap within the hour
 /// before bed (3 h before midnight, tonight not yet staged) is not counted,
 /// and a lie-in broken by one movement counts its second part.
@@ -270,7 +273,13 @@ int ringNapMin(List<UltrahumanRecord> day, double hrMedian) {
   const minRun = 20 * 60, maxRun = 3 * 3600;
   var napSec = 0, run = 0;
   var lieIn = true;
+  int? prevTs;
   for (final r in day) {
+    if (prevTs != null && r.tsA - prevTs > 2 * c) {
+      run = 0;
+      lieIn = false;
+    }
+    prevTs = r.tsA;
     final rest = !_moving(r) &&
         ultrahumanHrQualityValid(r.hrQuality) &&
         r.hr <= hrMedian + 5;
