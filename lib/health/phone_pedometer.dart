@@ -402,10 +402,16 @@ class PhonePedometer {
       bool valid() => epoch == _epoch && !ResetGate.changedSince(resetGen);
       if (!valid()) return null; // stopped or reset mid-walk, see [stop]
       final before = await LocalDb.phoneStepsForDay(dayId);
+      final beforeWindows = await LocalDb.phoneCoverageForDay(dayId);
       final wrote = await LocalDb.replacePhoneCoverageForDay(dayId, windows,
           stillValid: valid);
       if (!wrote) return null;
-      onWritten?.call(dayId, before != total);
+      // Same total with a different hourly spread still changes derived
+      // activity, so compare the windows too.
+      final moved = before != total ||
+          beforeWindows.length != windows.length ||
+          !beforeWindows.toSet().containsAll(windows);
+      onWritten?.call(dayId, moved);
       return total;
     } catch (e) {
       debugPrint('[phone_pedometer] syncDay $dayId: $e');

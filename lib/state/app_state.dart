@@ -527,8 +527,14 @@ class AppState extends ChangeNotifier {
   /// Re-read the sensor rows. Call after pairing or forgetting one; also runs
   /// whenever a paired device's row changes (a sync, a battery report).
   Future<void> refreshSensors() async {
-    _deviceRowSub ??=
-        LocalDb.deviceRowChanged.stream.listen((_) => unawaited(refreshSensors()));
+    // A read failing after a committed priority write would leave the cache
+    // stale, so retry once.
+    _deviceRowSub ??= LocalDb.deviceRowChanged.stream.listen((_) {
+      unawaited(refreshSensors().catchError((_) async {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (!_disposed) await refreshSensors();
+      }));
+    });
     final rows = await LocalDb.deviceRows();
     _sensors = [
       for (final r in rows)
@@ -2763,6 +2769,8 @@ class AppState extends ChangeNotifier {
   // uninterrupted, for the full 2h window, and it fires from the OS wall-clock
   // even while the app is closed.
   int _lastStillnessScheduleMs = 0;
+  // Bumped on pause so a reschedule already awaiting prefs can't re-arm after.
+  int _stillnessGen = 0;
   static const int _stillnessThrottleMs = 10 * 60 * 1000;
   Future<void> _rescheduleStillnessNudge(int nowMs) async {
     // Throttle: _ingestLiveMags can call this many times a second while the
@@ -2772,6 +2780,7 @@ class AppState extends ChangeNotifier {
     // it never fires sooner than 2h after the last movement seen.
     if (nowMs - _lastStillnessScheduleMs < _stillnessThrottleMs) return;
     _lastStillnessScheduleMs = nowMs;
+    final gen = _stillnessGen;
     try {
       // Opt-in, off by default. Read here rather than cached because this runs
       // at most once every ten minutes and SharedPreferences is already in
@@ -2780,8 +2789,9 @@ class AppState extends ChangeNotifier {
       // (NotificationService.schedulableIds): a nudge with no off switch was
       // refused there, and had never once fired.
       final prefs = await NotificationPrefs.load();
-      if (!prefs.movementEnabled) return;
+      if (!prefs.movementEnabled || gen != _stillnessGen) return;
       await NotificationService.instance.cancel(NotificationService.idStillness);
+      if (gen != _stillnessGen) return;
       final at = NotificationCenter.stillnessNudgeAt(
           prefs,
           DateTime.fromMillisecondsSinceEpoch(nowMs + _stillnessThrottleMs));
@@ -3785,6 +3795,7 @@ class AppState extends ChangeNotifier {
     // could push the "time to move" one-shot back. Left armed it would claim
     // hours of stillness nobody watched. The next foreground movement re-arms.
     _lastStillnessScheduleMs = 0;
+    _stillnessGen++;
     unawaited(NotificationService.instance.cancel(NotificationService.idStillness));
     _derive.trimForBackground();
     return _sync.pauseForBackground();

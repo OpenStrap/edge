@@ -139,7 +139,11 @@ void main() {
     AndroidFlutterLocalNotificationsPlugin.registerWith();
     rig.app.initialized = true;
     await rig.app.pauseForBackground();
-    await settleMs(20);
+    for (var i = 0;
+        i < 50 && !cancelled.contains(NotificationService.idStillness);
+        i++) {
+      await settleMs(20);
+    }
     expect(cancelled, contains(NotificationService.idStillness));
     await rig.quiesce();
   }));
