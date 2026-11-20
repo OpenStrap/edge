@@ -66,6 +66,7 @@ object PhoneStepCounter : SensorEventListener2 {
     private const val KEY_LAST_MS = "last_ms"
     private const val KEY_BOOT_MS = "boot_ms"
     private const val KEY_BOOT_COUNT = "boot_count"
+    private const val KEY_ELAPSED = "elapsed_ms"
     private const val KEY_SINCE_MS = "since_ms"
     private const val KEY_GAPS = "gaps"
     private const val KEY_PRUNED_MS = "pruned_ms"
@@ -282,6 +283,7 @@ object PhoneStepCounter : SensorEventListener2 {
         val bootCount = Settings.Global.getInt(ctx.contentResolver, Settings.Global.BOOT_COUNT, -1)
         val rebooted = stepCounterRebooted(
             raw, lastRaw, bootCount, p.getInt(KEY_BOOT_COUNT, -1), bootMs, storedBoot,
+            SystemClock.elapsedRealtime(), p.getLong(KEY_ELAPSED, -1L),
         )
 
         if (lastRaw < 0f || rebooted) {
@@ -313,6 +315,7 @@ object PhoneStepCounter : SensorEventListener2 {
         ed.putLong(KEY_LAST_MS, now)
         ed.putLong(KEY_BOOT_MS, bootMs)
         ed.putInt(KEY_BOOT_COUNT, bootCount)
+        ed.putLong(KEY_ELAPSED, SystemClock.elapsedRealtime())
         ed.apply()
         prune(ctx, now)
     }
@@ -440,12 +443,15 @@ internal fun stepCounterRebooted(
     lastBootCount: Int,
     bootMs: Long,
     storedBootMs: Long,
+    elapsed: Long = -1L,
+    lastElapsed: Long = -1L,
 ): Boolean {
     if (lastRaw < 0f) return false
     if (raw < lastRaw) return true
     if (bootCount >= 0 && lastBootCount >= 0) return bootCount != lastBootCount
-    // No counter on this device: boot time alone can't tell a reboot from a clock change.
-    if (bootCount < 0) return false
+    // No counter on this device: uptime only runs backwards across a reboot, and
+    // (unlike the wall clock) a time change can't move it.
+    if (bootCount < 0) return lastElapsed >= 0 && elapsed >= 0 && elapsed < lastElapsed
     return abs(bootMs - storedBootMs) > BOOT_MATCH_SLACK_MS
 }
 
