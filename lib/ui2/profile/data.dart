@@ -435,7 +435,10 @@ class _DataScreenState extends State<DataScreen> {
     // cancelled — not a failure, say nothing
     if (paths.isEmpty) return ('', false);
     final outcome = await runImport(app, paths,
-        askPassphrase: () => askBackupPassphrase(context));
+        // Back out mid-decrypt and the next prompt has no screen to open on;
+        // treat that as a cancel rather than a dialog thrown at a dead context.
+        askPassphrase: () =>
+            mounted ? askBackupPassphrase(context) : Future.value(null));
     if (mounted) setState(() => _outcome = outcome);
     return ('', false);
   }
