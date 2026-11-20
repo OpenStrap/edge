@@ -9007,5 +9007,18 @@
   },
   "helpLookingForSomething": "Что-то ищете?",
   "helpAllGuides": "Все руководства",
-  "helpTopicEmpty": "Для этой вкладки пока нет руководств."
+  "helpTopicEmpty": "Для этой вкладки пока нет руководств.",
+  "importSourceEncryptedBackup": "Зашифрованная резервная копия",
+  "importSourceOpenStrapBackup": "Резервная копия OpenStrap",
+  "importSourceRawSensor": "Экспорт сырых данных датчика",
+  "importSourceVendorCsv": "Экспорт CSV от производителя",
+  "importSourceJournalCsv": "CSV дневника",
+  "importSourceLabCsv": "CSV результатов анализов",
+  "importSourceFilePicker": "Выбор файлов",
+  "importSourceImport": "Импорт",
+  "importSourceNothingSelected": "Ничего не выбрано",
+  "welcomeEncryptedBackupUseSettings": "Этот файл — зашифрованная резервная копия. Откройте его в разделе Настройки → Ваши данные, там можно ввести пароль.",
+  "welcomeNotUtf8": "{file}: сохранён не в UTF-8. Сохраните как «CSV UTF-8» и импортируйте снова",
+  "welcomeCorruptTables": "Не удалось прочитать {tables}: SQLite сообщает, что файл повреждён в этих таблицах. Все остальные таблицы импортированы нормально.",
+  "welcomeRejectsMore": "{shown}; и ещё {count}."
 }

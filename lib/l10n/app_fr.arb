@@ -3982,5 +3982,18 @@
   },
   "helpLookingForSomething": "Vous cherchez quelque chose ?",
   "helpAllGuides": "Tous les guides",
-  "helpTopicEmpty": "Il n’y a pas encore de guides pour cet onglet."
+  "helpTopicEmpty": "Il n’y a pas encore de guides pour cet onglet.",
+  "importSourceEncryptedBackup": "Sauvegarde chiffrée",
+  "importSourceOpenStrapBackup": "Sauvegarde OpenStrap",
+  "importSourceRawSensor": "Export brut du capteur",
+  "importSourceVendorCsv": "Export CSV du fabricant",
+  "importSourceJournalCsv": "CSV du journal",
+  "importSourceLabCsv": "CSV des résultats d’analyses",
+  "importSourceFilePicker": "Sélecteur de fichiers",
+  "importSourceImport": "Import",
+  "importSourceNothingSelected": "Rien de sélectionné",
+  "welcomeEncryptedBackupUseSettings": "Ce fichier est une sauvegarde chiffrée. Ouvrez-le depuis Réglages → Vos données, où la phrase secrète peut être demandée.",
+  "welcomeNotUtf8": "{file} : pas enregistré en UTF-8. Enregistrez-le en « CSV UTF-8 » et importez-le à nouveau",
+  "welcomeCorruptTables": "{tables} n’a pas pu être lu : SQLite signale que le fichier est corrompu pour ces tables. Toutes les autres tables ont été importées normalement.",
+  "welcomeRejectsMore": "{shown} ; et {count} de plus."
 }

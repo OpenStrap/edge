@@ -18077,5 +18077,75 @@
   "helpTopicEmpty": "There are no guides for this tab yet.",
   "@helpTopicEmpty": {
     "description": "Empty state for a tab with no guides; All guides remains available."
+  },
+  "importSourceEncryptedBackup": "Encrypted backup",
+  "@importSourceEncryptedBackup": {
+    "description": "Import report source: an encrypted backup file."
+  },
+  "importSourceOpenStrapBackup": "OpenStrap backup",
+  "@importSourceOpenStrapBackup": {
+    "description": "Import report source: an OpenStrap backup file."
+  },
+  "importSourceRawSensor": "Raw sensor export",
+  "@importSourceRawSensor": {
+    "description": "Import report source: a raw sensor data export."
+  },
+  "importSourceVendorCsv": "Vendor CSV export",
+  "@importSourceVendorCsv": {
+    "description": "Import report source: a CSV export from the device maker."
+  },
+  "importSourceJournalCsv": "Journal CSV",
+  "@importSourceJournalCsv": {
+    "description": "Import report source: our own journal CSV export."
+  },
+  "importSourceLabCsv": "Lab results CSV",
+  "@importSourceLabCsv": {
+    "description": "Import report source: our own lab results CSV export."
+  },
+  "importSourceFilePicker": "File picker",
+  "@importSourceFilePicker": {
+    "description": "Import report source when the file picker itself failed."
+  },
+  "importSourceImport": "Import",
+  "@importSourceImport": {
+    "description": "Import report source when the whole import failed."
+  },
+  "importSourceNothingSelected": "Nothing selected",
+  "@importSourceNothingSelected": {
+    "description": "Import report source when no file was used."
+  },
+  "welcomeEncryptedBackupUseSettings": "That file is an encrypted backup. Open it from Settings → Your data, where the passphrase can be asked for.",
+  "@welcomeEncryptedBackupUseSettings": {
+    "description": "An encrypted backup was picked where no passphrase can be asked."
+  },
+  "welcomeNotUtf8": "{file}: not saved as UTF-8 — save it as \"CSV UTF-8\" and import it again",
+  "@welcomeNotUtf8": {
+    "description": "A journal or lab CSV saved in another encoding.",
+    "placeholders": {
+      "file": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomeCorruptTables": "{tables} could not be read — SQLite reported the file itself as corrupted for those tables. Every other table imported normally.",
+  "@welcomeCorruptTables": {
+    "description": "Some tables in an imported backup were corrupted.",
+    "placeholders": {
+      "tables": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomeRejectsMore": "{shown}; and {count} more.",
+  "@welcomeRejectsMore": {
+    "description": "Tail of the refused-rows list: the first few, then how many more.",
+    "placeholders": {
+      "shown": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

@@ -3982,5 +3982,18 @@
   },
   "helpLookingForSomething": "कुछ ढूँढ रहे हैं?",
   "helpAllGuides": "सभी गाइड",
-  "helpTopicEmpty": "इस टैब के लिए अभी कोई गाइड नहीं है।"
+  "helpTopicEmpty": "इस टैब के लिए अभी कोई गाइड नहीं है।",
+  "importSourceEncryptedBackup": "एन्क्रिप्टेड बैकअप",
+  "importSourceOpenStrapBackup": "OpenStrap बैकअप",
+  "importSourceRawSensor": "सेंसर का कच्चा एक्सपोर्ट",
+  "importSourceVendorCsv": "निर्माता का CSV एक्सपोर्ट",
+  "importSourceJournalCsv": "जर्नल CSV",
+  "importSourceLabCsv": "लैब नतीजों की CSV",
+  "importSourceFilePicker": "फ़ाइल चुनने वाला",
+  "importSourceImport": "इम्पोर्ट",
+  "importSourceNothingSelected": "कुछ नहीं चुना गया",
+  "welcomeEncryptedBackupUseSettings": "यह फ़ाइल एक एन्क्रिप्टेड बैकअप है। इसे सेटिंग्स → आपका डेटा से खोलें, वहाँ पासफ़्रेज़ पूछा जा सकता है।",
+  "welcomeNotUtf8": "{file}: UTF-8 में सेव नहीं है। इसे \"CSV UTF-8\" के रूप में सेव करके फिर से इम्पोर्ट करें",
+  "welcomeCorruptTables": "{tables} पढ़ी नहीं जा सकीं। SQLite के अनुसार इन टेबलों के लिए फ़ाइल ही खराब है। बाकी सभी टेबल ठीक से इम्पोर्ट हुईं।",
+  "welcomeRejectsMore": "{shown}; और {count} अन्य।"
 }

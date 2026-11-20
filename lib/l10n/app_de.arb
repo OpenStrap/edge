@@ -3985,5 +3985,18 @@
   },
   "helpLookingForSomething": "Suchst du etwas?",
   "helpAllGuides": "Alle Anleitungen",
-  "helpTopicEmpty": "Für diesen Tab gibt es noch keine Anleitungen."
+  "helpTopicEmpty": "Für diesen Tab gibt es noch keine Anleitungen.",
+  "importSourceEncryptedBackup": "Verschlüsselte Sicherung",
+  "importSourceOpenStrapBackup": "OpenStrap-Sicherung",
+  "importSourceRawSensor": "Rohdaten-Export des Sensors",
+  "importSourceVendorCsv": "CSV-Export des Herstellers",
+  "importSourceJournalCsv": "Tagebuch-CSV",
+  "importSourceLabCsv": "Laborwerte-CSV",
+  "importSourceFilePicker": "Dateiauswahl",
+  "importSourceImport": "Import",
+  "importSourceNothingSelected": "Nichts ausgewählt",
+  "welcomeEncryptedBackupUseSettings": "Diese Datei ist eine verschlüsselte Sicherung. Öffne sie unter Einstellungen → Deine Daten, dort wird nach der Passphrase gefragt.",
+  "welcomeNotUtf8": "{file}: nicht als UTF-8 gespeichert. Speichere sie als „CSV UTF-8“ und importiere sie erneut",
+  "welcomeCorruptTables": "{tables} konnte nicht gelesen werden. SQLite meldet die Datei für diese Tabellen als beschädigt. Alle anderen Tabellen wurden normal importiert.",
+  "welcomeRejectsMore": "{shown}; und {count} weitere."
 }

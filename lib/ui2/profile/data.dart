@@ -435,7 +435,7 @@ class _DataScreenState extends State<DataScreen> {
     // cancelled — not a failure, say nothing
     if (paths.isEmpty) return ('', false);
     final outcome = await runImport(app, paths,
-        askPassphrase: () => askBackupPassphrase(context));
+        askPassphrase: () => askBackupPassphrase(context), l: l);
     if (mounted) setState(() => _outcome = outcome);
     return ('', false);
   }
