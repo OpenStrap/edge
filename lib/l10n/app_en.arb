@@ -11874,6 +11874,18 @@
   "@settingsClockFormat12h": {
     "description": "Clock format value: 12-hour clock with AM/PM (e.g. 7:30 PM)"
   },
+  "settingsAppearanceSystem": "System",
+  "@settingsAppearanceSystem": {
+    "description": "Appearance value: follow the operating system light/dark setting"
+  },
+  "settingsAppearanceLight": "Light",
+  "@settingsAppearanceLight": {
+    "description": "Appearance value: light theme"
+  },
+  "settingsAppearanceDark": "Dark",
+  "@settingsAppearanceDark": {
+    "description": "Appearance value: dark theme"
+  },
   "settingsCycleTrackingRowTitle": "Cycle tracking",
   "@settingsCycleTrackingRowTitle": {
     "description": "Settings row title toggling cycle tracking"
