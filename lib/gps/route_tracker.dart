@@ -227,14 +227,7 @@ class RouteTracker {
     // point" — don't let a big time/distance gap produce a bogus spike.
     // Some Android devices report 0.0 instead of null while moving, so a
     // zero platform speed also falls back to the fix-to-fix derivation.
-    // A zero platform speed with displacement inside the fix's own reported
-    // accuracy (or under twice the noise floor when accuracy is missing or
-    // tight) is stationary drift, not motion: keep it at zero.
-    final drift = prev != null &&
-        s.speed == 0 &&
-        haversineMeters(prev.lat, prev.lng, s.lat, s.lng) <=
-            math.max(s.accuracy ?? 0, 2 * minMovementM);
-    final platformSpeed = (s.speed ?? 0) > 0 ? s.speed : (drift ? 0.0 : null);
+    final platformSpeed = (s.speed ?? 0) > 0 ? s.speed : null;
     final rawSpeed = platformSpeed ?? (gapBefore ? null : rmath.fallbackSpeedMps(prev, RoutePoint(
       seq: _seq, tsMs: s.tsMs, lat: s.lat, lng: s.lng,
     )));
