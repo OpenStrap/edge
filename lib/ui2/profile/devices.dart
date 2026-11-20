@@ -970,6 +970,16 @@ DateTime? sensorRowLastData(Map<String, Object?> r) => r['last_seen'] == null
     ? null
     : DateTime.fromMillisecondsSinceEpoch((r['last_seen'] as num).toInt() * 1000);
 
+/// True when a sync landed data after pairing (pairing stamps `last_seen`
+/// equal to `first_seen`) and did so within the last week. A ring that never
+/// synced, or last synced months ago, is not measuring anything now.
+bool sensorRowHasRecentData(Map<String, Object?> r, {DateTime? now}) {
+  final seen = r['last_seen'], first = r['first_seen'];
+  if (seen is! num || (first is num && seen <= first)) return false;
+  final age = (now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000 - seen;
+  return age <= 7 * 86400;
+}
+
 /// The band's family now: what the link reports, else what was stored at
 /// pairing, else the snapshot the page was opened with.
 String? currentBandFamily(String? snapshot, {String? live, String? stored}) =>
@@ -1070,7 +1080,7 @@ List<HealthSource> liveSources(AppState app,
           connected: liveAdapterIds.contains(r['adapter_id']) ||
               (_isEveryDayAdapter(r['adapter_id'] as String?) &&
                   !app.flagOffSensorIds.contains(r['id']) &&
-                  sensorRowLastData(r) != null),
+                  sensorRowHasRecentData(r)),
           batteryPct: sensorRowBatteryPct(r),
           lastData: sensorRowLastData(r),
           isBand: false,
