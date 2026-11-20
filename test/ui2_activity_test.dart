@@ -1613,6 +1613,139 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('an interval phase is exactly its length, and a minimise '
+        'keeps the banked rounds', (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('crossfit')!;
+      LiveDraft.begin(a, workSec: 2, restSec: 1, rounds: 4);
+      await tester.pumpWidget(
+          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pump();
+      // 2 s work + 1 s rest = one round in 3 ticks, not 5.
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+
+      // Minimise: the screen goes away, the draft stays.
+      await tester.pumpWidget(const SizedBox());
+      ActivityResult? handed;
+      await tester.pumpWidget(_frame(
+          liveFor(a,
+              weightKg: 72.4,
+              host: ActivityHost(onFinish: (draft) async {
+                handed = draft;
+                return draft;
+              })),
+          Brightness.light,
+          1.0));
+      await tester.pump();
+      await tester.tap(find.bySemanticsLabel('Finish session'));
+      await tester.pumpAndSettle();
+
+      expect(handed!.rounds.length, 1);
+      expect(handed!.rounds.first.workSec, 2);
+    });
+
+    testWidgets('a failed save keeps the draft until a retry lands',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('weight_training')!;
+      LiveDraft.begin(a, weightKg: 72.4);
+      await tester.pumpWidget(_frame(
+          liveFor(a,
+              weightKg: 72.4,
+              host: ActivityHost(
+                  onFinish: (_) async => throw StateError('db locked'))),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('Finish session'));
+      await tester.pumpAndSettle();
+
+      expect(LiveDraft.current, isNotNull,
+          reason: 'the session is not in the database; the draft is all '
+              'there is');
+    });
+
+    testWidgets('private off on setup wins over a private-by-default activity',
+        (tester) async {
+      ActivityResult? handed;
+      await tester.pumpWidget(_frame(
+          liveFor(activityByName('intimacy')!,
+              private: false,
+              host: ActivityHost(onFinish: (draft) async {
+                handed = draft;
+                return draft;
+              })),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('Finish session'));
+      await tester.pumpAndSettle();
+      expect(handed!.private, isFalse);
+    });
+
+    testWidgets('a flow nobody stepped through records no poses; a sauna gets '
+        'no pose screen', (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      expect(liveFor(activityByName('sauna')!), isA<LiveMeasured>());
+      expect(liveFor(activityByName('cold_plunge')!), isA<LiveMeasured>());
+
+      ActivityResult? handed;
+      await tester.pumpWidget(_frame(
+          liveFor(activityByName('meditation')!,
+              host: ActivityHost(onFinish: (draft) async {
+                handed = draft;
+                return draft;
+              })),
+          Brightness.light,
+          1.0));
+      await tester.pump();
+      await tester.tap(find.bySemanticsLabel('Finish session'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(handed!.poses, isEmpty);
+    });
+
+    testWidgets('a set logged without touching RPE stores no RPE',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('weight_training')!;
+      LiveDraft.begin(a, weightKg: 72.4);
+      LiveDraft.current!.put('exercise_plan', ['bench_press']);
+      ActivityResult? handed;
+      await tester.pumpWidget(_frame(
+          liveFor(a,
+              weightKg: 72.4,
+              host: ActivityHost(onFinish: (draft) async {
+                handed = draft;
+                return draft;
+              })),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      await tester.tap(find.bySemanticsLabel('Finish session'));
+      await tester.pumpAndSettle();
+      expect(handed!.strength.sets.first.rpe, isNull);
+    });
+
     testWidgets(
         'interval work/rest/rounds are configurable, not the old 45/30/8',
         (tester) async {
