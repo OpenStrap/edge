@@ -6659,7 +6659,12 @@ class DerivationEngine {
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
     return _withRunLock(0, () async {
-      final days = calendarDays(sub);
+      // One date (every NoopIngest call): stage only that night, like the
+      // live path. The full walk re-staged the buffered prior evening on the
+      // UI isolate and then threw it away, so an import paid two nights per day.
+      final target = dates.length == 1 ? dates.single : null;
+      final days = calendarDays(sub,
+          targetDay: target, skipUnusedDays: target != null);
       final dataNowSec = sub.lastTs ?? 0;
       var done = 0;
       for (var i = 0; i < days.length; i++) {
