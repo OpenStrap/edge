@@ -519,7 +519,12 @@ class _DataScreenState extends State<DataScreen> {
                       sub: l?.dataHowOftenSub(folder == null ? kBackupDirName : folderLabel, kBackupsKept) ??
                           'Writes a compressed, unencrypted copy to '
                               '${folder == null ? kBackupDirName : folderLabel}, keeping the last $kBackupsKept',
-                      value: app.backupCadence.label,
+                      value: switch (app.backupCadence) {
+                        BackupCadence.off => l?.stateOff,
+                        BackupCadence.daily => l?.settingsBackupDaily,
+                        BackupCadence.weekly => l?.settingsBackupWeekly,
+                      } ??
+                          app.backupCadence.label,
                       onTap: _busy
                           ? null
                           : () => _run(() async {

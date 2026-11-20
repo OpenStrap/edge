@@ -11620,6 +11620,30 @@
   "@settingsClockFormatRowTitle": {
     "description": "Settings row title cycling the 12/24-hour clock format"
   },
+  "settingsUnitsMetric": "เมตริก",
+  "@settingsUnitsMetric": {
+    "description": "Units value: metric"
+  },
+  "settingsUnitsImperial": "อิมพีเรียล",
+  "@settingsUnitsImperial": {
+    "description": "Units value: imperial"
+  },
+  "settingsAppearanceLight": "สว่าง",
+  "@settingsAppearanceLight": {
+    "description": "Appearance value: light theme"
+  },
+  "settingsAppearanceDark": "มืด",
+  "@settingsAppearanceDark": {
+    "description": "Appearance value: dark theme"
+  },
+  "settingsBackupDaily": "ทุกวัน",
+  "@settingsBackupDaily": {
+    "description": "Automatic backup frequency: once a day"
+  },
+  "settingsBackupWeekly": "ทุกสัปดาห์",
+  "@settingsBackupWeekly": {
+    "description": "Automatic backup frequency: once a week"
+  },
   "settingsClockFormatSystem": "ตามระบบ",
   "@settingsClockFormatSystem": {
     "description": "Clock format value: follow the operating system setting"
@@ -11635,14 +11659,6 @@
   "settingsAppearanceSystem": "ตามระบบ",
   "@settingsAppearanceSystem": {
     "description": "Appearance value: follow the operating system light/dark setting"
-  },
-  "settingsAppearanceLight": "สว่าง",
-  "@settingsAppearanceLight": {
-    "description": "Appearance value: light theme"
-  },
-  "settingsAppearanceDark": "มืด",
-  "@settingsAppearanceDark": {
-    "description": "Appearance value: dark theme"
   },
   "settingsCycleTrackingRowTitle": "ติดตามรอบเดือน",
   "@settingsCycleTrackingRowTitle": {
