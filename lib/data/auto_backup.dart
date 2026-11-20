@@ -378,7 +378,11 @@ Future<BackupOutcome> _runBackup({
     // Sweep any staging files a previous run was killed midway through. They
     // are invisible to retention by design, so nothing else would ever remove
     // them.
-    await _pruneStorage(destination, keep: kBackupsKept);
+    await _pruneStorage(
+      destination,
+      keep: kBackupsKept,
+      current: published.name,
+    );
     // A document URI means nothing to a person; show the folder they chose.
     return BackupOutcome(
       path: destination is AndroidBackupStorage
@@ -426,13 +430,25 @@ String? _uniqueName(List<BackupFile> entries, DateTime when) {
   return null;
 }
 
-Future<void> _pruneStorage(BackupStorage storage, {required int keep}) async {
+/// [current] is the backup just written. It always survives and counts toward
+/// [keep]: after the clock is set back its stamp sorts OLDER than the
+/// future-dated names already there, and ranking by name alone deleted it.
+Future<void> _pruneStorage(
+  BackupStorage storage, {
+  required int keep,
+  required String current,
+}) async {
   try {
     final entries = await storage.list();
     final backups =
-        entries.where((f) => _backupNamePattern.hasMatch(f.name)).toList()
+        entries
+            .where((f) => _backupNamePattern.hasMatch(f.name))
+            .where((f) => f.name != current)
+            .toList()
           ..sort((a, b) => _compareBackupNames(a.name, b.name));
-    for (final file in backups.skip(keep)) {
+    // Reserve a slot for the current backup only if it is actually listed.
+    final reserve = entries.any((f) => f.name == current) ? 1 : 0;
+    for (final file in backups.skip(keep - reserve)) {
       await storage.delete(file);
     }
     for (final file in entries.where((f) => _isOurStagingFile(f.name))) {

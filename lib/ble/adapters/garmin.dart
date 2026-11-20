@@ -297,7 +297,14 @@ class GarminAdapter extends BandAdapter {
             garminParseDirectory(bytes).where((x) => x.isHealthFit).toList();
         // A file gone from the watch is forgotten; its index may come back
         // as another file.
+        final before = read.length;
         read.removeWhere((i, _) => !health.any((x) => x.index == i));
+        // Pruned entries must reach the host too, or a reused index with the
+        // same stamp and size reads as already done.
+        if (read.length != before && !events.isClosed) {
+          events.add(BandNote('garmin_fit_files', garminEncodeReadFiles(read)));
+          events.add(OffloadCheckpoint(() async => true));
+        }
         queue
           ..addAll(health.where((x) => read[x.index] != (x.timestamp, x.size)))
           ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
@@ -320,6 +327,17 @@ class GarminAdapter extends BandAdapter {
       final e = entry;
       if (status.ok && status.size > 0) {
         fileSize = status.size;
+        return;
+      }
+      if (status.ok) {
+        // An empty file: nothing to read, but it is read, not refused.
+        if (e == null) {
+          await fileDone(Uint8List(0));
+        } else {
+          markRead(e);
+          if (!events.isClosed) events.add(OffloadCheckpoint(() async => true));
+          await next();
+        }
         return;
       }
       final idx = e?.index ?? 0;
@@ -484,8 +502,13 @@ class GarminAdapter extends BandAdapter {
         // protocol's garminDecodeMlr already strips the routing byte
         // (protocol#70) — decoded.payload IS the COBS/GFDI stream.
         for (final frame in cobs.feed(decoded.payload)) {
-          archived.add(frame);
           final gfdi = garminParseGfdiFrame(frame);
+          // File chunks are not banked: the file they make is decoded, or
+          // banked whole when it does not decode.
+          if (gfdi == null ||
+              garminMessageType(gfdi.type) != kGarminMsgFileTransferData) {
+            archived.add(frame);
+          }
           // In arrival order: chunks must append in sequence.
           if (gfdi != null) {
             dispatch = dispatch.then((_) => ackAndDispatch(gfdi));
@@ -590,9 +613,10 @@ class GarminAdapter extends BandAdapter {
 /// The single instance. Const, so it costs nothing to reference.
 const GarminAdapter kGarminAdapter = GarminAdapter();
 
-/// One downloaded FIT file into events: HR samples (banked with the file's
-/// bytes), and the watch's own numbers as attributed observations. A file
-/// that is not valid FIT is banked raw and decoded no further. [steps] is
+/// One downloaded FIT file into events: HR samples, and the watch's own
+/// numbers as attributed observations. A file that is not valid FIT is
+/// banked raw and decoded no further; a valid one is not banked, since a
+/// file that grows all day is read again on every sync. [steps] is
 /// the largest total seen per day, this file's folded in.
 List<BandEvent> _decodeFit(
     BandLink link, Uint8List bytes, Map<DateTime, int> steps) {
@@ -678,7 +702,7 @@ List<BandEvent> _decodeFit(
     }
   }
   return [
-    SampleBatch(samples, raw: [bytes]),
+    SampleBatch(samples),
     if (stages.isNotEmpty)
       VendorHypnogram('garmin', [
         for (final (a, b, st) in stages) VendorEpoch(a, b, st),

@@ -837,16 +837,6 @@ void main() {
         _rigCase((r, timers) async {
       await r.openAndSettle();
       final tick = timers.activePeriodic(kBackfillEvery).single;
-      tick.fire();
-      await until(() => r.trace.contains('sched.stored'));
-      expect(r.trace, [
-        'wake',
-        'requestHistorySync',
-        'runSync:180',
-        'sched.stored',
-      ]);
-      expect(r.logged('Periodic backlog check: 3 records (complete).'), isTrue);
-
       r.trace.clear();
       r.c.background = true;
       tick.fire();
@@ -857,6 +847,16 @@ void main() {
       await until(() => r.logs.where((l) =>
           l.contains('Periodic history refresh skipped — backgrounded')).length == 2);
       expect(r.trace, isEmpty, reason: 'the re-plan is throttled to 25 minutes');
+
+      r.c.background = false;
+      tick.fire();
+      await until(() => r.trace.contains('sched.stored'));
+      expect(r.trace, [
+        'requestHistorySync',
+        'runSync:180',
+        'sched.stored',
+      ], reason: 'the foreground tick shares the 25-minute re-plan throttle');
+      expect(r.logged('Periodic backlog check: 3 records (complete).'), isTrue);
     }));
   });
 

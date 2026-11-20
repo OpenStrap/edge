@@ -18,9 +18,11 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:openstrap_edge/import/backup_crypto.dart';
 import 'package:openstrap_edge/import/import_container.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/ui2/onboarding/welcome.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
 /// Records where `runImport` sent each path instead of importing it. Every
 /// override replaces work that needs a database and a derivation engine; the
@@ -60,6 +62,14 @@ class _ThrowingVendor extends _RoutingSpy {
     vendor.addAll(paths);
     throw const FormatException('no recognised files');
   }
+}
+
+class _TempProvider extends PathProviderPlatform {
+  _TempProvider(this.root);
+  final String root;
+
+  @override
+  Future<String?> getTemporaryPath() async => root;
 }
 
 List<int> _zipOf(Map<String, String> members) {
@@ -322,5 +332,34 @@ void main() {
     expect(app.vendor, [whoopPath]);
     expect(out.source, contains('Raw sensor export'));
     expect(out.source, contains('Vendor CSV export'));
+  });
+
+  // Leaving Your data while the first backup decrypts made the second prompt
+  // throw (no Navigator for a dead context). That throw skipped the shred and
+  // left the first backup in plaintext in the temp directory.
+  test('a prompt that throws still shreds the backup already decrypted',
+      () async {
+    final scratch = await Directory('${tmp.path}/scratch').create();
+    final original = PathProviderPlatform.instance;
+    PathProviderPlatform.instance = _TempProvider(scratch.path);
+    addTearDown(() => PathProviderPlatform.instance = original);
+
+    final plain = File('${tmp.path}/x.db')
+      ..writeAsBytesSync(List<int>.generate(5000, (i) => i % 251));
+    final a = File('${tmp.path}/a.osbk');
+    final b = File('${tmp.path}/b.osbk');
+    await encryptBackupFile(plain, a, 'pw', iterations: 1000);
+    await encryptBackupFile(plain, b, 'pw', iterations: 1000);
+
+    var asked = 0;
+    await expectLater(
+      runImport(_RoutingSpy(), [a.path, b.path], askPassphrase: () async {
+        if (asked++ == 0) return 'pw';
+        throw StateError('no Navigator');
+      }),
+      throwsStateError,
+    );
+    expect(asked, 2);
+    expect(scratch.listSync(), isEmpty);
   });
 }

@@ -364,6 +364,13 @@ class CoachActions {
       if (v == null) {
         throw CoachActionError('Field "$key" needs a number.');
       }
+      // The store clamps to 0..max; refuse instead so the confirmed number is
+      // the stored one.
+      if (v < 0 || v > spec.max) {
+        throw CoachActionError(
+          'Field "$key" must be between 0 and ${spec.max % 1 == 0 ? spec.max.toInt() : spec.max}; got $v.',
+        );
+      }
       updates[key] = JournalMetricValue(
         v,
         atMinuteOfDay: spec.hasTime ? at : null,
@@ -545,11 +552,26 @@ class CoachActions {
       );
     }
     final d = day(a['date']);
-    final slot = str(a['time']).isEmpty
-        ? (def.schedule.isEmpty ? null : def.schedule.first.minuteOfDay)
-        : minuteOfDay(a['time']);
-    if (slot == null) {
-      throw CoachActionError('"$name" has no scheduled time to mark.');
+    // Doses are keyed by the SCHEDULED minute; a row at any other minute is
+    // never read back, so the slot must be one this day actually has.
+    final weekday =
+        DateTime.fromMillisecondsSinceEpoch(epochOf(d, 0) * 1000);
+    final slots = [
+      for (final s in def.schedule)
+        if (s.onDay(weekday)) s.minuteOfDay,
+    ]..sort();
+    if (slots.isEmpty) {
+      throw CoachActionError('"$name" has no scheduled dose on $d.');
+    }
+    final slot =
+        str(a['time']).isEmpty ? slots.first : minuteOfDay(a['time']);
+    if (!slots.contains(slot)) {
+      throw CoachActionError(
+        '"$name" has no dose scheduled at ${str(a['time'])} on $d. Scheduled: '
+        '${slots.map((m) => '${(m ~/ 60).toString().padLeft(2, '0')}:'
+            '${(m % 60).toString().padLeft(2, '0')}').join(', ')}. '
+        'Pass the scheduled slot time, not the time it was taken.',
+      );
     }
     final state = str(a['state']).toLowerCase();
     if (!const ['taken', 'skipped', 'not_taken'].contains(state)) {
