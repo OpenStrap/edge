@@ -400,9 +400,10 @@ class _ZonesDetailState extends State<ZonesDetail> {
     // Sessions store the activity key ('trail_running'); show its name.
     final session = d.ceilingSession == null
         ? null
-        : (activityByName(d.ceilingSession)?.localizedName(l) ??
-                d.ceilingSession!.replaceAll('_', ' '))
-            .toLowerCase();
+        : _midSentence(
+            activityByName(d.ceilingSession)?.localizedName(l) ??
+                d.ceilingSession!.replaceAll('_', ' '),
+            l);
     final where = [
       if (d.ceilingDate != null)
         l?.activityZonesCeilingOnDate(_prettyDay(d.ceilingDate!, l)) ??
@@ -647,3 +648,7 @@ class _ZonesDetailState extends State<ZonesDetail> {
     return '$shape $summary';
   }
 }
+
+// Lowercase only for English; other locales (e.g. German nouns) keep casing.
+String _midSentence(String name, AppLocalizations? l) =>
+    (l == null || l.localeName.startsWith('en')) ? name.toLowerCase() : name;
