@@ -211,6 +211,8 @@ class RouteTracker {
         // advancing `_last`: the next fix still compares against this SAME
         // anchor, so genuine slow movement accumulates across drops and gets
         // captured, coarsely, once it clears the floor — see [minMovementM].
+        // It still agrees with the anchor, so it breaks a spike streak.
+        _rejectStreak = 0;
         return;
       } else {
         _rejectStreak = 0;
@@ -223,7 +225,10 @@ class RouteTracker {
     // fix-to-fix derivation only when the platform doesn't report one. A
     // fresh segment anchor (gapBefore) has no meaningful "speed since last
     // point" — don't let a big time/distance gap produce a bogus spike.
-    final rawSpeed = s.speed ?? (gapBefore ? null : rmath.fallbackSpeedMps(prev, RoutePoint(
+    // Some Android devices report 0.0 instead of null while moving, so a
+    // zero platform speed also falls back to the fix-to-fix derivation.
+    final platformSpeed = (s.speed ?? 0) > 0 ? s.speed : null;
+    final rawSpeed = platformSpeed ?? (gapBefore ? null : rmath.fallbackSpeedMps(prev, RoutePoint(
       seq: _seq, tsMs: s.tsMs, lat: s.lat, lng: s.lng,
     )));
     if (rawSpeed != null && rawSpeed.isFinite && rawSpeed >= 0) {
