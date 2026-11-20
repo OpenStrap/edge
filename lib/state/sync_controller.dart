@@ -410,18 +410,24 @@ class SyncController {
         total.batches + report.batches,
         report.complete,
       );
-      await LocalDb.upsertSyncLedgerEntry(
-        status: report.complete ? 'complete' : 'session_end',
-        metaPatch: {
-          'frontier_before_ts': frontierBefore,
-          'frontier_after_ts': frontierAfter,
-          'frontier_advanced': frontierAdvanced,
-          'strap_history_newest_ts': strapNewest,
-          'backlog_remains': backlogRemains,
-          'session_index': i + 1,
-          'max_sessions': maxSessions,
-        },
-      );
+      // Diagnostic only: a busy/locked or full db here must not abort the
+      // burst and skip the re-arm + heavy derive its caller runs after it.
+      try {
+        await LocalDb.upsertSyncLedgerEntry(
+          status: report.complete ? 'complete' : 'session_end',
+          metaPatch: {
+            'frontier_before_ts': frontierBefore,
+            'frontier_after_ts': frontierAfter,
+            'frontier_advanced': frontierAdvanced,
+            'strap_history_newest_ts': strapNewest,
+            'backlog_remains': backlogRemains,
+            'session_index': i + 1,
+            'max_sessions': maxSessions,
+          },
+        );
+      } catch (e) {
+        _log('Sync ledger write failed (non-fatal, continuing): $e');
+      }
       // The wait gave up (timeout / no progress) but the task did not end:
       // a report only carries progress not reported yet, so nothing new in
       // it says nothing about the drain. Wait on the same task again — only

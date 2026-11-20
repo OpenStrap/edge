@@ -554,6 +554,29 @@ void main() {
       expect(r.trace.last, 'sched.stored');
     }));
 
+    test('a failing ledger write does not abort the burst',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.runSyncScript
+        ..add(SyncReport(2, 1, false))
+        ..add(SyncReport(3, 2, true));
+      r.engine.newestTs = 1000000;
+      var session = 0;
+      r.engine.onRunSync = () async {
+        session++;
+        await LocalDb.setCursor(
+            'rec_ts_hw', session == 1 ? '1000' : '999900');
+        final db = await LocalDb.instance;
+        await db.execute('DROP TABLE IF EXISTS sync_ledger');
+      };
+      final report = await r.c.syncForShortcut(
+          ShortcutSyncTask('t', const Duration(minutes: 1)));
+      expect(r.engine.count('runSync'), 2);
+      expect(report.records, 5);
+      expect(report.complete, isTrue);
+      expect(r.logged('Sync ledger write failed'), isTrue);
+    }));
+
     test('a wait that gives up on a still-running task waits on it again',
         _rigCase((r, timers) async {
       r.engine.link = true;
