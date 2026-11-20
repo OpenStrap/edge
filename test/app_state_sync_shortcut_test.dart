@@ -9,7 +9,7 @@
 // call and is pinned by source in app_state_shortcut_sync_test.dart.
 
 import 'dart:async';
-    show AndroidFlutterLocalNotificationsPlugin;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/sync/reset_gate.dart';
