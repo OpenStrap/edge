@@ -10900,7 +10900,7 @@
   "@activitySummaryHeartRateTitle": {
     "description": "Chart title above the heart-rate trace"
   },
-  "activitySummaryHardMinutesNote": "{min} min in your two hardest heart-rate zones.",
+  "activitySummaryHardMinutesNote": "{min} min above 80% of your maximum.",
   "@activitySummaryHardMinutesNote": {
     "description": "Heart-rate chart footnote naming minutes spent in heart-rate zones 4 and 5",
     "placeholders": {
