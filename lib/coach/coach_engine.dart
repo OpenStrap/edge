@@ -1350,7 +1350,7 @@ class CoachEngine {
         {
           'name': {'type': 'string'},
           'date': {'type': 'string', 'description': 'YYYY-MM-DD, default today'},
-          'time': {'type': 'string', 'description': 'HH:MM of the slot; default the first'},
+          'time': {'type': 'string', 'description': 'HH:MM of the scheduled slot, not when it was taken; default the first that day'},
           'state': {'type': 'string', 'enum': ['taken', 'skipped', 'not_taken']},
         }, ['name', 'state']),
     _fn('log_journal', 'Log a journal entry (asks the user to confirm).', {
