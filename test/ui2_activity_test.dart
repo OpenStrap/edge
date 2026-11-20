@@ -982,6 +982,12 @@ void main() {
       expect(find.textContaining('Wear the band for your normal hard sessions'),
           findsNothing);
       expect(find.textContaining('which strap'), findsWidgets);
+
+      // Sessions store the activity key; the ceiling names the activity.
+      await show(const ZonesData(
+          age: 30, ceilingBpm: 187, ceilingSession: 'trail_running'));
+      expect(find.textContaining('trail running'), findsOneWidget);
+      expect(find.textContaining('trail_running'), findsNothing);
     });
 
     for (final arch in Arch.values) {
