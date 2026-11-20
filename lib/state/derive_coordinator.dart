@@ -226,7 +226,8 @@ class DeriveCoordinator {
     try {
       final landed = await (debugRefreshActivityReviews?.call(_profile()) ??
           _derive().refreshActivityReviews(_profile()));
-      // null = nothing was pending; don't bump, or every resume reloads tabs.
+      // null = nothing was pending; no completion bump, so a retry stays
+      // silent (the first call already bumped on entry).
       if (landed != false) {
         _activityReviewAttempts = 0;
         if (landed == true) bumpInsights();
