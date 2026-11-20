@@ -3189,6 +3189,8 @@
   "devicePickerBlurbPolarPmd": "Polar Verity Sense या OH1। धड़कनों का समय ऑप्टिकल रूप से मापा जाता है और वर्कआउट के दौरान भेजा जाता है, बिल्कुल चेस्ट स्ट्रैप की तरह।",
   "devicePickerBlurbSensor": "वर्कआउट के दौरान धड़कनों के समय के लिए चेस्ट स्ट्रैप या आर्मबैंड।",
   "devicePickerBlurbCoros": "एक स्पोर्ट्स वॉच। बैटरी और लाइव हृदय गति पढ़ता है — रिकॉर्ड की गई गतिविधियाँ वॉच पर ही रहती हैं।",
+  "devicePickerBlurbGarmin": "Garmin घड़ी। हृदय गति, कदम, नींद और HRV सिंक करती है। प्रायोगिक।",
+  "devicePickerNoMatch": "आस-पास का कोई डिवाइस इस खोज से मेल नहीं खाता।",
   "devicePickerBlurbColmi": "Colmi रिंग। हृदय गति, नींद के चरण, कदम, SpO2, HRV और तनाव सिंक करता है; रिंग जो मान ख़ुद गणना करती है, उन्हें Colmi के मान के रूप में दिखाया जाता है। प्रायोगिक।",
   "devicePickerCannotPairFromHere": "उस डिवाइस को इस स्क्रीन से पेयर नहीं किया जा सकता।",
   "welcomeLabResultsWritten": "{n, plural, one{{n} लैब परिणाम दर्ज किया गया} other{{n} लैब परिणाम दर्ज किए गए}}",

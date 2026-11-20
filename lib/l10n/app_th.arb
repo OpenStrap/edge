@@ -1130,6 +1130,8 @@
   "@devicePickerBlurbMiband234": {
     "description": "Category row subtitle for a Mi Band 2/3."
   },
+  "devicePickerBlurbGarmin": "นาฬิกา Garmin ซิงค์อัตราการเต้นหัวใจ ก้าว การนอน และ HRV ยังอยู่ระหว่างทดลอง",
+  "devicePickerNoMatch": "ไม่มีอุปกรณ์ใกล้เคียงที่ตรงกับการค้นหานี้",
   "devicePickerBlurbColmi": "แหวน Colmi ซิงค์อัตราการเต้นหัวใจ ระยะการนอน ก้าว SpO2, HRV และความเครียด ค่าที่แหวนคำนวณเองจะระบุว่าเป็นของ Colmi ยังอยู่ระหว่างทดลอง",
   "@devicePickerBlurbColmi": {
     "description": "Category row subtitle for a Colmi smart ring."

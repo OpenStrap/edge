@@ -3187,6 +3187,8 @@
   "devicePickerBlurbPolarPmd": "Polar Verity Sense 或 OH1。以光学方式测量心跳间隔，在训练期间实时传输，与胸带相同。",
   "devicePickerBlurbSensor": "胸带或臂带，用于在训练期间测量心跳间隔。",
   "devicePickerBlurbCoros": "一款运动手表。读取电量和实时心率——已记录的活动保留在手表上。",
+  "devicePickerBlurbGarmin": "Garmin 手表。同步心率、步数、睡眠和心率变异性。实验性功能。",
+  "devicePickerNoMatch": "附近没有与该搜索匹配的设备。",
   "devicePickerBlurbColmi": "Colmi 戒指。同步心率、睡眠阶段、步数、血氧、心率变异性和压力；戒指自行计算的数值会标注为 Colmi 的数据。实验性功能。",
   "devicePickerCannotPairFromHere": "无法在此页面配对该设备。",
   "welcomeLabResultsWritten": "{n, plural, other{已写入 {n} 项化验结果}}",

@@ -1344,6 +1344,14 @@
   "@devicePickerBlurbMiband234": {
     "description": "Category row subtitle for a Mi Band 2/3."
   },
+  "devicePickerBlurbGarmin": "A Garmin watch. Syncs heart rate, steps, sleep and HRV. Experimental.",
+  "@devicePickerBlurbGarmin": {
+    "description": "Category row subtitle for a Garmin watch."
+  },
+  "devicePickerNoMatch": "Nothing nearby matches that search.",
+  "@devicePickerNoMatch": {
+    "description": "Shown in place of the Nearby list when the search box hides every found device."
+  },
   "devicePickerBlurbColmi": "A Colmi ring. Syncs heart rate, sleep stages, steps, SpO2, HRV and stress; values the ring computes itself are labelled as Colmi's. Experimental.",
   "@devicePickerBlurbColmi": {
     "description": "Category row subtitle for a Colmi smart ring."
