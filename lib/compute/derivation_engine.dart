@@ -6707,13 +6707,14 @@ class DerivationEngine {
   }
 
   /// Durable review jobs outlive a busy derive or a terminated process.
-  Future<bool> refreshActivityReviews(Profile profile) async {
+  /// true = reviews landed, false = retry later, null = nothing was pending.
+  Future<bool?> refreshActivityReviews(Profile profile) async {
     if (_running) return false;
     _running = true;
     beginWearableDayIndexPass();
     try {
       final revisions = await LocalDb.applyPendingActivityReviews();
-      if (revisions.isEmpty) return true;
+      if (revisions.isEmpty) return null;
       // Rebuild from the accepted day rows, including when an input artifact
       // was already cached today. A failed rollup must leave the work durable.
       if (!await _runCrossDay(profile)) return false;

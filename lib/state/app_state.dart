@@ -2298,10 +2298,10 @@ class AppState extends ChangeNotifier {
   set debugRescanRecent(Future<int> Function(Profile profile)? value) =>
       _deriveCoordinator.debugRescanRecent = value;
   @visibleForTesting
-  Future<bool> Function(Profile profile)? get debugRefreshActivityReviews =>
+  Future<bool?> Function(Profile profile)? get debugRefreshActivityReviews =>
       _deriveCoordinator.debugRefreshActivityReviews;
   @visibleForTesting
-  set debugRefreshActivityReviews(Future<bool> Function(Profile profile)? value) =>
+  set debugRefreshActivityReviews(Future<bool?> Function(Profile profile)? value) =>
       _deriveCoordinator.debugRefreshActivityReviews = value;
 
   /// Run one post-drain derive pass directly, as the scheduler's run callback

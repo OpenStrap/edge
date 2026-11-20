@@ -299,6 +299,18 @@ void main() {
     });
   });
 
+  test('nothing pending neither bumps nor retries', () {
+    fakeAsync((fa) {
+      final coordinator = make();
+      coordinator.debugRefreshActivityReviews = (_) async => null;
+      unawaited(coordinator.refreshActivityReviews(retry: true));
+      fa.flushMicrotasks();
+      expect(coordinator.insightsRevision.value, 0);
+      expect(fa.pendingTimers, isEmpty);
+      coordinator.dispose();
+    });
+  });
+
   test('a retry does not bump on entry, and a disposed host does nothing',
       () async {
     var hostDisposed = false;

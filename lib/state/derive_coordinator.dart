@@ -83,7 +83,7 @@ class DeriveCoordinator {
   /// Tests only.
   DeriveRunHook? debugDeriveRun;
   Future<int> Function(Profile profile)? debugRescanRecent;
-  Future<bool> Function(Profile profile)? debugRefreshActivityReviews;
+  Future<bool?> Function(Profile profile)? debugRefreshActivityReviews;
 
   /// Compute trigger: kick the DerivationEngine after data is persisted.
   /// [heavy]=false is the bounded light pass (TODAY when raw has reached today,
@@ -224,10 +224,12 @@ class DeriveCoordinator {
       bumpInsights();
     }
     try {
-      if (await (debugRefreshActivityReviews?.call(_profile()) ??
-          _derive().refreshActivityReviews(_profile()))) {
+      final landed = await (debugRefreshActivityReviews?.call(_profile()) ??
+          _derive().refreshActivityReviews(_profile()));
+      // null = nothing was pending; don't bump, or every resume reloads tabs.
+      if (landed != false) {
         _activityReviewAttempts = 0;
-        bumpInsights();
+        if (landed == true) bumpInsights();
         return;
       }
     } catch (e) {
