@@ -32,12 +32,15 @@ class PhoneStepClockJumpTest {
 
     @Test
     fun noBootCounterUsesUptimeNotClock() {
-        // clock jump, uptime kept rising: not a reboot
-        assertFalse(stepCounterRebooted(800f, 500f, -1, -1, boot + hour, boot, 9 * hour, 8 * hour))
+        // uptime kept rising, boot time within slack: not a reboot
+        assertFalse(stepCounterRebooted(800f, 500f, -1, -1, boot + 1_000, boot, 9 * hour, 8 * hour))
+        // clock stepped back, uptime kept rising: not a reboot
+        assertFalse(stepCounterRebooted(800f, 500f, -1, -1, boot - hour, boot, 9 * hour, 8 * hour))
         // uptime went backwards, register kept rising: reboot
         assertTrue(stepCounterRebooted(900f, 500f, -1, -1, boot, boot, hour, 8 * hour))
-        // no stored uptime yet: no guess
-        assertFalse(stepCounterRebooted(800f, 500f, -1, -1, boot + hour, boot))
+        // boot time moved later (a long-off reboot looks the same as a forward clock set): reboot
+        assertTrue(stepCounterRebooted(800f, 500f, -1, -1, boot + hour, boot, 9 * hour, 8 * hour))
+        assertTrue(stepCounterRebooted(800f, 500f, -1, -1, boot + hour, boot))
     }
 
     @Test
