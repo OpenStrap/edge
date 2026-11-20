@@ -217,6 +217,14 @@ class PairedDevice {
     final db = await LocalDb.instance;
     try {
       await db.transaction((txn) async {
+        // A forget in another isolate can land between the read above and
+        // this write; recheck under the transaction lock so a heal never
+        // re-pairs it.
+        if (onlyIfPaired) {
+          final r = await txn.query('device',
+              where: 'id = ?', whereArgs: [LocalDb.kPrimaryDeviceId]);
+          if (r.isEmpty || r.first['remote_id'] != remoteId) return;
+        }
         await LocalDb.upsertDevice(
           adapterId: gen,
           remoteId: remoteId,
