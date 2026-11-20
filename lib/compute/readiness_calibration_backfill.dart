@@ -262,6 +262,8 @@ Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
       payloadJson: jsonEncode(payload),
       windowJson: (row['window_json'] as String?) ?? '{}',
       finalized: (row['finalized'] as num?)?.toInt() == 1,
+      skipped: (row['skipped'] as num?)?.toInt() == 1,
+      partial: (row['partial'] as num?)?.toInt() == 1,
       rhr: (row['rhr'] as num?)?.toDouble(),
       rmssd: (row['rmssd'] as num?)?.toDouble(),
       readiness: score,

@@ -182,6 +182,7 @@ void main() {
     final row = (await LocalDb.dayResult(day(48)))!;
     final payload = jsonDecode(row['payload_json'] as String) as Map;
     expect(payload['scalars']['readiness_z'], isA<num>());
+    expect(row['readiness'], isNot(30));
     // Calibrated now: a second pass leaves it alone.
     final again = await backfillReadinessCalibration(
         rawDays: const {},
