@@ -8259,7 +8259,7 @@ class BleEngine {
   /// window backfilled from flash. Stays in `listening` — no mode change.
   Future<void> requestHistorySync() async {
     _historyRequests++;
-    await LocalDb.upsertSyncLedgerEntry(
+    await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
       status: 'requested',
       metaPatch: {
         'request_reason': 'manual',
@@ -8270,7 +8270,7 @@ class BleEngine {
         'strap_history_oldest_ts': _strapHistoryOldestTs,
         'strap_history_newest_ts': _strapHistoryNewestTs,
       },
-    );
+    ));
     await _triggerBackfill(BackfillTrigger.manual);
   }
 
