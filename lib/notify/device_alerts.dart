@@ -374,10 +374,15 @@ class DeviceAlerts {
     if (fireLow) {
       final dropped = await _showWasDropped(() => _notes.show(_event(
             osId: NotificationService.idLowBattery,
-            // One drain per key: the hysteresis above already means a re-arm
-            // needs the battery to climb past 25% or go on the charger, so the
-            // percentage is a stable identity for THIS drain.
-            kind: 'band_low:${batteryPct.round()}',
+            // The percentage alone is not unique within a day: charge past the
+            // re-arm level, drain again, and the first reading below threshold
+            // can be the same integer, which FiredKeyStore would swallow (and
+            // the drop branch below would then retry forever). The latch above
+            // already limits this to once per drain, so the fire time (micros,
+            // so two drains in one test second still differ) is a safe
+            // identity for THIS drain.
+            kind: 'band_low:${batteryPct.round()}:'
+                '${DateTime.now().microsecondsSinceEpoch}',
             title: 'Low battery',
             body: 'Your band is at ${batteryPct.round()}%. Charge it soon.',
           )));

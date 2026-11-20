@@ -502,6 +502,13 @@ void main() {
       a.onDeviceState(batteryPct: 12);
       await a.settled;
       expect(sink.countOf(NotificationService.idLowBattery), 2);
+      // Same integer, same day, second drain: the emitter dedupes on this key,
+      // so it must differ or the second alert is silently swallowed.
+      final lowKeys = sink.events
+          .where((e) => e.osId == NotificationService.idLowBattery)
+          .map((e) => e.dedupeKey)
+          .toSet();
+      expect(lowKeys, hasLength(2));
     });
 
     test('a real plug-in re-arms and clears the low card', () async {
