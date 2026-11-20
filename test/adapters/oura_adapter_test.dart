@@ -1044,7 +1044,7 @@ void main() {
         ['1000,$t0', null]);
   });
 
-  test('a persisted anchor does not stamp readings held before a ring start',
+  test('a persisted anchor stamps readings held before a ring start',
       () async {
     const t0 = 1782043215;
     final (events, _) = await _drive(
@@ -1067,8 +1067,10 @@ void main() {
         ];
       },
     );
-    expect(events.whereType<SampleBatch>().single.samples, isEmpty,
-        reason: 'persisted anchor boot is unknown, so nothing is stamped');
+    expect(
+        events.whereType<SampleBatch>().single.samples.map((s) => s.tsEpoch),
+        [t0 + 205],
+        reason: 'held before the start, in the persisted anchor boot');
   });
 
   test('spo2 on both sides of a ring start is stamped by its own boot',

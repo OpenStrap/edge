@@ -594,10 +594,11 @@ class OuraAdapter extends BandAdapter {
       final a = _anchor;
       if (e.tag == kOuraEvtRingStart &&
           (ouraRingStartResetsClock(e) || (a != null && e.tsDs < a.$1))) {
-        // A persisted anchor of unknown boot stamps nothing: dropped, not guessed.
-        if (!_anchorFromRun) _anchor = null;
         flushSpo2();
         _stampHeld(samples, stageEpochs, hypnogram, values);
+        // A persisted anchor stamps what was held (the drain resumed inside
+        // its boot) but cannot reach past this start: dropped, not guessed.
+        if (!_anchorFromRun) _anchor = null;
         _held.clear();
         _heldHr.clear();
         _heldBeats.clear();
