@@ -11873,6 +11873,30 @@
   "@settingsClockFormatRowTitle": {
     "description": "Settings row title cycling the 12/24-hour clock format"
   },
+  "settingsUnitsMetric": "Metric",
+  "@settingsUnitsMetric": {
+    "description": "Units value: metric"
+  },
+  "settingsUnitsImperial": "Imperial",
+  "@settingsUnitsImperial": {
+    "description": "Units value: imperial"
+  },
+  "settingsAppearanceLight": "Light",
+  "@settingsAppearanceLight": {
+    "description": "Appearance value: light theme"
+  },
+  "settingsAppearanceDark": "Dark",
+  "@settingsAppearanceDark": {
+    "description": "Appearance value: dark theme"
+  },
+  "settingsBackupDaily": "Daily",
+  "@settingsBackupDaily": {
+    "description": "Automatic backup frequency: once a day"
+  },
+  "settingsBackupWeekly": "Weekly",
+  "@settingsBackupWeekly": {
+    "description": "Automatic backup frequency: once a week"
+  },
   "settingsClockFormatSystem": "System",
   "@settingsClockFormatSystem": {
     "description": "Clock format value: follow the operating system setting"

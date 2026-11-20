@@ -203,7 +203,10 @@ class _MoreSettingsState extends State<MoreSettings>
       onVersionTap: _tapVersion,
       onToggleDev: () => _setDev(false),
       onGallery: () => goto(c, const GalleryScreen()),
-      units: units.system.label,
+      units: (units.system == UnitSystem.imperial
+              ? l?.settingsUnitsImperial
+              : l?.settingsUnitsMetric) ??
+          units.system.label,
       appearance: switch (theme.choice) {
         AppThemeChoice.system => l?.settingsAppearanceSystem ?? theme.choice.label,
         AppThemeChoice.light => l?.settingsAppearanceLight ?? theme.choice.label,
@@ -1528,16 +1531,18 @@ class EditProfile extends StatelessWidget {
         if (!c.mounted) return ('', false, null);
         final app = c.read<AppState>();
         final changes = healthProfileChanges(app.user, snap);
-        final merged = mergeHealthProfile(app.user, snap);
+        final before = Map<String, dynamic>.from(app.user ?? const {});
+        final merged = mergeHealthProfile(before, snap);
         // Nothing to write is not a write of the same thing: `updateProfile`
-        // persists the profile and notifies every listener.
+        // persists the profile and notifies every listener. And nothing
+        // changed means no field to rewrite, so an unsaved edit stays.
         if (changes.isEmpty) {
           return (
             l?.settingsImportNoChange(snap.found.join(', ')) ??
                 'Read ${snap.found.join(', ')}. Your profile already says the '
                     'same thing, so nothing changed.',
             false,
-            merged,
+            const <String, dynamic>{},
           );
         }
         await app.updateProfile(merged);
@@ -1545,7 +1550,13 @@ class EditProfile extends StatelessWidget {
           l?.settingsImportUpdated(changes.join(', '), storeName) ??
               'Updated ${changes.join(', ')} from $storeName.',
           false,
-          merged
+          // Only what the import changed: the form rewrites just these, so
+          // a field the user is typing in and the store left alone keeps
+          // the typed value.
+          {
+            for (final e in merged.entries)
+              if (before[e.key] != e.value) e.key: e.value,
+          }
         );
       },
       onSave: (fields) async {
@@ -1652,12 +1663,18 @@ class _EditProfileViewState extends State<EditProfileView> {
     try {
       final (note, failed, fields) = await job();
       if (!mounted) return;
+      // Only the keys that came back: anything else is the user's, typed
+      // or not, and the import has no business putting the stored value back.
       if (fields != null) {
-        _age.text = _s(fields['age']);
-        _shownHeightCm = fields['height_cm'] as num?;
-        _shownWeightKg = fields['weight_kg'] as num?;
-        _height.text = _u.heightField(_shownHeightCm);
-        _weight.text = _u.weightField(_shownWeightKg);
+        if (fields.containsKey('age')) _age.text = _s(fields['age']);
+        if (fields.containsKey('height_cm')) {
+          _shownHeightCm = fields['height_cm'] as num?;
+          _height.text = _u.heightField(_shownHeightCm);
+        }
+        if (fields.containsKey('weight_kg')) {
+          _shownWeightKg = fields['weight_kg'] as num?;
+          _weight.text = _u.weightField(_shownWeightKg);
+        }
         _sex = (fields['sex'] as String?)?.toLowerCase() ?? _sex;
       }
       setState(() {
@@ -1693,7 +1710,10 @@ class _EditProfileViewState extends State<EditProfileView> {
   /// removed rather than merged over — which meant a typo ("78 kg", "78,5")
   /// parsed to null and wiped the stored weight while the screen popped as if
   /// it had saved. Blank still clears; a typo now stops the save and says so.
-  void _save() {
+  bool _saving = false;
+
+  Future<void> _save() async {
+    if (_saving) return;
     final l = AppLocalizations.of(context);
     final age = Typed.of(_age.text);
     final height = Typed.of(_height.text);
@@ -1731,14 +1751,27 @@ class _EditProfileViewState extends State<EditProfileView> {
       sayImplausible(context, off);
       return;
     }
-    widget.onSave({
-      'name': _name.text.trim().isEmpty ? null : _name.text.trim(),
-      'sex': _sex,
-      'age': age.value?.round(),
-      // Typed in the units on the label, stored in metric.
-      'height_cm': heightCm,
-      'weight_kg': weightKg,
-    });
+    // Awaited, and once at a time: a refused save throws on purpose so it
+    // is not reported as saved, and a second tap must not race the first.
+    _saving = true;
+    try {
+      await widget.onSave({
+        'name': _name.text.trim().isEmpty ? null : _name.text.trim(),
+        'sex': _sex,
+        'age': age.value?.round(),
+        // Typed in the units on the label, stored in metric.
+        'height_cm': heightCm,
+        'weight_kg': weightKg,
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(l?.healthCouldNotSaveIt('$e') ??
+                'Could not save it: $e')));
+      }
+    } finally {
+      _saving = false;
+    }
   }
 
   @override
