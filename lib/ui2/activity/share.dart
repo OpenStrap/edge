@@ -60,7 +60,9 @@ class ShareSheet extends StatefulWidget {
 
 /// Pixels to decode a photo at: enough to cover the largest card (900 x 1600
 /// at export), never more, and never past 4096 on a side so a panorama cannot
-/// decode to a huge bitmap.
+/// decode to a huge bitmap. For extreme aspect ratios the cap wins over cover,
+/// so a panorama is upscaled a little in the export; that trades sharpness for
+/// memory on purpose.
 @visibleForTesting
 (int, int) photoDecodeSize(int w, int h) {
   if (w <= 0 || h <= 0) return (1, 1);
