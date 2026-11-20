@@ -186,8 +186,11 @@ class PairedDevice {
     // from. Both copies are then written the same way, so the mirror cannot
     // heal a stale generation back over a corrected one.
     final row = await LocalDb.deviceRow();
+    // A heal trusts the row alone: a forget in another isolate deletes it,
+    // while this isolate's prefs cache can still hold the old remote id.
+    final rowRemoteId = row?['remote_id'] as String?;
     final knownRemoteId =
-        (row?['remote_id'] as String?) ?? prefs.getString(_kRemoteId);
+        onlyIfPaired ? rowRemoteId : rowRemoteId ?? prefs.getString(_kRemoteId);
     final sameDevice = knownRemoteId == remoteId;
     if (onlyIfPaired && !sameDevice) return;
     // A forget that landed while the reads above were in flight wins: this

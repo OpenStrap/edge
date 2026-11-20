@@ -4880,7 +4880,7 @@ class AppState extends ChangeNotifier {
     if (healed != null) {
       paired = healed;
       unawaited(PairedDevice.save(healed.remoteId, healed.serial,
-          generation: s.generation));
+          generation: s.generation, onlyIfPaired: true));
     }
     // Pin the discovered generation onto the pairing record (HEAL ONLY — same
     // rule as the serial above: never CREATE a pairing here). A known-device
@@ -4893,7 +4893,8 @@ class AppState extends ChangeNotifier {
       paired =
           PairedDevice(p.remoteId, p.serial, generation: s.generation);
       unawaited(
-          PairedDevice.save(p.remoteId, p.serial, generation: s.generation));
+          PairedDevice.save(p.remoteId, p.serial,
+              generation: s.generation, onlyIfPaired: true));
     }
     // WHOOP MG identity, remembered per serial so the ECG entry survives a
     // disconnect. Set only from a positive revision-1 MAVERICK hello — never
