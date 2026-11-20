@@ -465,6 +465,30 @@ class TriathlonDb {
     return [for (final r in rows) TriSegment.fromRow(r)].whereType<TriSegment>().toList();
   }
 
+  /// Strict variant for WRITERS: segments() silently drops rows an older
+  /// build cannot parse, which would make a writer rewrite the wrong rows.
+  static Future<List<TriSegment>> _segmentsStrict(
+      DatabaseExecutor db, String id) async {
+    final rows = await db.query(
+      'triathlon_segment',
+      where: 'session_id = ?',
+      whereArgs: [id],
+      orderBy: 'idx ASC',
+    );
+    final out = <TriSegment>[];
+    for (var i = 0; i < rows.length; i++) {
+      final seg = TriSegment.fromRow(rows[i]);
+      if (seg == null || seg.idx != i) {
+        throw TriathlonWriteError(
+          'segment row idx=${rows[i]['idx']} of session $id is unreadable; '
+          'refusing to write on a partial timeline',
+        );
+      }
+      out.add(seg);
+    }
+    return out;
+  }
+
   static Future<TriSession> _withSegments(Database db, TriSession s) async {
     final segs = await segments(db, s.id);
     return TriSession(
@@ -529,7 +553,7 @@ class TriathlonDb {
     _checkSegmentShape(segment);
     await db.transaction((txn) async {
       await _requireWritable(txn, segment.sessionId);
-      final existing = await segments(txn, segment.sessionId);
+      final existing = await _segmentsStrict(txn, segment.sessionId);
       final matching = existing.where((s) => s.idx == segment.idx).toList();
       if (matching.isEmpty) {
         throw TriathlonWriteError('segment ${segment.idx} is not in the plan');
@@ -541,6 +565,11 @@ class TriathlonDb {
           segment.goalSec != original.goalSec) {
         throw TriathlonWriteError('the planned segment is immutable');
       }
+      if (segment.workoutId != original.workoutId) {
+        throw TriathlonWriteError(
+          'the workout link is managed by linkWorkout, not saveSegment',
+        );
+      }
       for (final other in existing) {
         if (other.idx != segment.idx) _checkNeighbour(segment, other);
       }
@@ -550,7 +579,7 @@ class TriathlonDb {
         where: 'session_id = ? AND idx = ?',
         whereArgs: [segment.sessionId, segment.idx],
       );
-      _validateTimeline(await segments(txn, segment.sessionId));
+      _validateTimeline(await _segmentsStrict(txn, segment.sessionId));
       await _recomputeSessionBounds(txn, segment.sessionId);
     });
   }
@@ -797,6 +826,14 @@ class TriathlonDb {
       if (left.workoutId != null || right.workoutId != null) {
         throw TriathlonWriteError(
           'a segment is linked to a workout \u2014 unlink it before removing the boundary',
+        );
+      }
+      // Merging into the CLOSED final segment would leave the session
+      // 'finished' with an unstarted last segment that nothing can progress or
+      // finalize. Move the boundary instead.
+      if (right.idx == segs.length - 1 && right.endTs != null) {
+        throw TriathlonWriteError(
+          'the final segment is closed \u2014 move the boundary instead of removing it',
         );
       }
       final merged = right.endTs == null
@@ -1237,7 +1274,7 @@ class TriathlonDb {
   static Future<void> _requireWritable(DatabaseExecutor db, String id) async {
     final rows = await db.query(
       'triathlon_session',
-      columns: ['finalized_at'],
+      columns: ['finalized_at', 'status'],
       where: 'id = ?',
       whereArgs: [id],
       limit: 1,
@@ -1245,6 +1282,11 @@ class TriathlonDb {
     if (rows.isEmpty) throw TriathlonWriteError('no such session: $id');
     if (rows.first['finalized_at'] != null) {
       throw TriathlonWriteError('session $id is finalized and immutable');
+    }
+    // Discarded is terminal: no write may revive or mutate it. (Unfinalized
+    // 'abandoned' stays writable; finalize accepts it.)
+    if (rows.first['status'] == 'discarded') {
+      throw TriathlonWriteError('session $id is discarded and cannot be modified');
     }
   }
 

@@ -429,6 +429,18 @@ String? healthExportCursorBefore(String cursor, String date) {
   return dayLabelOf(DateTime(d.year, d.month, d.day - 1));
 }
 
+/// Drops the success stamps for [date] and every day after it, so an edit to
+/// a day sitting above the cursor (an older day still retrying) is written
+/// again instead of being skipped as already exported. Failure entries keep
+/// their backoff. True when anything was removed.
+bool dropHealthExportStampsFrom(Map<String, dynamic> retryState, String date) {
+  final before = retryState.length;
+  retryState.removeWhere(
+    (d, v) => d.compareTo(date) >= 0 && v is Map && v['ok_ms'] != null,
+  );
+  return retryState.length != before;
+}
+
 class HealthExportSingleFlight {
   Future<int>? _inFlight;
 
@@ -602,6 +614,10 @@ class HealthExporter {
         final next = healthExportCursorBefore(cursor, date);
         if (next != null) {
           await LocalDb.setCursor('health_export_through', next);
+        }
+        final retryState = await shared._loadRetryState();
+        if (dropHealthExportStampsFrom(retryState, date)) {
+          await LocalDb.setCursor(_kRetryCursor, jsonEncode(retryState));
         }
       });
     } catch (e) {
@@ -1237,7 +1253,12 @@ class HealthExporter {
               // day — so one entry is equivalent to the whole list, without
               // holding 400 decoded bundles to re-derive the same answer.
               newestFirstDays: [priorityDay],
-              write: _androidSleep.replace,
+              write: (b) async => _androidSleep.replace(
+                b,
+                previousWake: await _previousWake(
+                  _localMidnight(priorityDay!.key) ?? DateTime.now(),
+                ),
+              ),
               exportBulk: (androidSleepAlreadyWritten) async {
                 bulkDone = await exportBulk(androidSleepAlreadyWritten);
               },
@@ -1259,11 +1280,6 @@ class HealthExporter {
           final date = day.date;
           final finalized = day.finalized;
           if (day.skipped) {
-            if (!finalized) prefixContiguous = false;
-            continue;
-          }
-          final bundle = await bundleFor(date);
-          if (bundle == null || bundle['skipped'] == true) {
             if (!finalized) prefixContiguous = false;
             continue;
           }
@@ -1316,6 +1332,14 @@ class HealthExporter {
             // Not due for retry yet — don't hammer the health store on every
             // drain/derive pass; counts as "not done" for the cursor below.
           } else {
+            // Decoded only once the day is actually due: an already-exported
+            // or backing-off day would otherwise be decoded on the main
+            // isolate on every pass just to be thrown away.
+            final bundle = await bundleFor(date);
+            if (bundle == null || bundle['skipped'] == true) {
+              if (!finalized) prefixContiguous = false;
+              continue;
+            }
             _dayHeldForPurge = false;
             ok = await _exportDay(
               date,
@@ -1443,6 +1467,21 @@ class HealthExporter {
     });
   }
 
+  /// When the day before's night woke; null when unknown. Best-effort: a failed
+  /// lookup must not block the sleep write it only clamps.
+  Future<DateTime?> _previousWake(DateTime dayStart) async {
+    try {
+      final prev = DateTime(dayStart.year, dayStart.month, dayStart.day - 1);
+      final pb = _decode(
+        (await LocalDb.dayResult(dayLabelOf(prev)))?['payload_json'],
+      );
+      return pb == null ? null : normalizeHealthSleepSession(pb)?.end;
+    } catch (e) {
+      debugPrint('[health] previous wake lookup: $e');
+      return null;
+    }
+  }
+
   /// Write one day's metrics. DELETES our prior samples for the day window first
   /// (so a re-derive overwrites instead of duplicating). Best-effort; never throws.
   Future<bool> _exportDay(
@@ -1468,26 +1507,16 @@ class HealthExporter {
     // on both stores (Health Connect SleepSessionRecord; HealthKit inBed+Core).
     // Both the clear on a no-night day and HealthKit's replace on a day with
     // a night must stop short of yesterday's night if that one woke after
-    // noon. Health Connect only uses it for the clear (its delete matches on
-    // start time; the native replace computes its own window).
-    Future<DateTime?> previousWake() async {
-      final prev = DateTime(dayStart.year, dayStart.month, dayStart.day - 1);
-      final pb = _decode(
-        (await LocalDb.dayResult(dayLabelOf(prev)))?['payload_json'],
-      );
-      return pb == null ? null : normalizeHealthSleepSession(pb)?.end;
-    }
+    // noon. Health Connect passes it to the native replace too, which clamps
+    // its own noon-to-noon window with it.
+    Future<DateTime?> previousWake() => _previousWake(dayStart);
 
     if (Platform.isAndroid && !androidSleepAlreadyWritten) {
       try {
         if (!await _androidSleep.replace(
           b,
           dayStart: dayStart,
-          // Only the no-night clear reads it; skip decoding yesterday's
-          // bundle on every other day of a long first export.
-          previousWake: normalizeHealthSleepSession(b) == null
-              ? await previousWake()
-              : null,
+          previousWake: await previousWake(),
         )) {
           debugPrint('[health] write Android sleep session returned false');
           success = false;

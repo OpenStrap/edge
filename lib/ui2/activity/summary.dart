@@ -68,7 +68,10 @@ const _sports = {
   'Squash', 'Padel', 'Pickleball', 'Volleyball', 'Hockey', 'Baseball',
   'Rugby', 'Boxing', 'Martial arts', 'Wrestling',
 };
-const _laps = {'Swimming', 'Rowing'};
+// Only swimming. Rowing has no pool length and no stroke, and a laps × pool
+// figure for it is an invented distance; with no GPS it is a heart-rate
+// session like the indoor machines.
+const _laps = {'Swimming'};
 const _journey = {
   'Hiking', 'Trail running', 'Mountain biking', 'Skiing', 'Snowboarding',
 };
@@ -94,7 +97,7 @@ Arch archOf(Activity a) {
     Track.sets => Arch.strength,
     Track.interval => Arch.interval,
     Track.stillness => Arch.flow,
-    Track.distance => Arch.route,
+    Track.distance => a.gps ? Arch.route : Arch.basic,
     Track.duration => Arch.basic,
   };
 }
@@ -1389,7 +1392,16 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           return;
         }
         picked = true;
-        if (!pc.mounted) return;
+        if (!pc.mounted) {
+          // The picker was left while the write was queued, so the push
+          // above already returned with picked false. Refresh and leave this
+          // stale screen here instead, but only if it is still on top.
+          if (c.mounted) {
+            bumpInsights(c);
+            if (ModalRoute.of(c)?.isCurrent ?? false) Navigator.of(c).pop();
+          }
+          return;
+        }
         bumpInsights(pc);
         Navigator.of(pc).pop();
       }),
@@ -1958,8 +1970,12 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             ),
           ];
         }
-        final fastest = r.lapSecs.reduce((x, y) => x < y ? x : y);
-        final slowest = r.lapSecs.reduce((x, y) => x > y ? x : y);
+        // A double tap on LAP banks a 0 s lap; it is not the fastest one.
+        final valid = [for (final t in r.lapSecs) if (t > 0) t];
+        final fastest =
+            valid.isEmpty ? 0 : valid.reduce((x, y) => x < y ? x : y);
+        final slowest =
+            valid.isEmpty ? 0 : valid.reduce((x, y) => x > y ? x : y);
         return [
           Surface(
             child: Column(
@@ -1977,10 +1993,12 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 if (r.poolLengthM != null)
                   l?.activitySummaryPoolLength(r.poolLengthM!) ??
                       '${r.poolLengthM} m pool',
-                l?.activitySummaryFastest(clock(fastest)) ??
-                    'fastest ${clock(fastest)}',
-                l?.activitySummarySlowest(clock(slowest)) ??
-                    'slowest ${clock(slowest)}',
+                if (valid.isNotEmpty) ...[
+                  l?.activitySummaryFastest(clock(fastest)) ??
+                      'fastest ${clock(fastest)}',
+                  l?.activitySummarySlowest(clock(slowest)) ??
+                      'slowest ${clock(slowest)}',
+                ],
               ].join(' · '), style: F.cap.copyWith(color: p.ink3)),
             ]),
           ),
@@ -2252,12 +2270,17 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                           Row(children: [
                             Flexible(
                                 child: Text(
-                                    _u?.isImperial == true
-                                        ? '1RM estimate '
-                                            '${_u!.weightValue(rm!).round()} lb'
-                                        : (l?.activitySummaryOneRepMax(
-                                                rm!.round()) ??
-                                            '1RM estimate ${rm!.round()} kg'),
+                                    () {
+                                      final imp = _u?.isImperial == true;
+                                      final n = (imp
+                                              ? _u!.weightValue(rm!)
+                                              : rm!)
+                                          .round();
+                                      final unit = imp ? 'lb' : 'kg';
+                                      return l?.activitySummaryOneRepMax(
+                                              n, unit) ??
+                                          '1RM estimate $n $unit';
+                                    }(),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: F.over.copyWith(color: p.ink3))),
@@ -2353,7 +2376,13 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           ? '${v.round()} ${uiText(c, 'kg')}'
           : '${v.toStringAsFixed(1)} ${uiText(c, 'kg')}';
     }
-    return '${u.weightField(v)} ${uiText(c, u.weightUnit)}';
+    if (!u.isImperial) return '${u.weightField(v)} ${uiText(c, u.weightUnit)}';
+    // Same half-pound steps the logger and the live list use.
+    final lb = roundLbHalf(u.weightValue(v));
+    final n = lb == lb.roundToDouble()
+        ? '${lb.round()}'
+        : lb.toStringAsFixed(1);
+    return '$n ${uiText(c, u.weightUnit)}';
   }
 
   // ─────────────────── SPLITS ───────────────────
@@ -2561,7 +2590,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 icon: LucideIcons.waves),
           ];
         }
-        final fastest = r.lapSecs.reduce((x, y) => x < y ? x : y);
+        final valid = [for (final t in r.lapSecs) if (t > 0) t];
+        final fastest =
+            valid.isEmpty ? 0 : valid.reduce((x, y) => x < y ? x : y);
         return [
           Surface(
             pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x3),
@@ -2599,7 +2630,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                                 color: p.ink, fontWeight: FontWeight.w600))),
                     Expanded(
                         child: PaceBar(
-                            r.lapSecs[i] <= 0 ? 1 : fastest / r.lapSecs[i],
+                            r.lapSecs[i] <= 0 || fastest <= 0
+                                ? 0
+                                : fastest / r.lapSecs[i],
                             C.blue)),
                   ]),
                 ),
@@ -2668,9 +2701,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 label: l?.reportSaveRetry ?? 'Try again',
                 onPressed: () async {
                   try {
+                    // The screen's current log, not this edit's snapshot: a
+                    // later edit may have landed since and must not be undone.
                     await LocalDb.replaceStrengthSets(
                       sid,
-                      strengthSetsToRows(updated),
+                      strengthSetsToRows(r.strength.sets),
                     );
                   } catch (_) {
                     if (mounted) {
@@ -2744,6 +2779,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       if (r.elevationM.length > 1)
         ('Elevation', _elevUnit, C.teal, _elevSeries(r.elevationM)),
     ];
+    String title(String key) => key == 'Heart rate'
+        ? (l?.activitySummaryHeartRateTitle ?? key)
+        : (l?.activitySummaryElevationTitle ?? key);
     if (series.isEmpty) {
       // Same distinction the overview draws: a session with one minute in it
       // is too short to plot, which is not the band's fault and not fixable
@@ -2787,7 +2825,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             child: Builder(builder: (_) {
               final axis = AxisSpec.of(g.$4.whereType<double>());
               return ChartFrame(
-                title: g.$1,
+                title: title(g.$1),
                 unit: g.$2,
                 height: 110,
                 yAxis: axis,

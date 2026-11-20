@@ -644,6 +644,32 @@ void main() {
         DateTime(2026, 8, 5, 7, 46).millisecondsSinceEpoch,
       );
       expect(args['stages'] as List, hasLength(6));
+      expect(args.containsKey('previousWake'), isFalse);
+    });
+
+    test('replace hands yesterday\'s wake to the native cleanup', () async {
+      const channel = MethodChannel('openstrap/test_health_connect_prev_wake');
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return true;
+          });
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+      final exporter = HealthConnectSleepSessionExporter(
+        writer: MethodChannelHealthConnectSleepSessionWriter(channel: channel),
+      );
+      final wake = DateTime(2026, 8, 4, 14);
+
+      expect(
+        await exporter.replace(_overnightBundle(), previousWake: wake),
+        isTrue,
+      );
+      final args = (calls.single.arguments as Map).cast<String, Object?>();
+      expect(args['previousWake'], wake.millisecondsSinceEpoch);
     });
 
     test(
@@ -1120,6 +1146,21 @@ void main() {
       expect(healthExportCursorBefore('2026-09-27', '2026-09-28'), isNull);
       expect(healthExportCursorBefore('', '2026-09-28'), isNull);
     });
+
+    test('a sleep edit above the cursor drops its already-exported stamp', () {
+      // 09-26 is still retrying, so the cursor sits behind 09-28; without
+      // this the edited 09-28 is skipped as already exported for good.
+      final state = <String, dynamic>{
+        '2026-09-26': {'attempts': 2, 'last_ms': 1, 'finalized': true},
+        '2026-09-27': {'ok_ms': 1, 'finalized': true},
+        '2026-09-28': {'ok_ms': 1, 'finalized': true},
+        '2026-09-29': {'ok_ms': 1},
+        '2026-09-30': {'attempts': 1, 'last_ms': 1, 'finalized': true},
+      };
+      expect(dropHealthExportStampsFrom(state, '2026-09-28'), isTrue);
+      expect(state.keys, ['2026-09-26', '2026-09-27', '2026-09-30']);
+      expect(dropHealthExportStampsFrom(state, '2026-09-28'), isFalse);
+    });
   });
 
   test('nightly scalars stay inside the day their delete covers', () {
@@ -1162,7 +1203,10 @@ class _RecordingClearWriter implements HealthConnectSleepSessionWriter {
   final List<(DateTime, DateTime)> cleared;
 
   @override
-  Future<bool> replace(HealthSleepSession session) async => true;
+  Future<bool> replace(
+    HealthSleepSession session, {
+    DateTime? previousWake,
+  }) async => true;
 
   @override
   Future<bool> clear(DateTime start, DateTime end) async {

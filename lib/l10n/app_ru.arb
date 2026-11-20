@@ -477,6 +477,8 @@
   "devicePickerBlurbSensor": "Нагрудный датчик или датчик на руку для измерения интервалов между ударами во время тренировки.",
   "devicePickerBlurbCoros": "Спортивные часы. Читает заряд и текущий пульс; записанные тренировки остаются на часах.",
   "devicePickerBlurbMiband234": "Mi Band 2 или 3: пульс, шаги и сон. Сначала отвяжите его от Mi Fit или Zepp либо сбросьте. Если браслет завибрирует, коснитесь его. Mi Band 4 не поддерживается.",
+  "devicePickerBlurbGarmin": "Часы Garmin. Синхронизируют пульс, шаги, сон и ВСР. Экспериментально.",
+  "devicePickerNoMatch": "Поблизости нет устройств, подходящих под этот поиск.",
   "devicePickerBlurbColmi": "Кольцо Colmi. Синхронизирует пульс, стадии сна, шаги, SpO2, ВСР и стресс; значения, которые кольцо рассчитывает само, помечены как значения Colmi. Экспериментально.",
   "devicePickerCannotPairFromHere": "Это устройство нельзя подключить с этого экрана.",
   "pairSensorSearching": "Поиск…",
@@ -1809,7 +1811,7 @@
   },
   "nutritionDayCountsRule": "День учитывается, если у каждого приёма пищи указана энергетическая ценность.",
   "nutritionDaysLoggedLabel": "Дни с записями",
-  "nutritionPartialExcluded": "{partial} дней с неполными записями исключены из всех средних ниже",
+  "nutritionPartialExcluded": "{partial, plural, one{{partial} день с неполными записями исключён} few{{partial} дня с неполными записями исключены} many{{partial} дней с неполными записями исключены} other{{partial} дня с неполными записями исключены}} из всех средних ниже",
   "@nutritionPartialExcluded": {
     "placeholders": {
       "partial": {
@@ -1839,7 +1841,7 @@
     }
   },
   "nutritionEnergyLoggedTitle": "Записанные калории",
-  "nutritionPartialFootnote": "{n} неполных дней исключено из средних ниже.",
+  "nutritionPartialFootnote": "{n, plural, one{{n} неполный день исключён} few{{n} неполных дня исключены} many{{n} неполных дней исключены} other{{n} неполного дня исключены}} из средних ниже.",
   "@nutritionPartialFootnote": {
     "placeholders": {
       "n": {
@@ -2672,7 +2674,7 @@
       }
     }
   },
-  "metricDetailDaysWithWithout": "{withCount} дней с записью · {withoutCount} без",
+  "metricDetailDaysWithWithout": "{withCount, plural, one{{withCount} день} few{{withCount} дня} many{{withCount} дней} other{{withCount} дня}} с записью · {withoutCount} без",
   "@metricDetailDaysWithWithout": {
     "placeholders": {
       "withCount": {
@@ -2796,7 +2798,7 @@
     }
   },
   "cycleWhatYouUsuallyNotice": "Что вы обычно замечаете",
-  "cycleSymptomShapeSummary": "Одно значение на неделю цикла, от отмеченных вами начал. Учитываются только {daysByWeek} отмеченных дней каждой недели за {cycles} циклов.",
+  "cycleSymptomShapeSummary": "Одно значение на неделю цикла, от отмеченных вами начал. Учитываются только отмеченные дни (по неделям: {daysByWeek}) за {cycles, plural, one{{cycles} цикл} few{{cycles} цикла} many{{cycles} циклов} other{{cycles} цикла}}.",
   "@cycleSymptomShapeSummary": {
     "placeholders": {
       "daysByWeek": {
@@ -2842,7 +2844,7 @@
       }
     }
   },
-  "cycleMiddleOfNCycles": "Центральное значение {n} циклов для каждого дня.",
+  "cycleMiddleOfNCycles": "Центральное значение по {n, plural, one{{n} циклу} few{{n} циклам} many{{n} циклам} other{{n} цикла}} для каждого дня.",
   "@cycleMiddleOfNCycles": {
     "placeholders": {
       "n": {
@@ -3925,7 +3927,7 @@
   "wellnessWhichDayOfWeek": "День недели",
   "wellnessHigher": "выше",
   "wellnessLower": "ниже",
-  "wellnessHeadlineBinary": "В {n} дней с записью «{field}» показатель «{outcome}» был на {amount} {direction}",
+  "wellnessHeadlineBinary": "В дни с записью «{field}» (всего {n}) показатель «{outcome}» был на {amount} {direction}",
   "@wellnessHeadlineBinary": {
     "placeholders": {
       "n": {
@@ -3945,7 +3947,7 @@
       }
     }
   },
-  "wellnessHeadlineNoSlope": "В {n} дней с записью «{field}» большее количество сопровождалось {direction} значением «{outcome}»",
+  "wellnessHeadlineNoSlope": "В дни с записью «{field}» (всего {n}) большее количество сопровождалось {direction} значением «{outcome}»",
   "@wellnessHeadlineNoSlope": {
     "placeholders": {
       "n": {
@@ -3962,7 +3964,7 @@
       }
     }
   },
-  "wellnessHeadlineSlope": "В {n} дней с записью «{field}» показатель «{outcome}» был на {amount} {direction} на каждые {step}",
+  "wellnessHeadlineSlope": "В дни с записью «{field}» (всего {n}) показатель «{outcome}» был на {amount} {direction} на каждые {step}",
   "@wellnessHeadlineSlope": {
     "placeholders": {
       "n": {
@@ -5079,7 +5081,7 @@
   },
   "activitySummaryTimeInZonesTitle": "Время в зонах",
   "activitySummaryTopSet": "Лучший подход",
-  "activitySummaryOneRepMax": "Оценка 1RM: {kg} кг",
+  "activitySummaryOneRepMax": "Оценка 1RM: {value} {unit, select, lb{фунт.} other{кг}}",
   "@activitySummaryOneRepMax": {
     "placeholders": {
       "kg": {
@@ -5581,9 +5583,16 @@
   "settingsUnitsRowTitle": "Единицы измерения",
   "settingsAppearanceRowTitle": "Оформление",
   "settingsClockFormatRowTitle": "Формат времени",
+  "settingsUnitsMetric": "Метрическая",
+  "settingsUnitsImperial": "Имперская",
+  "settingsAppearanceLight": "Светлая",
+  "settingsAppearanceDark": "Тёмная",
+  "settingsBackupDaily": "Ежедневно",
+  "settingsBackupWeekly": "Еженедельно",
   "settingsClockFormatSystem": "Системный",
   "settingsClockFormat24h": "24-часовой",
   "settingsClockFormat12h": "12-часовой",
+  "settingsAppearanceSystem": "Системная",
   "settingsCycleTrackingRowTitle": "Отслеживание цикла",
   "settingsCycleTrackingRowSub": "Добавляет вкладку «Цикл» в раздел «Самочувствие». Отключение скрывает её, сохраняя все записи",
   "settingsGroupYourData": "Ваши данные",
@@ -7577,7 +7586,7 @@
   "activityStepsFoodTitle": "Шаги и питание",
   "activityStepsSub": "Сегодня и все предыдущие дни",
   "activityNutritionSub": "Записывайте еду и смотрите белок за сегодня",
-  "homeBackToToday": "Вернуться к сегодня",
+  "homeBackToToday": "Вернуться к сегодняшнему дню",
   "homeSomeDataMissingTitle": "Часть сегодняшних данных отсутствует",
   "homeFirstWeekTitle": "Ваши первые недели",
   "homeFirstWeekWear": "Наденьте браслет на ночь",
@@ -9070,5 +9079,8 @@
         "type": "int"
       }
     }
-  }
+  },
+  "devicesTimeUnknown": "Время неизвестно",
+  "devicesClockNotSetSub": "Браслет записал данные, но его часы не установлены",
+  "homeSyncedTimeUnknown": "Данные с браслета, часы не установлены"
 }

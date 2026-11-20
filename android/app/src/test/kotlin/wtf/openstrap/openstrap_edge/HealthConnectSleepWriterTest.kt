@@ -29,6 +29,23 @@ class HealthConnectSleepWriterTest {
     }
 
     @Test
+    fun cleanupRangeStartsAfterPreviousNightThatWokeAfterNoon() {
+        val sessionStart = localInstant(2026, 8, 5, 23, 30)
+        val sessionEnd = localInstant(2026, 8, 6, 7, 0)
+        val previousWake = localInstant(2026, 8, 5, 14, 0)
+
+        val range = sleepCleanupRange(sessionStart, sessionEnd, berlin, previousWake)
+
+        assertEquals(previousWake.plusSeconds(1), range.start)
+        assertEquals(localInstant(2026, 8, 6, 12, 0), range.end)
+        // A morning wake is outside the window and changes nothing.
+        val morning = sleepCleanupRange(
+            sessionStart, sessionEnd, berlin, localInstant(2026, 8, 5, 7, 0),
+        )
+        assertEquals(localInstant(2026, 8, 5, 12, 0), morning.start)
+    }
+
+    @Test
     fun cleanupRangeUsesLocalNoonAcrossDstTransition() {
         val sessionStart = localInstant(2026, 10, 25, 1, 30)
         val sessionEnd = localInstant(2026, 10, 25, 9, 0)

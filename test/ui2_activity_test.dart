@@ -141,6 +141,13 @@ Future<void> _loadType() async {
 class _StrainRepo extends LocalRepository {
   final List<Map<String, Object?>> curve;
   _StrainRepo(this.curve);
+  int dayReads = 0;
+
+  @override
+  Future<List<String>> availableDays() async {
+    dayReads++;
+    return const ['2026-05-19', '2026-05-20'];
+  }
 
   @override
   Future<Map<String, dynamic>> getDayStrain(String date) async => {
@@ -214,6 +221,9 @@ void main() {
       final bowling = activityByName('bowling')!;
       expect(bowling.met, 3.8);
       expect(archOf(bowling), Arch.basic);
+      // Rowing has no pool and no GPS: a heart-rate session, never laps.
+      expect(archOf(activityByName('Rowing')!), Arch.basic);
+      expect(archOf(activityByName('Swimming')!), Arch.laps);
       // The catch-all names no activity, so no MET can be honest for it, so
       // no calorie estimate is offered up front. 02060 "health club exercise,
       // general" was the near miss and it prices a gym session — which is not
@@ -352,6 +362,14 @@ void main() {
       expect(archOf(activityByName('hiit')!), Arch.interval);
       expect(archOf(activityByName('weight_training')!), Arch.strength);
       expect(archOf(activityByName('golf')!), Arch.basic);
+    });
+
+    test('every gps activity has a summary that shows the route', () {
+      // golf used to record a route into a basic summary with no map and no
+      // gpx export, so the track was stored but never visible.
+      for (final a in allActivities.where((a) => a.gps)) {
+        expect(archOf(a), anyOf(Arch.route, Arch.journey), reason: a.name);
+      }
     });
 
     test('every archetype has a live screen', () {
@@ -791,6 +809,16 @@ void main() {
           isTrue);
       expect(d.wornMin, 600);
       expect(d.coveragePct, 42);
+    });
+
+    test('a step reuses the known days instead of re-reading them', () async {
+      final r = _StrainRepo(const []);
+      final first = await DayStrainData.load(r);
+      expect(first.days, ['2026-05-19', '2026-05-20']);
+      final next =
+          await DayStrainData.load(r, forDay: '2026-05-19', days: first.days);
+      expect(next.days, first.days);
+      expect(r.dayReads, 1);
     });
 
     test('no curve is no day and no chart', () async {

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatf
 import 'package:flutter/widgets.dart';
 import 'package:intl/intl.dart' show NumberFormat;
 import 'app_localizations.dart';
+import 'sweep_text.dart';
 
 String uiText(BuildContext context, String text) =>
     localizedText(AppLocalizations.of(context), text);
@@ -139,6 +140,9 @@ String localizedNotificationText(AppLocalizations? l, String text) {
   if (stale != null) {
     return l.notifSyncStaleBody(int.parse(stale[1]!));
   }
+  // The evening sweep notification's body is the finding line itself.
+  final sweep = sweepText(l, text);
+  if (sweep != text) return sweep;
   return localizedText(l, text);
 }
 

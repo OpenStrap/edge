@@ -213,9 +213,11 @@ class _StepCalibrationScreenState extends State<StepCalibrationScreen> {
     });
   }
 
-  Future<int?> _askCounted(int target) async {
+  Future<int?> _askCounted() async {
     final l = AppLocalizations.of(context);
-    final ctrl = TextEditingController(text: '$target');
+    // Starts empty: a pre-filled target would be banked as the wearer's own
+    // count by anyone who just taps Done.
+    final ctrl = TextEditingController();
     final out = await showDialog<int>(
       context: context,
       builder: (c) => AlertDialog(
@@ -258,7 +260,7 @@ class _StepCalibrationScreenState extends State<StepCalibrationScreen> {
         bandTotal: context.read<AppState>().liveStrapRawSteps,
         nowMs: DateTime.now().millisecondsSinceEpoch,
       );
-      counted = await _askCounted(s.targetSteps);
+      counted = await _askCounted();
       if (!mounted) return;
       if (counted == null) {
         s.resume();

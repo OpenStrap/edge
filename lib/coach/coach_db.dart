@@ -227,11 +227,13 @@ class CoachDb {
           'Recursive CTEs are not allowed: "$selfRef" reads from itself.');
     }
 
-    // (i) Auto-append a LIMIT to protect context.
+    // (i) Cap the rows. A LIMIT anywhere (a subquery's, or the model's own
+    //     LIMIT 100000) does not cap the outer result, and every row crosses
+    //     the platform channel before take(rowCap), so wrap instead.
     if (!RegExp(r'\blimit\b', caseSensitive: false).hasMatch(lower)) {
-      body = '$body LIMIT $rowCap';
+      return '$body LIMIT $rowCap';
     }
-    return body;
+    return 'SELECT * FROM ($body) LIMIT $rowCap';
   }
 
   /// Replace every single-quoted string literal with the neutral token `0`.
@@ -616,12 +618,12 @@ class CoachDb {
       try {
         rows = await db.rawQuery(sql).timeout(const Duration(seconds: 10));
       } on TimeoutException {
-        try {
-          await close(); // drop the wedged handle; next query opens a fresh one
-        } catch (_) {
-          // teardown failing must not stop the timeout error below from
-          // reaching the model.
-        }
+        // Drop the wedged handle without awaiting its close: sqflite queues
+        // close() behind the still-running statement, so awaiting it would
+        // put the wait right back. The next query opens a fresh handle.
+        final wedged = _ro;
+        _ro = null;
+        unawaited(wedged?.close().catchError((_) {}));
         return jsonEncode({'error': 'Query took too long and was abandoned. '
             'Add a tighter WHERE, aggregate instead of selecting all rows, '
             'or simplify the query.'});

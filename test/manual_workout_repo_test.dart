@@ -449,6 +449,30 @@ void main() {
     }
   });
 
+  test('endWorkout on a finished workout leaves its window alone', () async {
+    final start = sessionStart - 50 * 86400;
+    await LocalDb.putSession({
+      'id': 'w-done',
+      'start_ts': start,
+      'end_ts': start + 1800,
+      'type': 'run',
+      'status': 'done',
+      'source': 'manual',
+      'created_at': start * 1000,
+    });
+    await repo.endWorkout('w-done');
+    expect((await LocalDb.session('w-done'))!['end_ts'], start + 1800);
+  });
+
+  test('endWorkout ends a live workout', () async {
+    final w = await repo.startWorkout('run');
+    final id = w['workout_id'] as String;
+    await repo.endWorkout(id);
+    final r = (await LocalDb.session(id))!;
+    expect(r['status'], 'done');
+    expect(r['end_ts'], isNotNull);
+  });
+
   group('the write seam re-validates — the form is not the only guard', () {
     test('an overlapping window is refused, not silently written', () async {
       final start = sessionStart - 20 * 86400;
