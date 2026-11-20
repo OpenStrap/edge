@@ -214,7 +214,9 @@ private struct AccessoryRectangularView: View {
       // out of the line rather than printed as a dash.
       Text(pair("Strain", snap.strain, "Sleep", snap.sleep))
         .font(.system(size: 13, weight: .semibold))
-      Text(snap.recovery.measured && !snap.recovery.sub.isEmpty
+      // A calibrating or still-finishing score keeps its sub ("Finishing up",
+      // "2 of 4 nights") so a provisional number never reads as final.
+      Text((snap.recovery.measured || snap.recovery.calibrating) && !snap.recovery.sub.isEmpty
            ? snap.recovery.sub
            : firstWhy)
         .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
@@ -256,7 +258,9 @@ struct OpenStrapWidgetEntryView: View {
       case .accessoryInline:
         Text(entry.snap.recovery.measured
              ? "Recovery \(entry.snap.recovery.value)"
-             : "OpenStrap · \(entry.snap.recovery.value.lowercased())")
+             : "OpenStrap · \(entry.snap.recovery.value.lowercased())"
+               + (entry.snap.recovery.calibrating && !entry.snap.recovery.sub.isEmpty
+                  ? " · \(entry.snap.recovery.sub.lowercased())" : ""))
       default: SmallView(snap: entry.snap)
       }
     }
