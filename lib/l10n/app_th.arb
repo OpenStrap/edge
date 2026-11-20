@@ -968,6 +968,14 @@
   "@devicesBatteryPack": {
     "description": "Row title: the charge left in the external battery pack sitting on the band."
   },
+  "devicesBatteryUnderAnHourLeft": "เหลือไม่ถึงหนึ่งชั่วโมง",
+  "devicesBatteryHoursLeft": "เหลือประมาณ {hours} ชม.",
+  "devicesBatteryDaysLeft": "เหลือประมาณ {days} วัน",
+  "devicesChargesLogged": "{n, plural, other{บันทึกการชาร์จ {n} ครั้ง}}",
+  "devicesChargeUpToMv": "สูงสุด {mv} mV",
+  "devicesCalibrationSub": "ค่าที่ขึ้นกับเซนเซอร์ใช้ค่าคงที่ของสายรัดนี้เอง สายรัดสองเส้นจึงอาจได้ระดับต่างกันแม้สรีรวิทยาเหมือนกัน",
+  "devicesCalibrationNotStated": "ยังไม่ระบุ",
+  "devicesCalibrationNotStatedSub": "สายรัดนี้ยังไม่บอกว่าเป็นรุ่นใด และวันที่นำเข้าหรือวันเก่าจะไม่มีวันบอก ค่าที่ขึ้นกับเซนเซอร์จะงดแสดงแทนการยืมตัวเลขของสายรัดอื่น",
   "devicesBatteryPackSub": "สายรัดรายงานประมาณทุก 10 นาที",
   "@devicesBatteryPackSub": {
     "description": "Row sub under the battery-pack charge: where the number comes from and how often it updates."
