@@ -193,6 +193,8 @@ class RouteTracker {
     _lastFixAt = clock.now();
     if (stalled.value) stalled.value = false;
 
+    // A dropped fix reporting a non-zero speed breaks the zero-speed run too.
+    if (s.speed != 0) _zeroSpeedRun = 0;
     var gapBefore = false;
     final prev = _last;
     if (prev != null) {
@@ -231,7 +233,7 @@ class RouteTracker {
     // zero platform speed also falls back to the fix-to-fix derivation.
     // A lone 0.0 is a real standstill (jitter can clear minMovementM), so only
     // a run of accepted zero-speed fixes counts as "device reports 0 while moving".
-    _zeroSpeedRun = s.speed == 0 ? _zeroSpeedRun + 1 : 0;
+    if (s.speed == 0) _zeroSpeedRun++;
     final platformSpeed =
         s.speed == null || (s.speed == 0 && _zeroSpeedRun > 2) ? null : s.speed;
     final rawSpeed = platformSpeed ?? (gapBefore ? null : rmath.fallbackSpeedMps(prev, RoutePoint(
