@@ -155,7 +155,10 @@ class NotificationService {
   /// drawer or an app the OS killed meant nothing happened at all. Do not reuse
   /// these ids for anything else.
   static const int idWaterBase = 2100;
-  static const int maxWaterSlots = 24;
+  // a whole day at the shortest interval, so no reachable waking window is
+  // ever cut short. at 24 a 30m interval over 07:00-22:00 stopped at 18:30.
+  // (24h / NotificationPrefs.waterIntervalMinAllowed of 30m)
+  static const int maxWaterSlots = 48;
 
   /// Reserved for a future server/push layer (unused — app is cloud-free).
   static const int kServerIdBase = 2000;
