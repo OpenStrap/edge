@@ -229,6 +229,40 @@ void main() {
         reason: 'the auto path calls sync() bare and must never prompt');
   });
 
+  test('apple: a route already stored is not fetched or rewritten again',
+      () async {
+    final calls = <Map>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(kHealthRoutesChannel, (call) async {
+      calls.add(call.arguments as Map);
+      return [
+        {
+          'uuid': 'a',
+          'points': [
+            [51.5, -0.1, 10.0, 1000],
+          ],
+        },
+      ];
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(kHealthRoutesChannel, null));
+    final importer = HealthWorkoutImporter(
+      health: _FakeHealth([_w('a'), _w('b')]),
+      isApple: true,
+    );
+
+    final first = await importer.sync();
+    expect(first.withRoutes, 1);
+    expect(calls.single['skip'], isEmpty);
+
+    final second = await importer.sync();
+    expect(second.withRoutes, 1, reason: 'the stored route still counts');
+    expect(calls.last['skip'], ['a'],
+        reason: 'b has no route yet, so the fetch runs but skips a');
+    expect(await LocalDb.routePoints('a'), hasLength(1));
+  });
+
   test('copies of our own exports stored before the filter get cleaned up',
       () async {
     PackageInfo.setMockInitialValues(

@@ -430,6 +430,15 @@ class HealthWorkoutImporter {
   Future<int> _importRoutes(DateTime start, DateTime end,
       {required Set<String> keep, bool prompt = false}) async {
     if (!routesSupported) return 0;
+    // A finished workout's route never changes, so one already stored is not
+    // fetched or rewritten again: the hourly auto pass would otherwise move
+    // and re-insert every point of the whole window each time.
+    final have = <String>{};
+    for (final u in keep) {
+      if (await LocalDb.sessionHasRoute(u)) have.add(u);
+    }
+    final want = keep.difference(have);
+    if (want.isEmpty) return have.length;
     List<Object?> payload;
     try {
       final res = await kHealthRoutesChannel.invokeMethod<List<Object?>>(
@@ -438,6 +447,7 @@ class HealthWorkoutImporter {
           'fromMs': start.millisecondsSinceEpoch,
           'toMs': end.millisecondsSinceEpoch,
           'prompt': prompt,
+          'skip': have.toList(),
         },
       );
       payload = res ?? const [];
@@ -445,10 +455,10 @@ class HealthWorkoutImporter {
       // A missing channel (a build without the Swift file) or a refused
       // HealthKit read must not lose the workouts already stored above.
       debugPrint('[imported_workout] routes: $e');
-      return 0;
+      return have.length;
     }
-    var n = 0;
-    for (final route in routesToStore(payload, keep)) {
+    var n = have.length;
+    for (final route in routesToStore(payload, want)) {
       await LocalDb.appendRoutePoints(route.key, route.value);
       n++;
     }
