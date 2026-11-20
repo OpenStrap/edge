@@ -446,7 +446,9 @@ Future<void> _pruneStorage(
             .where((f) => f.name != current)
             .toList()
           ..sort((a, b) => _compareBackupNames(a.name, b.name));
-    for (final file in backups.skip(keep - 1)) {
+    // Reserve a slot for the current backup only if it is actually listed.
+    final reserve = entries.any((f) => f.name == current) ? 1 : 0;
+    for (final file in backups.skip(keep - reserve)) {
       await storage.delete(file);
     }
     for (final file in entries.where((f) => _isOurStagingFile(f.name))) {
