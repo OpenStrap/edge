@@ -151,15 +151,26 @@ bool vendorEdgesAgree(int aOn, int aOff, int bOn, int bOff) =>
     (aOn - bOn).abs() <= kVendorEdgeToleranceSec &&
     (aOff - bOff).abs() <= kVendorEdgeToleranceSec;
 
+/// Longest hole between two of our rows that still counts as covered time.
+/// Matches the sparsest substrate cadence we take (15-min HR on some bands).
+const int kVendorCoverGapSec = 15 * 60;
+
 /// Whether our own substrate ([ourTsSec], sorted epoch seconds of the rows
 /// admitted to derivation) saw less than half of [n]. Such a night is
 /// UNCLAIMED: nothing of ours can stage it or contradict it, so the device's
-/// own night is the only one there is.
+/// own night is the only one there is. Seen time is the sum of the gaps
+/// between consecutive rows inside the night, holes over
+/// [kVendorCoverGapSec] excluded, so a 1-per-minute or 5-minute substrate is
+/// measured in seconds like a 1 Hz one.
 bool vendorNightUnclaimed(VendorNight n, List<int> ourTsSec) {
   var seen = 0;
+  int? prev;
   for (final t in ourTsSec) {
+    if (t < n.onsetSec) continue;
+    final end = t < n.offsetSec ? t : n.offsetSec;
+    if (prev != null && end - prev <= kVendorCoverGapSec) seen += end - prev;
     if (t >= n.offsetSec) break;
-    if (t >= n.onsetSec) seen++;
+    prev = t;
   }
   return seen * 2 < n.offsetSec - n.onsetSec;
 }
