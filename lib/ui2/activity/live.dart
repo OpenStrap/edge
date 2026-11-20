@@ -223,7 +223,9 @@ class LiveDraft {
   /// The catalogue key of the activity being done, so the bar that reopens a
   /// minimised session knows which screen to build.
   final String activityKey;
-  final bool private;
+  /// Null: an unversioned draft saved as false, which only meant "toggle off
+  /// at setup" back when a private-by-default activity stayed private anyway.
+  final bool? private;
   final double? weightKg;
   final DateTime startedAt;
 
@@ -246,7 +248,7 @@ class LiveDraft {
 
   LiveDraft._(this.activityKey,
       {required this.startedAt,
-      this.private = false,
+      this.private,
       this.weightKg,
       this.workSec,
       this.restSec,
@@ -336,6 +338,7 @@ class LiveDraft {
         _key,
         jsonEncode({
           'a': d.activityKey,
+          'v': 2,
           'private': d.private,
           'weight': d.weightKg,
           'work_sec': d.workSec,
@@ -359,7 +362,9 @@ class LiveDraft {
       return LiveDraft._(
         key,
         startedAt: DateTime.fromMillisecondsSinceEpoch(start.toInt()),
-        private: m['private'] == true,
+        private: m['v'] == 2
+            ? m['private'] == true
+            : (m['private'] == true ? true : null),
         weightKg: (m['weight'] as num?)?.toDouble(),
         workSec: (m['work_sec'] as num?)?.toInt(),
         restSec: (m['rest_sec'] as num?)?.toInt(),
@@ -536,6 +541,7 @@ class LiveShellState extends State<LiveShell> {
     // losing the screen is worse — but it is told, so it can say so and offer
     // the retry instead of drawing a plausible summary of nothing.
     final onFinish = widget.onFinish;
+    final mine = LiveDraft.current;
     Future<ActivityResult> Function()? retrySave;
     try {
       result = await onFinish?.call(draft) ?? draft;
@@ -547,7 +553,8 @@ class LiveShellState extends State<LiveShell> {
           ? null
           : () async {
               final saved = await onFinish(draft);
-              LiveDraft.clear();
+              // Only the draft this session owned; a newer session's stays.
+              if (identical(LiveDraft.current, mine)) LiveDraft.clear();
               return saved;
             };
     }
@@ -1337,6 +1344,8 @@ class _LiveStrengthState extends State<LiveStrength> {
           rpe: rpe,
           restSec: prior == null ? null : now.difference(prior).inSeconds,
           at: now));
+      // A self-report belongs to the set it was given for.
+      rpe = null;
     });
     restLeft.value = restTarget;
     _persist();
@@ -2761,6 +2770,9 @@ class _LiveIntervalState extends State<LiveInterval> {
       round = (saved['round'] as num?)?.toInt() ?? round;
       work = saved['work'] != false;
       left = (saved['left'] as num?)?.toInt() ?? left;
+      for (final h in (saved['hr'] as List?) ?? const []) {
+        if (h is num) _roundHr.add(h.toInt());
+      }
       for (final x in (saved['done'] as List?) ?? const []) {
         if (x is! List || x.length < 2) continue;
         done.add(IntervalRound((x[0] as num).toInt(), (x[1] as num).toInt(),
@@ -2812,8 +2824,10 @@ class _LiveIntervalState extends State<LiveInterval> {
           // pip row's floor now, not a limit the session has.
           round++;
         }
-        _persist();
       });
+      // Every tick, not just phase flips: a kill mid-phase must not replay
+      // the seconds already counted.
+      _persist();
     });
   }
 
@@ -2821,6 +2835,7 @@ class _LiveIntervalState extends State<LiveInterval> {
         'round': round,
         'work': work,
         'left': left,
+        'hr': _roundHr,
         'done': [
           for (final x in done) [x.workSec, x.restSec, x.avgHr]
         ],
