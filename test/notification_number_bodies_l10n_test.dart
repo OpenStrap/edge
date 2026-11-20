@@ -12,6 +12,7 @@ import 'package:openstrap_edge/l10n/display_text.dart';
 import 'package:openstrap_edge/notify/battery_forecast.dart';
 import 'package:openstrap_edge/notify/notification_center.dart';
 import 'package:openstrap_edge/state/clock_format.dart';
+import 'package:openstrap_edge/sync/background_sync.dart' show staleSyncBody;
 import 'package:openstrap_edge/state/workout_controller.dart';
 
 void main() {
@@ -60,9 +61,7 @@ void main() {
     ], today: '2026-10-18')!,
     'lookback rhr up': lookback([50, 51, 52, 53, 56, 57, 58]),
     'lookback rhr down': lookback([58, 57, 56, 53, 50, 49, 48]),
-    // background_sync's stale-sync body, built inline there.
-    'sync stale': 'No new data for about 7 hours. Open OpenStrap to '
-        'reconnect — background sync may have stalled.',
+    'sync stale': staleSyncBody(7),
   };
 
   test('every numbered body is translated, in every shipped locale', () {
