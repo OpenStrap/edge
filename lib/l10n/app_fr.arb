@@ -3056,6 +3056,8 @@
   "devicePickerBlurbPolarPmd": "Un Polar Verity Sense ou OH1. Rythme des battements mesuré optiquement, transmis pendant une séance, comme une ceinture thoracique.",
   "devicePickerBlurbSensor": "Une ceinture thoracique ou un brassard, pour le rythme des battements pendant une séance.",
   "devicePickerBlurbCoros": "Une montre de sport. Lit la batterie et la fréquence cardiaque en direct — les activités enregistrées restent sur la montre.",
+  "devicePickerBlurbGarmin": "Une montre Garmin. Synchronise la fréquence cardiaque, les pas, le sommeil et la VFC. Expérimental.",
+  "devicePickerNoMatch": "Aucun appareil à proximité ne correspond à cette recherche.",
   "devicePickerBlurbColmi": "Une bague Colmi. Synchronise la fréquence cardiaque, les phases de sommeil, les pas, la SpO2, la VFC et le stress ; les valeurs que la bague calcule elle-même sont indiquées comme celles de Colmi. Expérimental.",
   "devicePickerCannotPairFromHere": "Cet appareil ne peut pas être jumelé depuis cet écran.",
   "welcomeLabResultsWritten": "{n, plural, one{1 résultat d’analyse enregistré} other{{n} résultats d’analyse enregistrés}}",

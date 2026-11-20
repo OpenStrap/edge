@@ -47,9 +47,12 @@ DevicePickerView _view({
   List<({BandEntry entry, String blurb, IconData icon})> categories = const [],
   VoidCallback? onSkip,
   VoidCallback? onBack,
+  String query = '',
+  String? notice,
 }) =>
     DevicePickerView(
-      query: TextEditingController(),
+      query: TextEditingController(text: query),
+      notice: notice,
       title: 'Connect your devices',
       subtitle: 'Bring whatever you use.',
       found: found,
@@ -96,6 +99,29 @@ void main() {
         (t) async {
       await _pump(t, _view(found: [_cand('0A1B2C3D4E5F', 'ble_hrs')]));
       expect(find.textContaining('4E5F'), findsOneWidget);
+      // Titled by what it is, never by the internal registry id.
+      expect(find.text(kBleHrs.label), findsOneWidget);
+      expect(find.text('ble_hrs'), findsNothing);
+    });
+
+    testWidgets('the search narrows the nearby rows too', (t) async {
+      final found = [
+        _cand('AA', 'oura', label: 'Oura Ring'),
+        _cand('BB', 'ble_hrs', label: 'Polar H10'),
+      ];
+      await _pump(t, _view(found: found, query: 'polar'));
+      expect(find.text('Polar H10'), findsOneWidget);
+      expect(find.text('Oura Ring'), findsNothing);
+      await _pump(t, _view(found: found, query: 'zzz'));
+      expect(find.text('Polar H10'), findsNothing);
+      expect(find.text('Nothing nearby matches that search.'), findsOneWidget);
+    });
+
+    testWidgets('a pair notice is not followed by "Nothing found yet"',
+        (t) async {
+      await _pump(t, _view(notice: 'Paired'));
+      expect(find.text('Paired'), findsOneWidget);
+      expect(find.text('Nothing found yet'), findsNothing);
     });
 
     testWidgets('a found Mi Band 2/3 says to unpair it first before the one tap',
@@ -189,6 +215,11 @@ void main() {
       expect(steps, contains(e.id),
           reason: '${e.id} is offered by the picker with no way to pair it');
     }
+  });
+
+  test('a Garmin watch is not described as a chest strap', () {
+    expect(deviceCategoryBlurb(null, kGarmin), contains('Garmin watch'));
+    expect(deviceCategoryBlurb(null, kGarmin), isNot(contains('chest strap')));
   });
 
   testWidgets("the Ultrahuman blurb is localised like every other ring's",

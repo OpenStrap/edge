@@ -312,6 +312,8 @@
   "devicePickerBlurbSensor": "Ein Brustgurt oder Armband für Herzschlag-Abstände während eines Trainings.",
   "devicePickerBlurbCoros": "Eine Sportuhr. Liest Akkustand und Live-Herzfrequenz – aufgezeichnete Aktivitäten bleiben auf der Uhr.",
   "devicePickerBlurbMiband234": "Ein Mi Band 2 oder 3. Zuerst in Mi Fit oder Zepp entkoppeln (oder auf Werkseinstellungen zurücksetzen): Es nimmt nur einen neuen Schlüssel an, solange es keinen hat. Synchronisiert gespeicherte Herzfrequenz, Schritte und Schlaf. Wenn das Band beim Koppeln vibriert, tippe darauf, um zu bestätigen. Das Mi Band 4 braucht die Kopplung des Herstellers und wird nicht unterstützt.",
+  "devicePickerBlurbGarmin": "Eine Garmin-Uhr. Synchronisiert Herzfrequenz, Schritte, Schlaf und HRV. Experimentell.",
+  "devicePickerNoMatch": "Kein Gerät in der Nähe passt zu dieser Suche.",
   "devicePickerBlurbColmi": "Ein Colmi-Ring. Synchronisiert Herzfrequenz, Schlafphasen, Schritte, SpO2, HRV und Stress; Werte, die der Ring selbst berechnet, sind als Colmi-Werte gekennzeichnet. Experimentell.",
   "devicePickerCannotPairFromHere": "Dieses Gerät lässt sich hier nicht koppeln.",
   "pairSensorSearching": "Suche läuft…",

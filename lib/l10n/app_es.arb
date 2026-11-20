@@ -3209,6 +3209,8 @@
   "devicePickerBlurbPolarPmd": "Un Polar Verity Sense u OH1. Mide el tiempo entre latidos de forma óptica y lo transmite durante un entrenamiento, igual que una banda pectoral.",
   "devicePickerBlurbSensor": "Una banda pectoral o un brazalete, para el tiempo entre latidos durante un entrenamiento.",
   "devicePickerBlurbCoros": "Un reloj deportivo. Lee la batería y la frecuencia cardíaca en vivo; las actividades grabadas se quedan en el reloj.",
+  "devicePickerBlurbGarmin": "Un reloj Garmin. Sincroniza frecuencia cardíaca, pasos, sueño y VFC. Experimental.",
+  "devicePickerNoMatch": "Nada cercano coincide con esa búsqueda.",
   "devicePickerBlurbColmi": "Un anillo Colmi. Sincroniza frecuencia cardíaca, fases del sueño, pasos, SpO2, VFC y estrés; los valores que calcula el propio anillo se etiquetan como de Colmi. Experimental.",
   "devicePickerCannotPairFromHere": "Ese dispositivo no se puede emparejar desde esta pantalla.",
   "welcomeLabResultsWritten": "{n, plural, one{1 resultado de laboratorio escrito} other{{n} resultados de laboratorio escritos}}",
