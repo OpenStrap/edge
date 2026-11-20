@@ -151,17 +151,26 @@ class PairedDevice {
   /// (`upsertDevice` COALESCEs), and a row that has never been told keeps
   /// NULL, which every per-family metric reads as a refusal instead of
   /// assuming gen4.
+  ///
+  /// [onlyIfPaired] makes it a heal, never a pairing: it writes only when
+  /// [remoteId] is still the paired band. A record loaded before a forget
+  /// (the headless sync holds one across its whole connect) would otherwise
+  /// pair the forgotten band again, because a save queued behind `clear()`
+  /// writes normally.
   static Future<void> save(
     String remoteId,
     String? serial, {
     String? generation,
+    bool onlyIfPaired = false,
   }) =>
-      _serialized(() => _save(remoteId, serial, generation: generation));
+      _serialized(() => _save(remoteId, serial,
+          generation: generation, onlyIfPaired: onlyIfPaired));
 
   static Future<void> _save(
     String remoteId,
     String? serial, {
     String? generation,
+    bool onlyIfPaired = false,
   }) async {
     final epoch = _forgetEpoch;
     final clean = cleanDeviceLabel(serial);
@@ -180,6 +189,7 @@ class PairedDevice {
     final knownRemoteId =
         (row?['remote_id'] as String?) ?? prefs.getString(_kRemoteId);
     final sameDevice = knownRemoteId == remoteId;
+    if (onlyIfPaired && !sameDevice) return;
     // A forget that landed while the reads above were in flight wins: this
     // save is describing a band the user has just told us to drop.
     if (epoch != _forgetEpoch) return;
