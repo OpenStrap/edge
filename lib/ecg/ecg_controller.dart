@@ -545,23 +545,27 @@ class EcgController extends ChangeNotifier {
     _timer = null;
     var incomplete = false;
     _set(_state.copyWith(phase: EcgCapturePhase.cleaningUp, reason: reason));
-    final res = await transport.cleanup(lease);
-    final serial = _serial;
-    if (res.allSucceeded && serial != null) {
-      if (!await guard.clear(serial)) {
-        log('[ECG] guard clear was not acknowledged — retained.');
+    try {
+      final res = await transport.cleanup(lease);
+      final serial = _serial;
+      if (res.allSucceeded && serial != null) {
+        if (!await guard.clear(serial)) {
+          log('[ECG] guard clear was not acknowledged — retained.');
+          incomplete = true;
+        }
+      } else {
+        log('[ECG] cleanup incomplete ($res) — guard retained.');
         incomplete = true;
       }
-    } else {
-      log('[ECG] cleanup incomplete ($res) — guard retained.');
-      incomplete = true;
+      if (_screenHeld) {
+        _screenHeld = false;
+        await releaseScreen(screenOwner);
+      }
+    } finally {
+      // a throwing cleanup must still free the lease or begin() wedges.
+      transport.release(lease);
+      if (identical(_lease, lease)) _lease = null;
     }
-    if (_screenHeld) {
-      _screenHeld = false;
-      await releaseScreen(screenOwner);
-    }
-    transport.release(lease);
-    if (identical(_lease, lease)) _lease = null;
     _set(
       _state.copyWith(
         phase: phase,
