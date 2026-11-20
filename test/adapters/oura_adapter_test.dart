@@ -1044,6 +1044,33 @@ void main() {
         ['1000,$t0', null]);
   });
 
+  test('a persisted anchor does not stamp readings held before a ring start',
+      () async {
+    const t0 = 1782043215;
+    final (events, _) = await _drive(
+      OuraAdapter(
+        key: _kKey,
+        anchor: (1000, t0),
+        confirmTimeout: _kFast,
+        replyTimeout: _kFast,
+      ),
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first != 0x10) return const [];
+        final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+        if (cursor != 0) return [_summary(0, 0)];
+        return [
+          _event(kOuraEvtTempPeriod, 3050, _hex('6c0d')),
+          _event(kOuraEvtRingStart, 10, const [4, 0, 0, 0, 0x02]),
+          _summary(2, 0),
+        ];
+      },
+    );
+    expect(events.whereType<SampleBatch>().single.samples, isEmpty,
+        reason: 'persisted anchor boot is unknown, so nothing is stamped');
+  });
+
   test('spo2 on both sides of a ring start is stamped by its own boot',
       () async {
     const t0 = 1782043215;
