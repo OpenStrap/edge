@@ -143,7 +143,12 @@ class HealthData {
   Metric get stress => metricOf(today['stress']);
   Metric get resp => metricOf(today['resp']);
 
-  static Future<HealthData> load(LocalRepository repo) async {
+  // One decode of each day bundle per load, not one per getter (see
+  // LocalRepository.sharingDayReads).
+  static Future<HealthData> load(LocalRepository repo) =>
+      repo.sharingDayReads(() => _read(repo));
+
+  static Future<HealthData> _read(LocalRepository repo) async {
     final today = await repo.getToday();
     final cd = await repo.getInsights();
     final profile = await repo.getProfile();
@@ -260,7 +265,12 @@ class VitalsData {
     this.hrv = const {},
   });
 
-  static Future<VitalsData> load(LocalRepository repo, {String? want}) async {
+  // One decode of each day bundle per load, not one per getter (see
+  // LocalRepository.sharingDayReads).
+  static Future<VitalsData> load(LocalRepository repo, {String? want}) =>
+      repo.sharingDayReads(() => _read(repo, want));
+
+  static Future<VitalsData> _read(LocalRepository repo, String? want) async {
     final today = await repo.getToday();
     final days = await repo.availableDays();
     final day = pickDay(
