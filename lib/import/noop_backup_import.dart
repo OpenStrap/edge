@@ -240,6 +240,11 @@ class NoopBackupImporter {
     // to skip it had run.
     final columns = <String, List<String>>{};
     final ordered = <String, String>{};
+    // Every deviceId each table holds. NOOP keys its sample tables on
+    // (deviceId, ts), and a bare `ts` range cannot seek that key, so every day's
+    // page was a whole-table scan. `deviceId IN (all of them)` filters nothing
+    // (see trap 2 above) but turns each read into an index seek.
+    final ids = <String, List<Object>>{};
     for (final e in _kTableCols.entries) {
       if (!tables.contains(e.key)) continue;
       final have = await _columnNames(src, e.key);
@@ -250,6 +255,10 @@ class NoopBackupImporter {
       // `rowid` provides one for free on an ordinary table; a WITHOUT ROWID
       // table has none, so probe rather than assume.
       ordered[e.key] = await _hasRowid(src, e.key) ? 'ts, rowid' : 'ts';
+      if (have.contains('deviceId')) {
+        final d = await _deviceIds(src, e.key);
+        if (d != null) ids[e.key] = d;
+      }
     }
 
     // The spine has to be USABLE, not merely present. A `hrSample` with no
@@ -272,15 +281,12 @@ class NoopBackupImporter {
 
     // A backup exported by copying NOOP's live database file (rather than
     // through a proper backup API) can leave a scattered corrupt page
-    // anywhere in a table's own storage. None of these tables carry an index
-    // usable for a `ts` range that ALSO covers the other columns a read here
-    // selects (x/y/z, bpm, …), so every per-day read of an affected table
-    // scans the WHOLE table before it can emit a single row — the `ts`
-    // window narrows what's kept, not what's touched. That means one corrupt
-    // page anywhere in a table fails EVERY day's read of it identically, not
-    // just the day the bad page would chronologically belong to, so a table
-    // goes in here once and stays — there is no point re-running the same
-    // failing whole-table scan on every remaining day.
+    // anywhere in a table's own storage. A table read by `ts` alone (no usable
+    // deviceId, see `ids` above) is scanned WHOLE by every per-day read, so one
+    // corrupt page fails EVERY day's read of it identically. So a table goes in
+    // here once and stays — there is no point re-running the same failing scan
+    // on every remaining day. (A table read through its key only touches its
+    // own day's pages; it still stops at the first torn one.)
     //
     // Declared before the span probe (not just before the day walk below):
     // `_span`'s own whole-table MIN/MAX scan can hit the same SQLITE_CORRUPT a
@@ -315,48 +321,77 @@ class NoopBackupImporter {
       // (the `ts, rowid` order above). The DAYS must also arrive in ascending
       // order, since the high-water date is what closes out and derives the
       // previous one.
-      await _read(src, tables, columns, ordered, corrupt, 'hrSample', from, to,
-          (r) async {
+      await _read(src, tables, columns, ordered, ids, corrupt,
+          'hrSample', from, to, (r) async {
         final ts = _int(r['ts']), v = _int(r['bpm']);
         if (ts == null || v == null) return;
         if (await ingest.offer(ts)) ingest.hr(ts, v);
       });
-      await _read(src, tables, columns, ordered, corrupt, 'rrInterval', from,
-          to, (r) async {
+      await _read(src, tables, columns, ordered, ids, corrupt,
+          'rrInterval', from, to, (r) async {
         final ts = _int(r['ts']), v = _num(r['rrMs']);
         if (ts == null || v == null) return;
         if (await ingest.offer(ts)) ingest.rr(ts, v);
       });
-      await _read(src, tables, columns, ordered, corrupt, 'gravitySample',
-          from, to, (r) async {
+      await _read(src, tables, columns, ordered, ids, corrupt,
+          'gravitySample', from, to, (r) async {
         final ts = _int(r['ts']);
         if (ts == null) return;
         if (await ingest.offer(ts)) {
           ingest.gravity(ts, _num(r['x']), _num(r['y']), _num(r['z']));
         }
       });
-      await _read(src, tables, columns, ordered, corrupt, 'skinTempSample',
-          from, to, (r) async {
+      await _read(src, tables, columns, ordered, ids, corrupt,
+          'skinTempSample', from, to, (r) async {
         final ts = _int(r['ts']);
         if (ts == null) return;
         if (await ingest.offer(ts)) ingest.skinTemp(ts, _int(r['raw']));
       });
-      await _read(src, tables, columns, ordered, corrupt, 'spo2Sample', from,
-          to, (r) async {
+      await _read(src, tables, columns, ordered, ids, corrupt,
+          'spo2Sample', from, to, (r) async {
         final ts = _int(r['ts']);
         if (ts == null) return;
         if (await ingest.offer(ts)) {
           ingest.spo2(ts, _int(r['red']), _int(r['ir']));
         }
       });
-      await _read(src, tables, columns, ordered, corrupt, 'stepSample', from,
-          to, (r) async {
+      await _read(src, tables, columns, ordered, ids, corrupt,
+          'stepSample', from, to, (r) async {
         final ts = _int(r['ts']), v = _int(r['counter']);
         if (ts == null || v == null) return;
         if (await ingest.offer(ts)) ingest.stepCounter(ts, v);
       });
 
-      dayStart = next;
+      // Jump straight to the next local day holding a sample, so a gap between
+      // export spans (or one stray early row) is not walked an empty day at a
+      // time. Only when every live table can seek its key: without that, this
+      // probe would be one more whole-table scan per day.
+      var after = next;
+      final live = [for (final t in readable) if (!corrupt.contains(t)) t];
+      if (live.every(ids.containsKey)) {
+        num? lo;
+        for (final t in live) {
+          for (final d in ids[t]!) {
+            final List<Map<String, Object?>> r;
+            try {
+              r = await src.rawQuery(
+                  'SELECT ts FROM $t WHERE deviceId = ? AND ts >= ? '
+                  'ORDER BY ts LIMIT 1',
+                  [d, to]);
+            } catch (e) {
+              if (!_isCorruptPageError(e)) rethrow;
+              corrupt.add(t);
+              break;
+            }
+            final a = r.isEmpty ? null : _raw(r.first['ts']);
+            if (a != null && (lo == null || a < lo)) lo = a;
+          }
+        }
+        if (lo == null) break;
+        final d = _localMidnight(lo.floor());
+        if (d.isAfter(next)) after = d;
+      }
+      dayStart = after;
     }
 
     if (ingest.rows == 0) {
@@ -395,6 +430,7 @@ class NoopBackupImporter {
     Set<String> tables,
     Map<String, List<String>> columns,
     Map<String, String> ordered,
+    Map<String, List<Object>> ids,
     Set<String> corrupt,
     String table,
     int from,
@@ -410,6 +446,8 @@ class NoopBackupImporter {
     final usable = columns[table] ?? const <String>[];
     if (usable.length < cols.length) return;
     final orderBy = ordered[table] ?? 'ts';
+    final dev = ids[table];
+    final byDev = dev == null ? '' : '${_idIn(dev)} AND ';
 
     // `ts >= from` on the FIRST page, `ts > cursor` after. Not `ts > from - 1`:
     // that is only equivalent for integral timestamps, and against a fractional
@@ -425,8 +463,8 @@ class NoopBackupImporter {
         rows = await src.query(
           table,
           columns: cols,
-          where: firstPage ? 'ts >= ? AND ts < ?' : 'ts > ? AND ts < ?',
-          whereArgs: [cursor, to],
+          where: '$byDev${firstPage ? 'ts >= ?' : 'ts > ?'} AND ts < ?',
+          whereArgs: [...?dev, cursor, to],
           orderBy: orderBy,
           limit: kNoopBackupPageRows,
         );
@@ -469,8 +507,8 @@ class NoopBackupImporter {
             more = await src.query(
               table,
               columns: cols,
-              where: 'ts = ?',
-              whereArgs: [lastTs],
+              where: '${byDev}ts = ?',
+              whereArgs: [...?dev, lastTs],
               orderBy: orderBy,
               limit: kNoopBackupPageRows,
               offset: drained,
@@ -561,6 +599,29 @@ class NoopBackupImporter {
     }
     return (lo == null || hi == null) ? null : (lo, hi);
   }
+
+  /// Every distinct deviceId in [table], or null to read it by `ts` alone: a
+  /// NULL id cannot be matched by `IN`, and a long list is not worth binding.
+  static Future<List<Object>?> _deviceIds(Database src, String table) async {
+    final List<Map<String, Object?>> rows;
+    try {
+      rows = await src.rawQuery('SELECT DISTINCT deviceId FROM $table LIMIT 51');
+    } catch (e) {
+      if (!_isCorruptPageError(e)) rethrow;
+      return null; // [_read] finds the torn page and drops the table
+    }
+    if (rows.length > 50) return null;
+    final out = <Object>[];
+    for (final r in rows) {
+      final v = r['deviceId'];
+      if (v == null) return null;
+      out.add(v);
+    }
+    return out;
+  }
+
+  static String _idIn(List<Object> ids) =>
+      'deviceId IN (${List.filled(ids.length, '?').join(', ')})';
 
   /// Does [table] have an implicit `rowid`? False for a WITHOUT ROWID table,
   /// where selecting it is an error rather than an empty result.
