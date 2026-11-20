@@ -184,10 +184,12 @@ class PosterCard extends StatelessWidget {
               if (photo != null)
                 Image(
                   // Decode no bigger than the 3x export needs; a camera photo
-                  // decoded whole is 50-200 MB for a 300 pt card.
+                  // decoded whole is 50-200 MB for a 300 pt card. The box is
+                  // 16:9 wide so a landscape photo still keeps the full 3x
+                  // height that cover needs.
                   image: ResizeImage(photo!,
-                      width: (format.height * 3).round(),
-                      height: (format.height * 3).round(),
+                      width: (format.height * 3 * 16 / 9).round(),
+                      height: (format.height * 3 * 16 / 9).round(),
                       policy: ResizeImagePolicy.fit),
                   fit: BoxFit.cover,
                 )
@@ -798,7 +800,7 @@ class PosterMap extends CustomPainter implements GuidePlot {
       canvas.saveLayer(
         path.getBounds().inflate(glow * 3),
         Paint()
-          ..color = const Color(0x33000000)
+          ..color = C.n900.withValues(alpha: .2)
           ..imageFilter =
               ui.ImageFilter.blur(sigmaX: glow * .55, sigmaY: glow * .55),
       );
