@@ -29,6 +29,17 @@ void main() {
         ['c', 'd'],
       ]);
     });
+
+    test('lone CR line endings (old Mac CSV) split records too', () {
+      expect(parseCsv('a,b\rc,d\r'), [
+        ['a', 'b'],
+        ['c', 'd'],
+      ]);
+      expect(parseCsv('a,"x\ry"\rc,d'), [
+        ['a', 'x\ry'],
+        ['c', 'd'],
+      ]);
+    });
   });
 
   group('header', () {
