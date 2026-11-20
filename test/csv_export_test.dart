@@ -369,6 +369,18 @@ void main() {
       expect(failed.hasFailures, isTrue);
     });
 
+    test('a clock set back does not prune the run being written', () async {
+      // Earlier runs carry later stamps than this one, so a plain
+      // newest-first prune would delete the new directory before any write.
+      final daily = kCsvExportSets.firstWhere((s) => s.name == 'daily');
+      final result = await exportCsvFiles([daily], now: DateTime(2025, 1, 1));
+
+      expect(result.failed, isEmpty);
+      expect(File(result.paths.single).existsSync(), isTrue);
+      final parent = Directory(p.dirname(p.dirname(result.paths.single)));
+      expect(parent.listSync().whereType<Directory>(), hasLength(2));
+    });
+
     test('strength rows carry the exercise name, not just its key', () async {
       final db = await LocalDb.instance;
       for (final (seq, key) in [
