@@ -429,6 +429,18 @@ String? healthExportCursorBefore(String cursor, String date) {
   return dayLabelOf(DateTime(d.year, d.month, d.day - 1));
 }
 
+/// Drops the success stamps for [date] and every day after it, so an edit to
+/// a day sitting above the cursor (an older day still retrying) is written
+/// again instead of being skipped as already exported. Failure entries keep
+/// their backoff. True when anything was removed.
+bool dropHealthExportStampsFrom(Map<String, dynamic> retryState, String date) {
+  final before = retryState.length;
+  retryState.removeWhere(
+    (d, v) => d.compareTo(date) >= 0 && v is Map && v['ok_ms'] != null,
+  );
+  return retryState.length != before;
+}
+
 class HealthExportSingleFlight {
   Future<int>? _inFlight;
 
@@ -602,6 +614,10 @@ class HealthExporter {
         final next = healthExportCursorBefore(cursor, date);
         if (next != null) {
           await LocalDb.setCursor('health_export_through', next);
+        }
+        final retryState = await shared._loadRetryState();
+        if (dropHealthExportStampsFrom(retryState, date)) {
+          await LocalDb.setCursor(_kRetryCursor, jsonEncode(retryState));
         }
       });
     } catch (e) {
@@ -1262,11 +1278,6 @@ class HealthExporter {
             if (!finalized) prefixContiguous = false;
             continue;
           }
-          final bundle = await bundleFor(date);
-          if (bundle == null || bundle['skipped'] == true) {
-            if (!finalized) prefixContiguous = false;
-            continue;
-          }
 
           final entry = (retryState[date] as Map?)?.cast<String, dynamic>();
           var attempts = (entry?['attempts'] as num?)?.toInt() ?? 0;
@@ -1316,6 +1327,14 @@ class HealthExporter {
             // Not due for retry yet — don't hammer the health store on every
             // drain/derive pass; counts as "not done" for the cursor below.
           } else {
+            // Decoded only once the day is actually due: an already-exported
+            // or backing-off day would otherwise be decoded on the main
+            // isolate on every pass just to be thrown away.
+            final bundle = await bundleFor(date);
+            if (bundle == null || bundle['skipped'] == true) {
+              if (!finalized) prefixContiguous = false;
+              continue;
+            }
             _dayHeldForPurge = false;
             ok = await _exportDay(
               date,

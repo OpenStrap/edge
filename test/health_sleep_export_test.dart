@@ -1120,6 +1120,21 @@ void main() {
       expect(healthExportCursorBefore('2026-09-27', '2026-09-28'), isNull);
       expect(healthExportCursorBefore('', '2026-09-28'), isNull);
     });
+
+    test('a sleep edit above the cursor drops its already-exported stamp', () {
+      // 09-26 is still retrying, so the cursor sits behind 09-28; without
+      // this the edited 09-28 is skipped as already exported for good.
+      final state = <String, dynamic>{
+        '2026-09-26': {'attempts': 2, 'last_ms': 1, 'finalized': true},
+        '2026-09-27': {'ok_ms': 1, 'finalized': true},
+        '2026-09-28': {'ok_ms': 1, 'finalized': true},
+        '2026-09-29': {'ok_ms': 1},
+        '2026-09-30': {'attempts': 1, 'last_ms': 1, 'finalized': true},
+      };
+      expect(dropHealthExportStampsFrom(state, '2026-09-28'), isTrue);
+      expect(state.keys, ['2026-09-26', '2026-09-27', '2026-09-30']);
+      expect(dropHealthExportStampsFrom(state, '2026-09-28'), isFalse);
+    });
   });
 
   test('nightly scalars stay inside the day their delete covers', () {
