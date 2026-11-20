@@ -299,13 +299,19 @@ void main() {
     });
   });
 
-  test('nothing pending neither bumps nor retries', () {
+  test('nothing pending adds no completion bump and does not retry', () {
     fakeAsync((fa) {
       final coordinator = make();
-      coordinator.debugRefreshActivityReviews = (_) async => null;
-      unawaited(coordinator.refreshActivityReviews(retry: true));
+      var calls = 0;
+      coordinator.debugRefreshActivityReviews = (_) async {
+        calls++;
+        return null;
+      };
+      unawaited(coordinator.refreshActivityReviews());
       fa.flushMicrotasks();
-      expect(coordinator.insightsRevision.value, 0);
+      expect(calls, 1);
+      // Only the entry bump; no second one on completion.
+      expect(coordinator.insightsRevision.value, 1);
       expect(fa.pendingTimers, isEmpty);
       coordinator.dispose();
     });

@@ -234,6 +234,9 @@ class DeriveCoordinator {
       }
     } catch (e) {
       _log('[activity-review] refresh deferred: $e');
+      // The engine may have finished jobs before throwing; the retry then sees
+      // nothing pending and stays silent, so invalidate here.
+      bumpInsights();
     }
     // A long derive holds the engine; back off 2s → 30s instead of polling,
     // and stop after a few minutes so a rollup that keeps failing is left to
