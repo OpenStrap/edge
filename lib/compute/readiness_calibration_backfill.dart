@@ -219,7 +219,10 @@ Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
       // went through the calibrated mapping. The derive will not touch it
       // (its gate matches the version), so it is re-scored here, raw or not.
       row = await LocalDb.dayResult(day);
-      payload = row == null ? null : _decode(row['payload_json']);
+      // Cheap text test first: calibrated days (nearly all) skip the decode.
+      final raw0 = row?['payload_json'];
+      if (raw0 is! String || raw0.contains('"readiness_z"')) continue;
+      payload = _decode(raw0);
       final scalars = payload?['scalars'];
       if (scalars is! Map ||
           scalars['readiness'] is! num ||
