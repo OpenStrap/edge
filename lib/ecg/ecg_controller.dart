@@ -557,12 +557,20 @@ class EcgController extends ChangeNotifier {
         log('[ECG] cleanup incomplete ($res) — guard retained.');
         incomplete = true;
       }
-      if (_screenHeld) {
-        _screenHeld = false;
-        await releaseScreen(screenOwner);
-      }
+    } catch (e) {
+      // a throwing cleanup still ends in a terminal phase, guard retained.
+      log('[ECG] cleanup threw ($e) — guard retained.');
+      incomplete = true;
     } finally {
-      // a throwing cleanup must still free the lease or begin() wedges.
+      try {
+        if (_screenHeld) {
+          _screenHeld = false;
+          await releaseScreen(screenOwner);
+        }
+      } catch (e) {
+        log('[ECG] releaseScreen threw ($e).');
+      }
+      // the lease must always be freed or begin() wedges.
       transport.release(lease);
       if (identical(_lease, lease)) _lease = null;
     }
