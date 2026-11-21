@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -308,7 +309,7 @@ class PhonePedometer {
         // once up front, `now` went stale mid-loop and the current hour was
         // capped short — under-reporting today's most recent steps until some
         // later sync happened to re-read the day.
-        final now = DateTime.now();
+        final now = clock.now();
         final from = DateTime(dayStartLocal.year, dayStartLocal.month,
             dayStartLocal.day, h);
         if (!from.isBefore(nextMidnight)) break; // spring-forward short day
@@ -474,7 +475,7 @@ class PhonePedometer {
       if (!await hasPermission()) return (daysRead: 0, totalSteps: 0);
       if (!current()) return (daysRead: 0, totalSteps: 0);
     }
-    final now = DateTime.now();
+    final now = clock.now();
     var ok = 0;
     var total = 0;
     for (var d = 0; d < days && current(); d++) {

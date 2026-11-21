@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
@@ -411,11 +412,17 @@ void main() {
       if (call.method == 'stepsInInterval') return 5;
       return null;
     });
-    expect(await rig.app.syncPhoneSteps(days: 2), 2);
-    await rig.jobQueued('derive_heavy');
-    await rig.clearJobs();
-    expect(await rig.app.syncPhoneSteps(days: 2), 2);
-    await settleMs();
-    expect(await rig.jobTypes(), isEmpty);
+    // Pinned mid-hour: on the real clock an hour rollover between the two
+    // reads adds a window, which is a genuine change and queues a derive.
+    final r = DateTime.now();
+    final pinned = Clock.fixed(DateTime(r.year, r.month, r.day, r.hour, 30));
+    await withClock(pinned, () async {
+      expect(await rig.app.syncPhoneSteps(days: 2), 2);
+      await rig.jobQueued('derive_heavy');
+      await rig.clearJobs();
+      expect(await rig.app.syncPhoneSteps(days: 2), 2);
+      await settleMs();
+      expect(await rig.jobTypes(), isEmpty);
+    });
   }, paired: false));
 }
