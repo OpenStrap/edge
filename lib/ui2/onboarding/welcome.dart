@@ -619,8 +619,8 @@ Future<ImportOutcome> runImport(
 
   final errors = [
     ...fileErrors,
-    if (readError != null) readError,
-    if (cryptoError != null) cryptoError,
+    ?readError,
+    ?cryptoError,
   ];
   return ImportOutcome(
     source: sources.isEmpty
