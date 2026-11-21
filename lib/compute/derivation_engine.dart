@@ -1893,7 +1893,11 @@ import 'vendor_sleep.dart';
 // no window does, instead of the longest of the search window's sessions.
 // HrvFreqStream v2, CardioRowCache v3 and policy-bound PRSA states require cold
 // rebuilds of old checkpoints, isolated by this algorithm version.
-const int kAlgoVersion = 124;
+// 124 → 125 (no analytics change): the strain rescale restamped old bundles
+// at v124 with only strain rewritten, so they publish a readiness that never
+// went through the calibrated mapping. The one-shot readiness backfill
+// (re-keyed v125) re-scores them into v125 rows; v124 rows stay as written.
+const int kAlgoVersion = 125;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///

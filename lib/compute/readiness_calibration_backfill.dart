@@ -31,8 +31,11 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import '../data/db.dart';
 import 'derivation_engine.dart' show kAlgoVersion, rawRetentionDays;
 
-/// `compute_freshness` key marking the backfill as applied.
-const String kReadinessCalibrationKey = 'readiness_calibration_v112';
+/// `compute_freshness` key marking the backfill as applied. Re-keyed at v125
+/// so devices that finished the v112 pass also repair days the strain rescale
+/// restamped at v124 with an uncalibrated readiness: those rows are below the
+/// new version, so the rescore lands in a v125 row and no row is rewritten.
+const String kReadinessCalibrationKey = 'readiness_calibration_v125';
 
 /// The disclosed weight of each readiness input, read off the analytics
 /// constructors so this can never drift from what a derive uses.
