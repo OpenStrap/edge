@@ -2048,7 +2048,8 @@ void main() {
     expect(await acquireSecondaryLinkSlot(), isTrue);
     try {
       final sync = OuraLink.instance.sync();
-      await Future<void>.delayed(const Duration(milliseconds: 300));
+      // Generous: the sync must have captured ring A and parked first.
+      await Future<void>.delayed(const Duration(milliseconds: 1500));
       // What a re-pair to ring B does under the reused id.
       await LocalDb.upsertDevice(
         id: _deviceId,

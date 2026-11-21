@@ -556,24 +556,23 @@ class OuraLink {
       // the slot, so the next queued link could connect while this one was
       // still disconnecting — one more live GATT link than the cap allows.
       return await withSecondaryLinkSlot(() async {
-        // A forget or a "delete everything" that landed while this sync was
-        // parked on the slot has already stopped it (nulling `_deviceId`)
-        // and deleted the row. The ids captured above would otherwise still
-        // connect to the forgotten ring and bank its history.
-        if (_deviceId != deviceId || ResetGate.changedSince(_resetGen)) {
-          return false;
-        }
-        // A forget during the row or key read above found no `_deviceId` to
-        // stop, so it is seen here instead.
-        if (_forgets != forgets) return false;
-        // A re-pair that ran while this sync was parked keeps the same id but
-        // may be another ring: it swaps the remote id and key and resets the
-        // cursor and anchor. Draining with what was read above would reach
-        // the old ring and write its bookmark back over that reset. A forget during this read leaves no row, so it fails the check too.
+        // Everything read before parking can be stale: a re-pair of the same
+        // ring keeps the id and remote id but swaps the key and resets the
+        // cursor and anchor. Re-read all of it now, THEN check the forget and
+        // reset guards, so nothing that changed during these reads slips by.
         final current = await pairedRingRow();
-        if (current?['id'] != deviceId || current?['remote_id'] != remoteId) {
-          debugPrint('[oura] the ring was re-paired while this sync waited; '
-              'skipping it.');
+        final freshKey = await _readKey(deviceId);
+        await _loadAnchor(deviceId);
+        final freshCursor =
+            await LocalDb.getCursorInt(_cursorItem(deviceId)) ?? 0;
+        if (_deviceId != deviceId ||
+            ResetGate.changedSince(_resetGen) ||
+            _forgets != forgets ||
+            freshKey == null ||
+            current?['id'] != deviceId ||
+            current?['remote_id'] != remoteId) {
+          debugPrint('[oura] the ring was forgotten or re-paired while this '
+              'sync waited; skipping it.');
           return false;
         }
         try {
@@ -625,7 +624,7 @@ class OuraLink {
           // [_runSessionAndTeardown] so the exact production order is
           // testable without a radio.
           return await _runSessionAndTeardown(link, deviceId,
-              key: key, cursor: cursor);
+              key: freshKey, cursor: freshCursor);
         } finally {
           // Drop the link and DISCONNECT before the slot is released. Also
           // covers the EARLY returns above (adapter off, no characteristics),
