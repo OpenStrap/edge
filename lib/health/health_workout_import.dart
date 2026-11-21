@@ -405,8 +405,17 @@ class HealthWorkoutImporter {
           if (p.type == HealthDataType.WORKOUT) p.uuid,
       },
     );
+    // A route can still be filling in shortly after a workout ends (watch
+    // sync), so only older workouts count as final.
+    final settledBefore =
+        DateTime.now().millisecondsSinceEpoch ~/ 1000 - 6 * 3600;
     final withRoutes = await _importRoutes(start, end,
-        keep: {for (final r in alive) r.uuid}, prompt: prompt);
+        keep: {for (final r in alive) r.uuid},
+        settled: {
+          for (final r in alive)
+            if (r.endTs < settledBefore) r.uuid,
+        },
+        prompt: prompt);
     // Re-read: a workout scored or deleted while this pass was in flight, or
     // one an interrupted pass tombstoned without removing, must not stay
     // listed (or keep a route) beside the session that replaced it.
@@ -428,8 +437,19 @@ class HealthWorkoutImporter {
   /// async round trip, and 90 days of running is a lot of them to serialise
   /// across the channel one at a time.
   Future<int> _importRoutes(DateTime start, DateTime end,
-      {required Set<String> keep, bool prompt = false}) async {
+      {required Set<String> keep,
+      required Set<String> settled,
+      bool prompt = false}) async {
     if (!routesSupported) return 0;
+    // A settled workout's route is final, so one already stored is not
+    // fetched or rewritten again: the hourly auto pass would otherwise move
+    // and re-insert every point of the whole window each time.
+    final have = <String>{};
+    for (final u in settled) {
+      if (await LocalDb.sessionHasRoute(u)) have.add(u);
+    }
+    final want = keep.difference(have);
+    if (want.isEmpty) return have.length;
     List<Object?> payload;
     try {
       final res = await kHealthRoutesChannel.invokeMethod<List<Object?>>(
@@ -438,6 +458,7 @@ class HealthWorkoutImporter {
           'fromMs': start.millisecondsSinceEpoch,
           'toMs': end.millisecondsSinceEpoch,
           'prompt': prompt,
+          'skip': have.toList(),
         },
       );
       payload = res ?? const [];
@@ -445,10 +466,10 @@ class HealthWorkoutImporter {
       // A missing channel (a build without the Swift file) or a refused
       // HealthKit read must not lose the workouts already stored above.
       debugPrint('[imported_workout] routes: $e');
-      return 0;
+      return have.length;
     }
-    var n = 0;
-    for (final route in routesToStore(payload, keep)) {
+    var n = have.length;
+    for (final route in routesToStore(payload, want)) {
       await LocalDb.appendRoutePoints(route.key, route.value);
       n++;
     }

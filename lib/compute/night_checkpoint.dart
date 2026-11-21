@@ -32,8 +32,7 @@ Uint8List checkpointRevisions(Map<int, int> revisions, int from, int boundary) =
     ])));
 
 typedef NightCheckpointRead = ({NightRrState? night, Uint8List? cardio,
-  Map<String, Object?>? payload, String? rejection});
-typedef NightCheckpointWrite = ({Uint8List bytes, Map<String, Object?> payload});
+  String? rejection});
 
 /// Worker only. SHA-256 covers both sections and all SQL provenance. No section
 /// is returned unless every section and the complete revision vector validate.
@@ -85,15 +84,15 @@ NightCheckpointRead decodeNightCheckpoint(Map<String, Object?> row,
     if (outside) throw const FormatException('checkpoint cardio window');
     return (night: night,
       cardio: Uint8List.fromList(utf8.encode(jsonEncode(cardioJson))),
-      payload: payload, rejection: null);
+      rejection: null);
   } catch (e) {
-    return (night: null, cardio: null, payload: null,
+    return (night: null, cardio: null,
       rejection: 'checkpoint refused: ${e.runtimeType}');
   }
 }
 
 /// Worker only. Oversized or absent nights stay on the ordinary cold path.
-NightCheckpointWrite? encodeNightCheckpoint(NightRrState? night,
+Uint8List? encodeNightCheckpoint(NightRrState? night,
     List<Uint8List> chunks, String day, int algorithm, String context,
     int from, int boundary, Uint8List revisions) {
   final nightJson = night?.checkpoint(boundary);
@@ -109,7 +108,5 @@ NightCheckpointWrite? encodeNightCheckpoint(NightRrState? night,
   };
   final body = utf8.encode(jsonEncode(payload));
   if (body.length + 32 > maxNightCheckpointBytes) return null;
-  final bytes = Uint8List.fromList([...sha256.convert(body).bytes, ...body]);
-  return (bytes: bytes,
-    payload: (jsonDecode(utf8.decode(body)) as Map).cast<String, Object?>());
+  return Uint8List.fromList([...sha256.convert(body).bytes, ...body]);
 }

@@ -44,7 +44,7 @@ void main() {
 
     test('respects an explicit LIMIT', () {
       final out = CoachDb.guardAndPrepare('SELECT * FROM v_daily LIMIT 7');
-      expect(RegExp(r'limit\s+200', caseSensitive: false).hasMatch(out), isFalse);
+      expect(out, contains('LIMIT 7'));
     });
   });
 

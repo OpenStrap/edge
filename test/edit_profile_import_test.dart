@@ -96,4 +96,57 @@ void main() {
     expect(find.textContaining('Import from '), findsOneWidget);
     expect(find.textContaining('Refresh from '), findsNothing);
   });
+
+  testWidgets('an import that changes nothing keeps what was typed',
+      (t) async {
+    await pump(
+        t,
+        EditProfileView(
+          initial: _initial,
+          onSave: (_) async {},
+          onImport: () async =>
+              ('Nothing changed.', false, const <String, dynamic>{}),
+        ));
+    await t.enterText(find.widgetWithText(TextField, '72.4'), '80');
+    await t.enterText(find.widgetWithText(TextField, '34'), '40');
+    await t.tap(find.textContaining('Import from '));
+    await t.pumpAndSettle();
+    expect(find.widgetWithText(TextField, '80'), findsOneWidget);
+    expect(find.widgetWithText(TextField, '40'), findsOneWidget);
+  });
+
+  testWidgets('an import rewrites only the fields it changed', (t) async {
+    await pump(
+        t,
+        EditProfileView(
+          initial: _initial,
+          onSave: (_) async {},
+          onImport: () async => ('Updated height.', false, {'height_cm': 180.0}),
+        ));
+    await t.enterText(find.widgetWithText(TextField, '72.4'), '80');
+    await t.tap(find.textContaining('Import from '));
+    await t.pumpAndSettle();
+    expect(find.widgetWithText(TextField, '80'), findsOneWidget);
+    expect(find.widgetWithText(TextField, '180'), findsOneWidget);
+  });
+
+  testWidgets('a refused save says so, and a double tap saves once',
+      (t) async {
+    var calls = 0;
+    await pump(
+        t,
+        EditProfileView(
+          initial: _initial,
+          onSave: (_) async {
+            calls++;
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+            throw StateError('profile not saved');
+          },
+        ));
+    await t.tap(find.text('Save'));
+    await t.tap(find.text('Save'));
+    await t.pumpAndSettle();
+    expect(calls, 1);
+    expect(find.textContaining('profile not saved'), findsOneWidget);
+  });
 }

@@ -402,4 +402,20 @@ void main() {
     expect(await rig.app.syncPhoneSteps(days: 2), 2);
     await rig.jobQueued('derive_heavy');
   }, paired: false));
+
+  test('a re-read where no day total moved queues no derive',
+      syncCase((rig, timers) async {
+    rig.app.phoneStepsEnabled = true;
+    sensor((call) async {
+      if (call.method == 'authorized') return true;
+      if (call.method == 'stepsInInterval') return 5;
+      return null;
+    });
+    expect(await rig.app.syncPhoneSteps(days: 2), 2);
+    await rig.jobQueued('derive_heavy');
+    await rig.clearJobs();
+    expect(await rig.app.syncPhoneSteps(days: 2), 2);
+    await settleMs();
+    expect(await rig.jobTypes(), isEmpty);
+  }, paired: false));
 }

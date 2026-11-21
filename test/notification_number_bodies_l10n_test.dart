@@ -7,11 +7,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:openstrap_edge/ai/nightly_sweep.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/l10n/display_text.dart';
 import 'package:openstrap_edge/notify/battery_forecast.dart';
 import 'package:openstrap_edge/notify/notification_center.dart';
 import 'package:openstrap_edge/state/clock_format.dart';
+import 'package:openstrap_edge/sync/background_sync.dart' show staleSyncBody;
 import 'package:openstrap_edge/state/workout_controller.dart';
 
 void main() {
@@ -32,6 +34,11 @@ void main() {
         predictedEmptyAt: empty,
       );
 
+  String lookback(List<int> rhr) => NotificationCenter.weeklyLookbackFinding([
+        for (var i = 0; i < rhr.length; i++)
+          {'date': '2026-10-${12 + i}', 'rhr': rhr[i]},
+      ], today: '2026-10-18')!;
+
   // Built inside each test: the clock text reads the controller seeded in
   // setUp, which has not run yet when main() itself executes.
   Map<String, String> bodies() => {
@@ -49,6 +56,13 @@ void main() {
     ),
     'wind-down': NotificationCenter.windDownBody(1360.0),
     'idle workout': WorkoutController.idleNudgeBody(20),
+    'lookback flagged': NotificationCenter.weeklyLookbackFinding([
+      {'date': '2026-10-15', 'illness': true, 'anomaly': true},
+      {'date': '2026-10-16', 'illness': true, 'temp': true},
+    ], today: '2026-10-18')!,
+    'lookback rhr up': lookback([50, 51, 52, 53, 56, 57, 58]),
+    'lookback rhr down': lookback([58, 57, 56, 53, 50, 49, 48]),
+    'sync stale': staleSyncBody(7),
   };
 
   test('every numbered body is translated, in every shipped locale', () {
@@ -77,6 +91,13 @@ void main() {
         contains('20'));
     expect(localizedNotificationText(l('de'), bodies()['forecast after wake']!),
         contains('4,1'));
+    final flagged =
+        localizedNotificationText(l('de'), bodies()['lookback flagged']!);
+    expect(flagged, contains('Ruhepuls erhöht ×2'));
+    expect(flagged, contains('ungewöhnliche Werte ×1'));
+    expect(flagged, contains('erhöhte Hauttemperatur ×1'));
+    expect(localizedNotificationText(ru, bodies()['sync stale']!),
+        contains('7'));
   });
 
   test('English passes through untouched', () {
@@ -95,6 +116,25 @@ void main() {
         expect(localizedNotificationText(l(code), title), isNot(title),
             reason: '$code $title');
       }
+    }
+  });
+
+  test('the evening sweep body is translated, not left in English', () {
+    final headline = sweepHeadline(sweepFindings([
+      SweepSeries(
+        key: 'rhr',
+        label: 'resting heart rate',
+        unit: 'bpm',
+        today: 70,
+        history: [for (var i = 0; i < 30; i++) 55.0 + (i % 3) - 1],
+      ),
+    ]))!;
+    expect(localizedNotificationText(l('en'), headline), headline);
+    for (final code in ['de', 'es', 'fr', 'hi', 'ru', 'th', 'zh']) {
+      final out = localizedNotificationText(l(code), headline);
+      expect(out, isNot(headline), reason: code);
+      expect(out, isNot(contains('usual range')), reason: code);
+      expect(out, contains('70'), reason: code);
     }
   });
 }

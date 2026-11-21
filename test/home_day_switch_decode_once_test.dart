@@ -12,6 +12,7 @@ import 'package:openstrap_edge/compute/derivation_engine.dart' show kAlgoVersion
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
+import 'package:openstrap_edge/ui2/screens/health_screen.dart' show VitalsData;
 import 'package:openstrap_edge/ui2/screens/home_screen.dart' show HomeData;
 
 void main() {
@@ -157,6 +158,15 @@ void main() {
       expect(d.sleepStages, isNull);
       expect(d.sleepMin.value, 442);
     });
+  });
+
+  test('the vitals day switcher decodes its bundle once', () async {
+    final before = LocalRepositoryImpl.bundleDecodes;
+    final v = await VitalsData.load(repo, want: day);
+    expect(v.day, day);
+    // Today's row (from the test above) for the headline, and the stepped-onto
+    // day once for its four blocks. Unshared it was one per getter.
+    expect(LocalRepositoryImpl.bundleDecodes - before, 2);
   });
 }
 

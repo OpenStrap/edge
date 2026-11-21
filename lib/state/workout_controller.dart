@@ -1496,7 +1496,12 @@ class LiveWorkoutState {
     final maxHr = hrMax;
     // The re-score refuses to invent a 220/60 anchor pair, so neither does
     // this. A resting HR landing later re-scores the whole bout.
-    if (!profile.hasCalorieAnchors || rhr == null || maxHr == null) {
+    // No height, no figure: it moves the resting floor, and the re-score
+    // abstains without it rather than billing a stand-in body.
+    if (!profile.hasCalorieAnchors ||
+        profile.heightCm == null ||
+        rhr == null ||
+        maxHr == null) {
       _caloriesScored = false;
       calories = 0.0;
       return;
@@ -1525,9 +1530,8 @@ class LiveWorkoutState {
     final weightKg = profile.weightKg!;
     final coeffs = ana.Calories.resolveCoeffs(workoutSex(profile.sex));
     // Height is not a Keytel term; it only moves the Harris-Benedict resting
-    // floor. Defaulted to match `computeManualSessionStats`, so the two paths
-    // cannot disagree for a profile that carries no height.
-    final heightCm = profile.heightCm ?? 170.0;
+    // floor. Required above, same as `computeManualSessionStats`.
+    final heightCm = profile.heightCm!;
     final restingRate =
         ana.Calories.restingKcalPerS(coeffs, weightKg, heightCm, age);
 

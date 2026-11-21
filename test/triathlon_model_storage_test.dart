@@ -1306,6 +1306,28 @@ void main() {
       expect(segs[3].endTs, isNull);
       // The merged session is still a valid timeline: one open segment.
       expect(segs.where((s) => s.isOpen).length, 1);
+      // Finish the race: the boundary into the CLOSED final segment cannot be
+      // removed, or the finished race could never be finalized.
+      for (final (idx, ts) in [(2, 3100), (3, 3200)]) {
+        await TriathlonDb.transitionSegment(
+          db: db,
+          sessionId: 'tri_rmb_1',
+          currentIdx: idx,
+          transitionTs: ts,
+          boundarySource: 'gesture',
+        );
+      }
+      await TriathlonDb.finishSegment(
+        db: db,
+        sessionId: 'tri_rmb_1',
+        ts: 4000,
+        boundarySource: 'gesture',
+      );
+      await expectLater(
+        TriathlonDb.removeBoundary(db: db, sessionId: 'tri_rmb_1', idx: 3),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      await TriathlonDb.finalize(db, 'tri_rmb_1');
       await LocalDb.close();
     });
 
@@ -1391,6 +1413,32 @@ void main() {
         (await TriathlonDb.byId(db, 'tri_discarded_1'))!.segments[0].startTs,
         isNull,
       );
+      // No write may revive a discarded race, even one racing the discard.
+      await expectLater(
+        TriathlonDb.startSegment(
+          db: db,
+          sessionId: 'tri_discarded_1',
+          ts: 1_000_600,
+          boundarySource: 'gesture',
+        ),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      await expectLater(
+        TriathlonDb.updateSession(
+          db,
+          TriSession(
+            id: session.id,
+            kind: session.kind,
+            preset: session.preset,
+            status: 'active',
+            plan: plan,
+            createdAt: session.createdAt,
+            updatedAt: session.updatedAt,
+          ),
+        ),
+        throwsA(isA<TriathlonWriteError>()),
+      );
+      expect(await TriathlonDb.activeSession(db), isNull);
       await LocalDb.close();
     });
 

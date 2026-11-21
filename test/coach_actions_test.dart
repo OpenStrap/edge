@@ -106,6 +106,23 @@ void main() {
       expect(repo.wroteDay, isNull);
     });
 
+    test('a value past the field range is refused, not clamped', () async {
+      final repo = _FakeRepo();
+      await expectLater(
+        CoachActions.logJournalFields(repo, {
+          'fields': {'water_ml': 8000},
+        }),
+        throwsA(isA<CoachActionError>()),
+      );
+      await expectLater(
+        CoachActions.logJournalFields(repo, {
+          'fields': {'water_ml': -5},
+        }),
+        throwsA(isA<CoachActionError>()),
+      );
+      expect(repo.wroteDay, isNull);
+    });
+
     test('a time only rides along on a field that carries one', () async {
       final repo = _FakeRepo();
       await CoachActions.logJournalFields(repo, {

@@ -299,6 +299,24 @@ void main() {
     });
   });
 
+  test('nothing pending adds no completion bump and does not retry', () {
+    fakeAsync((fa) {
+      final coordinator = make();
+      var calls = 0;
+      coordinator.debugRefreshActivityReviews = (_) async {
+        calls++;
+        return null;
+      };
+      unawaited(coordinator.refreshActivityReviews());
+      fa.flushMicrotasks();
+      expect(calls, 1);
+      // Only the entry bump; no second one on completion.
+      expect(coordinator.insightsRevision.value, 1);
+      expect(fa.pendingTimers, isEmpty);
+      coordinator.dispose();
+    });
+  });
+
   test('a retry does not bump on entry, and a disposed host does nothing',
       () async {
     var hostDisposed = false;

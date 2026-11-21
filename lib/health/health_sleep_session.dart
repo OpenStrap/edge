@@ -310,7 +310,9 @@ HealthSleepStage? healthSleepStageOf(String? stage) {
 }
 
 abstract interface class HealthConnectSleepSessionWriter {
-  Future<bool> replace(HealthSleepSession session);
+  /// [previousWake] keeps the native cleanup off yesterday's night when it
+  /// woke after noon (see [sleepCleanupWindow]).
+  Future<bool> replace(HealthSleepSession session, {DateTime? previousWake});
 
   /// Delete our own SleepSessionRecords overlapping [start, end).
   Future<bool> clear(DateTime start, DateTime end);
@@ -326,8 +328,12 @@ class MethodChannelHealthConnectSleepSessionWriter
   Future<void> _pending = Future<void>.value();
 
   @override
-  Future<bool> replace(HealthSleepSession session) =>
-      _invoke('replaceSleepSession', session.toMap());
+  Future<bool> replace(HealthSleepSession session, {DateTime? previousWake}) =>
+      _invoke('replaceSleepSession', {
+        ...session.toMap(),
+        if (previousWake != null)
+          'previousWake': previousWake.millisecondsSinceEpoch,
+      });
 
   @override
   Future<bool> clear(DateTime start, DateTime end) =>
@@ -397,7 +403,7 @@ class HealthConnectSleepSessionExporter {
     // Health Connect handles a stage-less record and belongs in its own change,
     // verified on a device.
     if (session.stages.isEmpty) return true;
-    return writer.replace(session);
+    return writer.replace(session, previousWake: previousWake);
   }
 }
 

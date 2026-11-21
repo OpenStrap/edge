@@ -92,7 +92,9 @@ class HighFreqWakeWindow {
     DateTime? scheduledWindowEnd,
     int scheduledWindowMinutes = 0,
   }) async {
-    final rows = await LocalDb.recentDayResults(historyDays);
+    // day_id + window_json only: the wake minute is all this needs, and the
+    // full row drags ~88 KB of payload per day across the channel.
+    final rows = await LocalDb.sleepWindowRows(historyDays);
     return planFromRows(
       rows,
       now ?? DateTime.now(),
@@ -185,15 +187,16 @@ class HighFreqWakeWindow {
   }
 
   static int? _wakeMinuteOfDay(Map<String, dynamic> row) {
+    // window_json is stored as a bare SleepWindow map; a `value` envelope is
+    // still accepted. The payload is only decoded when the window misses.
     final win = _decodeMap(row['window_json']);
-    final payload = _decodeMap(row['payload_json']);
-    final winValue = _asMap(win['value']);
-    final sleep = _asMap(payload['sleep']);
-    final sleepWindow = _asMap(sleep['window']);
-    final sleepWindowValue = _asMap(sleepWindow['value']);
-    final offsetMs =
-        (winValue['offset_ms'] as num?)?.toInt() ??
-        (sleepWindowValue['offset_ms'] as num?)?.toInt();
+    final env = win['value'];
+    var offsetMs = ((env is Map ? env : win)['offset_ms'] as num?)?.toInt();
+    if (offsetMs == null && row['payload_json'] != null) {
+      final sleep = _asMap(_decodeMap(row['payload_json'])['sleep']);
+      final sleepWindow = _asMap(sleep['window']);
+      offsetMs = (_asMap(sleepWindow['value'])['offset_ms'] as num?)?.toInt();
+    }
     if (offsetMs == null || offsetMs <= 0) return null;
     final dt = DateTime.fromMillisecondsSinceEpoch(offsetMs);
     return dt.hour * 60 + dt.minute;
