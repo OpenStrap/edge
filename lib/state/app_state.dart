@@ -788,14 +788,30 @@ class AppState extends ChangeNotifier {
     final ImportSummary counts;
     try {
       counts = await LocalDb.importFromDbFile(path);
+    } catch (_) {
+      // Nothing committed to report: the caller's zero-count error path.
+      invalidateLiveStepCalibration();
+      await _loadAlarmSchedule();
+      if (isConnected) await _armNextAlarmOccurrence();
+      rethrow;
+    }
+    // Rows are committed from here on. A later failure must not discard the
+    // day count, so it is surfaced through importRollupError instead.
+    try {
       await _adoptRestoredSettings(counts);
       await LocalDb.refitAllLiveStepGains();
+    } catch (e) {
+      importRollupError = '$e';
     } finally {
       invalidateLiveStepCalibration();
       // Table rows can arrive without settings, including from older backups.
       // Reload even after a partial merge, then use normal arm/dedupe handling.
-      await _loadAlarmSchedule();
-      if (isConnected) await _armNextAlarmOccurrence();
+      try {
+        await _loadAlarmSchedule();
+        if (isConnected) await _armNextAlarmOccurrence();
+      } catch (e) {
+        importRollupError ??= '$e';
+      }
     }
     // An import can MERGE calibration rows (`live_step_calibration`) in from the
     // backup without this process knowing, and the cached fit is the only thing
@@ -821,7 +837,7 @@ class AppState extends ChangeNotifier {
       if (recTsHw != null && recTsHw > (_lastRecTs ?? 0)) _lastRecTs = recTsHw;
       _bandUntimedArchive = await LocalDb.hasGateDroppedArchive();
     } catch (e) {
-      importRollupError = '$e';
+      importRollupError ??= '$e';
     }
     bumpInsights(); // see importNoopCsv — imported rows have to reach the tabs
     notifyListeners();

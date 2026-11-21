@@ -438,7 +438,8 @@ class _DataScreenState extends State<DataScreen> {
         // Back out mid-decrypt and the next prompt has no screen to open on;
         // treat that as a cancel rather than a dialog thrown at a dead context.
         askPassphrase: () =>
-            mounted ? askBackupPassphrase(context) : Future.value(null));
+            mounted ? askBackupPassphrase(context) : Future.value(null),
+        l: l);
     if (mounted) setState(() => _outcome = outcome);
     return ('', false);
   }
