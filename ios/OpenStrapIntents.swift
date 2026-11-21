@@ -37,7 +37,7 @@ enum OpenStrapShared {
     guard defaults()?.bool(forKey: "has_data") ?? false else { return false }
     let at = defaults()?.object(forKey: "updated_at") as? Int ?? 0
     // An unknown timestamp is not a claim of staleness.
-    return at <= 0 || Date().timeIntervalSince1970 - Double(at) <= staleAfter
+    return at <= 0 || Date().timeIntervalSince1970 - Double(at) < staleAfter
   }
   static var readiness: Int { defaults()?.object(forKey: "readiness") as? Int ?? -1 }
   /// The phone's own band label, published as `readiness_band` (thresholds:
@@ -153,19 +153,18 @@ enum OpenStrapShared {
 
 @available(iOS 16.0, *)
 struct RecoveryIntent: AppIntent {
-  static var title: LocalizedStringResource = "Check Readiness"
-  static var description = IntentDescription("Ask OpenStrap for today's readiness.")
+  static var title: LocalizedStringResource = "Check Recovery"
+  static var description = IntentDescription("Ask OpenStrap for today's recovery.")
   static var openAppWhenRun = false
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
     guard OpenStrapShared.hasData, OpenStrapShared.readiness >= 0 else {
       return .result(dialog: IntentDialog(stringLiteral: OpenStrapShared.notReady(
-        ring: "recovery", noun: "Readiness", heldOver: true)))
+        ring: "recovery", noun: "Recovery", heldOver: true)))
     }
-    // "Readiness, out of 100" — the app's own name and unit. It is not a
-    // percentage and it is not called Recovery anywhere else in the product.
+    // "Recovery, out of 100": the app's own name and unit, not a percentage.
     let band = OpenStrapShared.readinessBand
-    let line = "Your readiness is \(OpenStrapShared.readiness) out of 100."
+    let line = "Your recovery is \(OpenStrapShared.readiness) out of 100."
     return .result(dialog: IntentDialog(
       stringLiteral: band.isEmpty ? line : "\(line) \(band)."))
   }
@@ -208,7 +207,7 @@ struct SleepIntent: AppIntent {
 struct GetNumbersIntent: AppIntent {
   static var title: LocalizedStringResource = "Get Today's Numbers"
   static var description = IntentDescription(
-    "Readiness, HRV, resting heart rate, sleep and strain from OpenStrap's latest sync, as JSON for your own Shortcuts. A number that isn't there is null.")
+    "Recovery, HRV, resting heart rate, sleep and strain from OpenStrap's latest sync, as JSON for your own Shortcuts. A number that isn't there is null.")
   static var openAppWhenRun = false
 
   func perform() async throws -> some IntentResult & ReturnsValue<String> {
@@ -344,12 +343,12 @@ struct OpenStrapShortcuts: AppShortcutsProvider {
     AppShortcut(
       intent: RecoveryIntent(),
       phrases: [
-        "\(.applicationName) readiness",
-        "What's my readiness in \(.applicationName)",
         "\(.applicationName) recovery",
         "How recovered am I in \(.applicationName)",
+        "\(.applicationName) readiness",
+        "What's my readiness in \(.applicationName)",
       ],
-      shortTitle: "Readiness",
+      shortTitle: "Recovery",
       systemImageName: "bolt.heart")
 
     AppShortcut(

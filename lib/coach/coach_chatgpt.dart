@@ -156,11 +156,9 @@ Map<String, dynamic> chatGptCompletedResponse(String sse) {
         final err = (event['response'] is Map ? event['response']['error'] : null) ??
             event['error'] ??
             event;
-        throw ChatGptException(chatGptErrorMessage(
-          null,
-          err is Map ? err['code']?.toString() : null,
-          err is Map ? err['message']?.toString() : null,
-        ));
+        throw ChatGptException(err is Map
+            ? _errFromMap(null, err)
+            : chatGptErrorMessage(null, null, null));
       case 'response.incomplete':
         throw ChatGptException('ChatGPT stopped before finishing the reply.');
     }
@@ -197,6 +195,22 @@ String chatGptErrorMessage(int? status, String? code, String? detail) {
   return status == null ? 'ChatGPT error: $what' : 'ChatGPT error ($status): $what';
 }
 
+/// Only the unsupported-capability case wants the offending param; everything
+/// else needs the explanatory message. Empty strings count as missing.
+String _errFromMap(int? status, Map e) {
+  final code = e['code']?.toString();
+  String? pick(Object? v) {
+    final t = v?.toString();
+    return t == null || t.isEmpty ? null : t;
+  }
+
+  final m = pick(e['message']), p = pick(e['param']);
+  final detail = code == 'subscription_sharing_unsupported_capability'
+      ? (p ?? m)
+      : (m ?? p);
+  return chatGptErrorMessage(status, code, detail);
+}
+
 /// [chatGptErrorMessage] for a non-200 body, which is either a Responses
 /// `{"error": {...}}` or an admission `{"detail": "..."}`.
 String chatGptHttpError(int status, String body) {
@@ -204,8 +218,7 @@ String chatGptHttpError(int status, String body) {
     final j = jsonDecode(body);
     final e = j is Map ? j['error'] : null;
     if (e is Map) {
-      return chatGptErrorMessage(
-          status, e['code']?.toString(), (e['param'] ?? e['message'])?.toString());
+      return _errFromMap(status, e);
     }
     if (j is Map && j['detail'] != null) {
       return chatGptErrorMessage(status, null, j['detail'].toString());

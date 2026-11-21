@@ -2687,7 +2687,15 @@ class AppState extends ChangeNotifier {
       } else if (ai.morningEnabled && minOfDay >= AiPrefs.morningFloorMin) {
         want = BriefingPeriod.morning;
       }
-      if (want == null || BriefingStore.read(want) != null) return;
+      if (want == null) return;
+      final cached = BriefingStore.read(want);
+      // A morning briefing cached while last night was still building is
+      // provisional: redo it once the night is ready.
+      if (cached != null &&
+          !(want == BriefingPeriod.morning &&
+              briefingIsProvisional(cached.inputs))) {
+        return;
+      }
       if (want == BriefingPeriod.morning) {
         // Don't opportunistically write (and permanently cache) a morning
         // briefing off a still-syncing/truncated overnight — e.g. the band
