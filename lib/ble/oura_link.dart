@@ -542,8 +542,6 @@ class OuraLink {
 
     _deviceId = deviceId;
     await _loadAnchor(deviceId);
-    final cursor = await LocalDb.getCursorInt(_cursorItem(deviceId)) ?? 0;
-
     try {
       // A cap on concurrent SECONDARY links (never the band's own connect —
       // see ble_state.dart's kMaxConcurrentSecondaryLinks doc). This offload
