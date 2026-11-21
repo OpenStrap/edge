@@ -463,14 +463,18 @@ class HealthWorkoutImporter {
     for (final u in settled) {
       if (await LocalDb.sessionHasRoute(u)) have.add(u);
     }
-    // Settled workouts already checked and found route-less. A user-started
-    // import (prompt) re-checks them: a route read granted since then would
-    // otherwise never be picked up.
+    // Settled workouts already checked and found route-less. Only a
+    // user-started import (prompt) records them, since an auto pass may read
+    // with an undecided route grant and see empty for every workout. A prompt
+    // also re-checks the window and clears its entries up front, so a failed
+    // call still leaves them retryable.
     final prefs = await SharedPreferences.getInstance();
-    final routeless = prompt
-        ? <String>[]
-        : (prefs.getStringList(_kRoutelessPref) ?? const <String>[]);
-    final skip = {...have, ...settled.intersection(routeless.toSet())};
+    var stored = prefs.getStringList(_kRoutelessPref) ?? const <String>[];
+    if (prompt && stored.any(keep.contains)) {
+      stored = stored.where((u) => !keep.contains(u)).toList();
+      await prefs.setStringList(_kRoutelessPref, stored);
+    }
+    final skip = {...have, ...settled.intersection(stored.toSet())};
     final want = keep.difference(skip);
     if (want.isEmpty) return have.length;
     List<Object?> payload;
@@ -491,10 +495,12 @@ class HealthWorkoutImporter {
       debugPrint('[imported_workout] routes: $e');
       return have.length;
     }
-    final fresh = routelessFrom(payload, settled);
-    if (prompt || fresh.isNotEmpty) {
+    final fresh = prompt ? routelessFrom(payload, settled) : <String>{};
+    if (fresh.isNotEmpty) {
+      // Re-read: another pass may have written while the channel call ran.
       // ponytail: capped list, not a table; an evicted uuid is just re-queried once.
-      final merged = {...routeless, ...fresh}.toList();
+      final cur = prefs.getStringList(_kRoutelessPref) ?? const <String>[];
+      final merged = {...cur, ...fresh}.toList();
       await prefs.setStringList(_kRoutelessPref,
           merged.length > 2000 ? merged.sublist(merged.length - 2000) : merged);
     }

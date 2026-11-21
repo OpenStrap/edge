@@ -149,12 +149,14 @@ enum HealthRouteBridge {
       let group = DispatchGroup()
       let queue = DispatchQueue(label: "openstrap.health.route.points")
       var all: [CLLocation] = []
+      var failed = false
       for route in routes {
         group.enter()
         // HKWorkoutRouteQuery streams in batches and calls back repeatedly
         // until `done`. Leaving the group on anything else double-counts the
         // route and the completion fires while points are still arriving.
-        let q = HKWorkoutRouteQuery(route: route) { _, locations, done, _ in
+        let q = HKWorkoutRouteQuery(route: route) { _, locations, done, err in
+          if err != nil { queue.async { failed = true } }
           if let locations = locations {
             queue.async { all.append(contentsOf: locations) }
           }
@@ -163,6 +165,11 @@ enum HealthRouteBridge {
         store.execute(q)
       }
       group.notify(queue: queue) {
+        // A failed point read must not look like "no route" (Dart remembers those).
+        if failed || all.isEmpty {
+          completion(nil)
+          return
+        }
         let sorted = all.sorted { $0.timestamp < $1.timestamp }
         var out: [[Any]] = []
         var lastKept: Date?
@@ -185,7 +192,7 @@ enum HealthRouteBridge {
             Int(loc.timestamp.timeIntervalSince1970 * 1000),
           ])
         }
-        completion(out)
+        completion(out.isEmpty ? nil : out)
       }
     }
     store.execute(routeQuery)
