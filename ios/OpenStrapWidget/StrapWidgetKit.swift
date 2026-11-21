@@ -181,7 +181,7 @@ enum SW {
   static func fresh(_ s: Snapshot, at date: Date) -> Bool {
     guard s.hasData, s.usable else { return false }
     guard s.updatedAt > 0 else { return true }
-    return date.timeIntervalSince1970 - Double(s.updatedAt) <= staleAfter
+    return date.timeIntervalSince1970 - Double(s.updatedAt) < staleAfter
   }
 
   /// The instant [s] stops being today's answer, or nil if it already is not.

@@ -40,11 +40,37 @@ enum LiveActivityBridge {
       guard #available(iOS 16.2, *) else { result(nil); return }
       let args = call.arguments as? [String: Any] ?? [:]
       switch call.method {
-      case "start":  Task { await start(args);  result(nil) }
-      case "update": Task { await update(args); result(nil) }
-      case "end":    Task { await end();        result(nil) }
+      case "start":  gen += 1; enqueue { await start(args);  result(nil) }
+      case "end":    gen += 1; enqueue { await end();        result(nil) }
+      case "update":
+        // Drop updates that a later update, start or end has overtaken, so a
+        // backlog never sits ahead of end() or leaks into the next session.
+        let g = gen
+        latestUpdate += 1
+        let n = latestUpdate
+        enqueue {
+          if g == gen && n == latestUpdate { await update(args) }
+          result(nil)
+        }
       default:       result(FlutterMethodNotImplemented)
       }
+    }
+  }
+
+  // start/update/end run strictly in arrival order. As independent Tasks an
+  // end() could land while start() was still awaiting a straggler's end, find
+  // nothing to end, and then start() created an activity nobody ever ended.
+  // The channel handler is always called on the main thread, so `tail` is only
+  // touched there.
+  private static var tail: Task<Void, Never>?
+  private static var gen = 0
+  private static var latestUpdate = 0
+
+  private static func enqueue(_ work: @escaping () async -> Void) {
+    let prev = tail
+    tail = Task {
+      await prev?.value
+      await work()
     }
   }
 
