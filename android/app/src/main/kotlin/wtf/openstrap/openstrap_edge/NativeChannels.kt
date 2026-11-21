@@ -52,8 +52,27 @@ object NativeChannels {
          */
         const val EVENT_ACTION_PREFIX = "wtf.openstrap.openstrap_edge."
 
-    @Volatile private var torchOn = false
+    // Real torch state per camera id, fed by a callback registered at startup
+    // (its initial state arrives async, so it must be in before the first tap).
+    private val torchStates = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private var torchCallbackRegistered = false
+
+    private fun registerTorchTracking(ctx: Context) {
+        if (torchCallbackRegistered) return
+        try {
+            val cm = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            cm.registerTorchCallback(object : CameraManager.TorchCallback() {
+                override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
+                    torchStates[cameraId] = enabled
+                }
+                override fun onTorchModeUnavailable(cameraId: String) {
+                    torchStates[cameraId] = false
+                }
+            }, ringHandler)
+            torchCallbackRegistered = true
+        } catch (_: Exception) {
+        }
+    }
 
     // "Ring my phone" (find-my-phone). The ringtone must be retained so it can be
     // stopped — without a held reference the default TYPE_RINGTONE loops until the
@@ -65,6 +84,7 @@ object NativeChannels {
 
     fun register(engine: FlutterEngine, context: Context) {
         val app = context.applicationContext
+        registerTorchTracking(app)
 
         BackupFolderBridge.register(engine, app)
         HealthConnectSleepWriter.register(engine, app)
@@ -566,22 +586,10 @@ object NativeChannels {
             cm.getCameraCharacteristics(it)
                 .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
         } ?: return
-        // Follow the real torch state: Quick Settings or another app taking the
-        // camera can switch it off behind our back, leaving torchOn stale.
-        if (!torchCallbackRegistered) {
-            cm.registerTorchCallback(object : CameraManager.TorchCallback() {
-                override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
-                    if (cameraId == camId) torchOn = enabled
-                }
-                override fun onTorchModeUnavailable(cameraId: String) {
-                    if (cameraId == camId) torchOn = false
-                }
-            }, ringHandler)
-            torchCallbackRegistered = true
-        }
-        val desired = !torchOn
+        registerTorchTracking(ctx) // no-op if already registered at startup
+        val desired = torchStates[camId] != true
         cm.setTorchMode(camId, desired)
-        torchOn = desired
+        torchStates[camId] = desired
     }
 
     @Suppress("DEPRECATION")
