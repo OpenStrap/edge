@@ -6,8 +6,9 @@
 // means the stored history was stamped local too, so it is kept local and
 // every stamp read as local: one record reads the same every session, as
 // the history is never deleted and is re-sent each time), read back the stored history
-// (ask how many records, have them sent only when there are some, and always
-// end with the stop command), then collect live readings until the scale
+// (only when the clock could be read and classified; ask how many records,
+// have them sent only when there are some, and end a started history session
+// with the stop command), then collect live readings until the scale
 // goes quiet. Live readings count only once STABILISED (the protocol decoder
 // drops the settling ones); stored records carry no live state and are kept
 // unless their stamp is implausible. Every notification is archived
@@ -113,6 +114,7 @@ class MiScaleAdapter extends BandAdapter {
       }),
     ];
     var utc = true;
+    var known = true;
     try {
       await _setUserMode(link);
       final local = await _clockWasLocal(link);
@@ -120,7 +122,10 @@ class MiScaleAdapter extends BandAdapter {
       // convention and shift every stored stamp. Leave the clock and the
       // history alone this session (the history is never deleted, so it
       // comes back next time); live weighings still count.
-      if (local == null) link.log('miscale: clock unread, history skipped');
+      if (local == null) {
+        known = false;
+        link.log('miscale: clock unread, history skipped');
+      }
       if (local != null) {
         utc = !local;
         final now = DateTime.fromMillisecondsSinceEpoch(nowSeconds() * 1000,
@@ -172,7 +177,11 @@ class MiScaleAdapter extends BandAdapter {
         // stamped at arrival it would be banked again every session.
         final at = history
             ? wallClockValid(r.at, nowSec, utc: utc)
-            : wallClockOr(r.at, atSec, nowSec, utc: utc);
+            : known
+                ? wallClockOr(r.at, atSec, nowSec, utc: utc)
+                // convention unknown: the scale's stamp could be either, so
+                // use the arrival time rather than guess it as UTC.
+                : DateTime.fromMillisecondsSinceEpoch(atSec * 1000);
         if (at == null) continue;
         final key = at.millisecondsSinceEpoch;
         weights.putIfAbsent(key, () => (at, r.kg));

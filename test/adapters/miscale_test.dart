@@ -101,7 +101,9 @@ void main() {
         reads: {kCurrentTimeChar: const []});
     expect(link.writes.where((w) => w.$1 == kCurrentTimeChar), isEmpty);
     expect(_historyWrites(link), isEmpty);
-    expect(rows.map((r) => (r.at, r.value)), [(at, 72.0)]);
+    // convention unknown: stamped at arrival, not the scale's own stamp
+    expect(rows.map((r) => (r.at.millisecondsSinceEpoch, r.value)),
+        [(_nowSec * 1000, 72.0)]);
   });
 
   test('mode 3 gets the user-mode command for that scale; another mode none',
