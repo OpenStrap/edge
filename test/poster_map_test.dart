@@ -292,6 +292,46 @@ void main() {
     // map that is not on the card would be its own small lie.
     expect(find.text(kOsmAttribution), findsNothing);
   });
+
+  test('a long pace-lit route blurs once, not once per segment', () {
+    final n = 2000;
+    final canvas = _CountingCanvas();
+    PosterMap(
+      mosaic: null,
+      fallback: [for (var i = 0; i < n; i++) Offset(i / n, (i % 7) / 7)],
+      pace: [for (var i = 0; i < n; i++) (i % 10) / 10],
+      line: C.routeFast,
+      casing: C.n900,
+      start: C.routeFast,
+      end: C.routeSlow,
+      overPhoto: false,
+    ).paint(canvas, const Size(300, 300));
+    expect(canvas.blurredDraws, 0);
+    expect(canvas.blurLayers, 1);
+    expect(canvas.draws, greaterThan(n));
+  });
+}
+
+class _CountingCanvas implements Canvas {
+  // Blurred per-segment lines; the pins' own soft shadow is not counted.
+  int draws = 0, blurredDraws = 0, blurLayers = 0;
+  @override
+  dynamic noSuchMethod(Invocation i) {
+    final name = i.memberName.toString();
+    if (name.contains('draw')) {
+      draws++;
+      if (i.memberName == #drawLine &&
+          (i.positionalArguments[2] as Paint).maskFilter != null) {
+        blurredDraws++;
+      }
+    }
+    if (i.memberName == #saveLayer &&
+        (i.positionalArguments[1] as Paint).imageFilter != null) {
+      blurLayers++;
+    }
+    if (name.contains('getSaveCount')) return 1;
+    return null;
+  }
 }
 
 final _run = ActivityResult(
