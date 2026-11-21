@@ -20,6 +20,7 @@ import 'package:provider/provider.dart';
 import '../../ai/briefing.dart';
 import '../../ai/briefing_engine.dart';
 import '../../coach/coach_config.dart';
+import '../../data/day_label.dart';
 import '../../coach/coach_engine.dart' show CoachException;
 import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
@@ -36,13 +37,21 @@ class AiBriefingScreen extends StatefulWidget {
 
 class _AiBriefingScreenState extends State<AiBriefingScreen> {
   Briefing? _b;
+  // The moment this screen is about: null (now) for the morning briefing,
+  // last night for an evening sweep opened before the evening window.
+  DateTime? _at;
   bool _busy = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _b = BriefingStore.read(widget.period);
+    if (widget.period == BriefingPeriod.evening) {
+      _at = eveningSweepMoment(DateTime.now());
+    }
+    final at = _at;
+    _b = BriefingStore.read(widget.period,
+        day: at == null ? null : todayLabel(at));
   }
 
   Future<void> _generate() async {
@@ -56,7 +65,7 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
       final b = await BriefingEngine(
         config: context.read<CoachConfig>(),
         repo: repo,
-      ).generate(widget.period);
+      ).generate(widget.period, now: _at);
       if (mounted) setState(() => _b = b);
     } catch (e) {
       if (mounted) {

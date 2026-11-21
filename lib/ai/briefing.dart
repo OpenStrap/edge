@@ -32,6 +32,17 @@ extension BriefingPeriodLabel on BriefingPeriod {
 BriefingPeriod currentBriefingPeriod(DateTime now) =>
     now.hour >= 17 ? BriefingPeriod.evening : BriefingPeriod.morning;
 
+/// The moment an evening sweep opened at [now] is about. Before the evening
+/// window it is still last night's sweep (its notification tapped next
+/// morning, or just after midnight), so it reads and regenerates YESTERDAY.
+/// Sweeping today instead would report on a day that has barely started and
+/// fill tonight's slot, which then blocks tonight's real sweep.
+DateTime eveningSweepMoment(DateTime now) =>
+    currentBriefingPeriod(now) == BriefingPeriod.evening
+        ? now
+        : DateTime(now.year, now.month, now.day)
+            .subtract(const Duration(seconds: 1));
+
 class Briefing {
   /// Local day label (YYYY-MM-DD) the briefing belongs to.
   final String day;
