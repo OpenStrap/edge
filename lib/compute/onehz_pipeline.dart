@@ -2761,7 +2761,12 @@ HmmRestageResult? _hmmRestage(DayBundleInput d) {
     while (j < merged.length && merged[j] == 'wake') {
       j++;
     }
-    if (j - i < minWakeRunSec) {
+    // Seconds the decoder abstained on keep their shipped label untouched.
+    var decodedRun = true;
+    for (var k = i; k < j; k++) {
+      if (labels[k] == null) decodedRun = false;
+    }
+    if (decodedRun && j - i < minWakeRunSec) {
       final surrounding = i > 0 ? merged[i - 1] : 'light';
       for (var k = i; k < j; k++) {
         merged[k] = surrounding == 'unobserved' ? 'light' : surrounding;

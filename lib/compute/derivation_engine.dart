@@ -6908,11 +6908,15 @@ class DerivationEngine {
       sleepEnmo: [
         for (var i = 0; i < sleepSub.tsSec.length; i++)
           sleepSub.accelPresentAt(i)
-              ? math.sqrt(
-                  sleepSub.ax[i] * sleepSub.ax[i] +
-                      sleepSub.ay[i] * sleepSub.ay[i] +
-                      sleepSub.az[i] * sleepSub.az[i],
-                ) - 1.0
+              ? math.max(
+                  0.0,
+                  math.sqrt(
+                        sleepSub.ax[i] * sleepSub.ax[i] +
+                            sleepSub.ay[i] * sleepSub.ay[i] +
+                            sleepSub.az[i] * sleepSub.az[i],
+                      ) -
+                      1.0,
+                )
               : -1.0, // absent sentinel (CodeRabbit #756): measured zero motion is >= 0
       ],
       sleepJson: day.sleepJson,
