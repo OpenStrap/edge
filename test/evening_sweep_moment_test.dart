@@ -32,4 +32,10 @@ void main() {
     final at = eveningSweepMoment(DateTime(2026, 12, 1, 8));
     expect(todayLabel(at), '2026-11-30');
   });
+
+  test('early resolved slot passed: about today even before 17:00', () {
+    final now = DateTime(2026, 11, 21, 15, 5);
+    expect(eveningSweepMoment(now, eveningMin: 15 * 60), now);
+    expect(todayLabel(eveningSweepMoment(now)), '2026-11-20');
+  });
 }

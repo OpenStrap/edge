@@ -20,6 +20,7 @@ import 'package:provider/provider.dart';
 import '../../ai/briefing.dart';
 import '../../ai/briefing_engine.dart';
 import '../../coach/coach_config.dart';
+import '../../state/app_state.dart';
 import '../../data/day_label.dart';
 import '../../coach/coach_engine.dart' show CoachException;
 import '../../l10n/app_localizations.dart';
@@ -50,6 +51,28 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
     final at = _at;
     _b = BriefingStore.read(widget.period,
         day: at == null ? null : todayLabel(at));
+    if (widget.period == BriefingPeriod.evening) _resolveSlot();
+  }
+
+  // Refine with the user's real (possibly pre-17:00) slot once it is known.
+  Future<void> _resolveSlot() async {
+    final at = await _sweepAtResolved();
+    if (!mounted || at == null) return;
+    setState(() {
+      _at = at;
+      _b = BriefingStore.read(widget.period, day: todayLabel(at));
+    });
+  }
+
+  Future<DateTime?> _sweepAtResolved() async {
+    if (widget.period != BriefingPeriod.evening) return null;
+    int? slot;
+    try {
+      slot = await context.read<AppState>().eveningSlotMin();
+    } catch (_) {}
+    return eveningSweepMoment(DateTime.now(),
+        todayCached: BriefingStore.read(BriefingPeriod.evening) != null,
+        eveningMin: slot ?? 17 * 60);
   }
 
   // Re-resolved on every generate, so a screen left open past the evening
@@ -60,7 +83,8 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
       : null;
 
   Future<void> _generate() async {
-    _at = _sweepAt();
+    _at = await _sweepAtResolved();
+    if (!mounted) return;
     final repo = repoOf(context);
     if (repo == null) return;
     setState(() {
@@ -71,7 +95,7 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
       final b = await BriefingEngine(
         config: context.read<CoachConfig>(),
         repo: repo,
-      ).generate(widget.period, now: _at);
+      ).generate(widget.period, now: _at, wallNow: DateTime.now());
       if (mounted) setState(() => _b = b);
     } catch (e) {
       if (mounted) {
