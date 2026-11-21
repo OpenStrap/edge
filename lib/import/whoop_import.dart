@@ -50,12 +50,18 @@ class _Row {
   /// The header name that matched (lower-cased), or '' if none did.
   String header(List<String> names) => _pick(names).$1;
 
+  // First listed column with a non-blank cell; a blank cell falls through to
+  // the next alias. All blank -> the first column that exists, empty value.
   (String, String) _pick(List<String> names) {
+    String? first;
     for (final n in names) {
       final i = col[n];
-      if (i != null && i < f.length) return (n, f[i].trim());
+      if (i == null || i >= f.length) continue;
+      final v = f[i].trim();
+      if (v.isNotEmpty) return (n, v);
+      first ??= n;
     }
-    return ('', '');
+    return (first ?? '', '');
   }
 }
 
@@ -264,11 +270,20 @@ class WhoopImporter {
     // the night that ended that morning. A nap is not the day's sleep.
     if (get(['nap']).toLowerCase() == 'true') return null;
     final zone = get(_zoneCols);
-    final wakeTs = parseExportTs(
-        get(['wake onset', 'sleep onset', 'cycle start time']), zone: zone);
+    final wakeTs = parseExportTs(get(['wake onset']), zone: zone);
+    // No wake onset (a cycle with no scored sleep): the cycle starts at the
+    // PREVIOUS evening's sleep onset, so its start date is the day before the
+    // one it describes and would overwrite that day. Anchor on the middle of
+    // the cycle instead (start + 12 h when the export has no end yet).
     final cycleStart =
         parseExportTs(get(['cycle start time', 'sleep onset']), zone: zone);
-    final anchor = wakeTs ?? cycleStart;
+    final cycleEnd = parseExportTs(get(['cycle end time']), zone: zone);
+    final cycleMid = cycleStart == null
+        ? null
+        : cycleEnd != null && cycleEnd > cycleStart
+            ? (cycleStart + cycleEnd) ~/ 2
+            : cycleStart + 12 * 3600;
+    final anchor = wakeTs ?? cycleMid;
     if (anchor == null) return null;
     // File the day under the date the user lived it in the export's own zone,
     // not under whatever zone the phone is in at import time: a night slept in

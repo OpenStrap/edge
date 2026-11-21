@@ -568,10 +568,57 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
     final layer = _layerKey.currentContext?.findRenderObject();
     final page = _page;
     if (layer is! RenderBox || page == null) return const [];
-    return [for (final e in onstageElements(page))
-      if (e.widget is GuideNavigationHeader || isGuideChromeWidget(e.widget))
+    final headers = (_walk ?? _walkPage(page)).headers;
+    return [for (final e in headers)
+      if (e.mounted)
         if (laidOutBox(e) case final RenderBox box)
           rectInRoot(box, layer).intersect(visibleBoundsInRoot(box, layer))];
+  }
+
+  /// Which page elements the holes and the ink come from. The page's elements only
+  /// change through a build, so pulse repaints and hover hit-tests reuse one walk
+  /// until the next build has run; every rect is still read from the live transform.
+  ({List<Element> headers, List<Element> components, List<RenderParagraph> paragraphs})? _walk;
+  int _pageWalks = 0;
+  @visibleForTesting
+  int get pageWalks => _pageWalks;
+  ({List<Element> headers, List<Element> components, List<RenderParagraph> paragraphs}) _walkPage(Element page) {
+    _pageWalks++;
+    final headers = <Element>[], components = <Element>[], paragraphs = <RenderParagraph>[];
+    for (final e in onstageElements(page)) {
+      if (e.widget is GuideNavigationHeader || isGuideChromeWidget(e.widget)) headers.add(e);
+    }
+    void visit(Element element) {
+      // Chrome never carries ink, whenever it was built (the plan may not have seen it yet).
+      if (isGuideChromeWidget(element.widget)) return;
+      if (_paintsItself(element.widget) || isGuideControl(element.widget)) {
+        components.add(element);
+        return;
+      }
+      final object = element is RenderObjectElement ? element.renderObject : null;
+      if (object is RenderParagraph && object.attached && object.hasSize) {
+        paragraphs.add(object);
+        return;
+      }
+      element.debugVisitOnstageChildren(visit);
+    }
+    visit(page);
+    final walk = (headers: headers, components: components, paragraphs: paragraphs);
+    if (!_walkHeld) _walk = walk;
+    return walk;
+  }
+
+  bool _walkHeld = false;
+  void _buildScheduled() {
+    _walk = null;
+    if (_walkHeld) return;
+    _walkHeld = true; // Not reused until the frame that runs the build has ended.
+    // A build scheduled during layout or paint runs in the next frame, so hold across two.
+    final scheduler = SchedulerBinding.instance;
+    scheduler.addPostFrameCallback((_) {
+      scheduler.addPostFrameCallback((_) { _walkHeld = false; _walk = null; });
+      scheduler.scheduleFrame();
+    });
   }
 
   @override
@@ -600,26 +647,16 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
       if (!visible.isEmpty) ink.add(visible);
     }
 
-    void visit(Element element) {
-      // Chrome never carries ink, whenever it was built (the plan may not have seen it yet).
-      if (isGuideChromeWidget(element.widget)) return;
+    final walk = _walk ?? _walkPage(page);
+    for (final element in walk.components) {
+      if (!element.mounted) continue;
       final box = laidOutBox(element);
-      if (_paintsItself(element.widget) || isGuideControl(element.widget)) {
-        if (box != null && looks.lookOf(element) == GuideUnitLook.skeleton) {
-          add(box);
-        }
-        return;
-      }
-      final object = element is RenderObjectElement ? element.renderObject : null;
-      if (object is RenderParagraph && object.attached && object.hasSize) {
-        if (looks.looseLookOf(object) == GuideUnitLook.skeleton) {
-          add(object);
-        }
-        return;
-      }
-      element.debugVisitOnstageChildren(visit);
+      if (box != null && looks.lookOf(element) == GuideUnitLook.skeleton) add(box);
     }
-    visit(page);
+    for (final object in walk.paragraphs) {
+      if (!object.attached || !object.hasSize) continue;
+      if (looks.looseLookOf(object) == GuideUnitLook.skeleton) add(object);
+    }
     // Loose visuals have no component foreground; their plan still owns the look.
     for (final unit in _skeletonPlan?.units ?? const <PlannedUnit>[]) {
       final box = unit.visual;
@@ -753,6 +790,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
   void initState() {
     super.initState();
     GuideBuildChanges.addListener(_markDirty);
+    GuideBuildChanges.addListener(_buildScheduled);
     _pulse = AnimationController(vsync: this, duration: kGuidePulseDuration)..addListener(_pulsed);
     _reveal = AnimationController(vsync: this, duration: kGuideRevealDuration)..addListener(_changed);
     widget.run.addListener(_changed);
@@ -1143,6 +1181,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
       _planDirty = true;
     }
     if (_ownedMotionFrame(page, layer.size)) return;
+    _walk = null; // The page is read again: so are its holes and ink.
     // One traversal replaces repeated anchor, target, chrome, legibility and
     // skeleton walks on idle/reveal frames. Widget identity catches replacement
     // structure (including same-text controls). Transforms catch controls moving
@@ -1604,6 +1643,7 @@ class LiveGuideOverlayState extends State<LiveGuideOverlay> with TickerProviderS
   @override
   void dispose() {
     GuideBuildChanges.removeListener(_markDirty);
+    GuideBuildChanges.removeListener(_buildScheduled);
     _dim?.discoverFor(this, false);
     _unpublish();
     _dropPageDrag();

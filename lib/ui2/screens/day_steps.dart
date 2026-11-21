@@ -264,6 +264,9 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
   // A quick second tap on the day stepper starts a second load; the first
   // can finish last and must not paint the old day under the new label.
   int _loadToken = 0;
+  // The last read threw. The old day's numbers must not stay up under the
+  // new day's label, and a first read that failed is not an empty day.
+  bool _failed = false;
 
   @override
   void initState() {
@@ -290,10 +293,12 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
           bandHasNoCounter: pairedBandHasNoCounter(context),
           want: _day);
       if (mounted && token == _loadToken) {
-        setState(() => (_d = d, _loading = false));
+        setState(() => (_d = d, _loading = false, _failed = false));
       }
     } catch (_) {
-      if (mounted && token == _loadToken) setState(() => _loading = false);
+      if (mounted && token == _loadToken) {
+        setState(() => (_loading = false, _failed = true));
+      }
     }
   }
 
@@ -301,6 +306,7 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
     setState(() {
       _day = day;
       _loading = true;
+      _failed = false;
     });
     _load();
   }
@@ -315,9 +321,26 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
     return detailScaffold(c, l?.dayStepsTitle ?? 'Steps',
         sub: d.days.length < 2 ? dayNavLabel(d.day).toUpperCase() : '', [
       ...dayNavRow(_day ?? d.day, d.days, _goDay),
-      if (_loading && _d == null) ...[
+      if (_loading) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
+      ] else if (_failed) ...[
+        const SizedBox(height: S.x2),
+        StatusCard(
+          (_day ?? d.day) == null
+              ? (l?.wellnessLoadFailedTitle ?? 'This could not be read')
+              : (l?.homeDayLoadFailedTitle(prettyDay(_day ?? d.day, l)) ??
+                  '${prettyDay(_day ?? d.day, l)} could not be read'),
+          l?.homeLoadFailedBody ??
+              'The stored day failed to load. Nothing was deleted — this is a '
+                  'read that went wrong, not missing data.',
+          fix: l?.homeTryAgain ?? 'Try again',
+          icon: LucideIcons.databaseZap,
+          onFix: () {
+            setState(() => (_loading = true, _failed = false));
+            _load();
+          },
+        ),
       ] else if (d.spans.isEmpty)
         _absent(c, d)
       else ...[

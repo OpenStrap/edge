@@ -2782,4 +2782,81 @@ void main() {
       }
     }
   });
+
+  group('ble_engine accounting fixes', () {
+    test('requestHistorySync still requests history when the ledger write '
+        'fails', () async {
+      final r = _Rig();
+      // The test host has no database, so the ledger write throws.
+      await r.engine.requestHistorySync();
+      await pumpEventQueue();
+      expect(r.drainRequests, isNotEmpty);
+    });
+
+    test('a gen4 surplus burst is not a mismatch', () async {
+      final r = _Rig(band: BandProfile.gen4);
+      r.claim();
+      r.rx(_historyStart());
+      for (var i = 0; i < 3; i++) {
+        r.rx(_gen4V24Inner(ts: ts + i, counter: 3000 + i));
+      }
+      r.rx(_historyEnd(expected: 1, token: 0xF000));
+      await pumpEventQueue();
+      expect(r.successResults, hasLength(1));
+      expect(r.engine.offloadSnapshot['burst_mismatch_total'], 0);
+      expect(r.logs.where((l) => l.contains('ADVISORY, gen4')), isEmpty);
+    });
+
+    test('a burst whose commit fails is not counted as successful', () async {
+      final r = _Rig()..claim();
+      r.failCommits = 1;
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 3100));
+      r.rx(_historyEnd(expected: 1, token: 0xF100));
+      await pumpEventQueue();
+      expect(r.successResults, isEmpty);
+      expect(r.engine.offloadSnapshot['successful_bursts'], 0);
+    });
+
+    test('a burst whose ACK fails is not counted as successful', () async {
+      final r = _Rig()
+        ..claim()
+        ..failSuccessResults = true;
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 3200));
+      r.rx(_historyEnd(expected: 1, token: 0xF200));
+      await pumpEventQueue();
+      expect(r.engine.offloadSnapshot['successful_bursts'], 0);
+    });
+
+    test('an acked burst is counted once', () async {
+      final r = _Rig()..claim();
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 3300));
+      r.rx(_historyEnd(expected: 1, token: 0xF300));
+      await pumpEventQueue();
+      expect(r.successResults, hasLength(1));
+      expect(r.engine.offloadSnapshot['successful_bursts'], 1);
+    });
+
+    test('a failed foreign size bank is not retried on every frame', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.failCommits = 1 << 20;
+        r.rx(_historyStart());
+        async.elapse(Duration.zero);
+        for (var i = 0; i < 400; i++) {
+          r.rx(_gen5V18Inner(ts: ts + i, counter: 3400 + i));
+          async.elapse(Duration.zero);
+        }
+        final failed =
+            r.logs.where((l) => l.contains('not banked (threshold)')).length;
+        expect(failed, 1);
+        // The store recovers: the quiet timer banks everything.
+        r.failCommits = 0;
+        async.elapse(const Duration(seconds: 6));
+        expect(r.engine.offloadSnapshot['foreign_records_banked'], 400);
+      });
+    });
+  });
 }

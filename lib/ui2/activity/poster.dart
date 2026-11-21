@@ -182,7 +182,18 @@ class PosterCard extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               if (photo != null)
-                Image(image: photo!, fit: BoxFit.cover)
+                Image(
+                  // Decode no bigger than the 3x export needs; a camera photo
+                  // decoded whole is 50-200 MB for a 300 pt card. The box is
+                  // 16:9 wide so a landscape photo still keeps the full 3x
+                  // height that cover needs.
+                  image: ResizeImage(photo!,
+                      width: (format.height * 3 * 16 / 9).round(),
+                      height: (format.height * 3 * 16 / 9).round(),
+                      policy: ResizeImagePolicy.fit),
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                )
               else
                 DecoratedBox(
                   decoration: BoxDecoration(
@@ -617,7 +628,9 @@ class PosterStatRow extends StatelessWidget {
 /// duration whose last word is not a unit of anything, and splitting it would
 /// print '1h' in the value slot.
 (String, String?) splitStatUnit(String s) {
-  final m = RegExp(r'^(.+?)\s+([a-zA-Z/][a-zA-Z/]*)$').firstMatch(s.trim());
+  // No letters in the value: '24 bpm in 60 s' is not '24 bpm in 60' + 's'.
+  final m = RegExp(r'^([^a-zA-Z]+?)\s+([a-zA-Z/][a-zA-Z/]*)$')
+      .firstMatch(s.trim());
   return m == null ? (s, null) : (m.group(1)!, m.group(2)!);
 }
 
@@ -782,14 +795,24 @@ class PosterMap extends CustomPainter implements GuidePlot {
       ..strokeWidth = glow
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, glow * .55)
       ..isAntiAlias = true;
     if (lit) {
+      // One blur for the whole ramp: the segments go into a layer sharp, and
+      // the layer is blurred and faded once. A blur per segment was thousands
+      // of blur passes per paint on a long route.
+      canvas.saveLayer(
+        path.getBounds().inflate(glow * 3),
+        Paint()
+          ..color = C.n900.withValues(alpha: .2)
+          ..imageFilter =
+              ui.ImageFilter.blur(sigmaX: glow * .55, sigmaY: glow * .55),
+      );
       for (var i = 1; i < pts.length; i++) {
-        canvas.drawLine(
-            pts[i - 1], pts[i], halo..color = at(i).withValues(alpha: .20));
+        canvas.drawLine(pts[i - 1], pts[i], halo..color = at(i));
       }
+      canvas.restore();
     } else {
+      halo.maskFilter = MaskFilter.blur(BlurStyle.normal, glow * .55);
       canvas.drawPath(path, halo..color = line.withValues(alpha: .20));
     }
 

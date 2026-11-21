@@ -25,6 +25,7 @@ import '../../l10n/display_text.dart';
 
 import 'package:flutter/material.dart';
 
+import '../../data/day_label.dart' show calendarDaysBetween;
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../ui2.dart';
@@ -92,11 +93,22 @@ List<Side?> sideCells(List<double?> window, UsualRange? band) => [
       for (final v in window) band == null || v == null ? null : band.side(v),
     ];
 
-/// Build one domain's row from its stored points.
-GridRow gridRow(String key, List<ChartPoint> points) {
-  final anchor = DateTime.now();
-  final window = denseDays(points, kGridDays);
-  final history = [for (final p in points) p.v];
+/// Build one domain's row from its stored points, as of [asOf] (default
+/// today): the window ends on that day and the usual range is built only from
+/// days up to it, so a past day is read against what was known then.
+GridRow gridRow(String key, List<ChartPoint> points, {DateTime? asOf}) {
+  final anchor = asOf ?? DateTime.now();
+  final known = asOf == null
+      ? points
+      : [
+          for (final p in points)
+            if (calendarDaysBetween(
+                    DateTime.fromMillisecondsSinceEpoch(p.t * 1000), asOf) >=
+                0)
+              p,
+        ];
+  final window = denseDays(known, kGridDays, asOf: asOf);
+  final history = [for (final p in known) p.v];
   final band = usualRangeFor(key, history, null);
   return GridRow(
     spec: specOf(key),
@@ -111,11 +123,14 @@ GridRow gridRow(String key, List<ChartPoint> points) {
 
 /// Every row, loaded. One `getChart` per domain — the same read the trend
 /// cards already do.
-Future<List<GridRow>> loadGridRows(LocalRepository repo) async {
+Future<List<GridRow>> loadGridRows(LocalRepository repo,
+    {DateTime? asOf}) async {
   final out = <GridRow>[];
   for (final key in kGridMetrics) {
     try {
-      out.add(gridRow(key, pointsOf(await repo.getChart(specOf(key).chartKey))));
+      out.add(gridRow(
+          key, pointsOf(await repo.getChart(specOf(key).chartKey)),
+          asOf: asOf));
     } catch (_) {/* a series we cannot read is a row we do not draw */}
   }
   return out;

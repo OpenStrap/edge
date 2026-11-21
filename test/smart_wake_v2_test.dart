@@ -473,9 +473,8 @@ void main() {
         likelyLightSleep(baseline: baseline, recent: recentElevated),
         isTrue,
       );
-      // With late-window protection active (HR 53 vs baseline 48 = +5, but
-      // protection checks if HR is "near baseline" — within 2 bpm):
-      // 53 is NOT within 2 bpm of 48 → protection inactive → still true
+      // In the last 5 min a +5 call is only 1 bpm past the 4 bpm arousal bar,
+      // so protection holds it back.
       expect(
         likelyLightSleep(
           baseline: baseline,
@@ -484,7 +483,7 @@ void main() {
           now: nowLate,
           baselineHr: 48,
         ),
-        isTrue, // HR too elevated for protection to apply
+        isFalse, // marginal call near window end
       );
       // But if HR is truly near baseline (49 = +1 bpm):
       final recentNearBaseline = still(49, 60);
@@ -666,6 +665,33 @@ void main() {
           );
       expect(run(end.subtract(const Duration(minutes: 30))), isTrue);
       expect(run(end.subtract(const Duration(minutes: 2))), isFalse);
+    });
+
+    test('vetoes a marginal buzz under the default arousal bar', () {
+      final end = DateTime(2026, 6, 10, 7, 30);
+      bool run(double hr, DateTime now,
+              [ConfounderProfile p = ConfounderProfile.identity]) =>
+          likelyLightSleep(
+            baseline: still(48, 90),
+            recent: still(hr, 60),
+            profile: p,
+            windowEnd: end,
+            now: now,
+          );
+      final mid = end.subtract(const Duration(minutes: 30));
+      final late = end.subtract(const Duration(minutes: 2));
+      // +5 bpm clears the 4 bpm bar: buzzes mid-window, held back late.
+      expect(run(53, mid), isTrue);
+      expect(run(53, late), isFalse);
+      // +7 bpm is a clear call and still buzzes late.
+      expect(run(55, late), isTrue);
+      // Workout day: 7 min before end is inside the 10-min zone only.
+      final seven = end.subtract(const Duration(minutes: 7));
+      expect(run(53, seven), isTrue);
+      expect(
+          run(53, seven,
+              const ConfounderProfile(lateWindowProtectionMinutes: 10)),
+          isFalse);
     });
   });
 

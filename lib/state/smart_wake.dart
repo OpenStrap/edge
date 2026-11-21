@@ -292,8 +292,13 @@ bool enmoTrendExceeded(
 // ── lateWindowProtectionActive (Q3 — deep-sleep protection near window end) ──
 
 /// True when the late-window deep-sleep protection is active: we are within
-/// [protectionMinutes] of [windowEnd] AND the current HR is still within
-/// 2 bpm of [baselineHr] (i.e., still clearly in deep sleep).
+/// [protectionMinutes] of [windowEnd] AND the current HR is no more than
+/// 2 bpm past the arousal bar ([baselineHr] + [arousalBpm]), i.e. the
+/// light-sleep call is only marginal.
+///
+/// The margin sits on top of [arousalBpm] on purpose: the arousal gate in
+/// [likelyLightSleep] already refuses anything below baseline + arousal, so
+/// a margin measured from the bare baseline could never veto a buzz.
 ///
 /// When active, the caller must NOT buzz early — the fallback SET_ALARM at
 /// [windowEnd] fires regardless (Q3: "der letzte Wecker muss funktionieren").
@@ -310,14 +315,15 @@ bool lateWindowProtectionActive({
   required int protectionMinutes,
   required double currentHr,
   required double baselineHr,
+  double arousalBpm = 0.0,
 }) {
   if (protectionMinutes <= 0) return false;
   final msBeforeEnd = windowEnd.difference(now).inMilliseconds;
   if (msBeforeEnd <= 0) return false; // at/past window end — window check handles
   if (msBeforeEnd > protectionMinutes * 60 * 1000) return false; // not yet in zone
-  // Within the protection zone: active only if HR is still near baseline
-  // (within 2 bpm — still clearly deep sleep).
-  return (currentHr - baselineHr) <= 2.0;
+  // Within the protection zone: active unless HR clears the arousal bar by
+  // more than 2 bpm.
+  return (currentHr - baselineHr) <= arousalBpm + 2.0;
 }
 
 // ── percentileHr (10th-percentile nightly HR baseline) ───────────────────────
@@ -432,7 +438,7 @@ bool likelyLightSleep({
   final recentMotion = _mean([for (final s in hrWindow) enmo(s)]);
 
   // Q3: late-window deep-sleep protection — if we're in the last few minutes
-  // AND HR is still near baseline, don't buzz. Fallback fires at window end.
+  // AND HR only just clears the arousal bar, don't buzz. Fallback fires at window end.
   // The veto compares against the NIGHTLY baseline (baseHr), not the
   // caller-passed [baselineHr] — with the live caller those used to be the same
   // value, which made protection unable to veto a positive detection.
@@ -443,6 +449,7 @@ bool likelyLightSleep({
       protectionMinutes: profile.lateWindowProtectionMinutes,
       currentHr: recentHr,
       baselineHr: baseHr,
+      arousalBpm: profile.hrArousalBpm,
     )) {
       return false;
     }

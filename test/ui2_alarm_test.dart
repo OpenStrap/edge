@@ -52,6 +52,32 @@ void main() {
     });
   });
 
+  group('the alarm screen', () {
+    setUp(() => ClockFormatController.seed(ClockFormat.h24));
+    tearDown(ClockFormatController.debugReset);
+
+    testWidgets('an alarm that passed earlier today is not later today',
+        (t) async {
+      // band out of range, so the spent epoch is still armed at 09:00
+      await t.pumpWidget(MaterialApp(
+          home: AlarmScreenView(
+              armedAt: DateTime(2026, 8, 22, 7, 30),
+              state: AlarmArmState.confirmed,
+              now: DateTime(2026, 8, 22, 9))));
+      expect(find.textContaining('In the past'), findsOneWidget);
+      expect(find.text('Later today'), findsNothing);
+    });
+
+    testWidgets('one still ahead today is', (t) async {
+      await t.pumpWidget(MaterialApp(
+          home: AlarmScreenView(
+              armedAt: DateTime(2026, 8, 22, 21),
+              state: AlarmArmState.confirmed,
+              now: DateTime(2026, 8, 22, 9))));
+      expect(find.text('Later today'), findsOneWidget);
+    });
+  });
+
   group('the home door', () {
     // The time follows the user's clock format; pin the 24-hour one.
     setUp(() => ClockFormatController.seed(ClockFormat.h24));
