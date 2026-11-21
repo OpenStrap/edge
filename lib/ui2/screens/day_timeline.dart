@@ -1466,7 +1466,7 @@ class _MomentRowState extends State<MomentRow> {
           expanded: _open,
           onTap: _toggle,
           excludeSemantics: true,
-          child: InkWell(
+          child: Pressable(
             onTap: _toggle,
             child: row,
           ),
