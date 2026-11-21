@@ -167,6 +167,25 @@ void main() {
       expect(await collectBriefingInputs(repo, BriefingPeriod.evening), isEmpty);
     });
 
+    test('a still-building night never sends the previous night as today',
+        () async {
+      final today = _sampleToday();
+      today['status'] = {
+        'overnight_day': '2026-07-03',
+        'overnight_state': 'building',
+        'showing_prior_overnight': true,
+      };
+      final repo = _FakeRepo(
+        today: today,
+        daySleep: {'has_sleep': true, 'duration_min': 445},
+      );
+      final inp = await collectBriefingInputs(repo, BriefingPeriod.morning);
+      for (final k in ['readiness', 'resting_hr', 'hrv_rmssd', 'sleep_min']) {
+        expect(inp.containsKey(k), isFalse, reason: k);
+      }
+      expect(inp[kWithheldKey], contains('sleep (last night not in yet)'));
+    });
+
     test('missing metrics produce an empty-ish snapshot, never fabricated',
         () async {
       final repo = _FakeRepo(today: {'daily': {}});
