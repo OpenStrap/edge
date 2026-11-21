@@ -245,5 +245,21 @@ void main() {
       expect(find.byKey(const ValueKey('device-slot-card')), findsNothing);
       expect(find.byType(DeviceUseSwitch), findsNothing);
     });
+
+    testWidgets('a band with an unset clock reads time unknown, not nothing banked',
+        (t) async {
+      await pumpPair(
+          t,
+          DeviceDetailView(const HealthSource(
+              name: 'WHOOP 4.0',
+              kind: 'WHOOP',
+              tier: SourceTier.wristOptical,
+              icon: Icons.watch,
+              isBand: true,
+              timeUnknown: true)),
+          size: const Size(412, 2000));
+      expect(find.text('Time unknown'), findsWidgets);
+      expect(find.text('Nothing banked yet'), findsNothing);
+    });
   });
 }

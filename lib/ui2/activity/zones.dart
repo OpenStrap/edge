@@ -36,6 +36,7 @@ import '../screens/home_screen.dart' show repoOf;
 import '../screens/journal_compose.dart' show OsTextField;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
+import 'catalogue.dart' show activityByName;
 
 /// 'YYYY-MM-DD' → '3 Aug'. Returns the raw label if it does not parse — a date
 /// we cannot format is still better than dropping the attribution.
@@ -274,9 +275,8 @@ class _ZonesDetailState extends State<ZonesDetail> {
       ),
     );
     final typed = [for (final ctl in ctrls) Typed.of(ctl.text)];
-    for (final ctl in ctrls) {
-      ctl.dispose();
-    }
+    // Not disposed: the sheet's exit animation still builds the fields after
+    // this returns, and a bare controller holds nothing once they are gone.
     if (saved != true || !c.mounted) return;
     final bad = [
       for (var i = 0; i < 5; i++) if (typed[i].bad) 'Z${i + 1}',
@@ -397,14 +397,19 @@ class _ZonesDetailState extends State<ZonesDetail> {
         icon: LucideIcons.heartPulse,
       );
     }
+    // Sessions store the activity key ('trail_running'); show its name.
+    final session = d.ceilingSession == null
+        ? null
+        : _midSentence(
+            activityByName(d.ceilingSession)?.localizedName(l) ??
+                d.ceilingSession!.replaceAll('_', ' '),
+            l);
     final where = [
       if (d.ceilingDate != null)
         l?.activityZonesCeilingOnDate(_prettyDay(d.ceilingDate!, l)) ??
             'on ${_prettyDay(d.ceilingDate!, l)}',
-      if (d.ceilingSession != null)
-        l?.activityZonesCeilingDuringSession(
-                d.ceilingSession!.toLowerCase()) ??
-            'during ${d.ceilingSession!.toLowerCase()}',
+      if (session != null)
+        l?.activityZonesCeilingDuringSession(session) ?? 'during $session',
     ].join(', ');
     return Surface(
       child: Column(
@@ -486,7 +491,7 @@ class _ZonesDetailState extends State<ZonesDetail> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Z${z.zone} · ${z.name}',
+                        'Z${z.zone} · ${localizedText(l, z.name)}',
                         style: F.body.copyWith(color: p.ink),
                       ),
                     ],
@@ -643,3 +648,7 @@ class _ZonesDetailState extends State<ZonesDetail> {
     return '$shape $summary';
   }
 }
+
+// Lowercase only for English; other locales (e.g. German nouns) keep casing.
+String _midSentence(String name, AppLocalizations? l) =>
+    (l == null || l.localeName.startsWith('en')) ? name.toLowerCase() : name;

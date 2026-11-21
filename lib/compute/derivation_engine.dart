@@ -3309,8 +3309,6 @@ class DerivationEngine {
     _cardioRowChunks.clear();
     _nightStates.clear();
     _checkpointPlans.clear();
-    debugCheckpoints.lastEncodedPayload = null;
-    debugCheckpoints.lastDecodedPayload = null;
     debugNightStreams?.nightState.clear();
   }
 
@@ -4785,8 +4783,6 @@ class DerivationEngine {
           for (final state in _nightStates.values) { state.clear(); }
           _cardioRowChunks.clear();
           _checkpointPlans.clear();
-          debugCheckpoints.lastEncodedPayload = null;
-          debugCheckpoints.lastDecodedPayload = null;
         }
         _checkpointGeneration = generation;
         final rows = await db.rawQuery(
@@ -5012,12 +5008,11 @@ class DerivationEngine {
                   searchRr: searchRr, searchTimes: searchTimes), _perDayTimeout,
               label: 'checkpoint-read $dayId');
             if (restored.rejection != null) {
-              debugCheckpoints.rejections.add(restored.rejection!);
+              debugCheckpoints.reject(restored.rejection!);
               debugCheckpoints.misses++;
             } else if (LocalDb.storeGeneration == checkpointPlan.generation &&
                 rowsEpoch == _retentionEpoch) {
               checkpointPlan.restored = restored.night;
-              debugCheckpoints.lastDecodedPayload = restored.payload;
               if (cacheRows && restored.cardio != null) rowBytes.add(restored.cardio!);
             }
           }
@@ -6659,7 +6654,12 @@ class DerivationEngine {
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
     return _withRunLock(0, () async {
-      final days = calendarDays(sub);
+      // One date (every NoopIngest call): stage only that night, like the
+      // live path. The full walk re-staged the buffered prior evening on the
+      // UI isolate and then threw it away, so an import paid two nights per day.
+      final target = dates.length == 1 ? dates.single : null;
+      final days = calendarDays(sub,
+          targetDay: target, skipUnusedDays: target != null);
       final dataNowSec = sub.lastTs ?? 0;
       var done = 0;
       for (var i = 0; i < days.length; i++) {
@@ -6707,13 +6707,14 @@ class DerivationEngine {
   }
 
   /// Durable review jobs outlive a busy derive or a terminated process.
-  Future<bool> refreshActivityReviews(Profile profile) async {
+  /// true = reviews landed, false = retry later, null = nothing was pending.
+  Future<bool?> refreshActivityReviews(Profile profile) async {
     if (_running) return false;
     _running = true;
     beginWearableDayIndexPass();
     try {
       final revisions = await LocalDb.applyPendingActivityReviews();
-      if (revisions.isEmpty) return true;
+      if (revisions.isEmpty) return null;
       // Rebuild from the accepted day rows, including when an input artifact
       // was already cached today. A failed rollup must leave the work durable.
       if (!await _runCrossDay(profile)) return false;
@@ -6967,7 +6968,7 @@ class DerivationEngine {
       }
       final result = deriveDayBundle(withHistory, streamDiagnostics: diagnostics,
           nightState: state);
-      NightCheckpointWrite? checkpoint;
+      Uint8List? checkpoint;
       if (canCheckpoint) {
         try {
           checkpoint = encodeNightCheckpoint(state, checkpointRows, checkpointDay,
@@ -6986,7 +6987,7 @@ class DerivationEngine {
     final bundle = workerResult.$1;
     if (workerResult.$4) debugCheckpoints.hits++;
     if (workerResult.$5) {
-      debugCheckpoints.rejections.add('checkpoint night prefix/window');
+      debugCheckpoints.reject('checkpoint night prefix/window');
       debugCheckpoints.misses++;
     }
     if (diagnostics != null) debugNightStreams = workerResult.$3;
@@ -7860,7 +7861,7 @@ class DerivationEngine {
               'day_id': day.date, 'algo_version': kAlgoVersion,
               'fmt': nightCheckpointFormat, 'ctx_sig': checkpointContext,
               'cp_rec_ts': checkpointBoundary, 'rev_vec': checkpointVector,
-              'state': checkpoint.bytes, 'night_ref': null,
+              'state': checkpoint, 'night_ref': null,
               'computed_at': DateTime.now().millisecondsSinceEpoch,
             }, conflictAlgorithm: ConflictAlgorithm.replace);
             await txn.rawDelete('DELETE FROM day_checkpoint WHERE day_id NOT IN '
@@ -7868,8 +7869,6 @@ class DerivationEngine {
               'ORDER BY day_id DESC LIMIT 3) OR algo_version != ?', [kAlgoVersion]);
           });
           debugCheckpoints.writes++;
-          debugCheckpoints.lastEncodedPayload = checkpoint.bytes;
-          debugCheckpoints.lastDecodedPayload = checkpoint.payload;
         }
       } catch (_) {
         // Disposable scratch is never required to commit a day result.
@@ -9106,7 +9105,6 @@ class DerivationEngine {
     final deleted = await LocalDb.pruneDecodedBeforeRecTs(
       cutoffSec,
       cursorName: _prunedBeforeCursor,
-      hardFloorSec: dataNowSec - _maxRawHoldDays * 86400,
       log: _log,
       shouldYield: offloadActive,
       // A background engine runs on a short, throttled budget in its own

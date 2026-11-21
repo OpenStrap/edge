@@ -4,12 +4,15 @@
 // mis-slotted sample puts a workout under the wrong hour; a missed hole draws
 // a line through the time the band spent on the charger.
 
+import 'dart:ui' show SemanticsAction, Tristate;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/journal_fields.dart';
 import 'package:openstrap_edge/data/nutrition_store.dart';
 import 'package:openstrap_edge/ui2/screens/day_timeline.dart';
+import 'package:openstrap_edge/ui2/screens/home_screen.dart' show clockOfTs;
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 final int _day = DateTime(2026, 8, 14).millisecondsSinceEpoch ~/ 1000;
@@ -70,6 +73,322 @@ void main() {
         ],
       });
       expect(m, hasLength(2));
+    });
+
+    test('a run of double-taps is one line with its count, not one per tap',
+        () {
+      // Volleyball: every ball contact the firmware reads as a double-tap. The
+      // run stays on the page (it happened, and the count is the band's), but
+      // as one span instead of forty lines burying the day.
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          for (var i = 0; i < 14; i++) {'event_id': 14, 'ts': _at(18, 2 + i * 4)},
+          // A tap on its own hours later is still its own line.
+          {'event_id': 14, 'ts': _at(21)},
+        ],
+      });
+      expect(m, hasLength(2));
+      final run = m.first;
+      expect(run.at, _at(18, 2));
+      expect(run.until, _at(18, 54));
+      expect(run.detail, contains('14×'));
+      expect(m.last.at, _at(21));
+      expect(m.last.until, isNull);
+      expect(m.last.detail, isNot(contains('×')));
+    });
+
+    test('taps exactly 10 minutes apart are two lines', () {
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          {'event_id': 14, 'ts': _at(18)},
+          {'event_id': 14, 'ts': _at(18, 10)},
+        ],
+      });
+      expect(m, hasLength(2));
+      expect(m.every((x) => x.until == null), isTrue);
+    });
+
+    test('any repeated band event is one line with its count and each time',
+        () {
+      // Three restarts in a boot loop, a snoozed alarm ringing twice.
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          for (final i in [0, 3, 6]) {'event_id': 15, 'ts': _at(9, i)},
+          for (final i in [0, 9]) {'event_id': 57, 'ts': _at(7, i)},
+        ],
+      });
+      expect(m, hasLength(2));
+      final alarm = m.first, restart = m.last;
+      expect(alarm.at, _at(7));
+      expect(alarm.until, _at(7, 9));
+      expect(alarm.detail, '${clockOfTs(_at(7))}–${clockOfTs(_at(7, 9))} · 2×');
+      expect(alarm.members, [_at(7), _at(7, 9)]);
+      expect(restart.detail, '${clockOfTs(_at(9))}–${clockOfTs(_at(9, 6))} · 3×');
+      expect(restart.members, [_at(9), _at(9, 3), _at(9, 6)]);
+    });
+
+    test('a run is counted after the (id, ts) dedupe, never before', () {
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          {'event_id': 15, 'ts': _at(9)},
+          {'event_id': 15, 'ts': _at(9)},
+          {'event_id': 15, 'ts': _at(9, 4)},
+        ],
+      });
+      expect(m.single.members, [_at(9), _at(9, 4)]);
+      expect(m.single.detail, contains('2×'));
+    });
+
+    test('a lone band event is unchanged and carries no members', () {
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          {'event_id': 15, 'ts': _at(9)},
+        ],
+      });
+      expect(m.single.until, isNull);
+      expect(m.single.members, isEmpty);
+      expect(m.single.detail, isNot(contains('×')));
+    });
+
+    test('a different visible band event in between ends the run', () {
+      // On and off alternate: folding the ons together would put the offs in
+      // the middle of their span and misorder what happened.
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          {'event_id': 7, 'ts': _at(22)},
+          {'event_id': 8, 'ts': _at(22, 2)},
+          {'event_id': 7, 'ts': _at(22, 4)},
+          {'event_id': 8, 'ts': _at(22, 6)},
+        ],
+      });
+      expect(m, hasLength(4));
+      expect(m.every((x) => x.members.isEmpty), isTrue);
+    });
+
+    test('the gap applies to every kind: 10 minutes apart are two lines', () {
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          {'event_id': 15, 'ts': _at(9)},
+          {'event_id': 15, 'ts': _at(9, 10)},
+        ],
+      });
+      expect(m, hasLength(2));
+    });
+
+    // Hidden diagnostics must not create unexplained breaks in visible rows.
+    test('a hidden band event does not end a visible run', () {
+      final m = dayMoments(timeline: {
+        'events': [
+          {'event_id': 15, 'ts': _at(9)},
+          {'event_id': 31, 'ts': _at(9, 1)},
+          {'event_id': 15, 'ts': _at(9, 2)},
+        ],
+      });
+      expect(m, hasLength(1));
+      expect(m.single.members, [_at(9), _at(9, 2)]);
+      expect(m.single.detail, contains('2×'));
+    });
+
+    // The threshold bounds adjacent gaps, with equality starting a new row.
+    test('599 seconds groups and 600 seconds splits', () {
+      final m = dayMoments(timeline: {
+        'events': [
+          {'event_id': 15, 'ts': _at(9)},
+          {'event_id': 15, 'ts': _at(9) + 599},
+          {'event_id': 15, 'ts': _at(9) + 1199},
+        ],
+      });
+      expect(m, hasLength(2));
+      expect(m.first.members, [_at(9), _at(9) + 599]);
+      expect(m.first.until, _at(9) + 599);
+      expect(m.last.at, _at(9) + 1199);
+      expect(m.last.members, isEmpty);
+      expect(m.last.until, isNull);
+    });
+
+    // Delivery order must not change grouping or the order of member times.
+    test('reversed input still groups chronologically with visible separators',
+        () {
+      final m = dayMoments(timeline: {
+        'events': [
+          {'event_id': 15, 'ts': _at(9, 4)},
+          {'event_id': 57, 'ts': _at(9, 3)},
+          {'event_id': 15, 'ts': _at(9, 2)},
+          {'event_id': 15, 'ts': _at(9)},
+        ],
+      });
+      expect(m, hasLength(3));
+      expect(m.map((x) => x.at), [_at(9), _at(9, 3), _at(9, 4)]);
+      expect(m.first.members, [_at(9), _at(9, 2)]);
+      expect(m.first.until, _at(9, 2));
+      expect(m.skip(1).every((x) => x.members.isEmpty), isTrue);
+    });
+
+    test('sleep, sessions and naps are never folded into a run', () {
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'sessions': [
+          {'start_ts': _at(10), 'end_ts': _at(10, 5), 'type': 'run'},
+          {'start_ts': _at(10, 6), 'end_ts': _at(10, 9), 'type': 'run'},
+        ],
+        'naps': [
+          {'start': _at(10, 1), 'end': _at(10, 4), 'duration_min': 3},
+          {'start': _at(10, 5), 'end': _at(10, 8), 'duration_min': 3},
+        ],
+      });
+      expect(m, hasLength(4));
+      expect(m.every((x) => x.members.isEmpty), isTrue);
+    });
+
+    testWidgets('a run opens to each time when tapped and closes again',
+        (t) async {
+      final m = dayMoments(timeline: {
+        'day_start': _day,
+        'events': [
+          for (final i in [0, 3, 6]) {'event_id': 15, 'ts': _at(9, i)},
+        ],
+      }).single;
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(body: SingleChildScrollView(child: MomentRow(m)))));
+      final mid = clockOfTs(_at(9, 3));
+      expect(find.text(mid), findsNothing);
+      await t.tap(find.text(m.title));
+      await t.pumpAndSettle();
+      expect(find.text(mid), findsOneWidget);
+      // The last time is only in the run's range text until the run opens.
+      expect(find.text(clockOfTs(_at(9, 6))), findsOneWidget);
+      await t.tap(find.text(m.title));
+      await t.pumpAndSettle();
+      expect(find.text(mid), findsNothing);
+    });
+
+    // Screen readers activate semantics actions without a pointer gesture.
+    testWidgets('semantic tap expands and collapses a run', (t) async {
+      final semantics = t.ensureSemantics();
+      try {
+        final m = dayMoments(timeline: {
+          'events': [
+            for (final i in [0, 3, 6]) {'event_id': 15, 'ts': _at(9, i)},
+          ],
+        }).single;
+        await t.pumpWidget(MaterialApp(
+            home: Scaffold(body: SingleChildScrollView(child: MomentRow(m)))));
+        final control = find.bySemanticsLabel(
+            '${clockOfTs(m.at)}, ${m.title}. ${m.detail}');
+        expect(control, findsOneWidget);
+        final mid = clockOfTs(_at(9, 3));
+        for (var step = 0; step < 3; step++) {
+          final expanded = step == 1;
+          final node = t.getSemantics(control);
+          expect(node.flagsCollection.isButton, isTrue);
+          expect(node.flagsCollection.isExpanded,
+              expanded ? Tristate.isTrue : Tristate.isFalse);
+          expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+          expect(find.text(mid), expanded ? findsOneWidget : findsNothing);
+          if (step < 2) {
+            node.owner!.performAction(node.id, SemanticsAction.tap);
+            await t.pumpAndSettle();
+          }
+        }
+      } finally {
+        semantics.dispose();
+      }
+    });
+
+    testWidgets('a lone event is not tappable', (t) async {
+      final semantics = t.ensureSemantics();
+      try {
+        final m = dayMoments(timeline: {
+          'day_start': _day,
+          'events': [
+            {'event_id': 15, 'ts': _at(9)},
+          ],
+        }).single;
+        await t.pumpWidget(MaterialApp(home: Scaffold(body: MomentRow(m))));
+        expect(find.byType(InkWell), findsNothing);
+        final node = t.getSemantics(find.bySemanticsLabel(
+            '${clockOfTs(m.at)}, ${m.title}. ${m.detail}'));
+        expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isFalse);
+        expect(node.flagsCollection.isButton, isFalse);
+        expect(node.flagsCollection.isExpanded, Tristate.none);
+      } finally {
+        semantics.dispose();
+      }
+    });
+
+    // A reload that keeps the rows on screen (a locale change re-reads the
+    // day without clearing it) must not hand an open run's state to the row
+    // that now sits at its old position.
+    testWidgets('an open run stays open when an earlier moment is inserted',
+        (t) async {
+      List<Moment> moments({required bool earlier}) => dayMoments(timeline: {
+            'day_start': _day,
+            'events': [
+              for (final i in [0, 3, 6]) {'event_id': 15, 'ts': _at(9, i)},
+              for (final i in [0, 9]) {'event_id': 57, 'ts': _at(7, i)},
+              if (earlier) {'event_id': 7, 'ts': _at(6)},
+            ],
+          });
+      Future<void> show(List<Moment> m) => t.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: SingleChildScrollView(
+                  child: Builder(
+                      builder: (c) => Column(
+                          children:
+                              timelineBody(c, TimelineData(moments: m))))))));
+
+      await show(moments(earlier: false));
+      final restarts = clockOfTs(_at(9, 3)), alarm = clockOfTs(_at(7, 9));
+      await t.tap(find.text('The band restarted'));
+      await t.pumpAndSettle();
+      expect(find.text(restarts), findsOneWidget);
+      expect(find.text(alarm), findsNothing);
+
+      await show(moments(earlier: true));
+      await t.pumpAndSettle();
+      expect(find.text(restarts), findsOneWidget,
+          reason: 'the restart run is still the open one');
+      expect(find.text(alarm), findsNothing,
+          reason: 'the alarm run, now one position lower, stayed closed');
+    });
+
+    // A run is a span, like a workout: other timeline rows may fall inside it.
+    test('other timeline rows stay inside a tap run', () {
+      final moments = dayMoments(
+        timeline: {
+          'events': [for (final minute in [0, 5])
+            {'event_id': 14, 'ts': _at(9, minute)}],
+          'sessions': [
+            {'start_ts': _at(9, 2), 'end_ts': _at(9, 3), 'type': 'run'}],
+          'highs': {'peak_hr': {'t': _at(9, 2), 'v': 100}},
+        },
+        meals: [FoodEntry(id: 'm', date: '2026-08-14', meal: 'Lunch',
+            label: 'Soup', atTs: _at(9, 2))],
+        doses: [(label: 'Dose', at: _at(9, 2))],
+      );
+      final taps = moments.where((m) => m.title == 'You double-tapped the band');
+      expect(taps, hasLength(1));
+      expect(taps.single.members, [_at(9), _at(9, 5)]);
+      expect(moments, hasLength(5));
+    });
+
+    // why: simultaneous event IDs must not decide whether chronology is hidden.
+    test('a simultaneous different event splits either numeric event order', () {
+      for (final other in [7, 57]) {
+        final moments = dayMoments(timeline: {'events': [
+          {'event_id': 15, 'ts': _at(9)},
+          {'event_id': other, 'ts': _at(9)},
+          {'event_id': 15, 'ts': _at(9, 5)},
+        ]});
+        expect(moments.where((m) => m.title == 'The band restarted'), hasLength(2));
+      }
     });
 
     test('a meal with no time is never placed, and is not lost either', () {

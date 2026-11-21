@@ -393,9 +393,9 @@
   "@alarmCancelTheAlarm": {
     "description": "Button: cancel the alarm."
   },
-  "alarmBuzzingTheBand": "Buzzing the band",
+  "alarmBuzzingTheBand": "Buzz sent to the band",
   "@alarmBuzzingTheBand": {
-    "description": "Snackbar: testing the buzz."
+    "description": "Snackbar: the test buzz command reached the band. The app gets no signal when the buzz ends, so this must not claim the band is still buzzing."
   },
   "alarmCancelled": "Alarm cancelled",
   "@alarmCancelled": {
@@ -1012,6 +1012,14 @@
   "@devicesNothingBankedYet": {
     "description": "Row sub: no data yet."
   },
+  "devicesTimeUnknown": "Time unknown",
+  "@devicesTimeUnknown": {
+    "description": "Last-data value when the strap banked records but its clock was never set, so the timestamp is unusable."
+  },
+  "devicesClockNotSetSub": "The strap recorded data but its clock is not set",
+  "@devicesClockNotSetSub": {
+    "description": "Sub-label under 'Time unknown' explaining why the last-data time is missing."
+  },
   "devicesSyncNow": "Sync now",
   "@devicesSyncNow": {
     "description": "Row title: manual sync."
@@ -1043,6 +1051,58 @@
   "devicesBatteryPack": "Battery pack",
   "@devicesBatteryPack": {
     "description": "Row title: the charge left in the external battery pack sitting on the band."
+  },
+  "devicesBatteryUnderAnHourLeft": "under an hour left",
+  "@devicesBatteryUnderAnHourLeft": {
+    "description": "Band page battery/calibration row sub-line."
+  },
+  "devicesBatteryHoursLeft": "about {hours} h left",
+  "@devicesBatteryHoursLeft": {
+    "description": "Band page battery/calibration row sub-line.",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "devicesBatteryDaysLeft": "about {days} days left",
+  "@devicesBatteryDaysLeft": {
+    "description": "Band page battery/calibration row sub-line.",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "devicesChargesLogged": "{n, plural, =1{1 charge logged} other{{n} charges logged}}",
+  "@devicesChargesLogged": {
+    "description": "Band page battery/calibration row sub-line.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "devicesChargeUpToMv": "up to {mv} mV",
+  "@devicesChargeUpToMv": {
+    "description": "Band page battery/calibration row sub-line.",
+    "placeholders": {
+      "mv": {
+        "type": "int"
+      }
+    }
+  },
+  "devicesCalibrationSub": "Metrics that depend on the sensor use this band’s own constants, so two different bands can land on different tiers for the same physiology.",
+  "@devicesCalibrationSub": {
+    "description": "Band page battery/calibration row sub-line."
+  },
+  "devicesCalibrationNotStated": "Not stated yet",
+  "@devicesCalibrationNotStated": {
+    "description": "Band page battery/calibration row sub-line."
+  },
+  "devicesCalibrationNotStatedSub": "This band has not said which generation it is, and imported or older days never will. Metrics that depend on the sensor abstain rather than borrow another band’s numbers.",
+  "@devicesCalibrationNotStatedSub": {
+    "description": "Band page battery/calibration row sub-line."
   },
   "devicesBatteryPackSub": "Reported by the band about every 10 minutes",
   "@devicesBatteryPackSub": {
@@ -1335,6 +1395,14 @@
   "devicePickerBlurbMiband234": "Mi Band 2 or 3: heart rate, steps and sleep. Unpair it from Mi Fit or Zepp first, or reset it. Tap the band if it buzzes. Mi Band 4 isn’t supported.",
   "@devicePickerBlurbMiband234": {
     "description": "Category row subtitle for a Mi Band 2/3."
+  },
+  "devicePickerBlurbGarmin": "A Garmin watch. Syncs heart rate, steps, sleep and HRV. Experimental.",
+  "@devicePickerBlurbGarmin": {
+    "description": "Category row subtitle for a Garmin watch."
+  },
+  "devicePickerNoMatch": "Nothing nearby matches that search.",
+  "@devicePickerNoMatch": {
+    "description": "Shown in place of the Nearby list when the search box hides every found device."
   },
   "devicePickerBlurbColmi": "A Colmi ring. Syncs heart rate, sleep stages, steps, SpO2, HRV and stress; values the ring computes itself are labelled as Colmi's. Experimental.",
   "@devicePickerBlurbColmi": {
@@ -5240,7 +5308,7 @@
   "@investigateNeedsSeveralNights": {
     "description": "Status card fallback body: needs several qualifying nights"
   },
-  "investigateDroppedIrregular": "{count, plural, one{# night left out because the irregular-rhythm screen flagged it} other{# nights left out because the irregular-rhythm screen flagged them}}",
+  "investigateDroppedIrregular": "{count, plural, one{{count} night left out because the irregular-rhythm screen flagged it} other{{count} nights left out because the irregular-rhythm screen flagged them}}",
   "@investigateDroppedIrregular": {
     "description": "Note listing nights excluded because the irregular-rhythm screen flagged them",
     "placeholders": {
@@ -5249,7 +5317,7 @@
       }
     }
   },
-  "investigateDroppedThin": "{count, plural, one{# night left out for too few observed hours} other{# nights left out for too few observed hours}}",
+  "investigateDroppedThin": "{count, plural, one{{count} night left out for too few observed hours} other{{count} nights left out for too few observed hours}}",
   "@investigateDroppedThin": {
     "description": "Note listing nights excluded for too few observed hours",
     "placeholders": {
@@ -5455,7 +5523,7 @@
   "@calmBreathingHowLong": {
     "description": "Section title for choosing session length"
   },
-  "calmBreathingMinutesSemantic": "{m, plural, one{# minute} other{# minutes}}",
+  "calmBreathingMinutesSemantic": "{m, plural, one{{m} minute} other{{m} minutes}}",
   "@calmBreathingMinutesSemantic": {
     "description": "Semantic label for a minute-duration option button",
     "placeholders": {
@@ -7792,6 +7860,10 @@
   "homeSyncedNever": "No band data yet",
   "@homeSyncedNever": {
     "description": "Home header line when no record has ever been banked from a band."
+  },
+  "homeSyncedTimeUnknown": "Band data, clock not set",
+  "@homeSyncedTimeUnknown": {
+    "description": "Home sync line when the strap banked records but its clock is unset, so how far the data reaches is unknown."
   },
   "homeSyncingTitle": "Syncing with your band",
   "@homeSyncingTitle": {
@@ -10845,12 +10917,15 @@
   "@activitySummaryTopSet": {
     "description": "Section title above the heaviest logged set on a strength session"
   },
-  "activitySummaryOneRepMax": "1RM estimate {kg} kg",
+  "activitySummaryOneRepMax": "1RM estimate {value} {unit, select, lb{lb} other{kg}}",
   "@activitySummaryOneRepMax": {
     "description": "Estimated one-rep-max caption under the top set exercise name",
     "placeholders": {
-      "kg": {
+      "value": {
         "type": "int"
+      },
+      "unit": {
+        "type": "String"
       }
     }
   },
@@ -11850,6 +11925,30 @@
   "@settingsClockFormatRowTitle": {
     "description": "Settings row title cycling the 12/24-hour clock format"
   },
+  "settingsUnitsMetric": "Metric",
+  "@settingsUnitsMetric": {
+    "description": "Units value: metric"
+  },
+  "settingsUnitsImperial": "Imperial",
+  "@settingsUnitsImperial": {
+    "description": "Units value: imperial"
+  },
+  "settingsAppearanceLight": "Light",
+  "@settingsAppearanceLight": {
+    "description": "Appearance value: light theme"
+  },
+  "settingsAppearanceDark": "Dark",
+  "@settingsAppearanceDark": {
+    "description": "Appearance value: dark theme"
+  },
+  "settingsBackupDaily": "Daily",
+  "@settingsBackupDaily": {
+    "description": "Automatic backup frequency: once a day"
+  },
+  "settingsBackupWeekly": "Weekly",
+  "@settingsBackupWeekly": {
+    "description": "Automatic backup frequency: once a week"
+  },
   "settingsClockFormatSystem": "System",
   "@settingsClockFormatSystem": {
     "description": "Clock format value: follow the operating system setting"
@@ -11861,6 +11960,10 @@
   "settingsClockFormat12h": "12-hour",
   "@settingsClockFormat12h": {
     "description": "Clock format value: 12-hour clock with AM/PM (e.g. 7:30 PM)"
+  },
+  "settingsAppearanceSystem": "System",
+  "@settingsAppearanceSystem": {
+    "description": "Appearance value: follow the operating system light/dark setting"
   },
   "settingsCycleTrackingRowTitle": "Cycle tracking",
   "@settingsCycleTrackingRowTitle": {
@@ -14663,7 +14766,7 @@
   "@supplementNoTrendYetNotEnoughc23fe5": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
-  "supplementNotTaken3d2bc8": "not_taken",
+  "supplementNotTaken3d2bc8": "not taken",
   "@supplementNotTaken3d2bc8": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
@@ -16508,6 +16611,69 @@
       }
     }
   },
+  "notifLookbackFlaggedBody": "This week flagged: {items}. Details live on Health.",
+  "@notifLookbackFlaggedBody": {
+    "description": "Weekly lookback notification body listing the week's flags; {items} is a comma-separated list of the flag phrases below.",
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
+  "notifLookbackIllness": "resting heart rate raised ×{count}",
+  "@notifLookbackIllness": {
+    "description": "Weekly lookback flag phrase: nights with raised resting heart rate.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackAnomaly": "unusual physiology ×{count}",
+  "@notifLookbackAnomaly": {
+    "description": "Weekly lookback flag phrase: nights with unusual physiology.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackTemp": "elevated skin temperature ×{count}",
+  "@notifLookbackTemp": {
+    "description": "Weekly lookback flag phrase: nights with elevated skin temperature.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackRhrHigherBody": "Resting heart rate ran about {bpm} bpm higher late in the week than early.",
+  "@notifLookbackRhrHigherBody": {
+    "description": "Weekly lookback notification body: resting heart rate drifted up over the week.",
+    "placeholders": {
+      "bpm": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackRhrLowerBody": "Resting heart rate ran about {bpm} bpm lower late in the week than early.",
+  "@notifLookbackRhrLowerBody": {
+    "description": "Weekly lookback notification body: resting heart rate drifted down over the week.",
+    "placeholders": {
+      "bpm": {
+        "type": "int"
+      }
+    }
+  },
+  "notifSyncStaleBody": "No new data for about {hours} hours. Open OpenStrap to reconnect — background sync may have stalled.",
+  "@notifSyncStaleBody": {
+    "description": "OS notification body when the band has not synced for several hours.",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
   "settingsStepCalibration": "Step calibration",
   "settingsStepCalibrationSub": "Learns how your strap over- or under-counts your own walking, and corrects it on the phone. Nothing is written to the strap and nothing leaves the device",
   "stepCalTitle": "Step calibration",
@@ -18065,5 +18231,75 @@
   "helpTopicEmpty": "There are no guides for this tab yet.",
   "@helpTopicEmpty": {
     "description": "Empty state for a tab with no guides; All guides remains available."
+  },
+  "importSourceEncryptedBackup": "Encrypted backup",
+  "@importSourceEncryptedBackup": {
+    "description": "Import report source: an encrypted backup file."
+  },
+  "importSourceOpenStrapBackup": "OpenStrap backup",
+  "@importSourceOpenStrapBackup": {
+    "description": "Import report source: an OpenStrap backup file."
+  },
+  "importSourceRawSensor": "Raw sensor export",
+  "@importSourceRawSensor": {
+    "description": "Import report source: a raw sensor data export."
+  },
+  "importSourceVendorCsv": "Vendor CSV export",
+  "@importSourceVendorCsv": {
+    "description": "Import report source: a CSV export from the device maker."
+  },
+  "importSourceJournalCsv": "Journal CSV",
+  "@importSourceJournalCsv": {
+    "description": "Import report source: our own journal CSV export."
+  },
+  "importSourceLabCsv": "Lab results CSV",
+  "@importSourceLabCsv": {
+    "description": "Import report source: our own lab results CSV export."
+  },
+  "importSourceFilePicker": "File picker",
+  "@importSourceFilePicker": {
+    "description": "Import report source when the file picker itself failed."
+  },
+  "importSourceImport": "Import",
+  "@importSourceImport": {
+    "description": "Import report source when the whole import failed."
+  },
+  "importSourceNothingSelected": "Nothing selected",
+  "@importSourceNothingSelected": {
+    "description": "Import report source when no file was used."
+  },
+  "welcomeEncryptedBackupUseSettings": "That file is an encrypted backup. Open it from Settings → Your data, where the passphrase can be asked for.",
+  "@welcomeEncryptedBackupUseSettings": {
+    "description": "An encrypted backup was picked where no passphrase can be asked."
+  },
+  "welcomeNotUtf8": "{file}: not saved as UTF-8 — save it as \"CSV UTF-8\" and import it again",
+  "@welcomeNotUtf8": {
+    "description": "A journal or lab CSV saved in another encoding.",
+    "placeholders": {
+      "file": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomeCorruptTables": "{tables} could not be read — SQLite reported the file itself as corrupted for those tables. Every other table imported normally.",
+  "@welcomeCorruptTables": {
+    "description": "Some tables in an imported backup were corrupted.",
+    "placeholders": {
+      "tables": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomeRejectsMore": "{shown}; and {count} more.",
+  "@welcomeRejectsMore": {
+    "description": "Tail of the refused-rows list: the first few, then how many more.",
+    "placeholders": {
+      "shown": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

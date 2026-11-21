@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatf
 import 'package:flutter/widgets.dart';
 import 'package:intl/intl.dart' show NumberFormat;
 import 'app_localizations.dart';
+import 'sweep_text.dart';
 
 String uiText(BuildContext context, String text) =>
     localizedText(AppLocalizations.of(context), text);
@@ -105,6 +106,43 @@ String localizedNotificationText(AppLocalizations? l, String text) {
   if (idle != null) {
     return l.notifWorkoutIdleBody(int.parse(idle[1]!));
   }
+  // NotificationCenter.weeklyLookbackFinding: a flag list, or an RHR drift.
+  final flagged =
+      RegExp(r'^This week flagged: (.+)\. Details live on Health\.$')
+          .firstMatch(text);
+  if (flagged != null) {
+    String part(String p) {
+      final m = RegExp(r'^(.+) ×(\d+)$').firstMatch(p);
+      if (m == null) return p;
+      final n = int.parse(m[2]!);
+      return switch (m[1]) {
+        'resting heart rate raised' => l.notifLookbackIllness(n),
+        'unusual physiology' => l.notifLookbackAnomaly(n),
+        'elevated skin temperature' => l.notifLookbackTemp(n),
+        _ => p,
+      };
+    }
+    return l.notifLookbackFlaggedBody(
+        flagged[1]!.split(', ').map(part).join(', '));
+  }
+  final drift = RegExp(
+    r'^Resting heart rate ran about (\d+) bpm (higher|lower) late in the week than early\.$',
+  ).firstMatch(text);
+  if (drift != null) {
+    final bpm = int.parse(drift[1]!);
+    return drift[2] == 'higher'
+        ? l.notifLookbackRhrHigherBody(bpm)
+        : l.notifLookbackRhrLowerBody(bpm);
+  }
+  final stale = RegExp(
+    r'^No new data for about (\d+) hours\. Open OpenStrap to reconnect — background sync may have stalled\.$',
+  ).firstMatch(text);
+  if (stale != null) {
+    return l.notifSyncStaleBody(int.parse(stale[1]!));
+  }
+  // The evening sweep notification's body is the finding line itself.
+  final sweep = sweepText(l, text);
+  if (sweep != text) return sweep;
   return localizedText(l, text);
 }
 

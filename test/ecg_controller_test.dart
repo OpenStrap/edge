@@ -435,6 +435,27 @@ void main() {
       expect(r.t.calls.where((c) => c == 'cleanup'), hasLength(1));
     });
 
+    test('cancel while the timeout cleanup is in flight waits for it', () async {
+      final r = Rig(timeout: const Duration(milliseconds: 30));
+      await r.c.begin(EcgWrist.right);
+      r.t.holdCleanup = Completer<void>();
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(r.c.state.phase, EcgCapturePhase.cleaningUp);
+      var cancelled = false;
+      final cancel = r.c.cancel().then((_) => cancelled = true);
+      await r.settle();
+      expect(cancelled, isFalse);
+      expect(r.c.isCapturing, isTrue, reason: 'lease held until cleanup ends');
+      expect(r.t.calls, isNot(contains('release')));
+      r.t.holdCleanup!.complete();
+      await cancel;
+      expect(r.t.calls.where((c) => c == 'cleanup'), hasLength(1));
+      expect(r.t.calls.where((c) => c == 'release'), hasLength(1));
+      expect(r.guard.active, isEmpty);
+      expect(r.c.state.phase, EcgCapturePhase.failed);
+      expect(r.c.state.reason, 'timeout');
+    });
+
     test(
       'a malformed R17 during capture fails through the single path',
       () async {
@@ -588,6 +609,28 @@ void main() {
         expect(r.t.calls.where((c) => c == 'prepare:right'), hasLength(2));
       },
     );
+
+    test('a retry that bails on a precondition does not spend the next '
+        "fresh reading's retry", () async {
+      final r = Rig();
+      await r.c.begin(EcgWrist.right);
+      r.t.emitFrame(frame(seq: 1, progress: 3));
+      r.t.emitFrame(terminal(seq: 2, result: 6));
+      await r.settle();
+      await r.settle();
+      expect(r.c.state.phase, EcgCapturePhase.inconclusiveRetry);
+      r.t.ready = false;
+      await r.c.retry();
+      expect(r.c.state.phase, EcgCapturePhase.disconnected);
+      r.t.ready = true;
+      await r.c.begin(EcgWrist.right);
+      r.t.emitFrame(frame(seq: 3, progress: 3));
+      r.t.emitFrame(terminal(seq: 4, result: 6));
+      await r.settle();
+      await r.settle();
+      expect(r.c.state.phase, EcgCapturePhase.inconclusiveRetry);
+      expect(r.saved, isEmpty);
+    });
 
     test('a save failure never shows completed', () async {
       final r = Rig()..failSave = true;

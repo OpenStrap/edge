@@ -200,7 +200,9 @@ class HealthProfileImporter {
 
     int? age;
     final dob = newest(HealthDataType.BIRTH_DATE)?.value;
-    if (dob is NumericHealthValue) {
+    // An unset or unreadable birth date arrives as value:null, which the
+    // plugin turns into 0, i.e. 1970-01-01 and an age of 56. Treat 0 as unset.
+    if (dob is NumericHealthValue && dob.numericValue != 0) {
       // SECONDS, not milliseconds. The plugin's iOS side sends
       // `dateOfBirth?.timeIntervalSince1970` (SwiftHealthPlugin.swift), which is
       // a Foundation TimeInterval — seconds since the epoch, as a double. Read

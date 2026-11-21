@@ -342,10 +342,13 @@ class AlarmScreenView extends StatelessWidget {
                             value: _hhmmOf(day.hour, day.minute),
                             chevron: false,
                             onTap: () => _pickDayTime(c, day)),
-                        SetRow(LucideIcons.moon, C.purple, 'Smart wake',
+                        SetRow(LucideIcons.moon, C.purple,
+                            uiText(c, 'Smart wake window'),
                             value: day.smartWindowMinutes == 0
                                 ? (l?.stateOff ?? 'Off')
-                                : '${day.smartWindowMinutes} min early',
+                                : (l?.supplementSmartWindowMinutes(
+                                        day.smartWindowMinutes) ??
+                                    '${day.smartWindowMinutes} min before wake time'),
                             chevron: false,
                             onTap: () => _pickSmartWindow(c, day)),
                       ],
@@ -358,7 +361,7 @@ class AlarmScreenView extends StatelessWidget {
                         color: C.blue,
                         soft: true,
                         onTap: () => _run(
-                            c, onTest, l?.alarmBuzzingTheBand ?? 'Buzzing the band')),
+                            c, onTest, l?.alarmBuzzingTheBand ?? 'Buzz sent to the band')),
                     const SizedBox(height: S.x3),
                   ],
                   if (at != null || anyDayEnabled)
@@ -444,8 +447,16 @@ class AlarmScreenView extends StatelessWidget {
     }
   }
 
-  static void _say(BuildContext c, String msg) =>
-      ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(msg)));
+  /// Replaces what this screen said before, shown or still queued, instead of
+  /// stacking behind it: repeat taps would otherwise queue one 4-second
+  /// snackbar each and keep an old result on screen long after it stopped
+  /// being true. Only while this screen is on top — a result that lands after
+  /// the user moved on must not wipe another screen's message.
+  static void _say(BuildContext c, String msg) {
+    final messenger = ScaffoldMessenger.of(c);
+    if (ModalRoute.of(c)?.isCurrent ?? true) messenger.clearSnackBars();
+    messenger.showSnackBar(SnackBar(content: Text(msg)));
+  }
 
   static String _hhmm(DateTime d) => _hhmmOf(d.hour, d.minute);
 
@@ -466,7 +477,8 @@ class AlarmScreenView extends StatelessWidget {
   static String _whichDay(BuildContext c, DateTime d, DateTime now) {
     final l = AppLocalizations.of(c);
     final days = calendarDaysBetween(now, d);
-    if (days < 0) {
+    // same calendar day but already passed is spent too, not "later today"
+    if (days < 0 || !d.isAfter(now)) {
       return l?.alarmInThePast ??
           'In the past — it has already fired or been missed';
     }

@@ -155,7 +155,13 @@ class NotificationService {
   /// drawer or an app the OS killed meant nothing happened at all. Do not reuse
   /// these ids for anything else.
   static const int idWaterBase = 2100;
-  static const int maxWaterSlots = 24;
+  // a whole day at the shortest interval, so no reachable waking window is
+  // ever cut short. at 24 a 30m interval over 07:00-22:00 stopped at 18:30.
+  // iOS keeps only the 64 newest pending requests and drops older ones silently,
+  // so water + meds (12) + the other standing reminders (up to ~8) must stay
+  // under 64. 40 slots is 20h at the 30m minimum; a waking window longer than 20h is
+  // deliberately cut at the cap to stay under the iOS limit.
+  static const int maxWaterSlots = 40;
 
   /// Reserved for a future server/push layer (unused — app is cloud-free).
   static const int kServerIdBase = 2000;

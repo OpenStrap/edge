@@ -139,7 +139,8 @@ import '../sync/paired_device.dart';
 import '../sync/sync_policy.dart'
     show
         BandPromptPolicy,
-        BandPromptRequest;
+        BandPromptRequest,
+        recordTimestampUntrusted;
 import '../sync/update_service.dart';
 import '../telemetry/telemetry_service.dart';
 import '../telemetry/health_uploader.dart';
@@ -494,6 +495,8 @@ class AppState extends ChangeNotifier {
 
   int? get _lastRecTs => _sync.lastRecTs;
   set _lastRecTs(int? value) => _sync.lastRecTs = value;
+  // Mirror of LocalDb.hasGateDroppedArchive, read at boot and on every store.
+  bool _bandUntimedArchive = false;
   bool get _background => _sync.background;
   set _background(bool value) => _sync.background = value;
   bool get busy => _sync.busy;
@@ -524,8 +527,14 @@ class AppState extends ChangeNotifier {
   /// Re-read the sensor rows. Call after pairing or forgetting one; also runs
   /// whenever a paired device's row changes (a sync, a battery report).
   Future<void> refreshSensors() async {
-    _deviceRowSub ??=
-        LocalDb.deviceRowChanged.stream.listen((_) => unawaited(refreshSensors()));
+    // A read failing after a committed priority write would leave the cache
+    // stale, so retry once.
+    _deviceRowSub ??= LocalDb.deviceRowChanged.stream.listen((_) {
+      unawaited(refreshSensors().catchError((_) async {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (!_disposed) await refreshSensors().catchError((_) {});
+      }));
+    });
     final rows = await LocalDb.deviceRows();
     _sensors = [
       for (final r in rows)
@@ -779,14 +788,30 @@ class AppState extends ChangeNotifier {
     final ImportSummary counts;
     try {
       counts = await LocalDb.importFromDbFile(path);
+    } catch (_) {
+      // Nothing committed to report: the caller's zero-count error path.
+      invalidateLiveStepCalibration();
+      await _loadAlarmSchedule();
+      if (isConnected) await _armNextAlarmOccurrence();
+      rethrow;
+    }
+    // Rows are committed from here on. A later failure must not discard the
+    // day count, so it is surfaced through importRollupError instead.
+    try {
       await _adoptRestoredSettings(counts);
       await LocalDb.refitAllLiveStepGains();
+    } catch (e) {
+      importRollupError = '$e';
     } finally {
       invalidateLiveStepCalibration();
       // Table rows can arrive without settings, including from older backups.
       // Reload even after a partial merge, then use normal arm/dedupe handling.
-      await _loadAlarmSchedule();
-      if (isConnected) await _armNextAlarmOccurrence();
+      try {
+        await _loadAlarmSchedule();
+        if (isConnected) await _armNextAlarmOccurrence();
+      } catch (e) {
+        importRollupError ??= '$e';
+      }
     }
     // An import can MERGE calibration rows (`live_step_calibration`) in from the
     // backup without this process knowing, and the cached fit is the only thing
@@ -808,8 +833,11 @@ class AppState extends ChangeNotifier {
       await refreshActivityReviews();
       await _derive.finalizeImport(_profile);
       await LocalDb.refreshComputeFreshness();
+      final recTsHw = await LocalDb.getRecordFrontier();
+      if (recTsHw != null && recTsHw > (_lastRecTs ?? 0)) _lastRecTs = recTsHw;
+      _bandUntimedArchive = await LocalDb.hasGateDroppedArchive();
     } catch (e) {
-      importRollupError = '$e';
+      importRollupError ??= '$e';
     }
     bumpInsights(); // see importNoopCsv — imported rows have to reach the tabs
     notifyListeners();
@@ -1166,27 +1194,37 @@ class AppState extends ChangeNotifier {
       final r = await _phonePedometer.syncRecent(
         days: days,
         onDayBanked: (day, changed) {
+          // A rewrite that left the total alone needs no derive: a resume
+          // with nothing moved used to queue a full light pass.
+          if (!changed) return;
           progress.days++;
-          if (changed && day != todayLabel()) progress.pastDayChanged = true;
+          if (day != todayLabel()) progress.pastDayChanged = true;
           // A day committing after its read was retired is still real.
           if (progress.retired) _queuePhoneDerive(progress);
         },
       );
-      if (stale()) return 0;
+      if (stale()) {
+        // Rows already committed are real even if a newer read took over.
+        _queuePhoneDerive(progress);
+        return 0;
+      }
       phoneStepsLastSyncedDays = r.daysRead;
       phoneStepsLastTotal = r.totalSteps;
       await _refreshPhoneStepsToday();
-      if (stale()) return 0;
+      if (stale()) {
+        _queuePhoneDerive(progress);
+        return 0;
+      }
       if (r.daysRead > 0) {
         // Use the normal durable queue: capture, workout and background holds
         // still apply, and a read finishing during derive gets a later pass.
         _queuePhoneDerive(progress);
-        if (progress.days == 0) _deriveScheduler.markStoredData();
       }
       notifyListeners();
       return r.daysRead;
     } catch (e) {
       debugPrint('[phone_steps] sync: $e');
+      _queuePhoneDerive(progress);
       return 0;
     }
   }
@@ -1271,18 +1309,41 @@ class AppState extends ChangeNotifier {
       // consent records we post; someone who has consented to nothing has
       // nothing to stamp, so fetching it was a launch-time call to the
       // operator's server on behalf of a user who had opted out of all of it.
-      if (telemetryConsent || healthShareConsent) {
-        final status = await CompanionClient.getStatus();
-        final v = status?['terms']?['version'];
-        if (v is int && v > 0) {
-          termsVersion = v;
-          t.consentVersion = v;
-          HealthUploader.instance.consentVersion = v;
-        }
-      }
+      if (telemetryConsent || healthShareConsent) await _refreshTermsVersion();
     } catch (e) {
       _log('[companion] init failed (non-fatal): $e');
     }
+  }
+
+  /// Best-effort fetch of the live Terms version into every consent stamp.
+  Future<void> _refreshTermsVersion() async {
+    final status = await CompanionClient.getStatus();
+    final v = status?['terms']?['version'];
+    if (v is int && v > 0) {
+      termsVersion = v;
+      TelemetryService.instance.consentVersion = v;
+      HealthUploader.instance.consentVersion = v;
+    }
+  }
+
+  /// Posts a consent record. An opt-in first learns the live Terms version:
+  /// a fresh install never fetched it at launch, so it would otherwise stamp
+  /// the compiled-in placeholder.
+  Future<void> _postConsent(String scope, bool on) async {
+    if (on) {
+      await _refreshTermsVersion();
+      // Opted out while the fetch was in flight: the disable already posted
+      // granted=false, so a late grant must not follow it.
+      if (!(scope == 'telemetry' ? telemetryConsent : healthShareConsent)) {
+        return;
+      }
+    }
+    await CompanionClient.postConsent(
+      deviceId: deviceId,
+      scope: scope,
+      granted: on,
+      termsVersion: termsVersion,
+    );
   }
 
   /// The live band fields folded into each telemetry batch's device snapshot.
@@ -1310,15 +1371,11 @@ class AppState extends ChangeNotifier {
     await prefs.setBool(_kConsentChosen, true);
     TelemetryService.instance.applyConsent(on);
     notifyListeners();
-    unawaited(
-      CompanionClient.postConsent(
-        deviceId: deviceId,
-        scope: 'telemetry',
-        granted: on,
-        termsVersion: termsVersion,
-      ),
-    );
-    if (on) unawaited(TelemetryService.instance.flush());
+    // Flush only after the terms version is learned, so the first batch is
+    // stamped with the live version, not the compiled-in placeholder.
+    unawaited(_postConsent('telemetry', on).whenComplete(() {
+      if (on && telemetryConsent) unawaited(TelemetryService.instance.flush());
+    }));
   }
 
   /// Toggle full-.db health-data contribution. Persists + records server consent.
@@ -1329,14 +1386,7 @@ class AppState extends ChangeNotifier {
     await prefs.setBool(_kHealthShareConsent, on);
     await prefs.setBool(_kConsentChosen, true);
     notifyListeners();
-    unawaited(
-      CompanionClient.postConsent(
-        deviceId: deviceId,
-        scope: 'health_data',
-        granted: on,
-        termsVersion: termsVersion,
-      ),
-    );
+    unawaited(_postConsent('health_data', on));
   }
 
   /// Adopts the newest weighing a paired scale banked as the profile's weight
@@ -1404,8 +1454,16 @@ class AppState extends ChangeNotifier {
     // Read right before the merge, after the await: an overlapping update can
     // change the goal while this one waits.
     final goalBefore = user?['step_goal'];
-    user = {...?user, ...fields};
-    await prefs.setString(_kProfile, jsonEncode(user));
+    final before = user;
+    final merged = user = {...?user, ...fields};
+    try {
+      await prefs.setString(_kProfile, jsonEncode(merged));
+    } catch (_) {
+      // A failed write must not leave unsaved values in memory, or a retry
+      // sees "no change". Only roll back if nobody else updated meanwhile.
+      if (identical(user, merged)) user = before;
+      rethrow;
+    }
     notifyListeners();
     // Home bakes the step goal into its loaded data and re-reads only on the
     // insights revision; `notifyListeners` alone left its "% of goal", "steps
@@ -1696,8 +1754,16 @@ class AppState extends ChangeNotifier {
         }
       }
       appStatus = null;
+      _appStatusGen++;
       _savedAlarm = null;
       _armGen++;
+      // The alarm cache too: wipeAll emptied the table, and a re-pair in this
+      // process would otherwise arm the deleted schedule on the new band.
+      _schedule = fillDefaultAlarmSchedule(const []);
+      _smartWakeProfile = null;
+      _smartWakeProfileDay = null;
+      _smartWakeFiredForEpoch = null;
+      _alarmFiredAt = null;
 
       // 4 · the in-memory mirrors of what we just deleted. These are plain
       // fields, restored only by the profile load at launch, so leaving them
@@ -1714,6 +1780,7 @@ class AppState extends ChangeNotifier {
       // deleted install's "Synced through …" — and no amount of syncing the new
       // band could pull the label back to the truth.
       _lastRecTs = null;
+      _bandUntimedArchive = false;
       lastSynced = null;
 
       // signOut() unpairs, so by the time it returns nothing is delivering.
@@ -1821,6 +1888,8 @@ class AppState extends ChangeNotifier {
   // dismissed-id set could only ever be empty. Deleted rather than wired —
   // nothing in the product asks for an operator broadcast channel.
   AppStatus? appStatus;
+  // Bumped whenever appStatus is dropped, so a fetch in flight cannot put it back.
+  int _appStatusGen = 0;
   int _currentBuild = 0; // our build number (from package_info); 0 if unknown
 
   UpdateInfo? get _update => appStatus?.update;
@@ -1888,6 +1957,7 @@ class AppState extends ChangeNotifier {
     Prefs.setBool(_kUpdateChecks, on);
     if (!on) {
       appStatus = null; // drop whatever the last check answered
+      _appStatusGen++;
     }
     notifyListeners();
     if (on) await refreshAppStatus();
@@ -1917,8 +1987,9 @@ class AppState extends ChangeNotifier {
   /// Re-poll the update pointer (best-effort; called on launch and on app resume).
   Future<void> refreshAppStatus() async {
     if (!updateChecksEnabled) return;
+    final gen = _appStatusGen;
     final status = await UpdateService.fetchStatus();
-    if (status == null) return;
+    if (status == null || gen != _appStatusGen || !updateChecksEnabled) return;
     appStatus = status;
     notifyListeners();
   }
@@ -2016,6 +2087,10 @@ class AppState extends ChangeNotifier {
       onArchiveRecord: (raw) async {
         if (_resetting || _replacingBand) return; // candidate is not the primary yet
         await LocalDb.archiveRawRecord(raw);
+        if (raw.reason == kGateDroppedReason && !_bandUntimedArchive) {
+          _bandUntimedArchive = true;
+          notifyListeners();
+        }
       },
       cursorReader: (base) =>
           LocalDb.getCursorInt(LocalDb.cursorKeyFor(base, LocalDb.kPrimaryDeviceId)),
@@ -2287,10 +2362,10 @@ class AppState extends ChangeNotifier {
   set debugRescanRecent(Future<int> Function(Profile profile)? value) =>
       _deriveCoordinator.debugRescanRecent = value;
   @visibleForTesting
-  Future<bool> Function(Profile profile)? get debugRefreshActivityReviews =>
+  Future<bool?> Function(Profile profile)? get debugRefreshActivityReviews =>
       _deriveCoordinator.debugRefreshActivityReviews;
   @visibleForTesting
-  set debugRefreshActivityReviews(Future<bool> Function(Profile profile)? value) =>
+  set debugRefreshActivityReviews(Future<bool?> Function(Profile profile)? value) =>
       _deriveCoordinator.debugRefreshActivityReviews = value;
 
   /// Run one post-drain derive pass directly, as the scheduler's run callback
@@ -2447,7 +2522,10 @@ class AppState extends ChangeNotifier {
       if (row == null) return;
       final dayId = (row['day_id'] ?? row['date'])?.toString();
       if (dayId == null || dayId.isEmpty) return;
-      final score = (row['readiness'] as num?)?.round();
+      // The pinned headline wins, same as Home: a later re-derive can move
+      // day_result's readiness off the number every other surface shows.
+      final score = await LocalDb.headlinePinFor(dayId) ??
+          (row['readiness'] as num?)?.round();
       if (score == null) {
         return; // recovery not computed (no nocturnal HRV) → no fire
       }
@@ -2750,11 +2828,14 @@ class AppState extends ChangeNotifier {
   // uninterrupted, for the full 2h window, and it fires from the OS wall-clock
   // even while the app is closed.
   int _lastStillnessScheduleMs = 0;
+  static const int _stillnessThrottleMs = 10 * 60 * 1000;
   Future<void> _rescheduleStillnessNudge(int nowMs) async {
     // Throttle: _ingestLiveMags can call this many times a second while the
     // user is actively moving — the 2h nudge window doesn't need OS-scheduler
-    // churn anywhere near that tight.
-    if (nowMs - _lastStillnessScheduleMs < 10 * 60 * 1000) return;
+    // churn anywhere near that tight. Movement swallowed by the throttle does
+    // not push the one-shot out, so it is armed one throttle window late:
+    // it never fires sooner than 2h after the last movement seen.
+    if (nowMs - _lastStillnessScheduleMs < _stillnessThrottleMs) return;
     _lastStillnessScheduleMs = nowMs;
     try {
       // Opt-in, off by default. Read here rather than cached because this runs
@@ -2767,7 +2848,8 @@ class AppState extends ChangeNotifier {
       if (!prefs.movementEnabled) return;
       await NotificationService.instance.cancel(NotificationService.idStillness);
       final at = NotificationCenter.stillnessNudgeAt(
-          prefs, DateTime.fromMillisecondsSinceEpoch(nowMs));
+          prefs,
+          DateTime.fromMillisecondsSinceEpoch(nowMs + _stillnessThrottleMs));
       if (at == null) return;
       await NotificationService.instance.scheduleOnce(
         id: NotificationService.idStillness,
@@ -3157,6 +3239,9 @@ class AppState extends ChangeNotifier {
       if (recTsHw != null && recTsHw > (_lastRecTs ?? 0)) {
         _lastRecTs = recTsHw;
       }
+      try {
+        _bandUntimedArchive = await LocalDb.hasGateDroppedArchive();
+      } catch (_) {} // display-only; never block the derive below
       notifyListeners();
       _deriveScheduler.markStoredData();
       // A sync that just stored last night's data is exactly when the morning
@@ -3280,6 +3365,7 @@ class AppState extends ChangeNotifier {
     // or not, so it's the honest frontier (same one RecordGate/backfill
     // policies already trust).
     _lastRecTs = await LocalDb.getRecordFrontier() ?? lastSynced?.tsEpoch;
+    _bandUntimedArchive = await LocalDb.hasGateDroppedArchive();
     await LocalDb.refreshComputeFreshness();
     final alarmPrefs = await SharedPreferences.getInstance();
     _savedAlarm = persistedAlarmEpoch(alarmPrefs, paired?.remoteId);
@@ -4607,6 +4693,11 @@ class AppState extends ChangeNotifier {
   /// device reporting the same stamp twice is one.
   final Map<String, int> _liveHrTraceAt = {};
 
+  /// The last stamp each device had when its trace was cleared. The engine
+  /// keeps its last reading across a drop, so the next state tick would
+  /// otherwise re-append that pre-drop sample to the new session.
+  final Map<String, int> _liveHrClearedAt = {};
+
   /// One device's recent readings, newest last, bpm only — the shape
   /// `LiveHrCard` already draws. Null [deviceId] means [liveHrDeviceId], the
   /// device the priority order says wins.
@@ -4706,7 +4797,11 @@ class AppState extends ChangeNotifier {
   /// `liveHrMultiDevice` disagree with the chart. Returns true when it took
   /// the sample, i.e. when a listener has something new to draw.
   bool _appendLiveHr(String deviceId, int? hr, int? at) {
-    if (hr == null || hr <= 0 || at == null || at == _liveHrTraceAt[deviceId]) {
+    if (hr == null ||
+        hr <= 0 ||
+        at == null ||
+        at == _liveHrTraceAt[deviceId] ||
+        at == _liveHrClearedAt[deviceId]) {
       return false;
     }
     _liveHrTraceAt[deviceId] = at;
@@ -4734,7 +4829,7 @@ class AppState extends ChangeNotifier {
   bool _clearLiveHrTrace(String deviceId) {
     if (!_liveHrTraceAt.containsKey(deviceId)) return false;
     _liveHrTrace.removeWhere((e) => e.deviceId == deviceId);
-    _liveHrTraceAt.remove(deviceId);
+    _liveHrClearedAt[deviceId] = _liveHrTraceAt.remove(deviceId)!;
     liveHrTraceRev++;
     return true;
   }
@@ -4865,7 +4960,7 @@ class AppState extends ChangeNotifier {
     if (healed != null) {
       paired = healed;
       unawaited(PairedDevice.save(healed.remoteId, healed.serial,
-          generation: s.generation));
+          generation: s.generation, onlyIfPaired: true));
     }
     // Pin the discovered generation onto the pairing record (HEAL ONLY — same
     // rule as the serial above: never CREATE a pairing here). A known-device
@@ -4878,7 +4973,8 @@ class AppState extends ChangeNotifier {
       paired =
           PairedDevice(p.remoteId, p.serial, generation: s.generation);
       unawaited(
-          PairedDevice.save(p.remoteId, p.serial, generation: s.generation));
+          PairedDevice.save(p.remoteId, p.serial,
+              generation: s.generation, onlyIfPaired: true));
     }
     // WHOOP MG identity, remembered per serial so the ECG entry survives a
     // disconnect. Set only from a positive revision-1 MAVERICK hello — never
@@ -5723,7 +5819,9 @@ class AppState extends ChangeNotifier {
         now: now,
       );
       if (!detected) return;
-      if (!stillCurrent()) return;
+      // Re-read the latch: ticks are not single-flight, and an overlapping
+      // run may have fired this occurrence during the awaits above.
+      if (!stillCurrent() || _smartWakeFiredForEpoch == epoch) return;
       _smartWakeFiredForEpoch = epoch; // set BEFORE the write — see below
       // Marked fired before the write goes out on purpose: a write that
       // throws must not retry every 30 s for the rest of the window (that
@@ -6401,6 +6499,20 @@ class AppState extends ChangeNotifier {
   bool get syncingNow => _sync.syncingNow;
   DateTime? get lastRecordAt => _sync.lastRecordAt;
 
+  /// The raw record frontier (`rec_ts_hw`), including a sub-floor value from a
+  /// strap whose RTC was never set. [lastRecordAt] drops that for display;
+  /// diagnostics (the support report) keep it, since it is what tells support
+  /// the strap's clock state.
+  int? get recordFrontierTs => _sync.lastRecTs;
+
+  /// Records were banked but their timestamp is unusable (a never-set strap
+  /// RTC), so "last data" is neither a date nor "nothing banked yet". Two
+  /// shapes: a sub-floor `rec_ts_hw` left by older builds, or (today) records
+  /// the gate archived without ever moving the frontier.
+  bool get bandRecordTimeUnknown =>
+      lastRecordAt == null &&
+      (recordTimestampUntrusted(recordFrontierTs) || _bandUntimedArchive);
+
   /// A derive job is running RIGHT NOW — the backlog just landed and the
   /// pipeline is computing what it means. Surfaced so a screen sitting on
   /// "nothing yet" can say it is being worked on rather than looking dead.
@@ -6599,8 +6711,9 @@ class AppState extends ChangeNotifier {
       }
       _rhr28 = await LocalDb.trailingSeriesValues('rhr', 28);
       final vals = await LocalDb.trailingSeriesValues('rhr', 7);
+      // An emptied series (reset, deleted days) drops the old anchor too.
+      _nightlyRhr = vals.isEmpty ? null : vals.last;
       if (vals.isEmpty) return;
-      _nightlyRhr = vals.last;
       // Adopt it into a session that started before this read completed, but
       // only to FILL A GAP — overwriting an anchor a running session was
       // already scored against would move its number mid-workout.
@@ -6676,15 +6789,9 @@ class AppState extends ChangeNotifier {
   Future<void> _toggleWorkoutFromGesture() async {
     try {
       if (activeWorkout != null) {
-        final id = activeWorkout!.workoutId;
+        // stopWorkout already writes the finished session with the stop time;
+        // a second endWorkout would re-stamp end_ts to now, after the flush.
         await stopWorkout();
-        if (id != null) {
-          try {
-            await repo?.endWorkout(id);
-          } catch (_) {
-            /* seam not implemented yet; local already stopped */
-          }
-        }
       } else {
         String? id;
         try {

@@ -59,5 +59,8 @@ void main() {
 
   test('nothing banked says so plainly', () {
     expect(syncedThroughLabel(null, today), 'No band data yet');
+    // Records banked but the strap's clock was never set: not "no data".
+    expect(syncedThroughLabel(null, today, null, true),
+        'Band data, clock not set');
   });
 }

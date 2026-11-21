@@ -383,6 +383,26 @@ bool isPlausibleUnix(
   return true;
 }
 
+/// The record frontier (`rec_ts_hw`) as a wall-clock instant for display, or
+/// null when it is missing or below the plausible floor. A strap whose RTC was
+/// never set banks factory-epoch records; the frontier cursor and `lastRecordAt`
+/// guard only `> 0` / `!= null`, so such a frontier reached the devices "last
+/// data" line as a 1970/2019 date the records never supported. Applying the
+/// same [kMinPlausibleUnix] floor the ingest gate uses keeps that honest.
+DateTime? plausibleRecordInstant(int? tsSec) =>
+    (tsSec == null || tsSec < kMinPlausibleUnix)
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(tsSec * 1000);
+
+/// True when a record frontier exists but its time cannot be trusted: a
+/// positive `rec_ts_hw` below the plausible floor, which is what a strap whose
+/// RTC was never set banks (factory-epoch records). It means data WAS recorded —
+/// so "nothing banked yet" is wrong — but its timestamp is unusable, which is
+/// different again from a plausible frontier. [plausibleRecordInstant] returns
+/// null for both this and a truly missing frontier; this tells them apart.
+bool recordTimestampUntrusted(int? tsSec) =>
+    tsSec != null && tsSec > 0 && tsSec < kMinPlausibleUnix;
+
 /// A stricter, single-purpose sanity check for a band-reported "newest
 /// record" timestamp (GET_DATA_RANGE's `range_newest`) that sits implausibly
 /// far in the future — the signature of a corrupt/never-set strap RTC.

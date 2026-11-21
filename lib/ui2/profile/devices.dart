@@ -851,6 +851,9 @@ class HealthSource {
   /// sleep, recovery and temperature are all still abstaining.
   final bool isBand;
 
+  /// Band only: data was banked but its timestamp is untrusted (unset RTC).
+  final bool timeUnknown;
+
   /// The `device` row this source is, for a paired sensor. Null for the
   /// primary band (whose row is `LocalDb.kPrimaryDeviceId`, `''`) and for the
   /// phone. It is the `device_id` every measurement this source wrote carries,
@@ -889,6 +892,7 @@ class HealthSource {
     this.batteryPackPct,
     this.lastData,
     this.isBand = false,
+    this.timeUnknown = false,
     this.deviceId,
     this.family,
     this.flagOff = false,
@@ -905,12 +909,14 @@ class HealthSource {
 ///
 /// Returns null for a non-band source: the phone reports steps and nothing that
 /// is calibrated per sensor.
-(String value, String sub)? calibrationDisclosure(HealthSource s) {
+(String value, String sub)? calibrationDisclosure(HealthSource s,
+    [AppLocalizations? l]) {
   if (!s.isBand) return null;
   final label = bandLabelFor(s.family);
   if (label != null) {
     return (
       label,
+      l?.devicesCalibrationSub ??
       'Metrics that depend on the sensor use this band’s own constants, so two '
           'different bands can land on different tiers for the same physiology.'
     );
@@ -921,7 +927,8 @@ class HealthSource {
   // build has no registry entry for lands here too — an unknown band is not a
   // WHOOP 4.
   return (
-    'Not stated yet',
+    l?.devicesCalibrationNotStated ?? 'Not stated yet',
+    l?.devicesCalibrationNotStatedSub ??
     'This band has not said which generation it is, and imported or older '
         'days never will. Metrics that depend on the sensor abstain rather '
         'than borrow another band’s numbers.'
@@ -962,6 +969,16 @@ double? sensorRowBatteryPct(Map<String, Object?> r) =>
 DateTime? sensorRowLastData(Map<String, Object?> r) => r['last_seen'] == null
     ? null
     : DateTime.fromMillisecondsSinceEpoch((r['last_seen'] as num).toInt() * 1000);
+
+/// True when a sync landed data after pairing (pairing stamps `last_seen`
+/// equal to `first_seen`) and did so within the last week. A ring that never
+/// synced, or last synced months ago, is not measuring anything now.
+bool sensorRowHasRecentData(Map<String, Object?> r, {DateTime? now}) {
+  final seen = r['last_seen'], first = r['first_seen'];
+  if (seen is! num || (first is num && seen <= first)) return false;
+  final age = (now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000 - seen;
+  return age <= 7 * 86400;
+}
 
 /// The band's family now: what the link reports, else what was stored at
 /// pairing, else the snapshot the page was opened with.
@@ -1030,6 +1047,7 @@ List<HealthSource> liveSources(AppState app,
           batteryPackPct: app.device.batteryPackPct,
           lastData: app.lastRecordAt,
           isBand: true,
+          timeUnknown: app.bandRecordTimeUnknown,
           // The stored generation when no link has come up this launch, so a
           // disconnected band keeps its family-gated rows (Worn on, signals).
           family: app.device.generation ?? app.paired?.generation,
@@ -1056,7 +1074,13 @@ List<HealthSource> liveSources(AppState app,
           // `liveAdapterIds` is keyed by adapter so a live PPI stream never
           // marks an unrelated paired Oura row as connected just because
           // some sensor happens to be live right now.
-          connected: liveAdapterIds.contains(r['adapter_id']),
+          // A ring or watch syncs in sessions, with no link held open between
+          // them, so its switch being on and data having landed is what makes
+          // it the active source. A live stream still counts for everything.
+          connected: liveAdapterIds.contains(r['adapter_id']) ||
+              (_isEveryDayAdapter(r['adapter_id'] as String?) &&
+                  !app.flagOffSensorIds.contains(r['id']) &&
+                  sensorRowHasRecentData(r)),
           batteryPct: sensorRowBatteryPct(r),
           lastData: sensorRowLastData(r),
           isBand: false,
@@ -1102,9 +1126,14 @@ List<HealthSource> rankSources(List<HealthSource> sources) {
     final byTier = (a.tier?.rank ?? 99).compareTo(b.tier?.rank ?? 99);
     if (byTier != 0) return byTier;
     final at = a.lastData, bt = b.lastData;
-    if (at != null && bt != null && at != bt) return bt.compareTo(at);
-    if (at != null) return -1;
-    if (bt != null) return 1;
+    if (at != null && bt != null) {
+      final byRecency = bt.compareTo(at);
+      if (byRecency != 0) return byRecency;
+    } else if (at != null) {
+      return -1;
+    } else if (bt != null) {
+      return 1;
+    }
     return a.name.compareTo(b.name);
   });
   return out;
@@ -1612,6 +1641,7 @@ extension _PairSection on MyDevicesView {
     // "every metric abstains" would be wrong while one is active.
     final everyDayWearable = sources.any((s) =>
         !s.isBand &&
+        !s.flagOff &&
         s.connected &&
         slotDeviceOf(s)?.slot == DeviceSlot.everyDay);
     final al = AppLocalizations.of(c);
@@ -1668,6 +1698,11 @@ extension _PairSection on MyDevicesView {
   final e = kBandRegistry.where((e) => e.id == s.family).firstOrNull;
   final slot = e == null ? null : pairedDeviceSlot(e);
   return slot == null ? null : (entry: e!, slot: slot);
+}
+
+bool _isEveryDayAdapter(String? id) {
+  final e = kBandRegistry.where((e) => e.id == id).firstOrNull;
+  return e != null && pairedDeviceSlot(e) == DeviceSlot.everyDay;
 }
 
 /// The column chip a source row carries: the band is every day; a paired
@@ -2074,7 +2109,13 @@ class _DeviceDetailState extends State<DeviceDetail> {
       onInstallImage: (s.isBand && family == 'gen5')
           ? () => goto(c, const FirmwareFlashScreen())
           : null,
-      liveHr: s.isBand ? app?.liveHr : null,
+      // Only when the band itself owns the live trace: a streaming chest
+      // strap outranks the wrist band, and its beats are not the band's.
+      liveHr: s.isBand &&
+              (app?.liveHrDeviceId ?? LocalDb.kPrimaryDeviceId) ==
+                  LocalDb.kPrimaryDeviceId
+          ? app?.liveHr
+          : null,
       onRename: (app != null && app.isConnected)
           ? () => _renameBand(c, app, s.name)
           : null,
@@ -2242,8 +2283,10 @@ Future<void> _syncMiband(BuildContext c) async {
             ? (l?.devicesBandKeyRefused ??
                 'The band rejected the key. Re-pair it to install a key it '
                     'accepts.')
-            : 'Could not reach the band. It has to be nearby, and not '
-                'connected to another app.'),
+            // The device-neutral string, as the other watch handlers use.
+            : (l?.devicesCouldNotReachCorosWatch ??
+                'Could not reach it. It has to be nearby, and not connected '
+                    'to another app.')),
   ));
 }
 
@@ -2537,7 +2580,7 @@ class DeviceDetailView extends StatelessWidget {
     final last = s.lastData;
     final fault =
         localizedStatus?.isFault == true ? localizedStatus : null;
-    final calibration = calibrationDisclosure(s);
+    final calibration = calibrationDisclosure(s, l);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -2740,8 +2783,8 @@ class DeviceDetailView extends StatelessWidget {
                                   'Not reported since the last connection')
                               : [
                                   if (s.charging) (l?.devicesCharging ?? 'Charging'),
-                                  ?_timeLeft(forecast),
-                                  ?_chargeHistory(health),
+                                  ?_timeLeft(forecast, l),
+                                  ?_chargeHistory(health, l),
                                 ].join(' · '),
                           chevron: false),
                       Divider(color: p.line, height: 1),
@@ -2760,17 +2803,25 @@ class DeviceDetailView extends StatelessWidget {
                       if (liveHr != null) ...[
                         SetRow(LucideIcons.heartPulse, C.red,
                             l?.devicesHeartRate ?? 'Heart rate',
-                            value: '$liveHr bpm',
+                            value: '$liveHr ${l?.wearableUnitBpm ?? 'bpm'}',
                             sub: l?.devicesRightNow ?? 'Right now',
                             chevron: false),
                         Divider(color: p.line, height: 1),
                       ],
                       SetRow(LucideIcons.refreshCw, C.purple,
                           l?.devicesLastData ?? 'Last data',
-                          value: last == null ? '' : formatDayTime(last, l),
-                          sub: last == null
-                              ? (l?.devicesNothingBankedYet ?? 'Nothing banked yet')
-                              : '',
+                          value: last != null
+                              ? formatDayTime(last, l)
+                              : s.timeUnknown
+                                  ? (l?.devicesTimeUnknown ?? 'Time unknown')
+                                  : '',
+                          sub: last != null
+                              ? ''
+                              : s.timeUnknown
+                                  ? (l?.devicesClockNotSetSub ??
+                                      'The strap recorded data but its clock is not set')
+                                  : (l?.devicesNothingBankedYet ??
+                                      'Nothing banked yet'),
                           chevron: false),
                       if (calibration != null) ...[
                         Divider(color: p.line, height: 1),
@@ -2820,7 +2871,10 @@ class DeviceDetailView extends StatelessWidget {
                   Surface(
                     pad: const EdgeInsets.symmetric(horizontal: S.x4),
                     child: SetRow(LucideIcons.trash2, C.red,
-                        l?.devicesForgetThisBand ?? 'Forget this band',
+                        s.isBand
+                            ? (l?.devicesForgetThisBand ?? 'Forget this band')
+                            : (l?.pairSensorForgetThisSensor ??
+                                'Forget this sensor'),
                         danger: true, chevron: false, onTap: onForget),
                   ),
                 ],
@@ -2842,26 +2896,30 @@ class DeviceDetailView extends StatelessWidget {
 /// that only moves in whole points, so it does not support a time of day, and
 /// printing one would claim a precision this cannot carry. "About" is doing
 /// real work in that sentence.
-String? _timeLeft(BatteryForecast? f) {
+String? _timeLeft(BatteryForecast? f, AppLocalizations? l) {
   final empty = f?.predictedEmptyAt;
   if (empty == null) return null;
   final left = empty.difference(DateTime.now());
   if (left.isNegative) return null;
-  if (left.inHours < 1) return 'under an hour left';
-  if (left.inHours < 36) return 'about ${left.inHours} h left';
-  return 'about ${(left.inHours / 24).round()} days left';
+  final h = left.inHours;
+  if (h < 1) return l?.devicesBatteryUnderAnHourLeft ?? 'under an hour left';
+  if (h < 36) return l?.devicesBatteryHoursLeft(h) ?? 'about $h h left';
+  final d = (h / 24).round();
+  return l?.devicesBatteryDaysLeft(d) ?? 'about $d days left';
 }
 
 /// "12 charges logged, up to 4,180 mV" — or null when there is no history to
 /// report yet. Two facts about this band and nothing derived from them: nothing
 /// here knows the pack's design capacity, and going on the charger is not a
 /// cycle.
-String? _chargeHistory(Map<String, dynamic>? h) {
+String? _chargeHistory(Map<String, dynamic>? h, AppLocalizations? l) {
   final cycles = (h?['charge_cycles'] as num?)?.toInt() ?? 0;
   if (cycles <= 0) return null;
   final mv = (h?['full_charge_mv'] as num?)?.toInt();
-  return '$cycles charge${cycles == 1 ? '' : 's'} logged'
-      '${mv == null ? '' : ', up to $mv mV'}';
+  final logged = l?.devicesChargesLogged(cycles) ??
+      '$cycles charge${cycles == 1 ? '' : 's'} logged';
+  if (mv == null) return logged;
+  return '$logged, ${l?.devicesChargeUpToMv(mv) ?? 'up to $mv mV'}';
 }
 
 String wornName(BuildContext c, int w) {

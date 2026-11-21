@@ -35,6 +35,7 @@ import '../l10n/decimal_text.dart' show parseTypedNumber;
 import '../l10n/presentation_text.dart';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderAbstractViewport;
@@ -2431,15 +2432,28 @@ class _SubTabsState extends State<SubTabs> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+  void initState() {
+    super.initState();
     _reveal();
   }
 
+  // Chip widths follow the text scale; re-reveal only when it changes.
+  TextScaler? _scaler;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final s = MediaQuery.textScalerOf(context);
+    if (_scaler != null && _scaler != s) _reveal();
+    _scaler = s;
+  }
+
+  // Parents rebuild the items list on every setState, so compare contents:
+  // an identity check would snap the row back under the user's finger.
   @override
   void didUpdateWidget(SubTabs oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.index != widget.index || oldWidget.items != widget.items) {
+    if (oldWidget.index != widget.index ||
+        !listEquals(oldWidget.items, widget.items)) {
       _reveal();
     }
   }

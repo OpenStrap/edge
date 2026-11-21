@@ -198,6 +198,25 @@ void main() {
     expect(find.byType(BootSplash), findsOneWidget);
   });
 
+  testWidgets('the picked sex reads as selected to a screen reader',
+      (tester) async {
+    final handle = tester.ensureSemantics();
+    await tester.pumpWidget(_frame(
+        ProfileSetupView(initial: const {'sex': 'f'}, onSave: (_) async {}),
+        Brightness.light,
+        1));
+    await tester.pumpAndSettle();
+    expect(
+        tester.getSemantics(find.text('Female')),
+        isSemantics(
+            isButton: true, hasSelectedState: true, isSelected: true));
+    expect(
+        tester.getSemantics(find.text('Male')),
+        isSemantics(
+            isButton: true, hasSelectedState: true, isSelected: false));
+    handle.dispose();
+  });
+
   testWidgets('an absent value is a StatusCard, never a bare dash',
       (tester) async {
     for (final entry in cases.entries) {

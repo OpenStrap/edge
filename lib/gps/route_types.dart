@@ -22,7 +22,6 @@ const Set<String> kRouteTypeKeys = {
   'cycling',
   'mountain_biking',
   'cross_country',
-  'golf',
   'kayaking',
   'paddleboard',
   'skiing',

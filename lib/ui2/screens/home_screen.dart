@@ -231,6 +231,16 @@ DateTime? lastDataAtOf(BuildContext c) {
   }
 }
 
+/// Records banked but their time untrusted (a never-set strap RTC) — distinct
+/// from no data at all. Drives the "clock not set" variant of the sync line.
+bool bandRecordTimeUnknownOf(BuildContext c) {
+  try {
+    return c.select<AppState, bool>((a) => a.bandRecordTimeUnknown);
+  } catch (_) {
+    return false;
+  }
+}
+
 /// "Synced through 11:06" — the one line that answers "how far are we?".
 ///
 /// It reads the BAND's clock, so it says how far the DATA reaches. That is a
@@ -250,8 +260,12 @@ DateTime? lastDataAtOf(BuildContext c) {
 /// otherwise — a lone "07:12" against a strap not worn since Friday is the
 /// most misleading thing this line could say.
 String syncedThroughLabel(DateTime? at, String? todayId,
-    [AppLocalizations? l]) {
-  if (at == null) return l?.homeSyncedNever ?? 'No band data yet';
+    [AppLocalizations? l, bool timeUnknown = false]) {
+  if (at == null) {
+    return timeUnknown
+        ? (l?.homeSyncedTimeUnknown ?? 'Band data, clock not set')
+        : (l?.homeSyncedNever ?? 'No band data yet');
+  }
   final today = todayId == null ? null : DateTime.tryParse(todayId);
   final isToday = today != null &&
       at.year == today.year &&
@@ -314,7 +328,8 @@ Widget? batteryLine(BuildContext c) {
 Widget syncedThroughLine(BuildContext c, String? todayId,
     [AppLocalizations? l]) {
   return Text(
-    syncedThroughLabel(lastDataAtOf(c), todayId, l),
+    syncedThroughLabel(
+        lastDataAtOf(c), todayId, l, bandRecordTimeUnknownOf(c)),
     style: F.cap.copyWith(color: P.of(c).ink3),
   );
 }
@@ -498,10 +513,13 @@ List<double> valuesOf(List<ChartPoint> pts) => [for (final p in pts) p.v];
 /// four-day sync gap the newest point sat at the right-hand edge under the
 /// label "Today", and the line ran straight through the missing week as though
 /// it had been measured.
-List<double?> denseDays(List<ChartPoint> pts, int days) {
+List<double?> denseDays(List<ChartPoint> pts, int days, {DateTime? asOf}) {
   final out = List<double?>.filled(days, null);
   for (final p in pts) {
-    final behind = daysBehind(p.t);
+    final behind = asOf == null
+        ? daysBehind(p.t)
+        : calendarDaysBetween(
+            DateTime.fromMillisecondsSinceEpoch(p.t * 1000), asOf);
     if (behind == null || behind < 0 || behind >= days) continue;
     out[days - 1 - behind] = p.v;
   }
@@ -637,6 +655,16 @@ String hm(num? minutes) {
           (m % 60).toString().padLeft(2, '0'),
         );
 }
+
+/// Binds a run so it cannot wrap internally, in any script. A duration like
+/// "2 Std. 34 Min." is one reading; left breakable, a range value such as a
+/// sleep stage ("1 Std. 34 Min.-2 Std. 54 Min.") dropped a lone "Min." onto its
+/// own line. A word joiner (U+2060) between every character forbids a break at
+/// each boundary — including the spaceless ones in CJK units like "分钟", which
+/// an ASCII-space guard could not reach (#757). Zero-width, so the text renders
+/// unchanged; the dash joining two durations is left un-glued and stays the one
+/// place a range may wrap.
+String nbsp(String s) => s.runes.map(String.fromCharCode).join('\u2060');
 
 /// "8h" for a whole number of hours, else [hm]: the caption's compact forms.
 String _compactHm(num? minutes, AppLocalizations? l) {

@@ -36,6 +36,26 @@ void main() {
     expect(await LocalDb.getCursor('strap_trim'), '0102030405060708');
   });
 
+  test('a gate-dropped-only commit leaves the frontier unset but is seen',
+      () async {
+    // A never-set strap clock: every record is below the floor, so the gate
+    // archives them all and no raw moves rec_ts_hw.
+    expect(await LocalDb.hasGateDroppedArchive(), isFalse);
+    await LocalDb.commitSyncBatch(const [], const <Sample?>[],
+        trimToken: '0a0b',
+        archives: [
+          ArchiveRecord(
+            counter: 3,
+            hex: '2f18001122',
+            packetType: 0x2F,
+            capturedAt: 1750000000 * 1000,
+            reason: kGateDroppedReason,
+          ),
+        ]);
+    expect(await LocalDb.getRecordFrontier(), isNull);
+    expect(await LocalDb.hasGateDroppedArchive(), isTrue);
+  });
+
   test('the first real record still advances both cursors', () async {
     await LocalDb.commitSyncBatch(
       [

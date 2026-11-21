@@ -52,6 +52,32 @@ void main() {
     });
   });
 
+  group('the alarm screen', () {
+    setUp(() => ClockFormatController.seed(ClockFormat.h24));
+    tearDown(ClockFormatController.debugReset);
+
+    testWidgets('an alarm that passed earlier today is not later today',
+        (t) async {
+      // band out of range, so the spent epoch is still armed at 09:00
+      await t.pumpWidget(MaterialApp(
+          home: AlarmScreenView(
+              armedAt: DateTime(2026, 8, 22, 7, 30),
+              state: AlarmArmState.confirmed,
+              now: DateTime(2026, 8, 22, 9))));
+      expect(find.textContaining('In the past'), findsOneWidget);
+      expect(find.text('Later today'), findsNothing);
+    });
+
+    testWidgets('one still ahead today is', (t) async {
+      await t.pumpWidget(MaterialApp(
+          home: AlarmScreenView(
+              armedAt: DateTime(2026, 8, 22, 21),
+              state: AlarmArmState.confirmed,
+              now: DateTime(2026, 8, 22, 9))));
+      expect(find.text('Later today'), findsOneWidget);
+    });
+  });
+
   group('the home door', () {
     // The time follows the user's clock format; pin the 24-hour one.
     setUp(() => ClockFormatController.seed(ClockFormat.h24));
@@ -135,6 +161,73 @@ void main() {
       await t.pump(const Duration(minutes: 6));
       expect(find.textContaining('Confirmed'), findsNothing);
       expect(find.text('Fired or missed'), findsOneWidget);
+    });
+  });
+  group('the test buzz', () {
+    setUp(() => ClockFormatController.seed(ClockFormat.h24));
+    tearDown(ClockFormatController.debugReset);
+
+    // The app gets no signal when the strap stops buzzing, so the confirmation
+    // may only say the command was sent, and repeat taps must not queue one
+    // 4-second snackbar each and keep "buzzing" on screen long after the band
+    // has stopped.
+    testWidgets('says the buzz was sent, once, however often it is tapped',
+        (t) async {
+      final now = DateTime(2026, 8, 22, 9);
+      await t.pumpWidget(MaterialApp(
+          home: AlarmScreenView(
+              armedAt: DateTime(2026, 8, 23, 6, 30),
+              state: AlarmArmState.confirmed,
+              connected: true,
+              now: now,
+              onTest: () async {})));
+      final button = find.text('Test the buzz');
+      await t.ensureVisible(button);
+      for (var i = 0; i < 3; i++) {
+        await t.tap(button);
+        await t.pump();
+      }
+      await t.pump(const Duration(milliseconds: 750));
+      expect(find.text('Buzz sent to the band'), findsOneWidget);
+      expect(find.textContaining('Buzzing'), findsNothing);
+      // One snackbar's lifetime later nothing is left waiting in the queue.
+      await t.pump(const Duration(seconds: 5));
+      await t.pump(const Duration(seconds: 1));
+      expect(find.text('Buzz sent to the band'), findsNothing);
+    });
+
+    testWidgets('a result that lands while the last one is leaving replaces it',
+        (t) async {
+      // Tap, let the message show, tap again (its exit starts), and tap a
+      // third time mid-exit: only the latest may follow, not a queue of two.
+      await t.pumpWidget(MaterialApp(
+          home: AlarmScreenView(
+              armedAt: DateTime(2026, 8, 23, 6, 30),
+              state: AlarmArmState.confirmed,
+              connected: true,
+              now: DateTime(2026, 8, 22, 9),
+              onTest: () async {})));
+      final button = find.text('Test the buzz');
+      await t.ensureVisible(button);
+      Future<void> step(int ms) async {
+        for (var i = 0; i < ms ~/ 50; i++) {
+          await t.pump(const Duration(milliseconds: 50));
+        }
+      }
+
+      await t.tap(button);
+      await step(1000);
+      await t.tap(button);
+      await step(50);
+      await t.tap(button);
+      await step(1000);
+      // The latest message is up, alone.
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text('Buzz sent to the band'), findsOneWidget);
+      // One message's enter, 4 s on screen and exit, with a second of slack;
+      // a second queued message would still be showing here.
+      await step(6000);
+      expect(find.text('Buzz sent to the band'), findsNothing);
     });
   });
 }

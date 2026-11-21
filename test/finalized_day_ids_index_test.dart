@@ -362,6 +362,55 @@ void main() {
     [name],
   )).isNotEmpty;
 
+  for (final exact in [true, false]) {
+    // CLAIM(imported-exact): measured reads switch to the probe-selected
+    // mirror only when its backfill has finished.
+    test('measured reads follow the completion index with JSON1=$exact', () async {
+      LocalDb.debugJsonProbeFails = !exact;
+      addTearDown(() => LocalDb.debugJsonProbeFails = false);
+      await _useFreshDb('finalized_measured_$exact.db');
+      final db = await LocalDb.instance;
+      const nested = '2026-01-01';
+      const spaced = '2026-01-02';
+      await _rawPut(db, nested, '{"nested":{"imported":true}}');
+      await _rawPut(db, spaced, '{ "imported" : true }');
+      await LocalDb.putMetricSeriesValue(nested, 'rhr', 50);
+      await LocalDb.putMetricSeriesValue(spaced, 'rhr', 60);
+
+      Future<Set<String>> measuredDates() => db.transaction((txn) async => {
+        for (final row in await LocalDb.metricSeries(
+          'rhr', measuredOnly: true, executor: txn,
+        ))
+          row['date'] as String,
+      });
+
+      const legacyIndex = 'idx_day_result_finalized';
+      const exactIndex = 'idx_day_result_finalized_v3';
+      final activeIndex = exact ? exactIndex : legacyIndex;
+      final inactiveIndex = exact ? legacyIndex : exactIndex;
+      await db.execute('CREATE INDEX $inactiveIndex ON day_result(imported)');
+      // A partial backfill can leave existing flags incorrect.
+      await db.rawUpdate('UPDATE day_result SET imported = 0');
+      expect(await measuredDates(), {spaced});
+      expect(await hasIndex(db, activeIndex), isFalse);
+      await db.execute('DROP INDEX $inactiveIndex');
+
+      final imported = exact ? spaced : nested;
+      final measured = exact ? nested : spaced;
+      expect(await LocalDb.importedDates(), {imported});
+      expect(await hasIndex(db, activeIndex), isTrue);
+      expect(await measuredDates(), {measured});
+      expect(await LocalDb.trailingSeriesValues('rhr', 2), [exact ? 50 : 60]);
+
+      // With LIKE on both paths, a deliberately different flag proves the
+      // transaction read uses the completed legacy mirror.
+      if (!exact) {
+        await db.rawUpdate('UPDATE day_result SET imported = 0');
+        expect(await measuredDates(), {nested, spaced});
+      }
+    });
+  }
+
   // WHY: day_result is written by every derive. A trigger body that calls
   // json_valid/json_each cannot compile on a SQLite without JSON1 (the Android
   // framework builds some devices ship), and then EVERY insert fails, so no day

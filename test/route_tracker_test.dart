@@ -340,6 +340,63 @@ void main() {
     await ctrl.close();
   });
 
+  test('a noise-floor fix between spikes resets the reject streak', () async {
+    final ctrl = StreamController<GpsSample>();
+    final t = RouteTracker(
+      sink: (_) async {},
+      batchSize: 100,
+      maxJumpM: 200,
+      rejectStreakLimit: 3,
+      pathEmitEvery: Duration.zero,
+    );
+    t.start(ctrl.stream);
+
+    final spike = 500 / _mPerDegLngAtEq;
+    final near = 2 / _mPerDegLngAtEq;
+    ctrl.add(GpsSample(lat: 0, lng: 0, tsMs: 0));
+    for (var i = 1; i <= 3; i++) {
+      ctrl.add(GpsSample(lat: 0, lng: spike, tsMs: i * 2000)); // spike
+      ctrl.add(GpsSample(lat: 0, lng: near, tsMs: i * 2000 + 1000)); // jitter
+    }
+    await pumpEventQueue();
+
+    // Non-consecutive spikes never become a fresh anchor.
+    expect(t.pointCount, 1);
+    expect(t.path.value.any((v) => v.gapBefore), isFalse);
+
+    await t.stop();
+    await ctrl.close();
+  });
+
+  test('a platform speed of 0.0 falls back to fix-to-fix speed', () async {
+    final ctrl = StreamController<GpsSample>();
+    final t = RouteTracker(sink: (_) async {}, batchSize: 100);
+    t.start(ctrl.stream);
+
+    for (var i = 0; i < 5; i++) {
+      ctrl.add(_fix(i, speed: 0.0)); // 20 m / s, reported as 0.0
+    }
+    await pumpEventQueue();
+    expect(t.currentSpeedMps.value, isNotNull);
+    expect(t.currentSpeedMps.value!, greaterThan(5));
+
+    await t.stop();
+    await ctrl.close();
+  });
+
+  test('a lone platform speed of 0.0 stays a standstill', () async {
+    final ctrl = StreamController<GpsSample>();
+    final t = RouteTracker(sink: (_) async {}, batchSize: 100);
+    t.start(ctrl.stream);
+    ctrl.add(_fix(0, speed: 3.0));
+    ctrl.add(_fix(1, speed: 0.0)); // 20 m jump, but a single zero
+    await pumpEventQueue();
+    expect(t.currentSpeedMps.value!, lessThan(3.0));
+
+    await t.stop();
+    await ctrl.close();
+  });
+
   test('currentSpeedMps smooths the platform-reported speed', () async {
     final ctrl = StreamController<GpsSample>();
     final t = RouteTracker(sink: (_) async {}, batchSize: 100);
