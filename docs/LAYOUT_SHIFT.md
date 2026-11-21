@@ -12,12 +12,12 @@ analyzer plugin knows which widget combinations move content after the first
 frame. So the parts that are generic are borrowed (the web CLS impact formula:
 impact fraction × distance fraction) and the rest is ours:
 
-- `lib/layout_shift/` — pure Dart, no Flutter import. Policy, model, scorer,
+- `test/support/layout_shift/` — pure Dart, no Flutter import. Policy, model, scorer,
   launch and motion checks. Deterministic: every time is an explicit
   millisecond offset; nothing reads a clock.
 - `test/layout_shift/` — scorer laws and hand-built example fixtures.
 
-## Model (`lib/layout_shift/shift_model.dart`)
+## Model (`test/support/layout_shift/shift_model.dart`)
 
 All times are ms since the scenario start. Rects are logical pixels.
 
@@ -37,7 +37,7 @@ All times are ms since the scenario start. Rects are logical pixels.
   sharing a `chainId` form a chain.
 - `Scenario(viewport, frames, interactions, focus, animations)`.
 
-## Policy (`lib/layout_shift/shift_policy.dart`)
+## Policy (`test/support/layout_shift/shift_policy.dart`)
 
 `copyWith` and three constant presets: `ShiftPolicy.standard`,
 `ShiftPolicy.strict`, `ShiftPolicy.lenient`. Custom policies retain caller-supplied
@@ -84,7 +84,7 @@ Defaults (`standard`):
 | `reducedMaxAnimationMs` | 150 | reduced motion: animations ≤150 ms or none |
 | `reducedChainCycleMinMs` / `reducedChainCycleMaxMs` | 750..2000 | reduced motion: chain cycles in this range |
 
-## Scoring (`lib/layout_shift/shift_scorer.dart`)
+## Scoring (`test/support/layout_shift/shift_scorer.dart`)
 
 `ShiftReport score(Scenario s, ShiftPolicy p)` compares each consecutive frame
 pair by element id. An interaction may supply `afterFrameIndex`, the index of

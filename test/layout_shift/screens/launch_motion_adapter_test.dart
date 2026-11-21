@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ui2/onboarding/splash.dart';
 
 import '../../support/layout_shift_probe.dart';
-import 'package:openstrap_edge/layout_shift/layout_shift.dart';
+import '../../support/layout_shift/layout_shift.dart';
 
 void main() {
   // WHY: reduced motion removes the splash immediately and never covers again.

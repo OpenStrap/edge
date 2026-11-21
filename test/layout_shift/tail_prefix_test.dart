@@ -1,7 +1,7 @@
 // CLAIM growing-tail: the oracle rejects a 2 px prefix move, and still reports
 // growth below a stable prefix. This catches restoring the blanket exemption.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/layout_shift/layout_shift.dart';
+import '../support/layout_shift/layout_shift.dart';
 import '../support/tail_shift.dart';
 
 void main() {

@@ -2,7 +2,7 @@
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/layout_shift/layout_shift.dart';
+import '../support/layout_shift/layout_shift.dart';
 
 import '../support/shift_builders.dart';
 

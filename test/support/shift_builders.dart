@@ -1,5 +1,5 @@
 // Tiny builders so scorer tests read as scenarios, not constructors.
-import 'package:openstrap_edge/layout_shift/layout_shift.dart';
+import 'layout_shift/layout_shift.dart';
 
 /// 100 x 100 viewport: area 10000, longest side 100.
 const vp = ShiftRect(0, 0, 100, 100);

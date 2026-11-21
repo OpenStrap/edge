@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/layout_shift/layout_shift.dart';
+import 'layout_shift/layout_shift.dart';
 
 import 'layout_shift_probe.dart';
 

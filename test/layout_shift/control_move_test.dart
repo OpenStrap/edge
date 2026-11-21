@@ -7,7 +7,7 @@
 // Viewport 100 x 100. Mover 'c': 10x10 control at (0,0) -> (0,D).
 // D = 48: union 10x58 = .058, distance .48, base .02784; x1.5 = .04176.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/layout_shift/layout_shift.dart';
+import '../support/layout_shift/layout_shift.dart';
 
 import '../support/shift_builders.dart';
 

@@ -5,7 +5,7 @@
 //   union = 50x70 = 3500 -> 0.35 of viewport; distance 20/100 = 0.2
 //   base = 0.35 * 0.2 = 0.07
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/layout_shift/layout_shift.dart';
+import '../support/layout_shift/layout_shift.dart';
 
 import '../support/shift_builders.dart' hide total;
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/layout_shift/layout_shift.dart';
+import '../../support/layout_shift/layout_shift.dart';
 import 'package:openstrap_edge/ui2/grammar.dart' show Pressable;
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart' show DayNav;
 import 'package:openstrap_edge/ui2/skeleton/unit_paint.dart' show GuideUnitMark;

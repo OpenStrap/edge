@@ -4,7 +4,7 @@
 // Standard policy: loadCurve (100,0) (400,.1) (1000,.3) (2000,.6) (4000,1),
 // loadWeight .25, warnAt .05, errorAt .25.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/layout_shift/layout_shift.dart';
+import '../support/layout_shift/layout_shift.dart';
 
 import '../support/shift_builders.dart';
 

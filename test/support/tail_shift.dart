@@ -1,7 +1,7 @@
 // CLAIM growing-tail: an unknown tail may grow, but it cannot move or resize
 // the content before it. The tail's cost is scored separately, never erased.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/layout_shift/layout_shift.dart';
+import 'layout_shift/layout_shift.dart';
 
 ({ShiftReport prefix, ShiftReport tail}) checkGrowingTail({
   required Scenario scenario,

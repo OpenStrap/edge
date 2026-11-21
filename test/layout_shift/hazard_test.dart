@@ -5,7 +5,7 @@
 //   union 50x70 = 0.35, distance 0.2, base = 0.07.
 // Interaction at 1000 (source 'src'); the shift lands at 1000 + t.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_edge/layout_shift/layout_shift.dart';
+import '../support/layout_shift/layout_shift.dart';
 
 import '../support/shift_builders.dart';
 
