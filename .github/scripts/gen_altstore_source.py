@@ -54,10 +54,11 @@ def main() -> None:
                 "name": "OpenStrap Edge",
                 "bundleIdentifier": bundle_id,
                 "developerName": "OpenStrap",
-                "subtitle": "Open-source, local-first WHOOP 4.0 companion",
+                "subtitle": "A health app for your wearables",
                 "localizedDescription": (
-                    "Open-source, local-first fitness tracking companion for "
-                    "WHOOP 4.0 hardware. Not affiliated with WHOOP, Inc. "
+                    "Open-source, local-first health app for your wearables. "
+                    "No subscription, no fees, private by default. "
+                    "Not affiliated with any wearable maker. "
                     "Unsigned sideload build — see IOS_SIDELOAD.md."
                 ),
                 "size": size,
