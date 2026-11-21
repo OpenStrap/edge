@@ -87,11 +87,19 @@ class _PhoneImportState extends State<PhoneImport> {
   }
 
   Future<void> _refresh() async {
-    final compare = await RhrSeedImporter.compareAgainstBand();
+    // A failed re-read (db busy or closed mid reset) must not escape: _run
+    // awaits this in its finally, and a throw there leaves _busy stuck.
+    final SeedComparison? compare;
     final latest = <String, Map<String, dynamic>>{};
-    for (final (kind, _) in kImportedKindLabels) {
-      final rows = await LocalDb.importedMeasurements(kind, limit: 1);
-      if (rows.isNotEmpty) latest[kind] = rows.first;
+    try {
+      compare = await RhrSeedImporter.compareAgainstBand();
+      for (final (kind, _) in kImportedKindLabels) {
+        final rows = await LocalDb.importedMeasurements(kind, limit: 1);
+        if (rows.isNotEmpty) latest[kind] = rows.first;
+      }
+    } catch (e) {
+      debugPrint('[phone_import] refresh failed: $e');
+      return;
     }
     if (!mounted) return;
     setState(() {
@@ -198,6 +206,33 @@ class _PhoneImportState extends State<PhoneImport> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: S.x4),
               child: NavBar(l?.phoneImportNavTitle ?? 'From your phone'),
+            ),
+            // Spinner and result sit above the list so a refusal or an empty
+            // result is seen without scrolling past both sections.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: Column(
+                children: [
+                  if (_busy) ...[
+                    const SizedBox(height: S.x3),
+                    Center(
+                      child: CircularProgressIndicator(color: p.on(C.blue)),
+                    ),
+                  ],
+                  if (_note != null && _note!.isNotEmpty) ...[
+                    const SizedBox(height: S.x3),
+                    StatusCard(
+                      _noteFailed
+                          ? (l?.dataThatDidNotWork ?? 'That did not work')
+                          : (l?.actionDone ?? 'Done'),
+                      _note!,
+                      icon: _noteFailed
+                          ? LucideIcons.triangleAlert
+                          : LucideIcons.check,
+                    ),
+                  ],
+                ],
+              ),
             ),
             Expanded(
               child: ListView(
@@ -357,24 +392,6 @@ class _PhoneImportState extends State<PhoneImport> {
                     icon: LucideIcons.arrowRight,
                   ),
                   const SizedBox(height: S.x2),
-                  if (_busy) ...[
-                    const SizedBox(height: S.x6),
-                    Center(
-                      child: CircularProgressIndicator(color: p.on(C.blue)),
-                    ),
-                  ],
-                  if (_note != null && _note!.isNotEmpty) ...[
-                    const SizedBox(height: S.x5),
-                    StatusCard(
-                      _noteFailed
-                          ? (l?.dataThatDidNotWork ?? 'That did not work')
-                          : (l?.actionDone ?? 'Done'),
-                      _note!,
-                      icon: _noteFailed
-                          ? LucideIcons.triangleAlert
-                          : LucideIcons.check,
-                    ),
-                  ],
                 ],
               ),
             ),

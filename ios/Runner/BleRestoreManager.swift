@@ -57,6 +57,8 @@ private struct ArmState {
   var idleAfterSync = false
   /// True while the app holds the live flutter_blue_plus connection to THIS band.
   var appOwnsBand = false
+  /// Bumped by every wake; a syncDone watchdog only acts on the wake that armed it.
+  var wakeSeq = 0
 }
 
 class BleRestoreManager: NSObject {
@@ -76,6 +78,7 @@ class BleRestoreManager: NSObject {
   private var flutterReady = false
   private var wakeQueuedBeforeReady = false
   private var bgTask: UIBackgroundTaskIdentifier = .invalid
+  private var wakeCounter = 0
 
   /// Insert-or-get, so a caller never has to branch on "first time for this UUID".
   private func state(_ uuid: UUID) -> ArmState {
@@ -225,6 +228,7 @@ class BleRestoreManager: NSObject {
         // wrapped in a short background-task extension, removes that window.
         if let s = call.arguments as? String, let uuid = UUID(uuidString: s) {
           self.beginBackground()
+          let recoveryTask = self.bgTask
           self.saveBandUUID(uuid)
           self.bandUUID = uuid
           var st = self.state(uuid)
@@ -239,8 +243,10 @@ class BleRestoreManager: NSObject {
           // bluetoothd itself and survives full app suspension; the background-task
           // extension only needed to cover this method's own synchronous work, so
           // release it shortly rather than holding it for the full ~30s budget.
+          // Only end OUR task: a wake inside this window replaces bgTask with its own.
           DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-            self?.endBackground()
+            guard let self = self, self.bgTask == recoveryTask else { return }
+            self.endBackground()
           }
         }
         result(nil)
@@ -399,6 +405,12 @@ class BleRestoreManager: NSObject {
 
   private func signalWake(_ uuid: UUID) {
     beginBackground()
+    var w = state(uuid)
+    // Manager-wide counter, so a wake id stays unique even if ArmState is recreated.
+    wakeCounter &+= 1
+    w.wakeSeq = wakeCounter
+    arms[uuid] = w
+    let seq = wakeCounter
     if flutterReady {
       channel?.invokeMethod("wake", arguments: nil)
       NSLog("[ble-restore] wake → Flutter")
@@ -410,7 +422,9 @@ class BleRestoreManager: NSObject {
     // stuck, and go idle (await an explicit re-arm) so we don't loop. Not a sync cadence —
     // just a failsafe to release the in-flight state.
     DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
-      guard let self = self, self.state(uuid).handedOff else { return }
+      // A newer wake owns handedOff now; leave it (and its bg task) alone.
+      guard let self = self, self.state(uuid).handedOff,
+            self.state(uuid).wakeSeq == seq else { return }
       NSLog("[ble-restore] syncDone watchdog fired — releasing handoff, going idle")
       var s = self.state(uuid)
       s.handedOff = false
@@ -426,9 +440,14 @@ class BleRestoreManager: NSObject {
 
   private func beginBackground() {
     endBackground()
-    bgTask = UIApplication.shared.beginBackgroundTask(withName: "openstrap.bleSync") { [weak self] in
-      self?.endBackground()
+    var id: UIBackgroundTaskIdentifier = .invalid
+    id = UIApplication.shared.beginBackgroundTask(withName: "openstrap.bleSync") { [weak self] in
+      // End only the task that expired; a newer wake may have replaced bgTask.
+      guard let self = self else { return }
+      UIApplication.shared.endBackgroundTask(id)
+      if self.bgTask == id { self.bgTask = .invalid }
     }
+    bgTask = id
   }
   private func endBackground() {
     if bgTask != .invalid {

@@ -369,6 +369,25 @@ void main() {
       expect(failed.hasFailures, isTrue);
     });
 
+    test('a clock set back does not prune the run being written', () async {
+      // Earlier runs carry later stamps than this one, so a plain
+      // newest-first prune would delete the new directory before any write.
+      final db = await LocalDb.instance;
+      await db.insert(
+          'metric_series', {'date': '2026-07-01', 'key': 'rhr', 'value': 51.0},
+          conflictAlgorithm: ConflictAlgorithm.replace);
+      final daily = kCsvExportSets.firstWhere((s) => s.name == 'daily');
+      // Two runs with later stamps, made here so the test stands alone.
+      final a = await exportCsvFiles([daily], now: DateTime(2026, 12, 1));
+      final b = await exportCsvFiles([daily], now: DateTime(2026, 12, 2));
+      final result = await exportCsvFiles([daily], now: DateTime(2025, 1, 1));
+
+      expect(result.failed, isEmpty);
+      expect(File(result.paths.single).existsSync(), isTrue);
+      expect(File(b.paths.single).existsSync(), isTrue);
+      expect(File(a.paths.single).existsSync(), isFalse);
+    });
+
     test('strength rows carry the exercise name, not just its key', () async {
       final db = await LocalDb.instance;
       for (final (seq, key) in [

@@ -136,12 +136,16 @@ class DayStrainData {
   /// [forDay] is the label the caller is looking at; null means today. Home's
   /// day switcher passes it, so a past day's strain ring opens that day's
   /// curve rather than today's.
+  ///
+  /// [days] is the stepper's list from an earlier load; passing it skips
+  /// re-reading every derived day on each step.
   static Future<DayStrainData> load(LocalRepository repo,
-      {String? forDay}) async {
+      {String? forDay, List<String>? days}) async {
     final asked = forDay ?? todayLabel();
     // The stepper's days, read beside the strain rather than before it. A
     // failed read costs the stepper, never the screen.
     Future<List<String>> readDays() async {
+      if (days != null) return days;
       try {
         return await repo.availableDays();
       } catch (_) {
@@ -151,8 +155,8 @@ class DayStrainData {
 
     final daysRead = readDays();
     final s = await repo.getDayStrain(asked);
-    final days = await daysRead;
-    if (s.isEmpty) return DayStrainData(days: days);
+    final stepDays = await daysRead;
+    if (s.isEmpty) return DayStrainData(days: stepDays);
 
     final pts = <(int, double)>[
       for (final e in (s['curve'] as List? ?? const []))
@@ -204,7 +208,7 @@ class DayStrainData {
       // The headline absence's reason, at the top level of the payload — the
       // same string as `absent.strain`.
       note: s['note'] as String?,
-      days: days,
+      days: stepDays,
     );
   }
 }
@@ -261,7 +265,11 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     }
     try {
       final day = _day;
-      final d = await DayStrainData.load(repo, forDay: day);
+      // The stepper's list doesn't change between steps; reuse it unless the
+      // first read came back empty.
+      final known = _d?.days;
+      final d = await DayStrainData.load(repo,
+          forDay: day, days: known == null || known.isEmpty ? null : known);
       if (mounted && token == _loadToken) {
         setState(() => (_d = d, _shownDay = day, _loading = false));
       }

@@ -152,6 +152,13 @@ void main() {
       expect(afterBirthday.ageYears, 36);
     });
 
+    test('an unset date of birth (plugin sends 0) leaves age empty', () {
+      final snap = importer.snapshotFrom([
+        _point(HealthDataType.BIRTH_DATE, 0, DateTime(2026, 1, 1)),
+      ], now: now);
+      expect(snap.ageYears, isNull);
+    });
+
     test('maps only the two sexes the formulas have constants for', () {
       HealthProfileSnapshot withGender(int raw) => importer.snapshotFrom([
         _point(HealthDataType.GENDER, raw, DateTime(2026, 1, 1)),

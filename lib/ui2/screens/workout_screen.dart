@@ -1350,7 +1350,10 @@ ActivityHost activityHost(AppState app,
     feed: () => _feedOf(app),
     onStart: (a) => _startSession(app, a),
     onFinish: (draft) {
-      sessionId ??= app.activeWorkout?.workoutId;
+      // Kept on the draft too: a retry from a reopened draft has a new host.
+      sessionId ??= app.activeWorkout?.workoutId ??
+          LiveDraft.current?.data['session_id'] as String?;
+      if (sessionId != null) LiveDraft.current?.put('session_id', sessionId);
       return _finishSession(app, draft, sessionId);
     },
     onSets: (sets) => _bankSets(app, sets),
