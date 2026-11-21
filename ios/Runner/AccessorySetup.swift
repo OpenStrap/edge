@@ -147,6 +147,7 @@ private final class Impl {
   // be empty on a cold launch. `readyWaiters` run when it arrives.
   private var ready = false
   private var readyWaiters: [(Int, () -> Void)] = []
+  private var timeoutHandlers: [Int: () -> Void] = [:]
   private var nextWaiterId = 0
   private let queue = DispatchQueue.main
   // Set while a showPicker is in flight; resolved by the completion handler.
@@ -186,9 +187,10 @@ private final class Impl {
     }
   }
 
-  /// Runs [f] once `session.accessories` is populated (after `.activated`). A 2 s fallback
-  /// runs it anyway so a caller is never stranded if the event never comes.
-  private func whenActivated(_ f: @escaping () -> Void) {
+  /// Runs [f] once `session.accessories` is populated (after `.activated`). If the event
+  /// has not come within 2 s, [timedOut] runs instead (never [f]), so a caller is never
+  /// stranded and never reads the accessory list before activation.
+  private func whenActivated(_ f: @escaping () -> Void, timedOut: @escaping () -> Void) {
     ensureActivated()
     if ready { f(); return }
     // Each waiter gets its own 2 s timeout, so an earlier waiter's timer cannot drain a
@@ -196,15 +198,18 @@ private final class Impl {
     let id = nextWaiterId
     nextWaiterId += 1
     readyWaiters.append((id, f))
+    timeoutHandlers[id] = timedOut
     queue.asyncAfter(deadline: .now() + 2) { [weak self] in
       guard let self = self, let i = self.readyWaiters.firstIndex(where: { $0.0 == id }) else { return }
-      self.readyWaiters.remove(at: i).1()
+      self.readyWaiters.remove(at: i)
+      self.timeoutHandlers.removeValue(forKey: id)?()
     }
   }
 
   private func runReadyWaiters() {
     let waiters = readyWaiters
     readyWaiters = []
+    timeoutHandlers = [:]
     waiters.forEach { $0.1() }
   }
 
@@ -292,10 +297,10 @@ private final class Impl {
   func provisionedIds(_ completion: @escaping ([String]) -> Void) {
     // `accessories` is reliable only after activation has reported .activated; a fixed
     // short sleep could still read [] on a slow cold launch.
-    whenActivated { [weak self] in
+    whenActivated({ [weak self] in
       guard let self = self else { completion([]); return }
       completion(self.provisionedIdList)
-    }
+    }, timedOut: { completion([]) })
   }
 
   /// - Parameter addAnother: show the picker even though an accessory is already
@@ -304,9 +309,11 @@ private final class Impl {
                   _ completion: @escaping (Result<String, PickerError>) -> Void) {
     // Read `known` only after .activated, or a paired band looks unprovisioned and the
     // early return below is skipped.
-    whenActivated { [weak self] in
+    whenActivated({ [weak self] in
       self?.showPickerActivated(addAnother: addAnother, completion)
-    }
+    }, timedOut: {
+      completion(.failure(PickerError(message: "Accessory setup is not ready yet. Try again.")))
+    })
   }
 
   private func showPickerActivated(addAnother: Bool,
@@ -411,9 +418,11 @@ private final class Impl {
   func showSensorPicker(services: [String],
                         _ completion: @escaping (Result<String, PickerError>) -> Void) {
     // Same as showPicker: the already-approved check needs the activated accessory list.
-    whenActivated { [weak self] in
+    whenActivated({ [weak self] in
       self?.showSensorPickerActivated(services: services, completion)
-    }
+    }, timedOut: {
+      completion(.failure(PickerError(message: "Accessory setup is not ready yet. Try again.")))
+    })
   }
 
   private func showSensorPickerActivated(services: [String],
@@ -545,7 +554,7 @@ private final class Impl {
                       _ completion: @escaping () -> Void) {
     // A cold-launch unpair can be the first ASK call; reading `accessories` before
     // `.activated` sees an empty list and "removes" nothing.
-    whenActivated { [weak self] in
+    whenActivated({ [weak self] in
       guard let self = self else { completion(); return }
       let accessories = self.session.accessories.filter(match)
       guard !accessories.isEmpty else { completion(); return }
@@ -555,7 +564,7 @@ private final class Impl {
         self.session.removeAccessory(acc) { _ in group.leave() }
       }
       group.notify(queue: self.queue) { completion() }
-    }
+    }, timedOut: { completion() })
   }
 }
 #endif
