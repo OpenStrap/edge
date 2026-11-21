@@ -10608,7 +10608,7 @@
   },
   "activitySummaryHardMinutesNote": "{min} นาทีที่เกิน 80% ของค่าสูงสุดของคุณ",
   "@activitySummaryHardMinutesNote": {
-    "description": "Heart-rate chart footnote naming minutes spent above 80% of max heart rate",
+    "description": "Heart-rate chart footnote naming minutes spent in heart-rate zones 4 and 5",
     "placeholders": {
       "min": {
         "type": "int"

@@ -5308,7 +5308,7 @@
   "@investigateNeedsSeveralNights": {
     "description": "Status card fallback body: needs several qualifying nights"
   },
-  "investigateDroppedIrregular": "{count, plural, one{# night left out because the irregular-rhythm screen flagged it} other{# nights left out because the irregular-rhythm screen flagged them}}",
+  "investigateDroppedIrregular": "{count, plural, one{{count} night left out because the irregular-rhythm screen flagged it} other{{count} nights left out because the irregular-rhythm screen flagged them}}",
   "@investigateDroppedIrregular": {
     "description": "Note listing nights excluded because the irregular-rhythm screen flagged them",
     "placeholders": {
@@ -5317,7 +5317,7 @@
       }
     }
   },
-  "investigateDroppedThin": "{count, plural, one{# night left out for too few observed hours} other{# nights left out for too few observed hours}}",
+  "investigateDroppedThin": "{count, plural, one{{count} night left out for too few observed hours} other{{count} nights left out for too few observed hours}}",
   "@investigateDroppedThin": {
     "description": "Note listing nights excluded for too few observed hours",
     "placeholders": {
@@ -5523,7 +5523,7 @@
   "@calmBreathingHowLong": {
     "description": "Section title for choosing session length"
   },
-  "calmBreathingMinutesSemantic": "{m, plural, one{# minute} other{# minutes}}",
+  "calmBreathingMinutesSemantic": "{m, plural, one{{m} minute} other{{m} minutes}}",
   "@calmBreathingMinutesSemantic": {
     "description": "Semantic label for a minute-duration option button",
     "placeholders": {
@@ -14766,7 +14766,7 @@
   "@supplementNoTrendYetNotEnoughc23fe5": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
-  "supplementNotTaken3d2bc8": "not_taken",
+  "supplementNotTaken3d2bc8": "not taken",
   "@supplementNotTaken3d2bc8": {
     "description": "Presentation-only text for existing interface, exports or notifications."
   },
