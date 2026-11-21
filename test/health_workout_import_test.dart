@@ -223,4 +223,19 @@ void main() {
       );
     });
   });
+
+  test('routelessFrom keeps only settled workouts checked with no route', () {
+    expect(
+      routelessFrom([
+        {'uuid': 'yoga', 'points': const []},
+        {'uuid': 'fresh', 'points': const []},
+        {'uuid': 'run', 'points': [
+          [51.5, -0.12, null, 1000],
+        ]},
+        {'uuid': 'bad'},
+        null,
+      ], {'yoga', 'run', 'bad'}),
+      {'yoga'},
+    );
+  });
 }

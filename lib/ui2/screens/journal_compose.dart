@@ -1177,7 +1177,11 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
       final turn = await _engine.send(text);
       if (!mounted) return;
       setState(() {
-        _turns.add((fromUser: false, text: turn.reply));
+        if (turn.reply.isEmpty) {
+          _error = 'the assistant sent no reply';
+        } else {
+          _turns.add((fromUser: false, text: turn.reply));
+        }
         _last = turn;
         _busy = false;
       });
