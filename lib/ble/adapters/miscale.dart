@@ -115,11 +115,20 @@ class MiScaleAdapter extends BandAdapter {
     var utc = true;
     try {
       await _setUserMode(link);
-      utc = !await _clockWasLocal(link);
-      final now =
-          DateTime.fromMillisecondsSinceEpoch(nowSeconds() * 1000, isUtc: utc);
-      await link.write(kCurrentTimeChar, miScaleClockValue(now));
-      if (await link.write(kMiScaleHistoryChar, miScaleHistoryRequest(userId))) {
+      final local = await _clockWasLocal(link);
+      // An unread clock could be local: rewriting it as UTC would flip its
+      // convention and shift every stored stamp. Leave the clock and the
+      // history alone this session (the history is never deleted, so it
+      // comes back next time); live weighings still count.
+      if (local == null) link.log('miscale: clock unread, history skipped');
+      if (local != null) {
+        utc = !local;
+        final now = DateTime.fromMillisecondsSinceEpoch(nowSeconds() * 1000,
+            isUtc: utc);
+        await link.write(kCurrentTimeChar, miScaleClockValue(now));
+      }
+      if (local != null &&
+          await link.write(kMiScaleHistoryChar, miScaleHistoryRequest(userId))) {
         final n =
             await count.future.timeout(replyTimeout, onTimeout: () => null);
         if (n != null &&
@@ -194,10 +203,12 @@ class MiScaleAdapter extends BandAdapter {
   // reading. Our own write never mixes them: it keeps the clock it found.
   // A clock set in another zone (a trip) reads as UTC, as before; telling it
   // apart needs the zone it was set in, which the scale does not keep.
-  Future<bool> _clockWasLocal(BandLink link) async {
+  // Null when the clock cannot be read: a failed read says nothing about
+  // which clock it runs on.
+  Future<bool?> _clockWasLocal(BandLink link) async {
     final b = await link.read(kCurrentTimeChar);
     final w = b == null ? null : gattDateTime(b, 0);
-    if (w == null) return false;
+    if (w == null) return null;
     final at = DateTime.utc(w.year, w.month, w.day, w.hour, w.minute, w.second)
             .millisecondsSinceEpoch ~/
         1000;
