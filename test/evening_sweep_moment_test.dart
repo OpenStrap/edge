@@ -38,4 +38,9 @@ void main() {
     expect(eveningSweepMoment(now, eveningMin: 15 * 60), now);
     expect(todayLabel(eveningSweepMoment(now)), '2026-11-20');
   });
+
+  test('after 17:00 but before a late slot: still about today', () {
+    final now = DateTime(2026, 11, 21, 19);
+    expect(eveningSweepMoment(now, eveningMin: 23 * 60), now);
+  });
 }

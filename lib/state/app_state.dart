@@ -3624,14 +3624,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Everything the reminder scheduler needs from the crossday rollup, in ONE
-  /// read: the Sleep Coach's recommended bedtime and typical wake (local
-  /// minutes past midnight, or null when not yet learned) and the per-day
   /// The resolved nightly-sweep slot (minutes from midnight), same value the
   /// notification and [_maybeGenerateBriefing] use.
   Future<int> eveningSlotMin() async => (await AiPrefs.load())
       .resolvedEveningMin(bedtimeMinOfDay: (await _readCrossdaySummary()).bedtimeMin);
 
+  /// Everything the reminder scheduler needs from the crossday rollup, in ONE
+  /// read: the Sleep Coach's recommended bedtime and typical wake (local
+  /// minutes past midnight, or null when not yet learned) and the per-day
   /// `recent[]` rows the weekly lookback's finding summarizes. Read in one
   /// place because three schedules hang off it — check-in, wind-down, nightly
   /// sweep, weekly lookback — and a second copy of this parse is a second
