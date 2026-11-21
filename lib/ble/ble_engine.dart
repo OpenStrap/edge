@@ -5167,6 +5167,12 @@ class BleEngine {
   bool _flashCommitUnresolved = false;
   String? _flashCommitSerial;
 
+  /// Ticks whenever the unresolved flag changes, so a reopened screen rebuilds.
+  final flashCommitChanges = ValueNotifier<int>(0);
+
+  /// True only when the last [firmwareCommand] reached the transport.
+  bool firmwareCommandSent = false;
+
   bool get flashCommitUnresolved {
     if (!_flashCommitUnresolved) return false;
     final mine = _flashCommitSerial;
@@ -5174,15 +5180,19 @@ class BleEngine {
     return mine == null || now == null || mine == now;
   }
 
-  void markFlashCommitUnresolved() {
+  /// [serial] is the strap the commit was sent to; a late reply must not
+  /// pin the flag on whichever strap is connected by then.
+  void markFlashCommitUnresolved([String? serial]) {
     _flashCommitUnresolved = true;
-    _flashCommitSerial = state.serial;
+    _flashCommitSerial = serial ?? state.serial;
+    flashCommitChanges.value++;
   }
 
   /// The user checked the strap's firmware version and wants to go on.
   void acknowledgeFlashCommit() {
     _flashCommitUnresolved = false;
     _flashCommitSerial = null;
+    flashCommitChanges.value++;
   }
 
   /// Claims the link. Returns the ownership token, or null when refused.
@@ -5211,6 +5221,7 @@ class BleEngine {
   Future<CorrelatedResponse?> firmwareCommand(
       Object token, int opcode, List<int> payload,
       {Duration timeout = const Duration(seconds: 5)}) async {
+    firmwareCommandSent = false;
     if (!_flashLock || !identical(token, _flashToken)) return null;
     if (!canFlashFirmwareLink) return null;
     if (!identical(_session, _flashSession)) return null;
@@ -5230,6 +5241,7 @@ class BleEngine {
       pending.cancel();
       return null;
     }
+    firmwareCommandSent = true;
     return pending.response;
   }
 
