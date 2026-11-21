@@ -235,7 +235,7 @@ class SleepStageAnalyzer {
   /// (autonomic arousal), high movement, warm skin (peripheral vasodilation
   /// on arousal); sleep states are penalised by movement.
   double _getEmissionLogProb(SleepState state, double hr, double rmssd, {
-    double enmo = 0.0,
+    double enmo = -1.0, // -1 = absent (see viterbiDecode)
     double skinTemp = 0.0,
     bool isContactLost = false,
   }) {
@@ -268,16 +268,19 @@ class SleepStageAnalyzer {
     // Motion relative to the night's own median (robust for restless
     // sleepers). Absent ENMO (0 sentinel) = NO evidence either way: wake
     // factor 0 (does not boost wake), sleep factor 1.0 (does not penalise).
-    final motionMeasured = enmo >= 0 && effectiveEnmoMedian != null && effectiveEnmoMedian! > 0;
-    final motion = motionMeasured ? enmo / effectiveEnmoMedian! : 1.0;
-    final motionWake = motionMeasured ? _sigmoid(motion, 3.0, 1.5) : 0.0;
-    final motionSleep = motionMeasured ? 1.0 - _sigmoid(motion, 2.0, 1.0) : 1.0;
+    // A measured-zero baseline (very still night) is real: floor the divisor so
+    // movement still scores instead of silently disabling the channel.
+    final motionMeasured = enmo >= 0 && effectiveEnmoMedian != null;
+    final motion =
+        motionMeasured ? enmo / max(effectiveEnmoMedian!, 0.005) : 1.0;
+    final motionWake = motionMeasured ? _sigmoid(motion, 5.0, 1.0) : 0.0;
+    final motionSleep = motionMeasured ? 1.0 - _sigmoid(motion, 4.0, 1.5) : 1.0;
     // Skin temp vs the night median, normalised so ~100 centi-°C = 1 °C.
     // Absent temp = no thermal evidence (excluded from the noisy-OR, i.e.
     // factor 0, never the 0.5 that would silently boost wake) — CodeRabbit #756.
     final tempMeasured = skinTemp > 0 && effectiveSkinTempMedian != null;
     final tempWake = tempMeasured
-        ? _sigmoid((skinTemp - effectiveSkinTempMedian!) / 100.0, 1.5, 1.0)
+        ? _sigmoid((skinTemp - effectiveSkinTempMedian!) / 100.0, 1.5, 0.3)
         : 0.0;
 
     double prob;
@@ -290,10 +293,10 @@ class SleepStageAnalyzer {
             _sigmoid(hrNorm, 1.15, 0.05) * (1.0 - _sigmoid(rmssdNorm, 0.8, 0.05));
         // Weak HR-only bonus for "quiet wakefulness" (issue #593 pattern:
         // lying still, HR clearly above the personal sleep baseline, RMSSD
-        // barely moved). Capped at 0.3 and centred high (1.22×) so REM —
+        // barely moved). Capped at 0.5 and centred high (1.25×) so REM —
         // whose HR/HRV is wake-like (Zemaityte et al.) — is not flipped to
         // wake; REM's own emission + self-transition guard it instead.
-        final hrOnlyWake = _sigmoid(hrNorm, 1.22, 0.07) * 0.3;
+        final hrOnlyWake = _sigmoid(hrNorm, 1.25, 0.04) * 0.5;
         prob = 1.0 -
             (1.0 - autonomic) *
                 (1.0 - motionWake) *
@@ -317,6 +320,14 @@ class SleepStageAnalyzer {
     return log(max(0.01, prob));
   }
 
+  /// True when the emission carries no information at all (contact lost, no
+  /// baseline, or no usable HR/RR AND no motion).
+  bool _unmeasured(double hr, double rmssd, double enmo, bool contactLost) =>
+      contactLost ||
+      effectiveHrMin == null ||
+      effectiveRmssdMean == null ||
+      ((!_plausibleHr(hr) || !_plausibleRmssd(rmssd)) && enmo < 0);
+
   List<SleepState> viterbiDecode(List<Map<String, dynamic>> nightData) {
     if (nightData.isEmpty) return [];
 
@@ -334,7 +345,7 @@ class SleepStageAnalyzer {
       final initProb = (state == SleepState.wake || state == SleepState.nremLight) ? log(0.5) : double.negativeInfinity;
       viterbi[0][i] = initProb +
           _getEmissionLogProb(state, hr, rmssd,
-              enmo: (nightData[0]['enmo'] as num?)?.toDouble() ?? 0.0,
+              enmo: (nightData[0]['enmo'] as num?)?.toDouble() ?? -1.0,
               skinTemp: (nightData[0]['skin_temp'] as num?)?.toDouble() ?? 0.0,
               isContactLost: nightData[0]['isContactLost'] == true);
     }
@@ -343,8 +354,17 @@ class SleepStageAnalyzer {
       final hr = (nightData[t]['hr'] as num?)?.toDouble() ?? 0.0;
       final rmssd = (nightData[t]['rmssd'] as num?)?.toDouble() ?? 0.0;
       final contactLost = nightData[t]['isContactLost'] == true;
-      final enmo = (nightData[t]['enmo'] as num?)?.toDouble() ?? 0.0;
+      final enmo = (nightData[t]['enmo'] as num?)?.toDouble() ?? -1.0;
       final skinTemp = (nightData[t]['skin_temp'] as num?)?.toDouble() ?? 0.0;
+      if (_unmeasured(hr, rmssd, enmo, contactLost)) {
+        // A gap says nothing: hold the state. Running the sticky transition
+        // table over uniform emissions let wake absorb the whole gap.
+        for (var j = 0; j < N; j++) {
+          viterbi[t][j] = viterbi[t - 1][j];
+          backpointer[t][j] = j;
+        }
+        continue;
+      }
       for (var j = 0; j < N; j++) {
         final nextState = states[j];
         final emission =

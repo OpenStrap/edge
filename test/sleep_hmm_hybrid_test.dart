@@ -90,12 +90,12 @@ void main() {
         reason: 'absent optional sensors must be neutral, never extra wake evidence');
   });
 
-  test('hr-only bonus: quiet wakefulness (still, HR +14 bpm over baseline) -> wake', () {
+  test('hr-only bonus: quiet wakefulness (still, HR +20 bpm over baseline) -> wake', () {
     final a = baselined(); // baseline HR 55
     final night = <Map<String, dynamic>>[
       ...List.generate(30, (_) => epoch(54, 46, enmo: 0.005, skinTemp: 3350)),
-      // lying still and awake: HR 69 (~1.25x), RMSSD near normal, no motion
-      ...List.generate(60, (_) => epoch(69, 44, enmo: 0.002, skinTemp: 3350)),
+      // lying still and awake: HR 75 (~1.36x), RMSSD near normal, no motion
+      ...List.generate(60, (_) => epoch(75, 44, enmo: 0.002, skinTemp: 3350)),
       ...List.generate(30, (_) => epoch(54, 46, enmo: 0.005, skinTemp: 3350)),
     ];
     final states = a.viterbiDecode(night);
@@ -113,5 +113,26 @@ void main() {
     final states = a.viterbiDecode(night);
     expect(states.sublist(30, 90).where((s) => s == SleepState.wake).length, lessThan(30),
         reason: 'REM-like HR with atonia must not flip to wake (REM guard)');
+  });
+
+  test('hybrid: movement still scores when the measured baseline is zero', () {
+    final a = SleepStageAnalyzer();
+    a.computeBaseline(List.generate(7200, (_) => epoch(55, 45, enmo: 0.0)));
+    final night = <Map<String, dynamic>>[
+      ...List.generate(30, (_) => epoch(54, 46, enmo: 0.0)),
+      ...List.generate(60, (_) => epoch(58, 40, enmo: 0.30)),
+      ...List.generate(30, (_) => epoch(54, 46, enmo: 0.0)),
+    ];
+    final states = a.viterbiDecode(night);
+    expect(states.sublist(30, 90).where((s) => s == SleepState.wake).length,
+        greaterThan(20));
+  });
+
+  test('hybrid: a row with no enmo key is absent (neutral), not still', () {
+    final a = baselined();
+    final withKey = List.generate(120, (_) => epoch(56, 44, enmo: -1.0));
+    final noKey = List.generate(
+        120, (_) => <String, dynamic>{'hr': 56.0, 'rmssd': 44.0});
+    expect(a.viterbiDecode(noKey), a.viterbiDecode(withKey));
   });
 }

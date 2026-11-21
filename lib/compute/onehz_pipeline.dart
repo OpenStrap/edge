@@ -625,7 +625,7 @@ class DayBundleInput {
       // the staging is still published, but consumers can treat it as lower
       // confidence.
       ..['stager_atypical_night'] = atypical;
-    if (enmoMedian != null && enmoMedian > 0) {
+    if (enmoMedian != null && enmoMedian >= 0) {
       // Persisted as the night's motion baseline -> metric_series
       // 'enmo_median_night', feeding later nights' 7d/long-term motion
       // calibration (enmo_history).
@@ -1631,7 +1631,7 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
       // The night's stable-core ENMO median, persisted to metric_series as
       // 'enmo_median_night' for multi-night motion calibration.
       if ((d.sleepJson['stager_enmo_median'] as num?)?.toDouble() case final v?)
-        if (v > 0) 'stager_enmo_median': v,
+        if (v >= 0) 'stager_enmo_median': v,
     },
     // Seconds the band's own last SLEEP cut off the end of the auto window; null = rule did not apply. Provenance, never a metric.
     'band_offset_trim_sec': bandOffsetTrimSec,
@@ -2674,14 +2674,17 @@ HmmRestageResult? _hmmRestage(DayBundleInput d) {
   var atypical = false;
   double? enmoMedian;
   final hrAt = List<double>.filled(n, 0.0);
-  final enmoAt = List<double>.filled(n, 0.0);
+  final enmoAt = List<double>.filled(n, -1.0); // -1 = absent, not still
+  // Raw skin temp is centi-°C on gen5 only; gen4 is an ADC count, so the
+  // emission's /100 scale would be meaningless there: absent (0) instead.
+  final tempIsCentiC = d.deviceFamily == 'gen5';
   final tempAt = List<double>.filled(n, 0.0);
   for (var i = 0; i < d.sleepTsSec.length && i < d.sleepHr.length; i++) {
     final k = d.sleepTsSec[i] - t0;
     if (k >= 0 && k < n) {
       hrAt[k] = d.sleepHr[i].toDouble();
       if (i < d.sleepEnmo.length) enmoAt[k] = d.sleepEnmo[i];
-      if (i < d.sleepSkinTemp.length) tempAt[k] = d.sleepSkinTemp[i].toDouble();
+      if (tempIsCentiC && i < d.sleepSkinTemp.length) tempAt[k] = d.sleepSkinTemp[i].toDouble();
     }
   }
   final corrected = correctRr(d.sleepRrMs, rrTsMs: d.sleepRrTsMs);
@@ -2714,7 +2717,7 @@ HmmRestageResult? _hmmRestage(DayBundleInput d) {
     // emission baseline and the atypical-night (outlier) flag.
     rhrHistory: d.rhrHistory,
     rmssdHistory: d.rmssdHistory,
-    skinTempHistory: d.skinTempAdcHistory,
+    skinTempHistory: tempIsCentiC ? d.skinTempAdcHistory : const [],
     enmoHistory: d.enmoHistory,
     onAnalyzer: (a) {
       atypical = a.atypicalNight;
@@ -2864,7 +2867,7 @@ List<String?>? _classifySleepStagesHMM(
     final ne = ep['ne'] as int, nt = ep['nt'] as int;
     ep['hr'] = nh == 0 ? 0.0 : (ep['hr'] as double) / nh;
     ep['rmssd'] = nr == 0 ? 0.0 : (ep['rmssd'] as double) / nr;
-    ep['enmo'] = ne == 0 ? 0.0 : (ep['enmo'] as double) / ne;
+    ep['enmo'] = ne == 0 ? -1.0 : (ep['enmo'] as double) / ne;
     ep['skin_temp'] = nt == 0 ? 0.0 : (ep['skin_temp'] as double) / nt;
   }
   final states = analyzer.viterbiDecode(epochs);

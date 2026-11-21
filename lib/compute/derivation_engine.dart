@@ -7788,7 +7788,7 @@ class DerivationEngine {
         // The night's stable-core ENMO median, only for HMM-restaged nights
         // (null otherwise -> no series row, history fills from HMM nights).
         if (((bundle['sleep'] as Map?)?['stager_enmo_median'] as num?)?.toDouble() case final v?)
-          if (v > 0) 'enmo_median_night': v,
+          if (v >= 0) 'enmo_median_night': v,
         'dip_pct': sc('dip_pct'),
         // Headline 0–21 strain (for trend/sparkline); raw TRIMP kept too.
         // Written even when NULL: an abstaining day must overwrite a value a
