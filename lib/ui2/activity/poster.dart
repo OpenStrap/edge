@@ -192,6 +192,7 @@ class PosterCard extends StatelessWidget {
                       height: (format.height * 3 * 16 / 9).round(),
                       policy: ResizeImagePolicy.fit),
                   fit: BoxFit.cover,
+                  gaplessPlayback: true,
                 )
               else
                 DecoratedBox(
