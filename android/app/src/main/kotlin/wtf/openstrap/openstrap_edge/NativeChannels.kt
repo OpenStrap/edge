@@ -271,6 +271,13 @@ object NativeChannels {
                         }
                     }
                     "clear_pending_buzz" -> {
+                        // Optional identity: clear only the request Dart
+                        // delivered, so a newer one queued meanwhile survives.
+                        val only = (call.argument<Number>("requestedAtMs"))?.toLong()
+                        if (only != null && prefs.getLong(TaskerReceiver.PENDING_AT_KEY, -1L) != only) {
+                            result.success(null)
+                            return@setMethodCallHandler
+                        }
                         prefs.edit()
                             .remove(TaskerReceiver.PENDING_BUZZ_KEY)
                             .remove(TaskerReceiver.PENDING_PATTERN_KEY)

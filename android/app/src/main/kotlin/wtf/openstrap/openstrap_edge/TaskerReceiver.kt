@@ -54,21 +54,12 @@ class TaskerReceiver : BroadcastReceiver() {
         val pattern = intent.getIntExtra(EXTRA_PATTERN, DEFAULT_PATTERN)
         Log.i(TAG, "pattern=$pattern")
 
-        val engine = FlutterEngineCache.getInstance()
-            .get(EdgeApplication.ENGINE_ID)
-
-        if (engine != null) {
-            Log.i(TAG, "engine alive, invoking method channel")
-            val args = java.util.HashMap<String, Any>()
-            args["pattern"] = pattern
-            MethodChannel(
-                engine.dartExecutor.binaryMessenger,
-                NativeChannels.TASKER_CHANNEL
-            ).invokeMethod("buzz_strap", args)
-            return
-        }
-
-        Log.i(TAG, "engine dead, persisting pending flag")
+        // Persist first, on both paths. A cached engine is no promise of
+        // delivery: a just-created engine may not have registered the Dart
+        // handler yet (invokeMethod is then dropped), and a long-lived one may
+        // have no band link (the write fails without throwing). Dart clears
+        // the flag only once the buzz actually reached the strap, and retries
+        // it on reconnect until then.
         val prefs = context.getSharedPreferences(
             "openstrap_runtime",
             Context.MODE_PRIVATE
@@ -85,6 +76,19 @@ class TaskerReceiver : BroadcastReceiver() {
             // replays it from disk.
             .commit()
 
+        val engine = FlutterEngineCache.getInstance()
+            .get(EdgeApplication.ENGINE_ID)
+
+        if (engine != null) {
+            Log.i(TAG, "engine alive, nudging Dart to deliver the pending buzz")
+            MethodChannel(
+                engine.dartExecutor.binaryMessenger,
+                NativeChannels.TASKER_CHANNEL
+            ).invokeMethod("buzz_strap", null)
+            return
+        }
+
+        Log.i(TAG, "engine dead, starting service to deliver the pending buzz")
         EdgeTrackingService.startFromBackground(context, TAG)
     }
 

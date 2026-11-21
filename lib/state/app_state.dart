@@ -423,7 +423,7 @@ class AppState extends ChangeNotifier {
   /// Tasker integration bridge — listens for Android broadcast intents from
   /// Tasker and buzzes the strap. Wired in the constructor.
   late final TaskerBridge taskerBridge = TaskerBridge(
-    buzzPattern: (p) => engine.buzzPattern(p),
+    deliverPending: _checkPendingTaskerBuzz,
   );
   Sample? lastSynced;
   // REAL device time (epoch SECONDS) of the newest record we hold — the band's
@@ -3450,19 +3450,37 @@ class AppState extends ChangeNotifier {
   // the _init()-triggered call is still in its bounded wait) must no-op
   // rather than race a second concurrent buzz/clear.
   bool _taskerBuzzCheckInFlight = false;
+  // A nudge that lands mid-check can't be seen by that check; flag it so the
+  // running call loops once more instead of dropping it.
+  bool _taskerBuzzRerun = false;
 
   Future<void> _checkPendingTaskerBuzz() async {
     if (!Platform.isAndroid) return;
-    if (_taskerBuzzCheckInFlight) return;
+    if (_taskerBuzzCheckInFlight) {
+      _taskerBuzzRerun = true;
+      return;
+    }
     _taskerBuzzCheckInFlight = true;
     try {
+      do {
+        _taskerBuzzRerun = false;
+        await _checkPendingTaskerBuzzOnce();
+      } while (_taskerBuzzRerun);
+    } finally {
+      _taskerBuzzCheckInFlight = false;
+    }
+  }
+
+  Future<void> _checkPendingTaskerBuzzOnce() async {
+    {
       final pending = await TaskerBridge.peekPendingBuzz();
       if (pending == null) return;
       final pattern = pending.pattern;
       if (!pending.isFresh(DateTime.now())) {
         _log('[tasker] dropping stale pending buzz (pattern=$pattern, '
             'requestedAtMs=${pending.requestedAtMs})');
-        await TaskerBridge.clearPendingBuzz();
+        await TaskerBridge.clearPendingBuzz(
+            requestedAtMs: pending.requestedAtMs);
         return;
       }
       // A Tasker BUZZ_STRAP can arrive while the app is fully dead; the
@@ -3484,17 +3502,28 @@ class AppState extends ChangeNotifier {
             'no connection within 20s, will retry on the next reconnect');
         return;
       }
-      if (!pending.isFresh(DateTime.now())) {
-        _log('[tasker] pending buzz (pattern=$pattern) went stale waiting '
-            'for a connection — dropping it');
-        await TaskerBridge.clearPendingBuzz();
+      // Re-read: a newer request may have replaced the flag while we waited.
+      final latest = await TaskerBridge.peekPendingBuzz();
+      if (latest == null) return;
+      if (!latest.isFresh(DateTime.now())) {
+        _log('[tasker] pending buzz (pattern=${latest.pattern}) went stale '
+            'waiting for a connection — dropping it');
+        await TaskerBridge.clearPendingBuzz(requestedAtMs: latest.requestedAtMs);
         return;
       }
-      _log('[tasker] consuming pending buzz (pattern=$pattern) from headless intent');
-      await engine.buzzPattern(pattern);
-      await TaskerBridge.clearPendingBuzz();
-    } finally {
-      _taskerBuzzCheckInFlight = false;
+      _log('[tasker] consuming pending buzz (pattern=${latest.pattern})');
+      if (!await engine.buzzPatternDelivered(latest.pattern)) {
+        _log('[tasker] buzz write failed — still queued for the next reconnect');
+        return;
+      }
+      // Native clears only if the flag is still the request we just
+      // delivered (compare-and-clear); a newer one stays queued and is
+      // picked up by the rerun.
+      await TaskerBridge.clearPendingBuzz(requestedAtMs: latest.requestedAtMs);
+      final after = await TaskerBridge.peekPendingBuzz();
+      if (after != null && after.requestedAtMs != latest.requestedAtMs) {
+        _taskerBuzzRerun = true;
+      }
     }
   }
 
