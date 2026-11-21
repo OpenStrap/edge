@@ -17,7 +17,9 @@ Future<List<Map<String, Object?>>> _original(
 }) async {
   final db = await LocalDb.instance;
   return db.rawQuery(
-    'SELECT r.day_id AS day_id, r.window_json AS window_json '
+    'SELECT r.day_id AS day_id, r.window_json AS window_json, '
+    "CASE WHEN r.window_json LIKE '%offset_ms%' THEN NULL "
+    'ELSE r.payload_json END AS payload_json '
     'FROM day_result r '
     'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result '
     'WHERE algo_version <= $kAlgoVersion GROUP BY day_id) m '
@@ -119,7 +121,7 @@ void main() {
         '2026-07-01',
       ]);
       for (final row in rows) {
-        expect(row.keys, unorderedEquals(['day_id', 'window_json']));
+        expect(row.keys, unorderedEquals(['day_id', 'window_json', 'payload_json']));
       }
     },
   );
