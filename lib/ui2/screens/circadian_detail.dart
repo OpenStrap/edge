@@ -109,10 +109,7 @@ class CircadianData {
   /// The middle value of [xs], which must be non-empty. A median, not a mean:
   /// one bin of a stairwell would drag an hour's average and nothing about the
   /// motion gate catches a slow climb.
-  static double _median(List<double> xs) {
-    final s = [...xs]..sort();
-    return s[s.length ~/ 2];
-  }
+  static double _median(List<double> xs) => ana.median(xs)!;
 
   static Future<CircadianData> load(LocalRepository repo) async {
     final cd = await repo.getInsights();

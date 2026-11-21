@@ -461,6 +461,19 @@ void main() {
       ]);
       expect(ranked.first.name, 'A');
     });
+
+    test('the same last-data stamp still falls back to the name', () {
+      final at = DateTime(2026, 8, 22, 9);
+      for (final order in [
+        ['B', 'A'],
+        ['A', 'B'],
+      ]) {
+        final ranked = rankSources([
+          for (final n in order) src(n, SourceTier.wristOptical, at: at),
+        ]);
+        expect(ranked.map((s) => s.name).toList(), ['A', 'B']);
+      }
+    });
   });
 
   group('a source row states what is measuring, not what is switched on', () {

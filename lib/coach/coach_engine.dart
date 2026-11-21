@@ -1065,10 +1065,20 @@ class CoachEngine {
             summary: 'Start a ${args['type'] ?? 'workout'} session now.', args: args,
           ), () async { final r = await api.startWorkout('${args['type'] ?? 'other'}'); return _enc(r); });
         case 'end_workout':
+          final workoutId = args['workout_id'];
+          if (workoutId is! String || workoutId.trim().isEmpty) {
+            return 'end_workout needs the workout_id that start_workout returned.';
+          }
           return await _action(confirm, ActionRequest(
             tool: name, title: 'End workout',
             summary: 'End the active workout.', args: args,
-          ), () async { final r = await api.endWorkout('${args['workout_id']}'); return _enc(r); });
+          ), () async {
+            final r = await api.endWorkout(workoutId);
+            if (r['ended'] == false) {
+              return 'No workout with id $workoutId; nothing was ended.';
+            }
+            return _enc(r);
+          });
         case 'log_food':
           return await _action(confirm, ActionRequest(
             tool: name, title: 'Log food',
@@ -1350,7 +1360,7 @@ class CoachEngine {
         {
           'name': {'type': 'string'},
           'date': {'type': 'string', 'description': 'YYYY-MM-DD, default today'},
-          'time': {'type': 'string', 'description': 'HH:MM of the slot; default the first'},
+          'time': {'type': 'string', 'description': 'HH:MM of the scheduled slot, not when it was taken; default the first that day'},
           'state': {'type': 'string', 'enum': ['taken', 'skipped', 'not_taken']},
         }, ['name', 'state']),
     _fn('log_journal', 'Log a journal entry (asks the user to confirm).', {

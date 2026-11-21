@@ -45,6 +45,8 @@ enum HealthRouteBridge {
         }
         let from = Date(timeIntervalSince1970: Double(fromMs) / 1000)
         let to = Date(timeIntervalSince1970: Double(toMs) / 1000)
+        // Workouts whose route Dart already stored: not re-read or re-sent.
+        let skip = Set(args["skip"] as? [String] ?? [])
         let reply: ([[String: Any]]) -> Void = { payload in
           DispatchQueue.main.async { result(payload) }
         }
@@ -52,7 +54,7 @@ enum HealthRouteBridge {
         // with whatever has already been decided; an undecided route grant
         // just reads empty there instead of popping a sheet with no tap.
         guard args["prompt"] as? Bool == true else {
-          routes(from: from, to: to, completion: reply)
+          routes(from: from, to: to, skip: skip, completion: reply)
           return
         }
         // `HKSeriesType.workoutRoute()` is a SEPARATE read authorization from
@@ -69,7 +71,7 @@ enum HealthRouteBridge {
         store.requestAuthorization(
           toShare: [], read: [HKSeriesType.workoutRoute(), HKObjectType.workoutType()]
         ) { _, _ in
-          routes(from: from, to: to, completion: reply)
+          routes(from: from, to: to, skip: skip, completion: reply)
         }
 
       default:
@@ -85,14 +87,20 @@ enum HealthRouteBridge {
   /// empty list: Dart stores the workouts from the plugin regardless, and an
   /// empty entry here would only be a second way of saying nothing.
   private static func routes(
-    from: Date, to: Date, completion: @escaping ([[String: Any]]) -> Void
+    from: Date, to: Date, skip: Set<String>,
+    completion: @escaping ([[String: Any]]) -> Void
   ) {
     let predicate = HKQuery.predicateForSamples(withStart: from, end: to, options: [])
     let query = HKSampleQuery(
       sampleType: HKObjectType.workoutType(), predicate: predicate,
       limit: HKObjectQueryNoLimit, sortDescriptors: nil
     ) { _, samples, error in
-      guard let workouts = samples as? [HKWorkout], error == nil, !workouts.isEmpty else {
+      guard let all = samples as? [HKWorkout], error == nil else {
+        completion([])
+        return
+      }
+      let workouts = all.filter { !skip.contains($0.uuid.uuidString) }
+      guard !workouts.isEmpty else {
         completion([])
         return
       }

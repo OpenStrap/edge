@@ -420,6 +420,43 @@ void main() {
     expect(res.days, 2, reason: 'both blocks derive, 500 days apart');
   }, timeout: const Timeout(Duration(minutes: 10)));
 
+  test('two straps and a stray early row still import in full', () async {
+    // Reads seek the (deviceId, ts) key with every id the table holds, and the
+    // day walk jumps empty stretches. Neither may drop a row: a strap swap
+    // brings BOTH ids, and a stray 2001 row (~9000 empty days) is jumped from, not lost.
+    const first = 1787644800; // 2026-08-25
+    const later = first + 3 * 86400;
+    final path = p.join(tmp.path, 'twostraps.sqlite');
+    if (File(path).existsSync()) File(path).deleteSync();
+    final src = await databaseFactory.openDatabase(path);
+    await src.execute('CREATE TABLE hrSample (deviceId TEXT, ts INTEGER, '
+        'bpm INTEGER, PRIMARY KEY (deviceId, ts))');
+    await src.execute('CREATE TABLE rrInterval (deviceId TEXT, ts INTEGER, '
+        'rrMs INTEGER, PRIMARY KEY (deviceId, ts, rrMs))');
+    final b = src.batch();
+    b.insert('hrSample', {'deviceId': 'old', 'ts': 1000000100, 'bpm': 60});
+    var n = 1;
+    for (final (id, t0) in const [('old', first), ('new', later)]) {
+      for (var i = 0; i < 600; i++) {
+        b.insert('hrSample', {'deviceId': id, 'ts': t0 + i, 'bpm': 62});
+        b.insert('rrInterval', {'deviceId': id, 'ts': t0 + i, 'rrMs': 900});
+        b.insert('rrInterval', {'deviceId': id, 'ts': t0 + i, 'rrMs': 950});
+        n += 3;
+      }
+    }
+    await b.commit(noResult: true);
+    await src.close();
+    final bak = writeBackup('twostraps.noopbak', path);
+
+    final saved = kNoopBackupPageRows;
+    kNoopBackupPageRows = 7;
+    addTearDown(() => kNoopBackupPageRows = saved);
+
+    final res = await NoopImporter.importFile(
+        bak, const Profile(), DerivationEngine());
+    expect(res.rows, n);
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   test('a REAL timestamp column cannot hang the paging', () async {
     // A GRDB `Date` is stored as a REAL. Sub-second values truncate onto the
     // same second, which left the page cursor exactly where it was — an

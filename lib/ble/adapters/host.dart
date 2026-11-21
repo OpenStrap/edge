@@ -596,6 +596,33 @@ class BandHost {
     return next;
   }
 
+  /// Puts a committed (or failed) snapshot back in front of any fresh slot
+  /// for the same second; [all] re-buffers seconds with no fresh slot too.
+  void _foldBack(List<(int, _Second)> rows, {required bool all}) {
+    // A second still filling while the commit awaited has a fresh slot by
+    // now: fold it in after the snapshot, never overwrite it.
+    for (final (sec, slot) in rows) {
+      final fresh = _pending[sec];
+      if (fresh != null) {
+        if (fresh.hr != null) slot.hr = fresh.hr;
+        if (fresh.skinTempC != null) slot.skinTempC = fresh.skinTempC;
+        if (slot.beatTs.length == slot.rr.length &&
+            fresh.beatTs.length == fresh.rr.length) {
+          slot.beatTs.addAll(fresh.beatTs);
+        } else {
+          slot.beatTs.clear();
+        }
+        while (slot.gaps.length < slot.rr.length) {
+          slot.gaps.add(0);
+        }
+        slot.gaps.addAll(fresh.gaps);
+        if (slot.rr.isEmpty) slot.chainFrom = fresh.chainFrom;
+        slot.rr.addAll(fresh.rr);
+      }
+      if (fresh != null || all) _pending[sec] = slot;
+    }
+  }
+
   /// Write out every second that can no longer receive more notifications.
   /// Returns whether the flush committed (true when there was nothing to
   /// commit). The CURRENT second is held back unless [all].
@@ -678,14 +705,15 @@ class BandHost {
       if (extra != null) _committedExtra = extra;
       // Every device row shows when it last synced; best-effort.
       unawaited(LocalDb.markDeviceSynced(deviceId).catchError((_) {}));
+      // A late sample for a second just committed would replace its row
+      // (and delete its beats) on the next flush: fold the snapshot back in.
+      _foldBack(batchRows, all: false);
       _stored = true;
       return true;
     } catch (e) {
       // Put the snapshot back so the next flush can retry it, same shape as
       // `DrainController.commit`'s own restore-on-failure.
-      for (final (sec, slot) in batchRows) {
-        _pending[sec] = slot;
-      }
+      _foldBack(batchRows, all: true);
       _pendingArchive.insertAll(0, archive);
       onLog('[${adapter.id}] commit failed, ${batchRows.length} second(s) '
           'and ${archive.length} archived frame(s) re-buffered: $e');

@@ -83,7 +83,7 @@ class DeriveCoordinator {
   /// Tests only.
   DeriveRunHook? debugDeriveRun;
   Future<int> Function(Profile profile)? debugRescanRecent;
-  Future<bool> Function(Profile profile)? debugRefreshActivityReviews;
+  Future<bool?> Function(Profile profile)? debugRefreshActivityReviews;
 
   /// Compute trigger: kick the DerivationEngine after data is persisted.
   /// [heavy]=false is the bounded light pass (TODAY when raw has reached today,
@@ -224,14 +224,20 @@ class DeriveCoordinator {
       bumpInsights();
     }
     try {
-      if (await (debugRefreshActivityReviews?.call(_profile()) ??
-          _derive().refreshActivityReviews(_profile()))) {
+      final landed = await (debugRefreshActivityReviews?.call(_profile()) ??
+          _derive().refreshActivityReviews(_profile()));
+      // null = nothing was pending; no completion bump, so a retry stays
+      // silent (the first call already bumped on entry).
+      if (landed != false) {
         _activityReviewAttempts = 0;
-        bumpInsights();
+        if (landed == true) bumpInsights();
         return;
       }
     } catch (e) {
       _log('[activity-review] refresh deferred: $e');
+      // The engine may have finished jobs before throwing; the retry then sees
+      // nothing pending and stays silent, so invalidate once, not per retry.
+      if (_activityReviewAttempts == 0) bumpInsights();
     }
     // A long derive holds the engine; back off 2s → 30s instead of polling,
     // and stop after a few minutes so a rollup that keeps failing is left to

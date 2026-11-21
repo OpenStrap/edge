@@ -554,6 +554,29 @@ void main() {
       expect(r.trace.last, 'sched.stored');
     }));
 
+    test('a failing ledger write does not abort the burst',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      r.engine.runSyncScript
+        ..add(SyncReport(2, 1, false))
+        ..add(SyncReport(3, 2, true));
+      r.engine.newestTs = 1000000;
+      var session = 0;
+      r.engine.onRunSync = () async {
+        session++;
+        await LocalDb.setCursor(
+            'rec_ts_hw', session == 1 ? '1000' : '999900');
+        final db = await LocalDb.instance;
+        await db.execute('DROP TABLE IF EXISTS sync_ledger');
+      };
+      final report = await r.c.syncForShortcut(
+          ShortcutSyncTask('t', const Duration(minutes: 1)));
+      expect(r.engine.count('runSync'), 2);
+      expect(report.records, 5);
+      expect(report.complete, isTrue);
+      expect(r.logged('Sync ledger write failed'), isTrue);
+    }));
+
     test('a wait that gives up on a still-running task waits on it again',
         _rigCase((r, timers) async {
       r.engine.link = true;
@@ -814,16 +837,6 @@ void main() {
         _rigCase((r, timers) async {
       await r.openAndSettle();
       final tick = timers.activePeriodic(kBackfillEvery).single;
-      tick.fire();
-      await until(() => r.trace.contains('sched.stored'));
-      expect(r.trace, [
-        'wake',
-        'requestHistorySync',
-        'runSync:180',
-        'sched.stored',
-      ]);
-      expect(r.logged('Periodic backlog check: 3 records (complete).'), isTrue);
-
       r.trace.clear();
       r.c.background = true;
       tick.fire();
@@ -834,6 +847,16 @@ void main() {
       await until(() => r.logs.where((l) =>
           l.contains('Periodic history refresh skipped — backgrounded')).length == 2);
       expect(r.trace, isEmpty, reason: 'the re-plan is throttled to 25 minutes');
+
+      r.c.background = false;
+      tick.fire();
+      await until(() => r.trace.contains('sched.stored'));
+      expect(r.trace, [
+        'requestHistorySync',
+        'runSync:180',
+        'sched.stored',
+      ], reason: 'the foreground tick shares the 25-minute re-plan throttle');
+      expect(r.logged('Periodic backlog check: 3 records (complete).'), isTrue);
     }));
   });
 

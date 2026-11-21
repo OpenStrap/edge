@@ -3562,7 +3562,11 @@ class LocalDb {
       'UPDATE device SET '
       '${blankAdapter ? 'adapter_id = NULL, ' : 'adapter_id = COALESCE(?, adapter_id), '}'
       'remote_id = COALESCE(?, remote_id), label = COALESCE(?, label), '
-      'tier = COALESCE(?, tier), last_seen = ? WHERE id = ?',
+      'tier = COALESCE(?, tier), '
+      // A re-pair or relabel of a paired sensor is not a sync: only
+      // markDeviceSynced moves its last_seen, so "recent data" stays honest.
+      'last_seen = CASE WHEN id = \'$kPrimaryDeviceId\' THEN ? ELSE last_seen END '
+      'WHERE id = ?',
       [
         if (!blankAdapter) adapterId,
         remoteId,
@@ -3872,12 +3876,14 @@ class LocalDb {
   /// lat/lng point of a removed import would stay on disk unreachable.
   static Future<void> deleteImportedWorkout(String uuid) async {
     final db = await instance;
-    await db.delete('imported_workout', where: 'uuid = ?', whereArgs: [uuid]);
-    await db.delete(
-      'workout_route',
-      where: 'session_id = ?',
-      whereArgs: [uuid],
-    );
+    // One transaction: a kill between the two deletes left the route behind
+    // with nothing pointing at it.
+    await db.transaction((txn) async {
+      await txn.delete('imported_workout',
+          where: 'uuid = ?', whereArgs: [uuid]);
+      await txn.delete('workout_route',
+          where: 'session_id = ?', whereArgs: [uuid]);
+    });
   }
 
   /// Replace an imported workout with the band session scored over its window
@@ -9887,6 +9893,8 @@ class LocalDb {
         });
       }
     });
+    // AppState caches the hr1Hz order with the device rows.
+    deviceRowChanged.add('');
   }
 
   /// Back to physics for one signal. NOT a write of the computed order — that
@@ -9899,6 +9907,7 @@ class LocalDb {
       where: 'signal = ? AND user_set = 1',
       whereArgs: [signal.name],
     );
+    deviceRowChanged.add('');
   }
 
   /// The signals whose order the USER set by hand, so the editor can offer a
@@ -10524,7 +10533,11 @@ class LocalDb {
     // The limit MUST follow skipped: a newer skip must neither consume a slot
     // nor fall back to an older non-skipped version of the same day.
     return db.rawQuery(
-      'SELECT r.day_id AS day_id, r.window_json AS window_json '
+      'SELECT r.day_id AS day_id, r.window_json AS window_json, '
+      // Legacy v9 rows keep window_json = '{}' and carry the offset in the
+      // payload; ship the payload only for those.
+      "CASE WHEN r.window_json LIKE '%offset_ms%' THEN NULL "
+      'ELSE r.payload_json END AS payload_json '
       'FROM ($_servedVersions ORDER BY day_id DESC) m '
       'CROSS JOIN day_result r $_servedOn '
       'WHERE r.skipped = 0 '
@@ -10598,6 +10611,9 @@ class LocalDb {
   /// bound navigation. Skips are excluded via the `skipped` column, which
   /// `_markDaySkipped` sets alongside the `{skipped:true}` payload.
   static Future<List<String>> availableDayIds({DatabaseExecutor? executor}) async {
+    // Only the writer builds the index: a screen read may be on the reader
+    // connection, which then uses it once it exists.
+    if (executor == null) await _ensureDayResultServedIndex(await instance);
     final db = executor ?? await instance;
     // Latest version per day (matches [dayResult]), then drop skip-markers.
     final rows = await db.rawQuery(
@@ -10622,6 +10638,7 @@ class LocalDb {
   /// data correctly.
   static Future<Set<String>> dayResultIds(int algoVersion) async {
     final db = await instance;
+    await _ensureDayResultServedIndex(db);
     final rows = await db.query(
       'day_result',
       columns: ['day_id'],
@@ -10629,6 +10646,26 @@ class LocalDb {
       whereArgs: [algoVersion],
     );
     return {for (final r in rows) r['day_id'] as String};
+  }
+
+  /// Covering index for [availableDayIds] and [dayResultIds]. `skipped` and
+  /// `partial` sit after `payload_json` in the row, so filtering on them
+  /// without it follows every bundle's overflow chain (tens of MB over a
+  /// long history) to return a list of day labels. Built on first use, off
+  /// `openDatabase`, so that one-time walk never runs under the launch
+  /// watchdog. A failure leaves the reads on the table, as before.
+  static Future<void> _ensureDayResultServedIndex(Database db) async {
+    try {
+      final have = await db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+        ['idx_day_result_served'],
+      );
+      if (have.isNotEmpty) return;
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_day_result_served '
+        'ON day_result(algo_version, day_id, skipped, partial)',
+      );
+    } catch (_) {}
   }
 
   /// Every stored input a derive of [dayId] reads, as one string, or null
@@ -10985,12 +11022,7 @@ class LocalDb {
   /// value, so a concurrent derive cannot race it. Any failure leaves the
   /// index absent and the caller on the old scan; the next call resumes.
   static Future<bool> _ensureDayResultImportedFlag(Database db) async {
-    Future<bool> ready() async => (await db.rawQuery(
-          "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
-          [_dayResultFinalizedIndex],
-        ))
-            .isNotEmpty;
-    if (await ready()) return true;
+    if (await _dayResultImportedFlagReady(db)) return true;
     try {
       if (!(await _columnsOf(db, 'day_result')).contains('imported')) {
         await _ensureDayResultImportedColumn(db);
@@ -11021,6 +11053,15 @@ class LocalDb {
       return false;
     }
   }
+
+  /// True when [_ensureDayResultImportedFlag] has finished: a cheap check
+  /// that never backfills, for callers that may be inside a transaction.
+  static Future<bool> _dayResultImportedFlagReady(DatabaseExecutor db) async =>
+      (await db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+        [_dayResultFinalizedIndex],
+      ))
+          .isNotEmpty;
 
   /// Normalize a day_result row to also carry a `date` key (== day_id) so legacy
   /// readers that keyed on `date` keep working.
@@ -11989,13 +12030,19 @@ class LocalDb {
   /// short of deleting the superseded row. `metric_series_version` needs no
   /// such guard: it is `PRIMARY KEY (date)` and the last writer replaces it,
   /// which is exactly why the stamp exists.
-  static const String _importedDatesSql =
+  static String _importedDatesSql(bool flagged) =>
       'SELECT date FROM metric_series_version '
       "WHERE date IS NOT NULL AND source IS NOT NULL AND source <> 'band' "
       'UNION '
       'SELECT r.day_id FROM day_result r '
       '$_servedDayJoin '
-      "WHERE r.day_id IS NOT NULL AND r.payload_json LIKE '%\"imported\":true%'";
+      'WHERE r.day_id IS NOT NULL AND ${_importedTest(flagged)}';
+
+  /// "Row r is an imported snapshot": the trigger-kept `imported` column once
+  /// [_dayResultImportedFlagReady], else the LIKE over the whole bundle it is
+  /// computed from (a database whose backfill has not run yet).
+  static String _importedTest(bool flagged) =>
+      flagged ? 'r.imported = 1' : 'r.payload_json LIKE $_importedPayloadLike';
 
   /// [_importedDatesSql] as a per-row test on the `metric_series` row being
   /// read: true when that row's day is NOT imported. Same two questions, same
@@ -12007,6 +12054,19 @@ class LocalDb {
   /// the days returned (plus any imported ones skipped on the way).
   @visibleForTesting
   static const String notImportedRowSql =
+      '$_notImportedRowHead'
+      "AND r.payload_json LIKE '%\"imported\":true%')";
+
+  /// [notImportedRowSql] reading `day_result.imported` instead of scanning a
+  /// bundle per walked row, once that column is trustworthy.
+  static const String _notImportedRowFlagSql =
+      '$_notImportedRowHead'
+      'AND r.imported = 1)';
+
+  static String _notImportedRowSqlFor(bool flagged) =>
+      flagged ? _notImportedRowFlagSql : notImportedRowSql;
+
+  static const String _notImportedRowHead =
       'metric_series.date IS NOT NULL '
       'AND NOT EXISTS (SELECT 1 FROM metric_series_version v '
       'WHERE v.date = metric_series.date AND v.source IS NOT NULL '
@@ -12015,8 +12075,7 @@ class LocalDb {
       'WHERE r.day_id = metric_series.date '
       'AND r.algo_version = (SELECT MAX(x.algo_version) FROM day_result x '
       'WHERE x.day_id = metric_series.date '
-      'AND x.algo_version <= $_servedAlgoCeiling) '
-      "AND r.payload_json LIKE '%\"imported\":true%')";
+      'AND x.algo_version <= $_servedAlgoCeiling) ';
 
   /// Day labels whose stored scalars are ANOTHER vendor's derived numbers.
   ///
@@ -12029,10 +12088,13 @@ class LocalDb {
   /// Returned as a set rather than applied inside each query on purpose: the
   /// scan behind it is over `day_result.payload_json` (whole day bundles), so
   /// a caller reading several series takes it ONCE and filters in Dart.
+  /// (Once the `imported` column is backfilled the scan is an indexed read.)
   static Future<Set<String>> importedDates() async {
     final db = await instance;
+    final flagged = await _ensureDayResultImportedFlag(db);
     return {
-      for (final r in await db.rawQuery(_importedDatesSql)) r['date'] as String,
+      for (final r in await db.rawQuery(_importedDatesSql(flagged)))
+        r['date'] as String,
     };
   }
 
@@ -14075,14 +14137,19 @@ class LocalDb {
     String key, {
     int? limit,
     bool measuredOnly = false,
+    String? from,
     DatabaseExecutor? executor,
   }) async {
     final db = executor ?? await instance;
+    final flagged = measuredOnly && await _dayResultImportedFlagReady(db);
+    // `from` bounds the scan before the per-row imported mask runs: a 7-day
+    // reader should not pay one payload LIKE per stored day.
     return db.query(
       'metric_series',
-      where: 'key = ? AND value IS NOT NULL${_validSql(key)}'
-          '${measuredOnly ? ' AND $notImportedRowSql' : ''}',
-      whereArgs: [key],
+      where: 'key = ? AND value IS NOT NULL'
+          '${from != null ? ' AND date >= ?' : ''}${_validSql(key)}'
+          '${measuredOnly ? ' AND ${_notImportedRowSqlFor(flagged)}' : ''}',
+      whereArgs: [key, ?from],
       orderBy: 'date ASC',
       limit: limit,
     );
@@ -14115,15 +14182,18 @@ class LocalDb {
     int n, {
     bool measuredOnly = true,
     String? before,
+    String? since,
   }) async {
     final db = await instance;
+    final flagged = measuredOnly && await _ensureDayResultImportedFlag(db);
     final rows = await db.rawQuery(
       'SELECT value FROM metric_series '
       'WHERE key = ? AND value IS NOT NULL '
       '${before != null ? 'AND date < ? ' : ''}'
-      '${measuredOnly ? 'AND $notImportedRowSql ' : ''}'
+      '${since != null ? 'AND date >= ? ' : ''}'
+      '${measuredOnly ? 'AND ${_notImportedRowSqlFor(flagged)} ' : ''}'
       'ORDER BY date DESC LIMIT ?',
-      [key, ?before, n],
+      [key, ?before, ?since, n],
     );
     return [for (final r in rows.reversed) (r['value'] as num).toDouble()];
   }
@@ -14515,6 +14585,33 @@ class LocalDb {
     return rows.isEmpty ? null : rows.first['payload_json'];
   }
 
+  /// The four things [_refreshComputeFreshnessNow] reads from a past day's
+  /// bundle, as 1/0/null: `skipped`, `has_sleep` (a non-null
+  /// `sleep.accounting.value.tst_sec`), `no_sleep` (flagged NO_SLEEP_DETECTED
+  /// or SLEEP_REJECTED) and `readiness` (a numeric `scalars.readiness`).
+  /// Empty for a missing or malformed bundle, which decoded to `{}`.
+  static Future<Map<String, Object?>> _pastDayFreshnessFacts(
+    String dayId,
+    Object? algoVersion,
+  ) async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      "SELECT json_type(p, '\$.skipped') = 'true' AS skipped, "
+      "COALESCE(json_type(p, '\$.sleep.accounting.value.tst_sec'), 'null') "
+      "<> 'null' AS has_sleep, "
+      "CASE WHEN json_type(p, '\$.flags') = 'array' THEN EXISTS ("
+      "SELECT 1 FROM json_each(p, '\$.flags') "
+      "WHERE value IN ('NO_SLEEP_DETECTED', 'SLEEP_REJECTED')) END "
+      'AS no_sleep, '
+      "json_type(p, '\$.scalars.readiness') IN ('integer', 'real') "
+      'AS readiness '
+      'FROM (SELECT payload_json AS p FROM day_result '
+      'WHERE day_id = ? AND algo_version = ?) WHERE json_valid(p)',
+      [dayId, algoVersion],
+    );
+    return rows.isEmpty ? const {} : rows.first;
+  }
+
   /// The three [rawStats] fields freshness reads. [rawStats] also counts
   /// `samples` and takes MIN(rec_ts) for the diagnostics screen, which a
   /// derive pass has no use for.
@@ -14581,6 +14678,30 @@ class LocalDb {
       final dayId = row['day_id']?.toString();
       if (dayId == null || dayId.isEmpty) continue;
       if (dayId == today && todayRow == null) todayRow = row;
+      if (dayId != today) {
+        // A past day is only asked whether it had a night and a score, so
+        // SQLite answers from the bundle: no 88 KB payload over the channel,
+        // no decode here. Without this a user with no scored or no detected
+        // night decoded all 30 bundles on every pass.
+        final f = await _pastDayFreshnessFacts(dayId, row['algo_version']);
+        if (f['skipped'] == 1) continue;
+        if (latestOvernightDay == null &&
+            (f['has_sleep'] == 1 || f['no_sleep'] == 1)) {
+          latestOvernightDay = dayId;
+          latestOvernightComputedAt = (row['computed_at'] as num?)?.toInt();
+        }
+        if (latestRecoveryDay == null &&
+            ((row['readiness'] as num?) != null || f['readiness'] == 1)) {
+          latestRecoveryDay = dayId;
+          latestRecoveryComputedAt = (row['computed_at'] as num?)?.toInt();
+        }
+        if (latestOvernightDay != null &&
+            latestRecoveryDay != null &&
+            (todayRow != null || dayId.compareTo(today) < 0)) {
+          break;
+        }
+        continue;
+      }
       final decoded =
           SeriesCodec.decodePayloadJson(
             await _servedPayloadJson(dayId, row['algo_version']),
@@ -15457,6 +15578,34 @@ class LocalDb {
     });
   }
 
+  /// End a LIVE session at [endTs]. A targeted update, not `putSession`: a
+  /// finished row is left alone (re-ending it would stretch its window to now)
+  /// and a score written since the caller's read is not reverted. Returns the
+  /// number of rows changed.
+  static Future<int> endLiveSession(String id, int endTs) async {
+    final db = await instance;
+    return db.transaction((tx) async {
+      final rows = await tx.query('sessions',
+          columns: ['start_ts'],
+          where: "id = ? AND status = 'live'",
+          whereArgs: [id]);
+      if (rows.isEmpty) return 0;
+      await tx.update('sessions', {'status': 'done', 'end_ts': endTs},
+          where: 'id = ?', whereArgs: [id]);
+      final start = (rows.first['start_ts'] as num?)?.toInt();
+      if (start != null) {
+        await ActivityStore.supersede(tx, ActivityKind.workout, start, endTs);
+      }
+      return 1;
+    });
+  }
+
+  /// id/start/end of every session ever logged, and nothing else: the overlap
+  /// check needs the whole history but none of the score or trace columns.
+  static Future<List<Map<String, dynamic>>> sessionSpans() async =>
+      (await instance)
+          .query('sessions', columns: ['id', 'start_ts', 'end_ts']);
+
   /// Move a session's window. Not `putSession`: the row's type correction,
   /// RPE and private flag must survive. What was measured over the OLD window
   /// (the frozen HR trace, average HR, zone minutes) belongs to other seconds,
@@ -15785,18 +15934,28 @@ class LocalDb {
 
   static Future<void> deleteSession(String id) async {
     final db = await instance;
-    await db.delete('sessions', where: 'id = ?', whereArgs: [id]);
-    await db.delete('session_sensor',
-        where: 'session_id = ?', whereArgs: [id]);
-    // Cascade: a route belongs to its session (on-device only, no FK enforced).
-    await db.delete('workout_route', where: 'session_id = ?', whereArgs: [id]);
-    // …and its frozen per-km splits (CV-01), same reason.
-    await db.delete('workout_split', where: 'session_id = ?', whereArgs: [id]);
-    // …and so do its typed sets. These used to survive the delete, so a
-    // mistyped 200 kg set on a deleted workout kept coming back as "previous"
-    // and "best" on the strength screen (recentSetsFor reads strength_set with
-    // no session-existence filter) and kept exporting under a dead session_id.
-    await db.delete('strength_set', where: 'session_id = ?', whereArgs: [id]);
+    // One transaction: the children are found only through `sessions`, so a
+    // kill after the owner row went left them unreachable (a deleted
+    // workout's GPS trail kept riding along in every export).
+    await db.transaction((txn) async {
+      await txn.delete('sessions', where: 'id = ?', whereArgs: [id]);
+      await txn.delete('session_sensor',
+          where: 'session_id = ?', whereArgs: [id]);
+      // Cascade: a route belongs to its session (on-device only, no FK
+      // enforced).
+      await txn.delete('workout_route',
+          where: 'session_id = ?', whereArgs: [id]);
+      // …and its frozen per-km splits (CV-01), same reason.
+      await txn.delete('workout_split',
+          where: 'session_id = ?', whereArgs: [id]);
+      // …and so do its typed sets. These used to survive the delete, so a
+      // mistyped 200 kg set on a deleted workout kept coming back as
+      // "previous" and "best" on the strength screen (recentSetsFor reads
+      // strength_set with no session-existence filter) and kept exporting
+      // under a dead session_id.
+      await txn.delete('strength_set',
+          where: 'session_id = ?', whereArgs: [id]);
+    });
   }
 
   // ── workout GPS routes (run/ride/walk) I/O ─────────────────────────────────

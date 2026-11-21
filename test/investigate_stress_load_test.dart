@@ -92,4 +92,14 @@ void main() {
     expect(d.day, '2020-03-03');
     expect(d.stress, isEmpty);
   });
+
+  test('the day getters share one bundle decode', () async {
+    await _put('2020-03-05', {
+      'steps': {'total': 4200},
+    });
+    final before = LocalRepositoryImpl.bundleDecodes;
+    final d = await InvestigateData.load(repo, 'steps', want: '2020-03-05');
+    expect(LocalRepositoryImpl.bundleDecodes - before, 1);
+    expect(d.steps, {'total': 4200});
+  });
 }
