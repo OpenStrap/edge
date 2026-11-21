@@ -52,7 +52,8 @@ object NativeChannels {
          */
         const val EVENT_ACTION_PREFIX = "wtf.openstrap.openstrap_edge."
 
-    private var torchOn = false
+    @Volatile private var torchOn = false
+    private var torchCallbackRegistered = false
 
     // "Ring my phone" (find-my-phone). The ringtone must be retained so it can be
     // stopped — without a held reference the default TYPE_RINGTONE loops until the
@@ -565,6 +566,19 @@ object NativeChannels {
             cm.getCameraCharacteristics(it)
                 .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
         } ?: return
+        // Follow the real torch state: Quick Settings or another app taking the
+        // camera can switch it off behind our back, leaving torchOn stale.
+        if (!torchCallbackRegistered) {
+            cm.registerTorchCallback(object : CameraManager.TorchCallback() {
+                override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
+                    if (cameraId == camId) torchOn = enabled
+                }
+                override fun onTorchModeUnavailable(cameraId: String) {
+                    if (cameraId == camId) torchOn = false
+                }
+            }, ringHandler)
+            torchCallbackRegistered = true
+        }
         val desired = !torchOn
         cm.setTorchMode(camId, desired)
         torchOn = desired
