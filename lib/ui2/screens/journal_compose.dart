@@ -1182,8 +1182,7 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
         } else {
           _turns.add((fromUser: false, text: turn.reply));
         }
-        // keep an earlier unsaved proposal when this turn proposes nothing.
-        if (turn.note.isNotEmpty || turn.tags.isNotEmpty) _last = turn;
+        _last = turn;
         _busy = false;
       });
     } catch (e) {
