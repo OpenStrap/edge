@@ -84,6 +84,14 @@ class Pressable extends StatefulWidget {
 
 class _PressableState extends State<Pressable> {
   bool _down = false;
+  bool _focused = false;
+
+  // A null onTap unmounts the focus detector, which never reports the loss.
+  @override
+  void didUpdateWidget(Pressable old) {
+    super.didUpdateWidget(old);
+    if (widget.onTap == null) _focused = false;
+  }
 
   // The guide run (guides/guide_dim.dart) paints its dim or skeleton INSIDE the
   // component, so it moves with the content in every frame. The mark sits BELOW this
@@ -114,16 +122,38 @@ class _PressableState extends State<Pressable> {
     return Semantics(
       button: true,
       label: widget.semanticLabel,
-      child: GuideUnitMark(component: c, child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        onTapDown: (_) => setState(() => _down = true),
-        onTapUp: (_) => setState(() => _down = false),
-        onTapCancel: () => setState(() => _down = false),
-        child: AnimatedScale(
-          scale: _down ? .975 : 1,
-          duration: motion(c, Motion.fast),
-          child: out,
+      // Enter/Space (ActivateIntent is bound to both by default) fire onTap, and
+      // a ring shows while focus is keyboard-driven.
+      child: GuideUnitMark(component: c, child: FocusableActionDetector(
+        onShowFocusHighlight: (v) => setState(() => _focused = v),
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onTap?.call();
+              return null;
+            },
+          ),
+        },
+        child: DecoratedBox(
+          position: DecorationPosition.foreground,
+          decoration: BoxDecoration(
+            borderRadius: R.rMd,
+            border: _focused
+                ? Border.all(color: P.of(c).ink, width: 2)
+                : null,
+          ),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onTap,
+            onTapDown: (_) => setState(() => _down = true),
+            onTapUp: (_) => setState(() => _down = false),
+            onTapCancel: () => setState(() => _down = false),
+            child: AnimatedScale(
+              scale: _down ? .975 : 1,
+              duration: motion(c, Motion.fast),
+              child: out,
+            ),
+          ),
         ),
       )),
     );
