@@ -82,9 +82,13 @@ class TaskerBridge {
   /// (see AppState._checkPendingTaskerBuzz) — never as part of the read —
   /// so a request that couldn't be sent yet (no BLE connection) survives to
   /// the next attempt instead of being silently dropped.
-  static Future<void> clearPendingBuzz() async {
+  ///
+  /// With [requestedAtMs], native clears only if the stored request still has
+  /// that timestamp, so a newer queued buzz is never dropped.
+  static Future<void> clearPendingBuzz({int? requestedAtMs}) async {
     try {
-      await _ch.invokeMethod('clear_pending_buzz');
+      await _ch.invokeMethod('clear_pending_buzz',
+          requestedAtMs == null ? null : {'requestedAtMs': requestedAtMs});
     } catch (_) {}
   }
 

@@ -3471,7 +3471,8 @@ class AppState extends ChangeNotifier {
       if (!pending.isFresh(DateTime.now())) {
         _log('[tasker] dropping stale pending buzz (pattern=$pattern, '
             'requestedAtMs=${pending.requestedAtMs})');
-        await TaskerBridge.clearPendingBuzz();
+        await TaskerBridge.clearPendingBuzz(
+            requestedAtMs: pending.requestedAtMs);
         return;
       }
       // A Tasker BUZZ_STRAP can arrive while the app is fully dead; the
@@ -3499,7 +3500,7 @@ class AppState extends ChangeNotifier {
       if (!latest.isFresh(DateTime.now())) {
         _log('[tasker] pending buzz (pattern=${latest.pattern}) went stale '
             'waiting for a connection — dropping it');
-        await TaskerBridge.clearPendingBuzz();
+        await TaskerBridge.clearPendingBuzz(requestedAtMs: latest.requestedAtMs);
         return;
       }
       _log('[tasker] consuming pending buzz (pattern=${latest.pattern})');
@@ -3507,13 +3508,12 @@ class AppState extends ChangeNotifier {
         _log('[tasker] buzz write failed — still queued for the next reconnect');
         return;
       }
-      // Clear only if the flag is still the request we just delivered; a
-      // newer one that landed during the write stays queued and the rerun
-      // flag (set by its nudge) delivers it.
+      // Native clears only if the flag is still the request we just
+      // delivered (compare-and-clear); a newer one stays queued and is
+      // picked up by the rerun.
+      await TaskerBridge.clearPendingBuzz(requestedAtMs: latest.requestedAtMs);
       final after = await TaskerBridge.peekPendingBuzz();
-      if (after?.requestedAtMs == latest.requestedAtMs) {
-        await TaskerBridge.clearPendingBuzz();
-      } else if (after != null) {
+      if (after != null && after.requestedAtMs != latest.requestedAtMs) {
         _taskerBuzzRerun = true;
       }
     }
