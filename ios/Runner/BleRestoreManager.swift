@@ -447,6 +447,8 @@ class BleRestoreManager: NSObject {
       UIApplication.shared.endBackgroundTask(id)
       if self.bgTask == id { self.bgTask = .invalid }
     }
+    // Replacement refused (.invalid): keep the old task rather than dropping protection.
+    guard id != .invalid else { return }
     bgTask = id
     if old != .invalid { UIApplication.shared.endBackgroundTask(old) }
   }

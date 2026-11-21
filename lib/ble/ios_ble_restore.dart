@@ -89,7 +89,8 @@ class IosBleRestore {
   /// separately-awaited calls. Two calls left a window — a process suspension
   /// between them — where `appOwnsBand` could already be false with nothing
   /// armed to replace it, i.e. no one left watching for the band at all. The
-  /// native side also wraps this in a short `beginBackgroundTask` extension.
+  /// native side also wraps this in a `beginBackgroundTask` extension that ends
+  /// ~2s later, or later still if another band's drain is in flight.
   /// See `AppState._armRecovery`.
   static Future<void> armRecoveryNow(String remoteId) async {
     if (!Platform.isIOS) return;
