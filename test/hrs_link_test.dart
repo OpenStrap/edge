@@ -334,6 +334,23 @@ void main() {
       await expectNoSlotLeak();
     });
 
+    test('a forget that lands before the arm reads its row cancels it',
+        () async {
+      await takeBothSlots();
+      // One DB round-trip in: the arm has read its flag and is reading its
+      // row, so the forget's ownsSession check runs before `_armingDeviceId`
+      // exists and its delete queues behind the arm's row read.
+      final a = HrsLink.instance.arm();
+      await LocalDb.getCursor('test_sync_point');
+      await HrsLink.forgetDevice('hrs-0a1b2c3d');
+      await pumpEventQueue();
+      expect(HrsLink.instance.armingDeviceIdForTest, isNull);
+      releaseSecondaryLinkSlot();
+      releaseSecondaryLinkSlot();
+      expect(await a, isFalse);
+      await expectNoSlotLeak();
+    });
+
     test('forgetting a different strap leaves an arm in flight alone',
         () async {
       await LocalDb.upsertDevice(

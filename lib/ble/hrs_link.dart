@@ -455,7 +455,10 @@ class HrsLink {
       // than through the adapter state, so the pre-check above cannot see it.
       final blocker = classifyBleBlocker(error: e);
       if (blocker != null) throw BleUnavailableException(blocker);
-      debugPrint('[hrs] scan error: $e');
+      // Anything else (e.g. Android's scan-rate limit) is still a scan that
+      // did not run. Swallowing it handed the picker an empty list, which
+      // reads as "nothing in range".
+      rethrow;
     } finally {
       // Identity-guarded for the same reason `_disarming` is: only the scan
       // that claimed the radio may release the claim.
@@ -905,6 +908,10 @@ class HrsLink {
       debugPrint('[hrs] refusing to forget the primary band from here.');
       return;
     }
+    // Before the first await: an arm still reading its row has published no
+    // `_armingDeviceId` yet for [ownsSession] to match. See the check in
+    // [_arm].
+    instance._forgottenAt[id] = ++instance._forgets;
     final row = (await LocalDb.deviceRows())
         .where((r) => r['id'] == id)
         .firstOrNull;
@@ -1080,8 +1087,15 @@ class HrsLink {
   /// been cancelled and must not publish — see the check in [_arm].
   int _disarms = 0;
 
+  /// Bumped by every [forgetDevice]; [_forgottenAt] keeps the count at which
+  /// each id was last forgotten. Ids are derived ([mintDeviceId]), so a
+  /// re-pair reuses one — compared by count, not by membership.
+  int _forgets = 0;
+  final Map<String, int> _forgottenAt = {};
+
   Future<bool> _arm() async {
     final disarmsAtStart = _disarms;
+    final forgetsAtStart = _forgets;
     // A sensor armed before a "delete everything" never writes after it, even
     // if the disarm the reset sent did not reach this attempt.
     final resetGen = ResetGate.generation;
@@ -1100,6 +1114,10 @@ class HrsLink {
           'device id — re-pair it with a minted id.');
       return false;
     }
+    // A forget of this row that started after this attempt did ran its
+    // [ownsSession] check before `_armingDeviceId` below existed, so it did
+    // not disarm us, and the row read above may have beaten its delete.
+    if ((_forgottenAt[deviceId] ?? 0) > forgetsAtStart) return false;
     // Only while this attempt is still the live one: a cancelled attempt
     // must not re-label the slot a [disarm] just cleared.
     if (_disarms == disarmsAtStart) _armingDeviceId = deviceId;
