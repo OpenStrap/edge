@@ -79,7 +79,7 @@ struct BatteryEntry: TimelineEntry {
   /// entry it already holds (see getTimeline).
   var stale: Bool {
     guard hasData, updatedAt > 0 else { return false }
-    return date.timeIntervalSince1970 - Double(updatedAt) > kBattStaleAfter
+    return date.timeIntervalSince1970 - Double(updatedAt) >= kBattStaleAfter
   }
 
   /// The instant this reading stops being the band's current level.

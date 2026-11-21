@@ -103,7 +103,7 @@ struct WatchMetrics {
   var fresh: Bool {
     guard hasData else { return false }
     guard updatedAt > 0 else { return true }
-    return Date().timeIntervalSince1970 - Double(updatedAt) <= kStaleAfter
+    return Date().timeIntervalSince1970 - Double(updatedAt) < kStaleAfter
   }
 
   // MARK: Display helpers
