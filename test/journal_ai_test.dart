@@ -42,7 +42,9 @@ void main() {
       expect(t.reply, isEmpty);
       expect(t.tags, ['sauna']);
       expect(t.note, isEmpty);
-      expect(parseJournalAiResponse('{"reply":"ok","note":3}').reply, 'ok');
+      final n = parseJournalAiResponse('{"reply":"ok","note":3}');
+      expect(n.reply, 'ok');
+      expect(n.note, isEmpty);
     });
   });
 
