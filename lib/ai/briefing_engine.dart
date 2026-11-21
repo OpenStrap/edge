@@ -550,7 +550,7 @@ class BriefingEngine {
         period: period,
         oneLiner: kNothingStoodOut,
         breakdownMd: '',
-        generatedAtMs: effectiveNow.millisecondsSinceEpoch,
+        generatedAtMs: (wallNow ?? effectiveNow).millisecondsSinceEpoch,
         inputs: const {},
       );
       BriefingStore.write(b);
@@ -572,7 +572,7 @@ class BriefingEngine {
       period: period,
       oneLiner: parsed.oneLiner,
       breakdownMd: parsed.breakdownMd,
-      generatedAtMs: effectiveNow.millisecondsSinceEpoch,
+      generatedAtMs: (wallNow ?? effectiveNow).millisecondsSinceEpoch,
       inputs: inputs,
     );
     // An older request must not overwrite a complete briefing a newer one

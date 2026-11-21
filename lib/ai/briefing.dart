@@ -32,6 +32,21 @@ extension BriefingPeriodLabel on BriefingPeriod {
 BriefingPeriod currentBriefingPeriod(DateTime now) =>
     now.hour >= 17 ? BriefingPeriod.evening : BriefingPeriod.morning;
 
+/// The moment an evening sweep opened at [now] is about. Before the evening
+/// window it is still last night's sweep (its notification tapped next
+/// morning, or just after midnight), so it reads and regenerates YESTERDAY.
+/// [todayCached] is true when today's sweep slot is already written, which
+/// means the real slot has passed and the sweep is about today. [eveningMin]
+/// is the user-resolved slot (minutes from midnight, possibly pre-17:00);
+/// the default is the 17:00 window. From 17:00 on the day is open and the
+/// screen is about today even if the slot is later.
+DateTime eveningSweepMoment(DateTime now,
+        {bool todayCached = false, int eveningMin = 17 * 60}) =>
+    todayCached || now.hour * 60 + now.minute >= (eveningMin < 17 * 60 ? eveningMin : 17 * 60)
+        ? now
+        // day-1 rolls over month/year and never builds a skipped local midnight.
+        : DateTime(now.year, now.month, now.day - 1, 23, 59, 59);
+
 class Briefing {
   /// Local day label (YYYY-MM-DD) the briefing belongs to.
   final String day;
