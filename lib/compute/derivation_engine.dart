@@ -2684,6 +2684,7 @@ class _BaselineHistoryCache {
     'rhr',
     'resp_rate',
     'skin_temp_adc',
+    'enmo_median_night',
     'readiness',
     // The readiness composite z — later days' scores are calibrated against
     // its spread (`calibratedReadinessScore`).
@@ -4453,7 +4454,9 @@ class DerivationEngine {
     // rows, which the signature check rejects. Read after, it would attach the
     // newer revision to rows that predate it and certify a stale ceiling.
     final ceilingInput = await _ceilingInputRevision(dayId);
-    final candidate = await _sleepCandidateForDay(dayId, stats: stats, union: union);
+    final useHmmStages = await _hmmStagesOn();
+    final candidate = await _sleepCandidateForDay(dayId, stats: stats, union: union,
+        useHmmStages: useHmmStages);
     final dayStart = _localDayLabelToSec(dayId);
     final dayEnd = _localNextDayLabelToSec(dayId);
 
@@ -4570,6 +4573,7 @@ class DerivationEngine {
       sleepOffsetSec: candidate.present ? candidate.sleepOffsetSec : 0,
     );
     final prepared = candidate.toPreparedDay(
+      useHmmStages: useHmmStages,
       daySub: daySub,
       napSub: napSub,
       sleepSub: sleepSub,
@@ -4727,7 +4731,9 @@ class DerivationEngine {
     String dayId, {
     _PrepareStats? stats,
     _PrepareUnion? union,
+    bool? useHmmStages,
   }) async {
+    final hmmStages = useHmmStages ?? await _hmmStagesOn();
     // A user sleep override is the source of truth — never serve the cached auto
     // candidate, and don't cache the override result (so a later edit / clear is
     // not shadowed by a stale artifact). The auto path keeps its finalized cache.
@@ -4931,6 +4937,7 @@ class DerivationEngine {
           vendorNights: vendorNights,
           activeWearable: stagingWearable,
           prefixContext: prefixContext,
+          useHmmStages: hmmStages,
         );
         if (revisions != null && !debugDisableStagedSleepCache) stagingKey = inputKey(false);
         if (checkpointPlan != null) {
@@ -6782,6 +6789,7 @@ class DerivationEngine {
     );
     await _derivePreparedDay(
       PreparedDerivationDay(
+        useHmmStages: await _hmmStagesOn(),
         date: day.date,
         endSec: day.endSec,
         confidence: day.confidence,
@@ -6894,6 +6902,19 @@ class DerivationEngine {
       sleepRrTsMs: sleepSub.rrTsMs,
       sleepRrMs: sleepSub.rrMs,
       sleepSkinTemp: sleepSub.skinTemp,
+      // Per-second ENMO over the sleep window (gravity vector magnitude − 1 g),
+      // for the hybrid HMM input. Absent accel (0,0,0 sentinel) -> 0.0, which
+      // the classifier reads as "no motion evidence", never "still".
+      sleepEnmo: [
+        for (var i = 0; i < sleepSub.tsSec.length; i++)
+          sleepSub.accelPresentAt(i)
+              ? math.sqrt(
+                  sleepSub.ax[i] * sleepSub.ax[i] +
+                      sleepSub.ay[i] * sleepSub.ay[i] +
+                      sleepSub.az[i] * sleepSub.az[i],
+                ) - 1.0
+              : -1.0, // absent sentinel (CodeRabbit #756): measured zero motion is >= 0
+      ],
       sleepJson: day.sleepJson,
       hypnoStages: day.hypnoStages,
       sleepOnsetSec: day.sleepOnsetSec,
@@ -6910,7 +6931,7 @@ class DerivationEngine {
       // guess — sleep-onset latency only means what people think it means on a
       // forced window.
       sleepSource: day.sleepSource,
-      useHmmStages: await _hmmStagesOn(),
+      useHmmStages: day.useHmmStages,
     );
     final withHistory = _attachHistory(input, history);
 
@@ -7764,6 +7785,10 @@ class DerivationEngine {
         // EVERY day (even during the bootstrap window where skin_temp_z is null)
         // so the baseline fills and z begins computing from ~day 4.
         'skin_temp_adc': sc('skin_temp_adc'),
+        // The night's stable-core ENMO median, only for HMM-restaged nights
+        // (null otherwise -> no series row, history fills from HMM nights).
+        if (((bundle['sleep'] as Map?)?['stager_enmo_median'] as num?)?.toDouble() case final v?)
+          if (v > 0) 'enmo_median_night': v,
         'dip_pct': sc('dip_pct'),
         // Headline 0–21 strain (for trend/sparkline); raw TRIMP kept too.
         // Written even when NULL: an abstaining day must overwrite a value a
@@ -8386,6 +8411,8 @@ class DerivationEngine {
     // mismatch that left z permanently null. The raw mean is stored every day so
     // this series fills and z starts computing once ≥3 days exist.
     m['skin_temp_adc_history'] = before('skin_temp_adc');
+    // Per-night stable-core ENMO medians (written only for HMM-staged nights).
+    m['enmo_history'] = before('enmo_median_night');
     // TS-03/TS-04 — the observed ceiling this day's ZONES are banded on. A max,
     // not a window (see [maxBefore]), and strictly before today so a day is
     // never banded on a ceiling its own session set.
