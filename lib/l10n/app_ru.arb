@@ -5084,8 +5084,11 @@
   "activitySummaryOneRepMax": "Оценка 1RM: {value} {unit, select, lb{фунт.} other{кг}}",
   "@activitySummaryOneRepMax": {
     "placeholders": {
-      "kg": {
+      "value": {
         "type": "int"
+      },
+      "unit": {
+        "type": "String"
       }
     }
   },
@@ -6960,9 +6963,37 @@
   "devicesBatteryPack": "Батарейный блок",
   "devicesBatteryUnderAnHourLeft": "меньше часа",
   "devicesBatteryHoursLeft": "осталось около {hours} ч",
+  "@devicesBatteryHoursLeft": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
   "devicesBatteryDaysLeft": "осталось около {days} дн.",
+  "@devicesBatteryDaysLeft": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
   "devicesChargesLogged": "{n, plural, one{{n} зарядка записана} few{{n} зарядки записаны} many{{n} зарядок записано} other{{n} зарядки записано}}",
+  "@devicesChargesLogged": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "devicesChargeUpToMv": "до {mv} мВ",
+  "@devicesChargeUpToMv": {
+    "placeholders": {
+      "mv": {
+        "type": "int"
+      }
+    }
+  },
   "devicesCalibrationSub": "Показатели, зависящие от датчика, используют собственные константы этого браслета, поэтому два разных браслета могут дать разные уровни при одинаковой физиологии.",
   "devicesCalibrationNotStated": "Пока не указано",
   "devicesCalibrationNotStatedSub": "Браслет не сообщил своё поколение, а импортированные или старые дни не сообщат никогда. Показатели, зависящие от датчика, не рассчитываются, а не берут значения другого браслета.",
@@ -9036,8 +9067,32 @@
   "importSourceNothingSelected": "Ничего не выбрано",
   "welcomeEncryptedBackupUseSettings": "Этот файл — зашифрованная резервная копия. Откройте его в разделе Настройки → Ваши данные, там можно ввести пароль.",
   "welcomeNotUtf8": "{file}: сохранён не в UTF-8. Сохраните как «CSV UTF-8» и импортируйте снова",
+  "@welcomeNotUtf8": {
+    "placeholders": {
+      "file": {
+        "type": "String"
+      }
+    }
+  },
   "welcomeCorruptTables": "Не удалось прочитать {tables}: SQLite сообщает, что файл повреждён в этих таблицах. Все остальные таблицы импортированы нормально.",
+  "@welcomeCorruptTables": {
+    "placeholders": {
+      "tables": {
+        "type": "String"
+      }
+    }
+  },
   "welcomeRejectsMore": "{shown}; и ещё {count}.",
+  "@welcomeRejectsMore": {
+    "placeholders": {
+      "shown": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "notifLookbackFlaggedBody": "На этой неделе отмечено: {items}. Подробности в разделе «Здоровье».",
   "@notifLookbackFlaggedBody": {
     "description": "Weekly lookback notification body listing the week's flags; {items} is a comma-separated list of the flag phrases below.",

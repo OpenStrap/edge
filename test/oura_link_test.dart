@@ -13,9 +13,13 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show debugPrint, DebugPrintCallback;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
+import 'package:openstrap_edge/ble/ble_state.dart'
+    show acquireSecondaryLinkSlot, releaseSecondaryLinkSlot;
 import 'package:openstrap_edge/ble/adapters/adapter.dart'
     show ReplayBandLink;
 import 'package:openstrap_edge/ble/oura_link.dart';
@@ -2024,6 +2028,45 @@ void main() {
     );
     expect(await LocalDb.getCursorInt('oura_cursor_ds:$_deviceId'), isNull,
         reason: 'confirming would move past a night that is not banked');
+  });
+
+  test('a sync parked on the slot skips a ring re-paired under its id',
+      () async {
+    FlutterSecureStorage.setMockInitialValues(
+        {'oura_pairing_key:$_deviceId': '00112233445566778899aabbccddeeff'});
+    await LocalDb.upsertDevice(
+      id: _deviceId,
+      adapterId: kOura.id,
+      remoteId: 'AA:AA:AA:AA:AA:AA',
+      label: 'Ring A',
+    );
+    final logs = <String>[];
+    final DebugPrintCallback saved = debugPrint;
+    debugPrint = (m, {wrapWidth}) => logs.add(m ?? '');
+    // Fill both secondary slots so the sync parks.
+    expect(await acquireSecondaryLinkSlot(), isTrue);
+    expect(await acquireSecondaryLinkSlot(), isTrue);
+    try {
+      final sync = OuraLink.instance.sync();
+      // Generous: the sync must have captured ring A and parked first.
+      await Future<void>.delayed(const Duration(milliseconds: 1500));
+      // What a re-pair to ring B does under the reused id.
+      await LocalDb.upsertDevice(
+        id: _deviceId,
+        adapterId: kOura.id,
+        remoteId: 'BB:BB:BB:BB:BB:BB',
+        label: 'Ring B',
+      );
+      releaseSecondaryLinkSlot();
+      releaseSecondaryLinkSlot();
+      expect(await sync, isFalse);
+    } finally {
+      debugPrint = saved;
+    }
+    expect(logs.any((l) => l.contains('re-paired while this sync waited')),
+        isTrue,
+        reason: 'it must stop before connecting with ring A\'s ids');
+    expect(logs.any((l) => l.contains('[oura] sync failed')), isFalse);
   });
 
   group('forgetRing', () {
