@@ -6,7 +6,7 @@ import 'package:openstrap_edge/compute/derivation_engine.dart';
 void main() {
   // WHY: finalized days need a new version when the analytics pin changes outputs.
   test('ED-2b adoption and workout rest repin name their output changes', () {
-    expect(kAlgoVersion, 125);
+    expect(kAlgoVersion, 126);
     expect(kAnalyticsPin, 'a438df40b38a4586a52a68ab7e1c100fca111ccd');
     final src = File('lib/compute/derivation_engine.dart').readAsStringSync();
     final at = src.indexOf('// 121 → 122');
@@ -25,11 +25,19 @@ void main() {
       'duration-cap', 'saved-session overlap']) {
       expect(repinEntry, contains(change));
     }
-    final mainRepin = src.substring(src.indexOf('// 123 → 124'));
+    final mainRepin = src.substring(
+        src.indexOf('// 123 → 124'), src.indexOf('// 124 → 125'));
     for (final change in ['a438df4', '#102-#110', '#110', 'regressing clocks',
       '5%', 'Cosinor', 'SDNN', 'uncertainty', 'HrvFreqStream v2',
       'CardioRowCache v3', 'PRSA']) {
       expect(mainRepin, contains(change));
+    }
+    // A bump must name its output change: v126 is the stress recalibration.
+    final stressEntry = src.substring(
+        src.indexOf('// 125 → 126'), src.indexOf('const int kAlgoVersion'));
+    for (final change in ['#631', 'stress', 'kStressScoreFloorSi',
+      'stress_backfill']) {
+      expect(stressEntry, contains(change));
     }
   });
 }
