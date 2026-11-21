@@ -424,33 +424,8 @@ class CoachConfig extends ChangeNotifier {
     bool? useChatGpt,
   }) async {
     final prefs = await SharedPreferences.getInstance();
-    if (useChatGpt != null) {
-      _useChatGpt = useChatGpt;
-      await prefs.setBool(_kUseChatGpt, useChatGpt);
-    }
-    if (baseUrl != null) {
-      final previousOrigin = coachEndpointOrigin(_baseUrl);
-      _baseUrl = baseUrl.trim().isEmpty ? defaultBaseUrl : baseUrl.trim();
-      if (api == null && coachEndpointOrigin(_baseUrl) != previousOrigin) {
-        api = CoachApi.defaultFor(_baseUrl);
-      }
-      await prefs.setString(_kBaseUrl, _baseUrl);
-    }
-    if (api != null) {
-      _api = api;
-      await prefs.setString(_kApi, api.name);
-    }
-    if (model != null) {
-      _model = model.trim();
-      await prefs.setString(_kModel, _model);
-    }
-    // A non-positive value would fail every request instantly, so it is
-    // rejected in favour of whatever was already in effect rather than
-    // silently accepted.
-    if (timeoutSeconds != null && timeoutSeconds > 0) {
-      _timeoutSeconds = timeoutSeconds;
-      await prefs.setInt(_kTimeoutSeconds, _timeoutSeconds);
-    }
+    // The key goes first: if the keychain refuses it, nothing else is applied,
+    // so the old key never ends up bound to a new endpoint.
     if (apiKey != null) {
       _generation++;
       final k = apiKey.trim();
@@ -502,6 +477,33 @@ class CoachConfig extends ChangeNotifier {
       _key = k.isEmpty ? null : k;
       _keyUnreadable = false;
       _keyUndetermined = false;
+    }
+    if (useChatGpt != null) {
+      _useChatGpt = useChatGpt;
+      await prefs.setBool(_kUseChatGpt, useChatGpt);
+    }
+    if (baseUrl != null) {
+      final previousOrigin = coachEndpointOrigin(_baseUrl);
+      _baseUrl = baseUrl.trim().isEmpty ? defaultBaseUrl : baseUrl.trim();
+      if (api == null && coachEndpointOrigin(_baseUrl) != previousOrigin) {
+        api = CoachApi.defaultFor(_baseUrl);
+      }
+      await prefs.setString(_kBaseUrl, _baseUrl);
+    }
+    if (api != null) {
+      _api = api;
+      await prefs.setString(_kApi, api.name);
+    }
+    if (model != null) {
+      _model = model.trim();
+      await prefs.setString(_kModel, _model);
+    }
+    // A non-positive value would fail every request instantly, so it is
+    // rejected in favour of whatever was already in effect rather than
+    // silently accepted.
+    if (timeoutSeconds != null && timeoutSeconds > 0) {
+      _timeoutSeconds = timeoutSeconds;
+      await prefs.setInt(_kTimeoutSeconds, _timeoutSeconds);
     }
     notifyListeners();
   }
