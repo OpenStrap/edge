@@ -15,6 +15,8 @@ import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 
 const _anchored = Profile(ageYears: 34, weightKg: 72, sex: 'm');
+// A scored session also needs a height: it sets the resting floor.
+const _scored = Profile(ageYears: 34, weightKg: 72, heightCm: 178, sex: 'm');
 
 /// The session's HR ceiling — `estimatedMaxHr(age, family)` for [_anchored] on
 /// either family (Tanaka, 208 - 0.7*34). Passed in since TS-03a: the ceiling is
@@ -135,7 +137,7 @@ void main() {
 
   group('LiveWorkoutState.caloriesOrNull', () {
     test('rounds the live figure once something was actually costed', () {
-      final s = _session(_anchored);
+      final s = _session(_scored);
       s.restingHr = 55; // the bout gate needs a real resting HR
       for (var i = 0; i < 120; i++) {
         s.elapsed = Duration(seconds: i);
@@ -166,7 +168,7 @@ void main() {
       // has a positive cost; a session with none is absent. The zero-shaped
       // ambiguity `caloriesOrNull` exists to resolve is therefore now only
       // ever "we could not score this", which is exactly what null says.
-      final s = _session(_anchored);
+      final s = _session(_scored);
       s.restingHr = 55;
       for (var i = 0; i < 120; i++) {
         s.elapsed = Duration(seconds: i);
@@ -213,7 +215,7 @@ void main() {
       hrTs: ts,
       hrBpm: hr,
       hrMax: 185,
-      profile: _anchored,
+      profile: _scored,
       restingHr: 55,
     );
     expect(anchored.calories, isNotNull);

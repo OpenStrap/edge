@@ -71,28 +71,28 @@ void main() {
   });
 
   test('with a repo: the repo is asked to start and its workout id is used; '
-      'the end is reported back to it after the local stop', () async {
+      'the end is the local stop alone, not a second endWorkout', () async {
     final repo = FakeJournalRepo();
     final rig = await newRig(repo: repo);
     await tap(rig, () => rig.app.activeWorkout != null);
     expect(rig.app.activeWorkout!.workoutId, 'srv-1');
     expect(repo.calls, ['start:other']);
     await tap(rig, () => rig.app.activeWorkout == null);
-    expect(repo.calls, ['start:other', 'end:srv-1']);
+    // A second endWorkout would re-stamp end_ts past the user's stop.
+    expect(repo.calls, ['start:other']);
     expect((await LocalDb.session('srv-1'))!['status'], 'done');
   });
 
-  test('a repo that fails to start still starts the workout locally; one '
-      'that fails to end is swallowed and the workout still ended', () async {
-    final repo = FakeJournalRepo()
-      ..startWorkoutThrows = StateError('no seam')
-      ..endWorkoutThrows = StateError('no seam');
+  test('a repo that fails to start still starts the workout locally, and '
+      'the next tap still ends it', () async {
+    final repo = FakeJournalRepo()..startWorkoutThrows = StateError('no seam');
     final rig = await newRig(repo: repo);
     await tap(rig, () => rig.app.activeWorkout != null);
     final w = rig.app.activeWorkout!;
     expect(w.workoutId, 'w${w.startTime.millisecondsSinceEpoch}');
     await tap(rig, () => rig.app.activeWorkout == null);
-    expect(repo.calls, ['start:other', 'end:${w.workoutId}']);
+    expect(repo.calls, ['start:other']);
+    expect((await LocalDb.session(w.workoutId!))!['status'], 'done');
     expect(rig.app.logLines.where((l) => l.contains('workout toggle failed')),
         isEmpty);
     expect(haptics.calls, hasLength(2));

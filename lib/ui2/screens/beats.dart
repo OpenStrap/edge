@@ -131,7 +131,12 @@ class BeatsData {
     this.deviceFamily,
   });
 
-  static Future<BeatsData> load(LocalRepository repo, {String? want}) async {
+  // One decode of each day bundle per load, not one per getter (see
+  // LocalRepository.sharingDayReads).
+  static Future<BeatsData> load(LocalRepository repo, {String? want}) =>
+      repo.sharingDayReads(() => _read(repo, want));
+
+  static Future<BeatsData> _read(LocalRepository repo, String? want) async {
     final today = await repo.getToday();
     final days = await repo.availableDays();
     final day = pickDay(
@@ -210,6 +215,9 @@ class _BeatsState extends State<Beats> {
   // A quick second tap on the day stepper starts a second load; the first
   // can finish last and must not paint the old day under the new label.
   int _loadToken = 0;
+  // The last read threw. The old day's numbers must not stay up under the
+  // new day's label, and a first read that failed is not an empty day.
+  bool _failed = false;
 
   @override
   void initState() {
@@ -233,10 +241,12 @@ class _BeatsState extends State<Beats> {
     try {
       final d = await BeatsData.load(repo, want: _day);
       if (mounted && token == _loadToken) {
-        setState(() => (_d = d, _loading = false));
+        setState(() => (_d = d, _loading = false, _failed = false));
       }
     } catch (_) {
-      if (mounted && token == _loadToken) setState(() => _loading = false);
+      if (mounted && token == _loadToken) {
+        setState(() => (_loading = false, _failed = true));
+      }
     }
   }
 
@@ -244,6 +254,7 @@ class _BeatsState extends State<Beats> {
     setState(() {
       _day = day;
       _loading = true;
+      _failed = false;
     });
     _load();
   }
@@ -262,7 +273,24 @@ class _BeatsState extends State<Beats> {
             padding: EdgeInsets.only(top: S.x8),
             child: Center(child: CircularProgressIndicator()),
           )
-        else if (d.day == null)
+        else if (_failed) ...[
+          const SizedBox(height: S.x2),
+          StatusCard(
+            (_day ?? d.day) == null
+                ? (l?.wellnessLoadFailedTitle ?? 'This could not be read')
+                : (l?.homeDayLoadFailedTitle(prettyDay(_day ?? d.day, l)) ??
+                    '${prettyDay(_day ?? d.day, l)} could not be read'),
+            l?.homeLoadFailedBody ??
+                'The stored day failed to load. Nothing was deleted — this is a '
+                    'read that went wrong, not missing data.',
+            fix: l?.homeTryAgain ?? 'Try again',
+            icon: LucideIcons.databaseZap,
+            onFix: () {
+              setState(() => (_loading = true, _failed = false));
+              _load();
+            },
+          ),
+        ] else if (d.day == null)
           StatusCard(
             l?.beatsNoNightTitle ?? 'No night to draw yet',
             l?.beatsNoNightBody ??
@@ -286,7 +314,7 @@ class _BeatsState extends State<Beats> {
       // WHICH NIGHT, in the app's one day format. Every panel below describes
       // this one night; saying so once at the top is what lets them sit
       // together without each having to date itself.
-      sub: d.day == null
+      sub: d.day == null || _failed || _loading
           ? ''
           : (l?.beatsNightOf(prettyDay(d.day, l)) ??
               'Night of ${prettyDay(d.day, l)}'),

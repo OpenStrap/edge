@@ -130,4 +130,42 @@ void main() {
     expect(await LocalDb.dayResult('2026-09-29'), isNotNull,
         reason: 'the band contributed too and its rows cannot be re-derived');
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('a pass in flight cannot write a cleared day back', () async {
+    const id = 'colmi-synthetic';
+    const day = '2026-09-27';
+    final db = await LocalDb.instance;
+    Future<void> writeDay() async {
+      await db.insert(
+          'day_result',
+          {
+            'day_id': day,
+            'algo_version': kAlgoVersion,
+            'payload_json': '{}',
+            'computed_at': 0,
+            'finalized': 1,
+            'rhr': 50,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace);
+      await db.insert('metric_series_version', {
+        'date': day,
+        'algo_version': kAlgoVersion,
+        'source': 'band',
+        'coverage_devices': id,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+
+    await writeDay();
+    await LocalDb.setCursor(wearableEnabledCursor('colmi'), '1');
+    await LocalDb.setCursor(kActiveWearableCursor, id);
+    DerivationEngine.debugRunning = true; // a pass that loaded the ring's rows
+    addTearDown(() => DerivationEngine.debugRunning = false);
+    final off = setWearableEnabled('colmi', false);
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    await writeDay(); // ...and finishes the day after the flag went off
+    DerivationEngine.debugRunning = false;
+    await off;
+    expect(await LocalDb.dayResult(day), isNull,
+        reason: 'the clear waits for the pass, so its write does not stay');
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }

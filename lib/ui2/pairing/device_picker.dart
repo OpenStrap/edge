@@ -187,6 +187,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
       _scanning = true;
       _problem = null;
       _heldBack = null;
+      _notice = null;
       _found = const [];
     });
     try {
@@ -243,9 +244,11 @@ class _DevicePickerScreenState extends State<DevicePickerScreen>
       case AddDeviceOutcome.pairedOther:
         setState(() {
           _found = const [];
-          if (result.outcome == AddDeviceOutcome.pairedSecondary) {
-            _notice = l?.pairSecondaryPaired ?? 'You paired a secondary sensor.';
-          }
+          // Always a notice: the cleared list must read as a success, not
+          // as the "Nothing found yet" empty state.
+          _notice = result.outcome == AddDeviceOutcome.pairedSecondary
+              ? (l?.pairSecondaryPaired ?? 'You paired a secondary sensor.')
+              : (l?.pairSensorPaired ?? 'Paired');
         });
         await _afterPair();
       case AddDeviceOutcome.failed:
@@ -562,9 +565,24 @@ class DevicePickerView extends StatelessWidget {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final busy = busyRemoteId != null || locked;
+    // The search narrows Nearby too, on the name shown and the device's type.
+    final q = query.text.toLowerCase();
+    bool hit(String s) => s.toLowerCase().contains(q);
+    final searched = q.isEmpty
+        ? found
+        : [
+            for (final f in found)
+              if (hit(_foundTitle(c, f)) ||
+                  [?_foundEntry(f)].any((e) =>
+                      hit(e.label) ||
+                      hit(deviceCategoryBlurb(l, e)) ||
+                      hit(deviceCategoryBlurb(null, e))))
+                f,
+          ];
+    final noMatch = found.isNotEmpty && searched.isEmpty;
     // The pills read the whole list; the filter narrows what is drawn.
     final kinds = [
-      for (final f in found) ?_foundKind(f),
+      for (final f in searched) ?_foundKind(f),
       for (final e in this.categories) e.entry.kind,
     ];
     // A kind the search has emptied out is no filter: the pills hide when
@@ -573,8 +591,8 @@ class DevicePickerView extends StatelessWidget {
     final selected = kindSelection?.value;
     final group = groups.length > 1 && groups.contains(selected) ? selected : null;
     final shownFound = group == null
-        ? found
-        : [for (final f in found) if (_groupOf(f) == group) f];
+        ? searched
+        : [for (final f in searched) if (_groupOf(f) == group) f];
     // Shadows the field on purpose: the rows below keep their original text.
     final categories = group == null
         ? this.categories
@@ -627,7 +645,16 @@ class DevicePickerView extends StatelessWidget {
                     icon: LucideIcons.triangleAlert,
                     onFix: busy ? null : onScan,
                   )
-                else
+                else if (noMatch)
+                  StatusCard(
+                    l?.devicePickerNoMatch ??
+                        'Nothing nearby matches that search.',
+                    '',
+                    icon: LucideIcons.searchX,
+                  )
+                // Right after a pair the list is cleared on purpose; the
+                // notice says what happened, so no "Nothing found yet".
+                else if (notice == null || shownFound.isNotEmpty || scanning)
                   _NearbySection(
                     found: shownFound,
                     scanning: scanning,
@@ -821,7 +848,7 @@ class _NearbySection extends StatelessWidget {
     final row = SetRow(
       sensorIcon(cand.entryId),
       C.green,
-      cand.label ?? cand.entryId,
+      _foundTitle(c, cand),
       sub: busyRemoteId == id
           // A Mi Band 2/3 may wait up to 30 s for a tap on the band, and this
           // path opens no screen of its own to say so.
@@ -837,13 +864,27 @@ class _NearbySection extends StatelessWidget {
       chevron: !busy,
       onTap: busy || onTap == null ? null : () => onTap!(cand),
     );
-    final entry = cand.alsoBand?.entry ??
-        kBandRegistry.where((e) => e.id == cand.entryId).firstOrNull;
+    final entry = _foundEntry(cand);
     final chip = entry == null ? null : _slotChip(c, entry);
     if (chip == null) return row;
     return Column(children: [row, chip]);
   }
 }
+
+/// The registry entry a found device is: the band it turned out to be when it
+/// passed itself off as a heart-rate sensor, else the entry its scan matched.
+BandEntry? _foundEntry(BandCandidate f) =>
+    f.alsoBand?.entry ??
+    kBandRegistry.where((e) => e.id == f.entryId).firstOrNull;
+
+/// A found row's title: the advertised name, else the device's own label
+/// (never the internal registry id).
+String _foundTitle(BuildContext c, BandCandidate f) =>
+    f.label ??
+    switch (_foundEntry(f)) {
+      final e? => uiText(c, e.label),
+      null => f.entryId,
+    };
 
 /// The "Every day" / "Workouts only" chip under a device row, or null when
 /// the device fits neither column.
@@ -889,6 +930,9 @@ String deviceCategoryBlurb(AppLocalizations? l, BandEntry e) {
           'Saves each settled weight and bio-impedance, including stored ones.',
       'miscale2' => l?.devicePickerBlurbMiscale2 ??
           'Saves each settled weight, including stored ones.',
+      'garmin' => l?.devicePickerBlurbGarmin ??
+          'A Garmin watch. Syncs heart rate, steps, sleep and HRV. '
+              'Experimental.',
       'colmi' => l?.devicePickerBlurbColmi ??
           'A Colmi ring. Syncs heart rate, sleep stages, steps, SpO2, HRV '
               "and stress; values the ring computes itself are labelled as "

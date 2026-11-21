@@ -259,7 +259,20 @@ Future<Set<String>> _rederiveAround(Future<void> Function() change) async {
     for (final MapEntry(key: d, value: sole) in beforeShaped.entries)
       if (sole) d,
   }.difference(kept).difference(band);
-  await LocalDb.clearDerivedDays(gone);
+  // Behind the derive latch: a pass already in flight may have loaded the
+  // wearable's rows for one of these days and would write it back after.
+  // The wait can be long: re-check coverage under the latch, so a day that
+  // gained band rows or the wearable back meanwhile is re-derived, not wiped.
+  var cleared = gone;
+  if (gone.isNotEmpty) {
+    await DerivationEngine.whileIdle(() async {
+      cleared = gone
+          .difference((await LocalDb.decodedRecTsMaxByDay()).keys.toSet())
+          .difference(await _wearableDays())
+          .difference((await _wearableShapedDays()).keys.toSet());
+      if (cleared.isNotEmpty) await LocalDb.clearDerivedDays(cleared);
+    });
+  }
   final days = {
     ...before,
     ...after,
@@ -270,7 +283,7 @@ Future<Set<String>> _rederiveAround(Future<void> Function() change) async {
             .difference(LocalDb.sessionSensorSources)
             .union(LocalDb.sessionSensorSources.difference(sensorsBefore))))
         .intersection(band),
-  }.difference(gone);
+  }.difference(cleared);
   if (days.isNotEmpty) await onWearableDaysChanged?.call(days);
   return {...before, ...after};
 }

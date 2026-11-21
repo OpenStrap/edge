@@ -9,9 +9,9 @@ void main() {
     test('one value per day, newest point wins, gaps stay null', () {
       final s = nightlySeriesFrom(
         const [
-          ('2026-01-01', 58),
-          ('2026-01-01', 61), // later record for the same day
-          ('2026-01-03', 60),
+          ('2026-01-01', 1000, 58),
+          ('2026-01-01', 2000, 61), // later record for the same day
+          ('2026-01-03', 3000, 60),
         ],
         firstDay: '2026-01-01',
         lastDay: '2026-01-04',
@@ -22,9 +22,19 @@ void main() {
       expect(s, [61, null, 60, null]);
     });
 
+    test('newest by time wins even when the list is newest first', () {
+      // HealthKit returns samples sorted by end date, newest first.
+      final s = nightlySeriesFrom(
+        const [('2026-01-01', 2000, 61), ('2026-01-01', 1000, 58)],
+        firstDay: '2026-01-01',
+        lastDay: '2026-01-01',
+      );
+      expect(s, [61]);
+    });
+
     test('out-of-range records never choose a day', () {
       final s = nightlySeriesFrom(
-        const [('2026-01-01', 58), ('2026-01-01', 0)],
+        const [('2026-01-01', 1000, 58), ('2026-01-01', 2000, 0)],
         firstDay: '2026-01-01',
         lastDay: '2026-01-01',
       );

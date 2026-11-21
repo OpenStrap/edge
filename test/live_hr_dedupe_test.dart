@@ -30,6 +30,22 @@ void main() {
     expect(app.liveHrTrace('ring-A'), [72]);
   });
 
+  test('a drop clears the trace and the stale pre-drop reading stays out',
+      () {
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    final t = DateTime.now().millisecondsSinceEpoch;
+    app.debugFeedEngineState('', _state(130, t));
+    expect(app.liveHrTrace(''), [130]);
+    // The engine keeps its last reading across a drop.
+    app.debugFeedEngineState('', _state(130, t)..connection = 'disconnected');
+    expect(app.liveHrTrace(''), isEmpty);
+    app.debugFeedEngineState('', _state(130, t)..connection = 'reconnecting');
+    expect(app.liveHrTrace(''), isEmpty);
+    app.debugFeedEngineState('', _state(64, t + 5000));
+    expect(app.liveHrTrace(''), [64]);
+  });
+
   test('the per-device cap evicts only its own device\'s trace', () {
     final app = AppState.forTesting();
     addTearDown(app.dispose);

@@ -617,7 +617,9 @@ class PosterStatRow extends StatelessWidget {
 /// duration whose last word is not a unit of anything, and splitting it would
 /// print '1h' in the value slot.
 (String, String?) splitStatUnit(String s) {
-  final m = RegExp(r'^(.+?)\s+([a-zA-Z/][a-zA-Z/]*)$').firstMatch(s.trim());
+  // No letters in the value: '24 bpm in 60 s' is not '24 bpm in 60' + 's'.
+  final m = RegExp(r'^([^a-zA-Z]+?)\s+([a-zA-Z/][a-zA-Z/]*)$')
+      .firstMatch(s.trim());
   return m == null ? (s, null) : (m.group(1)!, m.group(2)!);
 }
 

@@ -46,6 +46,72 @@ void main() {
   });
 
   group('postChat response shapes', () {
+    test('empty content with no tool calls is an error, not a blank turn',
+        () async {
+      for (final content in [null, '', '   ']) {
+        await expectLater(
+          _post(
+            cfg,
+            _json({
+              'choices': [
+                {
+                  'finish_reason': 'length',
+                  'message': {'role': 'assistant', 'content': content}
+                }
+              ]
+            }),
+          ),
+          throwsA(isA<CoachException>().having(
+              (e) => e.message, 'message', 'Empty response from provider.')),
+        );
+      }
+    });
+
+    test('a refusal surfaces its text', () async {
+      await expectLater(
+        _post(
+          cfg,
+          _json({
+            'choices': [
+              {
+                'message': {
+                  'role': 'assistant',
+                  'content': null,
+                  'refusal': 'I can’t help with that.'
+                }
+              }
+            ]
+          }),
+        ),
+        throwsA(isA<CoachException>().having(
+            (e) => e.message, 'message', 'I can’t help with that.')),
+      );
+    });
+
+    test('tool calls with null content still pass through', () async {
+      final msg = await _post(
+        cfg,
+        _json({
+          'choices': [
+            {
+              'message': {
+                'role': 'assistant',
+                'content': null,
+                'tool_calls': [
+                  {
+                    'id': 'c1',
+                    'type': 'function',
+                    'function': {'name': 'get_today', 'arguments': '{}'}
+                  }
+                ]
+              }
+            }
+          ]
+        }),
+      );
+      expect(msg['tool_calls'], isNotEmpty);
+    });
+
     test('standard message shape is returned', () async {
       final msg = await _post(
         cfg,
