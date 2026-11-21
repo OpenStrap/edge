@@ -636,6 +636,51 @@ void _wiredFamilies() {
     });
   });
 
+  group('free night with a window but no TST', () {
+    test('does not make chronotype refuse for the whole window', () {
+      final days = _synthDays(30);
+      // 2024-01-06 is a Saturday: keep its window, drop its TST.
+      final sat = days.firstWhere((d) => d['date'] == '2024-01-06');
+      sat.remove('tst_min');
+      final chrono = (buildCrossDayBundle(days, const {})['chronotype'] as Map)
+          .cast<String, dynamic>();
+      expect(chrono['value'], isA<Map>(), reason: '${chrono['note']}');
+    });
+  });
+
+  group('sleep regularity across a time-zone change', () {
+    test('nights lived on the same clock read as perfectly regular', () {
+      // Every night is light 23:00-07:00 on the clock it was lived on. The
+      // first week was in a zone 3 h ahead, so on the phone's current clock
+      // those instants read 20:00-04:00; clock_shift_sec puts them back.
+      int at(int day, int h) =>
+          DateTime(2024, 3, 4 + day, h).millisecondsSinceEpoch ~/ 1000;
+      final days = [
+        for (var i = 0; i < 14; i++)
+          {
+            'date': '2024-03-${(5 + i).toString().padLeft(2, '0')}',
+            if (i < 7) 'clock_shift_sec': 3 * 3600,
+            'hypnogram': [
+              {
+                'start': at(i, i < 7 ? 20 : 23),
+                'end': at(i + 1, i < 7 ? 4 : 7),
+                'stage': 'light',
+              },
+              // awake the rest of the day, so every minute is observed
+              {
+                'start': at(i + 1, i < 7 ? 4 : 7),
+                'end': at(i + 1, i < 7 ? 20 : 23),
+                'stage': 'wake',
+              },
+            ],
+          },
+      ];
+      final reg = (buildCrossDayBundle(days, const {})['regularity'] as Map)
+          .cast<String, dynamic>();
+      expect((reg['value'] as Map)['sri'], closeTo(100, 1e-9));
+    });
+  });
+
   group('sleep performance is last night only', () {
     test('no TST last night → absent, not an older night\'s TST', () {
       final days = _synthDays(30);

@@ -37,7 +37,7 @@ enum OpenStrapShared {
     guard defaults()?.bool(forKey: "has_data") ?? false else { return false }
     let at = defaults()?.object(forKey: "updated_at") as? Int ?? 0
     // An unknown timestamp is not a claim of staleness.
-    return at <= 0 || Date().timeIntervalSince1970 - Double(at) <= staleAfter
+    return at <= 0 || Date().timeIntervalSince1970 - Double(at) < staleAfter
   }
   static var readiness: Int { defaults()?.object(forKey: "readiness") as? Int ?? -1 }
   /// The phone's own band label, published as `readiness_band` (thresholds:

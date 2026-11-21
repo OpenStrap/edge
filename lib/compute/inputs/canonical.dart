@@ -243,6 +243,9 @@ Future<Set<String>> _rederiveAround(Future<void> Function() change) async {
   await refreshSessionSensorSources();
   final sensorsBefore = LocalDb.sessionSensorSources;
   await change();
+  // A pass in flight cached the old scope (its strap-session days ride on
+  // the sensor flags): drop it so `after` and that pass see the new one.
+  _passDayIndex?.clear();
   // The screens listing paired devices re-read them: a flag decides which
   // of them may be ranked (rule R6).
   LocalDb.deviceRowChanged.add('');

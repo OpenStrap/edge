@@ -4,6 +4,7 @@ library;
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/compute/inputs/canonical.dart';
 import 'package:openstrap_edge/compute/readiness_calibration_backfill.dart';
@@ -48,6 +49,21 @@ void main() {
     try {
       expect((await wearableRecTsMaxByDay(_watch)).keys, contains('2020-01-03'));
       expect(scans, 2, reason: 'an index belongs to one pass, not to the engine lifetime');
+    } finally { endWearableDayIndexPass(); }
+  });
+
+  test('a sensor toggle mid-pass drops its strap days from the pass index', () async {
+    final s0 = DateTime(2020, 1, 3, 10).millisecondsSinceEpoch ~/ 1000;
+    await edRows(s0, s0 + 600, id: 'hrs', family: kBleHrs.id, source: kBleHrs.id, hr: 120);
+    await edSession(id: 'strap', start: s0, end: s0 + 600);
+    await LocalDb.setCursor(wearableEnabledCursor(kBleHrs.id), '1');
+    await refreshSessionSensorSources();
+    beginWearableDayIndexPass();
+    try {
+      expect((await wearableRecTsMaxByDay(_watch)).keys, contains('2020-01-03'));
+      expect(await setWearableEnabled(kBleHrs.id, false), contains('2020-01-03'));
+      expect((await wearableRecTsMaxByDay(_watch)).keys, isNot(contains('2020-01-03')),
+          reason: 'flag off: the strap day must leave the in-flight index');
     } finally { endWearableDayIndexPass(); }
   });
 
