@@ -56,11 +56,9 @@ JournalAiTurn parseJournalAiResponse(String raw) {
       for (final t in j['tags'] as List)
         if (t is String && t.trim().isNotEmpty) t.trim().toLowerCase(),
   ];
-  return JournalAiTurn(
-    reply: (j['reply'] as String?)?.trim() ?? '',
-    tags: tags,
-    note: (j['note'] as String?)?.trim() ?? '',
-  );
+  // off-schema fields (null, list, number) are dropped, never cast.
+  String str(Object? v) => v is String ? v.trim() : '';
+  return JournalAiTurn(reply: str(j['reply']), tags: tags, note: str(j['note']));
 }
 
 /// Merge an AI/compose save into whatever the day already holds: tags union

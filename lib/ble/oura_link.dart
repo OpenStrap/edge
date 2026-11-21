@@ -556,16 +556,27 @@ class OuraLink {
       // the slot, so the next queued link could connect while this one was
       // still disconnecting — one more live GATT link than the cap allows.
       return await withSecondaryLinkSlot(() async {
-        // A forget or a "delete everything" that landed while this sync was
-        // parked on the slot has already stopped it (nulling `_deviceId`)
-        // and deleted the row. The ids captured above would otherwise still
-        // connect to the forgotten ring and bank its history.
-        if (_deviceId != deviceId || ResetGate.changedSince(_resetGen)) {
+        // Everything read before parking can be stale: a re-pair of the same
+        // ring keeps the id and remote id but swaps the key and resets the
+        // cursor and anchor. Re-read all of it now, THEN check the forget and
+        // reset guards, so nothing that changed during these reads slips by.
+        final freshKey = await _readKey(deviceId);
+        await _loadAnchor(deviceId);
+        final freshCursor =
+            await LocalDb.getCursorInt(_cursorItem(deviceId)) ?? 0;
+        // The row goes LAST so a re-pair landing during the reads above shows
+        // up as a changed row instead of passing against a stale one.
+        final current = await pairedRingRow();
+        if (_deviceId != deviceId ||
+            ResetGate.changedSince(_resetGen) ||
+            _forgets != forgets ||
+            freshKey == null ||
+            current?['id'] != deviceId ||
+            current?['remote_id'] != remoteId) {
+          debugPrint('[oura] the ring was forgotten or re-paired while this '
+              'sync waited; skipping it.');
           return false;
         }
-        // A forget during the row or key read above found no `_deviceId` to
-        // stop, so it is seen here instead.
-        if (_forgets != forgets) return false;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -615,7 +626,7 @@ class OuraLink {
           // [_runSessionAndTeardown] so the exact production order is
           // testable without a radio.
           return await _runSessionAndTeardown(link, deviceId,
-              key: key, cursor: cursor);
+              key: freshKey, cursor: freshCursor);
         } finally {
           // Drop the link and DISCONNECT before the slot is released. Also
           // covers the EARLY returns above (adapter off, no characteristics),

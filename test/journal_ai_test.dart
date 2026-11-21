@@ -35,6 +35,17 @@ void main() {
       final t = parseJournalAiResponse('{"tags":[" Caffeine ","WORKOUT"]}');
       expect(t.tags, ['caffeine', 'workout']);
     });
+
+    test('non-string reply/note do not throw', () {
+      final t = parseJournalAiResponse(
+          '{"reply":null,"tags":["sauna"],"note":["slept badly","coffee"]}');
+      expect(t.reply, isEmpty);
+      expect(t.tags, ['sauna']);
+      expect(t.note, isEmpty);
+      final n = parseJournalAiResponse('{"reply":"ok","note":3}');
+      expect(n.reply, 'ok');
+      expect(n.note, isEmpty);
+    });
   });
 
   group('mergeJournalEntry', () {
