@@ -527,8 +527,14 @@ class AppState extends ChangeNotifier {
   /// Re-read the sensor rows. Call after pairing or forgetting one; also runs
   /// whenever a paired device's row changes (a sync, a battery report).
   Future<void> refreshSensors() async {
-    _deviceRowSub ??=
-        LocalDb.deviceRowChanged.stream.listen((_) => unawaited(refreshSensors()));
+    // A read failing after a committed priority write would leave the cache
+    // stale, so retry once.
+    _deviceRowSub ??= LocalDb.deviceRowChanged.stream.listen((_) {
+      unawaited(refreshSensors().catchError((_) async {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (!_disposed) await refreshSensors().catchError((_) {});
+      }));
+    });
     final rows = await LocalDb.deviceRows();
     _sensors = [
       for (final r in rows)
@@ -1172,27 +1178,37 @@ class AppState extends ChangeNotifier {
       final r = await _phonePedometer.syncRecent(
         days: days,
         onDayBanked: (day, changed) {
+          // A rewrite that left the total alone needs no derive: a resume
+          // with nothing moved used to queue a full light pass.
+          if (!changed) return;
           progress.days++;
-          if (changed && day != todayLabel()) progress.pastDayChanged = true;
+          if (day != todayLabel()) progress.pastDayChanged = true;
           // A day committing after its read was retired is still real.
           if (progress.retired) _queuePhoneDerive(progress);
         },
       );
-      if (stale()) return 0;
+      if (stale()) {
+        // Rows already committed are real even if a newer read took over.
+        _queuePhoneDerive(progress);
+        return 0;
+      }
       phoneStepsLastSyncedDays = r.daysRead;
       phoneStepsLastTotal = r.totalSteps;
       await _refreshPhoneStepsToday();
-      if (stale()) return 0;
+      if (stale()) {
+        _queuePhoneDerive(progress);
+        return 0;
+      }
       if (r.daysRead > 0) {
         // Use the normal durable queue: capture, workout and background holds
         // still apply, and a read finishing during derive gets a later pass.
         _queuePhoneDerive(progress);
-        if (progress.days == 0) _deriveScheduler.markStoredData();
       }
       notifyListeners();
       return r.daysRead;
     } catch (e) {
       debugPrint('[phone_steps] sync: $e');
+      _queuePhoneDerive(progress);
       return 0;
     }
   }
@@ -2796,11 +2812,14 @@ class AppState extends ChangeNotifier {
   // uninterrupted, for the full 2h window, and it fires from the OS wall-clock
   // even while the app is closed.
   int _lastStillnessScheduleMs = 0;
+  static const int _stillnessThrottleMs = 10 * 60 * 1000;
   Future<void> _rescheduleStillnessNudge(int nowMs) async {
     // Throttle: _ingestLiveMags can call this many times a second while the
     // user is actively moving — the 2h nudge window doesn't need OS-scheduler
-    // churn anywhere near that tight.
-    if (nowMs - _lastStillnessScheduleMs < 10 * 60 * 1000) return;
+    // churn anywhere near that tight. Movement swallowed by the throttle does
+    // not push the one-shot out, so it is armed one throttle window late:
+    // it never fires sooner than 2h after the last movement seen.
+    if (nowMs - _lastStillnessScheduleMs < _stillnessThrottleMs) return;
     _lastStillnessScheduleMs = nowMs;
     try {
       // Opt-in, off by default. Read here rather than cached because this runs
@@ -2813,7 +2832,8 @@ class AppState extends ChangeNotifier {
       if (!prefs.movementEnabled) return;
       await NotificationService.instance.cancel(NotificationService.idStillness);
       final at = NotificationCenter.stillnessNudgeAt(
-          prefs, DateTime.fromMillisecondsSinceEpoch(nowMs));
+          prefs,
+          DateTime.fromMillisecondsSinceEpoch(nowMs + _stillnessThrottleMs));
       if (at == null) return;
       await NotificationService.instance.scheduleOnce(
         id: NotificationService.idStillness,

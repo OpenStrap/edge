@@ -104,4 +104,15 @@ void main() {
     await LocalDb.deleteDevice();
     expect(await LocalDb.signalPriority(InputSignal.hr1Hz), ['', 'ring-A']);
   });
+
+  test('both writers announce the change so the live hr order re-reads',
+      () async {
+    final seen = <String>[];
+    final sub = LocalDb.deviceRowChanged.stream.listen(seen.add);
+    addTearDown(sub.cancel);
+    await LocalDb.setSignalPriority(InputSignal.hr1Hz, ['', 'ring-A']);
+    await LocalDb.clearSignalPriority(InputSignal.hr1Hz);
+    await Future<void>.delayed(Duration.zero);
+    expect(seen, hasLength(2));
+  });
 }

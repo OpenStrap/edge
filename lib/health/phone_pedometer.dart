@@ -402,10 +402,27 @@ class PhonePedometer {
       bool valid() => epoch == _epoch && !ResetGate.changedSince(resetGen);
       if (!valid()) return null; // stopped or reset mid-walk, see [stop]
       final before = await LocalDb.phoneStepsForDay(dayId);
+      final beforeWindows = await LocalDb.phoneCoverageForDay(dayId);
       final wrote = await LocalDb.replacePhoneCoverageForDay(dayId, windows,
           stillValid: valid);
       if (!wrote) return null;
-      onWritten?.call(dayId, before != total);
+      // Same total with a different hourly spread still changes derived
+      // activity, so compare the windows too. A zero-step window vetoes band
+      // steps by overlap, so its endTs counts as well, except for the latest
+      // window: for today it ends at the capped "now" and differs every sync.
+      Set<(int, int, int)> keys(List<({int startTs, int endTs, int steps})> ws) {
+        final last = ws.fold<int>(0, (m, w) => w.startTs > m ? w.startTs : m);
+        return {
+          for (final w in ws)
+            (w.startTs, w.steps,
+                w.steps == 0 && w.startTs != last ? w.endTs : 0)
+        };
+      }
+
+      final moved = before != total ||
+          beforeWindows.length != windows.length ||
+          !keys(beforeWindows).containsAll(keys(windows));
+      onWritten?.call(dayId, moved);
       return total;
     } catch (e) {
       debugPrint('[phone_pedometer] syncDay $dayId: $e');
