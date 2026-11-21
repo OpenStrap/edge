@@ -31,8 +31,11 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import '../data/db.dart';
 import 'derivation_engine.dart' show kAlgoVersion, rawRetentionDays;
 
-/// `compute_freshness` key marking the backfill as applied. New key (v124) so devices that finished the v112 pass get the restamp repair.
-const String kReadinessCalibrationKey = 'readiness_calibration_v124';
+/// `compute_freshness` key marking the backfill as applied. Re-keyed at v125
+/// so devices that finished the v112 pass also repair days the strain rescale
+/// restamped at v124 with an uncalibrated readiness: those rows are below the
+/// new version, so the rescore lands in a v125 row and no row is rewritten.
+const String kReadinessCalibrationKey = 'readiness_calibration_v125';
 
 /// The disclosed weight of each readiness input, read off the analytics
 /// constructors so this can never drift from what a derive uses.
@@ -209,44 +212,21 @@ Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
   final pending = <String, int>{};
   var forced = 0;
   for (final day in days) {
-    final current = (versions[day] ?? 0) >= kAlgoVersion;
-    Map<String, dynamic>? row;
-    Map<String, dynamic>? payload;
-    if (current) {
-      // A current version alone does not mean calibrated: the strain rescale
-      // restamps an old bundle at kAlgoVersion with only strain rewritten. A
-      // bundle that publishes readiness but carries no `readiness_z` never
-      // went through the calibrated mapping. The derive will not touch it
-      // (its gate matches the version), so it is re-scored here, raw or not.
-      row = await LocalDb.dayResult(day);
-      // Cheap text test first: calibrated days (nearly all) skip the decode.
-      final raw0 = row?['payload_json'];
-      if (raw0 is! String || raw0.contains('"readiness_z"')) continue;
-      payload = _decode(raw0);
-      final scalars = payload?['scalars'];
-      if (scalars is! Map ||
-          scalars['readiness'] is! num ||
-          scalars['readiness_z'] is num) {
-        continue;
-      }
-    }
+    if ((versions[day] ?? 0) >= kAlgoVersion) continue;
     final raw = rawDays.contains(day);
     // This day's last allowed pass: its derive has failed this long, so it
     // is re-scored from its stored inputs like a pruned day.
     final passes = (waited[day] ?? 0) + 1;
-    if (!current && raw && passes < kReadinessBackfillMaxPasses) {
+    if (raw && passes < kReadinessBackfillMaxPasses) {
       pending[day] = passes;
       continue;
     }
-    if (!current) {
-      row = await LocalDb.dayResult(day);
-      if (row == null ||
-          ((row['algo_version'] as num?)?.toInt() ?? 0) >= kAlgoVersion) {
-        continue;
-      }
-      payload = _decode(row['payload_json']);
+    final row = await LocalDb.dayResult(day);
+    if (row == null ||
+        ((row['algo_version'] as num?)?.toInt() ?? 0) >= kAlgoVersion) {
+      continue;
     }
-    if (row == null) continue;
+    final payload = _decode(row['payload_json']);
     final stored = payload == null ? null : storedReadinessZ(payload);
     if (payload == null || stored == null) continue;
     final score = rescoreStoredReadiness(payload, stored,
@@ -265,14 +245,12 @@ Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
       payloadJson: jsonEncode(payload),
       windowJson: (row['window_json'] as String?) ?? '{}',
       finalized: (row['finalized'] as num?)?.toInt() == 1,
-      skipped: (row['skipped'] as num?)?.toInt() == 1,
-      partial: (row['partial'] as num?)?.toInt() == 1,
       rhr: (row['rhr'] as num?)?.toDouble(),
       rmssd: (row['rmssd'] as num?)?.toDouble(),
       readiness: score,
     );
     rescored++;
-    if (raw && !current) forced++;
+    if (raw) forced++;
   }
   if (pending.isEmpty) {
     await _markDone();

@@ -160,35 +160,34 @@ void main() {
     expect(trend, row['readiness']);
   });
 
-  test('a bundle the strain rescale restamped at the current version is still '
-      're-scored', () async {
-    // An old payload rewritten at kAlgoVersion with only strain touched: it
-    // publishes readiness but never got a readiness_z. Raw or not, the derive
-    // will not reach it (its gate matches the version).
+  test('a v-1 bundle the strain rescale restamped is re-scored into a new '
+      'version row, the old row untouched', () async {
+    // Restamped at the previous version with only strain touched: it publishes
+    // readiness but never got a readiness_z.
     final b = bundle(-1, 0.5, 0);
     await LocalDb.putDayResult(
       dayId: day(48),
-      algoVersion: kAlgoVersion,
+      algoVersion: kAlgoVersion - 1,
       payloadJson: jsonEncode(b),
       windowJson: '{}',
       finalized: true,
       readiness: 30,
     );
     final r = await backfillReadinessCalibration(
-        rawDays: {day(48)},
+        rawDays: const {},
         force: true,
         zHistoryLoader: () async => (_, _) => const <double>[]);
     expect(r.rescored, 1);
     final row = (await LocalDb.dayResult(day(48)))!;
+    expect(row['algo_version'], kAlgoVersion);
     final payload = jsonDecode(row['payload_json'] as String) as Map;
     expect(payload['scalars']['readiness_z'], isA<num>());
     expect(row['readiness'], isNot(30));
-    // Calibrated now: a second pass leaves it alone.
-    final again = await backfillReadinessCalibration(
-        rawDays: const {},
-        force: true,
-        zHistoryLoader: () async => (_, _) => const <double>[]);
-    expect(again.rescored, 0);
+    final db = await LocalDb.instance;
+    final old = await db.query('day_result',
+        where: 'day_id = ? AND algo_version = ?',
+        whereArgs: [day(48), kAlgoVersion - 1]);
+    expect(old.single['readiness'], 30);
   });
 
   test('a substrate day whose derive always fails ends the backfill within '
