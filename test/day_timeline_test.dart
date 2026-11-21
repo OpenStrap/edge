@@ -312,7 +312,7 @@ void main() {
           ],
         }).single;
         await t.pumpWidget(MaterialApp(home: Scaffold(body: MomentRow(m))));
-        expect(find.byType(InkWell), findsNothing);
+        expect(find.byType(Pressable), findsNothing);
         final node = t.getSemantics(find.bySemanticsLabel(
             '${clockOfTs(m.at)}, ${m.title}. ${m.detail}'));
         expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isFalse);
