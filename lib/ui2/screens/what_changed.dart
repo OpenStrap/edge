@@ -85,7 +85,7 @@ class WhatChangedData {
       day: day,
       days: days,
       findings: sweepFindings(series),
-      grid: await loadGridRows(repo),
+      grid: await loadGridRows(repo, asOf: at),
       longestHistory: longest,
       hadToday: series.isNotEmpty,
     );

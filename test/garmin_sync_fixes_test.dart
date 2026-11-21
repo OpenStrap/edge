@@ -11,7 +11,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart' show kGarminNotifyChar;
-import 'package:openstrap_edge/ble/adapters/adapter.dart' show ReplayBandLink;
+import 'package:openstrap_edge/ble/adapters/adapter.dart' show BandEvent, ReplayBandLink, SampleBatch;
 import 'package:openstrap_edge/ble/adapters/garmin.dart' show GarminAdapter;
 import 'package:openstrap_edge/ble/adapters/host.dart';
 import 'package:openstrap_edge/ble/garmin_link.dart';
@@ -80,7 +80,7 @@ Future<num> _served(String row) async =>
 /// its stream ended on, or null. [dropAfterWrites] closes the link once the
 /// phone has written that many frames, as a watch walking out of range does.
 Future<Object?> _adapterOutcome(GarminWatchScript script,
-    {int? dropAfterWrites}) async {
+    {int? dropAfterWrites, List<BandEvent>? events}) async {
   final link = ReplayBandLink();
   final adapter = GarminAdapter(
     nowSeconds: () => _sec(DateTime(2026, 10, 4, 22, 30)),
@@ -92,7 +92,7 @@ Future<Object?> _adapterOutcome(GarminWatchScript script,
   );
   Object? error;
   final done = Completer<void>();
-  adapter.run(link).listen((_) {}, onError: (Object e) => error = e,
+  adapter.run(link).listen((e) => events?.add(e), onError: (Object e) => error = e,
       onDone: done.complete);
   var served = 0;
   for (var spin = 0; spin < 4000 && !done.isCompleted; spin++) {
@@ -418,6 +418,33 @@ void main() {
           await _adapterOutcome(GarminWatchScript(files()),
               dropAfterWrites: 4),
           isA<StateError>());
+    });
+
+    test('an empty file is read, not refused, so the sync still finishes',
+        () async {
+      final script = GarminWatchScript(
+          {...files(), 2: (kGarminFitMonitor, _sec(DateTime(2026, 10, 4, 13)), Uint8List(0))});
+      expect(await _adapterOutcome(script), isNull);
+      expect(script.downloaded, contains(2));
+    });
+
+    test('a decoded file is not banked raw, whole or in chunks', () async {
+      final events = <BandEvent>[];
+      expect(await _adapterOutcome(GarminWatchScript(files()), events: events),
+          isNull);
+      final raw = [
+        for (final e in events)
+          if (e is SampleBatch) ...?e.raw,
+      ];
+      final file = files()[1]!.$3;
+      expect(raw.where((r) => r.length >= file.length), isEmpty);
+      expect(
+          raw.where((r) {
+            final f = garminParseGfdiFrame(r);
+            return f != null &&
+                garminMessageType(f.type) == kGarminMsgFileTransferData;
+          }),
+          isEmpty);
     });
   });
 }

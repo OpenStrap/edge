@@ -337,6 +337,25 @@ void main() {
     expect((await PairedDevice.load())!.generation, isNull);
   });
 
+  // The headless sync loads the pairing once, then connects. A forget that
+  // lands before its generation heal must not be undone by that heal.
+  test('an onlyIfPaired heal does not re-pair a forgotten band', () async {
+    await PairedDevice.save('AA:BB:CC:DD:EE:FF', '5AG0000001');
+    final stale = await PairedDevice.load();
+    await PairedDevice.clear();
+    await PairedDevice.save(stale!.remoteId, stale.serial,
+        generation: 'gen5', onlyIfPaired: true);
+    expect(await PairedDevice.load(), isNull);
+    expect((await SharedPreferences.getInstance()).getString('paired_remote_id'),
+        isNull);
+
+    // Still paired: the heal writes.
+    await PairedDevice.save('AA:BB:CC:DD:EE:FF', '5AG0000001');
+    await PairedDevice.save('AA:BB:CC:DD:EE:FF', '5AG0000001',
+        generation: 'gen5', onlyIfPaired: true);
+    expect((await PairedDevice.load())!.generation, 'gen5');
+  });
+
   // The heal call sites are `unawaited(PairedDevice.save(...))`, so a save can
   // be between its awaits when the user's forget lands. If it wins, the band
   // the user just forgot is paired again on the next launch.

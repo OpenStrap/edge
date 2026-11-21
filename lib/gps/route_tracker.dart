@@ -130,6 +130,8 @@ class RouteTracker {
   int _seq = 0;
   RoutePoint? _last;
   int _rejectStreak = 0;
+  // Consecutive accepted fixes whose platform speed read exactly 0.0.
+  int _zeroSpeedRun = 0;
   int _movingMs = 0;
   bool _stopped = false;
   DateTime _lastFixAt = clock.now();
@@ -191,6 +193,8 @@ class RouteTracker {
     _lastFixAt = clock.now();
     if (stalled.value) stalled.value = false;
 
+    // A dropped fix reporting a non-zero speed breaks the zero-speed run too.
+    if (s.speed != 0) _zeroSpeedRun = 0;
     var gapBefore = false;
     final prev = _last;
     if (prev != null) {
@@ -211,6 +215,11 @@ class RouteTracker {
         // advancing `_last`: the next fix still compares against this SAME
         // anchor, so genuine slow movement accumulates across drops and gets
         // captured, coarsely, once it clears the floor — see [minMovementM].
+        // It still agrees with the anchor, so it breaks a spike streak.
+        _rejectStreak = 0;
+        // A sub-floor fix is standstill evidence: a zero-speed run must be
+        // made of consecutive fixes that all cleared the floor (real movement).
+        _zeroSpeedRun = 0;
         return;
       } else {
         _rejectStreak = 0;
@@ -223,7 +232,14 @@ class RouteTracker {
     // fix-to-fix derivation only when the platform doesn't report one. A
     // fresh segment anchor (gapBefore) has no meaningful "speed since last
     // point" — don't let a big time/distance gap produce a bogus spike.
-    final rawSpeed = s.speed ?? (gapBefore ? null : rmath.fallbackSpeedMps(prev, RoutePoint(
+    // Some Android devices report 0.0 instead of null while moving, so a
+    // zero platform speed also falls back to the fix-to-fix derivation.
+    // A lone 0.0 is a real standstill (jitter can clear minMovementM), so only
+    // a run of accepted zero-speed fixes counts as "device reports 0 while moving".
+    if (s.speed == 0) _zeroSpeedRun++;
+    final platformSpeed =
+        s.speed == null || (s.speed == 0 && _zeroSpeedRun > 2) ? null : s.speed;
+    final rawSpeed = platformSpeed ?? (gapBefore ? null : rmath.fallbackSpeedMps(prev, RoutePoint(
       seq: _seq, tsMs: s.tsMs, lat: s.lat, lng: s.lng,
     )));
     if (rawSpeed != null && rawSpeed.isFinite && rawSpeed >= 0) {

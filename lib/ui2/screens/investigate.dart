@@ -49,12 +49,14 @@ Map<String, dynamic> stressBlockOf(Object? bundle) {
   return blk is Map ? Map<String, dynamic>.from(blk) : const {};
 }
 
-/// Everything the stress screen reads from a day bundle, in one decode. Plain
+/// Everything Investigate reads from a day bundle, in one decode. Plain
 /// maps and scalars only: it is returned across an isolate boundary.
-Map<String, dynamic> _stressFacts(String payload) {
+Map<String, dynamic> _payloadFacts(String payload) {
   final b = jsonDecode(payload);
+  final steps = b is Map ? b['steps'] : null;
   return {
     'stress': stressBlockOf(b),
+    'steps': steps is Map ? Map<String, dynamic>.from(steps) : const {},
     'imported': b is Map && b['imported'] == true,
     'source': b is Map ? b['source']?.toString() : null,
   };
@@ -145,10 +147,13 @@ class InvestigateData {
     if (day == null) return InvestigateData(days: days);
 
     final spec = specOf(key);
-    final hrv = await repo.getDayHrv(day);
-    final heart = await repo.getDayHeart(day);
-    final wear = await repo.getDayWear(day);
-    final lungs = await repo.getDayLungs(day);
+    // One bundle decode shared by the four getters, not four.
+    final (hrv, heart, wear, lungs) = await repo.sharingDayReads(() async => (
+          await repo.getDayHrv(day),
+          await repo.getDayHeart(day),
+          await repo.getDayWear(day),
+          await repo.getDayLungs(day),
+        ));
     final row = await LocalDb.dayResult(day);
     final win = lungs['sleep_window'];
     final series =
@@ -167,37 +172,23 @@ class InvestigateData {
     var steps = const <String, dynamic>{};
     var stress = const <String, dynamic>{};
     final payload = row?['payload_json'];
-    // The day's own stress block, decoded off the UI isolate: the bundle holds
-    // the 1 Hz curves and is far larger than the few values read from it. The
-    // same decode answers "is this day imported", so the stress key decodes
-    // the bundle once, not twice.
+    // The day's own stress block / steps split, decoded off the UI isolate:
+    // the bundle holds the 1 Hz curves and is far larger than the few values
+    // read from it. The `contains` guard keeps every other key off the decode.
     final isStress = key == 'stress';
-    if (isStress && payload is String) {
+    if (payload is String &&
+        (isStress || key == 'steps' || payload.contains('"imported"'))) {
       // An optional side table: a payload that will not decode is an absent
       // table, not a screen that fails to load.
       try {
-        final f = await Isolate.run(() => _stressFacts(payload));
-        stress = (f['stress'] as Map).cast<String, dynamic>();
+        final f = await Isolate.run(() => _payloadFacts(payload));
+        if (isStress) stress = (f['stress'] as Map).cast<String, dynamic>();
+        if (!isStress) steps = (f['steps'] as Map).cast<String, dynamic>();
         if (f['imported'] == true) {
           importedFrom = f['source']?.toString() ?? 'an import';
         }
       } on FormatException {
         // fall through with no table
-      }
-    }
-    // The `contains` guard is what keeps every other key off the decode; the
-    // steps split needs the bundle, so that key pays for it deliberately.
-    if (!isStress &&
-        payload is String &&
-        (key == 'steps' || payload.contains('"imported"'))) {
-      final b = jsonDecode(payload);
-      if (b is Map) {
-        if (b['imported'] == true) {
-          importedFrom = b['source']?.toString() ?? 'an import';
-        }
-        if (b['steps'] is Map) {
-          steps = (b['steps'] as Map).cast<String, dynamic>();
-        }
       }
     }
 
@@ -281,6 +272,9 @@ class _InvestigateState extends State<Investigate> {
   // A quick second tap on the day stepper starts a second load; the first
   // can finish last and must not paint the old day under the new label.
   int _loadToken = 0;
+  // The last read threw. The old day's numbers must not stay up under the
+  // new day's label, and a first read that failed is not an empty day.
+  bool _failed = false;
 
   @override
   void initState() {
@@ -305,10 +299,12 @@ class _InvestigateState extends State<Investigate> {
       final d =
           await InvestigateData.load(repo, widget.metricKey, want: _day);
       if (mounted && token == _loadToken) {
-        setState(() => (_d = d, _loading = false));
+        setState(() => (_d = d, _loading = false, _failed = false));
       }
     } catch (_) {
-      if (mounted && token == _loadToken) setState(() => _loading = false);
+      if (mounted && token == _loadToken) {
+        setState(() => (_loading = false, _failed = true));
+      }
     }
   }
 
@@ -316,6 +312,7 @@ class _InvestigateState extends State<Investigate> {
     setState(() {
       _day = day;
       _loading = true;
+      _failed = false;
     });
     _load();
   }
@@ -336,6 +333,23 @@ class _InvestigateState extends State<Investigate> {
         if (_loading) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
+      ] else if (_failed) ...[
+        const SizedBox(height: S.x2),
+        StatusCard(
+          (_day ?? d.day) == null
+              ? (l?.wellnessLoadFailedTitle ?? 'This could not be read')
+              : (l?.homeDayLoadFailedTitle(prettyDay(_day ?? d.day, l)) ??
+                  '${prettyDay(_day ?? d.day, l)} could not be read'),
+          l?.homeLoadFailedBody ??
+              'The stored day failed to load. Nothing was deleted — this is a '
+                  'read that went wrong, not missing data.',
+          fix: l?.homeTryAgain ?? 'Try again',
+          icon: LucideIcons.databaseZap,
+          onFix: () {
+            setState(() => (_loading = true, _failed = false));
+            _load();
+          },
+        ),
       ] else ...[
           if (hrvish) ..._hrvPanels(c, d) else ..._genericPanels(c, spec, d),
           if (widget.metricKey == 'stress') ..._stressPanels(c, d),
@@ -1122,7 +1136,7 @@ class _InvestigateState extends State<Investigate> {
         (l?.investigateDaysDerived ?? 'Days derived', '${s.length}'),
         (l?.investigateLatest ?? 'Latest', n(s.last)),
         (l?.investigateMean ?? 'Mean', n(mean)),
-        (l?.investigateMedian ?? 'Median', n(sorted[sorted.length ~/ 2])),
+        (l?.investigateMedian ?? 'Median', n(ana.percentileSorted(sorted, 50)!)),
         (l?.investigateSd ?? 'SD', n(sd)),
         (l?.investigateMin ?? 'Min', n(sorted.first)),
         (l?.investigateMax ?? 'Max', n(sorted.last)),

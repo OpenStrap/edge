@@ -124,6 +124,19 @@ void main() {
     expect(l.welcomeWorkoutsCount(25), '25 тренировок');
   });
 
+  test('day and cycle counts inflect in Russian', () {
+    final l = AppLocalizationsRu();
+    expect(l.nutritionPartialFootnote(1), startsWith('1 неполный день исключён'));
+    expect(l.nutritionPartialFootnote(2), startsWith('2 неполных дня исключены'));
+    expect(l.nutritionPartialFootnote(5), startsWith('5 неполных дней'));
+    expect(l.nutritionPartialExcluded(3), startsWith('3 дня с неполными'));
+    expect(l.metricDetailDaysWithWithout(2, 9), '2 дня с записью · 9 без');
+    expect(l.metricDetailDaysWithWithout(21, 1), startsWith('21 день '));
+    expect(l.cycleMiddleOfNCycles(2), contains('по 2 циклам'));
+    expect(l.cycleSymptomShapeSummary('3, 4', 3), endsWith('за 3 цикла.'));
+    expect(l.homeBackToToday, 'Вернуться к сегодняшнему дню');
+  });
+
   test('sensor limit uses Russian count forms without an ICU overlap', () {
     final ru = AppLocalizationsRu();
     final en = lookupAppLocalizations(const Locale('en'));

@@ -513,10 +513,13 @@ List<double> valuesOf(List<ChartPoint> pts) => [for (final p in pts) p.v];
 /// four-day sync gap the newest point sat at the right-hand edge under the
 /// label "Today", and the line ran straight through the missing week as though
 /// it had been measured.
-List<double?> denseDays(List<ChartPoint> pts, int days) {
+List<double?> denseDays(List<ChartPoint> pts, int days, {DateTime? asOf}) {
   final out = List<double?>.filled(days, null);
   for (final p in pts) {
-    final behind = daysBehind(p.t);
+    final behind = asOf == null
+        ? daysBehind(p.t)
+        : calendarDaysBetween(
+            DateTime.fromMillisecondsSinceEpoch(p.t * 1000), asOf);
     if (behind == null || behind < 0 || behind >= days) continue;
     out[days - 1 - behind] = p.v;
   }

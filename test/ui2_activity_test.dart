@@ -141,6 +141,13 @@ Future<void> _loadType() async {
 class _StrainRepo extends LocalRepository {
   final List<Map<String, Object?>> curve;
   _StrainRepo(this.curve);
+  int dayReads = 0;
+
+  @override
+  Future<List<String>> availableDays() async {
+    dayReads++;
+    return const ['2026-05-19', '2026-05-20'];
+  }
 
   @override
   Future<Map<String, dynamic>> getDayStrain(String date) async => {
@@ -214,6 +221,9 @@ void main() {
       final bowling = activityByName('bowling')!;
       expect(bowling.met, 3.8);
       expect(archOf(bowling), Arch.basic);
+      // Rowing has no pool and no GPS: a heart-rate session, never laps.
+      expect(archOf(activityByName('Rowing')!), Arch.basic);
+      expect(archOf(activityByName('Swimming')!), Arch.laps);
       // The catch-all names no activity, so no MET can be honest for it, so
       // no calorie estimate is offered up front. 02060 "health club exercise,
       // general" was the near miss and it prices a gym session — which is not
@@ -352,6 +362,14 @@ void main() {
       expect(archOf(activityByName('hiit')!), Arch.interval);
       expect(archOf(activityByName('weight_training')!), Arch.strength);
       expect(archOf(activityByName('golf')!), Arch.basic);
+    });
+
+    test('every gps activity has a summary that shows the route', () {
+      // golf used to record a route into a basic summary with no map and no
+      // gpx export, so the track was stored but never visible.
+      for (final a in allActivities.where((a) => a.gps)) {
+        expect(archOf(a), anyOf(Arch.route, Arch.journey), reason: a.name);
+      }
     });
 
     test('every archetype has a live screen', () {
@@ -793,6 +811,16 @@ void main() {
       expect(d.coveragePct, 42);
     });
 
+    test('a step reuses the known days instead of re-reading them', () async {
+      final r = _StrainRepo(const []);
+      final first = await DayStrainData.load(r);
+      expect(first.days, ['2026-05-19', '2026-05-20']);
+      final next =
+          await DayStrainData.load(r, forDay: '2026-05-19', days: first.days);
+      expect(next.days, first.days);
+      expect(r.dayReads, 1);
+    });
+
     test('no curve is no day and no chart', () async {
       final d = await DayStrainData.load(_StrainRepo(const []));
       expect(d.day, isNull);
@@ -982,6 +1010,12 @@ void main() {
       expect(find.textContaining('Wear the band for your normal hard sessions'),
           findsNothing);
       expect(find.textContaining('which strap'), findsWidgets);
+
+      // Sessions store the activity key; the ceiling names the activity.
+      await show(const ZonesData(
+          age: 30, ceilingBpm: 187, ceilingSession: 'trail_running'));
+      expect(find.textContaining('trail running'), findsOneWidget);
+      expect(find.textContaining('trail_running'), findsNothing);
     });
 
     for (final arch in Arch.values) {
@@ -1611,6 +1645,151 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Schrägbankdrücken mit Kurzhanteln'), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('an interval phase is exactly its length, and a minimise '
+        'keeps the banked rounds', (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('crossfit')!;
+      LiveDraft.begin(a, workSec: 2, restSec: 1, rounds: 4);
+      await tester.pumpWidget(
+          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pump();
+      // 2 s work + 1 s rest = one round in 3 ticks, not 5.
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+      expect((LiveDraft.current!.data['interval'] as Map)['work'], isFalse,
+          reason: 'work flips to rest on the 2nd tick, not before');
+      for (var i = 0; i < 1; i++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+
+      // Minimise: the screen goes away, the draft stays.
+      await tester.pumpWidget(const SizedBox());
+      ActivityResult? handed;
+      await tester.pumpWidget(_frame(
+          liveFor(a,
+              weightKg: 72.4,
+              host: ActivityHost(onFinish: (draft) async {
+                handed = draft;
+                return draft;
+              })),
+          Brightness.light,
+          1.0));
+      await tester.pump();
+      await tester.tap(find.bySemanticsLabel('Finish session'));
+      await tester.pumpAndSettle();
+
+      expect(handed!.rounds.length, 1);
+      expect(handed!.rounds.first.workSec, 2);
+    });
+
+    testWidgets('a failed save keeps the draft until a retry lands',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('weight_training')!;
+      var calls = 0;
+      LiveDraft.begin(a, weightKg: 72.4);
+      await tester.pumpWidget(_frame(
+          liveFor(a,
+              weightKg: 72.4,
+              host: ActivityHost(onFinish: (d) async {
+                if (calls++ == 0) throw StateError('db locked');
+                return d;
+              })),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('Finish session'));
+      await tester.pumpAndSettle();
+
+      expect(LiveDraft.current, isNotNull,
+          reason: 'the session is not in the database; the draft is all '
+              'there is');
+      await tester.tap(find.text('Try again'));
+      await tester.pumpAndSettle();
+      expect(calls, 2);
+      expect(LiveDraft.current, isNull,
+          reason: 'a retry that lands clears the draft');
+    });
+
+    testWidgets('private off on setup wins over a private-by-default activity',
+        (tester) async {
+      ActivityResult? handed;
+      await tester.pumpWidget(_frame(
+          liveFor(activityByName('intimacy')!,
+              private: false,
+              host: ActivityHost(onFinish: (draft) async {
+                handed = draft;
+                return draft;
+              })),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('Finish session'));
+      await tester.pumpAndSettle();
+      expect(handed!.private, isFalse);
+    });
+
+    testWidgets('a flow nobody stepped through records no poses; a sauna gets '
+        'no pose screen', (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      expect(liveFor(activityByName('sauna')!), isA<LiveMeasured>());
+      expect(liveFor(activityByName('cold_plunge')!), isA<LiveMeasured>());
+
+      ActivityResult? handed;
+      await tester.pumpWidget(_frame(
+          liveFor(activityByName('meditation')!,
+              host: ActivityHost(onFinish: (draft) async {
+                handed = draft;
+                return draft;
+              })),
+          Brightness.light,
+          1.0));
+      await tester.pump();
+      await tester.tap(find.bySemanticsLabel('Finish session'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(handed!.poses, isEmpty);
+    });
+
+    testWidgets('a set logged without touching RPE stores no RPE',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('weight_training')!;
+      LiveDraft.begin(a, weightKg: 72.4);
+      LiveDraft.current!.put('exercise_plan', ['bench_press']);
+      ActivityResult? handed;
+      await tester.pumpWidget(_frame(
+          liveFor(a,
+              weightKg: 72.4,
+              host: ActivityHost(onFinish: (draft) async {
+                handed = draft;
+                return draft;
+              })),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      await tester.tap(find.bySemanticsLabel('Finish session'));
+      await tester.pumpAndSettle();
+      expect(handed!.strength.sets.first.rpe, isNull);
     });
 
     testWidgets(

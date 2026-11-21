@@ -166,7 +166,7 @@ class EcgController extends ChangeNotifier {
   EcgWrist? _wrist;
   bool _armed = false;
   bool _restartInFlight = false;
-  bool _cleanupDone = false;
+  Future<void>? _finishing;
   bool _screenHeld = false;
   int _retriesUsed = 0;
   int? _windowStartMs;
@@ -239,7 +239,7 @@ class EcgController extends ChangeNotifier {
     _gen = lease.linkGeneration;
     _serial = serial;
     _wrist = wrist;
-    _cleanupDone = false;
+    _finishing = null;
     _armed = false;
     _restartInFlight = false;
     _windowStartMs = null;
@@ -319,6 +319,9 @@ class EcgController extends ChangeNotifier {
     if (wrist == null) return;
     _retriesUsed = 1;
     await begin(wrist);
+    // begin() consumes the budget only once it holds a lease; a retry that
+    // bailed on a precondition must not leak it into the next fresh reading.
+    _retriesUsed = 0;
   }
 
   /// Back / explicit cancel. Cleans up; the band stops generating.
@@ -509,23 +512,40 @@ class EcgController extends ChangeNotifier {
   /// THE one exit path. Idempotent per capture: cleanup runs once, the
   /// screen hold and the lease are released, and the final phase is set
   /// only after cleanup so a "completed" never precedes a stopped band.
+  /// A second exit (cancel, pause) while one is in flight waits for it
+  /// instead of releasing the lease under the running cleanup.
   Future<void> _finish(
     int epoch,
     EcgCapturePhase phase, {
     String? reason,
     String? readingId,
     int? unreadableMask,
-  }) async {
+  }) {
     final lease = _lease;
-    if (lease == null || _epoch != epoch) return;
+    if (lease == null || _epoch != epoch) return Future<void>.value();
+    return _finishing ??= _runFinish(
+      lease,
+      phase,
+      reason: reason,
+      readingId: readingId,
+      unreadableMask: unreadableMask,
+    );
+  }
+
+  Future<void> _runFinish(
+    EcgLeaseHandle lease,
+    EcgCapturePhase phase, {
+    String? reason,
+    String? readingId,
+    int? unreadableMask,
+  }) async {
     _armed = false;
     _restartInFlight = false;
     _timer?.cancel();
     _timer = null;
     var incomplete = false;
-    if (!_cleanupDone) {
-      _cleanupDone = true;
-      _set(_state.copyWith(phase: EcgCapturePhase.cleaningUp, reason: reason));
+    _set(_state.copyWith(phase: EcgCapturePhase.cleaningUp, reason: reason));
+    try {
       final res = await transport.cleanup(lease);
       final serial = _serial;
       if (res.allSucceeded && serial != null) {
@@ -537,13 +557,23 @@ class EcgController extends ChangeNotifier {
         log('[ECG] cleanup incomplete ($res) — guard retained.');
         incomplete = true;
       }
+    } catch (e) {
+      // a throwing cleanup still ends in a terminal phase, guard retained.
+      log('[ECG] cleanup threw ($e) — guard retained.');
+      incomplete = true;
+    } finally {
+      try {
+        if (_screenHeld) {
+          _screenHeld = false;
+          await releaseScreen(screenOwner);
+        }
+      } catch (e) {
+        log('[ECG] releaseScreen threw ($e).');
+      }
+      // the lease must always be freed or begin() wedges.
+      transport.release(lease);
+      if (identical(_lease, lease)) _lease = null;
     }
-    if (_screenHeld) {
-      _screenHeld = false;
-      await releaseScreen(screenOwner);
-    }
-    transport.release(lease);
-    if (identical(_lease, lease)) _lease = null;
     _set(
       _state.copyWith(
         phase: phase,
