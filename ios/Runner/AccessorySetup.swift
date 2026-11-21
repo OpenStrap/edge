@@ -290,10 +290,9 @@ private final class Impl {
 
   /// Returns the uppercased UUIDs of the already-provisioned accessories (possibly empty).
   func provisionedIds(_ completion: @escaping ([String]) -> Void) {
-    ensureActivated()
-    // `accessories` is reliable only after activation has reported .activated; give the
-    // session a brief beat to populate on a cold start, then read it.
-    queue.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+    // `accessories` is reliable only after activation has reported .activated; a fixed
+    // short sleep could still read [] on a slow cold launch.
+    whenActivated { [weak self] in
       guard let self = self else { completion([]); return }
       completion(self.provisionedIdList)
     }
@@ -303,7 +302,15 @@ private final class Impl {
   ///   provisioned, i.e. provision a SECOND band. See the ordering warning below.
   func showPicker(addAnother: Bool = false,
                   _ completion: @escaping (Result<String, PickerError>) -> Void) {
-    ensureActivated()
+    // Read `known` only after .activated, or a paired band looks unprovisioned and the
+    // early return below is skipped.
+    whenActivated { [weak self] in
+      self?.showPickerActivated(addAnother: addAnother, completion)
+    }
+  }
+
+  private func showPickerActivated(addAnother: Bool,
+                                   _ completion: @escaping (Result<String, PickerError>) -> Void) {
     let known = provisionedIdList
     let knownAll = allIdList
     // Already provisioned and not explicitly adding another? Don't re-show the picker —
@@ -403,7 +410,14 @@ private final class Impl {
   /// is refused here rather than handed to ASK, whose descriptor validation traps.
   func showSensorPicker(services: [String],
                         _ completion: @escaping (Result<String, PickerError>) -> Void) {
-    ensureActivated()
+    // Same as showPicker: the already-approved check needs the activated accessory list.
+    whenActivated { [weak self] in
+      self?.showSensorPickerActivated(services: services, completion)
+    }
+  }
+
+  private func showSensorPickerActivated(services: [String],
+                                         _ completion: @escaping (Result<String, PickerError>) -> Void) {
     let wanted = Set(services.map { $0.uppercased() })
     guard !wanted.isEmpty, wanted.isSubset(of: sensorServices) else {
       completion(.failure(PickerError(
