@@ -3442,12 +3442,29 @@ class AppState extends ChangeNotifier {
   // the _init()-triggered call is still in its bounded wait) must no-op
   // rather than race a second concurrent buzz/clear.
   bool _taskerBuzzCheckInFlight = false;
+  // A nudge that lands mid-check can't be seen by that check; flag it so the
+  // running call loops once more instead of dropping it.
+  bool _taskerBuzzRerun = false;
 
   Future<void> _checkPendingTaskerBuzz() async {
     if (!Platform.isAndroid) return;
-    if (_taskerBuzzCheckInFlight) return;
+    if (_taskerBuzzCheckInFlight) {
+      _taskerBuzzRerun = true;
+      return;
+    }
     _taskerBuzzCheckInFlight = true;
     try {
+      do {
+        _taskerBuzzRerun = false;
+        await _checkPendingTaskerBuzzOnce();
+      } while (_taskerBuzzRerun);
+    } finally {
+      _taskerBuzzCheckInFlight = false;
+    }
+  }
+
+  Future<void> _checkPendingTaskerBuzzOnce() async {
+    {
       final pending = await TaskerBridge.peekPendingBuzz();
       if (pending == null) return;
       final pattern = pending.pattern;
@@ -3490,9 +3507,15 @@ class AppState extends ChangeNotifier {
         _log('[tasker] buzz write failed — still queued for the next reconnect');
         return;
       }
-      await TaskerBridge.clearPendingBuzz();
-    } finally {
-      _taskerBuzzCheckInFlight = false;
+      // Clear only if the flag is still the request we just delivered; a
+      // newer one that landed during the write stays queued and the rerun
+      // flag (set by its nudge) delivers it.
+      final after = await TaskerBridge.peekPendingBuzz();
+      if (after?.requestedAtMs == latest.requestedAtMs) {
+        await TaskerBridge.clearPendingBuzz();
+      } else if (after != null) {
+        _taskerBuzzRerun = true;
+      }
     }
   }
 
