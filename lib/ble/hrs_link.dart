@@ -910,8 +910,24 @@ class HrsLink {
     }
     // Before the first await: an arm still reading its row has published no
     // `_armingDeviceId` yet for [ownsSession] to match. See the check in
-    // [_arm].
+    // [_arm]. Both the stamp (a forget that began after the arm's snapshot)
+    // and the in-flight count (one that began before it and has not deleted
+    // the row yet) are needed: the arm's row read can beat either's delete.
     instance._forgottenAt[id] = ++instance._forgets;
+    instance._forgetting[id] = (instance._forgetting[id] ?? 0) + 1;
+    try {
+      await _forgetDevice(id);
+    } finally {
+      final n = (instance._forgetting[id] ?? 1) - 1;
+      if (n <= 0) {
+        instance._forgetting.remove(id);
+      } else {
+        instance._forgetting[id] = n;
+      }
+    }
+  }
+
+  static Future<void> _forgetDevice(String id) async {
     final row = (await LocalDb.deviceRows())
         .where((r) => r['id'] == id)
         .firstOrNull;
@@ -1092,6 +1108,11 @@ class HrsLink {
   /// re-pair reuses one — compared by count, not by membership.
   int _forgets = 0;
   final Map<String, int> _forgottenAt = {};
+  final Map<String, int> _forgetting = {};
+
+  /// Test barrier at the row-read boundary of [_arm].
+  @visibleForTesting
+  Future<void> Function()? afterRowReadForTest;
 
   Future<bool> _arm() async {
     final disarmsAtStart = _disarms;
@@ -1103,6 +1124,7 @@ class HrsLink {
     // reads reaches a live trace, a workout's score or the day.
     if (!await wearableEnabled(kBleHrsAdapter.id)) return false;
     final row = await pairedSensorRow();
+    await afterRowReadForTest?.call();
     if (row == null) return false;
     final deviceId = row['id'] as String?;
     final remoteId = row['remote_id'] as String?;
@@ -1117,7 +1139,10 @@ class HrsLink {
     // A forget of this row that started after this attempt did ran its
     // [ownsSession] check before `_armingDeviceId` below existed, so it did
     // not disarm us, and the row read above may have beaten its delete.
-    if ((_forgottenAt[deviceId] ?? 0) > forgetsAtStart) return false;
+    if ((_forgottenAt[deviceId] ?? 0) > forgetsAtStart ||
+        (_forgetting[deviceId] ?? 0) > 0) {
+      return false;
+    }
     // Only while this attempt is still the live one: a cancelled attempt
     // must not re-label the slot a [disarm] just cleared.
     if (_disarms == disarmsAtStart) _armingDeviceId = deviceId;

@@ -1,3 +1,4 @@
+import 'dart:async';
 // The standard Bluetooth heart-rate sensor path: 0x2A37 in, `decoded_onehz` /
 // `decoded_rr` out.
 //
@@ -334,17 +335,37 @@ void main() {
       await expectNoSlotLeak();
     });
 
-    test('a forget that lands before the arm reads its row cancels it',
+    test('a forget that starts after the arm read its row cancels it',
         () async {
       await takeBothSlots();
-      // One DB round-trip in: the arm has read its flag and is reading its
-      // row, so the forget's ownsSession check runs before `_armingDeviceId`
-      // exists and its delete queues behind the arm's row read.
+      final gate = Completer<void>();
+      HrsLink.instance.afterRowReadForTest = () => gate.future;
+      addTearDown(() => HrsLink.instance.afterRowReadForTest = null);
       final a = HrsLink.instance.arm();
-      await LocalDb.getCursor('test_sync_point');
-      await HrsLink.forgetDevice('hrs-0a1b2c3d');
+      await pumpEventQueue();
+      // The arm holds its row and has published nothing, so the forget's
+      // ownsSession check finds nothing to disarm.
+      final f = HrsLink.forgetDevice('hrs-0a1b2c3d');
+      await f;
+      gate.complete();
       await pumpEventQueue();
       expect(HrsLink.instance.armingDeviceIdForTest, isNull);
+      releaseSecondaryLinkSlot();
+      releaseSecondaryLinkSlot();
+      expect(await a, isFalse);
+      await expectNoSlotLeak();
+    });
+
+    test('a forget still deleting when the arm passes its row read cancels it',
+        () async {
+      await takeBothSlots();
+      // The forget's ownership check runs before the arm's row read returns
+      // and its delete queues behind that read.
+      final f = HrsLink.forgetDevice('hrs-0a1b2c3d');
+      final a = HrsLink.instance.arm();
+      await pumpEventQueue();
+      expect(HrsLink.instance.armingDeviceIdForTest, isNull);
+      await f;
       releaseSecondaryLinkSlot();
       releaseSecondaryLinkSlot();
       expect(await a, isFalse);
