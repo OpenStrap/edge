@@ -732,7 +732,11 @@ class HrsLink {
   static Future<String?> scanHeldBackReason() async {
     if (!Platform.isIOS) return null;
     if (!await AccessorySetup.isSupported()) return null;
-    if (await AccessorySetup.provisionedId() != null) return null;
+    try {
+      if (await AccessorySetup.provisionedId() != null) return null;
+    } catch (_) {
+      return null; // ASK not ready: unknown, so do not claim "not paired"
+    }
     return 'Your main band is not paired yet. Searching for a sensor now starts '
         'Bluetooth in a way that hides the system pairing sheet until you '
         'restart the app — so pair your main band first, or expect to restart '

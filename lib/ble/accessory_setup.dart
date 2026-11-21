@@ -35,12 +35,16 @@ class AccessorySetup {
 
   /// Every ASK-provisioned accessory's uppercased CoreBluetooth UUID, in session
   /// order (position 0 is the first band ever provisioned). Empty on Android and
-  /// iOS < 18.
+  /// iOS < 18. Throws PlatformException `ask_not_ready` when ASK has not activated yet.
   static Future<List<String>> provisionedIds() async {
     if (!Platform.isIOS) return const [];
     try {
       final ids = await _ch.invokeListMethod<String>('provisionedIds');
       return ids ?? const [];
+    } on PlatformException catch (e) {
+      // ask_not_ready = activation timed out: UNKNOWN, not "nothing provisioned".
+      if (e.code == 'ask_not_ready') rethrow;
+      return const [];
     } catch (_) {
       return const [];
     }
