@@ -1026,4 +1026,17 @@ void main() {
     await auth.debugSetSession(_session());
     expect(await auth.listModels(), ['gpt-6.1-sol', 'gpt-5.6-terra']);
   });
+
+  test('http errors show the message, not the param', () {
+    expect(
+      chatGptHttpError(400,
+          '{"error":{"code":"invalid_request_error","message":"Unsupported parameter: foo","param":"foo"}}'),
+      'ChatGPT error (400): Unsupported parameter: foo',
+    );
+    expect(
+      chatGptHttpError(400,
+          '{"error":{"code":"subscription_sharing_unsupported_capability","message":"nope","param":"tools"}}'),
+      endsWith(': tools'),
+    );
+  });
 }

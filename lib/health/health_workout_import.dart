@@ -218,6 +218,21 @@ List<MapEntry<String, List<Map<String, Object?>>>> routesToStore(
   return out;
 }
 
+/// Settled workouts the Swift side checked and found no route for (an entry
+/// with an empty `points` list). Remembered so the next pass skips them instead
+/// of re-querying HealthKit for every gym or yoga session in the window.
+@visibleForTesting
+Set<String> routelessFrom(List<Object?> payload, Set<String> settled) => {
+      for (final entry in payload)
+        if (entry is Map &&
+            entry['points'] is List &&
+            (entry['points'] as List).isEmpty &&
+            settled.contains(entry['uuid']))
+          entry['uuid'] as String,
+    };
+
+const _kRoutelessPref = 'health_routeless_workout_uuids';
+
 /// "RUNNING" → "Running". The health store's own enum name, title-cased and
 /// de-underscored.
 ///
@@ -448,7 +463,19 @@ class HealthWorkoutImporter {
     for (final u in settled) {
       if (await LocalDb.sessionHasRoute(u)) have.add(u);
     }
-    final want = keep.difference(have);
+    // Settled workouts already checked and found route-less. Only a
+    // user-started import (prompt) records them, since an auto pass may read
+    // with an undecided route grant and see empty for every workout. A prompt
+    // also re-checks the window and clears its entries up front, so a failed
+    // call still leaves them retryable.
+    final prefs = await SharedPreferences.getInstance();
+    var stored = prefs.getStringList(_kRoutelessPref) ?? const <String>[];
+    if (prompt && stored.any(keep.contains)) {
+      stored = stored.where((u) => !keep.contains(u)).toList();
+      await prefs.setStringList(_kRoutelessPref, stored);
+    }
+    final skip = {...have, ...settled.intersection(stored.toSet())};
+    final want = keep.difference(skip);
     if (want.isEmpty) return have.length;
     List<Object?> payload;
     try {
@@ -458,7 +485,7 @@ class HealthWorkoutImporter {
           'fromMs': start.millisecondsSinceEpoch,
           'toMs': end.millisecondsSinceEpoch,
           'prompt': prompt,
-          'skip': have.toList(),
+          'skip': skip.toList(),
         },
       );
       payload = res ?? const [];
@@ -467,6 +494,15 @@ class HealthWorkoutImporter {
       // HealthKit read must not lose the workouts already stored above.
       debugPrint('[imported_workout] routes: $e');
       return have.length;
+    }
+    final fresh = prompt ? routelessFrom(payload, settled) : <String>{};
+    if (fresh.isNotEmpty) {
+      // Re-read: another pass may have written while the channel call ran.
+      // ponytail: capped list, not a table; an evicted uuid is just re-queried once.
+      final cur = prefs.getStringList(_kRoutelessPref) ?? const <String>[];
+      final merged = {...cur, ...fresh}.toList();
+      await prefs.setStringList(_kRoutelessPref,
+          merged.length > 2000 ? merged.sublist(merged.length - 2000) : merged);
     }
     var n = have.length;
     for (final route in routesToStore(payload, want)) {

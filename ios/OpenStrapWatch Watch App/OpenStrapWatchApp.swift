@@ -151,8 +151,8 @@ struct WatchGlanceView: View {
     .padding(.top, 20)
   }
 
-  /// Readiness hero. Not "Recovery", and not a percentage — the phone scores
-  /// READINESS out of 100 and the wrist must not rename it. With no score there
+  /// Readiness hero. Labelled recovery like the rest of the app, and not a percentage — the phone scores
+  /// recovery out of 100. With no score there
   /// is no arc: an arc trimmed to zero is a ring pinned at empty, which reads
   /// as "your readiness is 0".
   /// A pending score (calibrating, or provisional and "Finishing up") keeps the
@@ -166,7 +166,7 @@ struct WatchGlanceView: View {
     let label: String = {
       if m.readiness >= 0 && !m.band.isEmpty { return m.band.uppercased() }
       if pending && !m.recoverySub.isEmpty { return m.recoverySub.uppercased() }
-      return "READINESS"
+      return "RECOVERY"
     }()
     return VStack(spacing: 6) {
       ZStack {
