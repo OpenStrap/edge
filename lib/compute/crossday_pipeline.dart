@@ -199,6 +199,10 @@ Map<String, dynamic> buildCrossDayBundle(
   final freeMidH = <double>[];
   final workMidH = <double>[];
   final freeDurH = <double>[];
+  // chronotype pairs each free night's mid-sleep with its duration, so a free
+  // night with a window but no TST (vendor-staged or manual) must sit out of
+  // BOTH lists, or one bad night leaves them unequal for the whole window.
+  final chronoMidH = <double>[];
   final allDurH = <double>[];
   for (final d in days) {
     final onset = (d['onset_sec'] as num?)?.toDouble();
@@ -218,7 +222,10 @@ Map<String, dynamic> buildCrossDayBundle(
     final free = _isFreeDay(d['date'] as String?);
     if (free) {
       freeMidH.add(midH);
-      if (dur != null) freeDurH.add(dur);
+      if (dur != null) {
+        freeDurH.add(dur);
+        chronoMidH.add(midH);
+      }
     } else {
       workMidH.add(midH);
     }
@@ -227,7 +234,7 @@ Map<String, dynamic> buildCrossDayBundle(
 
   final socialJetlag = ana.socialJetlag(freeMidH, workMidH);
   final chronotype = ana.chronotype(
-    freeMidH,
+    chronoMidH,
     freeDurH,
     avgWeekSleepDurH: avgWeekDurH,
     totalDaysObserved: allDurH.length,
@@ -1277,14 +1284,12 @@ bool _isNextDay(String a, String b) {
         final end = (seg['end'] as num?)?.toDouble();
         final stage = seg['stage'] as String?;
         if (start == null || end == null) continue;
-        // Segment bounds are epoch SECONDS; map to clock-minute-of-day [0,1440).
-        // this was using `start % 86400` directly, which is the UTC
-        // time-of-day, not the user's wall clock - the exact mistake
-        // _localTodMin (right here in this same file, used correctly at
-        // line ~100) already exists to avoid.
-        final startMin = _localTodMin(start.round()).floor();
+        // Segment bounds are epoch SECONDS; map to clock-minute-of-day [0,1440)
+        // on the clock the night was LIVED on (see _nightClockMin), so a trip
+        // does not shift every earlier night against the later ones.
+        final startMin = _nightClockMin(start.round(), d).floor();
         // end is exclusive of the segment's trailing edge; cover [start,end).
-        final endMinRaw = _localTodMin(end.round()).ceil();
+        final endMinRaw = _nightClockMin(end.round(), d).ceil();
         // WRAP, don't clamp. Both bounds are clock-minutes-of-day in [0,1440),
         // so a segment crossing local midnight reads e.g. start=1430,
         // end=20 — and the old `for (m = startMin; m < endMin; m++)` simply
