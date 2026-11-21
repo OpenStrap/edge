@@ -80,12 +80,11 @@ enum HealthRouteBridge {
     }
   }
 
-  /// Every workout in the window that HAS a route, as
-  /// `[{uuid, points: [[lat, lng, alt, tsMs], …]}]`.
+  /// Every workout in the window, as `[{uuid, points: [[lat, lng, alt, tsMs], …]}]`.
   ///
-  /// Workouts without a route are omitted entirely rather than returned with an
-  /// empty list: Dart stores the workouts from the plugin regardless, and an
-  /// empty entry here would only be a second way of saying nothing.
+  /// A workout whose route query succeeded but found no usable fixes comes back
+  /// with an empty `points` list, so Dart can remember it and stop asking every
+  /// pass. A workout whose route query FAILED is omitted, so it is retried.
   private static func routes(
     from: Date, to: Date, skip: Set<String>,
     completion: @escaping ([[String: Any]]) -> Void
@@ -114,12 +113,12 @@ enum HealthRouteBridge {
       for workout in workouts {
         group.enter()
         points(for: workout) { pts in
-          if !pts.isEmpty {
-            queue.async {
-              out.append(["uuid": workout.uuid.uuidString, "points": pts])
-              group.leave()
-            }
-          } else {
+          guard let pts = pts else {
+            group.leave()
+            return
+          }
+          queue.async {
+            out.append(["uuid": workout.uuid.uuidString, "points": pts])
             group.leave()
           }
         }
@@ -129,16 +128,21 @@ enum HealthRouteBridge {
     store.execute(query)
   }
 
-  /// The decimated coordinate list for one workout, or empty if it has none.
+  /// The decimated coordinate list for one workout, empty if it has none, nil
+  /// if the query failed.
   private static func points(
-    for workout: HKWorkout, completion: @escaping ([[Any]]) -> Void
+    for workout: HKWorkout, completion: @escaping ([[Any]]?) -> Void
   ) {
     let routeQuery = HKSampleQuery(
       sampleType: HKSeriesType.workoutRoute(),
       predicate: HKQuery.predicateForObjects(from: workout),
       limit: HKObjectQueryNoLimit, sortDescriptors: nil
     ) { _, samples, error in
-      guard let routes = samples as? [HKWorkoutRoute], error == nil, !routes.isEmpty else {
+      guard let routes = samples as? [HKWorkoutRoute], error == nil else {
+        completion(nil)
+        return
+      }
+      guard !routes.isEmpty else {
         completion([])  // No route, or the user withheld it. Both mean no line.
         return
       }
@@ -175,7 +179,9 @@ enum HealthRouteBridge {
           out.append([
             loc.coordinate.latitude,
             loc.coordinate.longitude,
-            loc.altitude,
+            // Negative vertical accuracy = altitude not determined, and
+            // CoreLocation reports 0 for it. Send null, not a fake sea level.
+            loc.verticalAccuracy >= 0 ? loc.altitude as Any : NSNull(),
             Int(loc.timestamp.timeIntervalSince1970 * 1000),
           ])
         }

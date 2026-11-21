@@ -218,6 +218,21 @@ List<MapEntry<String, List<Map<String, Object?>>>> routesToStore(
   return out;
 }
 
+/// Settled workouts the Swift side checked and found no route for (an entry
+/// with an empty `points` list). Remembered so the next pass skips them instead
+/// of re-querying HealthKit for every gym or yoga session in the window.
+@visibleForTesting
+Set<String> routelessFrom(List<Object?> payload, Set<String> settled) => {
+      for (final entry in payload)
+        if (entry is Map &&
+            entry['points'] is List &&
+            (entry['points'] as List).isEmpty &&
+            settled.contains(entry['uuid']))
+          entry['uuid'] as String,
+    };
+
+const _kRoutelessPref = 'health_routeless_workout_uuids';
+
 /// "RUNNING" → "Running". The health store's own enum name, title-cased and
 /// de-underscored.
 ///
@@ -448,7 +463,15 @@ class HealthWorkoutImporter {
     for (final u in settled) {
       if (await LocalDb.sessionHasRoute(u)) have.add(u);
     }
-    final want = keep.difference(have);
+    // Settled workouts already checked and found route-less. A user-started
+    // import (prompt) re-checks them: a route read granted since then would
+    // otherwise never be picked up.
+    final prefs = await SharedPreferences.getInstance();
+    final routeless = prompt
+        ? <String>[]
+        : (prefs.getStringList(_kRoutelessPref) ?? const <String>[]);
+    final skip = {...have, ...settled.intersection(routeless.toSet())};
+    final want = keep.difference(skip);
     if (want.isEmpty) return have.length;
     List<Object?> payload;
     try {
@@ -458,7 +481,7 @@ class HealthWorkoutImporter {
           'fromMs': start.millisecondsSinceEpoch,
           'toMs': end.millisecondsSinceEpoch,
           'prompt': prompt,
-          'skip': have.toList(),
+          'skip': skip.toList(),
         },
       );
       payload = res ?? const [];
@@ -467,6 +490,13 @@ class HealthWorkoutImporter {
       // HealthKit read must not lose the workouts already stored above.
       debugPrint('[imported_workout] routes: $e');
       return have.length;
+    }
+    final fresh = routelessFrom(payload, settled);
+    if (prompt || fresh.isNotEmpty) {
+      // ponytail: capped list, not a table; an evicted uuid is just re-queried once.
+      final merged = {...routeless, ...fresh}.toList();
+      await prefs.setStringList(_kRoutelessPref,
+          merged.length > 2000 ? merged.sublist(merged.length - 2000) : merged);
     }
     var n = have.length;
     for (final route in routesToStore(payload, want)) {
