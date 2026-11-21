@@ -204,8 +204,13 @@ String chatGptHttpError(int status, String body) {
     final j = jsonDecode(body);
     final e = j is Map ? j['error'] : null;
     if (e is Map) {
-      return chatGptErrorMessage(
-          status, e['code']?.toString(), (e['param'] ?? e['message'])?.toString());
+      final code = e['code']?.toString();
+      // Only the unsupported-capability case wants the offending param;
+      // everything else needs the explanatory message.
+      final detail = code == 'subscription_sharing_unsupported_capability'
+          ? (e['param'] ?? e['message'])
+          : (e['message'] ?? e['param']);
+      return chatGptErrorMessage(status, code, detail?.toString());
     }
     if (j is Map && j['detail'] != null) {
       return chatGptErrorMessage(status, null, j['detail'].toString());
