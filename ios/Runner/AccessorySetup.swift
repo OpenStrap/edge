@@ -69,7 +69,10 @@ enum AccessorySetup {
 
       case "provisionedIds":
         if #available(iOS 18.0, *) {
-          Impl.shared.provisionedIds { result($0) }      // [String], possibly empty
+          Impl.shared.provisionedIds { ids in
+            // nil = activation timed out: unknown, not "nothing provisioned".
+            if let ids = ids { result(ids) } else { result(Impl.notReady) }
+          }
         } else {
           result([String]())
         }
@@ -80,7 +83,9 @@ enum AccessorySetup {
       // you get a MissingPluginException on a path nobody tests.
       case "provisionedId":
         if #available(iOS 18.0, *) {
-          Impl.shared.provisionedIds { result($0.first) }
+          Impl.shared.provisionedIds { ids in
+            if let ids = ids { result(ids.first) } else { result(Impl.notReady) }
+          }
         } else {
           result(nil)
         }
@@ -110,21 +115,21 @@ enum AccessorySetup {
 
       case "removeBand":
         if #available(iOS 18.0, *), let id = call.arguments as? String {
-          Impl.shared.removeBand(id: id) { result(nil) }
+          Impl.shared.removeBand(id: id) { result($0 ? nil : Impl.notReady) }
         } else {
           result(nil)
         }
 
       case "removeAll":
         if #available(iOS 18.0, *) {
-          Impl.shared.removeAll { result(nil) }
+          Impl.shared.removeAll { result($0 ? nil : Impl.notReady) }
         } else {
           result(nil)
         }
 
       case "removeSensor":
         if #available(iOS 18.0, *), let id = call.arguments as? String {
-          Impl.shared.removeSensor(id: id) { result(nil) }
+          Impl.shared.removeSensor(id: id) { result($0 ? nil : Impl.notReady) }
         } else {
           result(nil)
         }
@@ -178,6 +183,8 @@ private final class Impl {
   private var awaitingAddedId: String?
 
   struct PickerError: Error { let message: String }
+  static let notReady = FlutterError(code: "ask_not_ready",
+                                     message: "Accessory setup is not ready yet.", details: nil)
 
   private func ensureActivated() {
     guard !activated else { return }
@@ -293,14 +300,15 @@ private final class Impl {
     }
   }
 
-  /// Returns the uppercased UUIDs of the already-provisioned accessories (possibly empty).
-  func provisionedIds(_ completion: @escaping ([String]) -> Void) {
+  /// Returns the uppercased UUIDs of the already-provisioned accessories (possibly empty),
+  /// or nil if activation did not arrive in time (unknown, not empty).
+  func provisionedIds(_ completion: @escaping ([String]?) -> Void) {
     // `accessories` is reliable only after activation has reported .activated; a fixed
     // short sleep could still read [] on a slow cold launch.
     whenActivated({ [weak self] in
-      guard let self = self else { completion([]); return }
+      guard let self = self else { completion(nil); return }
       completion(self.provisionedIdList)
-    }, timedOut: { completion([]) })
+    }, timedOut: { completion(nil) })
   }
 
   /// - Parameter addAnother: show the picker even though an accessory is already
@@ -523,13 +531,13 @@ private final class Impl {
 
   /// Deprovisions every BAND. Sensors are kept: the WHOOP's unpair must not take the
   /// ring's ASK approval with it, or the ring's row stays and its sync can never reach it.
-  func removeAll(_ completion: @escaping () -> Void) {
+  func removeAll(_ completion: @escaping (Bool) -> Void) {
     let sensors = sensorServices
     remove({ a in !(self.service(of: a).map(sensors.contains) ?? false) }, completion)
   }
 
   /// Retire exactly the former main band; keep the replacement and all sensors.
-  func removeBand(id: String, _ completion: @escaping () -> Void) {
+  func removeBand(id: String, _ completion: @escaping (Bool) -> Void) {
     let sensors = sensorServices
     let wanted = id.uppercased()
     remove({ a in
@@ -541,7 +549,7 @@ private final class Impl {
   /// Deprovisions the SENSOR with CoreBluetooth id [id] (called when it is forgotten), so
   /// the next `showSensorPicker` opens a sheet instead of handing back the forgotten one.
   /// Never removes a band.
-  func removeSensor(id: String, _ completion: @escaping () -> Void) {
+  func removeSensor(id: String, _ completion: @escaping (Bool) -> Void) {
     let sensors = sensorServices
     let wanted = id.uppercased()
     remove({ a in
@@ -551,20 +559,20 @@ private final class Impl {
   }
 
   private func remove(_ match: @escaping (ASAccessory) -> Bool,
-                      _ completion: @escaping () -> Void) {
+                      _ completion: @escaping (Bool) -> Void) {
     // A cold-launch unpair can be the first ASK call; reading `accessories` before
     // `.activated` sees an empty list and "removes" nothing.
     whenActivated({ [weak self] in
-      guard let self = self else { completion(); return }
+      guard let self = self else { completion(false); return }
       let accessories = self.session.accessories.filter(match)
-      guard !accessories.isEmpty else { completion(); return }
+      guard !accessories.isEmpty else { completion(true); return }
       let group = DispatchGroup()
       for acc in accessories {
         group.enter()
         self.session.removeAccessory(acc) { _ in group.leave() }
       }
-      group.notify(queue: self.queue) { completion() }
-    }, timedOut: { completion() })
+      group.notify(queue: self.queue) { completion(true) }
+    }, timedOut: { completion(false) })
   }
 }
 #endif
