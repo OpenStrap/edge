@@ -313,7 +313,9 @@ void main() {
       expect(cap, greaterThan(sync), reason: f);
       expect(cap, lessThan(src.indexOf('await ', sync)), reason: f);
       final slot = src.indexOf('withSecondaryLinkSlot(', sync);
-      final check = src.indexOf('if (_forgets != forgets) return false;', slot);
+      // Oura re-reads its key/cursor first and folds this into a wider guard,
+      // so match the comparison, not the exact `if` line.
+      final check = src.indexOf('_forgets != forgets', slot);
       expect(check, greaterThan(slot), reason: f);
       expect(check, lessThan(src.indexOf('.connect(', slot)), reason: f);
     }
