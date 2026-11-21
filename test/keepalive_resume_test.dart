@@ -5,6 +5,7 @@
 
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/sync/sync_policy.dart';
@@ -83,5 +84,21 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 50));
 
     expect(rig.bounced, isTrue);
+  });
+
+  test('silence is measured on the elapsed clock, not the wall clock', () {
+    // Under fakeAsync the wall clock (DateTime.now) barely moves while the
+    // elapsed clock runs, which is what a phone clock stepped back looks like.
+    // Read off the wall clock the silence stays ~0 and the fuse never fires.
+    fakeAsync((async) {
+      final rig = _Rig();
+      rig.engine.debugIngestMemfaultChunk(const [1]);
+      for (var t = 0; t <= kLivenessFuseSeconds + kKeepAliveIntervalSeconds;
+          t += kKeepAliveIntervalSeconds) {
+        rig.engine.debugFireKeepAlive();
+        async.elapse(const Duration(seconds: kKeepAliveIntervalSeconds));
+      }
+      expect(rig.bounced, isTrue);
+    });
   });
 }

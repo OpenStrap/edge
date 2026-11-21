@@ -627,6 +627,13 @@ class _SessionGapSummary {
 /// How one live-stream transition ended on the wire.
 enum _LiveWrite { ok, failed, stale }
 
+/// A started stopwatch for elapsed time that a phone clock step cannot move.
+/// package:clock's default stopwatch diffs `DateTime.now()`, so it is only
+/// used when a test zone has swapped the clock in (fakeAsync, withClock).
+Stopwatch _elapsedStopwatch() =>
+    (identical(clock, const Clock()) ? Stopwatch() : clock.stopwatch())
+      ..start();
+
 class _Session {
   final BluetoothDevice device;
   BluetoothCharacteristic? cmdTo;
@@ -750,8 +757,9 @@ class _Session {
   /// and the next connection drains normally from the band's checkpoint.
   bool historyStuck = false;
 
-  /// When [historyStuck] latched. Drives [historyStuckActive].
-  DateTime? historyStuckAt;
+  /// Started when [historyStuck] latched. Drives [historyStuckActive].
+  /// Monotonic, so a phone clock step cannot stretch or shrink the window.
+  Stopwatch? historyStuckFor;
 
   /// Whether the latch is still refusing work.
   ///
@@ -760,9 +768,9 @@ class _Session {
   /// stays true as a session diagnostic ("this connection hit Stuck at least
   /// once") after the window has passed.
   bool get historyStuckActive {
-    final at = historyStuckAt;
-    if (!historyStuck || at == null) return false;
-    return DateTime.now().difference(at) < kHistoryStuckCooldown;
+    final since = historyStuckFor;
+    if (!historyStuck || since == null) return false;
+    return since.elapsed < kHistoryStuckCooldown;
   }
 
   /// Markers dropped, and drain triggers refused, by [historyStuck]
@@ -1926,8 +1934,12 @@ class BleEngine {
   /// judged as "on cadence" or "overdue after a suspension".
   @visibleForTesting
   void debugSetLiveness({DateTime? lastRx, DateTime? lastKeepAliveTick}) {
-    if (lastRx != null) _lastRx = lastRx;
-    _lastKeepAliveTickAt = lastKeepAliveTick;
+    if (lastRx != null) {
+      _lastRx = lastRx;
+      _lastRxMono = _monoAgo(lastRx);
+    }
+    _lastKeepAliveTickMono =
+        lastKeepAliveTick == null ? null : _monoAgo(lastKeepAliveTick);
   }
 
   /// Test seam: run one keep-alive tick against the installed fake link.
@@ -2525,9 +2537,10 @@ class BleEngine {
   // auto-continue run ceiling in particular). Started once and never reset;
   // callers diff two readings of it, same shape as _wallSecs so they compose
   // with existing double-seconds call sites like AutoContinueRun's.
-  // package:clock's stopwatch is the system one in production; under
-  // fakeAsync it follows fake time, so the windows read off it are testable.
-  final Stopwatch _monotonic = clock.stopwatch()..start();
+  // package:clock's own stopwatch reads clock.now(), i.e. the WALL clock in
+  // production, so _elapsedStopwatch hands out a real Stopwatch there and only
+  // uses the clock's under fakeAsync/withClock, where it follows fake time.
+  final Stopwatch _monotonic = _elapsedStopwatch();
   double _monotonicSecs() => _monotonic.elapsedMicroseconds / 1e6;
 
   // Wall-clock of the last BLE notification received on ANY characteristic. iOS
@@ -2537,13 +2550,31 @@ class BleEngine {
   // genuinely live link (recent data) from a stale one. Also drives the UI's
   // "last data: Xs ago" readout.
   DateTime _lastRx = DateTime.fromMillisecondsSinceEpoch(0);
+  // Same instant on the monotonic clock: elapsed time is read off this, so a
+  // phone clock step back cannot make the silence negative and disarm the
+  // fuse. Null until the first frame.
+  double? _lastRxMono;
 
-  /// Wall-clock of the previous keep-alive tick. A tick that arrives more
+  void _stampRx() {
+    _lastRx = DateTime.now();
+    _lastRxMono = _monotonicSecs();
+  }
+
+  double _monoAgo(DateTime at) =>
+      _monotonicSecs() - DateTime.now().difference(at).inMicroseconds / 1e6;
+
+  Duration _monoSince(double mono) =>
+      Duration(microseconds: ((_monotonicSecs() - mono) * 1e6).round());
+
+  /// Monotonic time of the previous keep-alive tick. A tick that arrives more
   /// than two periods after this one means the process was suspended in
   /// between (iOS, between band prompts): silence accumulated then is not
   /// evidence — see `livenessSilence`. Null until the first tick of a session.
-  DateTime? _lastKeepAliveTickAt;
-  Duration get sinceLastRx => DateTime.now().difference(_lastRx);
+  double? _lastKeepAliveTickMono;
+  Duration get sinceLastRx {
+    final mono = _lastRxMono;
+    return mono == null ? DateTime.now().difference(_lastRx) : _monoSince(mono);
+  }
 
   /// Wall-clock of the last received BLE notification (any characteristic), for the
   /// UI's "last data: Xs ago". `null` until the first frame this connection.
@@ -3245,8 +3276,8 @@ class BleEngine {
         (_) => _triggerBackfill(BackfillTrigger.periodic),
       );
 
-      _lastRx = DateTime.now(); // fresh link — never treat as stale on resume
-      _lastKeepAliveTickAt = null; // first tick of this link judges raw silence
+      _stampRx(); // fresh link — never treat as stale on resume
+      _lastKeepAliveTickMono = null; // first tick of this link judges raw silence
 
       // SINGLE LISTENING MODE. Arm the offload controller, enter `listening`, then
       // fire INIT — which triggers the historical flood. Historical + live records
@@ -4192,11 +4223,9 @@ class BleEngine {
   // ── keep-alive + periodic backfill ──────────────────────────────────────────
   void _keepAliveFire(_Session session) {
     if (_session != session || !session.connected) return;
-    final now = DateTime.now();
-    final lastTick = _lastKeepAliveTickAt;
-    _lastKeepAliveTickAt = now;
-    final sinceLastTick =
-        lastTick == null ? Duration.zero : now.difference(lastTick);
+    final lastTick = _lastKeepAliveTickMono;
+    _lastKeepAliveTickMono = _monotonicSecs();
+    final sinceLastTick = lastTick == null ? Duration.zero : _monoSince(lastTick);
     // Liveness watchdog: iOS can resume us with the peripheral flagged connected
     // while its GATT notifications silently died. If no frame has arrived for
     // longer than the fuse, bounce the link so the caller's reconnect loop runs.
@@ -4664,7 +4693,7 @@ class BleEngine {
     // Ignore notifications from a session we've already torn down — or are
     // tearing down: ingress is frozen from the first line of the teardown.
     if (_session != session || !session.connected || session.closing) return;
-    _lastRx = DateTime.now();
+    _stampRx();
     session.rx.chunk(role, chunk);
     // A malformed/corrupt chunk (framer bug on an unusual firmware
     // revision) must not become an uncaught async error that silently
@@ -4783,7 +4812,7 @@ class BleEngine {
   /// proves liveness the same as any other notification, so the
   /// staleness/watchdog clock advances.
   void _onMemfaultChunk(List<int> chunk) {
-    _lastRx = DateTime.now();
+    _stampRx();
     _memfaultChunks++;
     _memfaultBytesTotal += chunk.length;
     if (_memfaultChunks == 1) {
@@ -5402,11 +5431,16 @@ class BleEngine {
     // has since programmed.
     final session = _session!;
     final generation = _linkGeneration;
-    await _write(
+    final ok = await _write(
       cmdExitHighFreqSync(_seq.nextLive(), profile: session.band),
       owner: session,
     );
     if (_liveStale(session, generation)) return;
+    if (!ok) {
+      // Keep the mode claimed so the next call retries the EXIT.
+      _log('[SYNC] HighFreq exit ($reason) write FAILED — mode still on.');
+      return;
+    }
     _highFreqModeRequested = false;
     _highFreqReason = null;
     _highFreqUntil = null;
@@ -7096,7 +7130,7 @@ class BleEngine {
       // the whole 15-failure cycle to the backfill continuation. Terminal has
       // to mean terminal for the session.
       session.historyStuck = true;
-      session.historyStuckAt = DateTime.now();
+      session.historyStuckFor = _elapsedStopwatch();
       _log(
         '[SYNC] burst still short after '
         '${d.consecutiveValidationFailures} attempts — aborting history for '
@@ -9953,14 +9987,16 @@ class DrainController {
         // carrying one. An archive has no decoded record, so read it off the
         // frame the same way the callee used to: inner[1]. A frame too short
         // to have one passes -1, which the callee buckets as unknown.
-        final inner = hexToBytes(a.hex);
+        // Read inner[1] straight off the hex: decoding the whole record to
+        // bytes is a throwaway buffer per archived record.
+        final hex = a.hex;
         burstStats.onHistoricalData(
           a.packetType,
           // gen4 always carries a real flash counter; only a neutral-sample
           // source (which never reaches this WHOOP-only burst path) writes
           // ArchiveRecord.counter as null.
           a.counter ?? 0,
-          inner.length < 2 ? -1 : inner[1],
+          hex.length < 4 ? -1 : int.parse(hex.substring(2, 4), radix: 16),
         );
       }
     }
