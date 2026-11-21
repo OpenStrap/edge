@@ -86,6 +86,13 @@ class _PressableState extends State<Pressable> {
   bool _down = false;
   bool _focused = false;
 
+  // A null onTap unmounts the focus detector, which never reports the loss.
+  @override
+  void didUpdateWidget(Pressable old) {
+    super.didUpdateWidget(old);
+    if (widget.onTap == null) _focused = false;
+  }
+
   // The guide run (guides/guide_dim.dart) paints its dim or skeleton INSIDE the
   // component, so it moves with the content in every frame. The mark sits BELOW this
   // control's own Semantics: the first render object of a Pressable (what
