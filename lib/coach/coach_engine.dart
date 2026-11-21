@@ -28,6 +28,7 @@ import 'coach_actions.dart';
 import 'coach_chat_completions.dart';
 import 'coach_chatgpt.dart';
 import 'coach_config.dart';
+import 'coach_apple.dart';
 import 'coach_db.dart';
 import 'coach_prompt.dart';
 import 'coach_responses.dart';
@@ -875,6 +876,14 @@ class CoachEngine {
     Map<String, dynamic> body, {
     http.Client? client,
   }) async {
+    // Apple's on-device model: no HTTP, nothing leaves the phone.
+    if (config.usesApple) {
+      try {
+        return await AppleOnDevice.reply(body);
+      } on StateError catch (e) {
+        throw CoachException(e.message);
+      }
+    }
     final c = client ?? http.Client();
     final model = body['model'] as String? ?? '';
     final api = config.api;

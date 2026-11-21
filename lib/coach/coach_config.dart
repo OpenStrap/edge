@@ -122,6 +122,10 @@ bool isPrivateCoachHost(String url) {
   }
 }
 
+/// The model name and pseudo-base shown for Apple's on-device model.
+const String kAppleOnDeviceModel = 'Apple on-device';
+const String kAppleOnDeviceBase = 'apple://on-device';
+
 class CoachConfig extends ChangeNotifier {
   static const _kBaseUrl = 'coach_base_url';
   static const _kModel = 'coach_model';
@@ -129,6 +133,7 @@ class CoachConfig extends ChangeNotifier {
   static const _kKey = 'coach_api_key'; // secure storage
   static const _kTimeoutSeconds = 'coach_timeout_seconds';
   static const _kUseChatGpt = 'coach_use_chatgpt';
+  static const _kUseApple = 'coach_use_apple';
 
   /// A local model's first response includes Ollama/LM Studio loading the
   /// whole model into memory, which alone can pass two minutes on modest
@@ -188,7 +193,12 @@ class CoachConfig extends ChangeNotifier {
   /// the BYOK settings are kept untouched for switching back.
   final ChatGptAuth chatgpt;
   bool _useChatGpt = false;
-  bool get usesChatGpt => _useChatGpt;
+  bool get usesChatGpt => _useChatGpt && !_useApple;
+
+  /// Apple's on-device model (Foundation Models, iOS 26+): no key, no network,
+  /// nothing leaves the phone. Takes precedence over every other route.
+  bool _useApple = false;
+  bool get usesApple => _useApple;
 
   String _baseUrl = defaultBaseUrl;
   CoachApi _api = CoachApi.defaultFor(defaultBaseUrl);
@@ -256,8 +266,8 @@ class CoachConfig extends ChangeNotifier {
   }
 
   String get baseUrl => _baseUrl;
-  CoachApi get api => _useChatGpt ? CoachApi.responses : _api;
-  String get model => _model;
+  CoachApi get api => usesChatGpt ? CoachApi.responses : _api;
+  String get model => _useApple ? kAppleOnDeviceModel : _model;
   /// The saved, user-configurable timeout — meaningful only for a local
   /// endpoint (see [requestTimeout]), but kept intact and readable regardless
   /// of the endpoint currently configured so a UI can show/restore it as the
@@ -278,24 +288,28 @@ class CoachConfig extends ChangeNotifier {
   /// Save closed the form, `configured` stayed false, and the coach never came
   /// on with nothing on screen to explain why. See [isLocalCoachHost] for the
   /// host classification.
-  bool get isLocalEndpoint => isLocalCoachHost(apiBase);
+  bool get isLocalEndpoint => _useApple || isLocalCoachHost(apiBase);
 
   /// Whether the endpoint is on this device or a private network — the gate
   /// for skipping a consent prompt before health data leaves the phone.
   /// Narrower than [isLocalEndpoint]; see [isPrivateCoachHost].
-  bool get isPrivateEndpoint => isPrivateCoachHost(apiBase);
+  bool get isPrivateEndpoint => _useApple || isPrivateCoachHost(apiBase);
 
-  bool get configured => _useChatGpt
+  bool get configured => _useApple
+      ? true
+      : _useChatGpt
       ? chatgpt.sharing && _model.isNotEmpty
       : (hasKey || isLocalEndpoint) && _baseUrl.isNotEmpty && _model.isNotEmpty;
 
   /// Whether AI reminders (briefings) may be scheduled. On the ChatGPT route
   /// only the ChatGPT sign-in counts: a BYOK key left over from before the
   /// switch is not used there, so a signed-out ChatGPT coach is not set up.
-  bool get remindersConfigured => _useChatGpt ? configured : hasKey;
+  bool get remindersConfigured =>
+      _useApple ? true : (_useChatGpt ? configured : hasKey);
 
   /// Normalised base, no trailing slash.
   String get apiBase {
+    if (_useApple) return kAppleOnDeviceBase;
     if (_useChatGpt) return kChatGptApiBase;
     var b = _baseUrl.trim();
     while (b.endsWith('/')) {
@@ -313,6 +327,7 @@ class CoachConfig extends ChangeNotifier {
     unawaited(chatgpt.load(trusted: trusted).catchError((_) {}));
     final prefs = await SharedPreferences.getInstance();
     _useChatGpt = prefs.getBool(_kUseChatGpt) ?? false;
+    _useApple = prefs.getBool(_kUseApple) ?? false;
     _baseUrl = prefs.getString(_kBaseUrl) ?? defaultBaseUrl;
     _api = switch (prefs.getString(_kApi)) {
       'responses' => CoachApi.responses,
@@ -422,6 +437,7 @@ class CoachConfig extends ChangeNotifier {
     String? apiKey,
     int? timeoutSeconds,
     bool? useChatGpt,
+    bool? useApple,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     // The key goes first: if the keychain refuses it, nothing else is applied,
@@ -477,6 +493,10 @@ class CoachConfig extends ChangeNotifier {
       _key = k.isEmpty ? null : k;
       _keyUnreadable = false;
       _keyUndetermined = false;
+    }
+    if (useApple != null) {
+      _useApple = useApple;
+      await prefs.setBool(_kUseApple, useApple);
     }
     if (useChatGpt != null) {
       _useChatGpt = useChatGpt;

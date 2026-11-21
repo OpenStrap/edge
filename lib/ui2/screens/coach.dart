@@ -22,6 +22,7 @@ import 'coach_text.dart';
 import '../../data/db.dart';
 import '../../l10n/display_text.dart';
 import 'package:flutter/material.dart';
+import '../../coach/coach_apple.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -484,9 +485,9 @@ class _CoachScreenState extends State<CoachScreen> {
                     SizedBox(
                       width: 14,
                       height: 14,
-                      child: CircularProgressIndicator(
+                      child: CircularProgressIndicator.adaptive(
                         strokeWidth: 2,
-                        color: p.on(kCoachAccent),
+                        valueColor: AlwaysStoppedAnimation<Color>(p.on(kCoachAccent)),
                       ),
                     ),
                     const SizedBox(width: S.x3),
@@ -938,6 +939,11 @@ class _CoachSetupState extends State<CoachSetup> {
   /// "ChatGPT" is chosen instead of a base URL + key. Saved by [_save] only;
   /// signing in alone does not switch how the coach is paid for.
   late bool _chatgpt;
+
+  /// Apple's on-device model is the coach's provider. Saved the moment the
+  /// switch moves; while on, the other provider fields are hidden.
+  late bool _apple;
+  AppleAiStatus? _appleStatus;
   late final ChatGptAuth _chatgptAuth; // for dispose, which must not read context
   bool _signingIn = false;
   /// The model Save will store when nothing has been typed: the saved one at
@@ -977,6 +983,10 @@ class _CoachSetupState extends State<CoachSetup> {
     _timeout = TextEditingController(text: cfg.timeoutSeconds.toString());
     _api = cfg.api;
     _chatgpt = cfg.usesChatGpt;
+    _apple = cfg.usesApple;
+    AppleOnDevice.status().then((st) {
+      if (mounted) setState(() => _appleStatus = st);
+    });
     _chatgptAuth = cfg.chatgpt;
     _model = cfg.model;
     _keyOrigin = coachEndpointOrigin(cfg.baseUrl);
@@ -1375,6 +1385,64 @@ class _CoachSetupState extends State<CoachSetup> {
     ];
   }
 
+  /// Apple's on-device model: one switch, and what state the model is in.
+  Widget _appleCard(BuildContext c, P p) {
+    final st = _appleStatus;
+    final ready = st == AppleAiStatus.available;
+    return Surface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(
+            width: 36,
+            height: 36,
+            alignment: Alignment.center,
+            decoration:
+                BoxDecoration(color: p.wash(C.indigo), borderRadius: R.rSm),
+            child: Icon(LucideIcons.sparkles, size: 18, color: p.on(C.indigo)),
+          ),
+          const SizedBox(width: S.x3),
+          Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(uiText(c, 'Apple Intelligence on this iPhone'),
+                  style: F.head.copyWith(color: p.ink)),
+              Text(uiText(c, 'Free, offline, private. No key needed.'),
+                  style: F.cap.copyWith(color: p.ink2)),
+            ]),
+          ),
+          Switch.adaptive(
+            value: _apple,
+            onChanged: (on) async {
+              if (on && st != null && !ready) {
+                setState(() => _msg = st.message);
+                return;
+              }
+              await context.read<CoachConfig>().save(useApple: on);
+              if (mounted) setState(() => _apple = on);
+            },
+          ),
+        ]),
+        const SizedBox(height: S.x3),
+        Text(
+            st == null
+                ? uiText(c, 'Checking Apple Intelligence…')
+                : uiText(c, st.message),
+            style: F.cap.copyWith(color: ready ? p.on(C.green) : p.ink3)),
+        if (_apple) ...[
+          const SizedBox(height: S.x2),
+          Text(
+              uiText(c,
+                  'The coach, briefings and journal now use Apple’s small on-device model. It answers from your last two weeks and can’t log things for you; switch it off to use a bigger model instead.'),
+              style: F.cap.copyWith(color: p.ink3)),
+        ],
+        if (_apple && _msg != null) ...[
+          const SizedBox(height: S.x2),
+          Text(_msg!, style: F.cap.copyWith(color: p.on(C.red))),
+        ],
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
@@ -1400,7 +1468,9 @@ class _CoachSetupState extends State<CoachSetup> {
               child: ListView(
                 padding: pad,
                 children: [
-                  Section(
+                  _appleCard(c, p),
+                  const SizedBox(height: S.x4),
+                  if (!_apple) Section(
                     l?.coachWhereModelRuns ?? 'Where the model runs',
                     Column(
                       children: [
@@ -1414,7 +1484,9 @@ class _CoachSetupState extends State<CoachSetup> {
                       ],
                     ),
                   ),
-                  if (_chatgpt)
+                  if (_apple)
+                    const SizedBox.shrink()
+                  else if (_chatgpt)
                     ..._chatGptFields(c, p)
                   else ...[
                     const SizedBox(height: S.x2),
