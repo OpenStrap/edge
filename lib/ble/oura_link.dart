@@ -676,7 +676,8 @@ class OuraLink {
       OuraAdapter(
         key: key,
         startCursorDs: cursor,
-        anchor: _parseAnchor(_anchor),
+        anchor: _parseAnchor(_anchor)?.$1,
+        anchorBoot: _parseAnchor(_anchor)?.$2,
         nowSeconds: _now,
         replyTimeout: replyTimeout ?? const Duration(seconds: 5),
         firstFrameTimeout: firstFrameTimeout ?? const Duration(seconds: 120),
@@ -1042,12 +1043,16 @@ class OuraLink {
   /// The stored origin as a pair, or null when there is not a usable one.
   /// A malformed value is treated as no origin: the session then abstains
   /// until the ring hands it a measured one, which is the safe direction.
-  static (int, int)? _parseAnchor(String? raw) {
+  /// `ds,unix` or `ds,unix,bootStartDs`; the old two-field form has no boot.
+  static ((int, int), int?)? _parseAnchor(String? raw) {
     final parts = raw?.split(',') ?? const [];
-    if (parts.length != 2) return null;
+    if (parts.length != 2 && parts.length != 3) return null;
     final ds = int.tryParse(parts[0]);
     final unix = int.tryParse(parts[1]);
-    return (ds == null || unix == null) ? null : (ds, unix);
+    if (ds == null || unix == null) return null;
+    final boot = parts.length == 3 ? int.tryParse(parts[2]) : null;
+    if (parts.length == 3 && boot == null) return null;
+    return ((ds, unix), boot);
   }
 
   static Future<List<int>?> _readKey(String deviceId) async {
