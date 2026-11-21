@@ -122,12 +122,10 @@ Future<Map<String, dynamic>> collectBriefingInputs(
         round: 0);
     // While today's night is still building, Today shows the PREVIOUS night's
     // RHR, HRV and sleep. Those must not reach the model as this morning's.
-    // Same rule as todayHeadlineOf: a payload with no overnight_state is
-    // synthetic and reads as settled.
+    // Same ownNight rule as todayHeadlineOf: only showing_prior_overnight says
+    // Today is serving a held-over night.
     final status = _map(t['status']);
-    final ns = status?['overnight_state'];
-    final ownNight = (ns == null || ns == 'ready') &&
-        status?['showing_prior_overnight'] != true;
+    final ownNight = status?['showing_prior_overnight'] != true;
     if (!ownNight) {
       withheld.addAll(const [
         'resting_hr (last night not in yet)',
