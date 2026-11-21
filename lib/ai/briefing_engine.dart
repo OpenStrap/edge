@@ -203,6 +203,13 @@ Future<Map<String, dynamic>> collectBriefingInputs(
   return out;
 }
 
+/// True when a morning briefing was built while last night was still building,
+/// so it is a stopgap that should be redone once the night is ready.
+bool briefingIsProvisional(Map<String, dynamic>? inputs) {
+  final w = inputs?[kWithheldKey];
+  return w is List && w.any((e) => e.toString().contains('last night not in yet'));
+}
+
 /// The metrics the sweep looks at, keyed by the name [LocalRepository.getChart]
 /// speaks (it maps those onto series keys itself). Deliberately short: every
 /// one of these is a number the user already has a screen for, so a finding
@@ -570,6 +577,12 @@ class BriefingEngine {
       generatedAtMs: effectiveNow.millisecondsSinceEpoch,
       inputs: inputs,
     );
+    // An older request must not overwrite a complete briefing a newer one
+    // already stored while this one waited on the model.
+    if (briefingIsProvisional(inputs)) {
+      final cur = BriefingStore.read(period, day: day);
+      if (cur != null && !briefingIsProvisional(cur.inputs)) return cur;
+    }
     BriefingStore.write(b);
     return b;
   }
