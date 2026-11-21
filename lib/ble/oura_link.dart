@@ -560,11 +560,13 @@ class OuraLink {
         // ring keeps the id and remote id but swaps the key and resets the
         // cursor and anchor. Re-read all of it now, THEN check the forget and
         // reset guards, so nothing that changed during these reads slips by.
-        final current = await pairedRingRow();
         final freshKey = await _readKey(deviceId);
         await _loadAnchor(deviceId);
         final freshCursor =
             await LocalDb.getCursorInt(_cursorItem(deviceId)) ?? 0;
+        // The row goes LAST so a re-pair landing during the reads above shows
+        // up as a changed row instead of passing against a stale one.
+        final current = await pairedRingRow();
         if (_deviceId != deviceId ||
             ResetGate.changedSince(_resetGen) ||
             _forgets != forgets ||
