@@ -120,13 +120,29 @@ Future<Map<String, dynamic>> collectBriefingInputs(
             ? daily['readiness']
             : null,
         round: 0);
+    // While today's night is still building, Today shows the PREVIOUS night's
+    // RHR, HRV and sleep. Those must not reach the model as this morning's.
+    // Same rule as todayHeadlineOf: a payload with no overnight_state is
+    // synthetic and reads as settled.
+    final status = _map(t['status']);
+    final ns = status?['overnight_state'];
+    final ownNight = (ns == null || ns == 'ready') &&
+        status?['showing_prior_overnight'] != true;
+    if (!ownNight) {
+      withheld.addAll(const [
+        'resting_hr (last night not in yet)',
+        'hrv_rmssd (last night not in yet)',
+        'sleep (last night not in yet)',
+      ]);
+      out[kWithheldKey] = withheld;
+      return out;
+    }
     take('resting_hr', daily['resting_hr'], round: 0);
     final hrv = _map(t['hrv']);
     take('hrv_rmssd', hrv?['rmssd'], round: 1);
 
-    // The overnight bundle Today is showing (may be yesterday's sleep if this
-    // day hasn't derived yet) — same source of truth as the Sleep screen.
-    final status = _map(t['status']);
+    // The overnight bundle Today is showing — same source of truth as the
+    // Sleep screen.
     final sleepDay =
         (status?['overnight_day'] as String?) ?? todayLabel(now);
     Map<String, dynamic>? ds;
