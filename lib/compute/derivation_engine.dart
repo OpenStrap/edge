@@ -6353,15 +6353,29 @@ class DerivationEngine {
       final orderedDays = rescanDays.reversed.toList();
       var done = 0;
       var completed = 0;
+      var failed = 0;
 
       Future<void> processDay(String dayId) async {
         try {
+          if (debugFailRescanDays.contains(dayId)) {
+            throw StateError('debugFailRescanDays');
+          }
           final prepared = await _prepareTargetDay(dayId);
           if (prepared != null) {
-            await _derivePreparedDay(prepared, profile, dataNowSec, history);
+            final ok = await _derivePreparedDay(
+                prepared, profile, dataNowSec, history);
             done++;
+            // false also covers declines and a tonight hold, which are not
+            // failures; a partial row is (its second half did not run).
+            if (!ok &&
+                ((await LocalDb.dayResult(dayId))?['partial'] as num?)
+                        ?.toInt() ==
+                    1) {
+              failed++;
+            }
           }
         } catch (e) {
+          failed++;
           _log('rescan day $dayId FAILED/skipped: $e');
           // Do NOT mark-skipped here — a finalized day already has a good row;
           // overwriting it with a skip marker would DISCARD real structure.
@@ -6378,10 +6392,21 @@ class DerivationEngine {
         await _runCrossDay(profile);
         await _runNotifications();
       }
-      // Store the new signature so the next tick is a cheap no-op until it moves.
-      // Quiet snapshot before the signature, for the reason given above.
-      await _storeQuietEntries();
-      await LocalDb.setCursor('baseline_sig', await _baselineSignature());
+      // A failed or partial day keeps scalars priced on the old baseline, and
+      // a finalized day has no other path back. Leave the signature (and the
+      // quiet snapshot) stale so the next tick rescans the same days, a few
+      // times at most so a day that always fails can't rescan every tick.
+      final retries = await LocalDb.getCursorInt(_rescanRetriesCursor) ?? 0;
+      if (failed > 0 && retries < _rescanMaxRetries) {
+        await LocalDb.setCursor(_rescanRetriesCursor, '${retries + 1}');
+        _log('rescan: $failed day(s) failed — signature left stale to retry');
+      } else {
+        await LocalDb.setCursor(_rescanRetriesCursor, '0');
+        // Store the new signature so the next tick is a cheap no-op until it
+        // moves. Quiet snapshot before the signature, for the reason above.
+        await _storeQuietEntries();
+        await LocalDb.setCursor('baseline_sig', await _baselineSignature());
+      }
       await LocalDb.refreshComputeFreshness();
       return done;
     } catch (e, st) {
@@ -6593,6 +6618,12 @@ class DerivationEngine {
   /// racing two workers. Empty in production.
   @visibleForTesting
   static Set<String> debugHoldTonight = {};
+
+  /// Test seam: days [rescanRecent] fails as if their derive threw.
+  @visibleForTesting
+  static Set<String> debugFailRescanDays = {};
+  static const _rescanRetriesCursor = 'baseline_sig_retries';
+  static const _rescanMaxRetries = 3;
 
   /// [runWithConcurrency] over [days], tracking which are still unfinished so
   /// a day can tell its next day is mid-derive ([_prepareTargetDay]).
@@ -7544,8 +7575,11 @@ class DerivationEngine {
       // must not mark the day partial.
       if (!forceFinalize) {
         try {
-          final since = (await SharedPreferences.getInstance())
-              .getInt(Prefs.napAutoLogSinceSec);
+          // reload(): a headless isolate caches its instance (see
+          // _hmmStagesOn), so a switch flipped in the app would go unseen.
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.reload();
+          final since = prefs.getInt(Prefs.napAutoLogSinceSec);
           _autoLoggedNaps += await activityStore.autoLogNaps(
             // 0 is the switch turned back off.
             sinceSec: (since ?? 0) > 0 ? since : null,
@@ -10144,7 +10178,8 @@ class DerivationEngine {
     int tonightSleepOnsetSec = 0,
     List<double> quietHrrHistory = const [],
   }) {
-    final activeMin = _activeMinutes(daySub, sleepOnsetSec, sleepOffsetSec);
+    final activeMin = _activeMinutes(daySub, sleepOnsetSec, sleepOffsetSec,
+        tonightSleepOnsetSec: tonightSleepOnsetSec);
     final wear = _wearBlock(
       daySub,
       dayStartSec: dayStartSec,
@@ -10432,8 +10467,16 @@ class DerivationEngine {
   /// R10-historical one) decodes 1 Hz records with no usable accel, so every
   /// second is skipped below and the loop falls out with `active == 0` — which
   /// published "0 active minutes" as a measurement for a fully-worn band.
+  @visibleForTesting
+  static int? debugActiveMinutes(
+          Substrate s, int sleepOnsetSec, int sleepOffsetSec,
+          {int tonightSleepOnsetSec = 0}) =>
+      _activeMinutes(s, sleepOnsetSec, sleepOffsetSec,
+          tonightSleepOnsetSec: tonightSleepOnsetSec);
+
   static int? _activeMinutes(
-      Substrate s, int sleepOnsetSec, int sleepOffsetSec) {
+      Substrate s, int sleepOnsetSec, int sleepOffsetSec,
+      {int tonightSleepOnsetSec = 0}) {
     final n = s.length;
     if (n < 60) return null;
     final ang = List<double>.filled(n, 0);
@@ -10450,9 +10493,11 @@ class DerivationEngine {
       // stillness and the fraction below would be diluted by missing data.
       if (!s.accelPresentAt(i) || !s.accelPresentAt(i - 1)) continue;
       final t = s.tsSec[i];
-      if (sleepOffsetSec > sleepOnsetSec &&
-          t >= sleepOnsetSec &&
-          t < sleepOffsetSec) {
+      if ((sleepOffsetSec > sleepOnsetSec &&
+              t >= sleepOnsetSec &&
+              t < sleepOffsetSec) ||
+          // Tonight's sleep, begun before midnight: asleep, not waking.
+          (tonightSleepOnsetSec > 0 && t >= tonightSleepOnsetSec)) {
         continue;
       }
       final m = t ~/ 60;

@@ -388,6 +388,18 @@ void main() {
     // past the rescan window here).
     await LocalDb.setCursor('baseline_sig', 'stale');
     expect(await DerivationEngine().rescanRecent(_profile), 5);
+    // A day that fails leaves the signature stale, so the next tick
+    // retries it instead of logging 'baseline unchanged'.
+    await LocalDb.setCursor('baseline_sig', 'stale');
+    DerivationEngine.debugFailRescanDays = {'2026-10-01'};
+    try {
+      await DerivationEngine().rescanRecent(_profile);
+    } finally {
+      DerivationEngine.debugFailRescanDays = {};
+    }
+    expect(await LocalDb.getCursor('baseline_sig'), 'stale');
+    expect(await DerivationEngine().rescanRecent(_profile), 5);
+    expect(await LocalDb.getCursor('baseline_sig'), isNot('stale'));
   }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('the 5-minute stager reads a record against the night\'s levels', () {
