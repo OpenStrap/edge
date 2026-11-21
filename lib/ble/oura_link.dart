@@ -556,6 +556,17 @@ class OuraLink {
       // the slot, so the next queued link could connect while this one was
       // still disconnecting — one more live GATT link than the cap allows.
       return await withSecondaryLinkSlot(() async {
+        // A re-pair that ran while this sync was parked keeps the same id but
+        // may be another ring: it swaps the remote id and key and resets the
+        // cursor and anchor. Draining with what was read above would reach
+        // the old ring and write its bookmark back over that reset. Read
+        // first, so the forget check below still covers this await.
+        final current = await pairedRingRow();
+        if (current?['id'] != deviceId || current?['remote_id'] != remoteId) {
+          debugPrint('[oura] the ring was re-paired while this sync waited; '
+              'skipping it.');
+          return false;
+        }
         // A forget or a "delete everything" that landed while this sync was
         // parked on the slot has already stopped it (nulling `_deviceId`)
         // and deleted the row. The ids captured above would otherwise still
