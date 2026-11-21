@@ -123,6 +123,7 @@ const Map<String, String> kPrefTypes = {
   'health_import_workouts_at': 'int',
   'health_sync': 'bool',
   'health_workout_import_deleted': 'stringList',
+  'health_routeless_workout_uuids': 'stringList',
   'issue_reports_sent': 'string',
   'last_inactivity_ms': 'int',
   'last_recovery_notif_day': 'string',
