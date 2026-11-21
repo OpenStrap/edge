@@ -243,10 +243,11 @@ class BleRestoreManager: NSObject {
           // bluetoothd itself and survives full app suspension; the background-task
           // extension only needed to cover this method's own synchronous work, so
           // release it shortly rather than holding it for the full ~30s budget.
-          // Only end OUR task: a wake inside this window replaces bgTask with its own.
+          // Only end OUR task: a wake inside this window replaces bgTask with its own,
+          // and another band's in-flight drain still needs it.
           DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard let self = self, self.bgTask == recoveryTask else { return }
-            self.endBackground()
+            self.endBackgroundIfIdle()
           }
         }
         result(nil)
@@ -304,7 +305,7 @@ class BleRestoreManager: NSObject {
             self.cancelPending(uuid)
           }
         }
-        self.endBackground()
+        self.endBackgroundIfIdle()
         result(nil)
       default:
         result(FlutterMethodNotImplemented)
@@ -431,15 +432,14 @@ class BleRestoreManager: NSObject {
       s.idleAfterSync = true
       self.arms[uuid] = s
       self.cancelPending(uuid)
-      // endBackground() only when no entry is still handedOff.
-      if !self.arms.values.contains(where: { $0.handedOff }) {
-        self.endBackground()
-      }
+      self.endBackgroundIfIdle()
     }
   }
 
+  /// Takes a fresh task BEFORE ending the old one, so the process is never without
+  /// one while another band is still draining.
   private func beginBackground() {
-    endBackground()
+    let old = bgTask
     var id: UIBackgroundTaskIdentifier = .invalid
     id = UIApplication.shared.beginBackgroundTask(withName: "openstrap.bleSync") { [weak self] in
       // End only the task that expired; a newer wake may have replaced bgTask.
@@ -447,7 +447,14 @@ class BleRestoreManager: NSObject {
       UIApplication.shared.endBackgroundTask(id)
       if self.bgTask == id { self.bgTask = .invalid }
     }
+    // Replacement refused (.invalid): keep the old task rather than dropping protection.
+    guard id != .invalid else { return }
     bgTask = id
+    if old != .invalid { UIApplication.shared.endBackgroundTask(old) }
+  }
+  /// Ends the task only when no band is still mid-drain (handedOff).
+  private func endBackgroundIfIdle() {
+    if !arms.values.contains(where: { $0.handedOff }) { endBackground() }
   }
   private func endBackground() {
     if bgTask != .invalid {

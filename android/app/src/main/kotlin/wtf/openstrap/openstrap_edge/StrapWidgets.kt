@@ -96,7 +96,7 @@ internal object StrapWidgets {
         // An unknown timestamp is not a claim of staleness (matching
         // WidgetService.isStale); a snapshot never pushed has has_data false.
         if (at <= 0L) return true
-        return System.currentTimeMillis() / 1000 - at <= STALE_AFTER_SEC
+        return System.currentTimeMillis() / 1000 - at < STALE_AFTER_SEC
     }
 
     /**
