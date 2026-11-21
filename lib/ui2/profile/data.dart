@@ -435,7 +435,11 @@ class _DataScreenState extends State<DataScreen> {
     // cancelled — not a failure, say nothing
     if (paths.isEmpty) return ('', false);
     final outcome = await runImport(app, paths,
-        askPassphrase: () => askBackupPassphrase(context));
+        // Back out mid-decrypt and the next prompt has no screen to open on;
+        // treat that as a cancel rather than a dialog thrown at a dead context.
+        askPassphrase: () =>
+            mounted ? askBackupPassphrase(context) : Future.value(null),
+        l: l);
     if (mounted) setState(() => _outcome = outcome);
     return ('', false);
   }
@@ -519,7 +523,12 @@ class _DataScreenState extends State<DataScreen> {
                       sub: l?.dataHowOftenSub(folder == null ? kBackupDirName : folderLabel, kBackupsKept) ??
                           'Writes a compressed, unencrypted copy to '
                               '${folder == null ? kBackupDirName : folderLabel}, keeping the last $kBackupsKept',
-                      value: app.backupCadence.label,
+                      value: switch (app.backupCadence) {
+                        BackupCadence.off => l?.stateOff,
+                        BackupCadence.daily => l?.settingsBackupDaily,
+                        BackupCadence.weekly => l?.settingsBackupWeekly,
+                      } ??
+                          app.backupCadence.label,
                       onTap: _busy
                           ? null
                           : () => _run(() async {

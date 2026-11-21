@@ -97,5 +97,25 @@ void main() {
       final t = await engine.send('hi again');
       expect(t.reply, 'ok');
     });
+
+    test('a long chat window still opens on a user turn', () async {
+      final seen = <List<Map<String, dynamic>>>[];
+      final engine = JournalAiEngine(
+        config: CoachConfig(),
+        chat: (messages) async {
+          seen.add(messages);
+          return '{"reply":"ok","tags":[],"note":""}';
+        },
+      );
+      for (var i = 0; i < 12; i++) {
+        await engine.send('turn $i');
+      }
+      for (final m in seen) {
+        expect(m[0]['role'], 'system');
+        expect(m[1]['role'], 'user');
+        expect(m.length, lessThanOrEqualTo(17));
+      }
+      expect(seen.last.last['content'], 'turn 11');
+    });
   });
 }

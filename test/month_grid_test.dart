@@ -61,6 +61,24 @@ void main() {
       expect(r.historyDays, 30);
       expect(r.shaded, isTrue);
     });
+
+    test('a past day ends the window there and ignores later days', () {
+      final asOf = DateTime(2026, 3, 15);
+      int at(int back) =>
+          DateTime(2026, 3, 15 - back, 12).millisecondsSinceEpoch ~/ 1000;
+      final r = gridRow(
+          'readiness',
+          [
+            for (var i = 1; i <= 10; i++) (t: at(-i), v: 95.0), // after
+            (t: at(0), v: 20.0),
+            for (var i = 1; i <= 20; i++) (t: at(i), v: 50.0),
+          ],
+          asOf: asOf);
+      expect(r.anchor, asOf);
+      expect(r.historyDays, 21);
+      expect(r.have, 21);
+      expect(r.cells.last, Side.below);
+    });
   });
 
   group('usual range', () {

@@ -311,6 +311,17 @@ void main() {
       expect(s.first, equals(8 * 60));
       expect(s[1] - s[0], equals(90));
     });
+    test('30m with default quiet hours runs to bedtime', () {
+      final s = NotificationCenter.waterSlotMinutes(const NotificationPrefs(
+          waterEnabled: true,
+          waterIntervalMin: 30,
+          quietEnabled: true,
+          quietStartMin: 22 * 60,
+          quietEndMin: 7 * 60));
+      expect(s.length, equals(30));
+      expect(s.first, equals(7 * 60));
+      expect(s.last, equals(21 * 60 + 30));
+    });
     test('off means no slots whatever the interval', () {
       expect(
           NotificationCenter.waterSlotMinutes(

@@ -16,7 +16,6 @@ import 'package:path_provider/path_provider.dart';
 
 class FileLog {
   static File? _file;
-  static bool _init = false;
 
   static const int _maxBytes = 2 * 1024 * 1024;
   // ponytail: the size check stats the file only once every 128 writes, so the
@@ -24,9 +23,13 @@ class FileLog {
   static const int _sizeCheckEvery = 128;
   static int _writesSinceCheck = 0;
 
-  static Future<void> _ensure() async {
-    if (_init) return;
-    _init = true;
+  // Every caller awaits the same resolution, so lines written while the
+  // directory lookup is still in flight wait for it instead of being dropped.
+  static Future<void>? _init;
+
+  static Future<void> _ensure() => _init ??= _resolve();
+
+  static Future<void> _resolve() async {
     try {
       // External storage exists only on Android; on iOS the call throws, and
       // this catch used to switch the log off there entirely.
@@ -38,7 +41,23 @@ class FileLog {
     }
   }
 
-  static Future<void> write(String line) async {
+  // Writes run one at a time: append mode seeks to the end on open, so two
+  // unawaited writes in flight together land at the same offset and one line
+  // overwrites the other. _append never throws, so the chain never breaks.
+  static Future<void> _tail = Future.value();
+
+  // ponytail: a stalled disk drops new lines past _maxPending instead of
+  // queueing them forever; diagnostics only, so losing the overflow is fine.
+  static const int _maxPending = 1000;
+  static int _pending = 0;
+
+  static Future<void> write(String line) {
+    if (_pending >= _maxPending) return _tail;
+    _pending++;
+    return _tail = _tail.then((_) => _append(line)).whenComplete(() => _pending--);
+  }
+
+  static Future<void> _append(String line) async {
     await _ensure();
     final f = _file;
     if (f == null) return;

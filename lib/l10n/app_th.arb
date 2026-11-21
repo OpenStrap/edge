@@ -927,6 +927,8 @@
     "description": "Row title."
   },
   "devicesLastData": "ข้อมูลล่าสุด",
+  "devicesTimeUnknown": "ไม่ทราบเวลา",
+  "devicesClockNotSetSub": "สายรัดบันทึกข้อมูลแล้ว แต่ยังไม่ได้ตั้งนาฬิกา",
   "@devicesLastData": {
     "description": "Row title."
   },
@@ -966,6 +968,14 @@
   "@devicesBatteryPack": {
     "description": "Row title: the charge left in the external battery pack sitting on the band."
   },
+  "devicesBatteryUnderAnHourLeft": "เหลือไม่ถึงหนึ่งชั่วโมง",
+  "devicesBatteryHoursLeft": "เหลือประมาณ {hours} ชม.",
+  "devicesBatteryDaysLeft": "เหลือประมาณ {days} วัน",
+  "devicesChargesLogged": "{n, plural, other{บันทึกการชาร์จ {n} ครั้ง}}",
+  "devicesChargeUpToMv": "สูงสุด {mv} mV",
+  "devicesCalibrationSub": "ค่าที่ขึ้นกับเซนเซอร์ใช้ค่าคงที่ของสายรัดนี้เอง สายรัดสองเส้นจึงอาจได้ระดับต่างกันแม้สรีรวิทยาเหมือนกัน",
+  "devicesCalibrationNotStated": "ยังไม่ระบุ",
+  "devicesCalibrationNotStatedSub": "สายรัดนี้ยังไม่บอกว่าเป็นรุ่นใด และวันที่นำเข้าหรือวันเก่าจะไม่มีวันบอก ค่าที่ขึ้นกับเซนเซอร์จะงดแสดงแทนการยืมตัวเลขของสายรัดอื่น",
   "devicesBatteryPackSub": "สายรัดรายงานประมาณทุก 10 นาที",
   "@devicesBatteryPackSub": {
     "description": "Row sub under the battery-pack charge: where the number comes from and how often it updates."
@@ -1128,6 +1138,8 @@
   "@devicePickerBlurbMiband234": {
     "description": "Category row subtitle for a Mi Band 2/3."
   },
+  "devicePickerBlurbGarmin": "นาฬิกา Garmin ซิงค์อัตราการเต้นหัวใจ ก้าว การนอน และ HRV ยังอยู่ระหว่างทดลอง",
+  "devicePickerNoMatch": "ไม่มีอุปกรณ์ใกล้เคียงที่ตรงกับการค้นหานี้",
   "devicePickerBlurbColmi": "แหวน Colmi ซิงค์อัตราการเต้นหัวใจ ระยะการนอน ก้าว SpO2, HRV และความเครียด ค่าที่แหวนคำนวณเองจะระบุว่าเป็นของ Colmi ยังอยู่ระหว่างทดลอง",
   "@devicePickerBlurbColmi": {
     "description": "Category row subtitle for a Colmi smart ring."
@@ -7561,6 +7573,7 @@
     }
   },
   "homeSyncedNever": "ยังไม่มีข้อมูลสายรัด",
+  "homeSyncedTimeUnknown": "มีข้อมูลสายรัด แต่ยังไม่ได้ตั้งนาฬิกา",
   "@homeSyncedNever": {
     "description": "Home header line when no record has ever been banked from a band."
   },
@@ -10610,7 +10623,7 @@
   "@activitySummaryTopSet": {
     "description": "Section title above the heaviest logged set on a strength session"
   },
-  "activitySummaryOneRepMax": "ประมาณ 1RM {kg} กก.",
+  "activitySummaryOneRepMax": "ประมาณ 1RM {value} {unit, select, lb{ปอนด์} other{กก.}}",
   "@activitySummaryOneRepMax": {
     "description": "Estimated one-rep-max caption under the top set exercise name",
     "placeholders": {
@@ -11615,6 +11628,30 @@
   "@settingsClockFormatRowTitle": {
     "description": "Settings row title cycling the 12/24-hour clock format"
   },
+  "settingsUnitsMetric": "เมตริก",
+  "@settingsUnitsMetric": {
+    "description": "Units value: metric"
+  },
+  "settingsUnitsImperial": "อิมพีเรียล",
+  "@settingsUnitsImperial": {
+    "description": "Units value: imperial"
+  },
+  "settingsAppearanceLight": "สว่าง",
+  "@settingsAppearanceLight": {
+    "description": "Appearance value: light theme"
+  },
+  "settingsAppearanceDark": "มืด",
+  "@settingsAppearanceDark": {
+    "description": "Appearance value: dark theme"
+  },
+  "settingsBackupDaily": "ทุกวัน",
+  "@settingsBackupDaily": {
+    "description": "Automatic backup frequency: once a day"
+  },
+  "settingsBackupWeekly": "ทุกสัปดาห์",
+  "@settingsBackupWeekly": {
+    "description": "Automatic backup frequency: once a week"
+  },
   "settingsClockFormatSystem": "ตามระบบ",
   "@settingsClockFormatSystem": {
     "description": "Clock format value: follow the operating system setting"
@@ -11626,6 +11663,10 @@
   "settingsClockFormat12h": "12 ชั่วโมง",
   "@settingsClockFormat12h": {
     "description": "Clock format value: 12-hour clock with AM/PM (e.g. 7:30 PM)"
+  },
+  "settingsAppearanceSystem": "ตามระบบ",
+  "@settingsAppearanceSystem": {
+    "description": "Appearance value: follow the operating system light/dark setting"
   },
   "settingsCycleTrackingRowTitle": "ติดตามรอบเดือน",
   "@settingsCycleTrackingRowTitle": {
@@ -17215,5 +17256,81 @@
   "profileHelpRow": "วิธีใช้",
   "helpLookingForSomething": "กำลังมองหาอะไรอยู่ไหม?",
   "helpAllGuides": "คู่มือทั้งหมด",
-  "helpTopicEmpty": "ยังไม่มีคู่มือสำหรับแท็บนี้"
+  "helpTopicEmpty": "ยังไม่มีคู่มือสำหรับแท็บนี้",
+  "importSourceEncryptedBackup": "ข้อมูลสำรองที่เข้ารหัส",
+  "importSourceOpenStrapBackup": "ข้อมูลสำรอง OpenStrap",
+  "importSourceRawSensor": "ไฟล์ส่งออกข้อมูลดิบจากเซ็นเซอร์",
+  "importSourceVendorCsv": "ไฟล์ CSV ที่ส่งออกจากผู้ผลิต",
+  "importSourceJournalCsv": "CSV บันทึกประจำวัน",
+  "importSourceLabCsv": "CSV ผลตรวจทางห้องแล็บ",
+  "importSourceFilePicker": "ตัวเลือกไฟล์",
+  "importSourceImport": "การนำเข้า",
+  "importSourceNothingSelected": "ไม่ได้เลือกอะไร",
+  "welcomeEncryptedBackupUseSettings": "ไฟล์นี้เป็นข้อมูลสำรองที่เข้ารหัส เปิดจาก การตั้งค่า → ข้อมูลของคุณ ซึ่งจะถามรหัสผ่านได้",
+  "welcomeNotUtf8": "{file}: ไม่ได้บันทึกเป็น UTF-8 ให้บันทึกเป็น \"CSV UTF-8\" แล้วนำเข้าอีกครั้ง",
+  "welcomeCorruptTables": "อ่าน {tables} ไม่ได้ SQLite รายงานว่าไฟล์เสียหายในตารางเหล่านั้น ตารางอื่นทั้งหมดนำเข้าได้ตามปกติ",
+  "welcomeRejectsMore": "{shown}; และอีก {count} รายการ",
+  "notifLookbackFlaggedBody": "สัปดาห์นี้มีการแจ้งเตือน: {items} ดูรายละเอียดได้ที่สุขภาพ",
+  "@notifLookbackFlaggedBody": {
+    "description": "Weekly lookback notification body listing the week's flags; {items} is a comma-separated list of the flag phrases below.",
+    "placeholders": {
+      "items": {
+        "type": "String"
+      }
+    }
+  },
+  "notifLookbackIllness": "อัตราการเต้นของหัวใจขณะพักสูงขึ้น ×{count}",
+  "@notifLookbackIllness": {
+    "description": "Weekly lookback flag phrase: nights with raised resting heart rate.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackAnomaly": "สรีรวิทยาผิดปกติ ×{count}",
+  "@notifLookbackAnomaly": {
+    "description": "Weekly lookback flag phrase: nights with unusual physiology.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackTemp": "อุณหภูมิผิวสูงขึ้น ×{count}",
+  "@notifLookbackTemp": {
+    "description": "Weekly lookback flag phrase: nights with elevated skin temperature.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackRhrHigherBody": "ช่วงปลายสัปดาห์อัตราการเต้นของหัวใจขณะพักสูงกว่าช่วงต้นสัปดาห์ประมาณ {bpm} bpm",
+  "@notifLookbackRhrHigherBody": {
+    "description": "Weekly lookback notification body: resting heart rate drifted up over the week.",
+    "placeholders": {
+      "bpm": {
+        "type": "int"
+      }
+    }
+  },
+  "notifLookbackRhrLowerBody": "ช่วงปลายสัปดาห์อัตราการเต้นของหัวใจขณะพักต่ำกว่าช่วงต้นสัปดาห์ประมาณ {bpm} bpm",
+  "@notifLookbackRhrLowerBody": {
+    "description": "Weekly lookback notification body: resting heart rate drifted down over the week.",
+    "placeholders": {
+      "bpm": {
+        "type": "int"
+      }
+    }
+  },
+  "notifSyncStaleBody": "ไม่มีข้อมูลใหม่มาประมาณ {hours} ชั่วโมงแล้ว เปิด OpenStrap เพื่อเชื่อมต่อใหม่ การซิงค์เบื้องหลังอาจหยุดทำงาน",
+  "@notifSyncStaleBody": {
+    "description": "OS notification body when the band has not synced for several hours.",
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  }
 }

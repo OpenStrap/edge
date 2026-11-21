@@ -28,6 +28,7 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -562,12 +563,7 @@ Future<ResolvedNoopDatabase?> resolveNoopDatabase(String path) async {
     // handle is what this function failed to return.
     try {
       final destPath = p.join(tempDir.path, p.basename(db.name));
-      final sink = OutputFileStream(destPath);
-      try {
-        db.writeContent(sink);
-      } finally {
-        await sink.close();
-      }
+      await _inflateMember(path, archive.files.indexOf(db), destPath);
     // A 260 MB backup unpacks to a full second copy, and a phone that runs out
     // of space mid-write leaves a TRUNCATED file — which still opens as a valid
     // database and would import a fraction of the history as if that were all
@@ -629,6 +625,28 @@ Future<ResolvedNoopDatabase?> resolveNoopDatabase(String path) async {
     await input.close();
   }
 }
+
+/// Inflates member [index] of the zip at [zipPath] to [destPath] on a
+/// background isolate. `writeContent` is one synchronous call over the whole
+/// member, and for a backup database or a raw-sensor CSV that is hundreds of
+/// MB, long enough on the UI isolate to trip the ANR / iOS watchdog. The
+/// archive handle can't cross isolates, so the worker re-reads the central
+/// directory by path (cheap) and picks the same member by index.
+Future<void> _inflateMember(String zipPath, int index, String destPath) =>
+    Isolate.run(() async {
+      final input = InputFileStream(zipPath);
+      try {
+        final f = ZipDecoder().decodeStream(input).files[index];
+        final sink = OutputFileStream(destPath);
+        try {
+          f.writeContent(sink);
+        } finally {
+          await sink.close();
+        }
+      } finally {
+        await input.close();
+      }
+    });
 
 /// CRC-32 of a file's whole content, read in chunks — this runs on the
 /// unpacked database (hundreds of MB to a couple of GB), and loading it whole
@@ -798,12 +816,7 @@ Future<List<String>> _extractCsvMembers(
       final destPath = p.join(dir.path, base);
       // `writeContent` decompresses straight to disk — never materialising the
       // member, which for a raw sensor export is the big one.
-      final sink = OutputFileStream(destPath);
-      try {
-        f.writeContent(sink);
-      } finally {
-        await sink.close();
-      }
+      await _inflateMember(path, archive.files.indexOf(f), destPath);
       out.add(destPath);
     }
     return out;

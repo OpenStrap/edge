@@ -102,6 +102,26 @@ void main() {
       expect(win['offset_ms'], _utc(2024, 3, 10, 6) * 1000);
     });
 
+    test('a cycle with no wake onset keeps its own day', () async {
+      // C1 Mon 23:00 -> wakes Tue; C2 starts Tue 23:30 with no sleep scored.
+      // C2 used to fall back to its start date (Tue) and overwrite C1's day.
+      final f = File(p.join(tmp.path, 'physiological_cycles.csv'))
+        ..writeAsStringSync(
+          'Cycle start time,Cycle end time,Cycle timezone,Day Strain,'
+          'Sleep onset,Wake onset\n'
+          '2024-04-01 23:00:00,2024-04-02 23:30:00,UTC+00:00,11.1,'
+          '2024-04-01 23:00:00,2024-04-02 07:00:00\n'
+          '2024-04-02 23:30:00,2024-04-03 23:00:00,UTC+00:00,15.5,,\n',
+        );
+      final res = await WhoopImporter.importFiles([f.path]);
+      expect(res.days, 2);
+      double? strainOf(Map<String, dynamic>? row) =>
+          ((jsonDecode(row!['payload_json'] as String) as Map)['scalars']
+              as Map)['strain'] as double?;
+      expect(strainOf(await LocalDb.dayResult('2024-04-02')), 11.1);
+      expect(strainOf(await LocalDb.dayResult('2024-04-03')), 15.5);
+    });
+
     test('a Paris workout is stored at its real instant', () async {
       final f = File(p.join(tmp.path, 'workouts.csv'))
         ..writeAsStringSync(
