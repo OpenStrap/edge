@@ -210,9 +210,9 @@ void main() {
     ]) {
       final at = src.indexOf(m);
       expect(at, greaterThan(0), reason: '$m has moved or been renamed');
-      // The method body, to its `return` — long enough to hold the whole of
-      // any of the three, short enough not to reach the next one.
-      final body = src.substring(at, at + 2600);
+      // The method body, to its closing brace at class indent (a fixed
+      // character window broke whenever an importer grew).
+      final body = src.substring(at, src.indexOf('\n  }\n', at));
       expect(body, contains('bumpInsights()'),
           reason: '$m writes durable rows and no screen is told');
     }
