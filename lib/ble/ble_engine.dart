@@ -9033,6 +9033,10 @@ class BleEngine {
   /// `[47, 152]` waveform pair (the only Maverick buzz byte-verified so far).
   Future<void> buzzPattern(int pattern) => _sendBuzz(pattern);
 
+  /// [buzzPattern] that reports whether the command reached the strap (see
+  /// [buzzDelivered]); a queued Tasker buzz stays queued until this is true.
+  Future<bool> buzzPatternDelivered(int pattern) => _sendBuzz(pattern);
+
   Future<bool> _sendBuzz(int pattern) {
     if (_session?.band.isGen5 ?? false) {
       return _send(

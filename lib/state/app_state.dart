@@ -423,7 +423,7 @@ class AppState extends ChangeNotifier {
   /// Tasker integration bridge — listens for Android broadcast intents from
   /// Tasker and buzzes the strap. Wired in the constructor.
   late final TaskerBridge taskerBridge = TaskerBridge(
-    buzzPattern: (p) => engine.buzzPattern(p),
+    deliverPending: _checkPendingTaskerBuzz,
   );
   Sample? lastSynced;
   // REAL device time (epoch SECONDS) of the newest record we hold — the band's
@@ -3476,14 +3476,20 @@ class AppState extends ChangeNotifier {
             'no connection within 20s, will retry on the next reconnect');
         return;
       }
-      if (!pending.isFresh(DateTime.now())) {
-        _log('[tasker] pending buzz (pattern=$pattern) went stale waiting '
-            'for a connection — dropping it');
+      // Re-read: a newer request may have replaced the flag while we waited.
+      final latest = await TaskerBridge.peekPendingBuzz();
+      if (latest == null) return;
+      if (!latest.isFresh(DateTime.now())) {
+        _log('[tasker] pending buzz (pattern=${latest.pattern}) went stale '
+            'waiting for a connection — dropping it');
         await TaskerBridge.clearPendingBuzz();
         return;
       }
-      _log('[tasker] consuming pending buzz (pattern=$pattern) from headless intent');
-      await engine.buzzPattern(pattern);
+      _log('[tasker] consuming pending buzz (pattern=${latest.pattern})');
+      if (!await engine.buzzPatternDelivered(latest.pattern)) {
+        _log('[tasker] buzz write failed — still queued for the next reconnect');
+        return;
+      }
       await TaskerBridge.clearPendingBuzz();
     } finally {
       _taskerBuzzCheckInFlight = false;

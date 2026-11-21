@@ -42,29 +42,27 @@ class PendingTaskerBuzz {
 class TaskerBridge {
   static const _ch = MethodChannel('openstrap/tasker');
 
-  final Future<void> Function(int pattern) buzzPattern;
+  /// Delivers whatever TaskerReceiver persisted. The receiver writes the
+  /// pending flag before every `buzz_strap` call, so the request itself is
+  /// read from that flag, not from the call's arguments: one delivery path,
+  /// cleared only once the strap actually got the buzz.
+  final Future<void> Function() deliverPending;
 
-  TaskerBridge({required this.buzzPattern}) {
+  TaskerBridge({required this.deliverPending}) {
     _ch.setMethodCallHandler(_onMethodCall);
   }
 
   Future<void> _onMethodCall(MethodCall call) async {
     if (call.method == 'buzz_strap') {
       try {
-        final args = call.arguments;
-        debugPrint('[tasker] _onMethodCall args=$args (${args.runtimeType})');
-        final map = args is Map ? args : <dynamic, dynamic>{};
-        final pattern = (map['pattern'] as int?) ?? 2;
-        debugPrint('[tasker] buzz pattern=$pattern');
-        await buzzPattern(pattern);
+        await deliverPending();
       } catch (e, st) {
         debugPrint('[tasker] buzz failed: $e\n$st');
       }
     }
   }
 
-  /// Read (without clearing) a buzz Tasker requested while the app was fully
-  /// dead — see TaskerReceiver.kt's "engine dead" fallback. This goes through
+  /// Read (without clearing) the buzz TaskerReceiver persisted. This goes through
   /// a native method-channel call reading the SAME native SharedPreferences
   /// file ("openstrap_runtime") TaskerReceiver writes to directly. The
   /// `shared_preferences` PLUGIN reads/writes a DIFFERENT, plugin-managed
