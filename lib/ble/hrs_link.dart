@@ -735,7 +735,9 @@ class HrsLink {
     try {
       if (await AccessorySetup.provisionedId() != null) return null;
     } catch (_) {
-      return null; // ASK not ready: unknown, so do not claim "not paired"
+      // ASK not ready: unknown, so hold the scan without claiming "not paired".
+      return 'Could not check whether your main band is paired yet, so the '
+          'search is on hold. Try again in a moment.';
     }
     return 'Your main band is not paired yet. Searching for a sensor now starts '
         'Bluetooth in a way that hides the system pairing sheet until you '
