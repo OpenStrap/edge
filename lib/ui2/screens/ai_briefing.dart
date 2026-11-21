@@ -46,15 +46,21 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.period == BriefingPeriod.evening) {
-      _at = eveningSweepMoment(DateTime.now());
-    }
+    _at = _sweepAt();
     final at = _at;
     _b = BriefingStore.read(widget.period,
         day: at == null ? null : todayLabel(at));
   }
 
+  // Re-resolved on every generate, so a screen left open past the evening
+  // slot does not write yesterday's sweep over today's.
+  DateTime? _sweepAt() => widget.period == BriefingPeriod.evening
+      ? eveningSweepMoment(DateTime.now(),
+          todayCached: BriefingStore.read(BriefingPeriod.evening) != null)
+      : null;
+
   Future<void> _generate() async {
+    _at = _sweepAt();
     final repo = repoOf(context);
     if (repo == null) return;
     setState(() {

@@ -22,4 +22,14 @@ void main() {
     final at = eveningSweepMoment(DateTime(2026, 11, 21, 0, 10));
     expect(todayLabel(at), '2026-11-20');
   });
+
+  test('today slot already written (early slot): about today', () {
+    final now = DateTime(2026, 11, 21, 10, 5);
+    expect(eveningSweepMoment(now, todayCached: true), now);
+  });
+
+  test('first of the month: yesterday is the last day of last month', () {
+    final at = eveningSweepMoment(DateTime(2026, 12, 1, 8));
+    expect(todayLabel(at), '2026-11-30');
+  });
 }

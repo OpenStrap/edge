@@ -35,13 +35,14 @@ BriefingPeriod currentBriefingPeriod(DateTime now) =>
 /// The moment an evening sweep opened at [now] is about. Before the evening
 /// window it is still last night's sweep (its notification tapped next
 /// morning, or just after midnight), so it reads and regenerates YESTERDAY.
-/// Sweeping today instead would report on a day that has barely started and
-/// fill tonight's slot, which then blocks tonight's real sweep.
-DateTime eveningSweepMoment(DateTime now) =>
-    currentBriefingPeriod(now) == BriefingPeriod.evening
+/// [todayCached] is true when today's sweep slot is already written, which
+/// means the real (user-resolved, possibly pre-17:00) slot has passed and the
+/// sweep is about today.
+DateTime eveningSweepMoment(DateTime now, {bool todayCached = false}) =>
+    todayCached || currentBriefingPeriod(now) == BriefingPeriod.evening
         ? now
-        : DateTime(now.year, now.month, now.day)
-            .subtract(const Duration(seconds: 1));
+        // day-1 rolls over month/year and never builds a skipped local midnight.
+        : DateTime(now.year, now.month, now.day - 1, 23, 59, 59);
 
 class Briefing {
   /// Local day label (YYYY-MM-DD) the briefing belongs to.
