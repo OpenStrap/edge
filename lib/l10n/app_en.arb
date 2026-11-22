@@ -18306,7 +18306,7 @@
   "@coachAppleTitle": {
     "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
   },
-  "coachAppleSub": "Free, offline, private. No key needed.",
+  "coachAppleSub": "Needs iOS 26 and Apple Intelligence turned on. No key needed.",
   "@coachAppleSub": {
     "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
   },
@@ -18318,7 +18318,7 @@
   "@coachAppleOnNote": {
     "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
   },
-  "coachAppleReady": "Ready. Runs on this iPhone; nothing leaves it.",
+  "coachAppleReady": "Ready.",
   "@coachAppleReady": {
     "description": "Coach, AI settings: Apple's on-device model (Foundation Models) option."
   },

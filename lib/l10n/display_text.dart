@@ -156,10 +156,10 @@ String localizedText(AppLocalizations? l, String text) {
   }
   return switch (text) {
     "Apple Intelligence on this iPhone" => l.coachAppleTitle,
-    "Free, offline, private. No key needed." => l.coachAppleSub,
+    "Needs iOS 26 and Apple Intelligence turned on. No key needed." => l.coachAppleSub,
     "Checking Apple Intelligence…" => l.coachAppleChecking,
     "The coach, briefings and journal now use Apple’s small on-device model. It answers from your last two weeks and can’t log things for you; switch it off to use a bigger model instead." => l.coachAppleOnNote,
-    "Ready. Runs on this iPhone; nothing leaves it." => l.coachAppleReady,
+    "Ready." => l.coachAppleReady,
     "Turn on Apple Intelligence in Settings to use the on-device model." => l.coachAppleNotEnabled,
     "Apple’s on-device model is still downloading. Try again later." => l.coachAppleNotReady,
     "This iPhone can’t run Apple’s on-device model." => l.coachAppleNotEligible,

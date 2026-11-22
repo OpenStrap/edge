@@ -17334,10 +17334,10 @@
     }
   },
   "coachAppleTitle": "Apple Intelligence บน iPhone เครื่องนี้",
-  "coachAppleSub": "ฟรี ออฟไลน์ เป็นส่วนตัว ไม่ต้องใช้คีย์",
+  "coachAppleSub": "ต้องใช้ iOS 26 และเปิด Apple Intelligence ไม่ต้องใช้คีย์",
   "coachAppleChecking": "กำลังตรวจสอบ Apple Intelligence…",
   "coachAppleOnNote": "โค้ช สรุป และบันทึกประจำวันจะใช้โมเดลขนาดเล็กของ Apple บนอุปกรณ์ โดยตอบจากข้อมูลสองสัปดาห์ล่าสุดของคุณและบันทึกอะไรแทนคุณไม่ได้ ปิดไว้หากต้องการใช้โมเดลที่ใหญ่กว่า",
-  "coachAppleReady": "พร้อมแล้ว ทำงานบน iPhone เครื่องนี้ ไม่มีข้อมูลออกไปภายนอก",
+  "coachAppleReady": "พร้อมแล้ว",
   "coachAppleNotEnabled": "เปิด Apple Intelligence ในการตั้งค่าเพื่อใช้โมเดลบนอุปกรณ์",
   "coachAppleNotReady": "โมเดลบนอุปกรณ์ของ Apple ยังดาวน์โหลดไม่เสร็จ ลองอีกครั้งภายหลัง",
   "coachAppleNotEligible": "iPhone เครื่องนี้ใช้โมเดลบนอุปกรณ์ของ Apple ไม่ได้",

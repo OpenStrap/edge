@@ -38,7 +38,7 @@ enum AppleAiStatus {
 
   /// What the settings screen says about it.
   String get message => switch (this) {
-        available => 'Ready. Runs on this iPhone; nothing leaves it.',
+        available => 'Ready.',
         notEnabled =>
           'Turn on Apple Intelligence in Settings to use the on-device model.',
         notReady =>

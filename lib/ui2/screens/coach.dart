@@ -1430,7 +1430,7 @@ class _CoachSetupState extends State<CoachSetup> with WidgetsBindingObserver {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(uiText(c, 'Apple Intelligence on this iPhone'),
                   style: F.head.copyWith(color: p.ink)),
-              Text(uiText(c, 'Free, offline, private. No key needed.'),
+              Text(uiText(c, 'Needs iOS 26 and Apple Intelligence turned on. No key needed.'),
                   style: F.cap.copyWith(color: p.ink2)),
             ]),
           ),
