@@ -197,7 +197,7 @@ void main() {
     final fin = run.substring(run.indexOf('} finally {'));
     expect(
         fin.contains(
-            'if (!ResetGate.changedSince(runGen)) await _syncPairedSensors();'),
+            'if (!ResetGate.changedSince(runGen)) await syncPairedSensors();'),
         isTrue,
         reason: 'a reset that ran at any point during the drain ends it');
     expect(fin.substring(0, fin.indexOf('\n}\n')).contains('.instance.sync()'),
