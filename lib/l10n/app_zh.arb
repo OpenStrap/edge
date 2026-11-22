@@ -2683,6 +2683,8 @@
   "wearableMethodStrap": "心率带，每秒",
   "wearableMethodStrapBeats": "心率带的逐搏间期",
   "wearableMethodRhrStrapComposite": "静息心率和心率带的逐搏间期",
+  "wearableMethodDeviceHrvComposite": "静息心率和设备自身的 HRV 读数",
+  "wearableMethodDeviceRmssd": "设备自身的 HRV 读数，按我们界定的夜间计算",
   "wearableMethodRingBeats": "其自身的逐搏间期",
   "wearableUnlocksTitle": "此可穿戴设备可解锁的内容",
   "wearableUnlocksOurs": "由我们测量",

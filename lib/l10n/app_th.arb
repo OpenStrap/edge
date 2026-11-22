@@ -14911,6 +14911,8 @@
   "wearableMethodStrap": "สายคาดวัดหัวใจ ทุกวินาที",
   "wearableMethodStrapBeats": "ช่วงเวลาระหว่างจังหวะหัวใจจากสายคาด",
   "wearableMethodRhrStrapComposite": "อัตราการเต้นหัวใจขณะพักและช่วงเวลาจังหวะหัวใจจากสายคาด",
+  "wearableMethodDeviceHrvComposite": "อัตราการเต้นหัวใจขณะพักและค่า HRV ที่อุปกรณ์วัดเอง",
+  "wearableMethodDeviceRmssd": "ค่า HRV ที่อุปกรณ์วัดเอง ตลอดคืนที่เรากำหนด",
   "wearableMethodRingBeats": "ช่วงเวลาระหว่างจังหวะหัวใจของอุปกรณ์เอง",
   "wearableUnlocksTitle": "สิ่งที่อุปกรณ์นี้ช่วยให้ใช้ได้",
   "wearableUnlocksOurs": "เราเป็นผู้วัด",

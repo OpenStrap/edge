@@ -1518,6 +1518,15 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
   },
 };
 
+/// POLICY EXCEPTION PE-1 (docs/internal/sparse_device_analytics_architecture.md
+/// §1, owner decision 2026-11-22): the families whose OWN RMSSD readings
+/// (`decoded_onehz.dev_rmssd_ms`, raw timestamped samples in ms) our readiness
+/// may take as its HRV input, on a night no strap's beats gave our own.
+/// Raw samples only: a device's stress score, readiness, PAI, ODI or any
+/// aggregate it made stays in `observation`, display-only, forever. A family
+/// not listed here contributes nothing even with samples on disk.
+const Set<String> kDeviceRmssdFamilies = {'helio_strap'};
+
 /// [adapterId]'s [DeviceCategory], or null for an id this build has no
 /// entry for.
 DeviceCategory? categoryOf(String? adapterId) {

@@ -2683,6 +2683,8 @@
   "wearableMethodStrap": "एक स्ट्रैप, हर सेकंड",
   "wearableMethodStrapBeats": "एक स्ट्रैप के धड़कन-दर-धड़कन अंतराल",
   "wearableMethodRhrStrapComposite": "आराम की हृदय गति और एक स्ट्रैप के धड़कन-दर-धड़कन अंतराल",
+  "wearableMethodDeviceHrvComposite": "आराम की हृदय गति और डिवाइस की अपनी HRV रीडिंग",
+  "wearableMethodDeviceRmssd": "डिवाइस की अपनी HRV रीडिंग, हमारी गिनी रात पर",
   "wearableMethodRingBeats": "इसके अपने धड़कन-दर-धड़कन अंतराल",
   "wearableUnlocksTitle": "यह वियरेबल क्या खोलता है",
   "wearableUnlocksOurs": "हमारे द्वारा मापा गया",

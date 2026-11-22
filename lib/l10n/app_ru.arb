@@ -7097,6 +7097,8 @@
   "wearableMethodRest": "покой по пульсу за 5 минут",
   "wearableMethodRhrOnly": "только пульс в покое",
   "wearableMethodRhrStrapComposite": "пульс в покое и интервалы между ударами с нагрудного датчика",
+  "wearableMethodDeviceHrvComposite": "пульс в покое и собственные измерения ВСР устройства",
+  "wearableMethodDeviceRmssd": "собственные измерения ВСР устройства за нашу ночь",
   "wearableMethodRingBeats": "его собственные интервалы между ударами",
   "wearableMethodSkinTemp": "температура кожи",
   "wearableMethodStrap": "нагрудный датчик, каждую секунду",

@@ -1938,6 +1938,13 @@ class LocalDb {
       // See Sample.bandSleepState for the evidence that it varies and means
       // what it says.
       'band_sleep_state': 'INTEGER',
+      // A wearable's OWN RMSSD (ms) and breathing-rate (breaths/min)
+      // readings, as raw timestamped samples ([NeutralSample.deviceRmssdMs]).
+      // Policy exception PE-1: read ONLY by device_night_samples.dart, for an
+      // admitted family. Nullable, no default: a row without one did not
+      // report it.
+      'dev_rmssd_ms': 'REAL',
+      'dev_resp_brpm': 'REAL',
     };
     final have = await _columnsOf(db, 'decoded_onehz');
     if (have.isEmpty) return; // table not created yet — the DDL carries them
@@ -7843,9 +7850,15 @@ class LocalDb {
   /// [_queueDecodedOneHz]. The union of `hrs_link._flush` and
   /// `oura_link._commit`'s bodies, not new logic — see M1 spec §9.3.
   ///
-  /// REPLACE, not IGNORE, for the same reason [_queueDecodedOneHz] uses it: a
-  /// re-read of the same range is idempotent by design on a fetch-by-cursor
-  /// band.
+  /// Newest wins, PER FIELD: a sample carries only what it measured (null =
+  /// "this sample has no heart rate", not "the second had none"), so two
+  /// samples for the same second (a strap's HR record and its temperature
+  /// record, both stamped on the same minute) MERGE instead of the later one
+  /// replacing the row and nulling the earlier one's column. A field the new
+  /// sample does carry overwrites, so a re-read of the same range is still
+  /// idempotent and a fresh value still beats a stale one. INSERT OR IGNORE +
+  /// UPDATE COALESCE rather than an upsert: `ON CONFLICT DO UPDATE` needs
+  /// SQLite 3.24 and Android 8 ships 3.18.
   ///
   /// `beat_ts_ms` is [NeutralSample.beatTsMs] when the host timed the beats
   /// (an arrival-stamped strap, off its own beat chain), NULL otherwise.
@@ -7874,12 +7887,26 @@ class LocalDb {
         // follows for hr/accel/optical.
         'hr': n.hr,
         'skin_temp_c': n.skinTempC,
+        'dev_rmssd_ms': n.deviceRmssdMs,
+        'dev_resp_brpm': n.deviceRespBrpm,
         'device_family': deviceFamily,
         'source': deviceFamily,
       },
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
     );
-    var ops = 1;
+    batch.rawUpdate(
+      'UPDATE decoded_onehz SET hr = COALESCE(?, hr), '
+      'skin_temp_c = COALESCE(?, skin_temp_c), '
+      'dev_rmssd_ms = COALESCE(?, dev_rmssd_ms), '
+      'dev_resp_brpm = COALESCE(?, dev_resp_brpm), rec_ts = ?, counter = 0, '
+      'device_family = ?, source = ? WHERE device_id = ? AND ts_ms = ?',
+      [n.hr, n.skinTempC, n.deviceRmssdMs, n.deviceRespBrpm, recTs,
+          deviceFamily, deviceFamily, deviceId, recTs * 1000],
+    );
+    var ops = 2;
+    // A sample with no heart side (a temperature record) leaves the second's
+    // beats alone: they belong to the HR sample it merged with.
+    if (n.hr == null && n.rrMs.isEmpty) return ops;
     // SCOPED TO THE WRITING DEVICE. Clear the second before reinserting so a
     // shrinking beat count can't strand stale high-index beats — same
     // reasoning as _queueRrBeats, and it must run even when this sample

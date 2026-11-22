@@ -2683,6 +2683,8 @@
   "wearableMethodStrap": "une ceinture, chaque seconde",
   "wearableMethodStrapBeats": "les intervalles battement à battement d'une ceinture",
   "wearableMethodRhrStrapComposite": "fréquence cardiaque au repos et les intervalles battement à battement d'une ceinture",
+  "wearableMethodDeviceHrvComposite": "fréquence cardiaque au repos et les mesures de VFC de l'appareil lui-même",
+  "wearableMethodDeviceRmssd": "les mesures de VFC de l'appareil lui-même, sur notre nuit",
   "wearableMethodRingBeats": "ses propres intervalles battement à battement",
   "wearableUnlocksTitle": "Ce que ce wearable débloque",
   "wearableUnlocksOurs": "Mesuré par nous",

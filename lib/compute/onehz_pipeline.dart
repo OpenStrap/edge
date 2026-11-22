@@ -171,6 +171,10 @@ const double kReadinessZCap = 5.0;
 /// [readinessCompositeMinWeight].
 const double kPartialReadinessMinWeight = 0.4;
 
+/// `readiness_composite.hrv_source` on a night whose HRV input was the
+/// wearable's own RMSSD readings (policy exception PE-1).
+const String kDeviceRmssdHrvSource = 'device_rmssd';
+
 /// The headline readiness scalar for a computed [composite], or null when it must
 /// abstain: absent composite, or one whose |z| exceeds [kReadinessZCap] (a
 /// saturated, degenerate-baseline artefact — see [kReadinessZCap]). Pure so the
@@ -390,6 +394,16 @@ class DayBundleInput {
   /// calibrated against (`calibratedReadinessScore`).
   final List<double> readinessZHistory;
 
+  /// POLICY EXCEPTION PE-1: ln(mean) of the wearable's OWN RMSSD readings
+  /// over this night (`device_night_samples.dart`), for an admitted family;
+  /// null otherwise, or when the night's readings failed the gate
+  /// ([deviceRmssdRefusal] says how). Readiness's HRV input only on a night
+  /// with no beat-derived HRV of ours, scored against
+  /// [deviceLnRmssdHistory] (this device family's own nights, never ours).
+  final double? deviceLnRmssd;
+  final String? deviceRmssdRefusal;
+  final List<double> deviceLnRmssdHistory;
+
   /// TS-03 — the highest heart rate the band has OBSERVED (held >=15 s with
   /// corroborating motion, `observed_max_hr.dart`) on any day STRICTLY BEFORE
   /// this one, or null when there is none. Not a physiological HRmax: if the
@@ -459,6 +473,9 @@ class DayBundleInput {
     this.skinTempAdcHistory = const [],
     this.quietHrrHistory = const [],
     this.readinessZHistory = const [],
+    this.deviceLnRmssd,
+    this.deviceRmssdRefusal,
+    this.deviceLnRmssdHistory = const [],
     this.observedHrCeilingBpm,
     this.dayConfidence = 0,
     this.dayFlags = const [],
@@ -496,6 +513,9 @@ class DayBundleInput {
     'skin_temp_adc_history': skinTempAdcHistory,
     'quiet_hrr_history': quietHrrHistory,
     'readiness_z_history': readinessZHistory,
+    'device_ln_rmssd': deviceLnRmssd,
+    'device_rmssd_refusal': deviceRmssdRefusal,
+    'device_ln_rmssd_history': deviceLnRmssdHistory,
     'observed_hr_ceiling_bpm': observedHrCeilingBpm,
     'day_confidence': dayConfidence,
     'day_flags': dayFlags,
@@ -552,6 +572,9 @@ class DayBundleInput {
       skinTempAdcHistory: dbls('skin_temp_adc_history'),
       quietHrrHistory: dbls('quiet_hrr_history'),
       readinessZHistory: dbls('readiness_z_history'),
+      deviceLnRmssd: (m['device_ln_rmssd'] as num?)?.toDouble(),
+      deviceRmssdRefusal: m['device_rmssd_refusal'] as String?,
+      deviceLnRmssdHistory: dbls('device_ln_rmssd_history'),
       observedHrCeilingBpm: (m['observed_hr_ceiling_bpm'] as num?)?.toDouble(),
       dayConfidence: (m['day_confidence'] as num?)?.toDouble() ?? 0,
       dayFlags: strs('day_flags'),
@@ -658,6 +681,9 @@ class DayBundleInput {
     skinTempAdcHistory: skinTempAdcHistory,
     quietHrrHistory: quietHrrHistory,
     readinessZHistory: readinessZHistory,
+    deviceLnRmssd: deviceLnRmssd,
+    deviceRmssdRefusal: deviceRmssdRefusal,
+    deviceLnRmssdHistory: deviceLnRmssdHistory,
     observedHrCeilingBpm: observedHrCeilingBpm,
     dayConfidence: dayConfidence,
     dayFlags: dayFlags,
@@ -1136,8 +1162,15 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   // lives in `rhr` itself, so this is the same number the card shows.
   final rhrToday = rhr.present ? rhr.value!.low30Mean : null;
   final respToday = resp.present ? resp.value!.brpm : null;
+  // POLICY EXCEPTION PE-1: a night with no beat-derived HRV of ours takes the
+  // admitted wearable's own RMSSD readings (their night mean, gated, ln) as
+  // the HRV input, scored against that device family's own nights only.
+  // Never both: beats win. `hrv_source` on the envelope says which it was.
+  final hrvFromDevice = lnToday == null && d.deviceLnRmssd != null;
   final composite = readinessComposite([
-    hrvInput(lnToday, d.lnRmssdHistory),
+    hrvFromDevice
+        ? hrvInput(d.deviceLnRmssd, d.deviceLnRmssdHistory)
+        : hrvInput(lnToday, d.lnRmssdHistory),
     rhrInput(rhrToday, d.rhrHistory),
     respInput(respToday, d.respHistory),
     // Feed the RAW ADC mean + the RAW-ADC baseline so the composite computes its
@@ -1185,8 +1218,10 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   if (!composite.present) {
     readinessAbsentDiag = {
       'hrv': {
-        'value': lnToday != null,
-        'baseline_n': d.lnRmssdHistory.length,
+        'value': lnToday != null || hrvFromDevice,
+        'baseline_n': hrvFromDevice
+            ? d.deviceLnRmssdHistory.length
+            : d.lnRmssdHistory.length,
       },
       'rhr': {
         'value': rhrToday != null,
@@ -1552,6 +1587,12 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
     'readiness_lnrmssd': lnReadiness.toJson((v) => v.toJson()),
     'readiness_composite': {
       ...composite.toJson((v) => v.toJson()),
+      // PE-1: which HRV this night's composite took, so every reader (the
+      // served cell's method, metric_method, the detail screen) can say so.
+      if (hrvFromDevice && composite.inputs_used.contains('HRV'))
+        'hrv_source': kDeviceRmssdHrvSource,
+      if (d.deviceRmssdRefusal != null)
+        'device_rmssd_refusal': d.deviceRmssdRefusal,
       if (tempProvisional && composite.inputs_used.contains('temp')) ...{
         'confidence': _round(composite.confidence * 0.5, 6),
         'provisional': true,
@@ -1720,7 +1761,12 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   final zCapNote = zCapAbsentNote(composite);
   if (readinessAbsentDiag == null && zCapNote != null) {
     readinessAbsentDiag = {
-      'hrv': {'value': lnToday != null, 'baseline_n': d.lnRmssdHistory.length},
+      'hrv': {
+        'value': lnToday != null || hrvFromDevice,
+        'baseline_n': hrvFromDevice
+            ? d.deviceLnRmssdHistory.length
+            : d.lnRmssdHistory.length,
+      },
       'rhr': {'value': rhrToday != null, 'baseline_n': d.rhrHistory.length},
       'resp': {'value': respToday != null, 'baseline_n': d.respHistory.length},
       'temp': {
@@ -2035,6 +2081,10 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
       'strain': strainScalar,
       'max_hr_used': hrMax,
       'ln_rmssd': lnToday,
+      // PE-1: the admitted wearable's own night RMSSD, ln, banked as its own
+      // series (never `ln_rmssd`) for its own baseline, whether or not beats
+      // won tonight.
+      'ln_rmssd_dev': d.deviceLnRmssd,
       'resp_rate': respToday,
       'skin_temp_z': skinTempZ,
       // Nightly skin-temp ADC mean (of the settled samples, where the family

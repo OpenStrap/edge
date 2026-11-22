@@ -96,7 +96,10 @@ a hotspot.
    permanent data loss or an infinite re-flood. Never ACK a partial chunk.
 2. **`decoded_onehz` stays INSERT-OR-REPLACE on its key `(device_id, ts_ms)`.**
    Newest wins: with INSERT-OR-IGNORE a stale or failed decode would
-   permanently shadow a fresh re-offload of the same second. A write that
+   permanently shadow a fresh re-offload of the same second. The neutral
+   path (`_queueNeutralOneHz`) is newest-wins PER FIELD (INSERT OR IGNORE +
+   UPDATE COALESCE): a `NeutralSample` carries only what it measured, and a
+   whole-row REPLACE let a same-second temperature sample null the HR. A write that
    replaces a second must replace that `(device_id, ts_ms)`'s `decoded_rr`
    beats in the same batch, never another device's (`_queueRrBeats` via
    `_queueDecodedOneHz`, and `_queueNeutralOneHz`). Known gap: the restore

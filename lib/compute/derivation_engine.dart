@@ -59,7 +59,9 @@ import '../telemetry/firebase_bridge.dart';
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
+import '../ble/adapters/_registry.dart' show kDeviceRmssdFamilies;
 import 'inputs/canonical.dart';
+import 'inputs/device_night_samples.dart' show deviceNightRmssd;
 import 'inputs/garmin_inputs.dart'
     show
         isWearableFamily,
@@ -1913,7 +1915,20 @@ import 'vendor_sleep.dart';
 // counts covered TIME not rows, so sparse substrates are not called unclaimed;
 // ring naps no longer bridge ring-off holes; the quiet-level repass counts
 // wearable-only days as substrate; calories absence names resting_hr.
-const int kAlgoVersion = 127;
+// 127 → 128 (no analytics change): the Helio strap joins the sparse-HR
+// wearables (kHrCadenceSec 60 s, method family hr_1min), so its days derive
+// resting HR, nadir, strain, calories and an rhr-only readiness off its
+// minute HR, served by the declaration-built column (sparseColumn). Its skin
+// temperature rides on its HR rows (skin_temp_z). No band or other wearable
+// output moves.
+// 128 → 129 (no analytics change): policy exception PE-1 (owner decision
+// 2026-11-22). On a night with no beat-derived HRV of ours, an admitted
+// wearable's (kDeviceRmssdFamilies: helio_strap) own RMSSD readings, gated
+// (>= 6 plausible in our night) and taken as ln(mean), are readiness's HRV
+// input against that device family's own nights (`ln_rmssd_dev`; readiness_z
+// is per device family there too). Served as ours, method
+// composite_device_hrv. Band days and every other wearable unchanged.
+const int kAlgoVersion = 129;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -2705,6 +2720,8 @@ class _BaselineHistoryCache {
     // The readiness composite z — later days' scores are calibrated against
     // its spread (`calibratedReadinessScore`).
     'readiness_z',
+    // PE-1: an admitted wearable's own night RMSSD (ln), its own baseline.
+    'ln_rmssd_dev',
     // Per-day high quantile of the calibration-invariant dynamic accel
     // amplitude. The 1 Hz activity estimator's floor is anchored on the MEDIAN
     // of this series across trailing days, never on a same-day value: a
@@ -6958,6 +6975,14 @@ class DerivationEngine {
         ? null
         : await LocalDb.stepCalibrationProfile(
             daySub.deviceFamily!, counterWearing);
+    // PE-1: an admitted wearable's own RMSSD readings over the night the
+    // prepare step chose (null for every other family and every band day).
+    final deviceRmssd = await deviceNightRmssd(
+      family: daySub.deviceFamily,
+      deviceIds: daySub.deviceIds,
+      onsetSec: day.sleepOnsetSec,
+      offsetSec: day.sleepOffsetSec,
+    );
     final input = DayBundleInput(
       date: day.date,
       dayTsSec: daySub.tsSec,
@@ -7004,6 +7029,8 @@ class DerivationEngine {
       // forced window.
       sleepSource: day.sleepSource,
       useHmmStages: day.useHmmStages,
+      deviceLnRmssd: deviceRmssd?.lnRmssd,
+      deviceRmssdRefusal: deviceRmssd?.refusal,
     );
     final withHistory = _attachHistory(input, history);
 
@@ -7846,7 +7873,8 @@ class DerivationEngine {
           strapNight: strapNight,
           provisionalReadiness: ((bundle['clinical'] as Map?)?[
                   'readiness_composite'] as Map?)?['provisional'] ==
-              true),
+              true,
+          deviceHrvNight: deviceHrvNight(bundle)),
       series: {
         'rhr': sc('rhr'),
         'rmssd': sc('rmssd'),
@@ -7854,6 +7882,7 @@ class DerivationEngine {
         'readiness': sc('readiness'),
         'readiness_z': sc('readiness_z'),
         'ln_rmssd': sc('ln_rmssd'),
+        'ln_rmssd_dev': sc('ln_rmssd_dev'),
         'resp_rate': sc('resp_rate'),
         'skin_temp_z': sc('skin_temp_z'),
         // RAW nightly ADC mean — the baseline series for skin_temp_z. Written
@@ -8452,7 +8481,9 @@ class DerivationEngine {
   /// its method family, except a wearable's skin temperature, which is that
   /// device family's own nights (see [_BaselineHistoryCache.load]).
   static String? _baselineFamily(String key, String? deviceFamily) =>
-      key == 'skin_temp_adc' && isWearableFamily(deviceFamily)
+      (key == 'skin_temp_adc' && isWearableFamily(deviceFamily)) ||
+              (kDeviceSeriesFamilyKeys.contains(key) &&
+                  kDeviceRmssdFamilies.contains(deviceFamily))
           ? deviceFamily
           : methodFamily(deviceFamily);
 
@@ -8498,6 +8529,7 @@ class DerivationEngine {
     // two cannot score the day on different levels.
     m['quiet_hrr_history'] = before('quiet_hrr');
     m['readiness_z_history'] = before('readiness_z');
+    m['device_ln_rmssd_history'] = before('ln_rmssd_dev');
     return m;
   }
 

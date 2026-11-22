@@ -3249,6 +3249,8 @@
   "wearableMethodStrap": "einem Brustgurt, jede Sekunde",
   "wearableMethodStrapBeats": "den Schlag-zu-Schlag-Intervallen eines Brustgurts",
   "wearableMethodRhrStrapComposite": "Ruhepuls und den Schlag-zu-Schlag-Intervallen eines Brustgurts",
+  "wearableMethodDeviceHrvComposite": "Ruhepuls und den eigenen HRV-Messwerten des Geräts",
+  "wearableMethodDeviceRmssd": "den eigenen HRV-Messwerten des Geräts, über unsere Nacht",
   "wearableMethodRingBeats": "seinen eigenen Schlag-zu-Schlag-Intervallen",
   "wearableUnlocksTitle": "Was dieses Wearable freischaltet",
   "wearableUnlocksOurs": "Von uns gemessen",

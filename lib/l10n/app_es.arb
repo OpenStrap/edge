@@ -2714,6 +2714,8 @@
   "wearableMethodStrap": "una banda, cada segundo",
   "wearableMethodStrapBeats": "los intervalos latido a latido de una banda",
   "wearableMethodRhrStrapComposite": "frecuencia cardíaca en reposo y los intervalos latido a latido de una banda",
+  "wearableMethodDeviceHrvComposite": "frecuencia cardíaca en reposo y las lecturas de VFC del propio dispositivo",
+  "wearableMethodDeviceRmssd": "las lecturas de VFC del propio dispositivo, a lo largo de nuestra noche",
   "wearableMethodRingBeats": "sus propios intervalos latido a latido",
   "wearableUnlocksTitle": "Lo que desbloquea este wearable",
   "wearableUnlocksOurs": "Medido por nosotros",
