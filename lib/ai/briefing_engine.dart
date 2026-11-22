@@ -568,6 +568,11 @@ class BriefingEngine {
       BriefingStore.write(b);
       return b;
     }
+    // Where the request goes, read in the same synchronous run as the request
+    // itself (postChat reads the config before its first await): a provider
+    // switched while the model is answering must not relabel this briefing.
+    final sentTo = briefingEndpointOf(config);
+    final sentModel = config.model;
     final raw = await (complete ??
         (({required String system, required String user}) =>
             CoachEngine.completeText(
@@ -586,8 +591,8 @@ class BriefingEngine {
       breakdownMd: parsed.breakdownMd,
       generatedAtMs: (wallNow ?? effectiveNow).millisecondsSinceEpoch,
       inputs: inputs,
-      endpoint: briefingEndpointOf(config),
-      model: config.model,
+      endpoint: sentTo,
+      model: sentModel,
     );
     // An older request must not overwrite a complete briefing a newer one
     // already stored while this one waited on the model.

@@ -2,6 +2,7 @@
 // pure prompt building + response parsing, and the day+period cache round-trip.
 // The LLM is mocked (BriefingComplete injected) — no network.
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -438,6 +439,38 @@ void main() {
       final cached = BriefingStore.read(BriefingPeriod.morning);
       expect(cached?.endpoint, 'https://llm.example.com:8443');
       expect(cached?.model, 'm1');
+    });
+
+    test('a provider switched mid-request does not relabel the briefing',
+        () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final cfg = CoachConfig();
+      await cfg.save(baseUrl: 'https://api.example.com/v1', model: 'm1');
+
+      // Cloud at the start, Apple by the time the answer lands.
+      var b = await BriefingEngine(
+        config: cfg,
+        repo: _FakeRepo(today: _sampleToday()),
+        complete: ({required system, required user}) async {
+          await cfg.save(useApple: true);
+          return 'Recovered and ready.\n---\n- Readiness 74';
+        },
+      ).generate(BriefingPeriod.morning);
+      expect(b.endpoint, 'https://api.example.com');
+      expect(b.model, 'm1');
+
+      // And the reverse: Apple at the start, cloud by the end.
+      b = await BriefingEngine(
+        config: cfg,
+        repo: _FakeRepo(today: _sampleToday()),
+        complete: ({required system, required user}) async {
+          await cfg.save(useApple: false);
+          return 'Recovered and ready.\n---\n- Readiness 74';
+        },
+      ).generate(BriefingPeriod.morning);
+      expect(b.endpoint, kAppleOnDeviceBase);
+      expect(b.model, kAppleOnDeviceModel);
     });
 
     test('a briefing saved before the endpoint was recorded reads as unknown',

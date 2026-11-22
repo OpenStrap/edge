@@ -292,6 +292,26 @@ void main() {
         reason: 'the state must be pending BEFORE the read, not after it');
   });
 
+  test('a restored Apple choice is published without waiting on the keychain',
+      () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await CoachConfig().save(useApple: true);
+
+    keychain.hangReads = true;
+    final relaunched = CoachConfig();
+    var notified = false;
+    relaunched.addListener(() => notified = true);
+    unawaited(relaunched.load());
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(relaunched.usesApple, isTrue);
+    expect(relaunched.configured, isTrue);
+    expect(notified, isTrue,
+        reason: 'the coach must not sit on "not set up" behind a hung read');
+    keychain.releaseHung();
+  });
+
   test('a save during an in-flight load is not clobbered by it', () async {
     keychain.hangReads = true;
     final cfg = CoachConfig();

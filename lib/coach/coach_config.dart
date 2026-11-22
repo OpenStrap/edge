@@ -359,6 +359,9 @@ class CoachConfig extends ChangeNotifier {
     // with the resume retry permanently disabled.
     _keyUnreadable = marker == true && !hasKey;
     _keyUndetermined = marker == null;
+    // Apple's on-device model needs no key, so its restored choice is
+    // complete here: published now, not after a keychain read that may hang.
+    if (usesApple) notifyListeners();
 
     try {
       final read = await _secure.read(
